@@ -1,25 +1,25 @@
 apiVersion: catalyst.openova.io/v1alpha1
 kind: Blueprint
 metadata:
-  name: bp-chepherd
+  name: bp-agenity
   labels:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
   version: 0.1.0
   card:
-    title: Chepherd
+    title: Agenity
     summary: |
       Your AI engineering team — a multi-agent runtime + dashboard you
       install into your own Organization. Chat with the built-in solo
       agent (Claude Opus 4.7, token pre-configured); it creates and
       manages Applications in YOUR Organization on your behalf through the
       OpenOva MCP, scoped to exactly what you can do in the console.
-    icon: chepherd.svg
+    icon: agenity.svg
     category: ai-runtime
     family: agent-runtime
-    tags: [chepherd, agent, multi-agent, claude, opus, mcp, self-service]
-    documentation: https://github.com/chepherd/chepherd
+    tags: [agenity, agent, multi-agent, claude, opus, mcp, self-service]
+    documentation: https://github.com/openova-io/openova
     license: MIT
   visibility: listed
   owner:
@@ -60,7 +60,7 @@ spec:
         properties:
           secretName:
             type: string
-            default: chepherd-anthropic-token
+            default: agenity-anthropic-token
           externalSecret:
             type: object
             properties:
@@ -102,7 +102,7 @@ spec:
                 type: string
                 default: 5Gi
             description: |
-              chepherd runtime state PVC. Backed by the cluster's default
+              Agenity runtime state PVC. Backed by the cluster's default
               CSI StorageClass — local-path is forbidden (#3971).
   placementSchema:
     modes: [single-region]
@@ -122,7 +122,7 @@ spec:
     supported:
       - singleton
     defaults:
-      # chepherd is a region-pinned singleton coordinator/agent console — it
+      # Agenity is a region-pinned singleton coordinator/agent console — it
       # does not replicate across regions, so both BCP defaults resolve to the
       # single in-region instance (schema requires both keys; G116).
       multi-region: singleton
@@ -137,7 +137,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: console
-      hostnameTemplate: chepherd.{{.OrgSlug}}.{{.SovereignFQDN}}
+      hostnameTemplate: agenity.{{.OrgSlug}}.{{.SovereignFQDN}}
       port: 443
       protocol: https
       tls: true

@@ -694,3 +694,49 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
     error_message = "Primary cloud-init must NOT carry the legacy hardcoded `openova.io/region=hz-fsn-rtz-prod` literal when var.region != fsn1 — broke t114-omani-works (primary=hel1) and every other non-fsn1 Sovereign."
   }
 }
+
+# ── #4057: SOVEREIGN_CNPG_STORAGE_CLASS reflects the operator's
+# ── default_storage_class tofu var (no longer a hardcoded literal) ──────────
+# The catalyst-api Request.StorageClass → var.default_storage_class → the
+# cloud-init Kustomization postBuild.substitute SOVEREIGN_CNPG_STORAGE_CLASS →
+# the host-shared CNPG Cluster CRs (slots 10/19/52) + the bp-cnpg/bp-mgmt-
+# vcluster default class. local-path is FORBIDDEN; the var validation rejects
+# "" and "local-path" so this substitute can never render ephemeral storage.
+run "default_storage_class_falls_back_to_hcloud_volumes" {
+  command = plan
+
+  variables {
+    region = "hel1"
+    # default_storage_class NOT set → the variables.tf default `hcloud-volumes`
+    # applies (the per-provider Hetzner CSI durable class).
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
+    error_message = "Primary cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"hcloud-volumes\" when default_storage_class is unset (the per-provider Hetzner CSI default). #4057"
+  }
+
+  assert {
+    condition     = !strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"local-path\"")
+    error_message = "Primary cloud-init must NEVER render SOVEREIGN_CNPG_STORAGE_CLASS=\"local-path\" — local-path is FORBIDDEN (#3971/#892)."
+  }
+}
+
+run "default_storage_class_operator_override_renders" {
+  command = plan
+
+  variables {
+    region                = "hel1"
+    default_storage_class = "hcloud-volumes-xfs"
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes-xfs\"")
+    error_message = "Primary cloud-init must render the operator-chosen default_storage_class verbatim into SOVEREIGN_CNPG_STORAGE_CLASS. #4057 — founder point #1 (storage class is a user input)."
+  }
+
+  assert {
+    condition     = !strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
+    error_message = "When the operator overrides default_storage_class, the cloud-init must carry ONLY the chosen class, not the default literal."
+  }
+}

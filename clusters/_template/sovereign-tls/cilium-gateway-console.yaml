@@ -1,0 +1,84 @@
+# #4053 — Dedicated CONSOLE Cilium Gateway (poison-proof blast-radius isolation)
+# ─────────────────────────────────────────────────────────────────────────────
+# Cilium Gateway API compiles ALL of a Gateway's HTTPRoutes + backends into ONE
+# CiliumEnvoyConfig (`cilium-gateway-<name>`), committed ATOMICALLY by
+# cilium-agent. If ANY single backend Service referenced by ANY HTTPRoute on the
+# gateway is unresolvable (a half-converged app, a vanished vcluster-bridge
+# Service, an empty EndpointSlice), getK8sService returns "retrieved nil
+# details" → the ENTIRE CEC upsert fails → cilium-envoy gets 0 listeners → the
+# whole gateway 404s. This is the unfixed upstream bug cilium#35728 /
+# cilium#34982 — no config flag and no fix on the pinned Cilium 1.16.5
+# (platform/cilium/chart/Chart.lock). Confirmed live on hw182 (newapi install
+# #3831's bridge Service poisoned the shared gateway and took down the console).
+#
+# Fix: because the CEC is ONE-PER-GATEWAY, this dedicated console Gateway
+# carries ONLY the catalyst-ui + catalyst-api HTTPRoutes (re-parented here by
+# bp-catalyst-platform's templates/httproute.yaml via
+# ingress.gateway.parentRef.name=cilium-gateway-console). Those backends are
+# stable ClusterIP Services that ALWAYS resolve, so this gateway's CEC is
+# structurally immune to the app-backend poisoning that can zero the shared
+# `cilium-gateway`. A broken volatile app can now only 404 ITS gateway — the
+# console stays up.
+#
+# Why moved out of the chart / into the Kustomize sovereign-tls tier: identical
+# rationale to clusters/_template/sovereign-tls/cilium-gateway.yaml — the
+# gateway.networking.k8s.io CRDs are installed by the Cilium HelmRelease, so
+# Flux dry-runs the whole Kustomization before any HR applies; placing the
+# Gateway in the chart would invert ordering and open a transient
+# "no Gateway → no envoy listener → console unreachable" window on every Helm
+# upgrade. The sovereign-tls Kustomization dependsOn bootstrap-kit Ready.
+#
+# Host ports 31443 / 31080 (NOT 30443 / 30080): the shared gateway already binds
+# 30443 / 30080 in hostNetwork mode. Each Gateway's listeners bind distinct host
+# ports so both coexist on the same node set without a bind() collision. A
+# DEDICATED cloud LoadBalancer (infra/providers/{hetzner,huawei}/main.tf —
+# `console` LB) forwards public 443 → node:31443 and 80 → node:31080. The
+# console A-records (console./api.<fqdn>) point at THAT LB IP, while the wildcard
+# `*.<fqdn>` keeps pointing at the shared gateway's LB (DNS split owned by
+# core/pool-domain-manager — see its consoleLoadBalancerIP plumbing).
+#
+# Listeners: rendered by bp-catalyst-platform's templates/sovereign-tls-vars-cm.
+# yaml into ConfigMap flux-system/sovereign-tls-vars key CONSOLE_LISTENERS_YAML
+# and inlined here by Flux postBuild.substituteFrom — same scalar-placeholder
+# pattern as the shared gateway (see cilium-gateway.yaml header for why a scalar
+# `listeners: ${VAR}` parses cleanly through kustomize-build before envsubst).
+# The console listener pair is hostnamed `*.${SOVEREIGN_FQDN}` and binds the
+# per-prov wildcard Secret `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}` —
+# the SAME cert the shared gateway uses for the apex wildcard, so no extra
+# Let's-Encrypt issuance and no extra cert resource is required.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: cilium-gateway-console
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-gateway-console
+spec:
+  gatewayClassName: cilium
+  # Hetzner LB annotations for the console gateway's auto-created Service.
+  # Cilium 1.16+ forwards spec.infrastructure.annotations onto the
+  # `cilium-gateway-cilium-gateway-console` Service, where hcloud-CCM
+  # (bp-hcloud-ccm) provisions a Hetzner LB. health-check pinned to the console
+  # gateway's HTTPS host port (31443). Capped at 8 entries (CRD maxProperties) —
+  # same set as the shared gateway minus the timing knobs (TBD-A36 #1896). The
+  # tofu-provisioned console LB (infra/providers/hetzner/main.tf) is the primary
+  # public path; this Service-level LB is the cluster-side mirror so operators
+  # inspecting `kubectl get svc -n kube-system` see a LoadBalancer, not a
+  # bare ClusterIP (the t28 A98 confusion — see cilium-gateway.yaml header).
+  infrastructure:
+    annotations:
+      load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-console-gateway"
+      load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
+      load-balancer.hetzner.cloud/type: "lb11"
+      load-balancer.hetzner.cloud/use-private-ip: "false"
+      load-balancer.hetzner.cloud/disable-private-ingress: "true"
+      load-balancer.hetzner.cloud/health-check-protocol: "tcp"
+      load-balancer.hetzner.cloud/health-check-port: "31443"
+      load-balancer.hetzner.cloud/health-check-retries: "3"
+  # ports 31443/31080 (not 443/80, not 30443/30080) — see header. cilium-envoy
+  # binds high host ports because cilium-agent's BPF socket-LB blocks privileged
+  # binds; the console LB does the public 443→31443 / 80→31080 translation, so
+  # browsers still hit `https://console.<fqdn>/`.
+  listeners: ${CONSOLE_LISTENERS_YAML}

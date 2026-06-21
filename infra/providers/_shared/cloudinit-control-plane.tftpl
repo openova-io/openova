@@ -645,7 +645,14 @@ write_files:
             # that NAMES the class instead stays Pending (not frozen) until the
             # class exists, then binds — race-immune. On Hetzner the CSI default
             # is hcloud-volumes.
-            SOVEREIGN_CNPG_STORAGE_CLASS: "hcloud-volumes"
+            #
+            # #4057 — the class is now the operator-chosen
+            # `default_storage_class` tofu var (catalyst-api
+            # Request.StorageClass, defaulted to the per-provider durable CSI
+            # class `hcloud-volumes` when the wizard field is omitted). The tofu
+            # variable validation rejects "" and "local-path", so this substitute
+            # can never render an empty or ephemeral class.
+            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
 %{ endif ~}
 %{ if provider == "huawei" ~}
             # Huawei: no cloud CCM. Cilium LB-IPAM assigns the clustermesh
@@ -697,7 +704,14 @@ write_files:
             # instead keeps the PVC Pending (recoverable) until evs-ssd exists,
             # then binds with zero re-creation — so the moment EVS_CSI_ENABLED
             # flips true (or the SC lands by any path) these three converge.
-            SOVEREIGN_CNPG_STORAGE_CLASS: "evs-ssd"
+            #
+            # #4057 — the class is now the operator-chosen
+            # `default_storage_class` tofu var (catalyst-api
+            # Request.StorageClass, defaulted to the per-provider durable CSI
+            # class `evs-ssd` when the wizard field is omitted). The tofu
+            # variable validation rejects "" and "local-path", so this substitute
+            # can never render an empty or ephemeral class.
+            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"

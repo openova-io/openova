@@ -137,6 +137,48 @@ export interface BlueprintTopologyVariant {
  */
 export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
+    "id": "bp-agenity",
+    "slug": "agenity",
+    "title": "Agenity",
+    "summary": "|",
+    "icon": "agenity.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-7-org-tenant",
+    "depends": [
+      "bp-external-secrets"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": true
+  },
+  {
     "id": "bp-alloy",
     "slug": "alloy",
     "title": "Alloy",
@@ -605,48 +647,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-chepherd",
-    "slug": "chepherd",
-    "title": "Chepherd",
-    "summary": "|",
-    "icon": "chepherd.svg",
-    "category": "ai-runtime",
-    "tagline": null,
-    "tags": [],
-    "visibility": "listed",
-    "version": "0.1.0",
-    "section": "pts-7-org-tenant",
-    "depends": [
-      "bp-external-secrets"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-cilium",
@@ -5736,6 +5736,7 @@ export const TOPOLOGY_BY_ID: Readonly<Record<string, BlueprintTopology>> = Objec
 
 /** Source files this catalog was built from (for diagnostics / CI logs). */
 export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
+  "platform/agenity/blueprint.yaml",
   "platform/alloy/blueprint.yaml",
   "platform/anthropic-adapter/blueprint.yaml",
   "platform/bge/blueprint.yaml",
@@ -5744,7 +5745,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/cert-manager-issuers/blueprint.yaml",
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
-  "platform/chepherd/blueprint.yaml",
   "platform/cilium-policies/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
   "platform/clickhouse/blueprint.yaml",

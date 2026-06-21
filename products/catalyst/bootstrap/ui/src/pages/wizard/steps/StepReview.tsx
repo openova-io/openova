@@ -750,6 +750,12 @@ export function StepReview() {
           workerSize:       r0.workerSize,
           workerCount:      r0.workerCount,
           haEnabled:        store.haEnabled,
+          // Default storage class (issue #4057). Optional — an empty
+          // string lets the catalyst-api Request struct fill the
+          // per-provider default (hetzner→hcloud-volumes, huawei→evs-ssd).
+          // Captured on StepProvider as a sizing-adjacent cluster knob.
+          // `local-path` is not a permitted value (durability guarantee).
+          storageClass:     store.storageClass,
           // Canonical per-region payload — multi-region tofu wiring is
           // structural-correct but only Region 1 (solo path) is end-to-end
           // exercised today against a real Hetzner project. Emitting the

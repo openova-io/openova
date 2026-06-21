@@ -112,6 +112,7 @@ fixture_common() {
     bcp_topology                      = "single-region"
     enable_hot_standby                = "false"
     enable_shared_pg                  = "false"
+    default_storage_class             = "hcloud-volumes"
     sovereign_cnpg_instances          = "1"
     wildcard_cert_issuer              = "letsencrypt-dns01-prod-powerdns"
     parent_domains_yaml               = "[{name: \"t99.omani.works\", role: \"primary\"}]"

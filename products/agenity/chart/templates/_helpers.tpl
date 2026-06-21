@@ -1,10 +1,10 @@
 {{/* chart name */}}
-{{- define "chepherd.name" -}}
+{{- define "agenity.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/* fully-qualified name */}}
-{{- define "chepherd.fullname" -}}
+{{- define "agenity.fullname" -}}
 {{- $name := default .Chart.Name .Values.nameOverride -}}
 {{- if contains $name .Release.Name -}}
 {{- .Release.Name | trunc 63 | trimSuffix "-" -}}
@@ -14,21 +14,21 @@
 {{- end -}}
 
 {{/* common labels */}}
-{{- define "chepherd.labels" -}}
-app.kubernetes.io/name: {{ include "chepherd.name" . }}
+{{- define "agenity.labels" -}}
+app.kubernetes.io/name: {{ include "agenity.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-catalyst.openova.io/blueprint: bp-chepherd
+catalyst.openova.io/blueprint: bp-agenity
 {{- end -}}
 
 {{/* selector labels */}}
-{{- define "chepherd.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "chepherd.name" . }}
+{{- define "agenity.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "agenity.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/* image ref */}}
-{{- define "chepherd.image" -}}
+{{- define "agenity.image" -}}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}

@@ -358,3 +358,70 @@ run "ha_three_cp_per_region" {
     error_message = "Wave 5.7: even in HA (count=3) only the primary CP per region gets an EIP."
   }
 }
+
+# ── #4057: SOVEREIGN_CNPG_STORAGE_CLASS reflects the operator's
+# ── default_storage_class tofu var (no longer a hardcoded `evs-ssd`) ────────
+# The catalyst-api Request.StorageClass → var.default_storage_class → the
+# cloud-init Kustomization postBuild.substitute SOVEREIGN_CNPG_STORAGE_CLASS →
+# the host-shared CNPG Cluster CRs + the bp-cnpg/bp-mgmt-vcluster default class.
+# On Huawei the per-provider durable default is `evs-ssd` (bp-huawei-evs-csi
+# slot 55b). local-path is FORBIDDEN; the var validation rejects "" and
+# "local-path".
+run "default_storage_class_falls_back_to_evs_ssd" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+    # default_storage_class NOT set → the variables.tf default `evs-ssd`
+    # applies (the per-provider Huawei EVS CSI durable class).
+  }
+
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "SOVEREIGN_CNPG_STORAGE_CLASS: \"evs-ssd\""
+    )
+    error_message = "Primary-CP cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"evs-ssd\" when default_storage_class is unset (the per-provider Huawei EVS CSI default). #4057"
+  }
+
+  assert {
+    condition = !strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "SOVEREIGN_CNPG_STORAGE_CLASS: \"local-path\""
+    )
+    error_message = "Primary-CP cloud-init must NEVER render SOVEREIGN_CNPG_STORAGE_CLASS=\"local-path\" — local-path is FORBIDDEN (#3971/#892)."
+  }
+}
+
+run "default_storage_class_operator_override_renders_huawei" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+    default_storage_class = "evs-sas"
+  }
+
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "SOVEREIGN_CNPG_STORAGE_CLASS: \"evs-sas\""
+    )
+    error_message = "Primary-CP cloud-init must render the operator-chosen default_storage_class verbatim into SOVEREIGN_CNPG_STORAGE_CLASS. #4057"
+  }
+}

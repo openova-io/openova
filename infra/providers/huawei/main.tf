@@ -980,6 +980,7 @@ locals {
       bcp_topology             = var.bcp_topology
       enable_hot_standby       = var.enable_hot_standby
       enable_shared_pg         = var.enable_shared_pg
+      default_storage_class    = var.default_storage_class
       sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       marketplace_enabled      = var.marketplace_enabled
@@ -1397,6 +1398,131 @@ resource "huaweicloud_elb_monitor" "http" {
   pool_id     = huaweicloud_elb_pool.http.id
   protocol    = "TCP"
   port        = 30080 # Wave 5.124 (hw29 fix-forward) — Gateway listener
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+}
+
+# ── #4053 — Dedicated CONSOLE ELB (poison-proof gateway isolation) ───────────
+#
+# Cilium Gateway API compiles every HTTPRoute + backend of a Gateway into ONE
+# CiliumEnvoyConfig committed atomically; one unresolvable app backend fails the
+# whole CEC and 404s the entire gateway (cilium#35728, unfixed on pinned 1.16.5;
+# hit live on hw182). The console is isolated onto its OWN Cilium Gateway
+# (`cilium-gateway-console`, host ports 31443/31080 —
+# clusters/_template/sovereign-tls/cilium-gateway-console.yaml) with stable
+# backends only.
+#
+# This ELB does the SAME TCP-passthrough trick as the primary ELB above but
+# targets the console gateway's host ports (31443/31080). Because the ELB TCP
+# listener is dumb L4 passthrough (no SNI — Huawei SNI requires terminating TLS
+# at the ELB, which would break the in-cluster per-prov cert model), the console
+# needs its OWN public EIP: console./api.<fqdn> A-records point at THIS ELB's
+# EIP, the wildcard *.<fqdn> keeps pointing at elb_primary. DNS split is owned by
+# core/pool-domain-manager (consoleLoadBalancerIP) + the catalyst-api handover.
+# Byte-identical design to the Hetzner console LB (infra/providers/hetzner).
+
+resource "huaweicloud_vpc_eip" "elb_console" {
+  publicip {
+    type = "5_bgp"
+  }
+  bandwidth {
+    share_type  = "PER"
+    name        = "${local.name_prefix}-elb-console-bw"
+    size        = 300
+    charge_mode = "traffic"
+  }
+}
+
+resource "huaweicloud_elb_loadbalancer" "console" {
+  name              = "${local.name_prefix}-elb-console"
+  vpc_id            = huaweicloud_vpc.region[local.region_keys[0]].id
+  ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  ipv4_eip_id       = huaweicloud_vpc_eip.elb_console.id
+  availability_zone = [var.huawei_az]
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→31443 + 80→31080 routing"
+
+  # Same immutable-field churn guards as elb_primary (see its lifecycle block):
+  # the provider sends null/empty for these on subsequent plans and HCS rejects
+  # the PUT. They are auto-pinned at create; ignore them.
+  lifecycle {
+    ignore_changes = [
+      l4_flavor_id,
+      l7_flavor_id,
+      vpc_id,
+      ipv4_eip_id,
+    ]
+  }
+}
+
+resource "huaweicloud_elb_pool" "console_https" {
+  name            = "${local.name_prefix}-elb-pool-console-https"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  description     = "cilium-gateway-console targets on port 31443"
+}
+
+resource "huaweicloud_elb_pool" "console_http" {
+  name            = "${local.name_prefix}-elb-pool-console-http"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  description     = "cilium-gateway-console targets on port 31080"
+}
+
+resource "huaweicloud_elb_listener" "console_https" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  name            = "${local.name_prefix}-elb-listener-console-https"
+  protocol        = "TCP"
+  protocol_port   = 443
+  default_pool_id = huaweicloud_elb_pool.console_https.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — cilium-gateway-console terminates TLS at 31443"
+}
+
+resource "huaweicloud_elb_listener" "console_http" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  name            = "${local.name_prefix}-elb-listener-console-http"
+  protocol        = "TCP"
+  protocol_port   = 80
+  default_pool_id = huaweicloud_elb_pool.console_http.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — console HTTP→HTTPS redirect"
+}
+
+# Console ELB members: the SAME primary-region nodes as the primary ELB.
+# cilium-envoy runs on every node and binds BOTH 30443 (shared) and 31443
+# (console), so every node is a valid console-ELB target on 31443/31080.
+resource "huaweicloud_elb_member" "console_https" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.console_https.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = 31443
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+}
+
+resource "huaweicloud_elb_member" "console_http" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.console_http.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = 31080
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+}
+
+resource "huaweicloud_elb_monitor" "console_https" {
+  pool_id     = huaweicloud_elb_pool.console_https.id
+  protocol    = "TCP"
+  port        = 31443
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+}
+
+resource "huaweicloud_elb_monitor" "console_http" {
+  pool_id     = huaweicloud_elb_pool.console_http.id
+  protocol    = "TCP"
+  port        = 31080
   interval    = 10
   timeout     = 5
   max_retries = 3

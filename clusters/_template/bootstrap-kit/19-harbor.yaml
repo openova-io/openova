@@ -221,7 +221,15 @@ spec:
       # ExternalSecret is suppressed via sso.externalSecret.enabled), so
       # auth_mode=oidc_auth is PUT in the mgmt vCluster placement (caught live
       # hw171: systeminfo auth_mode=db_auth). Refs #3374 #3642.
-      version: 1.2.35
+      # 1.2.36 (#4059 / Refs #3642 #3953): decouple the harbor-pg-app →
+      # harbor-database-secret rename bridge onto postgres.databaseSecretSync
+      # .enabled (default true), independent of postgres.cluster.enabled (which
+      # the #3642 host-bridge ALSO flips false). The renamer was wrongly skipped
+      # in the host-bridge path → harbor-core CreateContainerConfigError →
+      # registry.<fqdn> 502 / harbor.<fqdn> 404 (hw172/hw173). databaseSecretSync
+      # follows SOVEREIGN_HARBOR_PG_OWN_CLUSTER (own-vs-shared), set false only in
+      # TRUE shared-pg mode. Non-host-bridged render byte-identical.
+      version: 1.2.36
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -345,7 +353,21 @@ spec:
         # Service. The `registry` Database + role + reflected
         # harbor-database-secret are provisioned by the shared bp-postgres
         # instance (slot 16a).
+        #
+        # NOTE (#4059, Refs #3642): the #3642 host-bridge placement ALSO renders
+        # this false (the harbor-pg Cluster CR is host-rendered via placement.yaml,
+        # not in-vc), so cluster.enabled=false does NOT imply shared-pg. The
+        # DB-secret renamer is gated separately on databaseSecretSync.enabled below.
         enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      # #4059: gate the harbor-pg-app → harbor-database-secret rename bridge on
+      # whether harbor OWNS a harbor-pg Cluster — true in BOTH the embedded and
+      # the #3642 host-bridge paths (both mint harbor-pg-app), false ONLY in
+      # TRUE shared-pg mode (bp-postgres mints harbor-database-secret directly,
+      # no harbor-pg-app to poll). This follows SOVEREIGN_HARBOR_PG_OWN_CLUSTER
+      # (the canonical own-vs-shared switch), NOT cluster.enabled (which the
+      # host-bridge also flips false). Default true = own cluster.
+      databaseSecretSync:
+        enabled: ${SOVEREIGN_HARBOR_PG_OWN_CLUSTER:=true}
     objectStorage:
       enabled: true
       useExistingSecret: false

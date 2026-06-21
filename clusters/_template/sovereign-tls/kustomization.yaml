@@ -3,6 +3,13 @@ kind: Kustomization
 resources:
   - cilium-gateway-cert.yaml
   - cilium-gateway.yaml
+  # #4053 — dedicated CONSOLE gateway (poison-proof blast-radius isolation).
+  # Reuses the same per-prov wildcard Secret as cilium-gateway-cert.yaml above
+  # (no extra Certificate). Carries ONLY the catalyst-ui + catalyst-api routes
+  # so a broken app-backend on the SHARED cilium-gateway can never 404 the
+  # console. Listeners inlined from ConfigMap key CONSOLE_LISTENERS_YAML via the
+  # same Flux postBuild.substituteFrom that feeds the shared gateway.
+  - cilium-gateway-console.yaml
   # powerdns-api-credentials Secret (#3888 / Refs #3847) — the DNS-01 API key
   # the bp-cert-manager-powerdns-webhook solver reads to issue the wildcard
   # cert above. Evicted OUT of cloud-init into this Flux-reconciled tier so it

@@ -194,6 +194,10 @@ interface WizardActions {
   setWorkerSize: (size: NodeSize) => void
   setWorkerCount: (count: number) => void
   setHaEnabled: (enabled: boolean) => void
+  // Step — Default storage class (issue #4057). Simple mirror of the
+  // setMarketplaceEnabled pattern; empty string = accept the backend's
+  // per-provider default.
+  setStorageClass: (sc: string) => void
 
   // Step — Marketplace (issue #710 wave 3a). Both setters are simple
   // mirrors of the setHaEnabled pattern; the brand setter takes a
@@ -522,6 +526,13 @@ export const useWizardStore = create<WizardStore>()(
         setWorkerSize: (workerSize) => set({ workerSize }, false, 'wizard/setWorkerSize'),
         setWorkerCount: (workerCount) => set({ workerCount }, false, 'wizard/setWorkerCount'),
         setHaEnabled: (haEnabled) => set({ haEnabled }, false, 'wizard/setHaEnabled'),
+
+        // Default storage class — issue #4057. Empty string is the common
+        // case: the catalyst-api Request struct fills the per-provider
+        // default (hetzner→hcloud-volumes, huawei→evs-ssd) when it arrives
+        // blank. A non-empty value overrides that default.
+        setStorageClass: (storageClass) =>
+          set({ storageClass }, false, 'wizard/setStorageClass'),
 
         // Marketplace mode — issue #710 wave 3a. Toggle persists via the
         // existing deploy-request → tofu var → cloud-init → Flux substitute

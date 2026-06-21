@@ -488,6 +488,14 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
   /* Max 3 cards per row */
   const gridCols = `repeat(${Math.min(totalCards, 3)}, 1fr)`
 
+  /* Per-provider default storage class (issue #4057) — placeholder for the
+     optional override input below. Mirrors the catalyst-api Request struct's
+     server-side default so the operator sees what they'll get if they leave
+     the field blank. store.provider tracks Region 1's provider; fall back to
+     the Hetzner default when no provider is selected yet. */
+  const storageClassPlaceholder =
+    store.provider === 'huawei' ? 'evs-ssd' : 'hcloud-volumes'
+
   return (
     <StepShell
       title="Cloud provider per region"
@@ -560,6 +568,49 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
           €{totalHourly.toFixed(3)}/hr · €{(totalHourly * 730).toFixed(0)}/mo
         </span>
       </div>
+
+      {/* Default storage class (issue #4057) — a single OPTIONAL override.
+          Empty is the common case: the catalyst-api Request struct fills the
+          per-provider default (hetzner→hcloud-volumes, huawei→evs-ssd) when
+          this arrives blank. The placeholder mirrors that backend default so
+          the operator sees what they'll get. `local-path` is not permitted —
+          PVCs must land on a durable cloud-volume class. */}
+      <label
+        style={{
+          marginTop: 6,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          fontSize: '0.78rem',
+          fontWeight: 600,
+          color: 'var(--wiz-text-md)',
+          letterSpacing: '0.02em',
+        }}
+      >
+        Default storage class
+        <input
+          type="text"
+          data-testid="step-provider-storage-class"
+          placeholder={storageClassPlaceholder}
+          value={store.storageClass}
+          onChange={e => store.setStorageClass(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '0.55rem 0.7rem',
+            background: 'var(--wiz-bg-input)',
+            border: '1px solid var(--wiz-border-sub)',
+            borderRadius: 7,
+            color: 'var(--wiz-text-hi)',
+            font: 'inherit',
+            fontSize: '0.88rem',
+          }}
+        />
+        <span style={{ fontSize: '0.74rem', fontWeight: 400, color: 'var(--wiz-text-sub)', lineHeight: 1.45 }}>
+          Optional — defaults to the per-provider durable cloud volume class
+          {' '}(<code style={{ fontFamily: 'JetBrains Mono, monospace' }}>{storageClassPlaceholder}</code>).
+          {' '}local-path is not permitted.
+        </span>
+      </label>
     </StepShell>
   )
 }

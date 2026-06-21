@@ -120,6 +120,31 @@ variable "enable_shared_pg" {
   }
 }
 
+# default_storage_class — the operator-chosen default StorageClass for the
+# Sovereign's stateful workloads (#4057, founder point #1: "storage class is
+# an INPUT chosen by the user, with defaults"). catalyst-api's
+# provisioner.Request.StorageClass flows into this var; deriveStorageClass()
+# fills the per-provider durable cloud CSI default when the operator omits the
+# wizard field — on Hetzner that is `hcloud-volumes` (bp-hcloud-csi slot 55a /
+# csi.hetzner.cloud). The cloud-init template interpolates this var into the
+# bootstrap-kit Kustomization postBuild.substitute SOVEREIGN_CNPG_STORAGE_CLASS
+# (which previously HARDCODED the per-provider literal), so the host-shared
+# CNPG Cluster CRs (gitea-pg / harbor-pg / guacamole-pg, slots 10/19/52) + the
+# bp-cnpg / bp-mgmt-vcluster default class all name the chosen class. The k3s
+# ephemeral local-path provisioner is FORBIDDEN (--disable=local-storage + the
+# K23 Kyverno ENFORCE deny, #3971/#892); the validation below rejects it so an
+# operator can never select non-durable node-local storage. Default
+# 'hcloud-volumes' keeps a fresh Hetzner prov byte-identical to today.
+variable "default_storage_class" {
+  type        = string
+  description = "Default StorageClass name for the Sovereign's stateful workloads (#4057). Chosen by the operator in the wizard; catalyst-api defaults it to the per-provider durable cloud CSI class (Hetzner: hcloud-volumes) when empty. local-path is FORBIDDEN."
+  default     = "hcloud-volumes"
+  validation {
+    condition     = var.default_storage_class != "" && var.default_storage_class != "local-path"
+    error_message = "default_storage_class must be a non-empty durable cloud CSI class; the ephemeral k3s 'local-path' is FORBIDDEN (#3971/#892)."
+  }
+}
+
 # ── QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle iter-16) ──
 # When set, bp-catalyst-platform's qaFixtures stack (qa-<sov> namespace +
 # qa-wp Application + Continuum CR + CNPGPair + PDM CRs + ScheduledBackup
