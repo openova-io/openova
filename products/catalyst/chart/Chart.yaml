@@ -2931,9 +2931,12 @@ name: bp-catalyst-platform
 #   clusters name an explicit per-provider storageClass so their PVCs never freeze
 #   "" before the default StorageClass lands (hw174: 3 PVCs stuck Pending<empty>).
 #   (renumbered 1.4.747→1.4.749, one above main's deploy-bot 1.4.748, to clear the pin collision.)
-# 1.4.757 — bp-chepherd Blueprint missing required topology.defaults.multi-region → whole
-#   catalyst-platform install aborted (console 404 on every fresh prov). Add multi-region: singleton.
-version: 1.4.760
+# 1.4.757 — bp-chepherd Blueprint (now bp-agenity) missing required topology.defaults.multi-region →
+#   whole catalyst-platform install aborted (console 404 on every fresh prov). Add multi-region: singleton.
+# 1.4.761 — rebrand catalog-seed bp-chepherd → bp-agenity (#4058): metadata.name, card (title/desc/
+#   tags/icon/docs), manifests.chart + source.chart bp-agenity, endpoint hostname agenity.<org>.<fqdn>.
+#   topology.defaults KEEPS BOTH multi-region: singleton + single-region: singleton (#4051 preserved).
+version: 1.4.761
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +

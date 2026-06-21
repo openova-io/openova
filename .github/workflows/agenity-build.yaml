@@ -1,6 +1,6 @@
-name: Build bp-chepherd
+name: Build bp-agenity
 
-# Builds the bp-chepherd Application image: the upstream chepherd daemon
+# Builds the bp-agenity Application image: the upstream chepherd daemon
 # image with OpenOva's openova-mcp binary baked in (#4010). The build
 # context is the repo root because the openova-mcp module imports
 # core/services/shared/auth from this repo.
@@ -8,7 +8,7 @@ name: Build bp-chepherd
 on:
   push:
     paths:
-      - 'products/chepherd/**'
+      - 'products/agenity/**'
       - 'products/openova-mcp/**'
       - 'core/services/shared/auth/**'
     branches: [main]
@@ -16,9 +16,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/openova-io/bp-chepherd
+  IMAGE: ghcr.io/openova-io/bp-agenity
   # Pin the upstream chepherd daemon image the openova-mcp binary overlays.
-  # Digest-pinned to the v0.9.4 build that carries the bp-chepherd MCP seam
+  # Digest-pinned to the v0.9.4 build that carries the bp-agenity MCP seam
   # (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
   CHEPHERD_BASE: ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
 
@@ -27,7 +27,7 @@ permissions:
   packages: write
 
 jobs:
-  build-bp-chepherd:
+  build-bp-agenity:
     runs-on: ubuntu-latest
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
@@ -39,10 +39,10 @@ jobs:
         run: |
           echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
           # The chart's image helper resolves to repository:<Chart.AppVersion>
-          # (chepherd.image in _helpers.tpl), so the published image MUST carry
+          # (agenity.image in _helpers.tpl), so the published image MUST carry
           # that exact tag or the StatefulSet ImagePullBackOffs. Derive it from
           # the chart so the tag can never drift from what the chart references.
-          APPVER=$(grep -E '^appVersion:' products/chepherd/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
+          APPVER=$(grep -E '^appVersion:' products/agenity/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
           echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
@@ -56,7 +56,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: products/chepherd/Containerfile
+          file: products/agenity/Containerfile
           build-args: |
             CHEPHERD_BASE=${{ env.CHEPHERD_BASE }}
           push: true
