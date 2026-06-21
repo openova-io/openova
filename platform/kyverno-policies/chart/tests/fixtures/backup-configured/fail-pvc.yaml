@@ -1,0 +1,19 @@
+# Failing case (#3971): a genuinely-unprotected user PVC.
+#
+# This PVC carries NEITHER the `cnpg.io/cluster` label (so the 1.0.39 CNPG
+# carve-out does NOT exempt it) NOR any Velero binding (`velero.io/managed-by-
+# schedule` label / `velero.io/backup-volumes` annotation). It is a stateful
+# user workload with no backup story at all — the backup-configured policy's
+# `pvc-must-be-velero-backed` rule correctly FLAGS it (DENY under Enforce).
+# This proves the CNPG carve-out did NOT weaken the policy for unprotected PVCs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: unprotected-user-data
+  namespace: example
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,39 @@
+# Passing case (#3971): a CNPG-managed database PVC.
+#
+# CloudNativePG stamps every instance PVC it creates with the label
+# `cnpg.io/cluster: <cluster-name>` (here `harbor-pg`). CNPG backs these up
+# via its OWN continuous barman / object-store WAL-streaming, NOT Velero, so it
+# never adds a `velero.io/managed-by-schedule` label or a `velero.io/backup-
+# volumes` annotation. The backup-configured policy's `pvc-must-be-velero-backed`
+# rule EXCLUDES PVCs carrying `cnpg.io/cluster` (the 1.0.39 carve-out), so this
+# PVC is ALLOWED even though it has no Velero binding.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: harbor-pg-1
+  namespace: harbor
+  labels:
+    cnpg.io/cluster: harbor-pg
+    cnpg.io/pvcRole: PG_DATA
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+---
+# Also passing: a plain user PVC that DOES declare its Velero backup via the
+# `velero.io/managed-by-schedule` label — the original, intended pass path.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data-velero-backed
+  namespace: example
+  labels:
+    velero.io/managed-by-schedule: daily-app-backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

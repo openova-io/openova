@@ -111,7 +111,14 @@ spec:
       # 1.0.37 (#3859): add org-services to harbor-proxy-pull exclude (sme→
       # org-services rename orphaned the mixed-image carve-out → provisioning
       # CR-minter Enforce-denied → #3376 funnel could not reach ACTIVE).
-      version: 1.0.38
+      # 1.0.38 (#3971): K23 forbid-local-path-storage ClusterPolicy (Enforce-
+      # always deny of local-path / rancher.io/local-path PVC/SC/PV).
+      # 1.0.39 (#3971, hw178): EXCLUDE CNPG-managed PVCs (label `cnpg.io/cluster`)
+      # from the pvc-must-be-velero-backed rule — CNPG backs up via its own
+      # barman/object-store WAL-streaming, not Velero, so the over-broad rule
+      # stranded the entire DB tier (harbor-pg/gitea-pg/guacamole-pg/pdns-pg).
+      # Mirrors the by-label CNPG carve-out on flux-managed (#3374).
+      version: 1.0.39
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
