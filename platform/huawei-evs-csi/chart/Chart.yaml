@@ -31,7 +31,14 @@ name: bp-huawei-evs-csi
 # Driver facts verified directly from the driver source (pkg/config/cloud.go,
 # pkg/utils/metadatas/metadata.go, pkg/evs/driver.go,nodeserver.go) and the
 # upstream deploy/evs-csi-plugin/kubernetes manifests.
-version: 1.0.1
+# 1.0.2 (2026-06-21 #4030): default volumeSnapshotClass.enabled false. The
+# VolumeSnapshotClass kind requires the snapshot.storage.k8s.io CRDs, which the
+# bootstrap-kit installs NOWHERE — rendering it made `helm install` fail at
+# manifest-build (`no matches for kind "VolumeSnapshotClass"`), so the whole
+# EVS-CSI release never installed → no evs-ssd → Huawei storage re-wedged
+# zero-touch on hw176 even WITH the 1.0.1 idc driver fix. The core storage path
+# (StorageClass + CSIDriver + driver pods) does not need the snapshot class.
+version: 1.0.2
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable

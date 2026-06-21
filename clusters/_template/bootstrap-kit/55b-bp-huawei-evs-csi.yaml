@@ -111,7 +111,7 @@ spec:
   chart:
     spec:
       chart: bp-huawei-evs-csi
-      version: 1.0.1
+      version: 1.0.2
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi
@@ -159,6 +159,13 @@ spec:
     cloud: ${HUAWEI_CLOUD_DOMAIN:=kom4dc.nationalcloud.om}
     authUrl: ${HUAWEI_AUTH_URL:=https://iam.me-east-215.kom4dc.nationalcloud.om/v3}
     clusterName: ${SOVEREIGN_FQDN_SLUG:=catalyst}
+    # #4030: the VolumeSnapshotClass kind needs the snapshot.storage.k8s.io CRDs,
+    # which the bootstrap-kit installs nowhere — rendering it fails `helm install`
+    # at manifest-build, so the whole EVS-CSI release never installs and evs-ssd
+    # never lands (Huawei storage re-wedged zero-touch on hw176 even with the
+    # 1.0.1 idc driver). Chart 1.0.2 defaults this false; pinned explicit here.
+    volumeSnapshotClass:
+      enabled: false
   # ── AK/SK wiring ─────────────────────────────────────────────────────
   # Pull the four Huawei creds from the canonical flux-system/cloud-credentials
   # Secret (cloud-init Phase 0) into the chart values. Flux dereferences

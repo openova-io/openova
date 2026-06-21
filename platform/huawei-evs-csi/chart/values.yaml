@@ -83,10 +83,20 @@ catalystStorageClasses:
     fsType: ext4
 
 # VolumeSnapshotClass for storage-level DR / backup (Velero etc.). The EVS
-# driver supports snapshots. ON by default (#3971 — same posture as
-# bp-hcloud-csi's VolumeSnapshotClass).
+# driver supports snapshots, but the VolumeSnapshotClass kind requires the
+# `snapshot.storage.k8s.io` CRDs (the external-snapshotter / snapshot-controller
+# stack) to be present on the cluster. The Catalyst bootstrap-kit does NOT
+# install those CRDs anywhere (#4030 — verified live on hw176: no
+# snapshot-controller, no volumesnapshotclasses CRD), so rendering this object
+# makes `helm install` fail at manifest-build time
+# (`no matches for kind "VolumeSnapshotClass" in version
+# "snapshot.storage.k8s.io/v1"`) → the whole EVS-CSI release never installs →
+# no evs-ssd StorageClass → the storage tier wedges. The CORE storage path
+# (evs-ssd StorageClass + CSIDriver + driver pods that the 12 stateful PVCs
+# need) does NOT depend on this class, so it defaults OFF. Flip true only on a
+# cluster that already carries the snapshot.storage.k8s.io CRDs.
 volumeSnapshotClass:
-  enabled: true
+  enabled: false
   name: evs-snapshots
   deletionPolicy: Delete
 
