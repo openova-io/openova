@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T23:30:03Z` |
+| Last refreshed | `2026-06-21T23:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 79 |
 | Open DoD gates | 0 / 41 |
@@ -286,6 +286,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-21T23:44 | [#4072](https://github.com/openova-io/openova/pull/4072) | #4071 | fix(catalyst-api): disable client-go WatchListClient gate —  |
 | 2026-06-21T23:16 | [#4070](https://github.com/openova-io/openova/pull/4070) | #4054 | fix(bp-catalyst-api): route console/api/marketplace at the c |
 | 2026-06-21T23:16 | [#4068](https://github.com/openova-io/openova/pull/4068) | #4058 | docs(catalog): finish #4058 bp-chepherd→bp-agenity rename in |
 | 2026-06-21T23:16 | [#4067](https://github.com/openova-io/openova/pull/4067) | #2 | fix(provisioning): warm bootstrap-kit COMPONENT private imag |
@@ -315,7 +316,6 @@ flowchart LR
 | 2026-06-21T02:50 | [#4032](https://github.com/openova-io/openova/pull/4032) | #4030 | docs(uat): stamp pending hw177 for cycle-2c re-fire of the # |
 | 2026-06-21T02:41 | [#4031](https://github.com/openova-io/openova/pull/4031) | #4022 | fix(bp-huawei-evs-csi): default volumeSnapshotClass off — fi |
 | 2026-06-21T07:00 | [#4029](https://github.com/openova-io/openova/pull/4029) | #3969 | feat(console): wire live Continuum DR status into the reacha |
-| 2026-06-21T07:00 | [#4028](https://github.com/openova-io/openova/pull/4028) | #3376 | fix(gateway): per-IP burst rate-limit on the voucher-redeem  |
 
 ---
 
