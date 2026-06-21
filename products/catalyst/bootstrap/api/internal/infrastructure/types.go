@@ -139,18 +139,52 @@ type VCluster struct {
 	Status    string `json:"status"`
 }
 
-// LoadBalancer — Hetzner cloud LB (or future multi-cloud equivalent)
-// attached to the cluster. Today a Sovereign has exactly one LB
-// fronting the ingress controller; future multi-LB topologies surface
-// here.
+// LoadBalancer — the cloud front door fronting the cluster's ingress.
+// Provider-agnostic (Refs #3998): on Hetzner this is a real
+// `hcloud_load_balancer`; on Huawei kom4dc (no day-2 ELB instantiated)
+// it is the EIP DNAT'd to the Cilium-Gateway NodePort. Either way the
+// PublicIP + listeners are sourced from the deployment record
+// (`Result.LoadBalancerIP`) — NOT the empty Crossplane XRC layer — so
+// the page answers "how is the platform fronted" on every Sovereign.
 type LoadBalancer struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	PublicIP     string `json:"publicIP"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	PublicIP string `json:"publicIP"`
+
+	// Listeners + Targets are the structured wire contract the cloud-view
+	// LoadBalancersPage renders (lib/infrastructure.types.ts → LBListener /
+	// LBTarget). Ports + TargetHealth are the flat legacy strings kept for
+	// the deprecated flatten-network projection — populated from the same
+	// data so both consumers stay coherent.
+	Listeners []LoadBalancerListener `json:"listeners"`
+	Targets   []LoadBalancerTarget   `json:"targets"`
+
 	Ports        string `json:"ports"`
 	TargetHealth string `json:"targetHealth"`
 	Region       string `json:"region"`
 	Status       string `json:"status"`
+
+	// FrontDoorKind — provider-agnostic descriptor of HOW the cluster is
+	// fronted: "cloud-lb" (a real provider LB, e.g. Hetzner hcloud LB) or
+	// "gateway-eip" (Huawei EIP DNAT'd to the Cilium Gateway NodePort).
+	// Lets the UI explain the EIP+Gateway datapath when no cloud LB exists
+	// (Refs #3998). Empty when unknown.
+	FrontDoorKind string `json:"frontDoorKind,omitempty"`
+}
+
+// LoadBalancerListener — one listener port/protocol pair on the front
+// door. Mirrors lib/infrastructure.types.ts → LBListener verbatim.
+type LoadBalancerListener struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+}
+
+// LoadBalancerTarget — one backend target behind the front door.
+// Mirrors lib/infrastructure.types.ts → LBTarget verbatim.
+type LoadBalancerTarget struct {
+	ID     string `json:"id"`
+	IP     string `json:"ip"`
+	Status string `json:"status"`
 }
 
 // NodePool — a logical group of identically-sized worker nodes the

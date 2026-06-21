@@ -398,17 +398,6 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 	if in.Region != "" {
 		clusterID = "cluster-" + in.DeploymentID + "-" + in.Region
 	}
-	cluster := Cluster{
-		ID:            clusterID,
-		Name:          clusterName,
-		Version:       "v1.31",
-		Status:        in.Status,
-		NodeCount:     len(allNodes),
-		VClusters:     loadVClusters(ctx, in),
-		LoadBalancers: []LoadBalancer{},
-		NodePools:     pools,
-		Nodes:         allNodes,
-	}
 	// Provider selection: prefer the wizard-declared provider; if the
 	// chroot's synthesised deployment has no Provider (G14, Refs
 	// #2551), sniff the first Node's provider hints before defaulting.
@@ -416,6 +405,9 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 	// "huawei://..." / "hcloud://...") + sometimes a label like
 	// "topology.kubernetes.io/cloud-provider". Default "hetzner" is
 	// kept only as the absolute last resort.
+	//
+	// Resolved BEFORE the cluster is built so frontDoorLBs can pick the
+	// correct FrontDoorKind (gateway-eip on Huawei vs cloud-lb elsewhere).
 	provider := in.Provider
 	if provider == "" {
 		for _, n := range list.Items {
@@ -441,6 +433,26 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 	}
 	if provider == "" {
 		provider = "hetzner"
+	}
+	// Carry the resolved provider so frontDoorLBs reads the real value
+	// even when the synthesised deployment had no declared Provider.
+	lbIn := in
+	lbIn.Provider = provider
+	cluster := Cluster{
+		ID:        clusterID,
+		Name:      clusterName,
+		Version:   "v1.31",
+		Status:    in.Status,
+		NodeCount: len(allNodes),
+		VClusters: loadVClusters(ctx, in),
+		// Refs #3998: source the front-door LB from the deployment record
+		// (Result.LoadBalancerIP), NOT the empty XRC layer — so the live
+		// chroot path (the one every real Sovereign hits, since catalyst-api
+		// runs in-cluster) shows the real EIP/Gateway or cloud LB instead
+		// of 0/0.
+		LoadBalancers: frontDoorLBs(lbIn, regionName),
+		NodePools:     pools,
+		Nodes:         allNodes,
 	}
 	region := Region{
 		ID:             "region-" + regionName,
@@ -638,6 +650,21 @@ func buildNodePools(in LoaderInput, rs provisioner.RegionSpec) []NodePool {
 }
 
 func buildLBs(in LoaderInput, rs provisioner.RegionSpec) []LoadBalancer {
+	return frontDoorLBs(in, rs.CloudRegion)
+}
+
+// frontDoorLBs composes the cloud front-door LoadBalancer row from the
+// DEPLOYMENT RECORD (Result.LoadBalancerIP) — the source of truth that is
+// always populated post-Phase-0 — rather than the empty Crossplane XRC
+// layer (Refs #3998). On Hetzner the IP is a real `hcloud_load_balancer`;
+// on Huawei kom4dc it is the EIP DNAT'd to the Cilium Gateway NodePort
+// (FrontDoorKind distinguishes them so the UI can explain the datapath).
+//
+// Both the declared (mothership) path and the live chroot path call this,
+// so the LB page renders the real front door on EVERY Sovereign instead
+// of 0/0. Returns an empty slice (never a synthesised row) when the
+// record has no LoadBalancerIP yet, per the no-placeholder principle.
+func frontDoorLBs(in LoaderInput, region string) []LoadBalancer {
 	if in.Result == nil || in.Result.LoadBalancerIP == "" {
 		return []LoadBalancer{}
 	}
@@ -645,14 +672,33 @@ func buildLBs(in LoaderInput, rs provisioner.RegionSpec) []LoadBalancer {
 	if name == "" {
 		name = "ingress-lb"
 	}
+	// The platform's standard front door terminates HTTPS (443) + HTTP
+	// (80) at the Cilium Gateway and exposes the k3s/k8s apiserver on
+	// 6443. These are the listeners every Sovereign provisions; sourced
+	// from the deploy topology, not fabricated per-cluster runtime state.
+	listeners := []LoadBalancerListener{
+		{Port: 80, Protocol: "tcp"},
+		{Port: 443, Protocol: "tcp"},
+		{Port: 6443, Protocol: "tcp"},
+	}
+	// FrontDoorKind: Huawei has no day-2 ELB instantiated (the EIP DNATs
+	// straight to the Gateway NodePort), so model it as gateway-eip;
+	// every other provider provisions a real cloud LB.
+	frontDoor := "cloud-lb"
+	if strings.EqualFold(in.Provider, "huawei") {
+		frontDoor = "gateway-eip"
+	}
 	return []LoadBalancer{{
-		ID:           "lb-" + in.DeploymentID,
-		Name:         name,
-		PublicIP:     in.Result.LoadBalancerIP,
-		Ports:        "80,443,6443",
-		TargetHealth: "—",
-		Region:       rs.CloudRegion,
-		Status:       in.Status,
+		ID:            "lb-" + in.DeploymentID,
+		Name:          name,
+		PublicIP:      in.Result.LoadBalancerIP,
+		Listeners:     listeners,
+		Targets:       []LoadBalancerTarget{},
+		Ports:         "80,443,6443",
+		TargetHealth:  "—",
+		Region:        region,
+		Status:        in.Status,
+		FrontDoorKind: frontDoor,
 	}}
 }
 

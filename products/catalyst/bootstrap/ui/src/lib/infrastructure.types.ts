@@ -134,6 +134,15 @@ export interface LoadBalancerSpec {
   targets: LBTarget[]
   region: string
   status: TopologyStatus
+  /**
+   * Provider-agnostic descriptor of HOW the cluster is fronted (Refs #3998):
+   * - 'cloud-lb'    — a real provider load balancer (e.g. Hetzner hcloud LB).
+   * - 'gateway-eip' — a cloud EIP DNAT'd to the Cilium Gateway NodePort
+   *                   (Huawei kom4dc, where no day-2 ELB is instantiated).
+   * Lets the LB view explain the EIP+Gateway datapath. Optional —
+   * absent on older API builds.
+   */
+  frontDoorKind?: 'cloud-lb' | 'gateway-eip'
 }
 
 export interface FirewallRule {

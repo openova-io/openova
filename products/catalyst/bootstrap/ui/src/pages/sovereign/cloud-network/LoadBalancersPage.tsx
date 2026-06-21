@@ -80,6 +80,19 @@ function formatListeners(lb: LoadBalancerSpec): string {
   return lb.listeners.map((l) => `${l.protocol}:${l.port}`).join(', ')
 }
 
+// formatFrontDoor explains the real ingress datapath (Refs #3998): a real
+// cloud LB vs an EIP DNAT'd to the Cilium Gateway NodePort (Huawei).
+function formatFrontDoor(lb: LoadBalancerSpec): string {
+  switch (lb.frontDoorKind) {
+    case 'cloud-lb':
+      return 'Cloud load balancer'
+    case 'gateway-eip':
+      return 'EIP → Cilium Gateway (NodePort)'
+    default:
+      return '—'
+  }
+}
+
 export function LoadBalancersPage() {
   const { deploymentId, data, isLoading } = useCloud()
   const rows = useMemo(() => flatten(data), [data])
@@ -232,6 +245,7 @@ export function LoadBalancersPage() {
             />
             <DetailRow label="Name" value={openRow.lb.name} />
             <DetailRow label="ID" value={openRow.lb.id} mono />
+            <DetailRow label="Front door" value={formatFrontDoor(openRow.lb)} />
             <DetailRow label="Public IP" value={openRow.lb.publicIP} mono />
             <DetailRow label="Listeners" value={formatListeners(openRow.lb)} mono />
             <DetailRow
