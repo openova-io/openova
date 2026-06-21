@@ -409,12 +409,16 @@ jobs:
   # OUTER per-image retry). After this lands, every kom4dc node pulls catalyst
   # bastion-local (28 MB/s) with ZERO internet egress.
   #
-  # PREREQUISITES (orchestrator/founder must provision before this runs live):
-  #   - CI secret `BASTION_HARBOR_ROBOT_TOKEN` — the bastion Harbor robot
-  #     password for `robot$openova-bot`, with PUSH on project `openova-io`.
-  #   - The HOSTED project `openova-io` must exist on the bastion Harbor (this
-  #     job ensures-creates it idempotently via the Harbor API, but the robot
-  #     needs project-admin/push to create+push).
+  # PREREQUISITES (PROVISIONED 2026-06-22, #4049 — already live):
+  #   - CI secret `BASTION_HARBOR_ROBOT_TOKEN` — the secret for the dedicated
+  #     PUSH robot `robot$openova-warmup` (system-level, push+pull on
+  #     openova-io/**, never-expiring). SET on this repo. (NOT robot$openova-bot,
+  #     which is pull-only and cannot push.)
+  #   - The HOSTED project `openova-io` exists on the bastion Harbor (created;
+  #     this job also ensures-creates it idempotently via the Harbor API).
+  #   - The node-pull robot `robot$openova-bot` was granted openova-io:pull
+  #     ADDITIVELY (its 5 existing proxy-cache pull grants preserved) so kom4dc
+  #     nodes can pull the warmed private images. Verified via service/token JWT.
   warmup-bastion-harbor:
     needs: [build-ui, build-api]
     runs-on: ubuntu-latest
@@ -434,7 +438,14 @@ jobs:
       # Hosted project the registries.yaml `openova-io/openova/(.*)` rewrite
       # points the nodes at. skopeo pushes `harbor.openova.io/openova-io/...`.
       HARBOR_PROJECT: openova-io
-      HARBOR_USERNAME: 'robot$openova-bot'
+      # PUSH robot (#4049). The node-pull `robot$openova-bot` is PULL-ONLY (its
+      # grants are pull-only across the proxy-cache projects + an additively-
+      # granted openova-io:pull), so it CANNOT push. The warmup therefore
+      # authenticates as the dedicated `robot$openova-warmup` system robot
+      # (push+pull on openova-io/**, never-expiring), whose secret is the repo
+      # CI secret BASTION_HARBOR_ROBOT_TOKEN. Nodes still PULL warmed images as
+      # robot$openova-bot via the infra/providers/huawei/main.tf configs.auth.
+      HARBOR_USERNAME: 'robot$openova-warmup'
       HARBOR_PASSWORD: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
       # ghcr source creds — this job runs in the same repo context that just
       # pushed the catalyst images, so github.actor + GITHUB_TOKEN has read on

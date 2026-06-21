@@ -1190,21 +1190,104 @@ runcmd:
       done ) >/dev/null 2>&1 &
 %{ endif ~}
 
-  # ── PRIVATE openova-io/openova image pre-pull — REMOVED (#4049) ────────
-  # The former #3534 background `crictl pull --creds … ghcr.io/openova-io/
-  # openova/*` block pulled the ~19 private catalyst images DIRECT from
-  # ghcr.io over the throttled Huawei→ghcr NAT egress (2.3 MB/s measured).
-  # That direct-internet leg — not bastion saturation — is the #4049 RCA for
-  # the 15-min FirstSeenTimeout wedge (hw182). Per the founder principle
-  # "every image download must be Huawei→Huawei", the private catalyst set is
-  # now (a) NATIVE-PUSHED into the HOSTED bastion project `openova-io` by the
-  # catalyst-build warmup step on every build (mirrors the cutover harbor-
-  # prewarm Job), and (b) routed there by the `openova-io/openova/(.*)`
-  # registries.yaml rewrite (huawei main.tf). kubelet now pulls every catalyst
-  # image from the bastion local registry (28 MB/s) with ZERO internet egress
-  # — no node-side pre-pull, no ghcr PAT on the node datapath. Public flux/
-  # cnpg bootstrap images stay pre-warmed by the provider-specific block above
-  # via the already-warm bastion proxy-cache projects.
+  # ── BACKGROUND pre-pull of the PRIVATE openova-io/openova image set (#3534)
+  # ── KEPT AS A FALLBACK SAFETY NET until the #4049 warm path is live-proven ─
+  # The #4049 PRIMARY path warms these images Huawei→Huawei: the catalyst-build
+  # `warmup-bastion-harbor` job NATIVE-PUSHES the private catalyst set into the
+  # hosted bastion project `openova-io` on every build, and the huawei main.tf
+  # `openova-io/openova/(.*)` registries.yaml rewrite + `212.72.24.20:5000`
+  # robot auth routes node pulls there (28 MB/s). When the warm path is healthy
+  # this pre-pull is a NO-OP wash — `crictl pull` of an already-present image
+  # returns immediately, and even a cold pull now resolves via the bastion
+  # mirror (registries.yaml), NOT direct ghcr.
+  #
+  # We KEEP this block (founder direction, #4049) because it is the safety net
+  # for the window BEFORE the warm path is fully live-proven on a fresh prov:
+  #   - a catalyst tag whose warmup push hasn't landed yet (the warmup job is
+  #     continue-on-error + runs in parallel with deploy),
+  #   - the hosted-project pull-grant / robot-token not yet propagated,
+  #   - any bastion-mirror hiccup.
+  # In all those cases this background pre-pull still lands the bytes BEFORE
+  # Flux schedules the catalyst Pods, instead of a 15-min FirstSeenTimeout
+  # wedge. It is NON-FATAL + BACKGROUNDED (nohup … &), so when the warm path is
+  # healthy it costs nothing. REMOVE this block only after the warm node-side
+  # pull is proven on N consecutive fresh provs (#4049 acceptance).
+  #
+  # The ~19 ghcr.io/openova-io/openova/* images (catalyst-api/ui, the
+  # catalyst-*-controllers, catalyst-catalog, projector, marketplace-api,
+  # console, admin, marketplace, the sme services-*) are PRIVATE on ghcr, so
+  # harbor's ANONYMOUS proxy-ghcr cache 404s them (#3534, proven). This pull
+  # therefore authenticates with the ghcr-pull PAT; with the #4049 registries.
+  # yaml rewrite in place the ref still routes through the bastion mirror, so
+  # the "direct ghcr egress" the #4049 RCA flagged is no longer the path.
+  #
+  # DATA-DRIVEN, never a hardcoded copy that rots: the image list is
+  # extracted at run time from `helm template` of products/catalyst/chart
+  # (a FLAT chart — no `dependencies:`, so it renders standalone with no
+  # `helm dependency build`/network), reading the chart's OWN pinned tags
+  # (images.catalystApi.tag, .smeTag, the per-controller image.tag, …) from
+  # the SAME gitops repo + branch this prov bootstraps from. A tag bump in
+  # values.yaml is picked up automatically on the next fresh prov.
+  #
+  # IDEMPOTENT + NON-FATAL: `crictl pull` is a no-op when the image is
+  # already present (re-running cloud-init is safe), every step is guarded
+  # (`|| true`), and the whole block is detached via `nohup … &` so a slow
+  # or failed pre-pull can NEVER fail bootstrap — kubelet still pulls any
+  # missing image on demand exactly as before. Auth uses the ghcr-pull PAT
+  # already on the node (the same `ghcr_pull_username`/`ghcr_pull_token` the
+  # flux-system/ghcr-pull Secret carries) passed inline via `crictl pull
+  # --creds`, so it works regardless of containerd registry-config state.
+  - |
+    nohup sh -c '
+      log=/var/lib/catalyst/prepull.log
+      echo "[prepull] $(date -u +%FT%TZ) starting background openova-io image pre-pull (#4049 fallback — warm path is primary)" >> "$log" 2>&1
+      CRICTL="$(command -v crictl || echo /usr/local/bin/crictl)"
+      HELM="$(command -v helm || echo /usr/local/bin/helm)"
+      if [ ! -x "$CRICTL" ] || [ ! -x "$HELM" ]; then
+        echo "[prepull] crictl ($CRICTL) or helm ($HELM) not executable — skipping (kubelet pulls on demand)" >> "$log" 2>&1
+        exit 0
+      fi
+      workdir="$(mktemp -d /tmp/catalyst-prepull.XXXXXX 2>/dev/null || echo /tmp/catalyst-prepull)"
+      mkdir -p "$workdir"
+      # Shallow single-branch clone of the SAME gitops repo this prov uses,
+      # so the pinned image tags are exactly what Flux will deploy.
+      if git clone --depth 1 --branch "${gitops_branch}" --single-branch "${gitops_repo_url}" "$workdir/repo" >> "$log" 2>&1; then
+        chart="$workdir/repo/products/catalyst/chart"
+      else
+        echo "[prepull] git clone failed — skipping (non-fatal)" >> "$log" 2>&1
+        chart=""
+      fi
+      images=""
+      if [ -n "$chart" ] && [ -d "$chart" ]; then
+        # Flat chart renders standalone; grep only the PRIVATE openova-io/openova
+        # refs (the throttled set). Two renders, UNIONed: the bare-defaults
+        # render always covers the core (catalyst-api/ui + the controllers),
+        # and the marketplace-on render adds the sme mesh (services-*) +
+        # marketplace-api/console/admin that the bootstrap-kit slot-13 HR
+        # unlocks via ingress.marketplace.enabled=true on every Sovereign —
+        # the very images the issue flags as the slow serial tail. Each
+        # `helm template` failure is tolerated independently (stderr → log;
+        # an empty stdout just contributes nothing).
+        images="$( { "$HELM" template catalyst "$chart" 2>>"$log"; \
+                     "$HELM" template catalyst "$chart" --set ingress.marketplace.enabled=true 2>>"$log"; } \
+          | grep -oE "ghcr\\.io/openova-io/openova/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+" \
+          | sort -u)"
+      fi
+      if [ -z "$images" ]; then
+        echo "[prepull] no openova-io images resolved from chart render — nothing to pre-pull (kubelet pulls on demand)" >> "$log" 2>&1
+        rm -rf "$workdir" 2>/dev/null || true
+        exit 0
+      fi
+      n=0
+      for img in $images; do
+        n=$((n+1))
+        echo "[prepull] $(date -u +%FT%TZ) pulling $img" >> "$log" 2>&1
+        "$CRICTL" pull --creds "${ghcr_pull_username}:${ghcr_pull_token}" "$img" >> "$log" 2>&1 \
+          || echo "[prepull] WARN pull failed (non-fatal): $img" >> "$log" 2>&1
+      done
+      rm -rf "$workdir" 2>/dev/null || true
+      echo "[prepull] $(date -u +%FT%TZ) background pre-pull finished ($n image(s) attempted)" >> "$log" 2>&1
+    ' >/dev/null 2>&1 &
 
 %{ if provider_id_cmd != "" ~}
   # ── providerID patch — PROVIDER-INJECTED (best-effort, non-fatal) ─────
