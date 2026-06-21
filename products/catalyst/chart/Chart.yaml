@@ -2933,7 +2933,13 @@ name: bp-catalyst-platform
 #   (renumbered 1.4.747→1.4.749, one above main's deploy-bot 1.4.748, to clear the pin collision.)
 # 1.4.757 — bp-chepherd Blueprint missing required topology.defaults.multi-region → whole
 #   catalyst-platform install aborted (console 404 on every fresh prov). Add multi-region: singleton.
-version: 1.4.760
+# 1.4.761 — #4060 PILLAR-3: wire global.cloudProvider → provisioning Deployment CLOUD_PROVIDER env
+#   so the per-tenant active-hot-standby CNPG pair binds PVCs to the provider-correct block-storage
+#   class (hcloud-volumes on Hetzner, evs-ssd on Huawei). Before this the customer-Org CNPG pair
+#   hardcoded hcloud-volumes → every PVC stayed Pending forever on a Huawei Sovereign → Pillar-3
+#   (two independent CNPG clusters + region-kill failover) silently dead for tenant Orgs. Empty
+#   default → "hetzner" inside the provisioning binary (NO-REGRESS for contabo/Hetzner).
+version: 1.4.762
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +

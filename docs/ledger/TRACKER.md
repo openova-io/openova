@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T16:30:02Z` |
+| Last refreshed | `2026-06-21T17:30:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 73 |
+| Open issues | 77 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 73 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 77 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 73 open items (clickable table)
+### All 77 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -273,6 +273,10 @@ flowchart LR
 | [#4053](https://github.com/openova-io/openova/issues/4053) | fix(bp-cilium): one broken backend Service poisons the whole gateway CEC → ent | Other |
 | [#4055](https://github.com/openova-io/openova/issues/4055) | Huawei provs ship UNDER-PROVISIONED: 2vCPU m7n.large.8 workers wedge bp-catalyst | Other |
 | [#4057](https://github.com/openova-io/openova/issues/4057) | Storage class as a user-choosable provisioning input (per-provider CSI default) | Other |
+| [#4058](https://github.com/openova-io/openova/issues/4058) | refactor(catalog): rebrand bp-chepherd → bp-agenity (product identity only; ru | Other |
+| [#4059](https://github.com/openova-io/openova/issues/4059) | fix(bp-harbor): host-bridge path skips DB-secret rename Job → registry/harbor  | Other |
+| [#4060](https://github.com/openova-io/openova/issues/4060) | fix(provisioning): customer-Org CNPG pair hardcodes hcloud-volumes → Pillar-3  | Other |
+| [#4061](https://github.com/openova-io/openova/issues/4061) | Permanent Sovereign auto-fires sovereignty-cutover on handover — make it a del | Other |
 
 ---
 
