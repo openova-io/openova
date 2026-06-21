@@ -17,11 +17,11 @@ spec:
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
   version: 0.1.3
   card:
-    title: Stalwart (per-tenant)
+    title: Stalwart (per-Organization)
     summary: |
       Dedicated per-Org (per-vcluster) Stalwart mail server. Implements
       locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets
-      its OWN Stalwart instance in its tenant namespace, with its OWN
+      its OWN Stalwart instance in its Organization namespace, with its OWN
       domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
       level multi-domain Stalwart.
 
@@ -31,7 +31,7 @@ spec:
       is event-driven (ADR-0003 §3).
     icon: stalwart.svg
     category: communication
-    tags: [mail, smtp, imap, jmap, organization, multi-tenant, vcluster, sso, oidc]
+    tags: [mail, smtp, imap, jmap, organization, per-organization, vcluster, sso, oidc]
     documentation: https://stalw.art/
     license: AGPL-3.0
   visibility: listed
