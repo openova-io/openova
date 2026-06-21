@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T14:30:02Z` |
+| Last refreshed | `2026-06-21T15:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 71 |
+| Open issues | 72 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 71 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 72 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 71 open items (clickable table)
+### All 72 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -271,6 +271,7 @@ flowchart LR
 | [#4046](https://github.com/openova-io/openova/issues/4046) | fix(huawei-prov): janitor SG-leak + EIP-egress cooldown preflight (stop region-a | Other |
 | [#4049](https://github.com/openova-io/openova/issues/4049) | fix(provisioning): bastion Harbor warmup — every image Huawei→Huawei, kill / | Other |
 | [#4053](https://github.com/openova-io/openova/issues/4053) | fix(bp-cilium): one broken backend Service poisons the whole gateway CEC → ent | Other |
+| [#4055](https://github.com/openova-io/openova/issues/4055) | Huawei provs ship UNDER-PROVISIONED: 2vCPU m7n.large.8 workers wedge bp-catalyst | Other |
 
 ---
 
