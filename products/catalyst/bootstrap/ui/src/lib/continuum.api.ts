@@ -123,6 +123,31 @@ export interface ContinuumAuditListResponse {
   total: number
 }
 
+/**
+ * ContinuumFleetItem — one row of GET /api/v1/fleet/continuum. Mirrors
+ * the catalyst-api `continuumFleetItem` shape (continuum_extras.go) — a
+ * roll-up of every live Continuum CR across the Sovereigns this
+ * catalyst-api can see. Drives the ContinuumPage `list` (fleet) mode.
+ */
+export interface ContinuumFleetItem {
+  sovereign: string
+  name: string
+  namespace: string
+  primaryRegion: string
+  currentPrimary: string
+  phase: string
+  walLagSeconds: number
+  leaseHolder?: string
+  lastSwitchover?: string
+  healthy: boolean
+}
+
+/** ContinuumFleetResponse — items envelope of GET /fleet/continuum. */
+export interface ContinuumFleetResponse {
+  items: ContinuumFleetItem[]
+  total: number
+}
+
 /* ── Endpoint helpers ────────────────────────────────────────────── */
 
 function continuumsBase(sovereignId: string): string {
@@ -230,6 +255,26 @@ export async function listContinuumAudit(
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) {
     throw new Error(`continuum audit list: HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * listFleetContinuums — fleet-wide roll-up of every live Continuum CR
+ * (GET /api/v1/fleet/continuum). The endpoint is NOT scoped to a single
+ * Sovereign — catalyst-api aggregates across every Sovereign it can
+ * reach. The ContinuumPage `list` mode renders one row per item, linking
+ * to the per-continuum overview.
+ *
+ * Wire path:
+ *
+ *   browser ──/api/v1/fleet/continuum──▶ catalyst-api (continuum_extras.go)
+ */
+export async function listFleetContinuums(): Promise<ContinuumFleetResponse> {
+  const url = `${API_BASE}/v1/fleet/continuum`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    throw new Error(`continuum fleet list: HTTP ${res.status}`)
   }
   return res.json()
 }
