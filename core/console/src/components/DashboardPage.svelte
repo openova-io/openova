@@ -85,7 +85,7 @@
       <div class="mt-12 text-center">
         <p class="text-[var(--color-text-dim)]">No organization found.</p>
         <a href={MARKETPLACE_URL} class="mt-4 inline-block rounded-xl bg-[var(--color-accent)] px-6 py-3 text-sm font-semibold text-white no-underline">
-          Create Tenant
+          Create Organization
         </a>
       </div>
     {/if}

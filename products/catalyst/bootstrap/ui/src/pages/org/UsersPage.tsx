@@ -105,7 +105,7 @@ export function UsersPage({
         <div>
           <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">Users</h1>
           <p className="text-sm text-[var(--color-text-dim)]">
-            Tenant-scoped user CRUD. Create fires the unified-rbac hook to materialise the user across Keycloak, NewAPI, and the K8s Secret store.
+            Organization-scoped user CRUD. Create fires the unified-rbac hook to materialise the user across Keycloak, NewAPI, and the K8s Secret store.
           </p>
         </div>
         <button

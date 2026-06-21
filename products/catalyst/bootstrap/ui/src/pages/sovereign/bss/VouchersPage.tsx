@@ -147,7 +147,7 @@ export function VouchersPage({
       <div className="mx-auto max-w-7xl" data-testid="bss-vouchers-page">
         <header className="mb-4">
           <p className="text-sm text-[var(--color-text-dim)]">
-            Issue prepaid codes for tenant signup or upgrades. Past
+            Issue prepaid codes for Organization signup or upgrades. Past
             redemptions are preserved on revoke; only new redemptions are
             blocked.
           </p>
@@ -603,7 +603,7 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
             type="email"
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
-            placeholder="founder@tenant.example"
+            placeholder="founder@acme.example"
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
             autoComplete="off"
           />

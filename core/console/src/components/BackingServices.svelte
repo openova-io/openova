@@ -80,7 +80,7 @@
     <h2>Backing services</h2>
     <p class="sub">
       Databases, caches, and queues that run behind your apps. Status mirrors the
-      live pods in your tenant. Connection details live on each app's detail page.
+      live pods in your Organization. Connection details live on each app's detail page.
     </p>
   </header>
 
