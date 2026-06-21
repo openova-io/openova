@@ -28,3 +28,16 @@ floating IP / LB / 2 VPCs / 2 subnets directly → zero orphans confirmed.)
 | Region-a nodes | **ALL 6 Ready by 05:20:26 and STAYED Ready** (1 cp + 5 workers) | 4/5 workers went NotReady ~30min in (kubelets died) |
 | CoreDNS | **Running 1/1** | Pending 0/1 (no Ready workers) |
 | (continued below) | | |
+
+## STEP-3 storage — #4030 fix HELD, but exposed a NEW blocker #4037 (fixed live + PR #4038)
+| Item | hw178 result |
+|---|---|
+| GitRepository `openova` | READY=True on `main@3be0656` (after a slow ~13min source-controller ghcr pull — kom4dc latency, not a stall) |
+| HR flood | climbed to 67/region — PAST the old 40/50 wedge ceiling ✅ |
+| **evs-ssd StorageClass** | **PRESENT (default), `evs.csi.huaweicloud.com`, Retain, WaitForFirstConsumer** — the #4030 fix HELD zero-touch ✅ (this was the cycle-2b FAILURE) |
+| bp-huawei-evs-csi HR | installs (no VolumeSnapshotClass crash) ✅ |
+| **NEW blocker #4037** | the 8 csi-evs-* pods → ImagePullBackOff: `ghcr.io/.../evs-csi-plugin` 401 (PRIVATE pkg, no imagePullSecret + huawei-evs-csi missing from ghcr-pull reflection list) → all 9 evs-ssd PVCs Pending |
+| Live-patch validation | copied ghcr-pull secret to `huawei-evs-csi` + patched both pod specs → driver pods 5/5 + 3/3 Running, PVCs binding (`data-dmz/mgmt-vcluster-0`, `shared-pg-1` 10Gi, `shared-pg-c-1` 10Gi all Bound on evs-ssd) ✅ |
+| Durable fix | chart 1.0.3 + cloudinit reflection-list (#4037, PR #4038) — imagePullSecrets:[ghcr-pull] on both pod specs |
+
+**Storage verdict: the #4030 StorageClass fix is CORRECT and HELD zero-touch; #4037 is the next deterministic layer (private-image pull), now fixed durably. With #4037 merged, the NEXT zero-touch prov should bind PVCs without a live patch.**
