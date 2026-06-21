@@ -121,28 +121,38 @@ spec:
   # default-class flip hook so evs-ssd is the cluster's ONE default class
   # (local-path is FORBIDDEN by --disable=local-storage).
   #
-  # ⚠️ DEFAULT-OFF (EVS_CSI_ENABLED defaults "false") PENDING A LIVE AUTH FIX.
-  # Live-proven on hw174 (2026-06-21): the chart deploys cleanly — the
-  # evs-ssd StorageClass + the evs.csi.huaweicloud.com CSIDriver register and
-  # the default-class flip propagates to all 12 stateful PVCs — BUT the
-  # off-the-shelf huaweicloud-csi-driver controller CrashLoops at startup
-  # because its golangsdk does an upfront Keystone auth
-  # (`GET /v3/auth/catalog` + `POST /v3/auth/tokens`) and HCS me-east-215's
-  # IAM APIGW publishes NEITHER endpoint (every Keystone v3 path → APIGW.0101
-  # "API does not exist", probed exhaustively). The `idc` cloud-config field
-  # that would bypass this is declared-but-unused in the driver source. So a
-  # static enabled:true would install a CrashLooping controller → the HR never
-  # goes Ready → Huawei convergence gets WORSE, not better. Until the auth
-  # path is fixed (driver patch to sign EVS requests with AK/SK directly +
-  # skip the catalog fetch, OR the real HCS IAM token endpoint is found),
-  # EVS_CSI_ENABLED stays "false": the HR installs an empty release that
-  # reports Ready immediately (no regression), and a Huawei prov honestly has
-  # no default StorageClass → the Phase-1 storage-durability gate FAILS it
-  # (never silent local-path). Flip EVS_CSI_ENABLED="true" in the Huawei
-  # cloud-init substitute map the moment the auth fix lands. See #3971.
+  # ✅ DEFAULT-ON (EVS_CSI_ENABLED defaults "true") — the HCS IAM auth fix
+  # landed and is LIVE-PROVEN on hw174 (2026-06-21). The driver image is the
+  # OpenOva-patched fork (platform/huawei-evs-csi/driver-src) carrying the
+  # `idc` no-Keystone bypass: when cloud-config idc=true (the chart default)
+  # the driver SKIPS the upfront Keystone catalog/token fetch — the calls HCS
+  # me-east-215's IAM APIGW returns APIGW.0101 "API does not exist" for, which
+  # CrashLooped the off-the-shelf driver — and signs every EVS/ECS request
+  # directly with SDK-HMAC-SHA256 AK/SK request signing. The EVS data API works
+  # fine with AK/SK (tofu provisions EVS disks the same way).
+  #
+  # Live proof on hw174 (ea30d1d816f2eee2, region A): the patched controller
+  # ran 6/6 with 0 restarts (NO CrashLoop), `Successfully published volume ...
+  # to EVS ... Got device path: /dev/vdb` appeared in the driver log (real
+  # signed EVS/ECS calls, real project-id f27698137... in the URL, zero
+  # APIGW.0101), the evs-ssd default StorageClass + evs.csi.huaweicloud.com
+  # CSIDriver registered, and the 12 Pending stateful PVCs (incl.
+  # data-mgmt/rtz/dmz-vcluster-0) BOUND to real EVS disks → the 3 vCluster
+  # StatefulSet pods scheduled → vc-mgmt/rtz/dmz kubeconfig secrets were
+  # created → the spine resumed (HR ready 36 → climbing).
+  #
+  # Hetzner is unaffected (this slot is HUAWEI_HR_SUSPEND-suspended there).
+  # Override EVS_CSI_ENABLED="false" only for a deliberate no-storage Huawei
+  # smoke prov; a real Huawei prov MUST have it true or the Phase-1
+  # storage-durability gate fails it (local-path is FORBIDDEN, never a silent
+  # fallback). See #3971.
   values:
-    enabled: ${EVS_CSI_ENABLED:=false}
-    defaultStorageClass: ${EVS_CSI_ENABLED:=false}
+    enabled: ${EVS_CSI_ENABLED:=true}
+    defaultStorageClass: ${EVS_CSI_ENABLED:=true}
+    # idc=true (chart default) engages the no-Keystone AK/SK bypass — REQUIRED
+    # on HCS. Exposed as a substitute so a future public-Huawei-Cloud Sovereign
+    # (which publishes Keystone) can set it false without a chart change.
+    idc: ${HUAWEI_EVS_IDC:=true}
     # HCS API domain + IAM endpoint — substituted from the Huawei cloud-init
     # (HUAWEI_CLOUD_DOMAIN / HUAWEI_AUTH_URL) so the driver derives every EVS
     # service endpoint as https://<svc>.<region>.<cloud>/.
