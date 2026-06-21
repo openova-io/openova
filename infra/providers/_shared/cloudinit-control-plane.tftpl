@@ -620,6 +620,18 @@ write_files:
             # BOTH providers so the stateful root slots (bp-cnpg / bp-mgmt-
             # vcluster) can `dependsOn` it without deadlocking — see slot 55a.
             HCLOUD_CSI_ENABLED: "true"
+            # #892 — drive bp-huawei-evs-csi's chart `enabled` toggle (slot 55b).
+            # Slot 55b is now ACTIVE on Hetzner too (no longer HUAWEI_HR_SUSPEND-
+            # suspended) because the stateful root slots bp-cnpg/bp-mgmt-vcluster
+            # now `dependsOn` it (a dependsOn on a SUSPENDED HR deadlocks). On
+            # Hetzner EVS_CSI_ENABLED=false renders an EMPTY release (Ready
+            # immediately, zero EVS resources) — the durable default class on
+            # Hetzner is hcloud-volumes from slot 55a; the Hetzner-irrelevant EVS
+            # driver never installs. WITHOUT this explicit "false" the chart
+            # default (${EVS_CSI_ENABLED:=true}) would try to install the EVS
+            # driver on Hetzner. Mirrors HCLOUD_CSI_ENABLED:false on the Huawei
+            # side below.
+            EVS_CSI_ENABLED: "false"
             # #3971 (Refs #3992) — explicit per-provider durable StorageClass
             # name for the host-shared CNPG clusters (gitea-pg / harbor-pg /
             # guacamole-pg, slots 10/19/52). NAMING (not omitting) the class on
@@ -648,8 +660,8 @@ write_files:
             # reports Ready immediately (the dependsOn from the stateful root
             # slots is satisfied without the suspended-HR deadlock). The Hetzner
             # Cloud CSI obviously does NOT run on HCS; Huawei's durable default
-            # StorageClass is the EVS CSI at slot 55b (below), which DOES install
-            # on Huawei (HUAWEI_HR_SUSPEND=false).
+            # StorageClass is the EVS CSI at slot 55b (below), which installs for
+            # real on Huawei (EVS_CSI_ENABLED=true).
             HCLOUD_CSI_ENABLED: "false"
             # #3971 follow-up — bp-huawei-evs-csi (slot 55b) installs the
             # open-source huaweicloud-csi-driver EVS plugin + the evs-ssd default
@@ -992,13 +1004,18 @@ runcmd:
   # node-local disk (no cloud block volume behind it) — any node replacement
   # destroys the PV's data (prod Postgres 3×100Gi, openbao secrets, customer
   # DB), invalidating BCP/DR. With the provisioner gone, the ONLY default
-  # StorageClass is the per-provider cloud CSI (Hetzner: bp-hcloud-csi slot
-  # 55a → csi.hetzner.cloud + hcloud-volumes). The stateful root slots
-  # (bp-cnpg / bp-mgmt-vcluster) `dependsOn: bp-hcloud-csi` so the CSI default
-  # class exists BEFORE any PVC binds — nothing hangs Pending. A belt-and-
-  # braces Kyverno ENFORCE policy (bp-kyverno-policies K23 forbid-local-path-
-  # storage) additionally DENIES any PVC/StorageClass/PV that references
-  # local-path. (founder: "local path never ever ALLOWED".)
+  # StorageClass is the per-provider cloud CSI: Hetzner → bp-hcloud-csi slot
+  # 55a (csi.hetzner.cloud + hcloud-volumes); Huawei → bp-huawei-evs-csi slot
+  # 55b (evs.csi.huaweicloud.com + evs-ssd). The stateful root slots (bp-cnpg /
+  # bp-mgmt-vcluster) `dependsOn: [bp-hcloud-csi, bp-huawei-evs-csi]` — BOTH
+  # CSI slots, so the PROVIDER-CORRECT default class exists BEFORE any PVC
+  # binds and nothing hangs Pending (#892: gating on bp-hcloud-csi alone froze
+  # Huawei PVCs classless because bp-hcloud-csi renders EMPTY/Ready-with-no-class
+  # on Huawei — the durable class there is evs-ssd from slot 55b). Both CSI
+  # slots are active-but-empty on the OTHER provider, so neither dependsOn
+  # deadlocks. A belt-and-braces Kyverno ENFORCE policy (bp-kyverno-policies
+  # K23 forbid-local-path-storage) additionally DENIES any PVC/StorageClass/PV
+  # that references local-path. (founder: "local path never ever ALLOWED".)
   - |
     NODE_EXTERNAL_IP=$(${node_external_ip_cmd})
     [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: could not determine node external IP" >&2; exit 87; }
@@ -1021,11 +1038,14 @@ runcmd:
   # #3971 — NO StorageClass is provisioned here. k3s ran with
   # `--disable=local-storage` (above) so the ephemeral local-path provisioner
   # is FORBIDDEN — it is never installed. The cluster comes up with ZERO
-  # StorageClasses; the per-provider cloud block-storage CSI (Hetzner:
-  # bp-hcloud-csi slot 55a) installs the durable default `hcloud-volumes` SC
-  # via Flux. The stateful root slots (bp-cnpg / bp-mgmt-vcluster) gate on
-  # `dependsOn: bp-hcloud-csi`, so the default class exists before the first
-  # PVC binds (no Pending-PVC regression). The former `kubectl patch sc
+  # StorageClasses; the per-provider cloud block-storage CSI installs the
+  # durable default SC via Flux (Hetzner: bp-hcloud-csi slot 55a → hcloud-
+  # volumes; Huawei: bp-huawei-evs-csi slot 55b → evs-ssd). The stateful root
+  # slots (bp-cnpg / bp-mgmt-vcluster) gate on
+  # `dependsOn: [bp-hcloud-csi, bp-huawei-evs-csi]` — BOTH CSI slots — so the
+  # PROVIDER-CORRECT default class exists before the first PVC binds (#892: the
+  # earlier single-CSI gate let Huawei PVCs race ahead of evs-ssd and freeze
+  # classless; no Pending-PVC regression now). The former `kubectl patch sc
   # local-path is-default-class=true` block that lived here is DELETED —
   # asserting/defaulting local-path is exactly the anti-pattern #3971 forbids.
 

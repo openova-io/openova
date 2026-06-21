@@ -271,11 +271,16 @@ resources:
   # storage sibling of 55a. Installs the open-source huaweicloud-csi-driver EVS
   # plugin (evs.csi.huaweicloud.com) + the durable `evs-ssd` default
   # StorageClass so Huawei PVCs land on real EVS block volumes, never the
-  # FORBIDDEN k3s local-path. Default-SUSPENDED (HUAWEI_HR_SUSPEND defaults
-  # true) so Hetzner never installs the Hetzner-irrelevant EVS driver; the
-  # Huawei cloud-init flips HUAWEI_HR_SUSPEND=false. Closes the Huawei half of
-  # the #3971 P0 blocker (Huawei provs wedged at ~40/50 HRs with no
-  # StorageClass + every stateful PVC Pending). MUST be registered here or Flux
+  # FORBIDDEN k3s local-path. #892 — ACTIVE on BOTH providers (no longer
+  # HUAWEI_HR_SUSPEND-suspended): the chart `enabled` toggle (EVS_CSI_ENABLED)
+  # installs the real EVS driver on Huawei (true) or an EMPTY/Ready no-op on
+  # Hetzner (false). It MUST stay active on Hetzner because the stateful root
+  # slots bp-cnpg (16) + bp-mgmt-vcluster (58) now `dependsOn` it — a dependsOn
+  # on a SUSPENDED HR deadlocks (mirrors slot 55a's empty render on Huawei).
+  # Closes the Huawei half of the #3971 P0 blocker (Huawei provs wedged at
+  # ~40/50 HRs with no StorageClass + every stateful PVC Pending; #892 closes
+  # the ordering race where the stateful roots gated only on bp-hcloud-csi,
+  # which is Ready-with-no-class on Huawei). MUST be registered here or Flux
   # never creates the HR (the #3191 forgotten-slot wedge class).
   - 55b-bp-huawei-evs-csi.yaml
   # OpenovaFlow observability cohort — slots 56/57. Three-agent split

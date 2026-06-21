@@ -53,17 +53,28 @@ spec:
   # CNPG only needs Flux Ready (its own CRDs ship in the same chart;
   # consumers of postgresql.cnpg.io/v1.Cluster gate themselves on bp-cnpg).
   #
-  # #3971 — also gate on bp-hcloud-csi. bp-cnpg is the root of the stateful-
-  # Postgres dependency tree (bp-postgres-shared{,-b,-c}, bp-cnpg-pair, and
-  # transitively harbor/keycloak/gitea via the shared-pg roles), all of which
-  # bind PVCs. k3s now runs `--disable=local-storage` so local-path is
-  # FORBIDDEN and the ONLY default StorageClass is the cloud CSI. Gating here
-  # guarantees the durable default class EXISTS before any cnpg PVC binds, so
-  # nothing hangs Pending. bp-hcloud-csi is Ready on BOTH providers (it
-  # renders empty on Huawei) so this dependsOn never deadlocks.
+  # #3971 / #892 — gate on BOTH per-provider cloud-CSI slots. bp-cnpg is the
+  # root of the stateful-Postgres dependency tree (bp-postgres-shared{,-b,-c},
+  # bp-cnpg-pair, and transitively harbor/keycloak/gitea via the shared-pg
+  # roles), all of which bind PVCs. k3s now runs `--disable=local-storage` so
+  # local-path is FORBIDDEN and the ONLY default StorageClass is the cloud CSI.
+  # Gating here guarantees the durable default class EXISTS before any cnpg PVC
+  # binds, so nothing hangs Pending.
+  #
+  # #892 (root-caused live on hw182): on Hetzner the default class comes from
+  # bp-hcloud-csi (slot 55a); on Huawei it comes from bp-huawei-evs-csi (slot
+  # 55b, the evs-ssd class). bp-hcloud-csi renders EMPTY on Huawei and goes Ready
+  # WITHOUT any default class — so gating on bp-hcloud-csi ALONE did NOT
+  # guarantee a default class on Huawei → cnpg PVCs were minted classless before
+  # evs-ssd landed, "" frozen permanently, Pending 84m+ (gitea/harbor/guacamole-
+  # pg) → console never installed. Listing BOTH CSIs makes the provider-correct
+  # one gate the PVCs while the other is an always-Ready empty no-op (both slots
+  # are active-but-empty on the OTHER provider, so neither dependsOn deadlocks —
+  # see slots 55a + 55b). No per-provider dependsOn templating needed.
   dependsOn:
     - name: bp-flux
     - name: bp-hcloud-csi
+    - name: bp-huawei-evs-csi
   chart:
     spec:
       chart: bp-cnpg

@@ -64,19 +64,28 @@ spec:
   # so we point Flux to install INTO that namespace. The vCluster
   # subchart's StatefulSet + Service + RBAC land here.
   targetNamespace: mgmt
-  # #3971 — also gate on bp-hcloud-csi. bp-mgmt-vcluster is the root of the
-  # other stateful dependency tree (openbao slot 08, keycloak 09, gitea 10,
-  # harbor 19 all `dependsOn: bp-mgmt-vcluster`) and the vCluster StatefulSet
-  # itself binds a PVC. k3s now runs `--disable=local-storage` so local-path
-  # is FORBIDDEN and the ONLY default StorageClass is the cloud CSI. Gating
-  # here guarantees the durable default class EXISTS before the vCluster (and
-  # everything downstream of it) binds a PVC — nothing hangs Pending.
-  # bp-hcloud-csi is Ready on BOTH providers (empty render on Huawei) so this
-  # dependsOn never deadlocks.
+  # #3971 / #892 — gate on BOTH per-provider cloud-CSI slots. bp-mgmt-vcluster
+  # is the root of the other stateful dependency tree (openbao slot 08, keycloak
+  # 09, gitea 10, harbor 19 all `dependsOn: bp-mgmt-vcluster`) and the vCluster
+  # StatefulSet itself binds a PVC. k3s now runs `--disable=local-storage` so
+  # local-path is FORBIDDEN and the ONLY default StorageClass is the cloud CSI.
+  # Gating here guarantees the durable default class EXISTS before the vCluster
+  # (and everything downstream of it) binds a PVC — nothing hangs Pending.
+  #
+  # #892 (root-caused live on hw182): on Hetzner the default class is
+  # bp-hcloud-csi's hcloud-volumes (slot 55a); on Huawei it is bp-huawei-evs-csi's
+  # evs-ssd (slot 55b). bp-hcloud-csi renders EMPTY on Huawei and goes Ready
+  # WITHOUT any default class, so gating on bp-hcloud-csi ALONE did NOT guarantee
+  # a default class on Huawei → the vCluster PVC (and the host-shared CNPG PVCs
+  # downstream) raced ahead of evs-ssd. Listing BOTH CSIs makes the provider-
+  # correct one gate the PVCs while the other is an always-Ready empty no-op
+  # (both slots are active-but-empty on the OTHER provider, so neither dependsOn
+  # deadlocks — see slots 55a + 55b). No per-provider dependsOn templating needed.
   dependsOn:
     - name: bp-cilium
     - name: bp-cert-manager
     - name: bp-hcloud-csi
+    - name: bp-huawei-evs-csi
   chart:
     spec:
       chart: bp-mgmt-vcluster
