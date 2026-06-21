@@ -1,16 +1,27 @@
-// catalogue.go — the first-slice OpenOva MCP tool catalogue.
+// catalogue.go — the OpenOva MCP tool catalogue.
 //
-// All tools here are READ-ONLY and Org-scoped (RequiredContext is empty so
-// they are offered in both Org + Sovereign contexts, since a sovereign-
-// admin can read any Org). The write/mutating + Sovereign-only tools
-// (deployments.*, vouchers.*, cutover.*, placement.*) are DEFERRED to
-// follow-ups per #3988 §5; this slice ships the read facade only.
+// The READ tools (whoami, list_organizations, list_environments,
+// list_applications, get_application) are Org-scoped (RequiredContext is
+// empty so they are offered in both Org + Sovereign contexts, since a
+// sovereign-admin can read any Org).
+//
+// The FIRST WRITE tool — create_application (#3988, UAT rows 221-223) —
+// ships alongside them: it reuses the SAME UI create seam
+// (HandleApplicationInstall, POST /api/v1/sovereigns/{id}/applications) the
+// console Install button posts to, with the SAME Org-scope enforcement the
+// read side uses — an Org-scoped token may create only in its own Org; a
+// sovereign-admin may create in any Org. A cross-Org create returns
+// ErrForbidden → MCP 403 (exact parity with the read-side cross-Org get).
+// The remaining write/mutating + Sovereign-only tools (deployments.*,
+// vouchers.*, cutover.*, placement.*) stay DEFERRED to follow-ups per
+// #3988 §5.
 //
 // Org scoping is enforced at the handler boundary: an Org-context caller
-// only ever sees data for their own OrgID (the catalyst-api endpoint is
-// addressed by the caller's bound deployment, and Application items are
-// filtered to the caller's Org namespace). A sovereign-admin sees the full
-// set unfiltered.
+// only ever sees/touches data for their own OrgID (the catalyst-api
+// endpoint is addressed by the caller's bound deployment; Application items
+// are filtered to the caller's Org namespace on read, and the target
+// organizationRef is gated to the caller's Org on create). A sovereign-
+// admin sees/acts on the full set unfiltered.
 package tools
 
 import (
@@ -69,6 +80,27 @@ func catalogue() []Tool {
 			},
 			MinTier: identity.TierViewer,
 			Handler: handleGetApplication,
+		},
+		{
+			Name:        "create_application",
+			Description: "Install (create) an Application in the caller's Organization from a Blueprint — the SAME action as the console's Install button. Reuses POST /api/v1/sovereigns/{id}/applications (the shared create seam), so the Org namespace is ensured and the Application CR is written by the catalyst-api exactly once. RBAC-scoped: an Org-scoped caller may create ONLY in their own Organization (a cross-Org organizationRef is forbidden); a sovereign-admin may create in any Organization. Requires tier-admin or higher (mirrors the console Install gate).",
+			InputSchema: map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"blueprint", "name"},
+				"properties": map[string]any{
+					"blueprint":      map[string]any{"type": "string", "description": "Blueprint to install, e.g. bp-wordpress (must start with bp-)."},
+					"version":        map[string]any{"type": "string", "description": "Blueprint version to pin, e.g. 1.2.3. Required by the catalyst-api install validator."},
+					"name":           map[string]any{"type": "string", "description": "Application name (metadata.name): RFC-1123 lowercase alphanumeric + hyphens, 1-63 chars. Doubles as the app's purpose."},
+					"organization":   map[string]any{"type": "string", "description": "Target Organization (slug or FQDN, e.g. acme or hw178.omani.works). OPTIONAL in Org context — defaults to the caller's own Org; a value naming a DIFFERENT Org is forbidden for an Org-scoped caller. REQUIRED for a sovereign-admin (no implicit Org)."},
+					"environment":    map[string]any{"type": "string", "description": "Target Environment ref, e.g. acme-prod. Optional — defaults to <organization>-prod."},
+					"placement_mode": map[string]any{"type": "string", "description": "Topology mode: singleton (default), active-active, active-hot-standby, active-passive."},
+					"regions":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Region IDs the instance targets. Optional — defaults to the Sovereign's primary region."},
+					"parameters":     map[string]any{"type": "object", "description": "Blueprint parameters (validated against the Blueprint's configSchema by the catalyst-api).", "additionalProperties": true},
+				},
+			},
+			MinTier: identity.TierAdmin,
+			Handler: handleCreateApplication,
 		},
 	}
 }
@@ -162,6 +194,129 @@ func handleGetApplication(ctx context.Context, id *identity.Identity, api *catal
 		}
 	}
 	return obj, nil
+}
+
+// handleCreateApplication installs an Application in the caller's Org by
+// forwarding the SAME install-request body the console Install button posts
+// to POST /api/v1/sovereigns/{id}/applications (HandleApplicationInstall).
+// The MCP reimplements NO namespace/CR logic — the catalyst-api endpoint
+// ensures the Org namespace and writes the CR.
+//
+// RBAC parity with the read side: the target Organization must equal the
+// caller's pinned Org scope in Org context (a cross-Org organizationRef is
+// ErrForbidden → 403). A sovereign-admin may create in any Org and MUST
+// name the target organization explicitly (no implicit Org scope). The
+// catalyst-api endpoint's own tier-admin gate is the FINAL word (thin
+// facade): a token that passed layer-1 visibility but lacks tier-admin on
+// the live endpoint still gets the upstream 403 surfaced verbatim.
+func handleCreateApplication(ctx context.Context, id *identity.Identity, api *catalystapi.Client, args json.RawMessage) (any, error) {
+	if api == nil {
+		return nil, fmt.Errorf("catalyst-api client not configured")
+	}
+	var in struct {
+		Blueprint     string         `json:"blueprint"`
+		Version       string         `json:"version"`
+		Name          string         `json:"name"`
+		Organization  string         `json:"organization"`
+		Environment   string         `json:"environment"`
+		PlacementMode string         `json:"placement_mode"`
+		Regions       []string       `json:"regions"`
+		Parameters    map[string]any `json:"parameters"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid arguments: %w", err)
+		}
+	}
+	if strings.TrimSpace(in.Blueprint) == "" {
+		return nil, fmt.Errorf("missing required argument: blueprint")
+	}
+	if strings.TrimSpace(in.Name) == "" {
+		return nil, fmt.Errorf("missing required argument: name")
+	}
+
+	// Resolve the target Organization + enforce Org scope — the SAME
+	// scoping rule the read side uses (id.OrgID is the caller's pinned Org).
+	targetOrg, err := resolveCreateTargetOrg(id, in.Organization)
+	if err != nil {
+		return nil, err
+	}
+
+	depID, err := requireDeployment(id)
+	if err != nil {
+		return nil, err
+	}
+
+	req := catalystapi.CreateApplicationRequest{
+		BlueprintRef:    catalystapi.ApplicationBlueprintRef{Name: strings.TrimSpace(in.Blueprint), Version: strings.TrimSpace(in.Version)},
+		Name:            strings.TrimSpace(in.Name),
+		OrganizationRef: targetOrg,
+		EnvironmentRef:  strings.TrimSpace(in.Environment),
+		Parameters:      in.Parameters,
+	}
+	if strings.TrimSpace(in.PlacementMode) != "" || len(in.Regions) > 0 {
+		req.Placement = &catalystapi.ApplicationPlacement{
+			Mode:    strings.TrimSpace(in.PlacementMode),
+			Regions: in.Regions,
+		}
+	}
+
+	return api.CreateApplication(ctx, depID, req, bearerOf(id))
+}
+
+// resolveCreateTargetOrg resolves + Org-scope-checks the target
+// Organization for a create. In Org context the caller may omit the
+// organization (it defaults to their own Org) or pass their OWN Org
+// explicitly; naming a DIFFERENT Org is ErrForbidden — exact parity with
+// the read-side cross-Org denial in handleGetApplication. A sovereign-admin
+// must name the target Org explicitly (no implicit scope) and may name any
+// Org.
+func resolveCreateTargetOrg(id *identity.Identity, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if id.Context == identity.ContextOrganization {
+		if id.OrgID == "" {
+			return "", fmt.Errorf("%w: no organization scope on the caller's token", ErrForbidden)
+		}
+		if requested == "" {
+			return id.OrgID, nil
+		}
+		if !orgRefMatches(requested, id.OrgID) {
+			return "", fmt.Errorf("%w: organization %q is not the caller's organization %q", ErrForbidden, requested, id.OrgID)
+		}
+		return requested, nil
+	}
+	// Sovereign context (sovereign-admin): the target Org must be named.
+	if requested == "" {
+		return "", fmt.Errorf("organization is required for a sovereign-admin create (no implicit Org scope)")
+	}
+	return requested, nil
+}
+
+// orgRefMatches reports whether a requested organization ref names the
+// caller's Org. The Org identity may be a bare slug ("acme") or a dotted
+// FQDN ("hw178.omani.works"); the namespace is derived from it via the
+// catalyst-api orgNamespace() slugging. We treat an exact (case-insensitive)
+// match OR a match on the leading DNS label as the same Org, so a token
+// scoped to the slug "hw178" accepts the FQDN "hw178.omani.works" and vice
+// versa — the same Org the catalyst-api resolves them both to.
+func orgRefMatches(requested, orgID string) bool {
+	r := strings.ToLower(strings.TrimSpace(requested))
+	o := strings.ToLower(strings.TrimSpace(orgID))
+	if r == "" || o == "" {
+		return false
+	}
+	if r == o {
+		return true
+	}
+	return firstLabel(r) == firstLabel(o)
+}
+
+// firstLabel returns the leading DNS label (everything before the first dot).
+func firstLabel(s string) string {
+	if i := strings.IndexByte(s, '.'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // handleListEnvironments derives the distinct Environments from the

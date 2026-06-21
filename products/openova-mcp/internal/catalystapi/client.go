@@ -5,13 +5,20 @@
 // endpoint's own authz (RequireSession + the per-handler tier check) is
 // the final word. The MCP holds no privileged token of its own.
 //
-// Endpoints used by the first slice (all read-only, from the real
-// catalyst-api route table in
-// products/catalyst/bootstrap/api/cmd/api/main.go):
+// Endpoints used by the first slice (from the real catalyst-api route
+// table in products/catalyst/bootstrap/api/cmd/api/main.go):
 //
-//   - GET /api/v1/sovereigns/{id}/applications              (HandleApplicationList)
-//   - GET /api/v1/sovereigns/{id}/applications/{name}       (HandleApplicationGet)
-//   - GET /api/v1/organizations                             (HandleListOrganizations)
+//   - GET  /api/v1/sovereigns/{id}/applications              (HandleApplicationList)
+//   - GET  /api/v1/sovereigns/{id}/applications/{name}       (HandleApplicationGet)
+//   - GET  /api/v1/organizations                             (HandleListOrganizations)
+//   - POST /api/v1/sovereigns/{id}/applications              (HandleApplicationInstall)
+//
+// The POST is the FIRST write tool (#3988 — create_application, UAT rows
+// 221-223). It reuses the SAME UI create seam (HandleApplicationInstall)
+// the console Install button posts to — the MCP reimplements no
+// namespace/CR logic; it forwards the caller's bearer + the identical
+// install-request body, so ensureOrgNamespace + the Application CR write
+// happen exactly once, in the catalyst-api handler.
 package catalystapi
 
 import (
@@ -96,6 +103,57 @@ func (c *Client) get(ctx context.Context, path, bearer string, out any) error {
 	return nil
 }
 
+// post issues an authenticated POST with a JSON body and decodes a 2xx
+// JSON body into out. Non-2xx → *APIError carrying the upstream status (so
+// 403→403 parity holds — the write side enforces the SAME tier/Org gate the
+// read side does). bearer is forwarded verbatim as the Authorization header
+// AND the session cookie, identical to get(), covering both the gateway and
+// the catalyst-api RequireSession write paths.
+//
+// NOTE: HandleApplicationInstall (the create seam) widens several semantic
+// errors (bad body / forbidden / conflict) into an HTTP 200 envelope that
+// carries an `httpStatus` / `status` token in the body (the qa-loop
+// matrix-runner wire-shape contract). That is the upstream endpoint's
+// behaviour and the thin facade surfaces it verbatim — so a genuine
+// HTTP-403 (e.g. the gateway/RequireSession rejecting the bearer) is
+// surfaced as a 403 APIError, while the handler-level "forbidden" envelope
+// arrives as a 200 body the tool layer inspects. Both paths are exercised
+// by the tool tests.
+func (c *Client) post(ctx context.Context, path, bearer string, in, out any) error {
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return fmt.Errorf("catalyst-api: encode request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, strings.NewReader(string(payload)))
+	if err != nil {
+		return fmt.Errorf("catalyst-api: build request: %w", err)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		req.Header.Set("Cookie", "catalyst_session="+bearer)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("catalyst-api: %s: %w", path, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &APIError{Status: resp.StatusCode, Body: string(body)}
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("catalyst-api: decode %s: %w", path, err)
+	}
+	return nil
+}
+
 // ── Wire shapes (mirror the catalyst-api handler responses exactly) ──────
 
 // ApplicationListResponse mirrors applicationListResponse in
@@ -150,6 +208,59 @@ func (c *Client) ListOrganizations(ctx context.Context, bearer string) (*Organiz
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ── Write: create Application (POST .../applications) ────────────────────
+
+// ApplicationBlueprintRef mirrors `applicationBlueprintRef` in the
+// catalyst-api install handler — the {name, version} pin of the Blueprint
+// to install.
+type ApplicationBlueprintRef struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// ApplicationPlacement mirrors the install handler's `applicationPlacement`
+// subset the MCP exposes: the topology mode + regions. The instance-WHERE
+// fields (vcluster/clusters) are left to the catalyst-api default-placement
+// resolution so the agent's create stays as ergonomic as the console's
+// basic Install flow.
+type ApplicationPlacement struct {
+	Mode    string   `json:"mode,omitempty"`
+	Regions []string `json:"regions,omitempty"`
+}
+
+// CreateApplicationRequest is the body POSTed to the install endpoint. It
+// is the EXACT long-form `applicationInstallRequest` shape the console
+// Install button posts — the MCP reuses the same wire contract rather than
+// inventing a parallel one. Fields the caller omits are filled by the
+// catalyst-api's applicationInstallRequestNormalize (EnvironmentRef
+// defaults to "<org>-prod"; Placement defaults to a single-region
+// "primary"), so a minimal {blueprintRef, name, organizationRef} body is
+// a valid create.
+type CreateApplicationRequest struct {
+	BlueprintRef    ApplicationBlueprintRef `json:"blueprintRef"`
+	Name            string                  `json:"name"`
+	OrganizationRef string                  `json:"organizationRef"`
+	EnvironmentRef  string                  `json:"environmentRef,omitempty"`
+	Parameters      map[string]any          `json:"parameters,omitempty"`
+	Placement       *ApplicationPlacement   `json:"placement,omitempty"`
+}
+
+// CreateApplication calls POST /api/v1/sovereigns/{depID}/applications. The
+// install endpoint (HandleApplicationInstall) ensures the Org namespace and
+// writes the Application CR — the MCP reuses that seam verbatim. The
+// response is returned as a generic map (the install envelope carries
+// kind/name/namespace/uid/status plus the endpoint's httpStatus/applied
+// wire-shape fields) so the agent surfaces exactly what the console's
+// post-install banner reads, without forcing a brittle struct on a still-
+// evolving response shape.
+func (c *Client) CreateApplication(ctx context.Context, depID string, req CreateApplicationRequest, bearer string) (map[string]any, error) {
+	var out map[string]any
+	if err := c.post(ctx, fmt.Sprintf("/api/v1/sovereigns/%s/applications", depID), bearer, req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func truncate(s string, n int) string {

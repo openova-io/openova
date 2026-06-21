@@ -224,6 +224,219 @@ func TestWhoami(t *testing.T) {
 	}
 }
 
+// ── create_application (write tool, #3988 UAT rows 221-223) ──────────────
+
+// TestCreateApplicationOrgScopedSucceeds — an Org-scoped acme token creates
+// an Application in acme. The facade forwards the caller's bearer to the
+// SAME install endpoint the console posts to, with the canonical
+// install-request body (blueprintRef + name + organizationRef), and
+// surfaces the 201 envelope.
+func TestCreateApplicationOrgScopedSucceeds(t *testing.T) {
+	var sawAuth, sawCookie, sawPath, sawMethod string
+	var sawBody map[string]any
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		sawAuth = r.Header.Get("Authorization")
+		sawCookie = r.Header.Get("Cookie")
+		sawPath = r.URL.Path
+		sawMethod = r.Method
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &sawBody)
+		return jsonResp(201, `{"kind":"Application","name":"shop","namespace":"acme","uid":"u-1","httpStatus":"201","applied":true}`), nil
+	})
+	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	reg := NewRegistry(api)
+
+	args, _ := json.Marshal(map[string]any{
+		"blueprint": "bp-wordpress", "version": "1.2.3", "name": "shop",
+	})
+	out, err := reg.Call(context.Background(), orgIdentity("acme", "7bb723da8da06047", identity.TierAdmin), "create_application", args)
+	if err != nil {
+		t.Fatalf("own-org create should succeed, got %v", err)
+	}
+	// Thin-facade: identity forwarded, correct verb + path.
+	if sawMethod != "POST" {
+		t.Errorf("want POST, got %q", sawMethod)
+	}
+	if sawAuth != "Bearer org-bearer" {
+		t.Errorf("Authorization not forwarded: %q", sawAuth)
+	}
+	if !strings.Contains(sawCookie, "catalyst_session=org-bearer") {
+		t.Errorf("session cookie not forwarded: %q", sawCookie)
+	}
+	if sawPath != "/api/v1/sovereigns/7bb723da8da06047/applications" {
+		t.Errorf("wrong path: %q", sawPath)
+	}
+	// Org defaulted to the caller's own Org (organization arg omitted).
+	if sawBody["organizationRef"] != "acme" {
+		t.Errorf("organizationRef should default to caller's Org, got %v", sawBody["organizationRef"])
+	}
+	if br, _ := sawBody["blueprintRef"].(map[string]any); br["name"] != "bp-wordpress" || br["version"] != "1.2.3" {
+		t.Errorf("blueprintRef not forwarded: %v", sawBody["blueprintRef"])
+	}
+	m := out.(map[string]any)
+	if m["namespace"] != "acme" || m["applied"] != true {
+		t.Fatalf("unexpected install envelope: %+v", m)
+	}
+}
+
+// TestCreateApplicationCrossOrgDenied — an acme token naming globex as the
+// target Org is ErrForbidden → MCP 403, and NO request reaches the backend
+// (exact parity with the read-side cross-Org get denial).
+func TestCreateApplicationCrossOrgDenied(t *testing.T) {
+	called := false
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return jsonResp(201, `{"kind":"Application"}`), nil
+	})
+	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	reg := NewRegistry(api)
+
+	args, _ := json.Marshal(map[string]any{
+		"blueprint": "bp-gitea", "version": "1.0.0", "name": "leak", "organization": "globex",
+	})
+	_, err := reg.Call(context.Background(), orgIdentity("acme", "dep1", identity.TierAdmin), "create_application", args)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("cross-org create should be ErrForbidden, got %v", err)
+	}
+	if called {
+		t.Fatal("cross-org create must NOT reach the backend (denied at the facade)")
+	}
+}
+
+// TestCreateApplicationSovereignAnyOrg — a sovereign-admin may create in any
+// Org (here globex), provided the target Org is named explicitly.
+func TestCreateApplicationSovereignAnyOrg(t *testing.T) {
+	var sawBody map[string]any
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &sawBody)
+		return jsonResp(201, `{"kind":"Application","name":"shop","namespace":"globex","applied":true}`), nil
+	})
+	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	reg := NewRegistry(api)
+
+	args, _ := json.Marshal(map[string]any{
+		"blueprint": "bp-gitea", "version": "1.0.0", "name": "shop", "organization": "globex",
+	})
+	out, err := reg.Call(context.Background(), sovereignIdentity("7bb723da8da06047"), "create_application", args)
+	if err != nil {
+		t.Fatalf("sovereign-admin create in any Org should succeed, got %v", err)
+	}
+	if sawBody["organizationRef"] != "globex" {
+		t.Errorf("sovereign-admin target Org not forwarded: %v", sawBody["organizationRef"])
+	}
+	if out.(map[string]any)["namespace"] != "globex" {
+		t.Fatalf("unexpected install envelope: %+v", out)
+	}
+}
+
+// TestCreateApplicationSovereignNeedsExplicitOrg — a sovereign-admin has no
+// implicit Org scope, so omitting the target organization is an error
+// (rather than silently creating in some default Org).
+func TestCreateApplicationSovereignNeedsExplicitOrg(t *testing.T) {
+	called := false
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return jsonResp(201, `{}`), nil
+	})
+	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	reg := NewRegistry(api)
+
+	args, _ := json.Marshal(map[string]any{"blueprint": "bp-gitea", "version": "1.0.0", "name": "x"})
+	_, err := reg.Call(context.Background(), sovereignIdentity("dep1"), "create_application", args)
+	if err == nil {
+		t.Fatal("sovereign-admin create without an explicit organization should error")
+	}
+	if called {
+		t.Fatal("under-scoped sovereign create must NOT reach the backend")
+	}
+}
+
+// TestCreateApplicationVisibilityTierGated — layer-1: create_application is
+// an admin-or-higher tool. A viewer does NOT see it (the UI Install gate is
+// admin); an admin + a sovereign-admin do.
+func TestCreateApplicationVisibilityTierGated(t *testing.T) {
+	reg := NewRegistry(nil)
+
+	if containsTool(reg.List(orgIdentity("acme", "d", identity.TierViewer)), "create_application") {
+		t.Error("a viewer must NOT see create_application (admin-gated)")
+	}
+	if !containsTool(reg.List(orgIdentity("acme", "d", identity.TierAdmin)), "create_application") {
+		t.Error("an admin should see create_application")
+	}
+	if !containsTool(reg.List(sovereignIdentity("d")), "create_application") {
+		t.Error("a sovereign-admin should see create_application")
+	}
+}
+
+// TestCreateApplicationViewerCallDenied — layer-2: even a hand-crafted call
+// from a viewer (who cannot see the tool) is denied with ErrForbidden,
+// without reaching the backend.
+func TestCreateApplicationViewerCallDenied(t *testing.T) {
+	called := false
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return jsonResp(201, `{}`), nil
+	})
+	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	reg := NewRegistry(api)
+
+	args, _ := json.Marshal(map[string]any{"blueprint": "bp-wordpress", "version": "1.0.0", "name": "x"})
+	_, err := reg.Call(context.Background(), orgIdentity("acme", "dep1", identity.TierViewer), "create_application", args)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("viewer create_application call should be ErrForbidden, got %v", err)
+	}
+	if called {
+		t.Fatal("layer-2-denied call must NOT reach the backend")
+	}
+}
+
+// TestCreateApplicationParity403 — when the install endpoint itself returns
+// a real HTTP 403 (e.g. tier gate on the live endpoint), the MCP surfaces
+// the SAME upstream status (thin-facade parity).
+func TestCreateApplicationParity403(t *testing.T) {
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResp(403, `{"error":"forbidden","detail":"requires tier-admin or higher"}`), nil
+	})
+	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	reg := NewRegistry(api)
+
+	args, _ := json.Marshal(map[string]any{"blueprint": "bp-wordpress", "version": "1.0.0", "name": "x"})
+	_, err := reg.Call(context.Background(), orgIdentity("acme", "dep1", identity.TierAdmin), "create_application", args)
+	var apiErr *catalystapi.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("want *catalystapi.APIError, got %v", err)
+	}
+	if apiErr.Status != 403 {
+		t.Fatalf("parity broken: upstream 403 not preserved, got %d", apiErr.Status)
+	}
+}
+
+// TestCreateApplicationFQDNOrgMatch — an Org token scoped to the bare slug
+// accepts the dotted-FQDN form of the SAME Org (they resolve to one
+// namespace), so the agent can pass either.
+func TestCreateApplicationFQDNOrgMatch(t *testing.T) {
+	var sawBody map[string]any
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &sawBody)
+		return jsonResp(201, `{"kind":"Application","namespace":"hw178","applied":true}`), nil
+	})
+	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	reg := NewRegistry(api)
+
+	args, _ := json.Marshal(map[string]any{
+		"blueprint": "bp-wordpress", "version": "1.0.0", "name": "shop", "organization": "hw178.omani.works",
+	})
+	_, err := reg.Call(context.Background(), orgIdentity("hw178", "dep1", identity.TierAdmin), "create_application", args)
+	if err != nil {
+		t.Fatalf("slug-token + FQDN-arg of the same Org should succeed, got %v", err)
+	}
+	if sawBody["organizationRef"] != "hw178.omani.works" {
+		t.Errorf("organizationRef should forward the caller's value verbatim, got %v", sawBody["organizationRef"])
+	}
+}
+
 func containsTool(ts []Tool, name string) bool {
 	for _, t := range ts {
 		if t.Name == name {
