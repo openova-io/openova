@@ -170,6 +170,15 @@ type RedactedRequest struct {
 	WorkerSize       string `json:"workerSize,omitempty"`
 	WorkerCount      int    `json:"workerCount,omitempty"`
 
+	// StorageClass — the operator-chosen default StorageClass (#4057),
+	// non-secret. Persisted so a reload after a Pod restart preserves the
+	// wizard's storage choice for the Settings page + FailureCard
+	// diagnostic context (the same rationale Provider/ControlPlaneSize are
+	// persisted). Empty means the operator accepted the per-provider CSI
+	// default; the effective value is re-derived by deriveStorageClass at
+	// writeTfvars time.
+	StorageClass string `json:"storageClass,omitempty"`
+
 	HAEnabled bool `json:"haEnabled,omitempty"`
 
 	Regions []provisioner.RegionSpec `json:"regions,omitempty"`
@@ -230,6 +239,7 @@ func Redact(req provisioner.Request) RedactedRequest {
 		ControlPlaneSize:    req.ControlPlaneSize,
 		WorkerSize:          req.WorkerSize,
 		WorkerCount:         req.WorkerCount,
+		StorageClass:        req.StorageClass, // #4057 — persist the operator's storage choice (non-secret)
 		HAEnabled:           req.HAEnabled,
 		Regions:             req.Regions,
 		SSHPublicKey:        req.SSHPublicKey,
@@ -297,6 +307,7 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		ControlPlaneSize: r.ControlPlaneSize,
 		WorkerSize:       r.WorkerSize,
 		WorkerCount:      r.WorkerCount,
+		StorageClass:     r.StorageClass, // #4057 — restore the operator's storage choice
 		HAEnabled:        r.HAEnabled,
 		Regions:          r.Regions,
 		SSHPublicKey:     r.SSHPublicKey,
