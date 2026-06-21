@@ -586,6 +586,37 @@ postgres:
     resources:
       requests: { cpu: 50m, memory: 128Mi }
       limits:   { cpu: 500m, memory: 512Mi }
+  # ── DB-secret rename bridge (harbor-pg-app → harbor-database-secret) ──────
+  # Harbor upstream reads its DB password from a Secret NAMED
+  # `harbor-database-secret` (key `password` / `HARBOR_DATABASE_PASSWORD`),
+  # but CNPG mints `harbor-pg-app`. The placeholder Secret
+  # (templates/database-secret.yaml) + post-install Job
+  # (templates/database-secret-sync-job.yaml) bridge that rename.
+  #
+  # This MUST run whenever harbor OWNS a `harbor-pg` Cluster (i.e. there is a
+  # `harbor-pg-app` to rename) — and that is true in BOTH:
+  #   (a) the legacy embedded path   (postgres.cluster.enabled=true,  in-vc render), AND
+  #   (b) the #3642 host-bridge path (postgres.cluster.enabled=false, host renders
+  #       the Cluster CR but harbor STILL owns harbor-pg → harbor-pg-app exists).
+  # It MUST be OFF only in TRUE shared-pg mode (ADR-0010), where bp-postgres
+  # mints `harbor-database-secret` directly and no `harbor-pg-app` exists to poll.
+  #
+  # Previously the Job + placeholder were gated on `postgres.cluster.enabled`
+  # — which the #3642 host-bridge placement ALSO flips false (the Cluster CR
+  # is host-rendered, not in-vc). That conflation SKIPPED the renamer in the
+  # host-bridge path → `harbor-database-secret` never created → harbor-core
+  # `CreateContainerConfigError` (secret
+  # "harbor-database-secret-x-harbor-x-mgmt-vcluster" not found) → registry.<fqdn>
+  # 502 / harbor.<fqdn> 404 on a fresh prov (caught live hw172/hw173, BOTH regions).
+  # The sync Job is also the in-vCluster consumer of `harbor-pg-app`, so its
+  # absence ALSO meant nothing referenced `harbor-pg-app` inside vc-mgmt → the
+  # bp-mgmt-vcluster `sync.fromHost.secrets` import (#3953) never materialised
+  # it either. Rendering the Job fixes BOTH layers. (#4059, Refs #3642 #3953.)
+  # Default true (every own-cluster prov, embedded + host-bridge); a
+  # per-Sovereign TRUE-shared-pg overlay sets it false alongside the
+  # SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false flip.
+  databaseSecretSync:
+    enabled: true
 
 objectStorage:
   # When false, no credentials Secret is rendered (contabo, local dev,
