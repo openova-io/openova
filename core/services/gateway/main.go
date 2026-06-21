@@ -23,6 +23,11 @@ func main() {
 	valkeyUsername := getEnv("VALKEY_USERNAME", "")
 	valkeyPassword := getEnv("VALKEY_PASSWORD", "")
 	rateLimit := getEnvInt("RATE_LIMIT_RPM", 120)
+	// #3376 row-92: a tighter burst limit for the voucher-redeem path so a
+	// >5-in-a-few-seconds redeem/checkout flood trips a 429 (the global
+	// RATE_LIMIT_RPM is too lenient). Default 5 requests per 10s, per IP.
+	redeemRateLimit := getEnvInt("REDEEM_RATE_LIMIT", 5)
+	redeemRateWindow := getEnvInt("REDEEM_RATE_WINDOW_SEC", 10)
 	// Trusted proxy CIDRs are consulted when deciding whether to honour
 	// X-Forwarded-For / X-Real-IP headers. Defaults to the k3s pod CIDR so
 	// Traefik (which sits in that subnet) is trusted but direct callers
@@ -102,7 +107,7 @@ func main() {
 		log.Printf("warning: valkey unavailable (%v), rate limiting disabled", err)
 	}
 
-	rl := NewRateLimiter(valkeyClient, rateLimit, trustedProxies)
+	rl := NewRateLimiter(valkeyClient, rateLimit, redeemRateLimit, redeemRateWindow, trustedProxies)
 	proxy := NewProxyHandler(routes, []byte(jwtSecret), trustedProxies)
 
 	// Build handler chain: outermost listed first.
