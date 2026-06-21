@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T18:30:03Z` |
+| Last refreshed | `2026-06-21T18:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -287,6 +287,7 @@ flowchart LR
 | 2026-06-21T17:54 | [#4066](https://github.com/openova-io/openova/pull/4066) | #1 | feat(provisioning): storage class is a choosable user input  |
 | 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
 | 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
+| 2026-06-21T18:38 | [#4063](https://github.com/openova-io/openova/pull/4063) | #4061 | fix(bp-catalyst-platform): permanent Sovereign no longer aut |
 | 2026-06-21T18:11 | [#4062](https://github.com/openova-io/openova/pull/4062) | #4058 | refactor(catalog): rebrand bp-chepherd → bp-agenity (product |
 | 2026-06-21T15:54 | [#4056](https://github.com/openova-io/openova/pull/4056) | #4055 | fix(catalyst-api): enforce Huawei resource floor — CP≥4vCPU, |
 | 2026-06-21T18:27 | [#4054](https://github.com/openova-io/openova/pull/4054) | #4053 | fix(bp-cilium): poison-proof console gateway isolation — ded |
@@ -313,7 +314,6 @@ flowchart LR
 | 2026-06-21T01:07 | [#4020](https://github.com/openova-io/openova/pull/4020) | #4012 | fix(bp-huawei-evs-csi): publish 1.0.0 — add no-upstream anno |
 | 2026-06-21T00:58 | [#4019](https://github.com/openova-io/openova/pull/4019) | #3998 | fix(cloud-view): surface the REAL front-door LB from the dep |
 | 2026-06-21T00:43 | [#4017](https://github.com/openova-io/openova/pull/4017) | #3985 | fix(console): flip 18 user-visible 'tenant'→'Organization' s |
-| 2026-06-21T00:36 | [#4016](https://github.com/openova-io/openova/pull/4016) | #3964 | fix(funnel): unblock coupon→Org→ACTIVE — provisioning image  |
 
 ---
 
