@@ -34,6 +34,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
@@ -92,14 +93,88 @@ var CanonicalSovereignSubdomains = []string{
 	"sandbox",
 }
 
+// ConsoleGatewaySubdomains — the subset of CanonicalSovereignSubdomains whose
+// HTTPRoutes parent the DEDICATED console gateway (`cilium-gateway-console`,
+// #4053 / #4054) rather than the shared `cilium-gateway`. Their A-records MUST
+// point at the console load-balancer IP (the console ELB / dedicated console LB)
+// — the shared gateway carries no listener/route for these hosts, so resolving
+// them at the shared LB IP returns 404.
+//
+// Source of truth — this MUST stay in lockstep with the chart's console-gateway
+// membership, which is the single `ingress.gateway.parentRef.name:
+// cilium-gateway-console` default applied to exactly these HTTPRoutes:
+//   - products/catalyst/chart/templates/httproute.yaml          (catalyst-ui → console.<fqdn>, catalyst-api → api.<fqdn>)
+//   - products/catalyst/chart/templates/services/catalog/httproute.yaml (catalyst-catalog → api.<fqdn>)
+//   - products/catalyst/chart/templates/org-services/marketplace-routes.yaml (marketplace → marketplace.<fqdn>)
+//
+// Verified live on the permanent omantel.biz Sovereign (dep 4635277cae4ffed9,
+// 2026-06-22): `kubectl get httproute -A` showed catalyst-ui/catalyst-api/
+// catalyst-catalog/marketplace parenting cilium-gateway-console (EIP …33) while
+// every other route parented cilium-gateway (EIP …31). console/api/marketplace
+// served 404 on …31 and 200 on …33 (Refs #4069). The #4054 commit message
+// claimed marketplace stays on the shared gateway — the live cluster contradicts
+// it because the marketplace route inherits the same parentRef default.
+//
+// Operator-overridable via CATALYST_CONSOLE_GATEWAY_SUBDOMAINS (comma-separated)
+// for the rare topology that re-parents a different subset. Any entry here that
+// is NOT also in CanonicalSovereignSubdomains is still written (so an operator
+// can add a console-gateway-only host), but the canonical set already contains
+// all three so no record is dropped.
+var ConsoleGatewaySubdomains = []string{
+	"console",
+	"api",
+	"marketplace",
+}
+
+// consoleGatewaySubdomainSet returns ConsoleGatewaySubdomains as a lookup set,
+// honouring the CATALYST_CONSOLE_GATEWAY_SUBDOMAINS override.
+func consoleGatewaySubdomainSet() map[string]struct{} {
+	subs := ConsoleGatewaySubdomains
+	if raw := strings.TrimSpace(os.Getenv("CATALYST_CONSOLE_GATEWAY_SUBDOMAINS")); raw != "" {
+		subs = nil
+		for _, tok := range strings.Split(raw, ",") {
+			if tok = strings.TrimSpace(tok); tok != "" {
+				subs = append(subs, tok)
+			}
+		}
+	}
+	out := make(map[string]struct{}, len(subs))
+	for _, s := range subs {
+		out[strings.ToLower(s)] = struct{}{}
+	}
+	return out
+}
+
+// recordTargetIP picks the A-record target for a given canonical subdomain:
+// the console LB IP for console-gateway hosts (when a dedicated console LB
+// exists), otherwise the shared/primary LB IP. consoleLBIP == "" (module
+// pre-#4053, or no console-gateway isolation) collapses to lbIP for every host
+// — byte-identical to the pre-#4069 behaviour.
+func recordTargetIP(subdomain, lbIP, consoleLBIP string, consoleSet map[string]struct{}) string {
+	if consoleLBIP == "" {
+		return lbIP
+	}
+	if _, ok := consoleSet[strings.ToLower(subdomain)]; ok {
+		return consoleLBIP
+	}
+	return lbIP
+}
+
 // upsertSovereignParentZoneRecords PATCHes the parent zone with A
 // records that route every CanonicalSovereignSubdomain at the
-// Sovereign's primary load-balancer IP.
+// Sovereign's primary load-balancer IP — except the ConsoleGatewaySubdomains,
+// which point at consoleLBIP (the dedicated console LB) when one exists (#4069).
 //
 // Inputs come from the Phase-0 tofu output:
 //   - sovereignFQDN: e.g. "t111.omani.works"
 //   - parentZone:    e.g. "omani.works"  (parent of sovereignFQDN)
-//   - lbIP:          e.g. "77.42.11.95"  (primary region Hetzner LB)
+//   - lbIP:          e.g. "77.42.11.95"  (primary/shared region LB)
+//   - consoleLBIP:   optional (variadic so existing callers compile). #4069.
+//     When non-empty, the ConsoleGatewaySubdomains (console/api/marketplace —
+//     the hosts whose HTTPRoutes parent the dedicated cilium-gateway-console)
+//     point HERE instead of lbIP, so a fresh prov writes the console front
+//     doors at the console LB. Empty/omitted → every record points at lbIP
+//     (byte-identical to pre-#4069 behaviour for module-pre-#4053 Sovereigns).
 //
 // Idempotent: PowerDNS PATCH REPLACE rewrites the rrset on every call.
 //
@@ -107,7 +182,7 @@ var CanonicalSovereignSubdomains = []string{
 // provision or log + continue (today we log + continue so the Sovereign
 // still reaches phase1-watching even if PowerDNS is briefly unavailable;
 // the operator can re-trigger via the parent-domain refresh endpoint).
-func (h *Handler) upsertSovereignParentZoneRecords(ctx context.Context, sovereignFQDN, parentZone, lbIP string) error {
+func (h *Handler) upsertSovereignParentZoneRecords(ctx context.Context, sovereignFQDN, parentZone, lbIP string, consoleLBIP ...string) error {
 	if h.powerdnsZoneClient == nil {
 		h.log.Info("sovereign-dns-records: skipping (no powerdns client wired)",
 			"sovereignFQDN", sovereignFQDN,
@@ -131,20 +206,30 @@ func (h *Handler) upsertSovereignParentZoneRecords(ctx context.Context, sovereig
 		}
 	}
 
+	// #4069 — resolve the console front-door IP (defaults to lbIP when the
+	// console gateway is not isolated, i.e. consoleLBIP is omitted/empty).
+	consoleIP := ""
+	if len(consoleLBIP) > 0 {
+		consoleIP = strings.TrimSpace(consoleLBIP[0])
+	}
+	consoleSet := consoleGatewaySubdomainSet()
+
 	subdomains := CanonicalSovereignSubdomains
 	rrsets := make([]powerdns.RRSet, 0, len(subdomains)+1)
 	for _, sub := range subdomains {
+		target := recordTargetIP(sub, lbIP, consoleIP, consoleSet)
 		rrsets = append(rrsets, powerdns.RRSet{
 			Name:       sub + "." + sovereignFQDN + ".",
 			Type:       "A",
 			TTL:        60,
 			ChangeType: "REPLACE",
-			Records:    []powerdns.Record{{Content: lbIP, Disabled: false}},
+			Records:    []powerdns.Record{{Content: target, Disabled: false}},
 		})
 	}
 	// Also stamp the bare FQDN apex (e.g. t111.omani.works. itself) for
 	// dashboard "Open Sovereign Console →" deep-links and for ACME
-	// clients that probe the apex first.
+	// clients that probe the apex first. The apex is NOT a console-gateway
+	// host (it has no isolated HTTPRoute) so it stays on the shared lbIP.
 	rrsets = append(rrsets, powerdns.RRSet{
 		Name:       sovereignFQDN + ".",
 		Type:       "A",
@@ -160,6 +245,7 @@ func (h *Handler) upsertSovereignParentZoneRecords(ctx context.Context, sovereig
 		"sovereignFQDN", sovereignFQDN,
 		"parentZone", parentZone,
 		"lbIP", lbIP,
+		"consoleLBIP", consoleIP,
 		"recordCount", len(rrsets),
 	)
 	return nil
@@ -209,7 +295,7 @@ func (h *Handler) upsertSovereignParentZoneRecordsFromResult(ctx context.Context
 	}
 
 	for _, parent := range parents {
-		err := h.upsertSovereignParentZoneRecords(ctx, result.SovereignFQDN, parent, result.LoadBalancerIP)
+		err := h.upsertSovereignParentZoneRecords(ctx, result.SovereignFQDN, parent, result.LoadBalancerIP, result.ConsoleLoadBalancerIP)
 		if err == nil {
 			continue
 		}
@@ -232,7 +318,7 @@ func (h *Handler) upsertSovereignParentZoneRecordsFromResult(ctx context.Context
 					"originalParent", parent,
 					"derivedParent", derivedParent,
 				)
-				if err2 := h.upsertSovereignParentZoneRecords(ctx, result.SovereignFQDN, derivedParent, result.LoadBalancerIP); err2 == nil {
+				if err2 := h.upsertSovereignParentZoneRecords(ctx, result.SovereignFQDN, derivedParent, result.LoadBalancerIP, result.ConsoleLoadBalancerIP); err2 == nil {
 					continue
 				} else {
 					err = fmt.Errorf("original=%w, derived-fallback=%v", err, err2)

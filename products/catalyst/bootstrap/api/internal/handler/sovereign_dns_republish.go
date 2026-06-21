@@ -169,7 +169,7 @@ func (h *Handler) HandleRepublishDNS(w http.ResponseWriter, r *http.Request) {
 	var errs []string
 	resolvedParents := make([]string, 0, len(parents))
 	for _, parent := range parents {
-		if err := h.upsertSovereignParentZoneRecords(r.Context(), result.SovereignFQDN, parent, result.LoadBalancerIP); err == nil {
+		if err := h.upsertSovereignParentZoneRecords(r.Context(), result.SovereignFQDN, parent, result.LoadBalancerIP, result.ConsoleLoadBalancerIP); err == nil {
 			resolvedParents = append(resolvedParents, parent)
 			continue
 		} else if strings.Contains(err.Error(), "status 404") && parent == result.SovereignFQDN {
@@ -180,7 +180,7 @@ func (h *Handler) HandleRepublishDNS(w http.ResponseWriter, r *http.Request) {
 					"originalParent", parent,
 					"derivedParent", derivedParent,
 				)
-				if err2 := h.upsertSovereignParentZoneRecords(r.Context(), result.SovereignFQDN, derivedParent, result.LoadBalancerIP); err2 == nil {
+				if err2 := h.upsertSovereignParentZoneRecords(r.Context(), result.SovereignFQDN, derivedParent, result.LoadBalancerIP, result.ConsoleLoadBalancerIP); err2 == nil {
 					resolvedParents = append(resolvedParents, derivedParent)
 					continue
 				} else {
