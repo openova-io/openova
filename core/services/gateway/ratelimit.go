@@ -15,14 +15,24 @@ import (
 
 // RateLimiter enforces per-IP request limits using a sliding window counter in Valkey.
 type RateLimiter struct {
-	client         valkey.Client
-	rpm            int // requests per minute
-	trustedProxies []*net.IPNet
+	client valkey.Client
+	rpm    int // global requests per minute (per IP)
+	// #3376 row-92: a tighter burst limit for the voucher-redeem path. The
+	// global per-minute rpm is far too lenient to stop redeem/checkout abuse
+	// (120/min ≈ 2/s lets a 5-in-3s burst sail through), so the redeem path
+	// additionally enforces redeemLimit requests per redeemWindowSec (per IP)
+	// on a dedicated short-window key. redeemLimit <= 0 disables it.
+	redeemLimit     int
+	redeemWindowSec int
+	trustedProxies  []*net.IPNet
 }
 
-// NewRateLimiter creates a RateLimiter with the given Valkey client and requests-per-minute limit.
-func NewRateLimiter(client valkey.Client, rpm int, trustedProxies []*net.IPNet) *RateLimiter {
-	return &RateLimiter{client: client, rpm: rpm, trustedProxies: trustedProxies}
+// NewRateLimiter creates a RateLimiter with the given Valkey client, the global
+// per-minute limit, and the voucher-redeem burst limit (redeemLimit requests
+// per redeemWindowSec). A redeemLimit <= 0 disables the redeem-specific burst
+// limit (the global rpm still applies).
+func NewRateLimiter(client valkey.Client, rpm, redeemLimit, redeemWindowSec int, trustedProxies []*net.IPNet) *RateLimiter {
+	return &RateLimiter{client: client, rpm: rpm, redeemLimit: redeemLimit, redeemWindowSec: redeemWindowSec, trustedProxies: trustedProxies}
 }
 
 // Middleware returns HTTP middleware that enforces the rate limit.
@@ -62,6 +72,33 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 				"retry_after": retryAfter,
 			})
 			return
+		}
+
+		// #3376 row-92: a stricter burst limit for the voucher-redeem path.
+		// The global per-minute rpm above is too lenient to stop a >5-in-a-few-
+		// seconds redeem/checkout flood (it sails under 120/min); enforce
+		// redeemLimit per redeemWindowSec on a dedicated short-window,
+		// path-scoped key so a single legitimate redeem is unaffected but a
+		// rapid retry storm trips a 429.
+		if rl.redeemLimit > 0 && strings.HasPrefix(r.URL.Path, "/api/billing/vouchers/redeem") {
+			win := rl.redeemWindowSec
+			if win <= 0 {
+				win = 10
+			}
+			bucket := now.Unix() / int64(win)
+			rkey := fmt.Sprintf("rl:redeem:%s:%d", ip, bucket)
+			if rcount, rerr := rl.client.Do(ctx, rl.client.B().Incr().Key(rkey).Build()).AsInt64(); rerr == nil {
+				if rcount == 1 {
+					rl.client.Do(ctx, rl.client.B().Expire().Key(rkey).Seconds(int64(win)).Build())
+				}
+				if int(rcount) > rl.redeemLimit {
+					respond.JSON(w, http.StatusTooManyRequests, map[string]any{
+						"error":       "too many redeem attempts — please wait a few seconds and try again",
+						"retry_after": win,
+					})
+					return
+				}
+			}
 		}
 
 		next.ServeHTTP(w, r)
