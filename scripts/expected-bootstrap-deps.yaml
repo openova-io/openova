@@ -693,14 +693,20 @@ slots:
   # The Huawei (HCS / kom4dc) STORAGE sibling of slot 55a. Installs the
   # open-source huaweicloud-csi-driver EVS plugin (evs.csi.huaweicloud.com) +
   # the durable evs-ssd default StorageClass so Huawei PVCs land on real EVS
-  # block volumes (local-path FORBIDDEN by --disable=local-storage). No
-  # dependsOn: foundational cloud seam, Ready before the stateful apps create
-  # PVCs (cloud-credentials seeded by cloud-init pre-Flux, chart pulls from
-  # ghcr). Default-suspended on Hetzner (HUAWEI_HR_SUSPEND); the Huawei
-  # cloud-init flips it active. Closes the Huawei half of the #3971 P0 blocker.
+  # block volumes (local-path FORBIDDEN by --disable=local-storage).
+  # bp-reflector dep (#4044, #4038 follow-up): the driver image
+  # ghcr.io/openova-io/openova/evs-csi-plugin is a PRIVATE ghcr package whose
+  # pod spec carries imagePullSecrets:[ghcr-pull]; that secret is MIRRORED into
+  # huawei-evs-csi by the emberstack reflector (slot 5a), so the reflector must
+  # be Ready before the CSI pods are created — otherwise they pull anonymously,
+  # 401, ImagePullBackOff, and never self-heal once the secret lands (live hw179
+  # 2026-06-21). Same rationale as bp-external-dns above. cloud-credentials for
+  # AK/SK is still seeded by cloud-init pre-Flux (no Flux dep there).
+  # Default-suspended on Hetzner (HUAWEI_HR_SUSPEND); the Huawei cloud-init flips
+  # it active. Closes the Huawei half of the #3971 P0 blocker.
   - slot: 55b
     name: bp-huawei-evs-csi
-    depends_on: []
+    depends_on: [bp-reflector]
     wave: present
 
   # ---- Slots 56/57 — OpenovaFlow observability cohort.
