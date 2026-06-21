@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-21T07:12:23.003Z",
+  "generatedAt": "2026-06-21T07:17:19.566Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -470,6 +470,48 @@
         }
       },
       "hasUserUIEndpoint": false
+    },
+    {
+      "id": "bp-chepherd",
+      "slug": "chepherd",
+      "title": "Chepherd",
+      "summary": "|",
+      "icon": "chepherd.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "0.1.0",
+      "section": "pts-7-org-tenant",
+      "depends": [
+        "bp-external-secrets"
+      ],
+      "shareable": false,
+      "contextSchema": null,
+      "producesInstances": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-cilium",

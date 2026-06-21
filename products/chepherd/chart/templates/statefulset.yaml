@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "chepherd.fullname" . }}
+  labels:
+    {{- include "chepherd.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "chepherd.fullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "chepherd.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "chepherd.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: chepherd
+          image: {{ include "chepherd.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - run
+            - --headless          # Pod mode: no TUI, runtime + WS + MCP HTTP
+            - --listen
+            - "0.0.0.0:{{ .Values.service.port }}"
+            {{- if .Values.agent.solo }}
+            - --no-shepherd       # solo: a single worker agent, no supervisor
+            {{- end }}
+            - --agent
+            - {{ .Values.agent.flavor | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+          env:
+            # ── Solo-agent model — NORTH STAR: Claude Opus 4.7 ──────────────
+            # chepherd passes this as `--model` to the spawned claude-code so
+            # the User's solo agent runs on Opus 4.7.
+            - name: CHEPHERD_DEFAULT_MODEL
+              value: {{ .Values.agent.model | quote }}
+            {{- if .Values.agent.systemPrompt }}
+            - name: CHEPHERD_DEFAULT_SYSTEM_PROMPT
+              value: {{ .Values.agent.systemPrompt | quote }}
+            {{- end }}
+            # ── Anthropic API token (from Secret — never hardcoded) ─────────
+            # chepherd seeds its vault `anthropic-api` provider from this env;
+            # the spawned agent inherits ANTHROPIC_API_KEY at spawn time.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.anthropic.secretName }}
+                  key: {{ .Values.anthropic.secretKey }}
+            {{- if .Values.openovaMCP.enabled }}
+            # ── openova MCP injection seam (chepherd #4010) ─────────────────
+            # chepherd merges this JSON into every spawned agent's .mcp.json,
+            # so the solo agent discovers the `openova` MCP server alongside
+            # chepherd's own. The agent then calls create_application etc. on
+            # the User's Org, RBAC-scoped (the openova MCP forwards the
+            # caller's session bearer to the live catalyst-api).
+            - name: CHEPHERD_EXTRA_MCP_JSON
+              value: |-
+                {"mcpServers":{"openova":{
+                  "command":{{ .Values.openovaMCP.binaryPath | quote }},
+                  "env":{
+                    "OPENOVA_MCP_CATALYST_API_URL":{{ .Values.openovaMCP.catalystApiUrl | quote }},
+                    "OPENOVA_MCP_CONTEXT":{{ .Values.openovaMCP.context | quote }},
+                    "OPENOVA_MCP_VERIFY":{{ .Values.openovaMCP.verify | quote }},
+                    "OPENOVA_MCP_RS256_PUBKEY_PEM":"$(OPENOVA_MCP_RS256_PUBKEY_PEM)"
+                  }
+                }}}
+            {{- if eq .Values.openovaMCP.verify "rs256" }}
+            # The RS256 public key the MCP verifies caller bearers against,
+            # reflected from the Sovereign's handover-jwt secret. Surfaced as
+            # an env var so the EXTRA_MCP_JSON above can $(…)-expand it into
+            # the per-agent MCP server stanza.
+            - name: OPENOVA_MCP_RS256_PUBKEY_PEM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openovaMCP.rs256PubkeySecret.name }}
+                  key: {{ .Values.openovaMCP.rs256PubkeySecret.key }}
+            {{- end }}
+            {{- end }}
+            - name: CHEPHERD_STATE_DIR
+              value: /var/chepherd/state
+          volumeMounts:
+            - name: state
+              mountPath: /var/chepherd/state
+            - name: repo
+              mountPath: /var/chepherd/repo
+            {{- if .Values.podman.inPod }}
+            - name: fuse
+              mountPath: /dev/fuse
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.podman.inPod }}
+          securityContext:
+            # rootless podman-in-pod needs the SYS_ADMIN cap + device access
+            # for the ContainerRuntime that hosts per-agent claude REPLs.
+            seccompProfile:
+              type: Unconfined
+            capabilities:
+              add: ["SYS_ADMIN"]
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      volumes:
+        {{- if not .Values.persistence.enabled }}
+        - name: state
+          emptyDir: {}
+        - name: repo
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.podman.inPod }}
+        - name: fuse
+          hostPath:
+            path: /dev/fuse
+            type: CharDevice
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.persistence.state.size }}
+        {{- if .Values.persistence.state.storageClass }}
+        storageClassName: {{ .Values.persistence.state.storageClass }}
+        {{- end }}
+    - metadata:
+        name: repo
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.persistence.repo.size }}
+        {{- if .Values.persistence.repo.storageClass }}
+        storageClassName: {{ .Values.persistence.repo.storageClass }}
+        {{- end }}
+  {{- end }}

@@ -1,0 +1,155 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-chepherd
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-7-org-tenant
+spec:
+  version: 0.1.0
+  card:
+    title: Chepherd
+    summary: |
+      Your AI engineering team — a multi-agent runtime + dashboard you
+      install into your own Organization. Chat with the built-in solo
+      agent (Claude Opus 4.7, token pre-configured); it creates and
+      manages Applications in YOUR Organization on your behalf through the
+      OpenOva MCP, scoped to exactly what you can do in the console.
+    icon: chepherd.svg
+    category: ai-runtime
+    family: agent-runtime
+    tags: [chepherd, agent, multi-agent, claude, opus, mcp, self-service]
+    documentation: https://github.com/chepherd/chepherd
+    license: MIT
+  visibility: listed
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      agent:
+        type: object
+        description: The solo agent the User chats with.
+        properties:
+          model:
+            type: string
+            default: claude-opus-4-7
+            description: |
+              The Claude model the solo agent runs on. The north-star
+              journey ships Claude Opus 4.7 ("token already configured").
+            enum:
+              - claude-opus-4-7
+              - claude-opus-4-8
+              - claude-sonnet-4-6
+          solo:
+            type: boolean
+            default: true
+            description: |
+              true = a single solo agent (no shepherd/supervisor) — the
+              1:1 chat journey. false = also spawn a shepherd watcher.
+          systemPrompt:
+            type: string
+            default: ""
+            description: Optional system prompt the solo agent boots with.
+      anthropic:
+        type: object
+        description: |
+          Anthropic API token wiring. The token is read from a Kubernetes
+          Secret (ExternalSecret/openbao by default) — never entered here.
+        properties:
+          secretName:
+            type: string
+            default: chepherd-anthropic-token
+          externalSecret:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: true
+                description: |
+                  true = pull the sk-ant-... token from the Org's openbao
+                  via an ExternalSecret. false = the operator pre-creates
+                  the Secret out-of-band (e.g. a sealed-secret).
+      openovaMCP:
+        type: object
+        description: |
+          Wires the solo agent to the OpenOva MCP server so it can create
+          Applications in the User's own Organization, RBAC-scoped to the
+          User's rights (the MCP forwards the caller's session bearer to
+          the live catalyst-api; the endpoint's authz is the final word).
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          context:
+            type: string
+            enum: [organization, sovereign]
+            default: organization
+            description: |
+              Pins the MCP to the Organization context so the agent can
+              only act within the User's own Org (defense in depth).
+      persistence:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          state:
+            type: object
+            properties:
+              size:
+                type: string
+                default: 5Gi
+            description: |
+              chepherd runtime state PVC. Backed by the cluster's default
+              CSI StorageClass — local-path is forbidden (#3971).
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-external-secrets
+      version: ^1.0
+      alias: eso
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout
+  topology:
+    supported:
+      - singleton
+    defaults:
+      # chepherd is a region-pinned singleton coordinator/agent console — it
+      # does not replicate across regions, so both BCP defaults resolve to the
+      # single in-region instance (schema requires both keys; G116).
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters:
+            - rtz-A
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: console
+      hostnameTemplate: chepherd.{{.OrgSlug}}.{{.SovereignFQDN}}
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: '{{.OrgSlug}}'
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+  multiInstance:
+    enabled: false

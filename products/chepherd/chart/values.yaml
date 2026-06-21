@@ -1,0 +1,130 @@
+# bp-chepherd — default values
+#
+# Deploys chepherd as an OpenOva Application into a User's Organization /
+# Environment. The User installs this from the catalog; its solo agent
+# (Claude Opus 4.7) then creates more Applications in the User's own Org
+# via the RBAC-scoped openova MCP server.
+#
+# Inviolable Principle #4: no hardcoded secrets/config in code — every knob
+# flows through values → env → the chepherd binary; the Anthropic token
+# comes from a Secret (ExternalSecret/openbao), NEVER a literal here.
+
+# ── chepherd runtime image ────────────────────────────────────────────────
+image:
+  repository: ghcr.io/openova-io/bp-chepherd
+  tag: ""                 # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# ── Solo-agent profile ────────────────────────────────────────────────────
+# chepherd boots with a single solo worker agent the User chats with. The
+# journey requires Claude Opus 4.7: `agent.model` is passed to the spawned
+# claude-code as `--model`, so the agent runs on Opus 4.7.
+agent:
+  flavor: claude-code      # the spawned agent CLI flavor
+  model: claude-opus-4-7   # NORTH-STAR: the solo agent runs on Claude Opus 4.7
+  # Optional system-prompt the solo agent boots with. Empty = chepherd default.
+  systemPrompt: ""
+  # When true, NO shepherd/supervisor is spawned — a single solo agent only
+  # (matches the catalog/solo recipe). The journey is a 1:1 chat with one agent.
+  solo: true
+
+# ── Anthropic API token (the "token already configured" requirement) ──────
+# The solo agent authenticates to Anthropic with this token. It is sourced
+# from a Kubernetes Secret — sk-ant-... is NEVER written into the chart.
+# Two delivery modes:
+#   externalSecret.enabled=true (default, production): an ExternalSecret
+#     pulls the key from openbao (path `anthropic/<org>`) into the Secret.
+#   externalSecret.enabled=false: the operator pre-creates a Secret named
+#     `secretName` with key `anthropicApiKey` out-of-band (e.g. sealed-secret).
+anthropic:
+  secretName: chepherd-anthropic-token
+  secretKey: anthropicApiKey
+  externalSecret:
+    enabled: true
+    refreshInterval: 1h
+    # ClusterSecretStore that fronts the Org's openbao (region1 default).
+    secretStoreRef: vault-region1
+    secretStoreKind: ClusterSecretStore
+    # openbao path + property holding the sk-ant-... token.
+    remoteKey: anthropic/token
+    remoteProperty: apiKey
+
+# ── openova MCP integration ───────────────────────────────────────────────
+# The chepherd image bundles the `openova-mcp` binary at /usr/local/bin.
+# chepherd injects this MCP-server stanza into EVERY spawned agent's
+# .mcp.json via the CHEPHERD_EXTRA_MCP_JSON seam (chepherd #4010), so the
+# solo agent's app-creation tools == the User's UI rights, RBAC-scoped to
+# the User's Org.
+#
+# RBAC parity: the openova MCP holds NO privileged token; it forwards the
+# caller's session bearer to the live catalyst-api, whose own authz is the
+# final word. The bearer is presented per-call by the agent (the chat UI
+# supplies the User's session token), so create_application is gated to
+# tier-admin-or-higher and pinned to the User's own Org.
+openovaMCP:
+  enabled: true
+  binaryPath: /usr/local/bin/openova-mcp
+  # In-cluster catalyst-api the MCP forwards calls to. On a Sovereign this
+  # is the per-Org catalyst-api Service; the gateway terminates session auth.
+  catalystApiUrl: http://catalyst-api.catalyst-system.svc
+  # Pins the MCP to the Organization context so even a wider token cannot
+  # widen the surface beyond the User's Org (defense in depth).
+  context: organization
+  # Bearer verification mode for the MCP (rs256 against the Sovereign
+  # handover pubkey by default). The pubkey is reflected in from the
+  # catalyst handover-jwt secret.
+  verify: rs256
+  rs256PubkeySecret:
+    name: catalyst-handover-jwt
+    key: handover-jwt-public.pem
+
+# ── Service (chepherd web UI + dashboard WS + MCP) ────────────────────────
+service:
+  type: ClusterIP
+  port: 8080            # chepherd web UI + dashboard WS + MCP HTTP
+  metricsPort: 9090     # Prometheus scrape
+
+# ── HTTPRoute (Cilium Gateway) — the User reaches the chepherd console ─────
+httpRoute:
+  enabled: true
+  hostnames: []         # default: discovered from the Org/Sovereign FQDN
+  parentRef:
+    name: catalyst-gateway
+    namespace: catalyst-system
+
+# ── Persistence — chepherd runtime state + per-agent repo/cache ───────────
+# CSI-backed PVCs. storageClass empty = the cluster's default CSI class.
+# NEVER local-path (#3971): leaving storageClass empty resolves to the
+# per-provider CSI default the platform installs.
+persistence:
+  enabled: true
+  state:
+    size: 5Gi
+    storageClass: ""    # "" = cluster default CSI class (NEVER local-path)
+  repo:
+    size: 10Gi
+    storageClass: ""
+
+# ── Resources ─────────────────────────────────────────────────────────────
+# chepherd itself is a light coordinator; the per-agent claude REPLs are the
+# heavy users and run as sidecar/podman children inside the pod.
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# ── Pod security / scheduling ─────────────────────────────────────────────
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# rootless podman-in-pod needs /dev/fuse + relaxed seccomp; gated so a
+# locked-down cluster can disable the in-pod spawner and use an external one.
+podman:
+  inPod: true

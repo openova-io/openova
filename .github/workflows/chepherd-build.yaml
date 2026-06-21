@@ -1,0 +1,66 @@
+name: Build bp-chepherd
+
+# Builds the bp-chepherd Application image: the upstream chepherd daemon
+# image with OpenOva's openova-mcp binary baked in (#4010). The build
+# context is the repo root because the openova-mcp module imports
+# core/services/shared/auth from this repo.
+
+on:
+  push:
+    paths:
+      - 'products/chepherd/**'
+      - 'products/openova-mcp/**'
+      - 'core/services/shared/auth/**'
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/bp-chepherd
+  # Pin the upstream chepherd daemon image the openova-mcp binary overlays.
+  # Digest-pinned to the v0.9.4 build that carries the bp-chepherd MCP seam
+  # (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
+  CHEPHERD_BASE: ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-bp-chepherd:
+    runs-on: ubuntu-latest
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set short SHA + chart appVersion
+        id: vars
+        run: |
+          echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+          # The chart's image helper resolves to repository:<Chart.AppVersion>
+          # (chepherd.image in _helpers.tpl), so the published image MUST carry
+          # that exact tag or the StatefulSet ImagePullBackOffs. Derive it from
+          # the chart so the tag can never drift from what the chart references.
+          APPVER=$(grep -E '^appVersion:' products/chepherd/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
+          echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: products/chepherd/Containerfile
+          build-args: |
+            CHEPHERD_BASE=${{ env.CHEPHERD_BASE }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest

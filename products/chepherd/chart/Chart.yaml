@@ -1,0 +1,32 @@
+apiVersion: v2
+name: bp-chepherd
+description: |
+  Chepherd — multi-agent runtime + dashboard, packaged as an installable
+  OpenOva Application Blueprint. A User installs chepherd into their own
+  Organization from the catalog, then chats with its solo agent (Claude
+  Opus 4.7, token pre-configured). The agent reaches the openova MCP server
+  (RBAC-scoped to the User's rights) to create more Applications in the
+  User's own Organization — the north-star self-service journey.
+type: application
+version: 0.1.0
+appVersion: "0.9.4"
+keywords:
+  - chepherd
+  - agent-runtime
+  - multi-agent
+  - solo-agent
+  - openova-blueprint
+maintainers:
+  - name: OpenOva
+    url: https://github.com/openova-io/openova
+sources:
+  - https://github.com/chepherd/chepherd
+  - https://github.com/openova-io/openova
+# Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
+# this is a product chart deploying a single upstream image (chepherd) with
+# Catalyst-authored resources (StatefulSet + Service + HTTPRoute + MCP
+# ConfigMap + ExternalSecret). No bundled upstream Helm subchart — same
+# shape as products/axon (PR), bp-continuum, bp-kyverno-policies.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  openova.io/blueprint-type: thirdparty
