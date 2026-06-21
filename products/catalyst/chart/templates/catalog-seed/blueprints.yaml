@@ -6516,6 +6516,7 @@ spec:
     supported:
       - singleton
     defaults:
+      multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
