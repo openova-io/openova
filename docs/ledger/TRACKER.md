@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T23:15:01Z` |
+| Last refreshed | `2026-06-21T23:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 79 |
 | Open DoD gates | 0 / 41 |
@@ -286,6 +286,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-21T23:16 | [#4070](https://github.com/openova-io/openova/pull/4070) | #4054 | fix(bp-catalyst-api): route console/api/marketplace at the c |
+| 2026-06-21T23:16 | [#4068](https://github.com/openova-io/openova/pull/4068) | #4058 | docs(catalog): finish #4058 bp-chepherd→bp-agenity rename in |
+| 2026-06-21T23:16 | [#4067](https://github.com/openova-io/openova/pull/4067) | #2 | fix(provisioning): warm bootstrap-kit COMPONENT private imag |
 | 2026-06-21T17:54 | [#4066](https://github.com/openova-io/openova/pull/4066) | #1 | feat(provisioning): storage class is a choosable user input  |
 | 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
 | 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
@@ -297,6 +300,7 @@ flowchart LR
 | 2026-06-21T12:03 | [#4051](https://github.com/openova-io/openova/pull/4051) | #4049 | fix(bp-catalyst-platform): bp-chepherd missing required topo |
 | 2026-06-21T18:52 | [#4050](https://github.com/openova-io/openova/pull/4050) | #4049 | fix(provisioning): bastion Harbor warmup — every catalyst im |
 | 2026-06-21T09:51 | [#4048](https://github.com/openova-io/openova/pull/4048) | #3913 | fix(huawei): route ghcr/quay/gcr/k8s through bastion NAT-byp |
+| 2026-06-21T23:16 | [#4047](https://github.com/openova-io/openova/pull/4047) | #3145 | fix(huawei-prov): janitor SG-leak + EIP-egress preflight (st |
 | 2026-06-21T08:16 | [#4045](https://github.com/openova-io/openova/pull/4045) | #4038 | fix(bp-huawei-evs-csi): slot 55b dependsOn bp-reflector — cl |
 | 2026-06-21T07:16 | [#4043](https://github.com/openova-io/openova/pull/4043) | #3985 | fix(catalog+settings): eradicate residual Catalyst-Organizat |
 | 2026-06-21T07:01 | [#4042](https://github.com/openova-io/openova/pull/4042) | #3987 | fix(cloud-view): scope Nodes to the deployment + evict wiped |
@@ -312,10 +316,6 @@ flowchart LR
 | 2026-06-21T02:41 | [#4031](https://github.com/openova-io/openova/pull/4031) | #4022 | fix(bp-huawei-evs-csi): default volumeSnapshotClass off — fi |
 | 2026-06-21T07:00 | [#4029](https://github.com/openova-io/openova/pull/4029) | #3969 | feat(console): wire live Continuum DR status into the reacha |
 | 2026-06-21T07:00 | [#4028](https://github.com/openova-io/openova/pull/4028) | #3376 | fix(gateway): per-IP burst rate-limit on the voucher-redeem  |
-| 2026-06-21T01:37 | [#4022](https://github.com/openova-io/openova/pull/4022) | #3971 | fix(bp-huawei-evs-csi): promote idc driver + EVS_CSI_ENABLED |
-| 2026-06-21T07:00 | [#4021](https://github.com/openova-io/openova/pull/4021) | #4000 | fix(topology-ui): bootstrap placement queries empty namespac |
-| 2026-06-21T01:07 | [#4020](https://github.com/openova-io/openova/pull/4020) | #4012 | fix(bp-huawei-evs-csi): publish 1.0.0 — add no-upstream anno |
-| 2026-06-21T00:58 | [#4019](https://github.com/openova-io/openova/pull/4019) | #3998 | fix(cloud-view): surface the REAL front-door LB from the dep |
 
 ---
 
