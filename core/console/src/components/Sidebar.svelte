@@ -73,7 +73,7 @@
               </button>
             {/each}
             {#if orgs.length === 0}
-              <p class="px-3 py-2 text-xs text-[var(--color-text-dim)]">No tenants.</p>
+              <p class="px-3 py-2 text-xs text-[var(--color-text-dim)]">No Organizations.</p>
             {/if}
           </div>
         {/if}

@@ -327,7 +327,7 @@
           <section class="section">
             <h2>Connection</h2>
             <p class="section-hint">
-              Your apps reach this service inside the tenant vCluster. Credentials are
+              Your apps reach this service inside the Organization vCluster. Credentials are
               injected at deploy time — no manual wiring needed.
             </p>
             {#if backing}

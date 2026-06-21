@@ -165,13 +165,13 @@
       <div class="mt-6 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/5 p-6">
         <h2 class="mb-2 text-base font-semibold text-[var(--color-danger)]">Danger Zone</h2>
         <p class="mb-4 text-sm text-[var(--color-text-dim)]">
-          Deleting your tenant will permanently remove all data, apps, and domains. This action cannot be undone.
+          Deleting your Organization will permanently remove all data, apps, and domains. This action cannot be undone.
         </p>
         <button
           onclick={() => { confirmOpen = true; confirmText = ''; deleteError = ''; }}
           class="rounded-lg border border-[var(--color-danger)] px-5 py-2 text-sm font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-colors"
         >
-          Delete Tenant
+          Delete Organization
         </button>
       </div>
 
@@ -180,7 +180,7 @@
           <div class="w-full max-w-md rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
             <h3 class="text-lg font-semibold text-[var(--color-danger)]">Delete {org.name}?</h3>
             <p class="mt-2 text-sm text-[var(--color-text-dim)]">
-              This cannot be undone. All apps, databases, and domains tied to this tenant will be torn down.
+              This cannot be undone. All apps, databases, and domains tied to this Organization will be torn down.
               Type <strong class="font-mono text-[var(--color-text)]">{org.slug}</strong> below to confirm.
             </p>
             <input

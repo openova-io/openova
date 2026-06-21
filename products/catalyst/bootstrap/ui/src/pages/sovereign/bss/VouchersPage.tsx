@@ -147,7 +147,7 @@ export function VouchersPage({
       <div className="mx-auto max-w-7xl" data-testid="bss-vouchers-page">
         <header className="mb-4">
           <p className="text-sm text-[var(--color-text-dim)]">
-            Issue prepaid codes for tenant signup or upgrades. Past
+            Issue prepaid codes for Organization signup or upgrades. Past
             redemptions are preserved on revoke; only new redemptions are
             blocked.
           </p>
