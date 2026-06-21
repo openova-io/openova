@@ -628,7 +628,7 @@ write_files:
             # immediately, zero EVS resources) — the durable default class on
             # Hetzner is hcloud-volumes from slot 55a; the Hetzner-irrelevant EVS
             # driver never installs. WITHOUT this explicit "false" the chart
-            # default (${EVS_CSI_ENABLED:=true}) would try to install the EVS
+            # default ($${EVS_CSI_ENABLED:=true}) would try to install the EVS
             # driver on Hetzner. Mirrors HCLOUD_CSI_ENABLED:false on the Huawei
             # side below.
             EVS_CSI_ENABLED: "false"
