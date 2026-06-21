@@ -15,6 +15,17 @@
 #     --build-arg CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82 \
 #     -t ghcr.io/openova-io/bp-chepherd:dev .
 
+# CHEPHERD_BASE pins the upstream chepherd daemon image overlaid in stage 2.
+# It is declared HERE — before the first FROM — so it lives in the global
+# build scope and is honoured by the `FROM ${CHEPHERD_BASE}` substitution in
+# stage 2. A bare `ARG CHEPHERD_BASE` is re-declared inside stage 2 to pull
+# this global value (default or --build-arg override) into that stage. An ARG
+# declared only inside stage 2 is NOT visible to its own FROM, which is what
+# caused "base name (${CHEPHERD_BASE}) should not be blank" (UndefinedArgInFrom).
+# Digest-pinned to the v0.9.4 build carrying the bp-chepherd MCP seam
+# (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
+ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
+
 # ─── Stage 1: build the openova-mcp binary ────────────────────────────────
 FROM golang:1.25-alpine AS mcp-builder
 WORKDIR /build
@@ -27,9 +38,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" \
     -o /usr/local/bin/openova-mcp ./cmd/openova-mcp
 
 # ─── Stage 2: overlay onto the upstream chepherd image ────────────────────
-# Digest-pinned to the v0.9.4 build carrying the bp-chepherd MCP seam
-# (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
-ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
+# Re-declare the global CHEPHERD_BASE (no default) so the value flows into
+# this stage's FROM. The default + any --build-arg override are set on the
+# global ARG above the first FROM.
+ARG CHEPHERD_BASE
 FROM ${CHEPHERD_BASE}
 
 # Bake the openova-mcp binary in at the path the chart's
