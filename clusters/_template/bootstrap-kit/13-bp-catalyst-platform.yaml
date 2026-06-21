@@ -1052,11 +1052,10 @@ spec:
       #   Jobs so the Kyverno flux-managed (Enforce) policy admits them in
       #   catalyst-system. Pre-1.4.722 the pre-install hook was DENIED →
       #   console install failed pre-install on every Enforce Sovereign (hw172).
-      # 1.4.757 — bp-chepherd Blueprint (now bp-agenity) missing required
-      #   topology.defaults.multi-region aborted the whole catalyst-platform
-      #   install (console 404, hw182). Fixed.
-      # 1.4.761 — rebrand catalog-seed bp-chepherd → bp-agenity (#4058).
-      version: 1.4.761
+      # 1.4.757 — bp-chepherd Blueprint missing required topology.defaults.multi-region
+      #   aborted the whole catalyst-platform install (console 404, hw182). Fixed.
+      # 1.4.764 — rebrand catalog-seed bp-chepherd → bp-agenity (#4058).
+      version: 1.4.764
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1495,7 +1494,16 @@ spec:
       cnpgPrimaryRegion: ${QA_CNPG_PRIMARY_REGION:-hz-fsn-rtz-prod}
       cnpgReplicaRegion: ${QA_CNPG_REPLICA_REGION:-hz-fsn-rtz-prod}
       cnpgImage: ${QA_CNPG_IMAGE:-ghcr.io/cloudnative-pg/postgresql:16.4-1}
-      cnpgStorageClass: ${QA_CNPG_STORAGE_CLASS:-local-path}
+      # #4057/#3971 — empty default ⇒ the qaFixtures CNPG Cluster CR OMITS
+      # storageClass (the chart's `{{- with .Values.qaFixtures.cnpgStorageClass }}`
+      # guard), so CNPG uses the cluster-DEFAULT durable cloud CSI class
+      # (hcloud-volumes / evs-ssd). The former `local-path` default is now
+      # FORBIDDEN — k3s runs `--disable=local-storage` and the K23 Kyverno
+      # ENFORCE policy DENIES any PVC referencing local-path, so a QA Sovereign
+      # left on the old default had its qa-fixture CNPG PVCs rejected. An
+      # operator may still pin a specific class via QA_CNPG_STORAGE_CLASS, but
+      # local-path is never a valid value.
+      cnpgStorageClass: ${QA_CNPG_STORAGE_CLASS:-}
       cnpgStorageSize: ${QA_CNPG_STORAGE_SIZE:-1Gi}
       # Kyverno baseline policies (Fix #37). disallow-privileged-containers
       # ships in Enforce mode; the other 18 baseline policies in Audit so

@@ -40,6 +40,19 @@ global:
   # orchestrator writes the per-Sovereign overlay. TBD-A15 (t24 zero-
   # touch, 2026-05-18, issue #1844).
   sovereignSelfDeploymentId: ""
+  # cloudProvider — the IaC cloud this Sovereign was provisioned on
+  # ("hetzner" | "huawei"). Populated by the bootstrap-kit slot from a
+  # ${CLOUD_PROVIDER} cloud-init substitute (same mechanism as
+  # sovereignFQDN / sovereignLBIP above). Consumed by the provisioning
+  # Deployment's CLOUD_PROVIDER env so the per-tenant active-hot-standby
+  # CNPG pair binds its PVCs to the provider-correct block-storage class
+  # (hcloud-volumes on Hetzner / hcloud-csi, evs-ssd on Huawei /
+  # huaweicloud-csi-driver EVS). PILLAR-3 (#4060): a cross-provider
+  # hardcode pinned every customer-Org CNPG PVC Pending on Huawei.
+  # Empty defaults to "hetzner" inside the provisioning binary
+  # (gitops.cnpgStorageClass) so the legacy contabo/Hetzner path is
+  # unchanged (NO-REGRESS).
+  cloudProvider: ""
 
 # ─── Sovereign-side defaults (issue #901) ──────────────────────────────
 # Knobs that exclusively affect the franchised-Sovereign install path
@@ -439,9 +452,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "a74e43d"
+    tag: "a97b1d1"
   catalystUi:
-    tag: "a74e43d"
+    tag: "a97b1d1"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
