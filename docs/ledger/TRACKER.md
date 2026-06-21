@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T18:45:02Z` |
+| Last refreshed | `2026-06-21T19:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -293,6 +293,7 @@ flowchart LR
 | 2026-06-21T18:27 | [#4054](https://github.com/openova-io/openova/pull/4054) | #4053 | fix(bp-cilium): poison-proof console gateway isolation — ded |
 | 2026-06-21T13:43 | [#4052](https://github.com/openova-io/openova/pull/4052) | #4037 | fix(bootstrap-kit): gate stateful root slots on BOTH per-pro |
 | 2026-06-21T12:03 | [#4051](https://github.com/openova-io/openova/pull/4051) | #4049 | fix(bp-catalyst-platform): bp-chepherd missing required topo |
+| 2026-06-21T18:52 | [#4050](https://github.com/openova-io/openova/pull/4050) | #4049 | fix(provisioning): bastion Harbor warmup — every catalyst im |
 | 2026-06-21T09:51 | [#4048](https://github.com/openova-io/openova/pull/4048) | #3913 | fix(huawei): route ghcr/quay/gcr/k8s through bastion NAT-byp |
 | 2026-06-21T08:16 | [#4045](https://github.com/openova-io/openova/pull/4045) | #4038 | fix(bp-huawei-evs-csi): slot 55b dependsOn bp-reflector — cl |
 | 2026-06-21T07:16 | [#4043](https://github.com/openova-io/openova/pull/4043) | #3985 | fix(catalog+settings): eradicate residual Catalyst-Organizat |
@@ -313,7 +314,6 @@ flowchart LR
 | 2026-06-21T07:00 | [#4021](https://github.com/openova-io/openova/pull/4021) | #4000 | fix(topology-ui): bootstrap placement queries empty namespac |
 | 2026-06-21T01:07 | [#4020](https://github.com/openova-io/openova/pull/4020) | #4012 | fix(bp-huawei-evs-csi): publish 1.0.0 — add no-upstream anno |
 | 2026-06-21T00:58 | [#4019](https://github.com/openova-io/openova/pull/4019) | #3998 | fix(cloud-view): surface the REAL front-door LB from the dep |
-| 2026-06-21T00:43 | [#4017](https://github.com/openova-io/openova/pull/4017) | #3985 | fix(console): flip 18 user-visible 'tenant'→'Organization' s |
 
 ---
 
