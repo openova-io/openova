@@ -392,6 +392,227 @@ jobs:
             ${{ env.API_IMAGE }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.API_IMAGE }}:latest
 
+  # #4049 — BASTION HARBOR WARMUP (every image Huawei→Huawei, incl. PRIVATE
+  # catalyst). The kom4dc RCA (hw182, 2026-06-21): fresh 2-region provs fail
+  # the 15-min helmwatch FirstSeenTimeout because nodes COLD-fetch the PRIVATE
+  # ghcr.io/openova-io/openova/* catalyst images DIRECT from ghcr over the
+  # throttled Huawei→ghcr NAT egress (2.3 MB/s). Harbor's anonymous proxy-ghcr
+  # PROXY-CACHE 404s those private images (the github-ghcr adapter can't do
+  # ghcr's 2-step bearer-token flow), so they never warm. The fix routes them
+  # through the bastion HOSTED project `openova-io` (registries.yaml rewrite in
+  # infra/providers/huawei/main.tf) — but the hosted project only serves what
+  # has been PUSHED into it. This job NATIVE-PUSHES the current catalyst image
+  # set into that bastion project on EVERY catalyst build (catalyst changes
+  # every build, so its tags must be re-warmed each time), MIRRORING the
+  # sovereignty-cutover 03-harbor-prewarm Job's skopeo flags + retry discipline
+  # (--insecure-policy, --retry-times 5, --command-timeout, parallel fan-out,
+  # OUTER per-image retry). After this lands, every kom4dc node pulls catalyst
+  # bastion-local (28 MB/s) with ZERO internet egress.
+  #
+  # PREREQUISITES (PROVISIONED 2026-06-22, #4049 — already live):
+  #   - CI secret `BASTION_HARBOR_ROBOT_TOKEN` — the secret for the dedicated
+  #     PUSH robot `robot$openova-warmup` (system-level, push+pull on
+  #     openova-io/**, never-expiring). SET on this repo. (NOT robot$openova-bot,
+  #     which is pull-only and cannot push.)
+  #   - The HOSTED project `openova-io` exists on the bastion Harbor (created;
+  #     this job also ensures-creates it idempotently via the Harbor API).
+  #   - The node-pull robot `robot$openova-bot` was granted openova-io:pull
+  #     ADDITIVELY (its 5 existing proxy-cache pull grants preserved) so kom4dc
+  #     nodes can pull the warmed private images. Verified via service/token JWT.
+  warmup-bastion-harbor:
+    needs: [build-ui, build-api]
+    runs-on: ubuntu-latest
+    # Non-blocking: a warmup failure must NOT block the deploy/chart-publish
+    # path (kubelet still pulls on demand; the worst case is the OLD #4049
+    # slow-cold-pull, not a broken deploy). The deploy job does NOT depend on
+    # this job, so it proceeds in parallel regardless.
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: read
+    env:
+      # The bastion Harbor front door. harbor.openova.io resolves to the
+      # bastion EIP 212.72.24.20 publicly; from the kom4dc nodes the SAME
+      # Harbor is reached over the local EIP (NAT-bypass) per registries.yaml.
+      HARBOR_HOST: harbor.openova.io
+      # Hosted project the registries.yaml `openova-io/openova/(.*)` rewrite
+      # points the nodes at. skopeo pushes `harbor.openova.io/openova-io/...`.
+      HARBOR_PROJECT: openova-io
+      # PUSH robot (#4049). The node-pull `robot$openova-bot` is PULL-ONLY (its
+      # grants are pull-only across the proxy-cache projects + an additively-
+      # granted openova-io:pull), so it CANNOT push. The warmup therefore
+      # authenticates as the dedicated `robot$openova-warmup` system robot
+      # (push+pull on openova-io/**, never-expiring), whose secret is the repo
+      # CI secret BASTION_HARBOR_ROBOT_TOKEN. Nodes still PULL warmed images as
+      # robot$openova-bot via the infra/providers/huawei/main.tf configs.auth.
+      HARBOR_USERNAME: 'robot$openova-warmup'
+      HARBOR_PASSWORD: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
+      # ghcr source creds — this job runs in the same repo context that just
+      # pushed the catalyst images, so github.actor + GITHUB_TOKEN has read on
+      # the private openova-io/openova/* packages.
+      GHCR_USER: ${{ github.actor }}
+      GHCR_PAT: ${{ secrets.GITHUB_TOKEN }}
+      SHA_SHORT: ${{ needs.build-ui.outputs.sha_short }}
+      # Mirror the cutover prewarm tunables.
+      PREWARM_PARALLELISM: '6'
+      PREWARM_COPY_ATTEMPTS: '3'
+      PREWARM_SKOPEO_TIMEOUT: '1200s'
+    steps:
+      - name: Checkout openova (public source — the catalyst chart)
+        uses: actions/checkout@v4
+        with:
+          repository: openova-io/openova
+          path: openova-src
+
+      - name: Install skopeo + helm
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          skopeo --version
+          helm version --short
+
+      - name: Guard — warmup secret present
+        run: |
+          if [ -z "${HARBOR_PASSWORD}" ]; then
+            echo "::warning title=#4049 warmup skipped::secrets.BASTION_HARBOR_ROBOT_TOKEN is not set — the bastion Harbor warmup cannot run. Provision the robot token + the hosted 'openova-io' project (see workflow comment). Skipping (non-fatal; nodes fall back to slow cold-pull)."
+            echo "WARMUP_SKIP=1" >> "$GITHUB_ENV"
+          else
+            echo "WARMUP_SKIP=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure hosted project exists on the bastion Harbor
+        if: env.WARMUP_SKIP == '0'
+        run: |
+          set -euo pipefail
+          API="https://${HARBOR_HOST}/api/v2.0"
+          # Idempotent project-create. 201 = created, 409 = already exists
+          # (both success). Any other code → warn but continue (the push will
+          # surface a real auth/project error if the project is truly absent).
+          code=$(curl -sS -o /tmp/proj.out -w '%{http_code}' \
+            -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+            -X POST "${API}/projects" \
+            -H 'Content-Type: application/json' \
+            -d "{\"project_name\":\"${HARBOR_PROJECT}\",\"public\":false}" || echo "000")
+          echo "Harbor project ensure: HTTP ${code}"
+          cat /tmp/proj.out 2>/dev/null || true
+          case "${code}" in
+            201) echo "Created hosted project ${HARBOR_PROJECT}." ;;
+            409) echo "Hosted project ${HARBOR_PROJECT} already exists — OK." ;;
+            *)   echo "::warning::Unexpected HTTP ${code} ensuring project ${HARBOR_PROJECT}; proceeding (push step is authoritative)." ;;
+          esac
+
+      - name: Render catalyst image set + warmup-push into the bastion (skopeo)
+        if: env.WARMUP_SKIP == '0'
+        run: |
+          set -euo pipefail
+          chart="openova-src/products/catalyst/chart"
+
+          # DATA-DRIVEN image list — same extraction the cloud-init prepull
+          # used (UNION of the bare + marketplace-on renders), so we cover the
+          # core (catalyst-api/ui + controllers) AND the sme mesh
+          # (services-*, marketplace-api/console/admin). The flat chart renders
+          # standalone (no `helm dependency build`).
+          images="$( { helm template catalyst "${chart}"; \
+                       helm template catalyst "${chart}" --set ingress.marketplace.enabled=true; } 2>/dev/null \
+            | grep -oE "ghcr\.io/openova-io/openova/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+" \
+            | sort -u || true)"
+
+          # ALSO warm the JUST-PUSHED catalyst-api/ui at this build's SHA + the
+          # rolling :latest. The chart's values.yaml is not bumped to ${SHA}
+          # until the deploy job (which runs in parallel), so the rendered tags
+          # above may still be the PREVIOUS SHA. The node pulls whatever the
+          # bumped chart pins — that's ${SHA} after deploy — so ${SHA} MUST be
+          # warm. Include :latest too (some bootstrap paths reference it).
+          # One ref per printf line (no YAML-indent leakage into the value).
+          extra="$(printf '%s\n' \
+            "ghcr.io/openova-io/openova/catalyst-api:${SHA_SHORT}" \
+            "ghcr.io/openova-io/openova/catalyst-ui:${SHA_SHORT}" \
+            "ghcr.io/openova-io/openova/catalyst-api:latest" \
+            "ghcr.io/openova-io/openova/catalyst-ui:latest")"
+
+          # Union + dedup; strip any leading/trailing whitespace and blank lines
+          # so every line is a clean `docker://`-able ref.
+          images="$(printf '%s\n%s\n' "${images}" "${extra}" \
+            | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' \
+            | sort -u)"
+
+          count=$(printf '%s\n' "${images}" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [ "${count}" -eq 0 ]; then
+            echo "::warning::No openova-io catalyst images resolved from chart render — nothing to warm."
+            exit 0
+          fi
+          echo "[warmup] ${count} catalyst image(s) to push into ${HARBOR_HOST}/${HARBOR_PROJECT}:"
+          printf '%s\n' "${images}"
+
+          cpdir="/tmp/warmup-copies"; rm -rf "${cpdir}"; mkdir -p "${cpdir}"
+
+          # copy_one — mirrors the cutover 03-harbor-prewarm copy_one EXACTLY:
+          # ghcr.io/openova-io/openova/X:tag → HARBOR_HOST/openova-io/openova/X:tag
+          # (drop the `ghcr.io/` prefix, keep the rest identical → lands under
+          # the hosted `openova-io` project the registries.yaml rewrite targets).
+          # OUTER per-image retry loop (PREWARM_COPY_ATTEMPTS) wraps the inner
+          # --retry-times 5, with a global --command-timeout so a stalled
+          # connection can't hang forever. Branch on skopeo's REAL exit status.
+          copy_one() {
+            up="$1"
+            lref="${HARBOR_HOST}/${up#ghcr.io/}"
+            slug=$(printf '%s' "${up}" | tr -c 'A-Za-z0-9._-' '_')
+            attempt=1; rc=1; : >"${cpdir}/${slug}.log"
+            while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
+              echo "[warmup] copy ${up} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
+              if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+                --insecure-policy \
+                --retry-times 5 \
+                --src-creds="${GHCR_USER}:${GHCR_PAT}" \
+                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                --dest-tls-verify=true \
+                --src-tls-verify=true \
+                "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
+                rc=0; break
+              else
+                rc=$?
+              fi
+              echo "[warmup] copy ${up} attempt ${attempt} failed (exit=${rc}); retry after backoff" >>"${cpdir}/${slug}.log"
+              attempt=$((attempt+1))
+              [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
+            done
+            if [ "${rc}" -eq 0 ]; then printf '%s' "${up}" >"${cpdir}/${slug}.ok"
+            else printf '%s exit=%s' "${up}" "${rc}" >"${cpdir}/${slug}.fail"; fi
+          }
+
+          # Parallel fan-out throttled to PREWARM_PARALLELISM live workers
+          # (kill -0 polling — `jobs -p` is unreliable non-interactively).
+          pids=""
+          for up in ${images}; do
+            echo "[warmup] queue ${up} → ${HARBOR_HOST}/${up#ghcr.io/}"
+            copy_one "${up}" &
+            pids="${pids} $!"
+            while : ; do
+              live=0; newpids=""
+              for p in ${pids}; do
+                if kill -0 "${p}" 2>/dev/null; then live=$((live+1)); newpids="${newpids} ${p}"; fi
+              done
+              pids="${newpids}"
+              [ "${live}" -lt "${PREWARM_PARALLELISM}" ] && break
+              sleep 2
+            done
+          done
+          wait
+
+          ok=0; fail=0
+          for f in "${cpdir}"/*.ok;   do [ -e "${f}" ] && { ok=$((ok+1)); echo "[warmup] OK   $(cat "${f}")"; }; done
+          for f in "${cpdir}"/*.fail; do [ -e "${f}" ] && { fail=$((fail+1)); echo "[warmup] FAIL $(cat "${f}")"; echo "---"; cat "${cpdir}/$(basename "${f}" .fail).log" 2>/dev/null | tail -20; echo "---"; }; done
+          echo "[warmup] pushed ${ok} ok, ${fail} failed (of ${count})."
+          # Non-fatal even on partial failure: the job is continue-on-error and
+          # must not block the deploy. A FAIL count surfaces in the log + the
+          # step's own non-zero exit so an operator sees it, but the pipeline
+          # proceeds (kubelet on-demand pull is the safety net).
+          if [ "${fail}" -gt 0 ]; then
+            echo "::warning title=#4049 warmup partial::${fail}/${count} catalyst image(s) failed to warm the bastion — nodes may cold-pull those (see logs above)."
+          fi
+
   deploy:
     needs: [build-ui, build-api]
     runs-on: ubuntu-latest
