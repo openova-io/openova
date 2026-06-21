@@ -641,17 +641,29 @@ locals {
   # registry:2 caches on direct EIP 212.72.24.20 (kom4dc NAT blocklist bypass,
   # Wave 5.106 #2462). harbor + docker.io mirror via :5000 / :5002 (#2842).
   #
-  # #3913: PREVIOUSLY quay.io / gcr.io / registry.k8s.io / ghcr.io / xpkg.upbound.io
-  # / public.ecr.aws all pulled DIRECT from upstream on kom4dc — the #1 fresh-prov
-  # pull-stall class this ticket closes. The bastion registry:2 caches are anon-only
-  # (can't auth private ghcr) and only front harbor + docker.io, so they can't carry
-  # those registries. But Huawei worker egress is wide-open via the NAT Gateway
-  # (see the secgroup comment above: "unconstrained egress to ... harbor.openova.io"),
-  # and harbor.openova.io's proxy-cache projects are anonymous-pullable. So route
-  # the remaining upstream registries through harbor.openova.io directly — mirroring
-  # the proven post-cutover set in self-sovereign-cutover/04-registry-pivot-
-  # daemonset.yaml. docker.io stays on the bastion :5002 cache (the documented
-  # NAT-blocklist bypass — #2842 — leave it as-is).
+  # #3913 (revert of regression 4049d61f4): the bastion :5000 cache is NOT a
+  # harbor-only/docker-only front — it is the SAME Harbor proxy-cache as
+  # harbor.openova.io, reachable over the LOCAL EIP 212.72.24.20 with NO NAT
+  # egress. It already serves the proxy-ghcr / proxy-quay / proxy-gcr / proxy-k8s
+  # projects (anon-pullable; verified live 2026-06-21: flux source-controller,
+  # cnpg, external-secrets, openbao, oauth2-proxy, kube-apiserver, gcr distroless
+  # all return manifest HTTP 200 via http://212.72.24.20:5000/v2/proxy-*/...).
+  #
+  # 4049d61f4 wrongly re-routed ghcr/quay/gcr/registry.k8s.io to the EXTERNAL
+  # https://harbor.openova.io. On kom4dc, reaching harbor.openova.io needs NAT
+  # egress → draws a reputation-blocklisted ("poisoned") EIP → cloud-init's
+  # Flux/cilium/k8s image pulls stall → region-a never bootstraps → prov FAILS.
+  # The bastion is the NAT-bypass local registry built exactly to avoid this.
+  # Route ghcr/quay/gcr/registry.k8s.io through the bastion :5000 with the SAME
+  # proxy-* rewrites — zero NAT egress, exactly like harbor + docker.io already do.
+  #
+  # xpkg.upbound.io / public.ecr.aws stay on https://harbor.openova.io: the
+  # bastion :5000 has NO proxy-xpkg / proxy-ecr projects (verified live: real
+  # manifest pull -> HTTP 404, vs proxy-gcr -> 200), so routing them to the
+  # bastion would 404. They are Crossplane-provider / ecr images that are NOT in
+  # the Phase-1 bootstrap critical path (Crossplane is idle on kom4dc — infra is
+  # 100% OpenTofu), so the external-harbor route for these two is harmless and
+  # strictly better than a 404. docker.io stays on the bastion :5002 cache.
   registry_mirror_yaml_huawei = <<-EOT
     mirrors:
       "harbor.openova.io":
@@ -665,22 +677,22 @@ locals {
           - "http://212.72.24.20:5002"
       "quay.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
           "(.*)": "proxy-quay/$1"
       "gcr.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
           "(.*)": "proxy-gcr/$1"
       "registry.k8s.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
           "(.*)": "proxy-k8s/$1"
       "ghcr.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
           "(.*)": "proxy-ghcr/$1"
       "xpkg.upbound.io":
