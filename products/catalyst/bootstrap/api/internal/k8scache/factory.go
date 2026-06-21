@@ -239,6 +239,20 @@ type Factory struct {
 	// it.
 	stopOnce sync.Once
 	stop     chan struct{}
+
+	// started + runCtx (#4000) — set once Start() has run. AddCluster
+	// consults these so a cluster registered AFTER the factory started
+	// (the rescan loop, the secondary-kubeconfig POST handler, the #4001
+	// self-heal) has its informers ACTUALLY STARTED and its sync-watcher
+	// launched — pre-#4000 AddCluster only BUILT the informers and relied
+	// on Start()'s one-time per-cluster `cs.factory.Start`, which had
+	// already run, so every runtime-added cluster's informers stayed dead
+	// and List() returned no pods. That is the second hw174 root cause:
+	// region-b's delivered kubeconfig registered in Clusters() but its
+	// informers never synced → placement saw an empty region-b pod list →
+	// false `singleton`. Guarded by mu.
+	started bool
+	runCtx  context.Context
 }
 
 type clusterState struct {
@@ -618,7 +632,29 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		prev.stopOnce.Do(func() { close(prev.stop) })
 	}
 	f.clusters[c.ID] = cs
+	// #4000 — if the factory has already Start()ed, this cluster was added at
+	// RUNTIME (rescan loop / secondary-kubeconfig POST / #4001 self-heal). Its
+	// informers were BUILT above but are NOT running — Start()'s one-time
+	// per-cluster `cs.factory.Start` already ran before this cluster existed.
+	// Start them NOW (+ launch the sync-watcher) so List() actually returns
+	// this cluster's objects. Pre-#4000 this was missing, so a delivered
+	// region-b kubeconfig registered in Clusters() but its informers never
+	// synced → the placement resolver saw an empty region-b pod list → every
+	// multi-region app collapsed to a false `singleton` (hw174). Clusters
+	// added by NewFactory before Start() are left for Start() to launch (the
+	// `!started` branch), preserving the new-then-start contract.
+	started := f.started
+	runCtx := f.runCtx
 	f.mu.Unlock()
+	if started {
+		if runCtx == nil {
+			runCtx = context.Background()
+		}
+		f.startClusterInformers(runCtx, cs)
+		f.log.Info("k8scache: cluster registered + informers started (runtime add)",
+			"cluster", c.ID, "kinds", len(cs.informers))
+		return nil
+	}
 	f.log.Info("k8scache: cluster registered",
 		"cluster", c.ID, "kinds", len(cs.informers))
 	return nil
@@ -687,6 +723,14 @@ func (f *Factory) RemoveCluster(id string) {
 //  4. Spawn the per-cluster sync-watcher that flips synced[] true
 //     once each informer's cache has caught up.
 func (f *Factory) Start(ctx context.Context) error {
+	// #4000 — record that the factory has started + capture the run ctx so
+	// AddCluster can START the informers of any cluster registered AFTER this
+	// point (rescan loop / secondary-kubeconfig POST / #4001 self-heal).
+	f.mu.Lock()
+	f.started = true
+	f.runCtx = ctx
+	f.mu.Unlock()
+
 	// Hydrate before factory.Start so the watch picks up at the
 	// stored resourceVersion (Indexer-seeded). Hydrate failures are
 	// logged but never block start — a cold LIST is the fallback.
@@ -702,27 +746,7 @@ func (f *Factory) Start(ctx context.Context) error {
 	f.mu.RUnlock()
 
 	for _, cs := range clusters {
-		// Start with the per-cluster stop channel so RemoveCluster can
-		// tear down THIS cluster's informers without affecting others.
-		// Issue #156. Process-shutdown semantics are preserved by the
-		// fan-out goroutine below: when f.stop closes (Factory.Stop),
-		// every per-cluster stop channel closes too.
-		cs.factory.Start(cs.stop)
-		cs := cs
-		go func() {
-			select {
-			case <-f.stop:
-				cs.stopOnce.Do(func() { close(cs.stop) })
-			case <-cs.stop:
-				// Already removed via RemoveCluster — exit goroutine.
-			}
-		}()
-	}
-
-	// Sync watcher per cluster.
-	for _, cs := range clusters {
-		cs := cs
-		go f.runSyncWatcher(ctx, cs)
+		f.startClusterInformers(ctx, cs)
 	}
 
 	if f.cfg.SnapshotDir != "" {
@@ -743,6 +767,31 @@ func (f *Factory) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// startClusterInformers starts cs's dynamicinformer factory (LIST+WATCH
+// goroutines), wires the per-cluster stop channel to f.stop, and launches the
+// sync-watcher that flips cs.synced[kind] true once each informer's cache has
+// caught up. Extracted from Start (#4000) so AddCluster can run the SAME
+// startup for a cluster registered AFTER the factory started — the missing
+// piece that left every runtime-added cluster's informers dead (region-b on
+// hw174). Idempotent per dynamicinformer.Start contract (a second Start on an
+// already-running informer is a no-op).
+func (f *Factory) startClusterInformers(ctx context.Context, cs *clusterState) {
+	// Start with the per-cluster stop channel so RemoveCluster can tear down
+	// THIS cluster's informers without affecting others (issue #156).
+	// Process-shutdown semantics are preserved by the fan-out goroutine below:
+	// when f.stop closes (Factory.Stop), every per-cluster stop channel closes.
+	cs.factory.Start(cs.stop)
+	go func() {
+		select {
+		case <-f.stop:
+			cs.stopOnce.Do(func() { close(cs.stop) })
+		case <-cs.stop:
+			// Already removed via RemoveCluster — exit goroutine.
+		}
+	}()
+	go f.runSyncWatcher(ctx, cs)
 }
 
 // runKubeconfigsRescanLoop ticks every Config.RescanInterval and:
