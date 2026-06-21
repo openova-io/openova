@@ -157,12 +157,33 @@ func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID
 	dep.mu.Lock()
 	regions := append([]string(nil), regionKeysForExport(dep)...)
 	dep.mu.Unlock()
+	dir := secondaryKubeconfigsDir()
+
+	// #4000 — UNION the spec-derived region keys with the keys ACTUALLY on
+	// disk. The spec keys are reconstructed as `<CloudRegion>-<idx>`
+	// (regionKeysForExport), but the authoritative key is whatever the
+	// secondary CP's cloud-init supplied as the secondary-kubeconfig POST
+	// `regionKey` (Huawei `MY_REGION='${r.code}-${idx}'`) / the
+	// `?region=<map-key>` PUT suffix (Hetzner). That value does NOT always
+	// reconstruct from `dep.Request.Regions[i].CloudRegion`: a BCP `-a`/`-b`
+	// region whose `code` carries the suffix but whose parsed CloudRegion does
+	// not, or any provider-side renaming, yields a different key. When the
+	// reconstructed key misses the real filename, waitForSecondaryKubeconfig
+	// polls a path that never appears, times out, and the chroot's kubeconfigs
+	// dir stays EMPTY forever → the placement resolver sees only the chroot's
+	// self-registered region-a → every multi-region app reads a false
+	// `singleton` (the hw174 ea30d1d816f2eee2 root cause: the real on-disk file
+	// was `…-me-east-215-b-1.yaml`, but the reconstructed key was
+	// `me-east-215-1`). Enumerating the on-disk files makes the export
+	// key-agnostic — we forward whatever the secondary CPs actually deposited,
+	// regardless of how the key was derived.
+	for _, k := range onDiskSecondaryKubeconfigKeys(dir, depID) {
+		if !containsStr(regions, k) {
+			regions = append(regions, k)
+		}
+	}
 	if len(regions) == 0 {
 		return
-	}
-	dir := "/var/lib/catalyst/kubeconfigs"
-	if v := os.Getenv("CATALYST_K8SCACHE_KUBECONFIGS_DIR"); v != "" {
-		dir = v
 	}
 	url := "https://api." + fqdn + "/api/v1/sovereign/secondary-kubeconfig"
 
@@ -339,4 +360,154 @@ func regionSlotIndex(n int) string {
 		n /= 10
 	}
 	return out + string(digits)
+}
+
+// secondaryKubeconfigsDir is the on-disk directory the mothership stores
+// secondary-region kubeconfigs in (one `<depID>-<regionKey>.yaml` per
+// secondary CP, deposited by the secondary CP's cloud-init via PutKubeconfig
+// `?region=` / the secondary-kubeconfig POST). Backed by the
+// `catalyst-api-deployments` PVC; overridable via
+// CATALYST_K8SCACHE_KUBECONFIGS_DIR (tests + air-gapped operators).
+func secondaryKubeconfigsDir() string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_K8SCACHE_KUBECONFIGS_DIR")); v != "" {
+		return v
+	}
+	return "/var/lib/catalyst/kubeconfigs"
+}
+
+// onDiskSecondaryKubeconfigKeys returns the region keys of every secondary
+// kubeconfig file actually present on disk for depID — i.e. the `<key>` of
+// each `<depID>-<key>.yaml` in dir, EXCLUDING the primary `<depID>.yaml`
+// (no region suffix) and the `.nodeip` sidecars. This is the authoritative
+// source of which secondary regions exist: the secondary CPs themselves
+// deposited these files keyed by whatever `regionKey` their cloud-init chose,
+// so it is immune to the spec-reconstruction key mismatch that left the
+// chroot blind to region-b on hw174 (#4000).
+//
+// Best-effort: an unreadable dir (e.g. the mothership has never received any
+// secondary kubeconfig) returns nil — the caller falls back to the
+// spec-derived keys, preserving the pre-#4000 behaviour.
+func onDiskSecondaryKubeconfigKeys(dir, depID string) []string {
+	if dir == "" || depID == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	prefix := depID + "-"
+	out := make([]string, 0, 2)
+	seen := map[string]struct{}{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		// Only kubeconfig files; skip `.nodeip` sidecars + any other ext.
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			continue
+		}
+		if !strings.HasPrefix(name, prefix) {
+			continue // the primary `<depID>.yaml` lacks the `-` and is skipped here
+		}
+		stem := strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
+		key := strings.TrimPrefix(stem, prefix)
+		if key == "" {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
+}
+
+// containsStr reports whether s is in xs. Tiny local helper (no generics
+// dependency churn) for the on-disk-key union.
+func containsStr(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// reforwardSecondaryKubeconfigsToChild is the DURABLE, level-triggered
+// delivery of every on-disk secondary kubeconfig to the chroot's
+// /api/v1/sovereign/secondary-kubeconfig endpoint (#4000). It is invoked on
+// every steady-state heal pass (runClusterMeshSteadyStateHeal) while the
+// deployment stays status=ready.
+//
+// Why this exists — the gap the one-shot handover export left:
+//
+//	exportSecondaryKubeconfigsToChild fires EXACTLY ONCE at fireHandover and
+//	once on an operator re-mint. It is fire-and-forget: if BOTH windows miss
+//	the chroot's `api.<fqdn>` backend (the secondary CP PUT its kubeconfig to
+//	the mothership AFTER the handover export's file-wait budget expired, or
+//	the export's 20-min retry budget elapsed before the chroot backend was
+//	reachable, or the reconstructed region key never matched the on-disk
+//	file), the chroot's `/var/lib/catalyst/kubeconfigs/` stays EMPTY FOREVER.
+//	Nothing re-forwards. The placement resolver then fans out over the single
+//	self-registered region-a cluster and every multi-region app collapses to
+//	a false `singleton` — the hw174 ea30d1d816f2eee2 symptom. #3991/#4001 only
+//	self-heal kubeconfigs ALREADY on the chroot's disk; they never address
+//	DELIVERY.
+//
+// This makes delivery level-triggered: every steady-state pass re-enumerates
+// the on-disk secondary kubeconfigs and re-POSTs each to the chroot. The
+// chroot's handler is idempotent (overwrites the file + AddCluster on a
+// duplicate ID is a no-op), and it applies the #3991/#4000 EIP→private-IP
+// rewrite/self-heal on its side, so a fresh prov converges to active-active
+// zero-touch even when the handover-window export missed. No file-wait here:
+// we forward only what is already on disk and let the next pass pick up any
+// region whose kubeconfig lands later.
+func (h *Handler) reforwardSecondaryKubeconfigsToChild(dep *Deployment) {
+	if dep == nil {
+		return
+	}
+	dep.mu.Lock()
+	fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
+	depID := dep.ID
+	regionCount := len(dep.Request.Regions)
+	dep.mu.Unlock()
+	if fqdn == "" || depID == "" || regionCount < 2 {
+		return
+	}
+	dir := secondaryKubeconfigsDir()
+	keys := onDiskSecondaryKubeconfigKeys(dir, depID)
+	if len(keys) == 0 {
+		// No secondary kubeconfig on disk yet (secondary CP cloud-init still
+		// in flight) — nothing to forward this pass; the next pass retries.
+		return
+	}
+	url := "https://api." + fqdn + "/api/v1/sovereign/secondary-kubeconfig"
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // chroot cert may rotate; same rationale as exportDeploymentToChild
+		},
+	}
+	for _, regionKey := range keys {
+		path := filepath.Join(dir, depID+"-"+regionKey+".yaml")
+		raw, err := os.ReadFile(path)
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		payload := map[string]string{
+			"deploymentId":   depID,
+			"regionKey":      regionKey,
+			"kubeconfigYaml": string(raw),
+		}
+		clusterID := depID + "-" + regionKey
+		if ipRaw, ierr := os.ReadFile(nodeIPSidecarPath(dir, clusterID)); ierr == nil {
+			if ip := strings.TrimSpace(string(ipRaw)); ip != "" {
+				payload["nodeInternalIp"] = ip
+			}
+		}
+		body, _ := json.Marshal(payload)
+		h.postSecondaryKubeconfigWithRetry(client, url, body, depID, regionKey)
+	}
 }

@@ -1494,6 +1494,19 @@ func (h *Handler) runClusterMeshSteadyStateHeal(dep *Deployment) {
 			return
 		}
 
+		// #4000 — DURABLE secondary-kubeconfig delivery. Re-forward every
+		// on-disk secondary kubeconfig to the chroot's
+		// /api/v1/sovereign/secondary-kubeconfig endpoint on every steady-state
+		// pass. The one-shot handover export (exportSecondaryKubeconfigsToChild)
+		// fires only at fireHandover + operator re-mint; if both windows missed
+		// the chroot's `api.<fqdn>` backend, the chroot's kubeconfigs dir stays
+		// EMPTY forever and the placement resolver collapses every multi-region
+		// app to a false `singleton` (the hw174 ea30d1d816f2eee2 root cause).
+		// The chroot's handler is idempotent (overwrite + AddCluster no-op) and
+		// applies the #3991/#4000 EIP→private-IP heal, so this level-triggered
+		// re-forward makes a fresh prov converge to active-active zero-touch.
+		h.reforwardSecondaryKubeconfigsToChild(dep)
+
 		attemptCtx, cancelAttempt := context.WithTimeout(ctx, attemptTimeout)
 		statuses, cnpgPairConverged, err := h.autoEstablishClusterMesh(attemptCtx, dep)
 		cancelAttempt()
