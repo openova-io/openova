@@ -139,7 +139,7 @@
       rows.push({
         id: provision.id,
         kind: 'provision',
-        title: `Tenant provisioning · ${provision.subdomain || activeOrg?.slug || 'tenant'}`,
+        title: `Organization provisioning · ${provision.subdomain || activeOrg?.slug || 'organization'}`,
         status: provision.status,
         progress: provision.progress ?? (total ? Math.round((completed / total) * 100) : 0),
         createdAt: provision.created_at,
@@ -187,7 +187,7 @@
     <div class="flex items-start justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Jobs</h1>
-        <p class="mt-1 text-sm text-[var(--color-text-dim)]">Provisioning, installs, and uninstalls for your tenant</p>
+        <p class="mt-1 text-sm text-[var(--color-text-dim)]">Provisioning, installs, and uninstalls for your organization</p>
       </div>
     </div>
 
@@ -197,7 +197,7 @@
       </div>
     {:else if !timeline.length}
       <div class="mt-12 text-center">
-        <p class="text-[var(--color-text-dim)]">No jobs yet for this tenant.</p>
+        <p class="text-[var(--color-text-dim)]">No jobs yet for this organization.</p>
       </div>
     {:else}
       <div class="mt-6 flex flex-col gap-3">

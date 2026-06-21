@@ -13,7 +13,7 @@
 <PortalShell activePage="domains">
   {#snippet children(user: User, org: Org | null)}
     <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Domains</h1>
-    <p class="mt-1 text-sm text-[var(--color-text-dim)]">Manage your tenant domains</p>
+    <p class="mt-1 text-sm text-[var(--color-text-dim)]">Manage your organization domains</p>
 
     {#if org}
       <!-- Default domain -->

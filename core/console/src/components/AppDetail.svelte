@@ -368,7 +368,7 @@
                 </div>
               </dl>
             {:else}
-              <p class="desc">Not yet deployed on this tenant — it will come up automatically when an app that needs it is installed.</p>
+              <p class="desc">Not yet deployed on this organization — it will come up automatically when an app that needs it is installed.</p>
             {/if}
           </section>
         {/if}
@@ -400,9 +400,9 @@
         {/if}
 
         <section class="section">
-          <h2>Tenant</h2>
+          <h2>Organization</h2>
           <p class="desc">
-            {org ? `Installing into ${org.name} — currently ${installedIds.length} apps installed.` : 'No tenant selected.'}
+            {org ? `Installing into ${org.name} — currently ${installedIds.length} apps installed.` : 'No organization selected.'}
           </p>
         </section>
 
@@ -505,7 +505,7 @@
             </div>
           {:else if modal.mode === 'remove'}
             <h3 class="modal-title">Uninstall {app.name}?</h3>
-            <p class="modal-body">This will remove <strong>{app.name}</strong> from your tenant.</p>
+            <p class="modal-body">This will remove <strong>{app.name}</strong> from your organization.</p>
 
             {#if previewLoading}
               <div class="preview-loading">Checking dependencies…</div>
