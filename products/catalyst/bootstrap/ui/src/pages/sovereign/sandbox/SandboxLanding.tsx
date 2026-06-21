@@ -54,18 +54,18 @@ export function SandboxLanding({
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = resolvedId ?? ''
 
-  // Wave 5.71 (chepherd lift, #2316) — when bp-chepherd is installed
-  // on the Sovereign AND build-time env CATALYST_SANDBOX_REDIRECT_TO_CHEPHERD
-  // is "true", the /sandbox route 302s to /apps/bp-chepherd/dashboard.
-  // chepherd-side replaces the openova-native Sandbox surface; this
+  // Wave 5.71 (Agenity lift, #2316) — when bp-agenity is installed
+  // on the Sovereign AND build-time env CATALYST_SANDBOX_REDIRECT_TO_AGENITY
+  // is "true", the /sandbox route 302s to /apps/bp-agenity/dashboard.
+  // Agenity replaces the openova-native Sandbox surface; this
   // single-line redirect avoids dual UX during the lift transition.
   // Operator can disable per-Sovereign via env override (Inviolable
   // Principle #4 — every knob operator-tunable).
-  const redirectToChepherd =
+  const redirectToAgenity =
     typeof import.meta !== 'undefined' &&
-    (import.meta as { env?: Record<string, string> }).env?.VITE_SANDBOX_REDIRECT_TO_CHEPHERD === 'true'
-  if (redirectToChepherd && typeof window !== 'undefined') {
-    window.location.replace('/apps/bp-chepherd/dashboard')
+    (import.meta as { env?: Record<string, string> }).env?.VITE_SANDBOX_REDIRECT_TO_AGENITY === 'true'
+  if (redirectToAgenity && typeof window !== 'undefined') {
+    window.location.replace('/apps/bp-agenity/dashboard')
     return null
   }
 

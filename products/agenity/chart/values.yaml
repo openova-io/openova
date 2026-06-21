@@ -1,17 +1,21 @@
-# bp-chepherd — default values
+# bp-agenity — default values
 #
-# Deploys chepherd as an OpenOva Application into a User's Organization /
+# Deploys Agenity as an OpenOva Application into a User's Organization /
 # Environment. The User installs this from the catalog; its solo agent
 # (Claude Opus 4.7) then creates more Applications in the User's own Org
 # via the RBAC-scoped openova MCP server.
 #
+# Agenity packages the upstream chepherd multi-agent runtime daemon; the
+# runtime env-var names (CHEPHERD_*) + CLI (`chepherd run`) below are the
+# daemon's own contract and are passed through unchanged.
+#
 # Inviolable Principle #4: no hardcoded secrets/config in code — every knob
-# flows through values → env → the chepherd binary; the Anthropic token
+# flows through values → env → the runtime daemon; the Anthropic token
 # comes from a Secret (ExternalSecret/openbao), NEVER a literal here.
 
-# ── chepherd runtime image ────────────────────────────────────────────────
+# ── Agenity runtime image (upstream chepherd daemon + openova-mcp) ─────────
 image:
-  repository: ghcr.io/openova-io/bp-chepherd
+  repository: ghcr.io/openova-io/bp-agenity
   tag: ""                 # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
@@ -39,7 +43,7 @@ agent:
 #   externalSecret.enabled=false: the operator pre-creates a Secret named
 #     `secretName` with key `anthropicApiKey` out-of-band (e.g. sealed-secret).
 anthropic:
-  secretName: chepherd-anthropic-token
+  secretName: agenity-anthropic-token
   secretKey: anthropicApiKey
   externalSecret:
     enabled: true
@@ -80,13 +84,13 @@ openovaMCP:
     name: catalyst-handover-jwt
     key: handover-jwt-public.pem
 
-# ── Service (chepherd web UI + dashboard WS + MCP) ────────────────────────
+# ── Service (Agenity web UI + dashboard WS + MCP) ─────────────────────────
 service:
   type: ClusterIP
-  port: 8080            # chepherd web UI + dashboard WS + MCP HTTP
+  port: 8080            # Agenity web UI + dashboard WS + MCP HTTP
   metricsPort: 9090     # Prometheus scrape
 
-# ── HTTPRoute (Cilium Gateway) — the User reaches the chepherd console ─────
+# ── HTTPRoute (Cilium Gateway) — the User reaches the Agenity console ──────
 httpRoute:
   enabled: true
   hostnames: []         # default: discovered from the Org/Sovereign FQDN
