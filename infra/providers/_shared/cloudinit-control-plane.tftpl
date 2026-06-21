@@ -934,24 +934,24 @@ runcmd:
   # giving every IPv4-only cloud the harbor pin. No hardcoded IP: r4() derives
   # the A record at boot and self-heals if harbor's address ever changes.
   #
-  # #3835 (2026-06-19 — the hw166 bootstrap-flux ImagePullBackOff): the
-  # `flux install` below (~line 1066, applied from ghcr.io/fluxcd BEFORE harbor
-  # exists — the chicken-and-egg the #3735 harbor-proxy can't break at bootstrap)
-  # pulls the 6 controller IMAGES; ghcr.io serves their manifests but redirects
-  # the BLOBS to the CDN host `pkg-containers.githubusercontent.com`, which is
-  # ALSO dual-stack (A=185.199.108-111.154 + AAAA=2606:50c0:800x::154 — verified
-  # live on the hw166 node). On the IPv4-only Huawei VPC containerd's resolver
-  # intermittently gets the AAAA → `dial tcp: lookup
-  # pkg-containers.githubusercontent.com: Try again` → ImagePullBackOff → the
-  # bootstrap kustomize-controller never starts → it never reconciles the bp-flux
-  # HR that re-points controllers at the harbor proxy → 0 HelmReleases → wedge.
-  # The github.com / *.githubusercontent.com hosts already pinned above are
-  # IPv4-ONLY (no AAAA — verified) so they never trip; this ghcr image-blob CDN
-  # host is the one dual-stack gap and the host EVERY ghcr image pull (the flux
-  # controllers + the line-962 crictl pre-pull) depends on. Huawei-gated like
-  # harbor above (Hetzner is dual-stack → reaches the AAAA → no pin needed, and
-  # its render is byte-tight). r4() pins ONE anycast A and removes the AAAA from
-  # the node's view; self-heals if Fastly/Azure rotates the edge.
+  # #4049 (2026-06-21) — the IMAGE-host /etc/hosts pins are REMOVED. Per the
+  # founder principle "every image download must be Huawei→Huawei", every
+  # container-registry pull on Huawei now routes through the bastion registry
+  # by IP LITERAL (212.72.24.20 in registries.yaml), so the NODE never resolves
+  # any image-registry hostname at all. The former Huawei-gated pins for the
+  # ghcr image-blob CDN `pkg-containers.githubusercontent.com` (#3835) and
+  # `harbor.openova.io` (#3735) are therefore dead weight and are dropped. They
+  # were ALSO already redundant on Huawei since #3840 disables IPv6 at the
+  # kernel (no AAAA path → no "Try again" wedge). KEPT: the git hosts
+  # (github.com / raw / codeload / api.github.com / objects.githubusercontent.com)
+  # — Flux source-controller git-clones the gitops repo + the node fetches
+  # github RELEASE ARTIFACTS (gateway-api install.yaml, the get-helm-3 script)
+  # which the image-only bastion mirror does NOT serve; helm.cilium.io /
+  # get.helm.sh — helm chart-repo + binary fetches, not image pulls, also not
+  # bastion-served; registry.${sovereign_fqdn} — the POST-CUTOVER local Harbor,
+  # reached directly (not via the bastion) after sovereignty cutover. Git
+  # localization is a separate follow-up; until then those direct-reach hosts
+  # keep their pins.
   #
   # #3714 (2026-06-18 — the kom4dc 0-HR wedge): the /etc/hosts pin below fixes
   # the NODE Go resolvers (helm/kubectl/git/containerd) but does NOT reach the
@@ -984,7 +984,7 @@ runcmd:
      done
      python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
     }
-    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com pkg-containers.githubusercontent.com harbor.openova.io registry.${sovereign_fqdn}%{ endif ~}; do
+    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com registry.${sovereign_fqdn}%{ endif ~}; do
      a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
 %{ if provider == "huawei" ~}
      [ -n "$a" ] && echo "$a $h" >>/var/lib/catalyst/github-ipv4-hosts
@@ -1190,90 +1190,21 @@ runcmd:
       done ) >/dev/null 2>&1 &
 %{ endif ~}
 
-  # ── BACKGROUND pre-pull of the PRIVATE openova-io/openova image set (#3534)
-  # The ~19 ghcr.io/openova-io/openova/* images (catalyst-api/ui, the
-  # catalyst-*-controllers, catalyst-catalog, projector, marketplace-api,
-  # console, admin, marketplace, the sme services-*) are PRIVATE on ghcr, so
-  # harbor's ANONYMOUS proxy-ghcr cache 404s them (#3534, proven) — every
-  # fresh prov pulls them DIRECT from ghcr.io over the throttled Huawei→ghcr
-  # egress (8s–3m31s each, serial as the bp-catalyst-platform umbrella + sme
-  # mesh roll). The slow tail serially blows the 135-min Phase-1 watch budget
-  # (killed hw137, nearly killed hw138).
-  #
-  # Starting the pulls HERE — right after the CNI is up and BEFORE Flux is
-  # handed the cluster (the flux-bootstrap apply below) — and BACKGROUNDING
-  # them lets the bytes land WHILE the rest of Phase-1 (bp-cilium … bp-cert-
-  # manager … the whole 56-HR convergence) is reconciling, instead of
-  # blocking the umbrella's critical path. By the time Flux schedules the
-  # catalyst-platform Pods their images are already in containerd.
-  #
-  # DATA-DRIVEN, never a hardcoded copy that rots: the image list is
-  # extracted at run time from `helm template` of products/catalyst/chart
-  # (a FLAT chart — no `dependencies:`, so it renders standalone with no
-  # `helm dependency build`/network), reading the chart's OWN pinned tags
-  # (images.catalystApi.tag, .smeTag, the per-controller image.tag, …) from
-  # the SAME gitops repo + branch this prov bootstraps from. A tag bump in
-  # values.yaml is picked up automatically on the next fresh prov.
-  #
-  # IDEMPOTENT + NON-FATAL: `crictl pull` is a no-op when the image is
-  # already present (re-running cloud-init is safe), every step is guarded
-  # (`|| true`), and the whole block is detached via `nohup … &` so a slow
-  # or failed pre-pull can NEVER fail bootstrap — kubelet still pulls any
-  # missing image on demand exactly as before. Auth uses the ghcr-pull PAT
-  # already on the node (the same `ghcr_pull_username`/`ghcr_pull_token` the
-  # flux-system/ghcr-pull Secret carries) passed inline via `crictl pull
-  # --creds`, so it works regardless of containerd registry-config state.
-  - |
-    nohup sh -c '
-      log=/var/lib/catalyst/prepull.log
-      echo "[prepull] $(date -u +%FT%TZ) starting background openova-io image pre-pull" >> "$log" 2>&1
-      CRICTL="$(command -v crictl || echo /usr/local/bin/crictl)"
-      HELM="$(command -v helm || echo /usr/local/bin/helm)"
-      if [ ! -x "$CRICTL" ] || [ ! -x "$HELM" ]; then
-        echo "[prepull] crictl ($CRICTL) or helm ($HELM) not executable — skipping (kubelet pulls on demand)" >> "$log" 2>&1
-        exit 0
-      fi
-      workdir="$(mktemp -d /tmp/catalyst-prepull.XXXXXX 2>/dev/null || echo /tmp/catalyst-prepull)"
-      mkdir -p "$workdir"
-      # Shallow single-branch clone of the SAME gitops repo this prov uses,
-      # so the pinned image tags are exactly what Flux will deploy.
-      if git clone --depth 1 --branch "${gitops_branch}" --single-branch "${gitops_repo_url}" "$workdir/repo" >> "$log" 2>&1; then
-        chart="$workdir/repo/products/catalyst/chart"
-      else
-        echo "[prepull] git clone failed — skipping (non-fatal)" >> "$log" 2>&1
-        chart=""
-      fi
-      images=""
-      if [ -n "$chart" ] && [ -d "$chart" ]; then
-        # Flat chart renders standalone; grep only the PRIVATE openova-io/openova
-        # refs (the throttled set). Two renders, UNIONed: the bare-defaults
-        # render always covers the core (catalyst-api/ui + the controllers),
-        # and the marketplace-on render adds the sme mesh (services-*) +
-        # marketplace-api/console/admin that the bootstrap-kit slot-13 HR
-        # unlocks via ingress.marketplace.enabled=true on every Sovereign —
-        # the very images the issue flags as the slow serial tail. Each
-        # `helm template` failure is tolerated independently (stderr → log;
-        # an empty stdout just contributes nothing).
-        images="$( { "$HELM" template catalyst "$chart" 2>>"$log"; \
-                     "$HELM" template catalyst "$chart" --set ingress.marketplace.enabled=true 2>>"$log"; } \
-          | grep -oE "ghcr\\.io/openova-io/openova/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+" \
-          | sort -u)"
-      fi
-      if [ -z "$images" ]; then
-        echo "[prepull] no openova-io images resolved from chart render — nothing to pre-pull (kubelet pulls on demand)" >> "$log" 2>&1
-        rm -rf "$workdir" 2>/dev/null || true
-        exit 0
-      fi
-      n=0
-      for img in $images; do
-        n=$((n+1))
-        echo "[prepull] $(date -u +%FT%TZ) pulling $img" >> "$log" 2>&1
-        "$CRICTL" pull --creds "${ghcr_pull_username}:${ghcr_pull_token}" "$img" >> "$log" 2>&1 \
-          || echo "[prepull] WARN pull failed (non-fatal): $img" >> "$log" 2>&1
-      done
-      rm -rf "$workdir" 2>/dev/null || true
-      echo "[prepull] $(date -u +%FT%TZ) background pre-pull finished ($n image(s) attempted)" >> "$log" 2>&1
-    ' >/dev/null 2>&1 &
+  # ── PRIVATE openova-io/openova image pre-pull — REMOVED (#4049) ────────
+  # The former #3534 background `crictl pull --creds … ghcr.io/openova-io/
+  # openova/*` block pulled the ~19 private catalyst images DIRECT from
+  # ghcr.io over the throttled Huawei→ghcr NAT egress (2.3 MB/s measured).
+  # That direct-internet leg — not bastion saturation — is the #4049 RCA for
+  # the 15-min FirstSeenTimeout wedge (hw182). Per the founder principle
+  # "every image download must be Huawei→Huawei", the private catalyst set is
+  # now (a) NATIVE-PUSHED into the HOSTED bastion project `openova-io` by the
+  # catalyst-build warmup step on every build (mirrors the cutover harbor-
+  # prewarm Job), and (b) routed there by the `openova-io/openova/(.*)`
+  # registries.yaml rewrite (huawei main.tf). kubelet now pulls every catalyst
+  # image from the bastion local registry (28 MB/s) with ZERO internet egress
+  # — no node-side pre-pull, no ghcr PAT on the node datapath. Public flux/
+  # cnpg bootstrap images stay pre-warmed by the provider-specific block above
+  # via the already-warm bastion proxy-cache projects.
 
 %{ if provider_id_cmd != "" ~}
   # ── providerID patch — PROVIDER-INJECTED (best-effort, non-fatal) ─────
