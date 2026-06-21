@@ -1054,7 +1054,11 @@ spec:
       #   console install failed pre-install on every Enforce Sovereign (hw172).
       # 1.4.757 — bp-chepherd Blueprint missing required topology.defaults.multi-region
       #   aborted the whole catalyst-platform install (console 404, hw182). Fixed.
-      version: 1.4.760
+      # 1.4.761 — #4061: child catalyst-api no longer auto-fires the
+      #   self-sovereignty cutover on handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER
+      #   now defaults false via catalystApi.fireCutoverOnHandover). Cutover is a
+      #   DELIBERATE BSS-menu action; operator-initiated path unchanged.
+      version: 1.4.761
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
