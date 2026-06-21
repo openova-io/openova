@@ -1146,10 +1146,11 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		// fewer nodes.
 		//
 		// Wave 5.146 (2026-05-27): CP flavor flipped to m7n.large.8
-		// (2vCPU/16GB), worker flavor stays m7n.xlarge.8 (4vCPU/32GB).
-		// The original 8-worker floor was load-bearing only for the
-		// undersized flavor — at m7n.xlarge.8 a 3-worker per-region
-		// floor fits the bootstrap-kit with headroom.
+		// (2vCPU/16GB), worker flavor m7n.xlarge.8 (4vCPU/32GB).
+		// SUPERSEDED by #4055 (2026-06-21) — the "fits with headroom"
+		// claim did NOT hold once the console + both vClusters + cnpg-pair
+		// landed together; 2vCPU CP / 4vCPU workers wedged on CPU. See the
+		// resource-floor block below for the corrected sizing.
 		//
 		// Refs #2536 (2026-05-28, founder direction): symmetric
 		// MGMT+RTZ+DMZ vClusters (Refs #2537) on 2 regions × 3 workers
@@ -1167,26 +1168,50 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 				req.Regions[i].WorkerCount = minWorkers
 			}
 		}
-		// Wave 5.146: server-side stamp away exhausted s7n.large.4
-		// flavor on Huawei provs. The wizard / test rig may still send
-		// s7n.large.4 if the operator hasn't refreshed the SKU list;
-		// rewrite to m7n.large.8 (2vCPU/16GB drop-in replacement) so
-		// HCS scheduler can actually place the VMs.
-		if req.ControlPlaneSize == "s7n.large.4" || req.ControlPlaneSize == "" {
-			req.ControlPlaneSize = "m7n.large.8"
+		// Wave 5.146 → #4055 (founder direction 2026-06-21): ENFORCE an
+		// adequate resource FLOOR — stop shipping under-provisioned
+		// Sovereigns. The full Catalyst platform (console + cnpg-pair +
+		// mgmt/dmz vClusters + keycloak/harbor/gitea/openbao/guacamole/
+		// newapi + trivy/falco/crossplane) does NOT fit on 2vCPU nodes.
+		// hw182 came up with m7n.large.8 (2vCPU/16GB) for BOTH the CP and
+		// all 5 workers and wedged: "0/6 nodes available: Insufficient
+		// cpu" → bp-catalyst-platform's post-install hook timed out →
+		// install/uninstall oscillation → the console never scheduled.
+		//
+		// The OLD guard only rewrote the deprecated s7n.large.4 + empty,
+		// so a 2vCPU m7n.large.8 (the CP flavor wrongly sent as the
+		// worker flavor) slipped straight through un-bumped. The floor:
+		//   control-plane >= m7n.xlarge.8  (4 vCPU / 32 GB)
+		//   workers       >= m7n.2xlarge.8 (8 vCPU / 64 GB)
+		// Every known-undersized Huawei flavor is now rewritten UP to the
+		// floor; a larger explicit flavor is honoured untouched. The m7n
+		// family is unconstrained in the SKU matrix (sku_availability.go),
+		// so these pass IsSkuAvailableInRegion in every kom4dc region.
+		const (
+			hwCPFloor     = "m7n.xlarge.8"  // 4 vCPU / 32 GB
+			hwWorkerFloor = "m7n.2xlarge.8" // 8 vCPU / 64 GB
+		)
+		// undersizedCP/undersizedWorker = flavors strictly below the floor
+		// for that role (plus "" = unset). m7n.large.8 (2vCPU) is too
+		// small for BOTH roles; m7n.xlarge.8 (4vCPU) meets the CP floor
+		// but is still below the worker floor.
+		undersizedCP := map[string]bool{"": true, "s7n.large.4": true, "m7n.large.8": true}
+		undersizedWorker := map[string]bool{"": true, "s7n.large.4": true, "m7n.large.8": true, "m7n.xlarge.8": true}
+		if undersizedCP[req.ControlPlaneSize] {
+			req.ControlPlaneSize = hwCPFloor
 		}
-		if req.WorkerSize == "s7n.large.4" || req.WorkerSize == "" {
-			req.WorkerSize = "m7n.xlarge.8"
+		if undersizedWorker[req.WorkerSize] {
+			req.WorkerSize = hwWorkerFloor
 		}
 		for i := range req.Regions {
 			if req.Regions[i].Provider != "huawei" {
 				continue
 			}
-			if req.Regions[i].ControlPlaneSize == "s7n.large.4" || req.Regions[i].ControlPlaneSize == "" {
-				req.Regions[i].ControlPlaneSize = "m7n.large.8"
+			if undersizedCP[req.Regions[i].ControlPlaneSize] {
+				req.Regions[i].ControlPlaneSize = hwCPFloor
 			}
-			if req.Regions[i].WorkerSize == "s7n.large.4" || req.Regions[i].WorkerSize == "" {
-				req.Regions[i].WorkerSize = "m7n.xlarge.8"
+			if undersizedWorker[req.Regions[i].WorkerSize] {
+				req.Regions[i].WorkerSize = hwWorkerFloor
 			}
 		}
 		// Issue #2528: Huawei OBS (Object Storage Service) on HCS Kom4DC
