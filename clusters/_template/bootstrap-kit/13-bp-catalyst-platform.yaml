@@ -1054,7 +1054,7 @@ spec:
       #   console install failed pre-install on every Enforce Sovereign (hw172).
       # 1.4.757 — bp-chepherd Blueprint missing required topology.defaults.multi-region
       #   aborted the whole catalyst-platform install (console 404, hw182). Fixed.
-      version: 1.4.759
+      version: 1.4.760
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
