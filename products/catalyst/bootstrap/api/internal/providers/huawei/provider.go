@@ -335,15 +335,29 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 		out.ResidualOrphans = map[string][]string{}
 		out.VerifiedZeroOrphans = false
 		verifyZeroOrphans(ctx, client, hw, region, spec.SovereignFQDN, progress, out)
-		quotaResidual := len(out.ResidualOrphans["networks"]) +
-			len(out.ResidualOrphans["nat_gateways"]) +
-			len(out.ResidualOrphans["floating_ips"])
-		if quotaResidual == 0 {
+		// #4046 (2026-06-21 live audit): break on the FULL zero-orphans
+		// verdict, not just the 3-kind quota sum (networks/nat_gateways/
+		// floating_ips). The old quota-only condition broke the retry the
+		// instant VPC/NAT/EIP were clean even when a security group (or
+		// server / load_balancer / keypair) survived — typically a 409 on
+		// deleteSG while the region's ports were still settling. Because SGs
+		// are non-quota resources they fell outside the break sum, so the
+		// loop exited and ONE region's security group leaked on EVERY wipe
+		// (hw40/hw77/hw180 forensic). verifyZeroOrphans already records SG
+		// residuals under out.ResidualOrphans["firewalls"] and sets
+		// VerifiedZeroOrphans=false whenever ANY kind survives, so gating the
+		// break on that flag keeps re-purging (with the per-pass SG retry
+		// above) until the account is genuinely clean — no early exit.
+		totalResidual := 0
+		for _, names := range out.ResidualOrphans {
+			totalResidual += len(names)
+		}
+		if wipeRetryShouldBreak(out) {
 			break
 		}
 		if pass < maxPurgePasses {
 			settle := time.Duration(20*pass) * time.Second
-			progress(fmt.Sprintf("post-wipe verify found %d quota-relevant residual orphan(s) (VPC/NAT/EIP) — re-purging pass %d/%d after %s async-teardown settle (#3065)", quotaResidual, pass+1, maxPurgePasses, settle))
+			progress(fmt.Sprintf("post-wipe verify found %d residual orphan(s) across all kinds (incl. SG/server/LB/keypair, not just VPC/NAT/EIP) — re-purging pass %d/%d after %s async-teardown settle (#3065, #4046)", totalResidual, pass+1, maxPurgePasses, settle))
 			select {
 			case <-ctx.Done():
 			case <-time.After(settle):
@@ -357,6 +371,49 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// over-count it. Extracted to a tested helper (#3070 reviewer note,
 	// sharper now that maxPurgePasses=6).
 	dedupProviderPurge(out)
+
+	// #4046 (2026-06-21 live audit) — EIP-egress cooldown preflight.
+	//
+	// THE REAL region-a-never-bootstraps fix. kom4dc's small EIP free-pool +
+	// rapid wipe→re-prov recycles RECENTLY-RELEASED EIPs back into the very
+	// next allocate(). A just-released EIP stays reputation-blocklisted for
+	// outbound to harbor.openova.io / ghcr "for hours" after release, so when
+	// the immediate next prov's NAT SNAT draws it, that region's cloud-init
+	// image pull fails, the region never PUTs its kubeconfig, and the prov
+	// dies on the phase-1 15-minute watch timeout (region-a "created
+	// everything but no egress" wedge).
+	//
+	// preflight_eip.go already LEARNS poison it rotated away from at
+	// preflight time, but only AFTER a prov has drawn + rotated it — the
+	// FIRST prov to draw a freshly-released EIP still wedges. Active
+	// egress-validation from the control plane is NOT feasible: catalyst-api
+	// runs on Contabo, OUTSIDE the Huawei VPC, so it cannot reachability-probe
+	// a Huawei EIP's egress to harbor without an ECS in-VPC with that EIP
+	// attached (the chicken-and-egg documented in preflight_eip.go's header).
+	// So we take the fallback the operator described: record EVERY EIP this
+	// wipe just released into the SAME cooldown blocklist store
+	// (eip_blocklist_store.go), TTL-bounded so a genuinely-recovered address
+	// ages back into rotation. blocklist() merges this store on the next
+	// prov, so the immediate re-prov auto-avoids every address this wipe
+	// freed — exactly "wait for dirty EIPs to clear". Non-fatal: a failure to
+	// persist only loses the cooldown memory for these addresses, it never
+	// fails the wipe.
+	releasedEIPs := append([]string(nil), out.ProviderPurge["floating_ips"]...)
+	// Also cool down any EIP that survived the purge (still in HCS) — it was
+	// in service for this Sovereign and will be released/recycled soon; the
+	// next prov must avoid it too. These are recorded in out.Errors as
+	// "survived" but we want their addresses in the cooldown set as well.
+	for _, addr := range out.ResidualOrphans["floating_ips"] {
+		releasedEIPs = append(releasedEIPs, addr)
+	}
+	if len(releasedEIPs) > 0 {
+		note := "wipe:" + spec.DeploymentID
+		if rerr := recordPoisonedEIPs(releasedEIPs, note, time.Now()); rerr != nil {
+			progress(fmt.Sprintf("#4046: could not persist %d released EIP(s) to the cooldown blocklist (non-fatal): %v", len(releasedEIPs), rerr))
+		} else {
+			progress(fmt.Sprintf("#4046: recorded %d released EIP(s) to the cooldown blocklist — the immediate next prov will not re-draw a freshly-freed (reputation-poisoned) EIP", len(releasedEIPs)))
+		}
+	}
 
 	// Step 3 — OBS bucket purge (best effort).
 	endpoint := fmt.Sprintf("obs.%s.kom4dc.nationalcloud.om", region)
@@ -395,6 +452,25 @@ func dedupProviderPurge(out *providers.WipeResult) {
 		}
 		out.ProviderPurge[k] = uniq
 	}
+}
+
+// wipeRetryShouldBreak decides whether the Wipe() purge-retry loop may
+// stop. #4046 (2026-06-21 live audit): it returns true ONLY when the
+// post-pass verify found ZERO residual orphans across EVERY resource kind
+// — i.e. out.VerifiedZeroOrphans is true. The previous inline condition
+// summed only the three quota-relevant kinds (networks + nat_gateways +
+// floating_ips), so a security group (or server / load_balancer / keypair)
+// that survived a 409-on-port-settle fell outside the sum and the loop
+// broke early, leaking one region's SG on EVERY wipe. Gating on the full
+// zero-orphans verdict keeps re-purging until the account is genuinely
+// clean. verifyZeroOrphans is the sole writer of VerifiedZeroOrphans and
+// already accounts for firewalls/servers/load_balancers/keypairs, so this
+// stays a thin, single-source predicate.
+func wipeRetryShouldBreak(out *providers.WipeResult) bool {
+	if out == nil {
+		return true // nothing to retry against
+	}
+	return out.VerifiedZeroOrphans
 }
 
 // verifyZeroOrphans walks every cleanup-bearing resource kind and
@@ -897,17 +973,63 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	}
 
 	// 5. SG — by-name (covers tags-disabled case).
+	//
+	// #4046 (2026-06-21 live audit): the first deleteSG pass routinely
+	// returns 409 ("security group is in use" / port device-owner still
+	// settling) while the ECS/NAT/LB ports that reference the SG are still
+	// being torn down asynchronously by HCS. The old single-pass loop logged
+	// that 409 to out.Errors and moved on, leaking ONE region's security
+	// group on EVERY wipe (the SG is a non-quota resource, so the outer
+	// Wipe() retry loop — which used to break the instant VPC/NAT/EIP were
+	// clean — never came back to re-delete it). Mirror the EIP 3-pass
+	// per-resource retry above: re-list between passes and only keep
+	// `firewalls` entries that actually vanished, with a short backoff so HCS
+	// can finish releasing the bound ports. SGs that survive all passes
+	// surface in out.Errors AND are caught by verifyZeroOrphans → the outer
+	// loop (now gated on VerifiedZeroOrphans) keeps retrying.
+	const sgPasses = 3
 	sgs, err := listSGsByName(ctx, client, hw, region, sovereignFQDN)
 	if err != nil {
 		out.Errors = append(out.Errors, "list SG: "+err.Error())
 	}
-	for _, sg := range sgs {
-		if err := deleteSG(ctx, client, hw, region, sg.ID); err != nil {
-			out.Errors = append(out.Errors, fmt.Sprintf("delete SG %s: %s", sg.Name, err))
-			continue
+	sgDone := map[string]string{} // id → name (deleted + verified gone)
+	for pass := 1; pass <= sgPasses && len(sgDone) < len(sgs); pass++ {
+		for _, sg := range sgs {
+			if _, ok := sgDone[sg.ID]; ok {
+				continue
+			}
+			if err := deleteSG(ctx, client, hw, region, sg.ID); err != nil {
+				if pass == sgPasses {
+					out.Errors = append(out.Errors, fmt.Sprintf("delete SG %s (pass %d): %s", sg.Name, pass, err))
+				}
+				continue
+			}
+			sgDone[sg.ID] = sg.Name
+			progress(fmt.Sprintf("deleted SG %s (pass %d)", sg.Name, pass))
 		}
-		out.ProviderPurge["firewalls"] = append(out.ProviderPurge["firewalls"], sg.Name)
-		progress("deleted SG " + sg.Name)
+		// Re-list to verify; a 409-on-port-settle can return 2xx on the
+		// DELETE yet leave the SG present, so drop any ID that came back.
+		stillThere, _ := listSGsByName(ctx, client, hw, region, sovereignFQDN)
+		survived := map[string]bool{}
+		for _, sg := range stillThere {
+			survived[sg.ID] = true
+		}
+		for id := range sgDone {
+			if survived[id] {
+				delete(sgDone, id) // not actually gone; retry next pass
+			}
+		}
+		if len(sgDone) == len(sgs) {
+			break
+		}
+		// Brief backoff so HCS can finish releasing the ports that pin the SG.
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Duration(2*pass) * time.Second):
+		}
+	}
+	for _, name := range sgDone {
+		out.ProviderPurge["firewalls"] = append(out.ProviderPurge["firewalls"], name)
 	}
 
 	// 6+7+8. VPC cascade (Wave 5.153) — find ports in each subnet,
