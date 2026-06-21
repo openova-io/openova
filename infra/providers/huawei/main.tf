@@ -722,8 +722,25 @@ locals {
         endpoint:
           - "http://212.72.24.20:5000"
         rewrite:
-          "openova-io/openova/(.*)": "openova-io/openova/$1"
-          "(.*)": "proxy-ghcr/$1"
+          # #4049 (hw182 live-proven 2026-06-22): containerd renders the YAML
+          # `rewrite:` map into a hosts.toml `[host.<x>.rewrite]` TOML MAP and
+          # iterates it in NON-DETERMINISTIC (Go map) order — file/list order is
+          # NOT honored (proven: `openova-io` rule listed first STILL lost to the
+          # catch-all). A plain `(.*)` catch-all therefore SHADOWS the specific
+          # `openova-io/openova/...` rule ~half the time → the private catalyst
+          # ref gets rewritten to `proxy-ghcr/openova-io/...` (404, anon cache
+          # can't serve the private blob) → containerd falls back to the upstream
+          # `server = https://ghcr.io` → 401. The two rules MUST be mutually
+          # exclusive. RE2 has no negative-lookahead, so the catch-all is anchored
+          # to NOT match the `openova-io/openova/` prefix via a first-mismatch
+          # alternation. PRIVATE openova catalyst → hosted bastion project
+          # `openova-io` (warmed by the catalyst-build job, served from the
+          # bastion :5000 pull-through cache of the PUBLIC Contabo `openova-io`
+          # project — proven 0.9s warm pull, 61.7 MiB, zero ghcr egress).
+          # Everything else (fluxcd/*, cloudnative-pg/*, …) → the anon proxy-ghcr
+          # cache (verified still routes correctly).
+          "^openova-io/openova/(.*)": "openova-io/openova/$1"
+          "^(openova-io/(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^/]).*|(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^-]|openova-[^i]|openova-i[^o]).*)": "proxy-ghcr/$0"
       "xpkg.upbound.io":
         endpoint:
           - "https://harbor.openova.io"
