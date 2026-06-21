@@ -2956,7 +2956,7 @@ name: bp-catalyst-platform
 #   clusters/_template/sovereign-tls/cilium-gateway-console.yaml (the Gateway resource),
 #   infra/providers/{hetzner,huawei} (dedicated console LB → 31443) + core/pool-domain-
 #   manager + catalyst-api (console./api.<fqdn> DNS split to the console LB).
-version: 1.4.766
+version: 1.4.767
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
