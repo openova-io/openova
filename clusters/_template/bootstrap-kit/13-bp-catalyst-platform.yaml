@@ -1058,7 +1058,11 @@ spec:
       # 1.4.766 (#4053) — poison-proof console gateway isolation: the console re-parents
       #   onto a dedicated cilium-gateway-console (own CEC, stable backends only) so an
       #   app-backend poison on the shared cilium-gateway can never 404 the console.
-      version: 1.4.767
+      # 1.4.768 — #4061: child catalyst-api no longer auto-fires the
+      #   self-sovereignty cutover on handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER
+      #   now defaults false via catalystApi.fireCutoverOnHandover). Cutover is a
+      #   DELIBERATE BSS-menu action; operator-initiated path unchanged.
+      version: 1.4.768
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

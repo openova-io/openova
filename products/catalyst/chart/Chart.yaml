@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.761 — #4061 (2026-06-22): stop a PERMANENT Sovereign from auto-firing the
+# self-sovereignty cutover the moment the mothership completes handover. The
+# child catalyst-api's ReceiveTofuArchive (handover.go) seals the
+# tofu-phase0-archive THEN fires the cutover engine with source="handover",
+# which the require-handover gate (cutover_internal.go) deliberately EXEMPTS —
+# and the in-code env default CATALYST_FIRE_CUTOVER_ON_HANDOVER is TRUE and was
+# set NOWHERE in any chart. Result: a converged customer-facing Sovereign
+# auto-entered the finite 8-step cutover (incl the 10-min deny-egress
+# NetworkPolicy hold) UNATTENDED. New knob `catalystApi.fireCutoverOnHandover`
+# (default false) wires CATALYST_FIRE_CUTOVER_ON_HANDOVER=false into the child
+# catalyst-api on Sovereign installs, making cutover a DELIBERATE BSS-menu
+# action ("Achieve True Sovereignty", source="operator"). NO-REGRESS: the
+# operator/BSS-initiated cutover is untouched and still fires; a throwaway test
+# prov sets fireCutoverOnHandover=true to drive the full unattended walk.
 # 1.4.722 — #3946 (Refs #3296 #3297 #3201, 2026-06-20): unblock console install
 # on every Sovereign where the Kyverno `flux-managed` ClusterPolicy is Enforce.
 # The `catalyst-gitea-token-mint` pre-install hook Job is created directly by
@@ -2956,7 +2970,11 @@ name: bp-catalyst-platform
 #   clusters/_template/sovereign-tls/cilium-gateway-console.yaml (the Gateway resource),
 #   infra/providers/{hetzner,huawei} (dedicated console LB → 31443) + core/pool-domain-
 #   manager + catalyst-api (console./api.<fqdn> DNS split to the console LB).
-version: 1.4.767
+# 1.4.768 — #4061: child catalyst-api no longer auto-fires the self-sovereignty cutover on
+#   handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER now defaults false via
+#   catalystApi.fireCutoverOnHandover). Cutover is a DELIBERATE BSS-menu action; the
+#   operator-initiated path is unchanged (NO-REGRESS).
+version: 1.4.768
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
