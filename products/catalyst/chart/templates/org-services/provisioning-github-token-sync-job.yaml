@@ -1,0 +1,316 @@
+{{- /*
+post-install/post-upgrade hook Job that RELIABLY materialises the
+`org-services/provisioning-github-token` Secret (key GITHUB_TOKEN) — #3376
+(Refs #3689 #3122 #866).
+
+WHY THIS FILE EXISTS (the `lookup`-on-fresh-install race)
+========================================================
+The provisioning service Deployment init-gates on a Gitea token Gitea accepts
+(wait-for-gitea-token, provisioning.yaml). That token must live in
+`org-services/provisioning-github-token` under key GITHUB_TOKEN. The sibling
+template provisioning-github-token.yaml mirrors it from the PAT minted into
+`catalyst-gitea-token` (key `token`) — but it reads that PAT via
+`lookup "v1" "Secret" <ns> catalyst-gitea-token` at TEMPLATE-RENDER time and
+emits NOTHING while the PAT is still the empty placeholder.
+
+The PAT is minted by the catalyst-gitea-token mint Job, a `pre-install`/
+`pre-upgrade` HOOK (catalyst-gitea-token-secret.yaml, weight 10). Helm
+evaluates every `lookup` during the render phase, which runs BEFORE the
+pre-install hooks execute AND before the mint Job can reach the (often 10-15m
+cold-start) Gitea API to mint. So on a fresh install the lookup sees the empty
+placeholder → provisioning-github-token.yaml emits NO Secret → the init
+container's secretKeyRef reads empty (optional:true) → the provisioning Pod
+sits Init:0/1. The mint hook then populates the PAT, but the HelmRelease sits
+at revision v1 and does NOT re-render on its own (a no-op reconcile re-runs the
+SAME render with the SAME values → Helm skips it → the lookup never re-fires) →
+provisioning-github-token never materialises without a manual `helm upgrade`.
+This is the EXACT race #3668/#3454 hit for the Flux auth Secrets; PROVEN live
+again on hw174 (the funnel-driving walker had to mirror the token by hand).
+
+FIX
+===
+A `post-install,post-upgrade` hook Job (this file) that runs AFTER the
+pre-install mint hook has populated catalyst-gitea-token. It reads the PAT at
+RUNTIME via kubectl (NOT a render-time lookup — no race), POLLS up to a bounded
+budget for the mint to land, then idempotently `kubectl apply`s the
+provisioning-github-token Secret in org-services with the GITHUB_TOKEN key.
+post-* hooks fire on EVERY install AND EVERY upgrade, so a fresh prov gets the
+Secret the first time and any later chart bump re-asserts it — independent of
+whether the lookup-based sibling ever succeeds.
+
+This is the reliable CREATOR; provisioning-github-token.yaml is left in place
+as a harmless redundant fallback (it only ever emits when the render-time
+lookup happens to succeed — which never occurs at fresh-install render time —
+and writes byte-identical GITHUB_TOKEN content, so the two never fight).
+
+CUTOVER OWNERSHIP (load-bearing — do NOT clobber Step-09)
+=========================================================
+bp-self-sovereign-cutover Step 09 mints a fresh per-Sovereign Gitea token and
+PATCHes provisioning-github-token.GITHUB_TOKEN + stamps
+`catalyst.openova.io/token-source=self-sovereign-cutover-step-09`. This Job
+MUST NOT overwrite that. Before applying, it checks the live destination
+Secret: if it already carries the cutover annotation AND a non-empty
+GITHUB_TOKEN, the Job is a no-op (preserves the cutover credential — the same
+contract the sibling template's `$cutoverOwned` branch encodes). Otherwise it
+(re-)mirrors the bootstrap PAT so a freshly-franchised Sovereign authenticates
+before Step 09 runs.
+
+Per docs/PRINCIPLES.md #3 (no kubectl apply of WORKLOADS): this Job only
+applies a leaf Secret, exactly as the mint + flux-auth-sync Jobs do —
+credential bootstrap that requires the runtime-minted PAT, not a pure-template
+value. Per #10 (no plaintext creds): the PAT is read via kubectl into an
+emptyDir file and never echoed; the bytes never land on argv or in chart
+source. Per #4: namespaces + Secret names + keys flow through .Values.
+
+GATING
+======
+Rendered ONLY when .Values.ingress.marketplace.enabled (the same discriminator
+provisioning-github-token.yaml + the provisioning Deployment use) — the
+provisioning service only exists on a marketplace-enabled Sovereign.
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- $namespace := .Release.Namespace -}}
+{{- $gt := .Values.orgServices.provisioning.gitToken -}}
+{{- $patNS := $gt.patSourceNamespace | default $namespace -}}
+{{- $patSecret := $gt.patSourceSecretName | default "catalyst-gitea-token" -}}
+{{- $patKey := $gt.patSourceKey | default "token" -}}
+{{- $destNS := $gt.destNamespace | default "org-services" -}}
+{{- $destSecret := $gt.destSecretName | default "provisioning-github-token" -}}
+{{- $destKey := $gt.destKey | default "GITHUB_TOKEN" -}}
+{{- $srcNS := $gt.patSourceNamespace | default $namespace -}}
+{{- $mirroredFrom := printf "%s/%s" $srcNS $patSecret -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: provisioning-github-token-sync
+  namespace: {{ $namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: provisioning-github-token-sync
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+{{- /* Read the PAT from catalyst-gitea-token in the source namespace. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provisioning-github-token-sync-pat-reader
+  namespace: {{ $patNS }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $patSecret | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: provisioning-github-token-sync-pat-reader
+  namespace: {{ $patNS }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: provisioning-github-token-sync
+    namespace: {{ $namespace }}
+roleRef:
+  kind: Role
+  name: provisioning-github-token-sync-pat-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+{{- /* Read the EXISTING dest Secret (cutover-ownership check) + create/patch
+       it in the destination namespace. Scoped to the one Secret name. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provisioning-github-token-sync-writer
+  namespace: {{ $destNS }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: provisioning-github-token-sync-writer
+  namespace: {{ $destNS }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: provisioning-github-token-sync
+    namespace: {{ $namespace }}
+roleRef:
+  kind: Role
+  name: provisioning-github-token-sync-writer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: provisioning-github-token-sync
+  namespace: {{ $namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: provisioning-github-token-sync
+    # Required by the kyverno `flux-managed` Enforce policy on converged
+    # Sovereigns (the release ns is NOT namespace-excluded) — mirrors the
+    # sibling mint + flux-auth-sync Jobs.
+    app.kubernetes.io/managed-by: flux
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    # Weight 20 — post-* hooks run after the whole install/upgrade action
+    # (which includes the pre-* mint), so cross-phase ordering is automatic.
+    # The REAL ordering guard against the mint race is the bounded poll loop
+    # in the container args: pre-/post-* weights are independent phases, so no
+    # weight can sequence this after the mint — the Job WAITS for the token
+    # rather than FATAL on an empty read (#3763 lesson).
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-catalyst-platform
+        catalyst.openova.io/component: provisioning-github-token-sync
+    spec:
+      serviceAccountName: provisioning-github-token-sync
+      restartPolicy: OnFailure
+      containers:
+        - name: sync
+          # Explicit harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+          # MIRROR-EVERYTHING rule (matches the mint + flux-auth-sync Jobs).
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+          env:
+            # Bounded poll budget for the runtime-minted PAT to appear (the
+            # mint hook may land a beat after this post-* hook starts; #3763).
+            # Default 60 × 5s = 300s, well inside the HR's 30m upgrade timeout.
+            - name: POLL_ATTEMPTS
+              value: {{ ($gt.patPollAttempts | default 60) | quote }}
+            - name: POLL_INTERVAL
+              value: {{ ($gt.patPollIntervalSeconds | default 5) | quote }}
+            - name: PAT_NAMESPACE
+              value: {{ $patNS | quote }}
+            - name: PAT_SECRET
+              value: {{ $patSecret | quote }}
+            - name: PAT_KEY
+              value: {{ $patKey | quote }}
+            - name: DEST_NAMESPACE
+              value: {{ $destNS | quote }}
+            - name: DEST_SECRET
+              value: {{ $destSecret | quote }}
+            - name: DEST_KEY
+              value: {{ $destKey | quote }}
+            - name: MIRRORED_FROM
+              value: {{ $mirroredFrom | quote }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              # ── Cutover-ownership guard (do NOT clobber Step-09) ──────────
+              # If the dest Secret already carries the cutover token-source
+              # annotation AND a non-empty GITHUB_TOKEN, bp-self-sovereign-
+              # cutover Step 09 owns it — preserve it verbatim and exit.
+              SRC=$(kubectl -n "$DEST_NAMESPACE" get secret "$DEST_SECRET" \
+                -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/token-source}' \
+                2>/dev/null || true)
+              EXISTING=$(kubectl -n "$DEST_NAMESPACE" get secret "$DEST_SECRET" \
+                -o jsonpath="{.data.${DEST_KEY}}" 2>/dev/null || true)
+              if [ "$SRC" = "self-sovereign-cutover-step-09" ] && [ -n "$EXISTING" ]; then
+                echo "[provisioning-github-token-sync] dest carries cutover Step-09 token — preserving, no-op"
+                exit 0
+              fi
+              # ── Poll for the runtime-minted PAT (don't FATAL-on-first-empty;
+              #    #3763) ─────────────────────────────────────────────────────
+              # `pre-*` and `post-*` hook weights are INDEPENDENT phases, so no
+              # weight can order this after the mint; and the mint Secret uses
+              # before-hook-creation (no hook-succeeded) so on every upgrade it
+              # is deleted-then-recreated → a transient empty window exists. A
+              # SINGLE read + exit-1 would crashloop (OnFailure burns
+              # backoffLimit) → BackoffLimitExceeded → the bp-catalyst-platform
+              # upgrade fails + rolls back + oscillates (the hw158 spine
+              # degradation). So poll up to POLL_ATTEMPTS × POLL_INTERVAL.
+              POLL_ATTEMPTS="${POLL_ATTEMPTS:-60}"
+              POLL_INTERVAL="${POLL_INTERVAL:-5}"
+              i=1
+              while [ "$i" -le "$POLL_ATTEMPTS" ]; do
+                kubectl -n "$PAT_NAMESPACE" get secret "$PAT_SECRET" \
+                  -o jsonpath="{.data.${PAT_KEY}}" 2>/dev/null | base64 -d > /tmp/token 2>/dev/null || true
+                if [ -s /tmp/token ]; then
+                  echo "[provisioning-github-token-sync] ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} populated (attempt $i/${POLL_ATTEMPTS})"
+                  break
+                fi
+                echo "[provisioning-github-token-sync] waiting for ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} ($i/${POLL_ATTEMPTS}) — mint hook not landed yet"
+                i=$((i + 1))
+                sleep "$POLL_INTERVAL"
+              done
+              if [ ! -s /tmp/token ]; then
+                echo "[provisioning-github-token-sync] WARN: ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} still empty after ${POLL_ATTEMPTS} attempts (~$((POLL_ATTEMPTS * POLL_INTERVAL))s) — catalyst-platform NOT wedged; provisioning-github-token self-heals on the next reconcile once the mint lands" >&2
+                exit 0
+              fi
+              # ── Idempotent create-or-update of the dest Secret with the PAT
+              #    under the GITHUB_TOKEN key. `create --dry-run | apply` keeps
+              #    the bytes off argv and is the canonical idempotent-apply
+              #    idiom. The reflector annotations mirror the sibling template
+              #    so catalyst-api (catalyst-system) can read GITHUB_TOKEN via
+              #    secretKeyRef for CATALYST_GITOPS_TOKEN (TBD-C18). ───────────
+              kubectl create secret generic "$DEST_SECRET" -n "$DEST_NAMESPACE" \
+                --from-file="${DEST_KEY}=/tmp/token" \
+                --dry-run=client -o yaml \
+                | kubectl annotate --local -f - -o yaml \
+                    "catalyst.openova.io/mirrored-from=${MIRRORED_FROM}" \
+                    "helm.sh/resource-policy=keep" \
+                    "reflector.v1.k8s.emberstack.com/reflection-allowed=true" \
+                    "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces=catalyst-system" \
+                    "reflector.v1.k8s.emberstack.com/reflection-auto-enabled=true" \
+                    "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces=catalyst-system" \
+                | kubectl label --local -f - -o yaml \
+                    catalyst.openova.io/blueprint=bp-catalyst-platform \
+                    catalyst.openova.io/component=provisioning-github-token \
+                    app.kubernetes.io/part-of=org \
+                | kubectl apply -f -
+              rm -f /tmp/token
+              echo "[provisioning-github-token-sync] applied ${DEST_NAMESPACE}/${DEST_SECRET}.${DEST_KEY}"
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { memory: 256Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

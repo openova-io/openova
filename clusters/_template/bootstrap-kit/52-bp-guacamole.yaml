@@ -231,6 +231,17 @@ spec:
       database:
         cluster:
           enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+          # #3971 (Refs #3992 #4012) — name the per-provider durable CSI class
+          # explicitly so the guacamole-pg PVC is NEVER created classless. An
+          # UNSET storageClassName freezes to "" the instant a PVC is created
+          # before any default StorageClass exists, permanently stranding it
+          # Pending (caught live on hw174: guacamole-pg-1 Pending<empty> → the
+          # guacamole DB never came up). A NAMED class keeps the PVC Pending
+          # (recoverable) until the class lands, then binds — race-immune.
+          # Sourced from cloud-init per-provider env (hcloud-volumes on Hetzner,
+          # evs-ssd on Huawei); empty default preserves the legacy
+          # omit-when-empty CI `helm template` path.
+          storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS:=}
       # Default-OFF gate flipped ON by the bootstrap-kit slot. Operator
       # opts out per-Sovereign by removing this slot from
       # clusters/<sovereign>/bootstrap-kit/kustomization.yaml.

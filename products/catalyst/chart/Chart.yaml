@@ -2921,7 +2921,16 @@ name: bp-catalyst-platform
 # answer (non-000 code) = reachable; only a connect failure keeps waiting —
 # removing a 14min dead-wait from the console-up critical path.
 # 1.4.745 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 1.4.746
+# 1.4.747 (Refs #3964 #3971 #3376): funnel-unblock trio — (1) orgTag c068e6a→34ff594
+#   so the provisioning service ships the #3964 partialFilter fix + #3995 SME→Org
+#   rename (the c068e6a pin CrashLooped on FerretDB + the 2529da1 stop-gap emitted
+#   tier:"sme" the CRD 422-rejects); (2) provisioning-github-token-sync-job.yaml —
+#   post-* hook that reliably materialises org-services/provisioning-github-token
+#   (the lookup-based template raced the mint hook + never re-rendered → Pod
+#   Init:0/1 on fresh prov); (3) the gitea/harbor/guacamole host-shared CNPG
+#   clusters name an explicit per-provider storageClass so their PVCs never freeze
+#   "" before the default StorageClass lands (hw174: 3 PVCs stuck Pending<empty>).
+version: 1.4.747
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
