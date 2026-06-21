@@ -127,6 +127,12 @@ paths:
                 reservationToken: { type: string, format: uuid }
                 sovereignFQDN: { type: string }
                 loadBalancerIP: { type: string, format: ipv4 }
+                # #4053 — optional. When set, the console + api A-records point
+                # at the dedicated console LB (the isolated cilium-gateway-console)
+                # instead of loadBalancerIP, so a poisoned shared-gateway CEC can
+                # never 404 the console. Omitted = every record points at
+                # loadBalancerIP (legacy single-LB behaviour).
+                consoleLoadBalancerIP: { type: string, format: ipv4 }
       responses:
         '200': { description: Committed }
         '202': { description: Committed in DB; Dynadot retry needed }

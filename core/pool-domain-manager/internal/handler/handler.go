@@ -220,6 +220,12 @@ type CommitRequest struct {
 	ReservationToken string `json:"reservationToken"`
 	SovereignFQDN    string `json:"sovereignFQDN"`
 	LoadBalancerIP   string `json:"loadBalancerIP"`
+	// ConsoleLoadBalancerIP — #4053. Optional. When supplied, the `console`
+	// and `api` A-records point at this dedicated console-LB IP (the isolated
+	// cilium-gateway-console front door) instead of LoadBalancerIP, so a
+	// poisoned shared-gateway CEC can never 404 the console. Omitted = every
+	// record points at LoadBalancerIP (legacy single-LB behaviour).
+	ConsoleLoadBalancerIP string `json:"consoleLoadBalancerIP,omitempty"`
 }
 
 // Commit promotes a reservation to active and writes Dynadot records.
@@ -258,9 +264,10 @@ func (h *Handler) Commit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	alloc, err := h.Alloc.Commit(r.Context(), domain, sub, allocator.CommitInput{
-		ReservationToken: req.ReservationToken,
-		SovereignFQDN:    req.SovereignFQDN,
-		LoadBalancerIP:   req.LoadBalancerIP,
+		ReservationToken:      req.ReservationToken,
+		SovereignFQDN:         req.SovereignFQDN,
+		LoadBalancerIP:        req.LoadBalancerIP,
+		ConsoleLoadBalancerIP: req.ConsoleLoadBalancerIP, // #4053 — empty-safe (falls back to LoadBalancerIP)
 	})
 	if err != nil {
 		// Allocator returns a wrapped "powerdns write" error AFTER the row

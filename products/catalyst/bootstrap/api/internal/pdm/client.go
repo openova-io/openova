@@ -175,6 +175,12 @@ type CommitInput struct {
 	ReservationToken string
 	SovereignFQDN    string
 	LoadBalancerIP   string
+	// ConsoleLoadBalancerIP — #4053. Optional. When set, the console + api
+	// A-records point at the dedicated console LB (the isolated
+	// cilium-gateway-console) instead of LoadBalancerIP, so a poisoned
+	// shared-gateway CEC (cilium#35728) can never 404 the console. Empty =
+	// every record points at LoadBalancerIP (legacy single-LB behaviour).
+	ConsoleLoadBalancerIP string
 }
 
 // Commit calls POST /api/v1/pool/{domain}/commit.
@@ -201,6 +207,13 @@ func (c *Client) Commit(ctx context.Context, poolDomain string, in CommitInput) 
 		"reservationToken": in.ReservationToken,
 		"sovereignFQDN":    in.SovereignFQDN,
 		"loadBalancerIP":   in.LoadBalancerIP,
+	}
+	// #4053 — only send consoleLoadBalancerIP when the console gateway is
+	// isolated (a dedicated console LB exists). Omitting the key when empty
+	// keeps the wire body byte-identical to the pre-#4053 request, and PDM
+	// falls back to loadBalancerIP for the console records.
+	if in.ConsoleLoadBalancerIP != "" {
+		body["consoleLoadBalancerIP"] = in.ConsoleLoadBalancerIP
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {

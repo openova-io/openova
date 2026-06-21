@@ -1136,6 +1136,99 @@ resource "hcloud_load_balancer_service" "dns" {
   }
 }
 
+# ── #4053 — Dedicated CONSOLE load balancer (poison-proof gateway isolation) ──
+#
+# Cilium Gateway API compiles every HTTPRoute + backend of a Gateway into ONE
+# CiliumEnvoyConfig committed atomically; a single unresolvable app backend
+# fails the whole CEC and 404s the entire gateway (cilium#35728, unfixed on the
+# pinned 1.16.5). The console is therefore isolated onto its OWN Cilium Gateway
+# (`cilium-gateway-console`, host ports 31443/31080 — see
+# clusters/_template/sovereign-tls/cilium-gateway-console.yaml), carrying ONLY
+# the stable catalyst-ui + catalyst-api backends.
+#
+# Both `hcloud_load_balancer` (lb11) and the Huawei ELB do TCP PASSTHROUGH on
+# 443 (TLS terminates at cilium-envoy, NOT the LB), so neither can route by SNI
+# / Host header — a single LB IP + single public 443 can reach exactly ONE host
+# port, hence ONE gateway. Isolating the console onto a second gateway on a
+# second host port therefore requires a SECOND public LB IP. The console
+# A-records (console./api.<fqdn>) point at THIS LB → node:31443; the wildcard
+# `*.<fqdn>` (every volatile app/tenant host) keeps pointing at the shared
+# `hcloud_load_balancer.main` → node:30443. DNS split is owned by
+# core/pool-domain-manager (consoleLoadBalancerIP) + the catalyst-api handover.
+#
+# This is the only design that (a) keeps the console always reachable on the
+# canonical https://console.<fqdn>/ :443 URL, (b) is byte-identical across
+# Hetzner + Huawei (both just do dumb TCP 443→port), and (c) needs no Cilium
+# upgrade — the pinned 1.16.5 does NOT reconcile a TLSRoute-passthrough SNI
+# front gateway (TLSRoute is a startup CRD presence-check only on 1.16.x), which
+# rules out the single-IP front-gateway alternative.
+resource "hcloud_load_balancer" "console" {
+  name               = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-console-lb"
+  load_balancer_type = "lb11"
+  location           = var.region
+  algorithm {
+    type = "round_robin"
+  }
+  labels = {
+    "catalyst.openova.io/sovereign" = var.sovereign_fqdn
+    "catalyst.openova.io/role"      = "console"
+  }
+}
+
+resource "hcloud_load_balancer_network" "console" {
+  load_balancer_id = hcloud_load_balancer.console.id
+  network_id       = hcloud_network.region["primary"].id
+  # .253 — one below the shared LB's .254 anchor (see hcloud_load_balancer_
+  # network.main). Pins the console LB's private IP so it cannot race the CP /
+  # shared-LB allocations during parallel apply.
+  ip = "10.0.1.253"
+
+  depends_on = [hcloud_network_subnet.region]
+}
+
+# Console LB targets — same node set as the shared LB. cilium-envoy runs as a
+# DaemonSet on every node and binds BOTH 30443 (shared) and 31443 (console), so
+# every node is a valid target for the console LB too.
+resource "hcloud_load_balancer_target" "console_control_plane" {
+  count            = local.control_plane_count
+  type             = "server"
+  load_balancer_id = hcloud_load_balancer.console.id
+  server_id        = hcloud_server.control_plane[count.index].id
+  use_private_ip   = true
+
+  depends_on = [hcloud_load_balancer_network.console]
+}
+
+resource "hcloud_load_balancer_target" "console_workers" {
+  count            = var.worker_count
+  type             = "server"
+  load_balancer_id = hcloud_load_balancer.console.id
+  server_id        = hcloud_server.worker[count.index].id
+  use_private_ip   = true
+
+  depends_on = [
+    hcloud_load_balancer_network.console,
+    hcloud_server.worker,
+  ]
+}
+
+resource "hcloud_load_balancer_service" "console_http" {
+  load_balancer_id = hcloud_load_balancer.console.id
+  protocol         = "tcp"
+  listen_port      = 80
+  # 31080 — the console gateway's HTTP host-port (cilium-gateway-console.yaml).
+  destination_port = 31080
+}
+
+resource "hcloud_load_balancer_service" "console_https" {
+  load_balancer_id = hcloud_load_balancer.console.id
+  protocol         = "tcp"
+  listen_port      = 443
+  # 31443 — the console gateway's HTTPS host-port. TLS terminates at the
+  # console gateway's cilium-envoy (per-prov wildcard cert), NOT here.
+  destination_port = 31443
+}
+
 # ── DNS: deliberately NOT a tofu concern ──────────────────────────────────
 #
 # Per the PDM (pool-domain-manager) ownership boundary set at #168, ALL

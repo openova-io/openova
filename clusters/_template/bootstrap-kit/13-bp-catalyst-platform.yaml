@@ -1055,7 +1055,10 @@ spec:
       # 1.4.757 — bp-chepherd Blueprint missing required topology.defaults.multi-region
       #   aborted the whole catalyst-platform install (console 404, hw182). Fixed.
       # 1.4.764 — rebrand catalog-seed bp-chepherd → bp-agenity (#4058).
-      version: 1.4.764
+      # 1.4.766 (#4053) — poison-proof console gateway isolation: the console re-parents
+      #   onto a dedicated cilium-gateway-console (own CEC, stable backends only) so an
+      #   app-backend poison on the shared cilium-gateway can never 404 the console.
+      version: 1.4.766
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
