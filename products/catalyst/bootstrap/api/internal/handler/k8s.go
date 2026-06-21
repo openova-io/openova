@@ -160,17 +160,13 @@ func (h *Handler) HandleK8sList(w http.ResponseWriter, r *http.Request) {
 	// only — preserves the original semantics for legacy callers and
 	// keeps wire-shape backward-compatible (Cluster=primary,
 	// Clusters=[] omitted).
-	fanOutIDs := []string{clusterID}
-	if h.k8sCache != nil {
-		seen := map[string]struct{}{clusterID: {}}
-		for _, cid := range h.k8sCache.Clusters() {
-			if _, ok := seen[cid]; ok {
-				continue
-			}
-			seen[cid] = struct{}{}
-			fanOutIDs = append(fanOutIDs, cid)
-		}
-	}
+	//
+	// #3987 — scope the fan-out to THIS deployment's clusters (primary +
+	// its "<primary>-<region>" secondaries), NOT the whole process cache.
+	// On the mothership the process cache holds every managed Sovereign's
+	// clusters; a blind Clusters() fan-out leaked sibling deployments'
+	// (and stale wiped-deployment) Nodes into the page being viewed.
+	fanOutIDs := h.deploymentScopedClusterIDs(clusterID)
 
 	// Carry the source cluster id alongside each item positionally
 	// — the parallel slice survives sort + paginate + SAR-gate so
@@ -711,8 +707,13 @@ func (h *Handler) HandleK8sStream(w http.ResponseWriter, r *http.Request) {
 	// registered cluster so /cloud?view=list&kind=nodes renders all
 	// 3 region nodes on a 3-region Sovereign (not just the primary's
 	// 1). Single-cluster Sovereigns keep the primary-only filter.
-	allowedClusters := map[string]struct{}{clusterID: {}}
-	for _, cid := range h.k8sCache.Clusters() {
+	//
+	// #3987 — scope to THIS deployment's clusters (primary + its
+	// "<primary>-<region>" secondaries), NOT the whole process cache, so
+	// the mothership SSE stream for one deployment never delivers a
+	// sibling (or stale wiped) deployment's events.
+	allowedClusters := map[string]struct{}{}
+	for _, cid := range h.deploymentScopedClusterIDs(clusterID) {
 		allowedClusters[cid] = struct{}{}
 	}
 
@@ -927,6 +928,45 @@ func (h *Handler) k8sCacheHasCluster(id string) bool {
 		}
 	}
 	return false
+}
+
+// deploymentScopedClusterIDs returns ONLY the k8scache cluster IDs that
+// belong to the deployment whose (already chroot-resolved) primary
+// cluster id is `resolvedID` — the primary itself plus any
+// "<resolvedID>-<region>" secondaries registered by the
+// secondary-kubeconfig fan-out.
+//
+// #3987 — the per-deployment Cloud Nodes/k8s-list pages must show ONLY
+// the requested deployment's clusters. The mothership process cache
+// holds EVERY managed Sovereign's clusters at once (one .yaml per
+// deployment in /var/lib/catalyst/kubeconfigs), so a blind
+// `h.k8sCache.Clusters()` fan-out merged a sibling deployment's Nodes
+// into the page being viewed — the hw178 page rendered 39 nodes spanning
+// hw136 + two already-wiped deployments whose stale cluster IDs had not
+// been evicted. Scoping the fan-out to the requested deployment's own
+// cluster-id prefix fixes the cross-deployment leak at the read tier
+// (the eviction half is fixed in k8scache's rescan-prune loop). The
+// chroot post-cutover case is unaffected: there every registered cluster
+// IS this Sovereign's (one primary + its secondaries, all sharing the
+// resolved id prefix), so the same prefix scope keeps the full set.
+func (h *Handler) deploymentScopedClusterIDs(resolvedID string) []string {
+	out := []string{resolvedID}
+	if h.k8sCache == nil {
+		return out
+	}
+	prefix := resolvedID + "-"
+	seen := map[string]struct{}{resolvedID: {}}
+	for _, cid := range h.k8sCache.Clusters() {
+		if _, ok := seen[cid]; ok {
+			continue
+		}
+		// Only this deployment's secondaries — "<primary>-<region>".
+		if strings.HasPrefix(cid, prefix) {
+			seen[cid] = struct{}{}
+			out = append(out, cid)
+		}
+	}
+	return out
 }
 
 // resolveChrootClusterID rewrites an incoming URL cluster ID onto the

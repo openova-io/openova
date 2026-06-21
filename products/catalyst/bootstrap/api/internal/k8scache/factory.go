@@ -257,6 +257,17 @@ type Factory struct {
 
 type clusterState struct {
 	id string
+	// kubeconfigPath — the on-disk kubeconfig this cluster was loaded
+	// from (empty for chroot self-registered + test-injected clusters
+	// that carry a pre-built DynamicClient). #3987: the rescan-prune
+	// loop evicts a file-backed cluster once its kubeconfig disappears
+	// from KubeconfigsDir — the eviction half of the cross-deployment
+	// Nodes leak (a wiped deployment whose .yaml lingered, or whose
+	// RemoveCluster ran in-process but the Pod then restarted and the
+	// hydrate/rescan path could otherwise resurrect it). Clusters with
+	// an empty path are NEVER pruned (the chroot's own in-cluster
+	// cluster has no backing file and must survive every rescan).
+	kubeconfigPath string
 	// factory — the dynamicinformer factory for this cluster. Watches
 	// every registered Kind with no per-Kind LIST bound.
 	//
@@ -561,10 +572,11 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 	// the architectural rationale. Every Kind in DefaultKinds now has a
 	// naturally-bounded population, so one unbounded factory is correct.
 	cs := &clusterState{
-		id:          c.ID,
-		dyn:         dyn,
-		core:        core,
-		restCfg:     restCfg, // G95.1 (Refs #2642) — nil on pre-built-client test path; production kubeconfig path populates it for exec-stream SPDY dials.
+		id:             c.ID,
+		kubeconfigPath: c.KubeconfigPath, // #3987 — empty for pre-built-client (chroot/test) clusters; rescan-prune only evicts file-backed clusters whose file disappeared.
+		dyn:            dyn,
+		core:           core,
+		restCfg:        restCfg, // G95.1 (Refs #2642) — nil on pre-built-client test path; production kubeconfig path populates it for exec-stream SPDY dials.
 		factory:     dynamicinformer.NewDynamicSharedInformerFactory(dyn, f.cfg.Resync),
 		informers:   map[string]cache.SharedIndexInformer{},
 		indexers:    map[string]cache.Indexer{},
@@ -856,6 +868,23 @@ func (f *Factory) rescanOnce(ctx context.Context) {
 			f.log.Info("k8scache: rescan — registered new cluster",
 				"id", ref.ID, "kubeconfig", ref.KubeconfigPath)
 		}
+
+		// #3987 — prune file-backed clusters whose kubeconfig vanished from
+		// the dir. A wiped deployment's RemoveCluster runs in-process, but a
+		// lingering or re-loaded .yaml (or a Pod restart that re-scanned a
+		// stale file) could otherwise keep a dead cluster registered — its
+		// Nodes then leak into a sibling deployment's Cloud page through the
+		// process cache. Computing the prune set here (rescan tier) is the
+		// eviction half of the cross-deployment Nodes leak; the read tier's
+		// per-deployment scoping is the other half (handler.deploymentScoped
+		// ClusterIDs). Clusters with an empty kubeconfigPath (chroot's own
+		// in-cluster cluster, test-injected pre-built clients) are NEVER
+		// pruned. RemoveCluster is idempotent + tears down the reflectors.
+		for _, id := range f.clustersToPrune() {
+			f.log.Info("k8scache: rescan — pruning cluster whose kubeconfig disappeared",
+				"id", id)
+			f.RemoveCluster(id)
+		}
 	}
 
 	// Chroot self-register recovery: when the Pod started before the
@@ -888,6 +917,36 @@ func (f *Factory) rescanOnce(ctx context.Context) {
 	}
 	f.log.Info("k8scache: rescan — chroot self-registered from ConfigMap",
 		"id", ref.ID, "sovereignFQDN", fqdn)
+}
+
+// clustersToPrune returns the ids of file-backed clusters whose
+// kubeconfig file no longer exists on disk. Clusters registered with a
+// pre-built DynamicClient (empty kubeconfigPath — the chroot's own
+// in-cluster cluster + test-injected clients) are never returned, so
+// the prune can never evict a cluster that has no backing file to
+// disappear. Pure read of f.clusters under the lock + an os.Stat per
+// candidate; the caller (rescanOnce) does the actual RemoveCluster
+// outside the lock. #3987.
+func (f *Factory) clustersToPrune() []string {
+	f.mu.RLock()
+	type cand struct{ id, path string }
+	cands := make([]cand, 0, len(f.clusters))
+	for id, cs := range f.clusters {
+		if cs == nil || cs.kubeconfigPath == "" {
+			continue
+		}
+		cands = append(cands, cand{id: id, path: cs.kubeconfigPath})
+	}
+	f.mu.RUnlock()
+
+	var stale []string
+	for _, c := range cands {
+		if _, err := os.Stat(c.path); err != nil && os.IsNotExist(err) {
+			stale = append(stale, c.id)
+		}
+	}
+	sort.Strings(stale)
+	return stale
 }
 
 // readSovereignFQDNFromConfigMap returns the non-empty fqdn from the

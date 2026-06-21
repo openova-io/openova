@@ -375,15 +375,25 @@ func TestHandleK8sList_NamespaceAliasFiltering(t *testing.T) {
 //
 // Multi-region Sovereigns register N kubeconfigs in the k8sCache
 // (primary + N-1 secondaries via the handover hook, PRs #1579 + #1581).
-// /cloud?view=list&kind=nodes must enumerate items from every
-// registered cluster and stamp each row with its source cluster id.
+// /cloud?view=list&kind=nodes must enumerate items from every cluster
+// THAT BELONGS TO THE REQUESTED DEPLOYMENT and stamp each row with its
+// source cluster id.
 //
 // Pre-fix: HandleK8sList queried only the resolveChrootClusterID
 // result (primary), returning 1 row on a 3-region Sovereign while the
 // aggregate /dashboard chips correctly counted 3.
+//
+// #3987: the secondary's cluster id MUST follow the canonical
+// "<primary>-<region>" convention (k8scache.LoadClustersFromDir stems +
+// HandleSovereignSecondaryKubeconfig writer) so the deployment-scoped
+// fan-out includes it. A bare unrelated id (a SIBLING deployment) must
+// NOT be merged — that was the hw178-page-shows-hw136-nodes leak.
 func TestHandleK8sList_FanOutAcrossClusters(t *testing.T) {
 	podA := newPod("default", "primary-pod")
 	podB := newPod("default", "secondary-pod")
+	// A THIRD pod in a SIBLING deployment's cluster — must NOT leak into
+	// the requested deployment's page (#3987).
+	podSibling := newPod("default", "sibling-pod")
 
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "PodList"}, &unstructured.UnstructuredList{})
@@ -393,12 +403,19 @@ func TestHandleK8sList_FanOutAcrossClusters(t *testing.T) {
 	}
 	dynA := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, podA)
 	dynB := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, podB)
+	dynSibling := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, podSibling)
+	const (
+		primaryID   = "02bc518fcb1b4cb3"             // the requested deployment
+		secondaryID = primaryID + "-me-east-215-b-1" // its OWN secondary region
+		siblingID   = "3a2ee904b1d0366a"             // a DIFFERENT live deployment
+	)
 	cfg := k8scache.Config{
 		Logger:   quietLog(),
 		Registry: minimalRegistry(),
 		Clusters: []k8scache.ClusterRef{
-			{ID: "primary", DynamicClient: dynA, CoreClient: kfake.NewSimpleClientset()},
-			{ID: "sin-2", DynamicClient: dynB, CoreClient: kfake.NewSimpleClientset()},
+			{ID: primaryID, DynamicClient: dynA, CoreClient: kfake.NewSimpleClientset()},
+			{ID: secondaryID, DynamicClient: dynB, CoreClient: kfake.NewSimpleClientset()},
+			{ID: siblingID, DynamicClient: dynSibling, CoreClient: kfake.NewSimpleClientset()},
 		},
 	}
 	f, err := k8scache.NewFactory(cfg)
@@ -409,12 +426,13 @@ func TestHandleK8sList_FanOutAcrossClusters(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(f.Stop)
-	// Wait for both clusters' pod informers to sync.
+	// Wait for all clusters' pod informers to sync.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		ia, _, _ := f.List("primary", "pod", nil)
-		ib, _, _ := f.List("sin-2", "pod", nil)
-		if len(ia) == 1 && len(ib) == 1 {
+		ia, _, _ := f.List(primaryID, "pod", nil)
+		ib, _, _ := f.List(secondaryID, "pod", nil)
+		is, _, _ := f.List(siblingID, "pod", nil)
+		if len(ia) == 1 && len(ib) == 1 && len(is) == 1 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -424,7 +442,7 @@ func TestHandleK8sList_FanOutAcrossClusters(t *testing.T) {
 	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
 	r := newRouter(h)
 
-	req := httptest.NewRequest("GET", "/api/v1/sovereigns/primary/k8s/pod", nil)
+	req := httptest.NewRequest("GET", "/api/v1/sovereigns/"+primaryID+"/k8s/pod", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -434,16 +452,22 @@ func TestHandleK8sList_FanOutAcrossClusters(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+	// Exactly 2 items: the deployment's primary + its own secondary. The
+	// sibling deployment's pod MUST NOT appear (#3987 cross-deployment
+	// leak guard).
 	if len(resp.Items) != 2 {
-		t.Fatalf("fan-out expected 2 items (primary+sin-2); got %d", len(resp.Items))
+		t.Fatalf("scoped fan-out expected 2 items (primary+own-secondary); got %d (%v)", len(resp.Items), resp.Items)
 	}
-	// Both source clusters MUST appear in the Clusters header.
+	// Both this deployment's clusters MUST appear; the sibling MUST NOT.
 	gotClusters := map[string]bool{}
 	for _, c := range resp.Clusters {
 		gotClusters[c] = true
 	}
-	if !gotClusters["primary"] || !gotClusters["sin-2"] {
-		t.Fatalf("expected Clusters=[primary,sin-2]; got %v", resp.Clusters)
+	if !gotClusters[primaryID] || !gotClusters[secondaryID] {
+		t.Fatalf("expected Clusters=[%s,%s]; got %v", primaryID, secondaryID, resp.Clusters)
+	}
+	if gotClusters[siblingID] {
+		t.Fatalf("#3987 LEAK: sibling deployment cluster %s appeared in %s's page: %v", siblingID, primaryID, resp.Clusters)
 	}
 	// Each row carries its source cluster stamp under top-level "cluster".
 	stamps := map[string]bool{}
@@ -452,8 +476,11 @@ func TestHandleK8sList_FanOutAcrossClusters(t *testing.T) {
 			stamps[cid] = true
 		}
 	}
-	if !stamps["primary"] || !stamps["sin-2"] {
+	if !stamps[primaryID] || !stamps[secondaryID] {
 		t.Fatalf("expected each row to carry source cluster id; got %v", stamps)
+	}
+	if stamps[siblingID] {
+		t.Fatalf("#3987 LEAK: a row was stamped with sibling cluster %s", siblingID)
 	}
 }
 
