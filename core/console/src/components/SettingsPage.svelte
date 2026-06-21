@@ -92,7 +92,7 @@
 <PortalShell activePage="settings">
   {#snippet children(user: User, org: Org | null)}
     <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Settings</h1>
-    <p class="mt-1 text-sm text-[var(--color-text-dim)]">Tenant configuration</p>
+    <p class="mt-1 text-sm text-[var(--color-text-dim)]">Organization configuration</p>
 
     {#if org}
       {#if initialName === '' && nameEdit === ''}
@@ -111,7 +111,7 @@
             />
           </div>
           <div>
-            <label class="mb-1 block text-sm text-[var(--color-text-dim)]">Tenant URL</label>
+            <label class="mb-1 block text-sm text-[var(--color-text-dim)]">Organization URL</label>
             <div class="flex items-center gap-2">
               <input
                 type="text"
@@ -202,7 +202,7 @@
                 onclick={() => handleDelete(org.id, org.slug)}
                 disabled={deleting || confirmText.trim() !== org.slug}
                 class="rounded-lg bg-[var(--color-danger)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--color-danger)]/90 disabled:opacity-50"
-              >{deleting ? 'Deleting…' : 'Delete Tenant'}</button>
+              >{deleting ? 'Deleting…' : 'Delete Organization'}</button>
             </div>
           </div>
         </div>

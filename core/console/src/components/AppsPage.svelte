@@ -315,7 +315,7 @@
     <div class="flex items-start justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Applications</h1>
-        <p class="mt-1 text-sm text-[var(--color-text-dim)]">Manage your tenant — add, remove, and open apps.</p>
+        <p class="mt-1 text-sm text-[var(--color-text-dim)]">Manage your organization — add, remove, and open apps.</p>
       </div>
       {#if provision && provision.status === 'provisioning'}
         <div class="flex items-center gap-2 rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-1.5 text-xs text-[var(--color-accent)]">
@@ -425,7 +425,7 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
                 </button>
               {:else if st.state === 'not-installed'}
-                <button class="icon-btn add" onclick={(e) => { e.preventDefault(); e.stopPropagation(); requestAdd(app); }} title="Add to tenant">
+                <button class="icon-btn add" onclick={(e) => { e.preventDefault(); e.stopPropagation(); requestAdd(app); }} title="Add to organization">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               {/if}
@@ -468,7 +468,7 @@
                 {/each}
               </p>
             {/if}
-            <p class="modal-body muted">Current tenant: {installedIds.length} apps installed on {org?.name ?? 'your plan'}.</p>
+            <p class="modal-body muted">Current organization: {installedIds.length} apps installed on {org?.name ?? 'your plan'}.</p>
 
             {#if shareableDeps(modal.app).length > 0}
               <button
@@ -521,7 +521,7 @@
                             />
                             <span>
                               <strong>Reuse existing</strong>
-                              <span class="dep-sub">Share the {dep.name.toLowerCase()} already running in this tenant</span>
+                              <span class="dep-sub">Share the {dep.name.toLowerCase()} already running in this organization</span>
                             </span>
                           </label>
                         {:else}
@@ -551,7 +551,7 @@
             </div>
           {:else if modal.mode === 'remove'}
             <h3 class="modal-title">Remove {modal.app.name}?</h3>
-            <p class="modal-body">This will stop <strong>{modal.app.name}</strong> and delete its data. Other apps in your tenant are unaffected.</p>
+            <p class="modal-body">This will stop <strong>{modal.app.name}</strong> and delete its data. Other apps in your organization are unaffected.</p>
             {#if modal.message}
               <div class="info-banner">{modal.message}</div>
             {/if}

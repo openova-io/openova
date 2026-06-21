@@ -37,7 +37,7 @@
           </p>
         </div>
         <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-          <p class="text-sm text-[var(--color-text-dim)]">Tenant</p>
+          <p class="text-sm text-[var(--color-text-dim)]">Organization</p>
           <p class="mt-1 truncate text-sm font-mono text-[var(--color-accent)]">{org.slug}.omani.rest</p>
         </div>
       </div>
@@ -83,7 +83,7 @@
       </div>
     {:else}
       <div class="mt-12 text-center">
-        <p class="text-[var(--color-text-dim)]">No tenant found.</p>
+        <p class="text-[var(--color-text-dim)]">No organization found.</p>
         <a href={MARKETPLACE_URL} class="mt-4 inline-block rounded-xl bg-[var(--color-accent)] px-6 py-3 text-sm font-semibold text-white no-underline">
           Create Tenant
         </a>

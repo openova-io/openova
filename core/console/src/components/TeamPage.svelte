@@ -31,7 +31,7 @@
 <PortalShell activePage="team">
   {#snippet children(user: User, org: Org | null)}
     <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Team</h1>
-    <p class="mt-1 text-sm text-[var(--color-text-dim)]">Manage tenant members</p>
+    <p class="mt-1 text-sm text-[var(--color-text-dim)]">Manage organization members</p>
 
     <!-- Invite Form -->
     <div class="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
