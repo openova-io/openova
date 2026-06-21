@@ -1058,7 +1058,7 @@ spec:
       # 1.4.766 (#4053) — poison-proof console gateway isolation: the console re-parents
       #   onto a dedicated cilium-gateway-console (own CEC, stable backends only) so an
       #   app-backend poison on the shared cilium-gateway can never 404 the console.
-      version: 1.4.766
+      version: 1.4.767
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
