@@ -620,6 +620,18 @@ write_files:
             # BOTH providers so the stateful root slots (bp-cnpg / bp-mgmt-
             # vcluster) can `dependsOn` it without deadlocking — see slot 55a.
             HCLOUD_CSI_ENABLED: "true"
+            # #892 — drive bp-huawei-evs-csi's chart `enabled` toggle (slot 55b).
+            # Slot 55b is now ACTIVE on Hetzner too (no longer HUAWEI_HR_SUSPEND-
+            # suspended) because the stateful root slots bp-cnpg/bp-mgmt-vcluster
+            # now `dependsOn` it (a dependsOn on a SUSPENDED HR deadlocks). On
+            # Hetzner EVS_CSI_ENABLED=false renders an EMPTY release (Ready
+            # immediately, zero EVS resources) — the durable default class on
+            # Hetzner is hcloud-volumes from slot 55a; the Hetzner-irrelevant EVS
+            # driver never installs. WITHOUT this explicit "false" the chart
+            # default ($${EVS_CSI_ENABLED:=true}) would try to install the EVS
+            # driver on Hetzner. Mirrors HCLOUD_CSI_ENABLED:false on the Huawei
+            # side below.
+            EVS_CSI_ENABLED: "false"
             # #3971 (Refs #3992) — explicit per-provider durable StorageClass
             # name for the host-shared CNPG clusters (gitea-pg / harbor-pg /
             # guacamole-pg, slots 10/19/52). NAMING (not omitting) the class on
@@ -633,7 +645,14 @@ write_files:
             # that NAMES the class instead stays Pending (not frozen) until the
             # class exists, then binds — race-immune. On Hetzner the CSI default
             # is hcloud-volumes.
-            SOVEREIGN_CNPG_STORAGE_CLASS: "hcloud-volumes"
+            #
+            # #4057 — the class is now the operator-chosen
+            # `default_storage_class` tofu var (catalyst-api
+            # Request.StorageClass, defaulted to the per-provider durable CSI
+            # class `hcloud-volumes` when the wizard field is omitted). The tofu
+            # variable validation rejects "" and "local-path", so this substitute
+            # can never render an empty or ephemeral class.
+            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
 %{ endif ~}
 %{ if provider == "huawei" ~}
             # Huawei: no cloud CCM. Cilium LB-IPAM assigns the clustermesh
@@ -648,8 +667,8 @@ write_files:
             # reports Ready immediately (the dependsOn from the stateful root
             # slots is satisfied without the suspended-HR deadlock). The Hetzner
             # Cloud CSI obviously does NOT run on HCS; Huawei's durable default
-            # StorageClass is the EVS CSI at slot 55b (below), which DOES install
-            # on Huawei (HUAWEI_HR_SUSPEND=false).
+            # StorageClass is the EVS CSI at slot 55b (below), which installs for
+            # real on Huawei (EVS_CSI_ENABLED=true).
             HCLOUD_CSI_ENABLED: "false"
             # #3971 follow-up — bp-huawei-evs-csi (slot 55b) installs the
             # open-source huaweicloud-csi-driver EVS plugin + the evs-ssd default
@@ -685,7 +704,14 @@ write_files:
             # instead keeps the PVC Pending (recoverable) until evs-ssd exists,
             # then binds with zero re-creation — so the moment EVS_CSI_ENABLED
             # flips true (or the SC lands by any path) these three converge.
-            SOVEREIGN_CNPG_STORAGE_CLASS: "evs-ssd"
+            #
+            # #4057 — the class is now the operator-chosen
+            # `default_storage_class` tofu var (catalyst-api
+            # Request.StorageClass, defaulted to the per-provider durable CSI
+            # class `evs-ssd` when the wizard field is omitted). The tofu
+            # variable validation rejects "" and "local-path", so this substitute
+            # can never render an empty or ephemeral class.
+            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
@@ -922,24 +948,24 @@ runcmd:
   # giving every IPv4-only cloud the harbor pin. No hardcoded IP: r4() derives
   # the A record at boot and self-heals if harbor's address ever changes.
   #
-  # #3835 (2026-06-19 — the hw166 bootstrap-flux ImagePullBackOff): the
-  # `flux install` below (~line 1066, applied from ghcr.io/fluxcd BEFORE harbor
-  # exists — the chicken-and-egg the #3735 harbor-proxy can't break at bootstrap)
-  # pulls the 6 controller IMAGES; ghcr.io serves their manifests but redirects
-  # the BLOBS to the CDN host `pkg-containers.githubusercontent.com`, which is
-  # ALSO dual-stack (A=185.199.108-111.154 + AAAA=2606:50c0:800x::154 — verified
-  # live on the hw166 node). On the IPv4-only Huawei VPC containerd's resolver
-  # intermittently gets the AAAA → `dial tcp: lookup
-  # pkg-containers.githubusercontent.com: Try again` → ImagePullBackOff → the
-  # bootstrap kustomize-controller never starts → it never reconciles the bp-flux
-  # HR that re-points controllers at the harbor proxy → 0 HelmReleases → wedge.
-  # The github.com / *.githubusercontent.com hosts already pinned above are
-  # IPv4-ONLY (no AAAA — verified) so they never trip; this ghcr image-blob CDN
-  # host is the one dual-stack gap and the host EVERY ghcr image pull (the flux
-  # controllers + the line-962 crictl pre-pull) depends on. Huawei-gated like
-  # harbor above (Hetzner is dual-stack → reaches the AAAA → no pin needed, and
-  # its render is byte-tight). r4() pins ONE anycast A and removes the AAAA from
-  # the node's view; self-heals if Fastly/Azure rotates the edge.
+  # #4049 (2026-06-21) — the IMAGE-host /etc/hosts pins are REMOVED. Per the
+  # founder principle "every image download must be Huawei→Huawei", every
+  # container-registry pull on Huawei now routes through the bastion registry
+  # by IP LITERAL (212.72.24.20 in registries.yaml), so the NODE never resolves
+  # any image-registry hostname at all. The former Huawei-gated pins for the
+  # ghcr image-blob CDN `pkg-containers.githubusercontent.com` (#3835) and
+  # `harbor.openova.io` (#3735) are therefore dead weight and are dropped. They
+  # were ALSO already redundant on Huawei since #3840 disables IPv6 at the
+  # kernel (no AAAA path → no "Try again" wedge). KEPT: the git hosts
+  # (github.com / raw / codeload / api.github.com / objects.githubusercontent.com)
+  # — Flux source-controller git-clones the gitops repo + the node fetches
+  # github RELEASE ARTIFACTS (gateway-api install.yaml, the get-helm-3 script)
+  # which the image-only bastion mirror does NOT serve; helm.cilium.io /
+  # get.helm.sh — helm chart-repo + binary fetches, not image pulls, also not
+  # bastion-served; registry.${sovereign_fqdn} — the POST-CUTOVER local Harbor,
+  # reached directly (not via the bastion) after sovereignty cutover. Git
+  # localization is a separate follow-up; until then those direct-reach hosts
+  # keep their pins.
   #
   # #3714 (2026-06-18 — the kom4dc 0-HR wedge): the /etc/hosts pin below fixes
   # the NODE Go resolvers (helm/kubectl/git/containerd) but does NOT reach the
@@ -972,7 +998,7 @@ runcmd:
      done
      python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
     }
-    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com pkg-containers.githubusercontent.com harbor.openova.io registry.${sovereign_fqdn}%{ endif ~}; do
+    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com registry.${sovereign_fqdn}%{ endif ~}; do
      a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
 %{ if provider == "huawei" ~}
      [ -n "$a" ] && echo "$a $h" >>/var/lib/catalyst/github-ipv4-hosts
@@ -992,13 +1018,18 @@ runcmd:
   # node-local disk (no cloud block volume behind it) — any node replacement
   # destroys the PV's data (prod Postgres 3×100Gi, openbao secrets, customer
   # DB), invalidating BCP/DR. With the provisioner gone, the ONLY default
-  # StorageClass is the per-provider cloud CSI (Hetzner: bp-hcloud-csi slot
-  # 55a → csi.hetzner.cloud + hcloud-volumes). The stateful root slots
-  # (bp-cnpg / bp-mgmt-vcluster) `dependsOn: bp-hcloud-csi` so the CSI default
-  # class exists BEFORE any PVC binds — nothing hangs Pending. A belt-and-
-  # braces Kyverno ENFORCE policy (bp-kyverno-policies K23 forbid-local-path-
-  # storage) additionally DENIES any PVC/StorageClass/PV that references
-  # local-path. (founder: "local path never ever ALLOWED".)
+  # StorageClass is the per-provider cloud CSI: Hetzner → bp-hcloud-csi slot
+  # 55a (csi.hetzner.cloud + hcloud-volumes); Huawei → bp-huawei-evs-csi slot
+  # 55b (evs.csi.huaweicloud.com + evs-ssd). The stateful root slots (bp-cnpg /
+  # bp-mgmt-vcluster) `dependsOn: [bp-hcloud-csi, bp-huawei-evs-csi]` — BOTH
+  # CSI slots, so the PROVIDER-CORRECT default class exists BEFORE any PVC
+  # binds and nothing hangs Pending (#892: gating on bp-hcloud-csi alone froze
+  # Huawei PVCs classless because bp-hcloud-csi renders EMPTY/Ready-with-no-class
+  # on Huawei — the durable class there is evs-ssd from slot 55b). Both CSI
+  # slots are active-but-empty on the OTHER provider, so neither dependsOn
+  # deadlocks. A belt-and-braces Kyverno ENFORCE policy (bp-kyverno-policies
+  # K23 forbid-local-path-storage) additionally DENIES any PVC/StorageClass/PV
+  # that references local-path. (founder: "local path never ever ALLOWED".)
   - |
     NODE_EXTERNAL_IP=$(${node_external_ip_cmd})
     [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: could not determine node external IP" >&2; exit 87; }
@@ -1021,11 +1052,14 @@ runcmd:
   # #3971 — NO StorageClass is provisioned here. k3s ran with
   # `--disable=local-storage` (above) so the ephemeral local-path provisioner
   # is FORBIDDEN — it is never installed. The cluster comes up with ZERO
-  # StorageClasses; the per-provider cloud block-storage CSI (Hetzner:
-  # bp-hcloud-csi slot 55a) installs the durable default `hcloud-volumes` SC
-  # via Flux. The stateful root slots (bp-cnpg / bp-mgmt-vcluster) gate on
-  # `dependsOn: bp-hcloud-csi`, so the default class exists before the first
-  # PVC binds (no Pending-PVC regression). The former `kubectl patch sc
+  # StorageClasses; the per-provider cloud block-storage CSI installs the
+  # durable default SC via Flux (Hetzner: bp-hcloud-csi slot 55a → hcloud-
+  # volumes; Huawei: bp-huawei-evs-csi slot 55b → evs-ssd). The stateful root
+  # slots (bp-cnpg / bp-mgmt-vcluster) gate on
+  # `dependsOn: [bp-hcloud-csi, bp-huawei-evs-csi]` — BOTH CSI slots — so the
+  # PROVIDER-CORRECT default class exists before the first PVC binds (#892: the
+  # earlier single-CSI gate let Huawei PVCs race ahead of evs-ssd and freeze
+  # classless; no Pending-PVC regression now). The former `kubectl patch sc
   # local-path is-default-class=true` block that lived here is DELETED —
   # asserting/defaulting local-path is exactly the anti-pattern #3971 forbids.
 
@@ -1171,21 +1205,35 @@ runcmd:
 %{ endif ~}
 
   # ── BACKGROUND pre-pull of the PRIVATE openova-io/openova image set (#3534)
+  # ── KEPT AS A FALLBACK SAFETY NET until the #4049 warm path is live-proven ─
+  # The #4049 PRIMARY path warms these images Huawei→Huawei: the catalyst-build
+  # `warmup-bastion-harbor` job NATIVE-PUSHES the private catalyst set into the
+  # hosted bastion project `openova-io` on every build, and the huawei main.tf
+  # `openova-io/openova/(.*)` registries.yaml rewrite + `212.72.24.20:5000`
+  # robot auth routes node pulls there (28 MB/s). When the warm path is healthy
+  # this pre-pull is a NO-OP wash — `crictl pull` of an already-present image
+  # returns immediately, and even a cold pull now resolves via the bastion
+  # mirror (registries.yaml), NOT direct ghcr.
+  #
+  # We KEEP this block (founder direction, #4049) because it is the safety net
+  # for the window BEFORE the warm path is fully live-proven on a fresh prov:
+  #   - a catalyst tag whose warmup push hasn't landed yet (the warmup job is
+  #     continue-on-error + runs in parallel with deploy),
+  #   - the hosted-project pull-grant / robot-token not yet propagated,
+  #   - any bastion-mirror hiccup.
+  # In all those cases this background pre-pull still lands the bytes BEFORE
+  # Flux schedules the catalyst Pods, instead of a 15-min FirstSeenTimeout
+  # wedge. It is NON-FATAL + BACKGROUNDED (nohup … &), so when the warm path is
+  # healthy it costs nothing. REMOVE this block only after the warm node-side
+  # pull is proven on N consecutive fresh provs (#4049 acceptance).
+  #
   # The ~19 ghcr.io/openova-io/openova/* images (catalyst-api/ui, the
   # catalyst-*-controllers, catalyst-catalog, projector, marketplace-api,
   # console, admin, marketplace, the sme services-*) are PRIVATE on ghcr, so
-  # harbor's ANONYMOUS proxy-ghcr cache 404s them (#3534, proven) — every
-  # fresh prov pulls them DIRECT from ghcr.io over the throttled Huawei→ghcr
-  # egress (8s–3m31s each, serial as the bp-catalyst-platform umbrella + sme
-  # mesh roll). The slow tail serially blows the 135-min Phase-1 watch budget
-  # (killed hw137, nearly killed hw138).
-  #
-  # Starting the pulls HERE — right after the CNI is up and BEFORE Flux is
-  # handed the cluster (the flux-bootstrap apply below) — and BACKGROUNDING
-  # them lets the bytes land WHILE the rest of Phase-1 (bp-cilium … bp-cert-
-  # manager … the whole 56-HR convergence) is reconciling, instead of
-  # blocking the umbrella's critical path. By the time Flux schedules the
-  # catalyst-platform Pods their images are already in containerd.
+  # harbor's ANONYMOUS proxy-ghcr cache 404s them (#3534, proven). This pull
+  # therefore authenticates with the ghcr-pull PAT; with the #4049 registries.
+  # yaml rewrite in place the ref still routes through the bastion mirror, so
+  # the "direct ghcr egress" the #4049 RCA flagged is no longer the path.
   #
   # DATA-DRIVEN, never a hardcoded copy that rots: the image list is
   # extracted at run time from `helm template` of products/catalyst/chart
@@ -1206,7 +1254,7 @@ runcmd:
   - |
     nohup sh -c '
       log=/var/lib/catalyst/prepull.log
-      echo "[prepull] $(date -u +%FT%TZ) starting background openova-io image pre-pull" >> "$log" 2>&1
+      echo "[prepull] $(date -u +%FT%TZ) starting background openova-io image pre-pull (#4049 fallback — warm path is primary)" >> "$log" 2>&1
       CRICTL="$(command -v crictl || echo /usr/local/bin/crictl)"
       HELM="$(command -v helm || echo /usr/local/bin/helm)"
       if [ ! -x "$CRICTL" ] || [ ! -x "$HELM" ]; then

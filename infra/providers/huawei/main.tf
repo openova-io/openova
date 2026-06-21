@@ -641,17 +641,57 @@ locals {
   # registry:2 caches on direct EIP 212.72.24.20 (kom4dc NAT blocklist bypass,
   # Wave 5.106 #2462). harbor + docker.io mirror via :5000 / :5002 (#2842).
   #
-  # #3913: PREVIOUSLY quay.io / gcr.io / registry.k8s.io / ghcr.io / xpkg.upbound.io
-  # / public.ecr.aws all pulled DIRECT from upstream on kom4dc — the #1 fresh-prov
-  # pull-stall class this ticket closes. The bastion registry:2 caches are anon-only
-  # (can't auth private ghcr) and only front harbor + docker.io, so they can't carry
-  # those registries. But Huawei worker egress is wide-open via the NAT Gateway
-  # (see the secgroup comment above: "unconstrained egress to ... harbor.openova.io"),
-  # and harbor.openova.io's proxy-cache projects are anonymous-pullable. So route
-  # the remaining upstream registries through harbor.openova.io directly — mirroring
-  # the proven post-cutover set in self-sovereign-cutover/04-registry-pivot-
-  # daemonset.yaml. docker.io stays on the bastion :5002 cache (the documented
-  # NAT-blocklist bypass — #2842 — leave it as-is).
+  # #3913 (revert of regression 4049d61f4): the bastion :5000 cache is NOT a
+  # harbor-only/docker-only front — it is the SAME Harbor proxy-cache as
+  # harbor.openova.io, reachable over the LOCAL EIP 212.72.24.20 with NO NAT
+  # egress. It already serves the proxy-ghcr / proxy-quay / proxy-gcr / proxy-k8s
+  # projects (anon-pullable; verified live 2026-06-21: flux source-controller,
+  # cnpg, external-secrets, openbao, oauth2-proxy, kube-apiserver, gcr distroless
+  # all return manifest HTTP 200 via http://212.72.24.20:5000/v2/proxy-*/...).
+  #
+  # 4049d61f4 wrongly re-routed ghcr/quay/gcr/registry.k8s.io to the EXTERNAL
+  # https://harbor.openova.io. On kom4dc, reaching harbor.openova.io needs NAT
+  # egress → draws a reputation-blocklisted ("poisoned") EIP → cloud-init's
+  # Flux/cilium/k8s image pulls stall → region-a never bootstraps → prov FAILS.
+  # The bastion is the NAT-bypass local registry built exactly to avoid this.
+  # Route ghcr/quay/gcr/registry.k8s.io through the bastion :5000 with the SAME
+  # proxy-* rewrites — zero NAT egress, exactly like harbor + docker.io already do.
+  #
+  # xpkg.upbound.io / public.ecr.aws stay on https://harbor.openova.io: the
+  # bastion :5000 has NO proxy-xpkg / proxy-ecr projects (verified live: real
+  # manifest pull -> HTTP 404, vs proxy-gcr -> 200), so routing them to the
+  # bastion would 404. They are Crossplane-provider / ecr images that are NOT in
+  # the Phase-1 bootstrap critical path (Crossplane is idle on kom4dc — infra is
+  # 100% OpenTofu), so the external-harbor route for these two is harmless and
+  # strictly better than a 404. docker.io stays on the bastion :5002 cache.
+  #
+  # #4049 (2026-06-21) — every image Huawei→Huawei, INCLUDING PRIVATE catalyst.
+  # The ghcr.io mirror now carries TWO ordered rewrite rules (k3s/containerd
+  # evaluates them first-match-wins):
+  #   1. `openova-io/openova/(.*)` → `openova-io/openova/$1` — the PRIVATE
+  #      catalyst image set (catalyst-api/ui, the *-controllers, marketplace-*,
+  #      console, admin, the sme services-*). These are NOT anon-pullable, so
+  #      the bastion's anonymous `proxy-ghcr` PROXY-CACHE 404s them (Harbor's
+  #      github-ghcr adapter can't do ghcr's 2-step bearer-token flow, so it
+  #      never caches a private blob). They are instead NATIVE-PUSHED into the
+  #      HOSTED bastion project `openova-io` by the catalyst-build warmup step
+  #      (.github/workflows/catalyst-build.yaml, mirrors the cutover
+  #      03-harbor-prewarm Job) on EVERY catalyst build — catalyst changes every
+  #      build, so the warmup re-pushes the latest tags. This rule routes the
+  #      private namespace to that hosted project so nodes pull catalyst
+  #      bastion-local (28 MB/s) with ZERO ghcr egress — killing the #4049
+  #      15-min FirstSeenTimeout wedge (hw182 RCA: nodes cold-fetching private
+  #      catalyst DIRECT from ghcr at 2.3 MB/s). This also replaces the former
+  #      cloud-init `crictl pull --creds ghcr.io/openova-io/openova/*` direct-
+  #      ghcr pre-pull block (now deleted in _shared/cloudinit-control-plane).
+  #   2. `(.*)` → `proxy-ghcr/$1` — the PUBLIC ghcr images (fluxcd/*,
+  #      cloudnative-pg/*, …) keep using the already-warm anon proxy-cache.
+  # The hosted `openova-io` project is PRIVATE, so node pulls authenticate via
+  # the `212.72.24.20:5000` configs.auth block (the same `robot$openova-bot`
+  # Harbor robot the warmup pushes with). PREREQUISITE (orchestrator/founder):
+  # the hosted `openova-io` project must exist on the bastion Harbor + the robot
+  # must have pull on it (the warmup step ensures-creates the project via the
+  # Harbor API). xpkg/ecr/docker.io routing is unchanged.
   registry_mirror_yaml_huawei = <<-EOT
     mirrors:
       "harbor.openova.io":
@@ -665,24 +705,42 @@ locals {
           - "http://212.72.24.20:5002"
       "quay.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
           "(.*)": "proxy-quay/$1"
       "gcr.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
           "(.*)": "proxy-gcr/$1"
       "registry.k8s.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
           "(.*)": "proxy-k8s/$1"
       "ghcr.io":
         endpoint:
-          - "https://harbor.openova.io"
+          - "http://212.72.24.20:5000"
         rewrite:
-          "(.*)": "proxy-ghcr/$1"
+          # #4049 (hw182 live-proven 2026-06-22): containerd renders the YAML
+          # `rewrite:` map into a hosts.toml `[host.<x>.rewrite]` TOML MAP and
+          # iterates it in NON-DETERMINISTIC (Go map) order — file/list order is
+          # NOT honored (proven: `openova-io` rule listed first STILL lost to the
+          # catch-all). A plain `(.*)` catch-all therefore SHADOWS the specific
+          # `openova-io/openova/...` rule ~half the time → the private catalyst
+          # ref gets rewritten to `proxy-ghcr/openova-io/...` (404, anon cache
+          # can't serve the private blob) → containerd falls back to the upstream
+          # `server = https://ghcr.io` → 401. The two rules MUST be mutually
+          # exclusive. RE2 has no negative-lookahead, so the catch-all is anchored
+          # to NOT match the `openova-io/openova/` prefix via a first-mismatch
+          # alternation. PRIVATE openova catalyst → hosted bastion project
+          # `openova-io` (warmed by the catalyst-build job, served from the
+          # bastion :5000 pull-through cache of the PUBLIC Contabo `openova-io`
+          # project — proven 0.9s warm pull, 61.7 MiB, zero ghcr egress).
+          # Everything else (fluxcd/*, cloudnative-pg/*, …) → the anon proxy-ghcr
+          # cache (verified still routes correctly).
+          "^openova-io/openova/(.*)": "openova-io/openova/$1"
+          "^(openova-io/(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^/]).*|(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^-]|openova-[^i]|openova-i[^o]).*)": "proxy-ghcr/$0"
       "xpkg.upbound.io":
         endpoint:
           - "https://harbor.openova.io"
@@ -695,6 +753,9 @@ locals {
           "(.*)": "proxy-ecr/$1"
     configs:
       "212.72.24.20:5000":
+        auth:
+          username: "robot$openova-bot"
+          password: "${var.harbor_robot_token}"
         tls:
           insecure_skip_verify: true
       "212.72.24.20:5002":
@@ -919,6 +980,7 @@ locals {
       bcp_topology             = var.bcp_topology
       enable_hot_standby       = var.enable_hot_standby
       enable_shared_pg         = var.enable_shared_pg
+      default_storage_class    = var.default_storage_class
       sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       marketplace_enabled      = var.marketplace_enabled
@@ -1336,6 +1398,131 @@ resource "huaweicloud_elb_monitor" "http" {
   pool_id     = huaweicloud_elb_pool.http.id
   protocol    = "TCP"
   port        = 30080 # Wave 5.124 (hw29 fix-forward) — Gateway listener
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+}
+
+# ── #4053 — Dedicated CONSOLE ELB (poison-proof gateway isolation) ───────────
+#
+# Cilium Gateway API compiles every HTTPRoute + backend of a Gateway into ONE
+# CiliumEnvoyConfig committed atomically; one unresolvable app backend fails the
+# whole CEC and 404s the entire gateway (cilium#35728, unfixed on pinned 1.16.5;
+# hit live on hw182). The console is isolated onto its OWN Cilium Gateway
+# (`cilium-gateway-console`, host ports 31443/31080 —
+# clusters/_template/sovereign-tls/cilium-gateway-console.yaml) with stable
+# backends only.
+#
+# This ELB does the SAME TCP-passthrough trick as the primary ELB above but
+# targets the console gateway's host ports (31443/31080). Because the ELB TCP
+# listener is dumb L4 passthrough (no SNI — Huawei SNI requires terminating TLS
+# at the ELB, which would break the in-cluster per-prov cert model), the console
+# needs its OWN public EIP: console./api.<fqdn> A-records point at THIS ELB's
+# EIP, the wildcard *.<fqdn> keeps pointing at elb_primary. DNS split is owned by
+# core/pool-domain-manager (consoleLoadBalancerIP) + the catalyst-api handover.
+# Byte-identical design to the Hetzner console LB (infra/providers/hetzner).
+
+resource "huaweicloud_vpc_eip" "elb_console" {
+  publicip {
+    type = "5_bgp"
+  }
+  bandwidth {
+    share_type  = "PER"
+    name        = "${local.name_prefix}-elb-console-bw"
+    size        = 300
+    charge_mode = "traffic"
+  }
+}
+
+resource "huaweicloud_elb_loadbalancer" "console" {
+  name              = "${local.name_prefix}-elb-console"
+  vpc_id            = huaweicloud_vpc.region[local.region_keys[0]].id
+  ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  ipv4_eip_id       = huaweicloud_vpc_eip.elb_console.id
+  availability_zone = [var.huawei_az]
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→31443 + 80→31080 routing"
+
+  # Same immutable-field churn guards as elb_primary (see its lifecycle block):
+  # the provider sends null/empty for these on subsequent plans and HCS rejects
+  # the PUT. They are auto-pinned at create; ignore them.
+  lifecycle {
+    ignore_changes = [
+      l4_flavor_id,
+      l7_flavor_id,
+      vpc_id,
+      ipv4_eip_id,
+    ]
+  }
+}
+
+resource "huaweicloud_elb_pool" "console_https" {
+  name            = "${local.name_prefix}-elb-pool-console-https"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  description     = "cilium-gateway-console targets on port 31443"
+}
+
+resource "huaweicloud_elb_pool" "console_http" {
+  name            = "${local.name_prefix}-elb-pool-console-http"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  description     = "cilium-gateway-console targets on port 31080"
+}
+
+resource "huaweicloud_elb_listener" "console_https" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  name            = "${local.name_prefix}-elb-listener-console-https"
+  protocol        = "TCP"
+  protocol_port   = 443
+  default_pool_id = huaweicloud_elb_pool.console_https.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — cilium-gateway-console terminates TLS at 31443"
+}
+
+resource "huaweicloud_elb_listener" "console_http" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  name            = "${local.name_prefix}-elb-listener-console-http"
+  protocol        = "TCP"
+  protocol_port   = 80
+  default_pool_id = huaweicloud_elb_pool.console_http.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — console HTTP→HTTPS redirect"
+}
+
+# Console ELB members: the SAME primary-region nodes as the primary ELB.
+# cilium-envoy runs on every node and binds BOTH 30443 (shared) and 31443
+# (console), so every node is a valid console-ELB target on 31443/31080.
+resource "huaweicloud_elb_member" "console_https" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.console_https.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = 31443
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+}
+
+resource "huaweicloud_elb_member" "console_http" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.console_http.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = 31080
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+}
+
+resource "huaweicloud_elb_monitor" "console_https" {
+  pool_id     = huaweicloud_elb_pool.console_https.id
+  protocol    = "TCP"
+  port        = 31443
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+}
+
+resource "huaweicloud_elb_monitor" "console_http" {
+  pool_id     = huaweicloud_elb_pool.console_http.id
+  protocol    = "TCP"
+  port        = 31080
   interval    = 10
   timeout     = 5
   max_retries = 3

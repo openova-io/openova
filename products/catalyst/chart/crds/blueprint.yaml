@@ -128,7 +128,7 @@ spec:
                   type: object
                   description: |
                     Wave 5.69 (#2370) — Sovereign-console UI registration
-                    contract for third-party Blueprints (bp-chepherd is
+                    contract for third-party Blueprints (bp-agenity is
                     the first consumer; see docs/INTEGRATION-OPENOVA-MCP.md
                     §5). When sidebarEntry=true the SovereignSidebar.tsx
                     appends a nav entry between the hardcoded last entry
@@ -144,7 +144,7 @@ spec:
                       description: Display label (operator-overridable per Sovereign overlay).
                     sidebarRoute:
                       type: string
-                      description: Route path the nav link navigates to (e.g. /apps/bp-chepherd/dashboard).
+                      description: Route path the nav link navigates to (e.g. /apps/bp-agenity/dashboard).
                     sidebarOrder:
                       type: integer
                       minimum: 0

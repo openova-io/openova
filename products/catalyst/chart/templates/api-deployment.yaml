@@ -237,7 +237,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "168634f"
+              value: "1f4eee4"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
@@ -940,6 +940,30 @@ spec:
             # token at rest. Sovereign-only (empty on Catalyst-Zero).
             - name: CATALYST_OPENBAO_K8S_AUTH_ROLE
               value: '{{ if .Values.global.sovereignFQDN }}{{ .Values.catalystApi.openbaoK8sAuthRole | default "catalyst-api" }}{{ end }}'
+            # CATALYST_FIRE_CUTOVER_ON_HANDOVER (#4061) — gates whether the
+            # child catalyst-api auto-fires the self-sovereignty cutover engine
+            # the instant the mothership completes handover. ReceiveTofuArchive
+            # (handover.go) seals the tofu-phase0-archive THEN fires the engine
+            # with source="handover", which the require-handover gate
+            # (cutover_internal.go) deliberately EXEMPTS — so without this env
+            # the in-code default TRUE makes a converged, permanent Sovereign
+            # auto-enter the finite 8-step cutover (incl the 10-min deny-egress
+            # NetworkPolicy hold) UNATTENDED. For a permanent customer-facing
+            # Sovereign the cutover MUST be a DELIBERATE, observed BSS-menu
+            # action ("Achieve True Sovereignty" CTA, source="operator"). So we
+            # render "false" by DEFAULT here (catalystApi.fireCutoverOnHandover).
+            #
+            # NO-REGRESS: this only changes the auto-on-handover DEFAULT. The
+            # operator/BSS-initiated cutover (HandleCutoverStart, source=
+            # "operator", behind RequireSession) is untouched and still fires.
+            # A throwaway test prov that wants the full unattended cutover walk
+            # sets catalystApi.fireCutoverOnHandover=true.
+            #
+            # Sovereign-only (gated on global.sovereignFQDN). Empty on
+            # Catalyst-Zero / the mothership, which is the handover SENDER, never
+            # a cutover subject — fireCutoverOnHandover never runs there.
+            - name: CATALYST_FIRE_CUTOVER_ON_HANDOVER
+              value: '{{ if .Values.global.sovereignFQDN }}{{ .Values.catalystApi.fireCutoverOnHandover | default false }}{{ end }}'
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When

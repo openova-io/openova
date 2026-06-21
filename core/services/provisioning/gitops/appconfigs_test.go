@@ -488,3 +488,109 @@ func TestReadStringCfg_HandlesNilAndMistype(t *testing.T) {
 		t.Errorf("empty string is a valid value: got %q want empty", got)
 	}
 }
+
+// cnpgPairAppConfigs is the canonical active-hot-standby customer pick:
+// 2 distinct regions + replicas ≥ 3 so generateCNPGPair fires (gated at
+// gitops.go:271).
+func cnpgPairAppConfigs() map[string]map[string]any {
+	return map[string]map[string]any{
+		"postgres": {
+			"active_hot_standby": true,
+			"primary_region":     "fsn-rtz-prod",
+			"replica_region":     "hel-rtz-prod",
+			"replicas":           float64(3),
+			"disk_gb":            float64(50),
+		},
+	}
+}
+
+func cnpgPairManifest(t *testing.T, files map[string]string) string {
+	t.Helper()
+	for path, content := range files {
+		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+			return content
+		}
+	}
+	t.Fatal("db-cnpg-pair.yaml NOT generated when active_hot_standby=true — Pillar-3 install path broken")
+	return ""
+}
+
+// TestCNPGPair_StorageClass_Huawei is the #4060 PILLAR-3 regression
+// lock: on a Huawei Sovereign the customer-Org CNPG pair MUST render
+// the EVS CSI StorageClass (evs-ssd), NOT hcloud-volumes. The old
+// hardcode left every customer-Org CNPG PVC Pending forever on Huawei
+// because hcloud-volumes does not exist there → the two-region pair
+// never materialized → Pillar-3 silently dead for tenant Orgs.
+func TestCNPGPair_StorageClass_Huawei(t *testing.T) {
+	g := &ManifestGenerator{
+		BasePath:      "clusters/kom4dc/org-tenants",
+		CloudProvider: "huawei",
+	}
+	manifest := cnpgPairManifest(t, g.GenerateAllWithAppConfigs(
+		"acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs()))
+
+	if !strings.Contains(manifest, "storageClass: evs-ssd") {
+		t.Errorf("Huawei CNPG pair missing evs-ssd StorageClass — PVCs would stay Pending; manifest:\n%s", manifest)
+	}
+	if strings.Contains(manifest, "storageClass: hcloud-volumes") {
+		t.Errorf("Huawei CNPG pair STILL renders hcloud-volumes — #4060 landmine not fixed; manifest:\n%s", manifest)
+	}
+	// Both PVCs (primary + replica) must carry the EVS class.
+	if got := strings.Count(manifest, "storageClass: evs-ssd"); got != 2 {
+		t.Errorf("expected evs-ssd on both primary + replica storage (2 occurrences), got %d", got)
+	}
+}
+
+// TestCNPGPair_StorageClass_Hetzner is the NO-REGRESS lock: Hetzner
+// (and the empty/default contabo path) MUST still render hcloud-volumes
+// for both the primary and replica CNPG cluster PVCs.
+func TestCNPGPair_StorageClass_Hetzner(t *testing.T) {
+	g := &ManifestGenerator{
+		BasePath:      "clusters/hz-fsn-rtz-prod/org-tenants",
+		CloudProvider: "hetzner",
+	}
+	manifest := cnpgPairManifest(t, g.GenerateAllWithAppConfigs(
+		"acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs()))
+
+	if got := strings.Count(manifest, "storageClass: hcloud-volumes"); got != 2 {
+		t.Errorf("Hetzner CNPG pair must render hcloud-volumes on both PVCs (2 occurrences), got %d; manifest:\n%s", got, manifest)
+	}
+	if strings.Contains(manifest, "storageClass: evs-ssd") {
+		t.Errorf("Hetzner CNPG pair unexpectedly rendered evs-ssd — regression; manifest:\n%s", manifest)
+	}
+}
+
+// TestCNPGPair_StorageClass_DefaultsToHetzner — an empty CloudProvider
+// (legacy contabo Catalyst-Zero / pre-#4060 chart render) must fall
+// back to hcloud-volumes so the historical default is unchanged.
+func TestCNPGPair_StorageClass_DefaultsToHetzner(t *testing.T) {
+	g := &ManifestGenerator{BasePath: "clusters/contabo-mkt/tenants"} // CloudProvider unset
+	manifest := cnpgPairManifest(t, g.GenerateAllWithAppConfigs(
+		"acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs()))
+
+	if got := strings.Count(manifest, "storageClass: hcloud-volumes"); got != 2 {
+		t.Errorf("empty CloudProvider must default to hcloud-volumes on both PVCs (2 occurrences), got %d", got)
+	}
+}
+
+// TestCNPGStorageClass_Resolver pins the per-provider resolver directly
+// (unit-level), including the unknown-provider safe fallback.
+func TestCNPGStorageClass_Resolver(t *testing.T) {
+	cases := []struct {
+		provider string
+		want     string
+	}{
+		{"huawei", "evs-ssd"},
+		{"Huawei", "evs-ssd"}, // case-insensitive
+		{"hetzner", "hcloud-volumes"},
+		{"", "hcloud-volumes"},        // empty → Hetzner default
+		{"  hetzner  ", "hcloud-volumes"}, // trimmed
+		{"gcp", "hcloud-volumes"},     // unknown → safe Hetzner fallback
+	}
+	for _, tc := range cases {
+		g := &ManifestGenerator{CloudProvider: tc.provider}
+		if got := g.cnpgStorageClass(); got != tc.want {
+			t.Errorf("cnpgStorageClass(%q) = %q, want %q", tc.provider, got, tc.want)
+		}
+	}
+}

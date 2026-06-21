@@ -136,36 +136,55 @@ func (c *Client) AddRecord(ctx context.Context, domain string, rec Record) error
 // wildcard A + per-component A records (console, gitea, harbor, admin, api)
 // pointing at the load balancer IP.
 //
+// #4053 — POISON-PROOF console gateway isolation. An OPTIONAL trailing
+// consoleLBIP (variadic so every existing caller compiles unchanged) routes the
+// `console` and `api` records at the dedicated console LB (the isolated
+// cilium-gateway-console front door) instead of lbIP, so a poisoned
+// shared-gateway CiliumEnvoyConfig (one unresolvable app backend, cilium#35728)
+// can never 404 the console. When consoleLBIP is omitted or empty, console + api
+// fall back to lbIP — byte-identical to the pre-#4053 record set.
+//
 // This is idempotent — re-running it with the same domain + IP is safe.
 // Re-running with a different IP appends additional records (Dynadot's
 // add_dns_to_current_setting semantics) so the caller is responsible for
 // cleaning up stale records via DeleteRecords if the IP changes.
-func (c *Client) AddSovereignRecords(ctx context.Context, domain, subdomain, lbIP string) error {
+func (c *Client) AddSovereignRecords(ctx context.Context, domain, subdomain, lbIP string, consoleLBIP ...string) error {
 	// For pool domains the records go on the pool domain (e.g. omani.works)
 	// with subdomains like "omantel", "console.omantel", "gitea.omantel", etc.
 	// For BYO domains the customer is expected to manage their own DNS — we
 	// only attempt Dynadot writes when the domain is one we own.
 
-	prefixes := []string{
-		"",         // wildcard apex of the subdomain — *.omantel.omani.works
-		"console",  // console.omantel.omani.works
-		"gitea",    // gitea.omantel.omani.works
-		"harbor",   // harbor.omantel.omani.works
-		"admin",    // admin.omantel.omani.works
-		"api",      // api.omantel.omani.works
+	// #4053 — resolve the console-facing IP (defaults to lbIP when not split).
+	consoleIP := lbIP
+	if len(consoleLBIP) > 0 && consoleLBIP[0] != "" {
+		consoleIP = consoleLBIP[0]
 	}
 
-	for _, p := range prefixes {
+	// prefix → target IP. console + api ride the console LB; everything else
+	// rides the shared LB.
+	records := []struct {
+		prefix string
+		ip     string
+	}{
+		{"", lbIP},             // wildcard apex of the subdomain — *.omantel.omani.works
+		{"console", consoleIP}, // console.omantel.omani.works (#4053)
+		{"gitea", lbIP},        // gitea.omantel.omani.works
+		{"harbor", lbIP},       // harbor.omantel.omani.works
+		{"admin", lbIP},        // admin.omantel.omani.works
+		{"api", consoleIP},     // api.omantel.omani.works (#4053)
+	}
+
+	for _, rec := range records {
 		var sub string
-		if p == "" {
+		if rec.prefix == "" {
 			sub = "*." + subdomain
 		} else {
-			sub = p + "." + subdomain
+			sub = rec.prefix + "." + subdomain
 		}
 		err := c.AddRecord(ctx, domain, Record{
 			Subdomain: sub,
 			Type:      "A",
-			Value:     lbIP,
+			Value:     rec.ip,
 			TTL:       300,
 		})
 		if err != nil {
@@ -313,21 +332,21 @@ func truncate(s string, max int) string {
 // truth in the wizard state):
 //
 //   - parentZone:    the registered domain held in the Dynadot account,
-//                    e.g. "omani.works". MUST be one of the managed
-//                    domains (IsManagedDomain returns true) — otherwise
-//                    we refuse to call the API.
+//     e.g. "omani.works". MUST be one of the managed
+//     domains (IsManagedDomain returns true) — otherwise
+//     we refuse to call the API.
 //   - sovereignFQDN: the child zone, e.g. "omantel.omani.works". MUST end
-//                    with "." + parentZone.
+//     with "." + parentZone.
 //   - lbIP:          the new Sovereign's public load-balancer IP, used as
-//                    the glue A-record value for ns1.<sovereignFQDN>. The
-//                    Sovereign's PowerDNS chart materialises ns1/ns2/ns3
-//                    behind that single IP via the anycast-endpoint
-//                    Service (see platform/powerdns/chart/values.yaml).
+//     the glue A-record value for ns1.<sovereignFQDN>. The
+//     Sovereign's PowerDNS chart materialises ns1/ns2/ns3
+//     behind that single IP via the anycast-endpoint
+//     Service (see platform/powerdns/chart/values.yaml).
 //   - extraNS:       optional additional NS hostnames to bundle into the
-//                    delegation. Empty/nil means the canonical 3-record
-//                    set (ns1.<fqdn>, ns2.<fqdn>, ns3.<fqdn>). Callers
-//                    pass non-default values when a Sovereign is fronted
-//                    by a CDN that mints its own NS hostnames.
+//     delegation. Empty/nil means the canonical 3-record
+//     set (ns1.<fqdn>, ns2.<fqdn>, ns3.<fqdn>). Callers
+//     pass non-default values when a Sovereign is fronted
+//     by a CDN that mints its own NS hostnames.
 //
 // Like AddSovereignRecords this method uses the package's
 // add_dns_to_current_setting=yes contract — it never replaces the parent

@@ -16,7 +16,7 @@
 //
 //	{
 //	  "entries": [
-//	    { "id": "bp-chepherd", "label": "Chepherd", "route": "/apps/bp-chepherd/dashboard", "order": 50, "icon": "<svg-path>" },
+//	    { "id": "bp-agenity", "label": "Agenity", "route": "/apps/bp-agenity/dashboard", "order": 50, "icon": "<svg-path>" },
 //	    ...
 //	  ]
 //	}

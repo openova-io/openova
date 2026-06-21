@@ -177,9 +177,9 @@ type RegionSpec struct {
 // providers package doesn't need to import the provisioner package
 // (and create an import cycle).
 type ParentDomain struct {
-	Name       string `json:"name"`
-	Role       string `json:"role,omitempty"`
-	Registrar  string `json:"registrar,omitempty"`
+	Name          string `json:"name"`
+	Role          string `json:"role,omitempty"`
+	Registrar     string `json:"registrar,omitempty"`
 	ProvisionedAt string `json:"provisionedAt,omitempty"`
 }
 
@@ -188,7 +188,9 @@ type ParentDomain struct {
 // so adding a new provider does not require an interface bump.
 //
 // Hetzner uses: hcloud_token, hcloud_project_id, object_storage_access_key,
-//               object_storage_secret_key, object_storage_region
+//
+//	object_storage_secret_key, object_storage_region
+//
 // Huawei (planned) will use: ak, sk, project_id, region
 type ProviderCreds struct {
 	Raw map[string]string
@@ -222,9 +224,16 @@ type ProvisionResult struct {
 	SovereignFQDN  string
 	ControlPlaneIP string
 	LoadBalancerIP string
-	ConsoleURL     string
-	GitOpsRepoURL  string
-	KubeconfigPath string
+	// ConsoleLoadBalancerIP — #4053. Public IP of the dedicated console LB
+	// (tofu output console_load_balancer_ip). console./api.<fqdn> point here
+	// (the isolated cilium-gateway-console); the wildcard *.<fqdn> keeps
+	// pointing at LoadBalancerIP (the shared cilium-gateway). Empty when the
+	// provider/tofu module pre-dates #4053 — DNS then falls back to
+	// LoadBalancerIP for the console records (legacy single-LB behaviour).
+	ConsoleLoadBalancerIP string
+	ConsoleURL            string
+	GitOpsRepoURL         string
+	KubeconfigPath        string
 }
 
 // WipeSpec — input to CloudProvider.Wipe. Carries everything the

@@ -840,6 +840,13 @@ func (d *Deployment) State() map[string]any {
 	if v := d.Request.ControlPlaneSize; v != "" {
 		out["controlPlaneSize"] = v
 	}
+	// #4057 — surface the EFFECTIVE default StorageClass so the chroot
+	// Settings page renders the operator's choice (or the per-provider CSI
+	// default when they accepted it) instead of an em-dash. deriveStorageClass
+	// fills the per-provider durable class (hcloud-volumes / evs-ssd) when the
+	// stored value is empty, so the page always shows a real durable class
+	// (never empty, never local-path).
+	out["storageClass"] = provisioner.DeriveStorageClass(d.Request)
 	if v := d.Request.SovereignPoolDomain; v != "" {
 		out["sovereignPoolDomain"] = v
 	}
@@ -1146,10 +1153,11 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		// fewer nodes.
 		//
 		// Wave 5.146 (2026-05-27): CP flavor flipped to m7n.large.8
-		// (2vCPU/16GB), worker flavor stays m7n.xlarge.8 (4vCPU/32GB).
-		// The original 8-worker floor was load-bearing only for the
-		// undersized flavor — at m7n.xlarge.8 a 3-worker per-region
-		// floor fits the bootstrap-kit with headroom.
+		// (2vCPU/16GB), worker flavor m7n.xlarge.8 (4vCPU/32GB).
+		// SUPERSEDED by #4055 (2026-06-21) — the "fits with headroom"
+		// claim did NOT hold once the console + both vClusters + cnpg-pair
+		// landed together; 2vCPU CP / 4vCPU workers wedged on CPU. See the
+		// resource-floor block below for the corrected sizing.
 		//
 		// Refs #2536 (2026-05-28, founder direction): symmetric
 		// MGMT+RTZ+DMZ vClusters (Refs #2537) on 2 regions × 3 workers
@@ -1167,26 +1175,50 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 				req.Regions[i].WorkerCount = minWorkers
 			}
 		}
-		// Wave 5.146: server-side stamp away exhausted s7n.large.4
-		// flavor on Huawei provs. The wizard / test rig may still send
-		// s7n.large.4 if the operator hasn't refreshed the SKU list;
-		// rewrite to m7n.large.8 (2vCPU/16GB drop-in replacement) so
-		// HCS scheduler can actually place the VMs.
-		if req.ControlPlaneSize == "s7n.large.4" || req.ControlPlaneSize == "" {
-			req.ControlPlaneSize = "m7n.large.8"
+		// Wave 5.146 → #4055 (founder direction 2026-06-21): ENFORCE an
+		// adequate resource FLOOR — stop shipping under-provisioned
+		// Sovereigns. The full Catalyst platform (console + cnpg-pair +
+		// mgmt/dmz vClusters + keycloak/harbor/gitea/openbao/guacamole/
+		// newapi + trivy/falco/crossplane) does NOT fit on 2vCPU nodes.
+		// hw182 came up with m7n.large.8 (2vCPU/16GB) for BOTH the CP and
+		// all 5 workers and wedged: "0/6 nodes available: Insufficient
+		// cpu" → bp-catalyst-platform's post-install hook timed out →
+		// install/uninstall oscillation → the console never scheduled.
+		//
+		// The OLD guard only rewrote the deprecated s7n.large.4 + empty,
+		// so a 2vCPU m7n.large.8 (the CP flavor wrongly sent as the
+		// worker flavor) slipped straight through un-bumped. The floor:
+		//   control-plane >= m7n.xlarge.8  (4 vCPU / 32 GB)
+		//   workers       >= m7n.2xlarge.8 (8 vCPU / 64 GB)
+		// Every known-undersized Huawei flavor is now rewritten UP to the
+		// floor; a larger explicit flavor is honoured untouched. The m7n
+		// family is unconstrained in the SKU matrix (sku_availability.go),
+		// so these pass IsSkuAvailableInRegion in every kom4dc region.
+		const (
+			hwCPFloor     = "m7n.xlarge.8"  // 4 vCPU / 32 GB
+			hwWorkerFloor = "m7n.2xlarge.8" // 8 vCPU / 64 GB
+		)
+		// undersizedCP/undersizedWorker = flavors strictly below the floor
+		// for that role (plus "" = unset). m7n.large.8 (2vCPU) is too
+		// small for BOTH roles; m7n.xlarge.8 (4vCPU) meets the CP floor
+		// but is still below the worker floor.
+		undersizedCP := map[string]bool{"": true, "s7n.large.4": true, "m7n.large.8": true}
+		undersizedWorker := map[string]bool{"": true, "s7n.large.4": true, "m7n.large.8": true, "m7n.xlarge.8": true}
+		if undersizedCP[req.ControlPlaneSize] {
+			req.ControlPlaneSize = hwCPFloor
 		}
-		if req.WorkerSize == "s7n.large.4" || req.WorkerSize == "" {
-			req.WorkerSize = "m7n.xlarge.8"
+		if undersizedWorker[req.WorkerSize] {
+			req.WorkerSize = hwWorkerFloor
 		}
 		for i := range req.Regions {
 			if req.Regions[i].Provider != "huawei" {
 				continue
 			}
-			if req.Regions[i].ControlPlaneSize == "s7n.large.4" || req.Regions[i].ControlPlaneSize == "" {
-				req.Regions[i].ControlPlaneSize = "m7n.large.8"
+			if undersizedCP[req.Regions[i].ControlPlaneSize] {
+				req.Regions[i].ControlPlaneSize = hwCPFloor
 			}
-			if req.Regions[i].WorkerSize == "s7n.large.4" || req.Regions[i].WorkerSize == "" {
-				req.Regions[i].WorkerSize = "m7n.xlarge.8"
+			if undersizedWorker[req.Regions[i].WorkerSize] {
+				req.Regions[i].WorkerSize = hwWorkerFloor
 			}
 		}
 		// Issue #2528: Huawei OBS (Object Storage Service) on HCS Kom4DC
@@ -1405,30 +1437,30 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 //
 // Why a list endpoint:
 //
-//   The wizard's index route (/sovereign/wizard, /sovereign/) needs to
-//   know whether the signed-in operator already has an in-flight
-//   deployment so it can auto-redirect to /sovereign/provision/<id>
-//   instead of presenting Step 1 of an empty wizard. Without this
-//   redirect, an operator who refreshes the tab during a 15-minute
-//   provisioning run loses the progress page and lands on the org
-//   form — which is the exact bug the founder hit live with otech90
-//   on 2026-05-04.
+//	The wizard's index route (/sovereign/wizard, /sovereign/) needs to
+//	know whether the signed-in operator already has an in-flight
+//	deployment so it can auto-redirect to /sovereign/provision/<id>
+//	instead of presenting Step 1 of an empty wizard. Without this
+//	redirect, an operator who refreshes the tab during a 15-minute
+//	provisioning run loses the progress page and lands on the org
+//	form — which is the exact bug the founder hit live with otech90
+//	on 2026-05-04.
 //
 // Filtering rules:
 //
-//   1. ?owner=<email> — restrict to deployments whose OwnerEmail
-//      matches (case-insensitive).
-//   2. When auth.RequireSession is wired, X-User-Email is always set
-//      and we ALSO restrict to that session's email regardless of
-//      the ?owner= value, so an operator can't list someone else's
-//      deployments by passing a different ?owner=. The server-side
-//      check is the security boundary; ?owner= is effectively a
-//      hint that mirrors the session.
-//   3. When the middleware is bypassed (CI / tests / catalyst-api
-//      running without CATALYST_KC_ADDR), the ?owner= filter is the
-//      only filter and an empty ?owner= returns every deployment —
-//      same passthrough policy as checkOwnership() to keep existing
-//      tests working unchanged.
+//  1. ?owner=<email> — restrict to deployments whose OwnerEmail
+//     matches (case-insensitive).
+//  2. When auth.RequireSession is wired, X-User-Email is always set
+//     and we ALSO restrict to that session's email regardless of
+//     the ?owner= value, so an operator can't list someone else's
+//     deployments by passing a different ?owner=. The server-side
+//     check is the security boundary; ?owner= is effectively a
+//     hint that mirrors the session.
+//  3. When the middleware is bypassed (CI / tests / catalyst-api
+//     running without CATALYST_KC_ADDR), the ?owner= filter is the
+//     only filter and an empty ?owner= returns every deployment —
+//     same passthrough policy as checkOwnership() to keep existing
+//     tests working unchanged.
 //
 // Adopted deployments (AdoptedAt != nil) are EXCLUDED from the list —
 // post-handover the customer's Sovereign is operationally self-
@@ -2126,10 +2158,11 @@ func (h *Handler) commitPDMWithRetry(dep *Deployment, result *provisioner.Result
 		pdmCtx,
 		dep.pdmPoolDomain,
 		pdm.CommitInput{
-			Subdomain:        dep.pdmSubdomain,
-			ReservationToken: dep.pdmReservationToken,
-			SovereignFQDN:    result.SovereignFQDN,
-			LoadBalancerIP:   result.LoadBalancerIP,
+			Subdomain:             dep.pdmSubdomain,
+			ReservationToken:      dep.pdmReservationToken,
+			SovereignFQDN:         result.SovereignFQDN,
+			LoadBalancerIP:        result.LoadBalancerIP,
+			ConsoleLoadBalancerIP: result.ConsoleLoadBalancerIP, // #4053 — isolated console LB (empty-safe)
 		},
 		func(ctx context.Context) (*pdm.Reservation, error) {
 			emitInfo(fmt.Sprintf("PDM reservation expired during Phase 0 — re-Reserving %s.%s",

@@ -33,17 +33,35 @@
 # 169.254.169.254/openstack/latest/meta_data.json → uuid + AZ me-east-215a,
 # and evs.me-east-215.kom4dc.nationalcloud.om answers (IAM-token gated).
 #
-# PROVIDER GATING — the inverse of slot 55a
-# =========================================
-# Suspended by DEFAULT (`suspend: ${HUAWEI_HR_SUSPEND:=true}`): a Hetzner
-# Sovereign (HUAWEI_HR_SUSPEND=true) NEVER installs it — the Hetzner Cloud CSI
-# (slot 55a) is its durable default class. The Huawei cloud-init sets
-# HUAWEI_HR_SUSPEND=false, so a Huawei Sovereign installs it for real. This is
-# the SAME gate that drives bp-velero-hcs (slot 34a) + every other HCS-only HR.
-# (Slot 55a uses the OPPOSITE convention — active-but-empty on Huawei — because
-# bp-cnpg/bp-mgmt-vcluster `dependsOn` it; nothing dependsOn THIS slot, so a
-# plain provider-suspend is correct and avoids installing the Hetzner-irrelevant
-# EVS driver on Hetzner.)
+# PROVIDER GATING — active-but-empty on Hetzner (the slot-55a pattern)
+# ====================================================================
+# #892 (Refs #3992 #3971) — this slot is now ACTIVE on BOTH providers (NOT
+# suspended), exactly like slot 55a. The chart `enabled` toggle (EVS_CSI_ENABLED)
+# decides whether it installs the real EVS driver (Huawei substitutes "true") or
+# an EMPTY release that reports Ready immediately (Hetzner substitutes "false" —
+# the chart default). Why this changed from the old `suspend:
+# ${HUAWEI_HR_SUSPEND:=true}`:
+#
+#   The stateful root slots bp-cnpg (16) + bp-mgmt-vcluster (58) now ALSO
+#   `dependsOn: bp-huawei-evs-csi` — on Huawei this is the slot that actually
+#   creates the durable default StorageClass (`evs-ssd`); slot 55a's
+#   bp-hcloud-csi renders EMPTY there and goes Ready WITHOUT any default class,
+#   so depending on slot 55a alone did NOT guarantee a default class exists
+#   before the first CNPG/vCluster PVC binds (the hw182 ordering race — PVCs
+#   minted classless before evs-ssd landed, frozen "" forever → gitea/harbor/
+#   guacamole-pg Pending 84m+ → console never installs).
+#
+#   A `dependsOn` on a SUSPENDED HelmRelease blocks FOREVER — Flux never marks a
+#   suspended HR Ready. So the old `suspend:` shape would deadlock EVERY Hetzner
+#   prov the moment slots 16/58 gate on this HR. Rendering empty (enabled=false)
+#   keeps the HR Ready so the dependsOn is satisfied on Hetzner without the
+#   suspended-HR deadlock — the SAME proven idiom slot 55a uses on Huawei.
+#
+# Both CSI slots are now active-but-empty on the OTHER provider, so the stateful
+# roots can `dependsOn: [bp-hcloud-csi, bp-huawei-evs-csi]` (list BOTH) and the
+# correct one (whichever installs a real default class for this provider) gates
+# the PVCs while the empty one is a Ready no-op. No per-provider dependsOn
+# templating is needed — see slots 16 + 58.
 #
 # WHAT IT INSTALLS (Huawei only)
 # ==============================
@@ -105,9 +123,18 @@ metadata:
   labels:
     catalyst.openova.io/slot: "55b"
 spec:
-  # Default-suspended (Hetzner). The Huawei cloud-init sets
-  # HUAWEI_HR_SUSPEND=false so a Huawei Sovereign installs the EVS CSI for real.
-  suspend: ${HUAWEI_HR_SUSPEND:=true}
+  # #892 — ACTIVE on BOTH providers (NOT suspended). The chart `enabled` toggle
+  # below (EVS_CSI_ENABLED) decides whether this installs the real Huawei EVS CSI
+  # + the evs-ssd default StorageClass (Huawei substitutes "true") or an EMPTY
+  # release that reports Ready immediately (Hetzner substitutes "false" — the
+  # chart default). This MUST stay active on Hetzner now that the stateful root
+  # slots bp-cnpg (16) + bp-mgmt-vcluster (58) `dependsOn: bp-huawei-evs-csi`: a
+  # `dependsOn` on a SUSPENDED HR blocks forever — Flux never marks a suspended
+  # HR Ready — so the old `suspend: ${HUAWEI_HR_SUSPEND}` shape would deadlock
+  # EVERY Hetzner prov. Rendering empty (enabled=false) keeps the HR Ready so the
+  # dependsOn is satisfied on both clouds (mirrors slot 55a's empty render on
+  # Huawei). See the PROVIDER GATING header block.
+  #
   # #4038-followup — gate on bp-reflector so the `ghcr-pull` imagePullSecret has
   # been mirrored into `huawei-evs-csi` BEFORE the private-image CSI pods are
   # created (otherwise they ImagePullBackOff 401 and never self-heal; see the
@@ -162,11 +189,14 @@ spec:
   # StatefulSet pods scheduled → vc-mgmt/rtz/dmz kubeconfig secrets were
   # created → the spine resumed (HR ready 36 → climbing).
   #
-  # Hetzner is unaffected (this slot is HUAWEI_HR_SUSPEND-suspended there).
+  # Hetzner is unaffected: the slot is now ACTIVE there too (#892) but
+  # EVS_CSI_ENABLED=false renders an EMPTY release (Ready immediately, zero EVS
+  # resources) so it only satisfies the slot-16/58 dependsOn — the durable
+  # default class on Hetzner is hcloud-volumes from slot 55a.
   # Override EVS_CSI_ENABLED="false" only for a deliberate no-storage Huawei
   # smoke prov; a real Huawei prov MUST have it true or the Phase-1
   # storage-durability gate fails it (local-path is FORBIDDEN, never a silent
-  # fallback). See #3971.
+  # fallback). See #3971 #892.
   values:
     enabled: ${EVS_CSI_ENABLED:=true}
     defaultStorageClass: ${EVS_CSI_ENABLED:=true}
@@ -191,20 +221,33 @@ spec:
   # Pull the four Huawei creds from the canonical flux-system/cloud-credentials
   # Secret (cloud-init Phase 0) into the chart values. Flux dereferences
   # valuesFrom at apply time so the plaintext never lands in this manifest.
+  #
+  # `optional: true` (#892) — now that this HR is ACTIVE on Hetzner too
+  # (enabled=false empty render, no longer suspended), Flux applies it on
+  # Hetzner — where the cloud-credentials Secret carries `hcloud-token`, NOT the
+  # four `huawei-*` keys. Without optional:true Flux would FAIL to apply the HR
+  # (cannot dereference a missing valuesKey) → the dependsOn from slots 16/58
+  # would never be satisfied → deadlock. optional:true makes Flux SKIP each
+  # absent key on the empty Hetzner render (the same idiom slot 55a uses for the
+  # absent hcloud-token on Huawei); on Huawei all four keys are present.
   valuesFrom:
     - kind: Secret
       name: cloud-credentials
       valuesKey: huawei-ak
       targetPath: huaweiAccessKey
+      optional: true
     - kind: Secret
       name: cloud-credentials
       valuesKey: huawei-sk
       targetPath: huaweiSecretKey
+      optional: true
     - kind: Secret
       name: cloud-credentials
       valuesKey: huawei-project-id
       targetPath: huaweiProjectId
+      optional: true
     - kind: Secret
       name: cloud-credentials
       valuesKey: huawei-region
       targetPath: huaweiRegion
+      optional: true

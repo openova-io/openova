@@ -52,6 +52,20 @@ write_files:
       # `harbor-robot-token` via the reflected Secret. docker.io /
       # registry-1.docker.io mirrors are KEPT because :5002 is a public-image
       # cache (no auth required).
+      #
+      # #4049 (2026-06-22) — RE-ADD a SCOPED ghcr.io mirror to WORKERS. The
+      # CATALYST Pods (catalyst-api/ui + controllers + the sme mesh) schedule on
+      # WORKER nodes, so the #4049 warm path is USELESS unless the workers route
+      # ghcr.io/openova-io/openova/* through the bastion :5000 hosted project too
+      # (the control-plane-only mirror in main.tf never reaches a catalyst Pod).
+      # The #2842 reason ghcr.io was removed (anon proxies can't auth private
+      # ghcr) is now MOOT for this namespace: the private catalyst set is
+      # NATIVE-PUSHED into the bastion HOSTED `openova-io` project (warmed by the
+      # catalyst-build job) and served via :5000 with the robot$openova-bot auth
+      # below — proven 0.9s warm pull on hw182. PUBLIC ghcr (fluxcd/cnpg/…) still
+      # routes via the anon proxy-ghcr cache. Mutually-exclusive rewrite (see the
+      # main.tf control-plane block for the containerd map-order hazard the
+      # anchored exclusion guards against).
       mirrors:
         "harbor.openova.io":
           endpoint:
@@ -62,8 +76,17 @@ write_files:
         "registry-1.docker.io":
           endpoint:
             - "http://212.72.24.20:5002"
+        "ghcr.io":
+          endpoint:
+            - "http://212.72.24.20:5000"
+          rewrite:
+            "^openova-io/openova/(.*)": "openova-io/openova/$1"
+            "^(openova-io/(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^/]).*|(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^-]|openova-[^i]|openova-i[^o]).*)": "proxy-ghcr/$0"
       configs:
         "212.72.24.20:5000":
+          auth:
+            username: "robot$openova-bot"
+            password: "${harbor_robot_token}"
           tls:
             insecure_skip_verify: true
         "212.72.24.20:5002":

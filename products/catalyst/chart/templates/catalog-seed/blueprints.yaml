@@ -6467,17 +6467,17 @@ spec:
     namingTemplate: "{{ "{{" }}.AppName{{ "}}" }}-{{ "{{" }}.InstanceID{{ "}}" }}"
     isolationLevel: namespace
 ---
-# bp-chepherd (#4010) — chepherd as an installable Application Blueprint.
+# bp-agenity (#4010) — Agenity as an installable Application Blueprint.
 # A User installs this into their own Organization from the catalog, chats
 # with the built-in solo agent (Claude Opus 4.7, token pre-configured), and
 # the agent creates more Applications in the User's Org via the RBAC-scoped
 # openova MCP. The north-star self-service journey (UAT rows 218-223).
-# Lockstep with products/chepherd/blueprint.yaml spec.version 0.1.0 + the
-# published chart ghcr.io/openova-io/bp-chepherd:0.1.0.
+# Lockstep with products/agenity/blueprint.yaml spec.version 0.1.0 + the
+# published chart ghcr.io/openova-io/bp-agenity:0.1.0.
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-chepherd
+  name: bp-agenity
   labels:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
@@ -6492,30 +6492,31 @@ spec:
   version: "0.1.0"
   visibility: listed
   card:
-    title: "Chepherd"
+    title: "Agenity"
     category: ai-runtime
     family: agent-runtime
     summary: "Your AI engineering team — chat with a built-in solo agent (Claude Opus 4.7) that creates Applications in your Organization for you."
-    description: "Install chepherd into your Organization and chat with its solo agent (Claude Opus 4.7, token pre-configured). The agent reaches the OpenOva MCP — scoped to exactly what you can do in the console — to create and manage Applications in YOUR Organization on your behalf."
-    icon: chepherd.svg
+    description: "Install Agenity into your Organization and chat with its solo agent (Claude Opus 4.7, token pre-configured). The agent reaches the OpenOva MCP — scoped to exactly what you can do in the console — to create and manage Applications in YOUR Organization on your behalf."
+    icon: agenity.svg
     license: "MIT"
-    tags: [chepherd, agent, multi-agent, claude, opus, mcp, self-service]
-    docs: "https://github.com/chepherd/chepherd"
+    tags: [agenity, agent, multi-agent, claude, opus, mcp, self-service]
+    docs: "https://github.com/openova-io/openova"
   placementSchema:
     modes: [single-region]
     default: single-region
   manifests:
-    chart: bp-chepherd
+    chart: bp-agenity
   source:
     kind: HelmRepository
     type: oci
     url: oci://ghcr.io/openova-io
-    chart: bp-chepherd
+    chart: bp-agenity
     version: 0.1.0
   topology:
     supported:
       - singleton
     defaults:
+      multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
@@ -6526,7 +6527,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: console
-      hostnameTemplate: "chepherd.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "agenity.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
