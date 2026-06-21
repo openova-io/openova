@@ -36,9 +36,17 @@ exactly one (per workload).
 | resource-requests | `resource-requests/pass-deployment.yaml` | `resource-requests/fail-deployment.yaml` |
 | image-tag-pinned | `image-tag-pinned/pass-deployment.yaml` | `image-tag-pinned/fail-deployment.yaml` |
 | forbid-local-path-storage (#3971) | `forbid-local-path/pass-pvc.yaml` | `forbid-local-path/fail-pvc.yaml` |
+| backup-configured / pvc-must-be-velero-backed (#3971) | `backup-configured/pass-pvc.yaml` | `backup-configured/fail-pvc.yaml` |
 
 The remaining policies' fixtures are deferred — slice S1 ships the
 authoritative matrix.
+
+`backup-configured` pass fixture proves BOTH legitimate exemptions: a
+CNPG-managed PVC (label `cnpg.io/cluster` → exempt via the 1.0.39 carve-out,
+backed by barman not Velero) AND a Velero-bound user PVC (label
+`velero.io/managed-by-schedule`). The fail fixture is a stateful user PVC with
+neither marker — still correctly DENIED, proving the carve-out did not weaken
+the policy for genuinely-unprotected PVCs.
 
 ## MUTATE policy fixtures (Refs #3268)
 

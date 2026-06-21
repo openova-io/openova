@@ -220,7 +220,20 @@ type: application
 # local-path / rancher.io/local-path. The admission layer of the 3-layer
 # local-path-FORBIDDEN defence (k3s --disable=local-storage + cloud CSI default
 # + this policy). Founder: "local path never ever ALLOWED".
-version: 1.0.38
+# 1.0.39 (#3971, hw178 dep 02bc518fcb1b4cb3, 2026-06-21): EXCLUDE CNPG-managed
+# PVCs from the `pvc-must-be-velero-backed` rule (K2 backup-configured). The
+# DB tier (harbor-pg / gitea-pg / guacamole-pg / pdns-pg / keycloak) runs on
+# CloudNativePG, which creates each instance PVC WITHOUT Velero labels because
+# it backs up via its OWN continuous barman / object-store WAL-streaming, not
+# Velero. The over-broad rule flagged the entire DB tier as a backup-configured
+# `fail` ("PVC harbor-pg-1 is not declared as part of a Velero backup"),
+# stranding the database PVCs the moment the policy is Enforce. Added an
+# `exclude.any[].resources.selector.matchExpressions` on `cnpg.io/cluster`
+# Exists — exempts ONLY operator-backed CNPG PVCs in ANY namespace; genuinely-
+# unprotected user PVCs stay subject to the velero-backed requirement. Mirrors
+# the by-label CNPG carve-out on the flux-managed policy (#3374). Template-only
+# behavior change + new test fixtures. Refs #3971.
+version: 1.0.39
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

@@ -56,6 +56,30 @@ spec:
                 {{- range $ns := .Values.compliancePolicies.backupConfigured.excludeNamespaces }}
                 - {{ $ns }}
                 {{- end }}
+          {{- /*
+            #3971 (2026-06-21, first proven hw178 dep 02bc518fcb1b4cb3): the
+            database tier's PVCs are CNPG (CloudNativePG) operator-managed.
+            CNPG creates each instance PVC (`<cluster>-N`, e.g. `harbor-pg-1`,
+            `gitea-pg-1`, `guacamole-pg-1`, `pdns-pg-1`) WITHOUT any Velero
+            label/annotation because it backs up via its OWN continuous
+            barman / object-store WAL-streaming mechanism, not Velero — the two
+            backup stories are mutually exclusive by design. The over-broad
+            `pvc-must-be-velero-backed` rule flagged the ENTIRE DB tier (harbor,
+            gitea, keycloak, powerdns, guacamole all run on CNPG): on hw178
+            every CNPG instance PVC sat Pending with the event `policy
+            backup-configured/pvc-must-be-velero-backed fail: PVC harbor-pg-1 is
+            not declared as part of a Velero backup`. Every CNPG-created PVC
+            carries the `cnpg.io/cluster: <cluster-name>` label; excluding on
+            its presence exempts ONLY operator-backed database PVCs in ANY
+            namespace (current or future), while every genuinely-unprotected
+            user PVC stays subject to the velero-backed requirement. Mirrors the
+            by-label CNPG carve-out on the flux-managed policy (#3374). Refs #3971.
+          */}}
+          - resources:
+              selector:
+                matchExpressions:
+                  - key: cnpg.io/cluster
+                    operator: Exists
       validate:
         message: >-
           PVC {{ `{{request.object.metadata.name}}` }} is not declared
