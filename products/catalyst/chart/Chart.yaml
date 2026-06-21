@@ -2942,7 +2942,7 @@ name: bp-catalyst-platform
 # 1.4.764 — rebrand catalog-seed bp-chepherd → bp-agenity (#4058): metadata.name, card (title/desc/
 #   tags/icon/docs), manifests.chart + source.chart bp-agenity, endpoint hostname agenity.<org>.<fqdn>.
 #   topology.defaults KEEPS BOTH multi-region: singleton + single-region: singleton (#4051 preserved).
-version: 1.4.764
+version: 1.4.765
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
