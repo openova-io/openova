@@ -620,6 +620,20 @@ write_files:
             # BOTH providers so the stateful root slots (bp-cnpg / bp-mgmt-
             # vcluster) can `dependsOn` it without deadlocking — see slot 55a.
             HCLOUD_CSI_ENABLED: "true"
+            # #3971 (Refs #3992) — explicit per-provider durable StorageClass
+            # name for the host-shared CNPG clusters (gitea-pg / harbor-pg /
+            # guacamole-pg, slots 10/19/52). NAMING (not omitting) the class on
+            # those Cluster CRs is the load-bearing fix for the empty-string
+            # freeze: a PVC created with storageClassName UNSET BEFORE a default
+            # StorageClass exists has "" PERMANENTLY frozen in by the
+            # admission-default plugin and never picks up the default later —
+            # the exact failure caught live on hw174 (gitea-pg-1/harbor-pg-1/
+            # guacamole-pg-1 stuck Pending with empty SC because their PVCs were
+            # minted at 21:03Z, 2h09m BEFORE evs-ssd appeared at 23:12Z). A PVC
+            # that NAMES the class instead stays Pending (not frozen) until the
+            # class exists, then binds — race-immune. On Hetzner the CSI default
+            # is hcloud-volumes.
+            SOVEREIGN_CNPG_STORAGE_CLASS: "hcloud-volumes"
 %{ endif ~}
 %{ if provider == "huawei" ~}
             # Huawei: no cloud CCM. Cilium LB-IPAM assigns the clustermesh
@@ -654,6 +668,19 @@ write_files:
             # golangsdk requires). With "false" the HR installs empty + Ready
             # (no regression); flip to "true" the moment the auth fix lands. #3971
             EVS_CSI_ENABLED: "false"
+            # #3971 (Refs #3992 #4012) — explicit durable StorageClass name for
+            # the host-shared CNPG clusters (gitea-pg / harbor-pg / guacamole-pg,
+            # slots 10/19/52). evs-ssd is the default class the slot-55b EVS CSI
+            # installs. Naming it (vs omitting) makes these PVCs RACE-IMMUNE: with
+            # storageClassName UNSET the admission-default plugin freezes "" the
+            # instant a PVC is created before any default SC exists, and that ""
+            # is permanent (caught live on hw174 — gitea/harbor/guacamole-pg-1
+            # stuck Pending<empty>, 2h before evs-ssd appeared, while every PVC
+            # that named or post-dated the class Bound cleanly). A NAMED class
+            # instead keeps the PVC Pending (recoverable) until evs-ssd exists,
+            # then binds with zero re-creation — so the moment EVS_CSI_ENABLED
+            # flips true (or the SC lands by any path) these three converge.
+            SOVEREIGN_CNPG_STORAGE_CLASS: "evs-ssd"
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"

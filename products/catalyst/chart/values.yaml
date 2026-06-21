@@ -464,7 +464,20 @@ images:
   # carries the server-side filter and is published for every services-* image
   # (verified: services-auth, unchanged by #3157, also has c96f998 → the Organization
   # build is all-services, not path-filtered). Refs #3156.
-  orgTag: "c068e6a"
+  # 2026-06-21: c068e6a → 34ff594. c068e6a predates #3964 (2529da1) so its
+  # provisioning service hard-fails store init on FerretDB
+  # ("Index option \"partialFilterExpression\" is not implemented yet" →
+  # CrashLoop → zero Organizations provisioned, caught live on hw173/hw174).
+  # The services-build deploy job FAILED to bump this orgTag when #3964 and
+  # #3995 merged, leaving the chart pinned a commit BEFORE the fix even though
+  # services-provisioning:2529da1 AND :34ff594 are both published in GHCR.
+  # 34ff594 (#3995, the latest core/services commit on main) carries BOTH the
+  # #3964 partialFilter fix AND the #3985/#3383 SME→Organization rename — the
+  # latter is load-bearing: the 2529da1 image still emits spec.tier:"sme" which
+  # the live Organization CRD rejects 422 ("Unsupported value sme: supported
+  # values org, corporate"), so only 34ff594 lets tenant.created mint the Org CR.
+  # Refs #3964 #3995.
+  orgTag: "34ff594"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
@@ -1712,6 +1725,17 @@ orgServices:
       destNamespace: org-services     # #3383: was `sme`
       destSecretName: provisioning-github-token
       destKey: GITHUB_TOKEN
+      # #3376 — provisioning-github-token-sync-job.yaml is a post-install/
+      # post-upgrade hook that materialises the dest Secret RELIABLY (the
+      # lookup-based template above races the pre-install mint hook + never
+      # re-renders on a no-op reconcile, so on a fresh prov the Secret stays
+      # absent → provisioning Pod Init:0/1). The Job POLLS catalyst-gitea-token
+      # for the runtime-minted PAT up to patPollAttempts × patPollIntervalSeconds
+      # (default 60 × 5s = 300s, well inside the HR's 30m upgrade timeout) before
+      # giving up gracefully (exit 0 — self-heals next reconcile, never wedges
+      # the spine; the #3763 lesson).
+      patPollAttempts: 60
+      patPollIntervalSeconds: 5
     # ─── Provisioning service GitOps env (issues #940 + #944) ──────────
     # The Organization provisioning service Deployment env block is rendered from
     # these keys. Every value is operator-overridable per Inviolable

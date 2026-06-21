@@ -234,6 +234,18 @@ spec:
     postgres:
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+        # #3971 (Refs #3992 #4012) — name the per-provider durable CSI class
+        # explicitly so the gitea-pg PVC is NEVER created classless. CNPG's
+        # cnpg-cluster.yaml omits storageClass when empty (leaving the PVC's
+        # storageClassName UNSET), but an UNSET PVC created BEFORE the default
+        # StorageClass exists has "" frozen in permanently → stuck Pending
+        # forever (caught live on hw174: gitea-pg-1 Pending<empty> 2h before
+        # evs-ssd landed). A NAMED class keeps the PVC Pending (recoverable)
+        # until the class exists, then binds — race-immune on BOTH providers.
+        # Sourced from the cloud-init per-provider env (hcloud-volumes on
+        # Hetzner, evs-ssd on Huawei). Empty default keeps non-Sovereign
+        # `helm template` renders (CI) on the legacy omit-when-empty path.
+        storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS:=}
         # ADR-0010 SHARING gate. Default true → gitea ships its own
         # gitea-pg Cluster (the 1:1 legacy shape; every existing prov is
         # byte-identical). Set SOVEREIGN_GITEA_PG_OWN_CLUSTER=false on a

@@ -326,6 +326,16 @@ spec:
     postgres:
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+        # #3971 (Refs #3992 #4012) — name the per-provider durable CSI class
+        # explicitly so the harbor-pg PVC is NEVER created classless. An UNSET
+        # storageClassName freezes to "" the instant a PVC is created before any
+        # default StorageClass exists, permanently stranding it Pending (caught
+        # live on hw174: harbor-pg-1 Pending<empty> → Harbor 404). A NAMED class
+        # keeps the PVC Pending (recoverable) until the class lands, then binds —
+        # race-immune. Sourced from cloud-init per-provider env (hcloud-volumes
+        # on Hetzner, evs-ssd on Huawei); empty default preserves the legacy
+        # omit-when-empty CI `helm template` path.
+        storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS:=}
         # ADR-0010 SHARING gate. Default true → harbor ships its own
         # harbor-pg Cluster (the 1:1 legacy shape; every existing prov is
         # byte-identical). Set SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false on a
