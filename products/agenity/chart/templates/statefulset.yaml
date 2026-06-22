@@ -161,6 +161,18 @@ spec:
             # the User's solo agent runs on Opus 4.7.
             - name: CHEPHERD_DEFAULT_MODEL
               value: {{ .Values.agent.model | quote }}
+            {{- if .Values.daemon.authMode }}
+            # ── Daemon HTTP auth mode (browser chat-box trust mode, #4122) ──
+            # "none" (or any non-{local,oidc} value) makes chepherd's
+            # auth.New() error → rs.AuthToken stays empty → authMiddleware is a
+            # no-op → the in-browser dashboard chat box no longer 401s on
+            # GET /api/v1/*. Safe here: the Application is per-Org-isolated
+            # behind the Cilium Gateway + the Org host, reachable only by the
+            # signed-in User. The MCP→catalyst-api create_application path uses
+            # the separate RS256 OPENOVA_MCP_BEARER seam, unaffected by this.
+            - name: CHEPHERD_AUTH_MODE
+              value: {{ .Values.daemon.authMode | quote }}
+            {{- end }}
             {{- if .Values.agent.systemPrompt }}
             - name: CHEPHERD_DEFAULT_SYSTEM_PROMPT
               value: {{ .Values.agent.systemPrompt | quote }}
