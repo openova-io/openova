@@ -128,14 +128,16 @@ spec:
                 php -r '$z=new ZipArchive(); $r=$z->open($argv[1]); if($r!==true){fwrite(STDERR,"ZipArchive open failed (".$r."): ".$argv[1]."\n");exit(1);} if(!$z->extractTo($argv[2])){fwrite(STDERR,"ZipArchive extractTo failed: ".$argv[2]."\n");exit(1);} $z->close();' "$1" "$2"
               }
               # ── (a) openid-connect-generic plugin ──────────────────
-              OIDC_DIR=/pvc/plugins/openid-connect-generic
+              OIDC_DIR=/pvc/plugins/daggerhart-openid-connect-generic
               if [ -d "${OIDC_DIR}" ]; then
                 echo "openid-connect-generic already installed — skipping."
               else
                 echo "Downloading openid-connect-generic..."
                 cd /tmp
+                # Plugin slug on WordPress.org is `daggerhart-openid-connect-generic`
+                # (the bare `openid-connect-generic` slug 404s).
                 curl -fsSL -o oidc.zip \
-                  https://downloads.wordpress.org/plugin/openid-connect-generic.latest-stable.zip
+                  https://downloads.wordpress.org/plugin/daggerhart-openid-connect-generic.latest-stable.zip
                 mkdir -p /pvc/plugins
                 php_unzip oidc.zip /pvc/plugins/
                 rm -f /tmp/oidc.zip
@@ -156,18 +158,20 @@ spec:
                 cd /tmp
                 # Pin to a stable tag, not main, per
                 # docs/INVIOLABLE-PRINCIPLES.md #4 (no floating refs).
+                # v3.3.1 is the latest published release/tag (the prior pin
+                # v3.7.0 does not exist → archive 404).
                 curl -fsSL -o pg4wp.zip \
-                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.7.0.zip
+                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.3.1.zip
                 php_unzip pg4wp.zip /tmp/
                 # Extracted layout:
-                #   /tmp/postgresql-for-wordpress-3.7.0/pg4wp/
-                #   /tmp/postgresql-for-wordpress-3.7.0/pg4wp/db.php
+                #   /tmp/postgresql-for-wordpress-3.3.1/pg4wp/
+                #   /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php
                 # Copy `pg4wp/` into wp-content/ and the `db.php`
                 # drop-in alongside it (WP looks for db.php at
                 # wp-content/db.php).
-                cp -a /tmp/postgresql-for-wordpress-3.7.0/pg4wp /pvc/
-                cp /tmp/postgresql-for-wordpress-3.7.0/pg4wp/db.php /pvc/db.php
-                rm -rf /tmp/postgresql-for-wordpress-3.7.0 /tmp/pg4wp.zip
+                cp -a /tmp/postgresql-for-wordpress-3.3.1/pg4wp /pvc/
+                cp /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php /pvc/db.php
+                rm -rf /tmp/postgresql-for-wordpress-3.3.1 /tmp/pg4wp.zip
                 echo "pg4wp installed."
               fi
               chown -R 33:33 /pvc
