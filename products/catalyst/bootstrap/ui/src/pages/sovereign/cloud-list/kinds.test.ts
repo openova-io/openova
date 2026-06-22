@@ -27,7 +27,7 @@ import {
   colReconcileStatus,
   colCnpgStatus,
   colCatalystCrStatus,
-} from './K8sListPage'
+} from './k8sColumns'
 
 /** The reconciler chip ids the founder required (#3978). */
 const RECONCILER_CHIP_IDS = [
