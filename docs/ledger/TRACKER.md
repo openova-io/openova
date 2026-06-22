@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T17:30:06Z` |
+| Last refreshed | `2026-06-22T17:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T17:44 | [#4147](https://github.com/openova-io/openova/pull/4147) | #3971 | fix(bp-wordpress-tenant): wp-plugin-install init runs as roo |
 | 2026-06-22T15:38 | [#4142](https://github.com/openova-io/openova/pull/4142) | #4140 | fix(#4139): bp-wordpress-tenant active-hot-standby CNPG sync |
 | 2026-06-22T15:23 | [#4141](https://github.com/openova-io/openova/pull/4141) | #3985 | fix(#4139): unblock bp-wordpress-tenant publish — repair #39 |
 | 2026-06-22T15:16 | [#4140](https://github.com/openova-io/openova/pull/4140) | #3971 | fix(#4139): demo-Org convergence — empty wpContent.storageCl |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-06-22T03:50 | [#4078](https://github.com/openova-io/openova/pull/4078) | #4077 | fix(catalyst): org-controller auto-ensures <org>-prod Enviro |
 | 2026-06-22T03:50 | [#4076](https://github.com/openova-io/openova/pull/4076) | #4075 | fix(catalyst): Enter-org targets stored pool console host +  |
 | 2026-06-21T23:44 | [#4072](https://github.com/openova-io/openova/pull/4072) | #4071 | fix(catalyst-api): disable client-go WatchListClient gate —  |
-| 2026-06-21T23:16 | [#4070](https://github.com/openova-io/openova/pull/4070) | #4054 | fix(bp-catalyst-api): route console/api/marketplace at the c |
 
 ---
 
