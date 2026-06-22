@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T02:30:02Z` |
+| Last refreshed | `2026-06-22T02:45:01Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 81 |
+| Open issues | 82 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 81 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 82 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 81 open items (clickable table)
+### All 82 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -281,6 +281,7 @@ flowchart LR
 | [#4071](https://github.com/openova-io/openova/issues/4071) | catalyst-api (Sovereign) cannot watch apps.openova.io/v1 Applications despite CR | Other |
 | [#4073](https://github.com/openova-io/openova/issues/4073) | Agentic journey blocked: omantel.biz Sovereign has no parent-domain pool → sub | Other |
 | [#4075](https://github.com/openova-io/openova/issues/4075) | Customer-Org console unreachable → agentic journey blocked at 'Enter org' (sta | Other |
+| [#4077](https://github.com/openova-io/openova/issues/4077) | App install fails 'EnvironmentMissing' — no Environment CRs created by Org onb | Other |
 
 ---
 
