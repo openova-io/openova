@@ -98,7 +98,14 @@ name: bp-wordpress-tenant
 # 0.4.3 (#4139): blueprint.yaml configSchema wpContent.storageClass.default local-path → ""
 #   (was missed by #3971 — the schema default would re-introduce the FORBIDDEN
 #   local-path class on a fresh install, denied by forbid-local-path-storage).
-version: 0.4.3
+# 0.4.4 (#4139): active-hot-standby CNPG cluster declares synchronous replication via
+#   the CNPG-native spec.postgresql.synchronous block instead of the raw
+#   synchronous_standby_names parameter (CNPG FIXED param — the vcluster.cnpg.io
+#   admission webhook rejected it: "Can't set fixed configuration parameter").
+#   Mirrors bp-cnpg-pair primary-cluster.yaml (#3740). Also folds the #3985 rename
+#   residue in oidcIssuerURL/ingressHost helpers (the gate that blocked 0.4.2/0.4.3
+#   publish until repaired this session).
+version: 0.4.4
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

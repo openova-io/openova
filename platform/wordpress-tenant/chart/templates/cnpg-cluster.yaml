@@ -141,10 +141,32 @@ spec:
       */ -}}
       {{- $replMode := default "sync" .Values.pg.activeHotStandby.replication.mode }}
       {{- if eq $replMode "sync" }}
+      # `synchronous_commit` (remote_apply) IS a settable GUC → stays a raw
+      # parameter. `synchronous_standby_names` is NOT — CNPG marks it a FIXED
+      # configuration parameter and the admission webhook REJECTS any explicit
+      # set in `parameters` with "Can't set fixed configuration parameter"
+      # (#4139, caught live on omantel.biz vcluster.cnpg.io). Declare it via
+      # the CNPG-native `spec.postgresql.synchronous` block below instead —
+      # the SAME shape bp-cnpg-pair primary-cluster.yaml uses (#3740).
       synchronous_commit: {{ default "remote_apply" .Values.pg.activeHotStandby.replication.sync.commit | quote }}
-      synchronous_standby_names: {{ printf "FIRST %d (%s)" (int (default 1 .Values.pg.activeHotStandby.replication.sync.numSync)) (include "bp-wordpress-tenant.cnpgPairReplicaName" .) | quote }}
       {{- end }}
       {{- end }}
+    {{- if and $haEnabled (eq (default "sync" .Values.pg.activeHotStandby.replication.mode) "sync") }}
+    # ── Synchronous replication — CNPG-native (NOT a raw parameter) ────
+    # method=first + number=N + standbyNamesPre:[<replica>] +
+    # maxStandbyNamesFromCluster:0 renders
+    # `synchronous_standby_names = FIRST N ("<replica>")` targeting the
+    # CROSS-REGION replica Cluster CR, NOT a local HA peer. Mirrors
+    # bp-cnpg-pair primary-cluster.yaml (#3740, #4139). dataDurability=required
+    # enforces the Pillar-3 zero-tx-loss bar.
+    synchronous:
+      method: first
+      number: {{ int (default 1 .Values.pg.activeHotStandby.replication.sync.numSync) }}
+      dataDurability: required
+      maxStandbyNamesFromCluster: 0
+      standbyNamesPre:
+        - {{ include "bp-wordpress-tenant.cnpgPairReplicaName" . | quote }}
+    {{- end }}
 
   resources:
     {{- toYaml .Values.database.cluster.resources | nindent 4 }}
