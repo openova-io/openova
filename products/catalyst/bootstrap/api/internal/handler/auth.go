@@ -1375,6 +1375,27 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// #4110 host-anchor (defense against a STALE / replayed sovereign-admin
+	// cookie): the REQUEST HOST is the trust anchor, not the session JWT.
+	// When this whoami arrived on a tenant_kind=org console host
+	// (resolveOrgScope ok — the gateway-stamped X-Forwarded-Host an
+	// Org-console browser can never forge), the response MUST render scoped
+	// REGARDLESS of what the JWT claims — force orgScoped + the Org tier +
+	// the Org realm role, overriding any sovereign tier/role the projection
+	// above synthesized. This makes the SPA hide every sovereign-admin
+	// surface even for a god-mode cookie minted before this fix shipped, so
+	// the customer never needs to clear cookies. The Sovereign's own console
+	// host (tenant_kind=otech) makes resolveOrgScope return false → the
+	// operator whoami is byte-unchanged → ZERO regression.
+	if scope, ok := h.resolveOrgScope(r); ok {
+		resp.OrgScoped = true
+		if strings.TrimSpace(resp.Org) == "" {
+			resp.Org = scope.Org
+		}
+		resp.Tier = orgScopedTier
+		resp.RealmAccess = &whoamiRealmAccess{Roles: []string{orgScopedRealmRole}}
+	}
+
 	// Sovereign-context enrichment — same precedence as HandleSovereignSelf
 	// so the two endpoints never disagree about which sovereign this is.
 	deploymentID := strings.TrimSpace(claims.DeploymentID)
