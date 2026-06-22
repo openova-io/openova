@@ -151,6 +151,30 @@ openovaMCP:
     name: ""
     key: bearer
 
+# ── Daemon HTTP auth (browser chat-box trust mode) ────────────────────────
+# The chepherd daemon's default auth mode is "local": it mints a bootstrap
+# Bearer token and the authMiddleware enforces it on every /api/v1/* path.
+# The dashboard SPA's fetch() calls do NOT carry that token (only the SSE
+# stream gets it as a ?token= query param), so the browser chat box 401s on
+# GET /api/v1/sessions, /teams, /inbox … and the User cannot drive the chat
+# hands-on (#4122).
+#
+# This Agenity Application is already isolated per-Org behind the Cilium
+# Gateway + the Org's own host (agenity.<org>.<sovereign-fqdn>), reachable
+# only by the signed-in User — so the daemon's own per-request Bearer is
+# redundant defense. Setting authMode to a non-{local,oidc} value makes
+# chepherd's auth.New() return an error, the daemon logs "server is
+# unauthenticated", rs.AuthToken stays empty, and authMiddleware becomes a
+# no-op — the browser chat box works with zero 401s. The openova-mcp →
+# catalyst-api create_application path is UNAFFECTED (it uses the separate
+# RS256 OPENOVA_MCP_BEARER / _auth.token seam, not this daemon token).
+daemon:
+  # "none" → daemon runs unauthenticated so the in-browser chat box works.
+  # Set to "local" to restore the per-request Bearer (chat box then 401s in
+  # the browser until the SPA is taught to attach the token). "oidc" requires
+  # CHEPHERD_OIDC_ISSUER.
+  authMode: none
+
 # ── Service (Agenity web UI + dashboard WS + MCP) ─────────────────────────
 service:
   type: ClusterIP
