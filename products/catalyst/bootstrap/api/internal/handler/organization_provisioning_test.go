@@ -609,8 +609,11 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 //   - Enable defaultChannels.qwenPartner so the chart's channel-seed
 //     post-install Job auto-seeds the partner-hosted Qwen at install time
 //     (canonical first-otech default per #915 C4 PR #919).
-//   - Reference newapi-pg-app for the database (bp-cnpg renders the
-//     app secret in tenant ns) + newapi-credentials for app secrets.
+//   - NOT pin database.existingSecret / credentials.existingSecret to
+//     names nothing creates (#3858) — leave them unset so the chart's
+//     own cnpg.enabled + database-secret-sync-job + credentials.
+//     autoProvision path converges, and set valkey.enabled: false
+//     (the default cross-vCluster Redis is unreachable from the Org vc).
 func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID:  "t-alice",
@@ -691,16 +694,41 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 		t.Errorf("bp-newapi.yaml customerAPI.keyIssuer must be 'catalyst' to disable the self-serve portal")
 	}
 
-	// Per-tenant database + credentials Secrets.
-	wantSecrets := []string{
-		"      existingSecret: newapi-pg-app",
-		"      existingSecretKey: SQL_DSN",
-		"      existingSecret: newapi-credentials",
+	// #3858 / #3374 — DB/credentials/Valkey convergence.
+	//
+	// The overlay MUST NOT pin database.existingSecret / credentials.
+	// existingSecret to names nothing creates. On a real Org the in-vCluster
+	// CNPG renders `bp-newapi-newapi-pg-app` (key `uri`), NOT a
+	// `newapi-pg-app`/SQL_DSN Secret, and nothing creates `newapi-credentials`.
+	// Pinning either crashed the Pod (FailedMount / CreateContainerConfigError).
+	// Leaving both UNSET lets the chart's canonical auto-provision path own
+	// them: cnpg.enabled + database-secret-sync-job for the
+	// `postgres://...?sslmode=require` DSN, credentials.autoProvision for the
+	// random SESSION/CRYPTO secret. Validated live on the omantel.biz demo Org
+	// (newapi 3/3 Running, GET /api/status → 200).
+	// Scan only ACTIVE (non-comment) YAML lines — the rationale comments
+	// intentionally name the old broken values, so a naive substring search
+	// over the whole body would false-positive on the documentation itself.
+	forbiddenSecretValues := []string{
+		"existingSecret: newapi-pg-app",     // nothing creates this name
+		"existingSecret: newapi-credentials", // nothing creates this name
 	}
-	for _, line := range wantSecrets {
-		if !strings.Contains(body, line) {
-			t.Errorf("bp-newapi.yaml DB/credentials missing line %q", line)
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "#") { // skip rationale comments
+			continue
 		}
+		for _, bad := range forbiddenSecretValues {
+			if strings.Contains(line, bad) {
+				t.Errorf("bp-newapi.yaml must NOT pin a never-created Secret (%q) (#3858) — let the chart auto-provision\n--- rendered ---\n%s", bad, body)
+			}
+		}
+	}
+	// Valkey MUST be disabled for the per-Org overlay: the chart default
+	// valkey.url is a host-synced rtz-vCluster Redis, unreachable from inside
+	// an Org vCluster → NewAPI FATALs on the Redis ping probe.
+	if !strings.Contains(body, "    valkey:\n      enabled: false") {
+		t.Errorf("bp-newapi.yaml must set valkey.enabled: false for the per-Org overlay (#3858 — cross-vCluster Redis is unreachable)\n--- rendered ---\n%s", body)
 	}
 
 	// defaultChannels.qwenPartner — channel #1 auto-seeded by the
