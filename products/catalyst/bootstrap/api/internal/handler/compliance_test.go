@@ -644,6 +644,110 @@ func TestCompliance_ViolationsPagination(t *testing.T) {
 	}
 }
 
+// TestCompliance_ResourceFindings — #4085 per-resource Compliance tab.
+//
+// GET /compliance/resource?kind&ns&name returns the resource's OWN
+// per-policy findings (pass/fail/skip) joined with ClusterPolicy
+// metadata (severity/category) so the resource detail view can render
+// its own table instead of bouncing to the sovereign-wide dashboard.
+func TestCompliance_ResourceFindings(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+
+	// ClusterPolicy metadata so findings carry severity/category.
+	publishToFactory(f, "clusterpolicy", &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kyverno.io/v1", "kind": "ClusterPolicy",
+		"metadata": map[string]any{
+			"name": "disallow-privileged-containers",
+			"annotations": map[string]any{
+				"policies.kyverno.io/severity": "high",
+				"policies.kyverno.io/category": "Pod Security Standards",
+			},
+		},
+		"spec": map[string]any{"rules": []any{map[string]any{"name": "privileged"}}},
+	}})
+	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]any{
+			"namespace": "ns1", "name": "web",
+			"labels": map[string]any{"catalyst.openova.io/application": "web"},
+		},
+	}})
+	// One fail + one pass for this resource.
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr-fail", []map[string]any{
+		{"policy": "disallow-privileged-containers", "rule": "privileged", "result": "fail",
+			"message": "container runs privileged",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+	}))
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr-pass", []map[string]any{
+		{"policy": "require-run-as-nonroot", "rule": "nonroot", "result": "pass",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+	}))
+	waitFor(t, 1*time.Second, func() bool {
+		return h.ComplianceHandler().resourceComplianceFor("acme", "Deployment", "ns1", "web").Found
+	})
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/resource", h.HandleComplianceResource)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/acme/compliance/resource?kind=Deployment&ns=ns1&name=web", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resource: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp ResourceComplianceResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Found {
+		t.Fatalf("expected found=true, body=%s", rec.Body.String())
+	}
+	if len(resp.Findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d: %+v", len(resp.Findings), resp.Findings)
+	}
+	// Fail row sorts first (most actionable) and carries the joined
+	// ClusterPolicy severity/category metadata.
+	first := resp.Findings[0]
+	if first.Result != "fail" {
+		t.Fatalf("expected fail row first, got %q", first.Result)
+	}
+	if first.Policy != "disallow-privileged-containers" || first.Severity != "high" || first.Category != "Pod Security Standards" {
+		t.Fatalf("fail row missing metadata: %+v", first)
+	}
+	if first.Message != "container runs privileged" {
+		t.Fatalf("fail row missing message: %+v", first)
+	}
+	if resp.Violations != 1 {
+		t.Fatalf("expected 1 violation, got %d", resp.Violations)
+	}
+
+	// Unknown resource → found=false + empty (non-nil) findings.
+	req2 := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/acme/compliance/resource?kind=Deployment&ns=ns1&name=nope", nil)
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("unknown resource: %d %s", rec2.Code, rec2.Body.String())
+	}
+	var resp2 ResourceComplianceResponse
+	_ = json.Unmarshal(rec2.Body.Bytes(), &resp2)
+	if resp2.Found {
+		t.Fatalf("expected found=false for unknown resource")
+	}
+	if resp2.Findings == nil {
+		t.Fatalf("findings must be non-nil ([]), got nil")
+	}
+
+	// Missing required params → 400.
+	req3 := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/acme/compliance/resource?kind=Deployment", nil)
+	rec3 := httptest.NewRecorder()
+	r.ServeHTTP(rec3, req3)
+	if rec3.Code != http.StatusBadRequest {
+		t.Fatalf("missing name: expected 400, got %d", rec3.Code)
+	}
+}
+
 // TestCompliance_SovereignAlertCount — slice Z2 follow-up.
 //
 // SovereignAlertCount returns len(violationsFor(clusterID, "")). When

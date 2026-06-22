@@ -60,6 +60,8 @@ import { LogViewer } from '@/widgets/cloud-list/LogViewer'
 import { ExecPanel } from '@/widgets/cloud-list/ExecPanel'
 // Wave-2 Family-E (#1583, C11-010): per-Pod SBOM + CVE drill-down.
 import { SBOMTab } from './SBOMTab'
+// #4085 — per-resource compliance findings table.
+import { ResourceComplianceTab } from './ResourceComplianceTab'
 // #3996 — the lightweight ArgoCD/Flux management tab (Flux reconciler kinds).
 import { ReconcileTab, isReconcilerManageable } from './ReconcileTab'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
@@ -352,26 +354,12 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             )
           )}
           {tab === 'compliance' && (
-            <div
-              data-testid="resource-detail-compliance"
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6"
-            >
-              <h3 className="text-sm font-semibold text-[var(--color-text)] mb-3">
-                Per-resource policy compliance
-              </h3>
-              <p className="text-xs text-[var(--color-text-dim)] mb-4">
-                Wave 5.79 (#2408) — Kyverno + custom-evaluator policy
-                reports filtered to this {apiKind} <code className="font-mono">{ns}/{name}</code>.
-                Drill-down opens in the full Compliance dashboard.
-              </p>
-              <a
-                href={`/sre/compliance?resource=${encodeURIComponent(`${apiKind}/${ns}/${name}`)}`}
-                className="inline-block rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] no-underline"
-                data-testid="resource-detail-compliance-drilldown"
-              >
-                Open in Compliance Dashboard →
-              </a>
-            </div>
+            <ResourceComplianceTab
+              sovereignId={deploymentId}
+              kind={apiKind}
+              ns={ns}
+              name={name}
+            />
           )}
           {tab === 'reconcile' && (
             isReconcilerManageable(apiKind) ? (
@@ -951,6 +939,8 @@ function tabLabel(tab: ResourceDetailTab): string {
       return 'Metrics'
     case 'sbom':
       return 'SBOM'
+    case 'compliance':
+      return 'Compliance'
     case 'reconcile':
       return 'Reconcile'
     case 'tree':
