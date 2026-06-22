@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T06:30:02Z` |
+| Last refreshed | `2026-06-22T06:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 91 |
+| Open issues | 93 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 91 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 93 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 91 open items (clickable table)
+### All 93 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -291,6 +291,8 @@ flowchart LR
 | [#4091](https://github.com/openova-io/openova/issues/4091) | Console: replace bare/ugly YAML & IaC rendering with a sophisticated shared code | Other |
 | [#4097](https://github.com/openova-io/openova/issues/4097) | bp-agenity: build chepherd daemon from PUBLIC agenity-org source (drop private c | Other |
 | [#4099](https://github.com/openova-io/openova/issues/4099) | fix(org-provisioning): per-Org bp-keycloak HR missing realmConfig.tenant.subdoma | Other |
+| [#4100](https://github.com/openova-io/openova/issues/4100) | fix(bp-catalyst-platform): pin catalyst-api pod to its EVS volume node so Recrea | Other |
+| [#4101](https://github.com/openova-io/openova/issues/4101) | fix(catalyst-api): pool-domain Org login broken — PIN cookie scoped to Soverei | Other |
 
 ---
 
@@ -298,8 +300,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T06:35 | [#4102](https://github.com/openova-io/openova/pull/4102) | #4100 | fix(bp-catalyst-platform): pin catalyst-api to its EVS volum |
+| 2026-06-22T06:31 | [#4098](https://github.com/openova-io/openova/pull/4098) | #4058 | fix(bp-agenity): build chepherd daemon from PUBLIC agenity-o |
 | 2026-06-22T06:00 | [#4096](https://github.com/openova-io/openova/pull/4096) | docs(uat): re-stamp ledger to omantel.biz permanent env + 20 |  |
+| 2026-06-22T06:36 | [#4095](https://github.com/openova-io/openova/pull/4095) | #3 | feat(catalyst-api): auto-provision per-Org console TLS for e |
 | 2026-06-22T05:56 | [#4094](https://github.com/openova-io/openova/pull/4094) | #4082 | fix(application-controller): chart ClusterRole grant dr.open |
+| 2026-06-22T06:35 | [#4093](https://github.com/openova-io/openova/pull/4093) | #4089 | feat(console-settings): re-home Parent Domains as a granular |
+| 2026-06-22T06:35 | [#4092](https://github.com/openova-io/openova/pull/4092) | #4091 | feat(catalyst-console): sophisticated shared YAML/IaC code e |
+| 2026-06-22T06:35 | [#4090](https://github.com/openova-io/openova/pull/4090) | #4084 | fix(catalyst-console): cloud-view graph-settle (~3s then STO |
+| 2026-06-22T06:35 | [#4088](https://github.com/openova-io/openova/pull/4088) | #4086 | fix(catalyst): Sovereign status excludes provider-inapplicab |
+| 2026-06-22T06:35 | [#4087](https://github.com/openova-io/openova/pull/4087) | #4085 | feat: per-resource Compliance tab renders THAT resource's ow |
 | 2026-06-22T03:50 | [#4080](https://github.com/openova-io/openova/pull/4080) | #4077 | fix(application-controller): valid RFC-1123 HR names + defau |
 | 2026-06-22T03:50 | [#4078](https://github.com/openova-io/openova/pull/4078) | #4077 | fix(catalyst): org-controller auto-ensures <org>-prod Enviro |
 | 2026-06-22T03:50 | [#4076](https://github.com/openova-io/openova/pull/4076) | #4075 | fix(catalyst): Enter-org targets stored pool console host +  |
@@ -320,14 +330,6 @@ flowchart LR
 | 2026-06-21T09:51 | [#4048](https://github.com/openova-io/openova/pull/4048) | #3913 | fix(huawei): route ghcr/quay/gcr/k8s through bastion NAT-byp |
 | 2026-06-21T23:16 | [#4047](https://github.com/openova-io/openova/pull/4047) | #3145 | fix(huawei-prov): janitor SG-leak + EIP-egress preflight (st |
 | 2026-06-21T08:16 | [#4045](https://github.com/openova-io/openova/pull/4045) | #4038 | fix(bp-huawei-evs-csi): slot 55b dependsOn bp-reflector — cl |
-| 2026-06-21T07:16 | [#4043](https://github.com/openova-io/openova/pull/4043) | #3985 | fix(catalog+settings): eradicate residual Catalyst-Organizat |
-| 2026-06-21T07:01 | [#4042](https://github.com/openova-io/openova/pull/4042) | #3987 | fix(cloud-view): scope Nodes to the deployment + evict wiped |
-| 2026-06-21T07:01 | [#4041](https://github.com/openova-io/openova/pull/4041) | #3971 | fix(kyverno): exclude CNPG-managed PVCs from pvc-must-be-vel |
-| 2026-06-21T07:00 | [#4040](https://github.com/openova-io/openova/pull/4040) | #3988 | feat(mcp): create_application write-tool, RBAC-scoped per Or |
-| 2026-06-21T07:00 | [#4039](https://github.com/openova-io/openova/pull/4039) | #4017 | fix(console): flip 8 remaining user-visible 'tenant'→'Organi |
-| 2026-06-21T07:01 | [#4038](https://github.com/openova-io/openova/pull/4038) | #4030 | fix(bp-huawei-evs-csi): imagePullSecret for private driver i |
-| 2026-06-21T04:14 | [#4036](https://github.com/openova-io/openova/pull/4036) | #4035 | docs(uat): walk-ready acceptance for e2e rows 216-218 (surfa |
-| 2026-06-21T04:00 | [#4035](https://github.com/openova-io/openova/pull/4035) | #4034 | docs(uat): enrich e2e rows 221+223 acceptance — concrete MCP |
 
 ---
 
