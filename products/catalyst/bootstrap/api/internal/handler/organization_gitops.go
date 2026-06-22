@@ -854,9 +854,9 @@ spec:
     # the realm exists from t=0 and SSE/SSO probes find it.
     sovereignRealm:
       enabled: true
-    # HTTPRoute exposure on the per-Sovereign cilium-gateway. Without a
-    # non-empty gateway.host the chart's templates/httproute.yaml guard
-    # renders nothing — that was the user-visible regression in #910.
+    # HTTPRoute exposure for the per-Org Keycloak. Without a non-empty
+    # gateway.host the chart's templates/httproute.yaml guard renders
+    # nothing — that was the user-visible regression in #910.
     gateway:
       enabled: true
       host: keycloak.{{.Subdomain}}.{{.ParentDomain}}
@@ -864,14 +864,22 @@ spec:
       # bp-keycloak the bitnami fullname helper trims the chart suffix
       # and returns "bp-keycloak", matching the default.
       parentRef:
-        name: cilium-gateway
+        # console-isolation (#4054/#4070): keycloak.<slug>.<pool-zone>
+        # resolves to the dedicated console-ELB EIP which fronts the
+        # ISOLATED cilium-gateway-console (NOT the apps cilium-gateway /
+        # apps-ELB). Parenting the apps gateway made envoy on the console
+        # ELB return 404 for keycloak.<slug>.<zone> → all Org SSO broke.
+        # Per-Org (pool-domain) Keycloak MUST parent cilium-gateway-console.
+        # The dedicated Gateway lives in kube-system alongside the apps
+        # cilium-gateway (clusters/_template/sovereign-tls/cilium-gateway-
+        # console.yaml:54 + org_console_tls.go consoleGatewayNamespace).
+        name: cilium-gateway-console
         namespace: kube-system
-        # sectionName omitted — multi-zone Sovereigns rename HTTPS listeners
-        # to https-<sanitised-zone> (e.g. https-omani-works). The bp-keycloak
-        # chart template guards the sectionName output with a 'with'
-        # conditional on .Values.gateway.parentRef.sectionName, so a blank
-        # value drops the field entirely; Cilium Gateway then matches by
-        # hostname filter. See PR #1888 / TBD-A40 / issue #1902.
+        # sectionName omitted — the console Gateway exposes a single
+        # apex-bound HTTPS listener per Org zone, matched by hostname
+        # filter. The bp-keycloak chart template guards the sectionName
+        # output with a 'with' conditional, so a blank value drops the
+        # field entirely. See #4053 / org_console_tls.go.
         sectionName: ""
     # Outbound realm email — Phase-1 mothership relay. Operator overlay
     # (or future tenant-Stalwart sub-issue) overrides host/port once
