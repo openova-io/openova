@@ -227,23 +227,28 @@ func TestWhoami(t *testing.T) {
 // ── create_application (write tool, #3988 UAT rows 221-223) ──────────────
 
 // TestCreateApplicationOrgScopedSucceeds — an Org-scoped acme token creates
-// an Application in acme. The facade forwards the caller's bearer to the
-// SAME install endpoint the console posts to, with the canonical
-// install-request body (blueprintRef + name + organizationRef), and
-// surfaces the 201 envelope.
+// an Application in acme via the DEDICATED Org route /api/v1/org/applications
+// (#4116). An org session is 403'd at the Sovereign seam
+// /api/v1/sovereigns/{id}/applications by OrgScopeGuard (#4110/#4112), so the
+// facade routes org context to the own-org route instead, passing
+// X-Tenant-Host so the catalyst-api resolves the caller's own Org namespace.
+// No deployment_id is needed on the org path. The 201 envelope is surfaced.
 func TestCreateApplicationOrgScopedSucceeds(t *testing.T) {
-	var sawAuth, sawCookie, sawPath, sawMethod string
+	var sawAuth, sawCookie, sawPath, sawMethod, sawTenantHost string
 	var sawBody map[string]any
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		sawAuth = r.Header.Get("Authorization")
 		sawCookie = r.Header.Get("Cookie")
 		sawPath = r.URL.Path
 		sawMethod = r.Method
+		sawTenantHost = r.Header.Get("X-Tenant-Host")
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &sawBody)
 		return jsonResp(201, `{"kind":"Application","name":"shop","namespace":"acme","uid":"u-1","httpStatus":"201","applied":true}`), nil
 	})
-	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+	api := catalystapi.New("https://console.acme.omani.homes").
+		WithTenantHost("console.acme.omani.homes").
+		WithHTTPClient(&http.Client{Transport: rt})
 	reg := NewRegistry(api)
 
 	args, _ := json.Marshal(map[string]any{
@@ -253,7 +258,7 @@ func TestCreateApplicationOrgScopedSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("own-org create should succeed, got %v", err)
 	}
-	// Thin-facade: identity forwarded, correct verb + path.
+	// Thin-facade: identity forwarded, correct verb + dedicated org path.
 	if sawMethod != "POST" {
 		t.Errorf("want POST, got %q", sawMethod)
 	}
@@ -263,10 +268,15 @@ func TestCreateApplicationOrgScopedSucceeds(t *testing.T) {
 	if !strings.Contains(sawCookie, "catalyst_session=org-bearer") {
 		t.Errorf("session cookie not forwarded: %q", sawCookie)
 	}
-	if sawPath != "/api/v1/sovereigns/7bb723da8da06047/applications" {
-		t.Errorf("wrong path: %q", sawPath)
+	if sawPath != "/api/v1/org/applications" {
+		t.Errorf("org context must use the own-org route, got %q", sawPath)
 	}
-	// Org defaulted to the caller's own Org (organization arg omitted).
+	if sawTenantHost != "console.acme.omani.homes" {
+		t.Errorf("X-Tenant-Host not forwarded for own-org install: %q", sawTenantHost)
+	}
+	// Org defaulted to the caller's own Org (organization arg omitted). The
+	// server forces the real namespace from X-Tenant-Host, but the facade
+	// still stamps the caller's Org ref in the body.
 	if sawBody["organizationRef"] != "acme" {
 		t.Errorf("organizationRef should default to caller's Org, got %v", sawBody["organizationRef"])
 	}

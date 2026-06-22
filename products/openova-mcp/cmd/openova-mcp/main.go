@@ -43,6 +43,7 @@ import (
 	"io"
 	"log"
 	"net/textproto"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -80,6 +81,17 @@ type rpcError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
+// hostFromURL returns the bare host (no port) of a URL string, or "" if it
+// cannot be parsed. Used to derive the X-Tenant-Host for the org-scoped
+// install path from OPENOVA_MCP_CATALYST_API_URL (#4116).
+func hostFromURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
 func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.LUTC)
@@ -93,11 +105,29 @@ func main() {
 	var api *catalystapi.Client
 	if apiURL != "" {
 		api = catalystapi.New(apiURL)
+		// #4116 — the org-scoped install path (/api/v1/org/applications)
+		// passes X-Tenant-Host so the catalyst-api resolves the caller's own
+		// Org namespace. Prefer the explicit OPENOVA_MCP_TENANT_HOST; else
+		// fall back to the host of the catalyst-api URL itself (in the
+		// agenity wiring that URL IS the Org console host, e.g.
+		// console.demo.omani.homes), so a per-Org MCP instance is org-aware
+		// with zero extra config.
+		tenantHost := strings.TrimSpace(os.Getenv("OPENOVA_MCP_TENANT_HOST"))
+		if tenantHost == "" {
+			tenantHost = hostFromURL(apiURL)
+		}
+		if tenantHost != "" {
+			api.WithTenantHost(tenantHost)
+		}
 	}
 	reg := tools.NewRegistry(api)
 	srv := &server{reg: reg, resolver: resolver, fallbackBearer: os.Getenv("OPENOVA_MCP_BEARER"), out: os.Stdout}
-	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v",
-		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), os.Getenv("OPENOVA_MCP_BEARER") != "")
+	tenantHostLog := ""
+	if api != nil {
+		tenantHostLog = api.TenantHost()
+	}
+	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v tenant_host=%q",
+		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), os.Getenv("OPENOVA_MCP_BEARER") != "", tenantHostLog)
 
 	in := bufio.NewReader(os.Stdin)
 	for {

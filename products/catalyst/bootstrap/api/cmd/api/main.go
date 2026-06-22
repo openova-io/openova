@@ -1762,6 +1762,17 @@ func main() {
 		rg.Get("/api/v1/org/users", h.HandleListOrgUsers)
 		rg.Delete("/api/v1/org/users/{uuid}", h.HandleDeleteOrgUser)
 
+		// #4116 — Org-scoped Application install. An Org-scoped customer
+		// session (tier=org-admin) cannot reach the Sovereign-admin seam
+		// `POST /api/v1/sovereigns/{id}/applications` (OrgScopeGuard 403s it,
+		// the #4110/#4112 fix). This own-org route resolves the caller's own
+		// namespace from the request host via the tenant registry and reuses
+		// the shared install core, so the bp-agenity solo agent's openova-mcp
+		// create_application tool can install Applications in the User's own
+		// Org. `/api/v1/org/applications` is already on the OrgScopeGuard
+		// allowlist (org_scope.go orgSafePathPrefixes) — no surface widening.
+		rg.Post("/api/v1/org/applications", h.HandleOrgApplicationInstall)
+
 		// Organization provisioning pipeline (issue #804). Marketplace
 		// signup → vCluster + bp-* charts + DNS + cert + SSO clients
 		// + Organization registry. State machine surfaced as steps[] in

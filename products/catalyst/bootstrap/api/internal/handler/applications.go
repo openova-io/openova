@@ -378,6 +378,29 @@ func (h *Handler) HandleApplicationInstall(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	h.installApplicationCore(w, r, dep, depID, body)
+}
+
+// installApplicationCore performs the catalog-fetch → schema-validate →
+// ensure-namespace → create-Application-CR sequence that is the heart of an
+// Application install. It is the SHARED create core (#4116) called by BOTH
+// the Sovereign-admin path (HandleApplicationInstall, addressed by the
+// `/api/v1/sovereigns/{id}/applications` route) AND the Org-scoped path
+// (HandleOrgApplicationInstall, addressed by the OrgScopeGuard-allowlisted
+// `/api/v1/org/applications` route). The caller is responsible for resolving
+// `dep`, decoding+normalizing+validating `body`, and applying the right
+// authz BEFORE calling this — the core reimplements NO authz so the two
+// callers can apply their own (tier-admin for the sovereign path; own-org
+// binding for the org path). `body.OrganizationRef` MUST already be the
+// resolved Org identity (the org path forces it to the tenant's real
+// namespace before calling).
+func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request, dep *Deployment, depID string, body applicationInstallRequest) {
+	if h.catalogClient == nil {
+		writeApplicationInstallSoftError(w, "catalog-not-wired", http.StatusServiceUnavailable,
+			"catalog client unconfigured (CATALYST_CATALOG_URL); install requires the catalog upstream")
+		return
+	}
+
 	// 1. Fetch the Blueprint at the requested version. The catalog
 	//    populates `raw` on the version-pinned endpoint so we can
 	//    validate parameters against `spec.configSchema` without a
