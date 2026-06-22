@@ -5,9 +5,17 @@
 
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import type { EditorView } from '@codemirror/view'
 
 import { YamlEditor } from './YamlEditor'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
+
+/** Replace the editor's whole document, mimicking a user edit. The editor is
+ *  a CodeMirror contenteditable (not a textarea), so edits are driven through
+ *  the live EditorView captured via YamlEditor's onCreateEditor test seam. */
+function setEditorText(view: EditorView, text: string) {
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })
+}
 
 afterEach(() => cleanup())
 beforeEach(() => {
@@ -119,6 +127,7 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     )
+    let view: EditorView | null = null
     render(
       <YamlEditor
         deploymentId="dep-z3"
@@ -126,12 +135,17 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
         ns="acme"
         name="cm-flux"
         obj={fluxObjOrgLabeled}
+        onCreateEditor={(v) => {
+          view = v
+        }}
       />,
     )
-    // Edit the textarea so dirty=true (Apply enabled).
-    fireEvent.change(screen.getByTestId('yaml-editor-textarea'), {
-      target: { value: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm-flux\n' },
-    })
+    // Edit the editor so dirty=true (Apply enabled).
+    await waitFor(() => expect(view).not.toBeNull())
+    setEditorText(view!, 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm-flux\n')
+    await waitFor(() =>
+      expect((screen.getByTestId('yaml-editor-apply') as HTMLButtonElement).disabled).toBe(false),
+    )
     fireEvent.click(screen.getByTestId('yaml-editor-apply'))
 
     await waitFor(() => {
@@ -157,6 +171,7 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
     ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response('forbidden', { status: 403 }),
     )
+    let view: EditorView | null = null
     render(
       <YamlEditor
         deploymentId="dep-z3-err"
@@ -164,11 +179,16 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
         ns="acme"
         name="cm-flux"
         obj={fluxObjOrgLabeled}
+        onCreateEditor={(v) => {
+          view = v
+        }}
       />,
     )
-    fireEvent.change(screen.getByTestId('yaml-editor-textarea'), {
-      target: { value: 'changed: 1\n' },
-    })
+    await waitFor(() => expect(view).not.toBeNull())
+    setEditorText(view!, 'changed: 1\n')
+    await waitFor(() =>
+      expect((screen.getByTestId('yaml-editor-apply') as HTMLButtonElement).disabled).toBe(false),
+    )
     fireEvent.click(screen.getByTestId('yaml-editor-apply'))
     await waitFor(() => {
       expect(screen.getByTestId('yaml-editor-apply-err').textContent).toContain('403')

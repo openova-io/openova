@@ -30,11 +30,36 @@
  *     safety net only.
  */
 
+import type { GraphEdge, GraphNode } from './types'
+
 /**
  * Floor radius for the node disc (#348 item 10). The actual drawn radius
  * is `max(NODE_R, radiusForDegree(node.degree))`.
  */
 export const NODE_R = 14
+
+/**
+ * structuralSignature — a stable hash of a graph's TOPOLOGY (#4084). Two
+ * node/edge sets with the SAME signature have identical structure (same
+ * node ids, same edge endpoints) even when node status / labels / x-y
+ * positions differ.
+ *
+ * The force layout depends only on the topology, so GraphCanvas re-warms
+ * the simulation iff this signature changes. A status-only refresh — the
+ * Cloud surface re-derives the SAME node/edge set with new array
+ * references every 4s (Architecture.tsx reconciliation poll) — produces
+ * the SAME signature, so the settled layout stays frozen instead of
+ * re-heating forever (the #3980 convergence regression this fixes).
+ *
+ * Sorted so a different INPUT ORDER (same set) never yields a spurious
+ * mismatch. Edge endpoints are read as ids; for the GraphEdge shape
+ * source/target are always string ids.
+ */
+export function structuralSignature(nodes: GraphNode[], edges: GraphEdge[]): string {
+  const n = nodes.map((x) => x.id).sort()
+  const e = edges.map((x) => `${x.source}${x.target}`).sort()
+  return `${n.length}|${n.join('')}||${e.length}|${e.join('')}`
+}
 
 /**
  * Bound padding inside the canvas — the bounded-physics safety-net force

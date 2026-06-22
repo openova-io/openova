@@ -176,8 +176,8 @@ describe('ResourceDetailPage — Group A widget mount points (Refs #1099, follow
     expect(url).toMatch(/\/k8s\/metrics\/deployment\/default\/wp/)
   })
 
-  it('YAML tab mounts YamlEditor with seeded textarea (initial seed from initialObj is non-empty)', () => {
-    render(
+  it('YAML tab mounts YamlEditor with the live object seeded into the editor (non-empty)', async () => {
+    const { container } = render(
       <ResourceDetailPage
         deploymentId="dep"
         basePath="/cloud"
@@ -189,13 +189,16 @@ describe('ResourceDetailPage — Group A widget mount points (Refs #1099, follow
       />,
     )
     expect(screen.getByTestId('yaml-editor')).toBeTruthy()
-    // The textarea must seed from the live object so the operator can
-    // see the resource's current shape — the dark anti-pattern would
-    // be an empty textarea on a populated resource.
-    const textarea = screen.getByTestId('yaml-editor-textarea') as HTMLTextAreaElement
-    expect(textarea.value.length).toBeGreaterThan(0)
-    expect(textarea.value).toContain('Deployment')
-    expect(textarea.value).toContain('wp')
+    // The editor must seed from the live object so the operator can see the
+    // resource's current shape — the dark anti-pattern would be an empty
+    // editor on a populated resource. The editor is the shared CodeView
+    // (lazy CodeMirror), so wait for the editor surface to mount and assert
+    // against its rendered content.
+    await waitFor(() => expect(container.querySelector('.cm-content')).toBeTruthy())
+    const editorText = container.querySelector('.cm-content')?.textContent ?? ''
+    expect(editorText.length).toBeGreaterThan(0)
+    expect(editorText).toContain('Deployment')
+    expect(editorText).toContain('wp')
     // Validate + Apply buttons mount unconditionally — the server is
     // the authoritative gate per INVIOLABLE-PRINCIPLES.md #5.
     expect(screen.getByTestId('yaml-editor-validate')).toBeTruthy()

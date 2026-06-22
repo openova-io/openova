@@ -2974,7 +2974,13 @@ name: bp-catalyst-platform
 #   handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER now defaults false via
 #   catalystApi.fireCutoverOnHandover). Cutover is a DELIBERATE BSS-menu action; the
 #   operator-initiated path is unchanged (NO-REGRESS).
-version: 1.4.773
+version: 1.4.778
+# 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
+#   (get/list/watch/create/update/patch/delete) — was in the controller's own
+#   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
+#   topology-downgraded Application wedged at Degraded/RenderError when
+#   reconcileContinuumCR -> deleteContinuumCRIfExists 403'd. Mirrors deploy/rbac.yaml.
+#   (caught live on omantel.biz dep 4635277cae4ffed9 with the agenity singleton.)
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +

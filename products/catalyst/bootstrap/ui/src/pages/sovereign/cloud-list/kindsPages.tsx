@@ -8,8 +8,8 @@
  */
 
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
+import { K8sListPage } from './K8sListPage'
 import {
-  K8sListPage,
   COL_NAME,
   COL_NAMESPACE,
   COL_AGE,
@@ -18,7 +18,38 @@ import {
   colReconcileStatus,
   colCnpgStatus,
   colCatalystCrStatus,
-} from './K8sListPage'
+  colReadyCount,
+  colPodRestarts,
+  colPodPhase,
+  type CellTone,
+} from './k8sColumns'
+
+/** Pod READY column — `<ready containers>/<total containers>`, coloured by
+ *  readiness. k9s shows this as the headline health signal. */
+function podReadyColumn() {
+  const counts = (o: K8sObject): { ready: number; total: number } => {
+    const cs = (o.status as Record<string, unknown> | undefined)?.[
+      'containerStatuses'
+    ] as Array<Record<string, unknown>> | undefined
+    if (!Array.isArray(cs)) return { ready: 0, total: 0 }
+    const ready = cs.filter((c) => c?.['ready'] === true).length
+    return { ready, total: cs.length }
+  }
+  return {
+    header: 'Ready',
+    extract: (o: K8sObject) => {
+      const { ready, total } = counts(o)
+      return total === 0 ? '—' : `${ready}/${total}`
+    },
+    tone: (o: K8sObject): CellTone | undefined => {
+      const { ready, total } = counts(o)
+      if (total === 0) return undefined
+      if (ready >= total) return 'ok'
+      if (ready === 0) return 'err'
+      return 'warn'
+    },
+  }
+}
 
 export function PodsListPage() {
   return (
@@ -29,7 +60,9 @@ export function PodsListPage() {
       columns={[
         COL_NAMESPACE,
         COL_NAME,
-        colStatus('phase', 'Phase'),
+        podReadyColumn(),
+        colPodPhase('Status'),
+        colPodRestarts('Restarts'),
         colSpec('nodeName', 'Node'),
         COL_AGE,
       ]}
@@ -46,7 +79,8 @@ export function DeploymentsListPage() {
       columns={[
         COL_NAMESPACE,
         COL_NAME,
-        colSpec('replicas', 'Replicas'),
+        // k9s-style ready/desired with green/amber/red readiness colour.
+        colReadyCount('readyReplicas', 'replicas', { header: 'Ready' }),
         colStatus('availableReplicas', 'Available'),
         COL_AGE,
       ]}
@@ -63,8 +97,7 @@ export function StatefulSetsListPage() {
       columns={[
         COL_NAMESPACE,
         COL_NAME,
-        colSpec('replicas', 'Replicas'),
-        colStatus('readyReplicas', 'Ready'),
+        colReadyCount('readyReplicas', 'replicas', { header: 'Ready' }),
         COL_AGE,
       ]}
     />
@@ -81,7 +114,11 @@ export function DaemonSetsListPage() {
         COL_NAMESPACE,
         COL_NAME,
         colStatus('desiredNumberScheduled', 'Desired'),
-        colStatus('numberReady', 'Ready'),
+        // Both counts live in status for DaemonSets.
+        colReadyCount('numberReady', 'desiredNumberScheduled', {
+          header: 'Ready',
+          desiredFrom: 'status',
+        }),
         COL_AGE,
       ]}
     />
@@ -98,7 +135,7 @@ export function ReplicaSetsListPage() {
         COL_NAMESPACE,
         COL_NAME,
         colSpec('replicas', 'Desired'),
-        colStatus('readyReplicas', 'Ready'),
+        colReadyCount('readyReplicas', 'replicas', { header: 'Ready' }),
         COL_AGE,
       ]}
     />
@@ -143,7 +180,7 @@ export function NamespacesListPage() {
       tagline="Logical partitions. Per-namespace RBAC + resource quotas live here."
       columns={[
         COL_NAME,
-        colStatus('phase', 'Phase'),
+        colStatus('phase', 'Phase', { tone: true }),
         COL_AGE,
       ]}
     />
@@ -191,7 +228,7 @@ export function PersistentVolumesListPage() {
       columns={[
         COL_NAME,
         colSpec('storageClassName', 'Class'),
-        colStatus('phase', 'Phase'),
+        colStatus('phase', 'Phase', { tone: true }),
         COL_AGE,
       ]}
     />
@@ -333,6 +370,14 @@ export function GatewaysListPage() {
         {
           header: 'Programmed',
           extract: (o) => gatewayConditionStatus(o, 'Programmed'),
+          // True = front door is live (green); False = not programmed (red);
+          // missing (—) = still settling (amber).
+          tone: (o): CellTone | undefined => {
+            const s = gatewayConditionStatus(o, 'Programmed')
+            if (s === 'True') return 'ok'
+            if (s === 'False') return 'err'
+            return 'warn'
+          },
         },
         COL_AGE,
       ]}
@@ -588,6 +633,32 @@ export function DnsZonesListPage() {
 // (kinds.go: `policyreport` + `clusterpolicyreport`); these wrappers
 // render them as standard list pages with the canonical columns the
 // operator needs (resource being evaluated, pass/fail counts).
+/** A policy-report summary column. `pass` colours green when >0; `fail`
+ *  red when >0 (else green 0); `warn` amber when >0 (else muted). */
+function policyReportSummaryColumn(key: 'pass' | 'fail' | 'warn') {
+  const num = (o: K8sObject): number | null => {
+    const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
+    const v = s[key]
+    return v == null ? null : Number(v)
+  }
+  const header = key.charAt(0).toUpperCase() + key.slice(1)
+  return {
+    header,
+    extract: (o: K8sObject) => {
+      const n = num(o)
+      return n == null ? '—' : String(n)
+    },
+    tone: (o: K8sObject): CellTone | undefined => {
+      const n = num(o)
+      if (n == null) return undefined
+      if (key === 'pass') return n > 0 ? 'ok' : 'muted'
+      if (key === 'fail') return n > 0 ? 'err' : 'ok'
+      // warn
+      return n > 0 ? 'warn' : 'muted'
+    },
+  }
+}
+
 export function PolicyReportsListPage() {
   return (
     <K8sListPage
@@ -597,30 +668,9 @@ export function PolicyReportsListPage() {
       columns={[
         COL_NAMESPACE,
         COL_NAME,
-        {
-          header: 'Pass',
-          extract: (o) => {
-            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
-            const v = s['pass']
-            return v == null ? '—' : String(v)
-          },
-        },
-        {
-          header: 'Fail',
-          extract: (o) => {
-            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
-            const v = s['fail']
-            return v == null ? '—' : String(v)
-          },
-        },
-        {
-          header: 'Warn',
-          extract: (o) => {
-            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
-            const v = s['warn']
-            return v == null ? '—' : String(v)
-          },
-        },
+        policyReportSummaryColumn('pass'),
+        policyReportSummaryColumn('fail'),
+        policyReportSummaryColumn('warn'),
         COL_AGE,
       ]}
     />
@@ -635,30 +685,9 @@ export function ClusterPolicyReportsListPage() {
       tagline="Cluster-scoped Kyverno ClusterPolicyReport evaluations — pass / fail counts."
       columns={[
         COL_NAME,
-        {
-          header: 'Pass',
-          extract: (o) => {
-            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
-            const v = s['pass']
-            return v == null ? '—' : String(v)
-          },
-        },
-        {
-          header: 'Fail',
-          extract: (o) => {
-            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
-            const v = s['fail']
-            return v == null ? '—' : String(v)
-          },
-        },
-        {
-          header: 'Warn',
-          extract: (o) => {
-            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
-            const v = s['warn']
-            return v == null ? '—' : String(v)
-          },
-        },
+        policyReportSummaryColumn('pass'),
+        policyReportSummaryColumn('fail'),
+        policyReportSummaryColumn('warn'),
         COL_AGE,
       ]}
     />

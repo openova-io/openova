@@ -454,7 +454,7 @@ func sampleOrg() *orgapi.Organization {
 			Slug:                   "acme",
 			DisplayName:            "ACME Corp",
 			Kind:                   "customer",
-			Tier: "org",
+			Tier:                   "org",
 			BillingMode:            "real",
 			SovereignRef:           "omantel.omani.works",
 			DefaultEnvironmentType: "prod",
@@ -947,8 +947,13 @@ func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 		t.Fatalf("parentRefs: got %d, want 1", len(parents))
 	}
 	pr := parents[0].(map[string]any)
-	if pr["name"] != "cilium-gateway" || pr["namespace"] != "kube-system" {
-		t.Errorf("parentRef: got %+v, want cilium-gateway/kube-system", pr)
+	// #4075: the per-Org console route now parents the DEDICATED console
+	// Gateway (cilium-gateway-console), where the `*.<parentDomain>` TLS
+	// listener + Secret live — not the shared `cilium-gateway`, which
+	// only carries the apex `*.<sovFQDN>` listener (so the route attached
+	// there but TLS still closed the connection).
+	if pr["name"] != "cilium-gateway-console" || pr["namespace"] != "kube-system" {
+		t.Errorf("parentRef: got %+v, want cilium-gateway-console/kube-system", pr)
 	}
 	rules, _, _ := unstructured.NestedSlice(hr.Object, "spec", "rules")
 	if len(rules) != 1 {
@@ -1270,4 +1275,151 @@ func TestReconcile_PerOrgRealm_FinalizerTeardown(t *testing.T) {
 	if kc.realms["acme"] {
 		t.Errorf("realm should be deleted on teardown, got %v", kc.realms)
 	}
+}
+
+// TestReconcileTenantConsoleTLS_IssuesCertAndAppendsListener covers
+// issue #4075: when an Org picks a free-subdomain hostname under a pool
+// parent zone, reconcileTenantConsoleTLS MUST (1) issue a cert-manager
+// Certificate for `*.<parentDomain>` via the DNS-01 ClusterIssuer and
+// (2) append a `*.<parentDomain>` HTTPS+HTTP listener pair to the
+// dedicated console Gateway WITHOUT touching the apex `*.<sovFQDN>`
+// listener. The append MUST be idempotent (a second pass is a no-op).
+func TestReconcileTenantConsoleTLS_IssuesCertAndAppendsListener(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	org.Spec.TenantPublic = orgapi.OrganizationTenantPublic{
+		ParentDomain: "omani.homes",
+	}
+
+	r, _, _ := makeReconciler(t, org)
+	scheme := r.Scheme()
+	// Register Certificate + Gateway GVKs (+ Lists) so the fake client
+	// can serialise the unstructured objects the reconciler writes.
+	for _, gvk := range []schema.GroupVersionKind{certificateGVK, gatewayGVK} {
+		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
+		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+	}
+
+	// Seed the bootstrap-rendered console Gateway carrying ONLY the apex
+	// `*.<sovFQDN>` listener — the starting state on a live Sovereign.
+	gw := &unstructured.Unstructured{}
+	gw.SetGroupVersionKind(gatewayGVK)
+	gw.SetName("cilium-gateway-console")
+	gw.SetNamespace("kube-system")
+	gw.Object["spec"] = map[string]any{
+		"gatewayClassName": "cilium",
+		"listeners": []any{
+			map[string]any{
+				"name":     "console-https",
+				"hostname": "*.omantel.biz",
+				"port":     int64(31443),
+				"protocol": "HTTPS",
+			},
+		},
+	}
+	if err := r.Create(context.Background(), gw); err != nil {
+		t.Fatalf("seed console Gateway: %v", err)
+	}
+
+	// First pass: should create the cert + append the two listeners.
+	changed, err := r.reconcileTenantConsoleTLS(context.Background(), org)
+	if err != nil {
+		t.Fatalf("reconcileTenantConsoleTLS pass 1: %v", err)
+	}
+	if !changed {
+		t.Errorf("pass 1: expected changed=true (cert + listeners written)")
+	}
+
+	// Assert the Certificate.
+	cert := unstructured.Unstructured{}
+	cert.SetGroupVersionKind(certificateGVK)
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "kube-system", Name: "org-wildcard-tls-omani-homes"}, &cert); err != nil {
+		t.Fatalf("get Certificate org-wildcard-tls-omani-homes: %v", err)
+	}
+	dnsNames, _, _ := unstructured.NestedStringSlice(cert.Object, "spec", "dnsNames")
+	if len(dnsNames) != 2 || dnsNames[0] != "*.omani.homes" || dnsNames[1] != "omani.homes" {
+		t.Errorf("cert dnsNames: got %v, want [*.omani.homes omani.homes]", dnsNames)
+	}
+	if secret, _, _ := unstructured.NestedString(cert.Object, "spec", "secretName"); secret != "org-wildcard-tls-omani-homes" {
+		t.Errorf("cert secretName: got %q, want org-wildcard-tls-omani-homes", secret)
+	}
+	if issuer, _, _ := unstructured.NestedString(cert.Object, "spec", "issuerRef", "name"); issuer != "letsencrypt-dns01-prod-powerdns" {
+		t.Errorf("cert issuerRef.name: got %q, want letsencrypt-dns01-prod-powerdns", issuer)
+	}
+
+	// Assert the Gateway listeners: apex preserved + two pool listeners.
+	gotGW := unstructured.Unstructured{}
+	gotGW.SetGroupVersionKind(gatewayGVK)
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "kube-system", Name: "cilium-gateway-console"}, &gotGW); err != nil {
+		t.Fatalf("get console Gateway: %v", err)
+	}
+	listeners, _, _ := unstructured.NestedSlice(gotGW.Object, "spec", "listeners")
+	names := map[string]map[string]any{}
+	for _, l := range listeners {
+		m := l.(map[string]any)
+		names[m["name"].(string)] = m
+	}
+	if len(listeners) != 3 {
+		t.Fatalf("listeners: got %d (%v), want 3", len(listeners), keysOf(names))
+	}
+	if _, ok := names["console-https"]; !ok {
+		t.Errorf("apex listener console-https was dropped — MUST be preserved (regression)")
+	}
+	httpsL, ok := names["pool-https-omani-homes"]
+	if !ok {
+		t.Fatalf("pool HTTPS listener pool-https-omani-homes not appended")
+	}
+	if httpsL["hostname"] != "*.omani.homes" {
+		t.Errorf("pool HTTPS hostname: got %v, want *.omani.homes", httpsL["hostname"])
+	}
+	tls := httpsL["tls"].(map[string]any)
+	refs := tls["certificateRefs"].([]any)
+	if len(refs) != 1 || refs[0].(map[string]any)["name"] != "org-wildcard-tls-omani-homes" {
+		t.Errorf("pool HTTPS certificateRefs: got %v, want secret org-wildcard-tls-omani-homes", refs)
+	}
+	if _, ok := names["pool-http-omani-homes"]; !ok {
+		t.Errorf("pool HTTP listener pool-http-omani-homes not appended")
+	}
+
+	// Second pass: idempotent — no further change.
+	changed2, err := r.reconcileTenantConsoleTLS(context.Background(), org)
+	if err != nil {
+		t.Fatalf("reconcileTenantConsoleTLS pass 2: %v", err)
+	}
+	if changed2 {
+		t.Errorf("pass 2: expected changed=false (idempotent), got true")
+	}
+	gotGW2 := unstructured.Unstructured{}
+	gotGW2.SetGroupVersionKind(gatewayGVK)
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "kube-system", Name: "cilium-gateway-console"}, &gotGW2); err != nil {
+		t.Fatalf("get console Gateway pass 2: %v", err)
+	}
+	l2, _, _ := unstructured.NestedSlice(gotGW2.Object, "spec", "listeners")
+	if len(l2) != 3 {
+		t.Errorf("pass 2 listeners: got %d, want 3 (no duplicate append)", len(l2))
+	}
+}
+
+// TestReconcileTenantConsoleTLS_NoopWhenNoParentDomain asserts the
+// feature is a clean no-op for Orgs without a pool-parent public
+// hostname (the common case) — no cert, no gateway mutation.
+func TestReconcileTenantConsoleTLS_NoopWhenNoParentDomain(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg() // TenantPublic zero-value: ParentDomain == ""
+	r, _, _ := makeReconciler(t, org)
+	changed, err := r.reconcileTenantConsoleTLS(context.Background(), org)
+	if err != nil {
+		t.Fatalf("reconcileTenantConsoleTLS: %v", err)
+	}
+	if changed {
+		t.Errorf("expected no-op (changed=false) when ParentDomain is empty, got changed=true")
+	}
+}
+
+func keysOf(m map[string]map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

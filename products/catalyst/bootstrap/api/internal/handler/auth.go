@@ -233,6 +233,116 @@ func (h *Handler) openovaKCClient() keycloakClient {
 	return keycloak.New(addr, realm, clientID, secret)
 }
 
+// requestHost returns the originating host of a request, preferring the
+// X-Forwarded-Host header set by the upstream proxy (Envoy / Cilium
+// Gateway) over r.Host, with any :port suffix stripped. The Sovereign
+// catalyst-api sits behind a gateway, so r.Host can be the in-cluster
+// Service authority; X-Forwarded-Host carries the real browser host
+// (console.demo.omani.homes) the cookie must be scoped to.
+func requestHost(r *http.Request) string {
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	// X-Forwarded-Host may carry a comma-separated proxy chain; take the
+	// first (client-facing) entry.
+	if i := strings.IndexByte(host, ','); i >= 0 {
+		host = strings.TrimSpace(host[:i])
+	}
+	if i := strings.IndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	return strings.ToLower(host)
+}
+
+// sessionCookieDomain derives the Domain attribute for the catalyst_session
+// cookie from the REQUEST HOST (#4101, 2026-06-22).
+//
+// Resolution order:
+//  1. CATALYST_SESSION_COOKIE_DOMAIN env — explicit operator override
+//     (used on Catalyst-Zero / contabo, e.g. "console.openova.io"). Wins
+//     unconditionally so existing deployments are unaffected.
+//  2. Request host under the Sovereign FQDN (console.<fqdn>, api.<fqdn>,
+//     the bare <fqdn>, or any *.<fqdn>): scope to ".<SOVEREIGN_FQDN>" so
+//     the cookie covers console./api./marketplace. of the Sovereign's own
+//     front door (the G113-followup hw86 behaviour — preserved).
+//  3. Pool-domain Org host (console.<org>.<pool-zone> on a Sovereign whose
+//     FQDN is a DIFFERENT registrable domain — e.g. console.demo.omani.homes
+//     on an omantel.biz Sovereign): strip the leading service label
+//     (console./api./marketplace.) and scope to ".<org>.<pool-zone>"
+//     (".demo.omani.homes"). This covers the Org's console + api +
+//     marketplace hosts WITHOUT bleeding the session to sibling Orgs on the
+//     same pool zone (a ".omani.homes" wide cookie would let demo's session
+//     reach acme.omani.homes — a cross-Org leak we deliberately avoid).
+//  4. No SOVEREIGN_FQDN and an unrecognised host (CI, local dev): empty
+//     Domain → host-only cookie (unchanged legacy fallback).
+//
+// The empty-Domain return is also used when the host can't be sensibly
+// scoped (a bare hostname with no dot), keeping the cookie host-only rather
+// than emitting an invalid Domain attribute the browser would reject.
+func sessionCookieDomain(r *http.Request) string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")); v != "" {
+		return v
+	}
+	host := requestHost(r)
+	sovFQDN := strings.ToLower(strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")))
+
+	// Request host belongs to the Sovereign's own zone → .<SOVEREIGN_FQDN>.
+	if sovFQDN != "" {
+		if host == sovFQDN || strings.HasSuffix(host, "."+sovFQDN) {
+			return "." + sovFQDN
+		}
+	}
+
+	// Pool-domain Org host (or any host outside the Sovereign zone): scope
+	// to the per-Org suffix = host minus its leading service label. For
+	// "console.demo.omani.homes" that yields ".demo.omani.homes".
+	if suffix := orgCookieSuffix(host); suffix != "" {
+		return "." + suffix
+	}
+
+	// Last-resort fallback: preserve the legacy .<SOVEREIGN_FQDN> when we
+	// have one (e.g. an odd host shape on the Sovereign) so we never widen
+	// behaviour for the Sovereign's own console.
+	if sovFQDN != "" {
+		return "." + sovFQDN
+	}
+	return ""
+}
+
+// orgCookieSuffix strips a single leading service label (console / api /
+// marketplace / auth) from a per-Org host and returns the remaining
+// suffix, which is the correct cookie Domain seed for that Org's family of
+// subdomains. Returns "" when the host has no recognisable service label
+// or is too short to scope safely (≤2 labels → would over-widen to the
+// registrable domain).
+//
+// Examples:
+//
+//	console.demo.omani.homes   → demo.omani.homes
+//	api.demo.omani.homes       → demo.omani.homes
+//	marketplace.acme.omani.rest→ acme.omani.rest
+//	demo.omani.homes           → "" (no service label; don't over-scope)
+//	omani.homes                → "" (registrable apex; never set)
+func orgCookieSuffix(host string) string {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "" {
+		return ""
+	}
+	labels := strings.Split(host, ".")
+	if len(labels) < 4 {
+		// Need at least <service>.<org>.<zone-l2>.<zone-tld> to safely
+		// scope to .<org>.<zone>. Fewer labels can't be narrowed without
+		// risking a registrable-apex cookie.
+		return ""
+	}
+	switch labels[0] {
+	case "console", "api", "marketplace", "auth":
+		return strings.Join(labels[1:], ".")
+	}
+	return ""
+}
+
 // pinStoreFor lazily wires h.pinStore on first use. Tests inject a
 // pre-built store via h.pinStore directly so this helper is a no-op.
 func (h *Handler) pinStoreFor() *pinStore {
@@ -796,20 +906,16 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 
 	cookieMaxAge := int(pinSessionTTL.Seconds())
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN") // e.g. "console.openova.io"
-	// G113-followup hw86 2026-06-02 04:26Z: if the env is unset on a Sovereign,
-	// auto-derive `.<SOVEREIGN_FQDN>` so the catalyst_session cookie covers
-	// BOTH console.<fqdn> AND api.<fqdn>. Without this, the cookie is host-only
-	// on console.<fqdn> → KC's broker redirect to api.<fqdn>/oidc/auth doesn't
-	// carry the cookie → silent SSO bounces to /login (founder symptom 2026-06-02
-	// 04:18Z: "it keep redirecting me to here despite I already login with pin
-	// multiple times when I click on grafana sso login"). Mirrors PR #2729's
-	// auto-derive pattern for CATALYST_OIDC_PROVIDER_ISSUER_URL.
-	if cookieDomain == "" {
-		if sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); sovFQDN != "" {
-			cookieDomain = "." + sovFQDN
-		}
-	}
+	// #4101 (2026-06-22): derive the cookie Domain from the REQUEST HOST,
+	// not blindly from SOVEREIGN_FQDN. A pool-domain Org console is served
+	// at console.<org>.<pool-zone> (e.g. console.demo.omani.homes) by the
+	// SAME Sovereign catalyst-api whose SOVEREIGN_FQDN is the Sovereign
+	// front door (omantel.biz). The previous logic stamped Domain=.omantel.biz
+	// on a Set-Cookie issued for console.demo.omani.homes — the browser
+	// REJECTS a cookie whose Domain doesn't cover the current host, so the
+	// catalyst_session cookie was silently dropped and the very next whoami
+	// on the same host returned 401 (BUG 1, live on omantel.biz 2026-06-22).
+	cookieDomain := sessionCookieDomain(r)
 
 	// ── Session-replay defence (TBD-F7 / #1730, Wave 28-F discovery) ─────
 	//
@@ -969,14 +1075,11 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	// explicitly negative-aged the cookie. Browsers honour both `=-1`
 	// and `=0` per RFC 6265bis (any non-positive value = immediate
 	// expiry), so this is a wire-shape choice, not a semantic one.
-	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
-	// Mirror auto-derive from HandlePinVerify so logout clears the same
-	// cross-subdomain cookie the login set.
-	if cookieDomain == "" {
-		if sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); sovFQDN != "" {
-			cookieDomain = "." + sovFQDN
-		}
-	}
+	// #4101: mirror the request-host-derived domain from HandlePinVerify so
+	// logout clears the SAME cookie the login set — including pool-domain Org
+	// consoles where the cookie is scoped to .<org>.<pool-zone> rather than
+	// .<SOVEREIGN_FQDN>. Browsers require an exact Domain match to delete.
+	cookieDomain := sessionCookieDomain(r)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	w.Header().Add("Set-Cookie", buildClearSessionCookie(auth.SessionCookieName, cookieDomain, secure))
 	w.Header().Add("Set-Cookie", buildClearSessionCookie("catalyst_refresh", cookieDomain, secure))

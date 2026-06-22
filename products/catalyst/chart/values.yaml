@@ -452,9 +452,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "76e7533"
+    tag: "75ff4c2"
   catalystUi:
-    tag: "76e7533"
+    tag: "75ff4c2"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -1104,6 +1104,26 @@ provisioningState:
 # operator-overridable from the per-Sovereign overlay without rebuilding
 # the chart.
 catalystApi:
+  # ── Zero-downtime roll: pin to the EVS volume's node (#4100) ──────────
+  # catalyst-api mounts two RWO Huawei-EVS PVCs whose PV nodeAffinity is
+  # ZONE-scoped (not node-scoped). With strategy: Recreate, a roll can land the
+  # replacement Pod on a different node than the one holding the live EVS
+  # attachment → a ~10-min cross-node detach/reattach → console/api 503
+  # (live-confirmed on omantel.biz, 2026-06-22). Setting nodeName to the node
+  # currently bound to the volumes forces same-node reattach (seconds).
+  #
+  # Default EMPTY = no scheduling constraint (today's behaviour) so fresh
+  # installs are unaffected — WaitForFirstConsumer binds the RWO PVs to the
+  # first consumer's node and there is no second Pod to collide with on the
+  # very first install. The operator/automation sets this ONCE (per-Sovereign
+  # HelmRelease overlay or live patch) to the node returned by:
+  #   kubectl -n catalyst-system get pod -l app.kubernetes.io/name=catalyst-api \
+  #     -o jsonpath='{.items[0].spec.nodeName}'
+  # after which every future roll is same-node and fast.
+  nodeName: ""
+  # affinity — optional passthrough for operators who prefer a soft/zone
+  # nodeAffinity over a hard nodeName pin above. Default empty (no affinity).
+  affinity: {}
   # OpenBao address for the bare-URL SSO shim (#3374). Rendered into
   # CATALYST_OPENBAO_ADDR on Sovereign installs only (gated on
   # global.sovereignFQDN in api-deployment.yaml). Empty = the canonical

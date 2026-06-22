@@ -59,6 +59,7 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { MarketplaceSection } from './settings/MarketplaceSection'
+import { ParentDomainsSection } from '@/pages/admin/parent-domains/ParentDomainsSection'
 import { SovereigntyCard } from '@/widgets/sovereignty'
 
 /* ── Constants ──────────────────────────────────────────────────── */
@@ -92,6 +93,15 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'cloud-credentials', label: 'Cloud credentials', description: 'Hetzner provider token + S3 backup keys.' },
   { id: 'dns', label: 'DNS', description: 'Pool domain, subdomain, TLS issuer status.' },
   { id: 'domain-mode', label: 'Domain mode', description: 'Pool vs Bring-Your-Own — read-only after activation.' },
+  // #4089 (founder UX-polish): Parent Domains was the lone child in
+  // SovereignSidebar's SETTINGS_SUB_NAV — the only odd-one-out sub-left-
+  // pane menu item. Re-homed as a granular `<SectionCard id="parent-
+  // domains">` anchor section here, consistent with #dns and the move
+  // Marketplace already got (Wave 5). Sits right after Domain mode since
+  // both are domain-config surfaces. The standalone page lives on at
+  // /organizations/domains (the same ParentDomainsSection in a
+  // PortalShell), and /parent-domains still redirects there.
+  { id: 'parent-domains', label: 'Parent domains', description: 'The pool of registrar domains this Sovereign serves via PowerDNS — add / remove pool domains, watch NS-flip + DNS propagation.' },
   // Wave 5 (2026-05-17, founder UX-polish review): marketplace toggle
   // moved off the Settings sub-nav + standalone /settings/marketplace
   // page INTO this anchor section. Founder ruling: *"if market place
@@ -111,6 +121,13 @@ const SECTIONS: readonly SectionDef[] = [
 ] as const
 
 const TOKEN_MASK = '••••••••••••••••'
+
+/** Look a section's description up by id so the render code never has to
+ *  track fragile numeric `SECTIONS[N]` offsets when sections are inserted
+ *  (e.g. #4089 added `parent-domains` mid-array). */
+function desc(id: string): string {
+  return SECTIONS.find((s) => s.id === id)?.description ?? ''
+}
 
 /* ── Page ───────────────────────────────────────────────────────── */
 
@@ -223,7 +240,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
           {/* ── Right pane — sections stacked ─────────────────── */}
           <main className="flex min-w-0 flex-1 flex-col gap-6">
             {/* 1. Organization */}
-            <SectionCard id="organization" title="Organization" description={SECTIONS[0]!.description}>
+            <SectionCard id="organization" title="Organization" description={desc('organization')}>
               <FieldGrid>
                 <Field label="Name" value={orgName} testId="settings-org-name" />
                 <Field label="Billing email" value={orgEmail} testId="settings-org-email" />
@@ -233,7 +250,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             </SectionCard>
 
             {/* 2. Sovereign */}
-            <SectionCard id="sovereign" title="Sovereign" description={SECTIONS[1]!.description}>
+            <SectionCard id="sovereign" title="Sovereign" description={desc('sovereign')}>
               <FieldGrid>
                 <Field label="Sovereign FQDN" value={sovereignFQDN} mono testId="settings-sov-fqdn" />
                 <Field label="Region" value={region} mono testId="settings-sov-region" />
@@ -263,7 +280,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             <SectionCard
               id="api-tokens"
               title="API tokens"
-              description={SECTIONS[2]!.description}
+              description={desc('api-tokens')}
               actionLabel="Create token"
               actionTestId="settings-tokens-create"
               pendingApi
@@ -302,7 +319,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             <SectionCard
               id="cloud-credentials"
               title="Cloud credentials"
-              description={SECTIONS[3]!.description}
+              description={desc('cloud-credentials')}
               pendingApi
             >
               <ul className="flex flex-col gap-2" data-testid="settings-cloud-creds-list">
@@ -313,7 +330,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             </SectionCard>
 
             {/* 5. DNS */}
-            <SectionCard id="dns" title="DNS" description={SECTIONS[4]!.description}>
+            <SectionCard id="dns" title="DNS" description={desc('dns')}>
               <FieldGrid>
                 <Field label="Pool domain" value={poolDomain} mono testId="settings-dns-pool-domain" />
                 <Field
@@ -332,7 +349,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             </SectionCard>
 
             {/* 6. Domain mode */}
-            <SectionCard id="domain-mode" title="Domain mode" description={SECTIONS[5]!.description}>
+            <SectionCard id="domain-mode" title="Domain mode" description={desc('domain-mode')}>
               <FieldGrid>
                 <Field label="Mode" value={domainMode} testId="settings-domain-mode-value" />
                 <Field
@@ -343,18 +360,27 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               </FieldGrid>
             </SectionCard>
 
-            {/* 7. Marketplace — Wave 5 (2026-05-17): moved here from
+            {/* 7. Parent domains — #4089 (2026-06-22): re-homed from the
+                lone Settings sub-nav child / standalone /parent-domains
+                route into this anchor section, consistent with #dns +
+                the move Marketplace already got. Same ParentDomainsSection
+                the standalone /organizations/domains page renders. */}
+            <SectionCard id="parent-domains" title="Parent domains" description={desc('parent-domains')}>
+              <ParentDomainsSection />
+            </SectionCard>
+
+            {/* 8. Marketplace — Wave 5 (2026-05-17): moved here from
                 the retired /settings/marketplace standalone page +
                 Settings sub-nav child. */}
-            <SectionCard id="marketplace" title="Marketplace" description={SECTIONS[6]!.description}>
+            <SectionCard id="marketplace" title="Marketplace" description={desc('marketplace')}>
               <MarketplaceSection />
             </SectionCard>
 
-            {/* 8. Notifications */}
+            {/* 9. Notifications */}
             <SectionCard
               id="notifications"
               title="Notifications"
-              description={SECTIONS[7]!.description}
+              description={desc('notifications')}
               pendingApi
             >
               <FieldGrid>
@@ -363,8 +389,8 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               </FieldGrid>
             </SectionCard>
 
-            {/* 9. Members — link to existing User Access page */}
-            <SectionCard id="members" title="Members" description={SECTIONS[8]!.description}>
+            {/* 10. Members — link to existing User Access page */}
+            <SectionCard id="members" title="Members" description={desc('members')}>
               <p className="text-sm text-[var(--color-text-dim)]">
                 Operators are managed on the dedicated User Access page so role bindings, app
                 grants, and namespace scopes share one editor.
@@ -378,11 +404,11 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               </Link>
             </SectionCard>
 
-            {/* 10. Danger zone */}
+            {/* 11. Danger zone */}
             <SectionCard
               id="danger-zone"
               title="Danger zone"
-              description={SECTIONS[9]!.description}
+              description={desc('danger-zone')}
               tone="danger"
             >
               <ul className="flex flex-col gap-3">
@@ -416,7 +442,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               </ul>
             </SectionCard>
 
-            {/* 11. Sovereignty — #793 production mount of the cutover card
+            {/* 12. Sovereignty — #793 production mount of the cutover card
                 (was only reachable at the /sovereignty/preview harness route).
                 Self-contained widget: renders its own header/badge/CTA and
                 self-fetches cutover status, so it is not wrapped in a

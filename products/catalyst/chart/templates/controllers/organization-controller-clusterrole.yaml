@@ -52,6 +52,23 @@ rules:
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # #4075: a customer Org that picks a free-subdomain hostname under a
+  # pool parent zone (e.g. console.<slug>.omani.homes) needs a
+  # `*.<parentDomain>` TLS listener appended to the dedicated console
+  # Gateway (cilium-gateway-console, #4053) AND a matching cert-manager
+  # Certificate (tenant_console_tls.go). Without these the customer-Org
+  # console URL fails ERR_CONNECTION_CLOSED (no SNI match → no cert → TLS
+  # handshake closed). The controller reads+patches the (existing,
+  # bootstrap-rendered) console Gateway to APPEND the listener — it never
+  # creates/deletes Gateways — and create/updates the shared per-pool
+  # Certificate. Strictly additive: the apex `*.<sovFQDN>` listener is
+  # never touched.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

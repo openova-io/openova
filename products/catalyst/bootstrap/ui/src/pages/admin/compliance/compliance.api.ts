@@ -227,6 +227,90 @@ export async function getViolations(
   return res.json()
 }
 
+/* ── Per-resource findings (#4085) ───────────────────────────────── */
+
+/**
+ * ResourceFinding — one (policy → verdict) row for a single K8s
+ * resource. Mirrors `internal/handler/compliance.go.ResourceFinding`.
+ * Rendered as a table row in the resource detail view's Compliance tab.
+ */
+export interface ResourceFinding {
+  policy: string
+  rule?: string
+  result: ComplianceResult | string
+  message?: string
+  severity?: string
+  category?: string
+  title?: string
+  source?: PolicySource | string
+}
+
+/**
+ * ResourceComplianceResponse — the /compliance/resource endpoint shape.
+ * `found` is false (with an empty findings array + null score) when the
+ * aggregator has not yet observed a PolicyReport for this resource.
+ * Mirrors `internal/handler/compliance.go.ResourceComplianceResponse`.
+ */
+export interface ResourceComplianceResponse {
+  resource: string
+  kind?: string
+  namespace?: string
+  name?: string
+  found: boolean
+  score: number | null
+  total: number | null
+  numerator: number
+  denominator: number
+  violations: number
+  application?: string
+  environment?: string
+  findings: ResourceFinding[]
+  updatedAt: string
+}
+
+/**
+ * getResourceCompliance — fetch one resource's own per-policy findings
+ * so the resource detail Compliance tab renders THAT resource's table
+ * (pass/fail/skip + severity + message), not the global view.
+ *
+ * `ns` is omitted (server treats absent/`_` as cluster-scoped) for
+ * cluster-scoped kinds.
+ */
+export async function getResourceCompliance(
+  sovereignId: string,
+  kind: string,
+  ns: string | undefined,
+  name: string,
+): Promise<ResourceComplianceResponse> {
+  const params = new URLSearchParams()
+  params.set('kind', kind)
+  if (ns) params.set('ns', ns)
+  params.set('name', name)
+  const url = `${complianceBase(sovereignId)}/resource?${params.toString()}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    throw new Error(`resource compliance: HTTP ${res.status}`)
+  }
+  const raw = (await res.json()) as Partial<ResourceComplianceResponse> | null
+  const safe = raw ?? {}
+  return {
+    resource: safe.resource ?? `${kind}/${ns ?? ''}/${name}`,
+    kind: safe.kind ?? kind,
+    namespace: safe.namespace ?? ns,
+    name: safe.name ?? name,
+    found: !!safe.found,
+    score: typeof safe.score === 'number' ? safe.score : null,
+    total: typeof safe.total === 'number' ? safe.total : null,
+    numerator: typeof safe.numerator === 'number' ? safe.numerator : 0,
+    denominator: typeof safe.denominator === 'number' ? safe.denominator : 0,
+    violations: typeof safe.violations === 'number' ? safe.violations : 0,
+    application: safe.application,
+    environment: safe.environment,
+    findings: Array.isArray(safe.findings) ? safe.findings : [],
+    updatedAt: safe.updatedAt ?? new Date().toISOString(),
+  }
+}
+
 /**
  * putEnvironmentPolicyMode — U5 toggle PUT call.
  *

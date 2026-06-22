@@ -40,6 +40,7 @@ import {
   type CatalogItem,
 } from '@/lib/catalog.api'
 import { InstallForm } from '@/widgets/install/InstallForm'
+import { CodeView } from '@/widgets/code/CodeView'
 
 interface InstallPageProps {
   /** Test seam — pre-selected Blueprint without going through the catalog grid. */
@@ -485,10 +486,7 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
             ) : null}
             {previewState.manifests.map((m) => (
               <div key={m.path} className="mb-3" data-testid={`install-page-preview-manifest-${m.path}`}>
-                <div className="text-xs font-mono text-[var(--color-text-dim)]">{m.path}</div>
-                <pre className="mt-1 overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elev)] p-3 text-[11px] leading-5 text-[var(--color-text)]">
-                  {m.content}
-                </pre>
+                <CodeView value={m.content} title={m.path} readOnly maxHeight="22rem" />
               </div>
             ))}
           </div>

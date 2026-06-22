@@ -411,3 +411,54 @@ export const CLOUD_LIST_CSS = `
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
 `
+
+/**
+ * CLOUD_K8S_TONE_CSS — k9s-style status-chip palette for the per-kind K8s
+ * list cells (#4084). The K8sListPage renders a `<span class="cloud-k8s-tone"
+ * data-tone="...">` carrying the cell text; the colour is keyed off the
+ * `data-tone` attribute so the TEXT always renders (colour is never the only
+ * signal). Tones reuse the same design-system status variables the rest of
+ * the console uses (--color-success / --color-warn / --color-danger /
+ * --color-info / --color-text-dim), so light/dark + console-override themes
+ * all flow through automatically. Tabular-nums keeps "3/5" counts aligned.
+ */
+export const CLOUD_K8S_TONE_CSS = `
+.cloud-k8s-tone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.08rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+}
+.cloud-k8s-tone[data-tone="ok"] {
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+}
+.cloud-k8s-tone[data-tone="warn"] {
+  background: color-mix(in srgb, var(--color-warn) 16%, transparent);
+  color: var(--color-warn);
+  border-color: color-mix(in srgb, var(--color-warn) 35%, transparent);
+}
+.cloud-k8s-tone[data-tone="err"] {
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+.cloud-k8s-tone[data-tone="info"] {
+  background: color-mix(in srgb, var(--color-info) 16%, transparent);
+  color: var(--color-info);
+  border-color: color-mix(in srgb, var(--color-info) 35%, transparent);
+}
+.cloud-k8s-tone[data-tone="muted"] {
+  background: color-mix(in srgb, var(--color-text-dim) 14%, transparent);
+  color: var(--color-text-dim);
+  border-color: color-mix(in srgb, var(--color-text-dim) 28%, transparent);
+}
+`

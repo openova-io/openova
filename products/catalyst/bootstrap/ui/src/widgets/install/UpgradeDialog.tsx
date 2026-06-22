@@ -23,6 +23,8 @@ import {
 } from '@/lib/catalog.api'
 import { useQuery } from '@tanstack/react-query'
 
+import { CodeView } from '@/widgets/code/CodeView'
+
 export interface UpgradeDialogProps {
   open: boolean
   onClose: () => void
@@ -186,10 +188,7 @@ export function UpgradeDialog({
             ) : null}
             {preview.manifests.map((m) => (
               <div key={m.path} className="mb-2">
-                <div className="text-xs font-mono text-[var(--color-text-dim)]">{m.path}</div>
-                <pre className="mt-1 max-h-60 overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elev)] p-3 text-[11px] leading-5 text-[var(--color-text)]">
-                  {m.content}
-                </pre>
+                <CodeView value={m.content} title={m.path} readOnly maxHeight="15rem" />
               </div>
             ))}
           </div>
