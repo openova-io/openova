@@ -286,6 +286,18 @@ func deriveTier(claims *sharedauth.Claims) Tier {
 	if t := tierFromLabel(claims.Role); t > best {
 		best = t
 	}
+	// The precomputed `tier` claim is the authoritative tier signal on a
+	// catalyst-api-minted session (HandlePinVerify stamps it). It carries
+	// the standard ladder (viewer…owner) AND the distinguished Org-scoped
+	// marker `org-admin` — the tier a customer session minted on an Org
+	// console holds. tierFromLabel maps `org-admin` → TierAdmin so an
+	// Org-scoped customer is the admin of THEIR OWN Org (satisfying the
+	// create_application MinTier=Admin gate) while carrying NO Sovereign
+	// signal — deriveContext keeps them in ContextOrganization, so the
+	// #4110 own-org confinement holds end-to-end.
+	if t := tierFromLabel(claims.Tier); t > best {
+		best = t
+	}
 	return best
 }
 
@@ -298,6 +310,15 @@ func tierFromLabel(s string) Tier {
 	switch s {
 	case "owner":
 		return TierOwner
+	case "org-admin":
+		// The Org-scoped customer-session marker (auth.OrgScopedTier). An
+		// Org-scoped session is the admin of its OWN Organization — the top
+		// of that Org's authority (it can install/manage Applications in its
+		// own Org) while holding ZERO Sovereign authority. Map it to
+		// TierAdmin so it satisfies the Org-own write gates (create_application
+		// MinTier=Admin); it never widens past the Org because deriveContext
+		// keeps an org_id-bearing token in ContextOrganization.
+		return TierAdmin
 	case "admin":
 		return TierAdmin
 	case "operator":

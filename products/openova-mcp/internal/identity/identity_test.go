@@ -50,6 +50,21 @@ func TestDeriveContextAndTier(t *testing.T) {
 			wantCtx: ContextOrganization, wantTier: TierAdmin, wantOrg: "acme",
 		},
 		{
+			// The EXACT shape an Org-scoped customer PIN session carries
+			// (catalyst-api HandlePinVerify on console.<org>.<pool>): the
+			// `tier` claim is the Org-scoped marker `org-admin`, role is the
+			// generic openova-user, and org_id pins the Org. The resolver must
+			// recognise it as ContextOrganization + TierAdmin (admin of its own
+			// Org) so the agentic create_application (MinTier=Admin) is allowed,
+			// WITHOUT any Sovereign signal — #3988/#4116 chat-to-provision.
+			name: "org-scoped customer session (tier=org-admin) → org context, admin tier",
+			claims: &sharedauth.Claims{
+				Email: "demo@openova.io", OrgID: "demo",
+				Role: "openova-user", Tier: "org-admin",
+			},
+			wantCtx: ContextOrganization, wantTier: TierAdmin, wantOrg: "demo",
+		},
+		{
 			name: "pin organization but no org_id → error",
 			claims: &sharedauth.Claims{
 				Email: "x@y.test", Role: "owner",
