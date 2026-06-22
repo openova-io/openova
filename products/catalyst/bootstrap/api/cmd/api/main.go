@@ -1773,6 +1773,19 @@ func main() {
 		// allowlist (org_scope.go orgSafePathPrefixes) — no surface widening.
 		rg.Post("/api/v1/org/applications", h.HandleOrgApplicationInstall)
 
+		// #4113 — the TRUE per-Org Apps projection. GET companion to the
+		// install POST above. An Org-scoped customer session on its own
+		// console used to render the SOVEREIGN-WIDE catalog grid (the only
+		// allowlisted Apps feed was /api/v1/sovereign/apps, which lists every
+		// HelmRelease + Application CR cluster-wide). This route lists ONLY the
+		// Application CRs + HelmReleases in the caller's OWN org-<uuid>
+		// namespace (resolved server-side via the tenant registry with the
+		// #4110 own-org binding) and projects each as a card with its open URL
+		// derived from the Org namespace's HTTPRoute set — so agenity surfaces
+		// with a working Open link. Already on the OrgScopeGuard allowlist
+		// (org_scope.go orgSafePathPrefixes) — no surface widening.
+		rg.Get("/api/v1/org/applications", h.HandleOrgApplications)
+
 		// Organization provisioning pipeline (issue #804). Marketplace
 		// signup → vCluster + bp-* charts + DNS + cert + SSO clients
 		// + Organization registry. State machine surfaced as steps[] in
