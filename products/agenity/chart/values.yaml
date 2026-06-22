@@ -38,6 +38,15 @@ agent:
   # When true, NO shepherd/supervisor is spawned — a single solo agent only
   # (matches the catalog/solo recipe). The journey is a 1:1 chat with one agent.
   solo: true
+  # When true, blank the in-cluster KUBERNETES_SERVICE_HOST/PORT env so the
+  # chepherd daemon does NOT auto-select the `operator` (K8s-Job) spawner —
+  # which requires an unshipped bp-chepherd-operator (upstream #130) and makes
+  # every "+ spawn agent" fail with "operator spawner not yet wired". With it
+  # blanked the daemon falls through to the in-pod podman-sidecar→BareExec
+  # spawner that forks the agent on the chepherd host directly (#4111). The
+  # spawned agent talks to catalyst-api over the PUBLIC console URL, so it
+  # needs no in-cluster apiserver access.
+  forceLocalSpawner: true
 
 # ── Anthropic API token (the "token already configured" requirement) ──────
 # The solo agent authenticates to Anthropic with this token. It is sourced
@@ -179,6 +188,17 @@ podAnnotations: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# Run the daemon + the forked claude-code agents as the SAME non-root uid so the
+# agent can read the per-session .mcp.json the daemon writes (#4111). chepherd
+# forks agents as uid 1000 (the "chepherd" user); pinning the pod there avoids
+# the root-owned-0700 session-dir EACCES that otherwise kills every spawn.
+# fsGroup makes the CSI state/repo PVCs group-writable for the non-root daemon.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
 
 # rootless podman-in-pod needs /dev/fuse + relaxed seccomp; gated so a
 # locked-down cluster can disable the in-pod spawner and use an external one.
