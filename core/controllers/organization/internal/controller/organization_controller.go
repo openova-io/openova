@@ -106,6 +106,23 @@ type Reconciler struct {
 	// the Organization.status.vcluster.hostCluster field.
 	HostCluster string
 
+	// EnvRegionProvider / EnvRegionCode / EnvRegionBuildingBlock seed the
+	// single region of the Environment CR the controller auto-ensures for
+	// the Org (issue #4077, environment_ensure.go). They only need to be
+	// CRD-valid (provider/buildingBlock enums; region `^[a-z]{3}[a-z0-9]?$`)
+	// — the Application install pivots through the Blueprint topology +
+	// VClusterPlacements, not these region strings, and the real host
+	// cluster is named via the explicit `hostCluster` override (=
+	// HostCluster). When HostCluster is already a canonical
+	// `{provider}-{region}-{bb}-{envType}` name (Hetzner) those segments
+	// win; on Huawei (where CATALYST_HOST_CLUSTER is the Sovereign FQDN)
+	// these configured values are used. Per Inviolable Principle #4 they
+	// are read from env (CATALYST_ENV_REGION_PROVIDER / _CODE /
+	// _BUILDING_BLOCK); empty falls back to the canonical huawei/mee/rtz.
+	EnvRegionProvider      string
+	EnvRegionCode          string
+	EnvRegionBuildingBlock string
+
 	// VClusterChartVersion is the vcluster chart SemVer constraint.
 	// Per Inviolable Principle #4 it's read from env, never
 	// hardcoded.
@@ -442,6 +459,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// what is pending, and the reconcile requeues so the status converges
 	// as Flux brings the vCluster up.
 	vcPhase, vcReady, vcMsg := r.vclusterReadiness(ctx, org.Spec.Slug)
+
+	// 6a. Auto-ensure the parent Environment CR (issue #4077, Refs #3687)
+	// once the vCluster can actually host Applications. Without this, every
+	// app install into the Org wedges at Ready=False:EnvironmentMissing
+	// because nothing on the Org-onboarding path ever created the
+	// `<slug>-<envType>` Environment the application-controller resolves.
+	// Gated on vcReady so the Environment appears exactly when the Org is
+	// host-ready, never over a vCluster that isn't up. Idempotent
+	// (find-or-create, no spec overwrite). A failure requeues via fail()
+	// rather than silently dropping the gap — the app install depends on it.
+	if vcReady {
+		if err := r.ensureEnvironment(ctx, &org); err != nil {
+			return r.fail(ctx, &org, "EnvironmentEnsureFailed", err.Error())
+		}
+	}
+
 	readyCond := orgapi.Condition{
 		Type:               "Ready",
 		LastTransitionTime: metav1.NewTime(time.Now()),

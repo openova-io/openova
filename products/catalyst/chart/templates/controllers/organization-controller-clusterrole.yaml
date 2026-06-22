@@ -81,6 +81,16 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch"]
+  # Issue #4077: the controller find-or-creates the parent Environment CR
+  # (`<slug>-<envType>`) once the Org's vCluster is Ready, so Applications
+  # installed into the Org resolve their Environment instead of wedging at
+  # Ready=False:EnvironmentMissing. Get to short-circuit when present;
+  # create to fill the gap. NO update/delete — the controller never
+  # clobbers operator/funnel-authored regions (the OwnerReference GCs it on
+  # Org teardown). The environment-controller owns the status writes.
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments"]
+    verbs: ["get", "list", "watch", "create"]
   # PR #3700 §4.3 (deferred half of #3687): the controller now
   # find-or-creates the host-cluster Flux GitRepository + Kustomization
   # that reconcile the per-Org `catalyst-tenant` repo's ./vcluster tree

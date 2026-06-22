@@ -77,6 +77,15 @@ func main() {
 	perOrgRealmEnabled := envBoolDefaultFalse("CATALYST_PER_ORG_REALM_ENABLED")
 
 	hostCluster := mustEnv("CATALYST_HOST_CLUSTER", log)
+	// Issue #4077 — seed values for the single region of the Environment CR
+	// the controller auto-ensures per Org. CRD-valid defaults
+	// (huawei/mee/rtz); the real host cluster is bound via the explicit
+	// hostCluster override (= CATALYST_HOST_CLUSTER), and a canonical
+	// `{provider}-{region}-{bb}-{envType}` host-cluster name (Hetzner)
+	// overrides these at runtime. Per Inviolable Principle #4, env-driven.
+	envRegionProvider := envOr("CATALYST_ENV_REGION_PROVIDER", "huawei")
+	envRegionCode := envOr("CATALYST_ENV_REGION_CODE", "mee")
+	envRegionBuildingBlock := envOr("CATALYST_ENV_REGION_BUILDING_BLOCK", "rtz")
 	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.*")
 	helmRepoName := envOr("CATALYST_VCLUSTER_HELMREPO_NAME", "loft")
 	helmRepoNs := envOr("CATALYST_VCLUSTER_HELMREPO_NAMESPACE", "vcluster-system")
@@ -170,6 +179,9 @@ func main() {
 		PerOrgRealmEnabled:        perOrgRealmEnabled,
 		GiteaClient:               giteaClient,
 		HostCluster:               hostCluster,
+		EnvRegionProvider:         envRegionProvider,
+		EnvRegionCode:             envRegionCode,
+		EnvRegionBuildingBlock:    envRegionBuildingBlock,
 		VClusterChartVersion:      chartVer,
 		VClusterHelmRepoName:      helmRepoName,
 		VClusterHelmRepoNamespace: helmRepoNs,

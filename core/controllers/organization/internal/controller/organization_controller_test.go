@@ -409,6 +409,11 @@ func makeReconciler(t *testing.T, objs ...client.Object) (*Reconciler, *giteaSer
 		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
+	// Issue #4077: register the cluster-scoped Environment CR so the fake
+	// client can get/create the `<slug>-<envType>` Environment the
+	// reconciler ensures once the vCluster HR is Ready (environment_ensure.go).
+	scheme.AddKnownTypeWithName(environmentGVK, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(environmentGVK.GroupVersion().WithKind(environmentGVK.Kind+"List"), &unstructured.UnstructuredList{})
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
