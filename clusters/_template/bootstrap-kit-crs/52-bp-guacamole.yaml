@@ -84,10 +84,10 @@ spec:
       cpu: 50m
       memory: 128Mi
     limits:
+      cpu: 500m
       memory: 512Mi
   storage:
     size: 5Gi
-    storageClass: ''
   enableSuperuserAccess: true
   monitoring:
     enablePodMonitor: false
