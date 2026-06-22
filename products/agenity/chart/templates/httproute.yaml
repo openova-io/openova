@@ -14,6 +14,40 @@ spec:
     {{- toYaml .Values.httpRoute.hostnames | nindent 4 }}
   {{- end }}
   rules:
+    {{- if .Values.httpRoute.dashboardRedirect.enabled }}
+    # ── Rule 1: bare root → the dashboard SPA (#4122) ──────────────────────
+    # The Agenity (chepherd) daemon serves its Astro static build at
+    # `--web-dir`: `/` is the upstream MARKETING landing (dist/index.html),
+    # while the actual multi-agent chat-to-provision DASHBOARD is the
+    # dist/app/index.html SPA at `/app/`. The User opens the bare Org host
+    # (https://<app>.<org>.<pool>/) and MUST land on the dashboard — never
+    # the marketing page. An EXACT `/` match (not a prefix) redirects ONLY
+    # the bare root: every other path (/_astro/* assets, /api/*, /healthz,
+    # the WebSocket, /app/* itself) falls through to Rule 2 and is served
+    # verbatim by the daemon. statusCode 302 (not 301) keeps the redirect
+    # un-cached so a future dashboard-at-root daemon flag can retire this
+    # rule cleanly.
+    #
+    # `port` is pinned (default 443) so the Location header carries the
+    # EXTERNAL HTTPS port, not the Gateway listener's internal NodePort
+    # (e.g. 31443 behind a cloud ELB) — without it Cilium emits
+    # `Location: https://<host>:31443/app/`, which is unreachable through
+    # the ELB and hangs the browser (#4122 live finding on omantel.biz).
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            port: {{ .Values.httpRoute.dashboardRedirect.port }}
+            statusCode: {{ .Values.httpRoute.dashboardRedirect.statusCode }}
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ .Values.httpRoute.dashboardRedirect.path | quote }}
+    {{- end }}
+    # ── Rule 2: everything else → the daemon (assets, API, /app/*, WS) ─────
     - matches:
         - path:
             type: PathPrefix

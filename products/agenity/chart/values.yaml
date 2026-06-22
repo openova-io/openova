@@ -135,6 +135,20 @@ httpRoute:
   parentRef:
     name: catalyst-gateway
     namespace: catalyst-system
+  # Bare-root → dashboard redirect (#4122). The chepherd daemon serves its
+  # upstream MARKETING landing at `/` and the real chat-to-provision
+  # DASHBOARD SPA at `/app/`. The User opens the bare Org host, so the route
+  # redirects EXACT `/` to the dashboard; all other paths (assets, /api,
+  # /healthz, WS, /app/*) pass through untouched. Disable only if a future
+  # daemon build serves the dashboard at root itself.
+  dashboardRedirect:
+    enabled: true
+    path: /app/         # the dashboard SPA path the daemon serves
+    statusCode: 302     # un-cached temporary redirect
+    # External HTTPS port for the Location header. MUST be the public port
+    # (443), never the Gateway listener NodePort (e.g. 31443) — a NodePort
+    # in Location is unreachable behind a cloud ELB and hangs the browser.
+    port: 443
 
 # ── Persistence — chepherd runtime state + per-agent repo/cache ───────────
 # CSI-backed PVCs. storageClass empty = the cluster's default CSI class.
