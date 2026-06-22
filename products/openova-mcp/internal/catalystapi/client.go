@@ -36,6 +36,13 @@ import (
 type Client struct {
 	baseURL string
 	http    *http.Client
+
+	// tenantHost is the Organization console host (e.g.
+	// console.demo.omani.homes) the org-scoped install path passes as
+	// X-Tenant-Host so the catalyst-api resolves the caller's OWN Org
+	// namespace from the tenant registry (#4116). Empty = the org-create
+	// path omits the header (catalyst-api 400s tenant-required).
+	tenantHost string
 }
 
 // New returns a Client targeting baseURL (e.g.
@@ -48,6 +55,18 @@ func New(baseURL string) *Client {
 		http:    &http.Client{Timeout: 30 * time.Second},
 	}
 }
+
+// WithTenantHost sets the Organization console host the org-scoped install
+// path passes as X-Tenant-Host (#4116). The catalyst-api uses it to resolve
+// the caller's own Org namespace; the #4110 binding ensures an org session
+// can only ever resolve its OWN Org. Returns the receiver for chaining.
+func (c *Client) WithTenantHost(host string) *Client {
+	c.tenantHost = strings.TrimSpace(host)
+	return c
+}
+
+// TenantHost returns the configured Organization console host (may be empty).
+func (c *Client) TenantHost() string { return c.tenantHost }
 
 // WithHTTPClient overrides the underlying http.Client (used by tests to
 // inject a RoundTripper that serves canned catalyst-api responses).
@@ -120,6 +139,13 @@ func (c *Client) get(ctx context.Context, path, bearer string, out any) error {
 // arrives as a 200 body the tool layer inspects. Both paths are exercised
 // by the tool tests.
 func (c *Client) post(ctx context.Context, path, bearer string, in, out any) error {
+	return c.postWithHeaders(ctx, path, bearer, nil, in, out)
+}
+
+// postWithHeaders is post() with caller-supplied extra request headers (e.g.
+// X-Tenant-Host for the org-scoped install path, #4116). The bearer +
+// content/accept headers are set identically to post().
+func (c *Client) postWithHeaders(ctx context.Context, path, bearer string, extra map[string]string, in, out any) error {
 	payload, err := json.Marshal(in)
 	if err != nil {
 		return fmt.Errorf("catalyst-api: encode request: %w", err)
@@ -134,6 +160,11 @@ func (c *Client) post(ctx context.Context, path, bearer string, in, out any) err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	for k, v := range extra {
+		if k != "" && v != "" {
+			req.Header.Set(k, v)
+		}
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -258,6 +289,30 @@ type CreateApplicationRequest struct {
 func (c *Client) CreateApplication(ctx context.Context, depID string, req CreateApplicationRequest, bearer string) (map[string]any, error) {
 	var out map[string]any
 	if err := c.post(ctx, fmt.Sprintf("/api/v1/sovereigns/%s/applications", depID), bearer, req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateApplicationOrg calls POST /api/v1/org/applications — the Org-scoped
+// install path (#4116). It is the seam an Org-scoped customer session
+// (tier=org-admin) uses: the Sovereign seam /api/v1/sovereigns/{id}/...
+// 403s for org sessions (OrgScopeGuard, the #4110/#4112 fix), so the agent's
+// forwarded org bearer must use this own-org route instead. The target Org
+// namespace is resolved SERVER-SIDE from the X-Tenant-Host header against the
+// tenant registry (the catalyst-api forces the CR into the caller's own
+// namespace and ignores any organizationRef in the body), with the #4110
+// binding ensuring an org session can only ever create in its OWN Org.
+//
+// req.OrganizationRef is irrelevant here (the server forces the namespace),
+// so a minimal {blueprintRef, name, [parameters]} body suffices.
+func (c *Client) CreateApplicationOrg(ctx context.Context, req CreateApplicationRequest, bearer string) (map[string]any, error) {
+	var out map[string]any
+	headers := map[string]string{}
+	if c.tenantHost != "" {
+		headers["X-Tenant-Host"] = c.tenantHost
+	}
+	if err := c.postWithHeaders(ctx, "/api/v1/org/applications", bearer, headers, req, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

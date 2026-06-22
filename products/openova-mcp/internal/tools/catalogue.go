@@ -242,11 +242,6 @@ func handleCreateApplication(ctx context.Context, id *identity.Identity, api *ca
 		return nil, err
 	}
 
-	depID, err := requireDeployment(id)
-	if err != nil {
-		return nil, err
-	}
-
 	req := catalystapi.CreateApplicationRequest{
 		BlueprintRef:    catalystapi.ApplicationBlueprintRef{Name: strings.TrimSpace(in.Blueprint), Version: strings.TrimSpace(in.Version)},
 		Name:            strings.TrimSpace(in.Name),
@@ -261,6 +256,23 @@ func handleCreateApplication(ctx context.Context, id *identity.Identity, api *ca
 		}
 	}
 
+	// Org-scoped path (#4116): an Org-context caller (a customer on their own
+	// console) uses the dedicated /api/v1/org/applications route. The
+	// Sovereign seam /api/v1/sovereigns/{id}/applications 403s an org session
+	// (OrgScopeGuard, the #4110/#4112 fix), so the agent's forwarded org
+	// bearer MUST use the own-org route. The target namespace is resolved
+	// server-side from X-Tenant-Host (set on the client) — no deployment_id
+	// is needed (the PIN session bearer carries none), and the #4110 binding
+	// guarantees own-org-only. A sovereign-admin caller keeps the
+	// deployment-addressed Sovereign seam (can create in any Org).
+	if id.Context == identity.ContextOrganization {
+		return api.CreateApplicationOrg(ctx, req, bearerOf(id))
+	}
+
+	depID, err := requireDeployment(id)
+	if err != nil {
+		return nil, err
+	}
 	return api.CreateApplication(ctx, depID, req, bearerOf(id))
 }
 
