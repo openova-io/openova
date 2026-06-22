@@ -1,0 +1,212 @@
+name: Build bp-wordpress-tenant PG image
+
+# Builds the custom WordPress runtime image for bp-wordpress-tenant — the
+# official `wordpress:6-php8.3-apache` base EXTENDED with the PostgreSQL PHP
+# extensions (`pdo_pgsql` / `pgsql`) that pg4wp needs (#4152, Refs #3858 #4139).
+#
+# WHY (root-caused live on omantel.biz demo Org / kom4dc):
+# bp-wordpress-tenant runs WordPress against bp-cnpg PostgreSQL (#800). pg4wp's
+# wp-content/db.php sets DB_DRIVER='pgsql', but `php -m` in the official
+# wordpress image shows only mysqli/PDO/pdo_sqlite — NO pgsql/pdo_pgsql — so
+# every WordPress request 500s the moment pg4wp opens the Postgres connection
+# (the FINAL blocker after PR #4151 drove the pod from CrashLoop to Apache-
+# serving). This image bakes the PG driver in so WordPress can actually serve.
+#
+# This workflow:
+#   1. Builds platform/wordpress-tenant/image/Dockerfile (official WP +
+#      docker-php-ext-install pdo_pgsql pgsql; build-time `php -m` assertion
+#      the driver is present).
+#   2. Pushes to ghcr.io/openova-io/openova/wordpress-tenant-pg tagged with the
+#      commit short-SHA + `latest`.
+#   3. Updates platform/wordpress-tenant/chart/values.yaml
+#      `wordpress.image.{repository,tag,digest}` — repository = the full ghcr
+#      path, tag = the short-SHA, digest = the PUSHED manifest digest captured
+#      from build-push-action's `outputs.digest` so the chart stays digest-
+#      pinned per docs/PRINCIPLES.md #4 (INVIOLABLE-PRINCIPLES).
+#   4. Bumps platform/wordpress-tenant/chart/Chart.yaml `version` patch level +
+#      dispatches blueprint-release so a fresh bp-wordpress-tenant:<semver> OCI
+#      artifact carries the new image pin. (blueprint-release auto-locksteps
+#      blueprint.yaml spec.version to the Chart.yaml version.)
+#
+# On a Sovereign the containerd registry mirror rewrites ghcr.io ->
+# harbor.openova.io/proxy-ghcr transparently, so the chart references the full
+# ghcr path verbatim (the _helpers.tpl wordpressImage host-qualified skip
+# prevents a global.imageRegistry double-prefix).
+#
+# Triggers on any change under platform/wordpress-tenant/image/** so an
+# image-only PR (no chart change) also re-publishes the runtime image.
+
+on:
+  push:
+    paths:
+      - 'platform/wordpress-tenant/image/**'
+      - '.github/workflows/build-bp-wordpress-tenant-pg.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'platform/wordpress-tenant/image/**'
+      - '.github/workflows/build-bp-wordpress-tenant-pg.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  WP_IMAGE: ghcr.io/openova-io/openova/wordpress-tenant-pg
+  WP_CTX: platform/wordpress-tenant/image
+  CHART_VALUES: platform/wordpress-tenant/chart/values.yaml
+  CHART_YAML: platform/wordpress-tenant/chart/Chart.yaml
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # On pull_request runs we stop before any push — image push requires
+      # `packages: write` against the openova-io org which only main-branch
+      # authors hold via GITHUB_TOKEN. Same PR-CI shape as every build-*
+      # workflow: the Dockerfile build itself + its build-time `php -m`
+      # assertion are the PR-time regression guard.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          echo "tag=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Will tag WordPress-PG image: ${WP_IMAGE}:${short_sha}"
+
+      # PR build (no push) — proves the Dockerfile builds + the `php -m`
+      # assertion passes without org-write creds.
+      - name: Build WordPress-PG image (PR validation, no push)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.WP_CTX }}
+          file: ${{ env.WP_CTX }}/Dockerfile
+          push: false
+          load: false
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # provenance=false: containerd 1.7.x on k3s cannot pull the OCI
+          # image-index buildx emits by default (matches every other build-*).
+          provenance: false
+
+      - name: Build + push WordPress-PG image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.WP_CTX }}
+          file: ${{ env.WP_CTX }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.WP_IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.WP_IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=wordpress-tenant-pg
+            org.opencontainers.image.description=Official WordPress + pdo_pgsql/pgsql for pg4wp -> bp-cnpg Postgres (#4152)
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ env.WP_IMAGE }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Install yq
+        if: github.event_name != 'pull_request'
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump WordPress image repository/tag/digest in values.yaml
+        if: github.event_name != 'pull_request'
+        env:
+          NEW_TAG: ${{ steps.tag.outputs.tag }}
+          NEW_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NEW_DIGEST}" ]; then
+            echo "::error title=Missing image digest::build-push-action returned an empty outputs.digest; refusing to write an un-pinned image ref (docs/PRINCIPLES.md #4)."
+            exit 1
+          fi
+          yq eval -i ".wordpress.image.repository = \"${WP_IMAGE}\"" "${CHART_VALUES}"
+          yq eval -i ".wordpress.image.tag = \"${NEW_TAG}\"" "${CHART_VALUES}"
+          yq eval -i ".wordpress.image.digest = \"${NEW_DIGEST}\"" "${CHART_VALUES}"
+          echo "values.yaml after update:"
+          yq eval '.wordpress.image' "${CHART_VALUES}"
+
+      - name: Bump Chart.yaml patch version
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          current=$(yq eval '.version' "${CHART_YAML}")
+          IFS='.' read -r major minor patch <<<"${current}"
+          next="${major}.${minor}.$((patch + 1))"
+          yq eval -i ".version = \"${next}\"" "${CHART_YAML}"
+          echo "Chart.yaml: version ${current} -> ${next}"
+          echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
+
+      - name: Commit and push chart bump
+        id: deploy_commit
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: |
+            ${{ env.CHART_VALUES }}
+            ${{ env.CHART_YAML }}
+          commit-message: "deploy: bump bp-wordpress-tenant PG image ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} (#4152)"
+
+      - name: Trigger blueprint-release
+        if: github.event_name != 'pull_request' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=wordpress-tenant \
+            -f tree=platform
+          echo "blueprint-release dispatched for platform/wordpress-tenant @ main"
+
+      - name: Summary
+        if: github.event_name != 'pull_request'
+        run: |
+          {
+            echo "## bp-wordpress-tenant PG image published"
+            echo ""
+            echo "- Image: \`${WP_IMAGE}:${{ steps.tag.outputs.tag }}\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Chart bumped to: \`${CHART_NEW_VERSION:-unchanged}\`"
+            echo "- #4152 (pg4wp pdo_pgsql/pgsql), Refs #3858 #4139"
+          } >> "$GITHUB_STEP_SUMMARY"

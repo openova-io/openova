@@ -105,16 +105,20 @@ name: bp-wordpress-tenant
 #   Mirrors bp-cnpg-pair primary-cluster.yaml (#3740). Also folds the #3985 rename
 #   residue in oidcIssuerURL/ingressHost helpers (the gate that blocked 0.4.2/0.4.3
 #   publish until repaired this session).
-# 0.4.5 (#4139, Refs #3858): wp-plugin-install initContainer's two apt-get calls
-#   now pass `-o APT::Sandbox::User=root`. apt's http transport drops privileges
-#   to the `_apt` user via setgroups/setegid/seteuid, which the dropped-ALL-caps
-#   containerSecurityContext forbids → "setgroups 65534 failed - Operation not
-#   permitted" → "Method http has died" (code 112) → init CrashLoopBackOff,
-#   blocking the per-Org WordPress app from converging on a fresh prov. Disabling
-#   apt's sandbox keeps it running as root (no setuid syscall), needs NO extra
-#   Linux caps (portable under a restrictive Kyverno baseline). Diagnosed live on
-#   the omantel.biz demo Org (kom4dc). Stacks on top of #4147 (runAsUser:0).
-version: 0.4.8
+# 0.4.5 (#4152, Refs #3858 #4139): the WordPress runtime image is now the custom
+#   ghcr.io/openova-io/openova/wordpress-tenant-pg build (official wordpress:6-php8.3-
+#   apache + the pdo_pgsql/pgsql PHP extensions pg4wp REQUIRES to serve against
+#   bp-cnpg Postgres — #800). The official image ships only mysqli/pdo_sqlite, so a
+#   bare-official WordPress 500s on every request against Postgres (FINAL blocker,
+#   root-caused live on omantel.biz demo Org / kom4dc). Built from image/Dockerfile,
+#   published by .github/workflows/build-bp-wordpress-tenant-pg.yaml.
+#   - values.yaml wordpress.image.repository → the full ghcr path; tag/digest
+#     overwritten by the build workflow per build.
+#   - _helpers.tpl wordpressImage + wpCliImage now SKIP the global.imageRegistry
+#     prefix for a host-qualified repository (first "/"-segment has a "." or ":")
+#     so a harbor overlay can't double-prefix the ghcr ref (mirrors the canonical
+#     bp-sso-bridge.image #2940 skip); also tolerate an empty digest (omit @digest).
+version: 0.4.9
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

@@ -58,18 +58,40 @@ ServiceAccount name.
 {{/*
 WordPress image reference, with optional `global.imageRegistry` rewrite
 for Sovereign Harbor proxy-cache. Returns
-`{registry/}repository:tag@digest` so consumers SHA-pin to the manifest-
-list digest published on Docker Hub.
+`{registry/}repository:tag@digest` (digest omitted when empty).
+
+#4152 — host-qualified-repository skip:
+  The chart's WordPress runtime image is now the custom
+  `ghcr.io/openova-io/openova/wordpress-tenant-pg` build (official image +
+  the pg4wp-required `pdo_pgsql`/`pgsql` extensions). That repository ALREADY
+  carries a registry host. When `.Values.wordpress.image.repository` is
+  host-qualified (its first "/"-segment contains a "." or ":", e.g.
+  "ghcr.io/..."), this helper honours it VERBATIM and does NOT prepend
+  `global.imageRegistry` — otherwise a harbor `global.imageRegistry` overlay
+  would emit a double-registry ref like
+  `harbor.openova.io/ghcr.io/openova-io/openova/wordpress-tenant-pg`, which is
+  unpullable. On a Sovereign the containerd registry mirror already rewrites
+  ghcr.io -> harbor.openova.io/proxy-ghcr transparently, so no chart-side
+  prefix is needed for ghcr images (same model as build-bp-huawei-evs-csi).
+  A BARE repository (the legacy dockerhub `wordpress`) is still prefixed by
+  `global.imageRegistry` when set, byte-identical to the prior behaviour.
+  Mirrors the canonical `bp-sso-bridge.image` host-qualified skip (#2940).
 */}}
 {{- define "bp-wordpress-tenant.wordpressImage" -}}
 {{- $reg := .Values.global.imageRegistry | default "" -}}
 {{- $repo := .Values.wordpress.image.repository -}}
 {{- $tag := .Values.wordpress.image.tag -}}
-{{- $digest := .Values.wordpress.image.digest -}}
-{{- if $reg -}}
-{{- printf "%s/%s:%s@%s" $reg $repo $tag $digest -}}
+{{- $digest := .Values.wordpress.image.digest | default "" -}}
+{{- $firstSeg := first (splitList "/" $repo) -}}
+{{- $hostQualified := or (contains "." $firstSeg) (contains ":" $firstSeg) -}}
+{{- $base := $repo -}}
+{{- if and $reg (not $hostQualified) -}}
+{{- $base = printf "%s/%s" $reg $repo -}}
+{{- end -}}
+{{- if $digest -}}
+{{- printf "%s:%s@%s" $base $tag $digest -}}
 {{- else -}}
-{{- printf "%s:%s@%s" $repo $tag $digest -}}
+{{- printf "%s:%s" $base $tag -}}
 {{- end -}}
 {{- end -}}
 
@@ -216,17 +238,30 @@ failure-isolation gain). Triggered only when enabled=true.
 wp-cli image reference, with optional `global.imageRegistry` rewrite for
 Sovereign Harbor proxy-cache. Mirrors `wordpressImage` so both runtime
 and CLI images route through the same proxy. Returns
-`{registry/}repository:tag@digest`.
+`{registry/}repository:tag@digest` (digest omitted when empty).
+
+#4152 — host-qualified-repository skip (same rule as wordpressImage):
+  honours a host-qualified `oidc.cliImage.repository` (first "/"-segment
+  contains "." or ":") verbatim and does NOT prepend `global.imageRegistry`.
+  The default cliImage is the bare dockerhub `wordpress` (cli-* tag), so the
+  prefix behaviour is byte-identical to before; the skip only fires if an
+  overlay points cliImage at a host-qualified path.
 */}}
 {{- define "bp-wordpress-tenant.wpCliImage" -}}
 {{- $reg := .Values.global.imageRegistry | default "" -}}
 {{- $repo := .Values.oidc.cliImage.repository -}}
 {{- $tag := .Values.oidc.cliImage.tag -}}
-{{- $digest := .Values.oidc.cliImage.digest -}}
-{{- if $reg -}}
-{{- printf "%s/%s:%s@%s" $reg $repo $tag $digest -}}
+{{- $digest := .Values.oidc.cliImage.digest | default "" -}}
+{{- $firstSeg := first (splitList "/" $repo) -}}
+{{- $hostQualified := or (contains "." $firstSeg) (contains ":" $firstSeg) -}}
+{{- $base := $repo -}}
+{{- if and $reg (not $hostQualified) -}}
+{{- $base = printf "%s/%s" $reg $repo -}}
+{{- end -}}
+{{- if $digest -}}
+{{- printf "%s:%s@%s" $base $tag $digest -}}
 {{- else -}}
-{{- printf "%s:%s@%s" $repo $tag $digest -}}
+{{- printf "%s:%s" $base $tag -}}
 {{- end -}}
 {{- end -}}
 
