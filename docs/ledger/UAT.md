@@ -1,5 +1,24 @@
 # UAT — Sovereign acceptance walk (RESET 2026-06-21 — cycle-2d hw178)
 
+## Status — last validated: omantel.biz PERMANENT (dep `4635277cae4ffed9`, 2026-06-22)
+_Live-walk on the PERMANENT `omantel.biz` Sovereign (Huawei kom4dc, 2-region, status=ready). Full per-row evidence: [`../sessions/2026-06-22/omantel-biz-uat-evidence.md`](../sessions/2026-06-22/omantel-biz-uat-evidence.md)._
+
+**PASS live (artifact-backed):**
+- **NS#1** every app in a vCluster — mgmt/rtz/dmz vClusters Ready, 38/9/2 pods synced inside.
+- **NS#2** 3 shared-pg instances (`shared-pg`/`-b`/`-c`, 3 instances each).
+- **NS#3** passwordless admin — `console.omantel.biz` → 6-digit PIN → `/dashboard` as admin; full sidebar; Organizations/Users-RBAC/Catalog all render.
+- **NS#4** multi-region a/p **topology** — `shared-pg-c` primary (A) + healthy replica (B) streaming via `shared-pg-c-mesh` (live region-kill failover = separate disruptive test, not run).
+- **Datapath GREEN** — cilium-envoy 3/3, both Cilium Gateways PROGRAMMED, 15 HTTPRoutes, wildcard `*.omantel.biz` cert ready, 5 CNP; **console/marketplace/api front doors → HTTP 200, valid TLS** (the #4070 console-isolation DNS fix).
+- **Funnel** — `demo@openova.io` customer Org **created live → Active** (own vCluster, +7 HRs); `bp-agenity` **installed → real Application CR** (advanced past EnvironmentMissing after #4077 fix).
+- **RBAC** — `emrah.baysal@openova.io` = owner tier; 5-tier model (viewer→owner).
+
+**Found + fixed this session (merged to main; reach Running on the clean re-fire carrying the merges):**
+- #4071 informer→app-status (#4072 ✅) · #4073 parent-domain pool (#4074 ✅) · #4075 customer-Org console DNS/host (#4076 ✅) · #4077 EnvironmentMissing (#4078 ✅) · #4079 invalid HR name (#4080 ✅).
+- **OPEN — demo@ Org console unreachable**: correct URL is `console.demo.omani.homes` (the Enter-org `console.demo.omantel.biz` was a bug, fixed #4076). It fails (ERR_CONNECTION_CLOSED) because **no `*.omani.homes` wildcard cert + no Org console Gateway listener** exist — `omani.homes` is an orphaned prior-env pool never registered as a cert parent zone here (#4075 residue). Fix: register the pool's wildcard cert, or create customer Orgs on an omantel.biz-owned pool.
+
+---
+
+
 ## Status — cycle-2d hw178: wedge did NOT recur, #4030 storage held, #4037 found+fixed, 6 fixes PASS live (2026-06-21)
 _hw178 (dep `02bc518fcb1b4cb3`, hw178.omani.works) — zero-touch cycle-2d re-fire on `main@116b616b0` after cycle-2c (hw177, dep `068f217746ca7779`) WEDGED on a worker-kubelet INFRA flake (4/5 region-a worker kubelets died ~30min post-join → CoreDNS Pending → 0 HRs; no cloud-init log uploaded; forensic [`../sessions/2026-06-21/hw177-worker-wedge.md`](../sessions/2026-06-21/hw177-worker-wedge.md)). hw177 wiped (verifiedZeroOrphans). **On hw178 the wedge did NOT recur** — all 6 region-a nodes Ready + stayed Ready, CoreDNS Running, GitRepository READY on main, HRs flooded to 67. **The #4030 storage fix HELD zero-touch** (`evs-ssd` default StorageClass rendered). **A NEW deterministic storage blocker surfaced + was fixed: #4037** — the PRIVATE driver image `ghcr.io/openova-io/openova/evs-csi-plugin` had no imagePullSecret on the CSI pods + `huawei-evs-csi` was missing from the ghcr-pull reflection allow-list → 401 ImagePullBackOff → evs-ssd PVCs Pending behind a green SC. Fixed durably (chart 1.0.3 + cloudinit, PR #4038) + validated by a live patch → CSI pods Running + PVCs Bound. **6 fixes walked LIVE and PASS**: SSO #3374 (handover→/dashboard, no login), STORAGE #4030/#4037 (evs-ssd + PVCs Bound), CLOUD-VIEW LB #4019 (LoadBalancer 2/2), TOPOLOGY-cloud #4015 (Region 2/2 + Cluster 2/2, both regions), TENANT-STRINGS #4017 (no banned terms), JOBS-FINITE (structured finite job table). The cutover auto-fired on catalyst-api ready → topology-per-app/funnel/recon ⛔ health-gated (env mid-pivot). Per-row evidence: [`../sessions/2026-06-21/walk-hw178/`](../sessions/2026-06-21/walk-hw178/)._
 
