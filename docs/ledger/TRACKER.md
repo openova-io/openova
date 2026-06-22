@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T07:15:03Z` |
+| Last refreshed | `2026-06-22T07:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 94 |
 | Open DoD gates | 0 / 41 |
@@ -301,6 +301,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T07:24 | [#4108](https://github.com/openova-io/openova/pull/4108) | #4107 | fix(bootstrap-kit-crs): harbor-pg/gitea-pg/guacamole-pg cnpg |
+| 2026-06-22T07:18 | [#4106](https://github.com/openova-io/openova/pull/4106) | #4098 | fix(bp-agenity): bump chart 0.1.0->0.2.0 so published artifa |
 | 2026-06-22T06:52 | [#4105](https://github.com/openova-io/openova/pull/4105) | docs(uat): live omantel.biz walk results — all 223 rows re-s |  |
 | 2026-06-22T07:09 | [#4104](https://github.com/openova-io/openova/pull/4104) | #4101 | fix(catalyst-api): pool-domain Org login — request-host sess |
 | 2026-06-22T06:50 | [#4103](https://github.com/openova-io/openova/pull/4103) | #4 | fix(org-provisioning): keycloak realmConfig.tenant.subdomain |
@@ -329,8 +331,6 @@ flowchart LR
 | 2026-06-21T15:54 | [#4056](https://github.com/openova-io/openova/pull/4056) | #4055 | fix(catalyst-api): enforce Huawei resource floor — CP≥4vCPU, |
 | 2026-06-21T18:27 | [#4054](https://github.com/openova-io/openova/pull/4054) | #4053 | fix(bp-cilium): poison-proof console gateway isolation — ded |
 | 2026-06-21T13:43 | [#4052](https://github.com/openova-io/openova/pull/4052) | #4037 | fix(bootstrap-kit): gate stateful root slots on BOTH per-pro |
-| 2026-06-21T12:03 | [#4051](https://github.com/openova-io/openova/pull/4051) | #4049 | fix(bp-catalyst-platform): bp-chepherd missing required topo |
-| 2026-06-21T18:52 | [#4050](https://github.com/openova-io/openova/pull/4050) | #4049 | fix(provisioning): bastion Harbor warmup — every catalyst im |
 
 ---
 
