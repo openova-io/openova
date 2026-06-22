@@ -31,7 +31,9 @@ catalystBlueprint:
     version: ""
     repo: ""
     images:
-      wordpress: "wordpress"
+      # #4152 — custom WordPress image (official base + pdo_pgsql/pgsql for
+      # pg4wp → bp-cnpg Postgres). See wordpress.image below + image/Dockerfile.
+      wordpress: "ghcr.io/openova-io/openova/wordpress-tenant-pg"
 
 # ─── Organization tenant identity ────────────────────────────────────────────────
 # `orgDomain` is the customer's free-subdomain (e.g. acme.<otech-fqdn>)
@@ -57,15 +59,34 @@ wordpress:
   replicas: 1
 
   image:
-    # Official WordPress image. SHA-pinned per
-    # docs/INVIOLABLE-PRINCIPLES.md #4 — the manifest-list digest below
-    # corresponds to `wordpress:6-php8.3-apache` as published on Docker
-    # Hub; the human-readable tag is kept alongside for forensics.
-    repository: wordpress
-    tag: "6-php8.3-apache"
-    # Multi-arch manifest-list digest for `wordpress:6-php8.3-apache`
-    # (verified against registry-1.docker.io 2026-05-04).
-    digest: "sha256:054e611334390d547c732a38b41b8f42feeb8606a29f0a934deba44e0f17b196"
+    # #4152 — CUSTOM WordPress image: the official `wordpress:6-php8.3-apache`
+    # base + the PostgreSQL PHP extensions (`pdo_pgsql` / `pgsql`) that pg4wp
+    # (wp-content/db.php, DB_DRIVER='pgsql') REQUIRES to talk to bp-cnpg
+    # Postgres (#800). The official image ships only mysqli/pdo_sqlite, so a
+    # bare-official-image WordPress 500s on every request against Postgres
+    # (root-caused live on omantel.biz demo Org / kom4dc). Built from
+    # platform/wordpress-tenant/image/Dockerfile and published by
+    # .github/workflows/build-bp-wordpress-tenant-pg.yaml to the full ghcr
+    # path below. That workflow OVERWRITES `tag` (with the build short-SHA)
+    # and `digest` (with the pushed manifest digest) on every build — the
+    # values committed here are the initial bootstrap pins.
+    #
+    # Repository is host-qualified (`ghcr.io/...`). _helpers.tpl
+    # bp-wordpress-tenant.wordpressImage honours it VERBATIM and does NOT
+    # prepend `global.imageRegistry` (a harbor overlay would otherwise emit a
+    # double-registry, unpullable ref). On a Sovereign the containerd registry
+    # mirror rewrites ghcr.io -> harbor.openova.io/proxy-ghcr transparently.
+    #
+    # SHA-pinned per docs/PRINCIPLES.md #4 — the digest below is the manifest
+    # digest of the published image; the human-readable tag is kept alongside
+    # for forensics.
+    repository: ghcr.io/openova-io/openova/wordpress-tenant-pg
+    tag: "latest"
+    # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
+    # build workflow's build-push-action `outputs.digest` on first build.
+    # Empty until then; the helper omits `@digest` when empty so the chart
+    # still renders + pulls by tag during the bootstrap window.
+    digest: ""
     pullPolicy: IfNotPresent
 
   port: 80
