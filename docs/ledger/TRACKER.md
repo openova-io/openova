@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T05:45:01Z` |
+| Last refreshed | `2026-06-22T06:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 89 |
 | Open DoD gates | 0 / 41 |
@@ -296,6 +296,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T05:56 | [#4094](https://github.com/openova-io/openova/pull/4094) | #4082 | fix(application-controller): chart ClusterRole grant dr.open |
 | 2026-06-22T03:50 | [#4080](https://github.com/openova-io/openova/pull/4080) | #4077 | fix(application-controller): valid RFC-1123 HR names + defau |
 | 2026-06-22T03:50 | [#4078](https://github.com/openova-io/openova/pull/4078) | #4077 | fix(catalyst): org-controller auto-ensures <org>-prod Enviro |
 | 2026-06-22T03:50 | [#4076](https://github.com/openova-io/openova/pull/4076) | #4075 | fix(catalyst): Enter-org targets stored pool console host +  |
@@ -325,7 +326,6 @@ flowchart LR
 | 2026-06-21T04:14 | [#4036](https://github.com/openova-io/openova/pull/4036) | #4035 | docs(uat): walk-ready acceptance for e2e rows 216-218 (surfa |
 | 2026-06-21T04:00 | [#4035](https://github.com/openova-io/openova/pull/4035) | #4034 | docs(uat): enrich e2e rows 221+223 acceptance — concrete MCP |
 | 2026-06-21T03:44 | [#4034](https://github.com/openova-io/openova/pull/4034) | #4011 | docs(uat): e2e Chepherd north-star journey walkthrough (rows |
-| 2026-06-21T03:28 | [#4033](https://github.com/openova-io/openova/pull/4033) | #4031 | docs(uat): cycle-2c walk runbook — systematic hw177 35-row f |
 
 ---
 
