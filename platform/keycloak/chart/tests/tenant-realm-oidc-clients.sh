@@ -105,8 +105,14 @@ if grep -q "catalyst-kc-sa-credentials" "$TMP/tenant.yaml"; then
   echo "FAIL: Tenant-mode render leaked Sovereign-only catalyst-kc-sa-credentials Secret." >&2
   exit 1
 fi
-# Sovereign-realm clients MUST NOT appear in tenant-mode realm.
-for forbidden in '"clientId": "kubectl"' '"clientId": "catalyst-ui"' '"clientId": "catalyst-api-server"'; do
+# Sovereign-ONLY clients MUST NOT appear in tenant-mode realm. NOTE:
+# catalyst-ui is NOT sovereign-only — the per-Org operator console
+# (console.<slug>.<pool-zone>) discovers oidcIssuer=keycloak.<slug>.<zone>/
+# realms/org-<slug> and redirects with client_id=catalyst-ui, so the
+# TENANT realm MUST register a catalyst-ui public PKCE client or the
+# console login 400s (Refs #4054 #4070 #3374). kubectl + catalyst-api-server
+# stay sovereign-only.
+for forbidden in '"clientId": "kubectl"' '"clientId": "catalyst-api-server"'; do
   if grep -q "$forbidden" "$TMP/tenant.yaml"; then
     echo "FAIL: Tenant-mode render leaked Sovereign-mode client: $forbidden" >&2
     exit 1
@@ -131,10 +137,25 @@ assert realm['realm'] == 'sme-acme', f"realm name mismatch: {realm['realm']!r}"
 assert realm['displayName'] == 'Acme SME', f"displayName mismatch: {realm['displayName']!r}"
 
 clients = {c['clientId']: c for c in realm['clients']}
-required = {'wordpress', 'openclaw', 'stalwart'}
+# catalyst-ui is REQUIRED in the tenant realm — the per-Org operator
+# console (console.<slug>.<pool-zone>) redirects with client_id=catalyst-ui
+# (Refs #4054 #4070 #3374). wordpress/openclaw/stalwart per #915.
+required = {'catalyst-ui', 'wordpress', 'openclaw', 'stalwart'}
 missing = required - clients.keys()
 assert not missing, f"missing OIDC clients: {missing}"
-assert len(clients) == 3, f"expected exactly 3 clients, got {sorted(clients)}"
+assert len(clients) == 4, f"expected exactly 4 clients, got {sorted(clients)}"
+
+# catalyst-ui — per-Org operator console (public PKCE SPA).
+cu = clients['catalyst-ui']
+assert cu['publicClient'] is True, "catalyst-ui must be a public client (SPA)"
+assert cu['standardFlowEnabled'] is True, "catalyst-ui needs auth-code flow"
+assert cu['attributes'].get('pkce.code.challenge.method') == 'S256', \
+    "catalyst-ui must enforce PKCE S256"
+cu_uris = cu['redirectUris']
+assert any('console.acme.omantel.omani.works' in u for u in cu_uris), \
+    f"catalyst-ui redirect missing per-Org console host: {cu_uris}"
+assert cu['webOrigins'] == ['+'], \
+    f"catalyst-ui webOrigins must be ['+'] (echo registered redirect origins): {cu['webOrigins']}"
 
 # Spec contract assertions per #915 task brief.
 wp = clients['wordpress']
@@ -176,7 +197,9 @@ assert 'view-users' in sa.get('clientRoles', {}).get('realm-management', []), \
 
 # Default groups + admin user wired up.
 assert realm['defaultGroups'], f"defaultGroups missing: {realm}"
-assert any(g['name'] == 'sme-admins' for g in realm['groups']), "sme-admins group missing"
+# values.yaml default tenant groups are org-admins/org-users post the
+# SME→Organization rename (#3985); the first entry seeds defaultGroups.
+assert any(g['name'] == 'org-admins' for g in realm['groups']), "org-admins group missing"
 assert any(u.get('username') == 'admin' and u.get('email') == 'admin@acme.example'
            for u in realm['users']), "admin bootstrap user missing"
 
