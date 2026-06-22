@@ -53,6 +53,22 @@ spec:
         checksum/oidc-job: {{ include (print $.Template.BasePath "/oidc-config-job.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "bp-wordpress-tenant.serviceAccountName" . }}
+      {{- with .Values.wordpress.image.pullSecrets }}
+      # #4152 (Refs #3858): the WordPress runtime image is now the CUSTOM
+      # ghcr.io/openova-io/openova/wordpress-tenant-pg build — a PRIVATE ghcr
+      # package. kubelet's anonymous pull 401s ("failed to authorize: ...
+      # 401 Unauthorized"), stranding the Pod in ImagePullBackOff. This applies
+      # to EVERY container that uses `bp-wordpress-tenant.wordpressImage`: all
+      # three initContainers (wp-fix-perms, wp-content-bootstrap,
+      # wp-plugin-install) AND the main `wordpress` container. The `ghcr-pull`
+      # Secret is reflected by bp-reflector into every Org namespace (same
+      # canonical name bp-newapi consumes; cloud-init writes the source
+      # flux-system/ghcr-pull with reflection-auto-namespaces). Per Inviolable
+      # Principle #4 the secret list is overrideable (set `[]` on clusters that
+      # pull this image from a public mirror).
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
       initContainers:
