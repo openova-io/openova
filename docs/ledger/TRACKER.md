@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T06:15:02Z` |
+| Last refreshed | `2026-06-22T06:30:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 89 |
+| Open issues | 91 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 89 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 91 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 89 open items (clickable table)
+### All 91 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -289,6 +289,8 @@ flowchart LR
 | [#4086](https://github.com/openova-io/openova/issues/4086) | Sovereign status reads "Degraded" forever on healthy Huawei Sovereign — health | Other |
 | [#4089](https://github.com/openova-io/openova/issues/4089) | console(settings): re-home Parent Domains as a granular #parent-domains section  | Other |
 | [#4091](https://github.com/openova-io/openova/issues/4091) | Console: replace bare/ugly YAML & IaC rendering with a sophisticated shared code | Other |
+| [#4097](https://github.com/openova-io/openova/issues/4097) | bp-agenity: build chepherd daemon from PUBLIC agenity-org source (drop private c | Other |
+| [#4099](https://github.com/openova-io/openova/issues/4099) | fix(org-provisioning): per-Org bp-keycloak HR missing realmConfig.tenant.subdoma | Other |
 
 ---
 
