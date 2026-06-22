@@ -174,7 +174,14 @@ spec:
                 rm -rf /tmp/postgresql-for-wordpress-3.3.1 /tmp/pg4wp.zip
                 echo "pg4wp installed."
               fi
-              chown -R 33:33 /pvc
+              # No chown needed: this init runs as uid 33 (the chart's
+              # containerSecurityContext), so php_unzip extracts plugin/adapter
+              # files already owned by 33. A `chown -R 33:33 /pvc` here is both
+              # redundant AND fatal — as a non-root (uid 33) process it cannot
+              # re-own the fsGroup-mounted `/pvc` root (owned by root) →
+              # "chown: changing ownership of '/pvc': Operation not permitted"
+              # → init Error. wp-content-bootstrap (init 0) already owns the
+              # seed; the runtime container (uid 33 + fsGroup) reads these fine.
           volumeMounts:
             - name: wp-content
               mountPath: /pvc
