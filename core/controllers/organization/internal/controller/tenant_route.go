@@ -75,15 +75,20 @@ var httpRouteGVK = schema.GroupVersionKind{
 }
 
 // tenantRouteParentDefaults are the defaults the reconciler applies
-// when the Organization spec doesn't override them. They match the
-// canonical Cilium Gateway placement on every Sovereign
-// (clusters/_template/sovereign-tls/cilium-gateway.yaml installs the
-// Gateway as `cilium-gateway` in `kube-system`).
-const (
-	tenantRouteDefaultGatewayName      = "cilium-gateway"
-	tenantRouteDefaultGatewayNamespace = "kube-system"
-	tenantRouteDefaultBackendPort      = int32(80)
-)
+// when the Organization spec doesn't override them.
+//
+// #4075: the per-Org console route attaches to the DEDICATED console
+// Gateway (cilium-gateway-console, #4053 blast-radius isolation), NOT
+// the shared `cilium-gateway`. The console Gateway is where the
+// `*.<parentDomain>` TLS listener + Secret live (reconcileTenantConsoleTLS
+// appends them), so the route MUST parent there for the hostname matcher
+// + TLS termination to line up. Previously this defaulted to
+// `cilium-gateway`, where no `*.<parentDomain>` listener exists — the
+// route attached but TLS still closed the connection. The Gateway
+// name/namespace are resolved via the Reconciler's consoleGatewayName /
+// consoleGatewayNamespace helpers (env-overridable, Inviolable
+// Principle #4).
+const tenantRouteDefaultBackendPort = int32(80)
 
 // reconcileTenantRoute creates or updates the per-Organization
 // HTTPRoute when `spec.tenantPublic.parentDomain` is set. Returns
@@ -153,8 +158,8 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 	desiredSpec := map[string]any{
 		"parentRefs": []any{
 			map[string]any{
-				"name":      tenantRouteDefaultGatewayName,
-				"namespace": tenantRouteDefaultGatewayNamespace,
+				"name":      r.consoleGatewayName(),
+				"namespace": r.consoleGatewayNamespace(),
 			},
 		},
 		"hostnames": []any{hostname},

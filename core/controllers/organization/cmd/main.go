@@ -119,6 +119,18 @@ func main() {
 	// installs.
 	uaNs := envOr("CATALYST_USERACCESS_NAMESPACE", "catalyst-system")
 
+	// #4075 — per-pool console TLS. The dedicated console Cilium Gateway
+	// (#4053) the per-Org console HTTPRoute attaches to + the per-pool
+	// `*.<parentDomain>` wildcard listener/Certificate are appended to.
+	// Defaults match clusters/_template/sovereign-tls/cilium-gateway-
+	// console.yaml + the DNS-01 ClusterIssuer every Sovereign installs
+	// (bp-cert-manager-powerdns-webhook). Per Inviolable Principle #4 all
+	// four knobs are env-overridable for non-canonical installs.
+	consoleGatewayName := envOr("CATALYST_CONSOLE_GATEWAY_NAME", "cilium-gateway-console")
+	consoleGatewayNs := envOr("CATALYST_CONSOLE_GATEWAY_NAMESPACE", "kube-system")
+	consoleTLSIssuer := envOr("CATALYST_CONSOLE_TLS_CLUSTER_ISSUER", "letsencrypt-dns01-prod-powerdns")
+	consoleTLSCertNs := envOr("CATALYST_CONSOLE_TLS_CERT_NAMESPACE", "kube-system")
+
 	// G117.3 W2.C3 — IaC repo bootstrap (ADR-0009).
 	// OpenBao seam for per-Org Gitea robot-token storage. Optional:
 	// when CATALYST_OPENBAO_ADDR is unset the bootstrap flow renders
@@ -195,6 +207,10 @@ func main() {
 		UserAccessNamespace:       uaNs,
 		IacBootstrapGitea:         iacGitea,
 		IacBootstrapTokens:        iacTokens,
+		ConsoleGatewayName:        consoleGatewayName,
+		ConsoleGatewayNamespace:   consoleGatewayNs,
+		ConsoleTLSClusterIssuer:   consoleTLSIssuer,
+		ConsoleTLSCertNamespace:   consoleTLSCertNs,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
