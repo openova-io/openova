@@ -8,7 +8,7 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
-version: 0.2.0
+version: 0.3.0
 appVersion: "0.9.4"
 keywords:
   - agenity

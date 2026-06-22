@@ -110,6 +110,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Graphify (#725) — daemon-central codebase knowledge-graph plugin. Pinned.
 RUN pip3 install --no-cache-dir graphifyy==0.8.35
 
+# ── Agent runtime: node + claude-code (#4111) ──────────────────────────────
+# The bp-agenity image is the chepherd *daemon*; the separate chepherd-agent
+# image (Dockerfile.agent) carries the agent CLIs but is NOT loaded in-pod on
+# a Sovereign (no /agent-image.tar mount, no AGENT_IMAGE_REF), so chepherd
+# falls back to BareExecRuntime and forks the agent CLI directly on THIS host.
+# Without claude-code on the host, the solo agent cannot run at all —
+# spawning fails before any model call. Bake node 22 + the claude-code CLI in
+# at /usr/bin/claude (the path internal/ptyhost/agentcatalog expects) so a
+# BareExec spawn of the `claude-code` flavor works out of the box. node 22 is
+# the floor for the modern agent CLIs (#741). Pinned for reproducibility.
+ARG NODE_VERSION=22.14.0
+ARG CLAUDE_CODE_VERSION=2.1.185
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" \
+      -o /tmp/node.tar.gz \
+ && mkdir -p /opt/node \
+ && tar -xzf /tmp/node.tar.gz -C /opt/node --strip-components=1 \
+ && rm /tmp/node.tar.gz \
+ && ln -sf /opt/node/bin/node /usr/local/bin/node \
+ && ln -sf /opt/node/bin/npm  /usr/local/bin/npm \
+ && ln -sf /opt/node/bin/npx  /usr/local/bin/npx \
+ && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ # agentcatalog's claude-code row expects the binary at /usr/bin/claude.
+ && ln -sf /opt/node/bin/claude /usr/bin/claude \
+ && /usr/bin/claude --version
+
 # Non-root user for the chepherd process itself.
 RUN useradd -m -u 1000 -s /bin/bash chepherd \
     && mkdir -p /app/web /home/chepherd/.local/state/chepherd /home/chepherd/.local/share \

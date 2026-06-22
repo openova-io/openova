@@ -101,7 +101,7 @@ func main() {
 
 	in := bufio.NewReader(os.Stdin)
 	for {
-		msg, err := readFrame(in)
+		msg, lineMode, err := readFrame(in)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Printf("stdin EOF — exiting")
@@ -110,6 +110,12 @@ func main() {
 			log.Printf("read frame: %v", err)
 			return
 		}
+		// Reply in the SAME framing the peer used. The MCP stdio
+		// transport spec is newline-delimited JSON (claude-code, the
+		// MCP TS/Python SDKs all send NDJSON); LSP-style Content-Length
+		// framing is also accepted for backwards-compat. Latching the
+		// mode per-message keeps a mixed stream honest (#4111).
+		srv.lineDelimited = lineMode
 		if err := srv.dispatch(msg); err != nil {
 			log.Printf("dispatch: %v", err)
 		}
@@ -122,6 +128,12 @@ type server struct {
 	resolver       *identity.Resolver
 	fallbackBearer string
 	out            io.Writer
+
+	// lineDelimited records the framing the most-recent inbound message
+	// used: true = newline-delimited JSON (the MCP stdio spec default),
+	// false = LSP Content-Length framing. writeFrame mirrors it so the
+	// peer's transport reader can parse the reply (#4111).
+	lineDelimited bool
 }
 
 func (s *server) dispatch(raw []byte) error {
@@ -349,6 +361,17 @@ func (s *server) writeFrame(resp rpcResponse) error {
 	if err != nil {
 		return err
 	}
+	// Newline-delimited JSON when the peer spoke NDJSON (the MCP stdio
+	// spec — claude-code + the official SDKs); LSP Content-Length framing
+	// otherwise (#4111). A reply in the wrong framing is silently
+	// undecodable by the peer's transport reader → "failed to connect".
+	if s.lineDelimited {
+		if _, err := s.out.Write(body); err != nil {
+			return err
+		}
+		_, err = s.out.Write([]byte("\n"))
+		return err
+	}
 	if _, err := fmt.Fprintf(s.out, "Content-Length: %d\r\n\r\n", len(body)); err != nil {
 		return err
 	}
@@ -356,23 +379,67 @@ func (s *server) writeFrame(resp rpcResponse) error {
 	return err
 }
 
-func readFrame(r *bufio.Reader) ([]byte, error) {
+// readFrame reads one JSON-RPC message off the stdio transport. It
+// auto-detects the framing per-message (#4111): a frame whose first
+// non-blank byte is '{' or '[' is a newline-delimited JSON message (the
+// MCP stdio spec — claude-code, the MCP TS/Python SDKs); anything else
+// is parsed as an LSP-style Content-Length-prefixed frame. The returned
+// bool is true for NDJSON so the caller can reply in kind.
+func readFrame(r *bufio.Reader) ([]byte, bool, error) {
+	// Skip blank separator lines that some peers emit between frames,
+	// then peek the first content byte to choose the framing.
+	for {
+		b, err := r.Peek(1)
+		if err != nil {
+			return nil, false, err
+		}
+		if b[0] == '\r' || b[0] == '\n' {
+			if _, err := r.ReadByte(); err != nil {
+				return nil, false, err
+			}
+			continue
+		}
+		break
+	}
+
+	first, err := r.Peek(1)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// NDJSON: a single line that is itself a complete JSON value.
+	if first[0] == '{' || first[0] == '[' {
+		line, err := r.ReadBytes('\n')
+		if err != nil && len(line) == 0 {
+			return nil, false, err
+		}
+		// ReadBytes may return the final line without a trailing '\n' at
+		// EOF; that's still a complete message. Trim the line terminator.
+		line = []byte(strings.TrimRight(string(line), "\r\n"))
+		if len(line) == 0 {
+			// Defensive: a stray blank slipped through — recurse.
+			return readFrame(r)
+		}
+		return line, true, nil
+	}
+
+	// LSP Content-Length framing (backwards-compat).
 	tp := textproto.NewReader(r)
 	header, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	clStr := header.Get("Content-Length")
 	if clStr == "" {
-		return nil, errors.New("missing Content-Length")
+		return nil, false, errors.New("missing Content-Length")
 	}
 	cl, err := strconv.Atoi(clStr)
 	if err != nil {
-		return nil, fmt.Errorf("bad Content-Length: %w", err)
+		return nil, false, fmt.Errorf("bad Content-Length: %w", err)
 	}
 	body := make([]byte, cl)
 	if _, err := io.ReadFull(r, body); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return body, nil
+	return body, false, nil
 }

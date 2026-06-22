@@ -35,6 +35,46 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.anthropic.credentialsKey }}
+      initContainers:
+        # ── Seed claude-code OAuth credentials (#4111) ──────────────────────
+        # The spawned claude-code (BareExec) reads ~/.claude/.credentials.json
+        # on the chepherd host. Materialize it from the Secret's full
+        # credentials.json blob into a shared emptyDir mounted at
+        # /home/chepherd/.claude (writable so claude-code can rotate the OAuth
+        # pair). No-op when the Secret lacks the credentials key (key-only
+        # mode). Runs as uid 1000 to match the chepherd user the agent forks
+        # as. The Secret is mounted read-only at /creds.
+        - name: seed-claude-creds
+          image: {{ include "agenity.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /claudehome/.claude/projects
+              if [ -s /creds/{{ .Values.anthropic.credentialsKey }} ]; then
+                cp /creds/{{ .Values.anthropic.credentialsKey }} /claudehome/.claude/.credentials.json
+                chmod 600 /claudehome/.claude/.credentials.json
+                echo "seeded ~/.claude/.credentials.json ($(wc -c < /claudehome/.claude/.credentials.json) bytes)"
+              else
+                echo "no credentials.json key in Secret — key-only mode"
+              fi
+              # Onboarding stub so claude-code does not re-run the first-run
+              # /login flow and auto-approves Bypass-permissions.
+              printf '%s' '{"hasCompletedOnboarding":true,"autoPermissionsNotificationCount":99}' > /claudehome/.claude.json
+              chmod 644 /claudehome/.claude.json
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: claude-home
+              mountPath: /claudehome
+            - name: anthropic-creds
+              mountPath: /creds
+              readOnly: true
+      {{- end }}
       containers:
         - name: chepherd
           image: {{ include "agenity.image" . }}
@@ -79,17 +119,30 @@ spec:
             # chepherd's own. The agent then calls create_application etc. on
             # the User's Org, RBAC-scoped (the openova MCP forwards the
             # caller's session bearer to the live catalyst-api).
+            {{- $apiURL := .Values.openovaMCP.catalystApiUrl }}
+            {{- if not $apiURL }}{{ $apiURL = printf "https://console.%s" (.Values.sovereignFqdn | default "openova.io") }}{{- end }}
             - name: CHEPHERD_EXTRA_MCP_JSON
               value: |-
                 {"mcpServers":{"openova":{
                   "command":{{ .Values.openovaMCP.binaryPath | quote }},
                   "env":{
-                    "OPENOVA_MCP_CATALYST_API_URL":{{ .Values.openovaMCP.catalystApiUrl | quote }},
+                    "OPENOVA_MCP_CATALYST_API_URL":{{ $apiURL | quote }},
                     "OPENOVA_MCP_CONTEXT":{{ .Values.openovaMCP.context | quote }},
                     "OPENOVA_MCP_VERIFY":{{ .Values.openovaMCP.verify | quote }},
-                    "OPENOVA_MCP_RS256_PUBKEY_PEM":"$(OPENOVA_MCP_RS256_PUBKEY_PEM)"
+                    "OPENOVA_MCP_RS256_PUBKEY_PEM":"$(OPENOVA_MCP_RS256_PUBKEY_PEM)"{{ if .Values.openovaMCP.bearerSecret.name }},
+                    "OPENOVA_MCP_BEARER":"$(OPENOVA_MCP_BEARER)"{{ end }}
                   }
                 }}}
+            {{- if .Values.openovaMCP.bearerSecret.name }}
+            # Interim per-call bearer (#4111) — an admin-tier, Org-pinned,
+            # handover-RS256-signed session JWT the MCP forwards to the
+            # catalyst-api. Production seam is the chat UI per-call _auth.token.
+            - name: OPENOVA_MCP_BEARER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openovaMCP.bearerSecret.name }}
+                  key: {{ .Values.openovaMCP.bearerSecret.key }}
+            {{- end }}
             {{- if eq .Values.openovaMCP.verify "rs256" }}
             # The RS256 public key the MCP verifies caller bearers against,
             # reflected from the Sovereign's handover-jwt secret. Surfaced as
@@ -109,6 +162,16 @@ spec:
               mountPath: /var/chepherd/state
             - name: repo
               mountPath: /var/chepherd/repo
+            {{- if .Values.anthropic.credentialsKey }}
+            # claude-code reads ~/.claude/.credentials.json + ~/.claude.json;
+            # the init container seeded them into this writable emptyDir (#4111).
+            - name: claude-home
+              mountPath: /home/chepherd/.claude
+              subPath: .claude
+            - name: claude-home
+              mountPath: /home/chepherd/.claude.json
+              subPath: .claude.json
+            {{- end }}
             {{- if .Values.podman.inPod }}
             - name: fuse
               mountPath: /dev/fuse
@@ -142,6 +205,16 @@ spec:
           emptyDir: {}
         - name: repo
           emptyDir: {}
+        {{- end }}
+        {{- if .Values.anthropic.credentialsKey }}
+        # Writable home for claude-code creds/onboarding, seeded by the
+        # init container from the anthropic Secret (#4111).
+        - name: claude-home
+          emptyDir: {}
+        - name: anthropic-creds
+          secret:
+            secretName: {{ .Values.anthropic.secretName }}
+            optional: true
         {{- end }}
         {{- if .Values.podman.inPod }}
         - name: fuse

@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	clientgofeatures "k8s.io/client-go/features"
 	"k8s.io/client-go/kubernetes"
@@ -218,6 +220,20 @@ func main() {
 		} else {
 			h.SetHandoverSigner(signer)
 			log.Info("handoverjwt: signer ready", "issuer", issuer)
+			// #4114 — publish the runtime signer's ACTUAL public JWK into
+			// the catalyst-handover-jwt-public Secret so every off-pod
+			// consumer (the agenity openova-mcp's RS256 bearer verifier,
+			// any future federation peer) verifies session bearers against
+			// the SAME key catalyst-api signs with. LoadOrGenerate may
+			// have minted a fresh keypair (cloud-init seeded only the
+			// public Secret, not the private PEM at keyPath), leaving the
+			// published Secret stale + mismatched → openova-mcp rejected
+			// every genuine bearer. Self-healing: PATCH on each boot.
+			if pubJWK, jwkErr := signer.PublicJWK(); jwkErr == nil {
+				publishHandoverPubkey(context.Background(), log, pubJWK)
+			} else {
+				log.Warn("handoverjwt: PublicJWK failed; published Secret may be stale (#4114)", "err", jwkErr)
+			}
 		}
 	}
 
@@ -2008,6 +2024,55 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// publishHandoverPubkey PATCHes the catalyst-handover-jwt-public Secret's
+// public.jwk with the runtime signer's ACTUAL public JWK so off-pod
+// consumers verify session bearers against the same key catalyst-api signs
+// with (#4114). Best-effort: a failure (no in-cluster config, RBAC denied,
+// Secret absent) is logged, never fatal — the handover signer still works
+// in-process; only the published mirror lags. The Secret name/namespace are
+// the chart defaults, overridable via env for non-standard installs.
+func publishHandoverPubkey(ctx context.Context, log *slog.Logger, pubJWK []byte) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		log.Warn("handoverjwt: no in-cluster config; skipping pubkey publish (#4114)", "err", err)
+		return
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Warn("handoverjwt: clientset build failed; skipping pubkey publish (#4114)", "err", err)
+		return
+	}
+	ns := env("CATALYST_HANDOVER_PUBKEY_SECRET_NAMESPACE", "")
+	if ns == "" {
+		if b, rErr := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); rErr == nil {
+			ns = strings.TrimSpace(string(b))
+		}
+	}
+	if ns == "" {
+		ns = "catalyst-system"
+	}
+	name := env("CATALYST_HANDOVER_PUBKEY_SECRET_NAME", "catalyst-handover-jwt-public")
+	key := env("CATALYST_HANDOVER_PUBKEY_SECRET_KEY", "public.jwk")
+
+	// Skip the write when the Secret already carries our exact JWK — avoids
+	// a needless write + Reloader bounce on every restart.
+	if cur, getErr := cs.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{}); getErr == nil {
+		if existing, ok := cur.Data[key]; ok && string(existing) == string(pubJWK) {
+			log.Info("handoverjwt: published pubkey already current (#4114)", "secret", ns+"/"+name)
+			return
+		}
+	}
+
+	// strategic-merge patch on the stringData field — server base64-encodes it.
+	patch := fmt.Sprintf(`{"stringData":{%q:%q}}`, key, string(pubJWK))
+	if _, pErr := cs.CoreV1().Secrets(ns).Patch(ctx, name, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{}); pErr != nil {
+		log.Warn("handoverjwt: publish pubkey PATCH failed; consumers may verify against a stale key (#4114)",
+			"secret", ns+"/"+name, "err", pErr)
+		return
+	}
+	log.Info("handoverjwt: published runtime signer pubkey to Secret (#4114)", "secret", ns+"/"+name)
 }
 
 // disableWatchListClient turns OFF the client-go WatchListClient feature gate

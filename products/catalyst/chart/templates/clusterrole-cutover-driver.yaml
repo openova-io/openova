@@ -273,6 +273,16 @@ rules:
       - pods
       - secrets
     verbs: ["get", "list", "watch"]
+  # #4114 — publish the runtime handover signer's public JWK into the
+  # catalyst-handover-jwt-public Secret on boot so off-pod consumers
+  # (the agenity openova-mcp RS256 bearer verifier) trust the same key
+  # catalyst-api signs sessions with. Narrowly scoped to that one Secret
+  # via resourceNames; get is already granted by the rule above but is
+  # required alongside patch/update for a named-resource rule to apply.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["catalyst-handover-jwt-public"]
+    verbs: ["get", "update", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
     verbs: ["get", "list", "watch"]
