@@ -109,9 +109,20 @@ spec:
               # apt: ensure unzip + curl present (curl is shipped, unzip
               # may not be on a slim image variant; runs only on first
               # install per PVC, so the cost is a one-time apt fetch).
+              #
+              # `-o APT::Sandbox::User=root` keeps apt running as root rather
+              # than dropping to the `_apt` user. The privilege-drop uses
+              # setgroups/setegid/seteuid syscalls, which the dropped-ALL-
+              # capabilities containerSecurityContext forbids (CAP_SETUID/
+              # CAP_SETGID gone) → "setgroups 65534 failed - Operation not
+              # permitted" → "Method http has died" (code 112) → init
+              # CrashLoopBackOff. Disabling the sandbox is the canonical
+              # container-friendly fix and needs NO extra Linux caps, so it
+              # stays portable under a restrictive Kyverno baseline. Stacks
+              # on top of #4147 (runAsUser:0, needed to write /var/cache/apt).
               if ! command -v unzip >/dev/null 2>&1; then
-                apt-get update
-                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip
+                apt-get -o APT::Sandbox::User=root update
+                DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends unzip
               fi
               # ── (a) openid-connect-generic plugin ──────────────────
               OIDC_DIR=/pvc/plugins/openid-connect-generic
