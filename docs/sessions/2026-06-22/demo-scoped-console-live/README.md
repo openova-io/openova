@@ -19,3 +19,14 @@ SPA sidebar = `Apps / Catalog / Sandbox / Users / Settings` ONLY. No Deployments
 
 ## Still open (separate, North-Star runtime layer — rows 220-223)
 agenity dashboard SERVES (chepherd 0.9.4 daemon; web frontend upstream-versioned 0.5.x) but shows "runtime offline · 0 workers": the chat-to-provision runtime needs the Anthropic OAuth token (`sk-ant-oat01`) wired — `ANTHROPIC_API_KEY` strips it. Next fix.
+
+## Deployment-stream 404 (founder symptom) — RESOLVED
+Live `browser_evaluate` on `console.demo.omani.homes` (org session `demo@`):
+```
+location after /dashboard nav : /apps   (org customer redirected off the sovereign dashboard)
+deploymentStreamErrorVisible  : false   ("Couldn't reach the deployment stream" GONE)
+has404TextVisible             : false
+GET /api/v1/deployments/4635277cae4ffed9        -> 403  (was the 404 the founder saw; now host-anchored-gated)
+GET /api/v1/deployments/4635277cae4ffed9/events -> 403
+```
+The wizard/deployment-stream is `enabled=!orgScoped` (#4119), so the org customer never fetches the Sovereign deployment `4635277cae4ffed9` → no 404. The guard returns 403 on the raw endpoint (defense-in-depth).
