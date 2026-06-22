@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T15:30:06Z` |
+| Last refreshed | `2026-06-22T15:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T15:38 | [#4142](https://github.com/openova-io/openova/pull/4142) | #4140 | fix(#4139): bp-wordpress-tenant active-hot-standby CNPG sync |
 | 2026-06-22T15:23 | [#4141](https://github.com/openova-io/openova/pull/4141) | #3985 | fix(#4139): unblock bp-wordpress-tenant publish — repair #39 |
 | 2026-06-22T15:16 | [#4140](https://github.com/openova-io/openova/pull/4140) | #3971 | fix(#4139): demo-Org convergence — empty wpContent.storageCl |
 | 2026-06-22T14:37 | [#4137](https://github.com/openova-io/openova/pull/4137) | #3263 | fix(bp-valkey): Bitnami valkey/os-shell images via on-Sovere |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-06-21T23:44 | [#4072](https://github.com/openova-io/openova/pull/4072) | #4071 | fix(catalyst-api): disable client-go WatchListClient gate —  |
 | 2026-06-21T23:16 | [#4070](https://github.com/openova-io/openova/pull/4070) | #4054 | fix(bp-catalyst-api): route console/api/marketplace at the c |
 | 2026-06-21T23:16 | [#4068](https://github.com/openova-io/openova/pull/4068) | #4058 | docs(catalog): finish #4058 bp-chepherd→bp-agenity rename in |
-| 2026-06-21T23:16 | [#4067](https://github.com/openova-io/openova/pull/4067) | #2 | fix(provisioning): warm bootstrap-kit COMPONENT private imag |
 
 ---
 
