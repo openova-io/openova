@@ -110,6 +110,9 @@ audit_realm "sovereign realm" "$TMP/sov-realm.json" || exit 1
   --set realmConfig.tenant.enabled=true \
   --set realmConfig.tenant.realmName=acme \
   --set realmConfig.tenant.displayName="Acme SME Tenant" \
+  --set realmConfig.tenant.subdomain=acme \
+  --set realmConfig.tenant.parentDomain=omani.works \
+  --set realmConfig.tenant.adminEmail=admin@acme.example \
   --show-only templates/configmap-tenant-realm.yaml \
   > "$TMP/tenant.yaml" 2>/dev/null || true
 if [ -s "$TMP/tenant.yaml" ] && yq -e 'select(.kind == "ConfigMap")' "$TMP/tenant.yaml" >/dev/null 2>&1; then

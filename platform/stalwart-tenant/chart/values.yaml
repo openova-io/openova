@@ -31,24 +31,65 @@ stalwart:
   # `global.imageRegistry` value (when set by the per-Sovereign overlay
   # post-handover) rewrites the registry on every pull.
   #
-  # Digest below is `docker.io/stalwartlabs/stalwart:v0.16.3` linux/amd64
-  # (verified via Docker Hub API on 2026-05-04).
+  # #4148 — PINNED to v0.15.5 (was v0.16.3). Stalwart v0.16.x rewrote the
+  # config parser: the v0.15-era TOML this chart emits in
+  # templates/config-configmap.yaml made the v0.16.3 image CrashLoop at
+  # startup with `⚠️ Startup failed: Failed to parse data store settings at
+  # /opt/stalwart/etc/config.toml: expected value at line 1 column 2` (the
+  # JSON-style parser choking on `[server]`). The WORKING bp-stalwart-sovereign
+  # chart runs v0.15.5 against the SAME TOML shape and stays 1/1 Running.
+  # Validated live on the omantel.biz demo Org (kom4dc): hand-patching the
+  # StatefulSet to v0.15.5 + the --config arg + the TLS mount brought the pod
+  # to 1/1 Running. Digest intentionally cleared — the `.image` helper honours
+  # `tag` when `digest` is empty, and we did not have a verified v0.15.5 digest
+  # at fix time. A per-Sovereign overlay may re-pin a digest if desired.
   image:
     # #4139 — pull through the Sovereign Harbor proxy-dockerhub project so the
     # kom4dc node cold-pull does NOT traverse the public internet to docker.io
     # (which ImagePullBackOffs on a fresh prov, mirroring the #3859 vcluster
-    # coredns + #4137 valkey bitnamilegacy fixes). The proxy-cache mirror serves
-    # the SAME digest (verified 200 via harbor v2 API). A per-Sovereign overlay
+    # coredns + #4137 valkey bitnamilegacy fixes). A per-Sovereign overlay
     # may still rewrite this via `global.imageRegistry` post-handover.
     registry: harbor.openova.io/proxy-dockerhub
     repository: stalwartlabs/stalwart
-    tag: "v0.16.3"
-    digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
+    tag: "v0.15.5"
+    digest: ""
     pullPolicy: IfNotPresent
     # Per-Sovereign Harbor pull secret. Empty by default — Sovereign
     # bootstrap-kit overlay supplies the tenant-namespace dockercfg
     # secret name once Harbor proxy-cache is wired (ADR-0001 §11.5).
     pullSecrets: []
+
+  # ─── Server TLS certificate (#4148) ──────────────────────────────────
+  # The bootstrap config.toml's `[certificate.default]` block references
+  # `%{file:/etc/stalwart/tls/tls.crt}%` + `tls.key`. Stalwart reads those
+  # files at parse time, so the StatefulSet MUST mount a kubernetes.io/tls
+  # Secret at `/etc/stalwart/tls` or the config never parses and the pod
+  # CrashLoops (root cause #3 — verified live on the omantel.biz demo Org).
+  #
+  # `secretName` is the kubernetes.io/tls Secret the StatefulSet mounts
+  # read-only at `/etc/stalwart/tls` (keys `tls.crt` + `tls.key`). When
+  # `certificate.enabled=true` (default) the chart emits a cert-manager
+  # Certificate for `mail.<tenant-domain>` against `certificate.issuer`,
+  # which cert-manager materialises INTO this same Secret name — so the
+  # mount is satisfied zero-touch on a fresh prov. Operators who want to
+  # reflect an existing per-Org wildcard Secret instead may set
+  # `certificate.enabled=false` and point `secretName` at the reflected
+  # Secret (Inviolable Principle #4 — every knob overridable).
+  tls:
+    secretName: "stalwart-tls"
+    certificate:
+      # Emit a cert-manager Certificate for mail.<tenant-domain> →
+      # `secretName`. Default ON so a fresh tenant gets a real leaf cert
+      # with NO operator action. Skipped automatically when the tenant
+      # domain is empty (smoke-render-safe).
+      enabled: true
+      # ClusterIssuer to sign against. Defaults to the same issuer the
+      # webmail Ingress uses (`letsencrypt-prod`); a per-Sovereign overlay
+      # may swap to a staging/internal issuer.
+      issuerKind: "ClusterIssuer"
+      issuer: "letsencrypt-prod"
+      duration: "2160h"      # 90d
+      renewBefore: "360h"    # 15d
 
   resources:
     requests:
@@ -60,7 +101,7 @@ stalwart:
 
   # SecurityContext — non-root + NET_BIND_SERVICE (issue #898).
   #
-  # Stalwart's upstream image (docker.io/stalwartlabs/stalwart:v0.16.3)
+  # Stalwart's upstream image (docker.io/stalwartlabs/stalwart:v0.15.5)
   # creates an in-image `stalwart` user at UID 2000 and ships the
   # binary at /usr/local/bin/stalwart with file capability
   # `cap_net_bind_service=ep`. The binary needs that capability to
@@ -355,9 +396,12 @@ mailboxProvisioner:
       # directly (no registry field), so the harbor proxy path is carried in
       # the repository value, matching the StatefulSet's registry default and
       # avoiding the docker.io cold-pull ImagePullBackOff on kom4dc.
+      # #4148 — PINNED to v0.15.5 in lockstep with the StatefulSet image so the
+      # setup-Job's stalwart-cli / curl bytes trace back to the SAME running
+      # image. Digest cleared (tag-pinned) per the StatefulSet note above.
       repository: harbor.openova.io/proxy-dockerhub/stalwartlabs/stalwart
-      tag: "v0.16.3"
-      digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
+      tag: "v0.15.5"
+      digest: ""
       pullPolicy: IfNotPresent
     # Job timeout — the Stalwart pod must be Ready before the Job's
     # API calls succeed. 10 min is generous for cold starts on small

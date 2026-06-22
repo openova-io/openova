@@ -79,6 +79,17 @@ Canonical seam: platform/keycloak/chart/templates/configmap-tenant-realm.yaml
 {{- end -}}
 {{- /* ── Resolve per-app hosts (operator override OR <app>.<sub>.<parent>) ─── */}}
 {{- $defaultZone := printf "%s.%s" $t.subdomain $t.parentDomain -}}
+{{- /* Console host for the catalyst-ui SPA. Operator override via
+       realmConfig.tenant.console.host; defaults to console.<sub>.<parent>.
+       This is the per-Org operator console (console.<slug>.<pool-zone>)
+       whose OIDC discovery points at keycloak.<slug>.<pool-zone>/realms/
+       org-<slug> with client=catalyst-ui — so the realm MUST register
+       catalyst-ui or the console login 400s (Refs #4054 #4070 #3374). */ -}}
+{{- $consoleHost := "" -}}
+{{- if $t.console -}}
+  {{- $consoleHost = $t.console.host -}}
+{{- end -}}
+{{- $consoleHost = $consoleHost | default (printf "console.%s" $defaultZone) -}}
 {{- $wpHost := $t.wordpress.host | default (printf "wordpress.%s" $defaultZone) -}}
 {{- $ocHost := $t.openclaw.host  | default (printf "openclaw.%s"  $defaultZone) -}}
 {{- $swHost := $t.stalwart.host  | default (printf "mail.%s"      $defaultZone) -}}
@@ -275,9 +286,51 @@ data:
       ],
       "clients": [
         {
+          "clientId": "catalyst-ui",
+          "name": "Catalyst UI (Organization console)",
+          {{- /* description kept <255 chars — Keycloak public.CLIENT.DESCRIPTION
+                 is varchar(255); the config-cli import batch aborts on overflow
+                 (g117-e2e-realm-client-description-255-cap.sh). Full rationale
+                 in the orchestrator comment + #4054/#4070/#3374. */ -}}
+          "description": "Public PKCE client for the per-Org operator console SPA at https://{{ $consoleHost }}. Required so console OIDC login does not 400 (Refs #4054 #4070 #3374).",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "redirectUris": [
+            {{ printf "https://%s/*" $consoleHost | quote }},
+            {{ printf "https://*.%s/*" $defaultZone | quote }}
+          ],
+          "webOrigins": [
+            "+"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups",
+            "org"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": {{ printf "https://%s/*" $consoleHost | quote }}
+          }
+        },
+        {
           "clientId": {{ ($t.wordpress.clientID | default "wordpress") | quote }},
           "name": "WordPress (Organization tenant — openid-connect-generic plugin)",
-          "description": "Confidential OIDC client for the Organization tenant's WordPress instance. Auth-code flow with PKCE optional. Redirect URIs cover the openid-connect-generic plugin's admin-ajax.php callback (default when alternate_redirect_uri=0) plus /wp-login.php fallback.",
+          "description": "Confidential OIDC client for the Organization WordPress. Auth-code flow; redirect URIs cover the openid-connect-generic plugin admin-ajax.php callback plus /wp-login.php fallback.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,

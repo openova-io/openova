@@ -56,6 +56,40 @@ spec:
       securityContext:
         {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
       initContainers:
+        # ── 0. Fix wp-content PVC ownership (root, runs FIRST) ─────────
+        # The PVC root is mounted root-owned; podSecurityContext.fsGroup
+        # sets the GROUP but not the OWNER, so a uid-33 process cannot
+        # chown/chmod it. Every downstream step that runs as uid 33 — the
+        # wp-content-bootstrap seed (`chown -R 33:33 /pvc` on a fresh PVC),
+        # wp-plugin-install, AND the official image's WP-core `tar` (which
+        # chmods ./wp-content) — otherwise dies with "Operation not
+        # permitted". This short root init (CAP_CHOWN/FOWNER only, no shell
+        # privesc) re-owns the PVC to 33:33 once so all later uid-33 steps
+        # succeed. Uses the wordpress image (not busybox) to satisfy the
+        # kyverno harbor-proxy single-glob rule (#3461). Validated live on
+        # omantel.biz demo Org (kom4dc) — pod reached Apache-serving. (#4152)
+        - name: wp-fix-perms
+          image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              chown -R 33:33 /pvc
+              chmod -R u+rwX /pvc
+              echo "wp-content PVC perms fixed (33:33)."
+          volumeMounts:
+            - name: wp-content
+              mountPath: /pvc
         # ── 1. Seed wp-content from the image onto the PVC (idempotent) ─
         - name: wp-content-bootstrap
           image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
@@ -100,30 +134,51 @@ spec:
           image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
           imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
           securityContext:
+            # Stays on the shared uid-33 context: this init no longer runs
+            # apt (it extracts via PHP ZipArchive — see the command below),
+            # and the `wp-fix-perms` root init (initContainers[0]) already
+            # re-owns the PVC, so no root is needed here. (Supersedes #4147's
+            # root override, which was only for the old apt-install path.)
             {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
           command:
             - /bin/bash
             - -c
             - |
               set -eu
-              # apt: ensure unzip + curl present (curl is shipped, unzip
-              # may not be on a slim image variant; runs only on first
-              # install per PVC, so the cost is a one-time apt fetch).
-              if ! command -v unzip >/dev/null 2>&1; then
-                apt-get update
-                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip
-              fi
+              # Extract plugin/adapter zips with PHP's bundled ZipArchive
+              # instead of the `unzip` binary. The wordpress:*-php* image
+              # already ships the `zip` PHP extension (a WordPress core
+              # requirement), so NO package install is needed.
+              #
+              # This supersedes the earlier `apt-get install unzip`, which is
+              # fatally fragile on locked-down Sovereigns for TWO independent
+              # reasons (both observed live on kom4dc / omantel.biz demo Org):
+              #   1. apt's http transport drops privileges to the `_apt` user
+              #      via setgroups/setegid/seteuid — forbidden under the
+              #      dropped-ALL-capabilities containerSecurityContext
+              #      ("setgroups 65534 failed - Operation not permitted" →
+              #      "Method http has died" code 112 → init CrashLoopBackOff);
+              #   2. egress-restricted clusters cannot reach deb.debian.org at
+              #      all ("Ign … trixie InRelease" → "Unable to locate package
+              #      unzip"), so the package index never loads.
+              # PHP ZipArchive sidesteps both — no apt, no extra Linux caps,
+              # no Debian-mirror egress. Stacks on #4147 (runAsUser:0).
+              php_unzip() {  # $1=zip  $2=destdir
+                php -r '$z=new ZipArchive(); $r=$z->open($argv[1]); if($r!==true){fwrite(STDERR,"ZipArchive open failed (".$r."): ".$argv[1]."\n");exit(1);} if(!$z->extractTo($argv[2])){fwrite(STDERR,"ZipArchive extractTo failed: ".$argv[2]."\n");exit(1);} $z->close();' "$1" "$2"
+              }
               # ── (a) openid-connect-generic plugin ──────────────────
-              OIDC_DIR=/pvc/plugins/openid-connect-generic
+              OIDC_DIR=/pvc/plugins/daggerhart-openid-connect-generic
               if [ -d "${OIDC_DIR}" ]; then
                 echo "openid-connect-generic already installed — skipping."
               else
                 echo "Downloading openid-connect-generic..."
                 cd /tmp
+                # Plugin slug on WordPress.org is `daggerhart-openid-connect-generic`
+                # (the bare `openid-connect-generic` slug 404s).
                 curl -fsSL -o oidc.zip \
-                  https://downloads.wordpress.org/plugin/openid-connect-generic.latest-stable.zip
+                  https://downloads.wordpress.org/plugin/daggerhart-openid-connect-generic.latest-stable.zip
                 mkdir -p /pvc/plugins
-                unzip -q oidc.zip -d /pvc/plugins/
+                php_unzip oidc.zip /pvc/plugins/
                 rm -f /tmp/oidc.zip
                 echo "openid-connect-generic installed."
               fi
@@ -142,21 +197,30 @@ spec:
                 cd /tmp
                 # Pin to a stable tag, not main, per
                 # docs/INVIOLABLE-PRINCIPLES.md #4 (no floating refs).
+                # v3.3.1 is the latest published release/tag (the prior pin
+                # v3.7.0 does not exist → archive 404).
                 curl -fsSL -o pg4wp.zip \
-                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.7.0.zip
-                unzip -q pg4wp.zip -d /tmp/
+                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.3.1.zip
+                php_unzip pg4wp.zip /tmp/
                 # Extracted layout:
-                #   /tmp/postgresql-for-wordpress-3.7.0/pg4wp/
-                #   /tmp/postgresql-for-wordpress-3.7.0/pg4wp/db.php
+                #   /tmp/postgresql-for-wordpress-3.3.1/pg4wp/
+                #   /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php
                 # Copy `pg4wp/` into wp-content/ and the `db.php`
                 # drop-in alongside it (WP looks for db.php at
                 # wp-content/db.php).
-                cp -a /tmp/postgresql-for-wordpress-3.7.0/pg4wp /pvc/
-                cp /tmp/postgresql-for-wordpress-3.7.0/pg4wp/db.php /pvc/db.php
-                rm -rf /tmp/postgresql-for-wordpress-3.7.0 /tmp/pg4wp.zip
+                cp -a /tmp/postgresql-for-wordpress-3.3.1/pg4wp /pvc/
+                cp /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php /pvc/db.php
+                rm -rf /tmp/postgresql-for-wordpress-3.3.1 /tmp/pg4wp.zip
                 echo "pg4wp installed."
               fi
-              chown -R 33:33 /pvc
+              # No chown needed: this init runs as uid 33 (the chart's
+              # containerSecurityContext), so php_unzip extracts plugin/adapter
+              # files already owned by 33. A `chown -R 33:33 /pvc` here is both
+              # redundant AND fatal — as a non-root (uid 33) process it cannot
+              # re-own the fsGroup-mounted `/pvc` root (owned by root) →
+              # "chown: changing ownership of '/pvc': Operation not permitted"
+              # → init Error. wp-content-bootstrap (init 0) already owns the
+              # seed; the runtime container (uid 33 + fsGroup) reads these fine.
           volumeMounts:
             - name: wp-content
               mountPath: /pvc
