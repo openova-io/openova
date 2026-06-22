@@ -74,16 +74,20 @@ list digest published on Docker Hub.
 {{- end -}}
 
 {{/*
-Resolved ingress host. Templates `wordpress.<smeDomain>` when
+Resolved ingress host. Templates `wordpress.<orgDomain>` when
 `ingress.host` is empty; otherwise returns the operator-supplied host
-verbatim. The `smeDomain` placeholder default in values.yaml ensures
+verbatim. The `orgDomain` placeholder default in values.yaml ensures
 the smoke-render pass succeeds; per-Sovereign overlays MUST override.
+#4139: was `.Values.smeDomain` — a dead key after the #3985 SME→Organization
+rename moved the values.yaml default to `orgDomain`, so the host-derivation
+fallback rendered `wordpress.<no value>`. (Live HRs always set ingress.host
+explicitly, so this only bit the chart-default render path.)
 */}}
 {{- define "bp-wordpress-tenant.ingressHost" -}}
 {{- if .Values.ingress.host -}}
 {{- .Values.ingress.host -}}
 {{- else -}}
-{{- printf "wordpress.%s" .Values.smeDomain -}}
+{{- printf "wordpress.%s" .Values.orgDomain -}}
 {{- end -}}
 {{- end -}}
 
@@ -244,7 +248,14 @@ The placeholder is `https://keycloak.sme.local/realms/sme`.
 {{- define "bp-wordpress-tenant.oidcIssuerURL" -}}
 {{- $modern := .Values.oidc.issuerURL -}}
 {{- $legacy := .Values.keycloak.realmURL -}}
-{{- $placeholder := "https://keycloak.sme.local/realms/sme" -}}
+{{- /* #4139: lockstep with the values.yaml oidc.issuerURL placeholder default.
+       The #3985 SME→Organization rename moved the values.yaml default
+       sme.local/realms/sme → org.local/realms/org but left this constant
+       on the old string — so `ne $modern $placeholder` was ALWAYS true and
+       the legacy keycloak.realmURL fold (case 4) became unreachable, failing
+       chart test oidc-config.sh Case 2 + silently blocking every publish
+       since 0.4.1 (only 0.4.0/0.4.1 are on ghcr; 0.4.2 never shipped). */}}
+{{- $placeholder := "https://keycloak.org.local/realms/org" -}}
 {{- $sovFQDN := .Values.sovereign.fqdn | default "" -}}
 {{- $orgRealm := .Values.org.realm | default "" -}}
 {{- $smeSub := .Values.smeSubdomain | default "" -}}
