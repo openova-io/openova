@@ -312,18 +312,18 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 }
 
 type orgTenantResponse struct {
-	OrganizationID     string                        `json:"org_tenant_id"`
+	OrganizationID  string                           `json:"org_tenant_id"`
 	State           store.OrganizationProvisionState `json:"state"`
-	Subdomain       string                        `json:"subdomain"`
-	DomainMode      store.OrganizationDomainMode           `json:"domain_mode"`
-	BYODomain       string                        `json:"byo_domain,omitempty"`
-	ParentDomain    string                        `json:"parent_domain,omitempty"`
-	AdminEmail      string                        `json:"admin_email"`
-	CompanyName     string                        `json:"company_name,omitempty"`
-	OTECHFQDN       string                        `json:"otech_fqdn"`
-	VClusterName    string                        `json:"vcluster_name"`
-	TenantNamespace string                        `json:"tenant_namespace"`
-	ConsoleHost     string                        `json:"console_host"`
+	Subdomain       string                           `json:"subdomain"`
+	DomainMode      store.OrganizationDomainMode     `json:"domain_mode"`
+	BYODomain       string                           `json:"byo_domain,omitempty"`
+	ParentDomain    string                           `json:"parent_domain,omitempty"`
+	AdminEmail      string                           `json:"admin_email"`
+	CompanyName     string                           `json:"company_name,omitempty"`
+	OTECHFQDN       string                           `json:"otech_fqdn"`
+	VClusterName    string                           `json:"vcluster_name"`
+	TenantNamespace string                           `json:"tenant_namespace"`
+	ConsoleHost     string                           `json:"console_host"`
 	// Organizations model (issue #3378 B1) — surfaced so the directory
 	// can badge the org by kind/tier/billingMode/isolation.
 	Kind        string         `json:"kind,omitempty"`
@@ -427,7 +427,7 @@ func stepsForState(state store.OrganizationProvisionState, lastError string) org
 
 func orgTenantRecordToResponse(rec store.OrganizationProvisionRecord) orgTenantResponse {
 	return orgTenantResponse{
-		OrganizationID:     rec.OrganizationID,
+		OrganizationID:  rec.OrganizationID,
 		State:           rec.State,
 		Subdomain:       rec.Subdomain,
 		DomainMode:      rec.DomainMode,
@@ -630,7 +630,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 
 	orgTenantID := uuid.New().String()
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     orgTenantID,
+		OrganizationID:  orgTenantID,
 		State:           store.STSPending,
 		Subdomain:       subdomain,
 		DomainMode:      store.OrganizationDomainMode(mode),
@@ -970,14 +970,14 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 			realmURL := fmt.Sprintf("https://keycloak.%s.%s/realms/%s",
 				rec.Subdomain, realmZone, "org-"+rec.Subdomain)
 			reg := store.TenantRegistration{
-				Host:                 host,
-				TenantID:             rec.OrganizationID,
-				TenantKind:           store.TenantKindOrg,
-				KeycloakRealmURL:     realmURL,
-				KeycloakClientID:     "catalyst-ui",
-				OrganizationNamespace:   rec.TenantNamespace,
-				OrgKeycloakAdminURL:  fmt.Sprintf("http://keycloak-%s.%s.svc:8080", rec.Subdomain, rec.TenantNamespace),
-				OrgKeycloakRealmName: "org-" + rec.Subdomain,
+				Host:                  host,
+				TenantID:              rec.OrganizationID,
+				TenantKind:            store.TenantKindOrg,
+				KeycloakRealmURL:      realmURL,
+				KeycloakClientID:      "catalyst-ui",
+				OrganizationNamespace: rec.TenantNamespace,
+				OrgKeycloakAdminURL:   fmt.Sprintf("http://keycloak-%s.%s.svc:8080", rec.Subdomain, rec.TenantNamespace),
+				OrgKeycloakRealmName:  "org-" + rec.Subdomain,
 			}
 			if err := deps.TenantRegistry.Put(reg); err != nil {
 				return failTransient(rec, "registry", err)
@@ -1001,6 +1001,18 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		// provision (the substrate is already valid), and the org-controller's
 		// level-triggered reconcile + a pipeline re-run land the CR on retry.
 		h.createOrgOrganizationCR(ctx, rec)
+
+		// #4075 — make the Org's console host (console.<slug>.<parent>) serve
+		// TLS. A free-subdomain Org on a role=org-pool parent (omani.homes/
+		// rest/trade/works) needs three resources the substrate above never
+		// provisioned: a wildcard Certificate for *.<slug>.<parent>, a
+		// listener pair on cilium-gateway-console binding it, and the console
+		// HTTPRoute → catalyst-ui/catalyst-api. Best-effort + idempotent +
+		// non-gating (mirrors createOrgOrganizationCR): a transient apiserver
+		// failure logs loud but does NOT fail the provision (the substrate is
+		// valid), and a later reconcile / HandleReconcileOrganization pass
+		// re-applies the trio. BYO Orgs are skipped (own cert + CNAME).
+		h.provisionOrgConsoleTLS(ctx, rec)
 
 		rec.State = store.STSDone
 		rec.LastError = ""
