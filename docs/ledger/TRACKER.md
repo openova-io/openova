@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T08:45:02Z` |
+| Last refreshed | `2026-06-22T09:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 98 |
 | Open DoD gates | 0 / 41 |
@@ -305,6 +305,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T08:50 | [#4115](https://github.com/openova-io/openova/pull/4115) | #4114 | fix(agenity): make the chat->provision North Star work live  |
 | 2026-06-22T08:38 | [#4112](https://github.com/openova-io/openova/pull/4112) | #4110 | fix(catalyst): SECURITY — customer Org console must be Org-s |
 | 2026-06-22T07:24 | [#4108](https://github.com/openova-io/openova/pull/4108) | #4107 | fix(bootstrap-kit-crs): harbor-pg/gitea-pg/guacamole-pg cnpg |
 | 2026-06-22T07:18 | [#4106](https://github.com/openova-io/openova/pull/4106) | #4098 | fix(bp-agenity): bump chart 0.1.0->0.2.0 so published artifa |
@@ -334,7 +335,6 @@ flowchart LR
 | 2026-06-21T18:38 | [#4063](https://github.com/openova-io/openova/pull/4063) | #4061 | fix(bp-catalyst-platform): permanent Sovereign no longer aut |
 | 2026-06-21T18:11 | [#4062](https://github.com/openova-io/openova/pull/4062) | #4058 | refactor(catalog): rebrand bp-chepherd → bp-agenity (product |
 | 2026-06-21T15:54 | [#4056](https://github.com/openova-io/openova/pull/4056) | #4055 | fix(catalyst-api): enforce Huawei resource floor — CP≥4vCPU, |
-| 2026-06-21T18:27 | [#4054](https://github.com/openova-io/openova/pull/4054) | #4053 | fix(bp-cilium): poison-proof console gateway isolation — ded |
 
 ---
 
