@@ -87,4 +87,20 @@ rules:
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # #3375 DoD-3 / #4082 — the per-app Continuum DR contract the controller
+  # mints for every DR-capable Application (one dr-<app> CR per app, so
+  # `kubectl get continuums.dr.openova.io -A` shows a per-app roster). The
+  # producer upserts on reconcile + cascade-deletes on Application delete /
+  # topology-downgrade, so it needs the full write verb set on this CR.
+  #
+  # #4082 (2026-06-22): this rule was present in the controller's own
+  # deploy/rbac.yaml but MISSING here in the platform chart that actually
+  # ships to every Sovereign. A singleton (or topology-downgraded)
+  # Application drives reconcileContinuumCR -> deleteContinuumCRIfExists,
+  # which 403s without `delete` on this CR — the Application then wedges at
+  # Degraded/RenderError forever (caught live on omantel.biz dep
+  # 4635277cae4ffed9 with the agenity singleton). Mirror deploy/rbac.yaml.
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 {{- end }}

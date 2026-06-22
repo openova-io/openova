@@ -203,6 +203,46 @@ type Reconciler struct {
 	// IacBootstrapTokens is the per-Org robot-token store (OpenBao
 	// KV-v2 in production). Nil disables the bootstrap flow.
 	IacBootstrapTokens iacbootstrap.TokenStore
+
+	// ──────────────────────────────────────────────────────────────
+	// Per-pool console-TLS wiring (issue #4075).
+	//
+	// When an Organization picks a free-subdomain hostname under a pool
+	// parent zone (e.g. `console.<slug>.omani.homes`), the Cilium
+	// console Gateway needs (a) a `*.<parentDomain>` TLS Secret to
+	// terminate on and (b) a listener bound to that hostname+Secret.
+	// Neither exists out of the box — the bootstrap-rendered console
+	// Gateway only carries the apex `*.<sovFQDN>` listener + cert. The
+	// result is ERR_CONNECTION_CLOSED on the customer-Org console URL
+	// (no SNI match → no cert → TLS handshake closed), which blocked
+	// the agentic customer journey (#4075). reconcileTenantConsoleTLS
+	// closes that gap by issuing a cert-manager Certificate per pool
+	// parent and appending a matching listener to the console Gateway.
+	// All values flow through env per Inviolable Principle #4.
+
+	// ConsoleGatewayName / ConsoleGatewayNamespace identify the
+	// dedicated console Cilium Gateway (#4053 blast-radius isolation)
+	// the per-Org console HTTPRoute attaches to and the per-pool
+	// `*.<parentDomain>` listener is appended to. Defaults:
+	// cilium-gateway-console / kube-system (matches
+	// clusters/_template/sovereign-tls/cilium-gateway-console.yaml).
+	ConsoleGatewayName      string
+	ConsoleGatewayNamespace string
+
+	// ConsoleTLSClusterIssuer is the cert-manager ClusterIssuer that
+	// solves the per-pool `*.<parentDomain>` Certificate. It MUST be a
+	// DNS-01 issuer whose solver covers the pool parent zone (a
+	// wildcard SAN cannot be issued via HTTP-01). Default:
+	// letsencrypt-dns01-prod-powerdns (the PowerDNS DNS-01 ClusterIssuer
+	// every Sovereign installs via bp-cert-manager-powerdns-webhook).
+	ConsoleTLSClusterIssuer string
+
+	// ConsoleTLSCertNamespace is the namespace the per-pool wildcard
+	// Certificate + Secret are written to. MUST equal the console
+	// Gateway's namespace so the Gateway's certificateRefs (Secret,
+	// same-namespace by default) resolve without a ReferenceGrant.
+	// Default: kube-system.
+	ConsoleTLSCertNamespace string
 }
 
 // SetupWithManager registers the reconciler with the controller-runtime
@@ -422,11 +462,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.fail(ctx, &org, idpCond.Reason, fedErr.Error())
 	}
 
+	// 5a-bis. Per-pool console TLS (issue #4075). When the Org picks a
+	// free-subdomain hostname under a pool parent zone, issue the
+	// `*.<parentDomain>` cert-manager Certificate AND append the matching
+	// `*.<parentDomain>` listener to the dedicated console Gateway, so the
+	// Gateway can terminate TLS for `console.<slug>.<parentDomain>`.
+	// Without these, the customer-Org console URL fails with
+	// ERR_CONNECTION_CLOSED (no SNI match → no cert → TLS handshake
+	// closed) even when the HTTPRoute below is present. Both writes are
+	// idempotent + strictly additive (never touch the apex `*.<sovFQDN>`
+	// listener). Failure here is TRANSIENT (DNS-01 issuance latency or a
+	// momentary Gateway-update conflict) and must NOT fail the whole Org
+	// reconcile — we log and let the 30s requeue retry, so the Org still
+	// goes Ready (Keycloak group + Gitea Org + vCluster already landed)
+	// while the cert finishes issuing. No-op when parentDomain is empty.
+	if _, err := r.reconcileTenantConsoleTLS(ctx, &org); err != nil {
+		log.Error(err, "tenant console TLS reconcile (transient — requeue)",
+			"organization", org.Name)
+	}
+
 	// 5b. Per-tenant public-hostname HTTPRoute (issue #1629 follow-up).
 	// When `spec.tenantPublic.parentDomain` is set, render a Gateway-API
 	// HTTPRoute attaching `<subdomain>.<parentDomain>` to the supplied
-	// backend Service on the canonical cilium-gateway. No-op when the
-	// field is empty — Orgs that don't yet have a public hostname keep
+	// backend Service on the dedicated console Gateway (#4075). No-op when
+	// the field is empty — Orgs that don't yet have a public hostname keep
 	// working via the Sovereign-wide `*.<sovFQDN>` tenant-wildcard
 	// route. Failure is non-fatal for the Org's other reconciliation
 	// outputs (Keycloak group + Gitea Org + vCluster manifests already
