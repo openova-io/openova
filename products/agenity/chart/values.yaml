@@ -38,6 +38,15 @@ agent:
   # When true, NO shepherd/supervisor is spawned — a single solo agent only
   # (matches the catalog/solo recipe). The journey is a 1:1 chat with one agent.
   solo: true
+  # When true, blank the in-cluster KUBERNETES_SERVICE_HOST/PORT env so the
+  # chepherd daemon does NOT auto-select the `operator` (K8s-Job) spawner —
+  # which requires an unshipped bp-chepherd-operator (upstream #130) and makes
+  # every "+ spawn agent" fail with "operator spawner not yet wired". With it
+  # blanked the daemon falls through to the in-pod podman-sidecar→BareExec
+  # spawner that forks the agent on the chepherd host directly (#4111). The
+  # spawned agent talks to catalyst-api over the PUBLIC console URL, so it
+  # needs no in-cluster apiserver access.
+  forceLocalSpawner: true
 
 # ── Anthropic API token (the "token already configured" requirement) ──────
 # The solo agent authenticates to Anthropic with this token. It is sourced
@@ -110,17 +119,61 @@ openovaMCP:
   rs256PubkeySecret:
     name: catalyst-handover-jwt
     key: handover-jwt-public.pem
-  # ── Per-call bearer injection (#4111) ───────────────────────────────────
+  # ── Per-call bearer injection (#4111 / #4116 / #4110) ────────────────────
   # The openova MCP needs the User's session bearer per tools/call (via
   # _auth.token or the OPENOVA_MCP_BEARER env). The production seam is the
   # chat UI forwarding the signed-in User's session token into each call;
   # that chepherd-side injection is tracked separately. As an interim, an
-  # operator may supply a bearer Secret the chart wires as OPENOVA_MCP_BEARER
-  # (admin-tier, Org-pinned, RS256-signed by the handover signer). Empty =
+  # operator may supply a bearer Secret the chart wires as OPENOVA_MCP_BEARER.
+  #
+  # 🛑 For an ORG-deployed agenity (the customer's own Organization, e.g. the
+  # demo Org on omantel.biz) the bearer MUST be ORG-SCOPED, NOT sovereign-admin:
+  #   - tier: "org-admin"  (auth.OrgScopedTier — the top-of-OWN-Org marker)
+  #   - org_id / org: "<org-slug>"  (e.g. "demo")
+  #   - role: "openova-user"; typ: "session"; iss: <CATALYST_PIN_ISSUER>
+  #   - RS256-signed by the Sovereign's handover signer
+  #     (/var/lib/catalyst/handover-jwt-private.pem — the SAME key whose pubkey
+  #      is in catalyst-handover-jwt/handover-jwt-public.pem, what the MCP
+  #      verifies against in rs256 mode).
+  # This shape resolves in the openova-mcp to (context=organization, tier=admin,
+  # org_id=<org>) — so create_application (MinTier=Admin) is allowed and routes
+  # to the own-org POST /api/v1/org/applications path (OrgScopeGuard-allowlisted,
+  # #4116), and the #4110 confinement holds (no Sovereign signal in the token).
+  # A sovereign-admin bearer (tier=owner / role=sovereign-admin) is WRONG here:
+  # the MCP would resolve context=sovereign and create_application falls through
+  # to POST /api/v1/sovereigns/{id}/applications, which the #4110 OrgScopeGuard
+  # 403s because the MCP also host-scopes the session (X-Tenant-Host) → the
+  # "org-scoped-forbidden" wedge this seam exists to avoid.
+  #
+  # MUST pair with openovaMCP.context=organization (the default below). Empty =
   # rely on per-call _auth.token from the UI seam.
   bearerSecret:
     name: ""
     key: bearer
+
+# ── Daemon HTTP auth (browser chat-box trust mode) ────────────────────────
+# The chepherd daemon's default auth mode is "local": it mints a bootstrap
+# Bearer token and the authMiddleware enforces it on every /api/v1/* path.
+# The dashboard SPA's fetch() calls do NOT carry that token (only the SSE
+# stream gets it as a ?token= query param), so the browser chat box 401s on
+# GET /api/v1/sessions, /teams, /inbox … and the User cannot drive the chat
+# hands-on (#4122).
+#
+# This Agenity Application is already isolated per-Org behind the Cilium
+# Gateway + the Org's own host (agenity.<org>.<sovereign-fqdn>), reachable
+# only by the signed-in User — so the daemon's own per-request Bearer is
+# redundant defense. Setting authMode to a non-{local,oidc} value makes
+# chepherd's auth.New() return an error, the daemon logs "server is
+# unauthenticated", rs.AuthToken stays empty, and authMiddleware becomes a
+# no-op — the browser chat box works with zero 401s. The openova-mcp →
+# catalyst-api create_application path is UNAFFECTED (it uses the separate
+# RS256 OPENOVA_MCP_BEARER / _auth.token seam, not this daemon token).
+daemon:
+  # "none" → daemon runs unauthenticated so the in-browser chat box works.
+  # Set to "local" to restore the per-request Bearer (chat box then 401s in
+  # the browser until the SPA is taught to attach the token). "oidc" requires
+  # CHEPHERD_OIDC_ISSUER.
+  authMode: none
 
 # ── Service (Agenity web UI + dashboard WS + MCP) ─────────────────────────
 service:
@@ -135,6 +188,20 @@ httpRoute:
   parentRef:
     name: catalyst-gateway
     namespace: catalyst-system
+  # Bare-root → dashboard redirect (#4122). The chepherd daemon serves its
+  # upstream MARKETING landing at `/` and the real chat-to-provision
+  # DASHBOARD SPA at `/app/`. The User opens the bare Org host, so the route
+  # redirects EXACT `/` to the dashboard; all other paths (assets, /api,
+  # /healthz, WS, /app/*) pass through untouched. Disable only if a future
+  # daemon build serves the dashboard at root itself.
+  dashboardRedirect:
+    enabled: true
+    path: /app/         # the dashboard SPA path the daemon serves
+    statusCode: 302     # un-cached temporary redirect
+    # External HTTPS port for the Location header. MUST be the public port
+    # (443), never the Gateway listener NodePort (e.g. 31443) — a NodePort
+    # in Location is unreachable behind a cloud ELB and hangs the browser.
+    port: 443
 
 # ── Persistence — chepherd runtime state + per-agent repo/cache ───────────
 # CSI-backed PVCs. storageClass empty = the cluster's default CSI class.
@@ -165,6 +232,17 @@ podAnnotations: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# Run the daemon + the forked claude-code agents as the SAME non-root uid so the
+# agent can read the per-session .mcp.json the daemon writes (#4111). chepherd
+# forks agents as uid 1000 (the "chepherd" user); pinning the pod there avoids
+# the root-owned-0700 session-dir EACCES that otherwise kills every spawn.
+# fsGroup makes the CSI state/repo PVCs group-writable for the non-root daemon.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
 
 # rootless podman-in-pod needs /dev/fuse + relaxed seccomp; gated so a
 # locked-down cluster can disable the in-pod spawner and use an external one.

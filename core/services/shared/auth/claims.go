@@ -110,6 +110,17 @@ type Claims struct {
 	// call doesn't re-query Keycloak.
 	Capabilities []string `json:"capabilities,omitempty"`
 
+	// Tier — the precomputed catalog tier the bearer holds, the flattened
+	// projection of the bearer's highest realm role (viewer < developer <
+	// operator < admin < owner) PLUS the distinguished Org-scoped marker
+	// `org-admin` (auth.OrgScopedTier) a customer session minted on an Org
+	// console carries. catalyst-api's PIN-session mint stamps this claim
+	// (HandlePinVerify); the MCP identity resolver reads it (deriveTier) so
+	// an Org-scoped customer is recognised as the admin of THEIR own Org
+	// (without ever carrying a Sovereign-admin signal). Empty on legacy
+	// tokens — consumers fall back to the `role` claim.
+	Tier string `json:"tier,omitempty"`
+
 	// SovereignFQDN — populated on Sovereign-side sessions (set by
 	// /auth/handover when the operator arrived from the wizard).
 	// Empty on Catalyst-Zero (mothership) sessions.

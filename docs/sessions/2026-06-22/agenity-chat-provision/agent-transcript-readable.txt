@@ -1,0 +1,33 @@
+TOOL_USE: ToolSearch {"query": "select:mcp__chepherd__chepherd_get_task", "max_results": 1}
+TOOL_RESULT: [{"type": "tool_reference", "tool_name": "mcp__chepherd__chepherd_get_task"}]
+TOOL_USE: mcp__chepherd__chepherd_get_task {"taskID": "019eefa7-db69-71b5-90a9-ade55e6bd20f"}
+TOOL_RESULT: [{"type": "text", "text": "{\"input\":{\"role\":\"user\",\"parts\":[{\"kind\":\"text\",\"text\":\"@demo-prov Use the openova MCP create_application tool to create a wordpress app named test-shop (blueprint bp-wordpress) in my org. Then confirm with list_applications.\"}],\"contextId\":\"demo-prov\",
+TOOL_USE: ToolSearch {"query": "select:mcp__openova__create_application,mcp__openova__list_applications,mcp__openova__list_organizations,mcp__openova__whoami", "max_results": 4}
+TOOL_RESULT: [{"type": "tool_reference", "tool_name": "mcp__openova__create_application"}, {"type": "tool_reference", "tool_name": "mcp__openova__list_applications"}, {"type": "tool_reference", "tool_name": "mcp__openova__list_organizations"}, {"type": "tool_reference", "tool_name": "mcp__openova__whoami"}]
+TOOL_USE: mcp__openova__whoami {}
+TOOL_RESULT: [{"type": "text", "text": "{\"context\":\"sovereign\",\"deployment_id\":\"4635277cae4ffed9\",\"email\":\"demo@openova.io\",\"org_id\":\"\",\"sovereign_admin\":true,\"sovereign_fqdn\":\"\",\"tier\":\"sovereign-admin\"}"}]
+TOOL_USE: mcp__openova__list_organizations {}
+TOOL_RESULT: MCP error -32010: upstream error
+ASSISTANT: I'm running as sovereign-admin (no implicit org), and the operator said "my org" without naming it. `list_organizations` errored out, and the create call requires both an explicit `organization` and a `version` for the blueprint. Let me retry the org listing, then check environments to infer the org.
+TOOL_USE: mcp__openova__list_organizations {}
+TOOL_RESULT: MCP error -32010: upstream error
+TOOL_USE: ToolSearch {"query": "select:mcp__openova__list_environments", "max_results": 1}
+TOOL_RESULT: [{"type": "tool_reference", "tool_name": "mcp__openova__list_environments"}]
+TOOL_USE: mcp__openova__list_environments {}
+TOOL_USE: mcp__openova__list_applications {}
+TOOL_RESULT: MCP error -32010: upstream error
+TOOL_RESULT: MCP error -32010: upstream error
+ASSISTANT: The openova upstream is returning errors on all the read endpoints, so I can't auto-discover the org or available blueprint version. Both are required for the create. I need to ask the operator.
+TOOL_USE: ToolSearch {"query": "select:mcp__chepherd__chepherd_send_to_session", "max_results": 1}
+TOOL_RESULT: [{"type": "tool_reference", "tool_name": "mcp__chepherd__chepherd_send_to_session"}]
+TOOL_USE: mcp__chepherd__chepherd_send_to_session {"name": "operator", "body": "@operator Need two inputs before I can call openova.create_application:\n\n1. **Organization** \u2014 whoami resolved me as sovereign-admin (demo@openova.io, no implicit 
+TOOL_RESULT: {"error":"no such session: operator"}
+TOOL_USE: ToolSearch {"query": "select:mcp__chepherd__chepherd_alert_human", "max_results": 1}
+TOOL_RESULT: [{"type": "tool_reference", "tool_name": "mcp__chepherd__chepherd_alert_human"}]
+TOOL_USE: mcp__chepherd__chepherd_alert_human {"kind": "question", "urgency": "medium", "body": "Need two inputs before I can call openova.create_application for test-shop:\n\n1. Organization \u2014 whoami resolved me as sovereign-admin (demo@ope
+TOOL_RESULT: [{"type": "text", "text": "{\"ok\":true}"}]
+ASSISTANT: Blocked — can't proceed yet. Two things missing for `create_application`:
+
+1. **Organization** — `whoami` says I'm a `sovereign-admin` (demo@openova.io) with no implicit org, so the tool requires an explicit `organization` slug or FQDN. I tried to auto-discover via `list_organizations`, `list_environments`, and `list_applications`, but all three return `MCP error -32010: upstream error`. Which org should `test-shop` install into?
+
+2. **Blueprint version** — `create_application` requires a pinned

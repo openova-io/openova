@@ -29,23 +29,30 @@
 
 # AGENITY_REF pins the PUBLIC agenity (chepherd daemon) source ref. It is
 # declared HERE — before the first FROM — so it lives in the global build
-# scope and is honoured by the `git clone --branch ${AGENITY_REF}` in the
-# fetch stage. A bare `ARG AGENITY_REF` is re-declared inside each stage
-# that needs it (Principle #4: no hardcoded value where a build-arg belongs).
-# Default-pinned to v0.9.4, which matches the bp-agenity chart appVersion
-# and carries the bp-agenity MCP seam (chepherd #747 / #4010:
-# CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
-ARG AGENITY_REF=v0.9.4
+# scope and is honoured by the SHA-pinned fetch in the fetch stage. A bare
+# `ARG AGENITY_REF` is re-declared inside each stage that needs it
+# (Principle #4: no hardcoded value where a build-arg belongs).
+#
+# Pinned to the #745 merge commit (agenity-org/agenity main HEAD as of
+# 2026-06-22) — the NEW agenity dashboard. v0.9.4 (the prior pin) predated
+# #745, so the demo served the OLD "archaic" dashboard. There is no tag for
+# the #745 merge yet, so we pin the exact COMMIT SHA (never floating main).
+# When agenity cuts a v0.9.5+ tag covering this commit, swap this to the tag.
+ARG AGENITY_REF=bcd38b15816694e82bddbbc9d6385ff3de00e3cf
 
 # ─── Stage 0: fetch the PUBLIC agenity (chepherd daemon) source ────────────
-# git is the pin mechanism: --branch accepts a tag or branch, and we keep a
-# pinned tag (never floating main). The repo is public, so no auth/token is
-# needed in CI.
+# git is the pin mechanism. AGENITY_REF may be a tag, a branch, OR a bare
+# commit SHA — `git clone --branch` rejects a SHA, so we init + fetch the
+# exact ref + checkout FETCH_HEAD, which accepts all three. GitHub allows
+# fetching a reachable full SHA (uploadpack.allowReachableSHA1InWant), so a
+# pinned commit works without auth. The repo is public — no token needed.
 FROM alpine/git:latest AS agenity-src
 ARG AGENITY_REF
 WORKDIR /src
-RUN git clone --depth 1 --branch "${AGENITY_REF}" \
-      https://github.com/agenity-org/agenity.git . \
+RUN git init -q \
+ && git remote add origin https://github.com/agenity-org/agenity.git \
+ && git fetch -q --depth 1 origin "${AGENITY_REF}" \
+ && git checkout -q FETCH_HEAD \
  && echo "fetched agenity@${AGENITY_REF}: $(git rev-parse HEAD)"
 
 # ─── Stage 1: build the Agenity web UI (mirrors public Containerfile S1) ───
