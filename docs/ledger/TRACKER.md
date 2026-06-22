@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T12:00:03Z` |
+| Last refreshed | `2026-06-22T12:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
 | [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
 | [#3383](https://github.com/openova-io/openova/issues/3383) | ORGANIZATIONS: one machinery, one name — eradicate the sme/tenant-named subsys | Other |
 | [#3581](https://github.com/openova-io/openova/issues/3581) | Regenerate the UAT walkthrough doc set with fresh live evidence on the CURRENT e | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#4116](https://github.com/openova-io/openova/issues/4116) | Make the DEMO CUSTOMER agentic journey real IN the demo Org (omantel.biz / dep 4 | Other |
 | [#4118](https://github.com/openova-io/openova/issues/4118) | agenity-build: published image can silently ship WITHOUT node/claude-code (Docke | Other |
 | [#4119](https://github.com/openova-io/openova/issues/4119) | Org console still mounts the Sovereign provisioning/deployment-stream wizard for | Other |
+| [#4122](https://github.com/openova-io/openova/issues/4122) | agenity.demo.omani.homes/ serves chepherd MARKETING landing instead of the actua | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T12:10 | [#4121](https://github.com/openova-io/openova/pull/4121) | #4112 | fix(catalyst): SECURITY #4110 — host-anchor Org-console scop |
 | 2026-06-22T11:03 | [#4120](https://github.com/openova-io/openova/pull/4120) | #4110 | fix(catalyst): Org console — project the Org's OWN apps + ki |
 | 2026-06-22T10:13 | [#4117](https://github.com/openova-io/openova/pull/4117) | #4110 | feat(catalyst+mcp): Org-scoped Application install — custome |
 | 2026-06-22T08:50 | [#4115](https://github.com/openova-io/openova/pull/4115) | #4114 | fix(agenity): make the chat->provision North Star work live  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-06-21T17:54 | [#4066](https://github.com/openova-io/openova/pull/4066) | #1 | feat(provisioning): storage class is a choosable user input  |
 | 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
 | 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
-| 2026-06-21T18:38 | [#4063](https://github.com/openova-io/openova/pull/4063) | #4061 | fix(bp-catalyst-platform): permanent Sovereign no longer aut |
 
 ---
 
