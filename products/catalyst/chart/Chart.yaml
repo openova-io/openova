@@ -2974,7 +2974,10 @@ name: bp-catalyst-platform
 #   handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER now defaults false via
 #   catalystApi.fireCutoverOnHandover). Cutover is a DELIBERATE BSS-menu action; the
 #   operator-initiated path is unchanged (NO-REGRESS).
-version: 1.4.779
+version: 1.4.780
+# 1.4.780 — #4082: pin application-controller 34ff594->6d7aacd (#4079/#4080 RFC-1123
+#   HR-name fix) so fanned-out Applications (agenity/WordPress) stop wedging Degraded
+#   on the invalid `agenity-rtz-A` HelmRelease name. Verified live on omantel.biz.
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /

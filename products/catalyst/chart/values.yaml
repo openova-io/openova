@@ -624,7 +624,10 @@ controllers:
       # the current organization-controller GHCR tag to clear the staleness gate.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 300d853 had drifted 174 commits behind latest GHCR.
-      tag: "34ff594"
+      # 2960d04 (2026-06-22, #4082) — freshness-guard sweep: 34ff594 had drifted
+      # 202 commits behind latest GHCR 2960d04 (the #2851 deploy-bot sweep lagged);
+      # bumped here so the controller-image-tag freshness guard passes.
+      tag: "2960d04"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -821,7 +824,18 @@ controllers:
       # Application lives in a different namespace from flux-system).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      # 6d7aacd (2026-06-22, #4079/#4080) — REQUIRED: lowercases the composed
+      # per-cluster HelmRelease name (HRNameFor) + defaults sourceRef.kind.
+      # 34ff594 predates this and emits an INVALID RFC-1123 name like
+      # `agenity-rtz-A` (the cluster token RegionA keeps its case), wedging
+      # every fanned-out Application (agenity / WordPress) at PHASE=Degraded:
+      # "HelmRelease 'agenity-rtz-A' is invalid: a lowercase RFC 1123 subdomain
+      # ... spec.chart.spec.sourceRef.kind: Required value". Verified live on
+      # the omantel.biz Sovereign (org demo, vcluster rtz) 2026-06-22 — the
+      # agenity StatefulSet ran but the Application stayed Degraded until this
+      # pin. The #2851 deploy-bot sweep re-pinned 34ff594; pin 6d7aacd here so
+      # a fresh prov gets the RFC-1123-safe controller deterministically.
+      tag: "6d7aacd"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
