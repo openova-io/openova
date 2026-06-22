@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T18:15:02Z` |
+| Last refreshed | `2026-06-22T18:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3642](https://github.com/openova-io/openova/issues/3642) | NS#1: migrate the 7 host-placed apps (grafana/harbor/keycloak/gitea/openbao/newa | Other |
 | [#3724](https://github.com/openova-io/openova/issues/3724) | CI: cloud-init 32256B size gate must run as a required PR check — #3715 broke  | Other |
 | [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
 | [#3744](https://github.com/openova-io/openova/issues/3744) | Funnel: credit-covered redeem double-fires provisioning → Gitea sme-tenants re | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#4136](https://github.com/openova-io/openova/issues/4136) | fix(bp-valkey): chart renders bare dockerhub refs (bitnami/valkey:latest + os-sh | Other |
 | [#4139](https://github.com/openova-io/openova/issues/4139) | Demo Org wordpress apps blocked: bp-wordpress-tenant 0.4.1 local-path PVC denied | Other |
 | [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
+| [#4148](https://github.com/openova-io/openova/issues/4148) | fix(bp-stalwart-tenant): per-Org Stalwart never converges on fresh prov — v0.1 | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T18:24 | [#4149](https://github.com/openova-io/openova/pull/4149) | #817 | fix(bp-stalwart-tenant): converge per-Org Stalwart on fresh  |
 | 2026-06-22T17:44 | [#4147](https://github.com/openova-io/openova/pull/4147) | #3971 | fix(bp-wordpress-tenant): wp-plugin-install init runs as roo |
+| 2026-06-22T18:24 | [#4146](https://github.com/openova-io/openova/pull/4146) | #4053 | fix(SSO): per-Org realm registers catalyst-ui + Org keycloak |
 | 2026-06-22T15:38 | [#4142](https://github.com/openova-io/openova/pull/4142) | #4140 | fix(#4139): bp-wordpress-tenant active-hot-standby CNPG sync |
 | 2026-06-22T15:23 | [#4141](https://github.com/openova-io/openova/pull/4141) | #3985 | fix(#4139): unblock bp-wordpress-tenant publish — repair #39 |
 | 2026-06-22T15:16 | [#4140](https://github.com/openova-io/openova/pull/4140) | #3971 | fix(#4139): demo-Org convergence — empty wpContent.storageCl |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-06-22T06:35 | [#4087](https://github.com/openova-io/openova/pull/4087) | #4085 | feat: per-resource Compliance tab renders THAT resource's ow |
 | 2026-06-22T03:50 | [#4080](https://github.com/openova-io/openova/pull/4080) | #4077 | fix(application-controller): valid RFC-1123 HR names + defau |
 | 2026-06-22T03:50 | [#4078](https://github.com/openova-io/openova/pull/4078) | #4077 | fix(catalyst): org-controller auto-ensures <org>-prod Enviro |
-| 2026-06-22T03:50 | [#4076](https://github.com/openova-io/openova/pull/4076) | #4075 | fix(catalyst): Enter-org targets stored pool console host +  |
-| 2026-06-21T23:44 | [#4072](https://github.com/openova-io/openova/pull/4072) | #4071 | fix(catalyst-api): disable client-go WatchListClient gate —  |
 
 ---
 
