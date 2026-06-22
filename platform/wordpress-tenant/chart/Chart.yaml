@@ -118,7 +118,7 @@ name: bp-wordpress-tenant
 #     prefix for a host-qualified repository (first "/"-segment has a "." or ":")
 #     so a harbor overlay can't double-prefix the ghcr ref (mirrors the canonical
 #     bp-sso-bridge.image #2940 skip); also tolerate an empty digest (omit @digest).
-version: 0.4.9
+version: 0.4.10
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
@@ -162,7 +162,6 @@ keywords:
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-
 # Scratch chart — see comments in bp-newapi/chart/Chart.yaml for the
 # rationale on the `common` library subchart dependency (issue #181
 # hollow-chart gate).

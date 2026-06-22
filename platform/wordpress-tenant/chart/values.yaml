@@ -24,17 +24,15 @@ global:
   # (image references use upstream defaults). Per-Sovereign overlays
   # wire this at install time. Tracked under #560.
   imageRegistry: ""
-
 catalystBlueprint:
   upstream:
-    chart: ""              # scratch chart — no upstream Helm chart
+    chart: "" # scratch chart — no upstream Helm chart
     version: ""
     repo: ""
     images:
       # #4152 — custom WordPress image (official base + pdo_pgsql/pgsql for
       # pg4wp → bp-cnpg Postgres). See wordpress.image below + image/Dockerfile.
       wordpress: "ghcr.io/openova-io/openova/wordpress-tenant-pg"
-
 # ─── Organization tenant identity ────────────────────────────────────────────────
 # `orgDomain` is the customer's free-subdomain (e.g. acme.<otech-fqdn>)
 # OR BYO domain (e.g. acme.com); supplied by the tenant-provisioning
@@ -47,7 +45,6 @@ catalystBlueprint:
 # (which runs with no overrides) produces valid YAML; per-Sovereign
 # overlays MUST override.
 orgDomain: "org.local"
-
 # ─── WordPress application ──────────────────────────────────────────────
 wordpress:
   enabled: true
@@ -57,7 +54,6 @@ wordpress:
   # storage classes the PVC pins replicas to 1 — operators that need
   # >1 must switch to ReadWriteMany on persistence.wpContent.storageClass).
   replicas: 1
-
   image:
     # #4152 — CUSTOM WordPress image: the official `wordpress:6-php8.3-apache`
     # base + the PostgreSQL PHP extensions (`pdo_pgsql` / `pgsql`) that pg4wp
@@ -81,16 +77,14 @@ wordpress:
     # digest of the published image; the human-readable tag is kept alongside
     # for forensics.
     repository: ghcr.io/openova-io/openova/wordpress-tenant-pg
-    tag: "latest"
+    tag: "b513b45"
     # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
     # build workflow's build-push-action `outputs.digest` on first build.
     # Empty until then; the helper omits `@digest` when empty so the chart
     # still renders + pulls by tag during the bootstrap window.
-    digest: ""
+    digest: "sha256:4c80995efad75400ef4a3ca34666cdac421abf4c9285b21cdaf33c85241c0b6c"
     pullPolicy: IfNotPresent
-
   port: 80
-
   resources:
     requests:
       cpu: 100m
@@ -98,7 +92,6 @@ wordpress:
     limits:
       cpu: 1
       memory: 512Mi
-
   # SecurityContext — the official WordPress image runs Apache as
   # `www-data` (UID 33). Keep readOnlyRootFilesystem=false because the
   # WP boot script writes `wp-config.php` and Apache touches /run.
@@ -112,7 +105,6 @@ wordpress:
     allowPrivilegeEscalation: false
     capabilities:
       drop: ["ALL"]
-
   # Liveness / readiness — WordPress's default `/wp-admin/install.php`
   # responds 200/302 once the Apache + PHP stack is up. We hit `/`
   # which redirects to `/wp-admin/install.php` on first boot and to
@@ -130,7 +122,6 @@ wordpress:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
-
 # ─── Database (bp-cnpg in tenant namespace) ─────────────────────────────
 # Per the bp-gitea / bp-harbor pattern (templates/cnpg-cluster.yaml):
 # this chart provisions a dedicated `Cluster.postgresql.cnpg.io` for
@@ -165,7 +156,6 @@ database:
   #
   # Empty default → fall through to the legacy boolean for back-compat.
   mode: ""
-
   # CNPG Cluster name & topology — operator-overridable via cluster
   # overlay. Defaults to a tenant-isolated cluster sized for Organization usage.
   cnpgClusterName: "wordpress-db"
@@ -187,7 +177,7 @@ database:
     database: "wordpress"
     owner: "wordpress"
     storageSize: "10Gi"
-    storageClass: ""  # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
+    storageClass: "" # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
     resources:
       requests:
         cpu: 100m
@@ -197,7 +187,6 @@ database:
   # The reflector-managed wrapper Secret WordPress reads. Always carries
   # at minimum the `password` key (mirrored from `<cluster>-app`).
   secretName: "wordpress-database-secret"
-
 # ─── Postgres topology (D31 active-hot-standby) ─────────────────────────
 # Sovereign DoD D31 — tenants subscribing to an HA-capable marketplace
 # app (catalog Tags include `ha` + `cnpg-pair`) may opt into a cross-
@@ -271,13 +260,12 @@ pg:
       sync:
         commit: remote_apply
         numSync: 1
-    # NOTE: instances/storage/resources are NOT re-declared here. The
-    # primary + replica BOTH inherit from `database.cluster.{instances,
-    # storageSize,storageClass,resources}` above so the operator wizard
-    # tunes ONE sizing block and both sides stay symmetric. Operator
-    # bumps `database.cluster.instances` to >=3 + storageSize to >=100Gi
-    # when ticking the HA checkbox per the D31 sizing guidance.
-
+        # NOTE: instances/storage/resources are NOT re-declared here. The
+        # primary + replica BOTH inherit from `database.cluster.{instances,
+        # storageSize,storageClass,resources}` above so the operator wizard
+        # tunes ONE sizing block and both sides stay symmetric. Operator
+        # bumps `database.cluster.instances` to >=3 + storageSize to >=100Gi
+        # when ticking the HA checkbox per the D31 sizing guidance.
 # ─── SSO via Organization-vcluster Keycloak (openid-connect-generic plugin) ──────
 # The plugin is installed + activated + configured by the post-install
 # `oidc-config` Job (templates/oidc-config-job.yaml) using `wp-cli` so
@@ -348,7 +336,6 @@ oidc:
     # against registry-1.docker.io 2026-05-05).
     digest: "sha256:cbdb19366ee143c5fb353181a0f0e2d4fea1562dd28b1c63cf4ec0d086f2fc2d"
     pullPolicy: IfNotPresent
-
 # Legacy alias — preserves zero-downtime upgrade for clusters whose
 # orchestrator overlays still emit `keycloak.{realmURL,clientID,
 # clientSecretName}`. Fields below are deprecated and will be removed
@@ -360,7 +347,6 @@ keycloak:
   clientID: ""
   clientSecretName: ""
   roleMapping: {}
-
 # ─── G117.5 W3.D3 — per-Org realm + sovereign FQDN ──────────────────────
 # Refs #2744. When `oidc.issuerURL` is left at the placeholder default,
 # `_helpers.tpl bp-wordpress-tenant.oidcIssuerURL` derives the issuer
@@ -377,7 +363,6 @@ org:
   slug: ""
   realm: ""
 orgSubdomain: ""
-
 # ─── G117.5 W3.D3 — kc_idp_hint defense-in-depth ────────────────────────
 # When the per-Org realm has its IDR `defaultProvider=sovereign-broker`
 # bound (W2.C4 #2794), this hint is REDUNDANT — KC auto-303s to the
@@ -387,7 +372,6 @@ orgSubdomain: ""
 # carries the hint, so any "fell back to forms" failure mode tells
 # you the realm-config didn't reach KC. Empty disables the hint append.
 ssoIdpHint: "sovereign-broker"
-
 # ─── First-install admin user (created via SSO mapping) ─────────────────
 # The admin-user-job pre-seeds a wp_users row with `user_login = email`
 # and the SSO email mapping so the Organization admin's first Keycloak login
@@ -402,12 +386,10 @@ adminUser:
   # Display name shown in the WP admin bar. Defaults to the local-part
   # of the email (job-side) if left empty.
   displayName: ""
-
 # ─── Default theme ──────────────────────────────────────────────────────
 # The theme slug installed + activated by oidc-config-job. Operator-
 # overridable. Default ships the latest WordPress yearly theme.
 defaultTheme: "twentytwentyfive"
-
 # ─── Persistence ────────────────────────────────────────────────────────
 # /var/www/html/wp-content carries themes, plugins, uploads. Persists
 # across pod restarts and image upgrades. PVC bound at first install.
@@ -415,21 +397,18 @@ persistence:
   wpContent:
     enabled: true
     size: "10Gi"
-    storageClass: ""  # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
+    storageClass: "" # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
     accessModes:
       - ReadWriteOnce
-
 # ─── Service ────────────────────────────────────────────────────────────
 service:
   type: ClusterIP
   port: 80
   targetPort: 80
-
 # ─── ServiceAccount ─────────────────────────────────────────────────────
 serviceAccount:
   create: true
   name: ""
-
 # ─── Ingress + cert-manager TLS ─────────────────────────────────────────
 # Default host is `wordpress.<orgDomain>`; operator may override
 # `ingress.host` directly when BYO domain shapes differ.
@@ -441,10 +420,9 @@ ingress:
   host: ""
   tls:
     enabled: true
-    issuer: "letsencrypt-prod"    # cert-manager ClusterIssuer
+    issuer: "letsencrypt-prod" # cert-manager ClusterIssuer
     secretName: "wordpress-tls"
   annotations: {}
-
 # ─── NetworkPolicy ──────────────────────────────────────────────────────
 # Restrict egress to: cnpg cluster (Postgres :5432), Keycloak realm
 # (HTTPS :443 — discovery + token endpoints), DNS (kube-dns :53),
@@ -460,14 +438,13 @@ networkPolicy:
   egress:
     # bp-cnpg — defaults; namespace label may be overridden if the
     # tenant cluster lives in a non-default cnpg namespace.
-    cnpgNamespaceLabel: ""        # empty → match Release.Namespace
+    cnpgNamespaceLabel: "" # empty → match Release.Namespace
     cnpgPort: 5432
     # bp-keycloak — same as cnpg, defaults to .Release.Namespace
     # because the tenant Keycloak runs in the Organization vcluster's keycloak
     # namespace; operator overrides if it lives elsewhere.
     keycloakNamespaceLabel: "keycloak"
     keycloakPort: 8443
-
 # ─── ServiceMonitor ─────────────────────────────────────────────────────
 # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
 # toggles must default false). Operator opts in via per-cluster overlay
