@@ -412,9 +412,23 @@ spec:
                   maintenance_work_mem: 64MB
                   log_statement: ddl
                   log_min_duration_statement: "1000"
+              # #4107 — OMIT storageClass entirely. An empty-string storageClass
+              # is NOT "cluster-default" — it means "use NO StorageClass", which
+              # produces an immediate-binding PVC with no provisioner that stays
+              # Pending forever (FailedBinding: "no persistent volumes available
+              # for this claim and no storage class is set"). Omitting the field
+              # is what makes cnpg fall back to the default StorageClass (evs-ssd
+              # on Huawei, hcloud-volumes on Hetzner). local-path remains
+              # forbidden via the forbid-local-path-storage Kyverno policy.
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
               storage:
                 size: 5Gi
-                storageClass: ""  # #3971 — empty ⇒ CNPG cluster-default durable cloud CSI; local-path FORBIDDEN
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false
@@ -1056,9 +1070,23 @@ spec:
                   maintenance_work_mem: 64MB
                   log_statement: ddl
                   log_min_duration_statement: "1000"
+              # #4107 — OMIT storageClass entirely. An empty-string storageClass
+              # is NOT "cluster-default" — it means "use NO StorageClass", which
+              # produces an immediate-binding PVC with no provisioner that stays
+              # Pending forever (FailedBinding: "no persistent volumes available
+              # for this claim and no storage class is set"). Omitting the field
+              # is what makes cnpg fall back to the default StorageClass (evs-ssd
+              # on Huawei, hcloud-volumes on Hetzner). local-path remains
+              # forbidden via the forbid-local-path-storage Kyverno policy.
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
               storage:
                 size: 5Gi
-                storageClass: ""  # #3971 — empty ⇒ CNPG cluster-default durable cloud CSI; local-path FORBIDDEN
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false
@@ -1275,10 +1303,16 @@ spec:
                   cpu: 50m
                   memory: 128Mi
                 limits:
+                  cpu: 500m
                   memory: 512Mi
+              # #4107 — OMIT storageClass entirely. An empty-string storageClass
+              # is NOT "cluster-default" — it means "use NO StorageClass", which
+              # produces an immediate-binding PVC with no provisioner that stays
+              # Pending forever. Omitting the field is what makes cnpg fall back
+              # to the default StorageClass (evs-ssd on Huawei, hcloud-volumes on
+              # Hetzner). local-path remains forbidden via Kyverno.
               storage:
                 size: 5Gi
-                storageClass: ""  # #3971 — empty ⇒ CNPG cluster-default durable cloud CSI; local-path FORBIDDEN
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false

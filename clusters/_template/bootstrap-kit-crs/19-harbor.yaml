@@ -97,9 +97,15 @@ spec:
       maintenance_work_mem: 64MB
       log_statement: ddl
       log_min_duration_statement: '1000'
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
   storage:
     size: 5Gi
-    storageClass: ''
   enableSuperuserAccess: true
   monitoring:
     enablePodMonitor: false
