@@ -38,6 +38,14 @@ spec:
         - name: stalwart
           image: {{ include "bp-stalwart-tenant.image" . | quote }}
           imagePullPolicy: {{ .Values.stalwart.image.pullPolicy }}
+          # #4148 — pin the config path explicitly. The upstream image's
+          # default CMD is `--config /etc/stalwart/config.json` (wrong path
+          # AND wrong format); inheriting it made the pod start in bootstrap
+          # mode ("No configuration file was found") on a fresh tenant. The
+          # bp-stalwart-sovereign pod runs the same explicit
+          # `--config /opt/stalwart/etc/config.toml` invocation. Pinning it
+          # here makes the StatefulSet image-version-independent.
+          args: ["--config", "/opt/stalwart/etc/config.toml"]
           securityContext:
             {{- toYaml .Values.stalwart.containerSecurityContext | nindent 12 }}
           ports:
@@ -81,6 +89,13 @@ spec:
             - name: config
               mountPath: /opt/stalwart/etc
               readOnly: true
+            # #4148 — the bootstrap config.toml's [certificate.default]
+            # block references %{file:/etc/stalwart/tls/tls.crt}% +
+            # tls.key. Without this mount the cert file is absent and the
+            # whole config fails to parse (root cause #3, verified live).
+            - name: tls
+              mountPath: /etc/stalwart/tls
+              readOnly: true
           livenessProbe:
             tcpSocket:
               port: smtp
@@ -102,6 +117,21 @@ spec:
             items:
               - key: config.toml
                 path: config.toml
+        # #4148 — kubernetes.io/tls Secret carrying tls.crt + tls.key.
+        # Emitted by templates/certificate.yaml (cert-manager Certificate
+        # for mail.<tenant-domain>) when stalwart.tls.certificate.enabled,
+        # or an operator-reflected per-Org wildcard Secret of the same name.
+        - name: tls
+          secret:
+            secretName: {{ .Values.stalwart.tls.secretName | quote }}
+            # NON-optional on purpose. If the Secret is not yet present the
+            # kubelet holds the pod at ContainerCreating until cert-manager
+            # issues the leaf into it — then it starts clean. An `optional:
+            # true` mount would let the pod start with an EMPTY /etc/stalwart/
+            # tls, the cert file would be absent, and the config.toml parse
+            # would fail → CrashLoop (the exact bug this fixes). Blocking at
+            # ContainerCreating until the cert exists is the correct
+            # convergence behaviour and matches bp-stalwart-sovereign.
   volumeClaimTemplates:
     - metadata:
         name: data
