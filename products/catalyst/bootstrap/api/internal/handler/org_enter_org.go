@@ -117,15 +117,41 @@ func (h *Handler) HandleEnterOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The org's own console host. Per-org consoles are served at
-	// console.<org>.<sovereign-domain> (the limited-similar UI, §2.4).
-	orgConsoleHost := "console." + slug + "." + sovFQDN
+	// console.<subdomain>.<parent-zone> — and the parent zone is the
+	// pool/BYO domain captured at create time (epic #825), which is NOT
+	// necessarily the Sovereign FQDN. A free-subdomain Org created on a
+	// pool domain (e.g. omani.homes) on an omantel.biz Sovereign has its
+	// console at console.<org>.omani.homes, not console.<org>.omantel.biz.
+	// Re-synthesising the host from sovFQDN (#4075) minted a handover URL
+	// for the wrong host and an aud/sovereign_fqdn claim the org console
+	// would reject. Resolve the real console host from the stored provision
+	// record and fall back to the legacy synthesis only if no record/host
+	// is available.
+	//
+	// orgDomainSuffix is the host minus the leading "console." prefix
+	// (i.e. <subdomain>.<parent-zone>) — used to build the aud /
+	// sovereign_fqdn claim and the support principal so they match the
+	// host the browser actually lands on.
+	orgConsoleHost := ""
+	if h.orgTenantDeps.Store != nil {
+		for _, rec := range h.orgTenantDeps.Store.List() {
+			if strings.EqualFold(strings.TrimSpace(rec.Subdomain), slug) {
+				orgConsoleHost = deriveConsoleHost(rec)
+				break
+			}
+		}
+	}
+	if orgConsoleHost == "" {
+		orgConsoleHost = "console." + slug + "." + sovFQDN
+	}
+	orgDomainSuffix := strings.TrimPrefix(orgConsoleHost, "console.")
 	orgConsoleURL := "https://" + orgConsoleHost
 
 	// The support principal — a dedicated support identity in the org's
 	// realm, NEVER the owner's identity (§2.4). Derived from the
 	// operator's email so the audit trail ties the session to a real
 	// person while the principal that lands in the org is a support role.
-	supportPrincipal := "support+" + sanitizeEmailLocal(claims.Email) + "@" + slug + "." + sovFQDN
+	supportPrincipal := "support+" + sanitizeEmailLocal(claims.Email) + "@" + orgDomainSuffix
 
 	now := time.Now()
 	expiresAt := now.Add(enterOrgMaxTTL)
@@ -143,7 +169,7 @@ func (h *Handler) HandleEnterOrg(w http.ResponseWriter, r *http.Request) {
 		"email":          supportPrincipal,
 		"email_verified": true,
 		"role":           "sovereign-admin",
-		"sovereign_fqdn": slug + "." + sovFQDN,
+		"sovereign_fqdn": orgDomainSuffix,
 		"deployment_id":  "",
 		"iat":            now.Unix(),
 		"exp":            expiresAt.Unix(),
