@@ -1,5 +1,7 @@
 package provisioner
 
+import "strings"
+
 // Per-region HelmRelease health breakdown (#3611).
 //
 // A 2-region deployment flips to status="ready" the instant the PRIMARY
@@ -44,6 +46,85 @@ const (
 	regionDegradedRatioNumerator   = 9
 	regionDegradedRatioDenominator = 10
 )
+
+// providerInapplicableComponents lists the bootstrap-kit component IDs that
+// can NEVER reach the terminal "installed" state on a given provider because
+// they are gated OFF for that provider at the cluster (#4086).
+//
+// Today only Hetzner-only components qualify: bp-cluster-autoscaler-hcloud
+// (slot 50) and bp-hcloud-ccm (slot 55) are `spec.suspend=${HCLOUD_HR_SUSPEND}`
+// gated — HCLOUD_HR_SUSPEND="true" on Huawei (HCS) cloud-init. A suspended
+// HelmRelease is never marked Ready by Flux, so it stays non-installed forever
+// on a Huawei Sovereign. helmwatch.processEvent ALREADY coerces a suspended HR
+// to StateInstalled (Wave 5.103 / #2447), so on a correctly-gated cluster these
+// components do not drag the census down. This map is the DEFENSE-IN-DEPTH at
+// the roll-up layer: if the suspend gate is ever missing or the informer caches
+// the pre-suspend state, the health census still must not flag a healthy Huawei
+// Sovereign as permanently Degraded (the omantel.biz symptom).
+//
+// Keys are component IDs (HelmRelease name with the "bp-" prefix stripped, per
+// helmwatch.ComponentIDFromHelmRelease) because the per-region state maps this
+// file operates on are keyed that way.
+//
+// IMPORTANT — this is an EXPLICIT, narrow allow-list of components KNOWN to be
+// provider-gated-OFF, NOT a blind name prefix match. It must never grow to hide
+// a genuinely-failing component: a real non-Ready app on the correct provider
+// must still degrade the status. Note bp-hcloud-csi / bp-huawei-evs-csi are
+// deliberately NOT here — both are active-but-empty (Ready) on the other
+// provider (#3971/#892), so they are applicable everywhere and counted.
+var providerInapplicableComponents = map[string]map[string]bool{
+	// On any non-Hetzner provider (huawei today; future aws/gcp/etc), the
+	// hcloud control-plane components are suspended and never go Ready.
+	"huawei": {
+		"cluster-autoscaler-hcloud": true,
+		"hcloud-ccm":                true,
+	},
+}
+
+// normalizeProvider lower-cases/trims the provider string and applies the same
+// empty→"hetzner" default Validate() uses, so the census filter agrees with the
+// rest of the provisioner on what provider a deployment targets.
+func normalizeProvider(provider string) string {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	if p == "" {
+		return "hetzner"
+	}
+	return p
+}
+
+// isComponentInapplicable reports whether component ID is provider-gated-OFF on
+// the given (already-normalized) provider and therefore must be excluded from
+// the health census. Components are applicable by default — only the explicit
+// per-provider allow-list above excludes them.
+func isComponentInapplicable(provider, componentID string) bool {
+	gated := providerInapplicableComponents[provider]
+	if gated == nil {
+		return false
+	}
+	return gated[componentID]
+}
+
+// filterApplicable returns a copy of states with provider-inapplicable
+// components dropped (#4086). The input map is never mutated. A nil/empty input
+// returns nil so countInstalled's nil-map path (0/0) is preserved. When the
+// provider gates nothing the input is returned as-is (no allocation).
+func filterApplicable(provider string, states map[string]string) map[string]string {
+	if len(states) == 0 {
+		return states
+	}
+	gated := providerInapplicableComponents[provider]
+	if len(gated) == 0 {
+		return states
+	}
+	out := make(map[string]string, len(states))
+	for k, v := range states {
+		if isComponentInapplicable(provider, k) {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
 
 // RegionHealth is the per-region HelmRelease census surfaced on the
 // deployment status so "ready" stops hiding a degraded secondary (#3611).
@@ -121,6 +202,12 @@ func regionDegraded(priReady, secReady, secTotal int) bool {
 // already-derived per-region state maps so it is fully table-testable
 // without a live cluster.
 //
+//   - provider: the deployment's cloud provider ("hetzner" / "huawei"; "" is
+//     treated as "hetzner"). Provider-inapplicable HRs — components gated OFF
+//     for this provider that can NEVER go Ready (e.g. the hcloud control-plane
+//     HRs on a Huawei Sovereign, #4086) — are EXCLUDED from the census so a
+//     fully-converged Sovereign is not flagged permanently Degraded by HRs that
+//     do not apply to it. A genuinely-failing applicable component still counts.
 //   - primaryRegion: the declared primary region key (Regions[0].CloudRegion);
 //     "" falls back to the label "primary".
 //   - primaryStates: the primary watcher's terminal component-state map
@@ -132,8 +219,9 @@ func regionDegraded(priReady, secReady, secTotal int) bool {
 // order for deterministic output) and secondaryDegraded = true when ANY
 // secondary is flagged degraded. secondaryDegraded is surface-only — callers
 // log it and expose it but MUST NOT gate "ready" on it.
-func ComputeRegionHealth(primaryRegion string, primaryStates map[string]string, secondaryStates map[string]map[string]string) (regions []RegionHealth, secondaryDegraded bool) {
-	priReady, priTotal := countInstalled(primaryStates)
+func ComputeRegionHealth(provider, primaryRegion string, primaryStates map[string]string, secondaryStates map[string]map[string]string) (regions []RegionHealth, secondaryDegraded bool) {
+	provider = normalizeProvider(provider)
+	priReady, priTotal := countInstalled(filterApplicable(provider, primaryStates))
 	primaryLabel := primaryRegion
 	if primaryLabel == "" {
 		primaryLabel = "primary"
@@ -156,7 +244,7 @@ func ComputeRegionHealth(primaryRegion string, primaryStates map[string]string, 
 	sortStrings(keys)
 
 	for _, region := range keys {
-		secReady, secTotal := countInstalled(secondaryStates[region])
+		secReady, secTotal := countInstalled(filterApplicable(provider, secondaryStates[region]))
 		degraded := regionDegraded(priReady, secReady, secTotal)
 		if degraded {
 			secondaryDegraded = true

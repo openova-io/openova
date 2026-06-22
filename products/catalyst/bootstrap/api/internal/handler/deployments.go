@@ -1016,7 +1016,11 @@ func (d *Deployment) regionHealthForStateLocked() (regions []provisioner.RegionH
 	}
 
 	primaryRegion := primaryRegionKey(&d.Request)
-	return provisioner.ComputeRegionHealth(primaryRegion, primaryStates, snapshotSecondaryStatesLocked(d))
+	// #4086 — pass the deployment provider so provider-inapplicable HRs (the
+	// hcloud control-plane HRs on a Huawei Sovereign, which are suspended and
+	// never go Ready) are excluded from the census, instead of permanently
+	// degrading a healthy non-Hetzner Sovereign.
+	return provisioner.ComputeRegionHealth(d.Request.Provider, primaryRegion, primaryStates, snapshotSecondaryStatesLocked(d))
 }
 
 func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {

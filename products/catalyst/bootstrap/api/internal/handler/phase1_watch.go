@@ -658,6 +658,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// on each secondary watcher, which takes only the watcher's own lock
 	// (never dep.mu), so there is no lock-ordering hazard.
 	dep.Result.Regions, dep.Result.SecondaryDegraded = provisioner.ComputeRegionHealth(
+		dep.Request.Provider, // #4086 — exclude provider-inapplicable HRs from the census
 		primaryRegionKey(&dep.Request),
 		finalStates,
 		snapshotSecondaryStatesLocked(dep),
