@@ -712,6 +712,21 @@ metadata:
     catalyst.openova.io/org-tenant: {{.TenantID}}
     catalyst.openova.io/org-subdomain: {{.Subdomain}}
     catalyst.openova.io/managed-by: catalyst-api
+    # openova.io/organization — the canonical per-Org join key
+    # (ARCHITECTURE.md §org-attribution). The CRD org-controller stamps it
+    # via core/controllers/organization/internal/gitops/manifests.go; the
+    # bootstrap-api org-tenant pipeline MUST stamp the same label so the
+    # two provisioning paths produce identical namespace shape. CRITICAL:
+    # the harbor-proxy-pull / customer-vCluster Kyverno exemptions
+    # (platform/kyverno-policies/.../11-harbor-proxy.yaml, #3859) key off an
+    # openova.io/organization namespaceSelector — without this label the
+    # per-Org vCluster's syncer init images are DENIED (they pull upstream
+    # k8s images, not Harbor-proxy globs) and vc-<slug> never installs,
+    # wedging the whole Org backing stack. Refs #4099 #3859.
+    openova.io/organization: {{.Subdomain}}
+    openova.io/sovereign: {{.OTECHFQDN}}
+    openova.io/managed-by: catalyst
+    openova.io/tier: org
   annotations:
     catalyst.openova.io/admin-email: {{.AdminEmail}}
     catalyst.openova.io/company-name: {{.CompanyName}}
@@ -875,6 +890,17 @@ spec:
     realmConfig:
       tenant:
         enabled: true
+        # subdomain — the Org slug. bp-keycloak >= 1.5.0's
+        # configmap-tenant-realm.yaml HARD-REQUIRES this when
+        # tenant.enabled=true ("realmConfig.tenant.enabled=true requires
+        # realmConfig.tenant.subdomain — Inviolable Principle #4"). Earlier
+        # orchestrator versions omitted it because the realmConfig.tenant.*
+        # block was a forward-looking marker the chart silently ignored;
+        # once the chart's tenant-mode realm template landed, a missing
+        # subdomain wedged the per-Org Keycloak install and cascaded to
+        # every dependent HR (bp-newapi/openclaw/stalwart/wordpress-tenant).
+        # Refs #4099.
+        subdomain: {{.Subdomain}}
         realmName: org-{{.Subdomain}}
         displayName: {{.CompanyName}}
         adminEmail: {{.AdminEmail}}

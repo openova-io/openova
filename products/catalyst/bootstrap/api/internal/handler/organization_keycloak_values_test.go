@@ -198,6 +198,43 @@ func TestBPKeycloakValuesContract(t *testing.T) {
 	if got, _ := tenant["realmName"].(string); got != "org-acme" {
 		t.Errorf("realmConfig.tenant.realmName: want org-acme got %q", got)
 	}
+	// realmConfig.tenant.subdomain — REQUIRED by bp-keycloak >= 1.5.0's
+	// configmap-tenant-realm.yaml when tenant.enabled=true. A missing
+	// subdomain wedged the per-Org Keycloak install on the live demo Org
+	// ("realmConfig.tenant.enabled=true requires realmConfig.tenant.subdomain
+	// — Inviolable Principle #4") and cascaded to every dependent HR.
+	// Refs #4099.
+	if got, _ := tenant["subdomain"].(string); got != "acme" {
+		t.Errorf("realmConfig.tenant.subdomain: want acme (the Org slug) got %q", got)
+	}
+}
+
+// TestOrgTenantNamespaceCarriesOrganizationLabel — Refs #4099 / #3859.
+//
+// The harbor-proxy-pull (and other) Kyverno ClusterPolicies exempt
+// customer-Org namespaces via a `openova.io/organization` Exists
+// namespaceSelector. The CRD org-controller stamps that label; the
+// bootstrap-api org-tenant pipeline MUST too, otherwise the per-Org
+// vCluster's syncer init images (upstream k8s images, not Harbor-proxy
+// globs) are DENIED at admission and vc-<slug> never installs — wedging
+// the entire Org backing stack.
+func TestOrgTenantNamespaceCarriesOrganizationLabel(t *testing.T) {
+	files := mustRenderTenantOverlay(t)
+	body, ok := files["namespace.yaml"]
+	if !ok {
+		t.Fatalf("namespace.yaml missing from render output; have: %v", keysOf(files))
+	}
+	var ns struct {
+		Metadata struct {
+			Labels map[string]string `json:"labels"`
+		} `json:"metadata"`
+	}
+	if err := yaml.Unmarshal([]byte(body), &ns); err != nil {
+		t.Fatalf("namespace.yaml does not parse: %v\n--- body ---\n%s", err, body)
+	}
+	if got := ns.Metadata.Labels["openova.io/organization"]; got != "acme" {
+		t.Errorf("namespace label openova.io/organization: want acme (the Org slug) got %q — Kyverno harbor-proxy-pull exemption keys off this", got)
+	}
 }
 
 // TestBPKeycloakValuesContract_NoLegacyKeys — guards against
