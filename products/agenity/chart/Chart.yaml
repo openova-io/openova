@@ -20,10 +20,10 @@ maintainers:
   - name: OpenOva
     url: https://github.com/openova-io/openova
 sources:
-  # Upstream multi-agent daemon image overlaid by this Blueprint (runtime
-  # base — see Containerfile CHEPHERD_BASE). The Agenity brand is OpenOva's;
-  # the runtime daemon it packages is the upstream project below.
-  - https://github.com/chepherd/chepherd
+  # Upstream multi-agent daemon built from source by this Blueprint (runtime
+  # base — see Containerfile AGENITY_REF). The Agenity brand is OpenOva's;
+  # the runtime daemon it packages is the public upstream project below.
+  - https://github.com/agenity-org/agenity
   - https://github.com/openova-io/openova
 # Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
 # this is a product chart deploying a single upstream daemon image with

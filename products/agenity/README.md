@@ -1,7 +1,7 @@
 # bp-agenity — Agenity as an OpenOva Application Blueprint (#4010)
 
 **What it is.** **Agenity** is a multi-agent runtime + dashboard, built on the
-upstream [chepherd](https://github.com/chepherd/chepherd) daemon. **bp-agenity**
+upstream [agenity](https://github.com/agenity-org/agenity) (chepherd) daemon. **bp-agenity**
 packages it as an installable OpenOva **Application Blueprint**: a User installs
 it into their own **Organization** from the catalog, then chats with its
 built-in **solo agent** (Claude Opus 4.7, token pre-configured). The agent
@@ -81,13 +81,15 @@ write/mutating MCP tool):
 
 ## Image
 
-`ghcr.io/openova-io/bp-agenity` is the **upstream chepherd daemon image**
-with the **`openova-mcp`** binary baked in at `/usr/local/bin/openova-mcp`
+`ghcr.io/openova-io/bp-agenity` is the **upstream Agenity (chepherd) daemon**
+— built from the PUBLIC [`agenity-org/agenity`](https://github.com/agenity-org/agenity)
+source — with the **`openova-mcp`** binary baked in at `/usr/local/bin/openova-mcp`
 (see [`Containerfile`](Containerfile) + the
 [`agenity-build.yaml`](../../.github/workflows/agenity-build.yaml) workflow).
 The build context is the repo root because the openova-mcp module imports
-`core/services/shared/auth` from this repo. `CHEPHERD_BASE` pins the upstream
-chepherd daemon image the binary overlays.
+`core/services/shared/auth` from this repo. `AGENITY_REF` pins the public
+agenity daemon source ref the Containerfile builds from (#4097) — the old
+private base image (`ghcr.io/agenity-org/chepherd`) is gone.
 
 ## Operational notes
 
