@@ -23,7 +23,12 @@
  *   • type visibility: hide nodes of types in hiddenTypes
  *   • stats overlay: bottom-left badges (live node/edge count)
  *   • responsive: internal ResizeObserver
- *   • cooldownTicks Infinity — simulation stays alive
+ *   • converge-and-stop: the simulation settles within ~3.5s (alphaMin
+ *     or the SETTLE_CAP_MS hard cap) then freezes — it is NOT kept alive
+ *     perpetually. It only re-warms on a real structural/viewport change
+ *     or a user interaction (drag / relax / add / remove). A status-only
+ *     data refresh updates node fields in place WITHOUT re-warming
+ *     (#3980 convergence + #4084 settle-regression fix).
  *
  * Implementation note: the canonical spec referenced
  * react-force-graph-2d (canvas-based), but this codebase is uniformly
@@ -94,7 +99,13 @@ import {
 } from './types'
 import { shapeForCategory } from './shapes'
 import { GraphLegend } from './GraphLegend'
-import { BOUND_PADDING, NODE_R, physicsFor, phyllotaxisSeed } from './layout'
+import {
+  BOUND_PADDING,
+  NODE_R,
+  physicsFor,
+  phyllotaxisSeed,
+  structuralSignature,
+} from './layout'
 import { markerId, uniqueMarkerDefs } from './markers'
 
 /* ── Public types ────────────────────────────────────────────────── */
@@ -456,6 +467,25 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
   const liveEdgesRef = useRef<Map<string, LiveEdge>>(new Map())
   const simRef = useRef<Simulation<LiveNode, LiveEdge> | null>(null)
 
+  // ── Structural signature (#4084 — graph-settle regression) ──────────
+  // The sync effect below MUST re-warm the simulation ONLY when the
+  // STRUCTURE (the set of node ids + edge ids) actually changes — never
+  // on a poll that merely refreshes node status/metadata. The Cloud
+  // surface polls the reconciliation DAG every 4s (Architecture.tsx,
+  // RECON_POLL_MS); each poll hands buildCloudGraph a fresh array, so the
+  // upstream `nodes`/`edges` props (and therefore `visibleNodes`/
+  // `visibleEdges`) acquire NEW references every 4s even when the topology
+  // is identical. Re-warming on every such reference change re-heats the
+  // sim perpetually (CPU spin, never settles) — exactly the #3980
+  // convergence the founder reported regressed. We compare a content
+  // signature, not array identity, so a status-only delta updates the live
+  // nodes in place (done in the effect) but leaves the settled layout
+  // frozen. Initial '' guarantees the very first build always warms up.
+  const structureSigRef = useRef<string>('')
+  // Last viewport the layout warmed against — a real resize (not a
+  // status-only poll) DOES need a re-warm so the field re-fits the box.
+  const lastSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 })
+
   // ── Convergence bookkeeping (#3980 fix 2) ──────────────────────────
   // The force sim must CONVERGE in ~2-4s and then STOP — no perpetual
   // oscillation. We arm a deadline on every warm-up (initial layout,
@@ -698,7 +728,23 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     // so after convergence the layout is perfectly static — no perpetual
     // alphaTarget>0 oscillation.
     sim.alphaDecay(phys.alphaDecay).alphaMin(0.02)
-    warmUp(0.7)
+
+    // CONDITIONAL re-warm (#4084): re-heat the simulation ONLY when the
+    // topology actually changed OR the viewport resized. A status-only
+    // refresh (the 4s reconciliation poll re-deriving the SAME node/edge
+    // set with new array references) updated the live node fields above
+    // but must NOT re-warm — otherwise the layout never settles and the
+    // CPU spins forever. The forces ARE re-tuned above every run (cheap);
+    // only the alpha kick is gated.
+    const nextSig = structuralSignature(visibleNodes, visibleEdges)
+    const sizeChanged =
+      lastSizeRef.current.w !== size.width || lastSizeRef.current.h !== size.height
+    const structureChanged = nextSig !== structureSigRef.current
+    structureSigRef.current = nextSig
+    lastSizeRef.current = { w: size.width, h: size.height }
+    if (structureChanged || sizeChanged) {
+      warmUp(0.7)
+    }
   }, [visibleNodes, visibleEdges, size.width, size.height])
 
   /* ── Drive the render via the simulation tick, then STOP ───────── */

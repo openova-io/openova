@@ -30,7 +30,14 @@ import {
   forceCenter,
   type Simulation,
 } from 'd3-force'
-import { physicsFor, phyllotaxisSeed, NODE_R, BOUND_PADDING } from './layout'
+import {
+  physicsFor,
+  phyllotaxisSeed,
+  NODE_R,
+  BOUND_PADDING,
+  structuralSignature,
+} from './layout'
+import type { GraphEdge, GraphNode } from './types'
 
 /* ── geometry contract (pure, no sim) ───────────────────────────── */
 
@@ -419,5 +426,74 @@ describe('force sim CONVERGES then STOPS (#3980 fix 2)', () => {
       expect(n.x).toBeCloseTo(before[i].x, 9)
       expect(n.y).toBeCloseTo(before[i].y, 9)
     })
+  })
+})
+
+/* ── structuralSignature — graph-settle regression contract (#4084) ──
+ *
+ * The Cloud surface re-derives the SAME node/edge set with fresh array
+ * references every 4s (Architecture.tsx reconciliation poll). GraphCanvas
+ * must re-warm the force simulation ONLY when the topology changes — a
+ * status-only refresh has to produce an IDENTICAL signature so the
+ * settled layout stays frozen instead of re-heating forever. */
+describe('structuralSignature — re-warm gate (#4084)', () => {
+  function node(id: string, status: GraphNode['status'] = 'healthy', label = id): GraphNode {
+    return { id, type: 'Pod', label, status }
+  }
+  function edge(id: string, source: string, target: string): GraphEdge {
+    return { id, source, target, type: 'contains' }
+  }
+
+  const nodesA = [node('a'), node('b'), node('c')]
+  const edgesA = [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')]
+
+  it('is STABLE when only node status/label/metadata change (the 4s poll)', () => {
+    const before = structuralSignature(nodesA, edgesA)
+    // Same ids + edges, but every node flips status and gets a new label —
+    // exactly what a reconciliation poll delivers.
+    const refreshed = [
+      node('a', 'degraded', 'a (now degraded)'),
+      node('b', 'reconciling', 'b (now reconciling)'),
+      node('c', 'failed', 'c (now failed)'),
+    ]
+    const after = structuralSignature(refreshed, [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')])
+    expect(after).toBe(before)
+  })
+
+  it('is STABLE under a different input ORDER of the same set', () => {
+    const before = structuralSignature(nodesA, edgesA)
+    const reordered = structuralSignature(
+      [node('c'), node('a'), node('b')],
+      [edge('e2', 'b', 'c'), edge('e1', 'a', 'b')],
+    )
+    expect(reordered).toBe(before)
+  })
+
+  it('CHANGES when a node is added (topology grew → must re-warm)', () => {
+    const before = structuralSignature(nodesA, edgesA)
+    const after = structuralSignature([...nodesA, node('d')], edgesA)
+    expect(after).not.toBe(before)
+  })
+
+  it('CHANGES when a node is removed', () => {
+    const before = structuralSignature(nodesA, edgesA)
+    const after = structuralSignature([node('a'), node('b')], [edge('e1', 'a', 'b')])
+    expect(after).not.toBe(before)
+  })
+
+  it('CHANGES when an edge is added/rewired (connectivity changed)', () => {
+    const before = structuralSignature(nodesA, edgesA)
+    const added = structuralSignature(nodesA, [...edgesA, edge('e3', 'a', 'c')])
+    expect(added).not.toBe(before)
+    const rewired = structuralSignature(nodesA, [edge('e1', 'a', 'c'), edge('e2', 'b', 'c')])
+    expect(rewired).not.toBe(before)
+  })
+
+  it('does not collide on adjacent-id concatenation (length-prefixed)', () => {
+    // Guard the join: {ab}+{} must not equal {a}+{b}. The length prefixes
+    // and the || separator make the encoding unambiguous.
+    const s1 = structuralSignature([node('ab'), node('c')], [])
+    const s2 = structuralSignature([node('a'), node('bc')], [])
+    expect(s1).not.toBe(s2)
   })
 })
