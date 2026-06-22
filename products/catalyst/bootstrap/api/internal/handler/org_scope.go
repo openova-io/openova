@@ -169,10 +169,22 @@ func claimsAreOrgScoped(claims *auth.Claims) bool {
 //   - /api/v1/org/self          — the Org's identity card
 //   - /api/v1/catalog           — the read-only blueprint catalog (browse)
 //   - /api/v1/sandbox/          — the Org's own Sandbox (scoped by sub/org)
+//   - /api/v1/sovereign/self    — self-discovery (deployment id + FQDN) the
+//                                 SovereignConsoleLayout + Apps page bootstrap
+//                                 read; carries no per-org secrets.
+//   - /api/v1/sovereign/apps    — the Apps grid feed. This is the blueprint
+//                                 CATALOG + per-app install status + launch URL
+//                                 (NOT another Org's secrets/resources); the
+//                                 Org console needs it to render its Apps page
+//                                 incl. the agenity Open link. A true per-Org
+//                                 apps PROJECTION (filtering to the Org's own
+//                                 namespaces + vClusters) is the #4113 follow-up.
 //
-// NOTE: BSS / billing / commerce / consumption / organizations-directory
-// are Sovereign-WIDE operator surfaces despite some carrying an `/org/`
-// path prefix — they are intentionally NOT allowlisted.
+// NOTE: BSS / billing / commerce / consumption / organizations-directory /
+// the deployments API / the whole-cluster /sovereigns/{id}/k8s estate /
+// parent-domains are Sovereign-WIDE operator surfaces (some despite an
+// `/org/` path prefix) — they are intentionally NOT allowlisted and 403 for
+// an Org session.
 var orgSafePathPrefixes = []string{
 	"/api/v1/whoami",
 	"/api/v1/auth/",
@@ -185,6 +197,8 @@ var orgSafePathPrefixes = []string{
 	"/api/v1/catalog",
 	"/api/v1/sandbox/",
 	"/api/v1/sandbox",
+	"/api/v1/sovereign/self",
+	"/api/v1/sovereign/apps",
 }
 
 // pathIsOrgSafe reports whether the request path is on the Org-scoped

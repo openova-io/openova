@@ -57,6 +57,8 @@ func TestPathIsOrgSafe(t *testing.T) {
 		"/api/v1/catalog",
 		"/api/v1/catalog/bp-agenity",
 		"/api/v1/sandbox/sessions",
+		"/api/v1/sovereign/apps",
+		"/api/v1/sovereign/self",
 	}
 	for _, p := range safe {
 		if !pathIsOrgSafe(p) {
