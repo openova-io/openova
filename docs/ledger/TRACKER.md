@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T06:45:03Z` |
+| Last refreshed | `2026-06-22T07:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 93 |
 | Open DoD gates | 0 / 41 |
@@ -300,6 +300,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T06:52 | [#4105](https://github.com/openova-io/openova/pull/4105) | docs(uat): live omantel.biz walk results — all 223 rows re-s |  |
+| 2026-06-22T06:50 | [#4103](https://github.com/openova-io/openova/pull/4103) | #4 | fix(org-provisioning): keycloak realmConfig.tenant.subdomain |
 | 2026-06-22T06:35 | [#4102](https://github.com/openova-io/openova/pull/4102) | #4100 | fix(bp-catalyst-platform): pin catalyst-api to its EVS volum |
 | 2026-06-22T06:31 | [#4098](https://github.com/openova-io/openova/pull/4098) | #4058 | fix(bp-agenity): build chepherd daemon from PUBLIC agenity-o |
 | 2026-06-22T06:00 | [#4096](https://github.com/openova-io/openova/pull/4096) | docs(uat): re-stamp ledger to omantel.biz permanent env + 20 |  |
@@ -328,8 +330,6 @@ flowchart LR
 | 2026-06-21T12:03 | [#4051](https://github.com/openova-io/openova/pull/4051) | #4049 | fix(bp-catalyst-platform): bp-chepherd missing required topo |
 | 2026-06-21T18:52 | [#4050](https://github.com/openova-io/openova/pull/4050) | #4049 | fix(provisioning): bastion Harbor warmup — every catalyst im |
 | 2026-06-21T09:51 | [#4048](https://github.com/openova-io/openova/pull/4048) | #3913 | fix(huawei): route ghcr/quay/gcr/k8s through bastion NAT-byp |
-| 2026-06-21T23:16 | [#4047](https://github.com/openova-io/openova/pull/4047) | #3145 | fix(huawei-prov): janitor SG-leak + EIP-egress preflight (st |
-| 2026-06-21T08:16 | [#4045](https://github.com/openova-io/openova/pull/4045) | #4038 | fix(bp-huawei-evs-csi): slot 55b dependsOn bp-reflector — cl |
 
 ---
 
