@@ -39,6 +39,7 @@ import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { API_BASE } from '@/shared/config/urls'
 import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
+import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
@@ -73,6 +74,18 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const router = useRouter()
   const store = useWizardStore()
 
+  // #4113 / #4119 — Org-console scope. On an Org-scoped customer session
+  // (whoami.orgScoped, host console.<org>.<pool>) the page must render the
+  // Org's OWN application estate (from /api/v1/org/applications) and must NOT
+  // mount the Sovereign provisioning/deployment-stream surface (which 403s for
+  // an Org session → the "couldn't reach the deployment stream" banner). While
+  // the scope is still loading we treat the session as sovereign (the common
+  // case) — but the deployment-stream stays disabled until proven sovereign so
+  // a customer never flashes the provisioning banner; the catalyst-api 403s
+  // the data regardless (hide AND enforce).
+  const { orgScoped, loading: scopeLoading } = useConsoleScope()
+  const deploymentStreamEnabled = !orgScoped && !scopeLoading
+
   const applications = useMemo(
     () => resolveApplications(store.selectedComponents),
     [store.selectedComponents],
@@ -83,6 +96,8 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     deploymentId,
     applicationIds,
     disableStream,
+    // #4119 — never attach the deployment-stream on an Org session.
+    enabled: deploymentStreamEnabled,
   })
 
   // On Sovereign mode the imported reducer state is FROZEN at mother's
@@ -133,13 +148,30 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     bootstrapKit: boolean
   }
   const liveAppsQuery = useQuery<LiveAppsData>({
-    queryKey: ['sovereign-apps-live'],
-    enabled: isSovereignMode,
+    // #4113 — the query key carries the scope so flipping between a sovereign
+    // and an org session (or scope resolving) re-fetches against the right
+    // endpoint rather than serving a cached cross-scope estate.
+    queryKey: ['sovereign-apps-live', orgScoped ? 'org' : 'sovereign'],
+    // Hold the fetch until the scope is known so an Org session never briefly
+    // hits /sovereign/apps (the full catalog) before /org/applications.
+    enabled: isSovereignMode && !scopeLoading,
     refetchInterval: 5_000,
     queryFn: async () => {
-      const r = await authedFetch(`${API_BASE}/v1/sovereign/apps`, {
-        headers: { Accept: 'application/json' },
-      })
+      // #4113 — Org-scoped session reads its OWN estate from
+      // /api/v1/org/applications (the per-Org projection: only Application CRs
+      // + HelmReleases in the Org's own namespace, each with its open URL).
+      // A sovereign-admin session keeps the cluster-wide /sovereign/apps feed.
+      const endpoint = orgScoped ? '/v1/org/applications' : '/v1/sovereign/apps'
+      const headers: HeadersInit = orgScoped
+        ? {
+            Accept: 'application/json',
+            // The org-scoped projection resolves the caller's own Org from the
+            // request host; X-Tenant-Host carries it (same contract as the
+            // org/users + org/applications-install clients).
+            'X-Tenant-Host': typeof window !== 'undefined' ? window.location.host : '',
+          }
+        : { Accept: 'application/json' }
+      const r = await authedFetch(`${API_BASE}${endpoint}`, { headers })
       if (!r.ok) throw new Error(`live apps fetch ${r.status}`)
       const body = (await r.json()) as {
         apps?: Array<{
@@ -245,7 +277,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const { notify, dismiss } = useNotifications()
   useEffect(() => {
     const id = `deployment-failure:${deploymentId}`
-    if (!isFailed) {
+    // #4119 — the deployment-stream failure toast (with the "Retry stream /
+    // Cancel & Wipe / Back to wizard" actions) is a SOVEREIGN provisioning
+    // surface. It must never render for an Org-scoped customer session. The
+    // hook is already disabled for org sessions (so isFailed stays false), but
+    // we hard-gate here too so a customer can never see it.
+    if (!isFailed || !deploymentStreamEnabled) {
       dismiss(id)
       return
     }
@@ -285,7 +322,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     })
     // The dismiss-on-recovery branch above handles cleanup; no return
     // closure needed because notification ids are stable per deployment.
-  }, [isFailed, streamStatus, failureMessage, deploymentId, notify, dismiss, retry, router])
+  }, [isFailed, streamStatus, failureMessage, deploymentId, notify, dismiss, retry, router, deploymentStreamEnabled])
 
   useEffect(() => {
     const id = `phase1-unavailable:${deploymentId}`
@@ -476,8 +513,15 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     return out
   }, [applications, state.apps])
   const installedApps = useMemo(
-    () => catalogApps.filter((a) => deployedIds.has(a.id)),
-    [catalogApps, deployedIds],
+    () =>
+      // #4113 — on an Org-scoped session the blueprint/bootstrap-kit cards
+      // (cilium, flux, keycloak … the SOVEREIGN spine, derived from the wizard
+      // catalog) must NEVER render: a customer sees ONLY their own estate,
+      // which arrives exclusively as the `liveInstances` rows projected by
+      // /api/v1/org/applications. The bootstrap-kit `out.add(app.id)` above
+      // would otherwise leak the sovereign spine onto the Org Apps page.
+      orgScoped ? [] : catalogApps.filter((a) => deployedIds.has(a.id)),
+    [catalogApps, deployedIds, orgScoped],
   )
 
   const [query, setQuery] = useState<string>('')
@@ -497,7 +541,10 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     return [...filtered].sort((a, b) => a.title.localeCompare(b.title))
   }, [installedApps, query])
 
-  const isProvisioning = streamStatus === 'connecting' || streamStatus === 'streaming'
+  // #4119 — the "Provisioning" pill + "View jobs" link is a sovereign
+  // provisioning affordance; never render it for an Org-scoped session.
+  const isProvisioning =
+    deploymentStreamEnabled && (streamStatus === 'connecting' || streamStatus === 'streaming')
 
   return (
     <PortalShell

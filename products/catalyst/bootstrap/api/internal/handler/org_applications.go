@@ -46,9 +46,17 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/catalog"
 )
 
 // HandleOrgApplicationInstall — POST /api/v1/org/applications.
@@ -146,4 +154,222 @@ func (h *Handler) selfDeploymentID(r *http.Request) string {
 		return "sovereign-" + fqdn
 	}
 	return ""
+}
+
+// HandleOrgApplications — GET /api/v1/org/applications.
+//
+// #4113 — the TRUE per-Org Apps projection. An Org-scoped customer session
+// on its own console (console.<org>.<pool>) used to render the SOVEREIGN-WIDE
+// catalog grid because the only allowlisted Apps feed was
+// /api/v1/sovereign/apps (HandleSovereignApps lists every HelmRelease +
+// Application CR + catalog blueprint cluster-wide). A customer must see ONLY
+// their OWN estate.
+//
+// This handler resolves the caller's OWN Organization namespace from the
+// request host (resolveOrganization → tenant.OrganizationNamespace, the real
+// `org-<uuid>` namespace, with the #4110 own-org binding enforced) and lists
+// ONLY the Application CRs + HelmReleases that live in that namespace. Each
+// row is projected as an instance card with its open/launch URL derived from
+// the Org namespace's HTTPRoute set (the host of the route fronting the
+// release). agenity-demo (HR Ready, HTTPRoute host agenity.<org>.<pool>) thus
+// surfaces with a working Open link; the demo-wp Application CRs surface as
+// their own cards even while still Pending.
+//
+// Response shape is the SAME sovereignAppsResponse the FE's AppsPage already
+// consumes (instance rows), so the SPA reuses its existing card-rendering and
+// silent-SSO Open path with zero new wire-types — it only swaps the endpoint
+// when whoami.orgScoped is true.
+func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) {
+	// Resolve the caller's own Organization (host → tenant registry). Enforces
+	// the #4110 own-org binding: an Org session can only ever resolve its OWN
+	// Org (a forged sibling host is 403 org-scope-mismatch). Returns the real
+	// `org-<uuid>` namespace.
+	tenant, ok := h.resolveOrganization(w, r)
+	if !ok {
+		return
+	}
+	orgNS := strings.TrimSpace(tenant.OrganizationNamespace)
+	if orgNS == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":  "org-namespace-unresolved",
+			"detail": "tenant registry has no org_tenant_namespace for this Organization",
+		})
+		return
+	}
+
+	resp := sovereignAppsResponse{Apps: []sovereignAppItem{}, BootstrapKit: []string{}}
+
+	deps, depsErr := h.sovereignDepsFor()
+	if depsErr != nil {
+		// No in-cluster client (e.g. CI) — return an empty-but-valid estate
+		// rather than a 500, mirroring HandleSovereignApps' best-effort
+		// posture. The customer sees the empty-state affordance, not an error.
+		if gen, gErr := catalog.GeneratedAt(); gErr == nil {
+			resp.GeneratedAt = gen
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Build the per-Org HTTPRoute index: (name → url) and (backend-service
+	// name → url), all within the Org namespace. The agenity route is named
+	// `agenity` but its backendRef Service is `agenity-demo-bp-agenity`, so we
+	// index BOTH so the release→route join below resolves whichever key the
+	// chart used.
+	urlByKey := map[string]string{}
+	if rts, err := deps.dyn.Resource(httpRouteGVR).Namespace(orgNS).List(ctx, metav1.ListOptions{}); err == nil {
+		for _, rt := range rts.Items {
+			hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
+			if len(hosts) == 0 || hosts[0] == "" {
+				continue
+			}
+			url := "https://" + hosts[0]
+			urlByKey[rt.GetName()] = url
+			rules, _, _ := unstructured.NestedSlice(rt.Object, "spec", "rules")
+			for _, rl := range rules {
+				rm, isMap := rl.(map[string]interface{})
+				if !isMap {
+					continue
+				}
+				refs, _, _ := unstructured.NestedSlice(rm, "backendRefs")
+				for _, ref := range refs {
+					rfm, isMap := ref.(map[string]interface{})
+					if !isMap {
+						continue
+					}
+					if svc, _, _ := unstructured.NestedString(rfm, "name"); svc != "" {
+						if _, exists := urlByKey[svc]; !exists {
+							urlByKey[svc] = url
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Index the Org namespace's HelmReleases by name so an Application CR's
+	// spec.helmRelease.name resolves to ready-state + a launch URL, and so an
+	// HR WITHOUT a companion Application CR (e.g. agenity-demo on the demo Org)
+	// still projects as its own card.
+	type orgHR struct {
+		ready bool
+		// urlKeys — candidate HTTPRoute index keys to resolve the open URL:
+		// the release name and `<release>-<chart>` (the Service-name shape the
+		// agenity route's backendRef uses). First hit in urlByKey wins.
+		urlKeys []string
+		chart   string
+	}
+	hrByName := map[string]orgHR{}
+	if hrs, err := deps.dyn.Resource(helmReleaseGVR).Namespace(orgNS).List(ctx, metav1.ListOptions{}); err == nil {
+		for i := range hrs.Items {
+			hr := &hrs.Items[i]
+			name := hr.GetName()
+			rel, _, _ := unstructured.NestedString(hr.Object, "spec", "releaseName")
+			if rel == "" {
+				rel = name
+			}
+			chart, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart")
+			if chart == "" {
+				chart = strings.TrimPrefix(name, "bp-")
+			}
+			hrByName[name] = orgHR{
+				ready:   helmReleaseReady(hr),
+				urlKeys: []string{rel, rel + "-" + chart, rel + "-bp-" + strings.TrimPrefix(chart, "bp-"), name},
+				chart:   chart,
+			}
+		}
+	}
+	resolveOpenURL := func(keys []string) string {
+		for _, k := range keys {
+			if u, ok := urlByKey[k]; ok && u != "" {
+				return u
+			}
+		}
+		return ""
+	}
+
+	rows := []sovereignAppItem{}
+	adopted := map[string]bool{} // HR names already projected via an Application CR
+
+	// Application CR pass — each CR in the Org namespace is one card.
+	if appList, err := deps.dyn.Resource(applicationGVR).Namespace(orgNS).List(ctx, metav1.ListOptions{}); err == nil {
+		for i := range appList.Items {
+			app := &appList.Items[i]
+			bpFull, _, _ := unstructured.NestedString(app.Object, "spec", "blueprintRef", "name")
+			slug := strings.TrimPrefix(bpFull, "bp-")
+			phase, _, _ := unstructured.NestedString(app.Object, "status", "phase")
+			status := "installing"
+			if strings.EqualFold(phase, "Ready") {
+				status = "installed"
+			}
+			env, _, _ := unstructured.NestedString(app.Object, "spec", "environmentRef")
+			if env == "" {
+				env = defaultSovereignEnvironment
+			}
+			externalURL := ""
+			if hrName, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "name"); hrName != "" {
+				adopted[hrName] = true
+				if hr, ok := hrByName[hrName]; ok {
+					externalURL = resolveOpenURL(hr.urlKeys)
+				}
+			}
+			topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
+			rows = append(rows, sovereignAppItem{
+				ID:          app.GetName(),
+				Slug:        slug,
+				Title:       app.GetName(),
+				Status:      status,
+				Environment: env,
+				ExternalURL: externalURL,
+				Instance:    true,
+				Blueprint:   bpFull,
+				Topology:    topology,
+			})
+		}
+	}
+
+	// HelmRelease pass — any HR in the Org namespace WITHOUT a companion
+	// Application CR (e.g. agenity-demo) projects as its own card. Internal
+	// platform spines for the Org's own vCluster (vc-*, bp-cnpg) carry no
+	// customer-facing UI; we still surface them as cards (the customer owns
+	// their estate) but only attach an Open link when an HTTPRoute resolves.
+	hrNames := make([]string, 0, len(hrByName))
+	for name := range hrByName {
+		hrNames = append(hrNames, name)
+	}
+	sort.Strings(hrNames)
+	for _, name := range hrNames {
+		if adopted[name] {
+			continue
+		}
+		hr := hrByName[name]
+		status := "installing"
+		if hr.ready {
+			status = "installed"
+		}
+		slug := strings.TrimPrefix(hr.chart, "bp-")
+		bpFull := hr.chart
+		if !strings.HasPrefix(bpFull, "bp-") {
+			bpFull = "bp-" + bpFull
+		}
+		rows = append(rows, sovereignAppItem{
+			ID:          name,
+			Slug:        slug,
+			Title:       name,
+			Status:      status,
+			Environment: defaultSovereignEnvironment,
+			ExternalURL: resolveOpenURL(hr.urlKeys),
+			Instance:    true,
+			Blueprint:   bpFull,
+		})
+	}
+
+	resp.Apps = rows
+	if gen, gErr := catalog.GeneratedAt(); gErr == nil {
+		resp.GeneratedAt = gen
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

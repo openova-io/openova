@@ -240,6 +240,18 @@ export interface UseDeploymentEventsOptions {
    * flag the legacy ProvisionPage exposed.
    */
   disableStream?: boolean
+  /**
+   * #4119 — gate the ENTIRE deployment-stream (both the GET /events replay
+   * AND the SSE /logs attach) off for an Org-scoped customer session. The
+   * deployment-stream is a SOVEREIGN provisioning surface: catalyst-api 403s
+   * /api/v1/deployments/* for an Org session (the #4110/#4112 fix), so an Org
+   * session that still attaches gets streamStatus='unreachable' → the
+   * "Couldn't reach the deployment stream … Retry / Cancel & Wipe" banner
+   * leaking to a customer. Default true (sovereign sessions unchanged); set
+   * false on an Org console so the hook returns idle state and fires no
+   * /deployments calls at all.
+   */
+  enabled?: boolean
 }
 
 export interface UseDeploymentEventsResult {
@@ -265,7 +277,7 @@ export interface UseDeploymentEventsResult {
 export function useDeploymentEvents(
   opts: UseDeploymentEventsOptions,
 ): UseDeploymentEventsResult {
-  const { deploymentId, applicationIds, disableStream = false } = opts
+  const { deploymentId, applicationIds, disableStream = false, enabled = true } = opts
 
   // Stable identity for applicationIds — sort + join so a fresh array
   // with the same membership doesn't re-seed state on every render.
@@ -273,7 +285,14 @@ export function useDeploymentEvents(
 
   const [state, setState] = useState<ReducerState>(() => buildInitialState(applicationIds))
   const [snapshot, setSnapshot] = useState<DeploymentSnapshot | null>(null)
-  const [streamStatus, setStreamStatus] = useState<StreamStatus>('connecting')
+  // #4119 — when the hook is disabled (Org-scoped session), start in a
+  // terminal-quiet `completed` state so AppsPage never shows the
+  // provisioning spinner pill NOR the "couldn't reach the deployment stream"
+  // unreachable banner. No /deployments call is ever made (both effects
+  // early-return on !enabled).
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>(
+    enabled ? 'connecting' : 'completed',
+  )
   const [streamError, setStreamError] = useState<string | null>(null)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [finishedAt, setFinishedAt] = useState<number | null>(null)
@@ -303,6 +322,10 @@ export function useDeploymentEvents(
   const historyCountRef = useRef(0)
 
   useEffect(() => {
+    // #4119 — Org-scoped session: never fetch /deployments/{id}/events
+    // (catalyst-api 403s it for an Org session). The hook stays in the
+    // idle `completed` state seeded above.
+    if (!enabled) return
     if (!deploymentId) return
     let cancelled = false
     const url = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/events`
@@ -387,10 +410,12 @@ export function useDeploymentEvents(
     return () => {
       cancelled = true
     }
-  }, [deploymentId, retryNonce])
+  }, [deploymentId, retryNonce, enabled])
 
   // SSE live stream — opens after history replay seeds the reducer.
   useEffect(() => {
+    // #4119 — Org-scoped session: never open the SSE /logs stream.
+    if (!enabled) return
     if (disableStream) return
     if (!deploymentId) return
     setStreamStatus('connecting')
@@ -625,7 +650,7 @@ export function useDeploymentEvents(
         es.close()
       }
     }
-  }, [deploymentId, retryNonce, disableStream])
+  }, [deploymentId, retryNonce, disableStream, enabled])
 
   // Stable callback — referential identity matters because callers
   // (e.g. AppsPage's notification effect) include `retry` in their
