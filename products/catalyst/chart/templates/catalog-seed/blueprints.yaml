@@ -51,11 +51,16 @@ metadata:
     # must not claw it back (DoD §9.4).
     helm.sh/resource-policy: keep
 spec:
-  # 2026-06-19 (#3870): lockstep with platform/wordpress-tenant/blueprint.yaml
-  # spec.version 0.4.1 + the published chart ghcr.io/openova-io/bp-wordpress-tenant:0.4.1.
-  # The prior 0.2.0 pin was stale (chart had moved 0.2.0→0.4.1) — the operator
-  # catalog card would fetch an old chart on a fresh production prov.
-  version: "0.4.1"
+  # 2026-06-22 (#4139): lockstep with platform/wordpress-tenant/blueprint.yaml
+  # spec.version 0.4.4 + the published chart ghcr.io/openova-io/bp-wordpress-tenant:0.4.4.
+  # 0.4.1 (the prior pin) defaulted persistence.wpContent.storageClass: local-path,
+  # which the #3971 forbid-local-path-storage Kyverno ENFORCE policy DENIES on
+  # the wp-content PVC → the per-Org WordPress app can never install. 0.4.3 emptied
+  # both the chart values.yaml AND the blueprint.yaml configSchema default; 0.4.4
+  # also moves active-hot-standby CNPG sync to the native spec.postgresql.synchronous
+  # block (the raw synchronous_standby_names param is rejected by vcluster.cnpg.io).
+  # (#3870 history: 0.2.0→0.4.1.)
+  version: "0.4.4"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -77,7 +82,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: 0.4.1
+    version: 0.4.4
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -182,7 +187,7 @@ metadata:
     # console edit/curate.
     helm.sh/resource-policy: keep
 spec:
-  version: "0.4.1"
+  version: "0.4.4"
   visibility: listed
   card:
     title: "WordPress"
@@ -204,7 +209,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: 0.4.1
+    version: 0.4.4
   # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
   # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
   topology:

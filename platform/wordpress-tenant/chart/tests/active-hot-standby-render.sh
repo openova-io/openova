@@ -152,7 +152,16 @@ for c in clusters:
     pg_params = ((spec.get("postgresql") or {}).get("parameters") or {})
     has_hot_standby = "hot_standby" in pg_params
     sync_commit = pg_params.get("synchronous_commit", "")
+    # #4139: synchronous_standby_names is NOT a raw parameter (CNPG FIXED param —
+    # admission webhook rejects it). It is declared via the CNPG-native
+    # spec.postgresql.synchronous block, which CNPG renders into
+    # synchronous_standby_names at runtime. Assert the native block instead.
     sync_standby = pg_params.get("synchronous_standby_names", "")
+    sync_block = (spec.get("postgresql") or {}).get("synchronous") or {}
+    sync_method = sync_block.get("method", "")
+    sync_number = sync_block.get("number", "")
+    sync_pre = ",".join(sync_block.get("standbyNamesPre", []) or [])
+    sync_maxfromcluster = sync_block.get("maxStandbyNamesFromCluster", "")
     affinity_regions = []
     aff = (spec.get("affinity") or {}).get("nodeAffinity") or {}
     rdsi = (aff.get("requiredDuringSchedulingIgnoredDuringExecution") or {})
@@ -175,6 +184,10 @@ for c in clusters:
     print(f"HAS_HOT_STANDBY={has_hot_standby}")
     print(f"SYNC_COMMIT={sync_commit}")
     print(f"SYNC_STANDBY={sync_standby}")
+    print(f"SYNC_METHOD={sync_method}")
+    print(f"SYNC_NUMBER={sync_number}")
+    print(f"SYNC_STANDBY_PRE={sync_pre}")
+    print(f"SYNC_MAXFROMCLUSTER={sync_maxfromcluster}")
 PYEOF
 then
   echo "FAIL: enabled render output failed to parse as YAML" >&2
@@ -237,17 +250,36 @@ grep -q '^HAS_INITDB=True$' "$TMP/primary-facts" || {
   exit 1
 }
 # Pillar 3 (chart 0.3.2): synchronous replication MUST be the default
-# on the primary when database.mode=active-hot-standby. The primary's
-# postgresql.parameters block carries:
-#   synchronous_commit: "remote_apply"
-#   synchronous_standby_names: "FIRST 1 (wordpress-db-replica)"
+# on the primary when database.mode=active-hot-standby. The primary carries:
+#   postgresql.parameters.synchronous_commit: "remote_apply"  (settable GUC)
+#   postgresql.synchronous: {method: first, number: 1,
+#     standbyNamesPre: [wordpress-db-replica], maxStandbyNamesFromCluster: 0}
+# #4139: synchronous_standby_names is NOT a raw parameter — CNPG marks it a
+# FIXED config param and the admission webhook rejects any explicit set in
+# `parameters`. It is declared via the CNPG-native spec.postgresql.synchronous
+# block (CNPG ≥1.24), mirroring bp-cnpg-pair primary-cluster.yaml (#3740).
 grep -q '^SYNC_COMMIT=remote_apply$' "$TMP/primary-facts" || {
   echo "FAIL: primary Cluster missing synchronous_commit=remote_apply (Pillar 3 zero-tx-loss default)." >&2
   cat "$TMP/primary-facts" >&2
   exit 1
 }
-grep -q '^SYNC_STANDBY=FIRST 1 (wordpress-db-replica)$' "$TMP/primary-facts" || {
-  echo "FAIL: primary Cluster missing synchronous_standby_names=FIRST 1 (wordpress-db-replica)." >&2
+grep -q '^SYNC_STANDBY=$' "$TMP/primary-facts" || {
+  echo "FAIL: synchronous_standby_names must NOT be a raw postgresql.parameter (#4139 — CNPG FIXED param, webhook rejects it)." >&2
+  cat "$TMP/primary-facts" >&2
+  exit 1
+}
+grep -q '^SYNC_METHOD=first$' "$TMP/primary-facts" || {
+  echo "FAIL: primary Cluster missing spec.postgresql.synchronous.method=first." >&2
+  cat "$TMP/primary-facts" >&2
+  exit 1
+}
+grep -q '^SYNC_STANDBY_PRE=wordpress-db-replica$' "$TMP/primary-facts" || {
+  echo "FAIL: primary Cluster missing spec.postgresql.synchronous.standbyNamesPre=[wordpress-db-replica]." >&2
+  cat "$TMP/primary-facts" >&2
+  exit 1
+}
+grep -q '^SYNC_MAXFROMCLUSTER=0$' "$TMP/primary-facts" || {
+  echo "FAIL: primary Cluster missing spec.postgresql.synchronous.maxStandbyNamesFromCluster=0 (cross-region replica must be the ONLY sync target)." >&2
   cat "$TMP/primary-facts" >&2
   exit 1
 }

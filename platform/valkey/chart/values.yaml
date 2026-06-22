@@ -20,6 +20,18 @@ global:
   # (Bitnami-style) exposes `valkey.image.registry` for registry override.
   # Per-Sovereign overlays wire that alongside this value. Tracked under #560.
   imageRegistry: ""
+  # #4136 (omantel.biz kom4dc UAT 2026-06-22): the Bitnami valkey subchart
+  # hard-fails the render ("Original containers have been substituted for
+  # unrecognized ones", bitnami/charts#30850) the moment any image is
+  # repointed off the `bitnami`/`bitnamilegacy` paths to the Sovereign-local
+  # Harbor proxy (`harbor.openova.io/proxy-dockerhub/bitnamilegacy/…`, the
+  # `valkey:`/`volumePermissions:` overrides below). The bytes are IDENTICAL
+  # — proxy-dockerhub is a read-through cache of the same bitnamilegacy
+  # archive — so skipping the registry-path verification is safe. Mirrors the
+  # bp-keycloak posture (#3263). Per Inviolable Principle #4 this stays
+  # operator-overridable.
+  security:
+    allowInsecureImages: true
 
 catalystBlueprint:
   upstream: { chart: valkey, version: "5.5.1", repo: "https://charts.bitnami.com/bitnami" }
@@ -33,6 +45,36 @@ valkey:
   # paying for only one pod. Multi-node host clusters bump replicaCount
   # via cluster overlay.
   architecture: replication
+
+  # ── Image refs via the on-Sovereign Harbor proxy-cache (#4136) ──────────
+  # ROOT CAUSE (caught LIVE on omantel.biz kom4dc rtz vCluster, 2026-06-22):
+  #   The upstream Bitnami valkey 5.5.1 subchart defaults its images to the
+  #   BARE dockerhub refs `registry-1.docker.io/bitnami/valkey:latest` (main)
+  #   and `registry-1.docker.io/bitnami/os-shell:latest` (volumePermissions
+  #   init). Bitnami RELOCATED its free images to the `bitnamilegacy/*`
+  #   archive in 2025-08, so `bitnami/valkey:latest` no longer exists, and the
+  #   Sovereign node's registry mirror 404s the bare dockerhub path — the
+  #   valkey-primary pod sat Init:ImagePullBackOff for 15h (4091 backoffs) →
+  #   its `valkey-primary` Service had NO endpoint → every consumer that
+  #   pings Redis (bp-newapi: `[FATAL] Redis ping test failed … connection
+  #   refused`, 180 restarts) CrashLooped, 503-ing the newapi /console API.
+  #
+  # FIX (the proven repo-wide pattern — see keycloak/flux/cnpg/openbao):
+  #   Route EVERY Bitnami image through `harbor.openova.io/proxy-dockerhub/
+  #   bitnamilegacy/<image>:<PINNED-tag>`. The proxy serves PUBLIC images
+  #   cred-free pre-cutover; the local Harbor takes over post-cutover. Tags
+  #   are PINNED (never `latest`) and verified present in the proxy. The
+  #   registry+repository split keeps the subchart's per-image override seam.
+  #   Per-Sovereign overlays MAY still override registry/repository/tag.
+  image:
+    registry: harbor.openova.io
+    repository: proxy-dockerhub/bitnamilegacy/valkey
+    tag: 8.1.3-debian-12-r3
+  volumePermissions:
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/bitnamilegacy/os-shell
+      tag: 12-debian-12-r50
 
   primary:
     replicaCount: 1

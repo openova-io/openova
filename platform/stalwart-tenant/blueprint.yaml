@@ -15,7 +15,7 @@ spec:
   # `claimName`, `claimGroups`). setupJob defaults to enabled so a
   # fresh tenant has working OIDC at t=0.
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.3
+  version: 0.1.4
   card:
     title: Stalwart (per-Organization)
     summary: |

@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: tenant-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.4.2
+  version: 0.4.4
   card:
     title: WordPress (per-Organization)
     summary: |
@@ -150,8 +150,12 @@ spec:
                 type: string
                 default: 10Gi
               storageClass:
+                # #3971 / #4139 — empty ⇒ omit storageClassName ⇒ bind to the
+                # cluster-default durable cloud CSI. local-path is FORBIDDEN by
+                # the forbid-local-path-storage Kyverno ENFORCE policy (ephemeral
+                # node-local disk). Matches the chart values.yaml default ("").
                 type: string
-                default: local-path
+                default: ""
       ingress:
         type: object
         properties:

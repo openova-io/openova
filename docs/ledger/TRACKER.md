@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T12:00:03Z` |
+| Last refreshed | `2026-06-22T16:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
-| [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
-| [#3383](https://github.com/openova-io/openova/issues/3383) | ORGANIZATIONS: one machinery, one name — eradicate the sme/tenant-named subsys | Other |
-| [#3581](https://github.com/openova-io/openova/issues/3581) | Regenerate the UAT walkthrough doc set with fresh live evidence on the CURRENT e | Other |
 | [#3642](https://github.com/openova-io/openova/issues/3642) | NS#1: migrate the 7 host-placed apps (grafana/harbor/keycloak/gitea/openbao/newa | Other |
 | [#3724](https://github.com/openova-io/openova/issues/3724) | CI: cloud-init 32256B size gate must run as a required PR check — #3715 broke  | Other |
 | [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#4116](https://github.com/openova-io/openova/issues/4116) | Make the DEMO CUSTOMER agentic journey real IN the demo Org (omantel.biz / dep 4 | Other |
 | [#4118](https://github.com/openova-io/openova/issues/4118) | agenity-build: published image can silently ship WITHOUT node/claude-code (Docke | Other |
 | [#4119](https://github.com/openova-io/openova/issues/4119) | Org console still mounts the Sovereign provisioning/deployment-stream wizard for | Other |
+| [#4122](https://github.com/openova-io/openova/issues/4122) | agenity.demo.omani.homes/ serves chepherd MARKETING landing instead of the actua | Other |
+| [#4136](https://github.com/openova-io/openova/issues/4136) | fix(bp-valkey): chart renders bare dockerhub refs (bitnami/valkey:latest + os-sh | Other |
+| [#4139](https://github.com/openova-io/openova/issues/4139) | Demo Org wordpress apps blocked: bp-wordpress-tenant 0.4.1 local-path PVC denied | Other |
+| [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
 
 ---
 
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T15:38 | [#4142](https://github.com/openova-io/openova/pull/4142) | #4140 | fix(#4139): bp-wordpress-tenant active-hot-standby CNPG sync |
+| 2026-06-22T15:23 | [#4141](https://github.com/openova-io/openova/pull/4141) | #3985 | fix(#4139): unblock bp-wordpress-tenant publish — repair #39 |
+| 2026-06-22T15:16 | [#4140](https://github.com/openova-io/openova/pull/4140) | #3971 | fix(#4139): demo-Org convergence — empty wpContent.storageCl |
+| 2026-06-22T14:37 | [#4137](https://github.com/openova-io/openova/pull/4137) | #3263 | fix(bp-valkey): Bitnami valkey/os-shell images via on-Sovere |
+| 2026-06-22T12:10 | [#4121](https://github.com/openova-io/openova/pull/4121) | #4112 | fix(catalyst): SECURITY #4110 — host-anchor Org-console scop |
 | 2026-06-22T11:03 | [#4120](https://github.com/openova-io/openova/pull/4120) | #4110 | fix(catalyst): Org console — project the Org's OWN apps + ki |
 | 2026-06-22T10:13 | [#4117](https://github.com/openova-io/openova/pull/4117) | #4110 | feat(catalyst+mcp): Org-scoped Application install — custome |
 | 2026-06-22T08:50 | [#4115](https://github.com/openova-io/openova/pull/4115) | #4114 | fix(agenity): make the chat->provision North Star work live  |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-06-21T23:44 | [#4072](https://github.com/openova-io/openova/pull/4072) | #4071 | fix(catalyst-api): disable client-go WatchListClient gate —  |
 | 2026-06-21T23:16 | [#4070](https://github.com/openova-io/openova/pull/4070) | #4054 | fix(bp-catalyst-api): route console/api/marketplace at the c |
 | 2026-06-21T23:16 | [#4068](https://github.com/openova-io/openova/pull/4068) | #4058 | docs(catalog): finish #4058 bp-chepherd→bp-agenity rename in |
-| 2026-06-21T23:16 | [#4067](https://github.com/openova-io/openova/pull/4067) | #2 | fix(provisioning): warm bootstrap-kit COMPONENT private imag |
-| 2026-06-21T17:54 | [#4066](https://github.com/openova-io/openova/pull/4066) | #1 | feat(provisioning): storage class is a choosable user input  |
-| 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
-| 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
-| 2026-06-21T18:38 | [#4063](https://github.com/openova-io/openova/pull/4063) | #4061 | fix(bp-catalyst-platform): permanent Sovereign no longer aut |
 
 ---
 
