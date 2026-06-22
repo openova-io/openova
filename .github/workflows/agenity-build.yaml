@@ -1,9 +1,10 @@
 name: Build bp-agenity
 
-# Builds the bp-agenity Application image: the upstream chepherd daemon
-# image with OpenOva's openova-mcp binary baked in (#4010). The build
-# context is the repo root because the openova-mcp module imports
-# core/services/shared/auth from this repo.
+# Builds the bp-agenity Application image: the upstream Agenity (chepherd)
+# daemon — built from the PUBLIC agenity-org/agenity source — with OpenOva's
+# openova-mcp binary baked in (#4010 / #4097). The build context is the repo
+# root because the openova-mcp module imports core/services/shared/auth from
+# this repo; the agenity daemon source is git-cloned inside the Containerfile.
 
 on:
   push:
@@ -17,10 +18,13 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/openova-io/bp-agenity
-  # Pin the upstream chepherd daemon image the openova-mcp binary overlays.
-  # Digest-pinned to the v0.9.4 build that carries the bp-agenity MCP seam
+  # Pin the PUBLIC agenity (chepherd daemon) SOURCE ref the Containerfile
+  # builds from. Tag-pinned (never floating main) to v0.9.4 — matches the
+  # bp-agenity chart appVersion and carries the bp-agenity MCP seam
   # (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
-  CHEPHERD_BASE: ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
+  # The old private base image (ghcr.io/agenity-org/chepherd) is GONE — we
+  # build the daemon from source so there is no private cross-org dep (#4097).
+  AGENITY_REF: v0.9.4
 
 permissions:
   contents: read
@@ -58,7 +62,9 @@ jobs:
           context: .
           file: products/agenity/Containerfile
           build-args: |
-            CHEPHERD_BASE=${{ env.CHEPHERD_BASE }}
+            AGENITY_REF=${{ env.AGENITY_REF }}
+            VERSION=${{ steps.vars.outputs.app_version }}
+            COMMIT=${{ steps.vars.outputs.sha_short }}
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}

@@ -1,52 +1,148 @@
-# bp-agenity image — Agenity runtime + the bundled openova-mcp binary.
+# bp-agenity image — Agenity (chepherd) daemon + the bundled openova-mcp binary.
 #
-# The bp-agenity Application image is the upstream chepherd daemon image
-# with OpenOva's `openova-mcp` server binary baked in at
-# /usr/local/bin/openova-mcp. The daemon injects this MCP server into every
-# spawned agent's .mcp.json (via CHEPHERD_EXTRA_MCP_JSON, set by the
-# bp-agenity Helm chart), so the User's solo agent (Claude Opus 4.7) can
-# create Applications in the User's own Organization through the
-# RBAC-scoped OpenOva MCP.
+# The bp-agenity Application image is the upstream Agenity multi-agent
+# *daemon* (the chepherd control-plane that runs in the StatefulSet) with
+# OpenOva's `openova-mcp` server binary baked in at /usr/local/bin/openova-mcp.
+# The daemon injects this MCP server into every spawned agent's .mcp.json
+# (via CHEPHERD_EXTRA_MCP_JSON, set by the bp-agenity Helm chart), so the
+# User's solo agent (Claude Opus) can create Applications in the User's own
+# Organization through the RBAC-scoped OpenOva MCP.
 #
-# Build context = the repo root (the build needs products/openova-mcp and
-# its go workspace). CHEPHERD_BASE pins the upstream chepherd daemon image.
+# WHY THIS BUILDS FROM SOURCE (#4097):
+#   The daemon image used to be pulled as a pre-built base
+#   (`FROM ${CHEPHERD_BASE}`), but that package
+#   (ghcr.io/agenity-org/chepherd) is a PRIVATE container in a different
+#   GitHub org — the openova-io CI token cannot pull it and there is no
+#   API to flip its visibility. The project's source, however, is PUBLIC
+#   at github.com/agenity-org/agenity (#4058 rename) and ships its own
+#   `Containerfile` (the daemon image: web build + Go build + ubuntu
+#   runtime). So we build the daemon ourselves from that PUBLIC source,
+#   pinned by `AGENITY_REF`, and overlay openova-mcp on top. No private
+#   cross-org dependency.
+#
+# Build context = the repo root (the openova-mcp build needs
+# products/openova-mcp + core/services/shared from THIS repo).
 #
 #   docker build -f products/agenity/Containerfile \
-#     --build-arg CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82 \
+#     --build-arg AGENITY_REF=v0.9.4 \
 #     -t ghcr.io/openova-io/bp-agenity:dev .
 
-# CHEPHERD_BASE pins the upstream chepherd daemon image overlaid in stage 2.
-# It is declared HERE — before the first FROM — so it lives in the global
-# build scope and is honoured by the `FROM ${CHEPHERD_BASE}` substitution in
-# stage 2. A bare `ARG CHEPHERD_BASE` is re-declared inside stage 2 to pull
-# this global value (default or --build-arg override) into that stage. An ARG
-# declared only inside stage 2 is NOT visible to its own FROM, which is what
-# caused "base name (${CHEPHERD_BASE}) should not be blank" (UndefinedArgInFrom).
-# Digest-pinned to the v0.9.4 build carrying the bp-agenity MCP seam
-# (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
-ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
+# AGENITY_REF pins the PUBLIC agenity (chepherd daemon) source ref. It is
+# declared HERE — before the first FROM — so it lives in the global build
+# scope and is honoured by the `git clone --branch ${AGENITY_REF}` in the
+# fetch stage. A bare `ARG AGENITY_REF` is re-declared inside each stage
+# that needs it (Principle #4: no hardcoded value where a build-arg belongs).
+# Default-pinned to v0.9.4, which matches the bp-agenity chart appVersion
+# and carries the bp-agenity MCP seam (chepherd #747 / #4010:
+# CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
+ARG AGENITY_REF=v0.9.4
 
-# ─── Stage 1: build the openova-mcp binary ────────────────────────────────
+# ─── Stage 0: fetch the PUBLIC agenity (chepherd daemon) source ────────────
+# git is the pin mechanism: --branch accepts a tag or branch, and we keep a
+# pinned tag (never floating main). The repo is public, so no auth/token is
+# needed in CI.
+FROM alpine/git:latest AS agenity-src
+ARG AGENITY_REF
+WORKDIR /src
+RUN git clone --depth 1 --branch "${AGENITY_REF}" \
+      https://github.com/agenity-org/agenity.git . \
+ && echo "fetched agenity@${AGENITY_REF}: $(git rev-parse HEAD)"
+
+# ─── Stage 1: build the Agenity web UI (mirrors public Containerfile S1) ───
+FROM node:22-alpine AS web-builder
+WORKDIR /build/web
+COPY --from=agenity-src /src/web/package.json /src/web/package-lock.json ./
+RUN npm ci --prefer-offline
+COPY --from=agenity-src /src/web/ ./
+# Build with production API path (no proxy prefix needed — same-origin).
+RUN npm run build
+
+# ─── Stage 2: build the chepherd daemon Go binary (mirrors public S2) ──────
+FROM golang:1.25-alpine AS go-builder
+WORKDIR /build
+COPY --from=agenity-src /src/go.mod /src/go.sum ./
+RUN go mod download
+COPY --from=agenity-src /src/ ./
+ARG AGENITY_REF
+ARG VERSION
+ARG COMMIT=unknown
+ARG BUILDDATE=unknown
+# VERSION defaults to the pinned source ref when not supplied.
+RUN VERSION="${VERSION:-${AGENITY_REF}}"; \
+    CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags "-s -w \
+        -X 'github.com/chepherd/chepherd/cmd.Version=${VERSION}' \
+        -X 'github.com/chepherd/chepherd/cmd.Commit=${COMMIT}' \
+        -X 'github.com/chepherd/chepherd/cmd.BuildDate=${BUILDDATE}'" \
+      -o /usr/local/bin/chepherd .
+
+# ─── Stage 3: build the openova-mcp binary (from THIS repo) ────────────────
+# The openova-mcp module imports core/services/shared/auth from this repo
+# (replace directive in products/openova-mcp/go.mod), so the build needs
+# both module trees. The build context is the repo root; copy the whole
+# repo and build from the module directory.
 FROM golang:1.25-alpine AS mcp-builder
 WORKDIR /build
-# The openova-mcp module imports core/services/shared/auth from this repo,
-# so the build needs both module trees. Copy the whole repo (build context
-# is the repo root) and build from the module directory.
 COPY . .
 WORKDIR /build/products/openova-mcp
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" \
     -o /usr/local/bin/openova-mcp ./cmd/openova-mcp
 
-# ─── Stage 2: overlay onto the upstream chepherd image ────────────────────
-# Re-declare the global CHEPHERD_BASE (no default) so the value flows into
-# this stage's FROM. The default + any --build-arg override are set on the
-# global ARG above the first FROM.
-ARG CHEPHERD_BASE
-FROM ${CHEPHERD_BASE}
+# ─── Stage 4: runtime image (mirrors public Containerfile S3) ──────────────
+# ubuntu 22.04 + podman (rootless-in-pod ContainerRuntime) + the chepherd
+# daemon binary + the Astro web UI + the catalog, then overlay openova-mcp.
+# ENTRYPOINT is chepherd-entrypoint and ports 8080/9090 are EXPOSEd — the
+# bp-agenity chart's StatefulSet (`chepherd run --headless --listen ...`)
+# depends on exactly this contract.
+FROM ubuntu:22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Base tooling: git + curl (needed by agents); podman for ContainerRuntime.
+# uidmap provides newuidmap/newgidmap required for rootless podman-in-podman.
+# gosu lets the entrypoint drop privileges after image-load.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl ca-certificates gosu \
+    podman fuse-overlayfs slirp4netns uidmap \
+    python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Graphify (#725) — daemon-central codebase knowledge-graph plugin. Pinned.
+RUN pip3 install --no-cache-dir graphifyy==0.8.35
+
+# Non-root user for the chepherd process itself.
+RUN useradd -m -u 1000 -s /bin/bash chepherd \
+    && mkdir -p /app/web /home/chepherd/.local/state/chepherd /home/chepherd/.local/share \
+    && chown -R chepherd:chepherd /home/chepherd/.local \
+    # subuid/subgid ranges required for rootless podman user-namespace mapping.
+    && echo "chepherd:100000:65536" >> /etc/subuid \
+    && echo "chepherd:100000:65536" >> /etc/subgid
+
+COPY --from=go-builder  /usr/local/bin/chepherd /usr/local/bin/chepherd
+COPY --from=web-builder /build/web/dist          /app/web/dist
+COPY --from=go-builder  /build/catalog            /app/catalog
+COPY --from=agenity-src /src/scripts/chepherd-entrypoint.sh /usr/local/bin/chepherd-entrypoint
+RUN chmod +x /usr/local/bin/chepherd-entrypoint
 
 # Bake the openova-mcp binary in at the path the chart's
 # CHEPHERD_EXTRA_MCP_JSON stanza references (openovaMCP.binaryPath).
 COPY --from=mcp-builder /usr/local/bin/openova-mcp /usr/local/bin/openova-mcp
 
-# The chepherd image already defines its ENTRYPOINT (chepherd-entrypoint)
-# and EXPOSEs 8080/9090; bp-agenity inherits them unchanged.
+# Podman storage config for rootless inside container.
+RUN mkdir -p /home/chepherd/.config/containers && \
+    printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
+      > /home/chepherd/.config/containers/storage.conf && \
+    chown -R chepherd:chepherd /home/chepherd/.config
+
+ENV HOME=/home/chepherd
+WORKDIR /home/chepherd
+
+# State dir for persistence across restarts (the chart mounts a PVC here).
+VOLUME ["/home/chepherd/.local/state/chepherd"]
+
+EXPOSE 8080 9090
+
+# Run as root inside the container — chepherd-entrypoint chowns the state
+# volume, optionally loads the agent image into the in-pod podman storage,
+# then `exec`s the daemon (`chepherd run …`).
+ENTRYPOINT ["/usr/local/bin/chepherd-entrypoint"]
