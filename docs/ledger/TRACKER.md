@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T18:30:06Z` |
+| Last refreshed | `2026-06-22T18:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T18:33 | [#4150](https://github.com/openova-io/openova/pull/4150) | #3373 | fix(org-provisioning): per-Org bp-newapi overlay wires never |
 | 2026-06-22T18:24 | [#4149](https://github.com/openova-io/openova/pull/4149) | #817 | fix(bp-stalwart-tenant): converge per-Org Stalwart on fresh  |
 | 2026-06-22T17:44 | [#4147](https://github.com/openova-io/openova/pull/4147) | #3971 | fix(bp-wordpress-tenant): wp-plugin-install init runs as roo |
 | 2026-06-22T18:24 | [#4146](https://github.com/openova-io/openova/pull/4146) | #4053 | fix(SSO): per-Org realm registers catalyst-ui + Org keycloak |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-06-22T06:35 | [#4088](https://github.com/openova-io/openova/pull/4088) | #4086 | fix(catalyst): Sovereign status excludes provider-inapplicab |
 | 2026-06-22T06:35 | [#4087](https://github.com/openova-io/openova/pull/4087) | #4085 | feat: per-resource Compliance tab renders THAT resource's ow |
 | 2026-06-22T03:50 | [#4080](https://github.com/openova-io/openova/pull/4080) | #4077 | fix(application-controller): valid RFC-1123 HR names + defau |
-| 2026-06-22T03:50 | [#4078](https://github.com/openova-io/openova/pull/4078) | #4077 | fix(catalyst): org-controller auto-ensures <org>-prod Enviro |
 
 ---
 
