@@ -155,7 +155,22 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 	}
 	zone := parentZone
 	rrsets := []pdnsRRSet{}
-	for _, prefix := range []string{"console", "wordpress", "openclaw", "mail", "keycloak"} {
+	// Per-Org host A records. The leading "*" wildcard is REQUIRED, not a
+	// nicety: parentZone is a SHARED pool domain (epic #825), and a prior
+	// environment that used the same pool commonly leaves a broad apex
+	// wildcard (e.g. `*.<parentZone> A <old-ingress-ip>`) behind after a
+	// wipe. Without an explicit `*.<subdomain>.<parentZone>` record, every
+	// Org host NOT in the fixed prefix list below (and any app subdomain
+	// the per-tenant overlay later adds) falls through to that stale apex
+	// wildcard and resolves to a DEAD prior-env IP — the #4075 failure
+	// ("console unreachable, served 49.12.16.160 from a wiped env"). The
+	// explicit per-Org wildcard shadows the apex wildcard for this Org's
+	// entire subtree and pins it to THIS Sovereign's current ingress IP.
+	//
+	// ChangeType=REPLACE makes every write an unconditional upsert, so a
+	// stale same-name record (if one ever existed) is overwritten rather
+	// than skipped.
+	for _, prefix := range []string{"*", "console", "wordpress", "openclaw", "mail", "keycloak"} {
 		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone)
 		rrsets = append(rrsets, pdnsRRSet{
 			Name:       fqdn,

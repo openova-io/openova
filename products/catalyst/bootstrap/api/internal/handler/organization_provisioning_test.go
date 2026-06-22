@@ -1093,6 +1093,43 @@ func TestPowerDNSWriter_PATCH_NonOK(t *testing.T) {
 	}
 }
 
+// TestProvisionFreeSubdomain_WritesWildcardREPLACE locks the #4075 fix:
+// the per-Org DNS write MUST emit an explicit `*.<sub>.<parent>` A record
+// (so the Org's whole subtree shadows any stale apex pool wildcard left by
+// a wiped prior env) AND must use ChangeType=REPLACE on every record so a
+// same-name stale record is overwritten rather than skipped.
+func TestProvisionFreeSubdomain_WritesWildcardREPLACE(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = readAll(r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	p := DefaultOrganizationDNSProvisioner{Writer: NewPowerDNSWriter(srv.URL, "key")}
+	if err := p.ProvisionFreeSubdomain(context.Background(), "demo", "omani.homes", "212.72.24.33"); err != nil {
+		t.Fatalf("ProvisionFreeSubdomain: %v", err)
+	}
+
+	// The explicit per-Org wildcard pinned to the current ingress IP — the
+	// record that shadows a stale `*.omani.homes` apex wildcard.
+	if !strings.Contains(gotBody, `"name":"*.demo.omani.homes."`) {
+		t.Errorf("regression (#4075): missing explicit `*.demo.omani.homes.` wildcard A record\nbody: %s", gotBody)
+	}
+	// The console host itself.
+	if !strings.Contains(gotBody, `"name":"console.demo.omani.homes."`) {
+		t.Errorf("missing console A record\nbody: %s", gotBody)
+	}
+	// Pinned to THIS Sovereign's ingress, not a stale IP.
+	if !strings.Contains(gotBody, `"content":"212.72.24.33"`) {
+		t.Errorf("records not pinned to the supplied ingress IP\nbody: %s", gotBody)
+	}
+	// Every write is an unconditional upsert.
+	if strings.Contains(gotBody, `"changetype":"CREATE"`) || !strings.Contains(gotBody, `"changetype":"REPLACE"`) {
+		t.Errorf("expected ChangeType=REPLACE on every rrset (upsert/overwrite stale)\nbody: %s", gotBody)
+	}
+}
+
 // Read-once ioutil-equivalent helper for body inspection in tests.
 func readAll(r io.Reader) string {
 	b, _ := io.ReadAll(r)
