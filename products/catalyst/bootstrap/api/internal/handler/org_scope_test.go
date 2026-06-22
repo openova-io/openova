@@ -166,3 +166,68 @@ func TestResolveOrgScope_OrgHost(t *testing.T) {
 		t.Fatal("Sovereign front door must NOT resolve to an Org scope")
 	}
 }
+
+// TestOrgScopeGuard_HostAnchored_StaleAdminCookieOnOrgHost_Denied is THE
+// #4110 regression: a STALE sovereign-admin cookie (tier=admin, minted
+// before the Org-scoping fix shipped, or replayed/forged) that lands on an
+// Org console host must STILL be confined to the Org allowlist — the
+// request HOST is the trust anchor, not the JWT tier. Without host-anchoring
+// the guard keyed solely off claimsAreOrgScoped(claims), so a tier=admin
+// cookie sailed straight through to /deployments — the live god-mode leak.
+func TestOrgScopeGuard_HostAnchored_StaleAdminCookieOnOrgHost_Denied(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := store.NewTenantRegistry(dir)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	if err := reg.Put(store.TenantRegistration{
+		Host:       "console.demo.omani.homes",
+		TenantID:   "7283eb4a",
+		TenantKind: store.TenantKindOrg,
+	}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	h := &Handler{log: quietLog(), tenantRegistry: reg}
+	guard := h.OrgScopeGuard(http.HandlerFunc(orgScopeGuardTestHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/4635277cae4ffed9", nil)
+	req.Header.Set("X-Forwarded-Host", "console.demo.omani.homes")
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey,
+		&auth.Claims{Email: "demo@openova.io", Tier: "admin"})) // stale god-mode cookie
+	rec := httptest.NewRecorder()
+	guard.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("stale admin cookie on Org host must be 403'd on deployments, got %d body=%s",
+			rec.Code, rec.Body.String())
+	}
+}
+
+// TestOrgScopeGuard_HostAnchored_AdminOnSovereignHost_Passthrough proves the
+// host-anchor introduces ZERO regression: the genuine operator on the
+// Sovereign's OWN console host (tenant_kind=otech) is untouched.
+func TestOrgScopeGuard_HostAnchored_AdminOnSovereignHost_Passthrough(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := store.NewTenantRegistry(dir)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	if err := reg.Put(store.TenantRegistration{
+		Host:       "console.omantel.biz",
+		TenantID:   "4635277cae4ffed9",
+		TenantKind: store.TenantKindOTECH,
+	}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	h := &Handler{log: quietLog(), tenantRegistry: reg}
+	guard := h.OrgScopeGuard(http.HandlerFunc(orgScopeGuardTestHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/4635277cae4ffed9", nil)
+	req.Header.Set("X-Forwarded-Host", "console.omantel.biz")
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey,
+		&auth.Claims{Email: "emrah.baysal@openova.io", Tier: "owner"}))
+	rec := httptest.NewRecorder()
+	guard.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operator on Sovereign host must pass, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}

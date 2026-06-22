@@ -230,8 +230,21 @@ func (h *Handler) OrgScopeGuard(next http.Handler) http.Handler {
 			return
 		}
 		claims := auth.ClaimsFromContext(r.Context())
-		// Non-Org sessions are unaffected — full Sovereign-admin surface.
-		if !claimsAreOrgScoped(claims) {
+		// #4110 host-anchor: the REQUEST HOST is the trust anchor, NOT the
+		// session JWT. A request is Org-scoped if EITHER the session was
+		// minted Org-scoped (fresh PIN login on an Org console — claims tier
+		// = org-admin) OR it simply arrived on a tenant_kind=org console host
+		// (resolveOrgScope). The host predicate is what makes this immune to
+		// a STALE / replayed sovereign-admin cookie: an `admin`-tier session
+		// minted before this fix (or forged) that lands on console.<org>.<zone>
+		// is still confined — the gateway sets X-Forwarded-Host to the real
+		// browser host, which an Org-console browser can never forge.
+		//
+		// The Sovereign's OWN console host (tenant_kind=otech, e.g.
+		// console.<sov-fqdn>) makes resolveOrgScope return false → the genuine
+		// operator session is a transparent passthrough → ZERO regression.
+		_, hostOrgScoped := h.resolveOrgScope(r)
+		if !claimsAreOrgScoped(claims) && !hostOrgScoped {
 			next.ServeHTTP(w, r)
 			return
 		}
