@@ -14,17 +14,25 @@ on:
       - 'core/services/shared/auth/**'
     branches: [main]
   workflow_dispatch:
+    inputs:
+      agenity_ref:
+        description: 'agenity-org/agenity source ref to build (tag, branch, or full commit SHA). Defaults to the env pin.'
+        required: false
+        default: ''
 
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/openova-io/bp-agenity
   # Pin the PUBLIC agenity (chepherd daemon) SOURCE ref the Containerfile
-  # builds from. Tag-pinned (never floating main) to v0.9.4 — matches the
-  # bp-agenity chart appVersion and carries the bp-agenity MCP seam
-  # (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
-  # The old private base image (ghcr.io/agenity-org/chepherd) is GONE — we
-  # build the daemon from source so there is no private cross-org dep (#4097).
-  AGENITY_REF: v0.9.4
+  # builds from. Never floating main: pinned to the #745 merge COMMIT SHA —
+  # the NEW agenity dashboard (main HEAD as of 2026-06-22). v0.9.4 (prior
+  # pin) predated #745 and served the OLD dashboard. No tag exists for the
+  # merge yet; the Containerfile's fetch stage accepts a full SHA. Carries
+  # the bp-agenity MCP seam (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON
+  # + CHEPHERD_DEFAULT_MODEL). The old private base image
+  # (ghcr.io/agenity-org/chepherd) is GONE — built from source, no private
+  # cross-org dep (#4097). Overridable via the workflow_dispatch input.
+  AGENITY_REF: bcd38b15816694e82bddbbc9d6385ff3de00e3cf
 
 permissions:
   contents: read
@@ -48,6 +56,12 @@ jobs:
           # the chart so the tag can never drift from what the chart references.
           APPVER=$(grep -E '^appVersion:' products/agenity/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
           echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
+          # Effective source ref: the workflow_dispatch input wins when set,
+          # else the env pin. Lets a one-off rebuild target a different ref
+          # without editing the workflow, while keeping the pinned default.
+          REF="${{ inputs.agenity_ref }}"
+          REF="${REF:-${AGENITY_REF}}"
+          echo "agenity_ref=${REF}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -62,7 +76,7 @@ jobs:
           context: .
           file: products/agenity/Containerfile
           build-args: |
-            AGENITY_REF=${{ env.AGENITY_REF }}
+            AGENITY_REF=${{ steps.vars.outputs.agenity_ref }}
             VERSION=${{ steps.vars.outputs.app_version }}
             COMMIT=${{ steps.vars.outputs.sha_short }}
           push: true
