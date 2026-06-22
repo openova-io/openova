@@ -56,6 +56,40 @@ spec:
       securityContext:
         {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
       initContainers:
+        # ── 0. Fix wp-content PVC ownership (root, runs FIRST) ─────────
+        # The PVC root is mounted root-owned; podSecurityContext.fsGroup
+        # sets the GROUP but not the OWNER, so a uid-33 process cannot
+        # chown/chmod it. Every downstream step that runs as uid 33 — the
+        # wp-content-bootstrap seed (`chown -R 33:33 /pvc` on a fresh PVC),
+        # wp-plugin-install, AND the official image's WP-core `tar` (which
+        # chmods ./wp-content) — otherwise dies with "Operation not
+        # permitted". This short root init (CAP_CHOWN/FOWNER only, no shell
+        # privesc) re-owns the PVC to 33:33 once so all later uid-33 steps
+        # succeed. Uses the wordpress image (not busybox) to satisfy the
+        # kyverno harbor-proxy single-glob rule (#3461). Validated live on
+        # omantel.biz demo Org (kom4dc) — pod reached Apache-serving. (#4152)
+        - name: wp-fix-perms
+          image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              chown -R 33:33 /pvc
+              chmod -R u+rwX /pvc
+              echo "wp-content PVC perms fixed (33:33)."
+          volumeMounts:
+            - name: wp-content
+              mountPath: /pvc
         # ── 1. Seed wp-content from the image onto the PVC (idempotent) ─
         - name: wp-content-bootstrap
           image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}

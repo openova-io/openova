@@ -114,7 +114,7 @@ name: bp-wordpress-tenant
 #   apt's sandbox keeps it running as root (no setuid syscall), needs NO extra
 #   Linux caps (portable under a restrictive Kyverno baseline). Diagnosed live on
 #   the omantel.biz demo Org (kom4dc). Stacks on top of #4147 (runAsUser:0).
-version: 0.4.6
+version: 0.4.7
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
