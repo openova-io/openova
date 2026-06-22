@@ -38,8 +38,8 @@ func TestFanoutHRs_ActiveHotStandby_TwoClusters(t *testing.T) {
 	}
 
 	// First HR: mgmt-A active.
-	if got := hrs[0].GetName(); got != "obs-prod-mgmt-A" {
-		t.Fatalf("hr[0].name = %q, want obs-prod-mgmt-A", got)
+	if got := hrs[0].GetName(); got != "obs-prod-mgmt-a" {
+		t.Fatalf("hr[0].name = %q, want obs-prod-mgmt-a", got)
 	}
 	if got := hrs[0].GetLabels()[LabelRole]; got != RoleActive {
 		t.Fatalf("hr[0].role = %q, want active", got)
@@ -55,8 +55,8 @@ func TestFanoutHRs_ActiveHotStandby_TwoClusters(t *testing.T) {
 	}
 
 	// Second HR: mgmt-B passive.
-	if got := hrs[1].GetName(); got != "obs-prod-mgmt-B" {
-		t.Fatalf("hr[1].name = %q, want obs-prod-mgmt-B", got)
+	if got := hrs[1].GetName(); got != "obs-prod-mgmt-b" {
+		t.Fatalf("hr[1].name = %q, want obs-prod-mgmt-b", got)
 	}
 	if got := hrs[1].GetLabels()[LabelRole]; got != RolePassive {
 		t.Fatalf("hr[1].role = %q, want passive", got)
@@ -378,7 +378,7 @@ func TestFanoutHRs_Errors(t *testing.T) {
 
 func TestHRNameFor_NoTruncationUnder63(t *testing.T) {
 	got := HRNameFor("obs-prod", "mgmt-A")
-	want := "obs-prod-mgmt-A"
+	want := "obs-prod-mgmt-a"
 	if got != want {
 		t.Fatalf("HRNameFor = %q, want %q", got, want)
 	}
@@ -438,8 +438,8 @@ func TestPerClusterStatusesFor_TemplateShape(t *testing.T) {
 	if statuses[1].Cluster != "mgmt-B" || statuses[1].Role != RolePassive {
 		t.Fatalf("status[1] = %+v, want {mgmt-B,passive}", statuses[1])
 	}
-	if statuses[0].HR != "obs-mgmt-A" {
-		t.Fatalf("status[0].HR = %q, want obs-mgmt-A", statuses[0].HR)
+	if statuses[0].HR != "obs-mgmt-a" {
+		t.Fatalf("status[0].HR = %q, want obs-mgmt-a", statuses[0].HR)
 	}
 }
 
@@ -587,7 +587,7 @@ func TestFanoutHRs_PassiveDefaultsForMultiClusterMissingRolesMap(t *testing.T) {
 }
 
 // Sanity-check that the per-cluster names produced match the brief's
-// "obs-prod-mgmt-A" example exactly.
+// "obs-prod-mgmt-a" example exactly.
 func TestFanoutHRs_BriefExampleMapping(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
@@ -602,7 +602,7 @@ func TestFanoutHRs_BriefExampleMapping(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := []string{hrs[0].GetName(), hrs[1].GetName()}
-	want := []string{"obs-prod-mgmt-A", "obs-prod-mgmt-B"}
+	want := []string{"obs-prod-mgmt-a", "obs-prod-mgmt-b"}
 	for i := range got {
 		if got[i] != want[i] {
 			t.Fatalf("hr[%d].name = %q, want %q", i, got[i], want[i])

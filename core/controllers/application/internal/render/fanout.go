@@ -335,7 +335,14 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 // cheap, stable across reconciles, and collision-resistant within a
 // single Sovereign.
 func HRNameFor(app, cluster string) string {
-	combined := fmt.Sprintf("%s-%s", app, cluster)
+	// HelmRelease names are k8s object names → must be RFC-1123 DNS
+	// labels: lowercase only. The cluster token can carry an
+	// uppercase region marker (e.g. clusterregistry.RegionA="A" →
+	// "rtz-A"), which would render an invalid name like
+	// `agenity-rtz-A`. Lowercase the composed name (#4079). Labels
+	// keep their original case (label values permit uppercase); only
+	// the object NAME is constrained.
+	combined := strings.ToLower(fmt.Sprintf("%s-%s", app, cluster))
 	if len(combined) <= HRName63 {
 		return combined
 	}
