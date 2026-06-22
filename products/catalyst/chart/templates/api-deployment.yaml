@@ -142,6 +142,34 @@ spec:
       # system:default and every cutover-status read returns 502
       # "configmaps is forbidden" (caught live on otech102, 2026-05-04).
       serviceAccountName: catalyst-api-cutover-driver
+      # ── Zero-downtime roll: pin to the EVS volume's node (#4100) ──────────
+      # catalyst-api mounts two RWO Huawei-EVS PVCs (catalyst-api-deployments,
+      # catalyst-api-cache). The EVS PV nodeAffinity is ZONE-scoped
+      # (topology.evs.csi.huaweicloud.com/zone), NOT node-scoped — every worker
+      # in the zone satisfies it. With strategy: Recreate and no scheduling
+      # constraint, a roll can place the new Pod on a DIFFERENT node than the one
+      # holding the live EVS attachment. Huawei EVS then has to detach the volume
+      # from the old node and reattach it across nodes — a ~10-min stall during
+      # which console/api 503 (live-confirmed on omantel.biz dep
+      # 4635277cae4ffed9, 2026-06-22). Same-node reattach is seconds.
+      #
+      # catalystApi.nodeName (default empty) pins the Deployment to the node
+      # currently holding the volumes so the replacement Pod reattaches
+      # same-node. Empty on fresh installs — WaitForFirstConsumer binds the RWO
+      # PVs to the first consumer's node at install time, so the very first Pod
+      # has nothing to collide with; the operator sets nodeName on the
+      # per-Sovereign HelmRelease overlay (or it is patched live) to the bound
+      # node ONCE, after which every future roll is same-node and fast.
+      # catalystApi.affinity is an additional passthrough for operators who
+      # prefer a soft/zone nodeAffinity over a hard nodeName pin. Both default
+      # empty so fresh installs keep today's behaviour (no regression).
+      {{- with .Values.catalystApi.nodeName }}
+      nodeName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.catalystApi.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       imagePullSecrets:
         - name: ghcr-pull
       # fsGroup applies to the volumes mounted into the Pod so the
