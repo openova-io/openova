@@ -1,0 +1,21 @@
+openova-mcp JSON-RPC transcript — LIVE on omantel.biz / dep 4635277cae4ffed9
+demo Org namespace org-7283eb4a-19e5-4e86-9066-d4aa26762064, 2026-06-22.
+Binary: openova-mcp with the deriveTier(org-admin)->TierAdmin fix.
+Env: OPENOVA_MCP_CONTEXT=organization, OPENOVA_MCP_VERIFY=rs256,
+     OPENOVA_MCP_BEARER=<org-scoped session JWT: tier=org-admin org_id=demo> (value NEVER printed).
+
+>>> whoami
+{"context":"organization","email":"demo@openova.io","org_id":"demo","sovereign_admin":false,"tier":"admin","deployment_id":"","sovereign_fqdn":""}
+
+>>> tools/list
+6 tools visible — create_application PRESENT (was 0/invisible before the fix: tier=none).
+
+>>> create_application {blueprint:bp-wordpress, version:0.4.1, name:test-shop, parameters:{adminUser:{email:demo@openova.io},orgDomain:demo.omani.homes,replicas:1}}
+isError: false
+{"apiVersion":"apps.openova.io/v1","applied":true,"httpStatus":"201","kind":"Application",
+ "message":"HTTP 201 Created — Application \"test-shop\" queued in namespace \"org-7283eb4a-19e5-4e86-9066-d4aa26762064\" (Application CR persisted; controller reconciles within ~60s)",
+ "name":"test-shop","namespace":"org-7283eb4a-19e5-4e86-9066-d4aa26762064","uid":"bc367a49-66a2-4432-adef-ec305e351c69"}
+
+ROUTE PROOF: the Org-context path -> CreateApplicationOrg -> POST /api/v1/org/applications
+(X-Tenant-Host: console.demo.omani.homes), OrgScopeGuard-allowlisted, own-org-bound (#4116/#4110).
+NO 403 org-scoped-forbidden. test-shop now renders on console.demo.omani.homes/apps.
