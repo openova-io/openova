@@ -45,6 +45,15 @@ spec:
         catalyst.openova.io/blueprint: bp-wordpress-tenant
     spec:
       restartPolicy: OnFailure
+      {{- with .Values.wordpress.image.pullSecrets }}
+      # #4152 (Refs #3858): this Job runs the PRIVATE custom WordPress image
+      # (`bp-wordpress-tenant.wordpressImage` = wordpress-tenant-pg) — same
+      # imagePullSecrets requirement as the Deployment. (The oidc-config Job by
+      # contrast runs the PUBLIC dockerhub `wordpress:cli-*` image, so it needs
+      # none.)
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
       containers:

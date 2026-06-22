@@ -118,7 +118,20 @@ name: bp-wordpress-tenant
 #     prefix for a host-qualified repository (first "/"-segment has a "." or ":")
 #     so a harbor overlay can't double-prefix the ghcr ref (mirrors the canonical
 #     bp-sso-bridge.image #2940 skip); also tolerate an empty digest (omit @digest).
-version: 0.4.10
+# 0.4.11 (#4152, Refs #3858): add `wordpress.image.pullSecrets` (default
+#   `[{name: ghcr-pull}]`) and wire it into the Pod spec of the runtime
+#   Deployment AND the admin-user Job. Since #4153 the runtime image is the
+#   PRIVATE `ghcr.io/openova-io/openova/wordpress-tenant-pg` package, so the
+#   kubelet's anonymous pull 401s ("failed to authorize: ... 401 Unauthorized")
+#   and the Pod stalls in ImagePullBackOff (confirmed live on omantel.biz demo
+#   Org / kom4dc). The old official `wordpress` image was public dockerhub, so
+#   no pull secret was ever needed — hence the chart shipped none. `ghcr-pull`
+#   is the canonical reflected Secret name (mirrors bp-newapi #952). The
+#   oidc-config Job (public `wordpress:cli-*` image) and the database-secret-
+#   sync Job (public proxy-dockerhub curl) intentionally keep NO pull secret.
+#   Per Inviolable Principle #4 the list is overrideable (set `[]` on clusters
+#   that mirror the image into a public registry).
+version: 0.4.11
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

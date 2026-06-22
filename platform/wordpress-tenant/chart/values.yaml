@@ -84,6 +84,31 @@ wordpress:
     # still renders + pulls by tag during the bootstrap window.
     digest: "sha256:4c80995efad75400ef4a3ca34666cdac421abf4c9285b21cdaf33c85241c0b6c"
     pullPolicy: IfNotPresent
+    # ─── Image pull secrets (#4152, Refs #3858) ──────────────────────────
+    # Since #4153 the runtime image is the CUSTOM
+    # `ghcr.io/openova-io/openova/wordpress-tenant-pg` build (official base +
+    # the pdo_pgsql/pgsql PHP extensions pg4wp REQUIRES to serve against
+    # bp-cnpg Postgres). That ghcr package is PRIVATE, so the kubelet's
+    # anonymous pull fails with `failed to authorize: ... 401 Unauthorized`
+    # and the Pod stalls in ImagePullBackOff (root-caused live on
+    # omantel.biz demo Org / kom4dc). The old official `wordpress` image was
+    # public dockerhub, so no pull secret was ever needed — hence none was
+    # wired before.
+    #
+    # `ghcr-pull` is the canonical Secret name (mirrors bp-newapi #952): a
+    # `kubernetes.io/dockerconfigjson` Secret created in flux-system at
+    # cloud-init and reflected by bp-reflector into every Organization
+    # namespace (the source Secret carries the
+    # `reflector.v1.k8s.emberstack.com/reflection-auto-namespaces`
+    # annotation). It applies to BOTH the runtime Deployment (all three
+    # initContainers + the main container) AND the admin-user Job — every
+    # workload that pulls `bp-wordpress-tenant.wordpressImage`.
+    #
+    # Per Inviolable Principle #4 the list is overrideable from per-Sovereign
+    # overlays (set `[]` for clusters that mirror this image into a public
+    # registry).
+    pullSecrets:
+      - name: ghcr-pull
   port: 80
   resources:
     requests:
