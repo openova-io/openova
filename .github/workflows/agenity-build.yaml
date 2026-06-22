@@ -17,10 +17,12 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/openova-io/bp-agenity
-  # Pin the upstream chepherd daemon image the openova-mcp binary overlays.
-  # Digest-pinned to the v0.9.4 build that carries the bp-agenity MCP seam
-  # (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
-  CHEPHERD_BASE: ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
+  # Pin the upstream agenity (ex-chepherd) daemon image the openova-mcp binary
+  # overlays. The project moved chepherd/chepherd -> agenity-org/agenity (#4058);
+  # the runtime image is published at ghcr.io/agenity-org/chepherd with the SAME
+  # digest as the old path. Digest-pinned to the v0.9.4 build that carries the
+  # bp-agenity MCP seam (#747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
+  CHEPHERD_BASE: ghcr.io/agenity-org/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
 
 permissions:
   contents: read

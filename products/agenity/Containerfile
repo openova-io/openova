@@ -12,7 +12,7 @@
 # its go workspace). CHEPHERD_BASE pins the upstream chepherd daemon image.
 #
 #   docker build -f products/agenity/Containerfile \
-#     --build-arg CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82 \
+#     --build-arg CHEPHERD_BASE=ghcr.io/agenity-org/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82 \
 #     -t ghcr.io/openova-io/bp-agenity:dev .
 
 # CHEPHERD_BASE pins the upstream chepherd daemon image overlaid in stage 2.
@@ -23,8 +23,10 @@
 # declared only inside stage 2 is NOT visible to its own FROM, which is what
 # caused "base name (${CHEPHERD_BASE}) should not be blank" (UndefinedArgInFrom).
 # Digest-pinned to the v0.9.4 build carrying the bp-agenity MCP seam
-# (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
-ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
+# (#747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL). The project
+# moved chepherd/chepherd -> agenity-org/agenity (#4058); the runtime image is
+# republished at ghcr.io/agenity-org/chepherd with the SAME digest.
+ARG CHEPHERD_BASE=ghcr.io/agenity-org/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
 
 # ─── Stage 1: build the openova-mcp binary ────────────────────────────────
 FROM golang:1.25-alpine AS mcp-builder
