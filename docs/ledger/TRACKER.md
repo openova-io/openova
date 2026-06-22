@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T05:00:02Z` |
+| Last refreshed | `2026-06-22T05:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 84 |
+| Open issues | 87 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 84 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 87 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 84 open items (clickable table)
+### All 87 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -284,6 +284,9 @@ flowchart LR
 | [#4077](https://github.com/openova-io/openova/issues/4077) | App install fails 'EnvironmentMissing' — no Environment CRs created by Org onb | Other |
 | [#4079](https://github.com/openova-io/openova/issues/4079) | Per-cluster HelmRelease name is invalid RFC-1123 (agenity-rtz-A uppercase) + mis | Other |
 | [#4082](https://github.com/openova-io/openova/issues/4082) | bp-agenity install blocked on live Sovereign: (a) app-controller chart ClusterRo | Other |
+| [#4084](https://github.com/openova-io/openova/issues/4084) | Cloud view polish: graph must settle in ~3s then STOP (regression) + list view k | Other |
+| [#4085](https://github.com/openova-io/openova/issues/4085) | Per-resource Compliance tab renders a table of THAT resource's own findings (not | Other |
+| [#4086](https://github.com/openova-io/openova/issues/4086) | Sovereign status reads "Degraded" forever on healthy Huawei Sovereign — health | Other |
 
 ---
 
