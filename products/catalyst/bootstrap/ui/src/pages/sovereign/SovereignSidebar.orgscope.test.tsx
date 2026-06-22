@@ -1,0 +1,91 @@
+/**
+ * SovereignSidebar.orgscope.test.tsx — #4110 Org-console scoping.
+ *
+ * Asserts that an Org-scoped customer session sees ONLY its own-estate nav
+ * (Apps / Catalog / Sandbox / Users / Settings) and NONE of the sovereign-
+ * admin nav (Dashboard / Cloud / Jobs / Compliance / Organizations), while
+ * a Sovereign-admin session still sees the full nav (zero regression).
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  RouterProvider,
+  createRouter,
+  createRootRoute,
+  createRoute,
+  createMemoryHistory,
+  Outlet,
+} from '@tanstack/react-router'
+
+// Mock the scope hook so the test drives orgScoped directly.
+const scopeMock = vi.fn()
+vi.mock('@/shared/lib/useConsoleScope', () => ({
+  useConsoleScope: () => scopeMock(),
+}))
+// Dynamic blueprint sidebar entries — irrelevant here; return empty.
+vi.mock('@/lib/console-ui.api', () => ({
+  getSidebarEntries: async () => [],
+}))
+vi.mock('@/shared/lib/useResolvedDeploymentId', () => ({
+  useResolvedDeploymentId: () => ({ deploymentId: '' }),
+}))
+
+import { SovereignSidebar } from './SovereignSidebar'
+
+function renderSidebar() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const rootRoute = createRootRoute({ component: () => <Outlet /> })
+  const host = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/apps',
+    component: () => <SovereignSidebar sovereignFQDN="demo.omani.homes" />,
+  })
+  const catchAll = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/$',
+    component: () => <SovereignSidebar sovereignFQDN="demo.omani.homes" />,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([host, catchAll]),
+    history: createMemoryHistory({ initialEntries: ['/apps'] }),
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router as never} />
+    </QueryClientProvider>,
+  )
+}
+
+describe('SovereignSidebar — #4110 Org-console scope', () => {
+  beforeEach(() => scopeMock.mockReset())
+  afterEach(() => cleanup())
+
+  it('Org-scoped session hides every sovereign-admin nav item', async () => {
+    scopeMock.mockReturnValue({ orgScoped: true, org: 'demo', loading: false })
+    renderSidebar()
+    // Own-estate nav present.
+    expect(await screen.findByTestId('sov-console-nav-apps')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-catalog')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-sandbox')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-users')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-settings')).toBeTruthy()
+    // Sovereign-admin nav HIDDEN.
+    expect(screen.queryByTestId('sov-console-nav-dashboard')).toBeNull()
+    expect(screen.queryByTestId('sov-console-nav-cloud')).toBeNull()
+    expect(screen.queryByTestId('sov-console-nav-jobs')).toBeNull()
+    expect(screen.queryByTestId('sov-console-nav-compliance')).toBeNull()
+    expect(screen.queryByTestId('sov-console-nav-organizations')).toBeNull()
+  })
+
+  it('Sovereign-admin session shows the full nav (zero regression)', async () => {
+    scopeMock.mockReturnValue({ orgScoped: false, org: null, loading: false })
+    renderSidebar()
+    expect(await screen.findByTestId('sov-console-nav-dashboard')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-cloud')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-jobs')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-organizations')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-apps')).toBeTruthy()
+  })
+})

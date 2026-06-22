@@ -114,6 +114,16 @@ const sovereignOperatorRoleName = "catalyst-owner"
 // whoamiTierInheritance — owner inherits admin/operator/developer/viewer.
 const sovereignOperatorTier = "owner"
 
+// OrgScopedTier is the tier stamped on an Org-scoped customer session
+// (#4110): a PIN session minted on an Org pool-domain console host
+// (console.<org>.<pool-zone>). It is deliberately OUTSIDE the sovereign
+// tier inheritance chain (viewer<developer<operator<admin<owner) so no
+// sovereign-admin gate ever accepts it, and it is the single authoritative
+// marker the API authz guard (handler.requireNotOrgScoped) and the
+// owner-stamp guard above key off. Exported so the handler package shares
+// the exact same string (handler.orgScopedTier aliases this).
+const OrgScopedTier = "org-admin"
+
 // stampSovereignOperatorClaim enriches the JWT-derived Claims when the
 // bearer matches the Sovereign operator's email. The operator email comes
 // from OPERATOR_EMAIL env (orchestrator-stamped at chroot install time
@@ -128,6 +138,17 @@ const sovereignOperatorTier = "owner"
 // now accept the operator without a per-handler email check.
 func stampSovereignOperatorClaim(claims *Claims) {
 	if claims == nil {
+		return
+	}
+	// #4110 — NEVER upgrade an Org-scoped customer session to Sovereign
+	// owner, even if the customer's email coincides with OPERATOR_EMAIL.
+	// An Org-scoped PIN session (minted on console.<org>.<pool-zone>) is
+	// stamped tier=OrgScopedTier by HandlePinVerify; that tier is the
+	// authoritative "this is a customer, confine to their Org" marker, and
+	// the email-match owner-stamp must defer to it. Without this guard the
+	// suspenders (G97) would silently re-open the very privilege-escalation
+	// hole the host-scoping closes.
+	if strings.EqualFold(strings.TrimSpace(claims.Tier), OrgScopedTier) {
 		return
 	}
 	opEmail := strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_EMAIL")))

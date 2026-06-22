@@ -102,6 +102,39 @@ interface WhoamiClaims {
   email: string
   sub: string
   verified: boolean
+  // #4110 — Org-console scope. When orgScoped is true the session is a
+  // customer confined to one Organization (minted on console.<org>.<pool>);
+  // the layout redirects away from any Sovereign-admin path.
+  orgScoped?: boolean
+  org?: string
+}
+
+/**
+ * #4110 — Sovereign-admin path prefixes an Org-scoped customer session must
+ * never reach. A deep-link / stale bookmark to any of these on an Org
+ * console is redirected to /apps (the Org's own estate landing). The
+ * catalyst-api ALSO 403s the underlying data calls, so this redirect is the
+ * UX half of the hide-AND-enforce contract — never the only guard.
+ *
+ * Allowed for an Org session (NOT in this list): /apps, /catalog, /sandbox,
+ * /users, /settings, /login, /auth/*.
+ */
+const SOVEREIGN_ONLY_PATH_RES: readonly RegExp[] = [
+  /^\/dashboard(\/|$)/,
+  /^\/cloud(\/|$)/,
+  /^\/infrastructure(\/|$)/,
+  /^\/jobs(\/|$)/,
+  /^\/organizations(\/|$)/,
+  /^\/(sre|sec)\/compliance(\/|$)/,
+  /^\/compliance(\/|$)/,
+  /^\/provision(\/|$)/,
+  /^\/deployments(\/|$)/,
+  /^\/decommission(\/|$)/,
+  /^\/sovereignty(\/|$)/,
+]
+
+function pathIsSovereignOnly(p: string): boolean {
+  return SOVEREIGN_ONLY_PATH_RES.some((re) => re.test(p))
 }
 
 /**
@@ -229,6 +262,22 @@ export function SovereignConsoleLayout() {
 
     void initAuth()
   }, [sovereignFQDN])
+
+  // #4110 — Org-console scope redirect. When the resolved session is an
+  // Org-scoped customer session and the operator has deep-linked / bookmarked
+  // a Sovereign-admin path (the provisioning wizard, deployment-stream,
+  // cloud view, the cross-org directory, sovereign settings groups), bounce
+  // them to /apps (their own estate). The catalyst-api 403s the data behind
+  // those pages too — this is the UX redirect, not the security boundary.
+  useEffect(() => {
+    if (authState.status !== 'cookie-authenticated') return
+    if (!authState.claims.orgScoped) return
+    if (typeof window === 'undefined') return
+    const here = currentPathRelativeToBasepath()
+    if (pathIsSovereignOnly(here)) {
+      window.location.replace(`${uiBase()}/apps`)
+    }
+  }, [authState])
 
   function handleRequiredActionsComplete(tokens: TokenSet) {
     setAuthState({ status: 'authenticated', tokens, requiredActions: [] })
