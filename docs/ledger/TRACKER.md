@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T14:30:04Z` |
+| Last refreshed | `2026-06-22T14:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T14:37 | [#4137](https://github.com/openova-io/openova/pull/4137) | #3263 | fix(bp-valkey): Bitnami valkey/os-shell images via on-Sovere |
 | 2026-06-22T12:10 | [#4121](https://github.com/openova-io/openova/pull/4121) | #4112 | fix(catalyst): SECURITY #4110 — host-anchor Org-console scop |
 | 2026-06-22T11:03 | [#4120](https://github.com/openova-io/openova/pull/4120) | #4110 | fix(catalyst): Org console — project the Org's OWN apps + ki |
 | 2026-06-22T10:13 | [#4117](https://github.com/openova-io/openova/pull/4117) | #4110 | feat(catalyst+mcp): Org-scoped Application install — custome |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-06-21T23:16 | [#4067](https://github.com/openova-io/openova/pull/4067) | #2 | fix(provisioning): warm bootstrap-kit COMPONENT private imag |
 | 2026-06-21T17:54 | [#4066](https://github.com/openova-io/openova/pull/4066) | #1 | feat(provisioning): storage class is a choosable user input  |
 | 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
-| 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
 
 ---
 
