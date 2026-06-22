@@ -341,7 +341,20 @@ name: bp-keycloak
 # keep the correct two-URI shape, matching the bp-oidc-gate 0.1.4 AppRegistration
 # (appNativeCallbackPath:/oidc/authorized). The `/*` wildcard from the dead
 # pre-#3374 shape is NOT restored — the two explicit callbacks are exact.
-version: 1.4.35
+# 1.4.36 (#4054/#4070/#3374, 2026-06-23): the per-Org TENANT realm import
+# (configmap-tenant-realm.yaml) now registers a `catalyst-ui` public PKCE
+# client (redirectUris console.<slug>.<zone>/* + *.<slug>.<zone>/*, webOrigins
+# '+', PKCE S256). The per-Org operator console (console.<slug>.<pool-zone>)
+# discovers oidcIssuer=keycloak.<slug>.<zone>/realms/org-<slug> and redirects
+# with client_id=catalyst-ui; the tenant realm previously shipped only
+# wordpress/openclaw/stalwart → the console OIDC redirect 400'd ("Client not
+# found") and ALL Org SSO broke (verified live on omantel.biz demo Org, where
+# the client had to be hand-created). Descriptions trimmed <255 (catalyst-ui
+# 162, wordpress 258→195) so the config-cli JDBC batch never overflows the
+# varchar(255) cap; the 255-cap gate now AUDITS the tenant realm (was SKIP).
+# The org-keycloak HTTPRoute parentRef move to cilium-gateway-console is an
+# orchestrator-side change (organization_gitops.go), not a chart change.
+version: 1.4.36
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

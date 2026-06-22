@@ -134,6 +134,11 @@ spec:
           image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
           imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
           securityContext:
+            # Stays on the shared uid-33 context: this init no longer runs
+            # apt (it extracts via PHP ZipArchive — see the command below),
+            # and the `wp-fix-perms` root init (initContainers[0]) already
+            # re-owns the PVC, so no root is needed here. (Supersedes #4147's
+            # root override, which was only for the old apt-install path.)
             {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
           command:
             - /bin/bash

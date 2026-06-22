@@ -58,8 +58,25 @@ name: bp-stalwart-tenant
 # 0.1.4 (#4139): default image registry docker.io → harbor.openova.io/proxy-dockerhub
 #   for BOTH the StatefulSet + the mailbox-provision setup Job, so the kom4dc node
 #   cold-pull does not traverse the public internet (ImagePullBackOff on fresh prov).
-version: 0.1.4
-appVersion: "0.16.3"
+# 0.1.5 (#4148): the per-Org Stalwart never converged on a fresh prov — three
+#   chart bugs, all diagnosed + live-validated on the omantel.biz demo Org (kom4dc):
+#     a. image tag v0.16.3 CrashLooped on the v0.15-era TOML this chart emits
+#        (Stalwart v0.16.x rewrote the config parser → `expected value at line 1
+#        column 2`). Pinned image v0.16.3 → v0.15.5 (StatefulSet + setup Job),
+#        matching the WORKING bp-stalwart-sovereign chart. appVersion → 0.15.5.
+#     b. no explicit --config arg → the StatefulSet inherited the image's
+#        default `--config /etc/stalwart/config.json` (wrong path + format) and
+#        started in bootstrap mode. Added explicit
+#        `args: [--config, /opt/stalwart/etc/config.toml]`.
+#     c. config.toml's [certificate.default] reads /etc/stalwart/tls/{tls.crt,
+#        tls.key} but the StatefulSet mounted no such volume → cert file absent
+#        → config parse fails. Added a `tls` Secret volume + readOnly mount at
+#        /etc/stalwart/tls, plus a cert-manager Certificate (templates/
+#        certificate.yaml) for mail.<tenant-domain> that materialises the
+#        Secret zero-touch (secret name configurable via stalwart.tls.secretName,
+#        default stalwart-tls).
+version: 0.1.5
+appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated
   Stalwart mail server. Implements locked decision [Q3] of EPIC #795

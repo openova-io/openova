@@ -234,6 +234,15 @@ realmConfig:
     groups:
       - org-admins
       - org-users
+    # The per-Org operator console (catalyst-ui SPA). The tenant realm
+    # MUST register a `catalyst-ui` public PKCE client or the console
+    # login at https://console.<subdomain>.<parentDomain> 400s on the
+    # OIDC redirect (Refs #4054 #4070 #3374). The chart registers it
+    # unconditionally in tenant mode; this block only overrides the host.
+    console:
+      # Public host the per-Org operator console is reachable at.
+      # Defaults to console.<subdomain>.<parentDomain> when unset.
+      host: ""
     # Per-app OIDC client configuration. Each block honours an operator-
     # supplied `clientSecret` (rare; useful for sealed-secret replication)
     # — when blank the chart looks up an existing K8s Secret in the
