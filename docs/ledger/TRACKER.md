@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T21:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-06-22T22:00:12Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T21:57 | [#4153](https://github.com/openova-io/openova/pull/4153) | #800 | feat(bp-wordpress-tenant): custom WordPress image w/ pdo_pgs |
 | 2026-06-22T21:12 | [#4151](https://github.com/openova-io/openova/pull/4151) | #4147 | fix(bp-wordpress-tenant): apt sandbox-setuid fails under dro |
 | 2026-06-22T18:33 | [#4150](https://github.com/openova-io/openova/pull/4150) | #3373 | fix(org-provisioning): per-Org bp-newapi overlay wires never |
 | 2026-06-22T18:24 | [#4149](https://github.com/openova-io/openova/pull/4149) | #817 | fix(bp-stalwart-tenant): converge per-Org Stalwart on fresh  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-06-22T06:35 | [#4092](https://github.com/openova-io/openova/pull/4092) | #4091 | feat(catalyst-console): sophisticated shared YAML/IaC code e |
 | 2026-06-22T06:35 | [#4090](https://github.com/openova-io/openova/pull/4090) | #4084 | fix(catalyst-console): cloud-view graph-settle (~3s then STO |
 | 2026-06-22T06:35 | [#4088](https://github.com/openova-io/openova/pull/4088) | #4086 | fix(catalyst): Sovereign status excludes provider-inapplicab |
-| 2026-06-22T06:35 | [#4087](https://github.com/openova-io/openova/pull/4087) | #4085 | feat: per-resource Compliance tab renders THAT resource's ow |
 
 ---
 
