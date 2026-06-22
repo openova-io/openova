@@ -5,9 +5,9 @@
  * Coverage:
  *   • Page renders inside PortalShell with the canonical sidebar +
  *     header chrome.
- *   • All 9 sections are present (organization, sovereign, api-tokens,
- *     cloud-credentials, dns, domain-mode, notifications, members,
- *     danger-zone).
+ *   • All sections are present (organization, sovereign, api-tokens,
+ *     cloud-credentials, dns, domain-mode, parent-domains [#4089],
+ *     marketplace, notifications, members, danger-zone).
  *   • In-page TOC entries point at the matching anchors.
  *   • Sovereign info reflects the live snapshot fields (FQDN, region,
  *     deployment id) — the page is not a static placeholder.
@@ -120,6 +120,10 @@ const ALL_SECTIONS = [
   'cloud-credentials',
   'dns',
   'domain-mode',
+  // #4089: Parent Domains re-homed from the lone Settings sub-nav child
+  // into a granular anchor section, consistent with #dns.
+  'parent-domains',
+  'marketplace',
   'notifications',
   'members',
   'danger-zone',
@@ -144,7 +148,7 @@ describe('SettingsPage — chrome', () => {
 })
 
 describe('SettingsPage — section catalogue', () => {
-  it('renders all 9 industry-standard sections', async () => {
+  it('renders all industry-standard sections (incl. #parent-domains, #4089)', async () => {
     renderSettings('d-test-1234')
     for (const id of ALL_SECTIONS) {
       expect(await screen.findByTestId(`settings-section-${id}`)).toBeTruthy()

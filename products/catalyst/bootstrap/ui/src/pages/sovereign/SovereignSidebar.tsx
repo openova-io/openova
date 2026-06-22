@@ -156,34 +156,29 @@ const SETTINGS_ITEM: FlatNavItem = {
   icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
 }
 
-// ── Settings sub-nav ──────────────────────────────────────────────────────────
+// ── Settings: no sub-nav children ─────────────────────────────────────────────
 //
-// Wave 5 (2026-05-17, founder UX-polish review): Marketplace moved off
-// the sub-nav and INTO SettingsPage as a `<SectionCard id="marketplace">`
-// anchor section (same pattern as #dns, #sovereign, #notifications).
-// Founder: *"if market place is just a toggle etting under setting it
-// dosnt need tohave a sdicated page and it doesnt need to have child
-// left pane menu item"*. The dedicated /settings/marketplace route was
-// retired in the same PR.
+// Settings has NO sub-left-pane children — every settings surface is a
+// granular anchor section of the unified /settings page (#organization,
+// #sovereign, #dns, #domain-mode, #parent-domains, #marketplace, …).
 //
-// Parent Domains remains a sub-nav child for now — it's a substantial
-// admin surface (registrar tokens, DNS propagation panels, "+ Add
-// another parent domain" modal), not a single toggle, so the sub-page
-// model still fits.
-interface SubNavItem {
-  id: string
-  label: string
-  to: string
-}
-
-const SETTINGS_SUB_NAV: SubNavItem[] = [
-  // Parent Domains — admin "Add another parent domain" + DNS propagation
-  // status panel (issue #829). Lives under Settings so the sidebar
-  // surface stays compact for the typical Organization tenant who never sees
-  // this surface; operator-admins reach it via /console/parent-domains
-  // directly from the welcome email or by clicking through Settings.
-  { id: 'parent-domains', label: 'Parent Domains', to: '/parent-domains' },
-]
+// History:
+//   • Wave 5 (2026-05-17): Marketplace moved off the sub-nav INTO
+//     SettingsPage as `<SectionCard id="marketplace">`. Founder: *"if
+//     market place is just a toggle etting under setting it dosnt need
+//     tohave a sdicated page and it doesnt need to have child left pane
+//     menu item"*.
+//   • #4089 (2026-06-22): Parent Domains was the LAST sub-nav child —
+//     the only odd-one-out sub-left-pane item. Founder: *"currently the
+//     parent domains are showing under settings as a sub left-pane menu
+//     which is the only weird/odd-one-out … It needs to be granular as
+//     other settings such as …/settings#dns"*. Re-homed to
+//     `<SectionCard id="parent-domains">` in SettingsPage.tsx. The
+//     standalone surface lives on at /organizations/domains (the legacy
+//     /parent-domains route redirects there — router.tsx).
+//
+// With the sub-nav now empty, the Settings entry is a single flat link
+// like every other top-level nav item.
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
@@ -213,23 +208,13 @@ function deriveActiveSection(pathname: string): ActiveSection {
   // highlights for the directory, the internal door, and every moved
   // sub-surface (billing/orders/revenue/vouchers/domains). Issue #3378.
   if (/^\/organizations(\/|$)/.test(pathname)) return 'organizations'
-  // /settings/* OR /parent-domains → 'settings' so the Settings nav
-  // item highlights and the sub-nav (Marketplace + Parent Domains)
-  // expands. Per inviolable principle #4, the path list is pulled
-  // from SETTINGS_SUB_NAV rather than re-typed here.
+  // /settings/* → 'settings' so the Settings nav item highlights. There
+  // is no longer a settings sub-nav (#4089): Parent Domains — the last
+  // child — became the `#parent-domains` anchor section of /settings, so
+  // the legacy /parent-domains highlight is gone (it redirects to
+  // /organizations/domains, which lights up Organizations).
   if (/^\/settings(\/|$)/.test(pathname)) return 'settings'
-  if (SETTINGS_SUB_NAV.some((s) => pathname.startsWith(s.to))) return 'settings'
   return 'apps'
-}
-
-// deriveActiveSettingsSubItem returns the id of the active settings
-// sub-nav entry, or null when no sub-page is active. Drives the
-// expanded sub-list rendering under the Settings nav item.
-function deriveActiveSettingsSubItem(pathname: string): string | null {
-  for (const sub of SETTINGS_SUB_NAV) {
-    if (pathname.startsWith(sub.to)) return sub.id
-  }
-  return null
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -237,8 +222,6 @@ function deriveActiveSettingsSubItem(pathname: string): string | null {
 export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeSection = deriveActiveSection(pathname)
-  const activeSettingsSub = deriveActiveSettingsSubItem(pathname)
-  const settingsExpanded = activeSection === 'settings'
 
   // Wave 5.69c (#2396) — dynamic sidebar entries from installed
   // Blueprints' spec.consoleUI.sidebarEntry (Wave 5.69 CRD + Wave
@@ -431,34 +414,9 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
           )
         })()}
 
-        {/* Settings sub-nav — visible only when the operator is inside
-            /console/settings/*. Keeps the sidebar compact by default and
-            mirrors the GitLab-style "category > sub-page" expansion. */}
-        {settingsExpanded ? (
-          <ul
-            className="mx-2 mt-0.5 flex flex-col gap-0.5"
-            data-testid="sov-console-settings-sub-nav"
-          >
-            {SETTINGS_SUB_NAV.map((sub) => {
-              const isActive = activeSettingsSub === sub.id
-              const cls = isActive
-                ? 'text-[var(--color-accent)]'
-                : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
-              return (
-                <li key={sub.id}>
-                  <Link
-                    to={sub.to as never}
-                    className={`block rounded-md py-1.5 pl-10 pr-3 text-xs no-underline transition-colors ${cls}`}
-                    data-testid={`sov-console-nav-settings-${sub.id}`}
-                    aria-current={isActive ? 'page' : undefined}
-                  >
-                    {sub.label}
-                  </Link>
-                </li>
-              )
-            })}
-          </ul>
-        ) : null}
+        {/* #4089: Settings has no sub-nav children — every settings
+            surface (including Parent Domains) is a granular anchor
+            section of the unified /settings page. */}
       </nav>
 
       {/* User card at the bottom */}
