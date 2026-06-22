@@ -939,7 +939,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				Chart:               firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
 				ChartVersion:        spec.BlueprintVersion,
 				SourceRefName:       ifEmpty(fanoutSourceRef, r.Cfg.CatalogSourceRef),
-				SourceRefKind:       fanoutSourceKind,
+				// #4079 — default the source kind when the Blueprint omits
+				// spec.manifests.source.kind. The catalog source
+				// (`openova-catalog`) is a Flux v1 HelmRepository; an empty
+				// sourceRef.kind renders an invalid HelmRelease.
+				SourceRefKind:       ifEmpty(fanoutSourceKind, "HelmRepository"),
 				SourceRefNamespace:  r.Cfg.SourceNamespace,
 				KubeConfigSecretFor: fanoutKubeSecretFor,
 				// #3373 — loft-sh vcluster exportKubeConfig data key
@@ -1111,7 +1115,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			Standby:          rp.Standby,
 			BlueprintName:    spec.BlueprintName,
 			BlueprintVersion: spec.BlueprintVersion,
-			SourceKind:       bpSourceKind,
+			SourceKind:       ifEmpty(bpSourceKind, "HelmRepository"), // #4079 default
 			SourceRef:        ifEmpty(bpSourceRef, r.Cfg.CatalogSourceRef),
 			Chart:            bpChart,
 			Values:           merged,
