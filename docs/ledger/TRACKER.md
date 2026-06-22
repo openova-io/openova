@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T11:00:03Z` |
+| Last refreshed | `2026-06-22T11:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T11:03 | [#4120](https://github.com/openova-io/openova/pull/4120) | #4110 | fix(catalyst): Org console — project the Org's OWN apps + ki |
 | 2026-06-22T10:13 | [#4117](https://github.com/openova-io/openova/pull/4117) | #4110 | feat(catalyst+mcp): Org-scoped Application install — custome |
 | 2026-06-22T08:50 | [#4115](https://github.com/openova-io/openova/pull/4115) | #4114 | fix(agenity): make the chat->provision North Star work live  |
 | 2026-06-22T08:38 | [#4112](https://github.com/openova-io/openova/pull/4112) | #4110 | fix(catalyst): SECURITY — customer Org console must be Org-s |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
 | 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
 | 2026-06-21T18:38 | [#4063](https://github.com/openova-io/openova/pull/4063) | #4061 | fix(bp-catalyst-platform): permanent Sovereign no longer aut |
-| 2026-06-21T18:11 | [#4062](https://github.com/openova-io/openova/pull/4062) | #4058 | refactor(catalog): rebrand bp-chepherd → bp-agenity (product |
 
 ---
 
