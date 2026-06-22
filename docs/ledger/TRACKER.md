@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T08:30:02Z` |
+| Last refreshed | `2026-06-22T08:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 97 |
+| Open issues | 98 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 97 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 98 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 97 open items (clickable table)
+### All 98 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -297,6 +297,7 @@ flowchart LR
 | [#4110](https://github.com/openova-io/openova/issues/4110) | SECURITY: customer Org console (console.<org>.<pool>) confers FULL sovereign-adm | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
 | [#4113](https://github.com/openova-io/openova/issues/4113) | Org console Apps page: project a TRUE per-Org apps list (own namespaces + vClust | Other |
+| [#4114](https://github.com/openova-io/openova/issues/4114) | Sovereign handover-jwt keypair MISMATCH: catalyst-api runtime signer != publishe | Other |
 
 ---
 
@@ -304,6 +305,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T08:38 | [#4112](https://github.com/openova-io/openova/pull/4112) | #4110 | fix(catalyst): SECURITY — customer Org console must be Org-s |
 | 2026-06-22T07:24 | [#4108](https://github.com/openova-io/openova/pull/4108) | #4107 | fix(bootstrap-kit-crs): harbor-pg/gitea-pg/guacamole-pg cnpg |
 | 2026-06-22T07:18 | [#4106](https://github.com/openova-io/openova/pull/4106) | #4098 | fix(bp-agenity): bump chart 0.1.0->0.2.0 so published artifa |
 | 2026-06-22T06:52 | [#4105](https://github.com/openova-io/openova/pull/4105) | docs(uat): live omantel.biz walk results — all 223 rows re-s |  |
@@ -333,7 +335,6 @@ flowchart LR
 | 2026-06-21T18:11 | [#4062](https://github.com/openova-io/openova/pull/4062) | #4058 | refactor(catalog): rebrand bp-chepherd → bp-agenity (product |
 | 2026-06-21T15:54 | [#4056](https://github.com/openova-io/openova/pull/4056) | #4055 | fix(catalyst-api): enforce Huawei resource floor — CP≥4vCPU, |
 | 2026-06-21T18:27 | [#4054](https://github.com/openova-io/openova/pull/4054) | #4053 | fix(bp-cilium): poison-proof console gateway isolation — ded |
-| 2026-06-21T13:43 | [#4052](https://github.com/openova-io/openova/pull/4052) | #4037 | fix(bootstrap-kit): gate stateful root slots on BOTH per-pro |
 
 ---
 
