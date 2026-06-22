@@ -200,6 +200,54 @@ type Violation struct {
 	Time        time.Time `json:"time"`
 }
 
+// ResourceFinding — one (policy → verdict) row for a SINGLE K8s
+// resource. The per-resource Compliance tab (#4085) renders these as a
+// table so the operator sees the policies/checks that apply to THIS
+// resource + their pass/fail/skip status, severity, and message —
+// instead of being bounced to the sovereign-wide /sre/compliance view.
+//
+// Rows are sourced from the resource's own per-policy verdicts
+// (resourceState.results) joined with the live ClusterPolicy metadata
+// (policyMetaByName) so each row carries Severity / Category / Title
+// straight off the Kyverno CR. Result is one of pass | fail | skip |
+// warn — same vocabulary as the rest of the compliance surface.
+type ResourceFinding struct {
+	Policy   string `json:"policy"`
+	Rule     string `json:"rule,omitempty"`
+	Result   string `json:"result"`
+	Message  string `json:"message,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Category string `json:"category,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Source   string `json:"source,omitempty"` // kyverno | evaluator
+}
+
+// ResourceComplianceResponse — the /compliance/resource endpoint shape
+// (#4085). Carries the resource's own headline score + the flat list of
+// per-policy findings so the per-resource Compliance tab can render its
+// own table without a sovereign-wide scorecard round-trip.
+//
+// `found` is false (with an empty findings slice + null score) when the
+// aggregator has not yet observed any PolicyReport for this resource —
+// the UI renders an explicit "no policies have evaluated this resource
+// yet" empty state rather than an error.
+type ResourceComplianceResponse struct {
+	Resource    string            `json:"resource"`
+	Kind        string            `json:"kind,omitempty"`
+	Namespace   string            `json:"namespace,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Found       bool              `json:"found"`
+	Score       *int              `json:"score"`
+	Total       *int              `json:"total"`
+	Numerator   int               `json:"numerator"`
+	Denominator int               `json:"denominator"`
+	Violations  int               `json:"violations"`
+	Application string            `json:"application,omitempty"`
+	Environment string            `json:"environment,omitempty"`
+	Findings    []ResourceFinding `json:"findings"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+}
+
 // ScorecardResponse is the /scorecard endpoint shape. Sorted
 // children at every level for stable rendering.
 //
@@ -2075,6 +2123,147 @@ func (c *ComplianceHandler) violationsFor(clusterID, app string) []Violation {
 		return out[i].Policy < out[j].Policy
 	})
 	return out
+}
+
+// HandleComplianceResource — GET
+// /api/v1/sovereigns/{id}/compliance/resource?kind=<k>&ns=<ns>&name=<n>
+//
+// Returns the per-policy compliance findings for ONE K8s resource so
+// the resource detail view's Compliance tab (#4085) can render a table
+// of THAT resource's own checks + pass/fail/skip status — instead of
+// linking the operator out to the sovereign-wide dashboard.
+//
+// `ns` may be empty for cluster-scoped resources (mirrors the
+// resourceKey "<kind>//<name>" shape). `kind` is matched
+// case-insensitively against the canonical lowercase key.
+func (h *Handler) HandleComplianceResource(w http.ResponseWriter, r *http.Request) {
+	if h.compliance == nil {
+		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
+		return
+	}
+	clusterID := chi.URLParam(r, "id")
+	if clusterID == "" {
+		http.Error(w, "missing sovereign id", http.StatusBadRequest)
+		return
+	}
+	clusterID = h.resolveChrootClusterID(clusterID)
+
+	q := r.URL.Query()
+	kind := strings.TrimSpace(q.Get("kind"))
+	ns := strings.TrimSpace(q.Get("ns"))
+	name := strings.TrimSpace(q.Get("name"))
+	// Accept the literal `_` sentinel the cloud-list routes use for the
+	// cluster-scoped namespace segment so the UI can pass through the
+	// route param unchanged.
+	if ns == "_" {
+		ns = ""
+	}
+	if kind == "" || name == "" {
+		http.Error(w, "missing kind or name", http.StatusBadRequest)
+		return
+	}
+
+	resp := h.compliance.resourceComplianceFor(clusterID, kind, ns, name)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// resourceComplianceFor projects ONE resource's per-policy verdicts into
+// a ResourceComplianceResponse. Joins the resource's own results map
+// (resourceState.results) with the live ClusterPolicy metadata so each
+// finding carries Severity / Category / Title. Always returns a
+// well-shaped (non-nil findings) response — Found=false + null score
+// when the aggregator has not yet seen a PolicyReport for the resource.
+func (c *ComplianceHandler) resourceComplianceFor(clusterID, kind, ns, name string) ResourceComplianceResponse {
+	key := resourceKey(kind, ns, name)
+	resp := ResourceComplianceResponse{
+		Resource:  key,
+		Kind:      strings.ToLower(kind),
+		Namespace: ns,
+		Name:      name,
+		Found:     false,
+		Findings:  []ResourceFinding{},
+		UpdatedAt: time.Now().UTC(),
+	}
+	if c == nil {
+		return resp
+	}
+
+	c.mu.RLock()
+	cs, ok := c.state[clusterID]
+	var rsCopy *resourceState
+	if ok {
+		if rs := cs[key]; rs != nil {
+			rsCopy = cloneResourceState(rs)
+		}
+	}
+	// Snapshot the policy metadata under the read lock so the join below
+	// runs unlocked.
+	meta := make(map[string]policyMeta, len(c.policyMetaByName))
+	for n, m := range c.policyMetaByName {
+		meta[n] = m
+	}
+	c.mu.RUnlock()
+
+	if rsCopy == nil {
+		// No verdicts observed for this resource yet — return the empty
+		// shape so the UI renders its "no policies evaluated yet" state.
+		return resp
+	}
+
+	envSpec, _ := c.resolveEnvPolicyLocked(rsCopy.environment)
+	score := computeScore(rsCopy, envSpec)
+
+	resp.Found = true
+	resp.Score = score.Score
+	resp.Total = score.Total
+	resp.Numerator = score.Numerator
+	resp.Denominator = score.Denominator
+	resp.Violations = score.Violations
+	resp.Application = rsCopy.application
+	resp.Environment = rsCopy.environment
+	resp.UpdatedAt = rsCopy.updatedAt
+
+	for policy, v := range rsCopy.results {
+		m := meta[policy]
+		resp.Findings = append(resp.Findings, ResourceFinding{
+			Policy:   policy,
+			Rule:     v.rule,
+			Result:   v.result,
+			Message:  v.message,
+			Severity: m.severity,
+			Category: m.category,
+			Title:    m.title,
+			Source:   v.source,
+		})
+	}
+	// Stable order: failing/warning rows first (most actionable), then
+	// alphabetical by policy name within each result class.
+	sort.Slice(resp.Findings, func(i, j int) bool {
+		ri, rj := resultRank(resp.Findings[i].Result), resultRank(resp.Findings[j].Result)
+		if ri != rj {
+			return ri < rj
+		}
+		return resp.Findings[i].Policy < resp.Findings[j].Policy
+	})
+	return resp
+}
+
+// resultRank orders verdicts so the most actionable rows surface first:
+// fail < warn < skip < pass < (unknown). Used to sort the per-resource
+// findings table.
+func resultRank(result string) int {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "fail":
+		return 0
+	case "warn":
+		return 1
+	case "skip", "na":
+		return 2
+	case "pass":
+		return 3
+	default:
+		return 4
+	}
 }
 
 // SovereignAlertCount returns the number of currently-failing

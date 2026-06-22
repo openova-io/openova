@@ -1388,6 +1388,10 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/policies/{name}", h.HandleCompliancePolicyByName)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/violations", h.HandleComplianceViolations)
+		// #4085 — per-resource compliance findings for the resource
+		// detail view's Compliance tab (kind+ns+name → its own policy
+		// pass/fail/skip table).
+		rg.Get("/api/v1/sovereigns/{id}/compliance/resource", h.HandleComplianceResource)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/stream", h.HandleComplianceStream)
 		// Wave-2 Family-E (#1583/Family-E): runtime + supply-chain
 		// compliance aggregators. Falco runtime alerts (C11-008),
