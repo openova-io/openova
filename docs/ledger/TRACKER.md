@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T16:00:02Z` |
+| Last refreshed | `2026-06-22T16:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3581](https://github.com/openova-io/openova/issues/3581) | Regenerate the UAT walkthrough doc set with fresh live evidence on the CURRENT e | Other |
 | [#3642](https://github.com/openova-io/openova/issues/3642) | NS#1: migrate the 7 host-placed apps (grafana/harbor/keycloak/gitea/openbao/newa | Other |
 | [#3724](https://github.com/openova-io/openova/issues/3724) | CI: cloud-init 32256B size gate must run as a required PR check — #3715 broke  | Other |
 | [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#4122](https://github.com/openova-io/openova/issues/4122) | agenity.demo.omani.homes/ serves chepherd MARKETING landing instead of the actua | Other |
 | [#4136](https://github.com/openova-io/openova/issues/4136) | fix(bp-valkey): chart renders bare dockerhub refs (bitnami/valkey:latest + os-sh | Other |
 | [#4139](https://github.com/openova-io/openova/issues/4139) | Demo Org wordpress apps blocked: bp-wordpress-tenant 0.4.1 local-path PVC denied | Other |
+| [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
 
 ---
 
