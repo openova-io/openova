@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-22T03:45:01Z` |
+| Last refreshed | `2026-06-22T04:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 83 |
 | Open DoD gates | 0 / 41 |
@@ -290,6 +290,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-22T03:50 | [#4080](https://github.com/openova-io/openova/pull/4080) | #4077 | fix(application-controller): valid RFC-1123 HR names + defau |
+| 2026-06-22T03:50 | [#4078](https://github.com/openova-io/openova/pull/4078) | #4077 | fix(catalyst): org-controller auto-ensures <org>-prod Enviro |
+| 2026-06-22T03:50 | [#4076](https://github.com/openova-io/openova/pull/4076) | #4075 | fix(catalyst): Enter-org targets stored pool console host +  |
 | 2026-06-21T23:44 | [#4072](https://github.com/openova-io/openova/pull/4072) | #4071 | fix(catalyst-api): disable client-go WatchListClient gate —  |
 | 2026-06-21T23:16 | [#4070](https://github.com/openova-io/openova/pull/4070) | #4054 | fix(bp-catalyst-api): route console/api/marketplace at the c |
 | 2026-06-21T23:16 | [#4068](https://github.com/openova-io/openova/pull/4068) | #4058 | docs(catalog): finish #4058 bp-chepherd→bp-agenity rename in |
@@ -317,9 +320,6 @@ flowchart LR
 | 2026-06-21T04:00 | [#4035](https://github.com/openova-io/openova/pull/4035) | #4034 | docs(uat): enrich e2e rows 221+223 acceptance — concrete MCP |
 | 2026-06-21T03:44 | [#4034](https://github.com/openova-io/openova/pull/4034) | #4011 | docs(uat): e2e Chepherd north-star journey walkthrough (rows |
 | 2026-06-21T03:28 | [#4033](https://github.com/openova-io/openova/pull/4033) | #4031 | docs(uat): cycle-2c walk runbook — systematic hw177 35-row f |
-| 2026-06-21T02:50 | [#4032](https://github.com/openova-io/openova/pull/4032) | #4030 | docs(uat): stamp pending hw177 for cycle-2c re-fire of the # |
-| 2026-06-21T02:41 | [#4031](https://github.com/openova-io/openova/pull/4031) | #4022 | fix(bp-huawei-evs-csi): default volumeSnapshotClass off — fi |
-| 2026-06-21T07:00 | [#4029](https://github.com/openova-io/openova/pull/4029) | #3969 | feat(console): wire live Continuum DR status into the reacha |
 
 ---
 
