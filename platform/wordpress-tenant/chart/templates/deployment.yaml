@@ -106,24 +106,27 @@ spec:
             - -c
             - |
               set -eu
-              # apt: ensure unzip + curl present (curl is shipped, unzip
-              # may not be on a slim image variant; runs only on first
-              # install per PVC, so the cost is a one-time apt fetch).
+              # Extract plugin/adapter zips with PHP's bundled ZipArchive
+              # instead of the `unzip` binary. The wordpress:*-php* image
+              # already ships the `zip` PHP extension (a WordPress core
+              # requirement), so NO package install is needed.
               #
-              # `-o APT::Sandbox::User=root` keeps apt running as root rather
-              # than dropping to the `_apt` user. The privilege-drop uses
-              # setgroups/setegid/seteuid syscalls, which the dropped-ALL-
-              # capabilities containerSecurityContext forbids (CAP_SETUID/
-              # CAP_SETGID gone) → "setgroups 65534 failed - Operation not
-              # permitted" → "Method http has died" (code 112) → init
-              # CrashLoopBackOff. Disabling the sandbox is the canonical
-              # container-friendly fix and needs NO extra Linux caps, so it
-              # stays portable under a restrictive Kyverno baseline. Stacks
-              # on top of #4147 (runAsUser:0, needed to write /var/cache/apt).
-              if ! command -v unzip >/dev/null 2>&1; then
-                apt-get -o APT::Sandbox::User=root update
-                DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends unzip
-              fi
+              # This supersedes the earlier `apt-get install unzip`, which is
+              # fatally fragile on locked-down Sovereigns for TWO independent
+              # reasons (both observed live on kom4dc / omantel.biz demo Org):
+              #   1. apt's http transport drops privileges to the `_apt` user
+              #      via setgroups/setegid/seteuid — forbidden under the
+              #      dropped-ALL-capabilities containerSecurityContext
+              #      ("setgroups 65534 failed - Operation not permitted" →
+              #      "Method http has died" code 112 → init CrashLoopBackOff);
+              #   2. egress-restricted clusters cannot reach deb.debian.org at
+              #      all ("Ign … trixie InRelease" → "Unable to locate package
+              #      unzip"), so the package index never loads.
+              # PHP ZipArchive sidesteps both — no apt, no extra Linux caps,
+              # no Debian-mirror egress. Stacks on #4147 (runAsUser:0).
+              php_unzip() {  # $1=zip  $2=destdir
+                php -r '$z=new ZipArchive(); $r=$z->open($argv[1]); if($r!==true){fwrite(STDERR,"ZipArchive open failed (".$r."): ".$argv[1]."\n");exit(1);} if(!$z->extractTo($argv[2])){fwrite(STDERR,"ZipArchive extractTo failed: ".$argv[2]."\n");exit(1);} $z->close();' "$1" "$2"
+              }
               # ── (a) openid-connect-generic plugin ──────────────────
               OIDC_DIR=/pvc/plugins/openid-connect-generic
               if [ -d "${OIDC_DIR}" ]; then
@@ -134,7 +137,7 @@ spec:
                 curl -fsSL -o oidc.zip \
                   https://downloads.wordpress.org/plugin/openid-connect-generic.latest-stable.zip
                 mkdir -p /pvc/plugins
-                unzip -q oidc.zip -d /pvc/plugins/
+                php_unzip oidc.zip /pvc/plugins/
                 rm -f /tmp/oidc.zip
                 echo "openid-connect-generic installed."
               fi
@@ -155,7 +158,7 @@ spec:
                 # docs/INVIOLABLE-PRINCIPLES.md #4 (no floating refs).
                 curl -fsSL -o pg4wp.zip \
                   https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.7.0.zip
-                unzip -q pg4wp.zip -d /tmp/
+                php_unzip pg4wp.zip /tmp/
                 # Extracted layout:
                 #   /tmp/postgresql-for-wordpress-3.7.0/pg4wp/
                 #   /tmp/postgresql-for-wordpress-3.7.0/pg4wp/db.php
