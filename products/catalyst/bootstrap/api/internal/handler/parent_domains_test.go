@@ -121,6 +121,67 @@ func TestListParentDomains_PrimaryFromEnv(t *testing.T) {
 	}
 }
 
+// TestListParentDomains_OrgPoolFallbackFromEnv (#4073). On a Sovereign
+// with NO imported deployment record (flat byo-api / JWT-only handover),
+// activeDeployment() is nil and chrootEnsureOrgPoolSeed never ran, so the
+// record-backed list carries no org-pool entry. The Create-Org form filters
+// to role=org-pool and showed "No pool parents available", blocking sub-Org
+// creation — even though the org-create POST validation already accepts the
+// env-seeded pool. ListParentDomains must fall back to the same env-seeded
+// org-pool (OrganizationDeps.ParentDomains) so the dropdown == the accept-set.
+func TestListParentDomains_OrgPoolFallbackFromEnv(t *testing.T) {
+	t.Setenv("CATALYST_PRIMARY_DOMAIN", "omantel.biz")
+	h := &Handler{log: slog.Default()}
+	// Seed the same canonical org-pool the create handler validates against
+	// (what LoadOrganizationParentDomainsFromEnv() returns at startup).
+	h.SetOrganizationDeps(OrganizationDeps{
+		OTECHFQDN: "omantel.biz",
+		ParentDomains: []OrganizationParentDomain{
+			{Name: "omani.homes", Role: "org-pool", NSFlipReady: true},
+			{Name: "omani.rest", Role: "org-pool", NSFlipReady: true},
+			{Name: "omani.trade", Role: "org-pool", NSFlipReady: true},
+			{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/parent-domains", nil)
+	newParentDomainsRouter(h).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Items []ParentDomain `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	// Expect the synthesised primary + every canonical org-pool entry.
+	orgPool := map[string]bool{}
+	var primarySeen bool
+	for _, it := range resp.Items {
+		switch it.Role {
+		case RoleOrgPool:
+			if it.FlipStatus != FlipStatusReady {
+				t.Fatalf("org-pool %s want FlipStatus=ready, got %s", it.Name, it.FlipStatus)
+			}
+			orgPool[it.Name] = true
+		case RolePrimary:
+			if it.Name == "omantel.biz" {
+				primarySeen = true
+			}
+		}
+	}
+	if !primarySeen {
+		t.Fatalf("expected synthesised primary omantel.biz, got %+v", resp.Items)
+	}
+	for _, want := range []string{"omani.homes", "omani.rest", "omani.trade", "omani.works"} {
+		if !orgPool[want] {
+			t.Fatalf("expected org-pool entry %q in fallback list, got %+v", want, resp.Items)
+		}
+	}
+}
+
 func TestAddParentDomain_ValidationErrors(t *testing.T) {
 	t.Setenv("CATALYST_PRIMARY_DOMAIN", "")
 	h := &Handler{log: slog.Default()}

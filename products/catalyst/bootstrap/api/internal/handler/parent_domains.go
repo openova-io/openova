@@ -319,6 +319,33 @@ func removeParentDomainByName(dep *Deployment, name string) bool {
 // the function falls back to the env-var-based primary synthesis path
 // so single-Sovereign sandboxes + tests keep rendering the implicit
 // primary row.
+//
+// Org-pool fallback (issue #4073)
+// -------------------------------
+// On a Sovereign provisioned via a flat byo-api / JWT-only handover, NO
+// deployment record is imported (handover is JWT-only — nothing POSTs to
+// /api/v1/internal/deployments/import), so `activeDeployment()` returns
+// nil and the bake-time `chrootEnsureOrgPoolSeed` — which would seed the
+// four canonical .omani.X org-pool entries onto the record — never runs.
+// The result is that this list returned ONLY the synthesised primary, the
+// Create-Org form (which filters to role=org-pool) showed "No pool parents
+// available", and customer/internal sub-Orgs could not be created.
+//
+// Meanwhile the org-create POST validation (poolDomainsForOrgCreate →
+// OrganizationDeps.ParentDomains) is ALWAYS seeded at startup via
+// LoadOrganizationParentDomainsFromEnv() (which returns the four canonical
+// .omani.X entries even when CATALYST_ORG_POOL_DOMAINS is unset). So a POST
+// with parent_domain=omani.homes would already be accepted — the only thing
+// missing was the user's ability to SELECT it because the GET list was empty.
+//
+// This fallback closes that asymmetry: when neither the active deployment
+// nor any persisted record yields an org-pool entry, we surface the same
+// env-seeded org-pool the create handler validates against (via
+// h.orgTenantDeps.PoolDomains()). The GET list and the POST validation are
+// then sourced from the SAME pool, so what the form offers == what a create
+// accepts. No-op on Sovereigns that DO carry an adopted record with org-pool
+// rows (the chroot-seed path) — those entries already list and the fallback
+// is skipped.
 func (h *Handler) ListParentDomains(w http.ResponseWriter, r *http.Request) {
 	dep := h.activeDeployment()
 
@@ -347,6 +374,46 @@ func (h *Handler) ListParentDomains(w http.ResponseWriter, r *http.Request) {
 				AddedAt:    time.Time{},
 			}}, items...)
 		}
+	}
+
+	// Org-pool fallback (#4073). When the record-backed list carries no
+	// role=org-pool entry, surface the env-seeded org-pool that the
+	// org-create POST validation already accepts. Keeps the form's
+	// dropdown == the create handler's accept-set on JWT-only-handover
+	// Sovereigns with no imported deployment record.
+	hasOrgPool := false
+	for _, it := range items {
+		if it.Role == RoleOrgPool {
+			hasOrgPool = true
+			break
+		}
+	}
+	if !hasOrgPool {
+		seen := map[string]struct{}{}
+		for _, it := range items {
+			seen[strings.ToLower(it.Name)] = struct{}{}
+		}
+		for _, p := range h.orgTenantDeps.PoolDomains() {
+			key := strings.ToLower(strings.TrimSpace(p.Name))
+			if key == "" {
+				continue
+			}
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			flip := FlipStatusReady
+			if !p.NSFlipReady {
+				flip = FlipStatusFlipping
+			}
+			items = append(items, ParentDomain{
+				Name:       key,
+				Role:       RoleOrgPool,
+				FlipStatus: flip,
+				AddedAt:    time.Time{},
+			})
+			seen[key] = struct{}{}
+		}
+		sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
