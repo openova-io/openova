@@ -821,7 +821,7 @@ controllers:
       # Application lives in a different namespace from flux-system).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "6d7aacd"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
