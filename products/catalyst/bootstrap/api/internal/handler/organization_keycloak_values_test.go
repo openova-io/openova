@@ -151,8 +151,15 @@ func TestBPKeycloakValuesContract(t *testing.T) {
 	if !ok {
 		t.Fatalf("gateway.parentRef missing or wrong shape: %#v", gw["parentRef"])
 	}
-	if got, _ := parentRef["name"].(string); got != "cilium-gateway" {
-		t.Errorf("gateway.parentRef.name: want cilium-gateway got %q", got)
+	// console-isolation (#4054/#4070): the per-Org Keycloak hostname
+	// keycloak.<slug>.<pool-zone> resolves to the dedicated console-ELB EIP
+	// which fronts the ISOLATED cilium-gateway-console (NOT the apps gateway).
+	// Parenting the apps cilium-gateway returned 404 on the console ELB and
+	// broke all Org SSO; the org Keycloak HTTPRoute MUST parent the console
+	// gateway. The Gateway itself lives in kube-system (alongside the apps
+	// gateway) per clusters/_template/sovereign-tls/cilium-gateway-console.yaml.
+	if got, _ := parentRef["name"].(string); got != "cilium-gateway-console" {
+		t.Errorf("gateway.parentRef.name: want cilium-gateway-console got %q", got)
 	}
 	if got, _ := parentRef["namespace"].(string); got != "kube-system" {
 		t.Errorf("gateway.parentRef.namespace: want kube-system got %q", got)
