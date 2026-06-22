@@ -105,7 +105,7 @@ name: bp-wordpress-tenant
 #   Mirrors bp-cnpg-pair primary-cluster.yaml (#3740). Also folds the #3985 rename
 #   residue in oidcIssuerURL/ingressHost helpers (the gate that blocked 0.4.2/0.4.3
 #   publish until repaired this session).
-version: 0.4.4
+version: 0.4.5
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

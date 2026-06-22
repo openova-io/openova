@@ -100,7 +100,18 @@ spec:
           image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
           imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
           securityContext:
-            {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
+            # wp-plugin-install runs `apt-get install unzip` (root-only) on the
+            # first-PVC seed; the MAIN wordpress container keeps the shared
+            # wordpress.containerSecurityContext (uid 33). Init-as-root for a
+            # one-time setup step is standard; the rest stays locked down.
+            # (demo-Org convergence 2026-06-23: this init CrashLooped on
+            # `E: ... /var/lib/apt/lists/partial ... Permission denied` as uid 33.)
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
           command:
             - /bin/bash
             - -c
