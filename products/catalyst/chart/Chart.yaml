@@ -2974,7 +2974,7 @@ name: bp-catalyst-platform
 #   handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER now defaults false via
 #   catalystApi.fireCutoverOnHandover). Cutover is a DELIBERATE BSS-menu action; the
 #   operator-initiated path is unchanged (NO-REGRESS).
-version: 1.4.772
+version: 1.4.773
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
