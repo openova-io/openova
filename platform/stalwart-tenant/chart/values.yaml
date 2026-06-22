@@ -34,7 +34,13 @@ stalwart:
   # Digest below is `docker.io/stalwartlabs/stalwart:v0.16.3` linux/amd64
   # (verified via Docker Hub API on 2026-05-04).
   image:
-    registry: docker.io
+    # #4139 — pull through the Sovereign Harbor proxy-dockerhub project so the
+    # kom4dc node cold-pull does NOT traverse the public internet to docker.io
+    # (which ImagePullBackOffs on a fresh prov, mirroring the #3859 vcluster
+    # coredns + #4137 valkey bitnamilegacy fixes). The proxy-cache mirror serves
+    # the SAME digest (verified 200 via harbor v2 API). A per-Sovereign overlay
+    # may still rewrite this via `global.imageRegistry` post-handover.
+    registry: harbor.openova.io/proxy-dockerhub
     repository: stalwartlabs/stalwart
     tag: "v0.16.3"
     digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
@@ -345,7 +351,11 @@ mailboxProvisioner:
       # stalwart-cli. SHA-pinned via the same digest as the StatefulSet
       # so the bytes trace back to a single source (#898 / #560 ADR-0001
       # §11.5 — Sovereign-local Harbor proxy-cache rewrites at runtime).
-      repository: stalwartlabs/stalwart
+      # #4139 — the mailbox-provision-job template composes `repository:tag`
+      # directly (no registry field), so the harbor proxy path is carried in
+      # the repository value, matching the StatefulSet's registry default and
+      # avoiding the docker.io cold-pull ImagePullBackOff on kom4dc.
+      repository: harbor.openova.io/proxy-dockerhub/stalwartlabs/stalwart
       tag: "v0.16.3"
       digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
       pullPolicy: IfNotPresent
