@@ -78,6 +78,21 @@ type authHandoverClaims struct {
 	// hex). Used by chroot pages to scope deployment-keyed API paths
 	// once /sovereign/self resolution is JWT-driven.
 	DeploymentID string `json:"deployment_id"`
+
+	// SupportSession marks an "Enter org" impersonation handover (#3378
+	// B2, minted by org_enter_org.go). Unlike the mothership→Sovereign
+	// handover, this token is signed by the SOVEREIGN's OWN handover
+	// signer (the same catalyst-api both mints and redeems it) and
+	// targets a pool-domain Org console — so it is verified against the
+	// local signer key and validated against sovereign_fqdn rather than
+	// the aud=console.<own-fqdn> claim. (#4101)
+	SupportSession bool `json:"support_session"`
+
+	// SupportPrincipal / ImpersonatedOrg / InitiatedBy carry the audit
+	// context for the support session and drive the in-console banner.
+	SupportPrincipal string `json:"support_principal"`
+	ImpersonatedOrg  string `json:"impersonated_org"`
+	InitiatedBy      string `json:"initiated_by"`
 }
 
 // AuthHandover handles GET /auth/handover?token=<jwt>.
@@ -158,20 +173,57 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #4101: the verifier must also accept tokens signed by THIS
+	// catalyst-api's OWN handover signer. The mothership→Sovereign
+	// handover is signed by the mothership and verified with the mounted
+	// mothership public key (pubKey above). But the "Enter org" support
+	// handover (#3378 B2, org_enter_org.go) is signed by the SOVEREIGN's
+	// own handoverSigner — the same Pod both mints and redeems it — yet
+	// still stamps iss=console.openova.io. Verifying ONLY with the
+	// mothership key rejected every Enter-org token with
+	// "crypto/rsa: verification error" → "invalid token" (live on
+	// omantel.biz entering console.demo.omani.homes, 2026-06-22). Collect
+	// the local signer's public key as an additional candidate; the
+	// keyfunc tries the mounted key first, then the local one.
+	var localPub *rsa.PublicKey
+	if h.handoverSigner != nil {
+		if lp, lerr := h.handoverSigner.PublicRSAKey(); lerr == nil {
+			localPub = lp
+		}
+	}
+
 	// ── 2. Parse + verify JWT ───────────────────────────────────────────
+	//
+	// We verify the signature manually against each candidate key because
+	// jwt.ParseWithClaims short-circuits on the first key returned by the
+	// keyfunc. To try multiple keys we attempt the parse once per key and
+	// accept the first that validates.
 	var claims authHandoverClaims
-	tok, err := jwt.ParseWithClaims(raw, &claims,
-		func(t *jwt.Token) (any, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-			}
-			return pubKey, nil
-		},
-		jwt.WithValidMethods([]string{"RS256"}),
-		jwt.WithExpirationRequired(),
-	)
-	if err != nil || !tok.Valid {
-		h.log.Warn("auth_handover: JWT parse failed", "err", err)
+	var tok *jwt.Token
+	candidates := []*rsa.PublicKey{pubKey}
+	if localPub != nil && (pubKey == nil || localPub.N.Cmp(pubKey.N) != 0) {
+		candidates = append(candidates, localPub)
+	}
+	var parseErr error
+	for _, cand := range candidates {
+		claims = authHandoverClaims{}
+		key := cand
+		tok, parseErr = jwt.ParseWithClaims(raw, &claims,
+			func(t *jwt.Token) (any, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+				}
+				return key, nil
+			},
+			jwt.WithValidMethods([]string{"RS256"}),
+			jwt.WithExpirationRequired(),
+		)
+		if parseErr == nil && tok != nil && tok.Valid {
+			break
+		}
+	}
+	if parseErr != nil || tok == nil || !tok.Valid {
+		h.log.Warn("auth_handover: JWT parse failed", "err", parseErr)
 		writeAuthError(w, "invalid token")
 		return
 	}
@@ -184,20 +236,53 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// aud must contain the Sovereign's console URL.
-	soverFQDN := h.sovereignFQDN()
-	expectedAud := "https://console." + soverFQDN
-	auds, _ := claims.GetAudience()
-	found := false
-	for _, a := range auds {
-		if a == expectedAud {
-			found = true
-			break
+	// Audience / target-host validation.
+	//
+	// #4101: an "Enter org" support handover (support_session=true) targets
+	// a pool-domain Org console that the redeeming Sovereign catalyst-api
+	// also serves — e.g. console.demo.omani.homes on an omantel.biz
+	// Sovereign. org_enter_org.go mints it WITHOUT an aud claim and instead
+	// carries sovereign_fqdn=<org-host-suffix> (demo.omani.homes). The
+	// classic aud=console.<own-fqdn> check (console.omantel.biz) can never
+	// match such a token, so validate the support session against the
+	// request host instead: the token's sovereign_fqdn must equal the Org
+	// suffix of the host the browser actually landed on.
+	if claims.SupportSession {
+		wantSuffix := strings.ToLower(strings.TrimSpace(claims.SovereignFQDN))
+		if wantSuffix == "" {
+			writeAuthError(w, "invalid token")
+			return
 		}
-	}
-	if !found {
-		writeAuthError(w, "invalid audience")
-		return
+		reqHost := requestHost(r)
+		// Accept when the request host is console.<suffix> / <suffix> /
+		// *.<suffix> so the support session lands only on the org it was
+		// minted for.
+		if reqHost != "" &&
+			reqHost != "console."+wantSuffix &&
+			reqHost != wantSuffix &&
+			!strings.HasSuffix(reqHost, "."+wantSuffix) {
+			h.log.Warn("auth_handover: support-session host mismatch",
+				"tokenSuffix", wantSuffix, "reqHost", reqHost)
+			writeAuthError(w, "invalid audience")
+			return
+		}
+	} else {
+		// Standard mothership→Sovereign handover: aud must contain the
+		// Sovereign's own console URL.
+		soverFQDN := h.sovereignFQDN()
+		expectedAud := "https://console." + soverFQDN
+		auds, _ := claims.GetAudience()
+		found := false
+		for _, a := range auds {
+			if a == expectedAud {
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeAuthError(w, "invalid audience")
+			return
+		}
 	}
 
 	if claims.Role != "sovereign-admin" {
@@ -236,16 +321,42 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── 5. EnsureUser in Keycloak ───────────────────────────────────────
+	//
+	// #4101: for an "Enter org" support session the Keycloak EnsureUser is
+	// BEST-EFFORT, not a hard gate. The support principal is an ephemeral,
+	// time-boxed (≤60min) impersonation identity — the session JWT we mint
+	// below is the source of truth for the support banner + audit context,
+	// not a durable Keycloak user record. The target Org's realm may still
+	// be converging (a just-provisioned pool Org) and must not block the
+	// sovereign-admin from entering for support. A standard
+	// mothership→Sovereign handover still hard-fails on EnsureUser because
+	// that establishes the durable Sovereign owner identity.
+	var userID string
 	kc := h.keycloakClientFor()
-	if kc == nil {
-		writeAuthError(w, "server misconfiguration: keycloak not configured")
-		return
-	}
-	userID, err := kc.EnsureUser(r.Context(), claims.Email, "sovereign-admins")
-	if err != nil {
-		h.log.Error("auth_handover: EnsureUser failed", "email", claims.Email, "err", err)
-		writeAuthError(w, "keycloak error: ensure user")
-		return
+	if claims.SupportSession {
+		if kc != nil {
+			if uid, eerr := kc.EnsureUser(r.Context(), claims.Email, "sovereign-admins"); eerr != nil {
+				h.log.Warn("auth_handover: support-session EnsureUser failed (best-effort)",
+					"email", claims.Email, "err", eerr)
+			} else {
+				userID = uid
+			}
+		} else {
+			h.log.Warn("auth_handover: support-session EnsureUser skipped — keycloak not configured",
+				"email", claims.Email)
+		}
+	} else {
+		if kc == nil {
+			writeAuthError(w, "server misconfiguration: keycloak not configured")
+			return
+		}
+		uid, eerr := kc.EnsureUser(r.Context(), claims.Email, "sovereign-admins")
+		if eerr != nil {
+			h.log.Error("auth_handover: EnsureUser failed", "email", claims.Email, "err", eerr)
+			writeAuthError(w, "keycloak error: ensure user")
+			return
+		}
+		userID = uid
 	}
 
 	// ── 5b. Auto-seed owner UserAccess CR (D21) ─────────────────────────
@@ -311,6 +422,22 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		"sovereign_fqdn": claims.SovereignFQDN,
 		"deployment_id":  claims.DeploymentID,
 	}
+	// #4101: propagate the support-session markers into the minted session
+	// JWT so whoami + the in-console support banner can render the support
+	// principal + impersonated org, and the audit trail ties back to the
+	// initiating sovereign-admin.
+	if claims.SupportSession {
+		sessionClaims["support_session"] = true
+		if claims.SupportPrincipal != "" {
+			sessionClaims["support_principal"] = claims.SupportPrincipal
+		}
+		if claims.ImpersonatedOrg != "" {
+			sessionClaims["impersonated_org"] = claims.ImpersonatedOrg
+		}
+		if claims.InitiatedBy != "" {
+			sessionClaims["initiated_by"] = claims.InitiatedBy
+		}
+	}
 	accessToken, err := h.handoverSigner.SignCustomClaims(sessionClaims)
 	if err != nil {
 		h.log.Error("auth_handover: SignCustomClaims failed", "err", err)
@@ -329,14 +456,19 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	// zero-click chain from a handover-established session bounced to the
 	// console PIN form (measured live on hw130 2026-06-13: fresh handover
 	// -> grafana.<fqdn> landed on console./login?next=...oidc/auth...).
-	// The PIN path was fixed on hw86 2026-06-02; the handover path missed
-	// the same fix. Resolution order: explicit env > SOVEREIGN_FQDN env >
-	// the validated handover claim (this handler always has it).
-	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
+	//
+	// #4101 (2026-06-22): use the shared request-host-derived helper so a
+	// support handover landing on a POOL-domain Org console
+	// (console.demo.omani.homes) scopes the cookie to .demo.omani.homes —
+	// NOT .<SOVEREIGN_FQDN> (.omantel.biz), which the browser would reject
+	// for that host (the same cross-domain drop that broke PIN login,
+	// BUG 1). sessionCookieDomain honours CATALYST_SESSION_COOKIE_DOMAIN,
+	// then the Sovereign zone, then the per-Org suffix.
+	cookieDomain := sessionCookieDomain(r)
 	if cookieDomain == "" {
-		if sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); sovFQDN != "" {
-			cookieDomain = "." + sovFQDN
-		} else if fq := strings.TrimSpace(claims.SovereignFQDN); fq != "" {
+		// Last-resort: the validated handover claim's sovereign_fqdn (this
+		// handler always has it) so the cookie is never host-only.
+		if fq := strings.TrimSpace(claims.SovereignFQDN); fq != "" {
 			cookieDomain = "." + fq
 		}
 	}
