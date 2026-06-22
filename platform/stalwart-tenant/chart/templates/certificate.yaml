@@ -1,0 +1,56 @@
+{{- /*
+Server-TLS leaf certificate for the per-Org Stalwart (#4148).
+
+The bootstrap config.toml's `[certificate.default]` block reads the cert
++ key from `/etc/stalwart/tls/{tls.crt,tls.key}` at parse time. Stalwart
+presents this leaf on the implicit-TLS / STARTTLS listeners (submissions
+465, imaps 993, https 8443, plus STARTTLS on 587/143). The StatefulSet
+mounts the `stalwart.tls.secretName` Secret read-only at /etc/stalwart/tls;
+this cert-manager Certificate materialises that Secret zero-touch on a
+fresh prov so the pod never CrashLoops on a missing cert file.
+
+Two SANs:
+  - mail.<tenant-domain>  — the webmail host (matches webmailHost helper);
+  - <tenant-domain>       — the bare apex so MX-delivered STARTTLS on
+                            mail addressed to `<user>@<tenant-domain>`
+                            validates the hostname.
+
+Rendered ONLY when:
+  - stalwart.enabled
+  - stalwart.tls.certificate.enabled
+  - the tenant domain resolves (empty → smoke-render-safe skip, mirroring
+    ingress-webmail.yaml's empty-host gate so CI's default-values render
+    stays valid).
+
+Operators who would rather reflect an existing per-Org wildcard Secret
+set `stalwart.tls.certificate.enabled=false` and point
+`stalwart.tls.secretName` at that Secret (Inviolable Principle #4).
+*/}}
+{{- if and .Values.stalwart.enabled .Values.stalwart.tls.certificate.enabled }}
+{{- $domain := include "bp-stalwart-tenant.tenantDomain" . -}}
+{{- $host := include "bp-stalwart-tenant.webmailHost" . -}}
+{{- if and $domain $host }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ printf "%s-tls" (include "bp-stalwart-tenant.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.stalwart.tls.secretName | quote }}
+  duration: {{ .Values.stalwart.tls.certificate.duration | quote }}
+  renewBefore: {{ .Values.stalwart.tls.certificate.renewBefore | quote }}
+  privateKey:
+    rotationPolicy: Always
+    algorithm: ECDSA
+    size: 256
+  dnsNames:
+    - {{ $host | quote }}
+    {{- if ne $host $domain }}
+    - {{ $domain | quote }}
+    {{- end }}
+  issuerRef:
+    name: {{ .Values.stalwart.tls.certificate.issuer | quote }}
+    kind: {{ .Values.stalwart.tls.certificate.issuerKind | quote }}
+{{- end }}
+{{- end }}

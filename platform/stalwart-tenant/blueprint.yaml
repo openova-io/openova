@@ -14,8 +14,17 @@ spec:
   # (`directory.keycloak.@type = "Oidc"`, `issuerUrl`, `claimUsername`,
   # `claimName`, `claimGroups`). setupJob defaults to enabled so a
   # fresh tenant has working OIDC at t=0.
+  # 0.1.5 (#4148) — the per-Org Stalwart never converged on a fresh prov.
+  # Three chart bugs, all live-validated on the omantel.biz demo Org (kom4dc):
+  # (a) image v0.16.3 CrashLooped on this chart's v0.15-era TOML (v0.16.x
+  # parser rewrite) → pinned v0.15.5 to match bp-stalwart-sovereign; (b) no
+  # explicit --config arg → inherited the image's wrong default config path
+  # → fixed with args: [--config, /opt/stalwart/etc/config.toml]; (c)
+  # config.toml's [certificate.default] read /etc/stalwart/tls/* with no such
+  # mount → added a tls Secret volume + a cert-manager Certificate for
+  # mail.<tenant-domain> (secret name via stalwart.tls.secretName).
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.4
+  version: 0.1.5
   card:
     title: Stalwart (per-Organization)
     summary: |
