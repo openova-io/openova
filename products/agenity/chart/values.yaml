@@ -119,13 +119,33 @@ openovaMCP:
   rs256PubkeySecret:
     name: catalyst-handover-jwt
     key: handover-jwt-public.pem
-  # ── Per-call bearer injection (#4111) ───────────────────────────────────
+  # ── Per-call bearer injection (#4111 / #4116 / #4110) ────────────────────
   # The openova MCP needs the User's session bearer per tools/call (via
   # _auth.token or the OPENOVA_MCP_BEARER env). The production seam is the
   # chat UI forwarding the signed-in User's session token into each call;
   # that chepherd-side injection is tracked separately. As an interim, an
-  # operator may supply a bearer Secret the chart wires as OPENOVA_MCP_BEARER
-  # (admin-tier, Org-pinned, RS256-signed by the handover signer). Empty =
+  # operator may supply a bearer Secret the chart wires as OPENOVA_MCP_BEARER.
+  #
+  # 🛑 For an ORG-deployed agenity (the customer's own Organization, e.g. the
+  # demo Org on omantel.biz) the bearer MUST be ORG-SCOPED, NOT sovereign-admin:
+  #   - tier: "org-admin"  (auth.OrgScopedTier — the top-of-OWN-Org marker)
+  #   - org_id / org: "<org-slug>"  (e.g. "demo")
+  #   - role: "openova-user"; typ: "session"; iss: <CATALYST_PIN_ISSUER>
+  #   - RS256-signed by the Sovereign's handover signer
+  #     (/var/lib/catalyst/handover-jwt-private.pem — the SAME key whose pubkey
+  #      is in catalyst-handover-jwt/handover-jwt-public.pem, what the MCP
+  #      verifies against in rs256 mode).
+  # This shape resolves in the openova-mcp to (context=organization, tier=admin,
+  # org_id=<org>) — so create_application (MinTier=Admin) is allowed and routes
+  # to the own-org POST /api/v1/org/applications path (OrgScopeGuard-allowlisted,
+  # #4116), and the #4110 confinement holds (no Sovereign signal in the token).
+  # A sovereign-admin bearer (tier=owner / role=sovereign-admin) is WRONG here:
+  # the MCP would resolve context=sovereign and create_application falls through
+  # to POST /api/v1/sovereigns/{id}/applications, which the #4110 OrgScopeGuard
+  # 403s because the MCP also host-scopes the session (X-Tenant-Host) → the
+  # "org-scoped-forbidden" wedge this seam exists to avoid.
+  #
+  # MUST pair with openovaMCP.context=organization (the default below). Empty =
   # rely on per-call _auth.token from the UI seam.
   bearerSecret:
     name: ""
