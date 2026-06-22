@@ -8,8 +8,11 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
-version: 0.5.1
-appVersion: "0.9.4"
+version: 0.5.2
+# Bumped 0.9.4 -> 0.9.5: the agenity source pin moved to the #745 merge
+# (the NEW dashboard). appVersion is the default image tag, so a distinct
+# version keeps the new-dashboard image from masquerading under the old tag.
+appVersion: "0.9.5"
 keywords:
   - agenity
   - agent-runtime
