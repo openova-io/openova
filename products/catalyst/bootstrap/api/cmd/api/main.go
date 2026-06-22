@@ -1081,6 +1081,16 @@ func main() {
 	// proceed without any auth check, preserving existing behaviour.
 	r.Group(func(rg chi.Router) {
 		rg.Use(auth.RequireSession(h.GetAuthConfig(), log))
+		// #4110 — Org-console scope guard. Transparent passthrough for
+		// Sovereign-admin/operator sessions (zero regression); for an
+		// Org-scoped customer session (PIN-authenticated on an Org pool-
+		// domain console host, e.g. console.demo.omani.homes) it enforces a
+		// deny-by-default allowlist so the customer can reach ONLY their own
+		// Organization's surfaces — never the deployments API / deployment-
+		// stream, the whole-cluster estate, BSS/billing, parent-domains, the
+		// cross-org directory, or sovereign settings. Must run AFTER
+		// RequireSession (which populates auth.ClaimsFromContext).
+		rg.Use(h.OrgScopeGuard)
 
 		// Whoami — UI auth guard polls this; 401 → redirect to /login.
 		rg.Get("/api/v1/whoami", h.HandleWhoami)

@@ -26,7 +26,22 @@ import { useQuery } from '@tanstack/react-query'
 import { loadTokens, parseJWTClaims } from '@/shared/lib/oidc'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { getSidebarEntries, type SidebarEntry } from '@/lib/console-ui.api'
+
+// #4110 — the ONLY nav items an Org-scoped customer console may show. The
+// customer sees their OWN estate (apps + catalog browse + sandbox + their
+// users) and their OWN settings; every sovereign-admin surface (Dashboard
+// fleet/treemap, the whole-cluster Cloud view, provisioning Jobs, the
+// Sovereign Compliance dashboards, the cross-org Organizations directory)
+// is hidden. Settings is handled separately (rendered after FLAT_NAV) and
+// is allowed for an Org session — it shows only the Org's own settings.
+const ORG_SCOPED_NAV_IDS: ReadonlySet<FlatNavItem['id']> = new Set([
+  'apps',
+  'catalog',
+  'sandbox',
+  'users',
+])
 
 interface SovereignSidebarProps {
   /** Sovereign FQDN derived from window.location.hostname. */
@@ -223,6 +238,17 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeSection = deriveActiveSection(pathname)
 
+  // #4110 — Org-console scoping. When the backend reports an Org-scoped
+  // session (whoami.orgScoped), filter the nav to the Org-safe items only.
+  // Fail safe: while the scope is still loading we render the FULL nav for a
+  // Sovereign-admin (the common case) but treat an explicit orgScoped=true
+  // as the authoritative trigger to hide. The catalyst-api 403s the hidden
+  // surfaces regardless, so a momentary nav flash can never be acted on.
+  const { orgScoped } = useConsoleScope()
+  const navItems = orgScoped
+    ? FLAT_NAV.filter((item) => ORG_SCOPED_NAV_IDS.has(item.id))
+    : FLAT_NAV
+
   // Wave 5.69c (#2396) — dynamic sidebar entries from installed
   // Blueprints' spec.consoleUI.sidebarEntry (Wave 5.69 CRD + Wave
   // 5.69b /console-ui/sidebar-entries handler). Splices into the
@@ -354,7 +380,7 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
             the mark place mutst be just aotnerh menu under console
             like https://console.<sov>/bss". The BSS group below is the
             new canonical surface (in-SPA, RBAC-gated, no external tab). */}
-        {FLAT_NAV.map((item) => {
+        {navItems.map((item) => {
           const isActive = activeSection === item.id
           const cls = isActive
             ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
@@ -375,8 +401,10 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
 
         {/* Wave 5.69c (#2396) dynamic sidebar entries — Blueprints
             opted in via spec.consoleUI.sidebarEntry=true. Rendered
-            between hardcoded FLAT_NAV and pinned Settings. */}
-        {dynamicEntries.map((entry) => {
+            between hardcoded FLAT_NAV and pinned Settings.
+            #4110: suppressed on an Org-scoped console (these are
+            Sovereign-level Blueprint nav entries). */}
+        {(orgScoped ? [] : dynamicEntries).map((entry) => {
           const isActive = pathname.startsWith(entry.route)
           const cls = isActive
             ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'

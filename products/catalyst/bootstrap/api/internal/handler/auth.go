@@ -879,6 +879,40 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	// stamp happens ONLY at PIN-verify (i.e. only after the operator
 	// proved IMAP control); pre-PIN sessions never carry these claims.
 	sessionTier, sessionRealmRoles := h.pinSessionAuthority(r.Context(), email)
+
+	// ── #4110 Org-console scoping (THE security fix) ────────────────────
+	//
+	// pinSessionAuthority() above resolves authority purely from the
+	// SOVEREIGN realm's /sovereign-admins membership and IGNORES the
+	// request host. On a Sovereign that also serves Org pool-domain
+	// consoles (console.<org>.<pool-zone> e.g. console.demo.omani.homes),
+	// that meant a customer PIN-authenticating on THEIR Org console was
+	// minted the SAME sovereign-admin session as the operator on the
+	// Sovereign's own front door — full god-mode (provisioning wizard,
+	// deployment-stream, every Org, cloud view, sovereign DNS/parent-
+	// domain/BSS settings). Live privilege escalation on omantel.biz.
+	//
+	// The trust anchor is the REQUEST HOST: the Cilium Gateway routes the
+	// Org console host to this catalyst-api and sets X-Forwarded-Host to
+	// the real browser host, which a browser on the Org console can never
+	// forge. When the host resolves (via the tenant registry) to a
+	// tenant_kind=org console, the session is FORCED Org-scoped: a
+	// non-sovereign tier (org-admin) + the org slug, NEVER catalyst-admin/
+	// sovereign-admin — regardless of what /sovereign-admins says. The
+	// org slug is also stamped so org-scoped handlers + the console confine
+	// to this one Organization. The API authz gate (OrgScopeGuard) then
+	// 403s any sovereign/other-org endpoint for this session (deny-by-
+	// default outside the Org-safe allowlist), so the confinement holds
+	// even if the SPA is bypassed.
+	orgClaim := ""
+	if scope, ok := h.resolveOrgScope(r); ok {
+		sessionTier = orgScopedTier
+		sessionRealmRoles = []string{orgScopedRealmRole}
+		orgClaim = scope.Org
+		h.log.Info("pin/verify: Org-scoped session",
+			"email", email, "org", scope.Org, "host", scope.Host)
+	}
+
 	sessionClaims := jwt.MapClaims{
 		"iss":            pinIssuer,
 		"sub":            email, // email == subject; downstream reads claims.Email
@@ -893,6 +927,14 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 		"exp": time.Now().Add(pinSessionTTL).Unix(),
 		"jti": uuid.NewString(),
 		"typ": "session",
+	}
+	// Stamp the Org slug only for an Org-scoped session — both wire tags
+	// (`org` legacy + `org_id` Wave-1b) so auth.Claims.UnmarshalJSON picks
+	// it up regardless of which it reads. A Sovereign-admin session never
+	// carries an org claim.
+	if orgClaim != "" {
+		sessionClaims["org"] = orgClaim
+		sessionClaims["org_id"] = orgClaim
 	}
 	accessToken, err := h.handoverSigner.SignCustomClaims(sessionClaims)
 	if err != nil {
@@ -1232,6 +1274,15 @@ type whoamiResponse struct {
 	SovereignFQDN string             `json:"sovereignFQDN,omitempty"`
 	Mode          string             `json:"mode,omitempty"`
 	Tier          string             `json:"tier,omitempty"`
+	// #4110 — Org-scope context for the SPA. When the session is an
+	// Org-scoped customer session (minted on console.<org>.<pool-zone>),
+	// OrgScoped=true and Org carries the Organization slug. The console
+	// reads OrgScoped to render the scoped chrome (hide the provisioning
+	// wizard, deployment-stream, cross-org directory, sovereign DNS/parent-
+	// domain/BSS settings) and scope every estate query to Org. Both are
+	// omitempty so the Sovereign-admin whoami shape is byte-unchanged.
+	OrgScoped bool   `json:"orgScoped,omitempty"`
+	Org       string `json:"org,omitempty"`
 	// RealmAccess is a pointer so `omitempty` actually drops the key when
 	// the operator's session carries no RBAC claims. A struct value would
 	// always serialize as `{}` regardless of omitempty (Go encoding/json
@@ -1288,6 +1339,13 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 		Sub:      claims.Sub,
 		Verified: claims.EmailVerified,
 		Tier:     strings.ToLower(strings.TrimSpace(claims.Tier)),
+	}
+	// #4110 — surface the Org-scope so the SPA renders the scoped console.
+	// The org-scoped marker is the tier (set by HandlePinVerify on an Org
+	// pool-domain host); the Org slug rides the `org`/`org_id` claim.
+	if claimsAreOrgScoped(claims) {
+		resp.OrgScoped = true
+		resp.Org = strings.TrimSpace(claims.Org)
 	}
 	if len(claims.RealmAccess.Roles) > 0 {
 		resp.RealmAccess = &whoamiRealmAccess{

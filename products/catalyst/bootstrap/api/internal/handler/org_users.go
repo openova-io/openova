@@ -60,6 +60,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -158,6 +159,24 @@ func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (s
 			"detail": "endpoint is restricted to tenant_kind=org; got " + string(t.TenantKind),
 		})
 		return store.TenantRegistration{}, false
+	}
+	// #4110 — cross-org binding. An Org-scoped customer session may only
+	// resolve to its OWN Organization. X-Tenant-Host is a client-supplied
+	// header; a malicious customer could forge a sibling org's host to read
+	// another Organization's users/roles. Bind the resolved tenant to the
+	// session's `org` claim (stamped from the request host at PIN-verify,
+	// which the customer cannot forge). A Sovereign-admin session has no
+	// org claim and is unaffected (it may legitimately operate any Org).
+	if claims := auth.ClaimsFromContext(r.Context()); claimsAreOrgScoped(claims) {
+		sessionOrg := strings.ToLower(strings.TrimSpace(claims.Org))
+		resolvedSlug := strings.ToLower(strings.TrimSpace(orgSlugFromHost(host)))
+		if sessionOrg != "" && resolvedSlug != "" && sessionOrg != resolvedSlug {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "org-scope-mismatch",
+				"detail": "this Organization session may only access its own Organization",
+			})
+			return store.TenantRegistration{}, false
+		}
 	}
 	return t, true
 }
