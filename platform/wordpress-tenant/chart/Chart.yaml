@@ -95,7 +95,10 @@ name: bp-wordpress-tenant
 #     of bp-cnpg-pair §7): primary BLOCKS new writes when replica is
 #     unreachable; every COMMIT pays the inter-region RTT.
 # 0.4.2 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 0.4.2
+# 0.4.3 (#4139): blueprint.yaml configSchema wpContent.storageClass.default local-path → ""
+#   (was missed by #3971 — the schema default would re-introduce the FORBIDDEN
+#   local-path class on a fresh install, denied by forbid-local-path-storage).
+version: 0.4.3
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
