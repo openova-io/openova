@@ -993,14 +993,24 @@ spec:
 //   - auth.customerAPI       → keyIssuer=catalyst (Catalyst mints
 //     per-user bearer keys on signup; the
 //     upstream's self-serve portal is OFF).
-//   - database.existingSecret → newapi-pg-app — the Secret bp-cnpg's
-//     CNPG Cluster auto-renders for the
-//     "newapi" Database (cnpg.enabled=true so
-//     per-tenant Postgres auto-provisions per
-//     #943).
-//   - credentials.existingSecret → newapi-credentials — pulled from
-//     OpenBao via ExternalSecret carrying the
-//     SESSION_SECRET + CRYPTO_SECRET keys.
+//   - database (UNSET) → the chart OWNS its Postgres: cnpg.enabled=true
+//     (default) renders the per-Org CNPG Cluster +
+//     the `bp-newapi-newapi-db-dsn` placeholder Secret
+//     that the chart's own database-secret-sync-job
+//     PATCHes with the canonical `postgres://...?sslmode=
+//     require` DSN. deployment.yaml's $effDbSecret
+//     auto-resolves to that Secret when database.
+//     existingSecret is left unset (#3858/#3374 — the
+//     old `newapi-pg-app`/SQL_DSN override pointed at a
+//     name nothing creates and FailedMount'd).
+//   - credentials (UNSET) → credentials.autoProvision=true (default)
+//     auto-generates `bp-newapi-app-creds` with random
+//     SESSION_SECRET + CRYPTO_SECRET (the old
+//     `newapi-credentials` override pointed at an
+//     uncreated Secret → CreateContainerConfigError).
+//   - valkey.enabled=false → the chart's default valkey.url is the
+//     host-synced rtz-vCluster Redis, unreachable from
+//     inside an Org vCluster; NewAPI runs Postgres-only.
 //   - defaultChannels.qwenPartner → channel #1 = partner-hosted Qwen
 //     auto-seeded at install time (canonical
 //     first-otech default per #915 C4 PR #919).
@@ -1051,19 +1061,51 @@ spec:
     # ExternalSecrets (sovereign/<fqdn>/newapi/...). The sub.parent form
     # makes the path tenant-unique on a multi-tenant Sovereign.
     sovereignFQDN: {{.Subdomain}}.{{.ParentDomain}}
-    # ── Postgres backend (bp-cnpg in tenant ns auto-provisions) ────────
-    # bp-cnpg renders a per-database app Secret named "<db>-app" (#943).
-    # The NewAPI chart consumes the canonical SQL_DSN key.
-    database:
-      existingSecret: newapi-pg-app
-      existingSecretKey: SQL_DSN
+    # ── Postgres backend (chart-owned CNPG, auto-provisioned) ─────────
+    # The bp-newapi chart OWNS its Postgres: cnpg.enabled=true (chart
+    # default) renders a per-Org CNPG Cluster 'bp-newapi-newapi-pg' whose
+    # '-app' Secret carries the rotating password, plus the placeholder
+    # Secret 'bp-newapi-newapi-db-dsn' that the chart's own
+    # database-secret-sync-job PATCHes with the canonical DSN
+    #   postgres://newapi:<pw>@bp-newapi-newapi-pg-rw.<orgns>:5432/newapi?sslmode=require
+    # (scheme 'postgres://', which new-api's DB-driver detection requires —
+    # NOT the CNPG-native 'postgresql://'). deployment.yaml's $effDbSecret
+    # auto-resolves to that name+key when database.existingSecret is unset,
+    # so we MUST NOT override it.
+    #
+    # #3858 / #3374: a previous overlay pinned
+    #   database.existingSecret: newapi-pg-app  (key SQL_DSN)
+    # but NOTHING on a real Org creates a 'newapi-pg-app' Secret with a
+    # 'SQL_DSN' key — the in-vCluster CNPG renders 'bp-newapi-newapi-pg-app'
+    # (key 'uri', scheme 'postgresql://'). The Pod FailedMount on the missing
+    # Secret, then 'references non-existent secret key: SQL_DSN'. Leaving
+    # database unset lets the chart's canonical auto-provision path converge
+    # zero-touch (validated live on the omantel.biz demo Org: newapi 3/3
+    # Running, GET /api/status -> 200).
     # ── App credentials (SESSION_SECRET + CRYPTO_SECRET) ──────────────
-    # Materialised by an ExternalSecret pulling from the per-tenant
-    # OpenBao path. The chart's manifest fails render if the Secret is
-    # missing both keys; the operator overlay seeds them out-of-band on
-    # tenant creation (bootstrap-kit reflector setup).
-    credentials:
-      existingSecret: newapi-credentials
+    # credentials.autoProvision=true (chart default) auto-generates the
+    # 'bp-newapi-app-creds' Secret with random 64-char SESSION_SECRET +
+    # CRYPTO_SECRET (persistent across reconciles via Helm lookup +
+    # resource-policy: keep). We MUST NOT point credentials.existingSecret
+    # at an uncreated name: the previous overlay set
+    #   credentials.existingSecret: newapi-credentials
+    # which nothing creates -> CreateContainerConfigError: secret
+    # "newapi-credentials" not found (#3858 root cause #2). Leaving
+    # credentials unset lets the chart auto-provision them.
+    # ── Valkey cache: DISABLED for the per-Org overlay ────────────────
+    # The chart's default valkey.url points at a HOST-placed valkey
+    # synced from the rtz vCluster
+    #   redis://valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379
+    # which is the correct target for the HOST-placed bp-newapi (#3373
+    # Batch A) but is UNREACHABLE from inside an Org's own vCluster. NewAPI
+    # treats REDIS_CONN_STRING as required when set and CrashLoops on
+    # '[FATAL] Redis ping test failed: context deadline exceeded' (#3858
+    # root cause #3). NewAPI falls back to an in-process cache when Valkey
+    # is off — Postgres holds all durable state — so disabling it is safe.
+    # If a genuinely reachable per-Org valkey ships later, set valkey.url to
+    # THAT instead of re-enabling this cross-vCluster host.
+    valkey:
+      enabled: false
     # ── Auth: ops-staff admin UI gated by per-tenant Keycloak ─────────
     # Customer-facing API uses Catalyst-minted keys (NewAPI's self-serve
     # portal stays OFF on Catalyst Sovereigns per platform/newapi).
