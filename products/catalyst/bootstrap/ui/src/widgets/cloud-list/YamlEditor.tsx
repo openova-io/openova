@@ -9,11 +9,12 @@
  *   - `managed-by: manual` resources OR no managed-by annotation → calls
  *     /k8s/{kind}/{ns}/{name}/apply for direct apply.
  *
- * The Monaco editor is intentionally NOT bundled (would add ~3 MB to the
- * SPA payload). Instead the editor uses a styled, monospaced textarea
- * with line numbers + a side-by-side diff that computes per-line LCS at
- * render time. Future slice can drop in @monaco-editor/react if visual
- * editing parity becomes a P0; the validate/apply contract is unchanged.
+ * The editor surface is the shared <CodeView> (CodeMirror 6, lazy-loaded so
+ * the ~200 KB core never lands in the initial SPA payload — Monaco's ~3 MB
+ * was rejected for that reason). CodeView gives syntax highlighting, line
+ * numbers, code folding, in-editor search, copy, and console light/dark
+ * theming. The side-by-side diff (computed per-line at render time) and the
+ * validate/apply contract are unchanged.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
  *   #4 (never hardcode) — every endpoint is composed via resource.api.ts.
@@ -24,6 +25,9 @@
 
 import { useMemo, useState } from 'react'
 
+import type { EditorView } from '@codemirror/view'
+
+import { CodeView } from '@/widgets/code/CodeView'
 import { editPRBlueprint, type BlueprintEditPRResponse } from '@/lib/catalog.api'
 import {
   applyYAML,
@@ -57,6 +61,10 @@ export interface YamlEditorProps {
   /** Optional label for the apply button when onCommit is set (default
    *  "Commit IaC"). */
   commitLabel?: string
+  /** Test seam — receives the live CodeMirror EditorView on mount so tests
+   *  can dispatch programmatic edits (the editor is a contenteditable, not a
+   *  textarea). Unused in production. */
+  onCreateEditor?: (view: EditorView) => void
 }
 
 /** Convert a JS object to canonical YAML — small subset suitable for
@@ -125,7 +133,7 @@ function computeDiff(left: string, right: string): DiffLine[] {
   return out
 }
 
-export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride, onCommit, commitLabel }: YamlEditorProps) {
+export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride, onCommit, commitLabel, onCreateEditor }: YamlEditorProps) {
   const initial = useMemo(() => (obj ? objectToYAML(obj) : ''), [obj])
   const [yaml, setYaml] = useState<string>(initial)
   const [showDiff, setShowDiff] = useState(false)
@@ -256,13 +264,15 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride, on
           </div>
         </div>
       ) : (
-        <textarea
-          aria-label="YAML editor"
-          data-testid="yaml-editor-textarea"
+        <CodeView
           value={yaml}
-          onChange={(e) => setYaml(e.target.value)}
-          spellCheck={false}
-          className="h-96 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)] p-3 font-mono text-sm text-[var(--color-text)] focus:outline-none"
+          onChange={setYaml}
+          language="yaml"
+          ariaLabel="YAML editor"
+          height="24rem"
+          copyable
+          testId="yaml-editor-input"
+          onCreateEditor={onCreateEditor}
         />
       )}
 
