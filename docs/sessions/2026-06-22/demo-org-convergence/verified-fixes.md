@@ -19,3 +19,21 @@
 ### local-path: chart 0.4.3 (PR #4140/#4141) — wp-content PVC now Bound on durable CSI
   PVC status=Bound storageClass=evs-ssd
 ### CNPG sync: chart 0.4.4 (PR #4142) — native spec.postgresql.synchronous (pending publish+reconcile)
+
+## FINAL STATE (session end)
+
+### Shipped + verified live (5 fixes, all merged to main + published)
+| Fix | PR | Artifact | Live proof |
+|---|---|---|---|
+| bp-cnpg HR un-stall | reconcile | — | bp-cnpg READY=True; operator pod 1/1 Running |
+| vc-demo coredns harbor-proxy | live-patch + #3859 source | — | coredns 1/1 Running (harbor 1.11.3) |
+| stalwart-tenant image → harbor-proxy | #4140 | bp-stalwart-tenant 0.1.4 | image pull resolved |
+| wordpress wpContent.storageClass → "" | #4140 + #4141 | bp-wordpress-tenant 0.4.3 | wp-content PVC **Bound on evs-ssd** (NOT local-path) |
+| wordpress active-hot-standby CNPG native synchronous block | #4142 | bp-wordpress-tenant 0.4.4 | HR at 0.4.4; "fixed configuration parameter" denial GONE |
+
+Side fix: #4141 also repaired #3985-rename residue (oidcIssuerURL/ingressHost helpers) that was silently blocking EVERY bp-wordpress-tenant publish since 0.4.1 (only 0.4.0/0.4.1 were on ghcr).
+
+### Remaining blocker → filed as separate issue #4143 (bp-cnpg, NOT chart scope)
+The demo-Org `wordpress-db` CNPG Cluster CR cannot be created: `mcluster.cnpg.io` webhook returns `x509: certificate signed by unknown authority`. Root: TWO cnpg operators (`cnpg-system` + per-Org `bp-cnpg`) share ONE cluster-scoped webhook config. The Org serving cert chain is VALID (openssl `verify -CAfile` = OK, caBundle = Org CA) yet the apiserver still rejects — operator contention over the shared config. `bp-newapi-newapi-pg` (same Org) is healthy because it was admitted during a consistent window.
+
+Consequence: `demo-wp-blog` / `demo-wp-shop` Applications remain Pending until #4143 lands (the wordpress pod sits Init:CrashLoopBackOff waiting for the DB). The local-path + sync-param chart denials are BOTH resolved — #4143 is the sole residual gate.
