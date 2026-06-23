@@ -1062,7 +1062,7 @@ spec:
       #   self-sovereignty cutover on handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER
       #   now defaults false via catalystApi.fireCutoverOnHandover). Cutover is a
       #   DELIBERATE BSS-menu action; operator-initiated path unchanged.
-      version: 1.4.800
+      version: 1.4.801
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
