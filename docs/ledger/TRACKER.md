@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T05:45:03Z` |
+| Last refreshed | `2026-06-23T06:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 89 |
 | Open DoD gates | 0 / 41 |
@@ -297,6 +297,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-06-23T05:44 | [#4164](https://github.com/openova-io/openova/pull/4164) | #4002 | docs(uat): record 2026-06-23 env-state HR convergence + rema |
+| 2026-06-23T05:45 | [#4162](https://github.com/openova-io/openova/pull/4162) | #4 | fix(catalyst-api): sync keycloak master-realm admin Secret p |
 | 2026-06-23T05:05 | [#4161](https://github.com/openova-io/openova/pull/4161) | #4160 | fix(catalog-seed): bump bp-wordpress-tenant pin 0.4.4->0.4.1 |
 | 2026-06-23T04:50 | [#4159](https://github.com/openova-io/openova/pull/4159) | #4086 | fix: converge secondary-region vc-mgmt — cross-region mangle |
 | 2026-06-23T04:09 | [#4157](https://github.com/openova-io/openova/pull/4157) | #3642 | fix(bp-keycloak): account-console SSO-landing — non-delegati |
@@ -325,7 +326,6 @@ flowchart LR
 | 2026-06-22T07:09 | [#4104](https://github.com/openova-io/openova/pull/4104) | #4101 | fix(catalyst-api): pool-domain Org login — request-host sess |
 | 2026-06-22T06:50 | [#4103](https://github.com/openova-io/openova/pull/4103) | #4 | fix(org-provisioning): keycloak realmConfig.tenant.subdomain |
 | 2026-06-22T06:35 | [#4102](https://github.com/openova-io/openova/pull/4102) | #4100 | fix(bp-catalyst-platform): pin catalyst-api to its EVS volum |
-| 2026-06-22T06:31 | [#4098](https://github.com/openova-io/openova/pull/4098) | #4058 | fix(bp-agenity): build chepherd daemon from PUBLIC agenity-o |
 
 ---
 
