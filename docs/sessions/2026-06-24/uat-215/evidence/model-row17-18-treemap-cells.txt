@@ -8,3 +8,7 @@ Cursor=pointer cells captured from the rendered a11y tree (browser_snapshot dept
 NO ephemeral Job-pod cell present (no cutover-*, *-snapshot-save-*, scan-vulnerability*, *-hook-*).
 A single distinct "Platform overhead" roll-up cell holds control-plane/Job workloads.
 The customer Org "demo" appears as its OWN treemap cell, visually distinct from Platform overhead.
+
+VERIFIED via browser_evaluate against the rendered treemap container (2026-06-24):
+  cellCount=28, jobMarkers=[] (regex cutover|snapshot-save|scan-vuln|backup-|seed-|promote-|migrate-|-job|hook-|wait-for|init- → ZERO matches),
+  hasPlatformOverhead=true, hasDemo=true (the customer Org 'demo' is its own distinct cell).
