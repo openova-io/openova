@@ -2750,3 +2750,115 @@ func TestSyncKeycloakAdminSecret(t *testing.T) {
 		h.syncKeycloakAdminSecret(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
 	})
 }
+
+func seedSSOOIDCMangledSecret(t *testing.T, cs kubernetes.Interface, name, clientSecret string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: ssoOIDCMangledHostSecretsNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create %s namespace: %v", ssoOIDCMangledHostSecretsNamespace, err)
+	}
+	if _, err := cs.CoreV1().Secrets(ssoOIDCMangledHostSecretsNamespace).Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ssoOIDCMangledHostSecretsNamespace,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{"GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET": []byte(clientSecret)},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create SSO-OIDC mangled Secret %s: %v", name, err)
+	}
+}
+
+func getSSOOIDCMangledSecret(t *testing.T, cs kubernetes.Interface, name string) (*corev1.Secret, bool) {
+	t.Helper()
+	s, err := cs.CoreV1().Secrets(ssoOIDCMangledHostSecretsNamespace).Get(context.Background(), name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, false
+	}
+	if err != nil {
+		t.Fatalf("get SSO-OIDC mangled Secret %s: %v", name, err)
+	}
+	return s, true
+}
+
+// TestSyncSSOOIDCMangledSecrets covers the #4158 best-effort cross-region per-app
+// SSO/OIDC credential sync (the layer above the #4159 DB-secret + #4162
+// admin-secret fixes): (1) region-A's RESOLVED mangled SSO Secret is delivered
+// into the replica's host `mgmt` namespace where region-B's ESO 403s and never
+// materialises it (the live grafana CreateContainerConfigError root cause); (2) a
+// source not yet resolved on region-A is skipped per-Secret (the others still
+// sync); (3) single-region is a no-op; (4) region-A (slots[0]) is NEVER written.
+func TestSyncSSOOIDCMangledSecrets(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dep := &Deployment{ID: "dep-4158-sso"}
+	grafanaName := "grafana-sso-oidc-credentials-x-grafana-x-mgmt-vcluster"
+	harborName := "harbor-sso-oidc-credentials-x-harbor-x-mgmt-vcluster"
+
+	t.Run("region-A-resolved-sso-secret-delivered-to-replica", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		replicaCS := kfake.NewSimpleClientset()
+		// Region-A: ESO resolved the OIDC client creds from its OWN host-apiserver
+		// OpenBao auth. Region-B: NOTHING — its ESO 403s, the grafana Pod wedges
+		// CreateContainerConfigError on the absent mangled Secret.
+		seedSSOOIDCMangledSecret(t, primaryCS, grafanaName, "grafana-client-secret-A")
+		// Replica namespace must exist for the copy target.
+		if _, err := replicaCS.CoreV1().Namespaces().Create(context.Background(), &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: ssoOIDCMangledHostSecretsNamespace},
+		}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("create replica mgmt ns: %v", err)
+		}
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSSOOIDCMangledSecrets(context.Background(), dep, slots)
+
+		got, ok := getSSOOIDCMangledSecret(t, replicaCS, grafanaName)
+		if !ok {
+			t.Fatalf("replica %s missing after sync — grafana would stay CreateContainerConfigError", grafanaName)
+		}
+		if s := string(got.Data["GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET"]); s != "grafana-client-secret-A" {
+			t.Errorf("replica grafana SSO client_secret = %q, want region-A's resolved value", s)
+		}
+		// Region-A (the source) must be UNTOUCHED.
+		src, _ := getSSOOIDCMangledSecret(t, primaryCS, grafanaName)
+		if s := string(src.Data["GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET"]); s != "grafana-client-secret-A" {
+			t.Errorf("primary grafana SSO client_secret changed to %q — the source region must never be written", s)
+		}
+	})
+
+	t.Run("per-secret-source-miss-is-independent", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		replicaCS := kfake.NewSimpleClientset()
+		// Only grafana has resolved on region-A; harbor's ESO hasn't yet. The
+		// harbor miss must NOT block grafana's delivery.
+		seedSSOOIDCMangledSecret(t, primaryCS, grafanaName, "grafana-client-secret-A")
+		if _, err := replicaCS.CoreV1().Namespaces().Create(context.Background(), &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: ssoOIDCMangledHostSecretsNamespace},
+		}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("create replica mgmt ns: %v", err)
+		}
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSSOOIDCMangledSecrets(context.Background(), dep, slots)
+
+		if _, ok := getSSOOIDCMangledSecret(t, replicaCS, grafanaName); !ok {
+			t.Errorf("grafana SSO Secret not delivered despite being resolved on region-A (a harbor miss must not block it)")
+		}
+		if _, ok := getSSOOIDCMangledSecret(t, replicaCS, harborName); ok {
+			t.Errorf("harbor SSO Secret unexpectedly delivered from an unresolved source")
+		}
+	})
+
+	t.Run("single-region-is-noop", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		seedSSOOIDCMangledSecret(t, primaryCS, grafanaName, "x")
+		// len(slots) == 1 → no replica → must return immediately, no panic.
+		h.syncSSOOIDCMangledSecrets(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
+	})
+}

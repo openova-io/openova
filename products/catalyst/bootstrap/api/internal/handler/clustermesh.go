@@ -465,6 +465,67 @@ const (
 	keycloakAdminSecretNamespace = "mgmt"
 )
 
+// ssoOIDCMangledHostSecrets — the vCluster-syncer-mangled HOST-namespace names
+// of the per-app SSO/OIDC credential Secrets the in-vc-mgmt apps mount, that must
+// be copied primary → replica (#4158, the SSO layer above the #4159 DB-secret +
+// #4162 keycloak-admin fixes). namespace = ssoOIDCMangledHostSecretsNamespace
+// (`mgmt`), the host namespace the mgmt vCluster runs in.
+//
+// WHY THIS NEEDS A CROSS-REGION COPY (proven live on dep 4635277cae4ffed9
+// region-B `me-east-215-b`, 2026-06-24):
+//
+// Unlike the DB-secret (#4159, sourced from bp-postgres role-secrets) and the
+// keycloak admin Secret (#4162, a plain Helm-minted Secret), the per-app SSO
+// credential Secret is produced by an ESO `ExternalSecret` that resolves from the
+// `vault-region1` ClusterSecretStore — region-A's in-vc-mgmt OpenBao reached over
+// the ClusterMesh. ESO runs HOST-side and authenticates to OpenBao with a
+// ServiceAccount JWT via OpenBao's `kubernetes/` auth mount, which (in the
+// cross-cluster vc-mgmt topology, bp-openbao crossClusterTokenReview) TokenReviews
+// ONLY against the PRIMARY region's host apiserver (10.96.0.1). region-B's ESO
+// presents a token signed by REGION-B's host apiserver, which region-A's host
+// apiserver cannot validate → OpenBao `kubernetes/login` returns 403 permission
+// denied → the `vault-region1` store is `InvalidProviderConfig` on region-B →
+// every per-app SSO `ExternalSecret` (grafana/harbor/openbao/powerdns-admin) sits
+// `SecretSyncedError`, so the in-vc Secret never materialises and the vCluster
+// syncer never surfaces the mangled HOST object the kubelet mounts.
+//
+// Measured live region-B: `grafana-…-x-grafana-x-mgmt-vcluster`
+// CreateContainerConfigError — `secret "grafana-sso-oidc-credentials-x-grafana-x-
+// mgmt-vcluster" not found` (the grafana Pod env-references it `Optional: false`).
+// region-A resolves all of these fine (its ESO TokenReviews against ITS OWN host
+// apiserver natively), and the syncer surfaces the mangled host object in region-A
+// `mgmt`.
+//
+// catalyst-api is the only actor that spans both regions, so — exactly as
+// syncKeycloakAdminSecret does for the admin Secret — it copies region-A's
+// RESOLVED mangled host Secret primary → every replica directly into the HOST
+// `mgmt` namespace. The in-vc-mgmt app (single-namespace sync mode) mounts that
+// host object DIRECTLY by its mangled name (verified: the #4159
+// `grafana-database-env-x-grafana-x-mgmt-vcluster` reflector copy, NOT a
+// syncer-created object, is mounted the same way and survives in region-B), so no
+// in-vc source or live ESO is required on the replica. Region-A is the SOURCE,
+// never a destination (slots[0] is skipped), so this never regresses the primary.
+//
+// Best-effort + level-trigger: a missing source (region-A's ESO hasn't resolved
+// yet) or a per-replica copy failure is logged + skipped; the #3241/#3583 re-run
+// converges it. Idempotent — copySecretAcrossClusters skips the write when the
+// destination bytes already match. NOT gated on `-mesh-rw` (these carry OIDC
+// client creds + URLs, no DB host). Single-region (len(slots)<2) is a no-op.
+//
+// Scope = only the vc-mgmt-homed SSO consumers whose Pod env-mounts the mangled
+// host Secret `Optional: false` and whose source is the OpenBao-backed ESO that
+// 403s on the replica. bp-guacamole is intentionally ABSENT: its OIDC client
+// Secret is chart-minted in-vc (`lookup`-or-generate, no OpenBao/ESO dependency),
+// so region-B materialises it locally + guacamole runs without any cross-region
+// copy (verified live region-B: guacamole-server Running, no ExternalSecret).
+var ssoOIDCMangledHostSecrets = []string{
+	"grafana-sso-oidc-credentials-x-grafana-x-mgmt-vcluster",
+	"harbor-sso-oidc-credentials-x-harbor-x-mgmt-vcluster",
+	"openbao-sso-oidc-credentials-x-openbao-x-mgmt-vcluster",
+}
+
+const ssoOIDCMangledHostSecretsNamespace = "mgmt"
+
 // fluxKustomizationGVR — kustomize.toolkit.fluxcd.io/v1 Kustomizations,
 // addressed via the dynamic client (no Flux Go types vendored here).
 var fluxKustomizationGVR = schema.GroupVersionResource{
@@ -1264,6 +1325,19 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			// (region-A keycloak not yet installed) is a harmless skip and the
 			// level-trigger re-run converges it. NEVER gates the flip.
 			h.syncKeycloakAdminSecret(ctx, dep, slots)
+			// #4158 (best-effort, never blocks): the SSO layer above the #4159
+			// DB-secret + #4162 admin-secret fixes — region-B's per-app SSO
+			// `ExternalSecret`s (grafana/harbor/openbao/…) 403 against region-A's
+			// in-vc-mgmt OpenBao (cross-cluster TokenReview trusts only region-A's
+			// host apiserver), so their mangled host `mgmt` Secret never
+			// materialises and the in-vc-mgmt apps wedge at
+			// CreateContainerConfigError (`secret "<app>-sso-oidc-credentials-x-…"
+			// not found`). Copy region-A's RESOLVED mangled SSO Secrets primary →
+			// replica so the replica apps mount the credential directly. NOT gated
+			// on `-mesh-rw` (no DB host); a too-early pass (region-A ESO not yet
+			// resolved) is a harmless skip and the level-trigger re-run converges
+			// it. NEVER gates the flip.
+			h.syncSSOOIDCMangledSecrets(ctx, dep, slots)
 		}
 	}
 	if patched == 0 {
@@ -1620,6 +1694,84 @@ func (h *Handler) syncKeycloakAdminSecret(ctx context.Context, dep *Deployment, 
 		h.emitClusterMeshProgress(dep, "info",
 			fmt.Sprintf("ClusterMesh: synced keycloak master-realm admin Secret (%s) primary → %d replica region(s) — the replica's config-cli + kcadm now authenticate against the replicated keycloak (#4158)",
 				keycloakAdminSecretName, copied))
+	}
+}
+
+// syncSSOOIDCMangledSecrets copies the primary region's RESOLVED per-app SSO/OIDC
+// credential Secrets (ssoOIDCMangledHostSecrets, vCluster-syncer-mangled host
+// names, namespace `mgmt`) onto every replica region so the in-vc-mgmt apps
+// (grafana, harbor, openbao, …) that mount them by their mangled host name find
+// the credential on the replica — where the per-app `ExternalSecret` cannot
+// resolve them (region-B's ESO 403s against region-A's in-vc-mgmt OpenBao
+// cross-cluster TokenReview). See ssoOIDCMangledHostSecrets for the full
+// divergence analysis + the live region-B grafana CreateContainerConfigError
+// evidence (#4158, the SSO layer above #4159's DB-secret + #4162's admin-secret).
+//
+// BEST-EFFORT — like syncKeycloakAdminSecret / syncSharedPGConsumerHubSecrets this
+// NEVER blocks/refuses the cnpg-pair flip: the SSO Secrets are not part of the
+// WAL-stream auth, so a missing source (region-A's ESO hasn't resolved it yet,
+// or that consumer isn't wired on this Sovereign) or a per-replica copy failure
+// is logged + SKIPPED, and the #3241/#3583 level-trigger re-run converges it on a
+// later pass. It returns nothing (the caller ignores the outcome) precisely so it
+// can never wedge convergence.
+//
+// NOT gated on the `-mesh-rw` host marker: these Secrets carry OIDC client creds +
+// URLs, no DB host, so region-A's value is authoritative the moment region-A's ESO
+// has resolved it — there is no "pushing it would NXDOMAIN" window to wait out.
+//
+// The destination is the HOST `mgmt` namespace where the in-vc-mgmt Pod (single-
+// namespace sync mode) mounts the mangled object directly by name. region-A is the
+// SOURCE, never a destination (slots[0] is skipped), so this can never regress the
+// working primary. Single-region (len(slots)<2) is a no-op.
+func (h *Handler) syncSSOOIDCMangledSecrets(ctx context.Context, dep *Deployment, slots []regionSlot) {
+	if len(slots) < 2 {
+		return // single-region — no replica to sync to
+	}
+	primary := &slots[0]
+	if primary.clientset == nil {
+		h.log.Warn("clustermesh: SSO-OIDC mangled-secret sync: primary clientset nil — skipping (best-effort, re-run converges)",
+			"id", dep.ID)
+		return
+	}
+
+	synced := make([]string, 0, len(ssoOIDCMangledHostSecrets))
+	for _, name := range ssoOIDCMangledHostSecrets {
+		getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		src, err := primary.clientset.CoreV1().Secrets(ssoOIDCMangledHostSecretsNamespace).Get(getCtx, name, metav1.GetOptions{})
+		cancel()
+		if err != nil {
+			// region-A's ESO hasn't resolved this app's SSO Secret yet (or the
+			// consumer isn't wired on this Sovereign) — skip quietly. Best-effort;
+			// the level-trigger re-run converges once the source materialises.
+			h.log.Info("clustermesh: SSO-OIDC mangled-secret sync: source Secret not present on primary — skipping (ESO may still be resolving / consumer unconfigured; best-effort, re-run converges)",
+				"id", dep.ID, "namespace", ssoOIDCMangledHostSecretsNamespace, "secret", name)
+			continue
+		}
+		copied := true
+		for i := 1; i < len(slots); i++ {
+			replica := &slots[i]
+			if replica.clientset == nil {
+				copied = false
+				continue
+			}
+			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, ssoOIDCMangledHostSecretsNamespace); err != nil {
+				h.log.Warn("clustermesh: SSO-OIDC mangled-secret sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
+					"id", dep.ID, "region", replica.key, "namespace", ssoOIDCMangledHostSecretsNamespace, "secret", name, "err", err)
+				copied = false
+				continue
+			}
+		}
+		if copied {
+			synced = append(synced, name)
+		}
+	}
+
+	if len(synced) > 0 {
+		h.log.Info("clustermesh: SSO-OIDC mangled Secrets synced primary → replica region(s) (#4158 — kill the region-B grafana/harbor/openbao CreateContainerConfigError; the replica's ESO 403s against region-A OpenBao)",
+			"id", dep.ID, "namespace", ssoOIDCMangledHostSecretsNamespace, "secrets", synced, "replicaRegions", len(slots)-1)
+		h.emitClusterMeshProgress(dep, "info",
+			fmt.Sprintf("ClusterMesh: synced %d per-app SSO-OIDC Secret(s) (%s) primary → %d replica region(s) — the replica's in-vc-mgmt apps (grafana, …) mount the resolved credential the region-B ESO cannot fetch (#4158)",
+				len(synced), strings.Join(synced, ", "), len(slots)-1))
 	}
 }
 
