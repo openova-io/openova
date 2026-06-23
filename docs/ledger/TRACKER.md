@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T11:15:02Z` |
+| Last refreshed | `2026-06-23T11:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 68 |
 | Open DoD gates | 0 / 41 |
@@ -275,7 +275,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T11:23 | [#4173](https://github.com/openova-io/openova/pull/4173) | #745 | fix(bp-agenity): no-cache SPA HTML + #4118 post-build smoke  |
 | 2026-06-23T11:13 | [#4172](https://github.com/openova-io/openova/pull/4172) | #3383 | fix(console): unblock sovereign-admin voucher issuance — dro |
+| 2026-06-23T11:15 | [#4171](https://github.com/openova-io/openova/pull/4171) | #4169 | fix(bp-newapi): per-Org install no longer clobbers Sovereign |
 | 2026-06-23T10:51 | [#4168](https://github.com/openova-io/openova/pull/4168) | #3383 | fix(marketplace): eradicate 'Tenant' banned-term from the st |
 | 2026-06-23T08:16 | [#4166](https://github.com/openova-io/openova/pull/4166) | #4002 | docs(uat): re-walk rows 206/207 (#4002 Crossplane) — ⛔ featu |
 | 2026-06-23T06:20 | [#4165](https://github.com/openova-io/openova/pull/4165) | #4157 | fix(bp-keycloak): declare browser-no-idp forms subflow so co |
@@ -303,8 +305,6 @@ flowchart LR
 | 2026-06-22T10:13 | [#4117](https://github.com/openova-io/openova/pull/4117) | #4110 | feat(catalyst+mcp): Org-scoped Application install — custome |
 | 2026-06-22T08:50 | [#4115](https://github.com/openova-io/openova/pull/4115) | #4114 | fix(agenity): make the chat->provision North Star work live  |
 | 2026-06-22T08:38 | [#4112](https://github.com/openova-io/openova/pull/4112) | #4110 | fix(catalyst): SECURITY — customer Org console must be Org-s |
-| 2026-06-22T07:24 | [#4108](https://github.com/openova-io/openova/pull/4108) | #4107 | fix(bootstrap-kit-crs): harbor-pg/gitea-pg/guacamole-pg cnpg |
-| 2026-06-22T07:18 | [#4106](https://github.com/openova-io/openova/pull/4106) | #4098 | fix(bp-agenity): bump chart 0.1.0->0.2.0 so published artifa |
 
 ---
 
