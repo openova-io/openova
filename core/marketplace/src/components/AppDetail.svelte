@@ -298,7 +298,7 @@
     {#if app.dependencies && app.dependencies.length > 0}
       <section class="detail-section">
         <h2>Bundled dependencies</h2>
-        <p class="detail-dependencies-hint">Auto-installed inside your tenant — no setup required:</p>
+        <p class="detail-dependencies-hint">Auto-installed inside your Organization — no setup required:</p>
         <ul class="detail-dependencies">
           {#each app.dependencies as dep}
             {@const depApp = dependencyApps.find(d => d.slug === dep)}
