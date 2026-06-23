@@ -1,0 +1,33 @@
+UAT-215 rows 193-197 — ArgoCD-like reconciler drill-in (recon lens #3996). omantel.biz, 2026-06-24 god-mode walk.
+
+ROW 192 ✅ — convergence "view graph →" Reconciliation link href = /provision/4635277cae4ffed9/cloud?view=graph&lens=reconciliation
+  and /cloud?view=graph&lens=reconciliation opens the cloud RECON lens: Lens picker shows "Reconciliation" [selected],
+  graph renders Flux reconcilers (HelmRelease 51/51, Kustomization 7/7) — NOT the default Cloud lens. [recon-192-cloud-recon-lens.png]
+
+ROW 193 ✅ — clicking a reconciler opens the ArgoCD-like management surface (cloud-list resource-detail "Reconcile" tab):
+  status block State=Reconciled / Revision=1.0.16 / Suspended=no, release message, "Flux actions" with "Reconcile now" + "Suspend" buttons,
+  "Controller logs" panel. The drill-in surface IS present. [recon-193-195-196-197-reconcile-tab-404.png]
+
+ROW 194 ✅ — recon surface lists Flux reconcilers with LIVE status. API /deployments/7bb723da8da06047/reconcilers => 256 reconcilers,
+  states {Reconciled:174, Reconciling:76, Suspended:6}, kinds {HelmRelease:83, HelmChart:80, HelmRepository:69, Kustomization:13, GitRepository:11}.
+  Graph badges show healthy/reconciling per node. [recon-194-reconcilers-list.json]
+
+ROW 195 ❌ (#4193) — drill-in Controller logs DO NOT render in the UI: panel shows
+  "Could not load logs: reconciler logs failed: HTTP 404".
+  Backend works: GET /deployments/7bb723da8da06047/reconcilers/HelmRelease/mgmt/bp-grafana/logs => HTTP 200 (4 helm-controller log lines).
+  But the UI requests /deployments/4635277cae4ffed9/reconcilers/.../logs => HTTP 404 (wrong deployment id — tofu id vs console-internal id).
+
+ROW 196 ❌ (#4193) — UI "Reconcile now" click => panel shows "reconciler reconcile failed: HTTP 404".
+  Live HelmRelease/mgmt/bp-grafana reconcile.fluxcd.io/requestedAt UNCHANGED (2026-06-23T17:35:05Z) after the UI click — no mutation.
+  Backend works: POST /deployments/7bb723da8da06047/.../bp-grafana/reconcile => HTTP 200, annotation went ''->2026-06-23T17:35:05.92010073Z
+  on a direct API call (see recon-196-reconcile-action.txt). The UI path 404s on /deployments/4635277cae4ffed9/.../reconcile.
+
+ROW 197 ❌ (#4193) — same defect: UI Suspend button posts /deployments/4635277cae4ffed9/.../suspend => HTTP 404 (wrong id).
+  Backend works: POST /deployments/7bb723da8da06047/.../bp-falco/suspend => spec.suspend false->true,
+  POST .../resume => true->false (see recon-197-suspend-resume.txt). The console surface cannot flip spec.suspend due to the id bug.
+
+ROOT CAUSE (#4193): ResourceDetailRoute.tsx:56 `params.deploymentId ?? chrootDepId` — the cloud-list row link is built as
+  /provision/<tofu-id>/cloud/resource/... so params.deploymentId = tofu id 4635277cae4ffed9, overriding the correct
+  console-internal id 7bb723da8da06047 that the reconcilers store is keyed on. The graph (recon lens) is immune because it
+  loads at clean /cloud (no param) and resolves the console id via useResolvedDeploymentId/sovereign-self.
+  Backend reconcilers.go GetReconcilerLogs/ReconcilerAction are real live PATCHes; the defect is purely FE deployment-id resolution.

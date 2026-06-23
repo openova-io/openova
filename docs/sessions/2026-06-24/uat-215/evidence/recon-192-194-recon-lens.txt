@@ -1,0 +1,10 @@
+ROW 192 — Reconciliation lens deep-link. omantel.biz, 2026-06-24.
+Convergence wizard "view graph →" link href = /provision/4635277cae4ffed9/cloud?view=graph&lens=reconciliation (lens=reconciliation, NOT default cloud lens).
+Navigating /cloud?view=graph&lens=reconciliation => Lens picker = "Reconciliation" [selected]; chips HelmRelease 51/51, Kustomization 7/7,
+Application 11/11, Continuum 2/2, Environment 1/1, Organization 7/7; 79 nodes / 74 edges. This is the RECON lens. [recon-192-cloud-recon-lens.png]
+
+ROW 194 — recon surface lists Flux reconcilers with live status.
+GET /api/v1/deployments/7bb723da8da06047/reconcilers => 256 reconcilers
+  states: {Reconciled:174, Reconciling:76, Suspended:6}
+  kinds:  {HelmRelease:83, HelmChart:80, HelmRepository:69, Kustomization:13, GitRepository:11}
+Graph node badges render healthy/reconciling per reconciler (e.g. bp-cilium healthy, Reconcile Bootstrap Kit reconciling). [recon-194-reconcilers-list.json]
