@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/openova-io/openova/core/services/shared/events"
@@ -165,6 +166,17 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		PlanID   string   `json:"plan_id"`
 		Apps     []string `json:"apps"`
 		AddOns   []string `json:"addons"`
+		// ParentDomain — the org-pool parent apex the customer chose at
+		// the /addons step (e.g. "omani.works"). #4176/#4179: the per-Org
+		// console lives at `console.<slug>.<parent_domain>`. On a Sovereign
+		// whose marketplace runs on the Sovereign domain (omantel.biz) while
+		// Orgs provision on a SEPARATE pool domain (omani.works), this is the
+		// ONLY signal that carries the chosen pool apex — without it the
+		// console_host is mis-derived to console.<slug>.omantel.biz, an
+		// unreachable host that breaks EVERY org-create redirect. Tolerated
+		// empty (legacy / single-domain Sovereigns fall back to the
+		// Sovereign FQDN in deriveConsoleHost).
+		ParentDomain string `json:"parent_domain"`
 		// Wave 4 Sandbox — coding-agent picks from the marketplace
 		// detail page. Only acted on when `Apps` contains "sandbox":
 		// CreateOrg publishes an extra `tenant.sandbox_requested`
@@ -214,18 +226,24 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #4176/#4179: normalize the chosen org-pool parent apex. Strip any
+	// leading dot the marketplace TLD <select> may carry (".omani.works")
+	// and lowercase so deriveConsoleHost composes a clean RFC-1123 host.
+	parentDomain := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(body.ParentDomain, ".")))
+
 	tenant := &store.Tenant{
-		Slug:       body.Slug,
-		Name:       body.Name,
-		OrgType:    body.OrgType,
-		Industry:   body.Industry,
-		OwnerID:    userID,
-		PlanID:     body.PlanID,
-		Apps:       body.Apps,
-		AddOns:     body.AddOns,
-		AppConfigs: body.AppConfigs,
-		Subdomain:  body.Slug,
-		Status:     "provisioning",
+		Slug:         body.Slug,
+		Name:         body.Name,
+		OrgType:      body.OrgType,
+		Industry:     body.Industry,
+		OwnerID:      userID,
+		PlanID:       body.PlanID,
+		Apps:         body.Apps,
+		AddOns:       body.AddOns,
+		AppConfigs:   body.AppConfigs,
+		Subdomain:    body.Slug,
+		ParentDomain: parentDomain,
+		Status:       "provisioning",
 	}
 
 	if err := h.Store.CreateTenant(r.Context(), tenant); err != nil {
@@ -262,12 +280,17 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	// consumer decodes into and the bootstrap-API funnel maps onto —
 	// instead of a per-service anonymous struct embedding *store.Tenant
 	// (which flattened a dozen unused fields onto the wire). Tier /
-	// BillingMode / ParentDomain stay empty here (the Organization-pool wizard
-	// default); the consumer applies the canonical defaults (tier→"org",
+	// BillingMode stay empty here (the Organization-pool wizard default);
+	// the consumer applies the canonical defaults (tier→"org",
 	// billing→"real"), so every door defaults identically.
+	//
+	// #4176/#4179: ParentDomain is now carried through — the provisioning
+	// consumer needs the chosen pool apex to create the per-Org
+	// `console.<slug>.<parent_domain>` PowerDNS record + HTTPRoute. Empty
+	// when the caller omitted it (single-domain Sovereign back-compat).
 	tenantCreatedPayload := events.NewTenantCreatedPayload(
 		tenant.ID, tenant.Slug, tenant.Name, tenant.OwnerID, ownerEmail,
-		tenant.PlanID, "", "", "")
+		tenant.PlanID, "", "", tenant.ParentDomain)
 	evt, err := events.NewEvent("tenant.created", "tenant-service", tenant.ID, tenantCreatedPayload)
 	if err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -312,7 +335,39 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respond.JSON(w, http.StatusCreated, tenant)
+	// #4176/#4179: return the server-authoritative customer console host so
+	// the marketplace redirects to `console.<slug>.<parent_domain>` (the
+	// chosen pool apex) instead of re-deriving it from the marketplace host
+	// (which on marketplace.omantel.biz yields the unreachable
+	// console.<slug>.omantel.biz). We embed the full Tenant so every existing
+	// client field is unchanged and add `console_host` as a sibling. When the
+	// caller omitted parent_domain (single-domain Sovereign back-compat),
+	// console_host is empty and the client keeps its host-splice fallback.
+	respond.JSON(w, http.StatusCreated, tenantWithConsoleHost{
+		Tenant:      tenant,
+		ConsoleHost: deriveTenantConsoleHost(tenant),
+	})
+}
+
+// deriveTenantConsoleHost composes the per-Org customer console host:
+//
+//	console.<subdomain>.<parent_domain>   (org-pool Sovereign — the funnel)
+//
+// Returns "" when the parent apex is unknown (legacy / single-domain
+// Sovereigns), in which case the marketplace client falls back to splicing
+// the slug onto the marketplace host. Mirrors the bootstrap-API
+// organization_provisioning.go::deriveConsoleHost contract so both org-create
+// doors emit the identical host. #4176/#4179.
+func deriveTenantConsoleHost(t *store.Tenant) string {
+	if t == nil {
+		return ""
+	}
+	sub := strings.ToLower(strings.TrimSpace(t.Subdomain))
+	parent := strings.ToLower(strings.TrimSpace(t.ParentDomain))
+	if sub == "" || parent == "" {
+		return ""
+	}
+	return "console." + sub + "." + parent
 }
 
 // containsSlug returns true iff slug appears in slugs. Used to gate the
@@ -341,7 +396,30 @@ func (h *Handler) ListOrgs(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "failed to list organizations")
 		return
 	}
-	respond.OK(w, tenants)
+	// #4176/#4179: enrich each Org with its server-derived console_host so
+	// the marketplace "returning visitor / cache" redirect path (CheckoutStep
+	// matches an existing Org from getMyOrgs) lands on the same correct
+	// `console.<slug>.<parent_domain>` host as a fresh create.
+	respond.OK(w, withConsoleHost(tenants))
+}
+
+// tenantWithConsoleHost embeds a Tenant and adds the server-authoritative
+// `console_host` sibling field (empty for legacy / single-domain Orgs).
+// #4176/#4179.
+type tenantWithConsoleHost struct {
+	*store.Tenant
+	ConsoleHost string `json:"console_host,omitempty"`
+}
+
+// withConsoleHost wraps a slice of Tenants, attaching each Org's derived
+// console host. Used by ListOrgs so the response shape matches CreateOrg.
+func withConsoleHost(tenants []store.Tenant) []tenantWithConsoleHost {
+	out := make([]tenantWithConsoleHost, 0, len(tenants))
+	for i := range tenants {
+		t := tenants[i]
+		out = append(out, tenantWithConsoleHost{Tenant: &t, ConsoleHost: deriveTenantConsoleHost(&t)})
+	}
+	return out
 }
 
 // GetOrg returns a single organization by ID (membership required).
@@ -360,7 +438,8 @@ func (h *Handler) GetOrg(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "organization not found")
 		return
 	}
-	respond.OK(w, tenant)
+	// #4176/#4179: same console_host enrichment as ListOrgs/CreateOrg.
+	respond.OK(w, tenantWithConsoleHost{Tenant: tenant, ConsoleHost: deriveTenantConsoleHost(tenant)})
 }
 
 // UpdateOrg updates an organization (owner/admin only).
