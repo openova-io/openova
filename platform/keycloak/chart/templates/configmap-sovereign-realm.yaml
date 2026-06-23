@@ -1041,7 +1041,50 @@ data:
           "authenticationExecutions": [
             { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false },
             { "authenticator": "auth-spnego", "requirement": "DISABLED", "priority": 20, "autheticatorFlow": false },
-            { "flowAlias": "forms", "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true }
+            { "flowAlias": "browser-no-idp-forms", "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true }
+          ]
+        },
+        {{- /*
+        #4163 (Refs #4163, 2026-06-23): the `browser-no-idp` flow above is a
+        CUSTOM flow (builtIn:false). keycloak-config-cli resolves the standard
+        `forms` subflow from the server's BUILT-INS only for builtIn:true flows
+        (the original `browser` flow above still references the bare built-in
+        `forms` and MUST stay untouched). For a custom flow, config-cli requires
+        every referenced subflow to be EXPLICITLY declared as a non-top-level
+        flow in the SAME realm JSON, else it throws on import:
+          ImportProcessingException: Non-toplevel flow not found: forms
+        which fails the bp-keycloak post-upgrade hook → the whole mgmt-vCluster
+        SSO tier (oidc-gate/sso-bridge/grafana/gitea/powerdns-admin) wedges
+        Ready=False (caught live on dep 4635277cae4ffed9 region-B, chart 1.4.37).
+
+        Fix: declare `browser-no-idp` its OWN forms subflow + conditional-OTP
+        child below — same execution shape Keycloak ships for the built-in
+        `forms` (auth-username-password-form REQUIRED + a CONDITIONAL OTP
+        subflow that only prompts when the user has an OTP credential
+        configured). OTP MUST survive so account-console auth is not silently
+        weakened. The original `browser` flow keeps the built-in `forms` —
+        we DO NOT touch the working SSO-app-client delegation path.
+        */ -}}
+        {
+          "alias": "browser-no-idp-forms",
+          "description": "#4163 — declared forms subflow for the CUSTOM browser-no-idp flow (config-cli cannot resolve the built-in `forms` for a builtIn:false flow). Username/password + conditional OTP, mirroring Keycloak's built-in forms.",
+          "providerId": "basic-flow",
+          "topLevel": false,
+          "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "auth-username-password-form", "requirement": "REQUIRED", "priority": 10, "autheticatorFlow": false },
+            { "flowAlias": "browser-no-idp-conditional-otp", "requirement": "CONDITIONAL", "priority": 20, "autheticatorFlow": true }
+          ]
+        },
+        {
+          "alias": "browser-no-idp-conditional-otp",
+          "description": "#4163 — conditional OTP for browser-no-idp-forms: only prompts auth-otp-form when the user has an OTP credential configured (conditional-user-configured), mirroring Keycloak's built-in `Browser - Conditional OTP`.",
+          "providerId": "basic-flow",
+          "topLevel": false,
+          "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "conditional-user-configured", "requirement": "REQUIRED", "priority": 10, "autheticatorFlow": false },
+            { "authenticator": "auth-otp-form", "requirement": "REQUIRED", "priority": 20, "autheticatorFlow": false }
           ]
         },
         {{- /*
