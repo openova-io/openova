@@ -1,0 +1,30 @@
+# UAT-215 rows 141-158 — #3668 catalog inline-edit / Edit-IaC YamlEditor — LIVE god-mode walk
+# Env: omantel.biz Sovereign (dep 4635277cae4ffed9), 2026-06-24. Sovereign-admin (tier=owner) session.
+# Console: https://console.omantel.biz   Catalog API + Edit endpoints driven with the admin cookie.
+
+## TWO WRITE PATHS (both write the SAME catalog-sovereign/<bp>/blueprint.yaml — git=source of truth)
+1. Full-CR Edit IaC:   PUT /api/v1/catalog/{bp}/iac        body {blueprintYaml}  -> {committed:true,path,slug}
+2. Per-field cif card: PUT /api/v1/org/commerce/apps/{id}  (additive merge of name/tagline/icon onto full row)
+
+## DRIVEN + REVERTED (all committed:true, all reverted clean)
+- bp-alloy   Edit-IaC: spec.card.summary -> RECONCILE-PROOF-* -> committed:true HTTP200 -> GET-back PERSISTED=True -> REVERT committed:true -> REVERT-CLEAN
+- bp-postgres Edit-IaC: same cycle, committed:true, PERSISTED=True, REVERT-CLEAN  (contextSchema-bearing bp, row 150)
+- bp-wordpress Edit-IaC: same cycle, committed:true, PERSISTED=True, REVERT-CLEAN  (structurally-different manifests bp)
+- bp-wordpress per-field cif: cif-summary tagline + cif-name name -> PUT 200 each, additive (deployable/published/helm_chart preserved), PERSISTED=True on commerce row, REVERT-CLEAN
+
+## GUARDS — proves the commit is REAL, not a silent store success
+- malformed blueprintYaml -> HTTP 400 {error:invalid-blueprint-yaml}
+- empty blueprintYaml     -> HTTP 400 {error:empty-blueprint}
+
+## LIVE BROWSER (Playwright, handover-signed-in sovereign-admin)
+- /catalog/bp-alloy renders: hero (icon+name inline-edit + "Edit IaC ⟩" btn + "Add a one-line summary…" inline cif-summary affordance), version chip v1.0.1, About, Instance list — NO login redirect.
+- Click "Edit IaC" -> INLINE section (no modal): heading "Edit IaC — full blueprint"; subtitle VERBATIM "Commit writes the IaC source of truth; Flux reconciles it into the in-cluster Blueprint. Both this editor and the card form above write the same file."; the FULL blueprint.yaml CR in the YAML editor (apiVersion/kind/metadata/annotations/labels — whole CR, not 7 card fields); commit-verdict indicator "managed-by: manual • in sync"; "Show diff" button; Validate(dry-run) + Commit IaC.
+- /catalog/bp-postgres renders IDENTICAL chrome (Edit IaC btn, inline cif-summary+name editors, hero·About·Instances, shareable·db badge from contextSchema, 3 live shared-pg instances) — no per-blueprint UI.
+- Screenshots: catalog-141-alloy-edit-iac-inline.png , catalog-150-postgres-edit-iac-inline.png
+
+## SHIPPED-UI CONFIRMATION (products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx + widgets/cloud-list/YamlEditor.tsx)
+- cif-name-input / cif-summary-input inline per-field editors (CatalogInlineField, saveCatalogEdit seam)
+- catalog-detail-edit-iac button -> YamlEditor on full CR -> saveCatalogBlueprintIaC -> PUT /catalog/{name}/iac
+- YamlEditor: yaml-editor-toggle-diff "Show diff" -> Current/Proposed side-by-side (yaml-editor-diff-left/right)
+
+VERDICT: every #3668 inline-edit / Edit-IaC assertion is LIVE and DRIVEN on omantel.biz across 3 blueprints. committed:true is the IaC-source-of-truth git commit verdict, surfaced in-UI ("• in sync"), not a silent store. All edits reverted clean.
