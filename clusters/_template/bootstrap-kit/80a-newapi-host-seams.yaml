@@ -75,7 +75,12 @@ spec:
       # the seed would block on a schema this side never migrates → deadlock).
       # It still renders the CNPG Cluster + DSN-sync Job + AppRegistration +
       # ExternalSecrets. Lockstep with slot 80 + blueprint.yaml → 1.4.121 (#3948).
-      version: 1.4.121
+      # 1.4.122 (#4169): issuer-realm gate on the sovereign-realm newapi-admin
+      # AppRegistration. This host-seams slot sets issuer .../realms/sovereign
+      # (below), so it STILL renders the ConfigMap — it is the CANONICAL owner of
+      # the sovereign-realm newapi-admin client. The gate only EXCLUDES per-Org
+      # tenant installs (issuer .../realms/org-<sub>) that were clobbering it.
+      version: 1.4.122
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

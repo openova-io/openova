@@ -304,7 +304,10 @@ spec:
       # both vcluster-side). Kills the slot-80↔slot-80a circular deadlock. Also
       # absorbs the 1.4.113–1.4.116 deploy-bot upstream-v0.13.2 chart bumps.
       # 1.4.121 (#3948): sql-dsn-gate volume gate symmetry fix.
-      version: 1.4.121
+      # 1.4.122 (#4169): issuer-realm gate on the sovereign-realm newapi-admin
+      # AppRegistration (host-side concern; this vcluster-app slot already sets
+      # ssoBridgeSync.enabled=false so it never emitted it — pure lockstep bump).
+      version: 1.4.122
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

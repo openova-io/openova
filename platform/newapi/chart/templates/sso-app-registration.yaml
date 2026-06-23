@@ -29,7 +29,36 @@ data.realm = "sovereign": the watcher only requires the realm to EXIST
    hardening disables wildcard redirectUris). providerSlug == sso.bootstrap.providerSlug. */ -}}
 {{- /* #3648 — standard sso.bootstrap.providerSlug first, then legacy adminSeed. */ -}}
 {{- $providerSlug := ((.Values.sso | default dict).bootstrap | default dict).providerSlug | default (.Values.adminSeed | default dict).providerSlug | default "sovereign" -}}
-{{- if and (eq (include "bp-newapi.renderSeams" .) "true") .Values.newapi.enabled $kcMode $sync.enabled .Values.sovereignFQDN }}
+{{- /* #4169 — this AppRegistration ConfigMap registers the `newapi-admin` KC
+   client into the SHARED `sovereign` realm (data.realm below). That client is
+   OWNED by the host/Sovereign ops-staff admin UI install (bootstrap-kit slot
+   80a, placement.role=host-seams, sovereignFQDN=<sovereign-fqdn>). A per-Org
+   tenant install (organization_gitops.go: placement UNSET => role `all`,
+   chart-default ssoBridgeSync.enabled=true) ALSO matched this gate and emitted
+   a SECOND `newapi-admin` ConfigMap with the SAME clientId+realm but
+   redirectUris templated to the ORG domain (newapi.<org-fqdn>). bp-sso-bridge's
+   upsert_per_org_client keys on clientId and PUT-overwrites, so the later
+   per-Org reconcile clobbered the host's redirectUris -> Keycloak returned
+   "Invalid parameter: redirect_uri" for newapi.<sovereign-fqdn>/oauth/sovereign.
+
+   The sovereign-realm `newapi-admin` client is a HOST/Sovereign-scoped concern.
+   A per-Org install MUST NOT register into the shared `sovereign` realm: its
+   own OIDC issuer targets a PER-ORG realm (.../realms/org-<sub>). Gate this
+   ConfigMap on the install's issuer realm segment matching the `sovereign`
+   realm we register into. The host slots (80/80a) set issuer
+   https://auth.<fqdn>/realms/sovereign (or leave it empty and inherit the
+   sovereign default), so they still render; the per-Org overlay (issuer
+   .../realms/org-<sub>) no longer does. */ -}}
+{{- $issuer := .Values.auth.adminUI.keycloak.issuer | default "" -}}
+{{- $issuerRealm := "" -}}
+{{- if $issuer -}}
+{{- $issuerRealm = regexReplaceAll ".*/realms/([^/?#]+).*" $issuer "${1}" -}}
+{{- end -}}
+{{- /* The registration target realm (data.realm). Empty issuer => host-default
+   `sovereign`, so an unset issuer is allowed (matches). A non-`sovereign`
+   issuer realm (a per-Org realm) is excluded. */ -}}
+{{- $issuerIsSovereign := or (not $issuer) (eq $issuerRealm "sovereign") -}}
+{{- if and (eq (include "bp-newapi.renderSeams" .) "true") .Values.newapi.enabled $kcMode $sync.enabled .Values.sovereignFQDN $issuerIsSovereign }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
