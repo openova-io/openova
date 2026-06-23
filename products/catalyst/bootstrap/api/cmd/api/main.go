@@ -82,7 +82,13 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	// #4182: use the path-only formatter, NOT chi's default middleware.Logger.
+	// The default emits r.RequestURI verbatim, which leaks every credential
+	// carried in a query string to stdout/access logs — the /auth/handover +
+	// /auth/org-handover `?token=<jwt>` handoff tokens and the chroot SPA's
+	// `?access_token=<jwt>` EventSource tokens. pathOnlyLogFormatter logs the
+	// path only (never the query). Credential hygiene per CLAUDE.md §10.
+	r.Use(middleware.RequestLogger(pathOnlyLogFormatter{}))
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{corsOrigin},
