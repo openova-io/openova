@@ -4,3 +4,10 @@ NAME                PROVISIONER               RECLAIMPOLICY   VOLUMEBINDINGMODE 
 evs-ssd (default)   evs.csi.huaweicloud.com   Retain          WaitForFirstConsumer   true                   43h
 
 ## local-path SC (row 210 - must be NotFound)
+Error from server (NotFound): storageclasses.storage.k8s.io "local-path" not found
+command terminated with exit code 1
+
+## local-path-provisioner pod (row 210 - must be absent)
+(none)
+
+## Organization CRD tier enum (row 215)
