@@ -137,19 +137,31 @@ const { title, step = 0 } = Astro.props;
         var MOTHERSHIP_HOST = 'marketplace.' + ['openova', 'io'].join('.');
         var host = (window.location.hostname || '').toLowerCase();
         var base = 'https://console.' + MOTHERSHIP_HOST.substring('marketplace.'.length) + '/nova';
+        // perTenant: a per-Org Sovereign console (console.<slug>.<sov>) gets
+        // the SECURE server-side handoff at /auth/org-handover (#4182/#4186)
+        // — catalyst-api validates the member token, mints an HttpOnly
+        // catalyst_session cookie, and 302s to a clean /jobs. The mothership
+        // legacy /nova console keeps the historical /?token= shape.
+        var perTenant = false;
         if (host && host !== MOTHERSHIP_HOST && host.indexOf('marketplace.') === 0) {
           var sovFqdn = host.substring('marketplace.'.length);
           if (sovFqdn) {
             var s = (slug || '').toLowerCase().trim();
             if (s) {
               base = 'https://console.' + s + '.' + sovFqdn;
+              perTenant = true;
             } else {
               base = 'https://console.' + sovFqdn;
             }
           }
         }
-        var url = base + '/?token=' + encodeURIComponent(token);
-        if (refresh) url += '&refresh_token=' + encodeURIComponent(refresh);
+        // #4182: NEVER put the refresh_token in the URL. The session token is
+        // handed to the secure server endpoint which burns it into a cookie;
+        // the refresh stays in client storage (org-refresh-token, written by
+        // setAuthTokens). On the secure path the landing URL is a clean /jobs.
+        var url = perTenant
+          ? base + '/auth/org-handover?token=' + encodeURIComponent(token)
+          : base + '/?token=' + encodeURIComponent(token) + (refresh ? '&refresh_token=' + encodeURIComponent(refresh) : '');
         window.location.replace(url);
       }
     })();

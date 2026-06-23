@@ -1,7 +1,7 @@
 <script lang="ts">
   import { readCart, cartItemCount, type CartState } from '../lib/cart';
   import { getMe, logout as apiLogout, AUTH_CHANGED_EVENT, type User } from '../lib/api';
-  import { consoleHref } from '../lib/config';
+  import { consoleHref, consoleHandoffHref } from '../lib/config';
 
   let { currentStep = 0 }: { currentStep?: number } = $props();
 
@@ -115,9 +115,9 @@
     const t = typeof localStorage !== 'undefined' ? localStorage.getItem('org-token') : null;
     const r = typeof localStorage !== 'undefined' ? localStorage.getItem('org-refresh-token') : null;
     if (!t) return consoleHref();
-    const params: Record<string, string> = { token: t };
-    if (r) params.refresh_token = r;
-    return consoleHref('', params);
+    // #4182/#4186: secure server-side handoff — no token/refresh in the URL
+    // after the hop (catalyst-api burns the token into an HttpOnly cookie).
+    return consoleHandoffHref(t, r);
   }
 </script>
 

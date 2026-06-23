@@ -131,6 +131,17 @@ func main() {
 	consoleTLSIssuer := envOr("CATALYST_CONSOLE_TLS_CLUSTER_ISSUER", "letsencrypt-dns01-prod-powerdns")
 	consoleTLSCertNs := envOr("CATALYST_CONSOLE_TLS_CERT_NAMESPACE", "kube-system")
 
+	// #4186 — per-Org console HTTPRoute backends. The console host
+	// (console.<slug>.<pool>) is served by catalyst-ui + catalyst-api in
+	// catalyst-system; the route + backendRefs share that namespace so they
+	// resolve without a ReferenceGrant. Defaults match the catalyst chart
+	// Service names/ports; env-overridable per Inviolable Principle #4.
+	consoleRouteNs := envOr("CATALYST_CONSOLE_ROUTE_NAMESPACE", "catalyst-system")
+	consoleAPISvc := envOr("CATALYST_CONSOLE_API_SERVICE", "catalyst-api")
+	consoleUISvc := envOr("CATALYST_CONSOLE_UI_SERVICE", "catalyst-ui")
+	consoleAPIPort := int32(envIntOr("CATALYST_CONSOLE_API_PORT", 8080))
+	consoleUIPort := int32(envIntOr("CATALYST_CONSOLE_UI_PORT", 80))
+
 	// G117.3 W2.C3 — IaC repo bootstrap (ADR-0009).
 	// OpenBao seam for per-Org Gitea robot-token storage. Optional:
 	// when CATALYST_OPENBAO_ADDR is unset the bootstrap flow renders
@@ -211,6 +222,11 @@ func main() {
 		ConsoleGatewayNamespace:   consoleGatewayNs,
 		ConsoleTLSClusterIssuer:   consoleTLSIssuer,
 		ConsoleTLSCertNamespace:   consoleTLSCertNs,
+		ConsoleRouteNamespace:     consoleRouteNs,
+		ConsoleAPIService:         consoleAPISvc,
+		ConsoleUIService:          consoleUISvc,
+		ConsoleAPIPort:            consoleAPIPort,
+		ConsoleUIPort:             consoleUIPort,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")

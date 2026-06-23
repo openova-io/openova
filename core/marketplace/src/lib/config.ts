@@ -235,5 +235,46 @@ export const consoleHref = (
   return `${base}${suffix}${qs}`;
 };
 
+/**
+ * #4182 + #4186 — build the SECURE session-handoff URL the marketplace
+ * redirects to after checkout / from the Header "Portal" link.
+ *
+ * The previous shape `console.<slug>.<sov>/jobs?token=<JWT>&refresh_token=<uuid>`
+ * leaked a live bearer + refresh token via browser history, proxy/CDN access
+ * logs, and the Referer header (#4182), AND never established a session cookie,
+ * so `/jobs` bounced to `/login` (#4186).
+ *
+ * For a per-Org Sovereign console (`console.<slug>.<sov-fqdn>`) this returns
+ * `console.<slug>.<sov-fqdn>/auth/org-handover?token=<sessionJWT>` — the
+ * server-side catalyst-api validates the token, mints an HttpOnly
+ * `catalyst_session` cookie, and 302s to a clean `/jobs`. The refresh token is
+ * NEVER placed in the URL (it stays in client storage via `setAuthTokens`).
+ *
+ * For the mothership `/nova` console (no per-Org host) the legacy
+ * `/jobs?token=&refresh_token=` shape is preserved — that console redeems the
+ * token in its own SSR path and is out of scope for #4182.
+ *
+ * Pass `opts.slug` to override the active-org-slug read from localStorage.
+ */
+export const consoleHandoffHref = (
+  token: string,
+  refreshToken?: string | null,
+  opts?: { slug?: string | null },
+): string => {
+  const base = opts && opts.slug !== undefined
+    ? deriveConsoleURL(opts.slug)
+    : CONSOLE_URL;
+  // The mothership console URL carries the /nova path prefix; everything
+  // else is a per-Org (or operator) Sovereign console served by catalyst-api,
+  // which exposes the secure /auth/org-handover endpoint.
+  const isMothership = base.includes('/nova');
+  if (isMothership) {
+    const params: Record<string, string> = { token };
+    if (refreshToken) params.refresh_token = refreshToken;
+    return `${base}/jobs?${new URLSearchParams(params).toString()}`;
+  }
+  return `${base}/auth/org-handover?token=${encodeURIComponent(token)}`;
+};
+
 /** Prepend base to an internal marketplace route (strip leading '/'). */
 export const path = (p: string): string => `${BASE}${p.replace(/^\//, '')}`;

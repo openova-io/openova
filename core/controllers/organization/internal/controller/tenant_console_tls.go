@@ -92,6 +92,14 @@ const (
 	consoleTLSDefaultClusterIssuer = "letsencrypt-dns01-prod-powerdns"
 	consoleTLSDefaultCertNamespace = "kube-system"
 
+	// Per-Org console HTTPRoute backend defaults (#4186). The route + these
+	// Services live in catalyst-system so backendRefs resolve same-namespace.
+	consoleRouteDefaultNamespace = "catalyst-system"
+	consoleAPIDefaultService     = "catalyst-api"
+	consoleAPIDefaultPort        = int32(8080)
+	consoleUIDefaultService      = "catalyst-ui"
+	consoleUIDefaultPort         = int32(80)
+
 	// Host ports the console Gateway's listeners bind — the dedicated
 	// console Gateway uses 31443/31080 (NOT the shared gateway's
 	// 30443/30080). See cilium-gateway-console.yaml header for the
@@ -136,6 +144,45 @@ func (r *Reconciler) consoleTLSCertNamespace() string {
 		return v
 	}
 	return consoleTLSDefaultCertNamespace
+}
+
+// consoleRouteNamespace is the namespace the per-Org console HTTPRoute is
+// written to — MUST be where catalyst-api + catalyst-ui Services live so the
+// route's backendRefs resolve same-namespace (no ReferenceGrant). Default:
+// catalyst-system (#4186).
+func (r *Reconciler) consoleRouteNamespace() string {
+	if v := strings.TrimSpace(r.ConsoleRouteNamespace); v != "" {
+		return v
+	}
+	return consoleRouteDefaultNamespace
+}
+
+// consoleAPIBackend returns the catalyst-api Service name + port for the
+// per-Org console route's auth/api/catalyst rules (#4186).
+func (r *Reconciler) consoleAPIBackend() (string, int32) {
+	svc := strings.TrimSpace(r.ConsoleAPIService)
+	if svc == "" {
+		svc = consoleAPIDefaultService
+	}
+	port := r.ConsoleAPIPort
+	if port == 0 {
+		port = consoleAPIDefaultPort
+	}
+	return svc, port
+}
+
+// consoleUIBackend returns the catalyst-ui Service name + port for the
+// per-Org console route's catch-all `/` rule (#4186).
+func (r *Reconciler) consoleUIBackend() (string, int32) {
+	svc := strings.TrimSpace(r.ConsoleUIService)
+	if svc == "" {
+		svc = consoleUIDefaultService
+	}
+	port := r.ConsoleUIPort
+	if port == 0 {
+		port = consoleUIDefaultPort
+	}
+	return svc, port
 }
 
 // poolWildcardSecretName is the deterministic name of the per-pool
