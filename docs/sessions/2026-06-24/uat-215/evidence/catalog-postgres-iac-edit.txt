@@ -1,0 +1,17 @@
+# UAT-215 rows 147/148/150/151/158 — bp-postgres Edit-IaC full-CR commit (live omantel.biz)
+# Endpoint: PUT https://console.omantel.biz/api/v1/catalog/bp-postgres/iac  (sovereign-admin session)
+# bp-postgres carries contextSchema (row 150 requirement) — confirmed in raw.spec.contextSchema=True at GET.
+
+--- bp-postgres: EDIT IaC PUT (spec.card.summary -> RECONCILE-PROOF-bp-postgres-013101) ---
+{"slug":"postgres","path":"catalog-sovereign/bp-postgres/blueprint.yaml","committed":true}
+HTTP:200
+ORIG summary was: "A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster ... (ADR-0010)."
+
+--- GET-back persistence ---
+bp-postgres AFTER raw.spec.card.summary='RECONCILE-PROOF-bp-postgres-013101'  PERSISTED=True
+
+--- REVERT ---
+bp-postgres REVERT: {"slug":"postgres","path":"catalog-sovereign/bp-postgres/blueprint.yaml","committed":true} HTTP:200
+bp-postgres REVERT-CLEAN (original summary restored after cache TTL)
+
+VERDICT: full-CR Edit-IaC YamlEditor commits the IaC source of truth (committed:true), persists, round-trips, and reverts cleanly. SAME chrome/endpoint as bp-alloy + bp-wordpress (no per-blueprint UI). contextSchema-bearing blueprint editable end-to-end.

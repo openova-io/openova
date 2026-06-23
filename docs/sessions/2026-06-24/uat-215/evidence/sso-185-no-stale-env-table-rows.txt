@@ -1,0 +1,32 @@
+Row 185 — No stale predecessor-env (hwNNN) references in the rendered UAT.md TABLE ROWS
+Env: omantel.biz, 2026-06-24
+
+Method: grepped every table row (lines matching ^| NNN |) for predecessor-env tokens.
+
+1) hwNNN / hz-fsn-rtz / kom4dc / tNN in table rows:
+   $ grep -E '^\|[[:space:]]*[0-9]+[[:space:]]*\|' docs/ledger/UAT.md | grep -iE 'hw[0-9]{3}|hz-fsn|kom4dc|hfmp|\bt3[0-9]\b'
+   → 0 matches. ZERO stale-env tokens in any data row.
+
+2) All hwNNN occurrences in the WHOLE file (6 total) are ONLY in the header-prose
+   history sections (lines 22-30), which are explicitly labeled:
+     L22 "## Prior — wiped throwaway envs (hw173/hw176/hw177/hw178 — STALE, superseded by omantel.biz)"
+     L25 "## Prior — cycle-2b BLOCKED on hw176 storage wedge ... now fixed"
+     L28 "## Status — last validated: hw173 (2026-06-20)"
+   These are allowed retained history per the row's own carve-out ("the header prose
+   sections which legitimately retain Prior-env history"). They are in the header
+   region (lines 1-31) the runbook forbids editing.
+
+3) Hosts cited in table-row evidence cells (all live env / its pool TLDs):
+   console.omantel.biz (25), marketplace.omantel.biz (11), registry.omantel.biz,
+   auth.omantel.biz, guacamole.omantel.biz, newapi.omantel.biz, pdns-admin.omantel.biz,
+   console.demo.omani.homes, agenity.demo.omani.homes, f4179walk.omani.works
+   (2026-06-23 live Org walk on omantel.biz's pool TLD). The few openova.io literals
+   are either the assertion target itself (row 77 "no openova.io host leak") or the
+   mothership/Crossplane API group (console.openova.io, compose.openova.io) — not
+   predecessor-env refs.
+
+4) Evidence dates in table rows: 2026-06-20 (3), -21 (4), -22 (256), -23 (32). No
+   pre-omantel.biz dates; the table names only the live env.
+
+VERDICT: PASS — the table rows reference only omantel.biz + its pool TLDs + 2026-06-2x
+evidence; hwNNN appears only in the explicitly-labeled header history sections.

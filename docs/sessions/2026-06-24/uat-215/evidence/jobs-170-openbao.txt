@@ -1,0 +1,9 @@
+=== ROW 170 (#3646) install-openbao honest-green ===
+openbao relocated to mgmt vCluster. HR bp-openbao -n mgmt:
+bp-openbao  Ready=True  msg=Helm install succeeded for release openbao/openbao.v1 with chart bp-openbao@1.2.51
+openbao install job (host export):
+NAME                                 STATUS     COMPLETIONS   DURATION   AGE
+openbao-host-token-reviewer-export   Complete   1/1           4s         8m4s
+
+On live /jobs the 'Install OpenBao' LIFECYCLE row renders (app=bp-openbao present in app filter).
+BUT its status column reads 'Confirming…' (the global lifecycle placeholder), NOT 'Succeeded'.

@@ -1,0 +1,11 @@
+Row 181 — Harbor bare URL → /harbor/projects signed-in as owner
+Env: omantel.biz, 2026-06-24
+NOTE: the Harbor HTTPRoute hostname is registry.omantel.biz (the "registry" host named in the row text), NOT harbor.omantel.biz.
+  sov get httproute -A | grep harbor  → mgmt/harbor ["registry.omantel.biz"]
+  curl https://registry.omantel.biz/harbor/projects → 200 ; harbor.omantel.biz → 404 (no such route).
+Browser navigated https://registry.omantel.biz/harbor/projects → landed signed-in.
+User dropdown top-right: "uat215+walk@omani.works" (SSO-resolved owner).
+Projects list shows "library" (Public); full Administration nav (Users, Robot Accounts, Configuration...). NO login form.
+HR: mgmt/bp-harbor Ready=True (chart bp-harbor@1.2.36). harbor-sso-configure pod Running.
+Screenshot: sso-181-harbor-projects.png
+VERDICT: PASS

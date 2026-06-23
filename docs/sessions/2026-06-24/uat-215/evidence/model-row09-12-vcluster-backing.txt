@@ -1,0 +1,18 @@
+Demo Org vcluster backing — LIVE evidence (omantel.biz, 2026-06-24)
+===================================================================
+Org record (API GET /api/v1/organizations/7283eb4a...): isolation=vcluster, tier=org, kind=customer, billing=real, state=done, steps.vcluster=done
+
+CANONICAL backing = namespace 'demo' (labels openova.io/organization=demo, openova.io/tier=org, openova.io/host-cluster=omantel.biz, managed-by catalyst-tenant-demo-vcluster Flux Kustomization):
+NAME                        READY   AGE
+statefulset.apps/vcluster   1/1     105m
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/coredns-7f84df6475-r4frv-x-kube-system-x-vcluster   1/1     Running   0          104m
+pod/vcluster-0                                          1/1     Running   0          105m
+
+NAME                                          AGE    READY   STATUS
+helmrelease.helm.toolkit.fluxcd.io/vcluster   105m   True    Helm install succeeded for release demo/vcluster.v1 with chart vcluster@0.33.4
+
+vcluster-0 image: harbor.openova.io/proxy-ghcr/loft-sh/vcluster-oss:0.33.4 (mirrored); sts ready=1/1; HR vcluster Ready=True (Helm install succeeded, chart vcluster@0.33.4).
+
+STALE duplicate (NOT the canonical backing): ns org-7283eb4a... has an older vc-demo StatefulSet (chart vcluster@0.19.10) whose vc-demo-0 is Init:ImagePullBackOff on un-mirrored 'rancher/k3s:v1.29.1-k3s2'. This is leftover from a prior provision attempt and does not represent the live isolation — the demo Org IS backed by the Ready vcluster-0 in ns 'demo'.

@@ -1,0 +1,21 @@
+ROW 187 — grafana is a genuine MULTI-REGION app => per-app Topology shows Pattern: active-active with 2 PRIMARY region cards.
+omantel.biz, 2026-06-24 god-mode walk.
+
+Live placement API (derivedFromRuntime=true — real pod placement across both region kubeconfigs):
+GET /api/v1/sovereigns/4635277cae4ffed9/applications/bp-grafana/placement?namespace=mgmt
+{
+  "targets": [
+    { "region": "hw-me-east-215-a-rtz-prod", "cluster": "4635277cae4ffed9",                  "vcluster": "mgmt", "role": "Primary" },
+    { "region": "hw-me-east-215-b-rtz-prod", "cluster": "4635277cae4ffed9-me-east-215-b-1",   "vcluster": "mgmt", "role": "Primary" }
+  ],
+  "derivedFromRuntime": true
+}
+=> 2 PRIMARY targets => derivePattern(primaries>=2) => "active-active".
+
+Live kubectl confirms grafana runs in BOTH regions:
+  region-A: HR mgmt/bp-grafana Ready (chart bp-grafana@1.0.16); pod grafana-9db7b6468-...-x-mgmt-vcluster on a me-east-215-a node
+  region-B: HR mgmt/bp-grafana Ready on the me-east-215-b-1 cluster (separate kubeconfig)
+
+UI: /app/bp-grafana Topology tab => "Pattern: active-active" with two "● PRIMARY" cards, both "serves writes",
+  region-A (4635277cae4ffed9 · mgmt) ──▶ repl ── region-B (4635277cae4ffed9-me-east-215-b-1 · mgmt). NOT singleton.
+  [recon-187-grafana-topology-active-active.png]
