@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T21:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-06-23T22:00:08Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 16 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -223,6 +223,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T21:46 | [#4209](https://github.com/openova-io/openova/pull/4209) | #3925 | docs(uat): flip 10 rows ✅ — post-roll re-walk of merged Jobs |
 | 2026-06-23T21:23 | [#4208](https://github.com/openova-io/openova/pull/4208) | #893 | docs(backlog): audit #2 verdict table — 24→21 open, evidence |
 | 2026-06-23T19:49 | [#4207](https://github.com/openova-io/openova/pull/4207) | #4196 | docs(4196): live omantel.biz walk evidence — native Billing  |
 | 2026-06-23T19:47 | [#4205](https://github.com/openova-io/openova/pull/4205) | #4158 | fix(catalyst-api): deliver per-app SSO-OIDC Secrets to the r |
@@ -252,7 +253,6 @@ flowchart LR
 | 2026-06-23T05:45 | [#4162](https://github.com/openova-io/openova/pull/4162) | #4 | fix(catalyst-api): sync keycloak master-realm admin Secret p |
 | 2026-06-23T05:05 | [#4161](https://github.com/openova-io/openova/pull/4161) | #4160 | fix(catalog-seed): bump bp-wordpress-tenant pin 0.4.4->0.4.1 |
 | 2026-06-23T04:50 | [#4159](https://github.com/openova-io/openova/pull/4159) | #4086 | fix: converge secondary-region vc-mgmt — cross-region mangle |
-| 2026-06-23T04:09 | [#4157](https://github.com/openova-io/openova/pull/4157) | #3642 | fix(bp-keycloak): account-console SSO-landing — non-delegati |
 
 ---
 
