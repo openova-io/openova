@@ -1,0 +1,8 @@
+Row 182 — Gitea bare URL → gitea dashboard signed-in, stays on :443
+Env: omantel.biz, 2026-06-24
+Browser navigated https://gitea.omantel.biz/ → landed on root (stayed on :443, no port hop).
+Page title: "uat215-walk - Dashboard - Catalyst Gitea" (logged-in dashboard; row example title used emrah.baysal, structure "<user> - Dashboard - Catalyst Gitea" matched with walk identity uat215-walk).
+Dashboard nav (Issues/Pull Requests/Milestones/Explore) + Profile-and-Settings menu + /admin/config link present. NO /user/login form.
+HR: mgmt/bp-gitea Ready=True (chart bp-gitea@1.2.40).
+Screenshot: sso-182-gitea-dashboard.png
+VERDICT: PASS

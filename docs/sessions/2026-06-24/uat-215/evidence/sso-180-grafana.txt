@@ -1,0 +1,8 @@
+Row 180 — Grafana bare URL → Grafana Home signed-in (SSO landed)
+Env: omantel.biz, 2026-06-24
+Browser (SSO session from keycloak realm) navigated https://grafana.omantel.biz/?orgId=1
+Landed: https://grafana.omantel.biz/?orgId=1&from=now-6h&to=now&timezone=browser
+Page title: "Home - Dashboards - Grafana"; "Welcome to Grafana" heading; Profile avatar present; full UI. NO login form.
+HR: mgmt/bp-grafana Ready=True "Helm install succeeded for release grafana/grafana.v1 chart bp-grafana@1.0.16".
+Screenshot: sso-180-grafana-home.png
+VERDICT: PASS
