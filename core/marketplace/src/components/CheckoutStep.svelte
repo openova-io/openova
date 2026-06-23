@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, type User, type Provision, type Plan, type AddOn } from '../lib/api';
+  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type AddOn } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { consoleHref } from '../lib/config';
@@ -255,7 +255,7 @@
     authLoading = false;
   }
 
-  async function createTenantWithRetry(baseSlug: string, name: string): Promise<{ id: string; slug: string }> {
+  async function createTenantWithRetry(baseSlug: string, name: string): Promise<{ id: string; slug: string; console_host?: string }> {
     // Try the requested slug first, then -2, -3, ... up to -6 on 409.
     let lastErr: any;
     for (let i = 0; i < 6; i++) {
@@ -283,7 +283,7 @@
           // configSchema (Ghost / Nextcloud / Sandbox today).
           app_configs: cart.appConfigs || {},
         });
-        return { id: t.id, slug: t.slug || s };
+        return { id: t.id, slug: t.slug || s, console_host: t.console_host };
       } catch (e: any) {
         lastErr = e;
         const msg = String(e?.message || '');
@@ -305,13 +305,13 @@
       // phantom tenant_id to billing and produces an orphan provision.
       const cartKey = `org-tenant:${user.id}:${cart.plan}:${derivedSlug()}`;
       const cachedTenantId = localStorage.getItem(cartKey);
-      let tenant: { id: string; slug: string } | null = null;
+      let tenant: { id: string; slug: string; console_host?: string } | null = null;
       if (cachedTenantId) {
         try {
           const orgs = await getMyOrgs();
           const match = orgs.find(o => o.id === cachedTenantId && o.status !== 'deleted');
           if (match) {
-            tenant = { id: match.id, slug: match.slug || derivedSlug() };
+            tenant = { id: match.id, slug: match.slug || derivedSlug(), console_host: match.console_host };
           } else {
             localStorage.removeItem(cartKey);
           }
@@ -380,6 +380,10 @@
       // `console.<slug>.<sov-fqdn>` instead of bouncing to the operator
       // console at `console.<sov-fqdn>`.
       setActiveOrgSlug(tenant.slug);
+      // #4176 — persist the SERVER-AUTHORITATIVE console host (console.<slug>.<chosen
+      // pool domain>) so the redirect goes to the Org's selected domain, NOT
+      // console.<slug>.<marketplace-host-domain> (= the Sovereign domain → unreachable).
+      if (tenant.console_host) setActiveOrgConsoleHost(tenant.console_host);
       clearCart();
       redirectToConsole(tenant.slug);
     } catch (e: any) {
