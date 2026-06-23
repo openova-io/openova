@@ -1,0 +1,4 @@
+NAMESPACE                                  NAME                             AGE   INSTANCES   READY   STATUS                                                       PRIMARY
+shared-data                                shared-pg                        43h   3           3       Cluster in healthy state                                     shared-pg-2
+shared-data                                shared-pg-b                      43h   3           3       Cluster in healthy state                                     shared-pg-b-2
+shared-data                                shared-pg-c                      43h   3           3       Cluster in healthy state                                     shared-pg-c-2

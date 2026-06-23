@@ -1,0 +1,3 @@
+NAMESPACE                                  NAME                               APPLICATION           PRIMARY                     LEASE   PHASE      AGE
+cnpg                                       cnpg-pair-bp-cnpg-pair-continuum   catalyst-platform     hw-me-east-215-a-rtz-prod           Degraded   42h
+org-7283eb4a-19e5-4e86-9066-d4aa26762064   bp-wordpress-tenant                bp-wordpress-tenant   hw-me-east-215-a-rtz-prod           Degraded   39h
