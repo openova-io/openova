@@ -146,7 +146,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.0",
+    "version": "0.5.3",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-external-secrets"

@@ -8,11 +8,18 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
-version: 0.5.2
-# Bumped 0.9.4 -> 0.9.5: the agenity source pin moved to the #745 merge
-# (the NEW dashboard). appVersion is the default image tag, so a distinct
-# version keeps the new-dashboard image from masquerading under the old tag.
-appVersion: "0.9.5"
+version: 0.5.3
+# Bumped appVersion 0.9.5 -> 0.9.6 (#4118): the 0.9.5 image bytes are correct
+# (its /app dashboard bundle is byte-identical to a fresh build of the #745
+# source — verified by md5 on omantel.biz), but 0.9.5 was published BEFORE
+# the agenity-build workflow gained the no-cache rebuild + the post-build
+# smoke gate. A distinct 0.9.6 tag is the first image produced by the
+# hardened pipeline — never reuse 0.9.5, whose build predated the guard.
+# appVersion is the default image tag (agenity.image in _helpers.tpl), so a
+# distinct value keeps the hardened-pipeline image from masquerading under the
+# old tag. Chart version bumped 0.5.2 -> 0.5.3 to publish the no-cache-HTML
+# HTTPRoute change (the durable fix for the founder's stale-browser-cache view).
+appVersion: "0.9.6"
 keywords:
   - agenity
   - agent-runtime

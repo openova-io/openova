@@ -6479,8 +6479,12 @@ spec:
 # with the built-in solo agent (Claude Opus 4.7, token pre-configured), and
 # the agent creates more Applications in the User's Org via the RBAC-scoped
 # openova MCP. The north-star self-service journey (UAT rows 218-223).
-# Lockstep with products/agenity/blueprint.yaml spec.version 0.1.0 + the
-# published chart ghcr.io/openova-io/bp-agenity:0.1.0.
+# Lockstep with products/agenity/chart/Chart.yaml version 0.5.3 + the
+# published chart ghcr.io/openova-io/bp-agenity:0.5.3 (chart 0.5.3 ships the
+# #4118 no-cache-HTML HTTPRoute + appVersion 0.9.6, the first image built by
+# the hardened no-cache + smoke-gated agenity-build pipeline). Fresh provs
+# seed THIS pin, so the chart-version here gates which image a new Sovereign
+# installs — bump in lockstep with the chart on every agenity release.
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
@@ -6496,7 +6500,7 @@ metadata:
   annotations:
     helm.sh/resource-policy: keep
 spec:
-  version: "0.1.0"
+  version: "0.5.3"
   visibility: listed
   card:
     title: "Agenity"
@@ -6518,7 +6522,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.1.0
+    version: 0.5.3
   topology:
     supported:
       - singleton
