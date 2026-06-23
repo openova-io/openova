@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T18:30:07Z` |
+| Last refreshed | `2026-06-23T18:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 24 |
+| Open issues | 26 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 26 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 24 open items (clickable table)
+### All 26 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -204,14 +204,16 @@ flowchart LR
 | [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
 | [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
 | [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
+| [#3785](https://github.com/openova-io/openova/issues/3785) | FUNNEL: customer's purchased WordPress image is kyverno-DENIED (not Harbor-proxi | Other |
 | [#3829](https://github.com/openova-io/openova/issues/3829) | Every application AND activity shows its TRUE live state end-to-end — every ap | Other |
+| [#3896](https://github.com/openova-io/openova/issues/3896) | Jobs page: in-cluster convergence Jobs/CronJobs/Kustomizations invisible during  | Other |
 | [#3914](https://github.com/openova-io/openova/issues/3914) | Provisioning UX: fill the ~30-min 'Provision <provider>: Success' void with a li | Other |
+| [#3925](https://github.com/openova-io/openova/issues/3925) | Convergence Monitor — redesign provisioning monitoring into 2 native surfaces  | Other |
 | [#3944](https://github.com/openova-io/openova/issues/3944) | fix(bp-self-sovereign-cutover): step-03 harbor-prewarm stalls 'active' for hours | Other |
 | [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (Primary/Standby·Hot/Cold, capability-gated | Other |
 | [#4002](https://github.com/openova-io/openova/issues/4002) | ARCH P0: OpenTofu→Crossplane adoption seam never implemented — Crossplane ow | Other |
 | [#4018](https://github.com/openova-io/openova/issues/4018) | fix(cloud): Path B — provisioning instantiates Crossplane XRCs so the XRC laye | Other |
 | [#4079](https://github.com/openova-io/openova/issues/4079) | Per-cluster HelmRelease name is invalid RFC-1123 (agenity-rtz-A uppercase) + mis | Other |
-| [#4084](https://github.com/openova-io/openova/issues/4084) | Cloud view polish: graph must settle in ~3s then STOP (regression) + list view k | Other |
 | [#4085](https://github.com/openova-io/openova/issues/4085) | Per-resource Compliance tab renders a table of THAT resource's own findings (not | Other |
 | [#4091](https://github.com/openova-io/openova/issues/4091) | Console: replace bare/ugly YAML & IaC rendering with a sophisticated shared code | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
