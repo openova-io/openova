@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T03:30:03Z` |
+| Last refreshed | `2026-06-23T03:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 98 |
+| Open issues | 97 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 98 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 97 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 98 open items (clickable table)
+### All 97 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -269,7 +269,6 @@ flowchart LR
 | [#4037](https://github.com/openova-io/openova/issues/4037) | bp-huawei-evs-csi: private driver image has no imagePullSecret → CSI driver Im | Other |
 | [#4044](https://github.com/openova-io/openova/issues/4044) | fix(bp-huawei-evs-csi): slot 55b must dependsOn bp-reflector — ghcr-pull race  | Other |
 | [#4046](https://github.com/openova-io/openova/issues/4046) | fix(huawei-prov): janitor SG-leak + EIP-egress cooldown preflight (stop region-a | Other |
-| [#4049](https://github.com/openova-io/openova/issues/4049) | fix(provisioning): bastion Harbor warmup — every image Huawei→Huawei, kill / | Other |
 | [#4053](https://github.com/openova-io/openova/issues/4053) | fix(bp-cilium): one broken backend Service poisons the whole gateway CEC → ent | Other |
 | [#4055](https://github.com/openova-io/openova/issues/4055) | Huawei provs ship UNDER-PROVISIONED: 2vCPU m7n.large.8 workers wedge bp-catalyst | Other |
 | [#4057](https://github.com/openova-io/openova/issues/4057) | Storage class as a user-choosable provisioning input (per-provider CSI default) | Other |
@@ -305,6 +304,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T03:41 | [#4156](https://github.com/openova-io/openova/pull/4156) | #4049 | fix(provisioning): bastion-Harbor warmup fires on every bp-* |
 | 2026-06-23T00:48 | [#4155](https://github.com/openova-io/openova/pull/4155) | #4152 | fix(bp-wordpress-tenant): reflector populates WORDPRESS_DB_P |
 | 2026-06-22T23:52 | [#4154](https://github.com/openova-io/openova/pull/4154) | #4153 | fix(bp-wordpress-tenant): add wordpress.image.pullSecrets fo |
 | 2026-06-22T21:57 | [#4153](https://github.com/openova-io/openova/pull/4153) | #800 | feat(bp-wordpress-tenant): custom WordPress image w/ pdo_pgs |
@@ -334,7 +334,6 @@ flowchart LR
 | 2026-06-22T06:36 | [#4095](https://github.com/openova-io/openova/pull/4095) | #3 | feat(catalyst-api): auto-provision per-Org console TLS for e |
 | 2026-06-22T05:56 | [#4094](https://github.com/openova-io/openova/pull/4094) | #4082 | fix(application-controller): chart ClusterRole grant dr.open |
 | 2026-06-22T06:35 | [#4093](https://github.com/openova-io/openova/pull/4093) | #4089 | feat(console-settings): re-home Parent Domains as a granular |
-| 2026-06-22T06:35 | [#4092](https://github.com/openova-io/openova/pull/4092) | #4091 | feat(catalyst-console): sophisticated shared YAML/IaC code e |
 
 ---
 
