@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T03:15:02Z` |
+| Last refreshed | `2026-06-23T03:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 100 |
+| Open issues | 98 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 98 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,10 +196,17 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 100 open items (clickable table)
+### All 98 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
+| [#3374](https://github.com/openova-io/openova/issues/3374) | SSO: typing the bare root URL of ANY surface (console + all ~11 external apps +  | Other |
+| [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
+| [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
+| [#3383](https://github.com/openova-io/openova/issues/3383) | ORGANIZATIONS: one machinery, one name — eradicate the sme/tenant-named subsys | Other |
+| [#3581](https://github.com/openova-io/openova/issues/3581) | Regenerate the UAT walkthrough doc set with fresh live evidence on the CURRENT e | Other |
+| [#3642](https://github.com/openova-io/openova/issues/3642) | NS#1: migrate the 7 host-placed apps (grafana/harbor/keycloak/gitea/openbao/newa | Other |
+| [#3724](https://github.com/openova-io/openova/issues/3724) | CI: cloud-init 32256B size gate must run as a required PR check — #3715 broke  | Other |
 | [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
 | [#3744](https://github.com/openova-io/openova/issues/3744) | Funnel: credit-covered redeem double-fires provisioning → Gitea sme-tenants re | Other |
 | [#3760](https://github.com/openova-io/openova/issues/3760) | fix(org-controller): per-Org vCluster StatefulSet DENIED by kyverno harbor-proxy | Other |
@@ -273,8 +280,6 @@ flowchart LR
 | [#4069](https://github.com/openova-io/openova/issues/4069) | byo-api/PowerDNS DNS-write ignores ConsoleLoadBalancerIP — console/api/marketp | Other |
 | [#4071](https://github.com/openova-io/openova/issues/4071) | catalyst-api (Sovereign) cannot watch apps.openova.io/v1 Applications despite CR | Other |
 | [#4073](https://github.com/openova-io/openova/issues/4073) | Agentic journey blocked: omantel.biz Sovereign has no parent-domain pool → sub | Other |
-| [#4075](https://github.com/openova-io/openova/issues/4075) | Customer-Org console unreachable → agentic journey blocked at 'Enter org' (sta | Other |
-| [#4077](https://github.com/openova-io/openova/issues/4077) | App install fails 'EnvironmentMissing' — no Environment CRs created by Org onb | Other |
 | [#4079](https://github.com/openova-io/openova/issues/4079) | Per-cluster HelmRelease name is invalid RFC-1123 (agenity-rtz-A uppercase) + mis | Other |
 | [#4082](https://github.com/openova-io/openova/issues/4082) | bp-agenity install blocked on live Sovereign: (a) app-controller chart ClusterRo | Other |
 | [#4084](https://github.com/openova-io/openova/issues/4084) | Cloud view polish: graph must settle in ~3s then STOP (regression) + list view k | Other |
@@ -287,19 +292,12 @@ flowchart LR
 | [#4100](https://github.com/openova-io/openova/issues/4100) | fix(bp-catalyst-platform): pin catalyst-api pod to its EVS volume node so Recrea | Other |
 | [#4101](https://github.com/openova-io/openova/issues/4101) | fix(catalyst-api): pool-domain Org login broken — PIN cookie scoped to Soverei | Other |
 | [#4107](https://github.com/openova-io/openova/issues/4107) | fix(bootstrap-kit-crs): harbor-pg/gitea-pg/guacamole-pg cnpg clusters wedge at ' | Other |
-| [#4110](https://github.com/openova-io/openova/issues/4110) | SECURITY: customer Org console (console.<org>.<pool>) confers FULL sovereign-adm | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
 | [#4113](https://github.com/openova-io/openova/issues/4113) | Org console Apps page: project a TRUE per-Org apps list (own namespaces + vClust | Other |
 | [#4114](https://github.com/openova-io/openova/issues/4114) | Sovereign handover-jwt keypair MISMATCH: catalyst-api runtime signer != publishe | Other |
-| [#4116](https://github.com/openova-io/openova/issues/4116) | Make the DEMO CUSTOMER agentic journey real IN the demo Org (omantel.biz / dep 4 | Other |
 | [#4118](https://github.com/openova-io/openova/issues/4118) | agenity-build: published image can silently ship WITHOUT node/claude-code (Docke | Other |
 | [#4119](https://github.com/openova-io/openova/issues/4119) | Org console still mounts the Sovereign provisioning/deployment-stream wizard for | Other |
-| [#4122](https://github.com/openova-io/openova/issues/4122) | agenity.demo.omani.homes/ serves chepherd MARKETING landing instead of the actua | Other |
-| [#4136](https://github.com/openova-io/openova/issues/4136) | fix(bp-valkey): chart renders bare dockerhub refs (bitnami/valkey:latest + os-sh | Other |
-| [#4139](https://github.com/openova-io/openova/issues/4139) | Demo Org wordpress apps blocked: bp-wordpress-tenant 0.4.1 local-path PVC denied | Other |
 | [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
-| [#4148](https://github.com/openova-io/openova/issues/4148) | fix(bp-stalwart-tenant): per-Org Stalwart never converges on fresh prov — v0.1 | Other |
-| [#4152](https://github.com/openova-io/openova/issues/4152) | bp-wordpress-tenant: main container fails 'tar: ./wp-content: Cannot change mode | Other |
 
 ---
 
