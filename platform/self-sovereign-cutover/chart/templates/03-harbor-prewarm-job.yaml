@@ -245,14 +245,52 @@ data:
 
             HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
 
-            # Enumerate openova-io images from all Pods cluster-wide.
-            # Capture initContainers + containers + ephemeralContainers.
-            echo "[harbor-prewarm] enumerating openova-io images across cluster"
-            openova_images=$(kubectl get pods -A -o json | \
-              jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' | \
-              grep '^ghcr.io/openova-io/' | sort -u)
+            # Enumerate openova-io images cluster-wide.
+            #
+            # #3944 root-cause-2 (Refs #3642): a RUNNING-Pod-only enumeration
+            # is INCOMPLETE — it silently omits any openova-io workload that is
+            # not scheduled at enumeration time. Two ways that happens after
+            # #3642 moved the front-door apps (gitea/harbor/keycloak/openbao/
+            # grafana/newapi/guacamole) INTO the vClusters: (a) on a vCluster
+            # NOT running in pod-syncing mode the in-vCluster pods never
+            # materialise in a host namespace, so a host-side `get pods -A`
+            # can't see them at all; (b) even with pod-syncing, an openova-io
+            # workload that is momentarily down / scaled-to-zero / not-yet-
+            # rolled-out (a CronJob between fires, an HR mid-reconcile) has NO
+            # running Pod, so its image is missed. Either way the missed image
+            # never lands in local Harbor → post-cutover ImagePullBackOff the
+            # moment step-06 strips the ghcr.io fallback, or the egress hold
+            # passes over an un-mirrored image. The bytes are unavoidable; the
+            # COMPLETENESS of the source list must NOT depend on which pods
+            # happen to be Running.
+            #
+            # Fix: UNION the running-Pod image set with the DECLARED workload-
+            # template image set (Deployments, StatefulSets, DaemonSets +
+            # CronJob/Job pod templates) across every namespace. Declared
+            # templates are present regardless of replica count or schedule, so
+            # the union is complete on any vCluster sync mode. The union can
+            # only WIDEN the prewarm list (every entry is still skopeo-pushed
+            # idempotently), never narrow it — a strict superset of the prior
+            # behaviour.
+            echo "[harbor-prewarm] enumerating openova-io images across cluster (running pods ∪ declared workload templates)"
+            running_images=$(kubectl get pods -A -o json | \
+              jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' 2>/dev/null | \
+              grep '^ghcr.io/openova-io/' || true)
+            declared_images=$(kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null | \
+              jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null | \
+              grep '^ghcr.io/openova-io/' || true)
+            cronjob_images=$(kubectl get cronjobs -A -o json 2>/dev/null | \
+              jq -r '.items[].spec.jobTemplate.spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null | \
+              grep '^ghcr.io/openova-io/' || true)
+            job_images=$(kubectl get jobs -A -o json 2>/dev/null | \
+              jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null | \
+              grep '^ghcr.io/openova-io/' || true)
+            openova_images=$(printf '%s\n%s\n%s\n%s\n' \
+              "${running_images}" "${declared_images}" "${cronjob_images}" "${job_images}" | \
+              grep '^ghcr.io/openova-io/' | sort -u || true)
+            run_count=$(printf '%s\n' "${running_images}" | grep -c . || true)
             count=$(printf '%s\n' "${openova_images}" | grep -c . || true)
-            echo "[harbor-prewarm] found ${count} unique openova-io images to native-push"
+            echo "[harbor-prewarm] running-Pod openova-io images=${run_count}; union with declared templates=${count} unique image(s) to native-push"
 
             # Native push each via skopeo copy, run in PARALLEL with a
             # bounded fan-out.
