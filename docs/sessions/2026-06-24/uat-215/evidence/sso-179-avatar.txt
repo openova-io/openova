@@ -1,0 +1,12 @@
+Row 179 — avatar menu identifies signed-in owner-admin + Sign out
+Env: omantel.biz (dep 4635277cae4ffed9), 2026-06-24
+Browser: Playwright, signed in via /auth/handover (token sub=uat215+walk@omani.works, role=sovereign-admin/owner)
+
+Avatar (top-right, "U" button) clicked → menu opened:
+  "Signed in as"
+  uat215@omani.works
+  [Sign out]
+
+Principal IS resolved (email shown, not generic 'User' label) + Sign out present.
+Prior ⚠️ (2026-06-22) complained avatar read generic 'User' (principal unresolved) — #3581 fix has landed.
+Screenshot: sso-179-avatar-menu.png
