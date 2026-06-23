@@ -243,6 +243,29 @@ type Reconciler struct {
 	// same-namespace by default) resolve without a ReferenceGrant.
 	// Default: kube-system.
 	ConsoleTLSCertNamespace string
+
+	// ── Per-Org console HTTPRoute backends (#4186) ────────────────────────
+	// The per-Org console host (console.<slug>.<pool>) is served by the
+	// catalyst-ui SPA + catalyst-api (the SAME Sovereign console + API the
+	// operator front door uses), NOT by an Org-namespace product backend.
+	// The route + these Services live in ConsoleRouteNamespace (catalyst-
+	// system) so the backendRefs resolve same-namespace without a
+	// ReferenceGrant — matching the hand-applied `issue-4075-live-unblock`
+	// route the funnel previously needed. All env-overridable (Principle #4).
+
+	// ConsoleRouteNamespace is the namespace the per-Org console HTTPRoute is
+	// written to. MUST be the namespace where catalyst-api + catalyst-ui
+	// Services live so backendRefs resolve same-namespace. Default:
+	// catalyst-system.
+	ConsoleRouteNamespace string
+	// ConsoleAPIService / ConsoleAPIPort — catalyst-api Service (the auth
+	// handover + /api/ + /catalyst/ backend). Default catalyst-api:8080.
+	ConsoleAPIService string
+	ConsoleAPIPort    int32
+	// ConsoleUIService / ConsoleUIPort — catalyst-ui Service (the SPA catch-
+	// all `/` backend). Default catalyst-ui:80.
+	ConsoleUIService string
+	ConsoleUIPort    int32
 }
 
 // SetupWithManager registers the reconciler with the controller-runtime

@@ -82,7 +82,13 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	// #4182: use the path-only formatter, NOT chi's default middleware.Logger.
+	// The default emits r.RequestURI verbatim, which leaks every credential
+	// carried in a query string to stdout/access logs — the /auth/handover +
+	// /auth/org-handover `?token=<jwt>` handoff tokens and the chroot SPA's
+	// `?access_token=<jwt>` EventSource tokens. pathOnlyLogFormatter logs the
+	// path only (never the query). Credential hygiene per CLAUDE.md §10.
+	r.Use(middleware.RequestLogger(pathOnlyLogFormatter{}))
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{corsOrigin},
@@ -1027,6 +1033,22 @@ func main() {
 	// to /sovereign/dashboard. The cookies it sets are what gates every
 	// subsequent /sovereign/api/v1/* call inside the RequireSession group.
 	r.Get("/auth/handover", h.AuthHandover)
+
+	// Secure marketplace→console session handoff (issue #4182 + #4186).
+	// The marketplace post-checkout redirect lands the browser here with
+	// the Org member-session token (HS256, signed with the Org mesh's
+	// sme-secrets/JWT_SECRET). AuthOrgHandover validates it against
+	// CATALYST_ORG_JWT_SECRET, resolves the Org from the request host,
+	// mints an RS256 Org-scoped catalyst_session, sets the HttpOnly Secure
+	// SameSite=Lax cookie, stamps Referrer-Policy: no-referrer, and 302s to
+	// a clean /jobs. Like AuthHandover above, the token IS the auth (no
+	// catalyst_session cookie exists yet — this handler MINTS one), so the
+	// route MUST live OUTSIDE the RequireSession group below; inside it
+	// every handoff would 401 {"error":"unauthenticated"} before the
+	// handler ever ran. This replaces the old token-in-URL handoff that
+	// leaked the bearer+refresh via history/logs/Referer (#4182) and never
+	// established a cookie, bouncing /jobs→/login (#4186).
+	r.Get("/auth/org-handover", h.AuthOrgHandover)
 
 	// In-cluster Self-Sovereignty Cutover trigger (issue #935 Bug 2).
 	// The bp-self-sovereign-cutover chart's auto-trigger Helm

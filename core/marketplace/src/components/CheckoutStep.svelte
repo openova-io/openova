@@ -2,7 +2,7 @@
   import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type AddOn } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
-  import { consoleHref } from '../lib/config';
+  import { consoleHandoffHref } from '../lib/config';
   import PinInput6 from './PinInput6.svelte';
 
   let cart = $state(readCart());
@@ -208,19 +208,20 @@
   });
 
   function redirectToConsole(slug?: string) {
-    const tok = encodeURIComponent(localStorage.getItem('org-token') || '');
-    const refresh = encodeURIComponent(localStorage.getItem('org-refresh-token') || '');
+    const tok = localStorage.getItem('org-token') || '';
+    const refresh = localStorage.getItem('org-refresh-token') || '';
     // TBD-V10 #2001: pass the tenant slug so `deriveConsoleURL` composes
     // `console.<slug>.<sov-fqdn>` (per-tenant) instead of
     // `console.<sov-fqdn>` (operator). If `slug` is undefined the helper
     // falls back to the slug persisted in localStorage by
     // `setActiveOrgSlug` (see api.ts) — covers the Stripe-return path
     // when the function is called without an explicit argument.
-    window.location.href = consoleHref(
-      '/jobs',
-      { token: decodeURIComponent(tok), refresh_token: decodeURIComponent(refresh) },
-      { slug },
-    );
+    //
+    // #4182/#4186: hand off via the SECURE /auth/org-handover endpoint —
+    // catalyst-api burns the token into an HttpOnly cookie and 302s to a
+    // clean /jobs. NO token/refresh ever lands in the browser address bar
+    // after the hop; the refresh token stays in client storage.
+    window.location.href = consoleHandoffHref(tok, refresh, { slug });
   }
 
   async function handleSendCode() {
@@ -506,9 +507,9 @@
         </div>
         {#if provision.status === 'completed'}
           <a
-            href={consoleHref(
-              '/jobs',
-              { token: localStorage.getItem('org-token') || '', refresh_token: localStorage.getItem('org-refresh-token') || '' },
+            href={consoleHandoffHref(
+              localStorage.getItem('org-token') || '',
+              localStorage.getItem('org-refresh-token') || '',
               { slug: (typeof localStorage !== 'undefined' ? localStorage.getItem('org-active-org-slug') : null) || undefined },
             )}
             class="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-success)] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-success)]/90 no-underline"

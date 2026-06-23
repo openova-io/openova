@@ -922,12 +922,18 @@ func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
+	// #4186: the per-Org console route now lands in catalyst-system (where
+	// catalyst-api + catalyst-ui Services live) and is named after the host
+	// (catalyst-ui-<host-dashed>), NOT in the Org namespace named after the
+	// slug. The route serves the catalyst-ui SPA + catalyst-api — the
+	// console host is never a product backend.
 	hr := unstructured.Unstructured{}
 	hr.SetGroupVersionKind(schema.GroupVersionKind{
 		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
 	})
-	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "acme", Name: "acme"}, &hr); err != nil {
-		t.Fatalf("get HTTPRoute acme/acme: %v", err)
+	wantName := "catalyst-ui-console-acme-omani-homes"
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "catalyst-system", Name: wantName}, &hr); err != nil {
+		t.Fatalf("get HTTPRoute catalyst-system/%s: %v", wantName, err)
 	}
 	hostnames, _, _ := unstructured.NestedSlice(hr.Object, "spec", "hostnames")
 	if len(hostnames) != 1 || hostnames[0] != "console.acme.omani.homes" {
@@ -955,17 +961,35 @@ func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 	if pr["name"] != "cilium-gateway-console" || pr["namespace"] != "kube-system" {
 		t.Errorf("parentRef: got %+v, want cilium-gateway-console/kube-system", pr)
 	}
+	// #4186 console-route shape: 5 rules. The catch-all `/` → catalyst-ui
+	// is LAST; the auth/api/catalyst rules → catalyst-api. Crucially the
+	// /auth/org-handover endpoint (the secure marketplace→console session
+	// handoff, #4182) is routed to catalyst-api.
 	rules, _, _ := unstructured.NestedSlice(hr.Object, "spec", "rules")
-	if len(rules) != 1 {
-		t.Fatalf("rules: got %d, want 1", len(rules))
+	if len(rules) != 5 {
+		t.Fatalf("rules: got %d, want 5 (health/handover/api/catalyst/catch-all)", len(rules))
 	}
-	brs, _, _ := unstructured.NestedSlice(rules[0].(map[string]any), "backendRefs")
-	if len(brs) != 1 {
-		t.Fatalf("backendRefs: got %d, want 1", len(brs))
+	// Last rule is the catch-all `/` → catalyst-ui.
+	lastBrs, _, _ := unstructured.NestedSlice(rules[4].(map[string]any), "backendRefs")
+	if len(lastBrs) != 1 || lastBrs[0].(map[string]any)["name"] != "catalyst-ui" {
+		t.Errorf("catch-all rule backend: got %v, want catalyst-ui", lastBrs)
 	}
-	br := brs[0].(map[string]any)
-	if br["name"] != "wordpress-x-acme-x-vcluster" {
-		t.Errorf("backendRef name: got %v, want wordpress-x-acme-x-vcluster", br["name"])
+	// The handover rule (rule[1]) routes BOTH /auth/handover and
+	// /auth/org-handover to catalyst-api.
+	handoverMatches, _, _ := unstructured.NestedSlice(rules[1].(map[string]any), "matches")
+	var sawOrgHandover bool
+	for _, m := range handoverMatches {
+		p, _, _ := unstructured.NestedString(m.(map[string]any), "path", "value")
+		if p == "/auth/org-handover" {
+			sawOrgHandover = true
+		}
+	}
+	if !sawOrgHandover {
+		t.Errorf("console route MUST route /auth/org-handover to catalyst-api (#4182), matches=%v", handoverMatches)
+	}
+	handoverBrs, _, _ := unstructured.NestedSlice(rules[1].(map[string]any), "backendRefs")
+	if len(handoverBrs) != 1 || handoverBrs[0].(map[string]any)["name"] != "catalyst-api" {
+		t.Errorf("handover rule backend: got %v, want catalyst-api", handoverBrs)
 	}
 	labels := hr.GetLabels()
 	if labels["catalyst.openova.io/tenant-product"] != "wordpress" {
@@ -975,6 +999,10 @@ func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 	if labels["catalyst.openova.io/parent-zone"] != "omani.homes" {
 		t.Errorf("expected parent-zone=omani.homes label, got %q",
 			labels["catalyst.openova.io/parent-zone"])
+	}
+	if labels["catalyst.openova.io/component"] != "catalyst-ui" {
+		t.Errorf("expected component=catalyst-ui label, got %q",
+			labels["catalyst.openova.io/component"])
 	}
 }
 
@@ -1019,15 +1047,19 @@ func TestReconcile_TenantPublic_DisabledByDefault(t *testing.T) {
 // spec.tenantPublic.{parentDomain,subdomain} set but NO backendService
 // (the provisioning service patches backendService LATER, once the
 // purchased product is Ready — tenant_public_patch.go). The reconciler
-// MUST treat "parentDomain set, backendService not-yet-set" as a normal
-// transient window: the whole Org reconcile MUST still succeed (NOT fail
-// with TenantRouteFailed), and simply NO HTTPRoute is written yet (it
-// lands on the later reconcile that the backendService PATCH triggers).
+// MUST still succeed (NOT fail with TenantRouteFailed), and — #4186 —
+// the console HTTPRoute MUST now be rendered EVEN WHILE backendService is
+// pending. The console host (console.<slug>.<pool>) is served by
+// catalyst-ui + catalyst-api, NOT a product backend, so the customer must
+// be able to SIGN IN and land on /jobs the moment the Org has a public
+// hostname — long before any purchased product becomes Ready. The old
+// behavior (skip the route until backendService is patched) is exactly
+// why pool Orgs bounced /jobs → /login and the route had to be
+// hand-applied per-Org (#4186).
 //
 // Before the #3376 fix this path returned an error from
 // reconcileTenantRoute → the caller's fail() path marked the whole Org
-// Failed and requeued forever, so the Org never went Ready and the
-// customer's `console.<slug>.<pool-tld>` console never served.
+// Failed and requeued forever; that must still not happen.
 func TestReconcile_TenantPublic_ParentDomainSet_BackendPending(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
@@ -1046,36 +1078,38 @@ func TestReconcile_TenantPublic_ParentDomainSet_BackendPending(t *testing.T) {
 		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
 	}, &unstructured.UnstructuredList{})
 
-	// MUST NOT error — the missing backendService is a transient ordering
-	// window, not a failure.
+	// MUST NOT error — the missing backendService is irrelevant to the
+	// console route (the console is catalyst-ui, not a product backend).
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "acme"},
 	}); err != nil {
-		t.Fatalf("reconcile must succeed while backendService is pending (#3376), got: %v", err)
+		t.Fatalf("reconcile must succeed while backendService is pending, got: %v", err)
 	}
 
-	// The Org's Ready condition MUST NOT be TenantRouteFailed — the route
-	// step was skipped, not failed.
+	// The Org's Ready condition MUST NOT be TenantRouteFailed.
 	got := orgapi.Organization{}
 	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
 		t.Fatalf("get Organization acme: %v", err)
 	}
 	for _, c := range got.Status.Conditions {
 		if c.Type == "Ready" && c.Reason == "TenantRouteFailed" {
-			t.Errorf("Ready condition must NOT be TenantRouteFailed when backendService is merely pending (#3376); got %+v", c)
+			t.Errorf("Ready condition must NOT be TenantRouteFailed; got %+v", c)
 		}
 	}
 
-	// No HTTPRoute is written yet — it lands once backendService is patched.
-	hrList := unstructured.UnstructuredList{}
-	hrList.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	// #4186: the console route IS now written even with backendService
+	// pending — in catalyst-system, named after the host.
+	hr := unstructured.Unstructured{}
+	hr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
 	})
-	if err := r.List(context.Background(), &hrList); err != nil {
-		t.Fatalf("list HTTPRoute: %v", err)
+	wantName := "catalyst-ui-console-acme-omani-homes"
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "catalyst-system", Name: wantName}, &hr); err != nil {
+		t.Fatalf("console route MUST render while backendService is pending (#4186); get catalyst-system/%s: %v", wantName, err)
 	}
-	if len(hrList.Items) != 0 {
-		t.Errorf("expected 0 HTTPRoutes while backendService is pending, got %d", len(hrList.Items))
+	rules, _, _ := unstructured.NestedSlice(hr.Object, "spec", "rules")
+	if len(rules) != 5 {
+		t.Fatalf("rules: got %d, want 5 console-route rules", len(rules))
 	}
 }
 

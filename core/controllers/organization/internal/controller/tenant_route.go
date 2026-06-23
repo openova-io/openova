@@ -111,28 +111,20 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 	if subdomain == "" {
 		subdomain = org.Spec.Slug
 	}
-	backend := strings.TrimSpace(tp.BackendService)
-	if backend == "" {
-		// #3376 fix: the funnel mints the Organization CR with
-		// tenantPublic.{parentDomain,subdomain} set but NO backendService —
-		// the provisioning service patches backendService LATER, once the
-		// purchased product becomes Ready (provision.completed /
-		// provision.app_ready → patchOrgTenantPublic, tenant_public_patch.go).
-		// Treating "parentDomain set, backendService not-yet-set" as a HARD
-		// ERROR failed the WHOLE Org reconcile at this step (the caller's
-		// fail() path) — so the Org never went Ready, the per-Org Flux loop +
-		// realm + UserAccess status never converged, and no HTTPRoute ever
-		// landed even after the product came up. This is a normal transient
-		// ordering window, NOT a failure: skip the route render (no-op) and
-		// let a later reconcile — triggered by the backendService PATCH —
-		// emit it. The Sovereign-wide `*.<sovFQDN>` tenant-wildcard route
-		// keeps the Org reachable in the meantime.
-		return false, nil
-	}
-	port := tp.BackendPort
-	if port == 0 {
-		port = tenantRouteDefaultBackendPort
-	}
+	// #4186: the per-Org console host (console.<slug>.<pool>) is served by
+	// the catalyst-ui SPA + catalyst-api — the SAME Sovereign console + API
+	// the operator front door uses — NOT by an Org-namespace product
+	// backend. (The Org's PRODUCTS get their own hosts, e.g.
+	// agenity.<slug>.<pool>, rendered elsewhere.) Therefore the console
+	// route is INDEPENDENT of tenantPublic.backendService: it MUST land as
+	// soon as the Org has a public hostname so the customer can SIGN IN and
+	// land on /jobs even before any product is Ready. Gating it on
+	// backendService (the old product-route model) is exactly why this route
+	// never auto-rendered and had to be hand-applied per-Org
+	// (`managed-by: issue-4075-live-unblock`), leaving pool Orgs bouncing
+	// /jobs → /login (#4186). The marketplace→console secure handoff
+	// (/auth/org-handover, #4182) is one of the catalyst-api rules below —
+	// without it the customer's session is never established on the pool host.
 
 	// TBD-A67 issue #1990: hostname is `console.<subdomain>.<parentDomain>`
 	// — the `console.` infix is the canonical per-tenant console host
@@ -140,21 +132,37 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 	// runtime reconciler emitted `<slug>.<parent>` while the chart-side
 	// overlay emitted `console.<slug>.<parent>` and the two drifted.
 	hostname := fmt.Sprintf("console.%s.%s", subdomain, parentDomain)
-	ns := org.Spec.Slug
-	name := org.Spec.Slug
+	// The route + its backendRefs live in catalyst-system (where catalyst-api
+	// + catalyst-ui Services are) so the refs resolve same-namespace without
+	// a ReferenceGrant — matching the hand-applied route shape. The name is
+	// derived from the host so each Org's console route is distinct and
+	// deterministic (catalyst-ui-<host-dashed>).
+	ns := r.consoleRouteNamespace()
+	name := "catalyst-ui-" + dnsDashed(hostname)
 
 	labels := map[string]string{
-		"openova.io/organization":         org.Spec.Slug,
-		"openova.io/sovereign":            org.Spec.SovereignRef,
-		"openova.io/managed-by":           "organization-controller",
-		"app.kubernetes.io/managed-by":    "catalyst",
-		"catalyst.openova.io/component":   "tenant-public-route",
-		"catalyst.openova.io/parent-zone": parentDomain,
+		"openova.io/organization":           org.Spec.Slug,
+		"openova.io/sovereign":              org.Spec.SovereignRef,
+		"openova.io/managed-by":             "organization-controller",
+		"app.kubernetes.io/managed-by":      "catalyst",
+		"catalyst.openova.io/component":     "catalyst-ui",
+		"catalyst.openova.io/parent-zone":   parentDomain,
+		"catalyst.openova.io/org-subdomain": subdomain,
 	}
 	if p := strings.TrimSpace(tp.Product); p != "" {
 		labels["catalyst.openova.io/tenant-product"] = p
 	}
 
+	apiSvc, apiPort := r.consoleAPIBackend()
+	uiSvc, uiPort := r.consoleUIBackend()
+	apiBackendRefs := []any{
+		map[string]any{"name": apiSvc, "port": int64(apiPort)},
+	}
+	// catalyst-api rules: health probes, BOTH handover endpoints (the
+	// mothership→Sovereign /auth/handover AND the marketplace→console
+	// /auth/org-handover #4182), and the /api/ + /catalyst/ surfaces the
+	// SPA's whoami + every authed fetch hit. The catch-all `/` →
+	// catalyst-ui rule is LAST so the more-specific prefixes win.
 	desiredSpec := map[string]any{
 		"parentRefs": []any{
 			map[string]any{
@@ -166,18 +174,36 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 		"rules": []any{
 			map[string]any{
 				"matches": []any{
-					map[string]any{
-						"path": map[string]any{
-							"type":  "PathPrefix",
-							"value": "/",
-						},
-					},
+					map[string]any{"path": map[string]any{"type": "Exact", "value": "/readyz"}},
+					map[string]any{"path": map[string]any{"type": "Exact", "value": "/healthz"}},
+				},
+				"backendRefs": apiBackendRefs,
+			},
+			map[string]any{
+				"matches": []any{
+					map[string]any{"path": map[string]any{"type": "Exact", "value": "/auth/handover"}},
+					map[string]any{"path": map[string]any{"type": "Exact", "value": "/auth/org-handover"}},
+				},
+				"backendRefs": apiBackendRefs,
+			},
+			map[string]any{
+				"matches": []any{
+					map[string]any{"path": map[string]any{"type": "PathPrefix", "value": "/api/"}},
+				},
+				"backendRefs": apiBackendRefs,
+			},
+			map[string]any{
+				"matches": []any{
+					map[string]any{"path": map[string]any{"type": "PathPrefix", "value": "/catalyst/"}},
+				},
+				"backendRefs": apiBackendRefs,
+			},
+			map[string]any{
+				"matches": []any{
+					map[string]any{"path": map[string]any{"type": "PathPrefix", "value": "/"}},
 				},
 				"backendRefs": []any{
-					map[string]any{
-						"name": backend,
-						"port": int64(port),
-					},
+					map[string]any{"name": uiSvc, "port": int64(uiPort)},
 				},
 			},
 		},
