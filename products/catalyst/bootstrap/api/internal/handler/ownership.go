@@ -29,7 +29,10 @@ package handler
 
 import (
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
 // checkOwnership returns true when the request's authenticated session
@@ -78,6 +81,37 @@ func (h *Handler) checkOwnership(w http.ResponseWriter, r *http.Request, dep *De
 		return true
 	}
 
+	// Chroot Sovereign co-admin bypass (#4193).
+	//
+	// `OwnerEmail` is the operator who CREATED the deployment record on the
+	// MOTHERSHIP — multi-tenant there, so the email match is the right
+	// cross-tenant guard. But on a chrooted Sovereign (SOVEREIGN_FQDN set)
+	// there is exactly ONE deployment, and EVERY authenticated
+	// sovereign-admin legitimately co-administers it. Gating the
+	// per-deployment endpoints (the #3996 reconciler logs/reconcile/
+	// suspend/resume drill-in, deployment GET, etc.) on an exact
+	// OwnerEmail match wrongly 404s a sovereign-admin who is not the
+	// original creator — caught live on omantel.biz 2026-06-24: the
+	// `uat215@omani.works` sovereign-admin session got
+	// `ownership-check: rejected cross-tenant access` on
+	// /deployments/4635277cae4ffed9/reconcilers (owner = the founder who
+	// created it), so the recon drill-in logged 404 on every call while
+	// the recon graph (which skips this gate) rendered fine.
+	//
+	// So on a chroot, let a privileged-tier / privileged-realm-role
+	// session through. The same tier set the reconciler-mutation RBAC
+	// (jobRetryCallerAuthorized) and applicationInstallCallerAuthorized
+	// already trust as operator-equivalent — this just moves that trust
+	// ahead of the (mothership-shaped) email gate so the request reaches
+	// the tier-aware RBAC at all. The mothership path is UNCHANGED
+	// (SOVEREIGN_FQDN unset → email match still required).
+	if strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")) != "" {
+		claims := auth.ClaimsFromContext(r.Context())
+		if claims != nil && (applicationInstallCallerAuthorized(claims) || isPrivilegedSovereignTier(claims.Tier)) {
+			return true
+		}
+	}
+
 	if !strings.EqualFold(sessionEmail, owner) {
 		// 404, not 403 — never leak the existence of another user's
 		// deployment via the response code.  Log the rejection at
@@ -97,4 +131,17 @@ func (h *Handler) checkOwnership(w http.ResponseWriter, r *http.Request, dep *De
 	}
 
 	return true
+}
+
+// isPrivilegedSovereignTier reports whether the session tier marks a
+// Sovereign co-administrator who may manage the chroot's single
+// deployment. The Sovereign session middleware stamps `owner`; PIN /
+// OIDC flows may stamp `sovereign-admin` or `admin`; the jobs-retry
+// path additionally trusts `operator`. Matched case-insensitively.
+func isPrivilegedSovereignTier(tier string) bool {
+	switch strings.ToLower(strings.TrimSpace(tier)) {
+	case "owner", "admin", "operator", "sovereign-admin":
+		return true
+	}
+	return false
 }
