@@ -138,6 +138,21 @@ grep -q 'service.cilium.io/global: "true"' "$TMP/primary.yaml" || {
   echo "FAIL: primary Cluster CR missing managed.services.additional service.cilium.io/global=true annotation." >&2
   exit 1
 }
+# #3740 (the missing half of 0.2.5): the cross-region replication-source
+# Service MUST use selectorType: rw (PRIMARY only), NOT r (ALL instances).
+# With `r` the replica's WAL receiver round-robins onto a LOCAL STANDBY and
+# CASCADES off it; a cascaded standby can never be a synchronous standby of
+# the primary, so synchronous_standby_names stays unsatisfiable and
+# dataDurability:required BLOCKS WRITES (caught live on omantel.biz kom4dc).
+grep -qE '^\s+- selectorType: rw' "$TMP/primary.yaml" || {
+  echo "FAIL: primary Cluster CR managed.services.additional uses the wrong selectorType — must be 'rw' (primary-only) so the cross-region replica streams directly from the primary's walsender and sync engages (RPO=0). See #3740." >&2
+  grep -nE 'selectorType:' "$TMP/primary.yaml" >&2
+  exit 1
+}
+if grep -qE '^\s+- selectorType: r$' "$TMP/primary.yaml"; then
+  echo "FAIL: primary Cluster CR managed.services.additional uses selectorType: r (all instances) — the cross-region replica would cascade off a local standby and never be a synchronous standby of the primary. See #3740." >&2
+  exit 1
+fi
 grep -q "kind: ConfigMap" "$TMP/primary.yaml" || {
   echo "FAIL: audit-config ConfigMap not rendered on side=primary (bp-continuum prerequisite probe reads it there)." >&2
   exit 1

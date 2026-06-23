@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.2.5
+version: 0.2.6
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -40,6 +40,36 @@ description: |
 
   Changelog
   ─────────
+  0.2.6 (2026-06-24, cross-region replica streams from PRIMARY not a standby — RPO=0 completion, Refs #3740 / #3375)
+    - FIX (Pillar-3 zero-tx-loss, the missing half of the 0.2.5 fix): the
+      ClusterMesh replication-source Service (`-primary-mesh`, consumed by
+      the replica's externalCluster) now uses `selectorType: rw` (PRIMARY
+      only) instead of `selectorType: r` (ALL instances). 0.2.5 correctly
+      pinned `synchronous_standby_names = FIRST 1 ("<replicaName>")`, but
+      the `r` selector round-robins the cross-region replica's WAL receiver
+      across the primary AND its local HA standbys (cnpg.io/podRole=
+      instance). When it landed on a LOCAL STANDBY the replica CASCADED off
+      that standby — a cascaded standby can never be a synchronous standby
+      of the primary, so the replica appeared in pg_stat_replication only on
+      the STANDBY (sync_state=async, sender pg_is_in_recovery()=t) and NEVER
+      on the primary. `FIRST 1 ("<replicaName>")` then stayed permanently
+      unsatisfiable, and with dataDurability:required the primary BLOCKED
+      ALL WRITES. Caught LIVE on omantel.biz kom4dc (2026-06-23): replica
+      byte-caught-up, its walsender on primary-3 [a standby], and an INSERT
+      on the real primary (primary-2) hung. `rw` selects ONLY the current
+      primary (cnpg.io/instanceRole=primary, a single endpoint), so the
+      replica streams DIRECTLY from the primary's walsender → it appears in
+      the PRIMARY's pg_stat_replication → standbyNamesPre matches →
+      sync_state=sync → RPO=0. CNPG re-points the `-rw` selector at the
+      newly-promoted instance after a Continuum switchover, so the mesh
+      alias keeps tracking the live primary with no chart change.
+    - Render-gate test (chart/tests/cnpg-pair-render.sh) now asserts
+      `selectorType: rw` on the side=primary mesh Service (and that `r` is
+      NOT used there).
+    - Default-OFF contract UNCHANGED: cnpgPair.enabled=false renders ZERO
+      resources on BOTH sides. Resource COUNTS unchanged (one selectorType
+      value flipped r→rw).
+
   0.2.5 (2026-06-17, cross-region sync target — RPO=0 fix, Refs #3740 / #3375)
     - FIX (Pillar-3 zero-tx-loss): the primary Cluster CR's CNPG-native
       `spec.postgresql.synchronous` block now pins the CROSS-REGION

@@ -194,7 +194,10 @@ spec:
       # region labels; CRD pattern relaxed in lockstep, catalyst chart).
       # 0.2.5 (#3740): cross-region replica pinned as the synchronous
       # standby (standbyNamesPre + maxStandbyNamesFromCluster:0) → RPO=0.
-      version: 0.2.5
+      # 0.2.6 (#3740): replication-source mesh Service flipped
+      # selectorType r→rw so the cross-region replica streams from the
+      # PRIMARY's walsender (not a cascaded local standby) → sync_state=sync.
+      version: 0.2.6
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

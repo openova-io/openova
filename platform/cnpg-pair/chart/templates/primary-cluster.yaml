@@ -172,11 +172,31 @@ spec:
   # annotation so Cilium ClusterMesh publishes it across every peer.
   # The replica's externalCluster connectionParameters.host points at
   # this Service name.
+  #
+  # 🛑 selectorType MUST be `rw`, NOT `r` (#3740, hw158 + omantel.biz
+  # kom4dc 2026-06-23). `r` selects EVERY instance in the primary
+  # cluster (primary + its local HA standbys: cnpg.io/podRole=instance),
+  # so the cross-region replica's WAL receiver round-robins onto a LOCAL
+  # STANDBY and CASCADES off it instead of streaming from the real
+  # primary's walsender. A cascaded standby can NEVER be a synchronous
+  # standby of the primary — so the replica shows up in pg_stat_replication
+  # on the STANDBY (sync_state=async, sender pg_is_in_recovery()=t) and
+  # NEVER on the primary, leaving `synchronous_standby_names =
+  # FIRST 1 ("<replica>")` permanently unsatisfiable. With
+  # dataDurability:required the primary then BLOCKS ALL WRITES (caught
+  # LIVE on kom4dc: replica byte-caught-up, walsender on primary-3 [a
+  # standby], primary-2 INSERT hangs). `rw` selects ONLY the current
+  # primary (cnpg.io/instanceRole=primary), so the replica streams
+  # directly from the primary's walsender → it appears in the primary's
+  # pg_stat_replication → standbyNamesPre matches → sync_state=sync →
+  # RPO=0. After a Continuum switchover CNPG re-points the `-rw`
+  # selector at the newly-promoted instance, so the mesh alias keeps
+  # tracking the live primary with no chart change.
   {{- if .Values.cnpgPair.clusterMesh.enabled }}
   managed:
     services:
       additional:
-        - selectorType: r
+        - selectorType: rw
           serviceTemplate:
             metadata:
               name: {{ include "cnpg-pair.replicationServiceName" . }}

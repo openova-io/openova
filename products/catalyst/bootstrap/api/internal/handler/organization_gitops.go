@@ -944,6 +944,33 @@ const orgTenantBPCNPG = `# bp-cnpg in the Organization tenant namespace — Post
 # Earlier orchestrator versions emitted ` + "`namespace`" + ` and ` + "`operator.enabled`" + `
 # at the top level — the chart silently ignored them. Fixed to the
 # canonical subchart-keyed shape.
+#
+# 🛑 NAMESPACE-SCOPED, WEBHOOK-LESS per-Org operator (#4143). The
+# cloudnative-pg "single operator per cluster" guidance: the
+# Mutating/ValidatingWebhookConfiguration objects it registers
+# (cnpg-mutating-webhook-configuration / cnpg-validating-webhook-
+# configuration) are CLUSTER-SCOPED SINGLETONS with FIXED names AND the
+# webhook serving Service name (cnpg-webhook-service) is hardcoded
+# upstream ("DO NOT CHANGE THE SERVICE NAME"). When a per-Org operator
+# also creates these, it and the platform cnpg-system operator both
+# reconcile the SAME singletons — whichever writes last repoints the
+# webhook clientConfig.service at ITS namespace's cnpg-webhook-service
+# with a caBundle the other operator's served cert does not match, so
+# admission fails "x509: certificate signed by unknown authority" and
+# every NEW Cluster CR (e.g. wordpress-db) is blocked. Live outage on
+# omantel.biz kom4dc (dep 4635277cae4ffed9): the singleton webhook ended
+# up owned by an Org-namespace release, breaking the platform operator.
+#
+# Fix: the per-Org operator runs WEBHOOK-LESS and NAMESPACE-SCOPED.
+#   - webhook.{mutating,validating}.create=false → it never touches the
+#     cluster-singleton webhook configs; the single platform cnpg-system
+#     operator owns them and admits Cluster CRs in EVERY namespace
+#     (including this Org's) via its cluster-wide webhook.
+#   - config.clusterWide=false + WATCH_NAMESPACE pinned to this Org ns →
+#     the per-Org operator reconciles ONLY its own namespace and can
+#     never contend cluster-scoped resources owned by the platform
+#     operator. (The per-Org operator still manages this Org's own
+#     Cluster/Backup CRs; it just stops fighting over the singletons.)
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -971,6 +998,22 @@ spec:
         # the per-tenant install must NOT re-create them or apiserver
         # rejects the manifest with "already exists, owned by ...".
         create: false
+      # #4143: do NOT register the cluster-scoped webhook configs — they
+      # are singletons owned by the platform cnpg-system operator. A
+      # per-Org copy fights over them and breaks admission cluster-wide.
+      webhook:
+        mutating:
+          create: false
+        validating:
+          create: false
+      # #4143: namespace-scoped watch — the per-Org operator reconciles
+      # ONLY its own Org namespace, never cluster-scoped singletons. The
+      # platform cnpg-system operator stays cluster-wide and admits this
+      # Org's Cluster CRs via the cluster-singleton webhook.
+      config:
+        clusterWide: false
+        data:
+          WATCH_NAMESPACE: {{.Namespace}}
       monitoring:
         # Default OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
         podMonitorEnabled: false
