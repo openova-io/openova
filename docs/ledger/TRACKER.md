@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T19:15:04Z` |
+| Last refreshed | `2026-06-23T19:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 24 |
+| Open issues | 22 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 24 open items (clickable table)
+### All 22 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -220,9 +220,7 @@ flowchart LR
 | [#4179](https://github.com/openova-io/openova/issues/4179) | FUNNEL E2E: a stranger with a voucher creates an Org and lands SIGNED-IN on cons | Other |
 | [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
 | [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
-| [#4188](https://github.com/openova-io/openova/issues/4188) | fix(org-provisioning): demo Org has a STALE duplicate vcluster (vc-demo @0.19.10 | Other |
 | [#4193](https://github.com/openova-io/openova/issues/4193) | fix(cloud): recon-tab actions/logs 404 on chrooted Sovereign console — Reconci | Other |
-| [#4196](https://github.com/openova-io/openova/issues/4196) | BILLING MENU: replace the ad-hoc iframe/showback-gated billing surface with ONE  | Other |
 | [#4206](https://github.com/openova-io/openova/issues/4206) | Secondary region: per-app CNPG PVCs (guacamole-pg/gitea-pg/harbor-pg) stuck Pend | Other |
 
 ---
@@ -231,9 +229,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T19:28 | [#4204](https://github.com/openova-io/openova/pull/4204) | #3785 | fix(bp-wordpress-tenant): expose purchased WordPress at its  |
 | 2026-06-23T19:13 | [#4203](https://github.com/openova-io/openova/pull/4203) | #4187 | fix(catalyst-ui): sovereign-owner sidebar avatar reads /whoa |
 | 2026-06-23T19:13 | [#4202](https://github.com/openova-io/openova/pull/4202) | #3944 | fix(bp-self-sovereign-cutover): step-03 harbor-prewarm enume |
 | 2026-06-23T19:13 | [#4201](https://github.com/openova-io/openova/pull/4201) | #3740 | fix(cnpg): cross-region replica streams SYNC from PRIMARY (R |
+| 2026-06-23T19:16 | [#4199](https://github.com/openova-io/openova/pull/4199) | #4188 | fix(org-provisioning): reap stale duplicate vc-<subdomain>@0 |
 | 2026-06-23T18:58 | [#4198](https://github.com/openova-io/openova/pull/4198) | #4196 | feat(catalyst-ui): ONE native top-level Billing menu — nativ |
 | 2026-06-23T18:14 | [#4197](https://github.com/openova-io/openova/pull/4197) | #3724 | ci(cloud-init-size): dedicated required-able byte-size PR ga |
 | 2026-06-23T17:56 | [#4195](https://github.com/openova-io/openova/pull/4195) | #4189 | docs(uat): full 215-row god-mode walk consolidated → 0 ⚠️ (1 |
@@ -259,8 +259,6 @@ flowchart LR
 | 2026-06-23T00:48 | [#4155](https://github.com/openova-io/openova/pull/4155) | #4152 | fix(bp-wordpress-tenant): reflector populates WORDPRESS_DB_P |
 | 2026-06-22T23:52 | [#4154](https://github.com/openova-io/openova/pull/4154) | #4153 | fix(bp-wordpress-tenant): add wordpress.image.pullSecrets fo |
 | 2026-06-22T21:57 | [#4153](https://github.com/openova-io/openova/pull/4153) | #800 | feat(bp-wordpress-tenant): custom WordPress image w/ pdo_pgs |
-| 2026-06-22T21:12 | [#4151](https://github.com/openova-io/openova/pull/4151) | #4147 | fix(bp-wordpress-tenant): apt sandbox-setuid fails under dro |
-| 2026-06-22T18:33 | [#4150](https://github.com/openova-io/openova/pull/4150) | #3373 | fix(org-provisioning): per-Org bp-newapi overlay wires never |
 
 ---
 
