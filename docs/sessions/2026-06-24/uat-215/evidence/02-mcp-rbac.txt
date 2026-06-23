@@ -1,0 +1,29 @@
+# MCP RBAC live evidence (rows 211-213) — omantel.biz — 2026-06-24
+# The openova-mcp tool handlers are a thin passthrough to catalyst-api
+# (products/openova-mcp/internal/catalystapi/client.go): list_applications/get_application
+# forward Bearer + X-Tenant-Host; the OrgScopeGuard RBAC is enforced in catalyst-api.
+# Exercised with the SAME bearer shapes the MCP uses (sovereign-admin vs org-scoped).
+
+## ROW 211 — sovereign-admin token → list_applications returns ALL apps
+GET /api/v1/fleet/applications (tier=owner session):
+  TOTAL APPS = 178
+
+## ROW 212 — org-scoped (demo) token → list returns ONLY demo Org's apps
+GET /api/v1/org/applications (tier=org-admin, org=demo, X-Tenant-Host=console.demo.omani.homes):
+  demo-wp-blog [bp-wordpress] env=org-7283eb4a-19e5-4e86-9066-d4aa26762064-prod
+  demo-wp-shop [bp-wordpress] env=org-7283eb4a-19e5-4e86-9066-d4aa26762064-prod
+  test-shop [bp-wordpress] env=demo-prod
+  agenity-demo [bp-agenity] env=dev
+  bp-cnpg [bp-cnpg] env=dev
+  bp-keycloak [bp-keycloak] env=dev
+  bp-newapi [bp-newapi] env=dev
+  bp-openclaw [bp-openclaw] env=dev
+  bp-stalwart-tenant [bp-stalwart-tenant] env=dev
+  bp-wordpress-tenant [bp-wordpress-tenant] env=dev
+  vc-demo [bp-vcluster] env=dev
+
+## ROW 213 — cross-Org / Sovereign access from org-scoped token → 403
+GET /api/v1/fleet/applications (org-scoped) -> 403
+{"code":"403","detail":"this Organization session has no access to Sovereign-admin or cross-organization resources","error":"org-scoped-forbidden","status":403}
+GET /api/v1/organizations (org-scoped, sovereign directory) -> 403
+GET /api/v1/org/applications with FOREIGN X-Tenant-Host (console.f4179walk.omani.works) -> 404 (tenant-not-registered for foreign host; host-bound)
