@@ -360,6 +360,31 @@ var sharedPGReplicaAuthSecrets = func() []string {
 //
 // Sourced from the slot `reflect.secretName` values — keep in lockstep with
 // clusters/_template/bootstrap-kit/16{a,c,d}-bp-postgres-shared*.yaml.
+//
+// vc-mgmt mangled copies (#4158, Refs #3878): the four consumers that run
+// INSIDE vc-mgmt (keycloak/gitea/harbor on shared-pg, grafana on shared-pg-b)
+// declare `reflect.mangledTarget`, so role-secrets.yaml Pass 4 ALSO renders a
+// SECOND hub Secret named with the vCluster syncer-mangled object name
+// `<secretName>-x-<vclusterNamespace>-x-mgmt-vcluster` (annotated
+// `reflection-auto-namespaces: mgmt`). That mangled object is the EXACT host
+// Secret the in-vc-mgmt pod mounts in single-namespace mode — the failure
+// string `MountVolume.SetUp … secret "<…>-x-<ns>-x-mgmt-vcluster" not found`.
+// Like the plain copies these are PRIMARY-side only (the whole template is
+// `renderReplicaHalf`-gated) and the reflector never crosses the ClusterMesh,
+// so on a fresh active-hot-standby prov region-B's mgmt-vCluster keycloak (and
+// gitea/harbor/grafana) wedge at FailedMount for the mangled object that
+// nothing in region-B materialises — measured live on dep 4635277cae4ffed9
+// region-B `me-east-215-b` (keycloak-0 Init:0/2 x291 over 9h, cascading
+// bp-oidc-gate / bp-sso-bridge / bp-powerdns-admin / bp-newapi-host-seams into
+// `dependency 'mgmt/bp-keycloak' is not ready`). Copying the mangled copies
+// primary → replica (they carry the same `-mesh-rw` host so the readiness gate
+// passes, and the `reflection-auto-namespaces: mgmt` annotation so the
+// replica's own reflector re-pushes them into region-B's `mgmt` namespace)
+// closes the gap identically to the plain consumer copies. Mangled-name
+// pattern from role-secrets.yaml Pass 4 (`-x-mgmt-vcluster` is the default
+// vcluster); only the 4 vc-mgmt-homed bindings declare mangledTarget — the
+// shared-pg-c bindings (org/newapi/openova-flow) keep their `<ns>/*` fromHost
+// wildcard (#3876) and need NO mangled copy.
 var sharedPGConsumerHubSecrets = []string{
 	// instance A (shared-pg, slot 16a)
 	"harbor-database-secret",
@@ -373,6 +398,13 @@ var sharedPGConsumerHubSecrets = []string{
 	"org-database-secret",
 	"newapi-database-secret",
 	"openova-flow-database-secret",
+	// vc-mgmt mangled copies (#4158) — the host object the in-vc-mgmt pod
+	// mounts; rendered primary-side only by role-secrets.yaml Pass 4
+	// (reflect.mangledTarget), so they must cross the mesh too.
+	"harbor-database-secret-x-harbor-x-mgmt-vcluster",
+	"gitea-database-secret-x-gitea-x-mgmt-vcluster",
+	"keycloak-database-secret-x-keycloak-x-mgmt-vcluster",
+	"grafana-database-env-x-grafana-x-mgmt-vcluster",
 }
 
 // sharedPGMeshRWHostMarker — the substring a hub Secret's `host` key carries

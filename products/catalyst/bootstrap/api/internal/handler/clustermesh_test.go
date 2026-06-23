@@ -2481,6 +2481,40 @@ func seedHubSecret(t *testing.T, cs kubernetes.Interface, name, host, password s
 	}
 }
 
+// seedMangledHubSecret creates a vc-mgmt MANGLED hub Secret (role-secrets.yaml
+// Pass 4, #3878) in shared-data — same shape as seedHubSecret but carrying the
+// `reflection-auto-namespaces: mgmt` annotation the mangled copy uses to
+// auto-push into the vCluster host namespace `mgmt` (#4158).
+func seedMangledHubSecret(t *testing.T, cs kubernetes.Interface, name, host, password string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: sharedPGNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create shared-data namespace: %v", err)
+	}
+	if _, err := cs.CoreV1().Secrets(sharedPGNamespace).Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: sharedPGNamespace,
+			Annotations: map[string]string{
+				"reflector.v1.k8s.emberstack.com/reflection-allowed":            "true",
+				"reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces": "mgmt",
+				"reflector.v1.k8s.emberstack.com/reflection-auto-enabled":       "true",
+				"reflector.v1.k8s.emberstack.com/reflection-auto-namespaces":    "mgmt",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"host":     []byte(host),
+			"password": []byte(password),
+			"uri":      []byte("postgresql://owner:" + password + "@" + host + ":5432/db"),
+		},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create mangled hub Secret %s: %v", name, err)
+	}
+}
+
 // TestSyncSharedPGConsumerHubSecrets covers the #3629 best-effort cross-region
 // consumer-hub Secret sync: (1) a `-mesh-rw` source propagates to the replica
 // (correct host + password, overwriting the replica's divergent copy); (2) a
@@ -2570,5 +2604,50 @@ func TestSyncSharedPGConsumerHubSecrets(t *testing.T) {
 			"shared-pg-b-rw.shared-data.svc.cluster.local", "pw")
 		// len(slots) == 1 → no replica → must return immediately, no panic.
 		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
+	})
+
+	// #4158: the vc-mgmt MANGLED hub copies (rendered primary-side only by
+	// role-secrets.yaml Pass 4 for the 4 in-vc-mgmt consumers) must cross the
+	// mesh too — otherwise region-B's mgmt-vCluster keycloak (and gitea/harbor/
+	// grafana) wedge at `FailedMount … secret "<…>-x-<ns>-x-mgmt-vcluster" not
+	// found`. The copy must carry the `reflection-auto-namespaces: mgmt`
+	// annotation through so the replica's own reflector re-pushes it into the
+	// replica's `mgmt` namespace (the object the in-vc pod actually mounts).
+	t.Run("mangled-vc-mgmt-copies-propagate-to-replica-with-mgmt-autoreflect", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		replicaCS := kfake.NewSimpleClientset()
+		// Seed all four mangled vc-mgmt hub copies on the primary, carrying the
+		// `-mesh-rw` host (readiness gate) + the `mgmt` auto-reflect annotation.
+		mangled := []string{
+			"keycloak-database-secret-x-keycloak-x-mgmt-vcluster",
+			"gitea-database-secret-x-gitea-x-mgmt-vcluster",
+			"harbor-database-secret-x-harbor-x-mgmt-vcluster",
+			"grafana-database-env-x-grafana-x-mgmt-vcluster",
+		}
+		for _, name := range mangled {
+			seedMangledHubSecret(t, primaryCS, name,
+				"shared-pg-mesh-rw.shared-data.svc.cluster.local", "region-A-pw")
+		}
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+
+		for _, name := range mangled {
+			got, ok := getSharedDataSecret(t, replicaCS, name)
+			if !ok {
+				t.Fatalf("replica missing mangled vc-mgmt hub Secret %q after sync — region-B mgmt-vCluster pod would FailedMount", name)
+			}
+			if p := string(got.Data["password"]); p != "region-A-pw" {
+				t.Errorf("%s: replica password = %q, want the authoritative region-A password", name, p)
+			}
+			// The `mgmt` auto-namespace annotation MUST carry over so the
+			// replica's reflector re-pushes the mangled object into `mgmt`.
+			if ns := got.Annotations["reflector.v1.k8s.emberstack.com/reflection-auto-namespaces"]; ns != "mgmt" {
+				t.Errorf("%s: replica lost reflection-auto-namespaces=mgmt (got %q) — the in-vc pod's host Secret would never materialise in region-B", name, ns)
+			}
+		}
 	})
 }
