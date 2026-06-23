@@ -957,7 +957,28 @@ name: bp-self-sovereign-cutover
 # the exact path that was unreachable while the copy hung. Validated:
 # `helm template` + `sh -n`/`dash -n` clean. Live confirmation deferred to the
 # hw172 cutover walk reaching step-03. Lockstep: 06a pin + blueprint.yaml.
-version: 0.1.77
+# 0.1.78 (#3944 root-cause-2, Refs #3379 #3642): step-03 harbor-prewarm Phase A
+# enumerated openova-io images from RUNNING Pods ONLY (`kubectl get pods -A`).
+# After #3642 moved the front-door apps (gitea/harbor/keycloak/openbao/grafana/
+# newapi/guacamole) INTO the vClusters, a running-Pod-only list is INCOMPLETE on
+# two paths: (a) a vCluster NOT in pod-syncing mode never materialises its pods
+# in a host namespace, so a host-side enumeration cannot see them; (b) even with
+# pod-syncing, an openova-io workload that is momentarily down / scaled-to-zero /
+# not-yet-rolled-out (a CronJob between fires, an HR mid-reconcile) has no running
+# Pod, so its image is missed. A missed image never lands in local Harbor → post-
+# cutover ImagePullBackOff the moment step-06 strips the ghcr.io fallback, or the
+# deny-egress hold passes over an un-mirrored image. Fix (chart-only): UNION the
+# running-Pod image set with the DECLARED workload-template image set
+# (Deployments + StatefulSets + DaemonSets + CronJob/Job pod templates) across
+# every namespace before the skopeo push. Declared templates are present
+# regardless of replica count or schedule, so the union is COMPLETE on any
+# vCluster sync mode and can only WIDEN the prewarm list (every entry is still
+# pushed idempotently) — a strict superset of the prior behaviour. No RBAC change
+# (the runner ClusterRole already holds get/list on those kinds). Validated:
+# `helm template` + `sh -n`/`dash -n` clean; live host-view enumeration on the
+# permanent omantel.biz Sovereign confirmed the union covers all 35 openova-io
+# images. Lockstep: 06a pin + blueprint.yaml + generated catalog.
+version: 0.1.78
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

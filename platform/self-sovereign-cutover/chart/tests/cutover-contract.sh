@@ -875,4 +875,39 @@ if grep -Eq '^\s*(if\s+)?skopeo copy ' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-03 bounds both Phase A + Phase A2 skopeo copies with --command-timeout; no bare unbounded copy remains)"
 
+echo "[cutover-contract] Case 28: Step-03 harbor-prewarm Phase A enumerates openova-io images as the UNION of running Pods + declared workload templates (#3944 root-cause-2, Refs #3642)"
+# hw171: step-03 Phase A enumerated openova-io images from RUNNING Pods only
+# (`kubectl get pods -A`). After #3642 moved the front-door apps into the
+# vClusters, a running-Pod-only list is INCOMPLETE: a vCluster NOT in pod-
+# syncing mode never materialises its pods in a host namespace, and even with
+# pod-syncing a scaled-to-zero / not-yet-rolled-out workload has no running Pod.
+# A missed image never lands in local Harbor → post-cutover ImagePullBackOff the
+# moment step-06 strips ghcr.io. The enumeration MUST union the running-Pod set
+# with the declared workload-template set so the mirror list is complete on any
+# vCluster sync mode.
+# It MUST still read running Pods (preserve prior behaviour — the union is a
+# strict superset, never a replacement).
+if ! grep -q 'kubectl get pods -A -o json' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A no longer enumerates running Pods — the union must KEEP the running-Pod source, not drop it (#3944)" >&2
+  exit 1
+fi
+# It MUST also read the declared workload templates (Deployments/StatefulSets/
+# DaemonSets) — present regardless of replica count or schedule.
+if ! grep -q 'kubectl get deployments,statefulsets,daemonsets -A -o json' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A does not enumerate declared Deployment/StatefulSet/DaemonSet image templates — a scaled-to-zero or non-pod-synced openova-io workload would be missed (#3944 root-cause-2)" >&2
+  exit 1
+fi
+# And the CronJob + Job pod templates (transient/scheduled openova-io work).
+if ! grep -q 'kubectl get cronjobs -A -o json' "$TMP/render.yaml" || ! grep -q 'kubectl get jobs -A -o json' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A does not enumerate CronJob/Job pod-template images — a between-fires CronJob image would be missed (#3944 root-cause-2)" >&2
+  exit 1
+fi
+# The four sources MUST be unioned + deduped into the single openova_images list
+# the skopeo push loop iterates.
+if ! grep -q 'openova_images=$(printf' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A does not UNION the running-Pod + declared-template image sources into openova_images — the prewarm list is not complete (#3944 root-cause-2)" >&2
+  exit 1
+fi
+echo "  PASS (Step-03 Phase A unions running-Pod + declared Deployment/StatefulSet/DaemonSet/CronJob/Job image templates — complete on any vCluster sync mode)"
+
 echo "[cutover-contract] All gates green."

@@ -564,7 +564,14 @@ spec:
       # (prewarm.skopeoCommandTimeout, default 1200s) so a silently-stalled
       # connection FAILS FAST instead of hanging the Job "active" for hours —
       # the symptom seen live on hw171 right after #3927 unstuck step-02.
-      version: 0.1.77
+      # 0.1.78 (#3944 root-cause-2, Refs #3379 #3642): step-03 harbor-prewarm
+      # Phase A enumerated openova-io images from RUNNING Pods only — incomplete
+      # post-#3642 (a non-pod-syncing vCluster's pods aren't host-visible, and a
+      # scaled-to-zero / not-yet-rolled workload has no running Pod). Now UNIONs
+      # the running-Pod set with the declared workload-template set (Deployments
+      # + StatefulSets + DaemonSets + CronJob/Job templates) so the mirror list
+      # is complete regardless of which pods are Running — a strict superset.
+      version: 0.1.78
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
