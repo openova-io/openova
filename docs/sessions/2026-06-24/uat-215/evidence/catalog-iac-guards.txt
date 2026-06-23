@@ -1,0 +1,13 @@
+=== row 146: editor subtitle string (shipped UI) ===
+              (catalog-sovereign). Commit writes the IaC source of truth; Flux
+              reconciles it into the in-cluster Blueprint. Both this editor and
+              the card form above write the same file.
+
+=== row 145/156: commit is REAL — malformed IaC is rejected 400 (not a silent store) ===
+{"code":"400","detail":"blueprintYaml parse: yaml: mapping values are not allowed in this context","error":"invalid-blueprint-yaml","status":400}
+
+HTTP:400
+--- empty body guard ---
+{"code":"400","detail":"blueprintYaml is required","error":"empty-blueprint","status":400}
+
+HTTP:400

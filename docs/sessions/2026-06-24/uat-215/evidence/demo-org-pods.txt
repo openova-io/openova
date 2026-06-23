@@ -1,0 +1,16 @@
+NAME                                              READY   STATUS                  RESTARTS       AGE
+agenity-demo-bp-agenity-0                         1/1     Running                 0              47m
+bp-cnpg-cloudnative-pg-8467f55485-mssjv           1/1     Running                 0              13h
+bp-keycloak-0                                     1/1     Running                 0              34h
+bp-keycloak-keycloak-config-cli-fix-jvjmk         0/1     Completed               0              34h
+bp-keycloak-postgresql-0                          1/1     Running                 0              34h
+bp-newapi-8565cc4df4-np56f                        2/3     CrashLoopBackOff        72 (11s ago)   5h52m
+bp-newapi-f55594bc4-tzgqt                         3/3     Running                 0              23h
+bp-newapi-newapi-pg-1                             1/1     Running                 0              26h
+bp-openclaw-controller-5c999d7757-9xcqs           0/1     ImagePullBackOff        0              13h
+bp-stalwart-tenant-0                              1/1     Running                 0              17h
+bp-wordpress-tenant-5b6b6fc5f6-hfvbx              1/1     Running                 0              12h
+coredns-9cd65dfc5-vdndb-x-kube-system-x-vc-demo   1/1     Running                 0              26h
+vc-demo-0                                         0/1     Init:ImagePullBackOff   0              13h
+wordpress-db-1                                    1/1     Running                 0              23h
+wordpress-db-replica-1-pgbasebackup-tl69v         0/1     Pending                 0              23h

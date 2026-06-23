@@ -1,0 +1,1 @@
+wordpress local serve: HTTP 302 (live redirect, not 404/502) — bp-wordpress-tenant-5b6b6fc5f6-hfvbx 1/1 Running 12h

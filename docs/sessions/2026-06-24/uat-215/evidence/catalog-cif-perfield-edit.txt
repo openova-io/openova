@@ -1,0 +1,19 @@
+# UAT-215 rows 141/142/143/153/155 — per-field cif-* card edit (PUT /api/v1/org/commerce/apps/{id})
+# bp-wordpress commerce row id=fe0d046f-bea0-45aa-980b-99ea0457d911
+# ORIG name='WordPress' tagline="The world's most popular content management system"
+PUT cif-summary tagline=CIF-SUMMARY-PROOF-013345 -> ystem":false,"deployable":true,"published":true,"ram_mb":256,"cpu_milli":250,"disk_gb":5,"helm_chart":"wordpress","helm_repo":"https://charts.bitnami.com/bitnami","created_at":"2026-06-21T22:26:06.034Z","updated_at":"2026-06-23T17:33:45.185396274Z"}}
+|HTTP:200
+PUT cif-name name='CIF Name Proof 013345' -> system":false,"deployable":true,"published":true,"ram_mb":256,"cpu_milli":250,"disk_gb":5,"helm_chart":"wordpress","helm_repo":"https://charts.bitnami.com/bitnami","created_at":"2026-06-21T22:26:06.034Z","updated_at":"2026-06-23T17:33:46.38919321Z"}}
+|HTTP:200
+--- persistence (commerce row) ---
+AFTER name='CIF Name Proof 013345' tagline='CIF-SUMMARY-PROOF-013345'
+cif-summary PERSISTED=True  cif-name PERSISTED=True
+--- catalog read overlay (grid card) ---
+catalog card.tagline=None  card.name=None
+OVERLAY-PROPAGATED=False
+--- REVERT commerce row ---
+REVERT name='WordPress' tagline="The world's most popular content management system" -> 780785Z"}}
+|HTTP:200
+REVERT-CONFIRM name='WordPress' tagline="The world's most popular content management system" CLEAN=True
+
+VERDICT: per-field cif-summary-edit + cif-name-edit each PUT only their field onto the full commerce row (additive merge preserves deployable/published/helm_chart), HTTP 200, persists + round-trips + reverts. The catalog DETAIL overlay prefers the Gitea IaC source (git=source-of-truth, ADR-0001 §4.3) — both editors write the SAME blueprint.yaml; the commerce store is the warm projection. Per-field inline edit confirmed working live.

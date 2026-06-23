@@ -1,0 +1,36 @@
+ROWS 163/172/174/175/176/177 (#3379/#3646) — status honesty + failed filter + Re-run
+LIVE: https://console.omantel.biz/jobs (signed-in sovereign-admin)
+
+LIVE-CLUSTER GROUND TRUTH (sov get hr / API /api/v1/sovereign/jobs):
+  7 genuinely-failed rows exist:
+    Job  bp-newapi-admin-promote-29703931  ns=org-7283eb4a...  status=failed
+    Job  syft-grype-bp-syft-grype-29702550 ns=syft-grype       status=failed
+    HR   bp-newapi / bp-openclaw / vc-demo / bp-wordpress-tenant / bp-stalwart-tenant
+         ns=org-7283eb4a...  status=failed  "Helm upgrade failed ... context deadline exceeded"
+
+RENDERED /jobs TABLE (browser_evaluate, repeated reads):
+  Table columns: NAME | KIND | APP | DEPS | PARENT | STATUS | RUNS | STARTED | DURATION | ACTIONS
+  69 rows render, ALL kind=LIFECYCLE, ALL status="Confirming…", ALL Actions=—  (RUNS/STARTED/DURATION/ACTIONS every cell = —).
+  Distinct STATUS values across all 69 rows = { "Confirming…": 66/69 }  (no row reads Succeeded/Failed/Running).
+  Probe of specific apps:
+     bp-cilium  (HR Ready=True) -> "Confirming…"
+     bp-newapi  (HR FAILED)     -> "Confirming…"
+     bp-flux    (HR Ready=True) -> "Confirming…"
+     bp-keycloak                -> "Confirming…"
+  => The STATUS column is a single global "Confirming…" placeholder, NOT a per-row honest status.
+     The genuinely-failed bp-newapi HR renders identically to the healthy bp-cilium HR.
+     This is the premature-/optimistic-status anti-pattern (PR #1138 shape): never a real Failed.
+
+STATUS=failed FILTER (select[aria-label="Filter by status"] = failed, group=All):
+  Table body => "No jobs match the current filters."  (0 rows)
+  i.e. with 7 genuinely-failing rows in the cluster, the failed filter returns ZERO,
+  because no row is ever assigned the 'failed' status by the UI.  Status filter is broken
+  for failed (it filters on the global "Confirming…" mapping, not real per-row state).
+
+RE-RUN BUTTON:
+  ACTIONS column = "—" on every one of the 69 rows. No Re-run / Retry / Reconcile control renders on ANY row.
+  Cannot be exercised because (a) no row reads Failed, (b) no Action control exists.
+
+NOTE: the LIVE omantel.biz console (bp-catalyst-platform@1.4.799) ships a newer /jobs UI than the
+current main checkout (repo JobsPage.svelte is the old step-tree version; the live LIFECYCLE/parent-group
+/"Confirming…" build is not in this tree). Verdicts judge LIVE rendered behavior.

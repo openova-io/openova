@@ -1,0 +1,9 @@
+Row 183 — OpenBao bare UI → authenticated Vault session (/ui/vault/secrets)
+Env: omantel.biz, 2026-06-24
+NOTE: the OpenBao HTTPRoute hostname is bao.omantel.biz, NOT openbao.omantel.biz (which has no route, curl → 000).
+  sov get httproute -A | grep openbao → mgmt/openbao ["bao.omantel.biz"]
+Browser navigated https://bao.omantel.biz/ui/ → redirected to https://bao.omantel.biz/ui/vault/secrets (authenticated), NOT /ui/vault/auth.
+Heading "Secrets Engines"; engines listed: cubbyhole/ (cubbyhole_e62419aa) + secret/ (kv_3548b310). NO token auth form.
+HR: mgmt/bp-openbao Ready=True (chart bp-openbao@1.2.51).
+Screenshot: sso-183-openbao-secrets.png
+VERDICT: PASS

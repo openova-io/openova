@@ -1,0 +1,31 @@
+# UAT-215 rows 141/144/145/146/152/154/156 — bp-alloy Edit-IaC full-CR commit (live omantel.biz)
+# Endpoint: PUT https://console.omantel.biz/api/v1/catalog/bp-alloy/iac  (sovereign-admin tier=owner session)
+# Env: omantel.biz Sovereign dep 4635277cae4ffed9, 2026-06-24.
+
+=== EDIT IaC PUT /api/v1/catalog/bp-alloy/iac (mutate spec.card.summary -> RECONCILE-PROOF-20260624-013000) ===
+{"slug":"alloy","path":"catalog-sovereign/bp-alloy/blueprint.yaml","committed":true}
+HTTP:200
+ORIG spec.card.summary was: None
+
+=== GET-back bp-alloy after IaC commit ===
+HTTP:200
+AFTER raw.spec.card.summary= 'RECONCILE-PROOF-20260624-013000'
+AFTER projected card.summary= 'RECONCILE-PROOF-20260624-013000' tagline= None
+PERSISTED: True      <-- the edit reaches BOTH raw.spec AND the projected card the grid reads
+
+=== REVERT bp-alloy (drop injected spec.card.summary) ===
+{"slug":"alloy","path":"catalog-sovereign/bp-alloy/blueprint.yaml","committed":true}
+HTTP:200
+attempt 1: raw.spec.card.summary='RECONCILE-PROOF-20260624-013000'   (cache TTL)
+attempt 2: raw.spec.card.summary=None
+REVERTED-CLEAN
+
+=== GUARDS (commit is real, not a silent store) ===
+malformed blueprintYaml -> HTTP 400 {"error":"invalid-blueprint-yaml","detail":"blueprintYaml parse: ..."}
+empty blueprintYaml     -> HTTP 400 {"error":"empty-blueprint","detail":"blueprintYaml is required"}
+
+=== LIVE BROWSER (Playwright, sovereign-admin) ===
+- /catalog/bp-alloy hero renders inline cif-summary affordance "Add a one-line summary…" + inline name editor + "Edit IaC ⟩" button; About + Instance list; v1.0.1 chip. No login redirect.
+- Click Edit IaC -> INLINE section "Edit IaC — full blueprint" (no modal); subtitle VERBATIM "Commit writes the IaC source of truth; Flux reconciles it into the in-cluster Blueprint. Both this editor and the card form above write the same file."; the FULL blueprint.yaml CR (apiVersion/kind/metadata/annotations/labels/spec) in the YamlEditor; commit-verdict "managed-by: manual • in sync"; "Show diff" toggle; Validate(dry-run) + Commit IaC. Screenshot: catalog-141-alloy-edit-iac-inline.png
+
+VERDICT: full-CR Edit-IaC YamlEditor commits the IaC source of truth (committed:true, "• in sync"), the whole CR is editable (not 7 card fields), the edit persists + round-trips to the card, and reverts clean. committed:true is surfaced in-UI, not a silent store.

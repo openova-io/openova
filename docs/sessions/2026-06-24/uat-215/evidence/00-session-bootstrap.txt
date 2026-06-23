@@ -1,0 +1,37 @@
+# UAT-215 god-mode session bootstrap — omantel.biz (dep 4635277cae4ffed9) — 2026-06-24
+
+## sovereign-admin session (handover-minted, tier=owner)
+{
+  "email": "uat215+walk@omani.works",
+  "sub": "uat215+walk@omani.works",
+  "verified": true,
+  "deploymentId": "4635277cae4ffed9",
+  "sovereignFQDN": "omantel.biz",
+  "mode": "sovereign",
+  "tier": "owner",
+  "realm_access": {
+    "roles": [
+      "catalyst-owner",
+      "catalyst-admin",
+      "sovereign-admins"
+    ]
+  }
+}
+
+## org-scoped session (support-handover, console.demo.omani.homes, tier=org-admin)
+{
+  "email": "uat215+demo@omani.works",
+  "sub": "uat215+demo@omani.works",
+  "verified": true,
+  "deploymentId": "4635277cae4ffed9",
+  "sovereignFQDN": "demo.omani.homes",
+  "mode": "sovereign",
+  "tier": "org-admin",
+  "orgScoped": true,
+  "org": "demo",
+  "realm_access": {
+    "roles": [
+      "org-admin"
+    ]
+  }
+}
