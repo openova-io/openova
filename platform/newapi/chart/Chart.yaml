@@ -807,7 +807,14 @@ name: bp-newapi
 # cnpg.enabled alone) — fixes `volumeMounts[0].name: Not found "sql-dsn-gate"`
 # install failure under placement.role=vcluster-app (cnpg.enabled=false +
 # database.existingSecret set). Lockstep: both slot pins + blueprint → 1.4.119.
-version: 1.4.121
+# 1.4.122 (#4169): gate the sovereign-realm `newapi-admin` AppRegistration
+# ConfigMap (templates/sso-app-registration.yaml) on the install's OIDC issuer
+# realm matching `sovereign`. A per-Org tenant install (issuer .../realms/
+# org-<sub>) no longer emits a SECOND `newapi-admin` ConfigMap that clobbered
+# the host's redirectUris in the shared sovereign realm -> kills the live
+# "Invalid parameter: redirect_uri" SSO regression on newapi.<sovereign-fqdn>.
+# Lockstep: both slot pins + blueprint → 1.4.122.
+version: 1.4.122
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

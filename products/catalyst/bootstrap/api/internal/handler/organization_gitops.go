@@ -1125,6 +1125,18 @@ spec:
           clientId: newapi-admin
           callbackPath: /oauth/callback
           existingSecret: newapi-oidc-client-secret
+          # #4169 — this per-Org install authenticates against its OWN per-Org
+          # realm (issuer above: .../realms/org-<sub>). It MUST NOT push a
+          # newapi-admin AppRegistration ConfigMap into the SHARED sovereign
+          # realm: that client is owned by the host/Sovereign ops-staff admin UI
+          # (bootstrap-kit slot 80a), and a per-Org ConfigMap with the same
+          # clientId clobbers the host's redirectUris (bp-sso-bridge keys on
+          # clientId and PUT-overwrites) -> Keycloak "Invalid parameter:
+          # redirect_uri" on newapi.<sovereign-fqdn> SSO. Disable the sync here
+          # explicitly. (The chart also defends via an issuer-realm gate in
+          # templates/sso-app-registration.yaml, but the overlay states intent.)
+          ssoBridgeSync:
+            enabled: false
       customerAPI:
         keyIssuer: catalyst
     # ── Ingress + cert-manager TLS ────────────────────────────────────
