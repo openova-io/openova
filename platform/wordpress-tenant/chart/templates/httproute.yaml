@@ -1,0 +1,75 @@
+{{- /*
+Catalyst HTTPRoute for the per-Organization WordPress — bp-wordpress-tenant
+(#3785, Cilium Gateway API exposure).
+
+ROOT CAUSE this template fixes
+──────────────────────────────
+The chart historically shipped ONLY a networking.k8s.io/v1 traefik
+`Ingress` (templates/ingress.yaml). A Catalyst Sovereign does NOT run
+traefik — every customer host is served by the Cilium Gateway API
+(HTTPRoute → cilium-gateway-console). So the traefik Ingress was inert:
+NO HTTPRoute ever matched `wordpress.<slug>.<pool>` and envoy returned a
+bare 404 even though the WordPress Pod was Running 1/1 and served HTTP
+302 internally (root-caused live on the omantel.biz demo Org, #3785).
+Every WORKING per-Org product (bp-agenity, bp-keycloak, bp-stalwart-
+tenant webmail) reaches its host through exactly this HTTPRoute shape;
+WordPress was the odd one out.
+
+Pattern mirrors platform/keycloak/chart/templates/httproute.yaml +
+products/agenity/chart/templates/httproute.yaml (the canonical per-Org
+product-route shape):
+
+  - `gateway.host`      — operator-supplied; renders nothing when empty
+                          (fails closed, Inviolable Principle #4).
+  - `gateway.parentRef` — defaults to the DEDICATED console Gateway
+                          (cilium-gateway-console / kube-system). The
+                          per-Org pool host (wordpress.<slug>.<pool>)
+                          resolves to the console-ELB EIP which fronts
+                          cilium-gateway-console (NOT the apps cilium-
+                          gateway / apps-ELB) — #4054/#4070. Parenting
+                          the apps gateway makes envoy on the console ELB
+                          return 404. The console Gateway carries the
+                          per-pool `*.<pool>` wildcard TLS listener
+                          (org-wildcard-tls-<pool-dashed>) so TLS
+                          terminates on the wildcard cert and NO per-host
+                          Certificate is needed in free-subdomain mode —
+                          exactly like the agenity / keycloak / webmail
+                          routes that share that listener.
+
+TLS: intentionally no per-route Certificate. The console Gateway's
+`*.<pool>` wildcard listener already terminates TLS for every Org host
+in the pool. The legacy chart `ingress.tls` path (secretName
+`wordpress-tls`) issued a per-host Certificate that sat False forever
+("Issuing certificate as Secret does not exist") because the traefik /
+HTTP-01 solver never runs on a Cilium Sovereign — `ingress.enabled` now
+defaults false so that dead cert is no longer emitted (#3785).
+*/}}
+{{- if and .Values.gateway .Values.gateway.enabled -}}
+{{- if .Values.gateway.host }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Values.gateway.name | default (include "bp-wordpress-tenant.fullname" .) | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: wordpress
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.parentRef.name | default "cilium-gateway-console" | quote }}
+      namespace: {{ .Values.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.gateway.host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.gateway.path | default "/" | quote }}
+      backendRefs:
+        - name: {{ .Values.gateway.backendService | default (include "bp-wordpress-tenant.fullname" .) | quote }}
+          port: {{ .Values.gateway.backendPort | default .Values.service.port }}
+{{- end }}
+{{- end }}

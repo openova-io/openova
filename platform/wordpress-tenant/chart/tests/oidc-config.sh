@@ -153,21 +153,44 @@ if ! grep -A3 'name: OIDC_DEFAULT_ROLE' "$TMP/role-editor.yaml" | grep -q 'value
 fi
 echo "  PASS"
 
-echo "[oidc-config] Case 6: smoke render unchanged when only modern oidc.* keys supplied"
-# Same as case 1 but lifted out so any future regression surfaces here:
-# the Job MUST render valid YAML with no errors.
+echo "[oidc-config] Case 6: smoke render emits the Cilium Gateway HTTPRoute (#3785)"
+# #3785: a Catalyst Sovereign exposes WordPress via the Cilium Gateway API
+# (HTTPRoute → cilium-gateway-console), NOT traefik. The chart's default
+# exposure is now an HTTPRoute (gateway.enabled=true) and the legacy traefik
+# Ingress defaults OFF — so the canonical render MUST carry an HTTPRoute (with
+# gateway.host set, as the org-tenant overlay does) and MUST NOT carry an
+# Ingress. The bare CrashLoop root cause of the funnel terminal was a healthy
+# Pod with no route → 404; this gate locks the route in.
+helm template smoke-wp . "${COMMON_SET[@]}" --set "gateway.host=wordpress.acme.omantel.omani.works" > "$TMP/route.yaml"
 if ! python3 -c "
 import yaml, sys
-docs = list(yaml.safe_load_all(open('$TMP/canonical.yaml')))
+docs = list(yaml.safe_load_all(open('$TMP/route.yaml')))
 got = [d['kind'] for d in docs if d]
-required = ['Deployment', 'Service', 'Job', 'Ingress']
+required = ['Deployment', 'Service', 'Job', 'HTTPRoute']
 for r in required:
     if r not in got:
         print(f'FAIL: {r} not in render', file=sys.stderr)
         sys.exit(1)
+if 'Ingress' in got:
+    print('FAIL: traefik Ingress must NOT render on a Sovereign (gateway path is canonical)', file=sys.stderr)
+    sys.exit(1)
+# The HTTPRoute MUST parent the dedicated console Gateway + carry the host.
+route = next(d for d in docs if d and d['kind'] == 'HTTPRoute')
+prs = route['spec']['parentRefs'][0]
+if prs.get('name') != 'cilium-gateway-console' or prs.get('namespace') != 'kube-system':
+    print(f'FAIL: HTTPRoute must parent cilium-gateway-console/kube-system, got {prs}', file=sys.stderr)
+    sys.exit(1)
+if route['spec']['hostnames'] != ['wordpress.acme.omantel.omani.works']:
+    print(f\"FAIL: HTTPRoute host mismatch: {route['spec']['hostnames']}\", file=sys.stderr)
+    sys.exit(1)
 print(f'render kinds: {got}')
 " 2>&1 | tail -5; then
-  echo "FAIL: render YAML invalid" >&2
+  echo "FAIL: HTTPRoute render invalid" >&2
+  exit 1
+fi
+# Default render (no gateway.host) must fail closed — NO HTTPRoute, NO Ingress.
+if grep -qE '^kind: (HTTPRoute|Ingress)$' "$TMP/canonical.yaml"; then
+  echo "FAIL: no exposure resource may render when gateway.host is unset (fails closed)" >&2
   exit 1
 fi
 echo "  PASS"

@@ -13,8 +13,17 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Traffic from the Organization's ingress namespace (default: traefik).
+    # #3785: a Catalyst Sovereign fronts WordPress with the Cilium Gateway
+    # (envoy in the gateway namespace, default kube-system) — NOT traefik.
+    # Allow ingress from BOTH the Gateway namespace (the real path) AND the
+    # legacy ingress namespace (dev clusters on traefik). Restricting to
+    # `traefik` only would make the NetworkPolicy the NEXT blocker once the
+    # HTTPRoute lands. Each selector is a separate `from` peer so either
+    # namespace is admitted.
     - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingress.gatewayNamespace | default "kube-system" }}
         - namespaceSelector:
             matchLabels:
               {{- toYaml .Values.networkPolicy.ingress.fromNamespaceLabels | nindent 14 }}
