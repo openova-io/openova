@@ -11,3 +11,7 @@ command terminated with exit code 1
 (none)
 
 ## Organization CRD tier enum (row 215)
+["org","corporate"]
+## corporate-tier accept + sme reject (row 215)
+corporate -> passes enum (fails on unrelated required fields):
+sme -> Unsupported value: sme: supported values: org, corporate
