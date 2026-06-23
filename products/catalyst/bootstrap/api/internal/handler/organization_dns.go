@@ -17,7 +17,7 @@
 //     loop.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 the PowerDNS endpoint + API
-// key are env-configured (CATALYST_POWERDNS_URL,
+// key are env-configured (CATALYST_POWERDNS_API_URL,
 // CATALYST_POWERDNS_API_KEY). A nil writer (env unset) returns a
 // graceful error rather than a panic; the orchestrator surfaces that
 // as a transient `dns:transient:powerdns not wired` until the
@@ -145,7 +145,7 @@ type Resolver interface {
 // role:org-pool entries) — never inferred from a hardcoded OTECHFQDN.
 func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error {
 	if p.Writer == nil {
-		return errors.New("powerdns writer not wired (CATALYST_POWERDNS_URL / CATALYST_POWERDNS_API_KEY)")
+		return errors.New("powerdns writer not wired (CATALYST_POWERDNS_API_URL / CATALYST_POWERDNS_API_KEY)")
 	}
 	if strings.TrimSpace(ingressIPv4) == "" {
 		return errors.New("otech ingress IPv4 unconfigured")
@@ -229,7 +229,7 @@ func (p DefaultOrganizationDNSProvisioner) ValidateBYOCNAME(ctx context.Context,
 // NoopOrganizationDNSProvisioner satisfies OrganizationDNSProvisioner with
 // success-on-call no-ops. Used in CI / test environments without
 // PowerDNS or a public DNS resolver. Production main.go wires this
-// only when both env knobs (CATALYST_POWERDNS_URL,
+// only when both env knobs (CATALYST_POWERDNS_API_URL,
 // CATALYST_POWERDNS_API_KEY) are absent — that's an explicit signal
 // from the operator that they're not running the DNS step here.
 type NoopOrganizationDNSProvisioner struct{}
