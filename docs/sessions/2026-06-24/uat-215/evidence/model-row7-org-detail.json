@@ -1,0 +1,28 @@
+{
+    "org_tenant_id": "7283eb4a-19e5-4e86-9066-d4aa26762064",
+    "state": "done",
+    "subdomain": "demo",
+    "domain_mode": "free-subdomain",
+    "parent_domain": "omani.homes",
+    "admin_email": "demo@openova.io",
+    "company_name": "Demo Org",
+    "otech_fqdn": "omantel.biz",
+    "vcluster_name": "vc-demo",
+    "tenant_namespace": "org-7283eb4a-19e5-4e86-9066-d4aa26762064",
+    "console_host": "console.demo.omani.homes",
+    "kind": "customer",
+    "tier": "org",
+    "billing_mode": "real",
+    "isolation": "vcluster",
+    "commit_sha": "64c469b6126a4865e671de05308703b906f30ed4",
+    "steps": {
+        "vcluster": "done",
+        "bp_charts": "done",
+        "dns": "done",
+        "certs": "done",
+        "keycloak_clients": "done",
+        "registry": "done"
+    },
+    "created_at": "2026-06-22T01:17:18.085907218Z",
+    "updated_at": "2026-06-22T01:17:19.888469353Z"
+}

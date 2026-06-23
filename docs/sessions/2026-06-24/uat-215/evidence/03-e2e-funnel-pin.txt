@@ -1,0 +1,7 @@
+# e2e-journey rows 216-217 live evidence — omantel.biz — 2026-06-24
+
+## ROW 216 (#3376) — voucher→Org journey runs to Done + Org ACTIVE backed by live vcluster pods
+Demo Org directory record (sovereign-admin /api/v1/organizations):
+  state=done kind=customer tier=org console=console.demo.omani.homes vcluster=vc-demo ns=org-7283eb4a-19e5-4e86-9066-d4aa26762064
+
+Org CRD Ready condition:

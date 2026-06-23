@@ -1,0 +1,14 @@
+Dashboard treemap (omantel.biz, 2026-06-24) — Layer 1 = Organization (selected), Layer 2 = Application (selected).
+Cursor=pointer cells captured from the rendered a11y tree (browser_snapshot depth=8):
+  Platform overhead (roll-up) | cnpg-pair-bp-cnpg-pair 6% | seaweedfs | mimir 3% | kyverno 7% |
+  bp-huawei-evs-csi 4% | alloy 4% | cilium-agent 60% | falco 13% | harbor 2% | mgmt-vcluster 12% |
+  powerdns 1% | k8s-ws 2% | shared 37% | shared 37% | shared 27% | keycloak 2% | dmz-vcluster 12% |
+  rtz-vcluster 12% | guacamole 1% | agenity 1% | crossplane 3% | opentofu 2% | org-pg 7% |
+  external-secrets 2% | openova 8% | self-sovereign-cutover 8% | vpa 3% | demo (customer Org cell) | bp-keycloak 2%
+NO ephemeral Job-pod cell present (no cutover-*, *-snapshot-save-*, scan-vulnerability*, *-hook-*).
+A single distinct "Platform overhead" roll-up cell holds control-plane/Job workloads.
+The customer Org "demo" appears as its OWN treemap cell, visually distinct from Platform overhead.
+
+VERIFIED via browser_evaluate against the rendered treemap container (2026-06-24):
+  cellCount=28, jobMarkers=[] (regex cutover|snapshot-save|scan-vuln|backup-|seed-|promote-|migrate-|-job|hook-|wait-for|init- → ZERO matches),
+  hasPlatformOverhead=true, hasDemo=true (the customer Org 'demo' is its own distinct cell).

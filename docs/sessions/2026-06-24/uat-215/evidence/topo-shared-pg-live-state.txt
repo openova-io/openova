@@ -1,0 +1,39 @@
+UAT-215 topology rows 51-57 — live state capture (omantel.biz dep 4635277cae4ffed9, 2026-06-24)
+
+=== PHYSICAL CNPG PAIR — HEALTHY across BOTH regions ===
+Region A (me-east-215-a) shared-data ns:
+  shared-pg          3/3  READY  "Cluster in healthy state"  PRIMARY=shared-pg-2
+  shared-pg-b        3/3  READY  "Cluster in healthy state"  PRIMARY=shared-pg-b-2
+  shared-pg-c        3/3  READY  "Cluster in healthy state"  PRIMARY=shared-pg-c-2
+Region B (me-east-215-b) shared-data ns:
+  shared-pg-replica    3/3  READY  "Cluster in healthy state"  PRIMARY=shared-pg-replica-1
+  shared-pg-b-replica  3/3  READY  "Cluster in healthy state"
+  shared-pg-c-replica  3/3  READY  "Cluster in healthy state"
+=> The 2-region active-hot-standby CNPG PAIR is physically present + 3/3 Ready in EACH region.
+
+=== API applications/shared-pg ===
+  placement = "active-hot-standby"
+  regions   = ["platform-bootstrap-owned-host"]   <-- NOT the two real regions; a phantom placeholder
+  phase     = Ready
+
+=== CONSOLE Topology tab (/app/shared-pg -> Topology) — innerText ===
+  Placement
+  Pattern: singleton                              <-- MISLABELLED: declared placement is active-hot-standby
+  hw-me-east-215-a-rtz-prod · 4635277cae4ffed9 · mgmt
+  ● PRIMARY  serves writes
+  Edit placement
+  Status
+  n/a — bootstrap component (HelmRelease, no Application CR). Live rollout status is tracked via Flux.
+=> NO region-b standby row, NO replication-lag block, NO Switchover button.
+
+=== Continuum (dr.openova.io) — the lease/switchover backing object ===
+  cnpg/cnpg-pair-bp-cnpg-pair-continuum  app=catalyst-platform  PRIMARY=hw-me-east-215-a-rtz-prod  LEASE=<empty>  PHASE=Degraded
+  org-.../bp-wordpress-tenant            app=bp-wordpress-tenant PRIMARY=hw-me-east-215-a-rtz-prod  LEASE=<empty>  PHASE=Degraded
+  Conditions: LeaseHeld=False (Reconciled), Ready=False (Reconciled); leaseHolder=None
+  (There is NO Continuum named shared-pg; the platform pair Continuum is the cnpg-pair-bp-cnpg-pair-continuum.)
+
+VERDICT: The Topology surface does NOT render a per-region active/standby placement,
+declared-vs-effective, replication lag, or an armed Switchover — it shows the app as a
+single-region "singleton" against a phantom region. The Continuum lease holder is empty
+(Degraded). This is the #3375 Continuum-lease / topology-render gap. Physical infra is healthy;
+the console topology + lease surface is not green.
