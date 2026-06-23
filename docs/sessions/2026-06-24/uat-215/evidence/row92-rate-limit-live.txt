@@ -1,0 +1,7 @@
+# Row 92 — checkout rate-limit LIVE DRIVE (2026-06-24, omantel.biz)
+# Minted HS256 customer token (org-services-secrets/JWT_SECRET, sub=throwaway uat215 customer)
+# 7x rapid POST /billing/checkout to billing.org-services.svc.cluster.local:8085 via in-cluster curl:
+RESULT: attempt-1=400 attempt-2=400 attempt-3=400 attempt-4=400 attempt-5=400 attempt-6=429 attempt-7=429
+# attempts 1-5 pass auth + reach computeOrderTotal (400 = invalid plan, PAST the rate-limiter gate)
+# attempts 6-7 = HTTP 429 "checkout rate-limit exceeded" → globalCheckoutRateLimiter{max:5,window:60s} (#2941) fires live.
+# Per-customer key = sub claim; a different sub is an independent bucket (unaffected legit redeem).
