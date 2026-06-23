@@ -1,0 +1,30 @@
+UAT-215 topology rows 53/57/58 — per-app Topology tab render comparison (omantel.biz, 2026-06-24)
+
+The AppDetail Topology tab renders a "Placement" section whose shape depends on the Pattern:
+
+--- SINGLETON render (shared-pg /app/shared-pg -> Topology) ---
+  Placement   Pattern: singleton
+  hw-me-east-215-a-rtz-prod · 4635277cae4ffed9 · mgmt   ● PRIMARY · serves writes
+  Edit placement
+  Status: n/a — bootstrap component (HelmRelease, no Application CR).
+  => ONE region row. NO standby row, NO replication arrow, NO Switchover button, NO DR section.
+     (row 58: a singleton-pattern render honestly hides the DR/Switchover surface — CONFIRMED.)
+
+--- ACTIVE-ACTIVE render (keycloak /app/keycloak, gitea /app/gitea -> Topology) ---
+  Placement   Pattern: active-active
+  hw-me-east-215-a-rtz-prod · ... · mgmt   ● PRIMARY · serves writes   ──▶ repl
+  hw-me-east-215-b-rtz-prod · ...-me-east-215-b-1 · mgmt   ● PRIMARY · serves writes
+  Edit placement
+  => MULTIPLE region rows with ──▶ repl arrows; every region ● PRIMARY (active-active).
+     STILL NO "Switchover" button anywhere — the active-hot-standby switchover surface is
+     never armed because the backing Continuum has no lease holder (Degraded, #3375).
+
+VERDICT:
+  - row 53 (per-app Topology render, singleton notes no per-region standby): the singleton
+    render is honest — single region, no standby. CONFIRMED on shared-pg's singleton render.
+  - row 58 (singleton app: DR/Switchover does NOT render): CONFIRMED — the singleton-pattern
+    panel renders no Switchover button / no DR section, while the multi-region renders show
+    region rows. The section is honestly hidden, not armed against a phantom region.
+  - row 57 (Switchover button present + armed because a live 2-region cnpg-pair backs the app):
+    NOT MET — no Switchover button renders on shared-pg's Topology tab (it renders as singleton,
+    one region), and the Continuum lease holder is empty (Degraded). #3375.

@@ -1,0 +1,5 @@
+bp-wordpress AFTER raw.spec.card.summary='RECONCILE-PROOF-bp-wordpress-013102'  PERSISTED=True
+bp-wordpress REVERT: {"slug":"wordpress","path":"catalog-sovereign/bp-wordpress/blueprint.yaml","committed":true}  HTTP:200
+bp-wordpress poll 1: still marker
+bp-wordpress poll 2: still marker
+bp-wordpress poll 3: still marker
