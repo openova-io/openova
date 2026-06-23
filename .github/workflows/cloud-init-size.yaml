@@ -1,0 +1,127 @@
+name: cloud-init-size
+
+# REQUIRED-ABLE PR gate against the #3715-class regression (Refs #3724): a
+# cloud-init change that pushes the rendered `user_data` past Hetzner's HARD
+# 32768-byte cap. The repo already enforces a 32256 B (CP) / 30720 B (worker)
+# guardrail via `precondition` blocks in infra/providers/hetzner/main.tf, but
+# those only fire inside `tofu test`/`tofu plan`. On PR #3715 the `tofu test` PR
+# check DID go red — but it was (a) not a required/blocking check and (b) shared
+# the ambiguous name `validate + fmt + test` with the passing huawei job, so the
+# red was overlooked and the PR merged, silently freezing "Build & Deploy
+# Catalyst" (G36 tofu test) on every subsequent main commit for hours.
+#
+# This workflow gives each provider its OWN uniquely-named status check —
+# `cloud-init-size / hetzner` and `cloud-init-size / huawei` (via the matrix
+# job name) — that can be marked a REQUIRED branch-protection check and will
+# NEVER collide with another job's name. It renders the REAL templates, applies
+# the SAME comment-strip the provider applies to user_data, and asserts the byte
+# size against the same caps — also adding byte coverage to huawei for the first
+# time.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled": this is
+# pull-request-on-touch + push-on-merge; ad-hoc reruns go through
+# workflow_dispatch. There is no `schedule:` trigger. It does NOT provision
+# anything, touch the network, or modify any template.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/_shared/**'
+      - 'infra/providers/hetzner/**'
+      - 'infra/providers/huawei/**'
+      - 'products/catalyst/bootstrap/**'
+      - 'scripts/cloudinit-size-check.sh'
+      - '.github/workflows/cloud-init-size.yaml'
+  pull_request:
+    paths:
+      - 'infra/providers/_shared/**'
+      - 'infra/providers/hetzner/**'
+      - 'infra/providers/huawei/**'
+      - 'products/catalyst/bootstrap/**'
+      - 'scripts/cloudinit-size-check.sh'
+      - '.github/workflows/cloud-init-size.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    # IMPORTANT: the `name:` below is what surfaces as the status-check name
+    # (`cloud-init-size / hetzner`, `cloud-init-size / huawei`). It is unique
+    # per provider and required-able. Do NOT genericise it.
+    name: ${{ matrix.provider }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [hetzner, huawei]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          # Lockstep with infra-hetzner-tofu.yaml / infra-huawei-tofu.yaml /
+          # preflight-cloudinit-posix.yml.
+          tofu_version: 1.8.5
+
+      - name: Pin runner deps (python3)
+        run: |
+          set -eu
+          echo "python3: $(python3 --version)"
+          echo "tofu:    $(tofu version | head -1)"
+
+      - name: Render + assert cloud-init user_data byte size (${{ matrix.provider }})
+        run: |
+          set -eu
+          chmod +x scripts/cloudinit-size-check.sh
+          # Renders the shared control-plane template + the per-provider worker
+          # template + the secondary-region control-plane, applies the SAME
+          # comment-strip the provider applies to user_data, and FAILS (exit 1 +
+          # ::error::) if any rendered surface exceeds its cap. Emits a
+          # ::warning:: when a surface is >= 30000 B (~93% of cap) so the cliff
+          # is visible BEFORE a PR trips it, and a ::notice:: with the exact
+          # byte count otherwise.
+          ./scripts/cloudinit-size-check.sh "${{ matrix.provider }}"
+
+      - name: Self-test the gate (pad the template oversized, prove it FAILS, then restore)
+        if: always()
+        run: |
+          set -eu
+          TPL=infra/providers/_shared/cloudinit-control-plane.tftpl
+          cp "$TPL" "${TPL}.orig"
+          # Inject ~20 KB of OPERATIVE (non-comment) padding so the comment-strip
+          # cannot remove it — the rendered surface must blow past the 32256 cap.
+          # (python3 -c, NOT a heredoc, to avoid YAML/heredoc-indentation traps.)
+          python3 -c 'import sys; p=sys.argv[1]; s=open(p).read(); i=s.find(chr(10)); pad=(chr(10)+"  CLOUDINIT_SIZE_SELFTEST_PADDING_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"+chr(10))*280; open(p,"w").write(s[:i+1]+pad+s[i+1:])' "$TPL"
+          set +e
+          ./scripts/cloudinit-size-check.sh "${{ matrix.provider }}" >/tmp/selftest.log 2>&1
+          rc=$?
+          set -e
+          mv "${TPL}.orig" "$TPL"
+          echo "--- self-test output (oversized padding injected) ---"
+          cat /tmp/selftest.log
+          if [ "$rc" -eq 0 ]; then
+            echo "SELF-TEST FAILED: gate did NOT catch the oversized cloud-init (exit 0)"
+            exit 1
+          fi
+          echo "SELF-TEST PASSED: gate caught the oversized cloud-init (exit ${rc}); template restored"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## cloud-init-size / ${{ matrix.provider }}"
+            echo ''
+            echo "Rendered the ${{ matrix.provider }} cloud-init (control-plane +"
+            echo 'secondary-region control-plane + worker), applied the same'
+            echo 'comment-strip the provider applies to `user_data`, and asserted'
+            echo 'each rendered surface is within its byte cap (CP/secondary 32256,'
+            echo 'worker 30720 — Hetzner hard cap 32768). A surface over cap fails'
+            echo 'this required check; a surface >= 30000 B emits a low-headroom'
+            echo 'warning so the cliff is visible before a PR trips it.'
+          } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
