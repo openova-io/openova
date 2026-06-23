@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T16:45:02Z` |
+| Last refreshed | `2026-06-23T17:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 73 |
 | Open DoD gates | 0 / 41 |
@@ -280,6 +280,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T16:46 | [#4184](https://github.com/openova-io/openova/pull/4184) | #4177 | fix(funnel): thread parent_domain end-to-end → org-create la |
 | 2026-06-23T15:57 | [#4178](https://github.com/openova-io/openova/pull/4178) | #3376 | docs(uat): sync session UAT to main + 🛑 #4176 P0 banner (org |
 | 2026-06-23T16:05 | [#4177](https://github.com/openova-io/openova/pull/4177) | #4176 | fix(marketplace): org-creation redirect uses server console_ |
 | 2026-06-23T15:46 | [#4175](https://github.com/openova-io/openova/pull/4175) | #4160 | fix(catalog): regenerate stale catalog-gen — wordpress-tenan |
@@ -309,7 +310,6 @@ flowchart LR
 | 2026-06-22T15:16 | [#4140](https://github.com/openova-io/openova/pull/4140) | #3971 | fix(#4139): demo-Org convergence — empty wpContent.storageCl |
 | 2026-06-22T16:26 | [#4138](https://github.com/openova-io/openova/pull/4138) | #4110 | fix(openova-mcp): org-admin tier → create_application lands  |
 | 2026-06-22T14:37 | [#4137](https://github.com/openova-io/openova/pull/4137) | #3263 | fix(bp-valkey): Bitnami valkey/os-shell images via on-Sovere |
-| 2026-06-22T12:10 | [#4121](https://github.com/openova-io/openova/pull/4121) | #4112 | fix(catalyst): SECURITY #4110 — host-anchor Org-console scop |
 
 ---
 
