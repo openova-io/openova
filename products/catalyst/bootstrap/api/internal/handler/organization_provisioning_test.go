@@ -437,7 +437,8 @@ func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) 
 	for _, name := range []string{
 		"kustomization.yaml",
 		"namespace.yaml",
-		"vcluster.yaml",
+		// vcluster.yaml deliberately absent (#4188): the per-Org vCluster
+		// is owned by the CRD org-controller, not this overlay.
 		"bp-keycloak.yaml",
 		"bp-cnpg.yaml",
 		"bp-newapi.yaml",
@@ -458,6 +459,94 @@ func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) 
 	// Free-subdomain mode must NOT emit a Certificate.
 	if strings.Contains(files["certificate.yaml"], "kind: Certificate") {
 		t.Errorf("free-subdomain should not emit a Certificate; got: %s", files["certificate.yaml"])
+	}
+}
+
+// TestRenderOrganizationOverlay_NoVClusterDuplicate is the #4188
+// idempotency guard. The bootstrap-api org-tenant overlay used to render
+// a SECOND, orphaned vCluster HelmRelease (`vc-<subdomain>`, chart
+// vcluster@0.19.x, raw `rancher/k3s` image) alongside the canonical
+// per-Org vCluster the CRD org-controller owns (chart vcluster@0.33.x,
+// ns `<subdomain>`). On a Harbor-only Sovereign the rancher/k3s image
+// could never pull, so the duplicate sat in Init:ImagePullBackOff for
+// good and its HelmRelease stayed False on the spine — a fake-green trap.
+//
+// This test pins the overlay to NEVER emit a vCluster: no vcluster.yaml
+// file, no `vc-<subdomain>` HelmRelease in any rendered doc, no
+// `rancher/k3s` image, no `chart: vcluster` reference, and no `loft`
+// HelmRepository sourceRef. A re-render of any existing Org therefore
+// can't leave a stale-version vCluster duplicate behind (prune=true on
+// the org-tenants Kustomization then reaps any pre-existing one). Refs
+// #4188.
+func TestRenderOrganizationOverlay_NoVClusterDuplicate(t *testing.T) {
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "t-acme",
+		Subdomain:       "acme",
+		DomainMode:      store.OrganizationDomainFreeSubdomain,
+		AdminEmail:      "admin@acme.test",
+		CompanyName:     "Acme Corp",
+		OTECHFQDN:       "otech.example",
+		VClusterName:    "vc-acme",
+		TenantNamespace: "org-t-acme",
+	}
+	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	// 1. No standalone vcluster overlay file.
+	if body, ok := files["vcluster.yaml"]; ok {
+		t.Errorf("#4188 regression: overlay emitted vcluster.yaml — the per-Org vCluster belongs to the CRD org-controller, not this path; got:\n%s", body)
+	}
+
+	// 2. No rendered doc may carry the legacy vc-<subdomain> HelmRelease,
+	//    the rancher/k3s distro, the bare `chart: vcluster` ref, or a loft
+	//    sourceRef — any of those reintroduces the duplicate.
+	banned := []string{
+		"vc-acme",            // the legacy vc-<subdomain> HelmRelease name
+		"rancher/k3s",        // the un-mirrorable distro image
+		"chart: vcluster",    // the upstream vcluster chart
+		"name: loft",         // the loft HelmRepository sourceRef
+		`version: "0.19`,     // the stale 0.19.x pin
+	}
+	for name, body := range files {
+		for _, b := range banned {
+			if strings.Contains(body, b) {
+				t.Errorf("#4188 regression: overlay file %s contains banned vCluster token %q — the duplicate vCluster is back:\n%s", name, b, body)
+			}
+		}
+	}
+
+	// 3. The kustomization resource list must not reference vcluster.yaml.
+	if strings.Contains(files["kustomization.yaml"], "vcluster.yaml") {
+		t.Errorf("#4188 regression: kustomization.yaml still lists vcluster.yaml:\n%s", files["kustomization.yaml"])
+	}
+
+	// 4. Re-rendering the SAME record is byte-identical and STILL carries
+	//    no vCluster — idempotency across repeated provision re-runs.
+	files2, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("re-render: %v", err)
+	}
+	if _, ok := files2["vcluster.yaml"]; ok {
+		t.Errorf("#4188 regression: re-render re-introduced vcluster.yaml")
+	}
+	if files["kustomization.yaml"] != files2["kustomization.yaml"] {
+		t.Errorf("#4188: kustomization.yaml not idempotent across re-render")
+	}
+}
+
+// TestOrgTenantSharedHelmRepositories_NoLoft pins the shared
+// HelmRepository set to NOT reference the upstream loft chart repo. The
+// loft repo was the only source the legacy vc-<subdomain> overlay pulled
+// from; with the vCluster removed (#4188) it is dead weight and its
+// presence would imply the duplicate could come back.
+func TestOrgTenantSharedHelmRepositories_NoLoft(t *testing.T) {
+	if strings.Contains(orgTenantSharedHelmRepositories, "charts.loft.sh") {
+		t.Errorf("#4188 regression: shared HelmRepositories still reference charts.loft.sh:\n%s", orgTenantSharedHelmRepositories)
+	}
+	if strings.Contains(orgTenantSharedHelmRepositories, "name: loft") {
+		t.Errorf("#4188 regression: shared HelmRepositories still declare the loft HelmRepository:\n%s", orgTenantSharedHelmRepositories)
 	}
 }
 
