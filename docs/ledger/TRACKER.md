@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T07:30:04Z` |
+| Last refreshed | `2026-06-23T07:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 87 |
+| Open issues | 77 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 87 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 77 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 87 open items (clickable table)
+### All 77 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -209,13 +209,10 @@ flowchart LR
 | [#3724](https://github.com/openova-io/openova/issues/3724) | CI: cloud-init 32256B size gate must run as a required PR check — #3715 broke  | Other |
 | [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
 | [#3744](https://github.com/openova-io/openova/issues/3744) | Funnel: credit-covered redeem double-fires provisioning → Gitea sme-tenants re | Other |
-| [#3760](https://github.com/openova-io/openova/issues/3760) | fix(org-controller): per-Org vCluster StatefulSet DENIED by kyverno harbor-proxy | Other |
 | [#3785](https://github.com/openova-io/openova/issues/3785) | FUNNEL: customer's purchased WordPress image is kyverno-DENIED (not Harbor-proxi | Other |
 | [#3821](https://github.com/openova-io/openova/issues/3821) | hw165: Pillar-5 cutover wedged at step 1/11 — cutover-gitea-mirror Job (ns cat | Other |
 | [#3824](https://github.com/openova-io/openova/issues/3824) | hw165: openbao-snapshot-save CreateContainerConfigError — seeder can't read rt | Other |
 | [#3829](https://github.com/openova-io/openova/issues/3829) | Every application AND activity shows its TRUE live state end-to-end — every ap | Other |
-| [#3840](https://github.com/openova-io/openova/issues/3840) | cloud-init: disable IPv6 on Huawei nodes so ghcr image-pull resolution is DETERM | Other |
-| [#3854](https://github.com/openova-io/openova/issues/3854) | fix(bp-catalyst-platform): #3383 rename tail — provisioning-github-token + val | Other |
 | [#3859](https://github.com/openova-io/openova/issues/3859) | fix(org-services + per-Org vCluster): sme→org-services rename orphaned 3 platf | Other |
 | [#3878](https://github.com/openova-io/openova/issues/3878) | fix(bp-postgres/bp-mgmt-vcluster): deliver the 4 pod-mounted DB secrets natively | Other |
 | [#3888](https://github.com/openova-io/openova/issues/3888) | FOUNDATION: thin the bootstrap cloud-init — evict powerdns-api-credentials to  | Other |
@@ -226,12 +223,9 @@ flowchart LR
 | [#3896](https://github.com/openova-io/openova/issues/3896) | Jobs page: in-cluster convergence Jobs/CronJobs/Kustomizations invisible during  | Other |
 | [#3898](https://github.com/openova-io/openova/issues/3898) | Funnel: a crashed/rolled provisioning Pod strands the in-flight provision row � | Other |
 | [#3901](https://github.com/openova-io/openova/issues/3901) | fix(bp-openbao): host-token-reviewer-export Job script ${...} vars eaten by Flux | Other |
-| [#3903](https://github.com/openova-io/openova/issues/3903) | fix(sovereign-tls): cilium-envoy-tls-restart Job uses bare alpine/k8s — harbor | Other |
 | [#3905](https://github.com/openova-io/openova/issues/3905) | Topology placement-edit dropdown shows generic mode descriptions that contradict | Other |
-| [#3906](https://github.com/openova-io/openova/issues/3906) | fix(bp-catalyst-platform): PIN-login secret catalyst-openova-kc-credentials hits | Other |
 | [#3913](https://github.com/openova-io/openova/issues/3913) | fix(platform): close the un-proxied-image class — harbor-proxy sigstore/trivy/ | Other |
 | [#3914](https://github.com/openova-io/openova/issues/3914) | Provisioning UX: fill the ~30-min 'Provision <provider>: Success' void with a li | Other |
-| [#3922](https://github.com/openova-io/openova/issues/3922) | Catalog 'New instance' create: HTTP 500 (dotted environmentRef) + topology <sele | Other |
 | [#3925](https://github.com/openova-io/openova/issues/3925) | Convergence Monitor — redesign provisioning monitoring into 2 native surfaces  | Other |
 | [#3926](https://github.com/openova-io/openova/issues/3926) | fix(bp-self-sovereign-cutover): step-02 harbor-projects wedges every post-#3642  | Other |
 | [#3934](https://github.com/openova-io/openova/issues/3934) | SSO-landing regression (#3642 mgmt-vCluster pivot): gitea 500 / harbor login-for | Other |
@@ -251,7 +245,6 @@ flowchart LR
 | [#3987](https://github.com/openova-io/openova/issues/3987) | Cloud list: per-kind k9s pages show 0 objects for many resource types (helmrelea | Other |
 | [#3988](https://github.com/openova-io/openova/issues/3988) | EPIC: OpenOva MCP server — RBAC-scoped-per-user thin facade over the shared au | Other |
 | [#3990](https://github.com/openova-io/openova/issues/3990) | hw173 in-cluster catalyst-api cannot reach region-b apiserver (DNAT'd EIP) — m | Other |
-| [#3991](https://github.com/openova-io/openova/issues/3991) | hw173 in-cluster catalyst-api cannot reach region-b apiserver (DNAT'd EIP) — t | Other |
 | [#3996](https://github.com/openova-io/openova/issues/3996) | feat(cloud): lightweight ArgoCD-like reconciler management — drill + logs + re | Other |
 | [#3998](https://github.com/openova-io/openova/issues/3998) | fix(cloud): network+security coverage gap — Gateway/HTTPRoute/NetworkPolicy/Ci | Other |
 | [#4000](https://github.com/openova-io/openova/issues/4000) | Per-app Topology shows false 'singleton' on multi-region Sovereign — secondary | Other |
@@ -260,9 +253,7 @@ flowchart LR
 | [#4010](https://github.com/openova-io/openova/issues/4010) | EPIC: bp-chepherd — chepherd as a deployable Application (Helm chart) + solo-a | Other |
 | [#4018](https://github.com/openova-io/openova/issues/4018) | fix(cloud): Path B — provisioning instantiates Crossplane XRCs so the XRC laye | Other |
 | [#4046](https://github.com/openova-io/openova/issues/4046) | fix(huawei-prov): janitor SG-leak + EIP-egress cooldown preflight (stop region-a | Other |
-| [#4053](https://github.com/openova-io/openova/issues/4053) | fix(bp-cilium): one broken backend Service poisons the whole gateway CEC → ent | Other |
 | [#4055](https://github.com/openova-io/openova/issues/4055) | Huawei provs ship UNDER-PROVISIONED: 2vCPU m7n.large.8 workers wedge bp-catalyst | Other |
-| [#4059](https://github.com/openova-io/openova/issues/4059) | fix(bp-harbor): host-bridge path skips DB-secret rename Job → registry/harbor  | Other |
 | [#4060](https://github.com/openova-io/openova/issues/4060) | fix(provisioning): customer-Org CNPG pair hardcodes hcloud-volumes → Pillar-3  | Other |
 | [#4061](https://github.com/openova-io/openova/issues/4061) | Permanent Sovereign auto-fires sovereignty-cutover on handover — make it a del | Other |
 | [#4069](https://github.com/openova-io/openova/issues/4069) | byo-api/PowerDNS DNS-write ignores ConsoleLoadBalancerIP — console/api/marketp | Other |
@@ -278,7 +269,6 @@ flowchart LR
 | [#4097](https://github.com/openova-io/openova/issues/4097) | bp-agenity: build chepherd daemon from PUBLIC agenity-org source (drop private c | Other |
 | [#4099](https://github.com/openova-io/openova/issues/4099) | fix(org-provisioning): per-Org bp-keycloak HR missing realmConfig.tenant.subdoma | Other |
 | [#4100](https://github.com/openova-io/openova/issues/4100) | fix(bp-catalyst-platform): pin catalyst-api pod to its EVS volume node so Recrea | Other |
-| [#4101](https://github.com/openova-io/openova/issues/4101) | fix(catalyst-api): pool-domain Org login broken — PIN cookie scoped to Soverei | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
 | [#4113](https://github.com/openova-io/openova/issues/4113) | Org console Apps page: project a TRUE per-Org apps list (own namespaces + vClust | Other |
 | [#4114](https://github.com/openova-io/openova/issues/4114) | Sovereign handover-jwt keypair MISMATCH: catalyst-api runtime signer != publishe | Other |
