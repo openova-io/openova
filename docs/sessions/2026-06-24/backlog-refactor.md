@@ -92,3 +92,25 @@ Founder mandate: produce a verdict for EVERY open issue (~76) and act on the cle
 **KEEP (real open backlog):** see KEEP rows above.
 
 **PARKED — do NOT touch (agenity/chepherd + active in-flight):** 4010, 4079, 4111, 4180 (agenity); 3969, 4179, 4181, 4182, 4186 (active in-flight).
+
+## Executed (final tally — 2026-06-24)
+
+Open issues went **76 → 25**.
+
+**Closed DONE (33):** 3383, 3642, 3724, 3744, 3785, 3859, 3878, 3888, 3889, 3891, 3892, 3895, 3896, 3898, 3905, 3925, 3952, 3955, 3970, 3974, 3978, 3985, 3988, 4000, 4003, 4019, 4046, 4060, 4061, 4069, 4071, 4073, 4086, 4089, 4167, 4176 — each with a cited comment (merged PR# + UAT row / git-grep on main / live check). (#3642 added during execution: NS#1 migration 20/20 ✅; #3974: UPX confirmed in Containerfile on main.)
+
+**Closed DUP (1):** 3979 → #3980 (identical 4 graph fixes; #3980 has the merged PR #3983).
+
+**Closed OBSOLETE (1):** 3824 (wiped hw165 env; premise superseded by the #3878/#3952/#4159 native-DB-secret line).
+
+**MERGE (1):** 4170 → folded into #4196 (native Billing-menu epic, canonical) as a done sub-row.
+
+**KEEP — the deduplicated real fix backlog (25):**
+- Customer journey / funnel: #3376 (app-RUNS terminal half), #4179 (E2E epic, active), #4186-adjacent #4187 (avatar), #4196 (Billing-menu epic).
+- SSO / cutover: #3374 (per-app probe sweep), #3379 (cutover honest-status rows ❌), #3944 (step-03 post-#3642, pending cutover walk).
+- Cloud-view tail: #3996 (logs/actions ❌, blocked by #4193), #4193 (the active blocker), #4084 (settle-regression, in UAT), #4085 (per-resource compliance, unwalked), #4091 (code-editor component).
+- Crossplane/object-model: #4002 (seam built-but-inert, ⛔), #4018 (Path B deferred), #3829 (true-live-state invariant epic).
+- Placement epic: #3969 (active).
+- Platform reliability: #3740 (cnpg-pair async RPO), #4143 (cnpg multi-operator webhook), #4158 (region-B mgmt-vCluster, in-flight), #3914 (provisioning-timeline void UX), #4188 (reap stale vc-demo).
+- UAT discipline: #4181 (215-drive, active).
+- **PARKED (do NOT touch — founder parked agenity/chepherd):** #4010, #4079, #4111, #4180.
