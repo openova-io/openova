@@ -434,17 +434,59 @@ service:
 serviceAccount:
   create: true
   name: ""
-# ─── Ingress + cert-manager TLS ─────────────────────────────────────────
-# Default host is `wordpress.<orgDomain>`; operator may override
-# `ingress.host` directly when BYO domain shapes differ.
-ingress:
+# ─── Cilium Gateway API HTTPRoute (#3785 — canonical Sovereign exposure) ──
+# A Catalyst Sovereign serves every customer host through the Cilium
+# Gateway API (HTTPRoute → cilium-gateway-console), NOT traefik. This
+# block drives templates/httproute.yaml — the route that actually makes
+# `wordpress.<slug>.<pool>` reachable. Without a non-empty `gateway.host`
+# the template renders nothing (fails closed, Inviolable Principle #4) —
+# that was the #3785 root cause (only a dead traefik Ingress existed →
+# envoy 404 despite a healthy Pod serving HTTP 302 internally). Mirrors
+# platform/keycloak/chart (gateway:) + products/agenity/chart (httpRoute:).
+gateway:
   enabled: true
+  # host: wordpress.<slug>.<pool> — REQUIRED, no default per Inviolable
+  # Principle #4. The org-tenant overlay (organization_gitops.go) wires
+  # this to .WordPressHost. Empty ⇒ no HTTPRoute (no exposure).
+  host: ""
+  path: "/"
+  # backendService / backendPort default to the chart's own Service
+  # (bp-wordpress-tenant.fullname / service.port = 80). Operators with a
+  # non-default release name may override.
+  backendService: ""
+  backendPort: 0
+  # The per-Org pool host resolves to the console-ELB EIP which fronts the
+  # DEDICATED cilium-gateway-console (#4054/#4070) — NOT the apps
+  # cilium-gateway. The console Gateway carries the `*.<pool>` wildcard
+  # TLS listener, so TLS terminates on the wildcard cert and no per-host
+  # Certificate is needed. Parenting the apps gateway → 404 on the console
+  # ELB (same trap bp-keycloak / bp-stalwart-tenant hit; see
+  # org_console_tls.go consoleGatewayNamespace).
+  parentRef:
+    name: "cilium-gateway-console"
+    namespace: "kube-system"
+    # sectionName omitted — the console Gateway exposes one apex-bound
+    # HTTPS listener per pool zone, matched by hostname filter. The `with`
+    # guard in templates/httproute.yaml drops the field when blank.
+    sectionName: ""
+# ─── Legacy traefik Ingress + cert-manager TLS (#3785 — DEFAULT OFF) ──────
+# DISABLED by default on Sovereigns. A Catalyst Sovereign runs Cilium
+# Gateway API (see `gateway:` above), not traefik — the traefik Ingress
+# never matched any backend, and the per-host `wordpress-tls` cert it
+# requested sat False forever ("Issuing certificate as Secret does not
+# exist") because no HTTP-01 / traefik solver runs there (#3785, live on
+# the omantel.biz demo Org). Kept (default false) only for a non-Cilium
+# dev cluster that genuinely runs a traefik IngressController + an
+# HTTP-01-capable issuer; such overlays flip ingress.enabled=true AND
+# gateway.enabled=false.
+ingress:
+  enabled: false
   className: "traefik"
   # Empty string → templates derive `wordpress.{{ .Values.orgDomain }}`.
   # Operator may set explicitly when BYO requires a non-derived host.
   host: ""
   tls:
-    enabled: true
+    enabled: false
     issuer: "letsencrypt-prod" # cert-manager ClusterIssuer
     secretName: "wordpress-tls"
   annotations: {}
@@ -458,6 +500,21 @@ ingress:
 networkPolicy:
   enabled: true
   ingress:
+    # #3785: Cilium Gateway API traffic reaches the WordPress Pod with the
+    # reserved `ingress` ENTITY identity (the Envoy proxy in the cilium
+    # agent), which NO standard K8s NetworkPolicy selector can express — so
+    # the gateway→backend hop times out (envoy 503 "upstream connect
+    # error") even with a kube-system namespaceSelector. This toggle ships
+    # an additive CiliumNetworkPolicy (templates/cilium-ingress-network
+    # policy.yaml) with `fromEntities: [ingress]` — the canonical fix
+    # (mirrors platform/newapi #3374). Gated on the cilium.io/v2 CRD being
+    # present, so it no-ops on kind CI. Set false on a non-Cilium cluster.
+    allowGatewayEntity: true
+    # The Cilium Gateway envoy lives here (default kube-system) — admitted
+    # by networkpolicy.yaml's standard K8s rule too (belt-and-suspenders;
+    # the CNP above is the load-bearing one for the `ingress` entity).
+    gatewayNamespace: "kube-system"
+    # Legacy traefik path (dev clusters). Kept as a second admitted peer.
     fromNamespaceLabels:
       kubernetes.io/metadata.name: traefik
   egress:

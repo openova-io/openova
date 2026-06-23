@@ -1338,10 +1338,32 @@ spec:
     adminUser:
       email: {{.AdminEmail}}
       displayName: {{.CompanyName}}
-    ingress:
+    # ── Cilium Gateway API exposure (#3785) ───────────────────────────
+    # A Catalyst Sovereign serves every customer host through the Cilium
+    # Gateway API (HTTPRoute → cilium-gateway-console), NOT traefik. The
+    # chart historically shipped only a traefik Ingress, so NO HTTPRoute
+    # ever matched wordpress.<slug>.<pool> → envoy returned a bare 404
+    # even though the WordPress Pod was Running 1/1 and served HTTP 302
+    # internally (root-caused live on the omantel.biz demo Org). This
+    # gateway block drives bp-wordpress-tenant chart >= 0.4.13's
+    # templates/httproute.yaml — the route that actually makes the host
+    # reachable, mirroring the bp-keycloak gateway block above.
+    #
+    # parentRef = cilium-gateway-console / kube-system (console-isolation
+    # #4054/#4070): wordpress.<slug>.<pool> resolves to the console-ELB
+    # EIP fronting the DEDICATED console Gateway, which also carries the
+    # wildcard *.<pool> TLS listener — so TLS terminates on the wildcard
+    # cert and NO per-host Certificate is needed (the chart's legacy
+    # ingress.tls path issued a wordpress-tls cert that sat False forever
+    # because no HTTP-01 / traefik solver runs on a Cilium Sovereign).
+    # Parenting the apps cilium-gateway instead → 404 on the console ELB.
+    gateway:
+      enabled: true
       host: {{.WordPressHost}}
-      tls:
-        issuer: letsencrypt-prod
+      parentRef:
+        name: cilium-gateway-console
+        namespace: kube-system
+        sectionName: ""
 {{- if .EnableHotStandby }}
     # D31 active-hot-standby — primary + replica Cluster CR pair across
     # the Sovereign's two declared regions, WAL streaming over Cilium

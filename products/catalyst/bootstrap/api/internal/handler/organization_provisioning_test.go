@@ -942,10 +942,16 @@ func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 	if strings.Contains(body, bad) {
 		t.Errorf("bp-wordpress-tenant issuerURL must be per-tenant, not otech-wide: %s", body)
 	}
-	// Ingress + admin-user blocks are unchanged (kept here so a regression
-	// to those surfaces in the same test).
+	// #3785: the WordPress public host now flows through the Cilium Gateway
+	// HTTPRoute (gateway.host: ...) instead of the dead traefik ingress block;
+	// the host string is asserted here so a regression to the exposure surface
+	// trips in the same test.
 	if !strings.Contains(body, "host: wordpress.alice.omantel.omani.works") {
-		t.Errorf("wordpress ingress host missing")
+		t.Errorf("wordpress gateway host missing")
+	}
+	// And the gateway block MUST parent the dedicated console Gateway.
+	if !strings.Contains(body, "name: cilium-gateway-console") {
+		t.Errorf("wordpress HTTPRoute must parent cilium-gateway-console (#3785)")
 	}
 	if !strings.Contains(body, "email: admin@alice.test") {
 		t.Errorf("admin email missing")

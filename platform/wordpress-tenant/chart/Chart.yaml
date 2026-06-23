@@ -150,7 +150,41 @@ name: bp-wordpress-tenant
 #   key → `PDO_OK`, `curl / → HTTP 302 Location: /wp-admin/install.php`, pod 1/1
 #   Running 0 restarts; removing the key → reflector repopulated it (64 bytes)
 #   in <5s. Sync Job retained as belt-and-suspenders.
-version: 0.4.12
+# 0.4.13 (#3785): EXPOSE the purchased WordPress at its FQDN via the Cilium
+#   Gateway API — the customer-facing end-user outcome ("WordPress reachable
+#   signed-in at wordpress.<slug>.<pool>"). Root cause: the chart shipped ONLY
+#   a networking.k8s.io/v1 traefik Ingress (templates/ingress.yaml), but a
+#   Catalyst Sovereign runs Cilium Gateway API, not traefik — so NO HTTPRoute
+#   ever matched the host and envoy returned a bare 404 even though the Pod was
+#   Running 1/1 and served HTTP 302 internally (root-caused live on the
+#   omantel.biz demo Org). Every WORKING per-Org product (bp-agenity,
+#   bp-keycloak, bp-stalwart-tenant webmail) reaches its host through an
+#   HTTPRoute on cilium-gateway-console; WordPress was the odd one out.
+#   FIX:
+#   - NEW templates/httproute.yaml — Cilium Gateway HTTPRoute gated on
+#     gateway.enabled + gateway.host, parented (default) on the DEDICATED
+#     cilium-gateway-console / kube-system (the per-Org pool host resolves to
+#     the console-ELB EIP, #4054/#4070). Mirrors platform/keycloak/chart/
+#     templates/httproute.yaml. The console Gateway's `*.<pool>` wildcard TLS
+#     listener terminates TLS, so NO per-host Certificate is required.
+#   - NEW gateway.* values block (enabled/host/path/backendService/backendPort/
+#     parentRef) — host REQUIRED, no default (Inviolable Principle #4); empty ⇒
+#     no route (fails closed).
+#   - ingress.enabled + ingress.tls.enabled now DEFAULT FALSE. The traefik
+#     Ingress never matched on a Sovereign and the per-host `wordpress-tls`
+#     Certificate it requested sat False forever ("Issuing certificate as
+#     Secret does not exist") because no HTTP-01 / traefik solver runs there.
+#     Kept (off) only for non-Cilium dev clusters.
+#   - networkpolicy.yaml ingress now admits the Gateway namespace (default
+#     kube-system, networkPolicy.ingress.gatewayNamespace) in addition to the
+#     legacy traefik namespace, so the NetworkPolicy is not the NEXT blocker
+#     once the route lands.
+#   Wired by products/catalyst/bootstrap/api/internal/handler/
+#   organization_gitops.go (orgTenantBPWordPress): the WordPress HelmRelease
+#   now emits gateway.{enabled,host,parentRef} instead of the dead ingress
+#   block. Verified live: GET https://wordpress.<slug>.<pool>/ → 200 serving
+#   the WordPress site (was 404).
+version: 0.4.13
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

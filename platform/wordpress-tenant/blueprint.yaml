@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: tenant-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.4.12
+  version: 0.4.13
   card:
     title: WordPress (per-Organization)
     summary: |
@@ -156,12 +156,28 @@ spec:
                 # node-local disk). Matches the chart values.yaml default ("").
                 type: string
                 default: ""
-      ingress:
+      gateway:
+        # #3785 — the canonical Sovereign exposure: a Cilium Gateway API
+        # HTTPRoute on cilium-gateway-console (the per-Org pool host serves
+        # the WordPress site over the `*.<pool>` wildcard TLS listener). The
+        # org-tenant overlay wires gateway.host from the chosen public host.
         type: object
         properties:
           host:
             type: string
-            description: Override the derived `wordpress.<orgDomain>` ingress host.
+            description: >-
+              Public host the WordPress site serves at, e.g.
+              `wordpress.<slug>.<pool>`. REQUIRED to expose the app — empty
+              renders no HTTPRoute (fails closed).
+      ingress:
+        # Legacy traefik Ingress — DEFAULT OFF on a Sovereign (Cilium Gateway
+        # API via `gateway` above is canonical). Retained for non-Cilium dev
+        # clusters only.
+        type: object
+        properties:
+          host:
+            type: string
+            description: Override the derived `wordpress.<orgDomain>` ingress host (traefik dev clusters only).
           tls:
             type: object
             properties:
