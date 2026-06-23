@@ -1,0 +1,35 @@
+#4179 FUNNEL E2E — live API control evidence (omantel.biz, dep 4635277cae4ffed9, 2026-06-23)
+Marketplace c3b2736 + tenant-service c3b2736 (chart bp-catalyst-platform 1.4.799), rolled via HR.
+
+=== DoD #1/#3: redirect now targets the POOL host, NOT omantel.biz ===
+Live network capture (Playwright) on Launch:
+  POST https://marketplace.omantel.biz/api/tenant/orgs => 201 Created
+  GET  https://console.f4179walk.omani.works/jobs?token=...&refresh_token=...   <-- POOL HOST
+
+Pre-fix (walk 1, before roll), SAME funnel produced:
+  GET  https://console.funnel4179.omantel.biz/jobs?token=...  => ERR_CONNECTION_REFUSED  (BROKEN)
+
+=== API-level control: tenant-service now returns console_host from parent_domain ===
+POST /api/tenant/orgs  body {... "parent_domain":"omani.works"}  => 201
+  response: { ..., "subdomain":"f4179-works", "parent_domain":"omani.works",
+              "console_host":"console.f4179-works.omani.works" }     <-- CORRECT
+POST /api/tenant/orgs  body {... (no parent_domain)}  => 201
+  response: { ... }  (no console_host)  <-- clean legacy fallback, client splices as before
+
+=== Org CR threading proven ===
+Organization/f4179walk .spec.tenantPublic = {"parentDomain":"omani.works","subdomain":"f4179walk"}
+Org status Ready=True ("vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled")
+
+=== Landed host is fully functional (valid LE cert, serving) ===
+https://console.f4179walk.omani.works/         => HTTP 200
+https://console.f4179walk.omani.works/healthz  => ok (HTTP 200)
+https://console.f4179walk.omani.works/api/v1/version => 200 {"service":"catalyst-api",...}
+TLS: valid LetsEncrypt DNS-01 wildcard cert *.f4179walk.omani.works (issuer letsencrypt-dns01-prod-powerdns)
+DNS: console.f4179walk.omani.works -> 212.72.24.33 (Sovereign console-ELB), mothership PowerDNS
+
+=== Signed-in landing (DoD #2) — pre-existing orthogonal gap, NOT the #4179 redirect P0 ===
+The SPA bounces /jobs -> /login (no session) — IDENTICAL on the established demo Org host
+console.demo.omani.homes/jobs (also -> /login). This Sovereign was provisioned single-domain
+(parent_domains_yaml=[{omantel.biz, primary}], TENANT_PARENT_DOMAIN empty), so the per-Org
+console session-handoff + /api/auth/* routing is incompletely wired for EVERY pool Org. That is a
+separate infra gap from the marketplace redirect bug this ticket fixed.
