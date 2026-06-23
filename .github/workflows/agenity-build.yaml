@@ -117,20 +117,25 @@ jobs:
         run: |
           set -euo pipefail
           IMG="${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}"
+          # NOTE: the image ENTRYPOINT is the `chepherd` daemon, so a bare
+          # `docker run "$IMG" sh -c …` passes `sh -c …` as ARGS to chepherd
+          # ("unknown shorthand flag: 'c'") and the gate crashes on its own
+          # invocation before testing anything. Every probe MUST override the
+          # entrypoint with `--entrypoint`.
           echo "::group::agent runtime (node + claude-code)"
-          docker run --rm "$IMG" sh -c 'node --version && /usr/bin/claude --version'
+          docker run --rm --entrypoint sh "$IMG" -c 'node --version && /usr/bin/claude --version'
           echo "::endgroup::"
           echo "::group::dashboard bundle is the NEW (#745) build"
           # The /app/ SPA must mount a content-hashed Dashboard component (a
           # stale/empty web layer would have no such reference) …
-          docker run --rm "$IMG" \
-            grep -qE '_astro/Dashboard[a-z]*\.[A-Za-z0-9_-]+\.js' /app/web/dist/app/index.html \
+          docker run --rm --entrypoint grep "$IMG" \
+            -qE '_astro/Dashboard[a-z]*\.[A-Za-z0-9_-]+\.js' /app/web/dist/app/index.html \
             || { echo "FAIL: /app/index.html does not reference a hashed Dashboard bundle — stale/empty web layer"; exit 1; }
           # … and the dist MUST carry the #745-era routes the OLD (pre-#745,
           # archaic) dashboard did NOT have. This is the decisive archaic-vs-new
           # discriminator: a cache-served old web layer fails HERE, before push.
-          docker run --rm "$IMG" \
-            sh -c 'test -d /app/web/dist/v09-stage4-preview && test -d /app/web/dist/v0.9.4' \
+          docker run --rm --entrypoint sh "$IMG" \
+            -c 'test -d /app/web/dist/v09-stage4-preview && test -d /app/web/dist/v0.9.4' \
             || { echo "FAIL: built /app dist is missing the #745 dashboard routes (v0.9.4 / v09-stage4-preview) — a cache-served ARCHAIC dashboard layer shipped"; exit 1; }
           echo "::endgroup::"
           echo "smoke gate PASSED — agent runtime present, NEW dashboard bundle confirmed"
