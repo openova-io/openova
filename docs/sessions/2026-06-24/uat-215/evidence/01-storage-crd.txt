@@ -1,0 +1,17 @@
+# Storage + CRD live evidence — omantel.biz — 2026-06-24
+## storageclasses (row 209/210)
+NAME                PROVISIONER               RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+evs-ssd (default)   evs.csi.huaweicloud.com   Retain          WaitForFirstConsumer   true                   43h
+
+## local-path SC (row 210 - must be NotFound)
+Error from server (NotFound): storageclasses.storage.k8s.io "local-path" not found
+command terminated with exit code 1
+
+## local-path-provisioner pod (row 210 - must be absent)
+(none)
+
+## Organization CRD tier enum (row 215)
+["org","corporate"]
+## corporate-tier accept + sme reject (row 215)
+corporate -> passes enum (fails on unrelated required fields):
+sme -> Unsupported value: sme: supported values: org, corporate
