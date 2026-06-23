@@ -814,7 +814,7 @@ name: bp-newapi
 # the host's redirectUris in the shared sovereign realm -> kills the live
 # "Invalid parameter: redirect_uri" SSO regression on newapi.<sovereign-fqdn>.
 # Lockstep: both slot pins + blueprint → 1.4.122.
-version: 1.4.122
+version: 1.4.123
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
