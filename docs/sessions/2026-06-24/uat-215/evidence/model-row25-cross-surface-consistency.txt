@@ -1,0 +1,14 @@
+Row 25 — cross-surface model consistency (omantel.biz, 2026-06-24)
+=================================================================
+
+/organizations directory: 2/2 Orgs ->  [omantel.biz (parent/internal)]  +  [Demo Org (customer)]
+
+/apps list (60 Application cards, one per Application; platform bp-* carry Platform/BOOTSTRAP badge):
+  customer apps:  agenity, agent-wp-blog, agent-wp-news, agent-wp-shop, demo-shop, demo-wp-blog, demo-wp-shop, test-shop, shared-pg, shared-pg-b, shared-pg-c, valkey
+  platform apps:  bp-* (cilium/cnpg/flux/gitea/harbor/keycloak/openbao/... + bp-catalyst-platform) all Platform/BOOTSTRAP
+
+Dashboard treemap Layer-1 = Organization (default), with a distinct 'demo' Org cell + a 'Platform overhead' roll-up.
+
+/organizations/demo Showback: apps attributed ONLY to the Demo Org (bp-keycloak, bp-newapi, agenity-demo, vc-demo, bp-stalwart-tenant, bp-cnpg, bp-wordpress-tenant, wordpress-db, bp-openclaw) — all in ns org-7283eb4a...
+
+=> All four surfaces (/organizations, /apps, dashboard treemap, /organizations/demo showback) agree on the SAME set of Orgs (omantel.biz parent + Demo customer) and the same Application model. ONE consistent object model. ✅
