@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T22:45:03Z` |
+| Last refreshed | `2026-06-23T23:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 16 |
+| Open issues | 17 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 16 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 16 open items (clickable table)
+### All 17 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -216,6 +216,7 @@ flowchart LR
 | [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
 | [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
 | [#4206](https://github.com/openova-io/openova/issues/4206) | Secondary region: per-app CNPG PVCs (guacamole-pg/gitea-pg/harbor-pg) stuck Pend | Other |
+| [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: light the object-model/DR backbone at runtime — ONE build (un-gate Cross | Other |
 
 ---
 
@@ -223,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T22:51 | [#4211](https://github.com/openova-io/openova/pull/4211) | #4192 | docs(walk): goal#4 demo-user 7283eb4a RBAC walk — own apps + |
 | 2026-06-23T22:18 | [#4210](https://github.com/openova-io/openova/pull/4210) | #4200 | docs(walk): post-P0 signed-in console walk evidence (dashboa |
 | 2026-06-23T21:46 | [#4209](https://github.com/openova-io/openova/pull/4209) | #3925 | docs(uat): flip 10 rows ✅ — post-roll re-walk of merged Jobs |
 | 2026-06-23T21:23 | [#4208](https://github.com/openova-io/openova/pull/4208) | #893 | docs(backlog): audit #2 verdict table — 24→21 open, evidence |
@@ -252,7 +254,6 @@ flowchart LR
 | 2026-06-23T06:20 | [#4165](https://github.com/openova-io/openova/pull/4165) | #4157 | fix(bp-keycloak): declare browser-no-idp forms subflow so co |
 | 2026-06-23T05:44 | [#4164](https://github.com/openova-io/openova/pull/4164) | #4002 | docs(uat): record 2026-06-23 env-state HR convergence + rema |
 | 2026-06-23T05:45 | [#4162](https://github.com/openova-io/openova/pull/4162) | #4 | fix(catalyst-api): sync keycloak master-realm admin Secret p |
-| 2026-06-23T05:05 | [#4161](https://github.com/openova-io/openova/pull/4161) | #4160 | fix(catalog-seed): bump bp-wordpress-tenant pin 0.4.4->0.4.1 |
 
 ---
 
