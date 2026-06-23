@@ -500,9 +500,19 @@ ingress:
 networkPolicy:
   enabled: true
   ingress:
-    # #3785: the Cilium Gateway envoy lives here (default kube-system) —
-    # this is the REAL ingress path on a Sovereign. networkpolicy.yaml
-    # admits this namespace in addition to fromNamespaceLabels below.
+    # #3785: Cilium Gateway API traffic reaches the WordPress Pod with the
+    # reserved `ingress` ENTITY identity (the Envoy proxy in the cilium
+    # agent), which NO standard K8s NetworkPolicy selector can express — so
+    # the gateway→backend hop times out (envoy 503 "upstream connect
+    # error") even with a kube-system namespaceSelector. This toggle ships
+    # an additive CiliumNetworkPolicy (templates/cilium-ingress-network
+    # policy.yaml) with `fromEntities: [ingress]` — the canonical fix
+    # (mirrors platform/newapi #3374). Gated on the cilium.io/v2 CRD being
+    # present, so it no-ops on kind CI. Set false on a non-Cilium cluster.
+    allowGatewayEntity: true
+    # The Cilium Gateway envoy lives here (default kube-system) — admitted
+    # by networkpolicy.yaml's standard K8s rule too (belt-and-suspenders;
+    # the CNP above is the load-bearing one for the `ingress` entity).
     gatewayNamespace: "kube-system"
     # Legacy traefik path (dev clusters). Kept as a second admitted peer.
     fromNamespaceLabels:
