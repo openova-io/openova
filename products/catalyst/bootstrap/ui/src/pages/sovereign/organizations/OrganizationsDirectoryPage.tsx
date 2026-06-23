@@ -43,6 +43,10 @@ const SECTION_LINKS: readonly { id: string; label: string; to: string }[] = [
   { id: 'commerce-industries', label: 'Industries', to: '/organizations/commerce/industries' },
   { id: 'commerce-apps', label: 'Apps', to: '/organizations/commerce/apps' },
   { id: 'billing', label: 'Billing', to: '/organizations/billing/billing' },
+  // #4170 — Vouchers is its own discoverable surface, not buried under the
+  // mode-gated Billing page. Voucher issuance is the Phase-0 sovereign-admin
+  // onboarding tool (DoD.md Phase 0), reachable day-one in any billing mode.
+  { id: 'vouchers', label: 'Vouchers', to: '/organizations/billing/vouchers' },
   { id: 'domains', label: 'Domains', to: '/organizations/domains' },
 ]
 

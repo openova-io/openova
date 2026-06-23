@@ -49,6 +49,7 @@ function renderDirectory(orgs: readonly OrgRow[]) {
     '/organizations/commerce/industries',
     '/organizations/commerce/apps',
     '/organizations/billing/billing',
+    '/organizations/billing/vouchers',
     '/organizations/domains',
   ]
   const sectionRoutes = sectionPaths.map((p) =>
@@ -97,6 +98,20 @@ describe('OrganizationsDirectoryPage — §5 empty-state law', () => {
     renderDirectory([parent])
     const btn = await screen.findByTestId('orgs-create-button')
     expect(btn.getAttribute('href')).toContain('/organizations/new')
+  })
+
+  // #4170 — Vouchers is a discoverable section link (sovereign-admin issues
+  // prepaid signup codes day-one, before the parent leaves showback). On a
+  // single-org Sovereign (console.omantel.biz) the parent is showback, yet
+  // the Vouchers entry must still be present and point at the voucher
+  // surface (the route is NOT BillingModeGate-wrapped — see router.tsx).
+  it('exposes a Vouchers section link day-one (showback parent)', async () => {
+    const parent = parentRowFromSelf({ deploymentId: 'dep-1', sovereignFQDN: 'hw130.omantel.biz' })
+    renderDirectory([parent])
+    await screen.findByTestId('organizations-directory-page')
+    const voucherLink = screen.getByTestId('organizations-nav-vouchers')
+    expect(voucherLink.getAttribute('href')).toBe('/organizations/billing/vouchers')
+    expect(voucherLink.textContent).toContain('Vouchers')
   })
 
   it('lists the parent FIRST, then sub-orgs (parent is first citizen)', async () => {
