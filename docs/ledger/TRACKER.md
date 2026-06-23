@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T11:00:05Z` |
+| Last refreshed | `2026-06-23T11:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 67 |
+| Open issues | 68 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 67 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 68 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 67 open items (clickable table)
+### All 68 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -267,6 +267,7 @@ flowchart LR
 | [#4160](https://github.com/openova-io/openova/issues/4160) | catalog-seed bp-wordpress-tenant pin lagged chart (0.4.4 vs 0.4.12) — fresh pr | Other |
 | [#4167](https://github.com/openova-io/openova/issues/4167) | Marketplace storefront leaks banned-term 'Tenant' on the customer funnel front d | Other |
 | [#4169](https://github.com/openova-io/openova/issues/4169) | bp-newapi: per-Org install clobbers Sovereign newapi-admin redirectUris in share | Other |
+| [#4170](https://github.com/openova-io/openova/issues/4170) | Sovereign-admin cannot issue vouchers from the operator console — voucher page | Other |
 
 ---
 
@@ -274,6 +275,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T11:13 | [#4172](https://github.com/openova-io/openova/pull/4172) | #3383 | fix(console): unblock sovereign-admin voucher issuance — dro |
 | 2026-06-23T10:51 | [#4168](https://github.com/openova-io/openova/pull/4168) | #3383 | fix(marketplace): eradicate 'Tenant' banned-term from the st |
 | 2026-06-23T08:16 | [#4166](https://github.com/openova-io/openova/pull/4166) | #4002 | docs(uat): re-walk rows 206/207 (#4002 Crossplane) — ⛔ featu |
 | 2026-06-23T06:20 | [#4165](https://github.com/openova-io/openova/pull/4165) | #4157 | fix(bp-keycloak): declare browser-no-idp forms subflow so co |
@@ -303,7 +305,6 @@ flowchart LR
 | 2026-06-22T08:38 | [#4112](https://github.com/openova-io/openova/pull/4112) | #4110 | fix(catalyst): SECURITY — customer Org console must be Org-s |
 | 2026-06-22T07:24 | [#4108](https://github.com/openova-io/openova/pull/4108) | #4107 | fix(bootstrap-kit-crs): harbor-pg/gitea-pg/guacamole-pg cnpg |
 | 2026-06-22T07:18 | [#4106](https://github.com/openova-io/openova/pull/4106) | #4098 | fix(bp-agenity): bump chart 0.1.0->0.2.0 so published artifa |
-| 2026-06-22T06:52 | [#4105](https://github.com/openova-io/openova/pull/4105) | docs(uat): live omantel.biz walk results — all 223 rows re-s |  |
 
 ---
 
