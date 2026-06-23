@@ -624,7 +624,7 @@ controllers:
       # the current organization-controller GHCR tag to clear the staleness gate.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 300d853 had drifted 174 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "6cdbc50"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
