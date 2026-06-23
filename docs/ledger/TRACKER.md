@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T17:15:02Z` |
+| Last refreshed | `2026-06-23T17:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 73 |
+| Open issues | 76 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 73 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 76 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 73 open items (clickable table)
+### All 76 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -273,6 +273,9 @@ flowchart LR
 | [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
 | [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
 | [#4182](https://github.com/openova-io/openova/issues/4182) | SECURITY P0: session JWT + refresh_token handed off in the URL query string (?to | Other |
+| [#4186](https://github.com/openova-io/openova/issues/4186) | Per-Org console session-handoff + /api/auth routing not wired on single-domain S | Other |
+| [#4187](https://github.com/openova-io/openova/issues/4187) | console: sovereign-owner avatar reads generic 'User' / '<fqdn>' — getMe() call | Other |
+| [#4188](https://github.com/openova-io/openova/issues/4188) | fix(org-provisioning): demo Org has a STALE duplicate vcluster (vc-demo @0.19.10 | Other |
 
 ---
 
@@ -280,6 +283,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T17:18 | [#4185](https://github.com/openova-io/openova/pull/4185) | #4179 | docs(uat): #4176 P0 RESOLVED — #4179 funnel E2E live evidenc |
 | 2026-06-23T16:46 | [#4184](https://github.com/openova-io/openova/pull/4184) | #4177 | fix(funnel): thread parent_domain end-to-end → org-create la |
 | 2026-06-23T15:57 | [#4178](https://github.com/openova-io/openova/pull/4178) | #3376 | docs(uat): sync session UAT to main + 🛑 #4176 P0 banner (org |
 | 2026-06-23T16:05 | [#4177](https://github.com/openova-io/openova/pull/4177) | #4176 | fix(marketplace): org-creation redirect uses server console_ |
@@ -309,7 +313,6 @@ flowchart LR
 | 2026-06-22T15:23 | [#4141](https://github.com/openova-io/openova/pull/4141) | #3985 | fix(#4139): unblock bp-wordpress-tenant publish — repair #39 |
 | 2026-06-22T15:16 | [#4140](https://github.com/openova-io/openova/pull/4140) | #3971 | fix(#4139): demo-Org convergence — empty wpContent.storageCl |
 | 2026-06-22T16:26 | [#4138](https://github.com/openova-io/openova/pull/4138) | #4110 | fix(openova-mcp): org-admin tier → create_application lands  |
-| 2026-06-22T14:37 | [#4137](https://github.com/openova-io/openova/pull/4137) | #3263 | fix(bp-valkey): Bitnami valkey/os-shell images via on-Sovere |
 
 ---
 
