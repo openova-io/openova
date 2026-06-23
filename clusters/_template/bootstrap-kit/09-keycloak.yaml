@@ -213,7 +213,15 @@ spec:
       #         found → "We are sorry"). The SSO app clients keep the delegating
       #         `browser` flow untouched (gitea/harbor/openbao/oidc-gate). 4th
       #         SSO-landing surface from the #3642 pivot, caught live hw182.
-      version: 1.4.37
+      # 1.4.38 (#4163): FIX the 1.4.37 realm-import regression — `browser-no-idp`
+      #         (a custom builtIn:false flow) referenced the built-in `forms`
+      #         subflow, which keycloak-config-cli resolves ONLY for builtIn:true
+      #         flows → import aborted `Non-toplevel flow not found: forms` →
+      #         bp-keycloak post-upgrade hook failed → mgmt-vCluster SSO tier
+      #         wedged Ready=False (live dep 4635277cae4ffed9 region-B). Fix:
+      #         declare browser-no-idp its OWN forms + conditional-OTP subflows
+      #         (OTP preserved); original `browser` flow untouched.
+      version: 1.4.38
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

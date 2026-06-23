@@ -367,7 +367,24 @@ name: bp-keycloak
 # (gitea/harbor/openbao/oidc-gate) keep the `browser` flow + defaultProvider
 # delegation untouched — gitea in the mgmt-vCluster placement still relies on
 # it (its openidConnect provider cannot carry a kc_idp_hint).
-version: 1.4.37
+# 1.4.38 (#4163, Refs #4163, 2026-06-23): FIX the 1.4.37 regression — the new
+# `browser-no-idp` flow (builtIn:false) referenced the standard `forms` subflow,
+# but keycloak-config-cli resolves the built-in `forms` ONLY for builtIn:true
+# flows. For a CUSTOM flow every referenced subflow must be EXPLICITLY declared
+# as a non-top-level flow in the same realm JSON, so 1.4.37 aborted the import
+# in 2.6s with `Non-toplevel flow not found: forms` → bp-keycloak post-upgrade
+# hook failed → the whole mgmt-vCluster SSO tier (oidc-gate/sso-bridge/grafana/
+# gitea/powerdns-admin/newapi) wedged Ready=False (caught live dep
+# 4635277cae4ffed9 region-B). The fix gives browser-no-idp its OWN declared
+# forms subflow (`browser-no-idp-forms`, topLevel:false) + a declared
+# conditional-OTP child (`browser-no-idp-conditional-otp`: conditional-user-
+# configured + auth-otp-form, so OTP survives), mirroring KC's built-in forms.
+# The original `browser` flow (builtIn:true) keeps the bare built-in `forms`
+# untouched — the SSO-app-client delegation path is not touched. A new chart
+# test (tests/realm-flow-subflow-resolution.sh) statically reproduces config-
+# cli's subflow-resolution rule across all realm templates so this class can
+# never regress silently again.
+version: 1.4.38
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
