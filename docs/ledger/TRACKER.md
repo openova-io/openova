@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T23:00:03Z` |
+| Last refreshed | `2026-06-23T23:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 17 |
 | Open DoD gates | 0 / 41 |
@@ -224,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T23:06 | [#4213](https://github.com/openova-io/openova/pull/4213) | #1 | fix(funnel): bump orgTag d3c55b4→c3b2736 — roll the merged # |
 | 2026-06-23T22:51 | [#4211](https://github.com/openova-io/openova/pull/4211) | #4192 | docs(walk): goal#4 demo-user 7283eb4a RBAC walk — own apps + |
 | 2026-06-23T22:18 | [#4210](https://github.com/openova-io/openova/pull/4210) | #4200 | docs(walk): post-P0 signed-in console walk evidence (dashboa |
 | 2026-06-23T21:46 | [#4209](https://github.com/openova-io/openova/pull/4209) | #3925 | docs(uat): flip 10 rows ✅ — post-roll re-walk of merged Jobs |
@@ -253,7 +254,6 @@ flowchart LR
 | 2026-06-23T08:16 | [#4166](https://github.com/openova-io/openova/pull/4166) | #4002 | docs(uat): re-walk rows 206/207 (#4002 Crossplane) — ⛔ featu |
 | 2026-06-23T06:20 | [#4165](https://github.com/openova-io/openova/pull/4165) | #4157 | fix(bp-keycloak): declare browser-no-idp forms subflow so co |
 | 2026-06-23T05:44 | [#4164](https://github.com/openova-io/openova/pull/4164) | #4002 | docs(uat): record 2026-06-23 env-state HR convergence + rema |
-| 2026-06-23T05:45 | [#4162](https://github.com/openova-io/openova/pull/4162) | #4 | fix(catalyst-api): sync keycloak master-realm admin Secret p |
 
 ---
 
