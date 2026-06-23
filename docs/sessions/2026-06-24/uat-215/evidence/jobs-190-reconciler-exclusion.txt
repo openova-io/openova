@@ -1,0 +1,23 @@
+ROWS 190/191 (#3916) — /jobs lists ONLY finite jobs; HelmReleases excluded
+LIVE: https://console.omantel.biz/jobs (signed-in sovereign-admin)
+
+API /api/v1/sovereign/jobs (the page's data source) returns 99 rows:
+   kind tally: HelmRelease=83, Job=16
+   => 83 continuous reconcilers (HelmReleases) ARE returned, NOT only finite jobs.
+
+RENDERED /jobs TABLE behavior:
+   - The table renders 69 LIFECYCLE rows, one per Blueprint/app (Install Alloy, Install Axon, ...).
+     KIND column = "LIFECYCLE". These are HelmRelease-backed install rows — i.e. CONTINUOUS RECONCILERS
+     relabeled as lifecycle/Install rows. They are present in /jobs (NOT excluded).
+   - The PARENT-group filter has exactly: Applications, Cluster Bootstrap, Phase 0 — Infrastructure.
+     There is NO separate "Reconcilers" group, and NO clean separation of reconcilers from finite jobs.
+   - The 16 finite Jobs (kind=Job: trivy scan-vulnerabilityreport-*, *-initdb, *-pgbasebackup,
+     bp-newapi-admin-promote-*, syft-grype-*, powerdns-zone-bootstrap, kyverno-migrate-resources,
+     legacy-cert-cleanup, cilium-envoy-tls-restart, openbao-host-token-reviewer-export, ...) DO NOT
+     RENDER in the /jobs table at all (searched table text for every finite-job name => none present).
+
+NET: /jobs is the INVERSE of #3916's assertion:
+   - Row 190 ("lists ONLY finite jobs, ZERO reconciler rows"): FALSE — it lists 69 HelmRelease-backed
+     LIFECYCLE rows and shows ZERO of the 16 finite Jobs.
+   - Row 191 ("HelmReleases do NOT appear in /jobs"): FALSE — every rendered row IS a HelmRelease
+     (relabeled LIFECYCLE), and they are not separated into a recon lens / Reconcilers group.

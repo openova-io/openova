@@ -1,0 +1,12 @@
+=== cutover Jobs in catalyst ns ===
+No resources found in catalyst namespace.
+
+=== bp-self-sovereign-cutover HR (dormant, no steps run) ===
+True  Helm install succeeded for release catalyst/self-sovereign-cutover.v1 with chart bp-self-sovereign-cutover@0.1.77
+
+=== /jobs PARENT-group filter options (live browser) ===
+select[Filter by parent group] options = [All, applications:Applications, phase-1-bootstrap:Cluster Bootstrap, phase-0-infra:Phase 0 — Infrastructure]
+=> NO 'cutover' parent group exists.
+/api/v1/sovereign/jobs returns 99 flat rows (83 HelmRelease + 16 Job). rows mentioning 'cutover' = 1
+   = the bp-self-sovereign-cutover HelmRelease only (status succeeded/dormant).
+cutover-step-* rows in API = 0.  No 11-step execution tree present (cutover never run on this permanent env).

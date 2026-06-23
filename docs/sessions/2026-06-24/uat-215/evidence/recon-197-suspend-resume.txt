@@ -1,0 +1,4 @@
+ROW197 spec.suspend flip on HelmRelease/flux-system/bp-falco
+BEFORE: false
+AFTER suspend: true
+AFTER resume: false

@@ -1,0 +1,14 @@
+ROW 188 — catalyst-api is a genuine single-region app → correctly shows singleton (no false multi-region).
+Live placement API (derivedFromRuntime=true, real pod placement):
+GET /api/v1/sovereigns/4635277cae4ffed9/applications/catalyst-api/placement
+{
+  "targets": [
+    { "region": "hw-me-east-215-a-rtz-prod", "cluster": "4635277cae4ffed9", "role": "Primary" }
+  ],
+  "derivedFromRuntime": true
+}
+=> exactly 1 PRIMARY target in region-A only => derivePattern(standbys==0) => "singleton".
+catalyst-api runs ONLY in region-A (no catalyst-api deployment found in the region-B cluster kubeconfig).
+UI: /app/bp-catalyst-platform Topology tab renders "Pattern: singleton" (screenshot recon-188-catalyst-platform-singleton.png).
+Contrast w/ row 187 grafana: same env, grafana runs in BOTH regions => 2 PRIMARY targets => "active-active".
+So the singleton is genuine single-region correctness, NOT a false uniform singleton (the #3982/#4000 fix).

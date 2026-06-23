@@ -1,0 +1,13 @@
+ROW 159 (#3379) — Settings → Sovereignty "Cluster sovereignty" panel
+LIVE: https://console.omantel.biz/settings  (signed in as sovereign-admin via handover)
+Page-text assertions (browser_evaluate):
+  hasSovereignty=true  hasClusterSovereignty=true  hasTETHERED=true  hasCTA(Achieve True Sovereignty)=true  #sovereignty anchor present=true
+Panel text verbatim:
+  "Cluster sovereignty
+   This Sovereign is currently soft-tethered to the openova-io mothership for container pulls and GitOps source.
+   Achieving true sovereignty repoints registries, mirrors the catalog into local Gitea, and runs an egress-block self-test.
+   TETHERED
+   Achieve True Sovereignty
+   Runs the 11-step cutover. ~10 minutes. Includes a 10-minute egress-block self-test against github.com + ghcr.io + harbor.openova.io."
+VERDICT: PASS — panel + TETHERED badge + CTA + 11-step/10-min egress-block copy all render.
+Screenshot: jobs-159-sovereignty-panel.png
