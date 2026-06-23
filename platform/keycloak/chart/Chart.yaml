@@ -354,7 +354,20 @@ name: bp-keycloak
 # varchar(255) cap; the 255-cap gate now AUDITS the tenant realm (was SKIP).
 # The org-keycloak HTTPRoute parentRef move to cilium-gateway-console is an
 # orchestrator-side change (organization_gitops.go), not a chart change.
-version: 1.4.36
+# 1.4.37 (#3934, Refs #3642, 2026-06-23): account-console SSO-landing fix —
+# Keycloak's built-in `account-console` + `security-admin-console` clients were
+# force-bounced by the sovereign realm's identity-provider-redirector
+# (defaultProvider=catalyst-pin) into /broker/catalyst-pin/login, which 400s
+# `cookie_not_found` on a hint-less, cookie-less nav → operator saw "We are
+# sorry... cookie not found" (4th SSO-landing surface broken by the #3642
+# mgmt-vCluster pivot, caught live hw182). The realm import now declares a
+# second top-level browser flow `browser-no-idp` (identical to `browser` minus
+# the auto-delegating redirector) and binds the two consoles to it via
+# authenticationFlowBindingOverrides.browser. The SSO app clients
+# (gitea/harbor/openbao/oidc-gate) keep the `browser` flow + defaultProvider
+# delegation untouched — gitea in the mgmt-vCluster placement still relies on
+# it (its openidConnect provider cannot carry a kc_idp_hint).
+version: 1.4.37
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

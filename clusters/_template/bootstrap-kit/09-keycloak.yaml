@@ -206,7 +206,14 @@ spec:
       # 1.4.36 (#4054/#4070/#3374): per-Org tenant realm now registers the
       #         catalyst-ui public PKCE client so the per-Org console
       #         (console.<slug>.<zone>) OIDC redirect resolves instead of 400ing.
-      version: 1.4.36
+      # 1.4.37 (#3934, Refs #3642): account-console SSO-landing — KC's built-in
+      #         account-console + security-admin-console now bind to a new
+      #         `browser-no-idp` flow so a hint-less, cookie-less nav is NOT
+      #         force-bounced into /broker/catalyst-pin/login (400 cookie_not_
+      #         found → "We are sorry"). The SSO app clients keep the delegating
+      #         `browser` flow untouched (gitea/harbor/openbao/oidc-gate). 4th
+      #         SSO-landing surface from the #3642 pivot, caught live hw182.
+      version: 1.4.37
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
