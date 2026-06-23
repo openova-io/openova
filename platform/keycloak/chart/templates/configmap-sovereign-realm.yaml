@@ -552,6 +552,30 @@ data:
             "post.logout.redirect.uris": "https://console.{{ .Values.sovereignFQDN }}/*"
           }
         },
+        {{- /*
+        #3934 part-4 (Refs #3642): bind Keycloak's built-in account + admin
+        consoles to the `browser-no-idp` flow so they are NOT force-bounced
+        into the catalyst-pin broker (which 400s `cookie_not_found` on a
+        hint-less, cookie-less nav). These are KC realm-import DEFAULT clients;
+        re-declaring them by clientId MERGES the override onto the default
+        client (KC keeps every unspecified default attribute, incl. the
+        baseUrl/redirectUris the import generates for them). Only the
+        authenticationFlowBindingOverrides.browser field is asserted here —
+        everything else stays KC-default. `account` is the account REST
+        client (no browser flow); only the two consoles need the override.
+        */ -}}
+        {
+          "clientId": "account-console",
+          "authenticationFlowBindingOverrides": {
+            "browser": "browser-no-idp"
+          }
+        },
+        {
+          "clientId": "security-admin-console",
+          "authenticationFlowBindingOverrides": {
+            "browser": "browser-no-idp"
+          }
+        },
         {
           "clientId": "catalyst-api-server",
           "name": "Catalyst API Server (service account)",
@@ -980,6 +1004,43 @@ data:
             { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false },
             { "authenticator": "auth-spnego", "requirement": "DISABLED", "priority": 20, "autheticatorFlow": false },
             { "authenticator": "identity-provider-redirector", "authenticatorConfig": "catalyst-pin-redirector", "requirement": "ALTERNATIVE", "priority": 25, "autheticatorFlow": false },
+            { "flowAlias": "forms", "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true }
+          ]
+        },
+        {{- /*
+        #3934 part-4 (Refs #3642, 2026-06-23, caught live hw182): the
+        `browser` flow above auto-delegates EVERY hint-less, cookie-less login
+        to the catalyst-pin broker because its identity-provider-redirector
+        carries `defaultProvider=catalyst-pin`. That is correct for the SSO
+        app clients (gitea/harbor/openbao/oidc-gate — they DO want zero-click
+        delegation, and gitea in the #3642 mgmt-vCluster placement relies on
+        `defaultProvider` since its openidConnect provider cannot carry a
+        kc_idp_hint). But Keycloak's OWN `account-console` + `security-admin-
+        console` clients send NO kc_idp_hint and hold NO session on a fresh
+        nav, so they are force-bounced into `/broker/catalyst-pin/login`,
+        which 400s `cookie_not_found` → the operator sees "We are sorry...
+        cookie not found" instead of the account page (4-surface SSO-landing
+        regression, #3934).
+
+        Fix: a SECOND top-level browser flow IDENTICAL to `browser` but
+        WITHOUT the auto-delegating redirector. The account/admin consoles
+        bind to it via `authenticationFlowBindingOverrides.browser` (the two
+        minimal client declarations below), so a hint-less nav falls through
+        to the standard `forms` login instead of crashing — while every SSO
+        app client keeps `browser` (defaultProvider delegation) untouched.
+        Verify post-deploy: `GET /realms/sovereign/account/` no longer 400s
+        at `/broker/catalyst-pin/login`; it renders the account page or the
+        plain sign-in form.
+        */ -}}
+        {
+          "alias": "browser-no-idp",
+          "description": "#3934 — browser flow WITHOUT catalyst-pin auto-delegation, for account-console / security-admin-console (hint-less clients KC must not force-bounce to the PIN broker).",
+          "providerId": "basic-flow",
+          "topLevel": true,
+          "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false },
+            { "authenticator": "auth-spnego", "requirement": "DISABLED", "priority": 20, "autheticatorFlow": false },
             { "flowAlias": "forms", "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true }
           ]
         },
