@@ -1,0 +1,6 @@
+# Storage + CRD live evidence — omantel.biz — 2026-06-24
+## storageclasses (row 209/210)
+NAME                PROVISIONER               RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+evs-ssd (default)   evs.csi.huaweicloud.com   Retain          WaitForFirstConsumer   true                   43h
+
+## local-path SC (row 210 - must be NotFound)
