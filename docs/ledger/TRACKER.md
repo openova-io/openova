@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T07:45:03Z` |
+| Last refreshed | `2026-06-23T08:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 77 |
+| Open issues | 75 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 77 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 75 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 77 open items (clickable table)
+### All 75 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -210,7 +210,6 @@ flowchart LR
 | [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
 | [#3744](https://github.com/openova-io/openova/issues/3744) | Funnel: credit-covered redeem double-fires provisioning → Gitea sme-tenants re | Other |
 | [#3785](https://github.com/openova-io/openova/issues/3785) | FUNNEL: customer's purchased WordPress image is kyverno-DENIED (not Harbor-proxi | Other |
-| [#3821](https://github.com/openova-io/openova/issues/3821) | hw165: Pillar-5 cutover wedged at step 1/11 — cutover-gitea-mirror Job (ns cat | Other |
 | [#3824](https://github.com/openova-io/openova/issues/3824) | hw165: openbao-snapshot-save CreateContainerConfigError — seeder can't read rt | Other |
 | [#3829](https://github.com/openova-io/openova/issues/3829) | Every application AND activity shows its TRUE live state end-to-end — every ap | Other |
 | [#3859](https://github.com/openova-io/openova/issues/3859) | fix(org-services + per-Org vCluster): sme→org-services rename orphaned 3 platf | Other |
@@ -224,7 +223,6 @@ flowchart LR
 | [#3898](https://github.com/openova-io/openova/issues/3898) | Funnel: a crashed/rolled provisioning Pod strands the in-flight provision row � | Other |
 | [#3901](https://github.com/openova-io/openova/issues/3901) | fix(bp-openbao): host-token-reviewer-export Job script ${...} vars eaten by Flux | Other |
 | [#3905](https://github.com/openova-io/openova/issues/3905) | Topology placement-edit dropdown shows generic mode descriptions that contradict | Other |
-| [#3913](https://github.com/openova-io/openova/issues/3913) | fix(platform): close the un-proxied-image class — harbor-proxy sigstore/trivy/ | Other |
 | [#3914](https://github.com/openova-io/openova/issues/3914) | Provisioning UX: fill the ~30-min 'Provision <provider>: Success' void with a li | Other |
 | [#3925](https://github.com/openova-io/openova/issues/3925) | Convergence Monitor — redesign provisioning monitoring into 2 native surfaces  | Other |
 | [#3926](https://github.com/openova-io/openova/issues/3926) | fix(bp-self-sovereign-cutover): step-02 harbor-projects wedges every post-#3642  | Other |
