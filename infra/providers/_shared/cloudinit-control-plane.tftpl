@@ -557,9 +557,30 @@ write_files:
             # (host/secret). In SHARED mode they must point at the shared
             # engine + the reflected hub Secret (#3284) or the consumers
             # would skip their bundled cluster yet still dial it.
-            SOVEREIGN_GITEA_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-rw.shared-data.svc.cluster.local" : "gitea-pg-rw.gitea.svc.cluster.local"}"
+            #
+            # #4158 cross-region host: gitea/harbor/keycloak run INSIDE vc-mgmt
+            # and read this host as a scalar (bitnami externalDatabase.host /
+            # an env value — NOT a secretKeyRef, so they cannot pick up the
+            # topology-aware `host` key bp-postgres bakes into the hub Secret
+            # the way grafana's hostPortKey does). The region-LOCAL `<instance>-rw`
+            # Service exists ONLY where the primary Cluster runs, so a SECONDARY
+            # control plane that dials `shared-pg-rw` gets NXDOMAIN (measured live
+            # on dep 4635277cae4ffed9 region-B: keycloak-0 `cannot resolve host
+            # shared-pg-rw…`, harbor-core/jobservice CrashLoop on the same). The
+            # ClusterMesh-global WRITE alias `shared-pg-mesh-rw` (bp-postgres
+            # publishes it on the primary as a `service.cilium.io/global` managed
+            # Service + a same-named replica stub) resolves in BOTH regions and
+            # routes writes to the current primary — and bp-continuum re-homes the
+            # `rw` selector on failover, so the host needs no change on promotion.
+            # Keyed on sovereign_region_role exactly like SECONDARY_HR_SUSPEND
+            # below; primary keeps `-rw` so single-region stays byte-identical.
+            SOVEREIGN_GITEA_PG_HOST: "${enable_shared_pg == "true" ? (sovereign_region_role == "primary" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "gitea-pg-rw.gitea.svc.cluster.local"}"
             SOVEREIGN_GITEA_PG_SECRET: "${enable_shared_pg == "true" ? "gitea-database-secret" : "gitea-pg-app"}"
-            SOVEREIGN_HARBOR_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-rw.shared-data.svc.cluster.local" : "harbor-pg-rw.harbor.svc.cluster.local"}"
+            SOVEREIGN_HARBOR_PG_HOST: "${enable_shared_pg == "true" ? (sovereign_region_role == "primary" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "harbor-pg-rw.harbor.svc.cluster.local"}"
+            # #4158: keycloak (slot 09 externalDatabase.host) had NO host var —
+            # it fell to the slot's bare `:=shared-pg-rw` default, which NXDOMAINs
+            # on the SECONDARY. Same cross-region treatment as gitea/harbor above.
+            SOVEREIGN_KEYCLOAK_PG_HOST: "${enable_shared_pg == "true" ? (sovereign_region_role == "primary" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "shared-pg-rw.shared-data.svc.cluster.local"}"
             # #3188 three-instance model: the SAME one-flag contract
             # extends to instance A's third consumer (keycloak — slot 09
             # skips its bundled bitnami postgresql + flips to
