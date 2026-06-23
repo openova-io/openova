@@ -382,6 +382,29 @@ jobs:
           done
           echo "G36 gate OK: every templatefile() in huawei parses + renders."
 
+      # #3724 — LOUD main-push failure. The G36 `tofu test` step is what froze
+      # "Build & Deploy Catalyst" for hours on PR #3715 (the rendered cloud-init
+      # blew past the 32256-byte Hetzner user_data cap) — and the freeze was
+      # SILENT: no image built, the mothership silently stayed commits behind
+      # main. This step fires ONLY when G36 (or any prior step in this job)
+      # failed; it annotates the run with ::error:: + writes a prominent job
+      # summary so a red build on main is impossible to miss, rather than a
+      # quiet stall. It does NOT change the build outcome (the job already
+      # failed) — it only makes the failure loud.
+      - name: Loud failure notice (G36 / cloud-init regression on main)
+        if: failure()
+        run: |
+          set -eu
+          MSG="Build & Deploy Catalyst FAILED before pushing the catalyst-api image. The most common cause is a cloud-init regression that trips the G36 'tofu test' guardrail (rendered user_data over the 32256-byte Hetzner cap — see #3715/#3724). The mothership will NOT receive a new image until this is green. The 'cloud-init-size / {hetzner,huawei}' PR gate should have caught an oversized cloud-init before merge — verify it was a required check on the offending PR."
+          echo "::error title=catalyst-build FAILED on main (mothership now stalled)::${MSG}"
+          {
+            echo '## :rotating_light: Build & Deploy Catalyst FAILED'
+            echo ''
+            echo "${MSG}"
+            echo ''
+            echo 'Refs #3724 (silent-freeze regression class).'
+          } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+
       - name: Push API image
         uses: docker/build-push-action@v6
         with:
