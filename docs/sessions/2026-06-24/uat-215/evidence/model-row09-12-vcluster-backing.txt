@@ -1,0 +1,5 @@
+Demo Org vcluster backing — LIVE evidence (omantel.biz, 2026-06-24)
+===================================================================
+Org record (API GET /api/v1/organizations/7283eb4a...): isolation=vcluster, tier=org, kind=customer, billing=real, state=done, steps.vcluster=done
+
+CANONICAL backing = namespace 'demo' (labels openova.io/organization=demo, openova.io/tier=org, openova.io/host-cluster=omantel.biz, managed-by catalyst-tenant-demo-vcluster Flux Kustomization):
