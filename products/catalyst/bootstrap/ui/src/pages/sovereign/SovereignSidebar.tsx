@@ -7,8 +7,10 @@
  *   - Routes use the /console/* prefix (no deploymentId param) — the
  *     Sovereign is implicit from the hostname.
  *   - The tenant label shows the Sovereign FQDN.
- *   - The footer card shows the authenticated user's name (from
- *     OIDC tokens), not the generic "Operator" placeholder.
+ *   - The footer card shows the authenticated user's identity (#4187:
+ *     resolved from GET /api/v1/whoami via `useSession` — the cookie/PIN
+ *     session principal — falling back to OIDC id_token claims only on
+ *     legacy PKCE builds), not the generic "User"/"Operator" placeholder.
  *
  * Nav items follow the operator mental model: overview → infra →
  * workloads → operations → access → commerce → config:
@@ -27,6 +29,7 @@ import { loadTokens, parseJWTClaims } from '@/shared/lib/oidc'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useConsoleScope } from '@/shared/lib/useConsoleScope'
+import { useSession } from '@/shared/lib/useSession'
 import { getSidebarEntries, type SidebarEntry } from '@/lib/console-ui.api'
 
 // #4110 — the ONLY nav items an Org-scoped customer console may show. The
@@ -311,16 +314,30 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
       ? sovereignFQDN
       : DETECTED_MODE.sovereignFQDN ?? ''
 
-  // Read user info from the OIDC session for the footer card.
+  // Resolve the signed-in principal for the footer card.
+  //
+  // #4187: the Sovereign Console authenticates via the server-minted
+  // `catalyst_session` cookie (the 6-digit PIN / handover flow), NOT the
+  // legacy OIDC PKCE token set. On a cookie session `loadTokens()` returns
+  // null, so reading identity exclusively from the id_token left the footer
+  // showing the generic `User` placeholder + the bare Sovereign FQDN even
+  // though the signed-in owner's email was available all along. The
+  // authoritative principal is GET /api/v1/whoami (email + tier + roles),
+  // surfaced here via the shared `useSession` hook. We fall back to OIDC
+  // id_token claims only when no cookie session resolved (legacy PKCE
+  // builds) — preserving the prior behaviour for those callers.
+  const session = useSession()
   const tokens = loadTokens()
   const claims = tokens ? parseJWTClaims(tokens.idToken) : {}
   const userName =
+    (session.email ?? undefined) ??
     (claims.name as string | undefined) ??
     (claims.preferred_username as string | undefined) ??
     (claims.email as string | undefined) ??
     'User'
   const userInitials = userName
-    .split(/\s+/)
+    .split(/[\s@.]+/)
+    .filter(Boolean)
     .map((w) => w[0]?.toUpperCase() ?? '')
     .slice(0, 2)
     .join('')
@@ -474,14 +491,27 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
             section of the unified /settings page. */}
       </nav>
 
-      {/* User card at the bottom */}
-      <div className="border-t border-[var(--color-border)] p-3">
+      {/* User card at the bottom — #4187: identity comes from /whoami
+          (session.email), not the OIDC id_token, so the cookie/PIN-
+          authenticated owner renders by email instead of `User`. */}
+      <div
+        className="border-t border-[var(--color-border)] p-3"
+        data-testid="sov-console-user-card"
+      >
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-accent)]/20 text-xs font-bold text-[var(--color-accent)]">
+          <div
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-accent)]/20 text-xs font-bold text-[var(--color-accent)]"
+            data-testid="sov-console-user-avatar"
+          >
             {userInitials || 'T'}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-[var(--color-text)]">{userName}</p>
+            <p
+              className="truncate text-xs font-medium text-[var(--color-text)]"
+              data-testid="sov-console-user-name"
+            >
+              {userName}
+            </p>
             <p className="truncate text-[10px] text-[var(--color-text-dimmer)]">{resolvedFQDN}</p>
           </div>
         </div>
