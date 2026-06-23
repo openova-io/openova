@@ -1813,10 +1813,21 @@ const consoleOrgRevenueRoute = createRoute({
   path: '/organizations/billing/revenue',
   component: () => <BillingModeGate><BssRevenuePage /></BillingModeGate>,
 })
+/* Vouchers is NOT BillingModeGate-wrapped (#4170). Voucher issuance is the
+ * Phase-0 sovereign-admin onboarding tool — the sovereign-admin mints
+ * prepaid signup codes (DoD.md Phase 0: marketplace + voucher onboarding)
+ * BEFORE any external customer exists, i.e. while the parent org is still
+ * showback by default. Gating it behind `real` mode (the way invoices /
+ * orders / revenue are, since those are real-customer payment surfaces)
+ * made onboarding circular: the operator could never reach the Issue-
+ * voucher CTA on a single-org Sovereign (console.omantel.biz), so the
+ * route rendered the showback notice instead. The backend gate
+ * (requireVoucherIssuer = superadmin OR sovereign-admin) is the real
+ * authority on who may issue; the route just needs to render. */
 const consoleOrgVouchersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/billing/vouchers',
-  component: () => <BillingModeGate><BssVouchersPage /></BillingModeGate>,
+  component: () => <BssVouchersPage />,
 })
 const consoleOrgDomainsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
