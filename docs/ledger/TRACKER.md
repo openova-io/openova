@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T19:30:06Z` |
+| Last refreshed | `2026-06-23T19:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 22 |
 | Open DoD gates | 0 / 41 |
@@ -233,6 +233,7 @@ flowchart LR
 | 2026-06-23T19:13 | [#4203](https://github.com/openova-io/openova/pull/4203) | #4187 | fix(catalyst-ui): sovereign-owner sidebar avatar reads /whoa |
 | 2026-06-23T19:13 | [#4202](https://github.com/openova-io/openova/pull/4202) | #3944 | fix(bp-self-sovereign-cutover): step-03 harbor-prewarm enume |
 | 2026-06-23T19:13 | [#4201](https://github.com/openova-io/openova/pull/4201) | #3740 | fix(cnpg): cross-region replica streams SYNC from PRIMARY (R |
+| 2026-06-23T19:30 | [#4200](https://github.com/openova-io/openova/pull/4200) | #3925 | fix(cloud): recon drill-in actions/logs no longer 404 on chr |
 | 2026-06-23T19:16 | [#4199](https://github.com/openova-io/openova/pull/4199) | #4188 | fix(org-provisioning): reap stale duplicate vc-<subdomain>@0 |
 | 2026-06-23T18:58 | [#4198](https://github.com/openova-io/openova/pull/4198) | #4196 | feat(catalyst-ui): ONE native top-level Billing menu — nativ |
 | 2026-06-23T18:14 | [#4197](https://github.com/openova-io/openova/pull/4197) | #3724 | ci(cloud-init-size): dedicated required-able byte-size PR ga |
@@ -258,7 +259,6 @@ flowchart LR
 | 2026-06-23T03:41 | [#4156](https://github.com/openova-io/openova/pull/4156) | #4049 | fix(provisioning): bastion-Harbor warmup fires on every bp-* |
 | 2026-06-23T00:48 | [#4155](https://github.com/openova-io/openova/pull/4155) | #4152 | fix(bp-wordpress-tenant): reflector populates WORDPRESS_DB_P |
 | 2026-06-22T23:52 | [#4154](https://github.com/openova-io/openova/pull/4154) | #4153 | fix(bp-wordpress-tenant): add wordpress.image.pullSecrets fo |
-| 2026-06-22T21:57 | [#4153](https://github.com/openova-io/openova/pull/4153) | #800 | feat(bp-wordpress-tenant): custom WordPress image w/ pdo_pgs |
 
 ---
 
