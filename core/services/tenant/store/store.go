@@ -42,6 +42,16 @@ type Tenant struct {
 	AppConfigs    map[string]map[string]any `bson:"app_configs,omitempty" json:"app_configs,omitempty"`
 	AddOns        []string  `bson:"addons" json:"addons"`
 	Subdomain     string    `bson:"subdomain" json:"subdomain"`
+	// ParentDomain — the org-pool parent apex the customer chose at the
+	// /addons step (e.g. "omani.works"). #4176/#4179: the per-Org console
+	// lives at `console.<subdomain>.<parent_domain>`. On a Sovereign whose
+	// marketplace runs on the Sovereign domain (marketplace.omantel.biz)
+	// while Orgs provision on a SEPARATE pool domain (omani.works), this is
+	// the ONLY field that carries the chosen pool apex — without it the
+	// console host is mis-derived to console.<slug>.omantel.biz (unreachable)
+	// so every org-create lands on a dead host. Empty on legacy records
+	// (callers fall back to the Sovereign FQDN, preserving back-compat).
+	ParentDomain  string    `bson:"parent_domain,omitempty" json:"parent_domain,omitempty"`
 	CustomDomains []string  `bson:"custom_domains" json:"custom_domains"`
 	Status        string    `bson:"status" json:"status"` // active, suspended, provisioning, deleted
 	CreatedAt     time.Time `bson:"created_at" json:"created_at"`

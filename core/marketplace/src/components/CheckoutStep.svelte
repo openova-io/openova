@@ -267,6 +267,14 @@
           plan_id: cart.plan || '',
           apps: cart.apps,
           addons: cart.addons,
+          // #4176/#4179 — forward the customer-chosen org-pool parent apex
+          // (e.g. "omani.works") so the tenant-service composes + returns the
+          // correct per-Org console host `console.<slug>.<parent_domain>`.
+          // WITHOUT this, the server returns no console_host and the redirect
+          // falls back to console.<slug>.<marketplace-host-domain> =
+          // console.<slug>.omantel.biz on the production Sovereign — an
+          // unreachable host that broke every org-create (the #4176 P0).
+          parent_domain: cart.tld || '',
           // Forward Sandbox agent picks (Wave 4). The tenant-service
           // only acts on this when `apps` contains 'sandbox'; for all
           // other carts it's persisted and ignored.

@@ -492,6 +492,17 @@ export interface CreateTenantRequest {
   plan_id: string;
   apps: string[];
   addons: string[];
+  // #4176/#4179 — the org-pool parent apex the customer chose at the
+  // /addons step (e.g. "omani.works"). The tenant-service composes the
+  // per-Org console host `console.<slug>.<parent_domain>` and returns it as
+  // the response `console_host`, which CheckoutStep persists + uses for the
+  // post-checkout redirect. WITHOUT sending this, the server has no idea
+  // which pool domain the Org is on, returns no console_host, and the client
+  // falls back to splicing the slug onto the marketplace host —
+  // console.<slug>.omantel.biz on the production Sovereign, an unreachable
+  // host that breaks EVERY org-create. Optional so single-domain Sovereigns
+  // (marketplace ON the pool domain) keep working via the host-splice path.
+  parent_domain?: string;
   // Wave 4 Sandbox — forwarded only when `apps` contains 'sandbox'.
   // The tenant-service uses this to publish a `tenant.sandbox_requested`
   // event the sandbox-controller consumes to mint a Sandbox CR with
