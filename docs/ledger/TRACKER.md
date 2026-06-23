@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T18:45:03Z` |
+| Last refreshed | `2026-06-23T19:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 26 |
 | Open DoD gates | 0 / 41 |
@@ -233,6 +233,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T18:58 | [#4198](https://github.com/openova-io/openova/pull/4198) | #4196 | feat(catalyst-ui): ONE native top-level Billing menu — nativ |
 | 2026-06-23T18:14 | [#4197](https://github.com/openova-io/openova/pull/4197) | #3724 | ci(cloud-init-size): dedicated required-able byte-size PR ga |
 | 2026-06-23T17:56 | [#4195](https://github.com/openova-io/openova/pull/4195) | #4189 | docs(uat): full 215-row god-mode walk consolidated → 0 ⚠️ (1 |
 | 2026-06-23T18:21 | [#4192](https://github.com/openova-io/openova/pull/4192) | #4182 | fix(catalyst): secure marketplace→console session handoff —  |
@@ -262,7 +263,6 @@ flowchart LR
 | 2026-06-22T18:24 | [#4149](https://github.com/openova-io/openova/pull/4149) | #817 | fix(bp-stalwart-tenant): converge per-Org Stalwart on fresh  |
 | 2026-06-22T17:44 | [#4147](https://github.com/openova-io/openova/pull/4147) | #3971 | fix(bp-wordpress-tenant): wp-plugin-install init runs as roo |
 | 2026-06-22T18:24 | [#4146](https://github.com/openova-io/openova/pull/4146) | #4053 | fix(SSO): per-Org realm registers catalyst-ui + Org keycloak |
-| 2026-06-22T15:38 | [#4142](https://github.com/openova-io/openova/pull/4142) | #4140 | fix(#4139): bp-wordpress-tenant active-hot-standby CNPG sync |
 
 ---
 
