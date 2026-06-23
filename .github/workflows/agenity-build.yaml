@@ -70,7 +70,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Build the image to the LOCAL daemon first (load, no push) ──────────
+      # #4118: a Docker-layer-cache MISS can silently ship a stale layer (an
+      # agent-less image once shipped under f33be11; an archaic /app dashboard
+      # bundle is the same class). The defence is two-fold:
+      #   1. `no-cache: true` — the web-UI + agent-runtime layers are rebuilt
+      #      from the pinned #745 source on EVERY run, so a poisoned cache
+      #      entry can never be served. The agenity build is short (web + two
+      #      Go binaries); a clean rebuild is cheap insurance against shipping
+      #      the wrong dashboard to a live Sovereign.
+      #   2. A post-build SMOKE GATE (next step) inspects the BUILT image
+      #      before it is pushed and FAILS the workflow if the agent runtime
+      #      or the new-dashboard marker is absent. Build with `load: true`
+      #      (not `push`) so the smoke gate runs against the exact bytes that
+      #      would be pushed; the push happens only after the gate is green.
+      - name: Build image (load, no-cache)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -79,8 +96,52 @@ jobs:
             AGENITY_REF=${{ steps.vars.outputs.agenity_ref }}
             VERSION=${{ steps.vars.outputs.app_version }}
             COMMIT=${{ steps.vars.outputs.sha_short }}
-          push: true
+          load: true
+          push: false
+          no-cache: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}
             ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.IMAGE }}:latest
+
+      # ── #4118 post-build smoke gate — fail before push if stale/incomplete ─
+      # Asserts, against the freshly-BUILT image bytes (not a re-pull):
+      #   (a) the agent runtime is present (node + /usr/bin/claude) — the
+      #       original #4118 cache-miss shipped an agent-less image GREEN;
+      #   (b) the dashboard bundle is the NEW build — the /app/ SPA entry must
+      #       reference a hashed Dashboard.*.js AND the dist must carry the
+      #       #745-era preview routes (v0.9.4 + v09-stage4-preview), which the
+      #       OLD (pre-#745) dashboard did NOT have. A cache-served archaic
+      #       /app bundle fails here instead of reaching a live Sovereign.
+      - name: Smoke-gate the built image (#4118)
+        run: |
+          set -euo pipefail
+          IMG="${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}"
+          echo "::group::agent runtime (node + claude-code)"
+          docker run --rm "$IMG" sh -c 'node --version && /usr/bin/claude --version'
+          echo "::endgroup::"
+          echo "::group::dashboard bundle is the NEW (#745) build"
+          # The /app/ SPA must mount a content-hashed Dashboard component (a
+          # stale/empty web layer would have no such reference) …
+          docker run --rm "$IMG" \
+            grep -qE '_astro/Dashboard[a-z]*\.[A-Za-z0-9_-]+\.js' /app/web/dist/app/index.html \
+            || { echo "FAIL: /app/index.html does not reference a hashed Dashboard bundle — stale/empty web layer"; exit 1; }
+          # … and the dist MUST carry the #745-era routes the OLD (pre-#745,
+          # archaic) dashboard did NOT have. This is the decisive archaic-vs-new
+          # discriminator: a cache-served old web layer fails HERE, before push.
+          docker run --rm "$IMG" \
+            sh -c 'test -d /app/web/dist/v09-stage4-preview && test -d /app/web/dist/v0.9.4' \
+            || { echo "FAIL: built /app dist is missing the #745 dashboard routes (v0.9.4 / v09-stage4-preview) — a cache-served ARCHAIC dashboard layer shipped"; exit 1; }
+          echo "::endgroup::"
+          echo "smoke gate PASSED — agent runtime present, NEW dashboard bundle confirmed"
+
+      - name: Push image (only after smoke gate is green)
+        run: |
+          set -euo pipefail
+          for TAG in \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}" \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}" \
+            "${{ env.IMAGE }}:latest"; do
+            echo "pushing $TAG"
+            docker push "$TAG"
+          done

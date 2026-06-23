@@ -47,7 +47,42 @@ spec:
               type: ReplaceFullPath
               replaceFullPath: {{ .Values.httpRoute.dashboardRedirect.path | quote }}
     {{- end }}
-    # ── Rule 2: everything else → the daemon (assets, API, /app/*, WS) ─────
+    {{- if .Values.httpRoute.noCacheHtml }}
+    # ── Rule 2a: SPA HTML entry points → daemon, but NEVER browser-cached ──
+    # The dashboard JS/CSS under /_astro/* are CONTENT-HASHED (immutable —
+    # the filename changes on every rebuild), so they are safe to cache
+    # forever. The HTML entry points (`/app/`, `/app/index.html`, bare `/`)
+    # are NOT hashed: a browser that cached an OLD /app/index.html keeps
+    # referencing the OLD asset hashes and renders the ARCHAIC dashboard
+    # even after a fresh image rolls (the omantel.biz #4118 symptom: the
+    # served bundle WAS the new #745 build, byte-identical to source, yet the
+    # founder's browser served a stale cached index.html — the daemon sets
+    # no Cache-Control, so browsers heuristic-cache the HTML). Stamp
+    # `Cache-Control: no-cache` on the HTML document so the browser always
+    # revalidates the entry point and picks up new asset hashes immediately,
+    # while the hashed assets stay long-lived. EXACT matches only — asset and
+    # API paths fall through to Rule 2b untouched.
+    - matches:
+        - path:
+            type: Exact
+            value: /app/
+        - path:
+            type: Exact
+            value: /app/index.html
+        - path:
+            type: Exact
+            value: /index.html
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Cache-Control
+                value: "no-cache, must-revalidate"
+      backendRefs:
+        - name: {{ include "agenity.fullname" . }}
+          port: {{ .Values.service.port }}
+    {{- end }}
+    # ── Rule 2b: everything else → the daemon (assets, API, /app/*, WS) ────
     - matches:
         - path:
             type: PathPrefix

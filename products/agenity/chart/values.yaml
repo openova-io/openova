@@ -188,6 +188,16 @@ httpRoute:
   parentRef:
     name: catalyst-gateway
     namespace: catalyst-system
+  # Stamp Cache-Control: no-cache on the SPA HTML entry points (/app/, /,
+  # index.html) so a browser ALWAYS revalidates the document and picks up
+  # newly-rolled content-hashed assets. Without it the daemon sets no
+  # Cache-Control header, browsers heuristic-cache the HTML, and a User who
+  # opened the dashboard before a fresh image rolled keeps rendering the OLD
+  # (archaic) dashboard from cache even though the pod serves the new build
+  # (the #4118 omantel.biz symptom). The hashed /_astro/* assets are
+  # untouched (immutable, safe to cache forever). Disable only if a CDN in
+  # front already manages document caching.
+  noCacheHtml: true
   # Bare-root → dashboard redirect (#4122). The chepherd daemon serves its
   # upstream MARKETING landing at `/` and the real chat-to-provision
   # DASHBOARD SPA at `/app/`. The User opens the bare Org host, so the route
