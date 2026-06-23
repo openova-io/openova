@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T08:15:03Z` |
+| Last refreshed | `2026-06-23T08:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 75 |
 | Open DoD gates | 0 / 41 |
@@ -282,6 +282,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T08:16 | [#4166](https://github.com/openova-io/openova/pull/4166) | #4002 | docs(uat): re-walk rows 206/207 (#4002 Crossplane) — ⛔ featu |
 | 2026-06-23T06:20 | [#4165](https://github.com/openova-io/openova/pull/4165) | #4157 | fix(bp-keycloak): declare browser-no-idp forms subflow so co |
 | 2026-06-23T05:44 | [#4164](https://github.com/openova-io/openova/pull/4164) | #4002 | docs(uat): record 2026-06-23 env-state HR convergence + rema |
 | 2026-06-23T05:45 | [#4162](https://github.com/openova-io/openova/pull/4162) | #4 | fix(catalyst-api): sync keycloak master-realm admin Secret p |
@@ -311,7 +312,6 @@ flowchart LR
 | 2026-06-22T07:18 | [#4106](https://github.com/openova-io/openova/pull/4106) | #4098 | fix(bp-agenity): bump chart 0.1.0->0.2.0 so published artifa |
 | 2026-06-22T06:52 | [#4105](https://github.com/openova-io/openova/pull/4105) | docs(uat): live omantel.biz walk results — all 223 rows re-s |  |
 | 2026-06-22T07:09 | [#4104](https://github.com/openova-io/openova/pull/4104) | #4101 | fix(catalyst-api): pool-domain Org login — request-host sess |
-| 2026-06-22T06:50 | [#4103](https://github.com/openova-io/openova/pull/4103) | #4 | fix(org-provisioning): keycloak realmConfig.tenant.subdomain |
 
 ---
 
