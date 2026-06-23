@@ -53,7 +53,7 @@ const CLOUD_ICON =
   'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
 
 interface FlatNavItem {
-  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
+  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'settings'
   label: string
   to: string
   icon: string
@@ -162,6 +162,29 @@ const FLAT_NAV: FlatNavItem[] = [
     to: '/organizations',
     icon: 'M9 3a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V3zM3 17a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2zm12 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM12 7v4M12 11H6v4m6-4h6v4',
   },
+  // Billing (issue #4196, founder top customer-facing item). ONE
+  // first-class commercial menu — Vouchers · Orders · Revenue (Showback)
+  // — each a native React section on the catalyst-api
+  // /api/v1/org/billing/* bridge. Replaces the former billing surface
+  // buried under Organizations (and the dead iframe BSS pages). Voucher
+  // issuance is the Phase-0 sovereign-admin onboarding tool (DoD.md
+  // Phase 0) and is reachable day-one in any billing mode — the showback
+  // gate (#4170) never blocks it. The legacy /organizations/billing/* +
+  // /bss/* URLs redirect into /billing (router.tsx).
+  //
+  // RBAC: sovereign-admin only — same as Organizations/Dashboard/Jobs,
+  // it is NOT in ORG_SCOPED_NAV_IDS so an Org-scoped customer console
+  // never sees it; the catalyst-api requireVoucherIssuer gate
+  // (superadmin OR sovereign-admin) is the server-side authority.
+  //
+  // Icon: a receipt / credit-card line-glyph matching the single-stroke
+  // icon family used by the other entries.
+  {
+    id: 'billing',
+    label: 'Billing',
+    to: '/billing',
+    icon: 'M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zm2 10h4',
+  },
 ]
 
 const SETTINGS_ITEM: FlatNavItem = {
@@ -197,7 +220,7 @@ const SETTINGS_ITEM: FlatNavItem = {
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
+type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
@@ -223,6 +246,10 @@ function deriveActiveSection(pathname: string): ActiveSection {
   // highlights for the directory, the internal door, and every moved
   // sub-surface (billing/orders/revenue/vouchers/domains). Issue #3378.
   if (/^\/organizations(\/|$)/.test(pathname)) return 'organizations'
+  // /billing(/*) → 'billing' so the Billing nav item highlights for the
+  // landing (defaults to Vouchers) and every section
+  // (/billing/{vouchers,orders,revenue}). Issue #4196.
+  if (/^\/billing(\/|$)/.test(pathname)) return 'billing'
   // /settings/* → 'settings' so the Settings nav item highlights. There
   // is no longer a settings sub-nav (#4089): Parent Domains — the last
   // child — became the `#parent-domains` anchor section of /settings, so

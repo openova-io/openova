@@ -42,11 +42,12 @@ const SECTION_LINKS: readonly { id: string; label: string; to: string }[] = [
   { id: 'commerce-bundles', label: 'Bundles', to: '/organizations/commerce/bundles' },
   { id: 'commerce-industries', label: 'Industries', to: '/organizations/commerce/industries' },
   { id: 'commerce-apps', label: 'Apps', to: '/organizations/commerce/apps' },
-  { id: 'billing', label: 'Billing', to: '/organizations/billing/billing' },
-  // #4170 — Vouchers is its own discoverable surface, not buried under the
-  // mode-gated Billing page. Voucher issuance is the Phase-0 sovereign-admin
-  // onboarding tool (DoD.md Phase 0), reachable day-one in any billing mode.
-  { id: 'vouchers', label: 'Vouchers', to: '/organizations/billing/vouchers' },
+  // #4196 — Billing is now its own first-class top-level menu in the
+  // SovereignSidebar (Vouchers · Orders · Revenue). These quick-links jump
+  // straight into it. Vouchers is the Phase-0 sovereign-admin onboarding
+  // tool (DoD.md Phase 0), reachable day-one in any billing mode (#4170).
+  { id: 'billing', label: 'Billing', to: '/billing/revenue' },
+  { id: 'vouchers', label: 'Vouchers', to: '/billing/vouchers' },
   { id: 'domains', label: 'Domains', to: '/organizations/domains' },
 ]
 

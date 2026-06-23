@@ -23,13 +23,22 @@ import {
 } from '@tanstack/react-router'
 
 // Mirrors ORGANIZATIONS_REDIRECTS in router.tsx — keep in lockstep.
+// #4196: the billing legacy URLs now redirect into the top-level Billing
+// menu (/billing/*); /bss/billing + /organizations/billing/billing were
+// the deleted Subscriptions surface → Revenue.
 const ORGANIZATIONS_REDIRECTS: readonly { path: string; to: string }[] = [
   { path: '/bss', to: '/organizations' },
   { path: '/bss/tenants', to: '/organizations' },
-  { path: '/bss/billing', to: '/organizations/billing/billing' },
-  { path: '/bss/orders', to: '/organizations/billing/orders' },
-  { path: '/bss/revenue', to: '/organizations/billing/revenue' },
-  { path: '/bss/vouchers', to: '/organizations/billing/vouchers' },
+  { path: '/bss/billing', to: '/billing/revenue' },
+  { path: '/bss/orders', to: '/billing/orders' },
+  { path: '/bss/revenue', to: '/billing/revenue' },
+  { path: '/bss/vouchers', to: '/billing/vouchers' },
+  { path: '/organizations/billing', to: '/billing/vouchers' },
+  { path: '/organizations/billing/billing', to: '/billing/revenue' },
+  { path: '/organizations/billing/orders', to: '/billing/orders' },
+  { path: '/organizations/billing/revenue', to: '/billing/revenue' },
+  { path: '/organizations/billing/vouchers', to: '/billing/vouchers' },
+  { path: '/organizations/billing/vouchers/issue', to: '/billing/vouchers' },
   // /org/users + /org/roles keep live routes until the org-detail
   // users/roles tabs land — intentionally NOT in the redirect map yet.
   { path: '/org/tenants/new', to: '/organizations/new' },
@@ -41,10 +50,9 @@ const ORGANIZATIONS_REDIRECTS: readonly { path: string; to: string }[] = [
 const NEW_HOMES = [
   '/organizations',
   '/organizations/new',
-  '/organizations/billing/billing',
-  '/organizations/billing/orders',
-  '/organizations/billing/revenue',
-  '/organizations/billing/vouchers',
+  '/billing/vouchers',
+  '/billing/orders',
+  '/billing/revenue',
   '/organizations/domains',
 ]
 

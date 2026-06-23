@@ -148,14 +148,15 @@ describe('StepSuccess CTAs render with correct hrefs', () => {
     )
   })
 
-  it('renders voucher CTA pointing at console.<fqdn>/bss/vouchers (BSS menu)', () => {
-    // Per CLAUDE.md §0 canon + TBD-V20: voucher operations live under the
-    // BSS menu inside the operator console (console.<fqdn>/bss/vouchers),
-    // NOT the legacy anti-canon `admin.<fqdn>/billing/vouchers/new` URL.
+  it('renders voucher CTA pointing at console.<fqdn>/billing/vouchers (Billing menu)', () => {
+    // Per CLAUDE.md §0 canon + TBD-V20 + #4196: voucher operations live
+    // under the first-class Billing menu inside the operator console
+    // (console.<fqdn>/billing/vouchers), NOT the legacy anti-canon
+    // `admin.<fqdn>/billing/vouchers/new` URL.
     render(<StepSuccess />)
     const voucher = screen.getByTestId('voucher-cta') as HTMLAnchorElement
     expect(voucher.href).toBe(
-      `https://console.${FIXTURE_FQDN}/bss/vouchers`,
+      `https://console.${FIXTURE_FQDN}/billing/vouchers`,
     )
   })
 
@@ -178,7 +179,7 @@ describe('StepSuccess CTAs render with correct hrefs', () => {
     expect(consoleLink.href).toBe(`https://console.${FIXTURE_FQDN}/`)
     const voucher = screen.getByTestId('voucher-cta') as HTMLAnchorElement
     expect(voucher.href).toBe(
-      `https://console.${FIXTURE_FQDN}/bss/vouchers`,
+      `https://console.${FIXTURE_FQDN}/billing/vouchers`,
     )
   })
 })
@@ -312,7 +313,7 @@ describe('No hardcoded sovereign URL', () => {
       `https://console.${newFQDN}/`,
     )
     expect((screen.getByTestId('voucher-cta') as HTMLAnchorElement).href).toBe(
-      `https://console.${newFQDN}/bss/vouchers`,
+      `https://console.${newFQDN}/billing/vouchers`,
     )
     expect((screen.getByTestId('docs-cta') as HTMLAnchorElement).href).toBe(
       `https://docs.${newFQDN}/`,

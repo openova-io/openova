@@ -77,6 +77,9 @@ describe('SovereignSidebar — #4110 Org-console scope', () => {
     expect(screen.queryByTestId('sov-console-nav-jobs')).toBeNull()
     expect(screen.queryByTestId('sov-console-nav-compliance')).toBeNull()
     expect(screen.queryByTestId('sov-console-nav-organizations')).toBeNull()
+    // #4196 — Billing is a sovereign-admin surface (voucher issuance) and
+    // must NOT leak onto an Org-scoped customer console.
+    expect(screen.queryByTestId('sov-console-nav-billing')).toBeNull()
   })
 
   it('Sovereign-admin session shows the full nav (zero regression)', async () => {
@@ -87,5 +90,9 @@ describe('SovereignSidebar — #4110 Org-console scope', () => {
     expect(screen.getByTestId('sov-console-nav-jobs')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-organizations')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-apps')).toBeTruthy()
+    // #4196 — Billing is a top-level sovereign-admin menu, links to /billing.
+    const billing = screen.getByTestId('sov-console-nav-billing') as HTMLAnchorElement
+    expect(billing).toBeTruthy()
+    expect(billing.getAttribute('href')).toBe('/billing')
   })
 })
