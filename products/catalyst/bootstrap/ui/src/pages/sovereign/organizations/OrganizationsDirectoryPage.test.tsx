@@ -48,8 +48,10 @@ function renderDirectory(orgs: readonly OrgRow[]) {
     '/organizations/commerce/bundles',
     '/organizations/commerce/industries',
     '/organizations/commerce/apps',
-    '/organizations/billing/billing',
-    '/organizations/billing/vouchers',
+    // #4196 — Billing is now its own top-level menu; the directory's
+    // quick-links jump straight into /billing/*.
+    '/billing/revenue',
+    '/billing/vouchers',
     '/organizations/domains',
   ]
   const sectionRoutes = sectionPaths.map((p) =>
@@ -100,17 +102,18 @@ describe('OrganizationsDirectoryPage — §5 empty-state law', () => {
     expect(btn.getAttribute('href')).toContain('/organizations/new')
   })
 
-  // #4170 — Vouchers is a discoverable section link (sovereign-admin issues
-  // prepaid signup codes day-one, before the parent leaves showback). On a
-  // single-org Sovereign (console.omantel.biz) the parent is showback, yet
-  // the Vouchers entry must still be present and point at the voucher
-  // surface (the route is NOT BillingModeGate-wrapped — see router.tsx).
+  // #4170/#4196 — Vouchers is a discoverable section link (sovereign-admin
+  // issues prepaid signup codes day-one, before the parent leaves showback).
+  // On a single-org Sovereign (console.omantel.biz) the parent is showback,
+  // yet the Vouchers entry must still be present and point at the native
+  // Billing menu's Vouchers section (NOT BillingModeGate-wrapped — see
+  // router.tsx).
   it('exposes a Vouchers section link day-one (showback parent)', async () => {
     const parent = parentRowFromSelf({ deploymentId: 'dep-1', sovereignFQDN: 'hw130.omantel.biz' })
     renderDirectory([parent])
     await screen.findByTestId('organizations-directory-page')
     const voucherLink = screen.getByTestId('organizations-nav-vouchers')
-    expect(voucherLink.getAttribute('href')).toBe('/organizations/billing/vouchers')
+    expect(voucherLink.getAttribute('href')).toBe('/billing/vouchers')
     expect(voucherLink.textContent).toContain('Vouchers')
   })
 

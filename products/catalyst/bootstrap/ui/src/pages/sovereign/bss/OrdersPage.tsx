@@ -1,5 +1,5 @@
 /**
- * OrdersPage — /console/bss/orders, native React.
+ * OrdersPage — /billing/orders, native React (issue #4196).
  *
  * Wave 6 PR 3 (Option B step 2): replaces the BssSectionShell iframe
  * with a native table that mirrors JobsTable's shape (toolbar →
@@ -27,6 +27,7 @@ import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PortalShell } from '../PortalShell'
+import { BillingSectionNav } from './BillingSectionNav'
 import { useDeploymentEvents } from '../useDeploymentEvents'
 import { getOrders, type Order, type OrderStatus, type OrdersResponse } from '@/lib/bss.api'
 
@@ -119,16 +120,8 @@ export function OrdersPage({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle="BSS — Orders"
-      headerSlotLeft={
-        <Link
-          to={'/bss' as never}
-          className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
-          data-testid="sov-bss-back-to-landing-orders"
-        >
-          ← Back to BSS overview
-        </Link>
-      }
+      pageTitle="Billing — Orders"
+      headerSlotLeft={<BillingSectionNav />}
     >
       <style>{ORDERS_TABLE_CSS}</style>
 
@@ -282,7 +275,7 @@ function OrderRow({ order }: { order: Order }) {
     >
       <td className="orders-cell orders-cell-id">
         <Link
-          to={`/bss/orders/${order.id}` as never}
+          to={`/billing/orders/${order.id}` as never}
           className="orders-row-link"
           data-testid={`bss-orders-row-link-${order.id}`}
         >

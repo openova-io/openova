@@ -1,5 +1,5 @@
 /**
- * VouchersPage — native /bss/vouchers surface.
+ * VouchersPage — native /billing/vouchers surface (issue #4196).
  *
  * Wave 6 PR 5 (2026-05-17): drops the BssSectionShell iframe wrapper
  * and renders the voucher list + Issue modal as a NATIVE React surface
@@ -31,10 +31,10 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PortalShell } from '../PortalShell'
+import { BillingSectionNav } from './BillingSectionNav'
 import { useDeploymentEvents } from '../useDeploymentEvents'
 import {
   issueVoucher,
@@ -133,16 +133,8 @@ export function VouchersPage({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle="BSS — Vouchers"
-      headerSlotLeft={
-        <Link
-          to={'/bss' as never}
-          className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
-          data-testid="sov-bss-back-to-landing-vouchers"
-        >
-          ← Back to BSS overview
-        </Link>
-      }
+      pageTitle="Billing — Vouchers"
+      headerSlotLeft={<BillingSectionNav />}
     >
       <div className="mx-auto max-w-7xl" data-testid="bss-vouchers-page">
         <header className="mb-4">

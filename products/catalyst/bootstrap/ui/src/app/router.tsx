@@ -137,25 +137,24 @@ import { ResourcesSearchPage } from '@/pages/sovereign/resources/ResourcesSearch
 import { ResourcesListPage } from '@/pages/sovereign/resources/ResourcesListPage'
 import { ResourceDetailNoTabPage } from '@/pages/sovereign/stubs/ResourceDetailNoTabPage'
 import { PodLogsPage } from '@/pages/sovereign/resources/PodLogsPage'
-// Family F (Wave 3, t10 C6-003/004/005) — BSS-in-console.
-// Founder #1 requirement: "the backed of the the mark place mutst be
-// just aotnerh menu under console like https://console.<sov>/bss".
+// Billing menu (issue #4196) — ONE first-class console menu, a sibling of
+// Dashboard/Apps/Catalog/Jobs/Users/Organizations in the SovereignSidebar.
+// Its three native React sections — Vouchers · Orders · Revenue — each hit
+// the catalyst-api /api/v1/org/billing/* bridge (org_billing_vouchers.go +
+// org_billing_revenue.go). Mounted at top-level /billing/* (see the
+// consoleBilling* routes below); the legacy /organizations/billing/* and
+// /bss/* URLs redirect into /billing.
 //
-// Wave 6 PR 1 (2026-05-17): /bss is a NATIVE React landing
-// (BssLandingPage) using the PortalShell chrome shared with Dashboard /
-// Apps / Jobs / Settings. The 5 sub-sections wrap themselves in
-// PortalShell via BssSectionShell — the prior BssLayout tab strip is
-// retired in favor of the sidebar's existing BSS group + the landing's
-// section-nav grid. Iframe content is preserved in the section pages
-// until Wave 6 PRs 2-6 native-port each one.
-// BSS section pages re-mount under /organizations/billing/* (issue
-// #3378). BssLandingPage + TenantsPage are fully replaced by the
-// Organizations directory (the parent-first org table), so their imports
-// were removed with the legacy /bss + /bss/tenants routes.
-import { BillingPage as BssBillingPage } from '@/pages/sovereign/bss/BillingPage'
-import { OrdersPage as BssOrdersPage } from '@/pages/sovereign/bss/OrdersPage'
-import { RevenuePage as BssRevenuePage } from '@/pages/sovereign/bss/RevenuePage'
-import { VouchersPage as BssVouchersPage } from '@/pages/sovereign/bss/VouchersPage'
+// History: the surface began life (Wave 3, Family F) as a /bss iframe into
+// the legacy admin app, then native-ported per-section (Wave 6), then moved
+// under /organizations/billing/* (#3378). #4196 promotes it to its own
+// top-level menu and DELETES the dead iframe modules (BssSectionShell,
+// BssLandingPage) + the never-named Subscriptions BillingPage + the
+// org-directory-superseded bss/TenantsPage. Voucher issuance is the Phase-0
+// sovereign-admin onboarding tool and is NEVER showback-gated (#4170).
+import { OrdersPage as BillingOrdersPage } from '@/pages/sovereign/bss/OrdersPage'
+import { RevenuePage as BillingRevenuePage } from '@/pages/sovereign/bss/RevenuePage'
+import { VouchersPage as BillingVouchersPage } from '@/pages/sovereign/bss/VouchersPage'
 // Organizations menu (issue #3378) — ONE menu replacing BSS+OSS. The
 // directory's parent org is the first citizen; CreateOrganizationPage is
 // the internal door (the same component as the Organization create form, mounted
@@ -1789,46 +1788,6 @@ const consoleOrganizationDetailRoute = createRoute({
   },
 })
 
-/* Moved pages — the SAME page components as the legacy BSS / parent-
- * domains routes, re-mounted under their /organizations home. Page
- * internals are untouched (#3378 §non-negotiables "pages move with
- * redirects"); only the URL changes. B4 (mode-aware billing, DoD 5): the
- * payment pages render ONLY in real mode — BillingModeGate wraps each
- * route and renders the showback consumption view (zero payment actions)
- * for a showback/chargeback org (the parent is showback, so a single-org
- * Sovereign sees the showback view by default). The payment pages'
- * internals stay untouched. */
-const consoleOrgBillingRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/organizations/billing/billing',
-  component: () => <BillingModeGate><BssBillingPage /></BillingModeGate>,
-})
-const consoleOrgOrdersRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/organizations/billing/orders',
-  component: () => <BillingModeGate><BssOrdersPage /></BillingModeGate>,
-})
-const consoleOrgRevenueRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/organizations/billing/revenue',
-  component: () => <BillingModeGate><BssRevenuePage /></BillingModeGate>,
-})
-/* Vouchers is NOT BillingModeGate-wrapped (#4170). Voucher issuance is the
- * Phase-0 sovereign-admin onboarding tool — the sovereign-admin mints
- * prepaid signup codes (DoD.md Phase 0: marketplace + voucher onboarding)
- * BEFORE any external customer exists, i.e. while the parent org is still
- * showback by default. Gating it behind `real` mode (the way invoices /
- * orders / revenue are, since those are real-customer payment surfaces)
- * made onboarding circular: the operator could never reach the Issue-
- * voucher CTA on a single-org Sovereign (console.omantel.biz), so the
- * route rendered the showback notice instead. The backend gate
- * (requireVoucherIssuer = superadmin OR sovereign-admin) is the real
- * authority on who may issue; the route just needs to render. */
-const consoleOrgVouchersRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/organizations/billing/vouchers',
-  component: () => <BssVouchersPage />,
-})
 const consoleOrgDomainsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/domains',
@@ -1846,6 +1805,70 @@ const consoleOrgCommerceRoutes = COMMERCE_KINDS.map((kind) =>
   }),
 )
 
+/* ── Billing menu (issue #4196) ────────────────────────────────────────
+ *
+ * ONE first-class console menu — a sibling of Dashboard/Apps/Catalog/Jobs/
+ * Users/Organizations in the SovereignSidebar (the `billing` FLAT_NAV
+ * entry). Three NATIVE React sections on the catalyst-api
+ * /api/v1/org/billing/* bridge:
+ *
+ *   /billing            → BillingVouchersPage (the default landing —
+ *                         voucher list + Issue modal + Revoke)
+ *   /billing/vouchers   → BillingVouchersPage (same; the explicit URL)
+ *   /billing/orders     → BillingOrdersPage   (native orders table)
+ *   /billing/revenue    → BillingRevenuePage  (native revenue analytics)
+ *
+ * Showback gate (#4170): Vouchers is NEVER BillingModeGate-wrapped —
+ * voucher issuance is the Phase-0 sovereign-admin onboarding tool (the
+ * sovereign-admin mints prepaid signup codes BEFORE any external customer
+ * exists, while the parent org is still showback by default). Gating it
+ * behind `real` mode made onboarding circular (the operator could never
+ * reach the Issue-voucher CTA on a single-org Sovereign). The backend gate
+ * (requireVoucherIssuer = superadmin OR sovereign-admin) is the real
+ * authority on who may issue; the route just needs to render.
+ *
+ * Orders + Revenue KEEP the BillingModeGate — they are real-customer
+ * payment surfaces (invoices / recurring revenue) that only carry meaning
+ * once the marketplace sells to external organizations. On a showback
+ * Sovereign they render the consumption (ShowbackPanel) view with zero
+ * payment actions, which is the correct semantics for those two sections.
+ *
+ * The `/billing` index defaults to Vouchers because that is the section a
+ * sovereign-admin needs day-one (Phase-0 onboarding). It is a redirect (not
+ * a duplicate mount) so there is exactly ONE Vouchers representation.
+ */
+const consoleBillingIndexRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/billing',
+  component: NoopRedirectComponent,
+  beforeLoad: () => {
+    throw redirect({ to: '/billing/vouchers' as never, replace: true })
+  },
+})
+const consoleBillingVouchersRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/billing/vouchers',
+  component: () => <BillingVouchersPage />,
+})
+const consoleBillingOrdersRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/billing/orders',
+  component: () => (
+    <BillingModeGate>
+      <BillingOrdersPage />
+    </BillingModeGate>
+  ),
+})
+const consoleBillingRevenueRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/billing/revenue',
+  component: () => (
+    <BillingModeGate>
+      <BillingRevenuePage />
+    </BillingModeGate>
+  ),
+})
+
 /* ── Organizations redirect map (issue #3378 §4) ───────────────────────
  *
  * "old URLs never break" — every legacy BSS / Organization-admin / parent-domains
@@ -1861,13 +1884,27 @@ interface OrgRedirect {
   to: string
 }
 const ORGANIZATIONS_REDIRECTS: readonly OrgRedirect[] = [
-  // BSS → Organizations billing/directory.
+  // BSS → Organizations directory / Billing menu. The legacy /bss landing
+  // + /bss/tenants are the org directory; the commerce sections are the
+  // Billing menu (#4196). /bss/billing was the never-named Subscriptions
+  // surface (deleted in #4196) → it lands on Revenue, the closest
+  // commercial-overview section.
   { path: '/bss', to: '/organizations' },
   { path: '/bss/tenants', to: '/organizations' },
-  { path: '/bss/billing', to: '/organizations/billing/billing' },
-  { path: '/bss/orders', to: '/organizations/billing/orders' },
-  { path: '/bss/revenue', to: '/organizations/billing/revenue' },
-  { path: '/bss/vouchers', to: '/organizations/billing/vouchers' },
+  { path: '/bss/billing', to: '/billing/revenue' },
+  { path: '/bss/orders', to: '/billing/orders' },
+  { path: '/bss/revenue', to: '/billing/revenue' },
+  { path: '/bss/vouchers', to: '/billing/vouchers' },
+  // #4196 — the prior /organizations/billing/* homes for the billing
+  // sections (and the dead /…/issue orphan) redirect into the top-level
+  // Billing menu. /organizations/billing/billing was the deleted
+  // Subscriptions surface → Revenue.
+  { path: '/organizations/billing', to: '/billing/vouchers' },
+  { path: '/organizations/billing/billing', to: '/billing/revenue' },
+  { path: '/organizations/billing/orders', to: '/billing/orders' },
+  { path: '/organizations/billing/revenue', to: '/billing/revenue' },
+  { path: '/organizations/billing/vouchers', to: '/billing/vouchers' },
+  { path: '/organizations/billing/vouchers/issue', to: '/billing/vouchers' },
   // /org/users + /org/roles intentionally NOT redirected yet — they keep
   // live routes until the org-detail users/roles tabs land (the redirect
   // destination must exist first; redirecting to a non-existent tab would
@@ -2434,12 +2471,13 @@ const routeTree = rootRoute.addChildren([
     consoleOrganizationsRoute,
     consoleOrganizationsNewRoute,
     consoleOrganizationDetailRoute,
-    consoleOrgBillingRoute,
-    consoleOrgOrdersRoute,
-    consoleOrgRevenueRoute,
-    consoleOrgVouchersRoute,
     consoleOrgDomainsRoute,
     ...consoleOrgCommerceRoutes,
+    // Billing menu (#4196) — top-level /billing/* native sections.
+    consoleBillingIndexRoute,
+    consoleBillingVouchersRoute,
+    consoleBillingOrdersRoute,
+    consoleBillingRevenueRoute,
     ...consoleOrganizationsRedirectRoutes,
     // Wave 3 — Sandbox UI scaffold. Static /sandbox/settings registered
     // before /sandbox/$id so the literal segment wins on path match.

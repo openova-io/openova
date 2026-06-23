@@ -1,5 +1,5 @@
 /**
- * RevenuePage — native /bss/revenue.
+ * RevenuePage — native /billing/revenue (issue #4196).
  *
  * Wave 6 PR 4 (2026-05-17 founder UX review): drops the BssSectionShell
  * iframe wrapper from PR 1 (#1606) and renders a NATIVE React surface
@@ -29,7 +29,6 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
   Area,
@@ -43,6 +42,7 @@ import {
 
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PortalShell } from '../PortalShell'
+import { BillingSectionNav } from './BillingSectionNav'
 import { useDeploymentEvents } from '../useDeploymentEvents'
 import { getRevenue, type BssRevenue, type PlanBreakdown } from '@/lib/bss.api'
 
@@ -96,16 +96,8 @@ export function RevenuePage({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle="BSS — Revenue"
-      headerSlotLeft={
-        <Link
-          to={'/bss' as never}
-          className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
-          data-testid="sov-bss-back-to-landing-revenue"
-        >
-          ← Back to BSS overview
-        </Link>
-      }
+      pageTitle="Billing — Revenue"
+      headerSlotLeft={<BillingSectionNav />}
     >
       <div className="mx-auto max-w-7xl" data-testid="bss-revenue-page">
         {/* KPI strip — 4 headline metrics */}
