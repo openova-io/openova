@@ -53,7 +53,16 @@ export function ResourceDetailRoute() {
     tab?: string
   }
   const { deploymentId: chrootDepId } = useResolvedDeploymentId()
-  const deploymentId = params.deploymentId ?? chrootDepId ?? ''
+  // #4193 — on a Sovereign host the cloud-list row link bakes the OpenTofu
+  // deployment-record id into `/provision/<tofu-id>/…`, but the backend
+  // per-deployment stores (reconcilers/logs/actions) are keyed on the
+  // console-internal id from `/sovereign/self`. `useResolvedDeploymentId`
+  // now returns that console id on a Sovereign host, so prefer it over the
+  // (wrong) URL param. On the mothership the URL param is authoritative.
+  const deploymentId =
+    DETECTED_MODE.mode === 'sovereign'
+      ? (chrootDepId ?? params.deploymentId ?? '')
+      : (params.deploymentId ?? chrootDepId ?? '')
   const kind = params.kind ?? ''
   const ns = params.ns === '_' ? '' : params.ns ?? ''
   const name = params.name ?? ''
