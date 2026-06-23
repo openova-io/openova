@@ -1,0 +1,25 @@
+NAME          SLUG          KIND       TIER   BILLING    SOVEREIGN     AGE
+demo          demo          customer   org    real       omantel.biz   102m
+f4179-nodom   f4179-nodom   customer   org    real       omantel.biz   22m
+f4179-works   f4179-works   customer   org    real       omantel.biz   22m
+f4179walk     f4179walk     customer   org    real       omantel.biz   16m
+funnel4179    funnel4179    customer   org    real       omantel.biz   45m
+omantel-biz   omantel-biz   internal   org    showback   omantel.biz   38h
+test          test          customer   org    real       omantel.biz   5h58m
+=== console_host / parentDomain per org (rows 91-95 multi-TLD generality) ===
+--- demo ---
+    phase: Ready
+--- f4179-works ---
+    parentDomain: omani.works
+    subdomain: f4179-works
+    phase: Ready
+--- f4179-nodom ---
+    phase: Ready
+--- f4179walk ---
+    parentDomain: omani.works
+    subdomain: f4179walk
+    phase: Ready
+--- funnel4179 ---
+    phase: Ready
+--- test ---
+    phase: Ready
