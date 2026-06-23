@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T05:30:03Z` |
+| Last refreshed | `2026-06-23T05:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 88 |
+| Open issues | 89 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 88 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 89 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 88 open items (clickable table)
+### All 89 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -288,6 +288,7 @@ flowchart LR
 | [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
 | [#4158](https://github.com/openova-io/openova/issues/4158) | Secondary region: mgmt-vCluster keycloak (+gitea/harbor/grafana) FailedMount — | Other |
 | [#4160](https://github.com/openova-io/openova/issues/4160) | catalog-seed bp-wordpress-tenant pin lagged chart (0.4.4 vs 0.4.12) — fresh pr | Other |
+| [#4163](https://github.com/openova-io/openova/issues/4163) | bp-keycloak 1.4.37: sovereign realm import fails 'Non-toplevel flow not found: f | Other |
 
 ---
 
@@ -295,6 +296,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T05:44 | [#4164](https://github.com/openova-io/openova/pull/4164) | #4002 | docs(uat): record 2026-06-23 env-state HR convergence + rema |
 | 2026-06-23T05:05 | [#4161](https://github.com/openova-io/openova/pull/4161) | #4160 | fix(catalog-seed): bump bp-wordpress-tenant pin 0.4.4->0.4.1 |
 | 2026-06-23T04:50 | [#4159](https://github.com/openova-io/openova/pull/4159) | #4086 | fix: converge secondary-region vc-mgmt — cross-region mangle |
 | 2026-06-23T04:09 | [#4157](https://github.com/openova-io/openova/pull/4157) | #3642 | fix(bp-keycloak): account-console SSO-landing — non-delegati |
@@ -324,7 +326,6 @@ flowchart LR
 | 2026-06-22T06:50 | [#4103](https://github.com/openova-io/openova/pull/4103) | #4 | fix(org-provisioning): keycloak realmConfig.tenant.subdomain |
 | 2026-06-22T06:35 | [#4102](https://github.com/openova-io/openova/pull/4102) | #4100 | fix(bp-catalyst-platform): pin catalyst-api to its EVS volum |
 | 2026-06-22T06:31 | [#4098](https://github.com/openova-io/openova/pull/4098) | #4058 | fix(bp-agenity): build chepherd daemon from PUBLIC agenity-o |
-| 2026-06-22T06:00 | [#4096](https://github.com/openova-io/openova/pull/4096) | docs(uat): re-stamp ledger to omantel.biz permanent env + 20 |  |
 
 ---
 
