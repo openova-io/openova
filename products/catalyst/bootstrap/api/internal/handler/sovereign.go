@@ -322,22 +322,25 @@ func (h *Handler) HandleSovereignJobs(w http.ResponseWriter, r *http.Request) {
 
 	out := []sovereignJobItem{}
 
-	// 1. HelmReleases.
-	if hrList, err := deps.dyn.Resource(helmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
-		for _, hr := range hrList.Items {
-			item := helmReleaseToJob(&hr)
-			out = append(out, item)
-		}
-	}
+	// FINITE-ONLY (#3896 / #3925): the Jobs surface lists FINITE work —
+	// batch Jobs + warning Events. Flux HelmReleases are CONTINUOUS
+	// reconcilers (they never "finish"); they belong on the Cloud
+	// Reconciliation lens / reconciler-management surface (#3996), not on
+	// /jobs. Listing all ~80 HRs here is exactly the "83 HelmReleases
+	// mislabeled as LIFECYCLE jobs" pollution #3896 calls out — and it
+	// happens through THIS legacy endpoint even though the primary
+	// per-deployment /jobs path already drops them via
+	// jobs.FilterFiniteJobs. Skip HRs here so the two surfaces agree —
+	// HelmRelease status lives on the recon surface (ListReconcilers).
 
-	// 2. K8s Jobs.
+	// 1. K8s Jobs.
 	if jobs, err := deps.core.BatchV1().Jobs("").List(ctx, metav1.ListOptions{}); err == nil {
 		for _, j := range jobs.Items {
 			out = append(out, k8sJobToJob(&j))
 		}
 	}
 
-	// 3. K8s Events (warnings only).
+	// 2. K8s Events (warnings only).
 	if events, err := deps.core.CoreV1().Events("").List(ctx, metav1.ListOptions{
 		FieldSelector: "type=Warning",
 		Limit:         100,
@@ -360,66 +363,6 @@ func (h *Handler) HandleSovereignJobs(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, sovereignJobsResponse{Jobs: out})
-}
-
-// helmReleaseToJob maps a Flux HelmRelease unstructured into the
-// Sovereign Console's Job row shape. Status derives from
-// status.conditions[type=Ready].
-func helmReleaseToJob(u *unstructured.Unstructured) sovereignJobItem {
-	name := u.GetName()
-	ns := u.GetNamespace()
-	id := fmt.Sprintf("hr/%s/%s", ns, name)
-	status := "running"
-	message := ""
-	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
-	for _, c := range conds {
-		m, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if m["type"] != "Ready" {
-			continue
-		}
-		switch m["status"] {
-		case "True":
-			status = "succeeded"
-		case "False":
-			status = "failed"
-		default:
-			status = "running"
-		}
-		if msg, ok := m["message"].(string); ok {
-			message = msg
-		}
-	}
-	started := u.GetCreationTimestamp().Time
-	finished := time.Time{}
-	if status == "succeeded" || status == "failed" {
-		// Use lastTransitionTime as a proxy for finish.
-		for _, c := range conds {
-			m, ok := c.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if m["type"] == "Ready" {
-				if t, ok := m["lastTransitionTime"].(string); ok {
-					if parsed, err := time.Parse(time.RFC3339, t); err == nil {
-						finished = parsed
-					}
-				}
-			}
-		}
-	}
-	return sovereignJobItem{
-		ID:         id,
-		Name:       name,
-		Namespace:  ns,
-		Kind:       "HelmRelease",
-		Status:     status,
-		Message:    message,
-		StartedAt:  started,
-		FinishedAt: finished,
-	}
 }
 
 // k8sJobToJob maps a batch/v1 Job into the Console Job row shape.

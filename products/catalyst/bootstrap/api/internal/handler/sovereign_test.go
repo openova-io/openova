@@ -223,19 +223,23 @@ func TestSovereignJobs_HelmReleasesAndK8sJobs(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// 2 HRs + 1 K8s Job + 1 Event = 4 rows.
-	if len(got.Jobs) < 3 {
-		t.Errorf("expected at least 3 jobs, got %d", len(got.Jobs))
-	}
 	kinds := map[string]int{}
 	for _, j := range got.Jobs {
 		kinds[j.Kind]++
 	}
-	if kinds["HelmRelease"] != 2 {
-		t.Errorf("HelmRelease rows = %d, want 2", kinds["HelmRelease"])
+	// FINITE-ONLY (#3896 / #3925): the 2 seeded HelmReleases are
+	// CONTINUOUS reconcilers and MUST NOT appear on /jobs — they belong
+	// on the recon surface. Only the finite K8s Job (+ the warning Event)
+	// survive. This is the regression guard for the "83 HelmReleases
+	// mislabeled as LIFECYCLE jobs" pollution.
+	if kinds["HelmRelease"] != 0 {
+		t.Errorf("HelmRelease rows = %d, want 0 (continuous reconcilers excluded from /jobs)", kinds["HelmRelease"])
 	}
 	if kinds["Job"] != 1 {
 		t.Errorf("Job rows = %d, want 1", kinds["Job"])
+	}
+	if kinds["Event"] != 1 {
+		t.Errorf("Event rows = %d, want 1", kinds["Event"])
 	}
 }
 
