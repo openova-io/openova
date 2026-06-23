@@ -282,3 +282,55 @@ func TestCommitFiles_GiteaTarget_UpdateUsesExistingSHA(t *testing.T) {
 		t.Errorf("op.sha = %q, want %q (existing blob SHA)", payload.Files[0].SHA, existingSHA)
 	}
 }
+
+// TestReadFile_GiteaContentsEnvelope_Decoded asserts that ReadFile decodes the
+// Gitea contents-API JSON envelope ({"content":"<base64>","encoding":"base64"})
+// to the RAW file content, instead of returning the JSON wrapper verbatim.
+//
+// #4206 #3785 — returning the envelope verbatim corrupted the org-tenants
+// PARENT kustomization.yaml: the rebuild closure read the envelope, spliced the
+// new Org subdir onto it, and committed the JSON-wrapped string back, which
+// Flux/kustomize could not parse → the whole org-tenants tree (incl. the demo
+// Org) stopped reconciling and its namespace was pruned. Gitea ALWAYS returns
+// the JSON envelope (it ignores `Accept: application/vnd.github.raw+json`),
+// so the round-trip must decode it. The prior contents test only covered the
+// 404 (create) path, so this regression was never caught.
+func TestReadFile_GiteaContentsEnvelope_Decoded(t *testing.T) {
+	wantYAML := "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - helmrepositories.yaml\n  - 7283eb4a-19e5-4e86-9066-d4aa26762064\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contents/") {
+			w.Header().Set("Content-Type", "application/json")
+			// Gitea wraps multi-line base64 — embed a newline to prove we strip it.
+			b64 := base64.StdEncoding.EncodeToString([]byte(wantYAML))
+			if len(b64) > 20 {
+				b64 = b64[:20] + "\n" + b64[20:]
+			}
+			env := map[string]any{
+				"name":     "kustomization.yaml",
+				"path":     "clusters/omantel.biz/org-tenants/kustomization.yaml",
+				"sha":      "deadbeef",
+				"type":     "file",
+				"encoding": "base64",
+				"content":  b64,
+			}
+			_ = json.NewEncoder(w).Encode(env)
+			return
+		}
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewClientWithAPIURL("token", "owner", "repo", srv.URL)
+	got, err := c.ReadFile(context.Background(), "org-tenants", "clusters/omantel.biz/org-tenants/kustomization.yaml")
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if got != wantYAML {
+		t.Fatalf("ReadFile did not decode the Gitea envelope.\n got: %q\nwant: %q", got, wantYAML)
+	}
+	if strings.Contains(got, "\"content\"") || strings.Contains(got, "\"encoding\"") {
+		t.Fatalf("ReadFile returned the JSON envelope verbatim (the #4206 corruption): %q", got)
+	}
+}
