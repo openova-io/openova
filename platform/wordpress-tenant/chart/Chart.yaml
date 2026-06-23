@@ -131,7 +131,26 @@ name: bp-wordpress-tenant
 #   sync Job (public proxy-dockerhub curl) intentionally keep NO pull secret.
 #   Per Inviolable Principle #4 the list is overrideable (set `[]` on clusters
 #   that mirror the image into a public registry).
-version: 0.4.11
+# 0.4.12 (#4152, Refs #3858): FIX the demo-Org WordPress HTTP-500 restart-loop —
+#   the FINAL convergence gap. Root cause was NOT pg4wp/WP-6.x/PHP-8.3
+#   incompatibility (pg4wp + pdo_pgsql + pgsql are all present and working).
+#   templates/database-secret.yaml seeded `data: { password: "" }`; reflector's
+#   `reflects` mode copies only source keys ABSENT in the destination, so it
+#   filled host/pgpass/uri/... but PRESERVED the empty Helm-seeded `password`
+#   forever (reflector logs: `Updated 0`). WORDPRESS_DB_PASSWORD bound to "" →
+#   pg4wp PDO `SQLSTATE[08006] fe_sendauth: no password supplied` → WP DB-boot
+#   fatal → Apache 500 (empty body) → liveness fail → CrashLoop. The post-install
+#   sync Job (safety net) never ran because the last HR upgrade FAILED (CNPG
+#   webhook x509), so its post-upgrade hook never fired.
+#   FIX: drop the `data.password: ""` seed entirely so reflector OWNS and
+#   populates `password` from the CNPG `<cluster>-app` source; mark the
+#   deployment's WORDPRESS_DB_PASSWORD secretKeyRef `optional: true` so the Pod
+#   schedules during the brief pre-reflection window instead of
+#   CreateContainerConfigError. Verified live (kom4dc demo Org): populating the
+#   key → `PDO_OK`, `curl / → HTTP 302 Location: /wp-admin/install.php`, pod 1/1
+#   Running 0 restarts; removing the key → reflector repopulated it (64 bytes)
+#   in <5s. Sync Job retained as belt-and-suspenders.
+version: 0.4.12
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

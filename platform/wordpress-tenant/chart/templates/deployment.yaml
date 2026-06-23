@@ -263,6 +263,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.database.secretName }}
                   key: password
+                  # 0.4.12 (#4152, Refs #3858): the password key is no
+                  # longer Helm-seeded — reflector / the sync Job populate
+                  # it from the CNPG `<cluster>-app` source. `optional`
+                  # lets the Pod schedule during the brief pre-reflection
+                  # window instead of CreateContainerConfigError; once the
+                  # key lands the Pod's next start binds the real value.
+                  optional: true
             # ── Site URL (used by WP to construct admin/login links) ─
             - name: WORDPRESS_CONFIG_EXTRA
               value: |
