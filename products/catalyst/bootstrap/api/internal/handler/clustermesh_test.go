@@ -2651,3 +2651,102 @@ func TestSyncSharedPGConsumerHubSecrets(t *testing.T) {
 		}
 	})
 }
+
+// seedKeycloakAdminSecret creates the host-cluster keycloak admin Secret
+// (mgmt/keycloak-x-keycloak-x-mgmt-vcluster, key admin-password) on the given
+// clientset — mirrors what the bitnami keycloak subchart mints + the vCluster
+// syncer surfaces on the host.
+func seedKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface, adminPassword string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: keycloakAdminSecretNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create %s namespace: %v", keycloakAdminSecretNamespace, err)
+	}
+	if _, err := cs.CoreV1().Secrets(keycloakAdminSecretNamespace).Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      keycloakAdminSecretName,
+			Namespace: keycloakAdminSecretNamespace,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{"admin-password": []byte(adminPassword)},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create keycloak admin Secret: %v", err)
+	}
+}
+
+func getKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface) (*corev1.Secret, bool) {
+	t.Helper()
+	s, err := cs.CoreV1().Secrets(keycloakAdminSecretNamespace).Get(context.Background(), keycloakAdminSecretName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, false
+	}
+	if err != nil {
+		t.Fatalf("get keycloak admin Secret: %v", err)
+	}
+	return s, true
+}
+
+// TestSyncKeycloakAdminSecret covers the #4158 best-effort cross-region keycloak
+// master-realm admin Secret sync: (1) region-A's authoritative admin-password
+// overwrites the replica's DIVERGENT local value (the live region-B 401 root
+// cause); (2) a missing source is skipped (keycloak still installing); (3)
+// single-region is a no-op; (4) region-A (slots[0]) is NEVER written — the
+// primary's working keycloak must not regress.
+func TestSyncKeycloakAdminSecret(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dep := &Deployment{ID: "dep-4158"}
+
+	t.Run("region-A-admin-password-overwrites-replica-divergent-copy", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		replicaCS := kfake.NewSimpleClientset()
+		// Region-A: the AUTHORITATIVE password whose hash lives in the
+		// cross-region-replicated keycloak catalog.
+		seedKeycloakAdminSecret(t, primaryCS, "1b58-region-A-pw")
+		// Region-B: its OWN divergent random password — the bitnami subchart
+		// generated a fresh one at install (the live 2e7e… defect) → 401.
+		seedKeycloakAdminSecret(t, replicaCS, "2e7e-region-B-pw")
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncKeycloakAdminSecret(context.Background(), dep, slots)
+
+		got, ok := getKeycloakAdminSecret(t, replicaCS)
+		if !ok {
+			t.Fatalf("replica keycloak admin Secret missing after sync")
+		}
+		if p := string(got.Data["admin-password"]); p != "1b58-region-A-pw" {
+			t.Errorf("replica admin-password = %q, want the authoritative region-A password (the replica's keycloak catalog has region-A's admin hash → only region-A's pw authenticates)", p)
+		}
+		// Region-A (the source) must be UNTOUCHED — the primary keycloak is
+		// working and must not regress.
+		src, _ := getKeycloakAdminSecret(t, primaryCS)
+		if p := string(src.Data["admin-password"]); p != "1b58-region-A-pw" {
+			t.Errorf("primary admin-password changed to %q — the source region must never be written", p)
+		}
+	})
+
+	t.Run("missing-source-is-skipped", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset() // no keycloak admin Secret yet
+		replicaCS := kfake.NewSimpleClientset()
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		// Must not panic / error — best-effort skip while keycloak still installs.
+		h.syncKeycloakAdminSecret(context.Background(), dep, slots)
+		if _, ok := getKeycloakAdminSecret(t, replicaCS); ok {
+			t.Errorf("replica unexpectedly gained an admin Secret from an empty primary")
+		}
+	})
+
+	t.Run("single-region-is-noop", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		seedKeycloakAdminSecret(t, primaryCS, "pw")
+		// len(slots) == 1 → no replica → must return immediately, no panic.
+		h.syncKeycloakAdminSecret(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
+	})
+}
