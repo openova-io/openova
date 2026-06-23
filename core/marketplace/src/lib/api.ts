@@ -43,6 +43,21 @@ export function setActiveOrgSlug(slug: string): void {
   notifyAuthChanged();
 }
 
+/**
+ * #4176 — persist the Org's SERVER-AUTHORITATIVE console host
+ * (`console.<slug>.<parentDomain>`, e.g. console.demo.omani.works) so
+ * `deriveConsoleURL` redirects to the chosen pool domain instead of
+ * re-deriving `console.<slug>.<marketplace-host-domain>` (which on
+ * marketplace.omantel.biz is the Sovereign domain → console.<slug>.omantel.biz,
+ * an unreachable host that breaks every org creation). Canonical key:
+ * `src/lib/config.ts::ACTIVE_CONSOLE_HOST_KEY`.
+ */
+export function setActiveOrgConsoleHost(host: string): void {
+  if (!host) return;
+  localStorage.setItem('org-active-console-host', host.trim().toLowerCase());
+  notifyAuthChanged();
+}
+
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = localStorage.getItem('org-token');
   const headers: Record<string, string> = {
@@ -223,6 +238,7 @@ export async function logout(): Promise<void> {
   localStorage.removeItem('org-refresh-token');
   localStorage.removeItem('org-active-org');
   localStorage.removeItem('org-active-org-slug');
+  localStorage.removeItem('org-active-console-host'); // #4176
   localStorage.removeItem('org-cart');
   localStorage.removeItem('org-checkout-tenant');
   localStorage.removeItem('org-checkout-tenant-slug');
@@ -499,6 +515,13 @@ export interface Tenant {
   plan_id: string;
   apps: string[];
   status: string;
+  // #4176 — server-authoritative console host: `console.<slug>.<parentDomain>`
+  // (e.g. console.demo.omani.works). Derived server-side from the Org's chosen
+  // pool parent domain; the client MUST use this for the post-checkout redirect
+  // rather than re-deriving from the marketplace host (which on a Sovereign whose
+  // marketplace runs on the Sovereign domain yields the wrong, unreachable host).
+  console_host?: string;
+  parent_domain?: string;
 }
 
 export interface CheckoutRequest {

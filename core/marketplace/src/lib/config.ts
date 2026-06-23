@@ -78,6 +78,26 @@ function readActiveOrgSlug(): string | null {
 }
 
 /**
+ * #4176 — the Org's SERVER-AUTHORITATIVE console host (`console.<slug>.<parentDomain>`,
+ * e.g. console.demo.omani.works), persisted by `setActiveOrgConsoleHost` right after
+ * `createTenant`. This is the canonical fix for the pool-domain redirect bug: on a
+ * Sovereign whose marketplace runs on the Sovereign domain (marketplace.omantel.biz)
+ * while Orgs provision on a SEPARATE pool domain (omani.works), re-deriving the host
+ * from the marketplace domain yields console.<slug>.omantel.biz — an unreachable host.
+ */
+export const ACTIVE_CONSOLE_HOST_KEY = 'org-active-console-host';
+
+function readActiveConsoleHost(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const h = localStorage.getItem(ACTIVE_CONSOLE_HOST_KEY);
+    return h && h.trim() ? h.trim().toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Derive the customer console URL from the current marketplace host AND the
  * active tenant slug (if known).
  *
@@ -124,6 +144,19 @@ function deriveConsoleURL(slug?: string | null): string {
   if (!host) return mothershipConsoleURL();
   // Mothership marketplace keeps the canonical /nova prefix.
   if (host === MOTHERSHIP_HOST) return mothershipConsoleURL();
+  // #4176 — PREFER the server-authoritative console host (console.<slug>.<parentDomain>)
+  // persisted post-createTenant. This is the ONLY source that knows the Org's chosen
+  // POOL parent domain. Re-deriving from the marketplace host (below) is correct only
+  // when the marketplace runs ON the pool domain; on a Sovereign whose marketplace is
+  // on the Sovereign domain (marketplace.omantel.biz) with Orgs on a SEPARATE pool
+  // (omani.works), the derivation yields console.<slug>.omantel.biz — an unreachable
+  // host that breaks every org creation. Trust the stored host only when it matches the
+  // requested slug (guards a stale value when consoleHref is called for a different Org).
+  const storedHost = readActiveConsoleHost();
+  if (storedHost && storedHost.startsWith('console.')) {
+    const s = (slug ?? readActiveOrgSlug());
+    if (!s || storedHost.startsWith(`console.${s}.`)) return `https://${storedHost}`;
+  }
   // Sovereign pattern: marketplace.<sov-fqdn> — ALL franchised hosts, incl.
   // partner-vanity FQDNs (#3376: never bounce a cut-over customer to the
   // mothership). The per-tenant console is `console.<slug>.<sov-fqdn>`,
