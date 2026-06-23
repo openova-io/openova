@@ -965,3 +965,28 @@ jobs:
           else
             echo "- **Blueprint.yaml lockstep:** (chart has no platform/<bp>/blueprint.yaml — e.g. products/catalyst umbrella)" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # #4049 — BASTION HARBOR WARMUP for COMPONENT images. After any bp-* chart
+  # publishes here (every `platform/<name>/chart/**` or `products/<name>/chart/**`
+  # push to main — including the wordpress-tenant chart re-pin that carries a
+  # freshly-built private `wordpress-tenant-pg` runtime tag), re-warm the bastion
+  # Harbor's hosted `openova-io` project with the FULL private image set. Without
+  # this, a private component tag bumped outside catalyst-build's trigger paths
+  # was never pushed to the bastion → the node cold-pulled it DIRECT from ghcr on
+  # a fresh prov (2.3 MB/s, frequent reset) → 20+ minute pulls (live on the
+  # omantel.biz demo Org's pg-driver). The warmup is DATA-DRIVEN over every
+  # pinned `platform/**`/`products/**` values.yaml image, so it covers whichever
+  # component just published — no per-blueprint wiring needed. No catalyst_sha is
+  # passed (this is the component path, not a catalyst build); the chart render +
+  # component extraction cover everything. continue-on-error lives in the
+  # reusable workflow's job, so a partial warmup never fails the release.
+  #
+  # `if: always() && matrix non-empty` so the warmup still runs the broad re-warm
+  # even if one matrix `build` leg failed (fail-fast is off) — it warms whatever
+  # DID land. It is skipped only when nothing changed (empty matrix).
+  warmup-bastion-harbor:
+    needs: [detect, build]
+    if: ${{ always() && needs.detect.outputs.matrix != '{"include":[]}' }}
+    uses: ./.github/workflows/warmup-bastion-harbor.yaml
+    secrets:
+      bastion_harbor_robot_token: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
