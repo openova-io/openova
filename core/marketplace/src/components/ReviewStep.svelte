@@ -296,7 +296,7 @@
           {#if cart.subdomain}
             <section class="rv-section">
               <div class="rv-head">
-                <h2>Tenant</h2>
+                <h2>Organization</h2>
                 <a href="/addons" class="rv-link">Edit</a>
               </div>
               <div class="ws-preview">
