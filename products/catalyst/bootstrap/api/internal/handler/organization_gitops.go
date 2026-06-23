@@ -359,18 +359,14 @@ spec:
   url: oci://ghcr.io/openova-io
   secretRef:
     name: ghcr-pull
----
-# vCluster (loft) — a non-OCI Helm repo for the vcluster chart
-# referenced by the per-tenant vcluster.yaml overlay.
-apiVersion: source.toolkit.fluxcd.io/v1beta2
-kind: HelmRepository
-metadata:
-  name: loft
-  namespace: flux-system
-spec:
-  interval: 15m
-  url: https://charts.loft.sh
 `
+// NOTE — the `loft` (https://charts.loft.sh) HelmRepository was removed
+// from this shared set in #4188 along with the legacy vc-<subdomain>
+// overlay. The per-Org vCluster (chart vcluster@0.33.x) is owned by the
+// CRD org-controller, which sources from its own `loft`/vcluster-system
+// HelmRepository (Harbor-mirrored). The org-tenant overlay no longer
+// pulls any chart from loft, so this entry was dead weight + the only
+// place this path referenced the upstream rancher/k3s distro.
 
 // DeleteTenantOverlay implements OrganizationGitOpsWriter. Removes the
 // per-tenant overlay directory. Idempotent — a missing path commits
@@ -454,7 +450,12 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 type orgTenantTemplateData struct {
 	TenantID     string
 	Subdomain    string
-	Namespace    string
+	Namespace string
+	// VClusterName — retained for the store record + back-compat, but as
+	// of #4188 NO overlay template renders it. The per-Org vCluster is
+	// owned by the CRD org-controller (chart vcluster@0.33.x, ns
+	// <subdomain>); this path stopped emitting the legacy
+	// vc-<subdomain>@0.19.x duplicate. Do NOT wire a new template to it.
 	VClusterName string
 	OTECHFQDN    string
 	// ParentDomain — the chosen org-pool parent (multi-domain
@@ -660,10 +661,28 @@ func withVersionDefaults(v OrganizationChartVersions) OrganizationChartVersions 
 // new chart = a new entry here. Each template renders a single YAML
 // document; kustomization.yaml lists all of them so Flux materialises
 // them in topological order.
+// NOTE — the per-Org vCluster is intentionally NOT rendered here. The
+// canonical per-Organization vCluster backing is owned by the CRD
+// org-controller (core/controllers/organization/internal/gitops/
+// manifests.go → HelmRelease `vcluster`, chart vcluster@0.33.x, loft
+// vcluster-oss distro, Harbor-mirrored images, ns `<subdomain>`). The
+// legacy bootstrap-api path used to emit a SECOND vcluster HelmRelease
+// (`vc-<subdomain>`, chart 0.19.x, raw `rancher/k3s` image) into the
+// org-tenant overlay namespace. Nothing in the overlay consumed it (the
+// per-Org app HelmReleases install directly into the host org-tenant
+// namespace — none set kubeConfig/dependsOn against it), yet `rancher/
+// k3s` is not Harbor-mirrored so its Pod sat in Init:ImagePullBackOff
+// forever, the `vc-<subdomain>` HelmRelease stayed False on the spine,
+// and it was a fake-green trap for verifiers reading it as THE backing.
+//
+// Dropping the entry here is the idempotency fix (#4188): because the
+// org-tenants Flux Kustomization runs with prune=true, removing the
+// resource from the rendered overlay garbage-collects the stale
+// `vc-<subdomain>` HelmRelease on the next reconcile, AND a re-render of
+// any existing Org never re-creates the duplicate. Refs #4188.
 var orgTenantTemplates = map[string]string{
 	"kustomization.yaml":       orgTenantKustomization,
 	"namespace.yaml":           orgTenantNamespace,
-	"vcluster.yaml":            orgTenantVCluster,
 	"bp-keycloak.yaml":         orgTenantBPKeycloak,
 	"bp-cnpg.yaml":             orgTenantBPCNPG,
 	"bp-newapi.yaml":           orgTenantBPNewAPI,
@@ -683,8 +702,13 @@ const orgTenantKustomization = `# Generated at {{.GeneratedAt}} by catalyst-api/
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  # The per-Org vCluster is owned by the CRD org-controller (chart
+  # vcluster@0.33.x, ns <subdomain>), NOT this overlay. The legacy
+  # vc-<subdomain> (0.19.x / rancher-k3s) HelmRelease was removed in
+  # #4188 — leaving it here re-created a stale ImagePullBackOff duplicate
+  # on every render. prune=true on the org-tenants Kustomization reaps
+  # the old one.
   - namespace.yaml
-  - vcluster.yaml
   - bp-keycloak.yaml
   - bp-cnpg.yaml
   - bp-newapi.yaml
@@ -734,39 +758,16 @@ metadata:
     catalyst.openova.io/domain-mode: {{.DomainMode}}
 `
 
-const orgTenantVCluster = `# vCluster HelmRelease — the Organization's logical cluster lives here.
-# Per Inviolable Principle 7 (K8s-native tenancy) every Organization gets its
-# own vcluster control plane; the bp-* charts below install INTO that
-# vcluster via the vcluster syncer.
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: {{.VClusterName}}
-  namespace: {{.Namespace}}
-spec:
-  interval: 10m
-  chart:
-    spec:
-      chart: vcluster
-      version: "0.19.x"
-      sourceRef:
-        kind: HelmRepository
-        name: loft
-        namespace: flux-system
-  values:
-    vcluster:
-      image: rancher/k3s:v1.29.1-k3s2
-    syncer:
-      extraArgs:
-        - --name={{.VClusterName}}
-        - --tls-san={{.ConsoleHost}}
-    storage:
-      persistence: true
-      size: 5Gi
-    sync:
-      ingresses:
-        enabled: true
-`
+// orgTenantVCluster was removed in #4188. The canonical per-Organization
+// vCluster backing is the CRD org-controller's `vcluster` HelmRelease
+// (chart vcluster@0.33.x, loft vcluster-oss distro, Harbor-mirrored
+// images, ns `<subdomain>`) — see core/controllers/organization/internal/
+// gitops/manifests.go. The legacy template here rendered a SECOND,
+// orphaned vCluster (`vc-<subdomain>`, chart 0.19.x, raw rancher/k3s
+// image) that nothing in the overlay consumed and that could never pull
+// its image on a Harbor-only Sovereign → permanent Init:ImagePullBackOff
+// + a False HelmRelease on the spine. Do NOT re-introduce it: a per-Org
+// vCluster belongs to the CRD org-controller, full stop.
 
 const orgTenantBPKeycloak = `# bp-keycloak per-tenant (issue #800/#803/#804/#910) — the Organization's
 # own Keycloak instance. Each tenant runs its own Keycloak Pod +
