@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T13:15:03Z` |
+| Last refreshed | `2026-06-23T13:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 68 |
 | Open DoD gates | 0 / 41 |
@@ -275,6 +275,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T13:19 | [#4174](https://github.com/openova-io/openova/pull/4174) | #4118 | fix(ci): agenity-build smoke-gate must --entrypoint past the |
 | 2026-06-23T11:23 | [#4173](https://github.com/openova-io/openova/pull/4173) | #745 | fix(bp-agenity): no-cache SPA HTML + #4118 post-build smoke  |
 | 2026-06-23T11:13 | [#4172](https://github.com/openova-io/openova/pull/4172) | #3383 | fix(console): unblock sovereign-admin voucher issuance — dro |
 | 2026-06-23T11:15 | [#4171](https://github.com/openova-io/openova/pull/4171) | #4169 | fix(bp-newapi): per-Org install no longer clobbers Sovereign |
@@ -304,7 +305,6 @@ flowchart LR
 | 2026-06-22T11:03 | [#4120](https://github.com/openova-io/openova/pull/4120) | #4110 | fix(catalyst): Org console — project the Org's OWN apps + ki |
 | 2026-06-22T10:13 | [#4117](https://github.com/openova-io/openova/pull/4117) | #4110 | feat(catalyst+mcp): Org-scoped Application install — custome |
 | 2026-06-22T08:50 | [#4115](https://github.com/openova-io/openova/pull/4115) | #4114 | fix(agenity): make the chat->provision North Star work live  |
-| 2026-06-22T08:38 | [#4112](https://github.com/openova-io/openova/pull/4112) | #4110 | fix(catalyst): SECURITY — customer Org console must be Org-s |
 
 ---
 
