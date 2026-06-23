@@ -1,0 +1,73 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: agenity-demo
+  namespace: org-7283eb4a-19e5-4e86-9066-d4aa26762064
+  labels:
+    catalyst.openova.io/app: agenity
+    catalyst.openova.io/organization: demo
+  annotations:
+    # #4180 — DURABLE chart-pin bump 0.3.0 -> 0.5.3 (appVersion 0.9.6).
+    # No image.tag override: image defaults to the chart's appVersion 0.9.6.
+    # httpRoute rendered BY THE CHART (redirect + no-cache) — the hand-applied
+    # HTTPRoute is retired. reconcileStrategy ChartVersion now actually rolls
+    # because the chart VERSION changes (0.3.0 -> 0.5.3).
+    openova.io/managed-note: "agenity-demo durable pin chart 0.5.3 / appVersion 0.9.6 (Refs #4180)"
+spec:
+  interval: 10m
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  chart:
+    spec:
+      chart: bp-agenity
+      version: "0.5.3"
+      reconcileStrategy: ChartVersion
+      sourceRef:
+        kind: HelmRepository
+        name: openova-catalog
+        namespace: flux-system
+  values:
+    sovereignFqdn: omantel.biz
+    # image.tag intentionally OMITTED -> defaults to chart appVersion 0.9.6
+    image:
+      pullPolicy: Always
+    imagePullSecrets:
+      - name: ghcr-pull
+    anthropic:
+      secretName: agenity-anthropic-token
+      credentialsKey: credentialsJson
+      externalSecret:
+        enabled: false
+    openovaMCP:
+      enabled: true
+      catalystApiUrl: https://console.demo.omani.homes
+      context: sovereign
+      verify: rs256
+      bearerSecret:
+        name: agenity-mcp-bearer
+        key: bearer
+      rs256PubkeySecret:
+        name: catalyst-handover-jwt
+        key: handover-jwt-public.pem
+    persistence:
+      enabled: true
+      repo:
+        size: 10Gi
+      state:
+        size: 5Gi
+    # ── HTTPRoute now rendered by the chart (durable; replaces the hand-route) ──
+    httpRoute:
+      enabled: true
+      hostnames:
+        - agenity.demo.omani.homes
+      parentRef:
+        name: cilium-gateway-console
+        namespace: kube-system
+      noCacheHtml: true
+      dashboardRedirect:
+        enabled: true
+        path: /app/
+        statusCode: 302
+        port: 443
