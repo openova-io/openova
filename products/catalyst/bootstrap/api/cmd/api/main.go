@@ -972,7 +972,16 @@ func main() {
 			}
 			// DNS provisioner — wraps PowerDNS for free-subdomain
 			// writes; falls back to a no-op when env unset.
-			pdnsURL := os.Getenv("CATALYST_POWERDNS_URL")
+			//
+			// #4215: read CATALYST_POWERDNS_API_URL — the canonical name
+			// used by every other PowerDNS reader (main.go:353,
+			// parent_domains.go, the chart api-deployment templates) and
+			// the only name the deployment actually sets. The legacy
+			// CATALYST_POWERDNS_URL was never wired, so this org-tenant DNS
+			// provisioner was permanently no-op'd → new Orgs never got their
+			// console.<slug>.<pool> A-record → ERR_NAME_NOT_RESOLVED on the
+			// post-signup redirect (the #4179 funnel landing).
+			pdnsURL := os.Getenv("CATALYST_POWERDNS_API_URL")
 			pdnsKey := os.Getenv("CATALYST_POWERDNS_API_KEY")
 			if writer := handler.NewPowerDNSWriter(pdnsURL, pdnsKey); writer != nil {
 				tdeps.DNS = handler.DefaultOrganizationDNSProvisioner{Writer: writer}
