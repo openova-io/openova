@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T17:45:01Z` |
+| Last refreshed | `2026-06-23T18:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 76 |
+| Open issues | 75 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 76 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 75 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 76 open items (clickable table)
+### All 75 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -264,9 +264,7 @@ flowchart LR
 | [#4118](https://github.com/openova-io/openova/issues/4118) | agenity-build: published image can silently ship WITHOUT node/claude-code (Docke | Other |
 | [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
 | [#4158](https://github.com/openova-io/openova/issues/4158) | Secondary region: mgmt-vCluster keycloak (+gitea/harbor/grafana) FailedMount — | Other |
-| [#4160](https://github.com/openova-io/openova/issues/4160) | catalog-seed bp-wordpress-tenant pin lagged chart (0.4.4 vs 0.4.12) — fresh pr | Other |
 | [#4167](https://github.com/openova-io/openova/issues/4167) | Marketplace storefront leaks banned-term 'Tenant' on the customer funnel front d | Other |
-| [#4169](https://github.com/openova-io/openova/issues/4169) | bp-newapi: per-Org install clobbers Sovereign newapi-admin redirectUris in share | Other |
 | [#4170](https://github.com/openova-io/openova/issues/4170) | Sovereign-admin cannot issue vouchers from the operator console — voucher page | Other |
 | [#4176](https://github.com/openova-io/openova/issues/4176) | P0: org creation redirects to console.<slug>.<SOVEREIGN-domain> not the selected | Other |
 | [#4179](https://github.com/openova-io/openova/issues/4179) | FUNNEL E2E: a stranger with a voucher creates an Org and lands SIGNED-IN on cons | Other |
@@ -276,6 +274,7 @@ flowchart LR
 | [#4186](https://github.com/openova-io/openova/issues/4186) | Per-Org console session-handoff + /api/auth routing not wired on single-domain S | Other |
 | [#4187](https://github.com/openova-io/openova/issues/4187) | console: sovereign-owner avatar reads generic 'User' / '<fqdn>' — getMe() call | Other |
 | [#4188](https://github.com/openova-io/openova/issues/4188) | fix(org-provisioning): demo Org has a STALE duplicate vcluster (vc-demo @0.19.10 | Other |
+| [#4193](https://github.com/openova-io/openova/issues/4193) | fix(cloud): recon-tab actions/logs 404 on chrooted Sovereign console — Reconci | Other |
 
 ---
 
@@ -283,6 +282,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T17:56 | [#4195](https://github.com/openova-io/openova/pull/4195) | #4189 | docs(uat): full 215-row god-mode walk consolidated → 0 ⚠️ (1 |
 | 2026-06-23T17:18 | [#4185](https://github.com/openova-io/openova/pull/4185) | #4179 | docs(uat): #4176 P0 RESOLVED — #4179 funnel E2E live evidenc |
 | 2026-06-23T16:46 | [#4184](https://github.com/openova-io/openova/pull/4184) | #4177 | fix(funnel): thread parent_domain end-to-end → org-create la |
 | 2026-06-23T15:57 | [#4178](https://github.com/openova-io/openova/pull/4178) | #3376 | docs(uat): sync session UAT to main + 🛑 #4176 P0 banner (org |
@@ -312,7 +312,6 @@ flowchart LR
 | 2026-06-22T15:38 | [#4142](https://github.com/openova-io/openova/pull/4142) | #4140 | fix(#4139): bp-wordpress-tenant active-hot-standby CNPG sync |
 | 2026-06-22T15:23 | [#4141](https://github.com/openova-io/openova/pull/4141) | #3985 | fix(#4139): unblock bp-wordpress-tenant publish — repair #39 |
 | 2026-06-22T15:16 | [#4140](https://github.com/openova-io/openova/pull/4140) | #3971 | fix(#4139): demo-Org convergence — empty wpContent.storageCl |
-| 2026-06-22T16:26 | [#4138](https://github.com/openova-io/openova/pull/4138) | #4110 | fix(openova-mcp): org-admin tier → create_application lands  |
 
 ---
 
