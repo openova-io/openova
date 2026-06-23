@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T16:15:02Z` |
+| Last refreshed | `2026-06-23T16:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 72 |
+| Open issues | 73 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 72 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 73 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 72 open items (clickable table)
+### All 73 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -272,6 +272,7 @@ flowchart LR
 | [#4179](https://github.com/openova-io/openova/issues/4179) | FUNNEL E2E: a stranger with a voucher creates an Org and lands SIGNED-IN on cons | Other |
 | [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
 | [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
+| [#4182](https://github.com/openova-io/openova/issues/4182) | SECURITY P0: session JWT + refresh_token handed off in the URL query string (?to | Other |
 
 ---
 
