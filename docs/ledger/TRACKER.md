@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-23T04:00:04Z` |
+| Last refreshed | `2026-06-23T04:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 91 |
+| Open issues | 86 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 91 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 86 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 91 open items (clickable table)
+### All 86 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -214,10 +214,7 @@ flowchart LR
 | [#3821](https://github.com/openova-io/openova/issues/3821) | hw165: Pillar-5 cutover wedged at step 1/11 — cutover-gitea-mirror Job (ns cat | Other |
 | [#3824](https://github.com/openova-io/openova/issues/3824) | hw165: openbao-snapshot-save CreateContainerConfigError — seeder can't read rt | Other |
 | [#3829](https://github.com/openova-io/openova/issues/3829) | Every application AND activity shows its TRUE live state end-to-end — every ap | Other |
-| [#3830](https://github.com/openova-io/openova/issues/3830) | Create-instance fails for EVERY Organization: ensureOrgNamespace uses the Org FQ | Other |
 | [#3840](https://github.com/openova-io/openova/issues/3840) | cloud-init: disable IPv6 on Huawei nodes so ghcr image-pull resolution is DETERM | Other |
-| [#3844](https://github.com/openova-io/openova/issues/3844) | oidc-gate pods CrashLoop on Huawei/kom4dc: OIDC discovery dials the Sovereign's  | Other |
-| [#3850](https://github.com/openova-io/openova/issues/3850) | fix(bp-gitea): SSO oauth source 'openova-sso' is lost when CNPG DB re-inits —  | Other |
 | [#3854](https://github.com/openova-io/openova/issues/3854) | fix(bp-catalyst-platform): #3383 rename tail — provisioning-github-token + val | Other |
 | [#3859](https://github.com/openova-io/openova/issues/3859) | fix(org-services + per-Org vCluster): sme→org-services rename orphaned 3 platf | Other |
 | [#3878](https://github.com/openova-io/openova/issues/3878) | fix(bp-postgres/bp-mgmt-vcluster): deliver the 4 pod-mounted DB secrets natively | Other |
@@ -238,9 +235,7 @@ flowchart LR
 | [#3925](https://github.com/openova-io/openova/issues/3925) | Convergence Monitor — redesign provisioning monitoring into 2 native surfaces  | Other |
 | [#3926](https://github.com/openova-io/openova/issues/3926) | fix(bp-self-sovereign-cutover): step-02 harbor-projects wedges every post-#3642  | Other |
 | [#3934](https://github.com/openova-io/openova/issues/3934) | SSO-landing regression (#3642 mgmt-vCluster pivot): gitea 500 / harbor login-for | Other |
-| [#3942](https://github.com/openova-io/openova/issues/3942) | fix(catalog): bp-wordpress (and any seeded-but-uncatalogued Blueprint) absent fr | Other |
 | [#3944](https://github.com/openova-io/openova/issues/3944) | fix(bp-self-sovereign-cutover): step-03 harbor-prewarm stalls 'active' for hours | Other |
-| [#3946](https://github.com/openova-io/openova/issues/3946) | fix(bp-catalyst-platform): catalyst-gitea-token-mint pre-install hook Job DENIED | Other |
 | [#3948](https://github.com/openova-io/openova/issues/3948) | fix(bp-mgmt-vcluster,bp-newapi): #3642 spine regressions on hw172 — gitea-pg-a | Other |
 | [#3952](https://github.com/openova-io/openova/issues/3952) | fix(bp-mgmt-vcluster): #3642 secret+service cascade on hw172 — harbor/seaweedf | Other |
 | [#3955](https://github.com/openova-io/openova/issues/3955) | fix(bootstrap): route private OpenOva images through the harbor cache — elimin | Other |
@@ -298,6 +293,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-23T04:09 | [#4157](https://github.com/openova-io/openova/pull/4157) | #3642 | fix(bp-keycloak): account-console SSO-landing — non-delegati |
 | 2026-06-23T03:41 | [#4156](https://github.com/openova-io/openova/pull/4156) | #4049 | fix(provisioning): bastion-Harbor warmup fires on every bp-* |
 | 2026-06-23T00:48 | [#4155](https://github.com/openova-io/openova/pull/4155) | #4152 | fix(bp-wordpress-tenant): reflector populates WORDPRESS_DB_P |
 | 2026-06-22T23:52 | [#4154](https://github.com/openova-io/openova/pull/4154) | #4153 | fix(bp-wordpress-tenant): add wordpress.image.pullSecrets fo |
@@ -327,7 +323,6 @@ flowchart LR
 | 2026-06-22T06:00 | [#4096](https://github.com/openova-io/openova/pull/4096) | docs(uat): re-stamp ledger to omantel.biz permanent env + 20 |  |
 | 2026-06-22T06:36 | [#4095](https://github.com/openova-io/openova/pull/4095) | #3 | feat(catalyst-api): auto-provision per-Org console TLS for e |
 | 2026-06-22T05:56 | [#4094](https://github.com/openova-io/openova/pull/4094) | #4082 | fix(application-controller): chart ClusterRole grant dr.open |
-| 2026-06-22T06:35 | [#4093](https://github.com/openova-io/openova/pull/4093) | #4089 | feat(console-settings): re-home Parent Domains as a granular |
 
 ---
 
