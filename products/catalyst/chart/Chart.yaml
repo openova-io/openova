@@ -2974,7 +2974,7 @@ name: bp-catalyst-platform
 #   handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER now defaults false via
 #   catalystApi.fireCutoverOnHandover). Cutover is a DELIBERATE BSS-menu action; the
 #   operator-initiated path is unchanged (NO-REGRESS).
-version: 1.4.812
+version: 1.4.813
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
