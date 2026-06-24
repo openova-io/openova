@@ -490,7 +490,7 @@ images:
   # the live Organization CRD rejects 422 ("Unsupported value sme: supported
   # values org, corporate"), so only 34ff594 lets tenant.created mint the Org CR.
   # Refs #3964 #3995.
-  orgTag: "c3b2736"
+  orgTag: "f89563b"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
