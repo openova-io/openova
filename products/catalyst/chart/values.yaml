@@ -907,9 +907,32 @@ controllers:
     # Kustomization (seconds). Defaults to 60s for fast initial Pod
     # spin-up; operators with hundreds of Apps may raise this.
     hostFluxIntervalSeconds: 60
-    # Optional Secret in HostFluxNamespace holding the Gitea token Flux
-    # uses to clone. Empty = anonymous (acceptable for in-cluster Gitea).
-    fluxGiteaSecretRef: ""
+    # Flux basic-auth Secret (in hostFluxNamespace) holding the Gitea PAT
+    # the per-Application GitRepository (catalyst-app-<org>-<app>,
+    # ensureHostFluxBootstrap) uses to clone. bp-gitea sets
+    # service.REQUIRE_SIGNIN_VIEW=true (platform/gitea/chart/values.yaml) —
+    # anonymous clone is disabled cluster-wide, so an EMPTY secretRef makes
+    # source-controller clone anonymously, Gitea 401s with "authentication
+    # required", the per-app Kustomization reports "Source artifact not
+    # found", and the console-created Application never reaches Ready (proven
+    # live on omantel.biz dep 4635277cae4ffed9: shared-pg-d stuck
+    # Provisioning, shared-pg-e Failed — #4283).
+    #
+    # `openova-org-tenants-git-auth` is the SAME shared Flux basic-auth Secret
+    # the organization-controller already clones every per-Org catalyst-tenant
+    # repo with (controllers.organization.fluxGiteaSecretRef above, the proven
+    # #3454 / #3376 pattern). It holds the gitea_admin PAT, so it can clone
+    # EVERY Org's per-Application repo — no per-app secret needed. The Secret
+    # is guaranteed to exist in flux-system by the
+    # catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml
+    # post-install/post-upgrade hook (#3749 / #3668), which reads the
+    # runtime-minted catalyst-gitea-token PAT via secretKeyRef and applies it,
+    # so a fresh prov gets it the first time and any chart bump re-asserts it.
+    #
+    # Per Inviolable Principle #4 the secret name stays operator-overridable;
+    # set to "" to force anonymous clone (only valid if bp-gitea ever drops
+    # REQUIRE_SIGNIN_VIEW AND the per-app repo is made public).
+    fluxGiteaSecretRef: "openova-org-tenants-git-auth"
     env: {}
     nodeSelector: {}
     tolerations: []

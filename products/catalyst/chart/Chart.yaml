@@ -3004,7 +3004,19 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
-version: 1.4.825
+# 1.4.826 — #4283: the application-controller's per-Application GitRepository
+#   (catalyst-app-<org>-<app>, ensureHostFluxBootstrap) now clones the Sovereign-local
+#   Gitea WITH auth. controllers.application.fluxGiteaSecretRef was "" (anonymous) — but
+#   bp-gitea sets REQUIRE_SIGNIN_VIEW=true so anonymous clone 401s "authentication
+#   required", the per-app Kustomization reports "Source artifact not found", and the
+#   console-created Application never reaches Ready (proven live omantel.biz dep
+#   4635277cae4ffed9: shared-pg-d stuck Provisioning, shared-pg-e Failed). Default flipped
+#   to the SAME openova-org-tenants-git-auth Secret the organization-controller already
+#   clones every per-Org catalyst-tenant repo with (the proven #3454/#3376 pattern; the
+#   gitea_admin PAT clones every Org's per-app repo). Secret pre-exists in flux-system via
+#   the gitea-flux-auth-secrets-sync-job post-install hook (#3749/#3668). Pure values
+#   default change; operator-overridable. Chart-version bump forces the Flux re-pull.
+version: 1.4.826
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /

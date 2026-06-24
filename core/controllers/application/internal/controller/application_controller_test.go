@@ -1033,6 +1033,81 @@ func TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization(t *testing.T
 	}
 }
 
+// TestReconcile_HostFluxBootstrap_GitRepositorySecretRef asserts the
+// per-Application GitRepository carries spec.secretRef.name when the
+// controller is configured with a FluxGiteaSecretRef, and omits it when
+// empty. This is the #4283 fix: bp-gitea runs REQUIRE_SIGNIN_VIEW=true so
+// an anonymous clone (absent secretRef) 401s "authentication required",
+// the per-app Kustomization reports "Source artifact not found", and the
+// console-created Application never reaches Ready (proven live on
+// omantel.biz dep 4635277cae4ffed9: shared-pg-d stuck Provisioning,
+// shared-pg-e Failed). The canonical Sovereign now defaults
+// controllers.application.fluxGiteaSecretRef=openova-org-tenants-git-auth
+// (values.yaml) — the SAME shared gitea_admin basic-auth Secret the
+// organization-controller already clones every per-Org catalyst-tenant
+// repo with (the proven #3454/#3376 pattern). Mirrors
+// per_org_flux_test.go's secretRef parity assertion.
+func TestReconcile_HostFluxBootstrap_GitRepositorySecretRef(t *testing.T) {
+	const secretName = "openova-org-tenants-git-auth"
+
+	newReconcilerWithSecretRef := func(t *testing.T, fg *fakeGitea, ref string, objs ...*unstructured.Unstructured) *Reconciler {
+		t.Helper()
+		r := newReconciler(t, fg, objs...)
+		r.Cfg.FluxGiteaSecretRef = ref
+		return r
+	}
+
+	// 1. Configured: secretRef stamped.
+	t.Run("present_when_configured", func(t *testing.T) {
+		bp := makeBlueprint("bp-pg", "1.0.0", nil, []string{"single-region"})
+		env := makeEnv("acme-prod", "acme", "prod")
+		org := makeOrg("acme")
+		app := makeApp("acme", "db", "acme-prod", "bp-pg", "1.0.0", "single-region",
+			[]string{"hetzner-fsn-rtz-prod"},
+			map[string]interface{}{"replicas": int64(1)})
+		fg := newFakeGitea()
+		fg.orgsExist["acme"] = true
+		r := newReconcilerWithSecretRef(t, fg, secretName, app, env, org, bp)
+
+		reconcileFromCluster(t, r, "acme", "db")
+
+		gr, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+			Get(context.Background(), "catalyst-app-acme-db", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("expected GitRepository catalyst-app-acme-db: %v", err)
+		}
+		name, found, _ := unstructured.NestedString(gr.Object, "spec", "secretRef", "name")
+		if !found || name != secretName {
+			t.Errorf("GitRepository.spec.secretRef.name = %q (found=%v), want %q — anonymous clone 401s against bp-gitea REQUIRE_SIGNIN_VIEW=true (#4283)",
+				name, found, secretName)
+		}
+	})
+
+	// 2. Empty: secretRef absent (operator opt-out path stays valid).
+	t.Run("absent_when_empty", func(t *testing.T) {
+		bp := makeBlueprint("bp-pg", "1.0.0", nil, []string{"single-region"})
+		env := makeEnv("acme-prod", "acme", "prod")
+		org := makeOrg("acme")
+		app := makeApp("acme", "db2", "acme-prod", "bp-pg", "1.0.0", "single-region",
+			[]string{"hetzner-fsn-rtz-prod"},
+			map[string]interface{}{"replicas": int64(1)})
+		fg := newFakeGitea()
+		fg.orgsExist["acme"] = true
+		r := newReconcilerWithSecretRef(t, fg, "", app, env, org, bp)
+
+		reconcileFromCluster(t, r, "acme", "db2")
+
+		gr, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+			Get(context.Background(), "catalyst-app-acme-db2", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("expected GitRepository catalyst-app-acme-db2: %v", err)
+		}
+		if _, found, _ := unstructured.NestedMap(gr.Object, "spec", "secretRef"); found {
+			t.Errorf("GitRepository.spec.secretRef must be absent when FluxGiteaSecretRef is empty (operator opt-out)")
+		}
+	})
+}
+
 // TestReconcile_HostFluxBootstrap_FanOutOnePerRegion asserts an
 // active-active Application with N regions produces 1 GitRepository
 // (shared by all regions on the same per-app Gitea repo) and N
