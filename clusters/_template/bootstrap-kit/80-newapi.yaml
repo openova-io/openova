@@ -307,7 +307,7 @@ spec:
       # 1.4.122 (#4169): issuer-realm gate on the sovereign-realm newapi-admin
       # AppRegistration (host-side concern; this vcluster-app slot already sets
       # ssoBridgeSync.enabled=false so it never emitted it — pure lockstep bump).
-      version: 1.4.124
+      version: 1.4.126
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
