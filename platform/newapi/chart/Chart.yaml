@@ -1,5 +1,42 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.126 (#4278, 2026-06-25): admin-promote CronJob no longer loops forever
+# on a missing ServiceAccount → bp-newapi HR can reach Ready on a fresh Org.
+#
+# ROOT CAUSE (measured live, omantel.biz demo Org org-7283eb4a-…, chart 1.4.125):
+#   The per-minute admin-promote CronJob (a REGULAR, release-managed resource)
+#   set serviceAccountName to the one-shot admin-SEED Job's ServiceAccount
+#   `bp-newapi-admin-seed`, which is a Helm HOOK resource
+#   (post-install,post-upgrade + hook-delete-policy: before-hook-creation).
+#   When the install/upgrade hook phase failed or timed out, Helm's
+#   before-hook-creation cleanup DELETED that hook-scoped SA (+ Role +
+#   RoleBinding + the scripts ConfigMap), but the long-lived CronJob survived
+#   and fired every minute against a now-missing SA:
+#     pods "bp-newapi-admin-promote-…-" is forbidden: error looking up
+#     service account …/bp-newapi-admin-seed: serviceaccount
+#     "bp-newapi-admin-seed" not found
+#   → every spawned Job DeadlineExceeded → the Helm post-install hook never
+#   completed → bp-newapi HR wedged "context deadline exceeded" (release stuck
+#   at v1, install-failed) even though the newapi data plane was 3/3 Running.
+#   This is the canonical "a long-lived CronJob must not depend on Helm-hook
+#   lifecycle resources" defect — every other long-lived CronJob in this repo
+#   (openbao snapshot-replication, self-sovereign-cutover mirror-resync,
+#   syft-grype, flux stuck-HR-recovery) uses its OWN release-managed RBAC.
+#
+# FIX (#4278):
+#   - The admin-promote CronJob now has a DEDICATED, release-managed
+#     ServiceAccount + Role + RoleBinding (`bp-newapi-admin-promote`, NO Helm
+#     hook annotations), bound with exactly the verbs promote.sh needs (get the
+#     CNPG -app Secret; get+patch the NewAPI Deployment for the hash-gated
+#     reload). The CronJob binds this SA, never the hook seed SA.
+#   - The shared scripts ConfigMap (`bp-newapi-admin-seed-scripts`) is now a
+#     release-managed resource (no before-hook-creation hook) so it can't
+#     vanish out from under the CronJob either; it is applied in the main
+#     install/upgrade phase, before any hook OR CronJob Pod starts.
+#   - The one-shot admin-SEED Job + its SA/Role/RoleBinding REMAIN Helm hooks
+#     (correct — they are genuinely one-shot post-install/post-upgrade work).
+#   Regression guard: tests/admin-promote-rbac-render.sh.
+#
 # 1.4.109 (#3858, 2026-06-19): stop the seed/promote Jobs masquerading as
 # newapi Service endpoints → kill the intermittent "upstream connect error
 # 111" on newapi.<fqdn>.
@@ -814,7 +851,7 @@ name: bp-newapi
 # the host's redirectUris in the shared sovereign realm -> kills the live
 # "Invalid parameter: redirect_uri" SSO regression on newapi.<sovereign-fqdn>.
 # Lockstep: both slot pins + blueprint → 1.4.122.
-version: 1.4.125
+version: 1.4.126
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
