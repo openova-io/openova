@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T07:45:03Z` |
+| Last refreshed | `2026-06-24T08:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 24 |
+| Open issues | 19 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,14 +196,13 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 24 open items (clickable table)
+### All 19 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
 | [#3374](https://github.com/openova-io/openova/issues/3374) | SSO: typing the bare root URL of ANY surface (console + all ~11 external apps +  | Other |
 | [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
 | [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
-| [#3740](https://github.com/openova-io/openova/issues/3740) | bp-cnpg-pair: cross-region replica streams ASYNC (sync targets local region-a HA | Other |
 | [#3785](https://github.com/openova-io/openova/issues/3785) | FUNNEL: customer's purchased WordPress image is kyverno-DENIED (not Harbor-proxi | Other |
 | [#3829](https://github.com/openova-io/openova/issues/3829) | Every application AND activity shows its TRUE live state end-to-end — every ap | Other |
 | [#3914](https://github.com/openova-io/openova/issues/3914) | Provisioning UX: fill the ~30-min 'Provision <provider>: Success' void with a li | Other |
@@ -214,15 +213,11 @@ flowchart LR
 | [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
 | [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: light the object-model/DR backbone at runtime — ONE build (un-gate Cross | Other |
-| [#4218](https://github.com/openova-io/openova/issues/4218) | FUNNEL DNS layer-2: org-tenant pool A-record STILL unwritten after #4216 — key | Other |
 | [#4220](https://github.com/openova-io/openova/issues/4220) | FUNNEL install-gauntlet: demo Org WordPress DOWN — bp-keycloak `*`→stale 1.5 | Other |
 | [#4231](https://github.com/openova-io/openova/issues/4231) | P1: node-pinned catalyst-api (EVS #4102) gets DiskPressure-evicted by co-tenant  | Other |
-| [#4236](https://github.com/openova-io/openova/issues/4236) | FUNNEL pool-DNS: marketplace org-create (tenant-service → provisioning-service | Other |
-| [#4241](https://github.com/openova-io/openova/issues/4241) | FUNNEL console TLS: per-Org 2-label wildcard cert/listener (console.<slug>.<pool | Other |
 | [#4246](https://github.com/openova-io/openova/issues/4246) | Demo Org tertiary apps never converge on fresh Org — 3 durable RCs: per-Org HR | Other |
 | [#4249](https://github.com/openova-io/openova/issues/4249) | bp-openclaw controller image does not exist — no controller source/Dockerfile/ | Other |
 | [#4250](https://github.com/openova-io/openova/issues/4250) | P1: demo Org app-namespace (org-7283eb4a) chronically torn down + recreated by o | Other |
-| [#4255](https://github.com/openova-io/openova/issues/4255) | Secondary pool-TLD gap: .omani.rest / .omani.trade customers can't land on conso | Other |
 | [#4257](https://github.com/openova-io/openova/issues/4257) | fix(continuum): bp-continuum 0.1.8 mutable-tag overwrite blocks #4254 roll — b | Other |
 
 ---
@@ -231,6 +226,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T07:56 | [#4260](https://github.com/openova-io/openova/pull/4260) | #4231 | fix(bp-catalyst-platform): high PriorityClass for catalyst-a |
+| 2026-06-24T07:45 | [#4258](https://github.com/openova-io/openova/pull/4258) | #4254 | fix(bp-continuum): bump 0.1.8->0.1.9 to force Flux re-pull o |
 | 2026-06-24T07:29 | [#4256](https://github.com/openova-io/openova/pull/4256) | #4179 | fix(pool-domain): default managed-domains to the full offere |
 | 2026-06-24T06:41 | [#4254](https://github.com/openova-io/openova/pull/4254) | #4242 | fix(continuum): k8s-lease witness + region fallback → health |
 | 2026-06-24T05:36 | [#4252](https://github.com/openova-io/openova/pull/4252) | #4250 | fix(org-provisioning): transient parent-index read no longer |
@@ -259,8 +256,6 @@ flowchart LR
 | 2026-06-23T23:46 | [#4216](https://github.com/openova-io/openova/pull/4216) | #4179 | fix(funnel): org-tenant DNS provisioner reads CATALYST_POWER |
 | 2026-06-24T00:12 | [#4214](https://github.com/openova-io/openova/pull/4214) | #4206 | fix(d31): name CNPG storageClass + decode Gitea contents env |
 | 2026-06-23T23:06 | [#4213](https://github.com/openova-io/openova/pull/4213) | #1 | fix(funnel): bump orgTag d3c55b4→c3b2736 — roll the merged # |
-| 2026-06-23T22:51 | [#4211](https://github.com/openova-io/openova/pull/4211) | #4192 | docs(walk): goal#4 demo-user 7283eb4a RBAC walk — own apps + |
-| 2026-06-23T22:18 | [#4210](https://github.com/openova-io/openova/pull/4210) | #4200 | docs(walk): post-P0 signed-in console walk evidence (dashboa |
 
 ---
 
