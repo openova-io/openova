@@ -2980,7 +2980,7 @@ name: bp-catalyst-platform
 #   image pin (6cdbc50->09dcc10) in values.yaml without a chart version bump, so the
 #   re-pushed 1.4.813 OCI digest never superseded the digest cached on the Sovereign's
 #   Flux. A clean version tag forces the pull. bootstrap-kit slot-13 bumped in lockstep.
-version: 1.4.815
+version: 1.4.816
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
