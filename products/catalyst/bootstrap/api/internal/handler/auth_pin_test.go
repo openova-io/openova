@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -463,6 +464,113 @@ func TestPinVerify_NonAdminGetsViewerNotOwner(t *testing.T) {
 	// And the privileged gates must REJECT this session.
 	if policyModeCallerAuthorized(&claims) {
 		t.Error("policyModeCallerAuthorized: a non-admin PIN session must NOT pass the sovereign-admin gate")
+	}
+}
+
+// fakeGroupKC satisfies both keycloakClient (EnsureUser/ImpersonateToken)
+// AND userGroupReader (UserGroupPaths) so a test can exercise the
+// pinSessionAuthority KC-reachable branch with a deterministic group list.
+type fakeGroupKC struct {
+	stubKeycloakClient
+	groups []string // the paths UserGroupPaths returns
+	err    error    // when set, simulates a KC lookup failure
+}
+
+func (f *fakeGroupKC) UserGroupPaths(_ context.Context, _ string) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.groups, nil
+}
+
+// pinTierForEmail drives a full pin/verify and returns the minted session
+// JWT's tier claim — the contract useCatalogAdmin (UI) keys on.
+func pinTierForEmail(t *testing.T, h *Handler, email string) auth.Claims {
+	t.Helper()
+	h.pinStore.put(email, "123456", "req-1")
+	body := `{"email":"` + email + `","pin":"123456","requestId":"req-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pin/verify",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandlePinVerify(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d want 200 (body: %s)", resp.StatusCode, w.Body.String())
+	}
+	cookie := findCookie(resp.Cookies(), "catalyst_session")
+	if cookie == nil || cookie.Value == "" {
+		t.Fatal("catalyst_session cookie not set")
+	}
+	parts := strings.Split(cookie.Value, ".")
+	if len(parts) != 3 {
+		t.Fatalf("cookie value: got %d JWT parts want 3", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode JWT payload: %v", err)
+	}
+	var claims auth.Claims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("unmarshal claims: %v", err)
+	}
+	return claims
+}
+
+// TestPinVerify_OwnerAdminEvenWhenNotInGroup is the #4280 regression guard:
+// when Keycloak is REACHABLE and answers authoritatively that the owner is
+// NOT in /sovereign-admins (a realm-seed race / pre-#3263 realm), the
+// configured Sovereign owner (OPERATOR_EMAIL) is STILL granted tier=admin —
+// so the catalog dual-logo picker + name editor never silently vanish for
+// the owner. Pre-#4280 this branch returned viewer.
+func TestPinVerify_OwnerAdminEvenWhenNotInGroup(t *testing.T) {
+	t.Setenv("OPERATOR_EMAIL", "owner@example.com")
+	h := testPinSetup(t)
+	// KC reachable, owner present but NOT in /sovereign-admins.
+	h.kc = &fakeGroupKC{groups: []string{"/openova-users", "/sovereign-viewers"}}
+
+	claims := pinTierForEmail(t, h, "owner@example.com")
+	if claims.Tier != pinSessionAdminTier {
+		t.Errorf("owner tier (KC reachable, not in group): got %q want %q (#4280: owner is admin by ownership)",
+			claims.Tier, pinSessionAdminTier)
+	}
+	if !claims.HasRealmRole("catalyst-admin") {
+		t.Errorf("owner must carry catalyst-admin (got: %v)", claims.RealmAccess.Roles)
+	}
+	if !policyModeCallerAuthorized(&claims) {
+		t.Error("policyModeCallerAuthorized: owner session must pass the sovereign-admin gate")
+	}
+}
+
+// TestPinVerify_NonOwnerStillViewerWhenNotInGroup is the matching negative:
+// the #4280 elevation is confined to the EXACTLY-configured owner email. A
+// different PIN-authenticated user, KC reachable + not in /sovereign-admins,
+// stays viewer — "non-owner never silently admin" is preserved.
+func TestPinVerify_NonOwnerStillViewerWhenNotInGroup(t *testing.T) {
+	t.Setenv("OPERATOR_EMAIL", "owner@example.com")
+	h := testPinSetup(t)
+	h.kc = &fakeGroupKC{groups: []string{"/openova-users", "/sovereign-viewers"}}
+
+	claims := pinTierForEmail(t, h, "stranger@example.com")
+	if claims.Tier != pinSessionDefaultTier {
+		t.Errorf("non-owner tier: got %q want %q (must NOT be admin)", claims.Tier, pinSessionDefaultTier)
+	}
+	if claims.HasRealmRole("catalyst-admin") || claims.HasRealmRole("catalyst-owner") {
+		t.Errorf("non-owner must NOT carry catalyst-admin/owner (got: %v)", claims.RealmAccess.Roles)
+	}
+}
+
+// TestPinVerify_GroupMemberAdminRegardlessOfOperatorEmail confirms the
+// primary path is unchanged: a user IN /sovereign-admins is admin even when
+// they are NOT the OPERATOR_EMAIL (a delegated sovereign-admin).
+func TestPinVerify_GroupMemberAdminRegardlessOfOperatorEmail(t *testing.T) {
+	t.Setenv("OPERATOR_EMAIL", "owner@example.com")
+	h := testPinSetup(t)
+	h.kc = &fakeGroupKC{groups: []string{"/openova-users", "/sovereign-admins"}}
+
+	claims := pinTierForEmail(t, h, "delegate@example.com")
+	if claims.Tier != pinSessionAdminTier {
+		t.Errorf("group-member tier: got %q want %q", claims.Tier, pinSessionAdminTier)
 	}
 }
 

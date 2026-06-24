@@ -127,9 +127,21 @@ type userGroupReader interface {
 	UserGroupPaths(ctx context.Context, email string) ([]string, error)
 }
 
+// isConfiguredOperatorEmail reports whether `email` (already lowercased +
+// trimmed) is the exactly-configured Sovereign owner (OPERATOR_EMAIL /
+// orgEmail). This is the ONE identity that is admin-by-ownership: their
+// mailbox proved control of the Sovereign's mail domain at PIN-issue, and
+// they are the franchise owner the deployment was provisioned for. Anything
+// else returns false — a NON-owner is NEVER elevated by this check.
+func isConfiguredOperatorEmail(email string) bool {
+	opEmail := strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_EMAIL")))
+	return opEmail != "" && opEmail == email
+}
+
 // pinSessionAuthority resolves the (tier, realmRoles) a PIN-authenticated
 // email is entitled to, from live Keycloak group membership — the ONE
-// admin-authority source (#3374 §2 law #4, Layer C).
+// admin-authority source (#3374 §2 law #4, Layer C) — PLUS an
+// owner-is-always-admin guarantee for the configured Sovereign owner.
 //
 // Resolution:
 //  1. If the Keycloak client exposes UserGroupPaths and the email is in
@@ -137,13 +149,27 @@ type userGroupReader interface {
 //     composites catalyst-admin in the realm import, so a federated
 //     login of the same user is admin too — one source, both paths).
 //  2. If KC is reachable but the email is NOT in /sovereign-admins →
-//     viewer (read-only). A non-owner is NEVER silently granted owner.
+//     admin ONLY when the email is the configured Sovereign owner
+//     (OPERATOR_EMAIL); otherwise viewer (read-only). A non-owner is
+//     NEVER silently granted admin.
 //  3. If KC is unreachable / the client lacks the capability (CI, a
 //     just-installed Sovereign whose realm hasn't converged) → fall
 //     back to the configured operator email: an exact match yields
 //     admin (the chroot owner whose mailbox proved control), anything
 //     else viewer. This keeps the owner working through a realm-import
 //     race WITHOUT the old blanket owner-for-everyone grant.
+//
+// #4280 (2026-06-25): the owner-is-admin guarantee was previously confined
+// to branch 3 (the KC-unreachable fallback). On a converged Sovereign whose
+// realm import had NOT seeded the owner into /sovereign-admins (a seeding
+// race, a pre-#3263 realm, or a manual realm reset), branch 2 returned
+// `viewer` for the owner — silently stripping every catalog-edit affordance
+// (useCatalogAdmin → false) so the dual-logo picker + name editor vanished
+// with no operator-visible reason. The owner is the owner regardless of KC
+// reachability; the OPERATOR_EMAIL elevation now applies on BOTH the
+// KC-answered-not-in-group branch and the fallback branch. "Non-owner never
+// silently admin" is preserved — only the exactly-configured owner email is
+// elevated, never any other PIN-authenticated user.
 func (h *Handler) pinSessionAuthority(ctx context.Context, email string) (tier string, realmRoles []string) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if reader, ok := h.keycloakClientFor().(userGroupReader); ok && reader != nil {
@@ -157,12 +183,20 @@ func (h *Handler) pinSessionAuthority(ctx context.Context, email string) (tier s
 					return pinSessionAdminTier, []string{"catalyst-admin"}
 				}
 			}
-			// KC answered authoritatively: not in /sovereign-admins.
+			// KC answered authoritatively: not in /sovereign-admins. The
+			// configured Sovereign owner is admin-by-ownership even so — the
+			// realm seed may not have converged (#4280); a non-owner stays
+			// viewer.
+			if isConfiguredOperatorEmail(email) {
+				h.log.Info("pin/verify: owner not yet in /sovereign-admins; granting admin by OPERATOR_EMAIL ownership (#4280)",
+					"email", email)
+				return pinSessionAdminTier, []string{"catalyst-admin"}
+			}
 			return pinSessionDefaultTier, nil
 		}
 	}
 	// Fallback: KC unavailable or capability absent.
-	if opEmail := strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_EMAIL"))); opEmail != "" && opEmail == email {
+	if isConfiguredOperatorEmail(email) {
 		return pinSessionAdminTier, []string{"catalyst-admin"}
 	}
 	return pinSessionDefaultTier, nil

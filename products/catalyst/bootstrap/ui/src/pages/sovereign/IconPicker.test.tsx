@@ -79,4 +79,23 @@ describe('IconPicker (#3668 visual gallery)', () => {
     fireEvent.click(screen.getByTestId('iconpicker-light-clear'))
     expect(onChange).toHaveBeenCalledWith('')
   })
+
+  // #4280 — the founder's ask includes "upload a new logo" (not only
+  // pick-from-library). This pins the upload path: choosing a file reads it
+  // into a self-contained data: URI and fires onChange with it, so an
+  // uploaded logo persists via the same saveCatalogEdit seam as a picked one.
+  it('uploading a new image file calls onChange with a data: URI', async () => {
+    render(<IconPicker which="dark" value="" onChange={onChange} />)
+    const fileInput = screen.getByTestId('iconpicker-dark-upload') as HTMLInputElement
+    expect(fileInput).toBeTruthy()
+    const file = new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+    // FileReader.onload resolves async — wait for the data-URI onChange.
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledTimes(1)
+    })
+    const arg = onChange.mock.calls[0][0]
+    expect(typeof arg).toBe('string')
+    expect(arg.startsWith('data:')).toBe(true)
+  })
 })
