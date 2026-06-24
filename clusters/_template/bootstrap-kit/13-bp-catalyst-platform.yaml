@@ -1080,7 +1080,7 @@ spec:
       #   storm that fills the node's ephemeral disk evicts THOSE reschedulable Pods
       #   first instead of the EVS-node-pinned (#4102) control-plane API (~17min
       #   console outage, omantel.biz 2026-06-24). Chart.yaml bumped in lockstep.
-      version: 1.4.823
+      version: 1.4.824
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
