@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.3
+version: 0.2.4
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,16 @@ description: |
 
   Changelog
   ─────────
+  0.2.4 (2026-06-24, #4246)
+    - Add `imagePullSecrets: [ghcr-pull]` (new top-level `imagePullSecrets`
+      value) to the controller Deployment AND the per-user-pod template.
+      The controller (`openclaw-controller`) + per-user-pod (`openclaw-
+      runtime`) images live under the PRIVATE
+      `ghcr.io/openova-io/openova/*` path; without a pull credential the
+      kubelet pulled them anonymously → `401 Unauthorized` → ImagePullBackOff
+      so the per-Org bp-openclaw HR never converged. The `ghcr-pull` Secret
+      is reflected into every per-Org namespace (see cloud-init `org-.*`
+      reflector match, #4246). Overlays may override/clear `imagePullSecrets`.
   0.2.0 (2026-05-05, umbrella #915)
     - Add canonical `oidc.{issuerURL,clientId,clientSecret}` block
       (per-tenant Keycloak SSO).

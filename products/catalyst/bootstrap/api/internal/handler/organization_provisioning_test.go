@@ -752,6 +752,20 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 		}
 	}
 
+	// #4246 — install.disableWait + upgrade.disableWait MUST be set. The Pod
+	// gates on a non-empty SQL_DSN that the chart's POST-INSTALL db-dsn-sync hook
+	// PATCHes in; with wait enabled Helm blocks on Pod-Ready before running that
+	// hook → permanent deadlock + 15m install timeout. disableWait breaks it.
+	for _, line := range []string{
+		"  install:",
+		"  upgrade:",
+		"    disableWait: true",
+	} {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-newapi.yaml missing disableWait line %q (#4246 DSN deadlock)\n--- rendered ---\n%s", line, body)
+		}
+	}
+
 	// Ingress hosts — customer-API + admin UI.
 	wantIngress := []string{
 		"      host: api.alice.omantel.omani.works",
@@ -1068,16 +1082,27 @@ func TestRenderOrganizationOverlay_StalwartEmitsKeycloakOIDC(t *testing.T) {
 	if !strings.Contains(body, wantRealmURL) {
 		t.Errorf("realmURL missing — want %s in body", wantRealmURL)
 	}
-	// Confidential client ID + ExternalSecret-store remoteRef path.
+	// Confidential client ID + the OIDC ExternalSecret-store remoteRef path.
+	// (The OIDC client secret IS materialised on a fresh Org — it is created by
+	// the per-Org Keycloak SSO bridge — so sourcing it from the store is valid.)
 	for _, want := range []string{
 		"clientID: stalwart",
 		"clientSecretName: stalwart-oidc-client-secret",
 		"sovereign/omantel.omani.works/stalwart/t-acme/oidc",
-		"sovereign/omantel.omani.works/stalwart/t-acme/admin",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected %q in bp-stalwart-tenant.yaml — got:\n%s", want, body)
 		}
+	}
+	// #4246 — the ADMIN_PASSWORD must NOT be sourced from an ExternalSecret on a
+	// fresh per-Org install (nothing seeds OpenBao at .../stalwart/<tenant>/admin
+	// → CreateContainerConfigError). admin.externalSecret MUST be disabled so the
+	// chart auto-provisions a persistent random ADMIN_PASSWORD.
+	if strings.Contains(body, "sovereign/omantel.omani.works/stalwart/t-acme/admin") {
+		t.Errorf("admin ExternalSecret remoteRef must NOT be emitted (#4246) — fresh Org has no OpenBao admin seed")
+	}
+	if !strings.Contains(body, "admin:\n      # #4246") {
+		t.Errorf("expected admin block to carry the #4246 disabled-externalSecret note")
 	}
 	// dependsOn: bp-keycloak so the Helm install order is deterministic.
 	if !strings.Contains(body, "name: bp-keycloak") {
