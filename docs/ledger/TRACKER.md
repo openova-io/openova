@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T01:00:03Z` |
+| Last refreshed | `2026-06-24T01:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 22 |
+| Open issues | 23 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 23 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 22 open items (clickable table)
+### All 23 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -222,6 +222,7 @@ flowchart LR
 | [#4220](https://github.com/openova-io/openova/issues/4220) | FUNNEL install-gauntlet: demo Org WordPress DOWN — bp-keycloak `*`→stale 1.5 | Other |
 | [#4224](https://github.com/openova-io/openova/issues/4224) | CI: strategy-flip-regression has been RED on main since #4102 (b4dd43d02) — th | Other |
 | [#4226](https://github.com/openova-io/openova/issues/4226) | bp-cnpg webhook-gate + cert-wait Helm-hook Jobs lack app.kubernetes.io/managed-b | Other |
+| [#4228](https://github.com/openova-io/openova/issues/4228) | bp-agenity chat-runtime: make OPENOVA_MCP_RS256_PUBKEY_PEM secretKeyRef optional | Other |
 
 ---
 
@@ -229,6 +230,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T01:05 | [#4227](https://github.com/openova-io/openova/pull/4227) | #4222 | fix(bp-cnpg): managed-by:flux on webhook Helm-hook Jobs → un |
+| 2026-06-24T01:05 | [#4225](https://github.com/openova-io/openova/pull/4225) | #4180 | feat(bp-agenity): durable per-Org install + Cilium-gateway C |
 | 2026-06-24T00:47 | [#4223](https://github.com/openova-io/openova/pull/4223) | #4143 | fix(#4220): un-break demo Org WordPress — bp-keycloak 1.5.1  |
 | 2026-06-24T00:44 | [#4222](https://github.com/openova-io/openova/pull/4222) | #1 | fix(catalyst-api): org-tenant pool A-record writes target CE |
 | 2026-06-24T00:27 | [#4221](https://github.com/openova-io/openova/pull/4221) | #3914 | fix(console): wire orphan BootstrapProgress into /jobs — fil |
@@ -257,8 +260,6 @@ flowchart LR
 | 2026-06-23T16:46 | [#4184](https://github.com/openova-io/openova/pull/4184) | #4177 | fix(funnel): thread parent_domain end-to-end → org-create la |
 | 2026-06-23T15:57 | [#4178](https://github.com/openova-io/openova/pull/4178) | #3376 | docs(uat): sync session UAT to main + 🛑 #4176 P0 banner (org |
 | 2026-06-23T16:05 | [#4177](https://github.com/openova-io/openova/pull/4177) | #4176 | fix(marketplace): org-creation redirect uses server console_ |
-| 2026-06-23T15:46 | [#4175](https://github.com/openova-io/openova/pull/4175) | #4160 | fix(catalog): regenerate stale catalog-gen — wordpress-tenan |
-| 2026-06-23T13:19 | [#4174](https://github.com/openova-io/openova/pull/4174) | #4118 | fix(ci): agenity-build smoke-gate must --entrypoint past the |
 
 ---
 
