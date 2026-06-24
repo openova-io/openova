@@ -103,6 +103,52 @@ private base image (`ghcr.io/agenity-org/chepherd`) is gone.
   with the Org's Keycloak SSO (silent login). The agent presents the User's
   session bearer to the openova MCP on each `tools/call`.
 
+## Seeding the per-Org `anthropic/token` openbao path (#4111 / #4228)
+
+The chat runtime (the spawned `claude-code` solo agent) needs a **live
+Anthropic credential** in the Org's openbao. The chart's
+`templates/externalsecret-anthropic.yaml` reads it from the openbao path
+`anthropic/token` via the `vault-region1` ClusterSecretStore into the
+`agenity-anthropic-token` Secret. The chart can **never** carry the secret
+itself (Inviolable Principle #4 — no hardcoded secrets), so this one openbao
+write is **operator-driven**, exactly once per Sovereign, before the chat is
+expected to work. Until it is seeded the dashboard still renders, but the
+agent reports *"runtime offline · 0 workers"* / *"no Claude credential
+available"* on spawn.
+
+Two properties live at that one path:
+
+| openbao property | chart value | what it is |
+|---|---|---|
+| `apiKey` | `anthropic.externalSecret.remoteProperty` | the `sk-ant-…` bare key (key-only fallback) |
+| `credentialsJson` | `anthropic.externalSecret.remoteCredentialsProperty` | the **full** `{"claudeAiOauth":{"accessToken":…,"refreshToken":…,"expiresAt":…,"scopes":[…]}}` blob — the channel the spawned `claude-code` actually authenticates with (#4111). A bare `sk-ant-oat01-…` OAuth token in `apiKey` alone is **rejected** by `claude-code`; seed `credentialsJson` for the OAuth journey. |
+
+Seed it from inside the cluster (the openbao admin token is the Org's
+in-vc-mgmt OpenBao root — never write the secret to a file on disk):
+
+```bash
+# exec into an in-cluster pod that can reach the region-1 OpenBao; export
+# VAULT_ADDR + VAULT_TOKEN for that store, then:
+bao kv put anthropic/token \
+  apiKey='sk-ant-…' \
+  credentialsJson='{"claudeAiOauth":{"accessToken":"…","refreshToken":"…","expiresAt":<ms>,"scopes":["user:inference"]}}'
+```
+
+ESO refreshes `agenity-anthropic-token` within `refreshInterval` (1h, or force
+an immediate sync by annotating the ExternalSecret with
+`force-sync=$(date +%s)`); the init container then seeds
+`~/.claude/.credentials.json` from `credentialsJson` and the next agent spawn
+authenticates. This path is **shared per-Sovereign** (not per-Org-namespaced)
+by default — a single seed serves every Org's agenity install on that
+Sovereign.
+
+> **Why not chart-seed it?** A Helm-seeded placeholder would pin an **empty**
+> value forever under the reflector/ESO empty-seed trap (the bp-wordpress-tenant
+> empty-password lesson) — the agent would then hold a permanently-blank
+> credential. Absent-and-unseeded (the ExternalSecret renders, the key is
+> simply missing) is the correct pre-seed state; the operator's one `bao kv put`
+> is the activation.
+
 ## What the fresh-prov walk should see
 
 The full live e2e walk runs in the orchestrator's wipe → prov → walk loop.
