@@ -1,0 +1,25 @@
+# Kustomize-mode sibling of api-priorityclass.yaml (#4231). Contabo-mkt applies
+# the chart's templates/ via raw Kustomize, which does NOT render Helm
+# templating, so the Helm sibling (which uses Values templating) cannot be listed in
+# kustomization.yaml. This literal copy is. The api-deployment-kustomize.yaml
+# Pod references `priorityClassName: catalyst-control-plane`; without this
+# object the Kustomize render dangles a non-existent class. Same Helm-vs-
+# Kustomize split as serviceaccount/clusterrolebinding-cutover-driver.
+#
+# See api-priorityclass.yaml for the full rationale (EVS-pinned control-plane
+# API must outrank co-tenant trivy/syft Day-2 scanners + convergence pulls so
+# THEY are evicted first under node disk/memory pressure, not the API).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: catalyst-control-plane
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: priority
+value: 100000000
+globalDefault: false
+description: >-
+  High priority for the Catalyst control-plane API (catalyst-api). Pinned to its
+  EVS node (#4102) and therefore unable to reschedule, so it must outrank Day-2
+  trivy/syft scanners and convergence image-pull Pods during node disk/memory
+  pressure — those reschedule freely and are evicted first (#4231).

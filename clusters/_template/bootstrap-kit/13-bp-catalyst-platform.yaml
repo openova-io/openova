@@ -1075,7 +1075,12 @@ spec:
       #   superseded the cached one on the Sovereign's Flux (helm-controller
       #   kept rendering the stale 6cdbc50 content). A fresh version tag forces
       #   a clean pull. Chart.yaml bumped in lockstep.
-      version: 1.4.820
+      # 1.4.821 — #4231: catalyst-api gets a HIGH PriorityClass (catalyst-control-
+      #   plane) so a co-tenant trivy/syft Day-2 scanner + convergence image-pull
+      #   storm that fills the node's ephemeral disk evicts THOSE reschedulable Pods
+      #   first instead of the EVS-node-pinned (#4102) control-plane API (~17min
+      #   console outage, omantel.biz 2026-06-24). Chart.yaml bumped in lockstep.
+      version: 1.4.821
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -2,6 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: catalyst
 resources:
+  # PriorityClass referenced by api-deployment-kustomize.yaml's
+  # priorityClassName (#4231) — must be present in the render or the Pod
+  # dangles a non-existent class. Cluster-scoped; the namespace: catalyst
+  # transformer above is a no-op on it.
+  - api-priorityclass-kustomize.yaml
   - ui-deployment.yaml
   - ui-service.yaml
   - api-deployment-kustomize.yaml

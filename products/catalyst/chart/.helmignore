@@ -41,3 +41,7 @@ crds/tests/
 
 # G61 (#2612): Kustomize-mode sibling files (literal image refs for contabo-mkt)
 templates/api-deployment-kustomize.yaml
+# #4231: Kustomize-mode sibling of api-priorityclass.yaml (literal PriorityClass
+# for the contabo-mkt raw-Kustomize path). Helm renders only the templated
+# api-priorityclass.yaml; Kustomize renders only this literal one.
+templates/api-priorityclass-kustomize.yaml

@@ -2992,7 +2992,19 @@ name: bp-catalyst-platform
 #   image pin (6cdbc50->09dcc10) in values.yaml without a chart version bump, so the
 #   re-pushed 1.4.813 OCI digest never superseded the digest cached on the Sovereign's
 #   Flux. A clean version tag forces the pull. bootstrap-kit slot-13 bumped in lockstep.
-version: 1.4.820
+# 1.4.821 — #4231: catalyst-api carries a HIGH PriorityClass (catalyst-control-plane,
+#   value 100000000) shipped by this chart (api-priorityclass{,-kustomize}.yaml). The
+#   API is node-pinned to its EVS volume (#4102) so it CANNOT reschedule off a pressured
+#   node; as a priority-0 Pod it was the eviction victim when co-tenant trivy/syft Day-2
+#   scanners + a convergence image-pull storm filled the 40GB ephemeral disk and the
+#   kubelet hit NodeHasDiskPressure (~17min console outage, omantel.biz 2026-06-24). The
+#   high priority makes the kubelet shed the reschedulable Day-2 Pods FIRST; the pinned
+#   control-plane API stays Running. Custom class (NOT the built-in system-cluster-
+#   critical, which the PodPriority admission plugin restricts to kube-system) since
+#   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
+#   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
+#   re-pull (the deploy-bot mutable-tag trap, #4257).
+version: 1.4.821
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /

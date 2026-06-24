@@ -1,0 +1,60 @@
+# ── catalyst-api PriorityClass (#4231) ──────────────────────────────────────
+# Why this exists
+# ---------------
+# #4102 pins catalyst-api to its EVS-volume node via `nodeName` (so a Recreate
+# roll reattaches the two RWO Huawei-EVS PVCs same-node — see api-deployment.yaml
+# §"Zero-downtime roll"). That pin is correct for fast reattach, but it makes the
+# control-plane API the ONE Pod that cannot escape its node. When that node ran
+# co-tenant Day-2 trivy vulnerability-report scanners (which cold-pull every image
+# to scan) PLUS the demo-Org convergence image-pull storm on a 40GB ephemeral
+# disk, the kubelet hit NodeHasDiskPressure and EVICTED pods by priority. The
+# node-pinned catalyst-api — an ordinary priority-0 Pod competing with the
+# scanners — was the victim (11+ Evicted tombstones) and could only recreate
+# back onto the same pressured node → a long cold re-pull while the console API
+# stayed 0/1 DOWN for ~17min (omantel.biz dep 4635277cae4ffed9, 2026-06-24 01:17Z).
+#
+# The fix
+# -------
+# Give catalyst-api a HIGH PriorityClass so the kubelet's eviction ranking sheds
+# the LOW-priority trivy/syft scanners + convergence pull pods (all of which can
+# reschedule freely on other nodes) BEFORE it ever considers the pinned, escape-
+# less control-plane API. Eviction under node-pressure is priority-ordered: lower
+# priority + over-its-request pods go first. catalyst-api now sits far above the
+# default-0 Day-2 workloads.
+#
+# Why a CUSTOM class, not the built-in `system-cluster-critical`
+# -------------------------------------------------------------
+# The built-in `system-cluster-critical` (value 2000000000) is gated by the
+# `PodPriority` admission plugin to Pods in the `kube-system` namespace ONLY —
+# applying it to a Pod in `catalyst-system` is REJECTED at admission
+# ("priorityClass ... is forbidden ... only kube-system"). catalyst-api runs in
+# catalyst-system, so we ship our own class. The value (100000000) is well below
+# the system-* band (so we never starve genuine cluster-critical kube-system
+# add-ons) yet far above any Day-2 scanner / convergence Pod (priority 0).
+#
+# globalDefault stays false: this class applies ONLY to Pods that name it.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.catalystApi.priorityClassName | default "catalyst-control-plane" }}
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: priority
+  annotations:
+    # Flux force-recreates this immutable object if its value ever changes
+    # (PriorityClass.value is immutable; an in-place edit would otherwise
+    # wedge the Kustomization at Ready=False).
+    kustomize.toolkit.fluxcd.io/force: enabled
+# 100_000_000 — above every Day-2 / convergence Pod (priority 0), below the
+# system-cluster-critical / system-node-critical band (2_000_000_000 /
+# 2_000_001_000) so kube-system add-ons still outrank the control-plane API.
+# int64 wrap is REQUIRED: sprig's `default` returns a float64 for a large int,
+# which Helm serialises as `1e+08` — the K8s API server rejects that for the
+# int32 PriorityClass.value field. `int64` forces a clean integer literal.
+value: {{ .Values.catalystApi.priorityClassValue | default 100000000 | int64 }}
+globalDefault: false
+description: >-
+  High priority for the Catalyst control-plane API (catalyst-api). Pinned to its
+  EVS node (#4102) and therefore unable to reschedule, so it must outrank Day-2
+  trivy/syft scanners and convergence image-pull Pods during node disk/memory
+  pressure — those reschedule freely and are evicted first (#4231).

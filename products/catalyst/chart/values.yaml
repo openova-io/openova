@@ -1179,6 +1179,25 @@ catalystApi:
   # affinity — optional passthrough for operators who prefer a soft/zone
   # nodeAffinity over a hard nodeName pin above. Default empty (no affinity).
   affinity: {}
+  # ── Survive a co-tenant disk/memory-pressure storm (#4231) ──────────────
+  # catalyst-api is pinned to its EVS node (nodeName above, #4102) so it CANNOT
+  # reschedule off a pressured node. With the default priority (0) it competed
+  # with co-tenant Day-2 trivy/syft scanners + convergence image-pulls; when the
+  # node hit DiskPressure the kubelet evicted the control-plane API itself
+  # (~17min console outage, omantel.biz 2026-06-24). This names a HIGH-priority
+  # PriorityClass (shipped by this chart in api-priorityclass.yaml) so the
+  # kubelet sheds the reschedulable Day-2 Pods FIRST and the pinned API survives.
+  #
+  # A custom class — NOT the built-in system-cluster-critical, which the
+  # PodPriority admission plugin restricts to the kube-system namespace
+  # (catalyst-api runs in catalyst-system). The chart creates the class with
+  # this name and value. Override both ONLY if a Sovereign already has a class
+  # by this name; leave default otherwise.
+  priorityClassName: catalyst-control-plane
+  # value of the shipped class. 100_000_000 sits far above every Day-2 /
+  # convergence Pod (priority 0) and below the system-cluster-critical /
+  # system-node-critical band (2_000_000_000+) so kube-system add-ons still win.
+  priorityClassValue: 100000000
   # OpenBao address for the bare-URL SSO shim (#3374). Rendered into
   # CATALYST_OPENBAO_ADDR on Sovereign installs only (gated on
   # global.sovereignFQDN in api-deployment.yaml). Empty = the canonical
