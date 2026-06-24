@@ -9,10 +9,12 @@ import (
 
 func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	t.Parallel()
+	// PlanSlug "m" → paid tier → dedicated vCluster boundary (#4292 tier-gate).
 	out, err := Render(Inputs{
 		Slug:                 "acme",
 		DisplayName:          "ACME Corp",
-		Tier: "org",
+		Tier:                 "org",
+		PlanSlug:             "m",
 		SovereignFQDN:        "omantel.omani.works",
 		HostCluster:          "hz-fsn-rtz-prod",
 		VClusterChartVersion: "0.33.*",
@@ -20,10 +22,15 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	// #4292: the paid-tier set is namespace + vcluster + resourcequota +
+	// limitrange + kustomization + the apps-tree networkpolicy baseline.
 	wantPaths := []string{
 		"vcluster/namespace.yaml",
 		"vcluster/vcluster.yaml",
+		"vcluster/resourcequota.yaml",
+		"vcluster/limitrange.yaml",
 		"vcluster/kustomization.yaml",
+		"vcluster/apps/networkpolicy.yaml",
 	}
 	for _, p := range wantPaths {
 		if _, ok := out[p]; !ok {
@@ -37,9 +44,6 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 			t.Errorf("rendered %s is not valid YAML: %v\n%s", path, err, string(data))
 		}
 	}
-	// vcluster.yaml must reference the slug as namespace + control-plane
-	// service hostname per NAMING §4.6 (no slug embedded in resource
-	// names below the namespace, but the namespace itself == slug).
 	vcl := string(out["vcluster/vcluster.yaml"])
 	for _, want := range []string{
 		"namespace: acme",
@@ -48,24 +52,18 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 		"openova.io/host-cluster: hz-fsn-rtz-prod",
 		"openova.io/sovereign: omantel.omani.works",
 		"version: \"0.33.*\"",
-		// MIRROR-EVERYTHING (#3760): BOTH vcluster 0.33.x initContainer
-		// images must pull through the Sovereign Harbor proxy-cache so the
-		// harbor-proxy-pull Kyverno ClusterPolicy (Enforce, `*/proxy-*/*`
-		// glob) admits the StatefulSet. The k8s distro image is
-		// initContainers[0] (the live hw158 denial path) and the syncer is
-		// initContainers[1] — neither may stay on raw ghcr.io.
+		// MIRROR-EVERYTHING (#3760).
 		"registry: harbor.openova.io",
 		"repository: proxy-ghcr/loft-sh/kubernetes",
 		"repository: proxy-ghcr/loft-sh/vcluster-oss",
+		// #4292 MANDATORY: networkPolicy sync ON, else in-vcluster NPs are inert.
+		"networkPolicies:",
 	} {
 		if !strings.Contains(vcl, want) {
 			t.Errorf("vcluster.yaml missing %q\nfull contents:\n%s", want, vcl)
 		}
 	}
-	// Guard: no image FIELD may resolve to un-proxied ghcr.io — that is
-	// exactly what harbor-proxy-pull denies (a regression would re-wedge the
-	// funnel). Scan structured `registry:` lines only (explanatory comments
-	// legitimately mention ghcr.io as the upstream being re-tagged).
+	// Guard: no image FIELD may resolve to un-proxied ghcr.io.
 	for _, line := range strings.Split(vcl, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "registry:") && strings.Contains(trimmed, "ghcr.io") {
@@ -92,7 +90,8 @@ func TestRender_HelmRepoDefaults(t *testing.T) {
 	out, err := Render(Inputs{
 		Slug:                 "acme",
 		DisplayName:          "Acme",
-		Tier: "org",
+		Tier:                 "org",
+		PlanSlug:             "m", // paid → vcluster renders → helmrepo refs present
 		SovereignFQDN:        "x.example",
 		HostCluster:          "hz-fsn-rtz-prod",
 		VClusterChartVersion: "0.33.*",
@@ -117,7 +116,8 @@ func TestRender_VClusterImageRegistryOverride(t *testing.T) {
 	out, err := Render(Inputs{
 		Slug:                  "acme",
 		DisplayName:           "Acme",
-		Tier: "org",
+		Tier:                  "org",
+		PlanSlug:              "m",
 		SovereignFQDN:         "omantel.omani.works",
 		HostCluster:           "hz-fsn-rtz-prod",
 		VClusterChartVersion:  "0.33.*",
@@ -130,12 +130,223 @@ func TestRender_VClusterImageRegistryOverride(t *testing.T) {
 	if !strings.Contains(vcl, "registry: harbor.omantel.omani.works") {
 		t.Errorf("expected overridden registry 'harbor.omantel.omani.works' in vcluster.yaml\nfull contents:\n%s", vcl)
 	}
-	// The repository stays registry-relative + proxy-globbable regardless
-	// of the host.
 	if !strings.Contains(vcl, "repository: proxy-ghcr/loft-sh/kubernetes") {
 		t.Errorf("expected proxy-relative k8s-distro repository under overridden registry\nfull contents:\n%s", vcl)
 	}
 	if strings.Contains(vcl, "harbor.openova.io") {
 		t.Errorf("override leaked the default 'harbor.openova.io' into vcluster.yaml\nfull contents:\n%s", vcl)
+	}
+}
+
+// ---- #4292 Workstream B: plan-templated quota / LimitRange / np-sync / QoS / tier-gate ----
+
+// TestPlanQuota_CatalogSlugMapping asserts the plan-slug → host-ns cap table
+// (the seed.go target: S=2/4Gi, M=4/8, L=8/16, XL=16/32, Flexi=on-demand).
+func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		slug, cpu, mem string
+		burstable      bool
+	}{
+		{"s", "2", "4Gi", false},
+		{"m", "4", "8Gi", false},
+		{"l", "8", "16Gi", false},
+		{"xl", "16", "32Gi", false},
+		{"flexi", "", "", true},
+		{"", "2", "4Gi", false},      // empty → smallest paid cap, never uncapped
+		{"bogus", "2", "4Gi", false}, // unknown → smallest paid cap
+		{"M", "4", "8Gi", false},     // case-insensitive
+	}
+	for _, c := range cases {
+		q := planQuota(c.slug)
+		if q.CPU != c.cpu || q.Mem != c.mem || q.Burstable != c.burstable {
+			t.Errorf("planQuota(%q) = {%s,%s,burstable=%v}, want {%s,%s,burstable=%v}",
+				c.slug, q.CPU, q.Mem, q.Burstable, c.cpu, c.mem, c.burstable)
+		}
+	}
+}
+
+// TestRender_ResourceQuotaPerPlan proves the ResourceQuota renders the
+// purchased plan's cap with requests==limits (the Guaranteed precondition).
+func TestRender_ResourceQuotaPerPlan(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct{ cpu, mem string }{
+		"s":  {"2", "4Gi"},
+		"m":  {"4", "8Gi"},
+		"l":  {"8", "16Gi"},
+		"xl": {"16", "32Gi"},
+	}
+	for slug, want := range cases {
+		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+			PlanSlug: slug, SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+		if err != nil {
+			t.Fatalf("Render(%s): %v", slug, err)
+		}
+		rq, ok := out["vcluster/resourcequota.yaml"]
+		if !ok {
+			t.Fatalf("plan %s: missing resourcequota.yaml", slug)
+		}
+		s := string(rq)
+		for _, line := range []string{
+			"requests.cpu: \"" + want.cpu + "\"",
+			"limits.cpu: \"" + want.cpu + "\"",
+			"requests.memory: \"" + want.mem + "\"",
+			"limits.memory: \"" + want.mem + "\"",
+			"namespace: acme",
+			"openova.io/plan: " + slug,
+		} {
+			if !strings.Contains(s, line) {
+				t.Errorf("plan %s resourcequota.yaml missing %q\n%s", slug, line, s)
+			}
+		}
+		var v any
+		if err := yaml.Unmarshal(rq, &v); err != nil {
+			t.Errorf("plan %s resourcequota.yaml invalid YAML: %v", slug, err)
+		}
+	}
+}
+
+// TestRender_FlexiNoResourceQuota proves Flexi is soft-capped: a LimitRange
+// renders (so default-less pods still admit) but NO hard ResourceQuota.
+func TestRender_FlexiNoResourceQuota(t *testing.T) {
+	t.Parallel()
+	out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+		PlanSlug: "flexi", SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if _, ok := out["vcluster/resourcequota.yaml"]; ok {
+		t.Errorf("Flexi must NOT render a hard ResourceQuota (on-demand/soft cap)")
+	}
+	lr, ok := out["vcluster/limitrange.yaml"]
+	if !ok {
+		t.Fatalf("Flexi must still render a LimitRange so default-less pods admit")
+	}
+	if strings.Contains(string(lr), "maxLimitRequestRatio") {
+		t.Errorf("Flexi LimitRange must omit maxLimitRequestRatio (Burstable QoS allowed)\n%s", string(lr))
+	}
+}
+
+// TestRender_LimitRangeGuaranteedRatio proves fixed tiers pin the
+// maxLimitRequestRatio {cpu:1,memory:1} + defaultRequest==default → Guaranteed.
+func TestRender_LimitRangeGuaranteedRatio(t *testing.T) {
+	t.Parallel()
+	out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+		PlanSlug: "m", SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	lr := string(out["vcluster/limitrange.yaml"])
+	for _, want := range []string{
+		"kind: LimitRange",
+		"maxLimitRequestRatio",
+		"cpu: \"1\"",
+		"memory: \"1\"",
+		"defaultRequest:",
+		"default:",
+		"namespace: acme",
+	} {
+		if !strings.Contains(lr, want) {
+			t.Errorf("M-tier limitrange.yaml missing %q\n%s", want, lr)
+		}
+	}
+	var v any
+	if err := yaml.Unmarshal([]byte(lr), &v); err != nil {
+		t.Errorf("limitrange.yaml invalid YAML: %v", err)
+	}
+}
+
+// TestRender_NetworkPolicyBaselineInAppsTree proves the default-deny +
+// same-Org-allow baseline renders in the apps tree (so the syncer reflects it
+// to the host). The np-sync flag itself is asserted in TestRender_AllPaths.
+func TestRender_NetworkPolicyBaselineInAppsTree(t *testing.T) {
+	t.Parallel()
+	out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+		PlanSlug: "m", SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	np, ok := out["vcluster/apps/networkpolicy.yaml"]
+	if !ok {
+		t.Fatalf("missing apps/networkpolicy.yaml — the syncer has nothing to reflect")
+	}
+	s := string(np)
+	for _, want := range []string{
+		"kind: NetworkPolicy",
+		"name: default-deny-all",
+		"name: allow-same-org",
+		"namespace: apps",
+		"openova.io/organization: acme",
+		"policyTypes:",
+		"- Ingress",
+		"- Egress",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("networkpolicy.yaml missing %q\n%s", want, s)
+		}
+	}
+	for i, doc := range strings.Split(s, "---") {
+		if strings.TrimSpace(doc) == "" {
+			continue
+		}
+		var v any
+		if err := yaml.Unmarshal([]byte(doc), &v); err != nil {
+			t.Errorf("networkpolicy.yaml doc[%d] invalid YAML: %v\n%s", i, err, doc)
+		}
+	}
+}
+
+// TestRender_TierGate proves the founder default: free/S → host-ns (NO
+// vcluster.yaml), paid M+ → dedicated vCluster.
+func TestRender_TierGate(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{ // planSlug → expect vcluster.yaml
+		"s":     false,
+		"":      false,
+		"m":     true,
+		"l":     true,
+		"xl":    true,
+		"flexi": true,
+	}
+	for slug, wantVcluster := range cases {
+		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+			PlanSlug: slug, SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+		if err != nil {
+			t.Fatalf("Render(%q): %v", slug, err)
+		}
+		_, hasVcluster := out["vcluster/vcluster.yaml"]
+		if hasVcluster != wantVcluster {
+			t.Errorf("plan %q: vcluster.yaml present=%v, want %v (tier-gate)", slug, hasVcluster, wantVcluster)
+		}
+		// Either way the boundary ns + LimitRange + kustomization always render.
+		for _, p := range []string{"vcluster/namespace.yaml", "vcluster/limitrange.yaml", "vcluster/kustomization.yaml"} {
+			if _, ok := out[p]; !ok {
+				t.Errorf("plan %q: missing %q (must render for every tier)", slug, p)
+			}
+		}
+		kz := string(out["vcluster/kustomization.yaml"])
+		listsVcluster := strings.Contains(kz, "- vcluster.yaml")
+		if listsVcluster != wantVcluster {
+			t.Errorf("plan %q: kustomization lists vcluster.yaml=%v, want %v\n%s", slug, listsVcluster, wantVcluster, kz)
+		}
+	}
+}
+
+// TestBoundaryIsVcluster_FlippableGate documents the one-line Sovereign switch.
+func TestBoundaryIsVcluster_FlippableGate(t *testing.T) {
+	t.Parallel()
+	if allTiersVcluster {
+		if !boundaryIsVcluster("s") {
+			t.Errorf("allTiersVcluster=true must put S on a vcluster")
+		}
+		return
+	}
+	if boundaryIsVcluster("s") || boundaryIsVcluster("") {
+		t.Errorf("default gate: free/S must be host-ns (boundaryIsVcluster=false)")
+	}
+	for _, paid := range []string{"m", "l", "xl", "flexi"} {
+		if !boundaryIsVcluster(paid) {
+			t.Errorf("default gate: %q must be vcluster (boundaryIsVcluster=true)", paid)
+		}
 	}
 }

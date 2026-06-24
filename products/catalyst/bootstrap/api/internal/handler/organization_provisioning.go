@@ -258,6 +258,13 @@ type orgTenantCreateRequest struct {
 	Tier        string `json:"tier,omitempty"`
 	BillingMode string `json:"billing_mode,omitempty"`
 	Isolation   string `json:"isolation,omitempty"`
+
+	// PlanSlug — purchased catalog plan slug (s|m|l|xl|flexi). Carried onto
+	// the Organization CR so the org-controller materializes the matching
+	// ResourceQuota + LimitRange (Workstream B, #4292). Empty defaults to
+	// "s" (the smallest paid tier) so the BSS door never mints an uncapped
+	// Org.
+	PlanSlug string `json:"plan_slug,omitempty"`
 }
 
 // orgShape is the resolved Organizations-model shape (issue #3378 B1)
@@ -267,6 +274,9 @@ type orgShape struct {
 	Tier        string
 	BillingMode string
 	Isolation   string
+	// PlanSlug — resolved catalog plan slug (#4292). Drives the org-
+	// controller's plan-templated quota.
+	PlanSlug string
 }
 
 // resolveOrgShape applies the §2.1/§2.3 model: kind defaults to
@@ -308,7 +318,14 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 		tier = "org"
 	}
 
-	return orgShape{Kind: kind, Tier: tier, BillingMode: billing, Isolation: isolation}
+	planSlug := strings.ToLower(strings.TrimSpace(req.PlanSlug))
+	switch planSlug {
+	case "s", "m", "l", "xl", "flexi":
+	default:
+		planSlug = "s"
+	}
+
+	return orgShape{Kind: kind, Tier: tier, BillingMode: billing, Isolation: isolation, PlanSlug: planSlug}
 }
 
 type orgTenantResponse struct {
@@ -662,6 +679,9 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		Tier:        shape.Tier,
 		BillingMode: shape.BillingMode,
 		Isolation:   shape.Isolation,
+		// #4292 — the purchased plan slug the org-controller caps the
+		// boundary namespace at (ResourceQuota + LimitRange).
+		PlanSlug: shape.PlanSlug,
 	}
 	if err := deps.Store.Put(rec); err != nil {
 		h.log.Error("org-tenant: persist pending failed", "err", err)

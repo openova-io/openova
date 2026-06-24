@@ -455,6 +455,10 @@ func sampleOrg() *orgapi.Organization {
 			DisplayName:            "ACME Corp",
 			Kind:                   "customer",
 			Tier:                   "org",
+			// #4292: a paid plan → the renderer emits the vCluster boundary plus
+			// the plan-templated ResourceQuota + LimitRange + apps-tree
+			// NetworkPolicy baseline (6 files total).
+			PlanSlug:               "m",
 			BillingMode:            "real",
 			SovereignRef:           "omantel.omani.works",
 			DefaultEnvironmentType: "prod",
@@ -501,8 +505,8 @@ func TestReconcile_HappyPath(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 gitea repo create, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 3 {
-		t.Errorf("expected 3 gitea file creates (namespace, vcluster, kustomization), got %d", gs.createFiles)
+	if gs.createFiles != 6 {
+		t.Errorf("expected 6 gitea file creates (namespace, vcluster, resourcequota, limitrange, kustomization, apps/networkpolicy), got %d", gs.createFiles)
 	}
 	if gs.updateFiles != 0 {
 		t.Errorf("expected 0 file updates on first reconcile, got %d", gs.updateFiles)
@@ -721,8 +725,8 @@ func TestReconcile_GiteaOrgAlreadyExists(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 repo create even with pre-existing org, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 3 {
-		t.Errorf("expected 3 file creates even with pre-existing org, got %d", gs.createFiles)
+	if gs.createFiles != 6 {
+		t.Errorf("expected 6 file creates even with pre-existing org, got %d", gs.createFiles)
 	}
 }
 

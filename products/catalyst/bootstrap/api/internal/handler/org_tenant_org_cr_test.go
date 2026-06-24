@@ -110,6 +110,12 @@ func TestCreateOrgTenant_MintsOrganizationCR(t *testing.T) {
 	if spec["billingMode"] != "real" {
 		t.Errorf("spec.billingMode: want real got %v", spec["billingMode"])
 	}
+	// #4292: an Organization minted without an explicit plan slug must still
+	// carry spec.planSlug (defaulted to "s"), never empty — so the
+	// org-controller always materializes a ResourceQuota + LimitRange.
+	if spec["planSlug"] != "s" {
+		t.Errorf("spec.planSlug: want s (default) got %v", spec["planSlug"])
+	}
 	if spec["sovereignRef"] != "otech.example" {
 		t.Errorf("spec.sovereignRef: want otech.example got %v", spec["sovereignRef"])
 	}

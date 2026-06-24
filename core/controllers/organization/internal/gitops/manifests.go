@@ -19,6 +19,7 @@ package gitops
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"text/template"
 
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
@@ -73,6 +74,94 @@ type Inputs struct {
 	// cutover Step-04 (ADR-0002) flips it to `harbor.<sovereign-fqdn>`
 	// post-handover.
 	VClusterImageRegistry string
+
+	// PlanSlug is the catalog plan slug (s|m|l|xl|flexi) the customer
+	// purchased — the SINGLE truth-source for the resource cap that
+	// materializes on the Org boundary namespace (Workstream B, #4292 /
+	// EPIC #4293). Resolved from the plan UUID via catalog `resolvePlanSlug`
+	// at the two CR-minting emitters (funnel + BSS) and carried on the
+	// Organization CR `spec.planSlug`. Drives planQuota(): the ResourceQuota
+	// + LimitRange the org-controller co-renders on the `<slug>` host
+	// namespace. Empty defaults to "s" (the smallest paid tier) so a legacy
+	// Org CR without the field still gets a quota rather than running
+	// uncapped. 5-pillar Pillar 1: the cap the customer pays for IS the cap
+	// that materializes.
+	PlanSlug string
+}
+
+// PlanQuota is the per-plan resource cap the org-controller materializes on
+// the Org boundary host namespace (#4292). It REPLACES both the retired
+// marketplace-api `SizeResources` (raw req.Size string, dev-tiny, no
+// LimitRange) and the provisioning `planLimits` (syncer-pod-only). The cap is
+// keyed by the catalog plan SLUG (seed.go:187-198), so the resource the
+// customer pays for is exactly the resource that materializes.
+//
+//	CPU  — the ResourceQuota requests.cpu == limits.cpu ceiling.
+//	Mem  — the ResourceQuota requests.memory == limits.memory ceiling.
+//	Burstable — Flexi alone; when true the LimitRange omits the
+//	            maxLimitRequestRatio so pods may run requests<limits
+//	            (Burstable QoS). Fixed tiers (S/M/L/XL) keep it false →
+//	            the LimitRange forces requests==limits → Guaranteed QoS.
+type PlanQuota struct {
+	Slug      string
+	CPU       string // e.g. "2", "4", "8", "16"
+	Mem       string // e.g. "4Gi", "8Gi"
+	Burstable bool
+}
+
+// planQuotaTable is the catalog-slug → host-ns cap map (issue #4292 target
+// table). It is the ONE source the org-controller drives the ResourceQuota +
+// LimitRange off; the marketplace-api SizeResources + provisioning planLimits
+// were retired in Workstream A precisely so this table is the only one.
+//
+// S/M/L/XL are fixed Guaranteed tiers; Flexi is on-demand Burstable (no hard
+// quota ceiling — soft, scale-on-demand). The numbers mirror the seeded plan
+// rows (seed.go: S=2vCPU/4GB, M=4/8, L=8/16, XL=16/32).
+var planQuotaTable = map[string]PlanQuota{
+	"s":     {Slug: "s", CPU: "2", Mem: "4Gi", Burstable: false},
+	"m":     {Slug: "m", CPU: "4", Mem: "8Gi", Burstable: false},
+	"l":     {Slug: "l", CPU: "8", Mem: "16Gi", Burstable: false},
+	"xl":    {Slug: "xl", CPU: "16", Mem: "32Gi", Burstable: false},
+	"flexi": {Slug: "flexi", CPU: "", Mem: "", Burstable: true},
+}
+
+// planQuota resolves the cap for a plan slug, defaulting to "s" for an unknown
+// or empty slug (a legacy Org CR without spec.planSlug still gets the smallest
+// paid cap rather than running uncapped). The slug is lowercased so "S"/"s"
+// resolve identically.
+func planQuota(planSlug string) PlanQuota {
+	s := strings.ToLower(strings.TrimSpace(planSlug))
+	if q, ok := planQuotaTable[s]; ok {
+		return q
+	}
+	return planQuotaTable["s"]
+}
+
+// boundaryIsVcluster is the TIER GATE (#4292). It decides whether an Org of a
+// given plan slug gets a dedicated vCluster (control-plane-grade isolation) or
+// shares the host `<slug>` namespace (namespace-grade isolation). The
+// quota/LimitRange/default-deny renderer is IDENTICAL either way — only the
+// boundary PRIMITIVE differs by this one-line policy.
+//
+// Founder default (issue #4292 "TIER GATE"): free/S share the host namespace;
+// paid M+ get the dedicated Org-vcluster. Flip allTiersVcluster to true to put
+// EVERY tier (incl. free/S) on a vCluster (tierOption A in the spec) — a
+// single Sovereign-level switch, no renderer change.
+const allTiersVcluster = false
+
+func boundaryIsVcluster(planSlug string) bool {
+	if allTiersVcluster {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(planSlug)) {
+	case "", "s", "free":
+		// free/S → host-ns boundary (same quota+LimitRange+default-deny CNP;
+		// the shape already live on demo org-7283eb4a).
+		return false
+	default:
+		// m/l/xl/flexi → dedicated Org-vcluster.
+		return true
+	}
 }
 
 // renderTemplates is the named template set the controller uses.
@@ -183,20 +272,204 @@ spec:
           enabled: true
         ingresses:
           enabled: false
+        # ENABLE networkPolicy SYNC (#4292, MANDATORY). loft-sh vcluster
+        # defaults this to false, so a NetworkPolicy authored INSIDE the
+        # Org-vcluster lives only in the vcluster apiserver and is NEVER
+        # reflected to Cilium on the host where it is actually enforced —
+        # intra-Org isolation between Environments would silently not exist
+        # (the wide-open-vcluster bug). With this on, the syncer mirrors the
+        # default-deny + same-Org-allow NetworkPolicy this controller co-renders
+        # in the apps tree to the host <slug> ns. (Distinct from the
+        # bp-mgmt/rtz-vcluster networkPolicy.enabled knob, which is a HOST
+        # whole-ns NetworkPolicy -- a different mechanism.)
+        networkPolicies:
+          enabled: true
       fromHost:
         ingressClasses:
           enabled: true
 `
 
+// resourceQuotaTemplate caps the Org boundary host namespace at the plan the
+// customer purchased (#4292). Driven by planQuota(.PlanSlug). For the fixed
+// tiers (S/M/L/XL) requests.cpu==limits.cpu and requests.memory==limits.memory
+// — paired with the LimitRange's maxLimitRequestRatio {cpu:1,memory:1} this
+// forces Guaranteed QoS. Flexi renders NO ResourceQuota (on-demand, soft cap)
+// — the controller skips this file for Burstable plans.
+//
+// 5-pillar Pillar 1: the cap the customer pays for IS the cap that
+// materializes. This replaces the dev-tiny marketplace-api SizeResources +
+// the syncer-only provisioning planLimits, both retired in Workstream A.
+const resourceQuotaTemplate = `apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: plan-quota
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/plan: {{ .PlanSlug }}
+    openova.io/managed-by: catalyst
+spec:
+  hard:
+    requests.cpu: "{{ .Quota.CPU }}"
+    requests.memory: "{{ .Quota.Mem }}"
+    limits.cpu: "{{ .Quota.CPU }}"
+    limits.memory: "{{ .Quota.Mem }}"
+`
+
+// limitRangeTemplate seeds defaultRequest/default so pods authored without
+// explicit requests/limits still ADMIT once a ResourceQuota exists (a quota
+// rejects any pod missing the limited resources). For the fixed tiers it also
+// pins maxLimitRequestRatio {cpu:1,memory:1} + defaultRequest==default →
+// requests==limits → Guaranteed QoS (#4292). Flexi omits the ratio (asymmetric
+// requests<limits allowed → Burstable). The default container request is the
+// plan ceiling / 8 so a handful of small Pods fit under the quota out of the
+// box; an Application that needs more sets its own explicit requests.
+const limitRangeTemplate = `apiVersion: v1
+kind: LimitRange
+metadata:
+  name: plan-limits
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/plan: {{ .PlanSlug }}
+    openova.io/managed-by: catalyst
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: "{{ .DefaultCPU }}"
+        memory: "{{ .DefaultMem }}"
+      default:
+        cpu: "{{ .DefaultCPU }}"
+        memory: "{{ .DefaultMem }}"
+{{- if not .Quota.Burstable }}
+      maxLimitRequestRatio:
+        cpu: "1"
+        memory: "1"
+{{- end }}
+`
+
+// networkPolicyTemplate is the default-deny + same-Org-allow baseline rendered
+// INSIDE the Org-vcluster apps tree (#4292). With sync.toHost.networkPolicies
+// enabled (above) the syncer reflects it to the host `<slug>` ns where Cilium
+// enforces it. Without the sync flag it is inert; without this policy the
+// vcluster is wide open. Together they make intra-Org isolation REAL:
+//
+//   - default-deny: an empty podSelector selects all pods; absent Ingress
+//     rules deny all ingress. The companion allow re-opens same-namespace.
+//   - same-Org-allow: pods may talk to pods in the same namespace (the Org's
+//     own Environments/Applications) + DNS egress. Cross-Org traffic — which
+//     would land in a DIFFERENT host ns after sync — is denied.
+const networkPolicyTemplate = `apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: {{ .AppNamespace }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-org
+  namespace: {{ .AppNamespace }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    # Same-Org pod-to-pod.
+    - to:
+        - podSelector: {}
+    # DNS resolution (cluster CoreDNS).
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+`
+
+// networkPolicyDoc is the apps-tree filename for the default-deny +
+// same-Org-allow baseline. It lives under vcluster/apps/ so the funnel's
+// apps-sync Kustomization reconciles it INTO the Org-vcluster (alongside the
+// customer's app manifests); the syncer then reflects it to the host `<slug>`
+// ns. It is NOT listed in the boundary kustomization (a different path).
+const networkPolicyDoc = "networkpolicy.yaml"
+
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - namespace.yaml
-  - vcluster.yaml
+{{- range .KustomizeResources }}
+  - {{ . }}
+{{- end }}
 `
+
+// renderView is the data the templates execute against: the flat Inputs plus
+// the plan-derived fields (#4292). Embedding Inputs keeps every existing field
+// reachable as `.Slug`, `.Tier`, … while the added fields surface the resolved
+// quota + the apps-tree namespace the NetworkPolicy targets.
+type renderView struct {
+	Inputs
+	// Quota is the resolved plan cap (planQuota(.PlanSlug)).
+	Quota PlanQuota
+	// DefaultCPU/DefaultMem are the LimitRange per-container default
+	// request==limit (plan ceiling / 8 for fixed tiers; a small fixed
+	// floor for Flexi which has no ceiling).
+	DefaultCPU string
+	DefaultMem string
+	// AppNamespace is the in-vcluster namespace the funnel installs the
+	// customer's Applications into (= "apps", matching the provisioning
+	// funnel's appNS). The default-deny + same-Org NetworkPolicy targets it
+	// so the syncer reflects it to the host `<slug>` ns.
+	AppNamespace string
+	// KustomizeResources is the file list the boundary kustomization.yaml
+	// references — gated by the tier (vcluster.yaml only for paid tiers) and
+	// the plan (resourcequota.yaml skipped for soft-cap Flexi).
+	KustomizeResources []string
+}
+
+// limitRangeDefaults derives the per-container default request==limit for a
+// plan. For a fixed tier it is the plan ceiling / 8 (so ~8 unspecified small
+// Pods fit under the quota before any Application sets explicit requests). For
+// Flexi (no ceiling) it is a small fixed floor.
+func limitRangeDefaults(q PlanQuota) (cpu, mem string) {
+	switch q.Slug {
+	case "s":
+		return "250m", "512Mi"
+	case "m":
+		return "500m", "1Gi"
+	case "l":
+		return "1", "2Gi"
+	case "xl":
+		return "2", "4Gi"
+	default: // flexi / unknown — small Burstable floor.
+		return "100m", "128Mi"
+	}
+}
 
 // Render returns the rendered (path, bytes) tuples the controller
 // writes into the per-Org Gitea repo.
+//
+// Workstream B (#4292): the rendered set is now plan- and tier-aware:
+//   - vcluster.yaml is emitted ONLY for tiers whose boundary is a vCluster
+//     (boundaryIsVcluster) — free/S share the host `<slug>` ns by default.
+//   - resourcequota.yaml + limitrange.yaml cap the host ns at the purchased
+//     plan (skipped ResourceQuota for soft-cap Flexi; LimitRange always).
+//   - apps/networkpolicy.yaml seeds the default-deny + same-Org-allow baseline
+//     the syncer reflects to the host (sync.toHost.networkPolicies.enabled).
 func Render(in Inputs) (map[string][]byte, error) {
 	if in.VClusterHelmRepoName == "" {
 		in.VClusterHelmRepoName = "loft"
@@ -213,23 +486,85 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if in.Tier == "" {
 		in.Tier = "org"
 	}
-	out := make(map[string][]byte, 3)
-	for path, raw := range map[string]string{
-		"vcluster/namespace.yaml":     namespaceTemplate,
-		"vcluster/vcluster.yaml":      vclusterTemplate,
-		"vcluster/kustomization.yaml": kustomizationTemplate,
-	} {
+
+	quota := planQuota(in.PlanSlug)
+	defCPU, defMem := limitRangeDefaults(quota)
+	view := renderView{
+		Inputs:       in,
+		Quota:        quota,
+		DefaultCPU:   defCPU,
+		DefaultMem:   defMem,
+		AppNamespace: "apps",
+	}
+
+	// Assemble the file set as a function of the tier-gate + plan. The
+	// boundary host namespace + its plan-templated quota/LimitRange always
+	// render; the vCluster HelmRelease only for paid tiers; the ResourceQuota
+	// only for hard-capped plans (Flexi is soft/on-demand).
+	files := map[string]string{
+		"vcluster/namespace.yaml":  namespaceTemplate,
+		"vcluster/limitrange.yaml": limitRangeTemplate,
+	}
+	res := []string{"namespace.yaml", "limitrange.yaml"}
+	if !quota.Burstable {
+		files["vcluster/resourcequota.yaml"] = resourceQuotaTemplate
+		res = append(res, "resourcequota.yaml")
+	}
+	if boundaryIsVcluster(in.PlanSlug) {
+		files["vcluster/vcluster.yaml"] = vclusterTemplate
+		res = append(res, "vcluster.yaml")
+	}
+	// The default-deny + same-Org-allow baseline lives in the apps tree so
+	// the syncer (sync.toHost.networkPolicies.enabled) reflects it to the
+	// host `<slug>` ns. It is reconciled by the funnel's apps-sync
+	// Kustomization, not the boundary kustomization, so it is NOT listed in
+	// res — it is a separate path under apps/.
+	files["vcluster/apps/"+networkPolicyDoc] = networkPolicyTemplate
+
+	// Stable order for the kustomization resource list (map iteration above
+	// is randomized — keep the rendered kustomization byte-stable).
+	view.KustomizeResources = sortedResources(res)
+	files["vcluster/kustomization.yaml"] = kustomizationTemplate
+
+	out := make(map[string][]byte, len(files))
+	for path, raw := range files {
 		t, err := template.New(path).Funcs(funcs()).Parse(raw)
 		if err != nil {
 			return nil, fmt.Errorf("template parse %s: %w", path, err)
 		}
 		var buf bytes.Buffer
-		if err := t.Execute(&buf, in); err != nil {
+		if err := t.Execute(&buf, view); err != nil {
 			return nil, fmt.Errorf("template execute %s: %w", path, err)
 		}
 		out[path] = buf.Bytes()
 	}
 	return out, nil
+}
+
+// sortedResources returns a copy of res in a stable canonical order
+// (namespace first, then alphabetical) so the kustomization.yaml is
+// byte-stable across reconciles regardless of map iteration order.
+func sortedResources(res []string) []string {
+	out := make([]string, len(res))
+	copy(out, res)
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && resourceLess(out[j], out[j-1]); j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out
+}
+
+// resourceLess keeps namespace.yaml first (it must apply before the
+// namespaced quota/LimitRange/vcluster), then alphabetical.
+func resourceLess(a, b string) bool {
+	if a == "namespace.yaml" {
+		return b != "namespace.yaml"
+	}
+	if b == "namespace.yaml" {
+		return false
+	}
+	return a < b
 }
 
 func funcs() template.FuncMap {

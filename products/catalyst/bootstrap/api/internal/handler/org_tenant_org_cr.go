@@ -149,6 +149,15 @@ func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.
 	if billingMode == "" {
 		billingMode = "real"
 	}
+	// Purchased plan slug → spec.planSlug (#4292). Empty / unknown defaults to
+	// "s" so the org-controller always materializes a cap rather than running
+	// the boundary namespace uncapped.
+	planSlug := strings.ToLower(strings.TrimSpace(rec.PlanSlug))
+	switch planSlug {
+	case "s", "m", "l", "xl", "flexi":
+	default:
+		planSlug = "s"
+	}
 	parentDomain := strings.ToLower(strings.TrimSpace(rec.ParentDomain))
 
 	spec := map[string]any{
@@ -156,6 +165,7 @@ func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.
 		"displayName":  displayName,
 		"kind":         kind,
 		"tier":         tier,
+		"planSlug":     planSlug,
 		"billingMode":  billingMode,
 		"sovereignRef": strings.TrimSpace(sovereignFQDN),
 		"owners": []any{

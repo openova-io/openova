@@ -470,6 +470,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Slug:                      org.Spec.Slug,
 		DisplayName:               org.Spec.DisplayName,
 		Tier:                      org.Spec.Tier,
+		PlanSlug:                  org.Spec.PlanSlug,
 		SovereignFQDN:             org.Spec.SovereignRef,
 		HostCluster:               r.HostCluster,
 		VClusterChartVersion:      r.VClusterChartVersion,
