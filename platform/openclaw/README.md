@@ -61,6 +61,7 @@ blind runtime image) is intentionally reusable.
 | `templates/controller-ingress.yaml` | Public hostname `openclaw.<sme-domain>` with cert-manager auto-issue |
 | `templates/per-user-pod-template.yaml` | ConfigMap holding the pod-spec the controller renders per session |
 | `templates/networkpolicy.yaml` | Controller NetworkPolicy. The per-user pod's NetworkPolicy is rendered by the controller at session-start (see "Per-user pod NetworkPolicy" below) |
+| `controller/` | Source for the multi-tenant **controller** container image (separate OCI artifact `openclaw-controller`, built by `.github/workflows/openclaw-controller.yaml`). Validates the Organization end-user's Keycloak JWT (OIDC discovery + JWKS RS256), spawns one identity-blind runtime pod per session from the mounted pod-template ConfigMap, reverse-proxies the user to it, and reaps idle pods. |
 | `runtime/` | Source for the per-user runtime container image (separate OCI artifact, built by `.github/workflows/openclaw-runtime.yaml`) |
 | `tests/render-toggles.sh` | Helm-template integration test exercised by the blueprint-release CI workflow |
 
@@ -164,19 +165,27 @@ workflow `.github/workflows/blueprint-release.yaml` whenever
 `platform/openclaw/chart/**` changes on `main`. Output:
 
 ```
-oci://ghcr.io/openova-io/bp-openclaw:0.1.0
+oci://ghcr.io/openova-io/bp-openclaw:<semver>
 ```
 
-The runtime image is built by a sister workflow,
-`.github/workflows/openclaw-runtime.yaml`, on push to
-`platform/openclaw/runtime/**`. Output:
+Two sister workflows build the container images, both event-driven (per
+Inviolable Principle 1 — no `schedule:` cron; `workflow_dispatch` is for
+re-runs only):
 
-```
-ghcr.io/openova-io/openova/openclaw-runtime:<sha>
-```
+| Workflow | Trigger | Output |
+|---|---|---|
+| `openclaw-controller.yaml` | push to `platform/openclaw/controller/**` | `ghcr.io/openova-io/openova/openclaw-controller:<sha>` |
+| `openclaw-runtime.yaml` | push to `platform/openclaw/runtime/**` | `ghcr.io/openova-io/openova/openclaw-runtime:<sha>` |
 
-Per Inviolable Principle 1, both workflows are event-driven; neither
-uses `schedule:` cron. `workflow_dispatch` is provided for re-runs only.
+The controller workflow additionally bumps the chart in lockstep:
+after publishing the SHA-pinned image it rewrites
+`chart/values.yaml` (`controller.image.tag` → the new SHA,
+`perUserPod.image.tag` → the latest published runtime SHA), bumps
+`chart/Chart.yaml` + `blueprint.yaml` `version`, bumps the catalog-seed
+`bp-openclaw` version pins, and dispatches `blueprint-release`. This keeps
+the fresh-Org chart pin pointing at an OCI artifact whose image tags
+actually exist on GHCR — never the placeholder (issue #4249) and never
+a same-version mutable-tag overwrite (issue #4257).
 
 ---
 
