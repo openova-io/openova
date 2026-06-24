@@ -1,0 +1,76 @@
+# EPIC #4286 mechanism B — Kyverno conformance test for the
+# `inject-gitea-source-secretref` MUTATE ClusterPolicy.
+#
+# Run with the Kyverno CLI:
+#   cd platform/kyverno-policies/chart
+#   # re-render the policy if the template/values changed:
+#   helm template . --set compliancePolicies.bootstrapMode=false \
+#     --show-only templates/mutate/01-inject-gitea-source-secretref.yaml \
+#     | grep -v '^---$' | grep -v '^# Source:' \
+#     > tests/inject-gitea-source-secretref/policy.yaml
+#   kyverno test tests/inject-gitea-source-secretref/
+#
+# `policy.yaml` is the rendered ClusterPolicy (committed so the test is
+# self-contained + CI-runnable without a Helm pass in the test step).
+#
+# FOUR cases prove the EPIC's mechanism-B acceptance bullet
+# ("an applied secretRef-less local-Gitea source is mutate-injected to carry the
+# canonical secret; a github.com source is left untouched; an already-secretRef'd
+# source is left untouched"):
+#   1. in-cluster Gitea, no secretRef        → MUTATE (inject) → pass + patchedResource
+#   2. per-Sovereign Gitea DNS, no secretRef  → MUTATE (inject) → pass + patchedResource
+#   3. github.com public, no secretRef        → SKIP (precond 1 false) → result: skip
+#   4. in-cluster Gitea WITH secretRef        → SKIP (precond 2 false, idempotent) → result: skip
+#   5. OCIRepository at Gitea host, no secretRef → MUTATE (inject) → pass (cross-kind coverage)
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: inject-gitea-source-secretref-test
+policies:
+  - policy.yaml
+resources:
+  - resource-incluster-gitea-no-secretref.yaml
+  - resource-persovereign-gitea-no-secretref.yaml
+  - resource-github-public-no-secretref.yaml
+  - resource-incluster-gitea-with-secretref.yaml
+  - resource-ocirepository-gitea-no-secretref.yaml
+results:
+  # 1. secretRef-less in-cluster Gitea source → injected.
+  - policy: inject-gitea-source-secretref
+    rule: inject-secretref-on-local-gitea-source
+    resources:
+      - catalyst-app-omantel-biz-agenity
+    kind: GitRepository
+    patchedResources: patched-incluster-gitea.yaml
+    result: pass
+  # 2. secretRef-less per-Sovereign Gitea DNS source → injected.
+  - policy: inject-gitea-source-secretref
+    rule: inject-secretref-on-local-gitea-source
+    resources:
+      - openova-catalog-sovereign
+    kind: GitRepository
+    patchedResources: patched-persovereign-gitea.yaml
+    result: pass
+  # 3. github.com catalog-mirror → UNTOUCHED (no `gitea` host substring).
+  - policy: inject-gitea-source-secretref
+    rule: inject-secretref-on-local-gitea-source
+    resources:
+      - openova
+    kind: GitRepository
+    result: skip
+  # 4. already-secretRef'd local-Gitea source → UNTOUCHED (idempotent;
+  #    never overrides the org-controller / operator-set value).
+  - policy: inject-gitea-source-secretref
+    rule: inject-secretref-on-local-gitea-source
+    resources:
+      - catalyst-tenant-walkorg
+    kind: GitRepository
+    result: skip
+  # 5. OCIRepository at a Gitea host, no secretRef → injected (cross-kind).
+  - policy: inject-gitea-source-secretref
+    rule: inject-secretref-on-local-gitea-source
+    resources:
+      - catalyst-app-omantel-biz-chart
+    kind: OCIRepository
+    patchedResources: patched-ocirepository-gitea.yaml
+    result: pass

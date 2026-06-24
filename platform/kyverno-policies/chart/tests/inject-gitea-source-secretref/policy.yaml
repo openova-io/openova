@@ -1,0 +1,59 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: inject-gitea-source-secretref
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: security
+  annotations:
+    policies.kyverno.io/title: Auto-inject secretRef on Sovereign-local Gitea Flux sources
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      MUTATE policy (EPIC #4286 mechanism B): on CREATE/UPDATE of a Flux
+      GitRepository/HelmRepository/OCIRepository whose spec.url host targets the
+      Sovereign-local Gitea and which has an empty/absent spec.secretRef.name,
+      inject the canonical basic-auth secretRef. bp-gitea
+      REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401 for every repo, so an
+      unauthenticated local-Gitea source is structurally invalid — this is the
+      admission floor that makes it impossible (Refs #4286, #4285, #4283).
+spec:
+  # MUTATE on admission only (CREATE/UPDATE); no background scan needed — Flux
+  # re-emits desired-state source CRs, so the mutate re-fires on the next
+  # reconcile of any stale CR. Matches 00-stamp-cilium-enforced-label / 21.
+  background: false
+  rules:
+    - name: inject-secretref-on-local-gitea-source
+      match:
+        any:
+          - resources:
+              kinds:
+                - GitRepository
+                - HelmRepository
+                - OCIRepository
+      preconditions:
+        all:
+          # (1) spec.url host targets the Sovereign-local Gitea — mirror
+          # fluxsource.IsLocalSovereignSource's `gitea` host marker. `contains()`
+          # is matched against the whole url string; an external repo would need
+          # `gitea` in its host to match, which the local Gitea service
+          # (gitea-http.gitea.svc...) and per-Sovereign DNS (gitea.<loc>.<dom>)
+          # both carry and github.com does not. `|| ''` keeps it nil-safe when
+          # spec.url is somehow absent.
+          - key: "{{ contains(request.object.spec.url || '', 'gitea') }}"
+            operator: Equals
+            value: true
+          # (2) secretRef.name is empty/absent — fire ONLY on unauthenticated
+          # sources; never override an operator-set / org-controller-set secret.
+          - key: "{{ request.object.spec.secretRef.name || '' }}"
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          spec:
+            # `+(secretRef)` adds the secretRef block only when absent — second
+            # idempotency guard beyond the precondition.
+            +(secretRef):
+              name: "openova-org-tenants-git-auth"

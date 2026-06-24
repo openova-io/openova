@@ -1,0 +1,15 @@
+# EPIC #4286 mechanism B — EXPECTED patched OCIRepository after the
+# inject-gitea-source-secretref mutate. secretRef injected identically to the
+# GitRepository case, proving cross-kind coverage.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: catalyst-app-omantel-biz-chart
+  namespace: flux-system
+spec:
+  interval: 60s
+  ref:
+    tag: latest
+  secretRef:
+    name: openova-org-tenants-git-auth
+  url: oci://gitea-http.gitea.svc.cluster.local:3000/omantel-biz/chart

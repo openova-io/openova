@@ -1,0 +1,15 @@
+# EPIC #4286 mechanism B — EXPECTED patched resource for the per-Sovereign Gitea
+# DNS secretRef-less GitRepository after the inject-gitea-source-secretref
+# mutate. spec.secretRef.name=openova-org-tenants-git-auth has been injected.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: openova-catalog-sovereign
+  namespace: flux-system
+spec:
+  interval: 60s
+  ref:
+    branch: main
+  secretRef:
+    name: openova-org-tenants-git-auth
+  url: https://gitea.hfmp.omantel.biz/openova/openova
