@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T04:30:04Z` |
+| Last refreshed | `2026-06-24T04:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 23 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 23 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 23 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -221,6 +221,8 @@ flowchart LR
 | [#4236](https://github.com/openova-io/openova/issues/4236) | FUNNEL pool-DNS: marketplace org-create (tenant-service → provisioning-service | Other |
 | [#4241](https://github.com/openova-io/openova/issues/4241) | FUNNEL console TLS: per-Org 2-label wildcard cert/listener (console.<slug>.<pool | Other |
 | [#4246](https://github.com/openova-io/openova/issues/4246) | Demo Org tertiary apps never converge on fresh Org — 3 durable RCs: per-Org HR | Other |
+| [#4249](https://github.com/openova-io/openova/issues/4249) | bp-openclaw controller image does not exist — no controller source/Dockerfile/ | Other |
+| [#4250](https://github.com/openova-io/openova/issues/4250) | P1: demo Org app-namespace (org-7283eb4a) chronically torn down + recreated by o | Other |
 
 ---
 
@@ -228,6 +230,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T04:36 | [#4248](https://github.com/openova-io/openova/pull/4248) | #4246 | fix: per-Org HR disableWait passthrough (newapi DSN deadlock |
+| 2026-06-24T04:32 | [#4247](https://github.com/openova-io/openova/pull/4247) | #1 | docs(sessions): #4179 close-gate walk — SAN-match fix proven |
 | 2026-06-24T04:06 | [#4245](https://github.com/openova-io/openova/pull/4245) | #1 | fix(bp-catalyst-platform): bump chart 1.4.813->1.4.814 to de |
 | 2026-06-24T03:43 | [#4244](https://github.com/openova-io/openova/pull/4244) | #4155 | fix(bp-wordpress-tenant): oidc-config Job emptyDir + pg4wp s |
 | 2026-06-24T03:26 | [#4243](https://github.com/openova-io/openova/pull/4243) | #4110 | docs(sessions): demo org-user agentic-RBAC walk — org-scoped |
@@ -256,8 +260,6 @@ flowchart LR
 | 2026-06-23T21:23 | [#4208](https://github.com/openova-io/openova/pull/4208) | #893 | docs(backlog): audit #2 verdict table — 24→21 open, evidence |
 | 2026-06-23T19:49 | [#4207](https://github.com/openova-io/openova/pull/4207) | #4196 | docs(4196): live omantel.biz walk evidence — native Billing  |
 | 2026-06-23T19:47 | [#4205](https://github.com/openova-io/openova/pull/4205) | #4158 | fix(catalyst-api): deliver per-app SSO-OIDC Secrets to the r |
-| 2026-06-23T19:28 | [#4204](https://github.com/openova-io/openova/pull/4204) | #3785 | fix(bp-wordpress-tenant): expose purchased WordPress at its  |
-| 2026-06-23T19:13 | [#4203](https://github.com/openova-io/openova/pull/4203) | #4187 | fix(catalyst-ui): sovereign-owner sidebar avatar reads /whoa |
 
 ---
 
