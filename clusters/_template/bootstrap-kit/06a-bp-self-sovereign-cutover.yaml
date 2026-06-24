@@ -571,7 +571,10 @@ spec:
       # the running-Pod set with the declared workload-template set (Deployments
       # + StatefulSets + DaemonSets + CronJob/Job templates) so the mirror list
       # is complete regardless of which pods are Running — a strict superset.
-      version: 0.1.78
+      # 0.1.79 (#3379, omantel.biz 2026-06-24): step-08 egress-block now APPLIES
+      # the default-deny CCNP under the shipped defaultDenyEgress:true (the apply
+      # was stranded in the legacy else-branch → assertion-only hold).
+      version: 0.1.79
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

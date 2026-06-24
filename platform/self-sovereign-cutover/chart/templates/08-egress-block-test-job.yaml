@@ -347,18 +347,31 @@ data:
                   done
                 } >/work/egress-deny.yaml
                 # /work is a writable emptyDir (readOnlyRootFilesystem:true
-                # makes /tmp unwritable). Without this the apply below is
-                # never reached and the deny-egress hold is assertion-only.
+                # makes /tmp unwritable). The subtractive manifest is written
+                # here; the SHARED apply below (outside this if/elif/else)
+                # applies whichever branch emitted it.
+              fi
+              # ── #3379 (omantel.biz, 2026-06-24): SHARED apply path. The
+              # `kubectl apply` + POLICY_APPLIED + teardown trap PREVIOUSLY
+              # lived ONLY in the legacy subtractive `else` branch above, so
+              # under the shipped `defaultDenyEgress: true` (#3678) the
+              # default-deny CCNP was WRITTEN to /work/egress-deny.yaml but
+              # NEVER applied: POLICY_APPLIED stayed empty, the #3678 call-home
+              # and #3647 fresh-pull proofs (both gated on POLICY_APPLIED=yes)
+              # were skipped, and the 600s survival window degenerated to an
+              # assertion-only hold. cutoverComplete=true could then be earned
+              # WITHOUT a witnessed deny-egress — the exact opposite of the
+              # ADR-0002 proof. Applying whichever manifest the branch above
+              # emitted (default-deny OR legacy subtractive), once, fixes both.
+              if [ -f /work/egress-deny.yaml ]; then
                 if kubectl apply -f /work/egress-deny.yaml; then
                   POLICY_APPLIED="yes"
                   # Trap teardown so an abnormal exit (activeDeadline SIGTERM,
                   # eviction) can't strand a cluster-wide egressDeny on the
-                  # Sovereign. Runs in addition to the inline delete below.
-                  # (reviewer PR #3072 — SIGKILL/OOM is the only uncovered
-                  # path; the policy only denies the 3 post-cutover upstreams
-                  # so a stray is the intended end-state, not a wedge.)
+                  # Sovereign (reviewer PR #3072 — SIGKILL/OOM is the only
+                  # uncovered path).
                   trap 'kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true' TERM EXIT
-                  echo "[egress-block-test] egressDeny applied — hidden runtime tethers will now surface as NotReady"
+                  echo "[egress-block-test] egressDeny applied (default-deny=${DEFAULT_DENY_EGRESS}) — hidden runtime tethers will now surface as NotReady"
                 else
                   echo "  WARN — egressDeny apply failed; assertion-only fallback (fail-safe)"
                 fi
