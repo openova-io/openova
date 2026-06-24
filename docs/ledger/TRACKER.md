@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T17:30:03Z` |
+| Last refreshed | `2026-06-24T17:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T17:30 | [#4288](https://github.com/openova-io/openova/pull/4288) | #4284 | fix(bp-catalyst-platform): permanent root-cause for Flux→loc |
 | 2026-06-24T09:30 | [#4271](https://github.com/openova-io/openova/pull/4271) | #4179 | docs(sessions): Goal-2 live browser evidence — funnel JWT +  |
 | 2026-06-24T09:40 | [#4270](https://github.com/openova-io/openova/pull/4270) | #898 | fix(org-provisioning): converge per-Org tertiary apps — imag |
 | 2026-06-24T09:01 | [#4269](https://github.com/openova-io/openova/pull/4269) | #3678 | fix(bp-self-sovereign-cutover): apply default-deny egress CC |
@@ -257,7 +258,6 @@ flowchart LR
 | 2026-06-24T02:09 | [#4234](https://github.com/openova-io/openova/pull/4234) | #4188 | docs(uat): note #4220 root fixes on WordPress row 89 — keycl |
 | 2026-06-24T01:52 | [#4233](https://github.com/openova-io/openova/pull/4233) | #4225 | fix(bp-agenity): chat-runtime — optional RS256-pubkey secret |
 | 2026-06-24T01:47 | [#4232](https://github.com/openova-io/openova/pull/4232) | #4230 | fix(bp-wordpress-tenant): managed-by:flux on oidc-config + a |
-| 2026-06-24T01:36 | [#4230](https://github.com/openova-io/openova/pull/4230) | #4226 | fix(bp-wordpress-tenant): managed-by:flux on db-secret-sync  |
 
 ---
 
