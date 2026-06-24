@@ -124,6 +124,7 @@ fixture_common() {
     object_storage_access_key         = "OBSTESTACCESSKEY0001"
     object_storage_secret_key         = "OBSTESTsecretkey0001"
     load_balancer_ipv4                = "203.0.113.10"
+    console_load_balancer_ipv4        = "203.0.113.11"
     # Huawei-branch substitute vars (inert on non-Huawei but referenced in
     # the shared template's `provider == "huawei"` directive — tofu evaluates
     # var refs even in non-taken branches, so every fixture must supply them).

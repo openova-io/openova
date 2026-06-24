@@ -661,7 +661,11 @@ controllers:
       # the current organization-controller GHCR tag to clear the staleness gate.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 300d853 had drifted 174 commits behind latest GHCR.
-      tag: "34ff594"
+      # 6cdbc50 (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
+      # 34ff594 had drifted 470 commits behind latest GHCR. The merge-time
+      # build-organization-controller.yaml auto-bump re-pins this to the image
+      # built from THIS PR's tenant_dns.go code.
+      tag: "6cdbc50"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -869,7 +873,10 @@ controllers:
       # Application lives in a different namespace from flux-system).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
+      # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
+      # just clearing the staleness gate so the chart ships the current binary).
+      tag: "6d7aacd"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:

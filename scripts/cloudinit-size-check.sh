@@ -143,6 +143,7 @@ fixture_cp_common() {
     object_storage_access_key         = "OBSTESTACCESSKEY0001"
     object_storage_secret_key         = "OBSTESTsecretkey0001"
     load_balancer_ipv4                = "203.0.113.10"
+    console_load_balancer_ipv4        = "203.0.113.11"
     pdns_api_host                     = "pdns.openova.io"
     sovereign_region_role             = "primary"
     node_external_ip_value            = "203.0.113.10"
