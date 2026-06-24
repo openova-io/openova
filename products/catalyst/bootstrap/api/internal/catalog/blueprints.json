@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T07:50:53.624Z",
+  "generatedAt": "2026-06-24T08:17:04.461Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -11,7 +11,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-external-secrets"
@@ -3575,7 +3575,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "section": "pts-4-7-agentic-workspace",
       "depends": [
         "bp-newapi",
