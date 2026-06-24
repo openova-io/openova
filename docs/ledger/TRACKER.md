@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T12:30:03Z` |
+| Last refreshed | `2026-06-24T12:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 16 |
+| Open issues | 10 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 16 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 10 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,23 +196,17 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 16 open items (clickable table)
+### All 10 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
+| [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
 | [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
-| [#3829](https://github.com/openova-io/openova/issues/3829) | Every application AND activity shows its TRUE live state end-to-end — every ap | Other |
 | [#3914](https://github.com/openova-io/openova/issues/3914) | Provisioning UX: fill the ~30-min 'Provision <provider>: Success' void with a li | Other |
 | [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (Primary/Standby·Hot/Cold, capability-gated | Other |
-| [#4018](https://github.com/openova-io/openova/issues/4018) | fix(cloud): Path B — provisioning instantiates Crossplane XRCs so the XRC laye | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
-| [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
-| [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
-| [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: light the object-model/DR backbone at runtime — ONE build (un-gate Cross | Other |
-| [#4246](https://github.com/openova-io/openova/issues/4246) | Demo Org tertiary apps never converge on fresh Org — 3 durable RCs: per-Org HR | Other |
-| [#4249](https://github.com/openova-io/openova/issues/4249) | bp-openclaw controller image does not exist — no controller source/Dockerfile/ | Other |
-| [#4257](https://github.com/openova-io/openova/issues/4257) | fix(continuum): bp-continuum 0.1.8 mutable-tag overwrite blocks #4254 roll — b | Other |
-| [#4265](https://github.com/openova-io/openova/issues/4265) | org-provisioning: a corrupted/JSON-envelope parent org-tenants kustomization.yam | Other |
+| [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
+| [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — 2 seams still unwired (spine Application- | Other |
 | [#4272](https://github.com/openova-io/openova/issues/4272) | bp-openclaw controller never Ready on a Sovereign — NetworkPolicy assumes trae | Other |
 | [#4273](https://github.com/openova-io/openova/issues/4273) | FUNNEL: new-Org checkout redirects to the per-Org console host BEFORE its DNS/TL | Other |
 | [#4274](https://github.com/openova-io/openova/issues/4274) | BILLING: /billing/orders + /billing/revenue render empty / non-granular / off th | Other |
