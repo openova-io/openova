@@ -240,14 +240,32 @@ spec:
             {{- end }}
             {{- if eq .Values.openovaMCP.verify "rs256" }}
             # The RS256 public key the MCP verifies caller bearers against,
-            # reflected from the Sovereign's handover-jwt secret. Surfaced as
-            # an env var so the EXTRA_MCP_JSON above can $(…)-expand it into
-            # the per-agent MCP server stanza.
+            # sourced from the Sovereign's handover-jwt-public secret. Surfaced
+            # as an env var that the forked openova-mcp inherits and reads
+            # natively (bearer_fallback=true).
+            #
+            # 🛑 optional:true is LOAD-BEARING for the chat runtime (#4228): the
+            # handover pubkey Secret (`catalyst-handover-jwt-public`, published
+            # by catalyst-api #4114) lives in the host catalyst-system namespace,
+            # NOT in the per-Org namespace this Application installs into — so a
+            # NON-optional secretKeyRef makes the chepherd container stick
+            # CreateContainerConfigError ("secret not found") and the whole pod —
+            # dashboard AND chat — never starts. The dashboard render does not
+            # use this key; only the MCP→catalyst-api create_application bearer
+            # verification does. With optional:true the pod schedules even when
+            # the Secret is absent (the env var is simply unset), so the
+            # dashboard always serves and the MCP bearer-verifies once the pubkey
+            # is reflected/seeded into the Org ns (rs256PubkeySecret override) or
+            # the openova-mcp falls back to its env (bearer_fallback). We do NOT
+            # Helm-seed a placeholder value here — an empty PEM would pin a bad
+            # key forever under the reflector empty-seed trap; absent-and-optional
+            # is the correct state until the real pubkey is reflected in.
             - name: OPENOVA_MCP_RS256_PUBKEY_PEM
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.openovaMCP.rs256PubkeySecret.name }}
                   key: {{ .Values.openovaMCP.rs256PubkeySecret.key }}
+                  optional: true
             {{- end }}
             {{- end }}
             - name: CHEPHERD_STATE_DIR

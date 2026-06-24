@@ -111,10 +111,19 @@ openovaMCP:
   # widen the surface beyond the User's Org (defense in depth).
   context: organization
   # Bearer verification mode for the MCP (rs256 against the Sovereign
-  # handover signer pubkey). The pubkey is reflected in from the catalyst
-  # handover-jwt secret — it MUST match the key catalyst-api SIGNS sessions
-  # with (#4114: catalyst-api now publishes its runtime signer pubkey to
-  # catalyst-handover-jwt-public, the source of truth).
+  # handover signer pubkey). The pubkey MUST match the key catalyst-api
+  # SIGNS sessions with (#4114: catalyst-api publishes its runtime signer
+  # pubkey to the catalyst-handover-jwt-public Secret, the source of truth).
+  #
+  # 🛑 The secretKeyRef driven by rs256PubkeySecret is rendered optional:true
+  # in the StatefulSet (#4228): the source Secret lives in the host
+  # catalyst-system namespace, not the per-Org namespace this Application
+  # installs into, so a non-optional ref would block the pod from starting
+  # (dashboard AND chat) in an Org install. Absent → the env var is simply
+  # unset and the openova-mcp falls back to reading it from its inherited
+  # process env (bearer_fallback=true). To pin a real per-Org pubkey, reflect
+  # catalyst-handover-jwt-public into the Org ns and override name/key here —
+  # never Helm-seed a placeholder value (reflector empty-seed trap).
   verify: rs256
   rs256PubkeySecret:
     name: catalyst-handover-jwt
