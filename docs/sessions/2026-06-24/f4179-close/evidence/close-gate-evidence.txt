@@ -1,0 +1,22 @@
+# #4179 close-gate evidence — fresh org f4179final.omani.works — 2026-06-24
+
+## 4a. Redirect host (correct pool host, NOT omantel.biz)
+Marketplace 'Launch my tenant' redirected to: console.f4179final.omani.works (page title captured live)
+
+## 4b. DNS resolves to console-ELB EIP (#4236/#4240)
+dig @8.8.8.8 console.f4179final.omani.works -> 212.72.24.33
+dig @1.1.1.1 console.f4179final.omani.works -> 212.72.24.33
+console.omantel.biz (console-ELB reference) -> 212.72.24.33
+
+## 4c. HTTPS cert SAN COVERS the 2-label host (#4241/#4242) — THE CORE FIX
+$ openssl s_client -servername console.f4179final.omani.works
+subject=CN = f4179final.omani.works
+X509v3 Subject Alternative Name: 
+    DNS:*.f4179final.omani.works, DNS:f4179final.omani.works
+issuer=C = US, O = Let's Encrypt, CN = YR1
+
+$ curl --resolve console.f4179final.omani.works:443:212.72.24.33 https://.../jobs
+HTTP 200 | ssl_verify_result=0 (0=cert VALID, trusted chain)
+
+## BEFORE #4242 (same host earlier today): SAN was *.omani.works (1-label, MISMATCH)
+## AFTER #4242: SAN is *.f4179final.omani.works (2-label, MATCHES console.f4179final.omani.works)
