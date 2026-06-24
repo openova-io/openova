@@ -849,7 +849,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "895f961"
+      tag: "34ff594"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -887,7 +887,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "6d7aacd"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
