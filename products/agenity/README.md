@@ -103,18 +103,48 @@ private base image (`ghcr.io/agenity-org/chepherd`) is gone.
   with the Org's Keycloak SSO (silent login). The agent presents the User's
   session bearer to the openova MCP on each `tools/call`.
 
-## Seeding the per-Org `anthropic/token` openbao path (#4111 / #4228)
+## Seeding the `catalyst/anthropic/token` openbao path (#4277 / #4111 / #4228)
 
 The chat runtime (the spawned `claude-code` solo agent) needs a **live
-Anthropic credential** in the Org's openbao. The chart's
+Anthropic credential** in the Sovereign's openbao. The chart's
 `templates/externalsecret-anthropic.yaml` reads it from the openbao path
-`anthropic/token` via the `vault-region1` ClusterSecretStore into the
-`agenity-anthropic-token` Secret. The chart can **never** carry the secret
-itself (Inviolable Principle #4 — no hardcoded secrets), so this one openbao
-write is **operator-driven**, exactly once per Sovereign, before the chat is
-expected to work. Until it is seeded the dashboard still renders, but the
-agent reports *"runtime offline · 0 workers"* / *"no Claude credential
-available"* on spawn.
+`secret/catalyst/anthropic/token` via the `vault-region1` ClusterSecretStore
+into the `agenity-anthropic-token` Secret. The chart can **never** carry the
+secret itself (Inviolable Principle #4 — no hardcoded secrets).
+
+**Auto-seeded at Org-create (#4277).** The catalyst-api producer
+`seedAnthropicToken` (called from `runOrganizationPipeline`) writes
+`secret/catalyst/anthropic/token` on **every** Org-create, sourcing the value
+from its own env (`CATALYST_ANTHROPIC_API_KEY` /
+`CATALYST_ANTHROPIC_CREDENTIALS_JSON`, wired via the
+`catalyst-openova-kc-credentials` Secret). So once the **platform-level**
+Anthropic credential is supplied **once per Sovereign**, every new Org is
+zero-touch by construction — no per-Org `bao kv put`.
+
+> **Why `catalyst/anthropic/token` and not bare `anthropic/token`?** A
+> Sovereign has **no writer** for `secret/anthropic/*` — the `external-secrets`
+> OpenBao role `vault-region1` reads with is read-only. The catalyst-api holds
+> the write-capable `catalyst-api-write` policy scoped to
+> `secret/{data,metadata}/catalyst/*`, so the producer writes under that
+> prefix. The path is **cluster-shared** — one seed serves every Org's agenity
+> install on that Sovereign.
+
+**Supplying the platform credential (the one founder action).** Set it once per
+Sovereign via either:
+- the operator-rotatable `catalyst-system/sovereign-anthropic-credentials`
+  Secret (keys `apiKey` / `credentialsJson`) — **source-wins**, so this is also
+  the seam to re-seed the EXPIRING OAuth blob without a chart upgrade; or
+- a per-Sovereign overlay setting `sovereign.anthropic.{apiKey,credentialsJson}`
+  on bp-catalyst-platform.
+
+Until it is supplied the dashboard still renders, but the seed **loud-skips**
+(catalyst-api logs `anthropic seed: SKIPPED — platform Anthropic credential
+unset`) and the agent reports *"runtime offline · 0 workers"* / *"no Claude
+credential available"* on spawn. This is the correct pre-seed state (the
+ExternalSecret renders, the key is simply absent) — never an empty seed.
+
+A direct `bao kv put` (below) remains valid for a one-off manual seed / hot
+re-seed of an already-running Sovereign.
 
 Two properties live at that one path:
 
@@ -129,7 +159,7 @@ in-vc-mgmt OpenBao root — never write the secret to a file on disk):
 ```bash
 # exec into an in-cluster pod that can reach the region-1 OpenBao; export
 # VAULT_ADDR + VAULT_TOKEN for that store, then:
-bao kv put anthropic/token \
+bao kv put secret/catalyst/anthropic/token \
   apiKey='sk-ant-…' \
   credentialsJson='{"claudeAiOauth":{"accessToken":"…","refreshToken":"…","expiresAt":<ms>,"scopes":["user:inference"]}}'
 ```
@@ -138,9 +168,10 @@ ESO refreshes `agenity-anthropic-token` within `refreshInterval` (1h, or force
 an immediate sync by annotating the ExternalSecret with
 `force-sync=$(date +%s)`); the init container then seeds
 `~/.claude/.credentials.json` from `credentialsJson` and the next agent spawn
-authenticates. This path is **shared per-Sovereign** (not per-Org-namespaced)
-by default — a single seed serves every Org's agenity install on that
-Sovereign.
+authenticates. This path is **shared per-Sovereign** (not per-Org-namespaced) —
+a single seed serves every Org's agenity install on that Sovereign. The
+preferred durable seam is the platform credential the catalyst-api producer
+auto-seeds (above); this `bao kv put` is a one-off / hot re-seed.
 
 ### 🛑 The OAuth access token EXPIRES — re-seed when the agent goes offline (#4111)
 
@@ -163,7 +194,7 @@ diagnose this without exec'ing into the pod:
 🛑 WARNING (#4111): seeded claude-code OAuth token is EXPIRED (~45h ago) — the
    spawned agent will fail '401 Invalid authentication credentials' and the
    dashboard will show 'runtime offline / 0 workers'. RE-SEED openbao
-   anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret.
+   catalyst/anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret.
 ```
 
 (A valid token instead logs `claude-code OAuth token valid (~Nh remaining).`)
@@ -173,7 +204,9 @@ keep serving) and never mutates the blob (`claude-code` owns rotation).
 **When the agent reports offline, re-seed:** mint a **fresh**
 `credentialsJson` (a current `claude` login on a workstation writes
 `~/.claude/.credentials.json`; copy that whole blob), `bao kv put
-anthropic/token credentialsJson='…'` as above, force-sync the ExternalSecret
+secret/catalyst/anthropic/token credentialsJson='…'` as above (or rotate the
+`sovereign-anthropic-credentials` Secret so the next Org-create re-seeds it),
+force-sync the ExternalSecret
 (`kubectl annotate externalsecret agenity-anthropic-token
 force-sync=$(date +%s) --overwrite`), and restart the StatefulSet pod (or wait
 for the next restart) so the init container re-seeds the new blob. The next

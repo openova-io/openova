@@ -3004,6 +3004,33 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
+# 1.4.833 — #4277: auto-seed the per-Org Anthropic credential so the agentic
+#   journey (Pillar 4) is zero-touch on a FRESH Org. The READ side (bp-agenity
+#   seed-claude-creds init container + anthropic ExternalSecret, #4111) was
+#   already wired but the PRODUCER — the thing that writes the Sovereign OpenBao
+#   path at Org-create — did not exist, so every fresh funnel Org's
+#   agenity-anthropic-token ExternalSecret stayed SecretSyncedError. This bump:
+#     - new catalyst-api producer seedAnthropicToken (called from
+#       runOrganizationPipeline after the per-Org overlay commit) writes
+#       secret/catalyst/anthropic/token (fields apiKey + credentialsJson) via
+#       the catalyst-api's existing write-capable OpenBao client. The catalyst/
+#       prefix is deliberate: it is the ONLY KV sub-tree a Sovereign can WRITE
+#       (catalyst-api-write policy); the bare secret/anthropic/* the agenity
+#       chart historically read has no writer. The agenity remoteKey moves to
+#       catalyst/anthropic/token in lockstep (bp-agenity 0.5.7→0.5.8 + the
+#       catalog-seed pin).
+#     - api-deployment(.yaml/-kustomize.yaml) wire CATALYST_ANTHROPIC_API_KEY +
+#       CATALYST_ANTHROPIC_CREDENTIALS_JSON (optional secretKeyRef, mirror of
+#       the #883 SMTP relay env).
+#     - catalyst-openova-kc-credentials Secret carries anthropic-api-key /
+#       anthropic-credentials-json (source-wins from the operator-rotatable
+#       sovereign-anthropic-credentials Secret — the seam to re-seed the
+#       EXPIRING OAuth blob — falling back to sovereign.anthropic.* values).
+#   🛑 FOUNDER-SUPPLIED-SECRET GAP: the platform ships NO Anthropic credential
+#   (Principle #4). Until the founder populates it ONCE per Sovereign (via the
+#   sovereign-anthropic-credentials Secret or sovereign.anthropic.* values) the
+#   seed loud-skips and agenity stays offline — the correct pre-seed state, NOT
+#   a silent empty seed (the ESO/reflector empty-seed trap).
 # 1.4.830 — #4281 + #4282 (two console/catalog fixes, one chart bump):
 #   #4281 — console Cloud HelmReleases list gains a "Target Namespace" column
 #     (spec.targetNamespace, falling back to metadata.namespace). Host-shared

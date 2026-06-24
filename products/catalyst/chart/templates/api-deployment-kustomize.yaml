@@ -1368,6 +1368,26 @@ spec:
                   name: catalyst-openova-kc-credentials
                   key: smtp-from
                   optional: true
+            # ── Anthropic credential for the per-Org agentic agent (#4277) ──
+            # See api-deployment.yaml for the full rationale. The catalyst-api
+            # producer (seedAnthropicToken) writes the Sovereign OpenBao
+            # `secret/catalyst/anthropic/token` from these at Org-create so
+            # every Org's bp-agenity ExternalSecret resolves zero-touch. Both
+            # optional so a Sovereign without the platform credential renders
+            # cleanly (loud-skip + agenity offline until the founder supplies
+            # source Secret keys anthropic-api-key / anthropic-credentials-json).
+            - name: CATALYST_ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: anthropic-api-key
+                  optional: true
+            - name: CATALYST_ANTHROPIC_CREDENTIALS_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-openova-kc-credentials
+                  key: anthropic-credentials-json
+                  optional: true
             # CATALYST_SESSION_COOKIE_DOMAIN — optional domain scoping for the
             # catalyst_session + catalyst_refresh cookies.
             #

@@ -1662,13 +1662,19 @@ spec:
         allowGatewayEntity: true
     # Anthropic token (+ claude-code credentials.json) for the solo agent,
     # pulled from the Org's openbao via the region-1 ClusterSecretStore.
-    # The chart's externalsecret-anthropic.yaml reads anthropic/token.
+    # The chart's externalsecret-anthropic.yaml reads
+    # secret/catalyst/anthropic/token — the path the catalyst-api producer
+    # (seedAnthropicToken, #4277) writes at Org-create. It MUST live under
+    # the catalyst/ prefix: that is the only KV sub-tree a Sovereign can
+    # WRITE (catalyst-api-write policy); the external-secrets role used by
+    # vault-region1 is read-only. The path is cluster-shared — one seed
+    # serves every Org's agenity install.
     anthropic:
       externalSecret:
         enabled: true
         secretStoreRef: vault-region1
         secretStoreKind: ClusterSecretStore
-        remoteKey: anthropic/token
+        remoteKey: catalyst/anthropic/token
         remoteProperty: apiKey
         remoteCredentialsProperty: credentialsJson
 `

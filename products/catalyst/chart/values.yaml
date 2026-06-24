@@ -92,6 +92,30 @@ sovereign:
     host: mail.openova.io
     port: "587"
     from: noreply@openova.io
+  # ── Anthropic credential for the per-Org agentic agent (#4277) ──
+  # Consumed by the auto-provisioned `catalyst-openova-kc-credentials`
+  # Secret (anthropic-api-key / anthropic-credentials-json keys) → the
+  # catalyst-api env (CATALYST_ANTHROPIC_*) → the producer seedAnthropicToken,
+  # which writes the Sovereign OpenBao `secret/catalyst/anthropic/token` at
+  # Org-create so every Org's bp-agenity ExternalSecret resolves and the
+  # spawned claude-code authenticates zero-touch.
+  #
+  # 🛑 EMPTY by default — FOUNDER-SUPPLIED-SECRET GAP. The platform ships no
+  # Anthropic credential (Principle #4: never hardcode secrets). To make the
+  # agentic journey zero-touch on every Org, the operator supplies the
+  # credential ONCE per Sovereign via one of:
+  #   (a) the operator-rotatable `catalyst-system/sovereign-anthropic-credentials`
+  #       Secret (keys `apiKey` / `credentialsJson`) — source-wins, the seam
+  #       to re-seed the EXPIRING OAuth blob without a chart upgrade; OR
+  #   (b) a per-Sovereign overlay setting these values.
+  # `credentialsJson` is the full `{"claudeAiOauth":{...}}` blob the OAuth
+  # journey needs (the channel claude-code actually authenticates with);
+  # `apiKey` is the bare `sk-ant-…` key-only fallback. Until supplied, the
+  # seed loud-skips and agenity stays offline (the ExternalSecret renders,
+  # the key is simply absent — the correct pre-seed state).
+  anthropic:
+    apiKey: ""
+    credentialsJson: ""
   # ── Configured-but-not-active regions (qa-loop iter-16 Fix #88) ──
   # Hetzner regions the operator declared at provision time. The
   # provisioner's tofu module currently materialises the *first* entry
