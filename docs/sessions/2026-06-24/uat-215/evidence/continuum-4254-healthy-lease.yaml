@@ -1,0 +1,60 @@
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  annotations:
+    meta.helm.sh/release-name: cnpg-pair
+    meta.helm.sh/release-namespace: cnpg
+  creationTimestamp: "2026-06-21T22:27:13Z"
+  generation: 2
+  labels:
+    app.kubernetes.io/instance: cnpg-pair
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: bp-cnpg-pair
+    app.kubernetes.io/version: 0.2.1
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+    catalyst.openova.io/cnpg-pair: cnpg-pair-bp-cnpg-pair
+    helm.sh/chart: bp-cnpg-pair-0.2.7
+    helm.toolkit.fluxcd.io/name: bp-cnpg-pair
+    helm.toolkit.fluxcd.io/namespace: flux-system
+    openova.io/scope: platform
+  name: cnpg-pair-bp-cnpg-pair-continuum
+  namespace: cnpg
+  resourceVersion: "6486510"
+  uid: 99d89274-b9ed-4aa7-be5d-7261cccb9c0a
+spec:
+  applicationRef: catalyst-platform
+  autoFailover: false
+  cnpgPair:
+    name: cnpg-pair-bp-cnpg-pair
+    namespace: cnpg
+  hotStandbyRegions:
+  - hw-me-east-215-b-rtz-prod
+  leaseClient:
+    config:
+      renewSeconds: 10
+      ttlSeconds: 30
+    kind: k8s-lease
+  primaryRegion: hw-me-east-215-a-rtz-prod
+  rpo: 0s
+  rpoSeconds: 0
+  rto: 30s
+  rtoSeconds: 30
+status:
+  conditions:
+  - lastTransitionTime: "2026-06-24T07:53:37Z"
+    message: ""
+    reason: Reconciled
+    status: "True"
+    type: LeaseHeld
+  - lastTransitionTime: "2026-06-24T07:53:37Z"
+    message: ""
+    reason: Reconciled
+    status: "True"
+    type: Ready
+  leaseExpiresAt: "2026-06-24T07:54:07Z"
+  leaseHolder: hw-me-east-215-a-rtz-prod
+  observedGeneration: 2
+  phase: Healthy
+  primaryRegion: hw-me-east-215-a-rtz-prod
+  replicationLagSeconds: 0
+  switchoverInProgress: false
