@@ -1008,6 +1008,11 @@ locals {
       # SOVEREIGN_LB_IP for the sovereign-tls Kustomization → the HCS ELB EIP
       # (the FQDN A-record points HERE, not the CP EIP).
       load_balancer_ipv4 = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
+      # #4236 — the dedicated console ELB EIP (#4053 isolation). Threads through
+      # cloud-init → bootstrap-kit slot 13 → sovereign-fqdn ConfigMap `consoleLBIP`
+      # → organization-controller so the per-Org pool-DNS `console.<slug>.<pool>`
+      # A-record targets the console front door (the #4179 final layer).
+      console_load_balancer_ipv4 = huaweicloud_vpc_eip.elb_console.publicip.0.ip_address
 
       # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
       registry_mirror_yaml          = local.registry_mirror_yaml_huawei

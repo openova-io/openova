@@ -55,6 +55,17 @@ data:
   # and falls back to plain set_ns. Operators on legacy Sovereigns
   # without this value wired set the env via per-cluster overlay.
   lbIP: {{ .Values.global.sovereignLBIP | default "" | quote }}
+  # consoleLBIP — the dedicated console-ELB public IPv4 (#4053 gateway
+  # isolation; e.g. 212.72.24.33). Consumed by the organization-controller's
+  # CATALYST_TENANT_CONSOLE_LB_IPV4 env (organization-controller-deployment.yaml)
+  # so the per-Org pool-DNS A-record `console.<slug>.<parentDomain>` resolves to
+  # the console front door (NOT the primary/shared LB) — the #4236 fix (#4179
+  # final layer). Rendered from .Values.global.sovereignConsoleLBIP (ultimately
+  # tofu output console_load_balancer_ip). Empty on a single-LB / pre-#4053
+  # Sovereign → the controller falls back to lbIP above so the record still
+  # resolves. Operators on a Sovereign provisioned before this key wire it via
+  # the per-Sovereign overlay (same channel as lbIP).
+  consoleLBIP: {{ .Values.global.sovereignConsoleLBIP | default "" | quote }}
   # selfDeploymentId — the catalyst-api deployment-record id this Sovereign
   # was provisioned under on the contabo orchestrator. Stamped into the
   # values block by the orchestrator's per-Sovereign overlay writer

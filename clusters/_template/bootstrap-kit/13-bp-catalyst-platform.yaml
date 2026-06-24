@@ -1236,6 +1236,17 @@ spec:
       # then short-circuits the glue registration and falls back to plain
       # set_ns (legacy behaviour).
       sovereignLBIP: ${SOVEREIGN_LB_IP}
+      # sovereignConsoleLBIP — the dedicated console-ELB IPv4 (#4053 isolation;
+      # e.g. 212.72.24.33). Threaded from cloud-init's SOVEREIGN_CONSOLE_LB_IP
+      # bootstrap-kit postBuild substitute (fed by infra console_load_balancer_ip).
+      # The chart renders it into the sovereign-fqdn ConfigMap `consoleLBIP` key
+      # which the organization-controller reads as CATALYST_TENANT_CONSOLE_LB_IPV4
+      # so a fresh MARKETPLACE-funnel signup's `console.<slug>.<parentDomain>`
+      # pool-DNS A-record targets the console front door (the #4236 fix, #4179
+      # final layer). Empty on a single-LB / pre-#4053 Sovereign → controller
+      # falls back to lbIP. Default '' so the contabo/Catalyst-Zero Kustomize
+      # build stays clean when the substitute is absent.
+      sovereignConsoleLBIP: ${SOVEREIGN_CONSOLE_LB_IP:-}
       # sovereignSelfDeploymentId — the catalyst-api deployment-record id
       # this Sovereign was provisioned under on the contabo mothership.
       # Threaded from cloud-init's SOVEREIGN_DEPLOYMENT_ID Kustomization

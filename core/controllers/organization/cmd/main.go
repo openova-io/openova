@@ -142,6 +142,27 @@ func main() {
 	consoleAPIPort := int32(envIntOr("CATALYST_CONSOLE_API_PORT", 8080))
 	consoleUIPort := int32(envIntOr("CATALYST_CONSOLE_UI_PORT", 80))
 
+	// #4236 (the #4179 final layer) — per-Org pool-DNS A-record write. The
+	// org-controller writes `console.<slug>.<parentDomain>` + the per-Org
+	// wildcard to the CENTRAL PowerDNS (pdns.openova.io) so a fresh
+	// marketplace-funnel signup's console host resolves. #4222 wired this only
+	// into the catalyst-api BSS pipeline (a door the marketplace funnel never
+	// runs); the org-controller reconciles every Org CR so it covers both doors.
+	//
+	// poolPowerDNSURL / poolPowerDNSAPIKey — the CENTRAL pool pdns endpoint + key.
+	// The key is the same central credential #4218 reflects into catalyst-system
+	// as `pool-powerdns-api-credentials` (this controller runs in catalyst-system
+	// too). Empty → the pool-DNS write degrades to a logged no-op (single-pdns /
+	// Catalyst-Zero), never a wedge. Per Inviolable Principle #4, env-driven.
+	poolPowerDNSURL := envOr("CATALYST_POOL_POWERDNS_API_URL", "")
+	poolPowerDNSAPIKey := strings.TrimSpace(os.Getenv("CATALYST_POOL_POWERDNS_API_KEY"))
+	// tenantConsoleLBIPv4 — the dedicated console-ELB EIP (#4053) the per-Org
+	// console host resolves to. tenantPrimaryLBIPv4 — the primary/shared LB IP
+	// fallback for a single-LB / pre-#4053 Sovereign. Both empty → the write is
+	// skipped (logged), never a hard error.
+	tenantConsoleLBIPv4 := strings.TrimSpace(os.Getenv("CATALYST_TENANT_CONSOLE_LB_IPV4"))
+	tenantPrimaryLBIPv4 := strings.TrimSpace(os.Getenv("CATALYST_OTECH_INGRESS_IPV4"))
+
 	// G117.3 W2.C3 — IaC repo bootstrap (ADR-0009).
 	// OpenBao seam for per-Org Gitea robot-token storage. Optional:
 	// when CATALYST_OPENBAO_ADDR is unset the bootstrap flow renders
@@ -227,10 +248,27 @@ func main() {
 		ConsoleUIService:          consoleUISvc,
 		ConsoleAPIPort:            consoleAPIPort,
 		ConsoleUIPort:             consoleUIPort,
+		PoolPowerDNSURL:           poolPowerDNSURL,
+		PoolPowerDNSAPIKey:        poolPowerDNSAPIKey,
+		TenantConsoleLBIPv4:       tenantConsoleLBIPv4,
+		TenantPrimaryLBIPv4:       tenantPrimaryLBIPv4,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
 		os.Exit(1)
+	}
+
+	// #4236 — surface whether the per-Org pool-DNS writer is wired so an
+	// operator can tell at a glance whether fresh-signup console hosts will get
+	// their central-pdns A-record (the #4179 close gate). Logged once at startup.
+	if poolPowerDNSURL != "" && poolPowerDNSAPIKey != "" {
+		log.Info("tenant-dns: central pool-PowerDNS writer wired (console.<slug>.<pool> A-records target central pdns)",
+			"pool_url", poolPowerDNSURL,
+			"console_lb_ipv4", tenantConsoleLBIPv4,
+			"primary_lb_ipv4_fallback", tenantPrimaryLBIPv4)
+	} else {
+		log.Info("tenant-dns: central pool-PowerDNS writer NOT wired — per-Org pool A-records will not be written (single-pdns / Catalyst-Zero)",
+			"have_url", poolPowerDNSURL != "", "have_key", poolPowerDNSAPIKey != "")
 	}
 
 	// D35 consume-leg — subscribe to the two canonical Catalyst NATS
