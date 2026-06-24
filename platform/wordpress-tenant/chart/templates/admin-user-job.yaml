@@ -31,6 +31,11 @@ metadata:
   labels:
     {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
     catalyst.openova.io/component: wordpress-admin-user
+    # #4220: helm-controller-created hook Job — override the helper's
+    # `managed-by: Helm` to `flux` so the kyverno `flux-managed` Enforce policy
+    # admits it (else post-upgrade hook fails → release rollback → HTTPRoute
+    # dropped → customer host 404). Mirrors database-secret-sync-job.yaml.
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": "post-install,post-upgrade"
     "helm.sh/hook-weight": "15"

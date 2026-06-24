@@ -184,7 +184,7 @@ name: bp-wordpress-tenant
 #   now emits gateway.{enabled,host,parentRef} instead of the dead ingress
 #   block. Verified live: GET https://wordpress.<slug>.<pool>/ → 200 serving
 #   the WordPress site (was 404).
-version: 0.4.14
+version: 0.4.15
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
