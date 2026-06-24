@@ -60,8 +60,9 @@ const tenantPublicDefaultBackendPort = 80
 //     just finished installing. Stamped on the HTTPRoute as
 //     catalyst.openova.io/tenant-product so operators can filter
 //     access-matrix views by installed product.
-//   - hostNamespace → "tenant-<slug>" — the host NS where the vCluster
-//     syncs the product's Service as `<product>-x-<host-ns>-x-vcluster`.
+//   - hostNamespace → "<slug>" (#4290 — the org-controller-owned single
+//     boundary host NS) where the vCluster syncs the product's Service as
+//     `<product>-x-<host-ns>-x-vcluster`.
 //     We forward that canonical name as BackendService so the HTTPRoute
 //     reconciler emits a backendRef that resolves on day one. The
 //     reconciler's "Service in Org's host namespace" contract is the

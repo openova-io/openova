@@ -65,7 +65,9 @@ func (h *Handler) GetTenantBackingServices(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	hostNS := "tenant-" + slug
+	// #4290: org-controller-owned `<slug>` host namespace (single boundary);
+	// the vCluster syncs backing-service pods up into it.
+	hostNS := slug
 	body, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/pods", hostNS))
 	if err != nil {
 		// Namespace-gone / tenant never provisioned / kube unreachable — be

@@ -69,7 +69,8 @@ func (h *Handler) reconcilePodTruth(ctx context.Context) {
 // its provision record + publishes app_ready events for any apps that have
 // gone Ready but whose step still says pending/running.
 func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision) {
-	hostNS := "tenant-" + p.Subdomain
+	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
+	hostNS := p.Subdomain
 	// Slug→ID map so we can emit provision.app_ready with the `app_id`
 	// field onAppReady expects (it ignores payloads without an id).
 	slugToID := map[string]string{}

@@ -205,7 +205,8 @@ func (h *Handler) runInstallJob(ctx context.Context, data appChangeData) error {
 // notification would be noise).
 func (h *Handler) waitAndFinalizeInstall(ctx context.Context, data appChangeData, job *store.Job) {
 	h.markJobStep(ctx, job, 1, "running", "")
-	hostNS := "tenant-" + data.TenantSlug
+	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
+	hostNS := data.TenantSlug
 	waitSlugs := data.DeploySlugs
 	if len(waitSlugs) == 0 {
 		waitSlugs = []string{data.AppSlug}
@@ -321,7 +322,8 @@ func (h *Handler) runUninstallJob(ctx context.Context, data appChangeData) error
 // without publishing anything.
 func (h *Handler) waitAndFinalizeUninstall(ctx context.Context, data appChangeData, job *store.Job) {
 	h.markJobStep(ctx, job, 1, "running", "")
-	hostNS := "tenant-" + data.TenantSlug
+	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
+	hostNS := data.TenantSlug
 	if err := h.waitForVclusterAppGone(ctx, hostNS, data.AppSlug, 5*time.Minute); err != nil {
 		if ctx.Err() != nil {
 			slog.Warn("day-2 uninstall: wait canceled — tenant delete preempted",
@@ -570,7 +572,17 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 		return fmt.Errorf("github client or manifest generator not configured")
 	}
 
-	hostNS := "tenant-" + data.Slug
+	// #4290: the host namespace is the org-controller-owned `<slug>` (single
+	// boundary). The funnel tears down ONLY what it produced — the apps-sync
+	// Flux Kustomization, its `<slug>/apps` git tree, and the kubeconfig
+	// mirror. The `<slug>` namespace + the `vcluster` HelmRelease are owned by
+	// the org-controller and are pruned by its teardownPerOrgFlux when the
+	// Organization CR is deleted; the funnel must NOT delete them (doing so
+	// would rip the boundary out from under a still-live Org).
+	hostNS := data.Slug
+	// The apps-sync Kustomization name is still emitted as `tenant-<slug>-apps`
+	// by generateAppsSyncKustomization (a flux-system CR name, not a
+	// namespace); keep the literal so teardown deletes the CR the funnel wrote.
 	appsKustName := "tenant-" + data.Slug + "-apps"
 
 	// 1. Delete the per-tenant Flux Kustomization CR from flux-system (the
@@ -647,66 +659,24 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 	}
 	slog.Info("teardown: pruned git", "slug", data.Slug, "dir", tenantDir)
 
-	// 3a. Explicitly delete the vcluster HelmRelease and the tenant namespace.
-	// Previous versions of this code relied on the parent 'tenants'
-	// Kustomization cascading the deletion when the tenant/<slug>/ dir was
-	// pruned from git. That works in the happy path but wedges completely
-	// when the parent Kustomization is broken (stale ref from a concurrent
-	// teardown's race, or manual cleanup orphaning a dir). Observed live on
-	// tenant emrah4: teardown committed the git prune 10h ago, but the
-	// vcluster pod / HelmRelease / namespace stayed Active because the
-	// parent Kustomization was in a build-failure loop. Independently
-	// deleting the two resources cuts the dependency on Flux plumbing we
-	// don't own at teardown time. Issue #116.
-	if err := h.k8sDelete(fmt.Sprintf(
-		"/apis/helm.toolkit.fluxcd.io/v2/namespaces/%s/helmreleases/vcluster",
-		hostNS)); err != nil {
-		slog.Warn("teardown: delete vcluster HelmRelease failed — strip-finalizer retry path will cover it",
-			"ns", hostNS, "error", err)
-	}
-	if err := h.k8sDelete("/api/v1/namespaces/" + hostNS); err != nil {
-		slog.Warn("teardown: delete tenant namespace failed — strip-finalizer retry path will cover it",
-			"ns", hostNS, "error", err)
-	}
-
-	// 3b. Strip finalizers on NS-scoped CRs that block namespace GC BEFORE we
-	// start waiting. cert-manager attaches a finalizer to every Certificate CR
-	// ("finalizer.cert-manager.io/certificate-secret-binding"); if the tenant
-	// had an ingress with TLS, the Certificate in the tenant NS blocks GC
-	// forever because the controller can't reconcile the delete once the NS
-	// is Terminating. Same pattern as #54/#97 for Kustomizations. We enumerate
-	// because tenants can have multiple certs (custom-domain + default) we
-	// can't name ahead of time. Issue #86.
+	// 3. #4290 — DO NOT delete the `<slug>` namespace or the `vcluster`
+	// HelmRelease here. They are owned by the org-controller (the single
+	// boundary producer) and are pruned by its teardownPerOrgFlux when the
+	// Organization CR is deleted. The funnel previously deleted both (the
+	// `tenant-<slug>` stray it built itself); now that the boundary is the
+	// org-controller's `<slug>`, the funnel deleting it would rip the boundary
+	// out from under a still-live Org (e.g. a day-2 re-install racing the
+	// tenant.deleted, or an Org whose CR has not yet been deleted). The funnel
+	// has already (step 1) deleted its own apps-sync Kustomization and (step 2)
+	// pruned its `<slug>/apps` git tree; Flux prune on that Kustomization
+	// removes the funnel-installed Applications from inside the vCluster. The
+	// org-controller's reconcile owns the rest.
+	//
+	// Best-effort: strip cert-manager finalizers on any Certificate the funnel
+	// ingress authored in the `<slug>` namespace so a same-slug re-provision
+	// starts clean. This does NOT delete the namespace — it only clears
+	// finalizers on funnel-authored Certificates. Issue #86 carried forward.
 	h.stripCertificateFinalizers(ctx, hostNS)
-
-	// 4. Wait for the namespace to be garbage-collected. With the CR hosted in
-	// flux-system + Certificate finalizers cleared, this should complete
-	// within ~30s. A longer wait means some other CR class is blocking, so
-	// fall through to the legacy strip + retry path.
-	if err := h.waitForNamespaceGone(ctx, hostNS, 90*time.Second); err != nil {
-		slog.Warn("teardown: namespace still present — stripping remaining finalizers",
-			"ns", hostNS, "error", err)
-		// flux-system CR first, then any legacy in-ns CR, then the vcluster HR.
-		_ = h.k8sPatchRemoveFinalizers(fmt.Sprintf(
-			"/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/flux-system/kustomizations/%s",
-			appsKustName))
-		for _, kustName := range []string{"tenant-" + data.Slug, appsKustName} {
-			_ = h.k8sPatchRemoveFinalizers(fmt.Sprintf(
-				"/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/%s/kustomizations/%s",
-				hostNS, kustName))
-		}
-		_ = h.k8sPatchRemoveFinalizers(fmt.Sprintf(
-			"/apis/helm.toolkit.fluxcd.io/v2/namespaces/%s/helmreleases/vcluster",
-			hostNS))
-		// Re-strip Certificates in case a new one appeared between the first
-		// pass and now (vcluster was still reconciling during the wait).
-		h.stripCertificateFinalizers(ctx, hostNS)
-		// Give the control plane another window to finish GC after the strip.
-		if err := h.waitForNamespaceGone(ctx, hostNS, 3*time.Minute); err != nil {
-			slog.Error("teardown: namespace still present after finalizer strip",
-				"ns", hostNS, "error", err)
-		}
-	}
 
 	// 4. Drop the flux-system kubeconfig mirror so it doesn't linger (and so
 	// a same-slug re-provision starts from a clean slate).
@@ -721,26 +691,6 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 	})
 	slog.Info("teardown: tenant removed", "slug", data.Slug)
 	return nil
-}
-
-// waitForNamespaceGone blocks until the namespace no longer exists, or until
-// the timeout elapses. Polls the API every 5s — tight enough that the
-// finalizer-strip retry in handleTenantDeleted kicks in well within the
-// user-visible 90s acceptance window.
-func (h *Handler) waitForNamespaceGone(ctx context.Context, namespace string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		_, err := h.k8sGet("/api/v1/namespaces/" + namespace)
-		if err != nil && strings.Contains(err.Error(), "status 404") {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(5 * time.Second):
-		}
-	}
-	return fmt.Errorf("namespace %s still present after %s", namespace, timeout)
 }
 
 // stripCertificateFinalizers enumerates cert-manager.io/v1 Certificate CRs in
@@ -1120,7 +1070,11 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 		return
 	}
 
-	hostNS := "tenant-" + subdomain
+	// Workstream A (#4290 / EPIC #4293): the per-Organization host namespace is
+	// the org-controller-owned `<slug>` (the SINGLE boundary), not a stray
+	// `tenant-<slug>`. The vCluster pods sync up into `<slug>`; every wait /
+	// pod-status / TLS poll below targets it.
+	hostNS := subdomain
 	stepIdx := 0
 
 	// --- Step: Generate manifests ---

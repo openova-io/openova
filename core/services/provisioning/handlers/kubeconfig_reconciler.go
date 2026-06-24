@@ -4,26 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"strings"
 	"time"
 )
 
-// StartKubeconfigReconciler periodically walks every tenant-* namespace with a
-// Ready vcluster HelmRelease and ensures flux-system/tenant-<slug>-kubeconfig
-// exists. Without this loop, a provisioning pod killed between
-// waitForVclusterDNSOrKick and mirrorVClusterKubeconfig (CI deploy, OOM, node
-// drain) strands the tenant — the new pod's event consumer is past the
-// tenant.provisioning_requested offset and never re-runs the mirror, so Flux
-// sits forever with "secret not found". Issue #104.
+// StartKubeconfigReconciler periodically walks every per-Organization host
+// namespace with a Ready vcluster HelmRelease and ensures
+// flux-system/tenant-<slug>-kubeconfig exists. Without this loop, a provisioning
+// pod killed between waitForVclusterDNSOrKick and mirrorVClusterKubeconfig (CI
+// deploy, OOM, node drain) strands the Organization — the new pod's event
+// consumer is past the tenant.provisioning_requested offset and never re-runs
+// the mirror, so Flux sits forever with "secret not found". Issue #104.
+//
+// #4290 — the per-Organization host namespace is the org-controller-owned
+// `<slug>` (single boundary), labeled `openova.io/organization=<slug>` +
+// `openova.io/managed-by=catalyst`, NOT the funnel's old `tenant-<slug>`
+// (`openova.io/managed-by=provisioning`). The reconciler selects by the
+// org-controller's `openova.io/organization` label and uses that label value as
+// the slug (the namespace name == the slug).
 //
 // The reconciler is intentionally cheap and stateless:
-//   - Lists namespaces matching "tenant-*".
+//   - Lists namespaces carrying the openova.io/organization label.
 //   - For each, checks whether vcluster HelmRelease is Ready AND whether
 //     flux-system/tenant-<slug>-kubeconfig already exists.
 //   - Calls mirrorVClusterKubeconfig for the ones that are Ready-but-missing.
 //
-// Cadence: every 60s. Fast enough that a stranded tenant recovers within a
-// minute of the next pod being up, slow enough that steady-state load is
+// Cadence: every 60s. Fast enough that a stranded Organization recovers within
+// a minute of the next pod being up, slow enough that steady-state load is
 // negligible (one LIST + a handful of GETs per cycle).
 func (h *Handler) StartKubeconfigReconciler(ctx context.Context) {
 	go func() {
@@ -48,9 +54,13 @@ func (h *Handler) StartKubeconfigReconciler(ctx context.Context) {
 // reconcileMirrors is one pass of the self-heal loop. Exposed (unexported to
 // the package) so tests can invoke it directly.
 func (h *Handler) reconcileMirrors(ctx context.Context) {
-	body, err := h.k8sGet("/api/v1/namespaces?labelSelector=openova.io/managed-by=provisioning")
+	// #4290 — select the org-controller-owned per-Organization namespaces by
+	// the canonical openova.io/organization label (the namespace name == the
+	// Org slug). The funnel's old openova.io/managed-by=provisioning selector +
+	// "tenant-" prefix no longer match any boundary namespace.
+	body, err := h.k8sGet("/api/v1/namespaces?labelSelector=openova.io/organization")
 	if err != nil {
-		slog.Debug("kubeconfig reconciler: list tenant namespaces failed", "error", err)
+		slog.Debug("kubeconfig reconciler: list Organization namespaces failed", "error", err)
 		return
 	}
 	var nsList struct {
@@ -68,10 +78,12 @@ func (h *Handler) reconcileMirrors(ctx context.Context) {
 	mirrored := 0
 	for _, ns := range nsList.Items {
 		name := ns.Metadata.Name
-		if !strings.HasPrefix(name, "tenant-") {
-			continue
+		// The org-controller stamps openova.io/organization=<slug> and names
+		// the namespace `<slug>`; prefer the label, fall back to the ns name.
+		slug := ns.Metadata.Labels["openova.io/organization"]
+		if slug == "" {
+			slug = name
 		}
-		slug := strings.TrimPrefix(name, "tenant-")
 		if slug == "" {
 			continue
 		}
