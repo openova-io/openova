@@ -243,13 +243,32 @@ func computeManagedDomains() map[string]struct{} {
 		return out
 	}
 
-	// 3. Built-in defaults — only the wizard's well-known pool domains.
+	// 3. Built-in defaults — the FULL offered pool-TLD set (#4255).
 	// These are the SAME values surfaced in SOVEREIGN_POOL_DOMAINS in the
-	// UI; keeping them as defensive defaults means a misconfigured
-	// deployment fails closed (refuses BYO DNS writes) rather than open.
-	out["openova.io"] = struct{}{}
-	out["omani.works"] = struct{}{}
+	// UI and offered by the signup funnel (core/services/domain/store
+	// AllowedTLDs = omani.works / omani.rest / omani.trade / omani.homes);
+	// keeping them as defensive defaults means a misconfigured deployment
+	// fails closed (refuses BYO DNS writes for an UNmanaged domain) while
+	// still treating EVERY funnel-offerable pool TLD as managed — so the
+	// PDM zone bootstrap + NS delegation can never be a strict subset of
+	// the set the funnel hands out (the #4255 wrong-DNS-no-cert trap).
+	for _, d := range defaultPoolTLDs {
+		out[d] = struct{}{}
+	}
 	return out
+}
+
+// defaultPoolTLDs is the canonical built-in default for the OpenOva
+// subdomain pool — used ONLY when neither DYNADOT_MANAGED_DOMAINS nor the
+// legacy DYNADOT_DOMAIN env var is configured. It MUST stay in lockstep
+// with the pool TLDs the signup funnel OFFERS (core/services/domain/store
+// AllowedTLDs). See #4255.
+var defaultPoolTLDs = []string{
+	"openova.io",
+	"omani.works",
+	"omani.rest",
+	"omani.trade",
+	"omani.homes",
 }
 
 // ResetManagedDomains clears the cached managed-domain set so the next
