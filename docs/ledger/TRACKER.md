@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T02:45:02Z` |
+| Last refreshed | `2026-06-24T03:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 23 |
+| Open issues | 19 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 23 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 23 open items (clickable table)
+### All 19 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -215,12 +215,8 @@ flowchart LR
 | [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
 | [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: light the object-model/DR backbone at runtime — ONE build (un-gate Cross | Other |
-| [#4215](https://github.com/openova-io/openova/issues/4215) | FUNNEL DNS: org-tenant PowerDNS provisioner permanently no-op'd — new Orgs nev | Other |
 | [#4218](https://github.com/openova-io/openova/issues/4218) | FUNNEL DNS layer-2: org-tenant pool A-record STILL unwritten after #4216 — key | Other |
 | [#4220](https://github.com/openova-io/openova/issues/4220) | FUNNEL install-gauntlet: demo Org WordPress DOWN — bp-keycloak `*`→stale 1.5 | Other |
-| [#4224](https://github.com/openova-io/openova/issues/4224) | CI: strategy-flip-regression has been RED on main since #4102 (b4dd43d02) — th | Other |
-| [#4226](https://github.com/openova-io/openova/issues/4226) | bp-cnpg webhook-gate + cert-wait Helm-hook Jobs lack app.kubernetes.io/managed-b | Other |
-| [#4228](https://github.com/openova-io/openova/issues/4228) | bp-agenity chat-runtime: make OPENOVA_MCP_RS256_PUBKEY_PEM secretKeyRef optional | Other |
 | [#4231](https://github.com/openova-io/openova/issues/4231) | P1: node-pinned catalyst-api (EVS #4102) gets DiskPressure-evicted by co-tenant  | Other |
 | [#4236](https://github.com/openova-io/openova/issues/4236) | FUNNEL pool-DNS: marketplace org-create (tenant-service → provisioning-service | Other |
 
@@ -230,6 +226,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T02:56 | [#4238](https://github.com/openova-io/openova/pull/4238) | #4192 | docs(sessions): marketplace funnel walk — JWT in HttpOnly co |
 | 2026-06-24T02:24 | [#4237](https://github.com/openova-io/openova/pull/4237) | #4179 | docs(sessions): #4179 close-gate walk evidence — redirect ho |
 | 2026-06-24T02:09 | [#4234](https://github.com/openova-io/openova/pull/4234) | #4188 | docs(uat): note #4220 root fixes on WordPress row 89 — keycl |
 | 2026-06-24T01:52 | [#4233](https://github.com/openova-io/openova/pull/4233) | #4225 | fix(bp-agenity): chat-runtime — optional RS256-pubkey secret |
@@ -259,7 +256,6 @@ flowchart LR
 | 2026-06-23T19:30 | [#4200](https://github.com/openova-io/openova/pull/4200) | #3925 | fix(cloud): recon drill-in actions/logs no longer 404 on chr |
 | 2026-06-23T19:16 | [#4199](https://github.com/openova-io/openova/pull/4199) | #4188 | fix(org-provisioning): reap stale duplicate vc-<subdomain>@0 |
 | 2026-06-23T18:58 | [#4198](https://github.com/openova-io/openova/pull/4198) | #4196 | feat(catalyst-ui): ONE native top-level Billing menu — nativ |
-| 2026-06-23T18:14 | [#4197](https://github.com/openova-io/openova/pull/4197) | #3724 | ci(cloud-init-size): dedicated required-able byte-size PR ga |
 
 ---
 
