@@ -220,7 +220,11 @@ ingress:
   host: "openclaw.example.local"
   tls:
     enabled: true
-    issuer: "letsencrypt-prod"    # cert-manager ClusterIssuer
+    # DNS-01 PowerDNS ClusterIssuer — the canonical per-Org issuer on every
+    # Sovereign (#4246). `letsencrypt-prod` does NOT exist on a real
+    # Sovereign and the Cilium-gateway Sovereign wires no per-host HTTP-01
+    # solver, so DNS-01 is required.
+    issuer: "letsencrypt-dns01-prod-powerdns"    # cert-manager ClusterIssuer
     secretName: "openclaw-tls"
   annotations: {}
 

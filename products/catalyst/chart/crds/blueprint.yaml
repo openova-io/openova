@@ -345,6 +345,22 @@ spec:
                     values:
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    helmRelease:
+                      type: object
+                      description: |
+                        Flux HelmRelease install/upgrade behaviour the
+                        application-controller stamps on the rendered HR (#4246).
+                      properties:
+                        disableWait:
+                          type: boolean
+                          description: |
+                            Stamp install.disableWait + upgrade.disableWait on the
+                            rendered HelmRelease so helm-controller does NOT block on
+                            workload readiness before running post-install/post-upgrade
+                            hooks. Required by charts whose Pod gates on a value one of
+                            the chart's own post-install hooks populates (e.g. bp-newapi
+                            DSN-gate). Default false.
+                      x-kubernetes-preserve-unknown-fields: true
                   x-kubernetes-preserve-unknown-fields: true
                 upgrades:
                   type: object

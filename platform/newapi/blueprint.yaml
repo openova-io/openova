@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.123
+  version: 1.4.124
   card:
     title: NewAPI
     summary: |
@@ -68,8 +68,8 @@ spec:
             description: Customer-facing API hostname (operator-supplied, e.g. api.<sovereign-fqdn>).
           tlsIssuer:
             type: string
-            default: letsencrypt-prod
-            description: cert-manager ClusterIssuer name.
+            default: letsencrypt-dns01-prod-powerdns
+            description: cert-manager ClusterIssuer name (DNS-01 PowerDNS — the canonical per-Org Sovereign issuer; letsencrypt-prod does not exist on a real Sovereign, #4246).
       database:
         type: object
         required: [existingSecret]
@@ -261,6 +261,17 @@ spec:
   allowedPlacements: [host, mgmt]
   manifests:
     chart: ./chart
+    helmRelease:
+      # #4246 — newapi's wait-for-sql-dsn initContainer blocks until the
+      # database-secret-sync-job (a post-install/post-upgrade Helm hook)
+      # PATCHes the SQL_DSN Secret. With Flux's default --wait, helm-
+      # controller waits for the Deployment to be Ready BEFORE running the
+      # post-install hooks → the hook that unblocks the Pod never runs →
+      # install deadlocks + times out. disableWait lets the hooks run
+      # immediately so the DSN populates and the Pod proceeds. The
+      # bootstrap-kit newapi HR sets this by hand; this propagates it to
+      # the per-Org Application render path (fanout via pkg/render).
+      disableWait: true
   depends:
     - blueprint: bp-cnpg
       version: ^1.0

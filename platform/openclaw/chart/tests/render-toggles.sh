@@ -190,7 +190,9 @@ done
 echo "  PASS"
 
 echo "[render-toggles] Case 7: ingress carries cert-manager cluster-issuer annotation"
-if ! grep -q 'cert-manager.io/cluster-issuer: "letsencrypt-prod"' "$TMP/default.yaml"; then
+# #4246 — default issuer is the DNS-01 PowerDNS ClusterIssuer that every
+# Sovereign installs; `letsencrypt-prod` does not exist on a real Sovereign.
+if ! grep -q 'cert-manager.io/cluster-issuer: "letsencrypt-dns01-prod-powerdns"' "$TMP/default.yaml"; then
   echo "FAIL: ingress is missing cert-manager.io/cluster-issuer annotation — ACME auto-issue won't fire." >&2
   exit 1
 fi

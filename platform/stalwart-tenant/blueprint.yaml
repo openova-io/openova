@@ -24,7 +24,7 @@ spec:
   # mount → added a tls Secret volume + a cert-manager Certificate for
   # mail.<tenant-domain> (secret name via stalwart.tls.secretName).
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.5
+  version: 0.1.6
   card:
     title: Stalwart (per-Organization)
     summary: |

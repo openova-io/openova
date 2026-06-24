@@ -207,6 +207,37 @@ func TestRender_CreateNamespaceTrue(t *testing.T) {
 	}
 }
 
+// TestRender_DisableWaitDefaultOff asserts that when the Blueprint does NOT
+// set helmRelease.disableWait, the rendered HR carries NO disableWait line —
+// preserving the byte-identical legacy wait:true shape for every chart that
+// doesn't need it (#4246).
+func TestRender_DisableWaitDefaultOff(t *testing.T) {
+	res, err := Render(baseInputs())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(res.HelmReleaseYAML), "disableWait") {
+		t.Errorf("disableWait must be absent by default; got:\n%s", res.HelmReleaseYAML)
+	}
+}
+
+// TestRender_DisableWaitStampsInstallAndUpgrade asserts that DisableWait=true
+// stamps install.disableWait + upgrade.disableWait so charts whose Pod gates
+// on a post-install hook (e.g. bp-newapi's DSN-gate) don't deadlock (#4246).
+func TestRender_DisableWaitStampsInstallAndUpgrade(t *testing.T) {
+	in := baseInputs()
+	in.DisableWait = true
+	res, err := Render(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hr := string(res.HelmReleaseYAML)
+	// Exactly two disableWait lines — one under install:, one under upgrade:.
+	if n := strings.Count(hr, "disableWait: true"); n != 2 {
+		t.Errorf("expected disableWait: true under BOTH install and upgrade (2 occurrences), got %d:\n%s", n, hr)
+	}
+}
+
 // TestRender_VClusterPlacementMGMT asserts the rendered HelmRelease
 // installs INTO the MGMT vCluster (G92.1 #2660 + #2639 EPIC). The
 // vCluster pivot uses Flux v2's spec.kubeConfig.secretRef contract;
