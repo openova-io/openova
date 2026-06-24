@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T17:45:03Z` |
+| Last refreshed | `2026-06-24T18:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 25 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 25 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -221,6 +221,10 @@ flowchart LR
 | [#4283](https://github.com/openova-io/openova/issues/4283) | Per-Application GitRepository clones Gitea anonymously → 'authentication requi | Other |
 | [#4285](https://github.com/openova-io/openova/issues/4285) | Flux→local-Gitea 'authentication required' is GENERIC across 3 source generato | Other |
 | [#4286](https://github.com/openova-io/openova/issues/4286) | EPIC: Flux→Sovereign-local-Gitea source-auth is GENERIC across 4 generators wi | Other |
+| [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
+| [#4291](https://github.com/openova-io/openova/issues/4291) | Workstream C — De-vcluster the platform planes (mgmt/rtz/dmz) → native host  | Other |
+| [#4292](https://github.com/openova-io/openova/issues/4292) | Workstream B — Org-vcluster as enforced tenant boundary: ENABLE networkPolicy- | Other |
+| [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 
 ---
 
@@ -228,7 +232,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T17:48 | [#4289](https://github.com/openova-io/openova/pull/4289) | #4280 | fix(catalyst): owner keeps catalog name+light/dark logo edit |
 | 2026-06-24T17:30 | [#4288](https://github.com/openova-io/openova/pull/4288) | #4284 | fix(bp-catalyst-platform): permanent root-cause for Flux→loc |
+| 2026-06-24T17:53 | [#4287](https://github.com/openova-io/openova/pull/4287) | #4281 | feat(console+catalog): HelmReleases Target Namespace column  |
 | 2026-06-24T09:30 | [#4271](https://github.com/openova-io/openova/pull/4271) | #4179 | docs(sessions): Goal-2 live browser evidence — funnel JWT +  |
 | 2026-06-24T09:40 | [#4270](https://github.com/openova-io/openova/pull/4270) | #898 | fix(org-provisioning): converge per-Org tertiary apps — imag |
 | 2026-06-24T09:01 | [#4269](https://github.com/openova-io/openova/pull/4269) | #3678 | fix(bp-self-sovereign-cutover): apply default-deny egress CC |
@@ -256,8 +262,6 @@ flowchart LR
 | 2026-06-24T02:56 | [#4238](https://github.com/openova-io/openova/pull/4238) | #4192 | docs(sessions): marketplace funnel walk — JWT in HttpOnly co |
 | 2026-06-24T02:24 | [#4237](https://github.com/openova-io/openova/pull/4237) | #4179 | docs(sessions): #4179 close-gate walk evidence — redirect ho |
 | 2026-06-24T02:09 | [#4234](https://github.com/openova-io/openova/pull/4234) | #4188 | docs(uat): note #4220 root fixes on WordPress row 89 — keycl |
-| 2026-06-24T01:52 | [#4233](https://github.com/openova-io/openova/pull/4233) | #4225 | fix(bp-agenity): chat-runtime — optional RS256-pubkey secret |
-| 2026-06-24T01:47 | [#4232](https://github.com/openova-io/openova/pull/4232) | #4230 | fix(bp-wordpress-tenant): managed-by:flux on oidc-config + a |
 
 ---
 
