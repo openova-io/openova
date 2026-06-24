@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T08:00:03Z` |
+| Last refreshed | `2026-06-24T08:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 19 |
 | Open DoD gates | 0 / 41 |
@@ -226,7 +226,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T08:08 | [#4262](https://github.com/openova-io/openova/pull/4262) | #4249 | feat(bp-openclaw): build the missing openclaw-controller ima |
+| 2026-06-24T08:08 | [#4261](https://github.com/openova-io/openova/pull/4261) | #4111 | fix(bp-agenity): detect expired claude-code OAuth at seed +  |
 | 2026-06-24T07:56 | [#4260](https://github.com/openova-io/openova/pull/4260) | #4231 | fix(bp-catalyst-platform): high PriorityClass for catalyst-a |
+| 2026-06-24T08:01 | [#4259](https://github.com/openova-io/openova/pull/4259) | #4180 | fix(bp-agenity): /app serves the workspaces (v0.9.4) dashboa |
 | 2026-06-24T07:45 | [#4258](https://github.com/openova-io/openova/pull/4258) | #4254 | fix(bp-continuum): bump 0.1.8->0.1.9 to force Flux re-pull o |
 | 2026-06-24T07:29 | [#4256](https://github.com/openova-io/openova/pull/4256) | #4179 | fix(pool-domain): default managed-domains to the full offere |
 | 2026-06-24T06:41 | [#4254](https://github.com/openova-io/openova/pull/4254) | #4242 | fix(continuum): k8s-lease witness + region fallback → health |
@@ -253,9 +256,6 @@ flowchart LR
 | 2026-06-24T00:27 | [#4221](https://github.com/openova-io/openova/pull/4221) | #3914 | fix(console): wire orphan BootstrapProgress into /jobs — fil |
 | 2026-06-24T00:27 | [#4219](https://github.com/openova-io/openova/pull/4219) | #4179 | docs(uat): #4179 post-#4216-roll — pool host STILL NXDOMAIN, |
 | 2026-06-23T23:47 | [#4217](https://github.com/openova-io/openova/pull/4217) | #4179 | docs(uat): #4179 post-roll walk — redirect fix LIVE, row 86  |
-| 2026-06-23T23:46 | [#4216](https://github.com/openova-io/openova/pull/4216) | #4179 | fix(funnel): org-tenant DNS provisioner reads CATALYST_POWER |
-| 2026-06-24T00:12 | [#4214](https://github.com/openova-io/openova/pull/4214) | #4206 | fix(d31): name CNPG storageClass + decode Gitea contents env |
-| 2026-06-23T23:06 | [#4213](https://github.com/openova-io/openova/pull/4213) | #1 | fix(funnel): bump orgTag d3c55b4→c3b2736 — roll the merged # |
 
 ---
 
