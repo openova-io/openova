@@ -207,12 +207,16 @@ func (h *Handler) waitAndFinalizeInstall(ctx context.Context, data appChangeData
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
+	// #4297 TIER GATE — vcluster tiers (M+) sync app pods up to the host ns
+	// with the `-x-apps-x-vcluster` suffix; host tiers (free/S) run them with
+	// native names in the host ns. Match the right shape.
+	isVcluster := gitops.BoundaryIsVcluster(h.resolvePlanSlug(ctx, data.PlanID))
 	waitSlugs := data.DeploySlugs
 	if len(waitSlugs) == 0 {
 		waitSlugs = []string{data.AppSlug}
 	}
 	for _, slug := range waitSlugs {
-		if err := h.waitForVclusterApp(ctx, hostNS, slug, 10*time.Minute); err != nil {
+		if err := h.waitForVclusterApp(ctx, hostNS, slug, 10*time.Minute, isVcluster); err != nil {
 			if ctx.Err() != nil {
 				slog.Warn("day-2 install: wait canceled — tenant delete preempted",
 					"tenant", data.TenantSlug, "app", slug, "job_id", job.ID)
@@ -1075,6 +1079,14 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	// `tenant-<slug>`. The vCluster pods sync up into `<slug>`; every wait /
 	// pod-status / TLS poll below targets it.
 	hostNS := subdomain
+	// #4297 TIER GATE (keystone of EPIC #4293) — paid M+ Orgs get a dedicated
+	// vCluster (the apps are reconciled INTO it via the apps-sync Kustomization's
+	// kubeConfig); free/S Orgs have NO vcluster, so the apps land directly in the
+	// host `<slug>` ns. The vcluster-HR wait, the DNS-sync kick, and the
+	// kubeconfig mirror below are ALL vcluster-only — running them for a host-tier
+	// Org would block forever (no `vcluster` HelmRelease, no `vc-vcluster` secret
+	// ever appears). Gate every vcluster-specific step on this predicate.
+	isVcluster := gitops.BoundaryIsVcluster(planSlug)
 	stepIdx := 0
 
 	// --- Step: Generate manifests ---
@@ -1141,39 +1153,54 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	stepIdx++
 
 	// --- Step: Wait for vCluster HelmRelease Ready ---
+	// #4297 TIER GATE — vcluster-only. The "Provisioning vCluster" step stays in
+	// the timeline for BOTH tiers (step indices must stay stable), but for the
+	// HOST tier (free/S — no vcluster) there is no `vcluster` HelmRelease, no
+	// syncer DNS to kick, and no `vc-vcluster` kubeconfig to mirror. Running any
+	// of those waits would block the host-tier provision forever. So host-tier
+	// completes this step immediately with an explanatory message and lets the
+	// apps-sync Kustomization reconcile the apps straight into the host `<slug>`
+	// ns (no kubeConfig — see generateAppsSyncKustomization).
 	vcStepIdx := stepIdx
 	h.markStep(ctx, provisionID, vcStepIdx, prov.Steps[vcStepIdx].Name, "running")
-	if err := h.waitForHelmRelease(ctx, hostNS, "vcluster", 10*time.Minute); err != nil {
-		h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
-		h.failProvision(ctx, provisionID, tenantID, vcStepIdx, fmt.Sprintf("vcluster not ready: %s", err))
-		return
+	if isVcluster {
+		if err := h.waitForHelmRelease(ctx, hostNS, "vcluster", 10*time.Minute); err != nil {
+			h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
+			h.failProvision(ctx, provisionID, tenantID, vcStepIdx, fmt.Sprintf("vcluster not ready: %s", err))
+			return
+		}
+		// HelmRelease Ready only guarantees vcluster-0 is up; the syncer's initial
+		// DNS reconciliation is racy and sometimes leaves kube-dns-x-kube-system-x-
+		// vcluster absent from the host NS. Without that service, app pods inside
+		// the vcluster can't resolve DNS and stay Pending for their full 10-min
+		// wait. Issue #103. Observed on tenant e2e90689b today — gitea + vaultwarden
+		// timed out as a side effect. Gate the next step on DNS being synced and
+		// bounce vcluster-0 once if it doesn't appear, before letting app installs
+		// dispatch.
+		if err := h.waitForVclusterDNSOrKick(ctx, hostNS); err != nil {
+			slog.Warn("vcluster DNS did not sync after kick — proceeding anyway",
+				"ns", hostNS, "error", err)
+			// Don't fail provisioning: apps might still come up if DNS syncs late,
+			// and a hard fail here would strand the tenant. We've done what we can.
+		}
+		// Mirror the vCluster kubeconfig into flux-system so the per-tenant Flux
+		// Kustomization CR (which now lives in flux-system — see issue #97) can
+		// resolve its spec.kubeConfig.secretRef. Without this mirror the CR
+		// reconciles into "secret not found" and tenant apps never deploy.
+		if err := h.mirrorVClusterKubeconfig(ctx, subdomain); err != nil {
+			slog.Error("failed to mirror vcluster kubeconfig", "tenant", subdomain, "error", err)
+			h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
+			h.failProvision(ctx, provisionID, tenantID, vcStepIdx,
+				fmt.Sprintf("mirror kubeconfig to flux-system: %s", err))
+			return
+		}
+		h.completeStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, totalSteps)
+	} else {
+		slog.Info("host-tier Org (no vCluster) — skipping vcluster HR wait / DNS kick / kubeconfig mirror; apps reconcile into the host namespace",
+			"tenant", subdomain, "plan", planSlug, "ns", hostNS)
+		h.completeStepWithMessage(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, totalSteps,
+			"host-tier plan — apps run directly in the Org namespace (no dedicated vCluster)")
 	}
-	// HelmRelease Ready only guarantees vcluster-0 is up; the syncer's initial
-	// DNS reconciliation is racy and sometimes leaves kube-dns-x-kube-system-x-
-	// vcluster absent from the host NS. Without that service, app pods inside
-	// the vcluster can't resolve DNS and stay Pending for their full 10-min
-	// wait. Issue #103. Observed on tenant e2e90689b today — gitea + vaultwarden
-	// timed out as a side effect. Gate the next step on DNS being synced and
-	// bounce vcluster-0 once if it doesn't appear, before letting app installs
-	// dispatch.
-	if err := h.waitForVclusterDNSOrKick(ctx, hostNS); err != nil {
-		slog.Warn("vcluster DNS did not sync after kick — proceeding anyway",
-			"ns", hostNS, "error", err)
-		// Don't fail provisioning: apps might still come up if DNS syncs late,
-		// and a hard fail here would strand the tenant. We've done what we can.
-	}
-	// Mirror the vCluster kubeconfig into flux-system so the per-tenant Flux
-	// Kustomization CR (which now lives in flux-system — see issue #97) can
-	// resolve its spec.kubeConfig.secretRef. Without this mirror the CR
-	// reconciles into "secret not found" and tenant apps never deploy.
-	if err := h.mirrorVClusterKubeconfig(ctx, subdomain); err != nil {
-		slog.Error("failed to mirror vcluster kubeconfig", "tenant", subdomain, "error", err)
-		h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
-		h.failProvision(ctx, provisionID, tenantID, vcStepIdx,
-			fmt.Sprintf("mirror kubeconfig to flux-system: %s", err))
-		return
-	}
-	h.completeStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, totalSteps)
 	stepIdx++
 
 	// --- Steps: Parallel dependency installs ---
@@ -1192,7 +1219,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 			depWG.Add(1)
 			go func(depSlug, stepName string, stepIdx int) {
 				defer depWG.Done()
-				if err := h.waitForVclusterApp(ctx, hostNS, depSlug, 10*time.Minute); err != nil {
+				if err := h.waitForVclusterApp(ctx, hostNS, depSlug, 10*time.Minute, isVcluster); err != nil {
 					depFailed.Store(true)
 					h.failStep(ctx, provisionID, tenantID, stepIdx, stepName, err.Error())
 					return
@@ -1222,7 +1249,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 		wg.Add(1)
 		go func(appSlug, stepName string, stepIdx int) {
 			defer wg.Done()
-			if err := h.waitForVclusterApp(ctx, hostNS, appSlug, 10*time.Minute); err != nil {
+			if err := h.waitForVclusterApp(ctx, hostNS, appSlug, 10*time.Minute, isVcluster); err != nil {
 				failed.Store(true)
 				h.failStep(ctx, provisionID, tenantID, stepIdx, stepName, err.Error())
 				return

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
 	"github.com/openova-io/openova/core/services/provisioning/gitguard"
+	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
 	"github.com/openova-io/openova/core/services/provisioning/gitops"
 	"github.com/openova-io/openova/core/services/provisioning/store"
 	"github.com/openova-io/openova/core/services/shared/events"
@@ -538,14 +538,42 @@ func (h *Handler) waitForHelmRelease(ctx context.Context, namespace, name string
 	return fmt.Errorf("helmrelease %s/%s not ready after %s", namespace, name, timeout)
 }
 
-// waitForVclusterApp waits until a vCluster-synced pod for the given app slug
-// is Running+Ready in the host namespace. vCluster syncs pods using the name
-// pattern <pod>-x-<inner-ns>-x-<vcluster-name> — the inner ns is "apps" and the
-// vcluster helm release name is "vcluster", so we look for `<appSlug>-...-x-apps-x-vcluster`.
-func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+// waitForVclusterApp waits until an app pod for the given app slug is
+// Running+Ready in the host namespace.
+//
+// #4297 TIER-AWARE: for the VCLUSTER tier, vCluster syncs pods up to the host
+// ns under the name pattern <pod>-x-<inner-ns>-x-<vcluster-name> — inner ns is
+// "apps", vcluster release is "vcluster", so the synced pod is
+// `<appSlug>-...-x-apps-x-vcluster`. For the HOST tier (free/S, no vcluster)
+// the apps-sync Kustomization applies the Deployment straight into the host
+// `<slug>` ns, so the pod carries its NATIVE name `<appSlug>-...` with NO
+// syncer suffix. Callers pass `isVcluster` so the right pod-name shape is
+// matched; a host-tier wait that looked for the `-x-apps-x-vcluster` suffix
+// would never match and would always time out.
+// appPodNameMatches is the #4297 TIER-AWARE pod-name matcher. For the VCLUSTER
+// tier the app pod is synced up to the host ns with the
+// `<appSlug>-...-x-apps-x-vcluster` shape; for the HOST tier (no vcluster) the
+// pod runs natively in the host ns as `<appSlug>-...`. Extracted as a pure
+// function so the tier split is unit-testable without a live kube-API.
+//
+// The host-tier match is intentionally STRICT: it requires the slug-prefixed
+// name to NOT carry the vcluster syncer suffix, so a stray synced pod from a
+// sibling vcluster Org sharing the host ns can't satisfy a host-tier wait.
+func appPodNameMatches(podName, appSlug string, isVcluster bool) bool {
 	prefix := appSlug + "-"
-	suffix := "-x-apps-x-vcluster"
+	if !strings.HasPrefix(podName, prefix) {
+		return false
+	}
+	const vclusterSuffix = "-x-apps-x-vcluster"
+	if isVcluster {
+		return strings.HasSuffix(podName, vclusterSuffix)
+	}
+	// Host tier — native name, MUST NOT be a synced vcluster pod.
+	return !strings.HasSuffix(podName, vclusterSuffix)
+}
+
+func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug string, timeout time.Duration, isVcluster bool) error {
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		body, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace))
 		if err == nil {
@@ -566,7 +594,7 @@ func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug str
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
 					name := pod.Metadata.Name
-					if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+					if !appPodNameMatches(name, appSlug, isVcluster) {
 						continue
 					}
 					if pod.Status.Phase != "Running" {
