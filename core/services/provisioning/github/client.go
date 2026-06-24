@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,18 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrFileNotFound is returned by ReadFile when the contents API answers
+// 404 (the path genuinely does not exist on the branch). Callers MUST
+// distinguish this from a transient read failure (network error, 5xx,
+// decode failure): a 404 means "no such file yet" and an empty fallback
+// is safe, whereas a transient error means "we don't KNOW the file's
+// content" — fabricating an empty fallback there is the #4250 bug, because
+// the parent org-tenants kustomization.yaml is rebuilt via read-modify-
+// write and a phantom-empty read collapses it to a single-Org list, which
+// Flux's prune=true Kustomization then garbage-collects every SIBLING
+// Org's namespace from. Test/wrap with errors.Is(err, ErrFileNotFound).
+var ErrFileNotFound = errors.New("file not found")
 
 // Client provides methods to commit files to a GitHub repository via the
 // Git Data API. The API base URL is configurable so the client can target
@@ -929,7 +942,11 @@ func (c *Client) ReadFile(ctx context.Context, branch, path string) (string, err
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
-		return "", fmt.Errorf("file not found: %s", path)
+		// Wrap the sentinel so callers can errors.Is(err, ErrFileNotFound)
+		// to safely treat a genuine 404 as "no such file yet" — distinct
+		// from a transient read failure where an empty fallback is unsafe
+		// (#4250).
+		return "", fmt.Errorf("%w: %s", ErrFileNotFound, path)
 	}
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
