@@ -65,6 +65,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
+	"github.com/openova-io/openova/core/controllers/pkg/fluxsource"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/render"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
@@ -931,14 +932,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			continuumOwnerLabels = fanoutOwnerLabels(envSpec, app)
 
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
-				AppName:             app.GetName(),
-				AppNamespace:        app.GetNamespace(),
-				WriteNamespace:      fanoutWriteNamespace,
-				Topology:            choice,
-				Variant:             fanoutVariant,
-				Chart:               firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
-				ChartVersion:        spec.BlueprintVersion,
-				SourceRefName:       ifEmpty(fanoutSourceRef, r.Cfg.CatalogSourceRef),
+				AppName:        app.GetName(),
+				AppNamespace:   app.GetNamespace(),
+				WriteNamespace: fanoutWriteNamespace,
+				Topology:       choice,
+				Variant:        fanoutVariant,
+				Chart:          firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
+				ChartVersion:   spec.BlueprintVersion,
+				SourceRefName:  ifEmpty(fanoutSourceRef, r.Cfg.CatalogSourceRef),
 				// #4079 — default the source kind when the Blueprint omits
 				// spec.manifests.source.kind. The catalog source
 				// (`openova-catalog`) is a Flux v1 HelmRepository; an empty
@@ -1543,17 +1544,19 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 	if err := unstructured.SetNestedMap(gr.Object, commonLabels, "metadata", "labels"); err != nil {
 		return fmt.Errorf("set GitRepository labels: %w", err)
 	}
-	grSpec := map[string]interface{}{
-		"interval": fmt.Sprintf("%ds", r.Cfg.HostFluxIntervalSeconds),
-		"url":      repoURL,
-		"ref": map[string]interface{}{
-			"branch": branch,
-		},
-	}
-	if r.Cfg.FluxGiteaSecretRef != "" {
-		grSpec["secretRef"] = map[string]interface{}{
-			"name": r.Cfg.FluxGiteaSecretRef,
-		}
+	// #4285 — route through the shared fluxsource builder so the
+	// "local-Gitea source MUST carry a secretRef" law is enforced in ONE
+	// place. bp-gitea REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401;
+	// an empty secretRef on this (always Sovereign-local) source is a hard
+	// error, not a silently-dead 401 source.
+	grSpec, err := fluxsource.BuildGitRepositorySpec(fluxsource.GitRepositorySpecInput{
+		URL:             repoURL,
+		Branch:          branch,
+		IntervalSeconds: r.Cfg.HostFluxIntervalSeconds,
+		SecretRef:       r.Cfg.FluxGiteaSecretRef,
+	})
+	if err != nil {
+		return fmt.Errorf("build GitRepository spec for %s: %w", repoName, err)
 	}
 	if err := unstructured.SetNestedMap(gr.Object, grSpec, "spec"); err != nil {
 		return fmt.Errorf("set GitRepository spec: %w", err)

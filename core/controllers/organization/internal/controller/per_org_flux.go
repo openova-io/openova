@@ -80,6 +80,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
+	"github.com/openova-io/openova/core/controllers/pkg/fluxsource"
 )
 
 // perOrgTenantRepoName is the per-Org Gitea repo the vCluster manifests
@@ -170,20 +171,21 @@ func (r *Reconciler) reconcilePerOrgFlux(ctx context.Context, org *orgapi.Organi
 	if err := unstructured.SetNestedMap(gr.Object, copyLabels(labels), "metadata", "labels"); err != nil {
 		return fmt.Errorf("set GitRepository labels: %w", err)
 	}
-	grSpec := map[string]any{
-		"interval": fmt.Sprintf("%ds", interval),
-		"url":      repoURL,
-		"ref": map[string]any{
-			"branch": branch,
-		},
-	}
-	// REQUIRE_SIGNIN_VIEW=true on bp-gitea makes anonymous clone 401 even
-	// for the per-Org repo — when an operator wires a Flux basic-auth
-	// Secret (the catalyst-gitea-token PAT), reference it so source-
-	// controller can authenticate. Empty == anonymous (matches the
-	// application-controller's FluxGiteaSecretRef default).
-	if s := strings.TrimSpace(r.FluxGiteaSecretRef); s != "" {
-		grSpec["secretRef"] = map[string]any{"name": s}
+	// #4285 — route through the shared fluxsource builder. This per-Org
+	// source has ALWAYS carried a secretRef (the chart default
+	// `openova-org-tenants-git-auth` — why every catalyst-tenant-* source is
+	// Ready=True), so this is a no-behavior-change refactor that adds the
+	// SAME guard the application- and environment-controllers gained: an
+	// empty secretRef on this Sovereign-local Gitea source is now a hard
+	// error, not a silently-dead 401 source (bp-gitea REQUIRE_SIGNIN_VIEW=true).
+	grSpec, err := fluxsource.BuildGitRepositorySpec(fluxsource.GitRepositorySpecInput{
+		URL:             repoURL,
+		Branch:          branch,
+		IntervalSeconds: interval,
+		SecretRef:       r.FluxGiteaSecretRef,
+	})
+	if err != nil {
+		return fmt.Errorf("build per-Org GitRepository spec for %s: %w", gitRepoName, err)
 	}
 	if err := unstructured.SetNestedMap(gr.Object, grSpec, "spec"); err != nil {
 		return fmt.Errorf("set GitRepository spec: %w", err)

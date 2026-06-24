@@ -809,7 +809,18 @@ controllers:
       limits:
         memory: 512Mi
     giteaURL: ""
-    giteaSecretRef: "gitea-flux-token"
+    # #4285 — the env-controller's per-Environment GitRepository clones the
+    # SAME Sovereign-local Gitea (gitea-http.gitea.svc), so under bp-gitea
+    # REQUIRE_SIGNIN_VIEW=true it MUST carry a basic-auth secretRef. The
+    # previous default `gitea-flux-token` was a PHANTOM — NO Job ever minted
+    # it (leg D of the #4285 class). Point at the real shared secret
+    # openova-org-tenants-git-auth (the gitea_admin PAT clones every Org's
+    # repo, including <org>-environment), guaranteed present in flux-system by
+    # catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml. Per
+    # Inviolable Principle #4 the name stays operator-overridable; set "" only
+    # if bp-gitea ever drops REQUIRE_SIGNIN_VIEW (the fluxsource guard then
+    # no-ops because the source is still the local Gitea — keep the secret).
+    giteaSecretRef: "openova-org-tenants-git-auth"
     fluxNamespace: "flux-system"
     fluxIntervalSeconds: 60
     commitAuthor:
@@ -907,9 +918,18 @@ controllers:
     # Kustomization (seconds). Defaults to 60s for fast initial Pod
     # spin-up; operators with hundreds of Apps may raise this.
     hostFluxIntervalSeconds: 60
-    # Optional Secret in HostFluxNamespace holding the Gitea token Flux
-    # uses to clone. Empty = anonymous (acceptable for in-cluster Gitea).
-    fluxGiteaSecretRef: ""
+    # Secret in HostFluxNamespace holding the Gitea basic-auth Flux uses to
+    # clone each per-Application repo. #4285 (leg A): the prior default `""`
+    # (with a FACTUALLY-WRONG "Empty = anonymous (acceptable)" rationale)
+    # produced unauthenticated per-Application GitRepository sources — bp-gitea
+    # REQUIRE_SIGNIN_VIEW=true returns 401 for ALL repos, so anonymous is NEVER
+    # acceptable. Default to the same shared secret the organization-controller
+    # uses (:751 above) — the gitea_admin PAT clones every Org's per-app repo,
+    # guaranteed present in flux-system by gitea-flux-auth-secrets-sync-job.yaml.
+    # Per Inviolable Principle #4 the name stays operator-overridable; an empty
+    # value now makes the application-controller's fluxsource builder ERROR for
+    # the (always Sovereign-local) per-app source rather than ship a dead 401.
+    fluxGiteaSecretRef: "openova-org-tenants-git-auth"
     env: {}
     nodeSelector: {}
     tolerations: []
@@ -1524,6 +1544,44 @@ orgTenants:
     org: openova
     repo: openova
     branch: org-tenants
+
+# ─── catalog-sovereign Flux source (#3668 / #4285 leg C) ──────────────
+# The `openova-catalog-sovereign` GitRepository
+# (templates/catalog-sovereign-flux/catalog-sovereign-gitrepository.yaml)
+# tracks the `catalog-sovereign` branch of the local Gitea `openova/openova`
+# repo so a console catalog edit → Gitea commit → live Blueprint CR.
+#
+# #4285 leg C — this top-level `catalogSovereign:` key was MISSING entirely
+# (grep count 0). The GitRepository template guards `{{- if $gr.secretRef }}`,
+# so with no values block `$gr.secretRef` was nil → the source rendered with
+# NO secretRef → bp-gitea REQUIRE_SIGNIN_VIEW=true returned 401 "authentication
+# required" forever, even though the sibling secret
+# `openova-catalog-sovereign-git-auth` already exists (minted by
+# catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml). Defining the
+# block — byte-for-byte mirroring orgTenants.gitRepository.secretRef above —
+# makes the source clone WITH auth. The sync Job already reads this same
+# `.Values.catalogSovereign.gitRepository.secretRef` ($catGR); the explicit
+# block keeps the secret name single-sourced rather than relying on two
+# independent template `default`s agreeing. Per Inviolable Principle #4 every
+# value stays operator-overridable.
+catalogSovereign:
+  gitRepository:
+    name: openova-catalog-sovereign
+    namespace: flux-system
+    apiURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+    org: openova
+    repo: openova
+    branch: catalog-sovereign
+    interval: 1m
+    secretRef:
+      # Flux basic-auth Secret in flux-system (same name the auth-secret-sync
+      # Job applies). Without it the catalog-sovereign source sits 401.
+      name: openova-catalog-sovereign-git-auth
+      # Gitea account the PAT belongs to; PAT sourced from catalyst-gitea-token
+      # at RUNTIME by the sync Job (never a render-time lookup).
+      username: gitea_admin
+      patSourceSecretName: catalyst-gitea-token
+      patSourceKey: token
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps

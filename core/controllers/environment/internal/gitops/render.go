@@ -24,6 +24,7 @@ import (
 	"text/template"
 
 	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
+	"github.com/openova-io/openova/core/controllers/pkg/fluxsource"
 )
 
 // BranchForEnvType maps the canonical env_type values to Gitea branch
@@ -179,6 +180,16 @@ spec:
 func RenderGitRepository(in RenderInputs) ([]byte, error) {
 	if in.EnvName == "" || in.Namespace == "" || in.RepoURL == "" || in.Branch == "" {
 		return nil, fmt.Errorf("gitops: RenderGitRepository: EnvName, Namespace, RepoURL, Branch required (got %+v)", in)
+	}
+	// #4285 — enforce the shared "local-Gitea source MUST carry a secretRef"
+	// law: bp-gitea REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401, so a
+	// Sovereign-local GitRepository with an empty SecretRef is a hard render
+	// error (caught by the controller's "RenderError" markDegraded path), not
+	// a silently-dead 401 source. This is the leg-D fix — the env-controller
+	// previously defaulted SecretRef to the phantom `gitea-flux-token` that no
+	// Job mints; the chart now defaults it to openova-org-tenants-git-auth.
+	if err := fluxsource.ValidateGiteaSecretRef(in.RepoURL, in.SecretRef); err != nil {
+		return nil, fmt.Errorf("gitops: RenderGitRepository: %w", err)
 	}
 	if in.IntervalSeconds <= 0 {
 		in.IntervalSeconds = 60

@@ -3004,7 +3004,29 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
-version: 1.4.825
+# 1.4.827 — #4285 (folds/supersedes #4284): PERMANENT root-cause for the generic
+#   Flux→local-Gitea "authentication required" class — every code path that emits a
+#   Flux source for the Sovereign-local Gitea now carries spec.secretRef, enforced in
+#   ONE place. bp-gitea REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401 for EVERY
+#   repo, so an empty secretRef on a local-Gitea source is a permanent dead-401 source.
+#   A new shared Go builder (core/controllers/pkg/fluxsource) constructs every local-
+#   Gitea GitRepository spec and ERRORS (refuses) when the target is the local Gitea and
+#   secretRef is empty; the application-, organization- and environment-controllers all
+#   route through it (a future 4th generator inherits the guard, fails CI not live).
+#   Chart legs: (A) controllers.application.fluxGiteaSecretRef default flipped ""→
+#   openova-org-tenants-git-auth (per-Application source was anonymous → 401); (C) added
+#   the MISSING top-level catalogSovereign.gitRepository.secretRef block (grep count was
+#   0 → the openova-catalog-sovereign source rendered with no secretRef despite the
+#   sibling secret existing); (D) controllers.environment.giteaSecretRef default flipped
+#   from the PHANTOM gitea-flux-token (no Job ever minted it) to openova-org-tenants-git-
+#   auth. All three referenced secrets are minted by the existing gitea-flux-auth-secrets-
+#   sync-job (no new bootstrap state). On a roll the 3 live-failing sources self-heal
+#   (catalyst-app-omantel-biz-shared-pg-d, catalyst-app-omantel-biz-agenity,
+#   openova-catalog-sovereign → secretRef set, Ready=True). Per Inviolable Principle #4
+#   every secret name stays operator-overridable; external ghcr/upstream sources are
+#   untouched (the guard applies only to the local-Gitea/Harbor host). Clean version tag
+#   forces the Flux re-pull (deploy-bot mutable-tag trap).
+version: 1.4.827
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
