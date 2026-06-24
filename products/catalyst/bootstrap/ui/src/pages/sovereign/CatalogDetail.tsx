@@ -65,6 +65,62 @@ import { IconPicker } from './IconPicker'
  *   GET /catalyst/v1/catalog/{blueprint}/instances            → BlueprintInstance[]
  *        (fetched inside InstancesSection)
  */
+/**
+ * CatalogLogoPair — #4280: the read-only profile-picture-style display of a
+ * Blueprint's BOTH stored logos (light + dark) side by side. Each tile renders
+ * on the surface its theme targets (light tile on a light swatch, dark tile on
+ * a dark swatch) so the operator SEES the already-uploaded logos exactly as
+ * they appear in each console theme — the founder's "profile icon picker like
+ * approach", in its always-visible read-only form. A missing theme variant
+ * draws the letter-mark fallback rather than a broken image. An optional hint
+ * states why edit controls are absent (non-admin), so the feature is visibly
+ * present-but-locked, never silently gone.
+ */
+function CatalogLogoPair({
+  title,
+  light,
+  dark,
+  hint,
+}: {
+  title: string
+  light: string | null
+  dark: string | null
+  hint?: string
+}) {
+  const letter = title[0] ?? '?'
+  return (
+    <div className="catalog-logo-pair" data-testid="catalog-logo-pair">
+      <div className="clp-tiles">
+        <figure className="clp-tile clp-tile-light" data-testid="catalog-logo-light">
+          {light ? (
+            <img src={light} alt={`${title} light logo`} className="clp-img" loading="lazy" />
+          ) : (
+            <span className="clp-letter" aria-hidden="true">
+              {letter}
+            </span>
+          )}
+          <figcaption className="clp-caption">Light theme</figcaption>
+        </figure>
+        <figure className="clp-tile clp-tile-dark" data-testid="catalog-logo-dark">
+          {dark ? (
+            <img src={dark} alt={`${title} dark logo`} className="clp-img" loading="lazy" />
+          ) : (
+            <span className="clp-letter" aria-hidden="true">
+              {letter}
+            </span>
+          )}
+          <figcaption className="clp-caption">Dark theme</figcaption>
+        </figure>
+      </div>
+      {hint ? (
+        <p className="clp-hint" data-testid="catalog-logo-admin-hint">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export function CatalogDetail() {
   const params = useParams({ strict: false }) as {
     blueprintName?: string
@@ -196,6 +252,16 @@ export function CatalogDetail() {
   const bundledLogo = findComponent(name)?.logoUrl ?? null
   const logoUrl = resolveCatalogIcon(card, theme, bundledLogo)
 
+  // #4280 — the founder's literal ask ("SHOW the already-uploaded light AND
+  // dark logos … profile-picture-like view"). Resolve BOTH theme variants
+  // explicitly (each forced to its own theme via resolveCatalogIcon) so the
+  // detail page can render them side-by-side ALWAYS — for an admin AND a
+  // non-admin, inside edit mode or not. Before #4280 the hero showed only the
+  // single active-theme logo and a non-admin saw NO edit affordance at all,
+  // visually identical to the feature having been deleted.
+  const logoLightUrl = resolveCatalogIcon(card, 'light', bundledLogo)
+  const logoDarkUrl = resolveCatalogIcon(card, 'dark', bundledLogo)
+
   // #3668 §5A — the FULL current catalog-edit values, the merge base every
   // per-field inline save round-trips so editing one field never clobbers a
   // sibling (saveCatalogEdit does a full upsert). Light-icon pre-fills from the
@@ -284,12 +350,17 @@ export function CatalogDetail() {
             })}
             onSaved={refetchCatalog}
           />
-        ) : logoUrl ? (
-          <img src={logoUrl} alt={title} className="hero-logo" loading="lazy" />
         ) : (
-          <span className="hero-icon" style={{ background: '#1f2937' }}>
-            {title[0] ?? '?'}
-          </span>
+          // #4280 — non-admin: NEVER a blank/single-logo-with-no-affordance.
+          // Show BOTH stored logos read-only (the profile-picture pair) plus
+          // an explicit reason the edit controls are absent, so the feature is
+          // visibly present (just not editable) rather than silently gone.
+          <CatalogLogoPair
+            title={title}
+            light={logoLightUrl}
+            dark={logoDarkUrl}
+            hint="Editing the catalog requires sovereign-admin"
+          />
         )}
         <div className="hero-body">
           {/* #3668 §5A — the display name is a per-field inline editor. */}
@@ -458,6 +529,28 @@ export function CatalogDetail() {
           ) : null}
         </div>
       </div>
+
+      {/* #4280 — ALWAYS-visible light/dark logo pair (the founder's literal
+          "SHOW the already-uploaded light AND dark logos … profile-picture-like
+          view"). The hero renders ONE theme-appropriate logo; this strip
+          surfaces BOTH stored logos for everyone — admin and non-admin —
+          without entering edit mode, so "show the uploaded logos" always holds.
+          An admin still edits them via the hero icon picker (light + dark +
+          upload) above. */}
+      <section className="section" data-testid="catalog-section-logos">
+        <h2>Logos</h2>
+        <p className="section-hint">
+          The light- and dark-theme logos currently stored for {title}.
+          {isAdmin
+            ? ' Click the hero icon above to change either (pick from the gallery or upload a new image).'
+            : ' Editing the catalog requires sovereign-admin.'}
+        </p>
+        <CatalogLogoPair
+          title={title}
+          light={logoLightUrl}
+          dark={logoDarkUrl}
+        />
+      </section>
 
       {/* #3668 §5A — the per-field card editors (icon / name / summary /
           supported-topologies) live INLINE on the hero + topologies sections
@@ -874,6 +967,31 @@ const CATALOG_DETAIL_CSS = `
 .hero-icon-editors { display: flex; flex-wrap: wrap; gap: 1rem; }
 .hero-icon-editor { display: flex; flex-direction: column; gap: 0.35rem; min-width: 240px; flex: 1; }
 .hero-icon-editor-label { font-size: 0.72rem; font-weight: 600; color: var(--color-text-strong); }
+
+/* #4280 — read-only profile-picture-style light/dark logo pair. Each tile
+   renders the logo on the swatch matching its theme so the operator SEES both
+   uploaded logos as they appear in each theme, always-visible (no edit mode). */
+.catalog-logo-pair { display: flex; flex-direction: column; gap: 0.5rem; }
+.clp-tiles { display: flex; flex-wrap: wrap; gap: 0.8rem; }
+.clp-tile {
+  margin: 0; display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+  width: 96px; padding: 0.6rem; border-radius: 14px; border: 1px solid var(--color-border);
+}
+.clp-tile-light { background: #ffffff; }
+.clp-tile-dark { background: #0b0d12; }
+.clp-img { width: 56px; height: 56px; border-radius: 12px; object-fit: contain; }
+.clp-letter {
+  width: 56px; height: 56px; border-radius: 12px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700;
+}
+.clp-tile-light .clp-letter { background: #1f2937; color: #fff; }
+.clp-tile-dark .clp-letter { background: #e5e7eb; color: #111827; }
+.clp-caption { font-size: 0.68rem; font-weight: 600; }
+.clp-tile-light .clp-caption { color: #5f6470; }
+.clp-tile-dark .clp-caption { color: #c4c8d4; }
+.clp-hint {
+  margin: 0; font-size: 0.78rem; color: var(--color-text-dim); font-style: italic;
+}
 .hero-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 .hero-tags { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.55rem; }
 .hero-docs { margin: 0.6rem 0 0; font-size: 0.85rem; }

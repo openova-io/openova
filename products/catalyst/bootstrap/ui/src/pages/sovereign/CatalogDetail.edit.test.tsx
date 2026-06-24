@@ -237,4 +237,52 @@ describe('CatalogDetail visual icon picker (#3668 §5B)', () => {
     const edit = saveSpy.mock.calls[0][1] as { icon_light: string }
     expect(edit.icon_light).toBe(grafana.url)
   })
+
+  it('the edit picker exposes an Upload control for BOTH light and dark (#4280)', async () => {
+    renderCatalog()
+    fireEvent.click(await screen.findByTestId('cif-icon-edit'))
+    // The founder's "upload a new logo" path — not only pick-from-library.
+    expect(screen.getByTestId('iconpicker-light-upload')).toBeTruthy()
+    expect(screen.getByTestId('iconpicker-dark-upload')).toBeTruthy()
+  })
+})
+
+describe('CatalogDetail always-visible light/dark logo pair (#4280)', () => {
+  it('surfaces BOTH stored logos for an admin WITHOUT entering edit mode', async () => {
+    renderCatalog()
+    await screen.findByTestId('catalog-title')
+    // The dedicated Logos section renders both theme tiles, always visible.
+    expect(screen.getByTestId('catalog-section-logos')).toBeTruthy()
+    expect(screen.getByTestId('catalog-logo-light')).toBeTruthy()
+    expect(screen.getByTestId('catalog-logo-dark')).toBeTruthy()
+  })
+
+  it('a non-admin SEES both logos read-only + the sovereign-admin hint, never a blank (#4280)', async () => {
+    adminHolder.value = false
+    renderCatalog()
+    await screen.findByTestId('catalog-title')
+    // The hero shows the read-only dual-logo profile pair (not a silent blank).
+    const pairs = screen.getAllByTestId('catalog-logo-pair')
+    expect(pairs.length).toBeGreaterThan(0)
+    // Both theme logos are present (multiple, since the always-visible section
+    // also renders them) — assert at least one of each.
+    expect(screen.getAllByTestId('catalog-logo-light').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('catalog-logo-dark').length).toBeGreaterThan(0)
+    // The explicit "editing requires sovereign-admin" hint is shown — the
+    // feature is visibly present-but-locked, not silently removed.
+    const hints = screen.getAllByTestId('catalog-logo-admin-hint')
+    expect(hints.length).toBeGreaterThan(0)
+    expect(hints[0].textContent).toMatch(/sovereign-admin/i)
+  })
+
+  it('renders the light and dark logos with the resolved theme-appropriate src (#4280)', async () => {
+    adminHolder.value = false
+    renderCatalog()
+    await screen.findByTestId('catalog-title')
+    // Grafana fixture carries no IaC icons → both resolve to the bundled asset.
+    const lightTile = screen.getAllByTestId('catalog-logo-light')[0]
+    const darkTile = screen.getAllByTestId('catalog-logo-dark')[0]
+    expect(lightTile.querySelector('img')?.getAttribute('src')).toBeTruthy()
+    expect(darkTile.querySelector('img')?.getAttribute('src')).toBeTruthy()
+  })
 })

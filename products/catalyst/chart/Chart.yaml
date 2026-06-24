@@ -3004,6 +3004,19 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
+# 1.4.828 — #4280: catalog name + light/dark logo editing no longer silently vanishes for
+#   the Sovereign owner. (api) auth.go pinSessionAuthority now grants the configured owner
+#   (OPERATOR_EMAIL) tier=admin even when Keycloak is REACHABLE but the realm seed hasn't
+#   put them in /sovereign-admins (a seeding race / pre-#3263 realm) — previously only the
+#   KC-unreachable fallback honoured the owner, so the converged-but-unseeded owner landed
+#   as viewer and useCatalogAdmin->false stripped every edit affordance. "Non-owner never
+#   silently admin" preserved (only the exact OPERATOR_EMAIL is elevated). (ui) CatalogDetail
+#   now ALWAYS surfaces BOTH stored light+dark logos in a profile-picture-style read-only
+#   pair (the founder's "show the already-uploaded logos" — visible without entering edit
+#   mode, for admin AND non-admin); a non-admin sees the dual logos read-only + an explicit
+#   "editing requires sovereign-admin" hint instead of a single logo with no affordance
+#   (the silent-drop). The admin hero icon picker (light+dark gallery + upload) is unchanged.
+#   Chart-version bump forces the Flux re-pull of the new catalyst-api + catalyst-ui images.
 # 1.4.827 — #4285 (folds/supersedes #4284): PERMANENT root-cause for the generic
 #   Flux→local-Gitea "authentication required" class — every code path that emits a
 #   Flux source for the Sovereign-local Gitea now carries spec.secretRef, enforced in
