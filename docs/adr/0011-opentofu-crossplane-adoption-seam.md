@@ -150,13 +150,14 @@ EPIC #4212 (Refs #4002 #4018) closes the three runtime wiring breaks:
    Flux Kustomization was hard-gated to Hetzner in
    `infra/providers/_shared/cloudinit-control-plane.tftpl` because the tree shipped only
    hcloud manifests. The tree is now split: `clusters/_template/infrastructure`
-   (cloud-agnostic — provider-opentofu + the Observe-first CloudAdoption placeholder)
-   installs on **every** cloud; the Hetzner-native `provider-hcloud` moved to
-   `clusters/_template/infrastructure/hetzner` behind a Hetzner-only
-   `infrastructure-config-hetzner` Kustomization. Both adoption Kustomizations run
-   `wait: false` so the Crossplane provider PACKAGE image pull (a day-2 surface) never
-   gates Phase-1 convergence (the sacred-thin cloud-init mandate + the #4049
-   cold-image-pull lesson).
+   (cloud-agnostic — provider-opentofu + the Observe-first CloudAdoption placeholder) and
+   `clusters/_template/infrastructure/hetzner` (a kustomize overlay = the base via `../`
+   PLUS the Hetzner-native provider-hcloud). The single `infrastructure-config`
+   Kustomization now installs on **every** cloud via a cloud-conditional `path`: Huawei
+   → the base, Hetzner → the hetzner overlay. ONE Kustomization, one name, both clouds —
+   keeping the Hetzner cloud-init under its 32 KiB cap. It runs `wait: false` so the
+   Crossplane provider PACKAGE image pull (a day-2 surface) never gates Phase-1
+   convergence (the sacred-thin cloud-init mandate + the #4049 cold-image-pull lesson).
 
 2. **Credential env wiring so Observe actually authenticates.** The composition's
    Workspace now surfaces the cloud credentials as the standard provider env vars

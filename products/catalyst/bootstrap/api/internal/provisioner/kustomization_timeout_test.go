@@ -74,16 +74,16 @@ func TestKustomizationTimeout_AllAtFiveMinutes(t *testing.T) {
 		}
 	}
 
-	// Expect exactly THREE operative timeout lines: bootstrap-kit +
-	// infrastructure-config + infrastructure-config-hetzner (#4212). The
-	// last two are the Crossplane object-model layer — `wait: false`
-	// async-applier tier but each carries a 5m timeout so a stuck provider
-	// package install self-releases the revision lock on schedule.
+	// Expect exactly TWO operative timeout lines: bootstrap-kit +
+	// infrastructure-config (#4212). infrastructure-config is the Crossplane
+	// object-model layer — `wait: false` async-applier tier (provider
+	// package pull off the critical path) but carries a 5m timeout so a
+	// stuck install self-releases the revision lock on schedule.
 	// sovereign-tls + bootstrap-kit-crs carry no timeout (#3845/#3888).
 	// A higher count means a new health-gating Kustomization was added
 	// without updating this test — promote the new one into the spec by
 	// extending the wanted fixture; do not loosen the test.
-	const wantCount = 3
+	const wantCount = 2
 	if got := len(operativeTimeouts); got != wantCount {
 		t.Fatalf("expected exactly %d operative `timeout:` lines in cloud-init template (got %d): %v\n"+
 			"If a new health-gating Kustomization was added, extend this test to assert its timeout matches the others.",
@@ -159,16 +159,16 @@ func TestKustomizationTimeout_NoThirtyMinuteRegression(t *testing.T) {
 //     gateway.networking.k8s.io CRDs register, then applies — with per-CR
 //     health (cert issuance, envoy restart) reconciling async, so `wait:
 //     false` is correct.
-//   - `infrastructure-config` + `infrastructure-config-hetzner`
-//     (#4212 / Refs #4002 #4018): the cross-cloud Crossplane object-model
-//     layer (provider-opentofu + the Observe-first CloudAdoption
-//     placeholder, plus the Hetzner-native provider-hcloud overlay). The
-//     Crossplane PROVIDER PACKAGE image pull is a day-2 surface and MUST
-//     NOT gate Phase-1 convergence (the sacred-thin cloud-init mandate +
-//     the #4049 cold-image-pull lesson: a slow ghcr/upbound pull would
-//     otherwise wedge the whole Sovereign for the 5m timeout each cycle).
-//     Nothing health-gating dependsOn these; the placeholder CloudAdoption
-//     applies immediately and the real-id claims are server-side-applied
+//   - `infrastructure-config` (#4212 / Refs #4002 #4018): the cross-cloud
+//     Crossplane object-model layer (provider-opentofu + the Observe-first
+//     CloudAdoption placeholder; on Hetzner the cloud-conditional `path`
+//     also pulls in the native provider-hcloud overlay). The Crossplane
+//     PROVIDER PACKAGE image pull is a day-2 surface and MUST NOT gate
+//     Phase-1 convergence (the sacred-thin cloud-init mandate + the #4049
+//     cold-image-pull lesson: a slow ghcr/upbound pull would otherwise
+//     wedge the whole Sovereign for the 5m timeout each cycle). Nothing
+//     health-gating dependsOn it; the placeholder CloudAdoption applies
+//     immediately and the real-id claims are server-side-applied
 //     post-handover (handler/post_handover_adoption_apply.go). So `wait:
 //     false` is correct — the apply must succeed, the package health must
 //     not block.
@@ -197,10 +197,9 @@ func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 	// don't shadow it). The allowlist is name-scoped, not a blanket
 	// relaxation. As with the 30m guard, comments are fine.
 	allowWaitFalseFor := map[string]bool{
-		"bootstrap-kit-crs":             true, // #3804 / Refs #3642 — async CR applier
-		"sovereign-tls":                 true, // #3845 / Refs #3888 — async wildcard-TLS applier
-		"infrastructure-config":         true, // #4212 — Crossplane object-model layer (provider pull off the critical path)
-		"infrastructure-config-hetzner": true, // #4212 — Hetzner-native provider-hcloud overlay
+		"bootstrap-kit-crs":     true, // #3804 / Refs #3642 — async CR applier
+		"sovereign-tls":         true, // #3845 / Refs #3888 — async wildcard-TLS applier
+		"infrastructure-config": true, // #4212 — Crossplane object-model layer (provider pull off the critical path)
 	}
 	currentName := ""
 	prevNonComment := ""

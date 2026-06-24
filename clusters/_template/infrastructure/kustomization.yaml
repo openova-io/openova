@@ -1,34 +1,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# clusters/_template/infrastructure — the CLOUD-AGNOSTIC Crossplane
-# object-model layer (ADR-0011, Refs #4002 #4018 #4212).
+# clusters/_template/infrastructure — the Crossplane object-model layer
+# entrypoint for HUAWEI (and any non-Hetzner cloud) (#4212, un-gates
+# #4002/#4018). It pulls in the cloud-agnostic ./base — provider-opentofu +
+# provider-config-opentofu + the Observe-first CloudAdoption placeholder —
+# all of which work on every cloud.
 #
-# This base installs ONLY the resources that work on EVERY cloud:
-#   - provider-opentofu        — the cross-cloud OpenTofu→Crossplane adoption
-#                                seam. Its `Workspace` managed resource wraps
-#                                an inline tofu module that does read-only
-#                                `data` lookups against Hetzner OR Huawei,
-#                                so one mechanism adopts on both clouds.
-#   - provider-config-opentofu — drives every CloudAdoption's backing
-#                                Workspace; surfaces the `cloud-credentials`
-#                                Secret to the tofu run as HW_*/HCLOUD_* env.
-#   - adoption-claims.yaml     — the per-Sovereign CloudAdoption manifests.
-#                                Ships with an Observe-only placeholder; the
-#                                provisioner's adoption applier (handler/
-#                                post_handover_adoption_apply.go) writes the
-#                                REAL resource ids straight onto the cluster
-#                                at Phase-1 hand-off.
-#
-# The Hetzner-NATIVE provider-hcloud (+ its ProviderConfig) lives in the
-# ./hetzner overlay and is installed by a SEPARATE Hetzner-only Flux
-# Kustomization (infrastructure-config-hetzner, cloudinit) so this base
-# reconciles green on Huawei — where provider-hcloud's `hcloud-token`
-# Secret key does not exist. Before #4212 the whole `infrastructure-config`
+# The single `infrastructure-config` Flux Kustomization (cloud-init) points
+# its cloud-conditional `path` HERE on Huawei (base only) and at ./hetzner
+# on Hetzner (base + native provider-hcloud). Before #4212 the whole
 # Kustomization was hard-gated to Hetzner, so on Huawei Crossplane owned
-# NOTHING and `kubectl get providers.pkg.crossplane.io` was empty
-# (the #4002/#4018 gap this un-gates).
+# NOTHING and `kubectl get providers.pkg.crossplane.io` was empty (the
+# #4002/#4018 gap this un-gates).
 resources:
-  - provider-opentofu.yaml
-  - provider-config-opentofu.yaml
-  - adoption-claims.yaml
+  - base
