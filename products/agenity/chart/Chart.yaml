@@ -8,6 +8,15 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.5 -> 0.5.6 (#4180): publish the bp-agenity build from agenity#752 —
+# /app now serves the WORKSPACES (v0.9.4) multi-pane dashboard (Work/Terminal/
+# Talk/Board tabs + Sessions/Terminal/Details panes), NOT the archaic
+# single-column Dashboard.svelte. The prior images (<= 0.9.6) built the
+# workspaces dashboard at /v0.9.4 but left /app wired to the old one. A FRESH
+# appVersion 0.9.7 (below) is the first image whose /app mounts Dashboardws;
+# the chart version bump publishes it so a fresh-Org install (HR pins `*`)
+# auto-resolves to it. ADDITIVE over 0.5.5 (no chart-template change — the
+# delta is the image bytes the new appVersion points at).
 # 0.5.4 -> 0.5.5 (#4228): make the OPENOVA_MCP_RS256_PUBKEY_PEM secretKeyRef
 # optional:true. Its source Secret (catalyst-handover-jwt-public, #4114) lives
 # in the host catalyst-system namespace, NOT the per-Org namespace this
@@ -25,7 +34,17 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.5
+version: 0.5.6
+# Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
+# /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
+# archaic single-column Dashboard.svelte. It is built from agenity#752
+# (AGENITY_REF in agenity-build.yaml), which restored the workspaces tree the
+# #750/#751 "lean cleanup" deleted and wired app.astro → Dashboardws. The
+# <= 0.9.6 images served the archaic /app even though their bundle md5'd clean
+# (they shipped the OLD route wiring). A distinct tag forces the per-Org HR
+# (`*` pin) to pull NEW bytes — never re-tag 0.9.6 (the #4118 stale-layer
+# trap). The hardened smoke gate now asserts /app mounts Dashboardws before
+# the image is pushed, so an archaic-/app build can never publish again.
 # Bumped appVersion 0.9.5 -> 0.9.6 (#4118): the 0.9.5 image bytes are correct
 # (its /app dashboard bundle is byte-identical to a fresh build of the #745
 # source — verified by md5 on omantel.biz), but 0.9.5 was published BEFORE
@@ -36,7 +55,7 @@ version: 0.5.5
 # distinct value keeps the hardened-pipeline image from masquerading under the
 # old tag. Chart version bumped 0.5.2 -> 0.5.3 to publish the no-cache-HTML
 # HTTPRoute change (the durable fix for the founder's stale-browser-cache view).
-appVersion: "0.9.6"
+appVersion: "0.9.7"
 keywords:
   - agenity
   - agent-runtime

@@ -146,7 +146,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.5.4",
+    "version": "0.5.6",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-external-secrets"
@@ -876,7 +876,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.10",
+    "version": "1.0.12",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
@@ -931,7 +931,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.6",
+    "version": "0.2.7",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
@@ -2261,7 +2261,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.38",
+    "version": "1.5.1",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -3508,7 +3508,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.123",
+    "version": "1.4.125",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3710,7 +3710,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
@@ -4839,7 +4839,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-keycloak",
@@ -5646,7 +5646,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.4.13",
+    "version": "0.4.16",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",
