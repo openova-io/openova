@@ -412,14 +412,20 @@ spec:
                   maintenance_work_mem: 64MB
                   log_statement: ddl
                   log_min_duration_statement: "1000"
-              # #4107 — OMIT storageClass entirely. An empty-string storageClass
-              # is NOT "cluster-default" — it means "use NO StorageClass", which
-              # produces an immediate-binding PVC with no provisioner that stays
-              # Pending forever (FailedBinding: "no persistent volumes available
-              # for this claim and no storage class is set"). Omitting the field
-              # is what makes cnpg fall back to the default StorageClass (evs-ssd
-              # on Huawei, hcloud-volumes on Hetzner). local-path remains
-              # forbidden via the forbid-local-path-storage Kyverno policy.
+              # #4206 (supersedes the #4107 OMIT) — NAME the storageClass via
+              # the per-provider durable-CSI var instead of omitting it. #4107
+              # correctly rejected an EMPTY-string class (which opts out of
+              # provisioning → Pending forever), but OMITTING the field is also
+              # unsafe: the admission-default plugin freezes "" the instant a
+              # PVC is created BEFORE any default SC exists (the fresh-prov
+              # ordering race), and that "" is PERMANENT → the gitea/harbor/
+              # guacamole-pg-1 PVCs stuck Pending<empty> 46h (region-B, dep
+              # 4635277cae4ffed9). Naming the class makes the PVC RACE-IMMUNE:
+              # it stays recoverably Pending until evs-ssd/hcloud-volumes lands,
+              # then binds with zero re-creation. The substitute is the tofu
+              # `default_storage_class` var (evs-ssd on Huawei, hcloud-volumes
+              # on Hetzner) — validation rejects "" and the forbidden
+              # local-path, so this can never render empty or ephemeral.
               resources:
                 requests:
                   cpu: 50m
@@ -429,6 +435,7 @@ spec:
                   memory: 512Mi
               storage:
                 size: 5Gi
+                storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS}
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false
@@ -1070,14 +1077,20 @@ spec:
                   maintenance_work_mem: 64MB
                   log_statement: ddl
                   log_min_duration_statement: "1000"
-              # #4107 — OMIT storageClass entirely. An empty-string storageClass
-              # is NOT "cluster-default" — it means "use NO StorageClass", which
-              # produces an immediate-binding PVC with no provisioner that stays
-              # Pending forever (FailedBinding: "no persistent volumes available
-              # for this claim and no storage class is set"). Omitting the field
-              # is what makes cnpg fall back to the default StorageClass (evs-ssd
-              # on Huawei, hcloud-volumes on Hetzner). local-path remains
-              # forbidden via the forbid-local-path-storage Kyverno policy.
+              # #4206 (supersedes the #4107 OMIT) — NAME the storageClass via
+              # the per-provider durable-CSI var instead of omitting it. #4107
+              # correctly rejected an EMPTY-string class (which opts out of
+              # provisioning → Pending forever), but OMITTING the field is also
+              # unsafe: the admission-default plugin freezes "" the instant a
+              # PVC is created BEFORE any default SC exists (the fresh-prov
+              # ordering race), and that "" is PERMANENT → the gitea/harbor/
+              # guacamole-pg-1 PVCs stuck Pending<empty> 46h (region-B, dep
+              # 4635277cae4ffed9). Naming the class makes the PVC RACE-IMMUNE:
+              # it stays recoverably Pending until evs-ssd/hcloud-volumes lands,
+              # then binds with zero re-creation. The substitute is the tofu
+              # `default_storage_class` var (evs-ssd on Huawei, hcloud-volumes
+              # on Hetzner) — validation rejects "" and the forbidden
+              # local-path, so this can never render empty or ephemeral.
               resources:
                 requests:
                   cpu: 50m
@@ -1087,6 +1100,7 @@ spec:
                   memory: 512Mi
               storage:
                 size: 5Gi
+                storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS}
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false
@@ -1305,14 +1319,17 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 512Mi
-              # #4107 — OMIT storageClass entirely. An empty-string storageClass
-              # is NOT "cluster-default" — it means "use NO StorageClass", which
-              # produces an immediate-binding PVC with no provisioner that stays
-              # Pending forever. Omitting the field is what makes cnpg fall back
-              # to the default StorageClass (evs-ssd on Huawei, hcloud-volumes on
-              # Hetzner). local-path remains forbidden via Kyverno.
+              # #4206 (supersedes the #4107 OMIT) — NAME the storageClass via
+              # the per-provider durable-CSI var instead of omitting it. An
+              # OMITTED field lets the admission-default plugin freeze "" the
+              # instant a PVC is created BEFORE the default SC lands (fresh-prov
+              # ordering race), and that "" is PERMANENT → Pending forever.
+              # Naming it (evs-ssd on Huawei, hcloud-volumes on Hetzner; tofu
+              # var validation rejects "" and local-path) makes the PVC
+              # race-immune. local-path remains forbidden via Kyverno.
               storage:
                 size: 5Gi
+                storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS}
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false

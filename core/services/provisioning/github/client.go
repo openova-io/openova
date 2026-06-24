@@ -940,5 +940,30 @@ func (c *Client) ReadFile(ctx context.Context, branch, path string) (string, err
 	if err != nil {
 		return "", err
 	}
-	return string(body), nil
+	// #4206 #3785 — the Gitea contents API (/api/v1/repos/.../contents/<path>)
+	// ALWAYS returns a JSON envelope `{"content":"<base64>","encoding":"base64",
+	// ...}` regardless of the `Accept: application/vnd.github.raw+json` header
+	// (which only GitHub.com honours). Returning that envelope verbatim is the
+	// bug that corrupted the org-tenants PARENT kustomization.yaml: the
+	// rebuild closure read this envelope, spliced the new Org subdir onto it,
+	// and committed the JSON-wrapped string back as the file — which Flux /
+	// kustomize cannot parse, so the whole org-tenants tree (incl. the demo
+	// Org) stopped reconciling and its namespace was pruned. Decode the
+	// envelope to the raw file content. If the body is NOT a Gitea envelope
+	// (e.g. a genuine GitHub raw response), fall back to the raw body.
+	var meta struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	if jerr := json.Unmarshal(body, &meta); jerr != nil || meta.Encoding == "" {
+		return string(body), nil
+	}
+	if meta.Encoding == "base64" {
+		decoded, derr := base64.StdEncoding.DecodeString(strings.ReplaceAll(meta.Content, "\n", ""))
+		if derr != nil {
+			return "", fmt.Errorf("decode gitea contents %s: %w", path, derr)
+		}
+		return string(decoded), nil
+	}
+	return meta.Content, nil
 }

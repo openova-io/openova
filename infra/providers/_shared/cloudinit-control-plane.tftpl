@@ -870,6 +870,17 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # #4206 — the host-shared CNPG Cluster CRs reconciled by THIS
+            # Kustomization (gitea-pg / harbor-pg / guacamole-pg, slots
+            # 10/19/52) name their storageClass via this var so their PVCs are
+            # RACE-IMMUNE. Omitting the field (the prior #4107 shape) lets the
+            # admission-default plugin freeze "" the instant a PVC is created
+            # before the default SC lands (the fresh-prov ordering race) — and
+            # that "" is PERMANENT (opts out of dynamic provisioning) → Pending
+            # forever. The same per-provider durable class the bootstrap-kit
+            # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
+            # tofu var validation rejects "" and "local-path".
+            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
 %{ if provider == "hetzner" ~}
       ---
       # infrastructure-config Kustomization — installs the Crossplane Provider

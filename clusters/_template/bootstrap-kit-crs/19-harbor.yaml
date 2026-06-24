@@ -106,6 +106,7 @@ spec:
       memory: 512Mi
   storage:
     size: 5Gi
+    storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS}
   enableSuperuserAccess: true
   monitoring:
     enablePodMonitor: false
