@@ -1062,7 +1062,14 @@ spec:
       #   self-sovereignty cutover on handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER
       #   now defaults false via catalystApi.fireCutoverOnHandover). Cutover is a
       #   DELIBERATE BSS-menu action; operator-initiated path unchanged.
-      version: 1.4.813
+      # 1.4.814 — #4179/#4242: deliver org-controller 09dcc10 (per-Org 2-label
+      #   console TLS cert+listener) to the Sovereign. The deploy-bot bumped the
+      #   org-controller image pin 6cdbc50->09dcc10 in chart/values.yaml WITHOUT
+      #   a chart version bump, so the re-pushed 1.4.813 OCI digest never
+      #   superseded the cached one on the Sovereign's Flux (helm-controller
+      #   kept rendering the stale 6cdbc50 content). A fresh version tag forces
+      #   a clean pull. Chart.yaml bumped in lockstep.
+      version: 1.4.814
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

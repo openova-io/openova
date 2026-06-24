@@ -2974,7 +2974,13 @@ name: bp-catalyst-platform
 #   handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER now defaults false via
 #   catalystApi.fireCutoverOnHandover). Cutover is a DELIBERATE BSS-menu action; the
 #   operator-initiated path is unchanged (NO-REGRESS).
-version: 1.4.813
+# 1.4.814 — #4179/#4242: ship org-controller 09dcc10 (per-Org 2-label console TLS
+#   cert+listener — `*.<slug>.<parent>` SAN covers console.<slug>.<parent>, which the
+#   apex `*.<parent>` pool wildcard cannot). The deploy-bot bumped the org-controller
+#   image pin (6cdbc50->09dcc10) in values.yaml without a chart version bump, so the
+#   re-pushed 1.4.813 OCI digest never superseded the digest cached on the Sovereign's
+#   Flux. A clean version tag forces the pull. bootstrap-kit slot-13 bumped in lockstep.
+version: 1.4.814
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
