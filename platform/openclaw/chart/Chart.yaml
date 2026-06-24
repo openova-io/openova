@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.2
+version: 0.2.3
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -44,13 +44,11 @@ description: |
     - Legacy `keycloak.*` / `newapi.*` keys remain as fallbacks.
   0.1.0 (2026-04, epic #795)
     - Initial chart: controller Deployment + per-user pod ConfigMap.
-
 type: application
 keywords: [catalyst, blueprint, openclaw, organization, workspace-controller, per-user-pod, llm, agent]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-
 # No upstream Helm chart — every byte of this Blueprint is Catalyst-
 # authored. The blueprint-release workflow's hollow-chart guard
 # (issue #181) requires either a `dependencies:` block OR this

@@ -28,13 +28,12 @@
 
 catalystBlueprint:
   upstream:
-    chart: ""              # scratch chart — no upstream Helm chart
+    chart: "" # scratch chart — no upstream Helm chart
     version: ""
     repo: ""
     images:
       controller: "ghcr.io/openova-io/openova/openclaw-controller"
       runtime: "ghcr.io/openova-io/openova/openclaw-runtime"
-
 # When `true`, _helpers.tpl :: assertNoPlaceholders fails render with a
 # helpful error if any placeholder default is still in place. Per-cluster
 # Flux overlays MUST set this to `true` so a bad overlay (forgot to set
@@ -43,7 +42,6 @@ catalystBlueprint:
 # render passes (the smoke run uses defaults — placeholders are valid
 # bytes for render-time syntax checks but non-functional at runtime).
 assertNoPlaceholders: false
-
 # ─── Controller (multi-tenant) ───────────────────────────────────────────
 controller:
   enabled: true
@@ -53,7 +51,7 @@ controller:
     # smoke render pass; real installs MUST override (per Inviolable
     # Principle 4 — no floating tags in production).
     repository: ghcr.io/openova-io/openova/openclaw-controller
-    tag: "0.1.0-placeholder"      # OVERRIDE on install with SHA-pinned tag
+    tag: "d82cfaf" # OVERRIDE on install with SHA-pinned tag
     pullPolicy: IfNotPresent
   port: 8080
   resources:
@@ -85,7 +83,6 @@ controller:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 3
-
 # ─── Auth: per-tenant Keycloak (OIDC) — canonical block ─────────────────
 # The controller validates inbound end-user JWTs against the Organization's own
 # Keycloak realm. It NEVER uses the OTECH-ops realm, NEVER trusts a JWT
@@ -113,7 +110,6 @@ oidc:
     # unset — see _helpers.tpl).
     name: "openclaw-oidc"
     key: "OIDC_CLIENT_SECRET"
-
 # ─── LLM gateway: per-tenant NewAPI ─────────────────────────────────────
 # OpenClaw uses the per-tenant NewAPI as its OpenAI-compatible LLM
 # gateway (NOT direct OpenAI). The orchestrator points this at
@@ -147,7 +143,6 @@ llm:
   # is "qwen3.6" — C4 wires the partner-hosted channel routing at
   # tenant-create time.
   defaultModel: "qwen3.6"
-
 # ─── Legacy aliases (back-compat, deprecated) ───────────────────────────
 # Old overlays may still set `keycloak.*` / `newapi.*`. The chart's
 # helpers prefer `oidc.*` / `llm.*` and fall back to these when the
@@ -159,7 +154,6 @@ keycloak:
   clientSecretName: ""
 newapi:
   baseURL: ""
-
 # ─── Tenant namespace ────────────────────────────────────────────────────
 # Organization tenant namespace where:
 #   - per-user pods are created and deleted
@@ -167,7 +161,6 @@ newapi:
 tenant:
   # Required at install time. Placeholder default lets smoke render pass.
   namespace: "org-example"
-
 # ─── Per-user pod template ───────────────────────────────────────────────
 # These values are baked into a ConfigMap; the controller renders the
 # pod-spec at session-start time, substituting NEWAPI_KEY (Secret ref)
@@ -175,7 +168,7 @@ tenant:
 perUserPod:
   image:
     repository: ghcr.io/openova-io/openova/openclaw-runtime
-    tag: "0.1.0-placeholder"      # OVERRIDE on install with SHA-pinned tag
+    tag: "34ff594" # OVERRIDE on install with SHA-pinned tag
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -197,18 +190,15 @@ perUserPod:
   # Optional extra env vars baked into every per-user pod (operator
   # overlay may extend, e.g. for HTTP proxy, telemetry endpoint, etc.).
   extraEnv: []
-
 # ─── Service ─────────────────────────────────────────────────────────────
 service:
   type: ClusterIP
   port: 8080
   targetPort: 8080
-
 # ─── ServiceAccount ──────────────────────────────────────────────────────
 serviceAccount:
   create: true
   name: ""
-
 # ─── Ingress + cert-manager TLS ──────────────────────────────────────────
 # Public hostname for the controller. Per Q-mine-1 of #795:
 # `openclaw.<org-domain-or-subdomain>`. cert-manager auto-issues a
@@ -224,10 +214,9 @@ ingress:
     # Sovereign (#4246). `letsencrypt-prod` does NOT exist on a real
     # Sovereign and the Cilium-gateway Sovereign wires no per-host HTTP-01
     # solver, so DNS-01 is required.
-    issuer: "letsencrypt-dns01-prod-powerdns"    # cert-manager ClusterIssuer
+    issuer: "letsencrypt-dns01-prod-powerdns" # cert-manager ClusterIssuer
     secretName: "openclaw-tls"
   annotations: {}
-
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace (traefik).
 # Egress from CONTROLLER:
@@ -254,7 +243,6 @@ networkPolicy:
     egress:
       keycloakNamespaceLabel: "keycloak"
       keycloakPort: 8443
-
 # ─── ServiceMonitor ──────────────────────────────────────────────────────
 # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
 # toggles must default false). Operator opts in via per-cluster overlay
