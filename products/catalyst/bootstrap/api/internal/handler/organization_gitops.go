@@ -79,8 +79,12 @@ type OrganizationChartVersions struct {
 	Stalwart  string
 	NewAPI    string
 	// Agenity — the per-Org agentic dashboard (bp-agenity, #4180). Read
-	// from CATALYST_ORG_BP_AGENITY_VER; "*" when empty so Flux pulls the
-	// latest published chart (currently 0.5.4 / appVersion 0.9.6).
+	// from CATALYST_ORG_BP_AGENITY_VER. UNLIKE the other charts, when empty
+	// this defaults to the chart-version RANGE "0.5.x" (see
+	// agenityDefaultChartRange / withVersionDefaults), NOT "*": the
+	// bp-agenity OCI repo co-hosts the dashboard IMAGE tags (0.9.x) in the
+	// SAME package, and "*" resolves to the highest semver = the image, which
+	// is not a Helm chart. "0.5.x" pins Flux to the chart line (0.5.5 today).
 	Agenity string
 }
 
@@ -267,10 +271,62 @@ func writeParentTenantsIndex(parentDir string) error {
 		b.WriteString("\n")
 	}
 	indexPath := filepath.Join(parentDir, "kustomization.yaml")
+	// #4180 BUG-4 regression guard — the committed parent index MUST be raw
+	// kustomize YAML, never a Gitea contents-API JSON envelope. The
+	// catastrophe this defends against (live on omantel.biz 2026-06-24, dep
+	// 4635277cae4ffed9): a Gitea-API read path (core/services/provisioning/
+	// github/client.go ReadFile, the OTHER writer of this same shared
+	// org-tenants/kustomization.yaml) returned the envelope
+	//   {"name":"kustomization.yaml","content":"<base64>",...}
+	// verbatim, spliced the new Org subdir onto it, and committed the
+	// JSON-wrapped string back as the file. kustomize then parsed it to an
+	// EMPTY resource set and the org-tenants Flux Kustomization (prune=true)
+	// PRUNED every Org's bp-* HelmReleases cluster-wide. That ReadFile path
+	// is fixed upstream (#4214 / Refs #4206 #3785), but because this index is
+	// a SHARED file two code paths commit to, we assert here at the
+	// bootstrap-api write boundary so any future regression in either writer
+	// is caught before the corrupt bytes ever reach git — a corrupt index
+	// causes cross-Org data loss, so failing the write loudly beats
+	// committing a JSON blob. The bytes we generate above always start with
+	// the comment banner ('#') then 'apiVersion: kustomize…'; a leading '{'
+	// can only mean a JSON envelope leaked in.
+	if err := validateRawKustomizationYAML(b.Bytes()); err != nil {
+		return fmt.Errorf("refusing to write corrupt parent index %s: %w", indexPath, err)
+	}
 	if err := os.WriteFile(indexPath, b.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write index: %w", err)
 	}
 	return nil
+}
+
+// validateRawKustomizationYAML asserts the given bytes are raw kustomize
+// YAML (a comment banner or the apiVersion line), never a Gitea/GitHub
+// contents-API JSON envelope. See the #4180 BUG-4 note in
+// writeParentTenantsIndex for the cross-Org data-loss this prevents. The
+// only legal first non-space byte for the parent index is '#' (comment) or
+// 'a' (apiVersion: kustomize…); a '{' is the JSON-envelope corruption
+// signature.
+func validateRawKustomizationYAML(content []byte) error {
+	// Trim leading whitespace AND a possible UTF-8 BOM (U+FEFF) before
+	// inspecting the first meaningful byte.
+	trimmed := strings.TrimLeft(string(content), " \t\r\n\uFEFF")
+	if trimmed == "" {
+		return errors.New("parent kustomization index is empty")
+	}
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return errors.New("parent kustomization index looks like a JSON/contents-API envelope (starts with '{' or '[') — expected raw kustomize YAML beginning with a '#' comment or 'apiVersion: kustomize'")
+	}
+	if !strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "apiVersion: kustomize") {
+		return fmt.Errorf("parent kustomization index does not begin with a '#' comment or 'apiVersion: kustomize' (got %q…)", firstN(trimmed, 40))
+	}
+	return nil
+}
+
+func firstN(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // orgTenantSharedHelmRepositories is the canonical HelmRepository
@@ -356,6 +412,23 @@ apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-stalwart-tenant
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+# bp-agenity (#4180) — the per-Org agentic dashboard. Without this
+# HelmRepository the rendered bp-agenity HelmRelease's sourceRef
+# (HelmRepository/bp-agenity@flux-system) has no source → the HelmChart
+# errors 'HelmRepository "bp-agenity" not found' and the dashboard never
+# installs. Live on omantel.biz demo Org 2026-06-24 (dep 4635277cae4ffed9).
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-agenity
   namespace: flux-system
 spec:
   type: oci
@@ -651,10 +724,37 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 	return out, nil
 }
 
+// agenityDefaultChartRange is the fallback Agenity version when
+// CATALYST_ORG_BP_AGENITY_VER is empty. It MUST be a chart-version range
+// that excludes the 0.9.x IMAGE line — NOT "*".
+//
+// #4180 (live on omantel.biz demo Org 2026-06-24, dep 4635277cae4ffed9):
+// the bp-agenity OCI repo ghcr.io/openova-io/bp-agenity co-hosts BOTH the
+// Helm CHART tags (0.5.3 / 0.5.4 / 0.5.5) AND the dashboard IMAGE tags
+// (0.9.4 / 0.9.5 / 0.9.6) in the SAME package. Flux's OCI "*" constraint
+// resolves to the highest semver = 0.9.6 (the IMAGE), which is not a Helm
+// chart, so the HelmChart pull fails:
+//   "manifest does not contain minimum number of descriptors (2),
+//    descriptors found: 1".
+// Constraining to "0.5.x" keeps Flux on the chart line (resolves to 0.5.5
+// today) and never reaches across to the 0.9.x image tags. This trap is
+// UNIQUE to bp-agenity — every other bp-* chart's repo holds chart tags
+// only, so "*" is still correct for them.
+const agenityDefaultChartRange = "0.5.x"
+
 func withVersionDefaults(v OrganizationChartVersions) OrganizationChartVersions {
 	star := func(s string) string {
 		if strings.TrimSpace(s) == "" {
 			return "*"
+		}
+		return s
+	}
+	// Agenity defaults to a chart-version RANGE (not "*") because its OCI
+	// repo co-hosts image tags that "*" would wrongly resolve to (#4180).
+	// An explicit CATALYST_ORG_BP_AGENITY_VER still wins.
+	agenity := func(s string) string {
+		if strings.TrimSpace(s) == "" {
+			return agenityDefaultChartRange
 		}
 		return s
 	}
@@ -665,7 +765,7 @@ func withVersionDefaults(v OrganizationChartVersions) OrganizationChartVersions 
 		OpenClaw:  star(v.OpenClaw),
 		Stalwart:  star(v.Stalwart),
 		NewAPI:    star(v.NewAPI),
-		Agenity:   star(v.Agenity),
+		Agenity:   agenity(v.Agenity),
 	}
 }
 
@@ -1594,6 +1694,21 @@ spec:
     timeout: 15m
     cleanupOnFail: true
   values:
+    # imagePullSecrets — bp-agenity's image (ghcr.io/openova-io/bp-agenity:
+    # 0.9.x) is a PRIVATE ghcr package. The Org namespace has no default ghcr
+    # auth, so without this the init+main containers get a 401 anonymous
+    # token → ImagePullBackOff (live on omantel.biz demo Org 2026-06-24, dep
+    # 4635277cae4ffed9). The canonical ghcr-pull Secret is reflected into
+    # EVERY namespace (incl. this Org ns) by bp-reflector at bootstrap-kit
+    # slot 05a (flux-system/ghcr-pull carries reflection-auto-enabled:"true"
+    # + reflection-auto-namespaces:"" → all-namespaces mirror, #543), so the
+    # Secret already exists here — we only need to reference it. Same pattern
+    # as platform/guacamole (Chart.yaml 0.1.3: default imagePullSecrets to
+    # [name: ghcr-pull]). Unlike bp-wordpress-tenant/bp-keycloak — which
+    # pull through harbor.openova.io/proxy-* and so avoid private-ghcr auth —
+    # bp-agenity pulls DIRECT from private ghcr and genuinely needs this.
+    imagePullSecrets:
+      - name: ghcr-pull
     # Per-Org identity zone — the openova-MCP derives
     # https://console.<sovereignFqdn> from this when catalystApiUrl is empty.
     sovereignFqdn: {{.Subdomain}}.{{.ParentDomain}}
