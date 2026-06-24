@@ -689,7 +689,10 @@ controllers:
       # 34ff594 had drifted 470 commits behind latest GHCR. The merge-time
       # build-organization-controller.yaml auto-bump re-pins this to the image
       # built from THIS PR's tenant_dns.go code.
-      tag: "09dcc10"
+      # 895f961 (controller-image-tag freshness sweep) — 09dcc10 had drifted 118
+      # commits behind latest GHCR; bumped to the current organization-controller
+      # GHCR tag to clear the staleness gate. The merge-time auto-bump re-pins.
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -821,7 +824,7 @@ controllers:
       # loops the env-controller.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -873,7 +876,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -911,7 +914,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "6d7aacd"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -980,7 +983,7 @@ controllers:
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
