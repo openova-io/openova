@@ -1,0 +1,277 @@
+# Build openclaw-controller — the multi-tenant workspace controller
+# image consumed by bp-openclaw's controller Deployment.
+#
+# Pre-this-workflow (issue #4249): bp-openclaw shipped only the per-user
+# `openclaw-runtime` image + chart templates. The controller Deployment
+# referenced `openclaw-controller:0.1.0-placeholder`, which NEVER existed
+# in GHCR (404) — so the controller pod ImagePullBackOff'd forever and
+# the bp-openclaw HR could never reach Ready on any Sovereign. The
+# controller is genuinely load-bearing: it is the only component that
+# validates the Organization end-user's Keycloak JWT and spawns the
+# identity-blind per-user runtime pods the chart's RBAC + pod-template
+# ConfigMap exist to support.
+#
+# Per Inviolable Principle 1 (event-driven, never schedule:cron) and
+# Principle 4 (never floating tags in production), this workflow:
+#   1. Triggers on push to platform/openclaw/controller/** on main.
+#   2. go test + go vet the controller package.
+#   3. Builds the image, SHA-pin tagging it (+ :latest for the deploy-bot
+#      pattern, matching newapi-sandbox-bridge).
+#   4. Smoke-tests: container starts, /healthz responds, /metrics serves.
+#   5. Bumps platform/openclaw/chart/values.yaml controller.image.tag to
+#      the new SHA + bumps Chart.yaml patch version (LOCKSTEP — avoids
+#      the #4257 mutable-tag trap where a values-only edit on the same
+#      chart version is undeliverable to Flux).
+#   6. Dispatches blueprint-release so a fresh bp-openclaw:<semver> OCI
+#      artifact carries the real controller tag.
+#
+# Output: ghcr.io/openova-io/openova/openclaw-controller:<sha>
+#
+# Tracking: openova-io/openova#4249 (controller image gap), #795 (epic).
+
+name: Build openclaw-controller
+
+on:
+  push:
+    paths:
+      - 'platform/openclaw/controller/**'
+      - '.github/workflows/openclaw-controller.yaml'
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/openclaw-controller
+  CTX: platform/openclaw/controller
+  CHART_VALUES: platform/openclaw/chart/values.yaml
+  CHART_YAML: platform/openclaw/chart/Chart.yaml
+  BLUEPRINT_YAML: platform/openclaw/blueprint.yaml
+  CATALOG_SEED: products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+
+permissions:
+  contents: write
+  packages: write
+  actions: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: go vet + test
+        working-directory: ${{ env.CTX }}
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go test ./...
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          echo "tag=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Will tag controller image: ${IMAGE}:${short_sha}"
+
+      - name: Build image (load for smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.CTX }}
+          file: ${{ env.CTX }}/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}:test
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (starts, /healthz + /metrics respond)
+        run: |
+          set -euo pipefail
+          # Unconfigured mode: placeholder issuer → controller still
+          # starts + serves /healthz (so the chart's liveness probe never
+          # CrashLoops) and refuses user traffic with 503.
+          docker run -d --name occ-smoke \
+            -p 18080:8080 \
+            -e OIDC_ISSUER_URL=https://keycloak.example.local/realms/example \
+            ${{ env.IMAGE }}:test
+          for i in $(seq 1 10); do
+            if curl -sf http://127.0.0.1:18080/healthz > /dev/null; then
+              echo "healthz OK"; break
+            fi
+            sleep 1
+          done
+          if ! curl -sf http://127.0.0.1:18080/healthz > /dev/null; then
+            echo "FAIL: /healthz did not respond"; docker logs occ-smoke; docker rm -f occ-smoke; exit 1
+          fi
+          # /metrics serves Prometheus text.
+          curl -sf http://127.0.0.1:18080/metrics | grep -q "openclaw_controller_auth_total" || {
+            echo "FAIL: /metrics missing expected counter"; docker logs occ-smoke; docker rm -f occ-smoke; exit 1
+          }
+          # Landing page on bare GET /.
+          curl -sf http://127.0.0.1:18080/ | grep -q "OpenClaw workspace" || {
+            echo "FAIL: landing page missing expected marker"; docker rm -f occ-smoke; exit 1
+          }
+          # Unauthenticated user traffic in unconfigured mode → 503 (not 200).
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer x.y.z' http://127.0.0.1:18080/v1/models)
+          if [ "$code" != "503" ]; then
+            echo "FAIL: expected 503 for user traffic in unconfigured mode, got $code"; docker rm -f occ-smoke; exit 1
+          fi
+          docker rm -f occ-smoke
+          echo "Smoke OK: container starts, /healthz + /metrics + landing serve, user traffic gated."
+
+      - name: Push image (SHA-pinned + latest)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.CTX }}
+          file: ${{ env.CTX }}/Dockerfile
+          push: true
+          # SHA-pinned tag for production consumers (Inviolable Principle
+          # 4); :latest mirrors the newapi-sandbox-bridge deploy-bot
+          # convention so a re-run without a chart change re-publishes.
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump controller (+ runtime) tag in values.yaml
+        env:
+          NEW_TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Controller tag → the SHA we just published.
+          yq eval -i ".controller.image.repository = \"${IMAGE}\"" "${CHART_VALUES}"
+          yq eval -i ".controller.image.tag = \"${NEW_TAG}\"" "${CHART_VALUES}"
+          # Runtime tag → latest published openclaw-runtime SHA. The
+          # runtime workflow publishes the image but never bumped the
+          # chart pin, leaving perUserPod.image.tag stale at the
+          # placeholder (#4249 RC3 sibling — spawned per-user pods would
+          # ImagePullBackOff on the placeholder too). Resolve it to the
+          # newest published runtime tag here so the whole bp-openclaw
+          # release carries real, existing image tags (anti-pattern A12).
+          RUNTIME_IMAGE="ghcr.io/openova-io/openova/openclaw-runtime"
+          latest_runtime=$(gh api \
+            "/orgs/openova-io/packages/container/openova%2Fopenclaw-runtime/versions" \
+            --jq 'sort_by(.created_at) | reverse | .[0].metadata.container.tags[0]' 2>/dev/null || true)
+          if [ -n "${latest_runtime}" ] && [ "${latest_runtime}" != "null" ]; then
+            yq eval -i ".perUserPod.image.repository = \"${RUNTIME_IMAGE}\"" "${CHART_VALUES}"
+            yq eval -i ".perUserPod.image.tag = \"${latest_runtime}\"" "${CHART_VALUES}"
+            echo "perUserPod.image.tag -> ${latest_runtime}"
+          else
+            echo "WARN: could not resolve latest openclaw-runtime tag; leaving perUserPod.image.tag unchanged"
+          fi
+          echo "values.yaml images after update:"
+          yq eval '.controller.image, .perUserPod.image' "${CHART_VALUES}"
+
+      - name: Bump Chart.yaml + blueprint.yaml patch version
+        run: |
+          set -euo pipefail
+          current=$(yq eval '.version' "${CHART_YAML}")
+          IFS='.' read -r major minor patch <<<"${current}"
+          next="${major}.${minor}.$((patch + 1))"
+          yq eval -i ".version = \"${next}\"" "${CHART_YAML}"
+          # blueprint.yaml spec.version tracks the chart version (used by
+          # the catalog-seed lockstep + the on-disk Blueprint card).
+          yq eval -i ".spec.version = \"${next}\"" "${BLUEPRINT_YAML}"
+          echo "Chart.yaml + blueprint.yaml: version ${current} -> ${next}"
+          echo "CHART_OLD_VERSION=${current}" >> "$GITHUB_ENV"
+          echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
+
+      # The catalog-seed file is a Helm template (Go `{{ }}` syntax) so yq
+      # cannot parse it. Patch the bp-openclaw block's two version pins
+      # (spec.version + source.version) with a block-scoped sed: rewrite
+      # only `version: "<old>"` lines that fall between the `name:
+      # bp-openclaw` marker and the next `name: bp-` marker. This keeps
+      # the fresh-Org chart pin (Blueprint spec.version → HR chartVersion)
+      # in lockstep with the published bp-openclaw:<new> OCI artifact so a
+      # fresh Org pulls the chart that carries the real controller tag —
+      # never a tag that doesn't exist on GHCR (anti-pattern A12).
+      - name: Bump catalog-seed bp-openclaw version pins
+        env:
+          OLD: ${{ env.CHART_OLD_VERSION }}
+          NEW: ${{ env.CHART_NEW_VERSION }}
+        run: |
+          set -euo pipefail
+          python3 - "$CATALOG_SEED" "$OLD" "$NEW" <<'PY'
+          import re, sys
+          path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open(path) as f:
+              lines = f.readlines()
+          in_block = False
+          changed = 0
+          for i, ln in enumerate(lines):
+              if re.match(r'\s*name:\s*bp-openclaw\s*$', ln):
+                  in_block = True
+                  continue
+              if in_block and re.match(r'\s*name:\s*bp-[a-z0-9-]+\s*$', ln):
+                  in_block = False
+              if in_block and re.match(rf'(\s*version:\s*)"{re.escape(old)}"\s*$', ln):
+                  lines[i] = re.sub(rf'"{re.escape(old)}"', f'"{new}"', ln)
+                  changed += 1
+          with open(path, 'w') as f:
+              f.writelines(lines)
+          print(f"catalog-seed: rewrote {changed} bp-openclaw version pin(s) {old} -> {new}")
+          if changed == 0:
+              print("WARN: no bp-openclaw version pin matched — seed may already be ahead", file=sys.stderr)
+          PY
+
+      - name: Commit and push chart + seed bump
+        id: deploy_commit
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: |
+            ${{ env.CHART_VALUES }}
+            ${{ env.CHART_YAML }}
+            ${{ env.BLUEPRINT_YAML }}
+            ${{ env.CATALOG_SEED }}
+          commit-message: "deploy: bump bp-openclaw controller ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} + seed pin (Refs #4249)"
+
+      - name: Trigger blueprint-release
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=openclaw \
+            -f tree=platform
+          echo "blueprint-release dispatched for platform/openclaw @ main"
+
+      - name: Summary
+        run: |
+          {
+            echo "## openclaw-controller published"
+            echo ""
+            echo "- Image: \`${IMAGE}:${{ steps.tag.outputs.tag }}\`"
+            echo "- Chart bumped to: \`${CHART_NEW_VERSION:-unchanged}\`"
+            echo "- Refs #4249 (#795 epic)"
+          } >> "$GITHUB_STEP_SUMMARY"
