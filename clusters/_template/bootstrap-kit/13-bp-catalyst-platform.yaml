@@ -1080,7 +1080,13 @@ spec:
       #   storm that fills the node's ephemeral disk evicts THOSE reschedulable Pods
       #   first instead of the EVS-node-pinned (#4102) control-plane API (~17min
       #   console outage, omantel.biz 2026-06-24). Chart.yaml bumped in lockstep.
-      version: 1.4.825
+      # 1.4.827 — #4285 (folds #4284): permanent root-cause for the generic
+      #   Flux→local-Gitea "authentication required" class — one shared fluxsource
+      #   builder + guard makes every local-Gitea source carry spec.secretRef
+      #   (application/organization/environment controllers) + adds the missing
+      #   catalogSovereign secretRef values block + flips the env-controller's
+      #   phantom gitea-flux-token default. Chart.yaml bumped in lockstep.
+      version: 1.4.827
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
