@@ -92,6 +92,15 @@ metadata:
     app.kubernetes.io/name: bp-cnpg
     app.kubernetes.io/instance: {{ .Release.Name }}
     catalyst.openova.io/component: webhook-gate
+    # #4226: this Helm post-upgrade hook Job is created by the helm-controller,
+    # not Flux directly, so the kyverno baseline `flux-managed` Enforce policy
+    # (workload-must-be-flux-managed, which matches kind Job) DENIES it without
+    # this label — wedging the platform (webhook-FULL) bp-cnpg upgrade into a
+    # rollback loop, which in turn blocks the bp-catalyst-platform dependsOn.
+    # #4223 only skipped this Job in webhook-LESS (per-Org) mode; the platform
+    # cnpg-system install still renders it. Same landmine as openbao init-job
+    # (#3374) and gitea/harbor sso-configure hooks (#3296→#3297).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "5"

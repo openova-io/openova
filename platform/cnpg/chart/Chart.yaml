@@ -37,7 +37,19 @@ name: bp-cnpg
 # the webhook configs. This is a render-skip, NOT a policy exemption — the
 # flux-managed guardrail stays fully in force. Single-operator installs
 # (webhook configs created) keep the gate unchanged. Refs #4201 #4143.
-version: 1.0.11
+#
+# 1.0.12 (#4226, 2026-06-24): stamp `app.kubernetes.io/managed-by: flux` on the
+# two Helm-hook Jobs (webhook-gate-hook.yaml, webhook-cert-bootstrap.yaml). In
+# webhook-FULL mode (the PLATFORM cnpg-system install) the gate Job STILL renders
+# — #4223 only skipped it for webhook-LESS per-Org installs — and it is created
+# by the helm-controller with no Flux owner, so the flux-managed Kyverno Enforce
+# policy DENIED it → bp-cnpg post-upgrade hook failed → Helm rollback → bp-cnpg
+# Ready=False → bp-catalyst-platform (dependsOn bp-cnpg) wedged at 1.4.810,
+# blocking the #4222 pool-PowerDNS catalyst-api roll and the #4179 funnel close
+# (live omantel.biz dep 4635277cae4ffed9). The label is the policy's own
+# documented escape (same as openbao init-job #3374, gitea/harbor hooks
+# #3296→#3297) — guardrail stays fully in force. Refs #4179 #4223 #4220 #3374.
+version: 1.0.12
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
