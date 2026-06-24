@@ -133,9 +133,44 @@ spec:
               # The wordpress:cli image's default WORKDIR is /var/www/html;
               # wp-cli expects to find wp-config.php and the WordPress
               # core files there. We materialise wp-config.php inline so
-              # `wp` boots WordPress and chain-loads pg4wp from the
-              # mounted /var/www/html/wp-content PVC (db.php drop-in).
+              # `wp` boots WordPress and chain-loads pg4wp from a SELF-SEEDED
+              # /var/www/html/wp-content/db.php drop-in (step 0 below).
+              #
+              # #4220 (Refs #4155): this Job mounts its OWN emptyDir for
+              # wp-content, NOT the runtime Deployment's ReadWriteOnce
+              # `wp-content` PVC. The Sovereign's only StorageClass is
+              # RWO (evs-ssd / Huawei EVS — no RWX class exists), so a Job
+              # that mounted the same PVC while the WordPress Pod holds it
+              # deadlocked on the kubelet Multi-Attach error
+              # ("Volume is already used by pod(s) bp-wordpress-tenant-...")
+              # → the post-upgrade hook never started → Helm timed out →
+              # HR Ready=False (and on cold install the release would roll
+              # back, dropping the HTTPRoute → customer host 404). The OIDC
+              # plugin settings + admin user persist in POSTGRES, not on the
+              # PVC, so an ephemeral wp-content is correct; we only need the
+              # pg4wp db.php drop-in for Postgres connectivity, seeded below.
               cd /var/www/html
+
+              # 0. Seed the pg4wp Postgres adapter drop-in into THIS Job's
+              #    ephemeral wp-content (same source + version as the
+              #    deployment's wp-plugin-install initContainer). WordPress
+              #    chain-loads wp-content/db.php on every boot; without it
+              #    wp-cli speaks MySQL and `wp db check` fails against the
+              #    bp-cnpg Postgres backend.
+              if [ ! -f wp-content/db.php ]; then
+                echo "[oidc-config] seeding pg4wp db.php drop-in (Postgres adapter)"
+                mkdir -p wp-content
+                curl -fsSL -o /tmp/pg4wp.zip \
+                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/3.3.1.zip
+                # wp-cli's bundled PHP can unzip without a system `unzip`.
+                php -r '$z=new ZipArchive();$z->open("/tmp/pg4wp.zip");$z->extractTo("/tmp/");$z->close();'
+                cp -a /tmp/postgresql-for-wordpress-3.3.1/pg4wp wp-content/
+                cp /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php wp-content/db.php
+                rm -rf /tmp/postgresql-for-wordpress-3.3.1 /tmp/pg4wp.zip
+                echo "[oidc-config] pg4wp db.php seeded"
+              else
+                echo "[oidc-config] pg4wp db.php already present"
+              fi
 
               # 1. Materialise wp-config.php — same contract as the
               #    runtime container's WORDPRESS_CONFIG_EXTRA so the
@@ -168,9 +203,9 @@ spec:
 
               # 2. Wait for the database to be reachable. wp-cli
               #    `wp db check` returns non-zero when the DB isn't up;
-              #    we poll for up to 5 minutes. pg4wp's drop-in will
-              #    automatically run from wp-content/db.php, having been
-              #    seeded by the wp-plugin-install initContainer.
+              #    we poll for up to 5 minutes. pg4wp's drop-in runs
+              #    automatically from the wp-content/db.php seeded in
+              #    step 0 above.
               for i in $(seq 1 60); do
                 if wp db check --allow-root >/dev/null 2>&1; then
                   echo "[oidc-config] database reachable"
@@ -296,11 +331,14 @@ spec:
               cpu: 500m
               memory: 256Mi
       volumes:
+        # #4220 (Refs #4155): ALWAYS an emptyDir — never the runtime
+        # Deployment's ReadWriteOnce `wp-content` PVC. The WordPress Pod
+        # holds that RWO PVC for its whole lifetime; a concurrent Job that
+        # mounted it would block forever on the kubelet Multi-Attach error
+        # (the Sovereign has no RWX StorageClass). This Job only needs the
+        # pg4wp db.php drop-in (self-seeded in step 0) for Postgres
+        # connectivity; the OIDC settings it writes persist in Postgres,
+        # so the ephemeral wp-content is the correct, deadlock-free choice.
         - name: wp-content
-          {{- if .Values.persistence.wpContent.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "bp-wordpress-tenant.fullname" . }}-wp-content
-          {{- else }}
           emptyDir: {}
-          {{- end }}
 {{- end }}
