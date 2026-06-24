@@ -321,9 +321,10 @@ interface ChartPoint {
   /** dayLabel — relative day offset from today (e.g. "D-29" → today).
    *  Used as the XAxis label without pulling in dayjs. */
   dayLabel: string
-  /** Cents → dollars for the tooltip; Recharts can't format mid-tip. */
+  /** Baisa → OMR major-unit value plotted on the Y axis; Recharts can't
+   *  format mid-tip so the axis/tooltip formatters re-derive baisa. */
   dollars: number
-  /** Original cents, retained for the tooltip formatter. */
+  /** Original baisa, retained for the tooltip formatter. */
   cents: number
 }
 
@@ -336,7 +337,9 @@ function RevenueTrendChart({ points }: RevenueTrendChartProps) {
       // D-29 is the oldest, D-0 is today. Reads naturally for operators
       // scanning the X axis.
       dayLabel: `D-${lastIdx - i}`,
-      dollars: cents / 100,
+      // Plot the OMR major-unit value (baisa / 1000) so the Y axis reads
+      // in whole OMR; the formatters below re-scale to baisa.
+      dollars: cents / BAISA_PER_OMR,
       cents,
     }))
   }, [points])
@@ -383,7 +386,7 @@ function RevenueTrendChart({ points }: RevenueTrendChartProps) {
             tick={{ fill: 'var(--color-text-dim)', fontSize: 11 }}
             tickLine={false}
             axisLine={{ stroke: 'var(--color-border)' }}
-            tickFormatter={(v) => formatCompactCents(Number(v) * 100)}
+            tickFormatter={(v) => formatCompactCents(Number(v) * BAISA_PER_OMR)}
             width={56}
           />
           <Tooltip
@@ -395,7 +398,7 @@ function RevenueTrendChart({ points }: RevenueTrendChartProps) {
               fontSize: 12,
             }}
             labelStyle={{ color: 'var(--color-text-dim)' }}
-            formatter={(value) => [formatCents(Number(value) * 100), 'Revenue']}
+            formatter={(value) => [formatCents(Number(value) * BAISA_PER_OMR), 'Revenue']}
             labelFormatter={(label) => String(label ?? '')}
             cursor={{ stroke: 'var(--color-border-strong)', strokeWidth: 1 }}
           />
@@ -632,25 +635,36 @@ function compareRows(
   }
 }
 
-/** formatCents — render a cents integer as a localised currency string. */
+/**
+ * BAISA_PER_OMR — the Sovereign billing service is OMR-denominated and
+ * emits amounts in baisa (1/1000 OMR), the smallest currency unit. The
+ * BssRevenue minor-unit fields (mrrCents / last30dCents) carry baisa
+ * verbatim from the catalyst-api bridge (#4274 — org_billing_revenue.go
+ * maps store.Order.amount_baisa). The "cents" name is the generic FE
+ * minor-unit label kept for type stability; the divisor + currency below
+ * are what make it render as real OMR rather than 10×-inflated USD.
+ */
+const BAISA_PER_OMR = 1000
+
+/** formatCents — render a baisa integer as a localised OMR string. */
 function formatCents(cents: number): string {
-  const dollars = cents / 100
+  const omr = cents / BAISA_PER_OMR
   return new Intl.NumberFormat(undefined, {
     style: 'currency',
-    currency: 'USD',
+    currency: 'OMR',
     maximumFractionDigits: 0,
-  }).format(dollars)
+  }).format(omr)
 }
 
-/** formatCompactCents — Y-axis short form ("$1.2K", "$3M"). */
+/** formatCompactCents — Y-axis short form ("OMR 1.2K", "OMR 3M"). */
 function formatCompactCents(cents: number): string {
-  const dollars = cents / 100
+  const omr = cents / BAISA_PER_OMR
   return new Intl.NumberFormat(undefined, {
     style: 'currency',
-    currency: 'USD',
+    currency: 'OMR',
     notation: 'compact',
     maximumFractionDigits: 1,
-  }).format(dollars)
+  }).format(omr)
 }
 
 /** formatDeltaPct — header KPI uses the raw signed-percentage string. */
