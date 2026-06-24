@@ -138,3 +138,44 @@ already-provisioned Sovereign (used for the hw173 live proof).
   generator (tofu state → `adoption-claims.yaml`)
 - `clusters/_template/infrastructure/adoption-claims.yaml` — the bootstrap claim manifest the
   README promised (envsubst placeholders, generator-overwritten per Sovereign)
+
+## Follow-up — #4212 runtime wiring (the three seams the merge of #4006 left inert)
+
+ADR-0011 / PR #4006 landed every CRD, composition and generator above, but a live
+re-check (omantel.biz, Huawei, 2026-06-24) found the seam still inert at runtime:
+`kubectl get providers.pkg.crossplane.io` empty, `kubectl get cloudadoption -A` empty.
+EPIC #4212 (Refs #4002 #4018) closes the three runtime wiring breaks:
+
+1. **Un-gate the object-model layer for ALL clouds (Break A).** The `infrastructure-config`
+   Flux Kustomization was hard-gated to Hetzner in
+   `infra/providers/_shared/cloudinit-control-plane.tftpl` because the tree shipped only
+   hcloud manifests. The tree is now split: `clusters/_template/infrastructure`
+   (cloud-agnostic — provider-opentofu + the Observe-first CloudAdoption placeholder)
+   installs on **every** cloud; the Hetzner-native `provider-hcloud` moved to
+   `clusters/_template/infrastructure/hetzner` behind a Hetzner-only
+   `infrastructure-config-hetzner` Kustomization. Both adoption Kustomizations run
+   `wait: false` so the Crossplane provider PACKAGE image pull (a day-2 surface) never
+   gates Phase-1 convergence (the sacred-thin cloud-init mandate + the #4049
+   cold-image-pull lesson).
+
+2. **Credential env wiring so Observe actually authenticates.** The composition's
+   Workspace now surfaces the cloud credentials as the standard provider env vars
+   (`HW_ACCESS_KEY` / `HW_SECRET_KEY` / `HW_PROJECT_ID` / `HW_REGION_NAME` / `HCLOUD_TOKEN`)
+   sourced from `flux-system/cloud-credentials` (real keys: Huawei `huawei-ak`/`-sk`/
+   `-project-id`/`-region`, Hetzner `hcloud-token`). Without this the Observe `data`
+   lookup had no credentials and could never reach `Synced`.
+
+3. **Bridge the real-id claims onto the cluster at Phase-1 (Break B).** The generator
+   wrote the real-id `adoption-claims.yaml` only into the mothership deploy workdir, which
+   the Sovereign's Flux (reconciling the static public `_template` placeholder) never reads.
+   `products/catalyst/bootstrap/api/internal/handler/post_handover_adoption_apply.go`
+   now re-generates from `terraform.tfstate` at the OutcomeReady terminal block and
+   **server-side-applies** the Observe-first CloudAdoption CRs straight onto the Sovereign
+   via the posted-back kubeconfig (retrying until the CRD registers), then deletes the
+   placeholder. Idempotent + non-fatal — adoption is a day-2 observability surface, never
+   on the bootstrap critical path.
+
+Shipped-via (#4212): `clusters/_template/infrastructure/hetzner/*` (native overlay split),
+the un-gated + Hetzner-overlay Kustomizations in `cloudinit-control-plane.tftpl`, the
+Workspace `env[]` block in `platform/crossplane-claims/chart/templates/compositions/
+cloudadoption.yaml`, and `handler/post_handover_adoption_apply.go` (the write-seam carrier).

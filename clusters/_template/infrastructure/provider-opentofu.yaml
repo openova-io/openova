@@ -37,12 +37,13 @@ spec:
 # cloud credentials it needs to run `tofu` against the real cloud APIs.
 #
 # The same `cloud-credentials` Secret (namespace flux-system) that
-# provider-hcloud's ProviderConfig consumes is mounted here as env so the
-# inline adoption modules can authenticate. The cloud-init Tofu module
-# plants this Secret (see provider-config-hcloud.yaml header) with keys:
+# provider-hcloud's ProviderConfig consumes is mounted here as env on the
+# CONTROLLER pod. NOTE: the live per-Workspace cloud auth is set by the
+# opentofu-cloud-adoption Composition's spec.forProvider.env[] (HW_*/
+# HCLOUD_*) — see provider-config-opentofu.yaml header — not by this
+# controller env. The cloud-init Tofu module plants the Secret with keys:
 #   hcloud-token        (Hetzner)
-#   huawei-access-key / huawei-secret-key / huawei-project-id (Huawei HCS)
-# The adoption Workspace reads whichever keys its module needs.
+#   huawei-ak / huawei-sk / huawei-project-id / huawei-region (Huawei HCS)
 apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
 metadata:

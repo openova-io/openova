@@ -74,13 +74,16 @@ func TestKustomizationTimeout_AllAtFiveMinutes(t *testing.T) {
 		}
 	}
 
-	// Expect exactly TWO operative timeout lines (bootstrap-kit +
-	// infrastructure-config). sovereign-tls + bootstrap-kit-crs are the
-	// `wait: false` async-applier tier and carry no timeout (#3845/#3888).
+	// Expect exactly THREE operative timeout lines: bootstrap-kit +
+	// infrastructure-config + infrastructure-config-hetzner (#4212). The
+	// last two are the Crossplane object-model layer — `wait: false`
+	// async-applier tier but each carries a 5m timeout so a stuck provider
+	// package install self-releases the revision lock on schedule.
+	// sovereign-tls + bootstrap-kit-crs carry no timeout (#3845/#3888).
 	// A higher count means a new health-gating Kustomization was added
 	// without updating this test — promote the new one into the spec by
 	// extending the wanted fixture; do not loosen the test.
-	const wantCount = 2
+	const wantCount = 3
 	if got := len(operativeTimeouts); got != wantCount {
 		t.Fatalf("expected exactly %d operative `timeout:` lines in cloud-init template (got %d): %v\n"+
 			"If a new health-gating Kustomization was added, extend this test to assert its timeout matches the others.",
@@ -141,7 +144,7 @@ func TestKustomizationTimeout_NoThirtyMinuteRegression(t *testing.T) {
 // This test catches a future "drive-by simplification" that flips
 // wait: false thinking it's harmless.
 //
-// EXCEPTIONS — two Kustomizations legitimately run `wait: false`:
+// EXCEPTIONS — these Kustomizations legitimately run `wait: false`:
 //   - `bootstrap-kit-crs` (#3804 / Refs #3642): carries the raw
 //     CRD-dependent CRs (HTTPRoute / ExternalSecret / CNPG `Cluster`)
 //     extracted out of the now-in-vCluster Helm charts. Those CRs reconcile
@@ -156,31 +159,48 @@ func TestKustomizationTimeout_NoThirtyMinuteRegression(t *testing.T) {
 //     gateway.networking.k8s.io CRDs register, then applies — with per-CR
 //     health (cert issuance, envoy restart) reconciling async, so `wait:
 //     false` is correct.
+//   - `infrastructure-config` + `infrastructure-config-hetzner`
+//     (#4212 / Refs #4002 #4018): the cross-cloud Crossplane object-model
+//     layer (provider-opentofu + the Observe-first CloudAdoption
+//     placeholder, plus the Hetzner-native provider-hcloud overlay). The
+//     Crossplane PROVIDER PACKAGE image pull is a day-2 surface and MUST
+//     NOT gate Phase-1 convergence (the sacred-thin cloud-init mandate +
+//     the #4049 cold-image-pull lesson: a slow ghcr/upbound pull would
+//     otherwise wedge the whole Sovereign for the 5m timeout each cycle).
+//     Nothing health-gating dependsOn these; the placeholder CloudAdoption
+//     applies immediately and the real-id claims are server-side-applied
+//     post-handover (handler/post_handover_adoption_apply.go). So `wait:
+//     false` is correct — the apply must succeed, the package health must
+//     not block.
 //
-// Both carry no `wait: true`, so the two load-bearing (health-gating)
-// Kustomizations are the ones asserted below.
+// Only bootstrap-kit remains health-gating with `wait: true` (it aggregates
+// the ~50 leaf-app HRs' Ready states), so exactly 1 `wait: true` is the
+// load-bearing assertion below.
 func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 	tpl := readCloudInit(t)
 
-	// We expect at least 2 `wait: true` lines (bootstrap-kit +
-	// infrastructure-config). Cheap presence-count rather than per-name
-	// extraction; combined with the timeout test above, a missing
-	// `wait: true` would mean the count drops below 2.
+	// We expect at least 1 `wait: true` line (bootstrap-kit). Cheap
+	// presence-count rather than per-name extraction; combined with the
+	// timeout test above, a missing `wait: true` would mean the count
+	// drops below 1. (infrastructure-config moved to wait:false in #4212 —
+	// see the allowlist below — so the prior count of 2 is now 1.)
 	const want = "wait: true"
 	count := strings.Count(tpl, want)
-	if count < 2 {
-		t.Errorf("expected `wait: true` on each of the 2 health-gating Kustomizations (got %d occurrences). Issue #492 fix is Option A (timeout reduction); Option B (wait: false) would break the dependsOn chain.", count)
+	if count < 1 {
+		t.Errorf("expected `wait: true` on the bootstrap-kit health-gating Kustomization (got %d occurrences). Issue #492 fix is Option A (timeout reduction); Option B (wait: false) would break the dependsOn chain.", count)
 	}
 
-	// NO operative `wait: false` EXCEPT on the two async-applier tiers.
+	// NO operative `wait: false` EXCEPT on the async-applier tiers below.
 	// Track the owning Kustomization via its metadata.name — recognised as
 	// the `name:` line whose previous non-comment line is `metadata:` (so
 	// the `sourceRef.name` / `dependsOn[].name` lines that also say "name:"
 	// don't shadow it). The allowlist is name-scoped, not a blanket
 	// relaxation. As with the 30m guard, comments are fine.
 	allowWaitFalseFor := map[string]bool{
-		"bootstrap-kit-crs": true, // #3804 / Refs #3642 — async CR applier
-		"sovereign-tls":     true, // #3845 / Refs #3888 — async wildcard-TLS applier
+		"bootstrap-kit-crs":             true, // #3804 / Refs #3642 — async CR applier
+		"sovereign-tls":                 true, // #3845 / Refs #3888 — async wildcard-TLS applier
+		"infrastructure-config":         true, // #4212 — Crossplane object-model layer (provider pull off the critical path)
+		"infrastructure-config-hetzner": true, // #4212 — Hetzner-native provider-hcloud overlay
 	}
 	currentName := ""
 	prevNonComment := ""

@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# clusters/_template/infrastructure/hetzner — the Hetzner-NATIVE Crossplane
+# provider overlay (Refs #1947 #4212).
+#
+# provider-hcloud + its ProviderConfig give Crossplane native day-2 CRUD
+# over Hetzner resources (Server / LoadBalancer / Network / Firewall via
+# the bp-crossplane-claims XRDs). It requires the `hcloud-token` key in the
+# flux-system/cloud-credentials Secret, which ONLY a Hetzner Sovereign's
+# cloud-init plants — so this overlay is installed by the Hetzner-only
+# `infrastructure-config-hetzner` Flux Kustomization, NOT the cloud-agnostic
+# base (../kustomization.yaml). On Huawei the cross-cloud provider-opentofu
+# in the base handles adoption; there is no Huawei-native provider package.
+resources:
+  - provider-hcloud.yaml
+  - provider-config-hcloud.yaml

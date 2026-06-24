@@ -35,7 +35,7 @@ Patches applied (idempotent merge-patch + Gitea YAML edit)
 The bootstrap-kit ships THREE Provider CRs that all carry
 `spec.package = xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0`:
 
-  - clusters/_template/infrastructure/provider-hcloud.yaml
+  - clusters/_template/infrastructure/hetzner/provider-hcloud.yaml  (#4212 — moved under hetzner/)
   - clusters/omantel.omani.works/infrastructure/provider-hcloud.yaml
   - clusters/otech.omani.works/infrastructure/provider-hcloud.yaml
 
@@ -254,9 +254,16 @@ data:
             # `grep -l` returns only filenames; `find` ensures we don't
             # pick up unrelated provider-* files elsewhere in the tree.
             edited=0
-            matches=$(find clusters -type f -path '*/infrastructure/provider-*.yaml' 2>/dev/null || true)
+            # #4212 — the cloud-agnostic restructure moved the _template
+            # provider-hcloud into clusters/_template/infrastructure/hetzner/.
+            # Match provider-*.yaml at ANY depth under an infrastructure/
+            # dir (two globs: direct child + one level deep) so the pivot
+            # catches both the per-Sovereign overlay copies (direct child)
+            # and the _template/.../hetzner/ overlay.
+            matches=$( { find clusters -type f -path '*/infrastructure/provider-*.yaml'; \
+                         find clusters -type f -path '*/infrastructure/*/provider-*.yaml'; } 2>/dev/null | sort -u || true)
             if [ -z "${matches}" ]; then
-              echo "[crossplane-provider-pivot] no clusters/*/infrastructure/provider-*.yaml present in mirror"
+              echo "[crossplane-provider-pivot] no clusters/*/infrastructure/**/provider-*.yaml present in mirror"
             else
               # Iterate, sed each file in-place. We escape `/` in the
               # upstream/target prefixes so they don't terminate sed's

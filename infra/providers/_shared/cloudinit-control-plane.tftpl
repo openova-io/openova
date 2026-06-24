@@ -886,14 +886,23 @@ write_files:
             # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
             # tofu var validation rejects "" and "local-path".
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
-%{ if provider == "hetzner" ~}
       ---
-      # infrastructure-config Kustomization — installs the Crossplane Provider
-      # + ProviderConfig + Compositions from clusters/_template/infrastructure.
-      # That tree currently ships ONLY hcloud manifests (provider-hcloud +
-      # provider-config-hcloud), so it is gated to Hetzner (hard dependency).
-      # Other clouds adopt Crossplane via the direct cloud-init apply of
-      # crossplane_provider_yaml (or skip it until their tree lands).
+      # infrastructure-config Kustomization — installs the CLOUD-AGNOSTIC
+      # Crossplane object-model layer from clusters/_template/infrastructure
+      # (#4212, un-gates #4002/#4018). The base ships provider-opentofu +
+      # provider-config-opentofu + the adoption-claims placeholder — all of
+      # which work on EVERY cloud (the Workspace inline module does read-only
+      # `data` lookups against Hetzner OR Huawei). Before #4212 this whole
+      # Kustomization was hard-gated to Hetzner, so on Huawei Crossplane
+      # owned nothing: `kubectl get providers.pkg.crossplane.io` was empty
+      # and `kubectl get cloudadoption -A` had not even the placeholder.
+      #
+      # wait:false — the provider-opentofu PACKAGE image pull is a day-2
+      # surface that must NEVER gate Phase-1 convergence (the cloud-init is
+      # the sacred thin foundation). The placeholder CloudAdoption applies
+      # immediately; the provisioner's post-handover adoption applier writes
+      # the real resource ids straight onto the cluster once Phase-1 is
+      # Ready (handler/post_handover_adoption_apply.go).
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
@@ -909,7 +918,7 @@ write_files:
         dependsOn:
           - name: bootstrap-kit
           - name: sovereign-tls
-        wait: true
+        wait: false
         timeout: 5m
         postBuild:
           substitute:
@@ -917,6 +926,32 @@ write_files:
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
+%{ if provider == "hetzner" ~}
+      ---
+      # infrastructure-config-hetzner Kustomization — installs the
+      # Hetzner-NATIVE provider-hcloud overlay (clusters/_template/
+      # infrastructure/hetzner). provider-hcloud gives Crossplane native
+      # day-2 CRUD over Hetzner resources and requires the `hcloud-token`
+      # key in flux-system/cloud-credentials, which ONLY a Hetzner
+      # Sovereign's cloud-init plants — hence Hetzner-gated. On Huawei the
+      # cross-cloud provider-opentofu in the base above handles adoption.
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: infrastructure-config-hetzner
+        namespace: flux-system
+      spec:
+        interval: 5m
+        path: ./clusters/_template/infrastructure/hetzner
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+          - name: infrastructure-config
+        wait: false
+        timeout: 5m
 %{ endif ~}
 
 runcmd:

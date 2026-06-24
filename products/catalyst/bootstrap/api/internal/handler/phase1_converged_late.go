@@ -103,6 +103,10 @@ func (h *Handler) runConvergedLateRescue(dep *Deployment) {
 	h.fireHandover(dep)
 	h.runHandoverJobSweep(dep)
 	go h.runPostHandoverPolicyEnforceFlip(dep)
+	// #4212 — apply the real-id Observe-first CloudAdoption claims on the
+	// converged-late path too (idempotent server-side-apply). See
+	// post_handover_adoption_apply.go.
+	go h.runPostHandoverAdoptionApply(dep)
 }
 
 // censusHelmReleases counts Ready=True vs total HelmReleases on the

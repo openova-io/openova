@@ -53,6 +53,45 @@ spec:
             name: default
           forProvider:
             source: Inline
+            # Cloud credentials surfaced to the tofu run as the standard
+            # provider env vars (#4212). The huaweicloud provider reads
+            # HW_ACCESS_KEY / HW_SECRET_KEY / HW_REGION_NAME / HW_PROJECT_ID
+            # when its args are omitted; hcloud reads HCLOUD_TOKEN. Sourced
+            # from the flux-system/cloud-credentials Secret the cloud-init
+            # plants (Hetzner: hcloud-token; Huawei: huawei-ak/-sk/-project-
+            # id/-region). Every secretKeyRef is `optional`-shaped by the
+            # provider — a Hetzner Sovereign (no huawei-* keys) leaves the
+            # HW_* vars empty, and the cloud var gates which data lookup runs,
+            # so the missing keys are inert. This is what lets the Observe
+            # data lookup actually AUTHENTICATE against the live cloud API —
+            # without it the Workspace tofu run has no credentials and the
+            # adoption never reaches Synced.
+            env:
+              - name: HW_ACCESS_KEY
+                secretKeyRef:
+                  namespace: flux-system
+                  name: cloud-credentials
+                  key: huawei-ak
+              - name: HW_SECRET_KEY
+                secretKeyRef:
+                  namespace: flux-system
+                  name: cloud-credentials
+                  key: huawei-sk
+              - name: HW_PROJECT_ID
+                secretKeyRef:
+                  namespace: flux-system
+                  name: cloud-credentials
+                  key: huawei-project-id
+              - name: HW_REGION_NAME
+                secretKeyRef:
+                  namespace: flux-system
+                  name: cloud-credentials
+                  key: huawei-region
+              - name: HCLOUD_TOKEN
+                secretKeyRef:
+                  namespace: flux-system
+                  name: cloud-credentials
+                  key: hcloud-token
             # The inline module is parameterised entirely by vars (patched
             # below). It does a `data` lookup ONLY — no managed resources —
             # so a `tofu apply` of this workspace mutates nothing.
@@ -95,21 +134,28 @@ spec:
 
               # ── Huawei (on-prem HCS) provider — custom per-service
               # endpoints + insecure TLS, mirroring infra/providers/huawei.
+              # access_key/secret_key/project_id are left to the HW_* env
+              # (set on the Workspace from cloud-credentials) when the vars
+              # are empty — the provider reads HW_ACCESS_KEY / HW_SECRET_KEY
+              # / HW_PROJECT_ID natively. region falls back to HW_REGION_NAME
+              # for the var-empty path, but the endpoints below need the
+              # literal region string, so we coalesce it locally.
               provider "huaweicloud" {
-                region     = var.huawei_region
-                access_key = var.huawei_access_key
-                secret_key = var.huawei_secret_key
-                project_id = var.huawei_project_id
+                region     = local.hw_region
+                access_key = var.huawei_access_key != "" ? var.huawei_access_key : null
+                secret_key = var.huawei_secret_key != "" ? var.huawei_secret_key : null
+                project_id = var.huawei_project_id != "" ? var.huawei_project_id : null
                 insecure   = tobool(var.huawei_insecure)
                 endpoints = {
-                  iam = "https://iam.${var.huawei_region}.kom4dc.nationalcloud.om"
-                  ecs = "https://ecs.${var.huawei_region}.kom4dc.nationalcloud.om"
-                  vpc = "https://vpc.${var.huawei_region}.kom4dc.nationalcloud.om"
-                  elb = "https://elb.${var.huawei_region}.kom4dc.nationalcloud.om"
+                  iam = "https://iam.${local.hw_region}.kom4dc.nationalcloud.om"
+                  ecs = "https://ecs.${local.hw_region}.kom4dc.nationalcloud.om"
+                  vpc = "https://vpc.${local.hw_region}.kom4dc.nationalcloud.om"
+                  elb = "https://elb.${local.hw_region}.kom4dc.nationalcloud.om"
                 }
               }
 
-              provider "hcloud" { token = var.hcloud_token }
+              # hcloud reads HCLOUD_TOKEN env when token is null.
+              provider "hcloud" { token = var.hcloud_token != "" ? var.hcloud_token : null }
 
               # ── Huawei data lookups (read-only) ──────────────────────
               data "huaweicloud_elb_loadbalancers" "hw" {
@@ -140,6 +186,13 @@ spec:
               }
 
               locals {
+                # The HCS per-service endpoints need the literal region
+                # string; var.huawei_region is patched from the claim's
+                # spec.parameters.region (or its me-east-215 default). The
+                # HW_REGION_NAME env covers the provider's own region arg
+                # for the var-empty path, but endpoints are string-built so
+                # they always use this local.
+                hw_region = var.huawei_region != "" ? var.huawei_region : "me-east-215"
                 observed_id = coalesce(
                   try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].id, ""),
                   try(data.huaweicloud_compute_instance.hw[0].id, ""),
