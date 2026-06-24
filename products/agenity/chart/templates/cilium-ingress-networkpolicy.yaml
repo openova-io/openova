@@ -1,0 +1,48 @@
+{{- /*
+#4180: the Cilium Gateway path to Agenity is DEAD without this CNP — once
+the HTTPRoute (templates/httproute.yaml) attaches `agenity.<slug>.<pool>`
+to cilium-gateway-console, every external hit returns envoy 503
+"upstream connect error ... connection timeout" until a
+CiliumNetworkPolicy admits the gateway traffic. Root cause (identical to
+platform/newapi cilium-ingress-networkpolicy.yaml #3374 +
+platform/wordpress-tenant #3785 + the sso-bridge kube-apiserver entity
+saga): Cilium Gateway API traffic reaches the backend with the reserved
+`ingress` ENTITY identity (the Envoy proxy embedded in the cilium agent),
+which NO K8s NetworkPolicy selector (podSelector / namespaceSelector /
+ipBlock) can express. A `namespaceSelector: kube-system` is INERT for
+gateway traffic — the connection times out.
+
+CiliumNetworkPolicy fromEntities is the canonical, ADDITIVE expression:
+when both a K8s NetworkPolicy and a CNP select the same Pod the allow-sets
+UNION, so this only opens the gateway→agenity hop and leaves every other
+default-deny posture intact. The Agenity StatefulSet has historically
+shipped NO NetworkPolicy at all (the pod was reachable only through the
+in-cluster Service for the rtz platform install), so on a per-Org
+(pool-domain) Sovereign install where the host route is the ONLY ingress
+path this carve-out is what makes the dashboard reachable.
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so
+the chart still installs on CRD-less clusters (kind CI), and on
+networkPolicy.ingress.allowGatewayEntity so a non-Cilium overlay can opt
+out.
+*/ -}}
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "agenity.fullname" . }}-gateway-ingress
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: agenity-gateway-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "agenity.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.port | quote }}
+              protocol: TCP
+{{- end }}

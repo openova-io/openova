@@ -968,6 +968,7 @@ func main() {
 					OpenClaw:  os.Getenv("CATALYST_ORG_BP_OPENCLAW_VER"),
 					Stalwart:  os.Getenv("CATALYST_ORG_BP_STALWART_VER"),
 					NewAPI:    os.Getenv("CATALYST_ORG_BP_NEWAPI_VER"),
+					Agenity:   os.Getenv("CATALYST_ORG_BP_AGENITY_VER"),
 				},
 			}
 			// DNS provisioner — wraps PowerDNS for free-subdomain

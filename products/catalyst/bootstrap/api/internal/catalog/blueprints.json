@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T18:56:05.652Z",
+  "generatedAt": "2026-06-24T00:49:28.745Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -11,7 +11,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.5.3",
+      "version": "0.5.4",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-external-secrets"
@@ -796,7 +796,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "section": "pts-9-disaster-recovery",
       "depends": [
         "bp-cnpg",
@@ -5511,7 +5511,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.4.12",
+      "version": "0.4.13",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-postgres",
