@@ -66,7 +66,18 @@ type: application
 # already grants coordination.k8s.io/leases — no chart RBAC change. New
 # CATALYST_LEASE_NS env (defaults to the controller namespace). Slot-62
 # pin moves to 0.1.8 in lockstep (Inviolable Principle #13).
-version: 0.1.8
+# 0.1.9 (#4257): NO source change — pure version bump to force Flux to
+# re-pull. The deploy-bot patched values.yaml image cf33522->9c91a7e
+# (the #4254 build) WITHOUT bumping the chart version, so GHCR
+# bp-continuum:0.1.8 was overwritten in place (digest 8207b07->c8e32e59).
+# Flux's ChartVersion reconcileStrategy already recorded release v2 at
+# 0.1.8 and refuses to re-pull the changed digest under the same version
+# (suspend/resume does not force it). The live omantel.biz Sovereign was
+# left running the stale cf33522 controller -> Continuum CR stuck
+# Degraded/leaseHolder-empty -> Topology DR undeliverable. Bumping to
+# 0.1.9 (image still 9c91a7e) forces the re-pull. Slot-62 pin moves to
+# 0.1.9 in lockstep (Inviolable Principle #13).
+version: 0.1.9
 appVersion: "0.1.0"
 home: https://openova.io
 sources:

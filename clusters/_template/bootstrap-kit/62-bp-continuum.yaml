@@ -137,7 +137,10 @@ spec:
       # PR #996), the 0.1.6 promoter would have failed on a real region-kill.
       # RBAC adds pods `delete` (the restart). Pin moves in lockstep
       # (Inviolable Principle #13).
-      version: 0.1.8
+      # 0.1.9 (#4257): pure version bump (image still 9c91a7e) to force
+      # Flux to re-pull — the 0.1.8 deploy-bot image-tag overwrite did not
+      # change the version so the #4254 k8s-lease controller never rolled.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
