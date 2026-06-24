@@ -1312,12 +1312,16 @@ func TestReconcile_PerOrgRealm_FinalizerTeardown(t *testing.T) {
 }
 
 // TestReconcileTenantConsoleTLS_IssuesCertAndAppendsListener covers
-// issue #4075: when an Org picks a free-subdomain hostname under a pool
-// parent zone, reconcileTenantConsoleTLS MUST (1) issue a cert-manager
-// Certificate for `*.<parentDomain>` via the DNS-01 ClusterIssuer and
-// (2) append a `*.<parentDomain>` HTTPS+HTTP listener pair to the
-// dedicated console Gateway WITHOUT touching the apex `*.<sovFQDN>`
-// listener. The append MUST be idempotent (a second pass is a no-op).
+// issues #4075/#4241: when an Org picks a free-subdomain hostname under a
+// pool parent zone, reconcileTenantConsoleTLS MUST (1) issue a cert-manager
+// Certificate for the 2-label SAN `*.<slug>.<parentDomain>` +
+// `<slug>.<parentDomain>` via the DNS-01 ClusterIssuer (the apex pool
+// wildcard `*.<parentDomain>` cannot cover the 2-label
+// `console.<slug>.<parentDomain>`) and (2) append a
+// `*.<slug>.<parentDomain>` HTTPS+HTTP listener pair to the dedicated
+// console Gateway WITHOUT touching the apex `*.<sovFQDN>` listener. The
+// append MUST be idempotent (a second pass is a no-op). The slug here is
+// the sampleOrg slug `acme`.
 func TestReconcileTenantConsoleTLS_IssuesCertAndAppendsListener(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
@@ -1364,24 +1368,28 @@ func TestReconcileTenantConsoleTLS_IssuesCertAndAppendsListener(t *testing.T) {
 		t.Errorf("pass 1: expected changed=true (cert + listeners written)")
 	}
 
-	// Assert the Certificate.
+	// Assert the per-Org Certificate: name org-wildcard-tls-<slug>-<parent>,
+	// 2-label SAN covering console.<slug>.<parent>.
 	cert := unstructured.Unstructured{}
 	cert.SetGroupVersionKind(certificateGVK)
-	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "kube-system", Name: "org-wildcard-tls-omani-homes"}, &cert); err != nil {
-		t.Fatalf("get Certificate org-wildcard-tls-omani-homes: %v", err)
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "kube-system", Name: "org-wildcard-tls-acme-omani-homes"}, &cert); err != nil {
+		t.Fatalf("get Certificate org-wildcard-tls-acme-omani-homes: %v", err)
 	}
 	dnsNames, _, _ := unstructured.NestedStringSlice(cert.Object, "spec", "dnsNames")
-	if len(dnsNames) != 2 || dnsNames[0] != "*.omani.homes" || dnsNames[1] != "omani.homes" {
-		t.Errorf("cert dnsNames: got %v, want [*.omani.homes omani.homes]", dnsNames)
+	if len(dnsNames) != 2 || dnsNames[0] != "*.acme.omani.homes" || dnsNames[1] != "acme.omani.homes" {
+		t.Errorf("cert dnsNames: got %v, want [*.acme.omani.homes acme.omani.homes]", dnsNames)
 	}
-	if secret, _, _ := unstructured.NestedString(cert.Object, "spec", "secretName"); secret != "org-wildcard-tls-omani-homes" {
-		t.Errorf("cert secretName: got %q, want org-wildcard-tls-omani-homes", secret)
+	if cn, _, _ := unstructured.NestedString(cert.Object, "spec", "commonName"); cn != "acme.omani.homes" {
+		t.Errorf("cert commonName: got %q, want acme.omani.homes", cn)
+	}
+	if secret, _, _ := unstructured.NestedString(cert.Object, "spec", "secretName"); secret != "org-wildcard-tls-acme-omani-homes" {
+		t.Errorf("cert secretName: got %q, want org-wildcard-tls-acme-omani-homes", secret)
 	}
 	if issuer, _, _ := unstructured.NestedString(cert.Object, "spec", "issuerRef", "name"); issuer != "letsencrypt-dns01-prod-powerdns" {
 		t.Errorf("cert issuerRef.name: got %q, want letsencrypt-dns01-prod-powerdns", issuer)
 	}
 
-	// Assert the Gateway listeners: apex preserved + two pool listeners.
+	// Assert the Gateway listeners: apex preserved + two per-Org listeners.
 	gotGW := unstructured.Unstructured{}
 	gotGW.SetGroupVersionKind(gatewayGVK)
 	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "kube-system", Name: "cilium-gateway-console"}, &gotGW); err != nil {
@@ -1399,20 +1407,20 @@ func TestReconcileTenantConsoleTLS_IssuesCertAndAppendsListener(t *testing.T) {
 	if _, ok := names["console-https"]; !ok {
 		t.Errorf("apex listener console-https was dropped — MUST be preserved (regression)")
 	}
-	httpsL, ok := names["pool-https-omani-homes"]
+	httpsL, ok := names["console-https-acme"]
 	if !ok {
-		t.Fatalf("pool HTTPS listener pool-https-omani-homes not appended")
+		t.Fatalf("per-Org HTTPS listener console-https-acme not appended")
 	}
-	if httpsL["hostname"] != "*.omani.homes" {
-		t.Errorf("pool HTTPS hostname: got %v, want *.omani.homes", httpsL["hostname"])
+	if httpsL["hostname"] != "*.acme.omani.homes" {
+		t.Errorf("per-Org HTTPS hostname: got %v, want *.acme.omani.homes", httpsL["hostname"])
 	}
 	tls := httpsL["tls"].(map[string]any)
 	refs := tls["certificateRefs"].([]any)
-	if len(refs) != 1 || refs[0].(map[string]any)["name"] != "org-wildcard-tls-omani-homes" {
-		t.Errorf("pool HTTPS certificateRefs: got %v, want secret org-wildcard-tls-omani-homes", refs)
+	if len(refs) != 1 || refs[0].(map[string]any)["name"] != "org-wildcard-tls-acme-omani-homes" {
+		t.Errorf("per-Org HTTPS certificateRefs: got %v, want secret org-wildcard-tls-acme-omani-homes", refs)
 	}
-	if _, ok := names["pool-http-omani-homes"]; !ok {
-		t.Errorf("pool HTTP listener pool-http-omani-homes not appended")
+	if _, ok := names["console-http-acme"]; !ok {
+		t.Errorf("per-Org HTTP listener console-http-acme not appended")
 	}
 
 	// Second pass: idempotent — no further change.
