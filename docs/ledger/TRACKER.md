@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T08:15:02Z` |
+| Last refreshed | `2026-06-24T08:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 19 |
+| Open issues | 20 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 20 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 19 open items (clickable table)
+### All 20 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -219,6 +219,7 @@ flowchart LR
 | [#4249](https://github.com/openova-io/openova/issues/4249) | bp-openclaw controller image does not exist — no controller source/Dockerfile/ | Other |
 | [#4250](https://github.com/openova-io/openova/issues/4250) | P1: demo Org app-namespace (org-7283eb4a) chronically torn down + recreated by o | Other |
 | [#4257](https://github.com/openova-io/openova/issues/4257) | fix(continuum): bp-continuum 0.1.8 mutable-tag overwrite blocks #4254 roll — b | Other |
+| [#4265](https://github.com/openova-io/openova/issues/4265) | org-provisioning: a corrupted/JSON-envelope parent org-tenants kustomization.yam | Other |
 
 ---
 
@@ -226,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T08:26 | [#4264](https://github.com/openova-io/openova/pull/4264) | #4180 | fix(bp-agenity): resync catalog-seed pin + generated catalog |
 | 2026-06-24T08:08 | [#4262](https://github.com/openova-io/openova/pull/4262) | #4249 | feat(bp-openclaw): build the missing openclaw-controller ima |
 | 2026-06-24T08:08 | [#4261](https://github.com/openova-io/openova/pull/4261) | #4111 | fix(bp-agenity): detect expired claude-code OAuth at seed +  |
 | 2026-06-24T07:56 | [#4260](https://github.com/openova-io/openova/pull/4260) | #4231 | fix(bp-catalyst-platform): high PriorityClass for catalyst-a |
@@ -255,7 +257,6 @@ flowchart LR
 | 2026-06-24T00:44 | [#4222](https://github.com/openova-io/openova/pull/4222) | #1 | fix(catalyst-api): org-tenant pool A-record writes target CE |
 | 2026-06-24T00:27 | [#4221](https://github.com/openova-io/openova/pull/4221) | #3914 | fix(console): wire orphan BootstrapProgress into /jobs — fil |
 | 2026-06-24T00:27 | [#4219](https://github.com/openova-io/openova/pull/4219) | #4179 | docs(uat): #4179 post-#4216-roll — pool host STILL NXDOMAIN, |
-| 2026-06-23T23:47 | [#4217](https://github.com/openova-io/openova/pull/4217) | #4179 | docs(uat): #4179 post-roll walk — redirect fix LIVE, row 86  |
 
 ---
 
