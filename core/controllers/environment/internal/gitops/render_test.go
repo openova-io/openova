@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
 )
 
 // Verify the env_type→branch mapping table, the load-bearing rule from
@@ -93,17 +93,20 @@ func TestRenderGitRepository_DeterministicAndComplete(t *testing.T) {
 	assert.Contains(t, body, "managed-by: environment-controller")
 }
 
-// Verify SecretRef omission renders an anonymous source.
-func TestRenderGitRepository_AnonymousWhenNoSecret(t *testing.T) {
-	body, err := RenderGitRepository(RenderInputs{
+// #4285 — a local-Gitea source with NO secretRef is now a hard render error,
+// not a silently-emitted anonymous source. bp-gitea REQUIRE_SIGNIN_VIEW=true
+// makes anonymous clone 401, so the env-controller must never author one.
+func TestRenderGitRepository_LocalGiteaWithoutSecretErrors(t *testing.T) {
+	_, err := RenderGitRepository(RenderInputs{
 		EnvName:         "acme-dev",
 		Namespace:       "flux-system",
 		RepoURL:         "https://gitea.hfmp.acme.openova.io/acme/acme-environment.git",
 		Branch:          "develop",
 		IntervalSeconds: 60,
+		// SecretRef intentionally empty — the exact #4285 leg-D defect.
 	})
-	require.NoError(t, err)
-	assert.NotContains(t, string(body), "secretRef")
+	require.Error(t, err, "local-Gitea source with empty secretRef must error")
+	require.Contains(t, err.Error(), "secretRef is empty")
 }
 
 // Verify default interval is applied when unspecified.

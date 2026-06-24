@@ -116,11 +116,14 @@ func loadConfigFromEnv() controller.Config {
 		FluxNamespace:       getEnvDefault("FLUX_NAMESPACE", "flux-system"),
 		FluxIntervalSeconds: getEnvIntDefault("FLUX_INTERVAL_SECONDS", 60),
 		GiteaPublicURL:      os.Getenv("GITEA_PUBLIC_URL"),
-		GiteaSecretRef:      getEnvDefault("GITEA_SECRET_REF", "gitea-flux-token"),
-		CommitAuthorName:    getEnvDefault("COMMIT_AUTHOR_NAME", "environment-controller"),
-		CommitAuthorEmail:   getEnvDefault("COMMIT_AUTHOR_EMAIL", "environment-controller@openova.io"),
-		EnvRepoSuffix:       getEnvDefault("ENV_REPO_SUFFIX", "-environment"),
-		RequeueAfter:        time.Duration(getEnvIntDefault("REQUEUE_AFTER_SECONDS", 300)) * time.Second,
+		// #4285 — default to the real shared Gitea basic-auth secret, NOT the
+		// phantom `gitea-flux-token` that no Job ever minted (leg D). The chart
+		// always sets GITEA_SECRET_REF; this binary default is defense-in-depth.
+		GiteaSecretRef:    getEnvDefault("GITEA_SECRET_REF", "openova-org-tenants-git-auth"),
+		CommitAuthorName:  getEnvDefault("COMMIT_AUTHOR_NAME", "environment-controller"),
+		CommitAuthorEmail: getEnvDefault("COMMIT_AUTHOR_EMAIL", "environment-controller@openova.io"),
+		EnvRepoSuffix:     getEnvDefault("ENV_REPO_SUFFIX", "-environment"),
+		RequeueAfter:      time.Duration(getEnvIntDefault("REQUEUE_AFTER_SECONDS", 300)) * time.Second,
 	}
 	return cfg.Defaults()
 }

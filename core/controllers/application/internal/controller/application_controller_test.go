@@ -352,6 +352,10 @@ func newReconciler(t *testing.T, fg *fakeGitea, objs ...*unstructured.Unstructur
 		HostFluxNamespace:       "flux-system",
 		GiteaInClusterURL:       "http://gitea.test.svc.cluster.local:3000",
 		HostFluxIntervalSeconds: 60,
+		// #4285 — the chart default is non-empty; the per-Application
+		// GitRepository targets the Sovereign-local Gitea, so a secretRef is
+		// mandatory (bp-gitea REQUIRE_SIGNIN_VIEW=true → anonymous clone 401).
+		FluxGiteaSecretRef: "openova-org-tenants-git-auth",
 	}, nil)
 }
 
@@ -982,6 +986,12 @@ func TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization(t *testing.T
 	if branch != "main" {
 		t.Errorf("GitRepository.spec.ref.branch = %q, want %q (envType=prod → branch=main)", branch, "main")
 	}
+	// #4285 — the per-Application source targets the Sovereign-local Gitea, so
+	// it MUST carry the configured secretRef (else bp-gitea
+	// REQUIRE_SIGNIN_VIEW=true returns 401 'authentication required').
+	if name, found, _ := unstructured.NestedString(gr.Object, "spec", "secretRef", "name"); !found || name != "openova-org-tenants-git-auth" {
+		t.Errorf("GitRepository.spec.secretRef.name = %q (found=%v), want openova-org-tenants-git-auth", name, found)
+	}
 	// NO ownerRef — cross-namespace ownerRefs would trigger the K8s GC
 	// to immediately delete the GitRepository (Application is in
 	// `acme`, GitRepository is in `flux-system`). Cross-namespace lookup
@@ -1030,6 +1040,52 @@ func TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization(t *testing.T
 	gotKsAppNS, _, _ := unstructured.NestedString(ks.Object, "metadata", "labels", "catalyst.openova.io/app-namespace")
 	if gotKsAppNS != "acme" {
 		t.Errorf("Kustomization missing catalyst.openova.io/app-namespace label = %q, want %q", gotKsAppNS, "acme")
+	}
+}
+
+// TestReconcile_HostFluxBootstrap_EmptySecretRefDegrades is the #4285 guard at
+// the application leg: when FluxGiteaSecretRef is empty the per-Application
+// GitRepository (a Sovereign-local Gitea source) MUST NOT be emitted anonymous
+// — the controller fails the reconcile (Degraded) so the misconfiguration is
+// LOUD, not a live 401 source. The chart default is non-empty; this proves the
+// guard fires if an operator ever blanks it.
+func TestReconcile_HostFluxBootstrap_EmptySecretRefDegrades(t *testing.T) {
+	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
+		[]string{"hetzner-fsn-rtz-prod"},
+		map[string]interface{}{"replicas": int64(1)})
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+
+	scheme := newScheme()
+	objsAny := []runtime.Object{app.DeepCopy(), env.DeepCopy(), org.DeepCopy(), bp.DeepCopy()}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKindMap(), objsAny...)
+	r := New(dyn, fg, fakeClassifier{}, Config{
+		GiteaPublicURL:             "https://gitea.test.openova.io",
+		HelmReleaseIntervalSeconds: 600,
+		SourceNamespace:            "flux-system",
+		CatalogSourceRef:           "openova-catalog",
+		HostFluxNamespace:          "flux-system",
+		GiteaInClusterURL:          "http://gitea.test.svc.cluster.local:3000",
+		HostFluxIntervalSeconds:    60,
+		// FluxGiteaSecretRef intentionally empty — the #4285 defect.
+	}, nil)
+
+	reconcileFromCluster(t, r, "acme", "site")
+	got := readApp(t, r, "acme", "site")
+	phase, _, message := readPhaseAndReason(t, got)
+	if phase != PhaseDegraded {
+		t.Fatalf("phase = %q, want %q when secretRef is empty (msg=%q)", phase, PhaseDegraded, message)
+	}
+	if !strings.Contains(message, "secretRef is empty") {
+		t.Errorf("Degraded message should cite the #4285 secretRef guard; got %q", message)
+	}
+	// And NO GitRepository should have been created.
+	if _, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+		Get(context.Background(), "catalyst-app-acme-site", metav1.GetOptions{}); err == nil {
+		t.Errorf("no GitRepository must be created when the secretRef guard fires")
 	}
 }
 

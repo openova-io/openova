@@ -79,7 +79,9 @@ spec:
                   key: gitea-public-url
                   optional: true
             - name: GITEA_SECRET_REF
-              value: {{ .Values.controllers.environment.giteaSecretRef | default "gitea-flux-token" | quote }}
+              # #4285 — default to the real shared Gitea basic-auth secret, NOT
+              # the phantom `gitea-flux-token` (no Job mints it). See values.yaml.
+              value: {{ .Values.controllers.environment.giteaSecretRef | default "openova-org-tenants-git-auth" | quote }}
             - name: FLUX_NAMESPACE
               value: {{ .Values.controllers.environment.fluxNamespace | default "flux-system" | quote }}
             - name: FLUX_INTERVAL_SECONDS

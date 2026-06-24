@@ -73,6 +73,9 @@ func TestReconcilePerOrgFlux_CreatesGitRepositoryAndKustomization(t *testing.T) 
 		FluxNamespace:       "flux-system",
 		FluxIntervalSeconds: 60,
 		Branch:              "main",
+		// #4285 — the chart default is non-empty; a local-Gitea source MUST
+		// carry a secretRef (bp-gitea REQUIRE_SIGNIN_VIEW=true → 401 anon).
+		FluxGiteaSecretRef: "openova-org-tenants-git-auth",
 	}
 	r.Client = cl
 
@@ -96,8 +99,9 @@ func TestReconcilePerOrgFlux_CreatesGitRepositoryAndKustomization(t *testing.T) 
 	if br != "main" {
 		t.Errorf("GitRepository spec.ref.branch = %q, want main", br)
 	}
-	if _, found, _ := unstructured.NestedMap(gr.Object, "spec", "secretRef"); found {
-		t.Errorf("GitRepository spec.secretRef must be absent when FluxGiteaSecretRef is empty")
+	// #4285 — secretRef is mandatory for the (Sovereign-local) per-Org source.
+	if name, found, _ := unstructured.NestedString(gr.Object, "spec", "secretRef", "name"); !found || name != "openova-org-tenants-git-auth" {
+		t.Errorf("GitRepository spec.secretRef.name = %q (found=%v), want openova-org-tenants-git-auth", name, found)
 	}
 	if org, _, _ := unstructured.NestedString(gr.Object, "metadata", "labels", "openova.io/organization"); org != slug {
 		t.Errorf("GitRepository missing openova.io/organization=%s label (got %q)", slug, org)
@@ -155,6 +159,25 @@ func TestReconcilePerOrgFlux_SecretRefWhenConfigured(t *testing.T) {
 	}
 }
 
+// TestReconcilePerOrgFlux_EmptySecretErrors is the #4285 guard at the org leg:
+// reconciling a per-Org Flux source against the Sovereign-local Gitea with an
+// empty FluxGiteaSecretRef MUST fail loudly (so a future forgotten chart
+// default fails CI / the reconcile, not live as a 401 source) rather than
+// emit a dead anonymous source.
+func TestReconcilePerOrgFlux_EmptySecretErrors(t *testing.T) {
+	const slug = "acme"
+	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
+	r := &Reconciler{
+		Log:               logr.Discard(),
+		GiteaInClusterURL: "http://gitea-http.gitea.svc.cluster.local:3000",
+		// FluxGiteaSecretRef intentionally empty — the #4285 defect.
+	}
+	r.Client = cl
+	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrg(slug)); err == nil {
+		t.Fatal("expected error for empty FluxGiteaSecretRef on local-Gitea source, got nil")
+	}
+}
+
 func TestReconcilePerOrgFlux_NoopWhenGiteaURLUnset(t *testing.T) {
 	const slug = "acme"
 	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
@@ -181,8 +204,9 @@ func TestReconcilePerOrgFlux_IdempotentSecondPass(t *testing.T) {
 	const slug = "acme"
 	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
 	r := &Reconciler{
-		Log:               logr.Discard(),
-		GiteaInClusterURL: "http://gitea-http.gitea.svc.cluster.local:3000",
+		Log:                logr.Discard(),
+		GiteaInClusterURL:  "http://gitea-http.gitea.svc.cluster.local:3000",
+		FluxGiteaSecretRef: "openova-org-tenants-git-auth", // #4285 — mandatory for local Gitea
 	}
 	r.Client = cl
 	ctx := context.Background()
@@ -218,6 +242,7 @@ func TestReconcile_WiresPerOrgFluxEndToEnd(t *testing.T) {
 	r.GiteaInClusterURL = "http://gitea-http.gitea.svc.cluster.local:3000"
 	r.FluxNamespace = "flux-system"
 	r.FluxIntervalSeconds = 60
+	r.FluxGiteaSecretRef = "openova-org-tenants-git-auth" // #4285 — mandatory for local Gitea
 
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "acme"},
@@ -241,8 +266,9 @@ func TestTeardownPerOrgFlux_DeletesBoth(t *testing.T) {
 	const slug = "acme"
 	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
 	r := &Reconciler{
-		Log:               logr.Discard(),
-		GiteaInClusterURL: "http://gitea-http.gitea.svc.cluster.local:3000",
+		Log:                logr.Discard(),
+		GiteaInClusterURL:  "http://gitea-http.gitea.svc.cluster.local:3000",
+		FluxGiteaSecretRef: "openova-org-tenants-git-auth", // #4285 — mandatory for local Gitea
 	}
 	r.Client = cl
 	ctx := context.Background()
