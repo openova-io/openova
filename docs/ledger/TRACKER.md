@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T00:30:09Z` |
+| Last refreshed | `2026-06-24T00:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T00:44 | [#4222](https://github.com/openova-io/openova/pull/4222) | #1 | fix(catalyst-api): org-tenant pool A-record writes target CE |
 | 2026-06-24T00:27 | [#4221](https://github.com/openova-io/openova/pull/4221) | #3914 | fix(console): wire orphan BootstrapProgress into /jobs — fil |
 | 2026-06-24T00:27 | [#4219](https://github.com/openova-io/openova/pull/4219) | #4179 | docs(uat): #4179 post-#4216-roll — pool host STILL NXDOMAIN, |
 | 2026-06-23T23:47 | [#4217](https://github.com/openova-io/openova/pull/4217) | #4179 | docs(uat): #4179 post-roll walk — redirect fix LIVE, row 86  |
@@ -256,7 +257,6 @@ flowchart LR
 | 2026-06-23T15:46 | [#4175](https://github.com/openova-io/openova/pull/4175) | #4160 | fix(catalog): regenerate stale catalog-gen — wordpress-tenan |
 | 2026-06-23T13:19 | [#4174](https://github.com/openova-io/openova/pull/4174) | #4118 | fix(ci): agenity-build smoke-gate must --entrypoint past the |
 | 2026-06-23T11:23 | [#4173](https://github.com/openova-io/openova/pull/4173) | #745 | fix(bp-agenity): no-cache SPA HTML + #4118 post-build smoke  |
-| 2026-06-23T11:13 | [#4172](https://github.com/openova-io/openova/pull/4172) | #3383 | fix(console): unblock sovereign-admin voucher issuance — dro |
 
 ---
 
