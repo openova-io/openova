@@ -20,6 +20,12 @@ on:
   push:
     paths:
       - 'products/catalyst/chart/templates/api-deployment.yaml'
+      # The test renders the template with `helm template` (the manifest
+      # under test carries structural `{{- with .Values… }}` blocks since
+      # #4102), so the chart's default values + metadata are inputs to the
+      # gate — a default-flip here must re-run it.
+      - 'products/catalyst/chart/values.yaml'
+      - 'products/catalyst/chart/Chart.yaml'
       - 'tests/integration/strategy-flip.yaml'
       - 'tests/integration/strategy-flip.sh'
       - 'docs/RUNBOOKS.md'
@@ -28,6 +34,8 @@ on:
   pull_request:
     paths:
       - 'products/catalyst/chart/templates/api-deployment.yaml'
+      - 'products/catalyst/chart/values.yaml'
+      - 'products/catalyst/chart/Chart.yaml'
       - 'tests/integration/strategy-flip.yaml'
       - 'tests/integration/strategy-flip.sh'
       - 'docs/RUNBOOKS.md'
@@ -41,6 +49,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up helm
+        # The strategy-flip runner renders the chart template with
+        # `helm template` before applying it — the manifest under test
+        # is a Helm template (structural `{{- with .Values… }}` blocks
+        # since #4102), not a plain manifest. Pin the same helm version
+        # the rest of this repo's chart workflows use.
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
 
       - name: Set up kind cluster
         uses: helm/kind-action@v1
