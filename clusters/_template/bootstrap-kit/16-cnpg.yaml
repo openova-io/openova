@@ -94,7 +94,12 @@ spec:
       # 1.0.11 (#4220): the webhook readiness-gate (Job/RBAC) + cert-bootstrap
       #         now SKIP rendering in webhook-less mode so the un-owned Helm-hook
       #         Job stops getting flux-managed-denied on per-Org installs.
-      version: 1.0.11
+      # 1.0.12 (#4226): stamp managed-by:flux on the two Helm-hook Jobs so the
+      #         PLATFORM (webhook-FULL) cnpg-system upgrade is admitted by the
+      #         flux-managed policy (the gate Job still renders here, unlike the
+      #         per-Org webhook-less case). Unblocks the bp-catalyst-platform
+      #         dependsOn → the #4222 catalyst-api roll → the #4179 funnel close.
+      version: 1.0.12
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg
