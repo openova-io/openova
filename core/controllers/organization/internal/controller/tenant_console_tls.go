@@ -1,40 +1,59 @@
-// tenant_console_tls.go — per-pool console-TLS reconciler (issue #4075).
+// tenant_console_tls.go — per-Org console-TLS reconciler (issues #4075, #4241).
 //
-// Problem (#4075, live on the permanent omantel.biz Sovereign, dep
+// Problem (#4075/#4241, live on the permanent omantel.biz Sovereign, dep
 // 4635277cae4ffed9): a customer Organization that picks a free-subdomain
-// hostname under a pool parent zone — e.g. `console.demo.omani.homes`
-// under the `omani.homes` org-pool parent — resolved in DNS to the
-// console LoadBalancer (212.72.24.33) but failed with
-// ERR_CONNECTION_CLOSED. Root cause: the bootstrap-rendered console
-// Cilium Gateway (clusters/_template/sovereign-tls/cilium-gateway-
-// console.yaml) carries ONLY the apex `*.<sovFQDN>` listener bound to
-// the apex wildcard Secret `sovereign-wildcard-tls-<sovFQDN-dashed>`.
-// There is NO `*.<parentDomain>` TLS Certificate and NO matching
-// listener, so a TLS ClientHello with SNI=console.<slug>.<parentDomain>
-// matches no listener → Envoy closes the connection before any HTTP is
-// exchanged. (`kubectl get certificate -A | grep <parentDomain>` = 0.)
+// hostname under a pool parent zone — e.g. `console.demo.omani.works`
+// under the `omani.works` org-pool parent — resolves in DNS to the
+// console LoadBalancer (212.72.24.33) and routes over HTTP, but the
+// HTTPS handshake fails the cert SAN match:
+//
+//	curl: (60) SSL: no alternative certificate subject name matches
+//	target host name 'console.demo.omani.works'
+//
+// Root cause (#4241): the bootstrap-rendered console Cilium Gateway
+// (clusters/_template/sovereign-tls/cilium-gateway-console.yaml) carries
+// the apex `*.<sovFQDN>` listener, and an earlier version of THIS
+// reconciler additionally appended a SHARED-pool `*.<parentDomain>`
+// (1-label) listener + cert. Neither covers the 2-label host
+// `console.<slug>.<parentDomain>`: Gateway-API hostname wildcards (and
+// Let's-Encrypt wildcard SANs) match exactly ONE label, so
+// `*.omani.works` can serve `f4179done.omani.works` but never
+// `console.f4179done.omani.works`. Every pool Org — including the BSS
+// `f4179walk` control — gets a SAN mismatch on its signed-in HTTPS
+// landing.
 //
 // The HTTPRoute alone (tenant_route.go) is necessary but NOT sufficient:
-// without the cert + listener the request never survives the TLS
-// handshake to reach a route. This reconciler supplies the two missing
-// pieces, idempotently and additively, whenever an Org sets
-// `spec.tenantPublic.parentDomain`:
+// without a SAN-matching cert + a matching listener, the request fails
+// the TLS handshake before any route is selected. This reconciler
+// supplies the two missing pieces, idempotently and additively,
+// whenever an Org sets `spec.tenantPublic.parentDomain` — issuing the
+// SAME per-Org cert/listener shape the catalyst-api BSS door already
+// emits (org_console_tls.go), so the funnel + BSS doors converge on
+// byte-identical resource names:
 //
-//  1. A cert-manager Certificate `org-wildcard-tls-<parentDomain-dashed>`
+//  1. A cert-manager Certificate `org-wildcard-tls-<slug>-<parent-dashed>`
 //     in the console Gateway's namespace, with dnsNames
-//     `*.<parentDomain>` + `<parentDomain>`, issued by the DNS-01
-//     ClusterIssuer (a wildcard SAN can ONLY be solved via DNS-01). The
-//     Certificate is shared by every Org under the same pool parent
-//     (one cert per parent zone, not per Org) so the Let's-Encrypt
-//     issuance count stays bounded regardless of Org count.
+//     `*.<slug>.<parentDomain>` + `<slug>.<parentDomain>`, issued by the
+//     DNS-01 ClusterIssuer (a wildcard SAN can ONLY be solved via
+//     DNS-01; the per-Org `*.<slug>` zone is solvable because #4236's
+//     org-controller already writes the `<slug>` A-record into the
+//     central pool zone). The 2-label `*.<slug>.<parent>` SAN is what
+//     covers `console.<slug>.<parent>` — the apex pool wildcard cannot.
 //
-//  2. A listener pair on the console Gateway — `pool-https-
-//     <parentDomain-dashed>` (HTTPS, terminates on the Secret above) and
-//     `pool-http-<parentDomain-dashed>` (HTTP) — hostnamed
-//     `*.<parentDomain>`, appended to the EXISTING listeners array
-//     WITHOUT touching the apex `*.<sovFQDN>` listeners. The append is
-//     idempotent: a listener whose name already exists is left
-//     untouched (no duplicate, no spec churn).
+//  2. A listener pair on the console Gateway — `console-https-<slug>`
+//     (HTTPS, terminates on the Secret above) and `console-http-<slug>`
+//     (HTTP) — hostnamed `*.<slug>.<parentDomain>`, appended to the
+//     EXISTING listeners array WITHOUT touching the apex `*.<sovFQDN>`
+//     listeners or any other Org's listeners. The append is idempotent:
+//     a listener whose name already exists is left untouched (no
+//     duplicate, no spec churn).
+//
+// Why per-Org (not one shared pool cert): the SAN must descend a label
+// per Org, so each Org needs its own cert + listener. The Let's-Encrypt
+// issuance count grows one cert per Org rather than one per pool zone —
+// acceptable for the funnel volume; if LE-throttled, the operator swaps
+// the pool TLD (omani.works ↔ omantel.biz) or points the issuer at the
+// staging ClusterIssuer for a demo (env-overridable, Principle #4).
 //
 // Why unstructured (not the cert-manager / gateway-api Go types): the
 // whole organization-controller already manipulates the Gateway-API
@@ -43,10 +62,10 @@
 // that discipline here — Certificate and Gateway are both written
 // through Unstructured.
 //
-// Per docs/INVIOLABLE-PRINCIPLES.md #4 every operationally-meaningful
-// value (Gateway name/namespace, ClusterIssuer, cert namespace, host
-// ports) flows through the Reconciler's env-configured fields — no
-// hardcoded names in the renderer.
+// Per docs/PRINCIPLES.md #4 every operationally-meaningful value (Gateway
+// name/namespace, ClusterIssuer, cert namespace, host ports) flows
+// through the Reconciler's env-configured fields — no hardcoded names in
+// the renderer.
 
 package controller
 
@@ -185,11 +204,42 @@ func (r *Reconciler) consoleUIBackend() (string, int32) {
 	return svc, port
 }
 
-// poolWildcardSecretName is the deterministic name of the per-pool
-// wildcard Certificate + Secret. One per parent zone (shared across all
-// Orgs under it). Mirrors the apex `sovereign-wildcard-tls-*` pattern.
-func poolWildcardSecretName(parentDomain string) string {
-	return "org-wildcard-tls-" + dnsDashed(parentDomain)
+// orgConsoleTLSNames bundles the deterministic per-Org resource names +
+// hosts the reconciler issues. Centralised so the cert secretName, the
+// listener certificateRef, the listener hostname, and the tests all agree
+// byte-for-byte — AND so they match the catalyst-api BSS-door emitter
+// (org_console_tls.go::orgConsoleTLSNames) exactly, the #4241 single-
+// source-of-truth consolidation: both doors render identically-named
+// resources, so whichever pipeline runs for a given Org, the gateway edge
+// sees one consistent cert/listener for `console.<slug>.<parent>`.
+type orgConsoleTLSNames struct {
+	Slug         string // org subdomain (tenantPublic.subdomain || spec.slug), lowercased
+	ParentDomain string // chosen org-pool parent (omani.works/homes/rest/trade)
+	WildcardHost string // *.<slug>.<parent>  — listener hostname + cert SAN (2-label)
+	OrgZone      string //  <slug>.<parent>   — cert CN + SAN
+	CertName     string // org-wildcard-tls-<slug>-<parent-dashed> (== secretName)
+	HTTPSName    string // console-https-<slug> — listener name
+	HTTPName     string // console-http-<slug>  — listener name
+}
+
+// orgConsoleTLSNamesFor computes the deterministic per-Org names from a
+// parentDomain + subdomain. The subdomain is the leftmost label of the
+// Org's public host (tenantPublic.subdomain, defaulting to spec.slug — the
+// same derivation tenant_route.go uses for the HTTPRoute hostname, so the
+// listener hostname + cert SAN + route host all line up).
+func orgConsoleTLSNamesFor(subdomain, parentDomain string) orgConsoleTLSNames {
+	slug := strings.ToLower(strings.TrimSpace(subdomain))
+	parent := strings.ToLower(strings.TrimSpace(parentDomain))
+	parentDashed := dnsDashed(parent)
+	return orgConsoleTLSNames{
+		Slug:         slug,
+		ParentDomain: parent,
+		WildcardHost: "*." + slug + "." + parent,
+		OrgZone:      slug + "." + parent,
+		CertName:     "org-wildcard-tls-" + slug + "-" + parentDashed,
+		HTTPSName:    "console-https-" + slug,
+		HTTPName:     "console-http-" + slug,
+	}
 }
 
 // reconcileTenantConsoleTLS issues the per-pool wildcard Certificate and
@@ -211,38 +261,57 @@ func (r *Reconciler) reconcileTenantConsoleTLS(ctx context.Context, org *orgapi.
 		return false, nil
 	}
 
-	certChanged, err := r.reconcilePoolWildcardCert(ctx, org, parentDomain)
-	if err != nil {
-		return false, fmt.Errorf("pool wildcard cert for %q: %w", parentDomain, err)
+	// Subdomain defaults to the Org slug — the SAME derivation
+	// tenant_route.go uses for the HTTPRoute hostname, so the per-Org cert
+	// SAN + listener hostname + route host all line up on
+	// `*.<slug>.<parent>` / `console.<slug>.<parent>`.
+	subdomain := strings.TrimSpace(org.Spec.TenantPublic.Subdomain)
+	if subdomain == "" {
+		subdomain = org.Spec.Slug
 	}
-	listenerChanged, err := r.ensureConsolePoolListener(ctx, parentDomain)
+	if strings.TrimSpace(subdomain) == "" {
+		// No slug at all — cannot form a 2-label host. No-op (the Org's
+		// other reconcile outputs still land); a later pass with a slug
+		// set re-runs this.
+		return false, nil
+	}
+	names := orgConsoleTLSNamesFor(subdomain, parentDomain)
+
+	certChanged, err := r.reconcileOrgWildcardCert(ctx, org, names)
 	if err != nil {
-		return certChanged, fmt.Errorf("console listener for %q: %w", parentDomain, err)
+		return false, fmt.Errorf("org wildcard cert for %q: %w", names.WildcardHost, err)
+	}
+	listenerChanged, err := r.ensureConsoleOrgListener(ctx, names)
+	if err != nil {
+		return certChanged, fmt.Errorf("console listener for %q: %w", names.WildcardHost, err)
 	}
 	return certChanged || listenerChanged, nil
 }
 
-// reconcilePoolWildcardCert create-or-updates the cert-manager
-// Certificate for `*.<parentDomain>`. Idempotent: re-applies the desired
-// spec on every pass (cert-manager treats an unchanged spec as a no-op,
-// so this does not trigger re-issuance).
-func (r *Reconciler) reconcilePoolWildcardCert(ctx context.Context, org *orgapi.Organization, parentDomain string) (bool, error) {
+// reconcileOrgWildcardCert create-or-updates the per-Org cert-manager
+// Certificate for `*.<slug>.<parentDomain>` + `<slug>.<parentDomain>`
+// (the 2-label SAN that covers `console.<slug>.<parentDomain>` — the
+// apex pool wildcard `*.<parentDomain>` cannot, #4241). Idempotent:
+// re-applies the desired spec only when it drifts (cert-manager treats
+// an unchanged spec as a no-op, so this does not trigger re-issuance).
+func (r *Reconciler) reconcileOrgWildcardCert(ctx context.Context, org *orgapi.Organization, names orgConsoleTLSNames) (bool, error) {
 	ns := r.consoleTLSCertNamespace()
-	name := poolWildcardSecretName(parentDomain)
+	name := names.CertName
 
 	labels := map[string]string{
-		"app.kubernetes.io/managed-by":    "catalyst",
-		"openova.io/managed-by":           "organization-controller",
-		"openova.io/sovereign":            org.Spec.SovereignRef,
-		"catalyst.openova.io/component":   "cilium-gateway-console",
-		"catalyst.openova.io/parent-zone": parentDomain,
+		"app.kubernetes.io/managed-by":      "catalyst",
+		"openova.io/managed-by":             "organization-controller",
+		"openova.io/sovereign":              org.Spec.SovereignRef,
+		"catalyst.openova.io/component":     "cilium-gateway-console",
+		"catalyst.openova.io/parent-zone":   names.ParentDomain,
+		"catalyst.openova.io/org-subdomain": names.Slug,
 	}
 
 	desiredSpec := map[string]any{
-		"commonName": parentDomain,
+		"commonName": names.OrgZone,
 		"dnsNames": []any{
-			"*." + parentDomain,
-			parentDomain,
+			names.WildcardHost,
+			names.OrgZone,
 		},
 		"secretName": name,
 		"issuerRef": map[string]any{
@@ -287,20 +356,24 @@ func (r *Reconciler) reconcilePoolWildcardCert(ctx context.Context, org *orgapi.
 	return true, nil
 }
 
-// ensureConsolePoolListener appends the `*.<parentDomain>` HTTPS+HTTP
-// listener pair to the console Gateway if (and only if) listeners with
-// those names don't already exist. The append is strictly additive — it
-// reads the live listeners array, leaves every existing entry byte-for-
-// byte intact, and writes back the array with the two new entries
-// appended. A second pass with both names already present is a no-op.
-func (r *Reconciler) ensureConsolePoolListener(ctx context.Context, parentDomain string) (bool, error) {
+// ensureConsoleOrgListener appends the per-Org `*.<slug>.<parentDomain>`
+// HTTPS+HTTP listener pair to the console Gateway if (and only if)
+// listeners with those names don't already exist. The append is strictly
+// additive — it reads the live listeners array, leaves every existing
+// entry byte-for-byte intact (the apex `*.<sovFQDN>` pair AND every other
+// Org's per-Org listeners), and writes back the array with the two new
+// entries appended. A second pass with both names already present is a
+// no-op. The listener names (`console-https-<slug>` / `console-http-<slug>`)
+// and the `*.<slug>.<parent>` hostname match the catalyst-api BSS-door
+// emitter byte-for-byte (#4241), so whichever door provisions a given Org,
+// the gateway edge converges on one consistent listener.
+func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgConsoleTLSNames) (bool, error) {
 	gwNS := r.consoleGatewayNamespace()
 	gwName := r.consoleGatewayName()
-	dashed := dnsDashed(parentDomain)
-	httpsName := "pool-https-" + dashed
-	httpName := "pool-http-" + dashed
-	hostname := "*." + parentDomain
-	secretName := poolWildcardSecretName(parentDomain)
+	httpsName := names.HTTPSName
+	httpName := names.HTTPName
+	hostname := names.WildcardHost
+	secretName := names.CertName
 
 	gw := unstructured.Unstructured{}
 	gw.SetGroupVersionKind(gatewayGVK)
