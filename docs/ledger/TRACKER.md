@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T00:00:07Z` |
+| Last refreshed | `2026-06-24T00:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 18 |
+| Open issues | 19 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 18 open items (clickable table)
+### All 19 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,6 +218,7 @@ flowchart LR
 | [#4206](https://github.com/openova-io/openova/issues/4206) | Secondary region: per-app CNPG PVCs (guacamole-pg/gitea-pg/harbor-pg) stuck Pend | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: light the object-model/DR backbone at runtime — ONE build (un-gate Cross | Other |
 | [#4215](https://github.com/openova-io/openova/issues/4215) | FUNNEL DNS: org-tenant PowerDNS provisioner permanently no-op'd — new Orgs nev | Other |
+| [#4218](https://github.com/openova-io/openova/issues/4218) | FUNNEL DNS layer-2: org-tenant pool A-record STILL unwritten after #4216 — key | Other |
 
 ---
 
@@ -227,6 +228,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-06-23T23:47 | [#4217](https://github.com/openova-io/openova/pull/4217) | #4179 | docs(uat): #4179 post-roll walk — redirect fix LIVE, row 86  |
 | 2026-06-23T23:46 | [#4216](https://github.com/openova-io/openova/pull/4216) | #4179 | fix(funnel): org-tenant DNS provisioner reads CATALYST_POWER |
+| 2026-06-24T00:12 | [#4214](https://github.com/openova-io/openova/pull/4214) | #4206 | fix(d31): name CNPG storageClass + decode Gitea contents env |
 | 2026-06-23T23:06 | [#4213](https://github.com/openova-io/openova/pull/4213) | #1 | fix(funnel): bump orgTag d3c55b4→c3b2736 — roll the merged # |
 | 2026-06-23T22:51 | [#4211](https://github.com/openova-io/openova/pull/4211) | #4192 | docs(walk): goal#4 demo-user 7283eb4a RBAC walk — own apps + |
 | 2026-06-23T22:18 | [#4210](https://github.com/openova-io/openova/pull/4210) | #4200 | docs(walk): post-P0 signed-in console walk evidence (dashboa |
@@ -254,7 +256,6 @@ flowchart LR
 | 2026-06-23T11:13 | [#4172](https://github.com/openova-io/openova/pull/4172) | #3383 | fix(console): unblock sovereign-admin voucher issuance — dro |
 | 2026-06-23T11:15 | [#4171](https://github.com/openova-io/openova/pull/4171) | #4169 | fix(bp-newapi): per-Org install no longer clobbers Sovereign |
 | 2026-06-23T10:51 | [#4168](https://github.com/openova-io/openova/pull/4168) | #3383 | fix(marketplace): eradicate 'Tenant' banned-term from the st |
-| 2026-06-23T08:16 | [#4166](https://github.com/openova-io/openova/pull/4166) | #4002 | docs(uat): re-walk rows 206/207 (#4002 Crossplane) — ⛔ featu |
 
 ---
 
