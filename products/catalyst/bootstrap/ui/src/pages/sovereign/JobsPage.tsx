@@ -59,6 +59,8 @@ import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import type { Job } from '@/lib/jobs.types'
 import { HandoverRedirectBanner } from './HandoverRedirectBanner'
 import { HANDOVER_REDIRECT_BANNER_CSS } from './HandoverRedirectBanner.css'
+import { BootstrapProgress } from '@/widgets/bootstrap-progress/BootstrapProgress'
+import { useProvisioningStream } from '@/shared/lib/useProvisioningStream'
 
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -72,12 +74,21 @@ interface JobsPageProps {
    * or window.location. Production call sites never set this.
    */
   disableHandoverAutoRedirect?: boolean
+  /**
+   * Test seam — disables the BootstrapProgress EventSource attach (the
+   * second SSE that drives the per-phase provisioning timeline). The
+   * widget DOM still renders from its initial all-pending phase map so
+   * tests can assert its presence without booting EventSource in jsdom.
+   * Production call sites never set this.
+   */
+  disableBootstrapProgress?: boolean
 }
 
 export function JobsPage({
   disableStream = false,
   disableJobsBackfill = false,
   disableHandoverAutoRedirect = false,
+  disableBootstrapProgress = false,
 }: JobsPageProps = {}) {
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = resolvedId ?? ''
@@ -116,6 +127,34 @@ export function JobsPage({
     enabled: !disableJobsBackfill,
     disablePolling: disableJobsBackfill || (!inFlight && !isSovereignMode),
   })
+
+  // #3914 — fill the ~30-min "Provision <provider>: Success" void. The
+  // BootstrapProgress widget renders a live per-phase timeline (the 5
+  // OpenTofu checkpoints + the 11 bootstrap-kit components) driven by the
+  // SAME catalyst-api SSE log channel the jobs surface streams from. It
+  // gives the operator continuous motion — "Nodes booting · cloud-init",
+  // "k3s up · kubeconfig received", "Flux installing — Cilium … Catalyst
+  // Platform" — during the gap between tofu-apply finishing and the
+  // in-cluster HelmReleases reconciling, instead of a static Success badge
+  // over a silent half-hour.
+  //
+  // Gated to the live mothership provisioning window: the mothership owns
+  // the /provision/<id>/jobs surface during Phase 0/1, so we attach the
+  // stream only while the deployment is in-flight on the mothership. On a
+  // chrooted Sovereign (post-handover, frozen snapshot) the phase timeline
+  // is historical, so we don't re-open the stream there.
+  // DOM visibility: the timeline shows whenever a mothership prov is
+  // in-flight, even under the test seams (it then renders its initial
+  // all-pending phase map). The live SSE attach is gated separately so
+  // jsdom tests can mount the widget without an EventSource polyfill.
+  const showBootstrapProgress =
+    !!deploymentId && inFlight && !isSovereignMode && !disableBootstrapProgress
+  const bootstrapStreamURL =
+    showBootstrapProgress && !disableStream
+      ? `/v1/deployments/${encodeURIComponent(deploymentId)}/logs`
+      : null
+  const { phases: bootstrapPhases, activePhase } =
+    useProvisioningStream(bootstrapStreamURL)
 
   // ONE honest list: the backend payload wins outright. The reducer tail
   // is shown only before the first live fetch returns (waterfall paint),
@@ -165,6 +204,23 @@ export function JobsPage({
           <span className="text-[var(--color-accent)] font-semibold">Live state stream re-attached.</span>{' '}
           Refreshing from the catalyst-api every 5s.
         </div>
+      ) : null}
+
+      {/* #3914 — live "Bootstrapping cluster" timeline. Fills the ~30-min
+          void between "Provision <provider>: Success" and the in-cluster
+          convergence so the operator watches cloud-init → k3s → Flux →
+          per-component install in real time instead of a static badge. */}
+      {showBootstrapProgress ? (
+        <section
+          data-testid="sov-jobs-bootstrap-progress"
+          aria-label="Live provisioning progress"
+          className="mt-4 rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-1)] p-2"
+        >
+          <BootstrapProgress
+            phases={bootstrapPhases}
+            focusedPhaseId={activePhase}
+          />
+        </section>
       ) : null}
 
       <div className="mt-6" data-testid="sov-jobs-list">
