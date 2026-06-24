@@ -123,7 +123,24 @@ func zoneCanonical(zone string) string {
 // OrganizationDNSProvisioner. Wraps a PowerDNSWriter for free-subdomain
 // writes and net.LookupCNAME for BYO validation.
 type DefaultOrganizationDNSProvisioner struct {
+	// Writer — the LOCAL PowerDNS REST client (the Sovereign's own
+	// in-cluster powerdns.powerdns.svc), authoritative ONLY for the
+	// Sovereign's own FQDN (e.g. omantel.biz). Used for free-subdomain
+	// writes when the parent zone is the Sovereign's own domain
+	// (single-domain Sovereign / Catalyst-Zero back-compat) and never
+	// for the shared omani.* pool zones — those live on a separate
+	// authoritative server (see PoolWriter).
 	Writer *PowerDNSWriter
+	// PoolWriter — the CENTRAL PowerDNS REST client (pdns.openova.io),
+	// authoritative for the shared subdomain-pool zones (omani.works,
+	// omani.homes, omani.rest, omani.trade). On a production Sovereign
+	// the marketplace runs on the Sovereign FQDN while Orgs provision on
+	// SEPARATE pool domains; their `console.<slug>.<pool>` A-record MUST
+	// be written to the central server, not the Sovereign-local one
+	// (which has no pool zone → PATCH 404). When set, ProvisionFreeSubdomain
+	// prefers this writer; nil falls back to Writer (the single-PowerDNS
+	// Sovereign where the pool IS the local zone). #4218.
+	PoolWriter *PowerDNSWriter
 	// Resolver — net resolver used for BYO CNAME lookups. Defaults to
 	// net.DefaultResolver; tests inject a stub that returns canned
 	// responses without hitting the live DNS root.
@@ -144,8 +161,16 @@ type Resolver interface {
 // parentZone is operator-supplied (one of the Sovereign's
 // role:org-pool entries) — never inferred from a hardcoded OTECHFQDN.
 func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error {
-	if p.Writer == nil {
-		return errors.New("powerdns writer not wired (CATALYST_POWERDNS_API_URL / CATALYST_POWERDNS_API_KEY)")
+	// #4218: pool-domain console A-records (omani.*) live on the CENTRAL
+	// authoritative PowerDNS (pdns.openova.io), not the Sovereign-local
+	// one. Prefer PoolWriter when wired; fall back to the local Writer for
+	// the single-PowerDNS Sovereign where the pool IS the local zone.
+	writer := p.Writer
+	if p.PoolWriter != nil {
+		writer = p.PoolWriter
+	}
+	if writer == nil {
+		return errors.New("powerdns writer not wired (CATALYST_POWERDNS_API_URL / CATALYST_POWERDNS_API_KEY, or CATALYST_POOL_POWERDNS_API_URL / CATALYST_POOL_POWERDNS_API_KEY)")
 	}
 	if strings.TrimSpace(ingressIPv4) == "" {
 		return errors.New("otech ingress IPv4 unconfigured")
@@ -182,7 +207,7 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 			},
 		})
 	}
-	return p.Writer.PatchRRSets(ctx, zone, rrsets)
+	return writer.PatchRRSets(ctx, zone, rrsets)
 }
 
 // ValidateBYOCNAME implements OrganizationDNSProvisioner. Resolves

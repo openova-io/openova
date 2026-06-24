@@ -1253,6 +1253,64 @@ func TestProvisionFreeSubdomain_WritesWildcardREPLACE(t *testing.T) {
 	}
 }
 
+// TestProvisionFreeSubdomain_PrefersPoolWriter locks the #4218 fix: when a
+// dedicated PoolWriter (central pdns.openova.io) is wired, the pool-domain
+// console A-record write MUST go to the pool server, NOT the Sovereign-local
+// Writer (powerdns.powerdns.svc) — which has no omani.* zone and would 404.
+// The local Writer must receive ZERO requests for this pool write.
+func TestProvisionFreeSubdomain_PrefersPoolWriter(t *testing.T) {
+	var localHits, poolHits int
+	localSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		localHits++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer localSrv.Close()
+	var poolBody string
+	poolSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		poolHits++
+		poolBody = readAll(r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer poolSrv.Close()
+
+	p := DefaultOrganizationDNSProvisioner{
+		Writer:     NewPowerDNSWriter(localSrv.URL, "local-key"),
+		PoolWriter: NewPowerDNSWriter(poolSrv.URL, "central-key"),
+	}
+	if err := p.ProvisionFreeSubdomain(context.Background(), "f4179close", "omani.works", "212.72.24.33"); err != nil {
+		t.Fatalf("ProvisionFreeSubdomain: %v", err)
+	}
+	if poolHits != 1 {
+		t.Errorf("expected exactly 1 write to the CENTRAL pool pdns, got %d", poolHits)
+	}
+	if localHits != 0 {
+		t.Errorf("regression (#4218): pool-domain write leaked to the Sovereign-LOCAL pdns (%d hits) — would 404 (no omani.works zone)", localHits)
+	}
+	if !strings.Contains(poolBody, `"name":"console.f4179close.omani.works."`) {
+		t.Errorf("central pdns did not receive the console A record\nbody: %s", poolBody)
+	}
+}
+
+// TestProvisionFreeSubdomain_FallsBackToLocalWriter locks the single-PowerDNS
+// Sovereign back-compat path: with no PoolWriter wired, the free-subdomain
+// write uses the local Writer (the pool IS the local zone there).
+func TestProvisionFreeSubdomain_FallsBackToLocalWriter(t *testing.T) {
+	var localHits int
+	localSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		localHits++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer localSrv.Close()
+
+	p := DefaultOrganizationDNSProvisioner{Writer: NewPowerDNSWriter(localSrv.URL, "local-key")}
+	if err := p.ProvisionFreeSubdomain(context.Background(), "demo", "t01.omani.works", "212.72.24.33"); err != nil {
+		t.Fatalf("ProvisionFreeSubdomain: %v", err)
+	}
+	if localHits != 1 {
+		t.Errorf("expected the single-PowerDNS fallback to write to the local pdns, got %d hits", localHits)
+	}
+}
+
 // Read-once ioutil-equivalent helper for body inspection in tests.
 func readAll(r io.Reader) string {
 	b, _ := io.ReadAll(r)

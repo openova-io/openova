@@ -297,6 +297,33 @@ keycloakHostBridge:
   bitnamiSecretNamespace: mgmt
   bitnamiSecretName: keycloak-x-keycloak-x-mgmt-vcluster
   masterAdminUser: admin
+# ─── Pool-domain PowerDNS credential bridge (#4218) ────────────────────
+# The org-tenant DNS provisioner writes the per-Org pool subdomain A-record
+# (console.<slug>.<omani-pool>) on the CENTRAL authoritative PowerDNS
+# (pdns.openova.io), NOT the Sovereign-LOCAL one. It needs the CENTRAL pool
+# key in `catalyst-system` (catalyst-api's namespace). That key lives on every
+# Sovereign as `cert-manager/powerdns-api-credentials` (the ${POWERDNS_API_KEY}
+# central key) but is NOT present in catalyst-system. This bridge ships a
+# reflector PULL-stub that renames + mirrors it as
+# `catalyst-system/pool-powerdns-api-credentials`, which the catalyst-api
+# Deployment consumes via CATALYST_POOL_POWERDNS_API_KEY (optional secretKeyRef).
+# See templates/pool-powerdns-credentials-host-bridge.yaml for the full rationale.
+poolPowerdnsBridge:
+  # Master gate. true on a franchised Sovereign (the omani.* funnel runs
+  # there). Flip false on Catalyst-Zero / contabo (no separate central pool
+  # key to pull; no pool funnel).
+  enabled: true
+  # Source — the CENTRAL pdns.openova.io key, seeded into cert-manager by the
+  # sovereign-tls Kustomization (clusters/_template/sovereign-tls/
+  # powerdns-api-credentials.yaml). That source carries the matching
+  # reflection-allowed opt-in for catalyst-system.
+  sourceNamespace: cert-manager
+  sourceSecretName: powerdns-api-credentials
+  # Destination — catalyst-api's namespace + a NAME distinct from the
+  # Sovereign-LOCAL `powerdns-api-credentials` so the local-vs-central write
+  # targets stay unambiguous.
+  destNamespace: catalyst-system
+  destSecretName: pool-powerdns-api-credentials
 # ─── Gitea admin-secret host bridge (#3811, Refs #3642) ────────────────
 # #3642 moved bp-gitea INTO the mgmt vCluster (vc-mgmt). The gitea chart's
 # `gitea-admin-secret` (templates/admin-secret.yaml, random `randAlphaNum
