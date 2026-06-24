@@ -24,15 +24,20 @@ env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/openova-io/bp-agenity
   # Pin the PUBLIC agenity (chepherd daemon) SOURCE ref the Containerfile
-  # builds from. Never floating main: pinned to the #745 merge COMMIT SHA —
-  # the NEW agenity dashboard (main HEAD as of 2026-06-22). v0.9.4 (prior
-  # pin) predated #745 and served the OLD dashboard. No tag exists for the
-  # merge yet; the Containerfile's fetch stage accepts a full SHA. Carries
-  # the bp-agenity MCP seam (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON
-  # + CHEPHERD_DEFAULT_MODEL). The old private base image
+  # builds from. Never floating main: pinned to a COMMIT SHA on agenity main.
+  # Pinned to the agenity-org/agenity#752 merge COMMIT (main HEAD as of
+  # 2026-06-24) — promotes the WORKSPACES (v0.9.4) dashboard to /app. The
+  # prior pin (bcd38b1, the #745 merge) BUILT the new dashboard at /v0.9.4
+  # but /app still mounted the archaic single-column Dashboard.svelte, AND
+  # #750/#751 then deleted the workspaces tree entirely. #752 restores that
+  # tree and wires /app → Dashboardws, so the agenity host serves the
+  # workspaces UI at /app/ directly. No tag exists for the merge yet; the
+  # Containerfile's fetch stage accepts a full SHA. Carries the bp-agenity
+  # MCP seam (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON +
+  # CHEPHERD_DEFAULT_MODEL). The old private base image
   # (ghcr.io/agenity-org/chepherd) is GONE — built from source, no private
   # cross-org dep (#4097). Overridable via the workflow_dispatch input.
-  AGENITY_REF: bcd38b15816694e82bddbbc9d6385ff3de00e3cf
+  AGENITY_REF: 5620ad668197f146dc529c4f18f932371249cb72
 
 permissions:
   contents: read
@@ -125,20 +130,32 @@ jobs:
           echo "::group::agent runtime (node + claude-code)"
           docker run --rm --entrypoint sh "$IMG" -c 'node --version && /usr/bin/claude --version'
           echo "::endgroup::"
-          echo "::group::dashboard bundle is the NEW (#745) build"
-          # The /app/ SPA must mount a content-hashed Dashboard component (a
-          # stale/empty web layer would have no such reference) …
+          echo "::group::/app serves the WORKSPACES (v0.9.4) dashboard (#4180/#752)"
+          # The decisive archaic-vs-new check for THE ROUTE THE USER LOADS:
+          # /app/index.html must mount the WORKSPACES component bundle
+          # (Dashboardws.*.js), NOT the old single-column Dashboard.*.js. The
+          # prior gate accepted any `Dashboard[a-z]*` hash — which the archaic
+          # Dashboard.*.js ALSO matched — so a build that built the new
+          # dashboard at /v0.9.4 but left /app wired to the old one passed
+          # GREEN (the exact #4180 bug). Require the `ws` suffix explicitly.
           docker run --rm --entrypoint grep "$IMG" \
-            -qE '_astro/Dashboard[a-z]*\.[A-Za-z0-9_-]+\.js' /app/web/dist/app/index.html \
-            || { echo "FAIL: /app/index.html does not reference a hashed Dashboard bundle — stale/empty web layer"; exit 1; }
-          # … and the dist MUST carry the #745-era routes the OLD (pre-#745,
-          # archaic) dashboard did NOT have. This is the decisive archaic-vs-new
-          # discriminator: a cache-served old web layer fails HERE, before push.
+            -qE '_astro/Dashboardws\.[A-Za-z0-9_-]+\.js' /app/web/dist/app/index.html \
+            || { echo "FAIL: /app/index.html does NOT mount the workspaces Dashboardws bundle — /app is still wired to the ARCHAIC single-column dashboard (#4180)"; exit 1; }
+          # And the archaic single-column Dashboard.*.js must NOT be what /app
+          # loads (belt-and-suspenders against a regression that re-wires it).
+          docker run --rm --entrypoint sh "$IMG" \
+            -c '! grep -qE "_astro/Dashboard\.[A-Za-z0-9_-]+\.js" /app/web/dist/app/index.html' \
+            || { echo "FAIL: /app/index.html references the archaic Dashboard.*.js single-column bundle (#4180)"; exit 1; }
+          echo "::endgroup::"
+          echo "::group::dist carries the #745-era dashboard routes"
+          # The dist MUST also carry the #745-era routes the OLD (pre-#745,
+          # archaic) dashboard did NOT have. A cache-served old web layer fails
+          # HERE, before push.
           docker run --rm --entrypoint sh "$IMG" \
             -c 'test -d /app/web/dist/v09-stage4-preview && test -d /app/web/dist/v0.9.4' \
             || { echo "FAIL: built /app dist is missing the #745 dashboard routes (v0.9.4 / v09-stage4-preview) — a cache-served ARCHAIC dashboard layer shipped"; exit 1; }
           echo "::endgroup::"
-          echo "smoke gate PASSED — agent runtime present, NEW dashboard bundle confirmed"
+          echo "smoke gate PASSED — agent runtime present, /app serves the workspaces dashboard"
 
       - name: Push image (only after smoke gate is green)
         run: |
