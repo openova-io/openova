@@ -452,8 +452,14 @@ func TestIsManagedDomain_PoolList(t *testing.T) {
 	}{
 		{"openova.io", true},
 		{"omani.works", true},
-		{"OPENOVA.IO", true},      // case-insensitive
-		{" openova.io ", true},    // trims whitespace
+		// #4255: the built-in default MUST include the FULL offered pool-TLD
+		// set, not just omani.works — a .omani.rest / .omani.trade customer
+		// must be treated as managed so its zone is bootstrapped + delegated.
+		{"omani.rest", true},
+		{"omani.trade", true},
+		{"omani.homes", true},
+		{"OPENOVA.IO", true},   // case-insensitive
+		{" omani.rest ", true}, // trims whitespace
 		{"customer-byo.com", false},
 		{"example.org", false},
 		{"", false},
@@ -589,13 +595,20 @@ func TestManagedDomains_TableDriven(t *testing.T) {
 			},
 		},
 		{
+			// #4255: defaults now cover the FULL offered pool-TLD set
+			// (omani.works / omani.rest / omani.trade / omani.homes) +
+			// openova.io, so the bootstrapped/delegated set can never be a
+			// strict subset of what the funnel offers.
 			name:      "defaults_fallback_when_neither_env_set",
 			envMulti:  "",
 			envLegacy: "",
-			wantSet:   []string{"omani.works", "openova.io"},
+			wantSet:   []string{"omani.homes", "omani.rest", "omani.trade", "omani.works", "openova.io"},
 			queries: []queryCase{
 				{"openova.io", true},
 				{"omani.works", true},
+				{"omani.rest", true},
+				{"omani.trade", true},
+				{"omani.homes", true},
 				{"customer-byo.com", false},
 			},
 		},

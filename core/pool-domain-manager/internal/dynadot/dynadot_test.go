@@ -46,9 +46,15 @@ func TestIsManagedDomainBuiltInDefaults(t *testing.T) {
 	os.Unsetenv("DYNADOT_DOMAIN")
 	ResetManagedDomains()
 
-	for _, d := range []string{"openova.io", "omani.works"} {
+	// #4255: the built-in default MUST cover the FULL offered pool-TLD set
+	// (omani.works / omani.rest / omani.trade / omani.homes) — not just
+	// omani.works — so PDM BootstrapParentZones creates a central pdns zone
+	// + NS-delegation glue for every TLD the funnel can hand a customer.
+	// A default that is a strict subset is exactly the wrong-DNS-no-cert
+	// trap a .omani.rest customer hit.
+	for _, d := range []string{"openova.io", "omani.works", "omani.rest", "omani.trade", "omani.homes"} {
 		if !IsManagedDomain(d) {
-			t.Errorf("built-in default missing %q", d)
+			t.Errorf("built-in default missing %q (must cover the full offered pool-TLD set, #4255)", d)
 		}
 	}
 }

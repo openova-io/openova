@@ -23,6 +23,29 @@ import (
 	"sync"
 )
 
+// defaultPoolTLDs is the canonical built-in default for the OpenOva
+// subdomain pool — used ONLY when neither DYNADOT_MANAGED_DOMAINS nor the
+// legacy DYNADOT_DOMAIN env var is configured (tests, or a deployment that
+// forgot to mount the secret). It MUST stay in lockstep with the pool TLDs
+// the signup funnel OFFERS to customers (`core/services/domain/store`
+// AllowedTLDs = omani.works / omani.rest / omani.trade / omani.homes).
+//
+// #4255 root cause: a default of only {openova.io, omani.works} meant the
+// PDM BootstrapParentZones never created a central PowerDNS zone (or the
+// NS-delegation glue) for omani.rest / omani.trade, yet the funnel still
+// ASSIGNED those TLDs to customers. The result was a customer landing on a
+// pool TLD whose zone 404s on the central pdns and whose registrar
+// delegation still points at the parking nameservers — wrong DNS + no cert.
+// Defaulting to the FULL offered set fails closed: every TLD the funnel can
+// hand out is one PDM will bootstrap + delegate.
+var defaultPoolTLDs = []string{
+	"openova.io",
+	"omani.works",
+	"omani.rest",
+	"omani.trade",
+	"omani.homes",
+}
+
 // managedDomainsState mirrors the catalyst-api dynadot package's runtime
 // resolution: env-var first, then legacy single-domain fallback, then a
 // minimal built-in default (kept ONLY so unit tests work without an env).
@@ -52,8 +75,12 @@ func computeManagedDomains() map[string]struct{} {
 		out[d] = struct{}{}
 		return out
 	}
-	out["openova.io"] = struct{}{}
-	out["omani.works"] = struct{}{}
+	// Last-resort default: the FULL offered pool-TLD set (#4255), so the
+	// bootstrapped/delegated set can never silently be a subset of the set
+	// the funnel offers. See defaultPoolTLDs.
+	for _, d := range defaultPoolTLDs {
+		out[d] = struct{}{}
+	}
 	return out
 }
 
