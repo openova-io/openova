@@ -167,6 +167,25 @@ type Inputs struct {
 	// `vc-mgmt`, `vc-rtz`. Stamped on
 	// `spec.kubeconfig.secretRef.name`.
 	VClusterKubeconfigSecret string
+
+	// DisableWait, when true, stamps `install.disableWait: true` +
+	// `upgrade.disableWait: true` on the rendered HelmRelease so Flux's
+	// helm-controller does NOT block on workload readiness before running
+	// post-install/post-upgrade hooks.
+	//
+	// Required by charts whose workload Pod gates on a value that one of
+	// the chart's OWN post-install/post-upgrade Helm hooks populates —
+	// e.g. bp-newapi's `wait-for-sql-dsn` initContainer blocks until the
+	// `database-secret-sync-job` (a post-install hook) PATCHes the DSN
+	// Secret. With the default `--wait`, helm-controller waits for the
+	// Deployment to be Ready BEFORE running post-install hooks → the hook
+	// that unblocks the Pod never runs → deadlock → install times out
+	// (#4246). The bootstrap-kit newapi HR sets this by hand
+	// (clusters/_template/bootstrap-kit/80-newapi.yaml); the per-Org
+	// Application path could not, until this field. Sourced from the
+	// Blueprint's `spec.manifests.helmRelease.disableWait`. Default false
+	// (byte-identical legacy shape for every chart that doesn't need it).
+	DisableWait bool
 }
 
 // Source kind constants — mirror the Blueprint CRD enum.
@@ -386,9 +405,18 @@ spec:
     # (target-state): the controller works without an operator
     # pre-creating the namespace.
     createNamespace: true
+{{- if .DisableWait }}
+    # disableWait — do NOT block on workload readiness before running
+    # post-install hooks. Required by charts whose Pod gates on a value a
+    # post-install hook populates (e.g. bp-newapi DSN-gate, #4246).
+    disableWait: true
+{{- end }}
     remediation:
       retries: 3
   upgrade:
+{{- if .DisableWait }}
+    disableWait: true
+{{- end }}
     remediation:
       retries: 3
 {{- if .ValuesYAML }}

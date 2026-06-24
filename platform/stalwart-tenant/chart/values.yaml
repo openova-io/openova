@@ -83,11 +83,16 @@ stalwart:
       # with NO operator action. Skipped automatically when the tenant
       # domain is empty (smoke-render-safe).
       enabled: true
-      # ClusterIssuer to sign against. Defaults to the same issuer the
-      # webmail Ingress uses (`letsencrypt-prod`); a per-Sovereign overlay
-      # may swap to a staging/internal issuer.
+      # ClusterIssuer to sign against. Defaults to the DNS-01 PowerDNS
+      # ClusterIssuer every Sovereign installs (`letsencrypt-dns01-prod-
+      # powerdns`) — the canonical per-Org issuer (matches catalyst-api's
+      # CATALYST_CONSOLE_TLS_CLUSTER_ISSUER default + the org-controller's
+      # consoleTLSDefaultClusterIssuer). `letsencrypt-prod` does NOT exist
+      # on a real Sovereign (issue #4246); DNS-01 is also required because
+      # the Cilium-gateway Sovereign does not wire a per-host HTTP-01
+      # solver. A per-Sovereign overlay may swap to a staging issuer.
       issuerKind: "ClusterIssuer"
-      issuer: "letsencrypt-prod"
+      issuer: "letsencrypt-dns01-prod-powerdns"
       duration: "2160h"      # 90d
       renewBefore: "360h"    # 15d
 
@@ -350,7 +355,8 @@ ingress:
     # on the gateway's wildcard cert.
     tls:
       enabled: true
-      issuer: "letsencrypt-prod"
+      # See note above — `letsencrypt-prod` is absent on Sovereigns (#4246).
+      issuer: "letsencrypt-dns01-prod-powerdns"
       secretName: "stalwart-webmail-tls"
     # ingress fallback (mode=ingress)
     ingressClassName: "traefik"

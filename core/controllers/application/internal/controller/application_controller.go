@@ -1070,6 +1070,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	bpSourceRef, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "ref")
 	bpChart, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "chart")
 	bpDigest, _, _ := unstructured.NestedString(bp.Object, "status", "ociDigest")
+	// #4246 — Blueprint authors set spec.manifests.helmRelease.disableWait=true
+	// for charts whose workload Pod gates on a value populated by one of the
+	// chart's OWN post-install/post-upgrade Helm hooks (e.g. bp-newapi's
+	// DSN-gate initContainer + database-secret-sync-job post-install hook).
+	// Without it, Flux's default --wait deadlocks the install. The bootstrap-
+	// kit newapi HR has this hard-coded; this propagates it to the per-Org
+	// Application render path.
+	bpDisableWait, _, _ := unstructured.NestedBool(bp.Object, "spec", "manifests", "helmRelease", "disableWait")
 	// G92.1 #2660 — Blueprint authors declare the vCluster the
 	// rendered HelmRelease targets via spec.placementSchema.vcluster
 	// (dmz|mgmt|rtz). Empty/unset = install onto the host k3s
@@ -1131,6 +1139,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			VCluster:                 bpVCluster,
 			VClusterHostNamespace:    vcPlacement.HostNamespace,
 			VClusterKubeconfigSecret: vcPlacement.KubeconfigSecret,
+			// #4246 — propagate the Blueprint's DSN-gate / hook-deadlock
+			// avoidance flag onto the rendered HR's install + upgrade.
+			DisableWait: bpDisableWait,
 		})
 		if err != nil {
 			return r.markDegraded(ctx, app, ReasonRenderError,

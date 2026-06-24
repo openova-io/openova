@@ -75,7 +75,7 @@ name: bp-stalwart-tenant
 #        certificate.yaml) for mail.<tenant-domain> that materialises the
 #        Secret zero-touch (secret name configurable via stalwart.tls.secretName,
 #        default stalwart-tls).
-version: 0.1.5
+version: 0.1.6
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated

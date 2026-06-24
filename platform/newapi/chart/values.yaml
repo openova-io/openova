@@ -859,7 +859,9 @@ ingress:
   # 2026-05-18. No separate admin.<sov-fqdn> hostname.
   tls:
     enabled: true
-    issuer: "letsencrypt-prod" # cert-manager ClusterIssuer
+    # DNS-01 PowerDNS ClusterIssuer — canonical per-Org Sovereign issuer
+    # (#4246). `letsencrypt-prod` does not exist on a real Sovereign.
+    issuer: "letsencrypt-dns01-prod-powerdns" # cert-manager ClusterIssuer
     apiSecretName: "newapi-api-tls"
   # Path allowlist for the customer-facing host. Anything not on this
   # list returns 404. Locks down the upstream portal UI surface.
