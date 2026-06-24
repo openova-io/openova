@@ -983,9 +983,36 @@ func main() {
 			// post-signup redirect (the #4179 funnel landing).
 			pdnsURL := os.Getenv("CATALYST_POWERDNS_API_URL")
 			pdnsKey := os.Getenv("CATALYST_POWERDNS_API_KEY")
-			if writer := handler.NewPowerDNSWriter(pdnsURL, pdnsKey); writer != nil {
-				tdeps.DNS = handler.DefaultOrganizationDNSProvisioner{Writer: writer}
-				log.Info("org-tenant: powerdns writer wired", "url", pdnsURL)
+			localWriter := handler.NewPowerDNSWriter(pdnsURL, pdnsKey)
+			// #4218: pool-domain (omani.*) console A-records must be
+			// written to the CENTRAL authoritative PowerDNS (pdns.openova.io)
+			// with the CENTRAL pool key — NOT the Sovereign-local PowerDNS,
+			// which hosts only the Sovereign's own FQDN zone and has no
+			// omani.works zone (PATCH 404). On a production Sovereign the
+			// marketplace runs on the Sovereign domain while Orgs provision
+			// on separate omani.* pool domains, so the free-subdomain write
+			// (console.<slug>.<pool>) targets the central server. The pool
+			// env pair is independent of the local CATALYST_POWERDNS_API_*
+			// (which stays pointed at the local server for the #827/#829
+			// multi-zone admin flow). When the pool env is unset (a
+			// single-PowerDNS Sovereign where the pool IS the local zone)
+			// the provisioner falls back to localWriter automatically.
+			poolURL := os.Getenv("CATALYST_POOL_POWERDNS_API_URL")
+			poolKey := os.Getenv("CATALYST_POOL_POWERDNS_API_KEY")
+			poolWriter := handler.NewPowerDNSWriter(poolURL, poolKey)
+			if localWriter != nil || poolWriter != nil {
+				tdeps.DNS = handler.DefaultOrganizationDNSProvisioner{
+					Writer:     localWriter,
+					PoolWriter: poolWriter,
+				}
+				switch {
+				case poolWriter != nil:
+					log.Info("org-tenant: powerdns writer wired (pool-domain free-subdomain writes target central pdns)",
+						"local_url", pdnsURL, "pool_url", poolURL)
+				default:
+					log.Info("org-tenant: powerdns writer wired (local pdns only; no pool env — single-PowerDNS Sovereign)",
+						"local_url", pdnsURL)
+				}
 			} else {
 				tdeps.DNS = handler.NoopOrganizationDNSProvisioner{}
 				log.Info("org-tenant: powerdns env unset; using no-op DNS provisioner")

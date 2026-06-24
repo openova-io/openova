@@ -693,6 +693,42 @@ spec:
             # CATALYST_POWERDNS_API_URL above).
             - name: CATALYST_POWERDNS_SERVER_ID
               value: "localhost"
+            # ── #4218 — CENTRAL pool-domain PowerDNS (pdns.openova.io) ─────────
+            # The org-tenant DNS provisioner writes each new Org's pool
+            # subdomain A-record `console.<slug>.<omani-pool>` so the
+            # fresh-signup redirect lands on a host that RESOLVES (the #4179
+            # funnel landing). That record belongs to the SHARED omani.*
+            # subdomain pool, authoritative on the CENTRAL PowerDNS at
+            # pdns.openova.io — NOT the Sovereign-LOCAL powerdns.powerdns.svc
+            # above (which hosts only the Sovereign's own FQDN zone and 404s a
+            # PATCH against an omani.works zone it doesn't have). These POOL env
+            # vars are INDEPENDENT of the LOCAL CATALYST_POWERDNS_API_* pair —
+            # the provisioner prefers the pool writer for free-subdomain writes
+            # and keeps the local writer for the #827/#829 multi-zone admin
+            # flow. When the pool env is unset (a single-PowerDNS Sovereign
+            # where the pool IS the local zone) the provisioner falls back to
+            # the local writer automatically (main.go org-tenant wiring).
+            #
+            # DUAL-MODE CONTRACT — a literal value (NOT a Helm directive) so the
+            # contabo Kustomize build of this file stays clean; per-Sovereign
+            # override via the HelmRelease overlay env patch (same pattern as
+            # CATALYST_POWERDNS_API_URL above).
+            - name: CATALYST_POOL_POWERDNS_API_URL
+              value: "https://pdns.openova.io"
+            # CATALYST_POOL_POWERDNS_API_KEY — the CENTRAL pdns.openova.io key,
+            # mirrored into catalyst-system as `pool-powerdns-api-credentials`
+            # by the #4218 reflector PULL-stub (templates/pool-powerdns-
+            # credentials-host-bridge.yaml; source cert-manager/powerdns-api-
+            # credentials). optional=true so the Pod schedules pre-reflection;
+            # an empty key degrades the org-tenant write to the no-op DNS
+            # provisioner (logged) until reflector lands the key — self-healing
+            # on the next reconcile, never a wedge.
+            - name: CATALYST_POOL_POWERDNS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pool-powerdns-api-credentials
+                  key: api-key
+                  optional: true
             # ── /auth/handover Keycloak service-account (issue #606) ──────────
             # CATALYST_KC_ADDR — Keycloak base URL. Defaults to in-cluster
             # service FQDN in code; override here for non-standard Sovereign
