@@ -44,7 +44,12 @@ Three resources:
 Required: bp-cert-manager (chart 1.2.x+) must be Ready before bp-cnpg
 installs. The bootstrap-kit dependsOn chain already enforces this.
 */}}
-{{- if .Values.webhookCertBootstrap.enabled -}}
+{{- /* 1.0.11 (#4220): never bootstrap a webhook cert when the chart is NOT
+   creating the webhook configs (webhook-less per-Org install). Defaults to
+   disabled anyway (G59), but the extra guard means an overlay that flips
+   webhookCertBootstrap.enabled=true can't resurrect an un-owned Helm-hook Job
+   that the flux-managed policy would deny in webhook-less mode. */ -}}
+{{- if and .Values.webhookCertBootstrap.enabled (eq (include "bp-cnpg.webhookConfigsCreated" .) "true") -}}
 ---
 # 1. Self-signed Issuer (bootstrap-only)
 apiVersion: cert-manager.io/v1

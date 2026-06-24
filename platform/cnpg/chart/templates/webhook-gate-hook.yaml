@@ -66,12 +66,15 @@ If the gate times out: bp-cnpg HR reports InstallFailed → Flux
 remediation retries (chart-spec install.remediation.retries) — same
 defense as the original G50 retry tuning. Both layers protect.
 */}}
+{{- /*
+1.0.11 (#4220): skip the gate entirely in webhook-LESS mode (per-Org install
+sets cloudnative-pg.webhook.{mutating,validating}.create=false). See
+templates/_helpers.tpl "bp-cnpg.webhookGateEnabled" — there is nothing for the
+gate to poll, and the un-owned Helm-hook Job is denied by the flux-managed
+Kyverno policy, wedging the whole Org cascade (#4220).
+*/}}
 {{- $gate := .Values.webhookGate | default dict -}}
-{{- $enabled := true -}}
-{{- if hasKey $gate "enabled" -}}
-{{-   $enabled = $gate.enabled -}}
-{{- end -}}
-{{- if $enabled }}
+{{- if eq (include "bp-cnpg.webhookGateEnabled" .) "true" }}
 {{- $svcName := (($gate.service).name) | default "cnpg-webhook-service" -}}
 {{- $svcNs := (($gate.service).namespace) | default "cnpg-system" -}}
 {{- $mutName := $gate.mutatingWebhookName | default "cnpg-mutating-webhook-configuration" -}}

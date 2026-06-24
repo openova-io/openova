@@ -91,7 +91,10 @@ spec:
       # into every instance pod both pull harbor-proxied — bare ghcr.io ref
       # flaky-DNS ImagePullBackOff'd the cnpg-pair replica on hw126 region-B.
       # #3648 — lockstep with platform/cnpg Chart.yaml + blueprint.yaml 1.0.10.
-      version: 1.0.10
+      # 1.0.11 (#4220): the webhook readiness-gate (Job/RBAC) + cert-bootstrap
+      #         now SKIP rendering in webhook-less mode so the un-owned Helm-hook
+      #         Job stops getting flux-managed-denied on per-Org installs.
+      version: 1.0.11
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg
