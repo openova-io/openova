@@ -20,7 +20,24 @@ name: bp-cnpg
 # webhookGate Job image proxied to proxy-dockerhub in the same pass.
 # #3648 — bumped in lockstep with blueprint.yaml spec.version (producesInstances
 # declaration) + the 16-cnpg.yaml bootstrap-kit pin.
-version: 1.0.10
+#
+# 1.0.11 (#4220, 2026-06-24): the G53 webhook-gate Job + G21 webhook-cert
+# bootstrap now SKIP RENDERING in webhook-LESS mode. A per-Org bp-cnpg install
+# sets cloudnative-pg.webhook.{mutating,validating}.create=false (#4143/#4201:
+# the per-Org operator must NOT fight the platform cnpg-system operator for the
+# cluster-singleton webhook configs). In that mode there is no webhook config to
+# gate, AND the gate Job — created directly by Helm with no Flux owner — was
+# DENIED by the flux-managed Kyverno Enforce policy
+# (`workload-must-be-flux-managed`), so the bp-cnpg HelmRelease InstallFailed and
+# the demo Org's WordPress (+ newapi/openclaw/stalwart) wedged Ready=False on
+# `dependency bp-cnpg is not ready` (live omantel.biz dep 4635277cae4ffed9,
+# #4220). New templates/_helpers.tpl `bp-cnpg.webhookGateEnabled` /
+# `bp-cnpg.webhookConfigsCreated` centralise the decision: the gate renders ONLY
+# when webhookGate.enabled (default true) AND the subchart is actually creating
+# the webhook configs. This is a render-skip, NOT a policy exemption — the
+# flux-managed guardrail stays fully in force. Single-operator installs
+# (webhook configs created) keep the gate unchanged. Refs #4201 #4143.
+version: 1.0.11
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so

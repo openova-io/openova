@@ -8,12 +8,10 @@ Scoped to:
 
 Webhook-config GET is cluster-scoped → ClusterRole + ClusterRoleBinding.
 */}}
+{{- /* 1.0.11 (#4220): gate the RBAC in lockstep with the Job — webhook-less
+   per-Org installs render neither (see templates/_helpers.tpl). */ -}}
 {{- $gate := .Values.webhookGate | default dict -}}
-{{- $enabled := true -}}
-{{- if hasKey $gate "enabled" -}}
-{{-   $enabled = $gate.enabled -}}
-{{- end -}}
-{{- if $enabled }}
+{{- if eq (include "bp-cnpg.webhookGateEnabled" .) "true" }}
 {{- $svcNs := (($gate.service).namespace) | default "cnpg-system" -}}
 apiVersion: v1
 kind: ServiceAccount
