@@ -221,7 +221,12 @@ spec:
       #         wedged Ready=False (live dep 4635277cae4ffed9 region-B). Fix:
       #         declare browser-no-idp its OWN forms + conditional-OTP subflows
       #         (OTP preserved); original `browser` flow untouched.
-      version: 1.4.38
+      # 1.5.1 (#4220): jump above the STALE ghcr bp-keycloak:1.5.0 (published
+      #         2026-05-10, pre-proxy-dockerhub-fix) so the per-Org HR's
+      #         chart.spec.version:"*" stops resolving to it (SemVer 1.5.0 >
+      #         1.4.38) and its non-proxied bitnamilegacy images stop tripping
+      #         harbor-proxy-pull. Chart content byte-identical to 1.4.38.
+      version: 1.5.1
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
