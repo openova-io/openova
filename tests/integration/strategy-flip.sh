@@ -54,7 +54,19 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="${REPO_ROOT}/tests/integration/strategy-flip.yaml"
-TARGET_MANIFEST="${REPO_ROOT}/products/catalyst/chart/templates/api-deployment.yaml"
+CHART_DIR="${REPO_ROOT}/products/catalyst/chart"
+# The chart-source template. This file is a Helm template, NOT a plain
+# manifest — since #4102 it carries structural `{{- with .Values… }}`
+# blocks (the EVS same-node nodeName/affinity pin) that are NOT valid
+# YAML until rendered. The system-under-test is therefore the RENDERED
+# output (see RENDERED_MANIFEST below), which is what Flux/Helm actually
+# submits to the API server on every Sovereign. We keep this path only
+# for the existence check and as the `--show-only` selector.
+TARGET_TEMPLATE="${REPO_ROOT}/products/catalyst/chart/templates/api-deployment.yaml"
+# RENDERED_MANIFEST is populated by `helm template` once the chart dir
+# is confirmed present. Every `kubectl apply` and every structural grep
+# below runs against the rendered manifest, not the raw template.
+RENDERED_MANIFEST=""
 NAMESPACE="strategy-flip-test"
 FRESH_NAMESPACE="strategy-flip-fresh"
 
@@ -66,6 +78,7 @@ cleanup() {
   log "tearing down namespaces ${NAMESPACE} and ${FRESH_NAMESPACE}"
   kubectl delete namespace "${NAMESPACE}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
   kubectl delete namespace "${FRESH_NAMESPACE}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
+  [ -n "${RENDERED_MANIFEST}" ] && rm -f "${RENDERED_MANIFEST}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -73,10 +86,47 @@ if [ ! -f "${FIXTURE}" ]; then
   log "ERROR: fixture missing at ${FIXTURE}"
   exit 2
 fi
-if [ ! -f "${TARGET_MANIFEST}" ]; then
-  log "ERROR: chart manifest missing at ${TARGET_MANIFEST}"
+if [ ! -f "${TARGET_TEMPLATE}" ]; then
+  log "ERROR: chart template missing at ${TARGET_TEMPLATE}"
   exit 2
 fi
+if ! command -v helm >/dev/null 2>&1; then
+  log "ERROR: helm not found on PATH — the test renders the chart template"
+  log "       with 'helm template' before applying it (the file is a Helm"
+  log "       template, not a plain manifest)."
+  exit 2
+fi
+
+# -----------------------------------------------------------------
+# step 0 — render the chart template into a plain manifest
+# -----------------------------------------------------------------
+# The system-under-test (products/catalyst/chart/templates/api-deployment.yaml)
+# is a Helm template. Since #4102 it carries structural `{{- with
+# .Values.catalystApi.nodeName }}` / `{{- with .Values.catalystApi.affinity }}`
+# blocks (the EVS same-node reattach pin) that are NOT valid YAML in the
+# raw file — feeding the raw template to `kubectl apply` fails the YAML
+# parse before any strategy assertion runs. Flux/Helm never apply the raw
+# template either; they apply the RENDERED output. So we render it the
+# same way, with default values (nodeName/affinity unset → the `{{- with }}`
+# blocks emit nothing, preserving today's fresh-install behaviour), and
+# run every apply + structural assertion below against the rendered
+# manifest. `--show-only` extracts just the catalyst-api Deployment so
+# the apply/grep targets a single document.
+log "step 0/6 — rendering chart template via 'helm template --show-only'"
+RENDERED_MANIFEST=$(mktemp)
+RENDER_ERR=$(mktemp)
+set +e
+helm template strategy-flip "${CHART_DIR}" \
+  --show-only templates/api-deployment.yaml \
+  >"${RENDERED_MANIFEST}" 2>"${RENDER_ERR}"
+RENDER_RC=$?
+set -e
+if [ "${RENDER_RC}" != "0" ] || [ ! -s "${RENDERED_MANIFEST}" ]; then
+  log "ERROR: helm template failed to render the chart template (exit=${RENDER_RC})"
+  [ -s "${RENDER_ERR}" ] && log "  stderr: $(tr '\n' ' ' <"${RENDER_ERR}")"
+  exit 2
+fi
+log "  rendered manifest written to ${RENDERED_MANIFEST}"
 
 # -----------------------------------------------------------------
 # step 1 — stage the bad pre-state
@@ -102,7 +152,7 @@ log "step 2/6 — applying chart manifest with --dry-run=server (CSA path)"
 APPLY_OUT=$(mktemp)
 APPLY_ERR=$(mktemp)
 set +e
-kubectl apply --dry-run=server -n "${NAMESPACE}" -f "${TARGET_MANIFEST}" \
+kubectl apply --dry-run=server -n "${NAMESPACE}" -f "${RENDERED_MANIFEST}" \
   >"${APPLY_OUT}" 2>"${APPLY_ERR}"
 APPLY_RC=$?
 set -e
@@ -150,7 +200,7 @@ kubectl apply \
   --force-conflicts \
   --dry-run=server \
   -n "${NAMESPACE}" \
-  -f "${TARGET_MANIFEST}" \
+  -f "${RENDERED_MANIFEST}" \
   >"${SSA_OUT}" 2>"${SSA_ERR}"
 SSA_RC=$?
 set -e
@@ -184,30 +234,29 @@ log "  SSA regression mode confirmed: API server emits 'spec.strategy.rollingUpd
 # -----------------------------------------------------------------
 log "step 4/6 — verifying chart carries kustomize.toolkit.fluxcd.io/force: enabled"
 
-# Match the YAML KEY form (line begins with whitespace + the annotation
-# name + colon + value) — not the same string inside a comment. Without
-# the anchor, deleting the real annotation while leaving comment
-# references intact would silently pass.
-if ! grep -E '^[[:space:]]+kustomize\.toolkit\.fluxcd\.io/force:[[:space:]]+enabled[[:space:]]*$' "${TARGET_MANIFEST}" >/dev/null 2>&1; then
+# Grep the RENDERED manifest, not the raw template — the rendered output
+# is what Flux actually applies, and `helm template` strips Helm comments
+# so the only thing the grep can match is a real YAML key. Match the YAML
+# KEY form (line begins with whitespace + the annotation name + colon +
+# value): deleting the real annotation must fail the gate.
+if ! grep -E '^[[:space:]]+kustomize\.toolkit\.fluxcd\.io/force:[[:space:]]+enabled[[:space:]]*$' "${RENDERED_MANIFEST}" >/dev/null 2>&1; then
   log "FAIL — chart manifest is missing the SSA-layer Flux force annotation"
   log "       expected: kustomize.toolkit.fluxcd.io/force: enabled in metadata.annotations"
   log "       see docs/CHART-AUTHORING.md §'Strategy flips on existing Deployments'"
   exit 1
 fi
 
-# Negative-property: the chart manifest must NOT contain inline
-# `$patch: replace` AS A YAML FIELD (vs. inside a YAML comment, where
-# the doc explains why we do NOT use it). That directive belongs in a
+# Negative-property: the RENDERED manifest must NOT contain inline
+# `$patch: replace` AS A YAML FIELD. That directive belongs in a
 # Kustomize patches block (consumed at build time), not a base resource
 # — at base level the API server's strict-decoding rejects it on CREATE
 # with `unknown field "spec.strategy.$patch"`, breaking fresh installs.
 #
 # The grep deliberately requires whitespace-prefixed `$patch:` (so it
-# matches the YAML key form `    $patch: replace`) and excludes lines
-# that begin with `#` (YAML comments). Encoding the negative-property
-# this way keeps the chart's documentation freely allowed to discuss
-# the directive without the test triggering on commentary.
-if grep -E '^[[:space:]]+\$patch:[[:space:]]+replace[[:space:]]*$' "${TARGET_MANIFEST}" >/dev/null 2>&1; then
+# matches the YAML key form `    $patch: replace`). Helm comments are
+# stripped from the rendered output, so the chart's source documentation
+# is free to discuss the directive without tripping this gate.
+if grep -E '^[[:space:]]+\$patch:[[:space:]]+replace[[:space:]]*$' "${RENDERED_MANIFEST}" >/dev/null 2>&1; then
   log "FAIL — chart manifest contains inline \$patch: replace as a YAML key"
   log "       this directive is rejected by kubectl strict-decoding on CREATE"
   log "       (and stripped by Flux SSA anyway). Move it to a Kustomize"
@@ -225,7 +274,7 @@ kubectl delete deploy -n "${NAMESPACE}" catalyst-api --wait=true >/dev/null 2>&1
 RECREATE_OUT=$(mktemp)
 RECREATE_ERR=$(mktemp)
 set +e
-kubectl apply --dry-run=server -n "${NAMESPACE}" -f "${TARGET_MANIFEST}" \
+kubectl apply --dry-run=server -n "${NAMESPACE}" -f "${RENDERED_MANIFEST}" \
   >"${RECREATE_OUT}" 2>"${RECREATE_ERR}"
 RECREATE_RC=$?
 set -e
@@ -264,7 +313,7 @@ FRESH_OUT=$(mktemp)
 FRESH_ERR=$(mktemp)
 set +e
 kubectl apply --server-side --field-manager=kustomize-controller --dry-run=server \
-  -n "${FRESH_NAMESPACE}" -f "${TARGET_MANIFEST}" >"${FRESH_OUT}" 2>"${FRESH_ERR}"
+  -n "${FRESH_NAMESPACE}" -f "${RENDERED_MANIFEST}" >"${FRESH_OUT}" 2>"${FRESH_ERR}"
 FRESH_SSA_RC=$?
 set -e
 log "  fresh-install SSA dry-run exit=${FRESH_SSA_RC}"
@@ -277,7 +326,7 @@ if [ "${FRESH_SSA_RC}" != "0" ]; then
 fi
 
 set +e
-kubectl apply --dry-run=server -n "${FRESH_NAMESPACE}" -f "${TARGET_MANIFEST}" \
+kubectl apply --dry-run=server -n "${FRESH_NAMESPACE}" -f "${RENDERED_MANIFEST}" \
   >"${FRESH_OUT}" 2>"${FRESH_ERR}"
 FRESH_CSA_RC=$?
 set -e
