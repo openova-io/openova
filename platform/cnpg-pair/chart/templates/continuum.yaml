@@ -65,6 +65,9 @@ spec:
     config:
       ttlSeconds: {{ .Values.cnpgPair.continuum.leaseClient.ttlSeconds }}
       renewSeconds: {{ .Values.cnpgPair.continuum.leaseClient.renewSeconds }}
+      {{- with .Values.cnpgPair.continuum.leaseClient.namespace }}
+      namespace: {{ . | quote }}
+      {{- end }}
       {{- with .Values.cnpgPair.continuum.leaseClient.resolvers }}
       resolvers:
         {{- range . }}

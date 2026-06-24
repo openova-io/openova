@@ -282,18 +282,21 @@ cnpgPair:
     # operator-confirmed action until the lease-witness + multi-vantage
     # DNS probe are validated on a fresh 2-region prov (Phase-2 walk).
     autoFailover: false
-    # Lease witness — dns-quorum is the in-cluster fallback (no external
-    # Cloudflare-KV dependency). The CRD requires 3-5 resolvers (2-of-3
-    # voting quorum); these default to a 3-entry placeholder set that
-    # overlays repoint at the Sovereign's real resolver IPs.
+    # Lease witness — k8s-lease (#3829) is the air-gappable DEFAULT: a
+    # native coordination.k8s.io/v1 Lease in the control-plane cluster,
+    # zero external dependency, durable etcd-backed CAS. This replaces
+    # the dns-quorum default, which was a never-completed Phase-1 POC
+    # (nil TXTWriter → every Acquire failed) wired against placeholder
+    # resolvers (10.43.0.11/.12 aren't DNS servers) → the cnpg-pair
+    # Continuum CR sat Degraded/LeaseHeld=False forever on omantel.biz.
+    # The continuum-controller ClusterRole already grants
+    # coordination.k8s.io/leases {get,list,...,create,update}, so no RBAC
+    # change is needed. The Lease object lands in the controller's
+    # namespace (override via leaseClient.namespace).
     leaseClient:
-      kind: dns-quorum
+      kind: k8s-lease
       ttlSeconds: 30
       renewSeconds: 10
-      resolvers:
-        - "10.43.0.10"
-        - "10.43.0.11"
-        - "10.43.0.12"
     # PDM zone for the lua-record flip target. Empty => the controller
     # falls back to the in-cluster pool-domain-manager Service default.
     pdmZone: ""

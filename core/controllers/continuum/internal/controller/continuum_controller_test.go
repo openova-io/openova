@@ -372,6 +372,79 @@ func TestPatchStatus_LuaRecordOnlyOnNonNil(t *testing.T) {
 	}
 }
 
+// TestEffectiveHoldingRegion_FallsBackToPrimary proves the #3829
+// second root-cause fix: when CATALYST_REGION is unset (HoldingRegion=""
+// — the live omantel.biz case), the controller holds the lease as the
+// CR's primaryRegion (it only runs on the primary-side cluster), so a
+// healthy pair is NOT pinned Degraded with leaseHolder empty.
+func TestEffectiveHoldingRegion_FallsBackToPrimary(t *testing.T) {
+	t.Parallel()
+	spec := ContinuumSpec{PrimaryRegion: "hw-me-east-215-a-rtz-prod"}
+
+	withEnv := &ContinuumReconciler{HoldingRegion: "explicit-region"}
+	if got := withEnv.effectiveHoldingRegion(spec); got != "explicit-region" {
+		t.Errorf("with env set: got %q, want explicit-region", got)
+	}
+
+	noEnv := &ContinuumReconciler{HoldingRegion: ""}
+	if got := noEnv.effectiveHoldingRegion(spec); got != "hw-me-east-215-a-rtz-prod" {
+		t.Errorf("without env: got %q, want primaryRegion fallback", got)
+	}
+}
+
+// TestPatchStatusFromCR_HealthyWhenHolderMatchesPrimary_NoEnv asserts
+// the end-to-end status outcome: HoldingRegion="" + a lease held by the
+// primaryRegion → phase=Healthy, Ready=True, LeaseHeld=True,
+// leaseHolder=<primary>, replicationLagSeconds rendered. This is exactly
+// the panel-state the Topology tab needs (rows 51/52/54/55/56/62/71).
+func TestPatchStatusFromCR_HealthyWhenHolderMatchesPrimary_NoEnv(t *testing.T) {
+	t.Parallel()
+	const primary = "hw-me-east-215-a-rtz-prod"
+	cr := newTestContinuumCR("cnpg", "dr", primary, []string{"hw-me-east-215-b-rtz-prod"}, "k8s-lease")
+	objs := append([]runtime.Object{cr}, newTestClusterPair("cnpg", "demo", 0)...)
+	r, _, _ := newReconciler(t, objs...)
+	// Simulate the live env: CATALYST_REGION was never wired.
+	r.HoldingRegion = ""
+
+	spec, err := parseSpec(cr)
+	if err != nil {
+		t.Fatalf("parseSpec: %v", err)
+	}
+	// A live lease the witness acquired, held by the primary region.
+	now := time.Now()
+	lease := witness.State{
+		Holder:    primary,
+		ExpiresAt: now.Add(30 * time.Second),
+	}
+	if err := r.patchStatusFromCR(context.Background(), cr, spec, lease, cnpg.Status{}, cnpg.Status{}, false, ""); err != nil {
+		t.Fatalf("patchStatusFromCR: %v", err)
+	}
+
+	got, _ := r.Dyn.Resource(ContinuumGVR).Namespace("cnpg").Get(context.Background(), "dr", metav1.GetOptions{})
+	phase, _, _ := unstructured.NestedString(got.Object, "status", "phase")
+	if phase != PhaseHealthy {
+		t.Fatalf("phase = %q, want Healthy", phase)
+	}
+	holder, _, _ := unstructured.NestedString(got.Object, "status", "leaseHolder")
+	if holder != primary {
+		t.Fatalf("leaseHolder = %q, want %q", holder, primary)
+	}
+	conds, _, _ := unstructured.NestedSlice(got.Object, "status", "conditions")
+	condStatus := map[string]string{}
+	for _, c := range conds {
+		cm, _ := c.(map[string]interface{})
+		t, _ := cm["type"].(string)
+		s, _ := cm["status"].(string)
+		condStatus[t] = s
+	}
+	if condStatus["Ready"] != "True" {
+		t.Errorf("Ready = %q, want True", condStatus["Ready"])
+	}
+	if condStatus["LeaseHeld"] != "True" {
+		t.Errorf("LeaseHeld = %q, want True", condStatus["LeaseHeld"])
+	}
+}
+
 // TestLuaRecordStatusValue_NilOnEmpty — pure-function helper guard.
 func TestLuaRecordStatusValue_NilOnEmpty(t *testing.T) {
 	t.Parallel()

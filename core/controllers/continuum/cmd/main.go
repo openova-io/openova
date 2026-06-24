@@ -94,6 +94,14 @@ import (
 	// blank-import is the WIRING — removing it disables the kinds.
 	_ "github.com/openova-io/openova/core/controllers/continuum/internal/witness/cloudflarekv"
 	_ "github.com/openova-io/openova/core/controllers/continuum/internal/witness/dnsquorum"
+	// #3829 — k8s-lease witness: a native coordination.k8s.io/v1 Lease in
+	// the control-plane cluster. The air-gappable default (no Cloudflare,
+	// no PowerDNS-TXT dependency) — cloudflare-kv needs external egress +
+	// a Worker, and dns-quorum was a never-completed Phase-1 POC (nil
+	// TXTWriter → Acquire always fails). The blank-import registers its
+	// Factory; the controller stamps its dynamic client into the witness
+	// config (selectWitness) so the package needs no client-go ctor.
+	_ "github.com/openova-io/openova/core/controllers/continuum/internal/witness/k8slease"
 )
 
 var scheme = runtime.NewScheme()
@@ -211,12 +219,19 @@ func main() {
 		}
 	}
 
+	// #3829 — namespace where the k8s-lease witness stores its
+	// coordination.k8s.io/v1 Lease objects. CATALYST_LEASE_NS wins;
+	// otherwise the controller's own namespace (the leases live next to
+	// the controller, which already has the coordination.k8s.io RBAC).
+	leaseNamespace := env("CATALYST_LEASE_NS", podNamespace())
+
 	r := &controller.ContinuumReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
 		Dyn:             dyn,
 		WitnessSelector: sel,
 		HoldingRegion:   env("CATALYST_REGION", ""),
+		LeaseNamespace:  leaseNamespace,
 		PDMClient:       pdmClient,
 		Audit:           audit,
 		Drainer:         switchover.NewDynamicHTTPRouteDrainer(dyn),

@@ -98,19 +98,34 @@ spec:
                   properties:
                     kind:
                       type: string
-                      enum: [cloudflare-kv, dns-quorum]
+                      enum: [k8s-lease, cloudflare-kv, dns-quorum]
                       description: |
+                        k8s-lease = a native coordination.k8s.io/v1 Lease
+                        in the control-plane cluster (#3829). The
+                        air-gappable DEFAULT — zero external dependency,
+                        durable etcd-backed CAS via the Lease object's
+                        resourceVersion. Recommended for every Sovereign.
                         cloudflare-kv = lease in a Cloudflare Worker KV
-                        namespace (recommended per SRE.md §2.4).
-                        dns-quorum = 2-of-3 DNS resolver quorum
-                        (fallback when CF KV is unavailable).
+                        namespace — needs external egress + a Worker;
+                        unsuitable for air-gapped / self-sovereign.
+                        dns-quorum = 2-of-3 DNS resolver quorum over
+                        PowerDNS TXT (requires a TXT-write backend).
                     config:
                       type: object
                       description: |
-                        Kind-specific config. cloudflare-kv expects
-                        kvNamespaceId + accountId + tokenSecretRef.
-                        dns-quorum expects resolvers[] (2-of-3 voting set).
+                        Kind-specific config. k8s-lease optionally takes
+                        namespace (defaults to the controller namespace).
+                        cloudflare-kv expects kvNamespaceId + accountId +
+                        tokenSecretRef. dns-quorum expects resolvers[]
+                        (2-of-3 voting set) + a TXT-write backend.
                       properties:
+                        namespace:
+                          type: string
+                          description: |
+                            k8s-lease only — namespace for the
+                            coordination.k8s.io/v1 Lease object. Optional;
+                            defaults to the continuum-controller's own
+                            namespace.
                         kvNamespaceId:
                           type: string
                         accountId:

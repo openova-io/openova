@@ -107,6 +107,14 @@ type ContinuumReconciler struct {
 	// the controller's CATALYST_REGION env var at startup.
 	HoldingRegion string
 
+	// LeaseNamespace is where the `k8s-lease` witness stores its
+	// coordination.k8s.io/v1 Lease objects (#3829). Defaults to the
+	// controller's own namespace at startup (CATALYST_LEASE_NS env or
+	// the in-cluster ServiceAccount namespace). A CR may override per
+	// slot via leaseClient.config.namespace. Unused by the other
+	// witness kinds.
+	LeaseNamespace string
+
 	// PDMClient is the pool-domain-manager HTTP client (shared).
 	PDMClient *pdm.Client
 
@@ -248,9 +256,21 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		ttl = DefaultLeaseTTLSeconds * time.Second
 	}
 
-	leaseState, err := w.Acquire(ctx, r.HoldingRegion, ttl)
+	// Resolve the region identity this controller holds the lease as.
+	// CATALYST_REGION (r.HoldingRegion) wins when set; otherwise we fall
+	// back to the CR's declared primaryRegion. The continuum-controller
+	// runs ONLY on the primary-side cluster (the cnpg-pair chart + the
+	// bp-continuum HR are side-gated to the primary), so the controller
+	// IS the primary region — falling back to spec.primaryRegion makes a
+	// healthy 2-region pair self-bootstrap the lease as leaseHolder=
+	// <primaryRegion> even when the env var was never wired (#3829).
+	holder := r.effectiveHoldingRegion(initialSpec)
+
+	leaseState, err := w.Acquire(ctx, holder, ttl)
 	if err == nil {
 		_ = r.publishLeaseAcquired(ctx, nn, initialSpec, leaseState)
+	} else {
+		log.Info("initial lease acquire failed; will retry on renew tick", "holder", holder, "err", err)
 	}
 
 	tick := time.NewTicker(renewInterval)
@@ -259,7 +279,7 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 	for {
 		select {
 		case <-ctx.Done():
-			_ = w.Release(context.Background(), r.HoldingRegion)
+			_ = w.Release(context.Background(), holder)
 			log.Info("per-CR goroutine exiting")
 			return
 		case <-tick.C:
@@ -268,7 +288,7 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		cr, err := r.fetchCR(ctx, nn)
 		if apierrors.IsNotFound(err) {
 			log.Info("CR vanished mid-loop; exiting")
-			_ = w.Release(context.Background(), r.HoldingRegion)
+			_ = w.Release(context.Background(), holder)
 			return
 		}
 		if err != nil {
@@ -280,6 +300,9 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 			log.Error(vErr, "spec invalid mid-loop")
 			continue
 		}
+		// Re-resolve in case the primaryRegion changed (and the env var
+		// is unset). Stable when CATALYST_REGION is wired.
+		holder = r.effectiveHoldingRegion(spec)
 
 		// F-1: detect spec drift on switchover-relevant fields and
 		// emit `continuum-config-changed` (rare; happens when the
@@ -296,10 +319,10 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 			_ = r.publishConfigChanged(ctx, nn, spec, prevFingerprint, curFingerprint)
 		}
 
-		newState, rErr := w.Renew(ctx, r.HoldingRegion, ttl)
+		newState, rErr := w.Renew(ctx, holder, ttl)
 		if errors.Is(rErr, witness.ErrLeaseLost) {
 			_ = r.publishLeaseLost(ctx, nn, spec, leaseState)
-			if newState, err = w.Acquire(ctx, r.HoldingRegion, ttl); err != nil {
+			if newState, err = w.Acquire(ctx, holder, ttl); err != nil {
 				// F-1: distinguish "held by another" (collision) from generic acquire failure.
 				if errors.Is(err, witness.ErrLeaseHeldByAnother) {
 					_ = r.publishLeaseCollision(ctx, nn, spec, err)
@@ -636,6 +659,15 @@ func (r *ContinuumReconciler) ActiveCount() int {
 // selectWitness picks a Client for the CR and stamps a per-CR slot
 // key (NamespacedName) into the Selector config so the in-memory stub
 // gives this CR an isolated lease.
+//
+// For the `k8s-lease` witness (#3829) we also stamp the controller's
+// dynamic client + the Lease namespace into the config: that witness
+// stores the lease in a native coordination.k8s.io/v1 Lease object in
+// the control-plane cluster (zero external dependency — the
+// air-gappable default), and the witness package cannot construct a
+// dynamic client itself without an import cycle, so the controller
+// hands its already-built one through the config map. Harmless for the
+// other kinds (they ignore unknown cfg keys).
 func (r *ContinuumReconciler) selectWitness(nn types.NamespacedName, spec ContinuumSpec) (witness.Client, error) {
 	if r.WitnessSelector == nil {
 		return nil, errors.New("WitnessSelector not configured")
@@ -645,6 +677,16 @@ func (r *ContinuumReconciler) selectWitness(nn types.NamespacedName, spec Contin
 		cfg[k] = v
 	}
 	cfg["slot"] = nn.String()
+	if r.Dyn != nil {
+		cfg["dyn"] = r.Dyn
+	}
+	// Default the Lease namespace to the controller's own namespace when
+	// the CR didn't pin one via leaseClient.config.namespace.
+	if _, set := cfg["namespace"]; !set {
+		if ns := r.LeaseNamespace; ns != "" {
+			cfg["namespace"] = ns
+		}
+	}
 	return r.WitnessSelector.Select(spec.LeaseClientKind, cfg)
 }
 
@@ -679,6 +721,27 @@ func isSwitchoverRequested(cr *unstructured.Unstructured) bool {
 	return v
 }
 
+// effectiveHoldingRegion resolves the region identity this controller
+// instance holds the lease as. CATALYST_REGION (r.HoldingRegion) wins
+// when set; otherwise we fall back to the CR's declared primaryRegion.
+//
+// The fallback is correct AND load-bearing (#3829): the
+// continuum-controller runs ONLY on the primary-side cluster (the
+// cnpg-pair chart + the bp-continuum HelmRelease are side-gated to the
+// primary via `cnpg-pair.isPrimarySide`), so the running controller IS
+// the primary region. Without this fallback, a Sovereign whose
+// deployment never wired CATALYST_REGION (the live omantel.biz case)
+// holds the lease as the empty string → IsHeldBy("") is always false →
+// the CR is pinned Degraded / LeaseHeld=False forever even though the
+// witness acquired the slot cleanly. Falling back to spec.primaryRegion
+// makes a healthy 2-region pair self-bootstrap leaseHolder=<region-a>.
+func (r *ContinuumReconciler) effectiveHoldingRegion(spec ContinuumSpec) string {
+	if r.HoldingRegion != "" {
+		return r.HoldingRegion
+	}
+	return spec.PrimaryRegion
+}
+
 func (r *ContinuumReconciler) clearSwitchoverRequest(ctx context.Context, cr *unstructured.Unstructured) error {
 	_ = unstructured.SetNestedField(cr.Object, false, "spec", "switchover", "requested")
 	if r.Dyn == nil {
@@ -703,7 +766,8 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 ) error {
 	maxLag := cnpg.MaxLagSeconds(primaryStatus, replicaStatus)
 	now := r.now()
-	heldByUs := lease.IsHeldBy(r.HoldingRegion, now)
+	self := r.effectiveHoldingRegion(spec)
+	heldByUs := lease.IsHeldBy(self, now)
 	phase := PhaseHealthy
 	if !heldByUs {
 		phase = PhaseDegraded
@@ -712,6 +776,7 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 		Phase:                 phase,
 		PrimaryRegion:         spec.PrimaryRegion,
 		LeaseHolder:           lease.Holder,
+		SelfRegion:            self,
 		ReplicationLagSeconds: maxLag,
 		SwitchoverInProgress:  switchoverInProgress,
 		Step:                  stepLabel,
@@ -724,9 +789,15 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 
 // statusUpdate — mutation set for one status patch.
 type statusUpdate struct {
-	Phase                 string
-	PrimaryRegion         string
-	LeaseHolder           string
+	Phase         string
+	PrimaryRegion string
+	LeaseHolder   string
+	// SelfRegion is the region identity THIS controller holds the lease
+	// as (CATALYST_REGION, or the CR's primaryRegion when unset — see
+	// effectiveHoldingRegion). The LeaseHeld condition is True iff
+	// LeaseHolder == SelfRegion. Empty falls back to r.HoldingRegion for
+	// back-compat with callers that don't set it (#3829).
+	SelfRegion            string
 	LeaseExpiresAt        string
 	ReplicationLagSeconds int
 	SwitchoverInProgress  bool
@@ -841,9 +912,17 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			conds = append(conds, c)
 		}
 	}
+	// LeaseHeld is True iff the lease's holder is THIS controller's
+	// region identity. SelfRegion (CATALYST_REGION, or the CR's
+	// primaryRegion fallback — #3829) is preferred; fall back to
+	// r.HoldingRegion for callers that don't stamp SelfRegion.
+	self := su.SelfRegion
+	if self == "" {
+		self = r.HoldingRegion
+	}
 	conds = append(conds, map[string]interface{}{
 		"type":               "LeaseHeld",
-		"status":             boolToCondStatus(su.LeaseHolder == r.HoldingRegion && su.LeaseHolder != ""),
+		"status":             boolToCondStatus(su.LeaseHolder == self && su.LeaseHolder != ""),
 		"reason":             firstNonEmpty(su.Reason, "Reconciled"),
 		"message":            firstNonEmpty(su.Message, ""),
 		"lastTransitionTime": r.now().UTC().Format(time.RFC3339),

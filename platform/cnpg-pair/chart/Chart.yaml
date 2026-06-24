@@ -1,6 +1,15 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.2.6
+# 0.2.7 (#3829, #3375): default the Continuum CR's lease witness to
+# `k8s-lease` (a native coordination.k8s.io/v1 Lease in the control
+# plane — zero external dependency, durable etcd CAS) and DROP the
+# placeholder dns-quorum resolvers (10.43.0.11/.12 were never DNS
+# servers; dns-quorum's TXTWriter was a never-completed POC → every
+# Acquire failed → the Continuum CR sat Degraded/LeaseHeld=False forever
+# and the console Topology tab fell back to "singleton"). The template
+# gains an optional leaseClient.namespace passthrough. Slot-16b pin moves
+# to 0.2.7 in lockstep (Inviolable Principle #13).
+version: 0.2.7
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
