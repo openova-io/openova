@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T08:45:03Z` |
+| Last refreshed | `2026-06-24T09:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 19 |
+| Open issues | 17 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,12 +196,10 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 19 open items (clickable table)
+### All 17 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3374](https://github.com/openova-io/openova/issues/3374) | SSO: typing the bare root URL of ANY surface (console + all ~11 external apps +  | Other |
-| [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
 | [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
 | [#3785](https://github.com/openova-io/openova/issues/3785) | FUNNEL: customer's purchased WordPress image is kyverno-DENIED (not Harbor-proxi | Other |
 | [#3829](https://github.com/openova-io/openova/issues/3829) | Every application AND activity shows its TRUE live state end-to-end — every ap | Other |
@@ -226,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T08:55 | [#4268](https://github.com/openova-io/openova/pull/4268) | #4252 | docs(uat): #3374 SSO-landing + #3376 funnel signed-in GREEN; |
 | 2026-06-24T08:33 | [#4267](https://github.com/openova-io/openova/pull/4267) | #4180 | docs(sessions): agenity #4180 workspaces /app dashboard — li |
 | 2026-06-24T08:34 | [#4266](https://github.com/openova-io/openova/pull/4266) | #4206 | fix(org-provisioning): self-heal corrupted JSON-envelope par |
 | 2026-06-24T08:26 | [#4264](https://github.com/openova-io/openova/pull/4264) | #4180 | fix(bp-agenity): resync catalog-seed pin + generated catalog |
@@ -255,7 +254,6 @@ flowchart LR
 | 2026-06-24T01:35 | [#4229](https://github.com/openova-io/openova/pull/4229) | #4102 | fix(ci): render api-deployment.yaml before apply in strategy |
 | 2026-06-24T01:05 | [#4227](https://github.com/openova-io/openova/pull/4227) | #4222 | fix(bp-cnpg): managed-by:flux on webhook Helm-hook Jobs → un |
 | 2026-06-24T01:05 | [#4225](https://github.com/openova-io/openova/pull/4225) | #4180 | feat(bp-agenity): durable per-Org install + Cilium-gateway C |
-| 2026-06-24T00:47 | [#4223](https://github.com/openova-io/openova/pull/4223) | #4143 | fix(#4220): un-break demo Org WordPress — bp-keycloak 1.5.1  |
 
 ---
 
