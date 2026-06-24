@@ -131,13 +131,16 @@ already-provisioned Sovereign (used for the hw173 live proof).
 
 - `docs/adr/0011-opentofu-crossplane-adoption-seam.md` (this ADR)
 - `clusters/_template/infrastructure/provider-opentofu.yaml` — Provider + DeploymentRuntimeConfig
+  (#4212 moved to `clusters/_template/infrastructure/base/`)
 - `clusters/_template/infrastructure/provider-config-opentofu.yaml` — ProviderConfig (per-cloud creds wiring)
+  (#4212 moved to `clusters/_template/infrastructure/base/`)
 - `platform/crossplane-claims/chart/templates/{xrds,compositions}/cloudadoption.yaml` — the
   generic `XCloudAdoption` composite + Observe-only Workspace composition
 - `products/catalyst/bootstrap/api/internal/provisioner/adoption.go` — the adoption-claim
   generator (tofu state → `adoption-claims.yaml`)
 - `clusters/_template/infrastructure/adoption-claims.yaml` — the bootstrap claim manifest the
   README promised (envsubst placeholders, generator-overwritten per Sovereign)
+  (#4212 moved to `clusters/_template/infrastructure/base/`)
 
 ## Follow-up — #4212 runtime wiring (the three seams the merge of #4006 left inert)
 

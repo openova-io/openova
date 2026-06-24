@@ -8,8 +8,8 @@
 // per real cloud resource (ELB / server / network / eip …), each carrying
 // the live resource id as crossplane.io/external-name. But it only WROTE
 // that YAML into the mothership deploy workdir — and the Sovereign's Flux
-// reconciles the STATIC clusters/_template/infrastructure/adoption-claims
-// .yaml from the public OpenOva repo, which ships only the
+// reconciles the STATIC clusters/_template/infrastructure/base/adoption-
+// claims.yaml from the public OpenOva repo, which ships only the
 // `PENDING-GENERATION` placeholder. Nothing carried the generated real-id
 // claims from the mothership workdir onto the cluster. So on every
 // Sovereign `kubectl get cloudadoption -A` showed (at best) the placeholder
