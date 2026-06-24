@@ -1,0 +1,44 @@
+# ProviderConfig for provider-opentofu (ADR-0011, Refs #4002 #4212).
+#
+# Drives every CloudAdoption's backing Workspace.
+#
+# CREDENTIAL DELIVERY (#4212): the cloud AK/SK + project + region reach the
+# tofu run as the standard provider ENV VARS (HW_ACCESS_KEY / HW_SECRET_KEY
+# / HW_PROJECT_ID / HW_REGION_NAME / HCLOUD_TOKEN), set PER-WORKSPACE by the
+# opentofu-cloud-adoption Composition's spec.forProvider.env[] block — NOT
+# by this ProviderConfig. That is what actually authenticates the Observe
+# data lookup. The `credentials` block below is the tf.upbound.io
+# ProviderConfig's required field; we point it at a single planted key so
+# the ProviderConfig validates, but the Workspace env[] is the live auth.
+#
+# The `cloud-credentials` Secret in namespace flux-system is planted by the
+# cloud-init Tofu module. Keys (vendor-agnostic Secret name, cloud shape
+# in the key name) — verified against infra/providers/{huawei,hetzner}:
+#   hcloud-token          — Hetzner API token        (Hetzner only)
+#   huawei-ak             — Huawei IAM access key     (Huawei only)
+#   huawei-sk             — Huawei IAM secret key     (Huawei only)
+#   huawei-project-id     — Huawei project id (region-scoped, Huawei only)
+#   huawei-region         — Huawei region code (e.g. me-east-215, Huawei)
+#
+# A Hetzner Sovereign has no huawei-* keys; the `cloud` var gates which
+# data lookup the Workspace runs, so the empty HW_* env is inert there.
+apiVersion: tf.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+spec:
+  # source: None — this ProviderConfig carries NO secret dependency, so it
+  # validates identically on Hetzner (only the hcloud-token key exists) and
+  # Huawei (only the huawei-* keys exist). The live cloud auth is 100% via
+  # the HW_*/HCLOUD_* env the Composition sets on each Workspace (see
+  # header). filename is still required by the CRD; nothing is written.
+  credentials:
+    - filename: cloud-credentials.env
+      source: None
+  configuration: |
+    // Catalyst-default OpenTofu provider configuration for adoption
+    // Workspaces. Per-Workspace inline modules override/extend this.
+    // Empty by default — the adoption module carries its own provider{}
+    // block keyed to the cloud being adopted, because the on-prem HCS
+    // endpoints + insecure flag must be set per-cloud and cannot be a
+    // single global default.

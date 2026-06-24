@@ -886,14 +886,16 @@ write_files:
             # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
             # tofu var validation rejects "" and "local-path".
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
-%{ if provider == "hetzner" ~}
       ---
-      # infrastructure-config Kustomization — installs the Crossplane Provider
-      # + ProviderConfig + Compositions from clusters/_template/infrastructure.
-      # That tree currently ships ONLY hcloud manifests (provider-hcloud +
-      # provider-config-hcloud), so it is gated to Hetzner (hard dependency).
-      # Other clouds adopt Crossplane via the direct cloud-init apply of
-      # crossplane_provider_yaml (or skip it until their tree lands).
+      # infrastructure-config Kustomization — the Crossplane object-model
+      # layer (#4212, un-gates #4002/#4018). UN-GATED to all clouds: the
+      # `path` is cloud-conditional — Huawei installs the cloud-agnostic
+      # base (provider-opentofu + the Observe-first CloudAdoption
+      # placeholder); Hetzner installs the ./hetzner overlay (= base +
+      # native provider-hcloud). Before #4212 the whole Kustomization was
+      # Hetzner-only, so on Huawei `kubectl get providers.pkg.crossplane.io`
+      # was empty. wait:false — the Crossplane provider PACKAGE pull is a
+      # day-2 surface that must NEVER gate Phase-1 (sacred-thin cloud-init).
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
@@ -901,7 +903,7 @@ write_files:
         namespace: flux-system
       spec:
         interval: 5m
-        path: ./clusters/_template/infrastructure
+        path: ./clusters/_template/infrastructure%{ if provider == "hetzner" }/hetzner%{ endif ~}
         prune: true
         sourceRef:
           kind: GitRepository
@@ -909,7 +911,7 @@ write_files:
         dependsOn:
           - name: bootstrap-kit
           - name: sovereign-tls
-        wait: true
+        wait: false
         timeout: 5m
         postBuild:
           substitute:
@@ -917,7 +919,6 @@ write_files:
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
-%{ endif ~}
 
 runcmd:
   - swapoff -a

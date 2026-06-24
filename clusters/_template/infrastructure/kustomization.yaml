@@ -1,17 +1,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# clusters/_template/infrastructure — the Crossplane object-model layer
+# entrypoint for HUAWEI (and any non-Hetzner cloud) (#4212, un-gates
+# #4002/#4018). It pulls in the cloud-agnostic ./base — provider-opentofu +
+# provider-config-opentofu + the Observe-first CloudAdoption placeholder —
+# all of which work on every cloud.
+#
+# The single `infrastructure-config` Flux Kustomization (cloud-init) points
+# its cloud-conditional `path` HERE on Huawei (base only) and at ./hetzner
+# on Hetzner (base + native provider-hcloud). Before #4212 the whole
+# Kustomization was hard-gated to Hetzner, so on Huawei Crossplane owned
+# NOTHING and `kubectl get providers.pkg.crossplane.io` was empty (the
+# #4002/#4018 gap this un-gates).
 resources:
-  - provider-hcloud.yaml
-  - provider-config-hcloud.yaml
-  # provider-opentofu — the cross-cloud OpenTofu→Crossplane adoption seam
-  # (ADR-0011, Refs #4002). Adopts Phase-0 cloud resources by external-name
-  # on BOTH Hetzner and Huawei without re-provisioning.
-  - provider-opentofu.yaml
-  - provider-config-opentofu.yaml
-  # adoption-claims.yaml — the per-Sovereign CloudAdoption manifests the
-  # provisioner's adoption generator (internal/provisioner/adoption.go)
-  # overwrites from tofu state. Ships with envsubst placeholders so a
-  # fresh prov gets a valid (empty-by-default) Observe-only baseline; the
-  # generator replaces it with the real resource ids at Phase-1 hand-off.
-  - adoption-claims.yaml
+  - base

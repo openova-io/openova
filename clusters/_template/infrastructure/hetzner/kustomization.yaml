@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# clusters/_template/infrastructure/hetzner — the Hetzner overlay (#1947
+# #4212). On Hetzner the single `infrastructure-config` Flux Kustomization
+# points its cloud-conditional `path` HERE, so this overlay installs the
+# cloud-agnostic ../base (provider-opentofu + the Observe-first
+# CloudAdoption placeholder) PLUS the Hetzner-NATIVE provider-hcloud.
+# provider-hcloud gives Crossplane native day-2 CRUD over Hetzner resources
+# and needs the `hcloud-token` key in flux-system/cloud-credentials — which
+# only a Hetzner Sovereign plants. On Huawei the same Kustomization points
+# at ../ (base only): the cross-cloud provider-opentofu handles adoption,
+# no native provider package. `../base` is a SIBLING of this dir, so the
+# reference is free of the kustomize ancestor-cycle / security errors a
+# `../`-to-parent reference would hit.
+resources:
+  - ../base
+  - provider-hcloud.yaml
+  - provider-config-hcloud.yaml

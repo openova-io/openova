@@ -65,9 +65,14 @@ kustomizations:
     # Provider-agnostic (NOT optional).
     depends_on: []
   - name: infrastructure-config
-    # Hetzner-only (HCL `%{ if provider == "hetzner" }` guard) — absent for
-    # other providers, which is expected, not drift.
-    optional: true
+    # #4212 — UN-GATED to all clouds (was Hetzner-only). Installs the
+    # Crossplane object-model layer on EVERY provider via a cloud-conditional
+    # `path`: Huawei → clusters/_template/infrastructure (cloud-agnostic base
+    # = provider-opentofu + the Observe-first CloudAdoption placeholder);
+    # Hetzner → .../infrastructure/hetzner (base + native provider-hcloud).
+    # One Kustomization, ONE name, on both clouds — so Crossplane finally
+    # OBSERVES the OpenTofu infra on Huawei too (#4002/#4018). Always present
+    # now — not optional. The dependsOn set is identical on both clouds.
     depends_on:
       - bootstrap-kit
       - sovereign-tls

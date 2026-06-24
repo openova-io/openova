@@ -932,6 +932,21 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// manually patch per #2441 fallback). See post_handover_policy_
 		// enforce.go for the full helper.
 		go h.runPostHandoverPolicyEnforceFlip(dep)
+
+		// #4212 (Path B of #4018; un-gates #4002): carry the real-id
+		// Observe-first CloudAdoption claims from the deploy workdir's
+		// terraform.tfstate onto the Sovereign cluster, so Crossplane
+		// actually OBSERVES the OpenTofu-provisioned ELB/server/network/
+		// eip by external-name (instead of sitting inert with only the
+		// `PENDING-GENERATION` placeholder). Observe-first → never
+		// re-provisions the running platform. Background goroutine +
+		// internal retry budget: the CloudAdoption CRD (bp-crossplane-
+		// claims slot 14) + provider-opentofu (infrastructure-config Flux
+		// Kustomization) may still be installing at first OutcomeReady, so
+		// this must NOT block the terminate path. Failures log + emit SSE
+		// warn but never fail the handover (adoption is a day-2
+		// observability surface). See post_handover_adoption_apply.go.
+		go h.runPostHandoverAdoptionApply(dep)
 	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
 		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
 		// recoverable classification ("components observed, none
