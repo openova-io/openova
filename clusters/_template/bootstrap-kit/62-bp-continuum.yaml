@@ -137,7 +137,7 @@ spec:
       # PR #996), the 0.1.6 promoter would have failed on a real region-kill.
       # RBAC adds pods `delete` (the restart). Pin moves in lockstep
       # (Inviolable Principle #13).
-      version: 0.1.7
+      version: 0.1.8
       sourceRef:
         kind: HelmRepository
         name: bp-continuum

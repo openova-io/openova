@@ -70,14 +70,17 @@ var ContinuumGVR = schema.GroupVersionResource{
 const ContinuumNamePrefix = "dr-"
 
 // DefaultContinuumLeaseKind is the witness backend stamped on a produced
-// Continuum CR when the Blueprint variant does not name one. `dns-quorum`
-// is the canonical air-gappable witness (no Cloudflare dependency) and is
-// one of the two values the CRD's leaseClient.kind enum accepts
-// (`[cloudflare-kv, dns-quorum]` — `in-memory` is test-only and NOT a
-// valid CRD value). Per Inviolable Principle #4 the controller could be
-// taught to read this from env later; the default keeps a fresh prov's
-// DR contract self-contained.
-const DefaultContinuumLeaseKind = "dns-quorum"
+// Continuum CR when the Blueprint variant does not name one. `k8s-lease`
+// (#3829) is the canonical air-gappable witness: a native
+// coordination.k8s.io/v1 Lease in the control-plane cluster — zero
+// external dependency, durable etcd-backed CAS — and a value the CRD's
+// leaseClient.kind enum accepts (`[k8s-lease, cloudflare-kv,
+// dns-quorum]`). It replaces the prior `dns-quorum` default, which was a
+// never-completed Phase-1 POC (nil TXTWriter → every Acquire failed →
+// the produced CR sat Degraded/LeaseHeld=False forever). Per Inviolable
+// Principle #4 the controller could be taught to read this from env
+// later; the default keeps a fresh prov's DR contract self-contained.
+const DefaultContinuumLeaseKind = "k8s-lease"
 
 // continuumPlan is the minimal, resolved input the producer needs. It is
 // computed by the reconciler from the SAME placement.Plan + topology

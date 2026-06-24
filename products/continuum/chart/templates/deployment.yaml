@@ -100,6 +100,22 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # #3829 — the host-cluster region this controller represents.
+            # Stamped on the k8s-lease holderIdentity. When unset, the
+            # controller falls back to the Continuum CR's primaryRegion
+            # (the controller runs only on the primary-side cluster), so
+            # a fresh prov that doesn't wire this still yields a held
+            # lease. Set continuum.region in an overlay to pin it
+            # explicitly.
+            {{- if .Values.continuum.region }}
+            - name: CATALYST_REGION
+              value: {{ .Values.continuum.region | quote }}
+            {{- end }}
+            # #3829 — namespace for the k8s-lease witness's
+            # coordination.k8s.io/v1 Lease objects. Defaults (controller
+            # binary side) to the controller's own namespace.
+            - name: CATALYST_LEASE_NS
+              value: {{ .Values.continuum.leaseNamespace | default .Release.Namespace | quote }}
             # K-Cont-2 / K-Cont-3 seams (sketched here; values currently
             # unused by the no-op Reconcile but part of the target-state
             # shape per Inviolable Principle #1).

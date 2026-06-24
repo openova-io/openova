@@ -124,6 +124,20 @@ continuum:
   # in-cluster nats.openova-system.svc.cluster.local default.
   natsURL: ""
 
+  # #3829 — the host-cluster region this controller instance represents,
+  # stamped as the k8s-lease holderIdentity (CATALYST_REGION). Empty =
+  # the controller falls back to the Continuum CR's primaryRegion (it
+  # runs only on the primary-side cluster), which is correct for a single
+  # 2-region cnpg-pair. Pin explicitly in a per-Sovereign overlay if a
+  # cluster hosts continuum CRs whose primaryRegion is not this region.
+  region: ""
+
+  # #3829 — namespace for the k8s-lease witness's coordination.k8s.io/v1
+  # Lease objects (CATALYST_LEASE_NS). Empty = the controller's own
+  # namespace (.Release.Namespace), where the ClusterRole already grants
+  # coordination.k8s.io/leases.
+  leaseNamespace: ""
+
   # Lease witness defaults (overridden per-CR via Continuum.spec.leaseClient).
   # These are CONTROLLER-WIDE defaults; per-Continuum-CR config wins.
   lease:

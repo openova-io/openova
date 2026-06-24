@@ -55,7 +55,18 @@ type: application
 # raft-transition (bp-openbao). (Promote step corrected in 0.1.7 —
 # transition-to-primary is not an OSS command.) RBAC adds pods + pods/exec for
 # the raft promotion. Slot-62 pin moves to 0.1.6 in lockstep (Principle #13).
-version: 0.1.7
+# 0.1.8 (#3829, #3375): the continuum-controller image gains the
+# `k8s-lease` witness (native coordination.k8s.io/v1 Lease, air-gappable
+# default) + a CATALYST_REGION fallback to the CR's primaryRegion so a
+# healthy 2-region pair self-bootstraps leaseHolder=<region-a> even when
+# the deployment never wired CATALYST_REGION (the live omantel.biz case).
+# Before this the cnpg-pair Continuum CR sat Degraded/LeaseHeld=False
+# forever (dns-quorum POC never acquired) → the console Topology tab had
+# no live lease/standby/lag to render and fell back to "singleton". RBAC
+# already grants coordination.k8s.io/leases — no chart RBAC change. New
+# CATALYST_LEASE_NS env (defaults to the controller namespace). Slot-62
+# pin moves to 0.1.8 in lockstep (Inviolable Principle #13).
+version: 0.1.8
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
