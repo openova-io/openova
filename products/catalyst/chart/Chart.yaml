@@ -3004,7 +3004,7 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
-version: 1.4.823
+version: 1.4.824
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
@@ -3115,7 +3115,7 @@ version: 1.4.823
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.818
+appVersion: 1.4.824
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
