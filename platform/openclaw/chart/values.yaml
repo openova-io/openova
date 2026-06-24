@@ -42,6 +42,19 @@ catalystBlueprint:
 # render passes (the smoke run uses defaults — placeholders are valid
 # bytes for render-time syntax checks but non-functional at runtime).
 assertNoPlaceholders: false
+# ─── Image pull secrets (#4246) ──────────────────────────────────────────
+# The controller + per-user-pod images live under the PRIVATE
+# `ghcr.io/openova-io/openova/*` registry path, so every Pod that runs them
+# MUST present a dockerconfigjson pull credential. On a Sovereign the
+# `ghcr-pull` Secret is seeded in flux-system by cloud-init and reflected
+# into every per-Org namespace via the emberstack reflector (`org-.*`
+# match, #4246). Without these `imagePullSecrets` the kubelet falls back to
+# an anonymous pull → `failed to fetch anonymous token … 401 Unauthorized`
+# → ImagePullBackOff (bp-openclaw never converged on the demo Org). Default
+# to the canonical `ghcr-pull` name; an overlay may override or clear it for
+# clusters that mirror these images into a pull-through cache.
+imagePullSecrets:
+  - name: ghcr-pull
 # ─── Controller (multi-tenant) ───────────────────────────────────────────
 controller:
   enabled: true

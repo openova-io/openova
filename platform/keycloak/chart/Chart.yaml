@@ -403,8 +403,14 @@ name: bp-keycloak
 # images pass admission. No chart-content change beyond the version line + this
 # changelog — the 1.4.38 templates/values are byte-identical and already
 # proxy-compliant. Refs #3785 (sibling proxy-class defect for the WP image).
-version: 1.5.1
+version: 1.5.2
 description: |
+  1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
+  emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously
+  emitted only `client-secret`). The bp-openclaw controller Deployment
+  reads key `OIDC_CLIENT_SECRET`, so the single-key Secret left the per-Org
+  Pod in CreateContainerConfigError "couldn't find key OIDC_CLIENT_SECRET".
+  Mirrors the dual-key shape already used by the stalwart Secret.
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
   `helm dependency build` pulls the upstream payload into this artifact;

@@ -1112,11 +1112,23 @@ spec:
         kind: HelmRepository
         name: bp-newapi
         namespace: flux-system
+  # #4246 — disableWait: the bp-newapi Deployment gates on a non-empty SQL_DSN
+  # via its wait-for-sql-dsn initContainer, and that DSN is PATCHed in by the
+  # chart's db-dsn-sync POST-INSTALL Helm hook (which composes the DSN from the
+  # CNPG cluster-app Secret). With wait enabled Helm blocks on the Deployment
+  # becoming Ready BEFORE it runs post-install hooks, so the init never unblocks
+  # (SQL_DSN stays empty), the install burns its 15m budget and exits with a
+  # context deadline, and the post-install DSN-sync hook never fires: a hard
+  # deadlock (verified on the omantel.biz demo Org 2026-06-24). disableWait lets
+  # the release reach hook execution, the DSN syncs, and the Pod converges.
+  # CNPG/Keycloak readiness is still gated by dependsOn below.
   install:
     timeout: 15m
+    disableWait: true
   upgrade:
     timeout: 15m
     cleanupOnFail: true
+    disableWait: true
   dependsOn:
     - name: bp-keycloak
       namespace: {{.Namespace}}
@@ -1702,14 +1714,21 @@ spec:
           key: sovereign/{{.OTECHFQDN}}/stalwart/{{.TenantID}}/oidc
           property: OIDC_CLIENT_SECRET
     admin:
+      # #4246 — DO NOT source ADMIN_PASSWORD from an ExternalSecret on a fresh
+      # per-Org install. Nothing seeds OpenBao at the
+      # sovereign/<fqdn>/stalwart/<tenant>/admin path when an Organization is
+      # franchised, so an enabled admin.externalSecret leaves the stalwart-admin
+      # Secret unmaterialised, the StatefulSet hits a missing-secret mount
+      # (secret stalwart-admin not found) and CreateContainerConfigError, and
+      # the bp-stalwart-tenant HR never converges (verified on the omantel.biz
+      # demo Org 2026-06-24; matches the chart's own #898 note in
+      # admin-secret.yaml). Leaving externalSecret disabled lets the chart's
+      # admin-secret.yaml auto-provision a persistent random ADMIN_PASSWORD
+      # (lookup-or-generate with resource-policy: keep). An operator who
+      # genuinely manages this credential in OpenBao can re-enable
+      # externalSecret in a cluster overlay.
       externalSecret:
-        enabled: true
-        secretStoreRef:
-          kind: ClusterSecretStore
-          name: vault-region1
-        remoteRef:
-          key: sovereign/{{.OTECHFQDN}}/stalwart/{{.TenantID}}/admin
-          property: ADMIN_PASSWORD
+        enabled: false
     # The post-install setup Job seeds the OIDC directory entry into
     # Stalwart's runtime settings KV store via ` + "`/api/settings`" + ` so
     # the very first webmail/IMAP/SMTP login flows through Keycloak.

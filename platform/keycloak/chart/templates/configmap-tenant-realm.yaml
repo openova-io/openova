@@ -532,12 +532,18 @@ metadata:
       Per-tenant Keycloak OIDC client secret for the `openclaw` client
       registered in realm `{{ $t.realmName }}`. The bp-openclaw chart
       consumes this Secret via .Values.keycloak.clientSecretName
-      (default `openclaw-oidc-client-secret`). Bytes persist across
-      `helm upgrade` via lookup-or-generate (issue #915 / C1).
+      (default `openclaw-oidc-client-secret`); the controller Deployment's
+      secretKeyRef reads key `OIDC_CLIENT_SECRET` (chart default
+      bp-openclaw.oidc.clientSecretKey), so that key MUST be present —
+      emitting only `client-secret` left the per-Org bp-openclaw Pod in
+      CreateContainerConfigError "couldn't find key OIDC_CLIENT_SECRET"
+      (#4246). Emit BOTH keys (mirrors the stalwart Secret below). Bytes
+      persist across `helm upgrade` via lookup-or-generate (issue #915 / C1).
     helm.sh/resource-policy: keep
 type: Opaque
 stringData:
   client-secret: {{ $ocSecret | quote }}
+  OIDC_CLIENT_SECRET: {{ $ocSecret | quote }}
 {{- /* ── stalwart-oidc-client-secret ─────────────────────────────────── */}}
 ---
 apiVersion: v1
