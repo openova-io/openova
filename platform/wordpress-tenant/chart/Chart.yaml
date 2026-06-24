@@ -184,7 +184,27 @@ name: bp-wordpress-tenant
 #   now emits gateway.{enabled,host,parentRef} instead of the dead ingress
 #   block. Verified live: GET https://wordpress.<slug>.<pool>/ → 200 serving
 #   the WordPress site (was 404).
-version: 0.4.15
+# 0.4.16 (#4220, Refs #4155): FIX the demo-Org WordPress post-upgrade hook
+#   DEADLOCK that left the HelmRelease Ready=False after the DB recovered.
+#   Root cause: templates/oidc-config-job.yaml mounted the SAME ReadWriteOnce
+#   `wp-content` PVC the runtime WordPress Deployment holds for its whole
+#   lifetime. A Sovereign's only StorageClass is RWO (evs-ssd / Huawei EVS —
+#   no RWX class exists), so the concurrent Job blocked forever on the kubelet
+#   "Multi-Attach error for volume ... Volume is already used by pod(s)
+#   bp-wordpress-tenant-..." → the post-install/post-upgrade hook never started
+#   → Helm timed out → HR Ready=False (and on a COLD install the failed hook
+#   rolls the release back, dropping the HTTPRoute → customer host 404).
+#   Confirmed live on the omantel.biz demo Org (kom4dc): the oidc-config Job pod
+#   sat ContainerCreating with FailedAttachVolume while the WordPress pod served
+#   200 with the PVC attached.
+#   FIX: the oidc-config Job now mounts its OWN emptyDir for wp-content (never
+#   the shared PVC) and self-seeds the pg4wp `wp-content/db.php` Postgres-adapter
+#   drop-in (same GitHub source + version 3.3.1 as the deployment's
+#   wp-plugin-install initContainer) so wp-cli reaches the bp-cnpg Postgres
+#   backend. The OIDC plugin settings + admin user persist in POSTGRES, not on
+#   the PVC, so an ephemeral wp-content is correct + deadlock-free. The recovered
+#   demo-Org HR converges Ready without the Multi-Attach stall.
+version: 0.4.16
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

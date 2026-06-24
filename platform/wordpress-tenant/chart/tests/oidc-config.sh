@@ -195,13 +195,16 @@ if grep -qE '^kind: (HTTPRoute|Ingress)$' "$TMP/canonical.yaml"; then
 fi
 echo "  PASS"
 
-echo "[oidc-config] Case 7: wp-content PVC mounted in Job (so seeded plugin/db.php drop-in are visible)"
-# The Job MUST mount the same wp-content PVC the runtime container
-# uses, otherwise wp-cli won't find pg4wp's db.php drop-in and `wp db
-# check` will fall through to the default mysqli adapter (which fails
-# against bp-cnpg).
+echo "[oidc-config] Case 7: wp-content is an emptyDir (NOT the runtime RWO PVC) + the Job self-seeds pg4wp"
+# #4220 (Refs #4155): the Job MUST NOT mount the runtime Deployment's
+# ReadWriteOnce wp-content PVC. The WordPress Pod holds that RWO PVC for
+# its whole lifetime, and a Sovereign's only StorageClass is RWO (no RWX),
+# so a concurrent Job mounting the same PVC deadlocks on the kubelet
+# Multi-Attach error → the post-upgrade hook never runs → HR Ready=False.
+# Instead the Job mounts its OWN emptyDir and self-seeds the pg4wp db.php
+# drop-in so wp-cli still reaches the bp-cnpg Postgres backend.
 #
-# Extract just the oidc-config Job document and assert PVC mount.
+# Extract just the oidc-config Job document and assert the emptyDir mount.
 python3 - "$TMP/canonical.yaml" <<'PYEOF'
 import sys, yaml
 docs = list(yaml.safe_load_all(open(sys.argv[1])))
@@ -213,17 +216,25 @@ job = next(
 assert job, "oidc-config Job missing"
 spec = job['spec']['template']['spec']
 volumes = spec.get('volumes') or []
+# MUST NOT carry any PVC volume (that would Multi-Attach-deadlock the RWO PVC).
 pvc_vols = [v for v in volumes if v.get('persistentVolumeClaim')]
-assert pvc_vols, "oidc-config Job has no PVC volumes"
-claim = pvc_vols[0]['persistentVolumeClaim']['claimName']
-assert claim.endswith('-wp-content'), f"unexpected PVC claim: {claim}"
+assert not pvc_vols, f"oidc-config Job must not mount a PVC (Multi-Attach deadlock); found: {pvc_vols}"
+# MUST mount an emptyDir named wp-content at the WordPress wp-content path.
+wp_vols = [v for v in volumes if v.get('name') == 'wp-content']
+assert wp_vols, "oidc-config Job has no wp-content volume"
+assert 'emptyDir' in wp_vols[0], f"wp-content volume must be emptyDir, got: {wp_vols[0]}"
 mounts = spec['containers'][0].get('volumeMounts') or []
-mount_names = [m['name'] for m in mounts]
-assert pvc_vols[0]['name'] in mount_names, "PVC volume not mounted into container"
-mount = next(m for m in mounts if m['name'] == pvc_vols[0]['name'])
+mount = next((m for m in mounts if m['name'] == 'wp-content'), None)
+assert mount, "wp-content volume not mounted into container"
 assert mount['mountPath'] == '/var/www/html/wp-content', \
   f"unexpected mountPath: {mount['mountPath']}"
-print(f"  PVC {claim} -> {mount['mountPath']}")
+# The Job's command MUST self-seed the pg4wp db.php drop-in (so wp-cli
+# speaks Postgres without depending on the runtime PVC's seeded copy).
+cmd = "\n".join(spec['containers'][0].get('command') or []) \
+    + "\n".join(spec['containers'][0].get('args') or [])
+assert 'pg4wp' in cmd and 'db.php' in cmd, \
+  "oidc-config Job command must self-seed the pg4wp db.php drop-in"
+print(f"  emptyDir wp-content -> {mount['mountPath']}; pg4wp db.php self-seeded")
 PYEOF
 echo "  PASS"
 
