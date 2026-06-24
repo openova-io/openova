@@ -142,6 +142,19 @@ spec:
       # system:default and every cutover-status read returns 502
       # "configmaps is forbidden" (caught live on otech102, 2026-05-04).
       serviceAccountName: catalyst-api-cutover-driver
+      # ── Survive a co-tenant disk/memory-pressure storm (#4231) ───────────
+      # catalyst-api is pinned to its EVS node (nodeName below, #4102) so it
+      # CANNOT reschedule off a pressured node. Without a priority it is an
+      # ordinary priority-0 Pod competing with co-tenant Day-2 trivy/syft
+      # scanners + convergence image-pulls; when that node hit DiskPressure the
+      # kubelet evicted the control-plane API (11+ Evicted tombstones → ~17min
+      # console outage, omantel.biz 2026-06-24). priorityClassName puts it far
+      # above those reschedulable Day-2 Pods, so the kubelet sheds THEM first
+      # under node pressure and the pinned API stays Running. The class itself
+      # is shipped by this chart (api-priorityclass.yaml) — a custom class
+      # because the built-in system-cluster-critical is admission-restricted to
+      # the kube-system namespace and catalyst-api runs in catalyst-system.
+      priorityClassName: {{ .Values.catalystApi.priorityClassName | default "catalyst-control-plane" }}
       # ── Zero-downtime roll: pin to the EVS volume's node (#4100) ──────────
       # catalyst-api mounts two RWO Huawei-EVS PVCs (catalyst-api-deployments,
       # catalyst-api-cache). The EVS PV nodeAffinity is ZONE-scoped

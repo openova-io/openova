@@ -152,6 +152,13 @@ spec:
       # system:default and every cutover-status read returns 502
       # "configmaps is forbidden" (caught live on otech102, 2026-05-04).
       serviceAccountName: catalyst-api-cutover-driver
+      # High priority so a co-tenant disk/memory-pressure storm (trivy/syft
+      # Day-2 scanners + convergence image-pulls) evicts THOSE reschedulable
+      # Pods first instead of the control-plane API (#4231). Literal class name
+      # for the contabo-mkt raw-Kustomize path (kustomize-controller does not
+      # render Helm templates). Mirrors the Helm sibling api-deployment.yaml +
+      # the catalyst-control-plane PriorityClass in api-priorityclass.yaml.
+      priorityClassName: catalyst-control-plane
       imagePullSecrets:
         - name: ghcr-pull
       # fsGroup applies to the volumes mounted into the Pod so the
