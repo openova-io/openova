@@ -220,6 +220,16 @@ sw_data = sw_secret.get('stringData') or sw_secret.get('data') or {}
 assert 'client-secret' in sw_data, "stalwart secret missing client-secret key"
 assert 'OIDC_CLIENT_SECRET' in sw_data, "stalwart secret missing OIDC_CLIENT_SECRET key"
 
+# #4246 — OpenClaw Secret MUST likewise carry BOTH keys. The bp-openclaw
+# controller Deployment's secretKeyRef reads key OIDC_CLIENT_SECRET (chart
+# default bp-openclaw.oidc.clientSecretKey); emitting only client-secret left
+# the per-Org Pod in CreateContainerConfigError "couldn't find key
+# OIDC_CLIENT_SECRET".
+oc_secret = secrets['openclaw-oidc-client-secret']
+oc_data = oc_secret.get('stringData') or oc_secret.get('data') or {}
+assert 'client-secret' in oc_data, "openclaw secret missing client-secret key"
+assert 'OIDC_CLIENT_SECRET' in oc_data, "openclaw secret missing OIDC_CLIENT_SECRET key (#4246)"
+
 # Realm secrets must match Secret bytes (single-template-scope invariant).
 def _val(s, key):
     sd = s.get('stringData') or {}
