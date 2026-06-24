@@ -905,6 +905,11 @@ locals {
     kubeconfig_bearer_token    = var.kubeconfig_bearer_token
     catalyst_api_url           = var.catalyst_api_url
     load_balancer_ipv4         = hcloud_load_balancer.main.ipv4
+    # #4236 — the dedicated console LB IPv4 (#4053 isolation). Threads through
+    # cloud-init → bootstrap-kit slot 13 → sovereign-fqdn ConfigMap `consoleLBIP`
+    # → organization-controller so the per-Org pool-DNS `console.<slug>.<pool>`
+    # A-record targets the console front door (the #4179 final layer).
+    console_load_balancer_ipv4 = hcloud_load_balancer.console.ipv4
 
     # Huawei-branch substitute vars — passed empty/placeholder on Hetzner so
     # the shared template's `provider == "huawei"` block parses (tofu
@@ -1434,6 +1439,12 @@ locals {
       kubeconfig_bearer_token    = var.kubeconfig_bearer_token
       catalyst_api_url           = var.catalyst_api_url
       load_balancer_ipv4         = hcloud_load_balancer.secondary[k].ipv4
+      # #4236 — the dedicated console LB IPv4 is a single (region-agnostic)
+      # resource; pass it in every region's cloud-init so the shared template's
+      # ${console_load_balancer_ipv4} substitute resolves. The organization-
+      # controller only runs in the primary region but the substitute must be
+      # defined in both templatefile() calls.
+      console_load_balancer_ipv4 = hcloud_load_balancer.console.ipv4
 
       # Huawei-branch substitute vars — inert on Hetzner (see primary call),
       # EXCEPT sovereign_region_role: live via the shared

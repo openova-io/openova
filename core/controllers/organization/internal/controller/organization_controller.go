@@ -30,6 +30,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -266,6 +267,47 @@ type Reconciler struct {
 	// all `/` backend). Default catalyst-ui:80.
 	ConsoleUIService string
 	ConsoleUIPort    int32
+
+	// ── Per-Org pool-DNS A-record write (issue #4236) ─────────────────────────
+	// The org-controller writes `console.<slug>.<parentDomain>` +
+	// `*.<slug>.<parentDomain>` A-records to the CENTRAL PowerDNS so a fresh
+	// marketplace-funnel signup's console host resolves (the #4179 final layer:
+	// #4222's pool-DNS writer was wired only into the catalyst-api BSS pipeline,
+	// which the marketplace funnel never runs). See tenant_dns.go. All values
+	// flow through env per Inviolable Principle #4 — no hardcoded endpoint/IP.
+
+	// PoolPowerDNSURL / PoolPowerDNSAPIKey identify the CENTRAL PowerDNS
+	// (https://pdns.openova.io) authoritative for the shared omani.* subdomain
+	// pool. The key is the same central credential #4218 reflects into
+	// catalyst-system as `pool-powerdns-api-credentials` (the org-controller runs
+	// in catalyst-system too, so it reads that bridged secret directly). Empty →
+	// the pool-DNS write is a logged no-op (single-PowerDNS / Catalyst-Zero).
+	// Env: CATALYST_POOL_POWERDNS_API_URL / CATALYST_POOL_POWERDNS_API_KEY.
+	PoolPowerDNSURL    string
+	PoolPowerDNSAPIKey string
+
+	// PoolPowerDNSHTTPClient overrides the HTTP client used for the central-pdns
+	// PATCH (tests inject a client pointed at an httptest server). Nil → a 30s
+	// default client.
+	PoolPowerDNSHTTPClient httpDoer
+
+	// TenantConsoleLBIPv4 is the dedicated console-ELB EIP (#4053) the per-Org
+	// console host resolves to (e.g. 212.72.24.33) — sourced from the
+	// sovereign-fqdn ConfigMap `consoleLBIP` key the chart renders from
+	// global.sovereignConsoleLBIP (ultimately tofu output console_load_balancer_ip).
+	// Env: CATALYST_TENANT_CONSOLE_LB_IPV4.
+	TenantConsoleLBIPv4 string
+	// TenantPrimaryLBIPv4 is the primary/shared LB IP used as a fallback target
+	// when no dedicated console LB exists (single-LB / pre-#4053 Sovereign), so
+	// the record still resolves. Env: CATALYST_OTECH_INGRESS_IPV4 (the same key
+	// catalyst-api's tenant DNS provisioner reads).
+	TenantPrimaryLBIPv4 string
+}
+
+// httpDoer is the narrow HTTP seam the pool-DNS writer needs — *http.Client
+// satisfies it; tests inject a stub pointed at an httptest server.
+type httpDoer interface {
+	Do(req *http.Request) (*http.Response, error)
 }
 
 // SetupWithManager registers the reconciler with the controller-runtime
@@ -483,6 +525,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	idpCond, mappersCond, fedErr := r.reconcileFederation(ctx, &org)
 	if fedErr != nil {
 		return r.fail(ctx, &org, idpCond.Reason, fedErr.Error())
+	}
+
+	// 5a-pre. Per-Org pool-DNS A-record (issue #4236 — the #4179 final layer).
+	// Write `console.<slug>.<parentDomain>` + `*.<slug>.<parentDomain>` to the
+	// CENTRAL PowerDNS so a fresh marketplace-funnel signup's console host
+	// RESOLVES (#4222's pool writer was wired only into the catalyst-api BSS
+	// pipeline, which the marketplace funnel never runs; the org-controller
+	// reconciles EVERY Org CR, so writing the record here covers both doors).
+	// Ordered BEFORE the TLS + HTTPRoute steps so the name resolves the moment
+	// the cert/route land. Failure is TRANSIENT (a PowerDNS hiccup) and must NOT
+	// fail the whole Org reconcile — we log and let the 30s requeue retry, so the
+	// Org still goes Ready while DNS converges. No-op when parentDomain is empty
+	// or the central-pdns writer / console IP is unconfigured (see tenant_dns.go).
+	if _, err := r.reconcileTenantDNS(ctx, &org); err != nil {
+		log.Error(err, "tenant pool-DNS reconcile (transient — requeue)",
+			"organization", org.Name)
 	}
 
 	// 5a-bis. Per-pool console TLS (issue #4075). When the Org picks a

@@ -27,6 +27,16 @@ global:
   # registrars never need it. Per docs/INVIOLABLE-PRINCIPLES.md #4 the
   # value is fully runtime-configurable.
   sovereignLBIP: ""
+  # sovereignConsoleLBIP — the dedicated console-ELB public IPv4 (#4053
+  # gateway isolation; e.g. 212.72.24.33). Rendered into the sovereign-fqdn
+  # ConfigMap `consoleLBIP` key and consumed by the organization-controller's
+  # CATALYST_TENANT_CONSOLE_LB_IPV4 env so the per-Org pool-DNS A-record
+  # `console.<slug>.<parentDomain>` targets the console front door — the #4236
+  # fix (#4179 final layer). Sourced ultimately from tofu output
+  # console_load_balancer_ip (the catalyst-api deployment record). Empty on a
+  # single-LB / pre-#4053 Sovereign → the controller falls back to
+  # sovereignLBIP. Per docs/INVIOLABLE-PRINCIPLES.md #4, runtime-configurable.
+  sovereignConsoleLBIP: ""
   # sovereignSelfDeploymentId — the catalyst-api deployment-record id this
   # Sovereign was provisioned under on the contabo mothership. Wired by
   # bootstrap-kit slot 13 from the ${SOVEREIGN_DEPLOYMENT_ID} cloud-init
@@ -651,7 +661,11 @@ controllers:
       # the current organization-controller GHCR tag to clear the staleness gate.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 300d853 had drifted 174 commits behind latest GHCR.
-      tag: "34ff594"
+      # 6cdbc50 (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
+      # 34ff594 had drifted 470 commits behind latest GHCR. The merge-time
+      # build-organization-controller.yaml auto-bump re-pins this to the image
+      # built from THIS PR's tenant_dns.go code.
+      tag: "6cdbc50"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -751,6 +765,17 @@ controllers:
     # per-Sovereign overlay to `harbor.<sovereign-fqdn>` post-handover. Per
     # Inviolable Principle #4 it stays operator-overridable.
     vclusterImageRegistry: "harbor.openova.io"
+    # #4236 (the #4179 final layer) — per-Org pool-DNS A-record write.
+    # poolPowerdnsURL: the CENTRAL pdns.openova.io endpoint the controller PATCHes
+    # `console.<slug>.<parentDomain>` + the per-Org wildcard into, so a fresh
+    # MARKETPLACE-funnel signup's console host resolves (#4222 wired this only into
+    # the catalyst-api BSS pipeline; the org-controller covers both doors).
+    # poolPowerdnsSecretName: the catalyst-system Secret holding the central pool
+    # key (api-key), mirrored by the #4218 reflector PULL-stub
+    # (pool-powerdns-credentials-host-bridge.yaml) — the same secret catalyst-api
+    # reads. Per docs/INVIOLABLE-PRINCIPLES.md #4, both runtime-configurable.
+    poolPowerdnsURL: "https://pdns.openova.io"
+    poolPowerdnsSecretName: "pool-powerdns-api-credentials"
     # Free-form extra env vars threaded into the Pod (advanced; for one-off
     # operator-side knobs not yet promoted to a top-level value).
     env: {}
@@ -848,7 +873,10 @@ controllers:
       # Application lives in a different namespace from flux-system).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
+      # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
+      # just clearing the staleness gate so the chart ships the current binary).
+      tag: "6d7aacd"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:

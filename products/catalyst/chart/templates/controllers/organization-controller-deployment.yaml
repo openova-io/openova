@@ -167,6 +167,57 @@ spec:
             # harbor.<sovereign-fqdn> post-handover.
             - name: CATALYST_VCLUSTER_IMAGE_REGISTRY
               value: {{ .Values.controllers.organization.vclusterImageRegistry | default "harbor.openova.io" | quote }}
+            # ── #4236 (the #4179 final layer) — per-Org pool-DNS A-record write ──
+            # The org-controller writes `console.<slug>.<parentDomain>` + the
+            # per-Org wildcard to the CENTRAL PowerDNS so a fresh MARKETPLACE-funnel
+            # signup's console host RESOLVES. #4222 wired this pool writer only into
+            # the catalyst-api BSS pipeline — a door the marketplace funnel (tenant-
+            # service → provisioning-service → Organization CR) never runs. The
+            # org-controller reconciles EVERY Organization CR regardless of door, so
+            # writing the record here is the single source of truth for both.
+            #
+            # CATALYST_POOL_POWERDNS_API_URL — the CENTRAL pdns.openova.io endpoint
+            # (authoritative for the shared omani.* pool zones; the Sovereign-local
+            # powerdns has no pool zone → PATCH 404). Literal default, per-Sovereign
+            # override via the HelmRelease overlay env patch (mirrors api-deployment).
+            - name: CATALYST_POOL_POWERDNS_API_URL
+              value: {{ .Values.controllers.organization.poolPowerdnsURL | default "https://pdns.openova.io" | quote }}
+            # CATALYST_POOL_POWERDNS_API_KEY — the CENTRAL pool key, mirrored into
+            # catalyst-system as `pool-powerdns-api-credentials` by the #4218
+            # reflector PULL-stub (templates/pool-powerdns-credentials-host-bridge.yaml).
+            # The org-controller runs in catalyst-system (Release.Namespace) so it
+            # reads the SAME bridged secret — no new bridge. optional=true so the Pod
+            # schedules pre-reflection; an empty key degrades the pool-DNS write to a
+            # logged no-op (tenant_dns.go) until reflector lands it — self-healing,
+            # never a wedge.
+            - name: CATALYST_POOL_POWERDNS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controllers.organization.poolPowerdnsSecretName | default "pool-powerdns-api-credentials" | quote }}
+                  key: api-key
+                  optional: true
+            # CATALYST_TENANT_CONSOLE_LB_IPV4 — the dedicated console-ELB EIP (#4053)
+            # the per-Org console host resolves to (e.g. 212.72.24.33). Sourced from
+            # the sovereign-fqdn ConfigMap `consoleLBIP` key (rendered from
+            # global.sovereignConsoleLBIP; ultimately tofu output
+            # console_load_balancer_ip). optional=true: when absent the reconciler
+            # falls back to CATALYST_OTECH_INGRESS_IPV4 (primary LB) below.
+            - name: CATALYST_TENANT_CONSOLE_LB_IPV4
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: consoleLBIP
+                  optional: true
+            # CATALYST_OTECH_INGRESS_IPV4 — the primary/shared LB IP, used as the
+            # pool-DNS target FALLBACK when no dedicated console LB exists (single-LB
+            # / pre-#4053 Sovereign) so the record still resolves. Same sovereign-fqdn
+            # ConfigMap `lbIP` key catalyst-api's tenant DNS provisioner reads.
+            - name: CATALYST_OTECH_INGRESS_IPV4
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: lbIP
+                  optional: true
             {{- range $k, $v := .Values.controllers.organization.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
