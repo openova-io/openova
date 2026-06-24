@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T03:15:03Z` |
+| Last refreshed | `2026-06-24T03:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T03:26 | [#4243](https://github.com/openova-io/openova/pull/4243) | #4110 | docs(sessions): demo org-user agentic-RBAC walk — org-scoped |
+| 2026-06-24T03:27 | [#4242](https://github.com/openova-io/openova/pull/4242) | #4179 | fix(org-controller): per-Org 2-label console TLS cert+listen |
 | 2026-06-24T03:12 | [#4240](https://github.com/openova-io/openova/pull/4240) | #4179 | fix(org-controller): write console.<slug>.<pool> pool-DNS A- |
 | 2026-06-24T02:56 | [#4238](https://github.com/openova-io/openova/pull/4238) | #4192 | docs(sessions): marketplace funnel walk — JWT in HttpOnly co |
 | 2026-06-24T02:24 | [#4237](https://github.com/openova-io/openova/pull/4237) | #4179 | docs(sessions): #4179 close-gate walk evidence — redirect ho |
@@ -255,8 +257,6 @@ flowchart LR
 | 2026-06-23T19:13 | [#4203](https://github.com/openova-io/openova/pull/4203) | #4187 | fix(catalyst-ui): sovereign-owner sidebar avatar reads /whoa |
 | 2026-06-23T19:13 | [#4202](https://github.com/openova-io/openova/pull/4202) | #3944 | fix(bp-self-sovereign-cutover): step-03 harbor-prewarm enume |
 | 2026-06-23T19:13 | [#4201](https://github.com/openova-io/openova/pull/4201) | #3740 | fix(cnpg): cross-region replica streams SYNC from PRIMARY (R |
-| 2026-06-23T19:30 | [#4200](https://github.com/openova-io/openova/pull/4200) | #3925 | fix(cloud): recon drill-in actions/logs no longer 404 on chr |
-| 2026-06-23T19:16 | [#4199](https://github.com/openova-io/openova/pull/4199) | #4188 | fix(org-provisioning): reap stale duplicate vc-<subdomain>@0 |
 
 ---
 
