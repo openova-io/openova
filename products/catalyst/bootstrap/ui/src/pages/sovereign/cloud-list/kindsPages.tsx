@@ -12,6 +12,7 @@ import { K8sListPage } from './K8sListPage'
 import {
   COL_NAME,
   COL_NAMESPACE,
+  COL_TARGET_NAMESPACE,
   COL_AGE,
   colSpec,
   colStatus,
@@ -711,10 +712,15 @@ export function HelmReleasesListPage() {
     <K8sListPage
       kind="helmrelease"
       title="HelmReleases"
-      tagline="Flux HelmReleases — one per installed Blueprint. Chart / revision / reconcile state."
+      tagline="Flux HelmReleases — one per installed Blueprint. Target namespace / chart / revision / reconcile state."
       columns={[
         COL_NAMESPACE,
         COL_NAME,
+        // #4281 — the HelmRelease RECORD lives in flux-system for every
+        // host-shared platform Blueprint; the workload actually runs in
+        // spec.targetNamespace. Surface it so the operator sees the real
+        // home, not a misleading "everything's in flux-system".
+        COL_TARGET_NAMESPACE,
         {
           header: 'Chart',
           extract: (o) => {

@@ -71,6 +71,28 @@ export const COL_NAMESPACE: K8sListColumn = {
   extract: (o) => o.metadata?.namespace ?? '—',
 }
 
+/**
+ * COL_TARGET_NAMESPACE — where a Flux HelmRelease actually installs its
+ * workload (`spec.targetNamespace`), as opposed to where the HelmRelease
+ * RECORD lives (`metadata.namespace`). For host-shared platform
+ * Blueprints every HelmRelease record sits in `flux-system`, which made
+ * the list read as if everything is dumped there (#4281); the real
+ * workload home is the targetNamespace (catalyst-system, cert-manager,
+ * kube-system, …). Helm defaults the install namespace to the release
+ * namespace when `spec.targetNamespace` is unset, so an empty value
+ * falls back to `metadata.namespace` to match runtime reality.
+ */
+export const COL_TARGET_NAMESPACE: K8sListColumn = {
+  header: 'Target Namespace',
+  extract: (o) => {
+    const target = (o.spec as Record<string, unknown> | undefined)?.[
+      'targetNamespace'
+    ] as string | undefined
+    if (target && target.trim() !== '') return target
+    return o.metadata?.namespace ?? '—'
+  },
+}
+
 export const COL_AGE: K8sListColumn = {
   header: 'Age',
   extract: (o) => {

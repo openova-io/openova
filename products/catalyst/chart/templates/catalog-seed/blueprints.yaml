@@ -6390,7 +6390,7 @@ metadata:
     # must not claw it back (DoD §9.4).
     helm.sh/resource-policy: keep
 spec:
-  version: "0.1.6"
+  version: "0.2.5"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -6415,9 +6415,67 @@ spec:
     license: "Apache-2.0"
     tags: [database, postgres, sql, data, shareable, cnpg, adr-0010]
     docs: "https://cloudnative-pg.io/documentation/"
+  # Seeded verbatim from platform/postgres/blueprint.yaml spec.configSchema
+  # (#3784, commit 509a6ec8e). The topology block is what the bp-postgres
+  # Blueprint CR validates a picked mode against — the seed previously
+  # lacked it, so a multi-region active-hot-standby pick was rejected
+  # before anything built (#4282, shared-pg-e Failed). singleton =
+  # single-instance Cluster; active-hot-standby = synchronous replication
+  # across regions (ADR-0004 Pillar-3 zero-tx-loss).
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: |
+          Master gate. false → the install renders ZERO resources (an
+          empty Ready release). The bootstrap-kit slot 16a wires this to
+          ${SOVEREIGN_ENABLE_SHARED_PG:=false} so a non-sharing Sovereign
+          gets a Ready bp-postgres-shared HR without deploying an unused
+          shared-pg Cluster.
+      instance:
+        type: object
+        description: |
+          The data instance (one CNPG Cluster). name surfaces as the
+          App-card title and the dependsOn target consumers reference.
+        properties:
+          name:
+            type: string
+            default: postgres
+            description: Cluster name = the data-instance identity.
+          storageSize:
+            type: string
+            default: "5Gi"
+            description: Per-instance PVC size (k8s resource quantity).
+          pgVersion:
+            type: string
+            default: "16"
+            description: PostgreSQL major version (CNPG image tag).
+      topology:
+        type: object
+        properties:
+          mode:
+            type: string
+            enum: [singleton, active-hot-standby]
+            default: singleton
+            description: |
+              singleton = single-instance Cluster (no cross-region HA).
+              active-hot-standby = multi-instance Cluster with synchronous
+              replication across regions (ADR-0004 Pillar-3 zero-tx-loss).
+          instances:
+            type: integer
+            minimum: 1
+            maximum: 5
+            default: 1
   placementSchema:
-    modes: [single-region, active-active]
-    default: single-region
+    # Canonical placement vocabulary (#3375 / #3768 / #3784). The catalog
+    # New-instance picker reads these modes off the wire; the seed
+    # previously served the BANNED legacy dialect single-region /
+    # active-active. Aligned to placement.CanonicalModes so the picker
+    # offers all four canonical classes and never a banned spelling.
+    modes: [singleton, active-active, active-hot-standby, active-passive]
+    default: singleton
   manifests:
     chart: bp-postgres
   source:
@@ -6425,7 +6483,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-postgres
-    version: 0.1.6
+    version: 0.2.5
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the
