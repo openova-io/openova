@@ -3004,7 +3004,7 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
-# 1.4.828 — #4280: catalog name + light/dark logo editing no longer silently vanishes for
+# 1.4.829 — #4280: catalog name + light/dark logo editing no longer silently vanishes for
 #   the Sovereign owner. (api) auth.go pinSessionAuthority now grants the configured owner
 #   (OPERATOR_EMAIL) tier=admin even when Keycloak is REACHABLE but the realm seed hasn't
 #   put them in /sovereign-admins (a seeding race / pre-#3263 realm) — previously only the
@@ -3039,7 +3039,7 @@ name: bp-catalyst-platform
 #   every secret name stays operator-overridable; external ghcr/upstream sources are
 #   untouched (the guard applies only to the local-Gitea/Harbor host). Clean version tag
 #   forces the Flux re-pull (deploy-bot mutable-tag trap).
-version: 1.4.828
+version: 1.4.829
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
