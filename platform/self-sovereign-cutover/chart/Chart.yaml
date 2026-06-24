@@ -978,7 +978,15 @@ name: bp-self-sovereign-cutover
 # `helm template` + `sh -n`/`dash -n` clean; live host-view enumeration on the
 # permanent omantel.biz Sovereign confirmed the union covers all 35 openova-io
 # images. Lockstep: 06a pin + blueprint.yaml + generated catalog.
-version: 0.1.78
+# 0.1.78 -> 0.1.79 (#3379, omantel.biz 2026-06-24): hoist the egress-deny
+# `kubectl apply` into a SHARED path so the SHIPPED `defaultDenyEgress: true`
+# (#3678) mode actually APPLIES the default-deny CCNP. The apply previously
+# lived only in the legacy subtractive `else` branch, so under the default the
+# manifest was written but never applied → POLICY_APPLIED empty → the #3678
+# call-home + #3647 fresh-pull proofs skipped → the 600s hold was assertion-only
+# and cutoverComplete=true could be earned WITHOUT a witnessed deny-egress.
+# Lockstep: blueprint.yaml bumped in step.
+version: 0.1.79
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
