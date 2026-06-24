@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T18:15:01Z` |
+| Last refreshed | `2026-06-24T18:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -215,7 +215,6 @@ flowchart LR
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4278](https://github.com/openova-io/openova/issues/4278) | per-Org bp-newapi admin-promote hook loops forever — missing ServiceAccount 'b | Other |
 | [#4279](https://github.com/openova-io/openova/issues/4279) | GAP ANALYSIS 2026-06-24 — prioritized implementation backlog + UAT.md reconcil | Other |
-| [#4280](https://github.com/openova-io/openova/issues/4280) | Catalog name + light/dark logo editing silently vanishes for the Sovereign owner | Other |
 | [#4282](https://github.com/openova-io/openova/issues/4282) | bp-postgres multi-region (active-hot-standby) provision FAILS + per-Org PostgreS | Other |
 | [#4283](https://github.com/openova-io/openova/issues/4283) | Per-Application GitRepository clones Gitea anonymously → 'authentication requi | Other |
 | [#4285](https://github.com/openova-io/openova/issues/4285) | Flux→local-Gitea 'authentication required' is GENERIC across 3 source generato | Other |
@@ -224,6 +223,7 @@ flowchart LR
 | [#4291](https://github.com/openova-io/openova/issues/4291) | Workstream C — De-vcluster the platform planes (mgmt/rtz/dmz) → native host  | Other |
 | [#4292](https://github.com/openova-io/openova/issues/4292) | Workstream B — Org-vcluster as enforced tenant boundary: ENABLE networkPolicy- | Other |
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
+| [#4297](https://github.com/openova-io/openova/issues/4297) | Keystone: Org apps land on the HOST, not inside the Org vcluster — every tenan | Other |
 
 ---
 
@@ -231,6 +231,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T18:20 | [#4294](https://github.com/openova-io/openova/pull/4294) | #4279 | docs: consolidated gap-analysis + action backlog index for d |
 | 2026-06-24T17:48 | [#4289](https://github.com/openova-io/openova/pull/4289) | #4280 | fix(catalyst): owner keeps catalog name+light/dark logo edit |
 | 2026-06-24T17:30 | [#4288](https://github.com/openova-io/openova/pull/4288) | #4284 | fix(bp-catalyst-platform): permanent root-cause for Flux→loc |
 | 2026-06-24T17:53 | [#4287](https://github.com/openova-io/openova/pull/4287) | #4281 | feat(console+catalog): HelmReleases Target Namespace column  |
@@ -260,7 +261,6 @@ flowchart LR
 | 2026-06-24T03:12 | [#4240](https://github.com/openova-io/openova/pull/4240) | #4179 | fix(org-controller): write console.<slug>.<pool> pool-DNS A- |
 | 2026-06-24T02:56 | [#4238](https://github.com/openova-io/openova/pull/4238) | #4192 | docs(sessions): marketplace funnel walk — JWT in HttpOnly co |
 | 2026-06-24T02:24 | [#4237](https://github.com/openova-io/openova/pull/4237) | #4179 | docs(sessions): #4179 close-gate walk evidence — redirect ho |
-| 2026-06-24T02:09 | [#4234](https://github.com/openova-io/openova/pull/4234) | #4188 | docs(uat): note #4220 root fixes on WordPress row 89 — keycl |
 
 ---
 
