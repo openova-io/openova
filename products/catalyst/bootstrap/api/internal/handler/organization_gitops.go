@@ -78,6 +78,10 @@ type OrganizationChartVersions struct {
 	OpenClaw  string
 	Stalwart  string
 	NewAPI    string
+	// Agenity — the per-Org agentic dashboard (bp-agenity, #4180). Read
+	// from CATALYST_ORG_BP_AGENITY_VER; "*" when empty so Flux pulls the
+	// latest published chart (currently 0.5.4 / appVersion 0.9.6).
+	Agenity string
 }
 
 // WriteTenantOverlay implements OrganizationGitOpsWriter. Returns the
@@ -467,6 +471,11 @@ type orgTenantTemplateData struct {
 	WordPressHost string
 	OpenClawHost  string
 	MailHost      string
+	// AgenityHost — the per-Org agentic dashboard host
+	// (agenity.<slug>.<pool>), derived from ConsoleHost by swapping the
+	// `console.` prefix. Drives bp-agenity's httpRoute.hostnames so the
+	// chart attaches the route to cilium-gateway-console (#4180).
+	AgenityHost string
 	AdminEmail    string
 	CompanyName   string
 	DomainMode    string
@@ -569,6 +578,7 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 	wpHost := strings.Replace(host, "console.", "wordpress.", 1)
 	owHost := strings.Replace(host, "console.", "openclaw.", 1)
 	mailHost := strings.Replace(host, "console.", "mail.", 1)
+	agenityHost := strings.Replace(host, "console.", "agenity.", 1)
 
 	// D31 active-hot-standby — read the Sovereign-level toggle + region
 	// pair from the catalyst-api Pod env at render time. Wired by
@@ -612,6 +622,7 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 		WordPressHost:         wpHost,
 		OpenClawHost:          owHost,
 		MailHost:              mailHost,
+		AgenityHost:           agenityHost,
 		AdminEmail:            rec.AdminEmail,
 		CompanyName:           rec.CompanyName,
 		DomainMode:            string(rec.DomainMode),
@@ -654,6 +665,7 @@ func withVersionDefaults(v OrganizationChartVersions) OrganizationChartVersions 
 		OpenClaw:  star(v.OpenClaw),
 		Stalwart:  star(v.Stalwart),
 		NewAPI:    star(v.NewAPI),
+		Agenity:   star(v.Agenity),
 	}
 }
 
@@ -689,6 +701,7 @@ var orgTenantTemplates = map[string]string{
 	"bp-wordpress-tenant.yaml": orgTenantBPWordPress,
 	"bp-openclaw.yaml":         orgTenantBPOpenClaw,
 	"bp-stalwart-tenant.yaml":  orgTenantBPStalwart,
+	"bp-agenity.yaml":          orgTenantBPAgenity,
 	"certificate.yaml":         orgTenantCertificate,
 	// #2066 — per-Application Continuum CR. The template evaluates to
 	// the empty string when EnableHotStandby=false; the writer in
@@ -715,6 +728,7 @@ resources:
   - bp-wordpress-tenant.yaml
   - bp-openclaw.yaml
   - bp-stalwart-tenant.yaml
+  - bp-agenity.yaml
   - certificate.yaml
 {{- if .EnableHotStandby }}
   # D31 / Pillar 3 — per-Application Continuum CR (Refs #2066) that
@@ -1523,6 +1537,102 @@ spec:
       host: {{.OpenClawHost}}
       tls:
         issuer: letsencrypt-prod
+`
+
+const orgTenantBPAgenity = `# bp-agenity (#4180) — the per-Organization agentic dashboard. The User
+# installs Agenity into their own Org and chats with the built-in solo
+# agent (Claude Opus, token pre-configured via the Org's openbao); the
+# agent creates Applications in the User's own Org through the RBAC-scoped
+# openova MCP. This is the founder's North-Star agentic surface served at
+# https://agenity.<slug>.<pool>/app/.
+#
+# Why this HelmRelease has NO dependsOn (verified live, #4180):
+#   - The dashboard SPA (/app/) is served by the chepherd daemon's static
+#     build and renders INDEPENDENT of keycloak (SSO) and cnpg (DB). The
+#     rtz platform agenity install runs with zero dependsOn. Gating agenity
+#     on bp-keycloak would needlessly hold the dashboard hostage to the
+#     Org's SSO stack — the founder's URL must serve the new dashboard even
+#     while keycloak/cnpg converge. The agent runtime authenticates to
+#     Anthropic via the Org openbao token (ExternalSecret), not keycloak.
+#
+# Chart contract (products/agenity/chart/values.yaml):
+#   - sovereignFqdn        : the per-Org identity zone (<slug>.<pool>) the
+#                            openova-MCP derives https://console.<fqdn> from.
+#   - httpRoute.hostnames  : [agenity.<slug>.<pool>] — the per-Org host the
+#                            chart attaches to cilium-gateway-console.
+#   - httpRoute.parentRef  : cilium-gateway-console / kube-system — the
+#                            DEDICATED console Gateway carrying the
+#                            *.<pool> wildcard TLS listener (#4054/#4070);
+#                            parenting the apps cilium-gateway → envoy 404.
+#                            The wildcard listener terminates TLS so NO
+#                            per-host Certificate is needed.
+#   - networkPolicy.ingress.allowGatewayEntity : emits the CNP
+#                            fromEntities:[ingress] carve-out — without it
+#                            the gateway→agenity hop is default-denied and
+#                            the browser sees envoy 503 (#4180).
+#   - anthropic.externalSecret : pulls the sk-ant token (+ claude-code
+#                            credentials.json) from the Org's openbao via
+#                            vault-region1 so the solo agent can call Claude.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-agenity
+  namespace: {{.Namespace}}
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: bp-agenity
+      version: "{{.ChartVersions.Agenity}}"
+      sourceRef:
+        kind: HelmRepository
+        name: bp-agenity
+        namespace: flux-system
+  install:
+    timeout: 15m
+  upgrade:
+    timeout: 15m
+    cleanupOnFail: true
+  values:
+    # Per-Org identity zone — the openova-MCP derives
+    # https://console.<sovereignFqdn> from this when catalystApiUrl is empty.
+    sovereignFqdn: {{.Subdomain}}.{{.ParentDomain}}
+    # HTTPRoute exposure for the per-Org dashboard. Without a non-empty
+    # hostnames the chart's templates/httproute.yaml guard renders nothing.
+    httpRoute:
+      enabled: true
+      hostnames:
+        - {{.AgenityHost}}
+      parentRef:
+        # console-isolation (#4054/#4070): agenity.<slug>.<pool> resolves to
+        # the dedicated console-ELB EIP which fronts the ISOLATED
+        # cilium-gateway-console (NOT the apps cilium-gateway / apps-ELB).
+        # The console Gateway carries the *.<pool> wildcard TLS listener so
+        # TLS terminates on the wildcard cert and no per-host Certificate is
+        # needed; parenting the apps gateway → envoy 404 on the console ELB.
+        name: cilium-gateway-console
+        namespace: kube-system
+        # sectionName omitted — the console Gateway exposes a single
+        # apex-bound HTTPS listener per Org zone, matched by hostname filter.
+        # The chart guards the field with a 'with' conditional.
+    # CiliumNetworkPolicy fromEntities:[ingress] — admits the Cilium Gateway
+    # Envoy to the agenity Service so the gateway→pod hop is not
+    # default-denied (else envoy 503 "upstream connect error", #4180).
+    networkPolicy:
+      enabled: true
+      ingress:
+        allowGatewayEntity: true
+    # Anthropic token (+ claude-code credentials.json) for the solo agent,
+    # pulled from the Org's openbao via the region-1 ClusterSecretStore.
+    # The chart's externalsecret-anthropic.yaml reads anthropic/token.
+    anthropic:
+      externalSecret:
+        enabled: true
+        secretStoreRef: vault-region1
+        secretStoreKind: ClusterSecretStore
+        remoteKey: anthropic/token
+        remoteProperty: apiKey
+        remoteCredentialsProperty: credentialsJson
 `
 
 const orgTenantBPStalwart = `# bp-stalwart-tenant (#801, OIDC wiring #915) — dedicated mail server

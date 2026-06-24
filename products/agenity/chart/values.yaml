@@ -213,6 +213,24 @@ httpRoute:
     # in Location is unreachable behind a cloud ELB and hangs the browser.
     port: 443
 
+# ── NetworkPolicy (Cilium Gateway ingress carve-out) ──────────────────────
+# The HTTPRoute alone routes `agenity.<slug>.<pool>` to this Service, but on
+# a Cilium Sovereign the gateway traffic arrives with the reserved `ingress`
+# ENTITY identity that NO K8s NetworkPolicy selector can match — so without a
+# CiliumNetworkPolicy fromEntities:[ingress] the gateway→agenity hop is
+# default-denied and the browser sees envoy 503 "upstream connect error ...
+# connection timeout" (the #4180 / #3785 / #3374 failure class). This block
+# drives templates/cilium-ingress-networkpolicy.yaml, which is ADDITIVE
+# (unions with any K8s NetworkPolicy) and gated on the cilium.io/v2
+# Capabilities check so the chart still renders on a CRD-less kind cluster.
+networkPolicy:
+  enabled: true
+  ingress:
+    # allowGatewayEntity → emit the CiliumNetworkPolicy that admits the
+    # reserved `ingress` entity (the Cilium Gateway Envoy) to service.port.
+    # Disable only on a non-Cilium overlay that fronts agenity differently.
+    allowGatewayEntity: true
+
 # ── Persistence — chepherd runtime state + per-agent repo/cache ───────────
 # CSI-backed PVCs. storageClass empty = the cluster's default CSI class.
 # NEVER local-path (#3971): leaving storageClass empty resolves to the

@@ -8,7 +8,13 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
-version: 0.5.3
+# 0.5.3 -> 0.5.4 (#4180): add templates/cilium-ingress-networkpolicy.yaml so a
+# per-Org (pool-domain) install is REACHABLE through the Cilium Gateway. The
+# HTTPRoute alone routed the host but the gateway traffic carries the reserved
+# `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
+# external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
+# error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
+version: 0.5.4
 # Bumped appVersion 0.9.5 -> 0.9.6 (#4118): the 0.9.5 image bytes are correct
 # (its /app dashboard bundle is byte-identical to a fresh build of the #745
 # source — verified by md5 on omantel.biz), but 0.9.5 was published BEFORE
