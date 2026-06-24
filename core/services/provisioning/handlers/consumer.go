@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
 	"github.com/openova-io/openova/core/services/provisioning/gitops"
 	"github.com/openova-io/openova/core/services/provisioning/store"
 	"github.com/openova-io/openova/core/services/shared/events"
@@ -622,9 +623,20 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 	rebuild := func(ctx context.Context) (map[string]string, error) {
 		currentParent, readErr := h.GitHubClient.ReadFile(ctx, branch, parentPath)
 		files := map[string]string{}
-		if readErr == nil {
-			files[parentPath] = gitops.RemoveTenantFromParentKustomization(currentParent, data.Slug)
+		if readErr != nil {
+			// #4250 — a genuine 404 means the parent index is already gone
+			// (nothing to remove from); the tenantDir prune alone is correct.
+			// A TRANSIENT read error must NOT silently skip the parent
+			// rewrite: that would leave this slug listed in resources: while
+			// its directory is pruned, wedging Flux's org-tenants build (and
+			// on the retry the stale-listing race RemoveTenantFromParent was
+			// added to defend against). Fail the attempt so the retry re-reads.
+			if !errors.Is(readErr, ghclient.ErrFileNotFound) {
+				return nil, fmt.Errorf("read parent kustomization %s for teardown (refusing partial prune, #4250): %w", parentPath, readErr)
+			}
+			return files, nil
 		}
+		files[parentPath] = gitops.RemoveTenantFromParentKustomization(currentParent, data.Slug)
 		return files, nil
 	}
 
@@ -1056,6 +1068,42 @@ func dedupProvisionCreate(ctx context.Context, st provisionDedupStore, provision
 	return dedupDecision{provision: provision, fork: true}, nil
 }
 
+// provisionParentRebuild recomputes the file map for one provision commit
+// attempt: the static per-Org manifests PLUS the parent org-tenants
+// kustomization.yaml with this Org's slug merged in (read-modify-write off
+// the LIVE parent so a concurrent sibling write/teardown isn't clobbered).
+//
+// #4250 root-cause guard. UpdateParentKustomization appends one slug to
+// whatever parent content it's handed. If the parent ReadFile fails and we
+// fabricate an empty `resources: []`, the merged result lists ONLY this Org
+// — and Flux's org-tenants Kustomization runs prune=true, so committing
+// that truncated list garbage-collects every SIBLING Org's namespace (the
+// chronic `org-<uuid>` teardown that coincides with concurrent sibling
+// provisions). The empty seed is therefore ONLY legitimate on a genuine
+// 404 (ErrFileNotFound = first Org on this Sovereign). Any other read error
+// (network blip, Gitea 5xx, decode failure) returns an error so
+// CommitFilesWithPruneAndRebuild fails the attempt — the provision pipeline
+// retries on its own cadence instead of nuking live Orgs. #4214 fixed the
+// JSON-envelope corruption of the same file; this closes the residual
+// transient-error fallback.
+func (h *Handler) provisionParentRebuild(ctx context.Context, branch, parentKustomPath, subdomain string, manifests map[string]string) (map[string]string, error) {
+	currentParentKustom, readErr := h.GitHubClient.ReadFile(ctx, branch, parentKustomPath)
+	if readErr != nil {
+		if !errors.Is(readErr, ghclient.ErrFileNotFound) {
+			return nil, fmt.Errorf("read parent kustomization %s (refusing empty fallback that would prune sibling Orgs, #4250): %w", parentKustomPath, readErr)
+		}
+		slog.Info("parent kustomization absent (first Org on this Sovereign) — seeding empty", "path", parentKustomPath)
+		currentParentKustom = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
+	}
+	// Copy the static tenant manifests + the freshly-merged parent.
+	fresh := make(map[string]string, len(manifests)+1)
+	for k, v := range manifests {
+		fresh[k] = v
+	}
+	fresh[parentKustomPath] = gitops.UpdateParentKustomization(currentParentKustom, subdomain)
+	return fresh, nil
+}
+
 // runProvisioningWorkflow performs real K8s provisioning via GitOps and
 // verifies each step against the host cluster (vCluster pods are visible
 // in the host tenant-<slug> namespace thanks to vCluster's pod sync).
@@ -1121,21 +1169,11 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 
 	// Re-read the parent kustomization on EACH commit attempt so a concurrent
 	// teardown's removal of another slug doesn't get reverted by our retry
-	// replaying a stale files map. Issue: live race observed 2026-05-06 where
-	// multitest provision's retry resurrected the just-deleted bookcheck slug.
+	// replaying a stale files map (live race observed 2026-05-06: multitest
+	// provision's retry resurrected the just-deleted bookcheck slug). The
+	// #4250 sibling-prune guard lives in provisionParentRebuild.
 	rebuild := func(ctx context.Context) (map[string]string, error) {
-		currentParentKustom, readErr := h.GitHubClient.ReadFile(ctx, branch, parentKustomPath)
-		if readErr != nil {
-			slog.Warn("could not read parent kustomization, using empty", "error", readErr)
-			currentParentKustom = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
-		}
-		// Copy the static tenant manifests + the freshly-merged parent.
-		fresh := make(map[string]string, len(manifests)+1)
-		for k, v := range manifests {
-			fresh[k] = v
-		}
-		fresh[parentKustomPath] = gitops.UpdateParentKustomization(currentParentKustom, subdomain)
-		return fresh, nil
+		return h.provisionParentRebuild(ctx, branch, parentKustomPath, subdomain, manifests)
 	}
 
 	commitMsg := fmt.Sprintf("provision: deploy tenant %s (plan: %s, apps: %d)", subdomain, planSlug, len(appSlugs))
