@@ -384,7 +384,26 @@ name: bp-keycloak
 # test (tests/realm-flow-subflow-resolution.sh) statically reproduces config-
 # cli's subflow-resolution rule across all realm templates so this class can
 # never regress silently again.
-version: 1.4.38
+# 1.5.1 (#4220, 2026-06-24): JUMP THE VERSION ABOVE THE STALE 1.5.0. An OLD
+# bp-keycloak:1.5.0 OCI artifact (published 2026-05-10 from the qa-loop iter-12
+# `version: 1.5.0` line — see the 1.5.0 changelog stanza further down) still
+# sits on ghcr.io/openova-io. The per-Org bp-keycloak HelmRelease pins
+# `chart.spec.version: "*"`, and SemVer ranks 1.5.0 ABOVE every 1.4.x — so Flux
+# resolved `*` to the STALE 1.5.0, which predates the #3263/#2737 proxy-dockerhub
+# image fix (landed 1.4.23, 2026-06-11). That stale chart still references bare
+# `docker.io/bitnamilegacy/…` images, so the `harbor-proxy-pull` Kyverno Enforce
+# policy DENIED the bp-keycloak StatefulSet initContainer + the
+# bp-keycloak-postgresql container on the demo Org of the permanent omantel.biz
+# Sovereign (dep 4635277cae4ffed9, verified live 2026-06-24) → the customer's
+# WordPress (+ newapi/openclaw/stalwart) stayed Ready=False on `dependency
+# bp-keycloak is not ready`. The DURABLE fix is to publish a tag that SemVer-ranks
+# ABOVE 1.5.0 carrying the CURRENT values.yaml (every Bitnami image already routed
+# through `harbor.openova.io/proxy-dockerhub/bitnamilegacy/…`, matching the
+# allowed glob `*/proxy-*/*`), so `*` resolves to THIS chart and the proxied
+# images pass admission. No chart-content change beyond the version line + this
+# changelog — the 1.4.38 templates/values are byte-identical and already
+# proxy-compliant. Refs #3785 (sibling proxy-class defect for the WP image).
+version: 1.5.1
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
