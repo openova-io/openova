@@ -11,7 +11,8 @@ unified-rbac user-create hook ([ADR-0003](../../docs/adr/0003-rbac-newapi-user-c
 ## Architecture
 
 ```
-                       openclaw.<sme-domain>            (Traefik ingress + cert-manager TLS)
+                       openclaw.<org>.<pool>            (Cilium Gateway API HTTPRoute on a Sovereign;
+                                                         optional Traefik Ingress off-Sovereign, #4272)
                               │
                               ▼
               ┌──────────────────────────────────┐
@@ -58,9 +59,11 @@ blind runtime image) is intentionally reusable.
 | `templates/controller-rbac.yaml` | Namespaced `Role` + `RoleBinding` in **tenant** ns. `create` verbs split into separate rules WITHOUT `resourceNames` per `feedback_rbac_create_no_resourcenames.md` |
 | `templates/controller-deployment.yaml` | Multi-tenant controller pod |
 | `templates/controller-service.yaml` | ClusterIP Service for the controller |
-| `templates/controller-ingress.yaml` | Public hostname `openclaw.<sme-domain>` with cert-manager auto-issue |
+| `templates/httproute.yaml` | **(Sovereign exposure)** Cilium Gateway API `HTTPRoute` attaching `openclaw.<org>.<pool>` to the dedicated `cilium-gateway-console` (wildcard `*.<pool>` TLS listener ⇒ no per-host cert). Default `httpRoute.enabled: false`; the org-gitops overlay sets enabled + hostnames (#4272) |
+| `templates/controller-ingress.yaml` | **(off-Sovereign only)** Traefik `networking.k8s.io/v1` Ingress with cert-manager auto-issue. Default `ingress.enabled: false` — a Sovereign runs Cilium Gateway, not traefik, so this Ingress is INERT there and its per-host cert never issues (#4272) |
 | `templates/per-user-pod-template.yaml` | ConfigMap holding the pod-spec the controller renders per session |
-| `templates/networkpolicy.yaml` | Controller NetworkPolicy. The per-user pod's NetworkPolicy is rendered by the controller at session-start (see "Per-user pod NetworkPolicy" below) |
+| `templates/networkpolicy.yaml` | Controller K8s `NetworkPolicy` (Pod-selectable hops). Egress now includes the public-host `:443` JWKS hairpin the `/readyz` handler needs (#4272). The per-user pod's NetworkPolicy is rendered by the controller at session-start (see "Per-user pod NetworkPolicy" below) |
+| `templates/cilium-ingress-networkpolicy.yaml` | Controller `CiliumNetworkPolicy` `fromEntities:[ingress,host,remote-node]` → `:8080` — admits the Cilium Gateway Envoy (`ingress`) + kubelet readiness/liveness probe (`host`/`remote-node`), reserved entities no K8s `NetworkPolicy` selector can express. Gated on `cilium.io/v2` + `networkPolicy.ingress.allowGatewayEntity` (#4272) |
 | `controller/` | Source for the multi-tenant **controller** container image (separate OCI artifact `openclaw-controller`, built by `.github/workflows/openclaw-controller.yaml`). Validates the Organization end-user's Keycloak JWT (OIDC discovery + JWKS RS256), spawns one identity-blind runtime pod per session from the mounted pod-template ConfigMap, reverse-proxies the user to it, and reaps idle pods. |
 | `runtime/` | Source for the per-user runtime container image (separate OCI artifact, built by `.github/workflows/openclaw-runtime.yaml`) |
 | `tests/render-toggles.sh` | Helm-template integration test exercised by the blueprint-release CI workflow |

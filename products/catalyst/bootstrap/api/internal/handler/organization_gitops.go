@@ -1545,10 +1545,36 @@ spec:
       baseURL: https://api.{{.Subdomain}}.{{.ParentDomain}}/v1
     tenant:
       namespace: {{.Namespace}}
+    # ── Public exposure: Cilium Gateway API (#4272) ────────────────────
+    # A Sovereign runs the Cilium Gateway, NOT traefik — the chart's
+    # networking.k8s.io/v1 Ingress is INERT here (never reconciled) and
+    # its per-host openclaw-tls Certificate sits False forever. Disable it
+    # and attach the controller host to the DEDICATED console Gateway whose
+    # *.<pool> wildcard TLS listener terminates TLS (no per-host cert),
+    # mirroring bp-agenity (#4180).
     ingress:
-      host: {{.OpenClawHost}}
-      tls:
-        issuer: letsencrypt-prod
+      enabled: false
+    httpRoute:
+      enabled: true
+      hostnames:
+        - {{.OpenClawHost}}
+      parentRef:
+        # console-isolation (#4054/#4070): openclaw.<slug>.<pool> resolves
+        # to the dedicated console-ELB EIP fronting cilium-gateway-console
+        # (NOT the apps cilium-gateway). The console Gateway carries the
+        # *.<pool> wildcard TLS listener so TLS terminates on the wildcard
+        # cert; parenting the apps gateway → envoy 404 on the console ELB.
+        name: cilium-gateway-console
+        namespace: kube-system
+    # CiliumNetworkPolicy fromEntities:[ingress,host,remote-node] — admits
+    # BOTH the Cilium Gateway Envoy (so the readyz OIDC-JWKS hairpin to the
+    # public host on :443 resolves and the dashboard is reachable) AND the
+    # kubelet readiness/liveness probe (else the controller stays 0/1 even
+    # after the JWKS egress is fixed). #4272.
+    networkPolicy:
+      enabled: true
+      ingress:
+        allowGatewayEntity: true
 `
 
 const orgTenantBPAgenity = `# bp-agenity (#4180) — the per-Organization agentic dashboard. The User

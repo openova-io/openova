@@ -1,0 +1,52 @@
+{{- /*
+#4272: the Cilium Gateway path to the OpenClaw controller is DEAD without
+this CNP, AND the kubelet readiness/liveness probe is dropped by the K8s
+NetworkPolicy on a Sovereign. Two facts drive this template:
+
+  1. Cilium Gateway API traffic reaches the backend with the reserved
+     `ingress` ENTITY identity (the Envoy proxy embedded in the cilium
+     agent), which NO K8s NetworkPolicy selector (podSelector /
+     namespaceSelector / ipBlock) can express — the exact failure class of
+     platform/newapi cilium-ingress-networkpolicy.yaml (#3374),
+     products/agenity (#4180), platform/wordpress-tenant (#3785) and the
+     sso-bridge kube-apiserver entity saga. A `namespaceSelector: traefik`
+     is INERT for gateway traffic.
+
+  2. The kubelet's /readyz + /healthz probe reaches the Pod from the node
+     with the reserved `host` (same node) / `remote-node` (other node)
+     entity — also NOT a Pod the K8s NetworkPolicy can select. Once the
+     traefik-namespace ingress rule is removed (the chart no longer
+     synthesises a dead rule on a Sovereign), the K8s NP is default-deny on
+     ingress, so the probe MUST be admitted here or the Pod stays 0/1 even
+     after the JWKS egress is fixed.
+
+CiliumNetworkPolicy fromEntities is the canonical, ADDITIVE expression:
+when both a K8s NetworkPolicy and a CNP select the same Pod the allow-sets
+UNION, so this only opens the gateway→controller + node→controller hops and
+leaves every other default-deny posture intact.
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI), and on
+networkPolicy.ingress.allowGatewayEntity so a non-Cilium overlay can opt out.
+*/ -}}
+{{- if and .Values.controller.enabled .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-openclaw.fullname" . }}-controller-gateway-ingress
+  labels:
+    {{- include "bp-openclaw.labels" . | nindent 4 }}
+    catalyst.openova.io/component: controller-gateway-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-openclaw.selectorLabels" . | nindent 6 }}
+      catalyst.openova.io/component: controller
+  ingress:
+    - fromEntities:
+        {{- toYaml .Values.networkPolicy.ingress.gatewayEntities | nindent 8 }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.controller.port | quote }}
+              protocol: TCP
+{{- end }}

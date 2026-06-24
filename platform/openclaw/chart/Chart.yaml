@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.4
+version: 0.2.5
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,36 @@ description: |
 
   Changelog
   ─────────
+  0.2.5 (2026-06-25, #4272)
+    - Rework NetworkPolicy + exposure for the Cilium-Gateway Sovereign
+      topology (was traefik + separate-keycloak-namespace). The controller
+      ran but stayed 0/1 (not Ready) because its /readyz handler gates on
+      OIDC-JWKS reachability and the issuer is the PUBLIC host
+      (https://keycloak.<org>.<pool>/realms/org-<org>) — that JWKS fetch
+      hairpins out to the console-ELB EIP and back through the Cilium
+      Gateway on :443, but the old K8s NetworkPolicy only allowed :443 to
+      kube-system and :8443 to a separate `keycloak` namespace → JWKS
+      egress-denied → readyz 503 → never Ready.
+        • K8s NetworkPolicy: add public-host HTTPS egress
+          (`networkPolicy.controller.egress.allowPublicHttps`, default true,
+          :443 to 0.0.0.0/0 with optional CIDR `except`) for the JWKS
+          hairpin; ingress `fromNamespaceLabels` now defaults EMPTY (the
+          dead traefik-namespace rule is gone — the gateway hop is a
+          reserved entity no K8s selector can express).
+        • New CiliumNetworkPolicy (cilium-ingress-networkpolicy.yaml):
+          `fromEntities:[ingress,host,remote-node]` → controller :8080,
+          admitting BOTH the Cilium Gateway Envoy (`ingress`) and the
+          kubelet readiness/liveness probe (`host`/`remote-node`). Gated on
+          the cilium.io/v2 Capabilities check + `networkPolicy.ingress.
+          allowGatewayEntity` (default true). Mirrors bp-agenity (#4180) +
+          bp-newapi (#3374).
+        • New HTTPRoute (httproute.yaml) on `cilium-gateway-console`/
+          kube-system (wildcard `*.<pool>` TLS listener ⇒ no per-host cert),
+          replacing the INERT traefik Ingress. `httpRoute.enabled` default
+          false; `ingress.enabled` flipped to default false (the traefik
+          Ingress is never reconciled on a Sovereign and its `openclaw-tls`
+          Certificate sits False forever). assertNoPlaceholders no longer
+          trips on `ingress.host` when the Ingress is disabled.
   0.2.4 (2026-06-24, #4246)
     - Add `imagePullSecrets: [ghcr-pull]` (new top-level `imagePullSecrets`
       value) to the controller Deployment AND the per-user-pod template.

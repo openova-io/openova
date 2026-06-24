@@ -1,10 +1,17 @@
 {{- if and .Values.controller.enabled .Values.networkPolicy.enabled }}
 {{- $fullName := include "bp-openclaw.fullname" . -}}
 ---
-# ─── Controller NetworkPolicy ────────────────────────────────────────────
-# Ingress: traefik (public-facing) → controller :8080
-# Egress:  controller → kube-system (api-server + DNS), keycloak (OIDC),
-#          per-user pods in tenant namespace (proxy traffic)
+# ─── Controller NetworkPolicy (K8s, Pod-selectable hops) ─────────────────
+# Ingress: optional namespace-selector (e.g. a traefik ingress namespace on
+#          NON-Sovereign clusters). On a Cilium-Gateway Sovereign the public
+#          ingress hop is carried by the reserved `ingress` ENTITY, which NO
+#          K8s NetworkPolicy selector can express — that hop is admitted by
+#          the companion CiliumNetworkPolicy (cilium-ingress-networkpolicy.yaml,
+#          #4272). Leave fromNamespaceLabels empty on a Sovereign so this
+#          template does not synthesise a dead traefik-namespace rule.
+# Egress:  controller → kube-system (api-server + DNS), in-cluster Keycloak,
+#          public-host HTTPS (the /readyz OIDC-JWKS hairpin, #4272),
+#          per-user pods in the tenant namespace (proxy traffic).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -21,13 +28,24 @@ spec:
     - Ingress
     - Egress
   ingress:
+    {{- /*
+    Optional namespace-selector ingress. On a Sovereign the gateway hop is
+    admitted by the CNP fromEntities:[ingress] carve-out, so the chart leaves
+    fromNamespaceLabels EMPTY (no rule synthesised). A non-Cilium overlay may
+    set fromNamespaceLabels (e.g. {kubernetes.io/metadata.name: traefik}) to
+    admit a traffic source K8s selectors CAN express. The kubelet health probe
+    (readiness/liveness) reaches the Pod with the `host`/`remote-node` entity,
+    also admitted by the companion CNP — NOT by a K8s NetworkPolicy.
+    */}}
+    {{- with .Values.networkPolicy.controller.ingress.fromNamespaceLabels }}
     - from:
         - namespaceSelector:
             matchLabels:
-              {{- toYaml .Values.networkPolicy.controller.ingress.fromNamespaceLabels | nindent 14 }}
+              {{- toYaml . | nindent 14 }}
       ports:
-        - port: {{ .Values.controller.port }}
+        - port: {{ $.Values.controller.port }}
           protocol: TCP
+    {{- end }}
   egress:
     # K8s api-server (pod create/delete + Secret list/get).
     # The kubernetes.default Service ClusterIP route is not always
@@ -47,7 +65,8 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Organization-vcluster Keycloak (OIDC discovery + JWKS).
+    # In-cluster Organization-vcluster Keycloak (OIDC discovery + JWKS) when
+    # the issuer resolves to an in-namespace/in-cluster Keycloak Service.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -55,6 +74,28 @@ spec:
       ports:
         - port: {{ .Values.networkPolicy.controller.egress.keycloakPort }}
           protocol: TCP
+    {{- if .Values.networkPolicy.controller.egress.allowPublicHttps }}
+    # ── Public-host HTTPS — the /readyz OIDC-JWKS hairpin (#4272) ──────────
+    # On a Sovereign the controller's OIDC issuer is the PUBLIC host
+    # (https://keycloak.<org>.<pool>/realms/org-<org>) so the JWKS fetch
+    # MUST match the JWT `iss` claim — it cannot use the in-cluster Service
+    # name. That fetch hairpins out to the console-ELB EIP and back in through
+    # the Cilium Gateway on :443. Egress :443 to the world (no Pod selector
+    # can name an external EIP) is required, else the readyz JWKS fetch is
+    # default-denied → readyz 503 → the controller never reaches Ready.
+    # Set allowPublicHttps=false on a fully in-cluster overlay that resolves
+    # the issuer to an in-namespace Keycloak Service.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- with .Values.networkPolicy.controller.egress.publicHttpsExcept }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        - port: {{ .Values.networkPolicy.controller.egress.publicHttpsPort }}
+          protocol: TCP
+    {{- end }}
     # Per-user pod range — the controller proxies WebSocket/SSE traffic
     # to the runtime container in the tenant namespace.
     - to:

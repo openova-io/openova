@@ -2576,7 +2576,7 @@ metadata:
     # must not claw it back (DoD §9.4).
     helm.sh/resource-policy: keep
 spec:
-  version: "0.2.0"
+  version: "0.2.5"
   visibility: listed
   card:
     title: "OpenClaw"
@@ -2611,7 +2611,7 @@ hook (ADR-0003). Identity-blind by construction.
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openclaw
-    version: "0.2.0"
+    version: "0.2.5"
   topology:
     supported:
       - singleton

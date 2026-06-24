@@ -212,14 +212,16 @@ service:
 serviceAccount:
   create: true
   name: ""
-# ─── Ingress + cert-manager TLS ──────────────────────────────────────────
-# Public hostname for the controller. Per Q-mine-1 of #795:
-# `openclaw.<org-domain-or-subdomain>`. cert-manager auto-issues a
-# per-host certificate via the operator's ACME issuer.
+# ─── Ingress (traefik, NON-Sovereign only) ───────────────────────────────
+# DEFAULT OFF (#4272). A Sovereign runs the Cilium Gateway API, NOT traefik —
+# a `networking.k8s.io/v1` Ingress is INERT there (never reconciled) and its
+# per-host `openclaw-tls` Certificate sits False forever (no HTTP-01 solver).
+# Public exposure on a Sovereign is the `httpRoute` block below. Operators on a
+# non-Cilium cluster that genuinely runs traefik may set ingress.enabled=true.
 ingress:
-  enabled: true
+  enabled: false
   className: "traefik"
-  # Required at install time. Placeholder default lets smoke render pass.
+  # Required when ingress.enabled=true. Placeholder default lets smoke render.
   host: "openclaw.example.local"
   tls:
     enabled: true
@@ -230,32 +232,87 @@ ingress:
     issuer: "letsencrypt-dns01-prod-powerdns" # cert-manager ClusterIssuer
     secretName: "openclaw-tls"
   annotations: {}
+# ─── HTTPRoute (Cilium Gateway API — the Sovereign exposure) ──────────────
+# #4272: the canonical per-Org HTTP exposure on a Sovereign. Attaches the
+# controller's public host to the DEDICATED console Gateway whose `*.<pool>`
+# wildcard TLS listener terminates TLS (so NO per-host Certificate is needed),
+# mirroring products/agenity (#4180) + platform/keycloak. Default OFF so smoke
+# render passes without a host; the org-gitops overlay sets enabled + hostnames.
+httpRoute:
+  enabled: false
+  # Per-Org host(s) — e.g. [openclaw.<slug>.<pool>]. Empty ⇒ template renders
+  # nothing (the guard fails closed, matching the agenity pattern).
+  hostnames: []
+  parentRef:
+    # console-isolation (#4054/#4070): openclaw.<slug>.<pool> resolves to the
+    # dedicated console-ELB EIP fronting the ISOLATED cilium-gateway-console
+    # (NOT the apps cilium-gateway). The console Gateway carries the *.<pool>
+    # wildcard TLS listener so TLS terminates on the wildcard cert; parenting
+    # the apps gateway → envoy 404 on the console ELB.
+    name: "cilium-gateway-console"
+    namespace: "kube-system"
+    # sectionName omitted by default — the console Gateway exposes a single
+    # apex-bound HTTPS listener per Org zone, matched by the hostname filter.
+    sectionName: ""
+  # Backend path prefix (the controller serves the UI/API at /).
+  path: "/"
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
-# Default-allow ingress from the platform's gateway namespace (traefik).
-# Egress from CONTROLLER:
-#   - Organization-vcluster Keycloak (OIDC discovery + JWKS)
-#   - K8s api-server (pod create/delete; goes to kube-system endpoint)
+# K8s NetworkPolicy (Pod-selectable hops) + a companion CiliumNetworkPolicy
+# (cilium-ingress-networkpolicy.yaml) for the reserved-ENTITY hops that NO K8s
+# selector can express. Controller egress:
+#   - K8s api-server (pod create/delete; kube-system endpoint) + DNS
+#   - in-cluster Keycloak Service (when the issuer is in-cluster)
+#   - public-host HTTPS (the /readyz OIDC-JWKS hairpin to the Cilium Gateway
+#     on :443 — #4272; the issuer is the PUBLIC host so it cannot use the
+#     in-cluster Service name)
 #   - per-user pod range in tenant namespace (proxy WebSocket/SSE)
-#   - DNS
-# Egress from PER-USER pod (separate NetworkPolicy applied at pod-spawn
-# time by the controller, NOT by this chart's render — see
-# README.md §"per-user-pod NetworkPolicy"):
-#   - NewAPI Service (cluster-internal hostname or external ingress)
-#   - DNS
-# This chart's NetworkPolicy template covers the controller pod only;
-# per-user pods receive their NetworkPolicy from a controller-rendered
-# template at session-start.
+# Controller ingress:
+#   - Cilium Gateway Envoy (`ingress` entity) + kubelet probe (`host` /
+#     `remote-node` entities) — admitted by the CNP, NOT the K8s NP
+#     (#4272 — reserved entities are not Pod-selectable).
+# Per-user pods receive their NetworkPolicy from a controller-rendered
+# template at session-start, NOT from this chart.
 networkPolicy:
   enabled: true
+  # Cilium-Gateway awareness (#4272). The CNP fromEntities carve-out admits
+  # the gateway + kubelet-probe hops the K8s NP cannot select.
+  ingress:
+    # Emit the CiliumNetworkPolicy fromEntities carve-out. Default ON (a
+    # Sovereign needs it). A non-Cilium overlay (e.g. kind CI w/o the CRD, or
+    # a traefik cluster) can set this false — the template is also gated on the
+    # cilium.io/v2 Capabilities check so it never breaks CRD-less installs.
+    allowGatewayEntity: true
+    # Reserved entities admitted to the controller :8080:
+    #   - ingress      : the Cilium Gateway Envoy (public hop)
+    #   - host         : the kubelet readiness/liveness probe (same node)
+    #   - remote-node   : the kubelet probe when scheduled on another node
+    gatewayEntities:
+      - ingress
+      - host
+      - remote-node
   controller:
     ingress:
-      fromNamespaceLabels:
-        kubernetes.io/metadata.name: traefik
+      # K8s namespace-selector ingress. EMPTY on a Sovereign — the gateway hop
+      # is the reserved `ingress` entity (admitted by the CNP above), and a
+      # traefik-namespace rule would be a dead no-op. A genuine-traefik overlay
+      # may set {kubernetes.io/metadata.name: traefik} here.
+      fromNamespaceLabels: {}
     # Egress targets — operator may extend if Organization-vcluster Keycloak
     # reaches the controller via a different namespace label.
     egress:
       keycloakNamespaceLabel: "keycloak"
       keycloakPort: 8443
+      # Public-host HTTPS egress for the /readyz OIDC-JWKS hairpin (#4272).
+      # The controller's OIDC issuer is the PUBLIC host so the JWKS fetch
+      # hairpins out to the console-ELB EIP and back through the Cilium Gateway
+      # on :443. No Pod selector can name an external EIP ⇒ egress to the world
+      # on :443 is required, else readyz 503 → never Ready. Set false on a
+      # fully in-cluster overlay whose issuer is an in-namespace Service.
+      allowPublicHttps: true
+      publicHttpsPort: 443
+      # Optional CIDR exclusions (e.g. lock down to the console-ELB EIP /32 on
+      # a hardened overlay). Empty ⇒ the whole 0.0.0.0/0 :443 is permitted.
+      publicHttpsExcept: []
 # ─── ServiceMonitor ──────────────────────────────────────────────────────
 # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
 # toggles must default false). Operator opts in via per-cluster overlay

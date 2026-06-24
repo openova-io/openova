@@ -1,0 +1,41 @@
+{{- /*
+#4272: Cilium-Gateway HTTP exposure for the OpenClaw controller, replacing
+the traefik `networking.k8s.io/v1` Ingress (controller-ingress.yaml) which is
+INERT on a Sovereign — Sovereigns run the Cilium Gateway API, not traefik, so
+the Ingress object is never reconciled and the per-host `openclaw-tls`
+Certificate sits False forever (no HTTP-01 solver). This HTTPRoute attaches the
+per-Org host to the dedicated console Gateway whose `*.<pool>` wildcard TLS
+listener terminates TLS (so NO per-host Certificate is needed), mirroring
+products/agenity (#4180) + platform/keycloak httproute.yaml.
+
+Default OFF (httpRoute.enabled=false) so `helm template` smoke-renders cleanly
+without a host; the org-gitops overlay sets enabled + hostnames + parentRef.
+*/ -}}
+{{- if and .Values.controller.enabled .Values.httpRoute.enabled }}
+{{- if .Values.httpRoute.hostnames }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "bp-openclaw.fullname" . }}-controller
+  labels:
+    {{- include "bp-openclaw.labels" . | nindent 4 }}
+    catalyst.openova.io/component: controller
+spec:
+  parentRefs:
+    - name: {{ .Values.httpRoute.parentRef.name | quote }}
+      namespace: {{ .Values.httpRoute.parentRef.namespace | quote }}
+      {{- with .Values.httpRoute.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    {{- toYaml .Values.httpRoute.hostnames | nindent 4 }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.httpRoute.path | default "/" | quote }}
+      backendRefs:
+        - name: {{ include "bp-openclaw.fullname" . }}-controller
+          port: {{ .Values.service.port }}
+{{- end }}
+{{- end }}

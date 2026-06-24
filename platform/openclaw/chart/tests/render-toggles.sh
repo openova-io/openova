@@ -28,12 +28,21 @@ if ! helm template smoke-openclaw . > "$TMP/default.yaml" 2> "$TMP/default.err";
   cat "$TMP/default.err" >&2
   exit 1
 fi
-for kind in Deployment Service Ingress Role RoleBinding ConfigMap NetworkPolicy ServiceAccount; do
+# #4272: Ingress is NO LONGER a default-rendered kind — a Sovereign runs the
+# Cilium Gateway, not traefik, so ingress.enabled defaults false and the
+# traefik Ingress is INERT there. HTTPRoute is the Sovereign exposure (asserted
+# in Case 8 with httpRoute.enabled=true).
+for kind in Deployment Service Role RoleBinding ConfigMap NetworkPolicy ServiceAccount; do
   if ! grep -qE "^kind: ${kind}$" "$TMP/default.yaml"; then
     echo "FAIL: default render is missing kind=${kind}" >&2
     exit 1
   fi
 done
+# The traefik Ingress must NOT render by default (it is inert on a Sovereign).
+if grep -qE "^kind: Ingress$" "$TMP/default.yaml"; then
+  echo "FAIL: default render still emits a traefik Ingress — ingress.enabled must default false on a Cilium-Gateway Sovereign (#4272)." >&2
+  exit 1
+fi
 echo "  PASS"
 
 echo "[render-toggles] Case 2: assertNoPlaceholders=true with default values FAILS render"
@@ -189,13 +198,98 @@ for placeholder in '${USER_UUID}' '${SECRET_NAME}'; do
 done
 echo "  PASS"
 
-echo "[render-toggles] Case 7: ingress carries cert-manager cluster-issuer annotation"
-# #4246 — default issuer is the DNS-01 PowerDNS ClusterIssuer that every
+echo "[render-toggles] Case 7: ingress (when explicitly enabled) carries cert-manager cluster-issuer annotation"
+# #4272 — ingress.enabled now defaults false (inert traefik Ingress on a
+# Sovereign), so enable it explicitly here for the NON-Sovereign portability
+# path. #4246 — default issuer is the DNS-01 PowerDNS ClusterIssuer every
 # Sovereign installs; `letsencrypt-prod` does not exist on a real Sovereign.
-if ! grep -q 'cert-manager.io/cluster-issuer: "letsencrypt-dns01-prod-powerdns"' "$TMP/default.yaml"; then
+if ! helm template smoke-openclaw . \
+    --set "ingress.enabled=true" \
+    > "$TMP/ingress-on.yaml" 2> "$TMP/ingress-on.err"; then
+  echo "FAIL: ingress.enabled=true render failed:" >&2
+  cat "$TMP/ingress-on.err" >&2
+  exit 1
+fi
+if ! grep -qE "^kind: Ingress$" "$TMP/ingress-on.yaml"; then
+  echo "FAIL: ingress.enabled=true did not render an Ingress — toggle is broken." >&2
+  exit 1
+fi
+if ! grep -q 'cert-manager.io/cluster-issuer: "letsencrypt-dns01-prod-powerdns"' "$TMP/ingress-on.yaml"; then
   echo "FAIL: ingress is missing cert-manager.io/cluster-issuer annotation — ACME auto-issue won't fire." >&2
   exit 1
 fi
+echo "  PASS"
+
+echo "[render-toggles] Case 8: Cilium-Gateway exposure — CNP fromEntities + HTTPRoute (#4272)"
+# A Sovereign needs the CiliumNetworkPolicy fromEntities:[ingress,host,
+# remote-node] carve-out (gateway hop + kubelet probe) AND an HTTPRoute on the
+# console gateway. The CNP renders by default (cilium.io/v2 present in the
+# helm-template Capabilities set); the HTTPRoute requires enabled + hostnames.
+if ! helm template smoke-openclaw . \
+    --api-versions "cilium.io/v2" \
+    --set "httpRoute.enabled=true" \
+    --set "httpRoute.hostnames[0]=openclaw.acme.omani.homes" \
+    > "$TMP/gw.yaml" 2> "$TMP/gw.err"; then
+  echo "FAIL: Cilium-Gateway render failed:" >&2
+  cat "$TMP/gw.err" >&2
+  exit 1
+fi
+# CNP present + correct fromEntities + the bare traefik-namespace ingress rule
+# is GONE from the K8s NetworkPolicy (fromNamespaceLabels defaults empty).
+RENDER_OUT="$TMP/gw.yaml" python3 - <<'PY'
+import os, sys, yaml
+docs = [d for d in yaml.safe_load_all(open(os.environ["RENDER_OUT"])) if d]
+cnp = [d for d in docs if d.get("kind") == "CiliumNetworkPolicy"]
+if not cnp:
+    print("FAIL: no CiliumNetworkPolicy rendered with cilium.io/v2 present (#4272 gateway hop would be default-denied).", file=sys.stderr); sys.exit(1)
+ents = set()
+for d in cnp:
+    for rule in d.get("spec", {}).get("ingress", []) or []:
+        ents.update(rule.get("fromEntities", []) or [])
+missing = {"ingress", "host", "remote-node"} - ents
+if missing:
+    print(f"FAIL: CNP fromEntities missing {sorted(missing)} (gateway/probe hop denied).", file=sys.stderr); sys.exit(1)
+# K8s NetworkPolicy must NOT carry a traefik-namespace ingress rule by default.
+for d in docs:
+    if d.get("kind") != "NetworkPolicy":
+        continue
+    for rule in d.get("spec", {}).get("ingress", []) or []:
+        for frm in rule.get("from", []) or []:
+            lbls = (frm.get("namespaceSelector") or {}).get("matchLabels") or {}
+            if lbls.get("kubernetes.io/metadata.name") == "traefik":
+                print("FAIL: K8s NetworkPolicy still synthesises a dead traefik-namespace ingress rule (#4272).", file=sys.stderr); sys.exit(1)
+PY
+if ! grep -qE "^kind: HTTPRoute$" "$TMP/gw.yaml"; then
+  echo "FAIL: httpRoute.enabled=true with a hostname did not render an HTTPRoute (#4272)." >&2
+  exit 1
+fi
+if ! grep -q "cilium-gateway-console" "$TMP/gw.yaml"; then
+  echo "FAIL: HTTPRoute does not parent cilium-gateway-console (would 404 on the console ELB, #4054/#4070)." >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[render-toggles] Case 9: K8s NetworkPolicy egress permits the public-host :443 JWKS hairpin (#4272)"
+# The /readyz handler fetches JWKS from the PUBLIC issuer host, which hairpins
+# through the Cilium Gateway on :443. The egress rule must allow :443 to
+# 0.0.0.0/0 (no Pod selector can name the external EIP), else readyz 503.
+RENDER_OUT="$TMP/default.yaml" python3 - <<'PY'
+import os, sys, yaml
+docs = [d for d in yaml.safe_load_all(open(os.environ["RENDER_OUT"])) if d]
+ok = False
+for d in docs:
+    if d.get("kind") != "NetworkPolicy":
+        continue
+    for rule in d.get("spec", {}).get("egress", []) or []:
+        tos = rule.get("to", []) or []
+        has_world = any((t.get("ipBlock") or {}).get("cidr") == "0.0.0.0/0" for t in tos)
+        has_443 = any(p.get("port") == 443 for p in (rule.get("ports") or []))
+        if has_world and has_443:
+            ok = True
+if not ok:
+    print("FAIL: K8s NetworkPolicy egress is missing the :443 → 0.0.0.0/0 public-host JWKS hairpin rule — readyz would 503 (#4272).", file=sys.stderr)
+    sys.exit(1)
+PY
 echo "  PASS"
 
 echo "[render-toggles] All bp-openclaw render-toggle gates green."
