@@ -27,6 +27,7 @@ import {
   colReconcileStatus,
   colCnpgStatus,
   colCatalystCrStatus,
+  COL_TARGET_NAMESPACE,
 } from './k8sColumns'
 
 /** The reconciler chip ids the founder required (#3978). */
@@ -204,5 +205,46 @@ describe('reconcile-status helpers use the Reconciliation vocabulary', () => {
       status: { phase: 'Ready' },
     }
     expect(colCatalystCrStatus().extract(o)).toBe('Reconciled')
+  })
+})
+
+describe('COL_TARGET_NAMESPACE — workload home, not the flux-system record (#4281)', () => {
+  it('has the "Target Namespace" header', () => {
+    expect(COL_TARGET_NAMESPACE.header).toBe('Target Namespace')
+  })
+
+  it('shows spec.targetNamespace — the real workload home', () => {
+    // A host-shared platform Blueprint: the HelmRelease record lives in
+    // flux-system but the workload runs in catalyst-system.
+    const hr: K8sObject = {
+      apiVersion: 'helm.toolkit.fluxcd.io/v2',
+      kind: 'HelmRelease',
+      metadata: { name: 'bp-catalyst-platform', namespace: 'flux-system' },
+      spec: { targetNamespace: 'catalyst-system' },
+    }
+    expect(COL_TARGET_NAMESPACE.extract(hr)).toBe('catalyst-system')
+  })
+
+  it('falls back to metadata.namespace when targetNamespace is unset (Helm default)', () => {
+    // Helm installs into the release namespace when spec.targetNamespace
+    // is absent — so the column reflects runtime reality, not a "—".
+    const hr: K8sObject = {
+      metadata: { name: 'vcluster', namespace: 'acme' },
+      spec: {},
+    }
+    expect(COL_TARGET_NAMESPACE.extract(hr)).toBe('acme')
+  })
+
+  it('treats a blank/whitespace targetNamespace as unset (falls back)', () => {
+    const hr: K8sObject = {
+      metadata: { name: 'x', namespace: 'demo' },
+      spec: { targetNamespace: '   ' },
+    }
+    expect(COL_TARGET_NAMESPACE.extract(hr)).toBe('demo')
+  })
+
+  it('renders "—" when neither targetNamespace nor metadata.namespace exist', () => {
+    const hr: K8sObject = { metadata: { name: 'x' } }
+    expect(COL_TARGET_NAMESPACE.extract(hr)).toBe('—')
   })
 })

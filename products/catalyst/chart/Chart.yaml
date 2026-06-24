@@ -3004,6 +3004,23 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
+# 1.4.830 — #4281 + #4282 (two console/catalog fixes, one chart bump):
+#   #4281 — console Cloud HelmReleases list gains a "Target Namespace" column
+#     (spec.targetNamespace, falling back to metadata.namespace). Host-shared
+#     platform Blueprints keep their HR RECORD in flux-system while the
+#     workload runs in its target namespace (catalyst-system, cert-manager,
+#     kube-system, …); the list now surfaces the real workload home instead
+#     of looking like everything is dumped in flux-system. UI-only (the
+#     k8scache redactor already preserves spec.targetNamespace on the wire).
+#   #4282 — catalog-seed bp-postgres synced to platform/postgres/blueprint.yaml
+#     (#3784, commit 509a6ec8e): spec.version 0.1.6→0.2.5, source.version
+#     0.1.6→0.2.5, placementSchema.modes legacy [single-region, active-active]
+#     → canonical [singleton, active-active, active-hot-standby, active-passive],
+#     and the previously-absent configSchema.topology block (mode enum
+#     [singleton, active-hot-standby]) — so a multi-region active-hot-standby
+#     pick is no longer rejected by the stale Blueprint CR (shared-pg-e Failed).
+#     Lockstep-guard fields (topology.supported / endpoints / sso / shareable /
+#     contextSchema) were already aligned and stay green.
 # 1.4.829 — #4280: catalog name + light/dark logo editing no longer silently vanishes for
 #   the Sovereign owner. (api) auth.go pinSessionAuthority now grants the configured owner
 #   (OPERATOR_EMAIL) tier=admin even when Keycloak is REACHABLE but the realm seed hasn't
