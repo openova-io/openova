@@ -1,0 +1,51 @@
+{{- /*
+#4307: the Cilium Gateway path to the per-Org Stalwart webmail was DEAD on
+the omantel.biz demo Org. After the parentRef fix lands the HTTPRoute on the
+console Gateway (so it stops returning a NoMatchingListenerHostname 404), the
+gateway→backend hop would STILL fail: the K8s NetworkPolicy in
+networkpolicy.yaml allows webmail ingress only from a NAMESPACE
+(`namespaceSelector: kube-system`), but Cilium Gateway API traffic reaches the
+backend with the reserved `ingress` ENTITY identity (the Envoy proxy embedded
+in the cilium agent), which NO K8s NetworkPolicy selector (podSelector /
+namespaceSelector / ipBlock) can express. So a `namespaceSelector: kube-system`
+is INERT for gateway traffic → the connection times out → envoy 503 "upstream
+connect error". Same failure class as platform/wordpress-tenant #3785 +
+platform/newapi #3374 + the sso-bridge kube-apiserver entity saga.
+
+CiliumNetworkPolicy `fromEntities: [ingress]` is the canonical expression. When
+both a K8s NetworkPolicy and a CNP select the same Pod the allow-sets UNION, so
+this is purely ADDITIVE: gateway traffic is admitted, everything the K8s policy
+already allowed (SMTP/IMAP from anywhere, webmail from kube-system) stays
+allowed, everything else stays denied — default-deny posture intact.
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI), and on
+networkPolicy.ingress.allowGatewayEntity so a non-Cilium overlay can opt out.
+
+The toPorts cover the two webmail HTTP listeners the StatefulSet exposes:
+8080 (plain HTTP, the Service `http` port the HTTPRoute backends) and 8443
+(implicit-TLS HTTP) — matching server.listener.{http,https} in
+config-configmap.yaml + the StatefulSet containerPorts.
+*/ -}}
+{{- if and .Values.stalwart.enabled .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-gateway-ingress
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: stalwart-gateway-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.web.ports.http | quote }}
+              protocol: TCP
+            - port: "8443"
+              protocol: TCP
+{{- end }}

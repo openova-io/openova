@@ -1117,6 +1117,34 @@ func TestRenderOrganizationOverlay_StalwartEmitsKeycloakOIDC(t *testing.T) {
 	if !strings.Contains(body, "host: mail.acme.omantel.omani.works") {
 		t.Errorf("mail host missing in bp-stalwart-tenant.yaml")
 	}
+	// #4307 — the webmail HTTPRoute MUST parent the DEDICATED
+	// cilium-gateway-console (NOT the apps cilium-gateway), else
+	// mail.<slug>.<pool> matches no listener → NoMatchingListenerHostname →
+	// the gateway serves a 404 despite a healthy Pod. The overlay restates the
+	// parentRef explicitly (belt-and-suspenders over the chart default).
+	for _, want := range []string{
+		"parentRef:",
+		"name: cilium-gateway-console",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected webmail %q in bp-stalwart-tenant.yaml (#4307 console-gateway) — got:\n%s", want, body)
+		}
+	}
+	// #4307 — install.disableWait + upgrade.disableWait MUST be set. The
+	// StatefulSet mounts the non-optional stalwart-tls Secret so the Pod blocks
+	// at ContainerCreating until cert-manager issues the DNS-01 leaf; with
+	// Flux's default --wait, helm blocks on StatefulSet readiness BEFORE running
+	// the post-install setup Job (a Helm hook) → install times out, HR wedges
+	// InstallFailed, Job never fires. disableWait breaks the deadlock.
+	for _, line := range []string{
+		"  install:",
+		"  upgrade:",
+		"    disableWait: true",
+	} {
+		if !strings.Contains(body, line) {
+			t.Errorf("bp-stalwart-tenant.yaml missing disableWait line %q (#4307 cert-mount deadlock)\n--- rendered ---\n%s", line, body)
+		}
+	}
 }
 
 func TestStepsForState(t *testing.T) {

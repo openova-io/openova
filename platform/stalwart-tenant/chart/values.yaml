@@ -341,15 +341,26 @@ ingress:
     # wins).
     host: ""
     path: "/"
-    # Gateway parentRef — per-Sovereign cilium-gateway from
-    # bootstrap-kit/01-cilium.yaml.
+    # Gateway parentRef — the DEDICATED cilium-gateway-console (#4307),
+    # NOT the apps cilium-gateway. The per-Org webmail host
+    # `mail.<slug>.<pool>` resolves to the console-ELB EIP which fronts the
+    # ISOLATED console Gateway (#4054/#4070), and ONLY the console Gateway
+    # carries the `*.<pool>` (e.g. `*.demo.omani.homes`) wildcard listener.
+    # Parenting the apps cilium-gateway (whose only listeners are
+    # `*.<sovereign-fqdn>`) made the HTTPRoute go
+    # `Accepted=False reason=NoMatchingListenerHostname` → the gateway served
+    # a default 404 for mail.<pool> despite a healthy 1/1 Pod (verified live
+    # on the omantel.biz demo Org 2026-06-24). Mirrors the
+    # bp-wordpress-tenant / bp-keycloak / bp-agenity per-Org convention which
+    # all parent cilium-gateway-console. See org_console_tls.go
+    # consoleGatewayNamespace.
     parentRef:
-      name: cilium-gateway
+      name: cilium-gateway-console
       namespace: kube-system
-      # sectionName intentionally empty — multi-zone Sovereigns rename HTTPS
-      # listeners to https-<sanitised-zone> (e.g. https-omani-works), so
-      # pinning sectionName: https breaks NoMatchingListener. Cilium Gateway
-      # matches by hostname filter. See PR #1888 / TBD-A40 / issue #1902.
+      # sectionName intentionally empty — the console Gateway exposes one
+      # wildcard HTTPS listener per pool zone, matched by hostname filter.
+      # Pinning a sectionName breaks NoMatchingListener on multi-zone pools.
+      # See PR #1888 / TBD-A40 / issue #1902 / #4307.
       sectionName: ""
     # cert-manager Certificate (mode=ingress only). Gateway mode relies
     # on the gateway's wildcard cert.
@@ -476,6 +487,18 @@ networkPolicy:
   ingress:
     fromGatewayNamespaceLabels:
       kubernetes.io/metadata.name: kube-system
+    # #4307 — Cilium Gateway API traffic reaches the webmail Pod with the
+    # reserved `ingress` ENTITY identity (the Envoy proxy embedded in the
+    # cilium agent), which NO standard K8s NetworkPolicy selector
+    # (podSelector / namespaceSelector / ipBlock) can express — so the
+    # gateway→backend hop times out (envoy 503 "upstream connect error")
+    # even with the kube-system namespaceSelector above. This toggle ships
+    # an additive CiliumNetworkPolicy (templates/cilium-ingress-network
+    # policy.yaml) with `fromEntities: [ingress]` for the webmail HTTP ports
+    # — the canonical fix (mirrors platform/wordpress-tenant #3785 +
+    # platform/newapi #3374). Gated on the cilium.io/v2 CRD being present so
+    # it no-ops on kind CI. Set false on a non-Cilium cluster.
+    allowGatewayEntity: true
   egress:
     # bp-keycloak (OIDC discovery + token endpoint)
     - namespaceLabel: keycloak
