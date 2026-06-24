@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T02:15:02Z` |
+| Last refreshed | `2026-06-24T02:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 22 |
+| Open issues | 23 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 23 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 22 open items (clickable table)
+### All 23 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -222,6 +222,7 @@ flowchart LR
 | [#4226](https://github.com/openova-io/openova/issues/4226) | bp-cnpg webhook-gate + cert-wait Helm-hook Jobs lack app.kubernetes.io/managed-b | Other |
 | [#4228](https://github.com/openova-io/openova/issues/4228) | bp-agenity chat-runtime: make OPENOVA_MCP_RS256_PUBKEY_PEM secretKeyRef optional | Other |
 | [#4231](https://github.com/openova-io/openova/issues/4231) | P1: node-pinned catalyst-api (EVS #4102) gets DiskPressure-evicted by co-tenant  | Other |
+| [#4236](https://github.com/openova-io/openova/issues/4236) | FUNNEL pool-DNS: marketplace org-create (tenant-service → provisioning-service | Other |
 
 ---
 
@@ -229,6 +230,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T02:24 | [#4237](https://github.com/openova-io/openova/pull/4237) | #4179 | docs(sessions): #4179 close-gate walk evidence — redirect ho |
 | 2026-06-24T02:09 | [#4234](https://github.com/openova-io/openova/pull/4234) | #4188 | docs(uat): note #4220 root fixes on WordPress row 89 — keycl |
 | 2026-06-24T01:52 | [#4233](https://github.com/openova-io/openova/pull/4233) | #4225 | fix(bp-agenity): chat-runtime — optional RS256-pubkey secret |
 | 2026-06-24T01:47 | [#4232](https://github.com/openova-io/openova/pull/4232) | #4230 | fix(bp-wordpress-tenant): managed-by:flux on oidc-config + a |
@@ -258,7 +260,6 @@ flowchart LR
 | 2026-06-23T19:16 | [#4199](https://github.com/openova-io/openova/pull/4199) | #4188 | fix(org-provisioning): reap stale duplicate vc-<subdomain>@0 |
 | 2026-06-23T18:58 | [#4198](https://github.com/openova-io/openova/pull/4198) | #4196 | feat(catalyst-ui): ONE native top-level Billing menu — nativ |
 | 2026-06-23T18:14 | [#4197](https://github.com/openova-io/openova/pull/4197) | #3724 | ci(cloud-init-size): dedicated required-able byte-size PR ga |
-| 2026-06-23T17:56 | [#4195](https://github.com/openova-io/openova/pull/4195) | #4189 | docs(uat): full 215-row god-mode walk consolidated → 0 ⚠️ (1 |
 
 ---
 
