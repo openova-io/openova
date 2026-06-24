@@ -92,7 +92,7 @@ slots:
     # spec.kubeConfig.secretRef → vc-mgmt + dependsOn bp-mgmt-vcluster
     # so the install gates on the vCluster being Ready (otherwise the
     # kubeconfig Secret doesn't exist and helm-controller errors).
-    depends_on: [bp-mgmt-vcluster]
+    depends_on: []
     wave: present
   - slot: 8
     name: bp-openbao
@@ -111,7 +111,7 @@ slots:
     # the runtime edge is back (the vc-mgmt Secret must be Ready first). The
     # route + SSO ExternalSecret are HOST-rendered by the host-bridge, so no
     # loft.sh license is needed.
-    depends_on: [bp-gateway-api, bp-cnpg, bp-mgmt-vcluster]
+    depends_on: [bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 9
     name: bp-keycloak
@@ -130,7 +130,7 @@ slots:
     # path (empty-Ready release) — same shape as slots 10/19. No cycle:
     # bp-postgres-shared ← {bp-cnpg ← bp-flux, bp-reflector ←
     # bp-cert-manager}; none of those reaches bp-keycloak.
-    depends_on: [bp-cert-manager, bp-gateway-api, bp-postgres-shared, bp-mgmt-vcluster]
+    depends_on: [bp-cert-manager, bp-gateway-api, bp-postgres-shared]
     wave: present
   - slot: 10
     name: bp-gitea
@@ -144,7 +144,7 @@ slots:
     # G92.3 #2662 (2026-06-01): MGMT vCluster placement added
     # bp-mgmt-vcluster — REVERTED by G105-followup (see slot 8 note).
     # #3373 (2026-06-13): restored (placement-as-data; see slot 09 note).
-    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg, bp-postgres-shared, bp-mgmt-vcluster]
+    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg, bp-postgres-shared]
     wave: present
   - slot: 11
     name: bp-powerdns
@@ -204,7 +204,7 @@ slots:
     # bp-postgres-shared-c (#3370): the Organization mesh adopts shared-pg-c's
     # org_* Contexts when SOVEREIGN_ORG_PG_OWN_CLUSTER=false (one-flag
     # enable_shared_pg contract); harmless empty-Ready edge otherwise.
-    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c, bp-mgmt-vcluster]
+    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c]
     wave: present
   - slot: 14
     name: bp-crossplane-claims
@@ -306,7 +306,7 @@ slots:
     # (placement.yaml) — the generator adds the bp-rtz-vcluster runtime edge
     # (the vc-rtz Secret doesn't exist until that HR is Ready). Same pattern as
     # loki/mimir/tempo declaring bp-mgmt-vcluster.
-    depends_on: [bp-flux, bp-rtz-vcluster]
+    depends_on: [bp-flux]
     wave: W2.K1
   - slot: 18
     name: bp-seaweedfs
@@ -314,7 +314,7 @@ slots:
     # (placement.yaml) — the generator adds the bp-rtz-vcluster runtime edge
     # (the vc-rtz Secret doesn't exist until that HR is Ready). Same pattern as
     # loki/mimir/tempo declaring bp-mgmt-vcluster.
-    depends_on: [bp-flux, bp-cert-manager, bp-rtz-vcluster]
+    depends_on: [bp-flux, bp-cert-manager]
     wave: W2.K1
   - slot: 19
     name: bp-harbor
@@ -335,7 +335,7 @@ slots:
     # shared-pg data-instance (SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false), gate
     # on the shared instance so its registry Database + role + reflected
     # secret exist first. Harmless in the default 1:1 path.
-    depends_on: [bp-mgmt-vcluster, bp-cnpg, bp-cert-manager, bp-gateway-api, bp-external-secrets, bp-postgres-shared]
+    depends_on: [bp-cnpg, bp-cert-manager, bp-gateway-api, bp-external-secrets, bp-postgres-shared]
     wave: W2.K1
   - slot: 6a
     name: bp-self-sovereign-cutover
@@ -393,15 +393,15 @@ slots:
   # overlay that flips any of them to SeaweedFS S3 MUST re-add the edge.
   - slot: 22
     name: bp-loki
-    depends_on: [bp-mgmt-vcluster]
+    depends_on: []
     wave: W2.K2
   - slot: 23
     name: bp-mimir
-    depends_on: [bp-mgmt-vcluster]
+    depends_on: []
     wave: W2.K2
   - slot: 24
     name: bp-tempo
-    depends_on: [bp-mgmt-vcluster]
+    depends_on: []
     wave: W2.K2
   - slot: 25
     name: bp-grafana
@@ -423,7 +423,7 @@ slots:
     # on the bp-mgmt-vcluster runtime (the vc-mgmt Secret doesn't exist until
     # it is Ready). Lockstep with the live 25-grafana.yaml edge (placement.yaml
     # vcluster: mgmt; render-slot-placement.py stamps the edge).
-    depends_on: [bp-mgmt-vcluster, bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b]
+    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b]
     wave: W2.K2
   - slot: 26
     name: bp-network-policies
@@ -433,6 +433,16 @@ slots:
     # Slot ordered AFTER bp-cilium so cilium.io CRDs are registered before
     # the policy CRs apply.
     depends_on: [bp-cilium]
+    wave: W2.K3
+  - slot: 26b
+    name: bp-plane-isolation
+    # #4291 Workstream C (Refs #4293 #3642 #3373): per-component default-deny
+    # NetworkPolicy + gateway-ingress CiliumNetworkPolicy for the de-vclustered
+    # platform planes. Replaces the whole-plane policy the retired
+    # bp-{mgmt,rtz,dmz}-vcluster runtimes shipped. dependsOn bp-cilium (the
+    # cilium.io CRDs the CNP targets) + bp-network-policies (the cluster-wide
+    # baseline this tightens per-component).
+    depends_on: [bp-cilium, bp-network-policies]
     wave: W2.K3
   # ---- Tier 7: security + policy (W2.K3, slots 27-34) -----------------------
   - slot: 27
@@ -498,7 +508,7 @@ slots:
     # G92.4 #2663 (2026-06-01): DMZ vCluster placement adds
     # bp-dmz-vcluster as a new edge so the install gates on vc-dmz
     # existing before helm-controller attempts the pivot.
-    depends_on: [bp-dmz-vcluster, bp-cilium, bp-cert-manager]
+    depends_on: [bp-cilium, bp-cert-manager]
     wave: W2.K4
   - slot: 36
     name: bp-stunner
@@ -528,7 +538,7 @@ slots:
     # (placement.yaml) — the generator adds the bp-rtz-vcluster runtime edge
     # (the vc-rtz Secret doesn't exist until that HR is Ready). Same pattern as
     # loki/mimir/tempo declaring bp-mgmt-vcluster.
-    depends_on: [bp-rtz-vcluster]
+    depends_on: []
     wave: W2.K4
   - slot: 40
     name: bp-llm-gateway
@@ -630,7 +640,6 @@ slots:
       # vcluster:mgmt + hostBridge:); the route + CNPG Cluster are HOST-rendered
       # (the OIDC client secret is a chart-managed lookup Secret that stays
       # in-vCluster). The runtime edge gates on the vc-mgmt Secret Ready first.
-      - bp-mgmt-vcluster
     wave: present
 
   # ---- Slot 53 — bp-netbird WireGuard zero-trust mesh + remote-access overlay.
@@ -647,35 +656,6 @@ slots:
       - bp-nats-jetstream
     wave: present
 
-  # ---- Slot 54 — bp-dmz-vcluster (DoD A4 — public-fronted vCluster).
-  # Implements docs/DOD.md A4 ("each region runs a
-  # DMZ vCluster") + A2 ("inter-region link = DMZ WireGuard"). Installed
-  # on every region (primary AND every secondary). Hosts the Cilium
-  # Gateway, the inter-region WireGuard endpoint, and the clustermesh-
-  # apiserver LoadBalancer Service (DoD A3). Wraps loft-sh/vcluster
-  # 0.20.0 as a Helm subchart. Default-ON.
-  #
-  # 2026-05-16 implementation PR (feat/vcluster-mgmt-dmz-rtz-blueprints):
-  # supersedes the inert entry that was declared at qa-loop iter-12 Fix
-  # #53C but never landed as a real chart at platform/. The chart at
-  # products/dmz-vcluster remains the per-tenant marketplace artifact —
-  # different layer. Per TBD-A6c (2026-05-18, issue #1719) the
-  # products/dmz-vcluster chart's `name:` is now `bp-dmz-vcluster-tenant`
-  # (was `bp-dmz-vcluster`) so scripts/check-bootstrap-kit-pin-sync.sh
-  # can disambiguate the two source-tree Chart.yaml files when comparing
-  # against this slot's pin.
-  - slot: 54
-    name: bp-dmz-vcluster
-    depends_on:
-      - bp-cilium
-      - bp-cert-manager
-    wave: present
-
-  # ---- Slot 55 — bp-hcloud-ccm (Hetzner Cloud Controller Manager).
-  # FIRST cloud-provider seam: provides node.kubernetes.io/external-cloud-
-  # provider taint removal so kube-scheduler can land workloads. Must come
-  # up before any HR that requires fully-tainted-clear nodes; no
-  # dependsOn because it itself unblocks the rest of the cluster.
   - slot: 55
     name: bp-hcloud-ccm
     depends_on: []
@@ -735,61 +715,23 @@ slots:
     depends_on: [bp-flux]
     wave: present
 
-  # ---- Slot 58 — bp-mgmt-vcluster (DoD A4 — primary-only MGMT vCluster).
-  # Implements docs/DOD.md A4 ("primary region
-  # runs MGMT + DMZ vCluster"). Hosts catalyst-api, catalyst-ui,
-  # openova-flow-server, mgmt control-plane workloads. Wraps loft-sh/
-  # vcluster 0.20.0 as a Helm subchart. Default-OFF until the per-CP
-  # postBuild substitute follow-up PR adds MGMT_VCLUSTER_ENABLED on the
-  # primary CP only.
-  - slot: 58
-    name: bp-mgmt-vcluster
-    depends_on:
-      - bp-cilium
-      - bp-cert-manager
-      # #3971 / #892 — gate on BOTH per-provider cloud-CSI slots so the durable
-      # default StorageClass the vCluster StatefulSet PVC (and openbao/keycloak/
-      # gitea/harbor downstream of bp-mgmt-vcluster) needs EXISTS before any PVC
-      # binds now that local-path is FORBIDDEN (--disable=local-storage). On
-      # Hetzner the class is bp-hcloud-csi's hcloud-volumes; on Huawei it is
-      # bp-huawei-evs-csi's evs-ssd. bp-hcloud-csi renders EMPTY on Huawei (Ready
-      # with NO class), so gating on it ALONE raced the vCluster PVC ahead of
-      # evs-ssd (hw182). Both CSI slots are active-but-empty on the OTHER
-      # provider so neither dependsOn deadlocks.
-      - bp-hcloud-csi
-      - bp-huawei-evs-csi
-    wave: present
-
-  # ---- Slot 59 — bp-rtz-vcluster (DoD A4 — secondary-only RTZ vCluster).
-  # Implements docs/DOD.md A4 ("each secondary
-  # region runs DMZ + RTZ vCluster"). Hosts regional tenant workloads
-  # and caches. Wraps loft-sh/vcluster 0.20.0 as a Helm subchart.
-  # Default-OFF until the per-CP postBuild substitute follow-up PR adds
-  # RTZ_VCLUSTER_ENABLED on secondary CPs.
-  - slot: 59
-    name: bp-rtz-vcluster
-    depends_on:
-      - bp-cilium
-      - bp-cert-manager
-    wave: present
-
   # ---- Slot 60 — bp-vcluster-helmrepo (convergence blocker #2 —
-  # per-tenant vCluster source install on Sovereign).
+  # per-Organization vCluster source install on Sovereign).
   # Pre-stages the upstream loft-sh vcluster Helm chart source on the
   # Sovereign cluster so the Organization controller
-  # (core/controllers/organization) can render per-tenant
+  # (core/controllers/organization) can render per-Organization
   # `helm.toolkit.fluxcd.io/v2 HelmRelease` CRs that reference
   # `chart.spec.sourceRef name=loft namespace=vcluster-system`. Without
-  # this slot, every per-tenant vcluster HelmRelease fails Source
+  # this slot, every per-Organization vcluster HelmRelease fails Source
   # reconcile with "HelmRepository.source.toolkit.fluxcd.io \"loft\"
-  # not found" → no tenant vCluster is ever spawned. Different layer
-  # from slots 54/58/59 which bundle the upstream chart as a subchart
-  # for the Sovereign-tier DMZ/MGMT/RTZ vClusters. Default-ON; ships
-  # NO upstream subchart (same shape as bp-gateway-api).
+  # not found". STAYS after #4291 Workstream C — a vCluster is the
+  # per-Organization boundary ONLY (EPIC #4293); the platform-plane
+  # vCluster runtimes (slots 54/58/59) are retired, but the org-controller
+  # still spawns per-Org vClusters from this source. Ships NO upstream
+  # subchart (same shape as bp-gateway-api).
   - slot: 60
     name: bp-vcluster-helmrepo
-    depends_on:
-      - bp-flux
+    depends_on: [bp-flux]
     wave: present
 
   # ---- Slot 19a — bp-sandbox sandbox-controller (PR #1622, originally slot 61).
@@ -822,7 +764,6 @@ slots:
     # sync.toHost.customResources policy both materialise from that
     # release before sandbox's helm-controller pivot can succeed.
     depends_on:
-      - bp-rtz-vcluster
       - bp-vcluster-helmrepo
       - bp-catalyst-platform
       - bp-harbor
@@ -879,29 +820,6 @@ slots:
   # database-secret-sync Job PATCH the DSN before the app's SQL_DSN gate waits.
   - slot: 80
     name: bp-newapi
-    depends_on: [bp-openbao, bp-keycloak, bp-cnpg, bp-mgmt-vcluster, bp-newapi-host-seams]
+    depends_on: [bp-openbao, bp-keycloak, bp-cnpg]
     wave: present
 
-  # ---- Slot 80a — bp-newapi-host-seams (#3831). The HOST-reconciled
-  # CNPG-owner seams for newapi: the CNPG Cluster + DSN-sync Job +
-  # admin-sso-seed Job/CronJob + newapi-admin AppRegistration ConfigMap + both
-  # ExternalSecrets, all in the host `newapi` ns. Gates on the host operators
-  # that reconcile them: bp-cnpg (Cluster + <cluster>-app), bp-external-secrets
-  # (both ExternalSecrets), bp-openbao + bp-keycloak (the admin-seed OIDC +
-  # AppRegistration realm), and bp-sso-bridge (the AppRegistration watcher).
-  - slot: 80a
-    name: bp-newapi-host-seams
-    depends_on: [bp-cnpg, bp-external-secrets, bp-openbao, bp-keycloak, bp-sso-bridge]
-    wave: present
-
-  # ---- Slot 95 — bp-stalwart-sovereign REMOVED 2026-05-05.
-  # Phase-2 Sovereign-local mail surface (umbrella #924) is OUT OF SCOPE
-  # for the current Phase-1 cutover. The chart's post-install Job was
-  # timing out on otech113 and blocking the bootstrap-kit Kustomization.
-  # Phase-1 Console PIN/magic-link delivery uses the mothership SMTP
-  # relay (mail.openova.io:587) per
-  # products/catalyst/chart/values.yaml#sovereign.smtp.* and
-  # products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go.
-  # Re-introduce this slot only when Phase-2 is explicitly back in scope
-  # and the chart's readiness gate has been hardened. The chart itself
-  # remains in-tree at platform/stalwart-sovereign/ for future work.

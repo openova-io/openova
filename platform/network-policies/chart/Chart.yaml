@@ -9,8 +9,16 @@ name: bp-network-policies
 # installs this Blueprint by default so every fresh prov has zero-trust
 # from boot. Per-Blueprint CNPs progressively tighten beyond this
 # coarse safety net.
+# 1.0.5 (#4291 Workstream C — Refs #4293 #3642 #3373, 2026-06-25): the
+# platform planes (mgmt/rtz/dmz) are de-vclustered. allowSystemNamespaces
+# REMOVES the `dmz`/`mgmt`/`rtz` vCluster syncer namespaces (they no longer
+# exist) and ADDS the two former-plane components that gained their OWN host
+# namespace — `guacamole` (was catalyst-system in vc-mgmt) + `sandbox` (was
+# catalyst-system in vc-rtz). The per-component tightening lives in the new
+# slot 26b bp-plane-isolation; this coarse cluster-wide set stays the
+# safety net for control-plane reachability.
 # 1.0.2 (initial — operator-opt-in).
-version: 1.0.4
+version: 1.0.5
 description: |
   Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
   allow-templates for control-plane namespaces, intra-namespace traffic,

@@ -1,17 +1,19 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-network-policies
+  name: bp-plane-isolation
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 1.0.5
+  version: 0.1.0
   card:
-    title: Network Policies (zero-trust baseline)
+    title: Plane isolation (per-component default-deny)
     summary: |
-      Default-deny CiliumClusterwideNetworkPolicy + allow-templates for
-      Catalyst control-plane namespaces, intra-namespace traffic, and DNS.
-      Activated by EPIC-5 #1100.
+      Per-component default-deny NetworkPolicy + gateway-ingress
+      CiliumNetworkPolicy for the de-vclustered platform planes (#4291
+      Workstream C). Replaces the whole-plane policy on the mgmt/rtz/dmz
+      vCluster syncer namespaces with a tight per-component policy pair —
+      one-component blast radius, the core micro-segmentation win.
     family: networking
     documentation: ./README.md
   visibility: unlisted
@@ -23,34 +25,27 @@ spec:
     properties:
       enabled:
         type: boolean
-        default: false
-        description: Master gate. Default off — installing this Blueprint is a no-op until flipped.
-      allowSystemNamespaces:
-        type: array
-        description: Namespaces the Catalyst control plane needs full ingress/egress on.
-        items:
-          type: string
-        default:
-          - kube-system
-          - flux-system
-          - cilium
-          - cert-manager
-          - catalyst
-          - openova-system
-          - monitoring
-          - ingress
-      allowEgressDNS:
-        type: boolean
         default: true
-        description: Allow egress to CoreDNS from every namespace. Without this, Pods break.
+        description: Master gate. Default on — micro-segmentation of the de-vclustered platform planes is the canonical Sovereign posture.
       dnsNamespace:
         type: string
         default: kube-system
-        description: Namespace where CoreDNS lives.
-      dnsServiceName:
-        type: string
-        default: kube-dns
-        description: Service name CoreDNS publishes under (k3s default is kube-dns).
+        description: Namespace where CoreDNS lives (DNS egress is always allowed).
+      components:
+        type: array
+        description: One entry per de-vclustered platform component's host namespace, with its explicit cross-component ingress allow-list and whether it faces the public gateway.
+        items:
+          type: object
+          properties:
+            namespace:
+              type: string
+            gatewayIngress:
+              type: boolean
+              default: false
+            allowIngressFrom:
+              type: array
+              items:
+                type: string
   placementSchema:
     modes: [single-region, active-active]
     default: active-active

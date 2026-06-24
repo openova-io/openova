@@ -1,0 +1,133 @@
+# bp-plane-isolation — per-component default-deny + explicit-allow for the
+# de-vclustered platform planes (#4291 Workstream C, Refs #4293 #3642 #3373).
+#
+# Master gate. Default ON — micro-segmentation of the platform planes is the
+# canonical Sovereign posture once the planes are host namespaces. An operator
+# MAY flip `enabled: false` per Sovereign overlay for debug-mode.
+enabled: true
+
+# DNS egress target (CoreDNS) — every namespace's default-deny MUST keep DNS
+# egress or Pods break on first lookup. k3s default Service is kube-dns in
+# kube-system.
+dnsNamespace: kube-system
+
+# ── Per-component policy set ───────────────────────────────────────────────
+# Each entry is ONE de-vclustered platform component's host namespace. The
+# generator renders, for each:
+#   * a default-deny NetworkPolicy (podSelector:{}, Ingress + Egress) whose
+#     ingress allow-list is the union of `allowIngressFrom` namespaces (each a
+#     namespaceSelector) + same-namespace; egress is unconstrained by default
+#     (egress: {}) — narrowing egress per-component is a follow-up once the call
+#     graph is captured live (the whole-plane policy left egress open too), and
+#   * the gateway-ingress CiliumNetworkPolicy fromEntities:[ingress,host,
+#     remote-node] when `gatewayIngress: true` (every component fronted by a
+#     public HTTPRoute needs it; pure-backend components like loki/mimir/tempo/
+#     valkey/seaweedfs/vllm/nats/sandbox/coraza do NOT face the gateway).
+#
+# allowIngressFrom is the EXPLICIT cross-component call graph, derived from the
+# whole-plane bp-{mgmt,rtz,dmz}-vcluster allow-lists + each chart's own NP. It
+# is tightened from coarse-namespace (whole plane) to per-component here.
+#
+# Every entry implicitly admits:
+#   * same-namespace pod-to-pod (the chart's own pods talk to each other),
+#   * flux-system (the helm-controller reconciles the component's HR + CRs),
+#   * DNS egress to kube-system CoreDNS.
+# Those are NOT repeated per-entry; the template adds them.
+components:
+  # ── mgmt-tier platform components ──────────────────────────────────────
+  - namespace: keycloak            # SSO IdP — the front door every app's OIDC depends on
+    gatewayIngress: true           # auth.<fqdn> public route
+    allowIngressFrom:
+      - cnpg-system                # CNPG operator → keycloak bundled/own PG (when own-cluster)
+      - external-secrets-system    # ESO reconciles keycloak ExternalSecrets
+      - org-services               # BSS/auth tier validates tokens against keycloak
+      - oidc-gate                  # the host auth proxy fronting gateway routes
+  - namespace: gitea               # source forge
+    gatewayIngress: true           # gitea.<fqdn> public route
+    allowIngressFrom:
+      - cnpg-system                # CNPG operator → gitea-pg
+      - external-secrets-system    # ESO reconciles gitea SSO ExternalSecret
+      - catalyst-system            # Flux GitRepository pull from gitea (per-app sources)
+      - flux-system                # (also implicit) Flux source-controller mirrors the catalog
+  - namespace: harbor              # OCI registry
+    gatewayIngress: true           # registry.<fqdn> public route
+    allowIngressFrom:
+      - cnpg-system                # CNPG operator → harbor-pg
+      - external-secrets-system    # ESO reconciles harbor SSO ExternalSecret
+      - catalyst-system            # catalyst-api / sandbox pull chart artifacts from harbor
+  - namespace: grafana             # dashboards
+    gatewayIngress: true           # grafana.<fqdn> public route
+    allowIngressFrom:
+      - external-secrets-system    # ESO reconciles grafana SSO ExternalSecret
+      - opentelemetry              # otel collector → grafana (optional dashboards)
+  - namespace: openbao             # secrets engine (the ESO ClusterSecretStore backend)
+    gatewayIngress: true           # bao.<fqdn> public route
+    allowIngressFrom:
+      - external-secrets-system    # ESO authenticates to openbao:8200 (the vault-region1 store)
+      - cnpg-system                # CNPG operator → openbao audit/storage adjuncts (when used)
+  - namespace: guacamole           # remote-desktop gateway (was catalyst-system in vc-mgmt)
+    gatewayIngress: true           # guacamole.<fqdn> public route
+    allowIngressFrom:
+      - cnpg-system                # CNPG operator → guacamole-pg
+      - external-secrets-system    # ESO reconciles guacamole credentials (if ESO-backed)
+  - namespace: newapi              # LLM gateway (owns its CNPG)
+    gatewayIngress: true           # newapi.<fqdn> public route
+    allowIngressFrom:
+      - cnpg-system                # CNPG operator → newapi-pg
+      - external-secrets-system    # ESO reconciles newapi OIDC + admin-token ExternalSecrets
+      - catalyst-system            # sandbox-controller calls newapi admin tokens API
+      - sandbox                    # per-Sandbox runtimes hit the LLM gateway
+  - namespace: nats-system         # control-plane event bus (no public route)
+    gatewayIngress: false
+    allowIngressFrom:
+      - org-services               # BSS/auth/billing/notification publish + consume events
+      - guacamole                  # guacamole publishes session-open/close audit events
+      - catalyst-system            # catalyst-api audit indexer + controllers
+  - namespace: loki                # log store (Grafana backend, no public route)
+    gatewayIngress: false
+    allowIngressFrom:
+      - grafana                    # grafana queries loki
+      - alloy                      # the node-level telemetry shipper pushes logs
+      - opentelemetry              # the otel collector pushes logs
+  - namespace: mimir               # metrics store
+    gatewayIngress: false
+    allowIngressFrom:
+      - grafana                    # grafana queries mimir
+      - alloy                      # alloy remote-writes metrics
+      - opentelemetry              # otel collector remote-writes metrics
+  - namespace: tempo               # trace store
+    gatewayIngress: false
+    allowIngressFrom:
+      - grafana                    # grafana queries tempo
+      - alloy                      # alloy ships traces
+      - opentelemetry              # otel collector ships traces
+  # ── rtz-tier shared platform components ────────────────────────────────
+  - namespace: valkey              # shared cache (no public route)
+    gatewayIngress: false
+    allowIngressFrom:
+      - org-services               # BSS control-plane (VALKEY_ADDR consumers)
+      - newapi                     # newapi rate-limit / session cache
+  - namespace: seaweedfs           # shared object store / S3 (no public route)
+    gatewayIngress: false
+    allowIngressFrom:
+      - gitea                      # Git LFS/attachment blob storage (S3, default-off)
+      - harbor                     # registry image/chart blob storage (S3, default-off)
+      - loki                       # loki S3 chunk storage (default-off)
+      - mimir                      # mimir S3 block storage (default-off)
+      - tempo                      # tempo S3 trace storage (default-off)
+      - velero                     # cluster backup target
+      - guacamole                  # session recordings; cnpg barman backups
+      - catalyst-system            # cnpg barman backups, showback
+  - namespace: vllm                # LLM inference (no public route; newapi channel)
+    gatewayIngress: false
+    allowIngressFrom:
+      - newapi                     # the newapi `vllm` channel (default-off)
+  - namespace: sandbox             # sandbox-controller (was catalyst-system in vc-rtz)
+    gatewayIngress: false          # per-Sandbox pty/MCP routes are per-Sandbox, not this ns
+    allowIngressFrom:
+      - catalyst-system            # catalyst-api dispatches Sandbox CRs to the controller
+  # ── dmz-tier platform component ────────────────────────────────────────
+  - namespace: coraza              # WAF (sits on the public ingress path)
+    gatewayIngress: true           # the gateway proxies through coraza (ext_authz)
+    allowIngressFrom:
+      - kube-system                # the cilium-gateway control plane
