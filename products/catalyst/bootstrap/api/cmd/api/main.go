@@ -1040,6 +1040,20 @@ func main() {
 		}
 	}
 
+	// #4179 (criterion 4d) — reconcile the tenant registry from Organization
+	// CRs so a MARKETPLACE-funnel-created Org's console host
+	// (console.<slug>.<parentDomain>) is a registered tenant_kind=org host.
+	// Without this row, /auth/org-handover → resolveOrgScope refuses the
+	// session with `invalid audience: not an org console host` and the
+	// customer never lands signed-in. The BSS pipeline writes this row at
+	// Step 6, but the marketplace funnel (tenant-service → provisioning-service
+	// → Org CR) never runs that pipeline — so catalyst-api reconciles its own
+	// registry FROM the Org CRs (the one object both doors create), covering
+	// both doors with a single source of truth (same consolidation as #4236
+	// DNS + #4242 TLS). Async + best-effort: never blocks readiness, retries
+	// on a ticker, and a no-op when the registry/dynamic-client isn't wired.
+	go h.ReconcileTenantRegistryFromOrgCRs(context.Background())
+
 	// Unauthenticated cloud-init postback (issue #183, Option D + #634).
 	// The new Sovereign's control plane PUTs its rewritten kubeconfig
 	// here with `Authorization: Bearer <postback-token>`. PutKubeconfig

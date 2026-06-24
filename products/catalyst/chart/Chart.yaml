@@ -2974,13 +2974,25 @@ name: bp-catalyst-platform
 #   handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER now defaults false via
 #   catalystApi.fireCutoverOnHandover). Cutover is a DELIBERATE BSS-menu action; the
 #   operator-initiated path is unchanged (NO-REGRESS).
+# 1.4.816 — #4179 (criterion 4d, the SIGNED-IN landing): close the last layer of
+#   the #1 customer bug. (a) catalyst-api reconciles its tenant registry FROM the
+#   Organization CRs so a MARKETPLACE-funnel-created Org's console host
+#   (console.<slug>.<parentDomain>) becomes a registered tenant_kind=org host —
+#   without it /auth/org-handover refused the session `invalid audience: not an org
+#   console host` and the customer never landed signed-in. Single source of truth:
+#   the Org CR is the one object BOTH doors create, so the BSS-pipeline registration
+#   class can't recur on the funnel. (b) bootstrap-kit slot-13 now declares the
+#   SOVEREIGN_LB_IP substitute (was undeclared → `lbIP` resolved EMPTY on every
+#   clean reconcile), restoring the org-controller pool-DNS fallback target so
+#   new-Org DNS keeps writing without a runtime patch (Refs #4236). Clean version
+#   tag forces the Flux pull (the #4242 stale-digest trap); slot-13 bumped lockstep.
 # 1.4.814 — #4179/#4242: ship org-controller 09dcc10 (per-Org 2-label console TLS
 #   cert+listener — `*.<slug>.<parent>` SAN covers console.<slug>.<parent>, which the
 #   apex `*.<parent>` pool wildcard cannot). The deploy-bot bumped the org-controller
 #   image pin (6cdbc50->09dcc10) in values.yaml without a chart version bump, so the
 #   re-pushed 1.4.813 OCI digest never superseded the digest cached on the Sovereign's
 #   Flux. A clean version tag forces the pull. bootstrap-kit slot-13 bumped in lockstep.
-version: 1.4.815
+version: 1.4.816
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /

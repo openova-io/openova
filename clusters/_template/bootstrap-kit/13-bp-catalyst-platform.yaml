@@ -1062,6 +1062,12 @@ spec:
       #   self-sovereignty cutover on handover (CATALYST_FIRE_CUTOVER_ON_HANDOVER
       #   now defaults false via catalystApi.fireCutoverOnHandover). Cutover is a
       #   DELIBERATE BSS-menu action; operator-initiated path unchanged.
+      # 1.4.816 — #4179 (criterion 4d, SIGNED-IN landing): deliver the catalyst-api
+      #   tenant-registry-from-Org-CRs reconcile (funnel Org console host becomes a
+      #   registered tenant_kind=org host so /auth/org-handover ACCEPTS the session)
+      #   + the slot-13 SOVEREIGN_LB_IP substitute fix (lbIP no longer empty on a
+      #   clean reconcile → org-controller pool-DNS fallback target restored, Refs
+      #   #4236). Clean version tag forces the Flux pull. Chart.yaml lockstep.
       # 1.4.814 — #4179/#4242: deliver org-controller 09dcc10 (per-Org 2-label
       #   console TLS cert+listener) to the Sovereign. The deploy-bot bumped the
       #   org-controller image pin 6cdbc50->09dcc10 in chart/values.yaml WITHOUT
@@ -1069,7 +1075,7 @@ spec:
       #   superseded the cached one on the Sovereign's Flux (helm-controller
       #   kept rendering the stale 6cdbc50 content). A fresh version tag forces
       #   a clean pull. Chart.yaml bumped in lockstep.
-      version: 1.4.815
+      version: 1.4.816
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1242,7 +1248,7 @@ spec:
       # and the chart renders an empty `lbIP` ConfigMap key — catalyst-api
       # then short-circuits the glue registration and falls back to plain
       # set_ns (legacy behaviour).
-      sovereignLBIP: ${SOVEREIGN_LB_IP}
+      sovereignLBIP: ${SOVEREIGN_LB_IP:-}
       # sovereignConsoleLBIP — the dedicated console-ELB IPv4 (#4053 isolation;
       # e.g. 212.72.24.33). Threaded from cloud-init's SOVEREIGN_CONSOLE_LB_IP
       # bootstrap-kit postBuild substitute (fed by infra console_load_balancer_ip).

@@ -476,6 +476,9 @@ write_files:
             SOVEREIGN_DEPLOYMENT_ID: ${deployment_id}
             # #4236 console-ELB IPv4 → slot-13 sovereignConsoleLBIP (see that file).
             SOVEREIGN_CONSOLE_LB_IP: ${console_load_balancer_ipv4}
+            # #4236/#4179: primary LB IPv4 → slot-13 sovereignLBIP → ConfigMap lbIP
+            # (was undeclared here → lbIP empty → org-controller pool-DNS skip).
+            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             # SOVEREIGN_OWNER_EMAIL (founder NS-3 #3263) — the deployment
             # owner's email (same org_email as sovereign.json's orgEmail).
             # bp-keycloak slot 09 threads it into sovereignRealm.ownerEmail;
