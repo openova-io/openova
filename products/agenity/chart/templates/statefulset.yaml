@@ -88,6 +88,29 @@ spec:
                 cp /creds/{{ .Values.anthropic.credentialsKey }} /claudehome/.claude/.credentials.json
                 chmod 600 /claudehome/.claude/.credentials.json
                 echo "seeded ~/.claude/.credentials.json ($(wc -c < /claudehome/.claude/.credentials.json) bytes)"
+                # ── OAuth-expiry pre-flight (#4111) ──────────────────────────
+                # The seeded blob is a claudeAiOauth pair whose accessToken has
+                # a SHORT lifetime (hours). claude-code's headless BareExec
+                # spawn path does NOT reliably refresh it from the refreshToken
+                # — verified live on omantel.biz 2026-06-24: a token expired
+                # ~45h prior left every spawn failing "401 Invalid
+                # authentication credentials" while the dashboard still served,
+                # i.e. the exact "runtime offline · 0 workers" symptom with no
+                # other signal. So we parse expiresAt HERE and emit a LOUD,
+                # greppable line when the seeded token is ALREADY expired — the
+                # operator's cue to re-seed openbao anthropic/token with a fresh
+                # credentialsJson (see README §Seeding). This is diagnostic
+                # ONLY: we never block the pod (the dashboard must still serve)
+                # and never mutate the blob (claude-code owns rotation). The
+                # parser is a single-line python3 -c (no heredoc) so the YAML
+                # block scalar stays whitespace-robust across Helm renders.
+                EXP=$(python3 -c 'import json,time;o=json.load(open("/claudehome/.claude/.credentials.json")).get("claudeAiOauth",{});e=int(o.get("expiresAt",0) or 0);n=int(time.time()*1000);print(("EXPIRED %d"%((n-e)//3600000)) if e and e<n else ("OK %d"%((e-n)//3600000)) if e else "NOEXP")' 2>/dev/null || echo "")
+                case "$EXP" in
+                  EXPIRED*) echo "🛑 WARNING (#4111): seeded claude-code OAuth token is EXPIRED (~${EXP#EXPIRED }h ago) — the spawned agent will fail '401 Invalid authentication credentials' and the dashboard will show 'runtime offline / 0 workers'. RE-SEED openbao anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret (see README: Seeding the per-Org anthropic/token openbao path)." ;;
+                  OK*)      echo "claude-code OAuth token valid (~${EXP#OK }h remaining)." ;;
+                  NOEXP)    echo "claude-code credentials.json has no expiresAt — assuming a non-expiring credential." ;;
+                  *)        echo "could not parse claude-code OAuth expiry from credentials.json (non-fatal)." ;;
+                esac
               else
                 echo "no credentials.json key in Secret — key-only mode"
               fi

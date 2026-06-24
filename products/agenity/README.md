@@ -142,6 +142,46 @@ authenticates. This path is **shared per-Sovereign** (not per-Org-namespaced)
 by default — a single seed serves every Org's agenity install on that
 Sovereign.
 
+### 🛑 The OAuth access token EXPIRES — re-seed when the agent goes offline (#4111)
+
+The `credentialsJson` blob is a **short-lived OAuth pair**: its `accessToken`
+(`sk-ant-oat01-…`) has an `expiresAt` only **hours** out, and the headless
+`claude-code` the chepherd BareExec path forks does **not** reliably refresh it
+from the `refreshToken`. So a credential that worked at seed-time **goes stale
+within hours** and every subsequent `+ spawn agent` then fails with
+`401 Invalid authentication credentials` — surfacing in the dashboard as the
+same *"runtime offline / 0 workers"* symptom as a never-seeded path. Confirmed
+live on omantel.biz 2026-06-24: a blob seeded ~45h earlier was correctly shaped
+(full `claudeAiOauth`, valid scopes, `subscriptionType: max`) yet every spawn
+401'd because the token had long expired.
+
+The chart's `seed-claude-creds` init container (chart `0.5.6`+) now **parses
+`expiresAt` at pod start** and logs a loud, greppable line so the operator can
+diagnose this without exec'ing into the pod:
+
+```
+🛑 WARNING (#4111): seeded claude-code OAuth token is EXPIRED (~45h ago) — the
+   spawned agent will fail '401 Invalid authentication credentials' and the
+   dashboard will show 'runtime offline / 0 workers'. RE-SEED openbao
+   anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret.
+```
+
+(A valid token instead logs `claude-code OAuth token valid (~Nh remaining).`)
+The check is **diagnostic-only** — it never blocks the pod (the dashboard must
+keep serving) and never mutates the blob (`claude-code` owns rotation).
+
+**When the agent reports offline, re-seed:** mint a **fresh**
+`credentialsJson` (a current `claude` login on a workstation writes
+`~/.claude/.credentials.json`; copy that whole blob), `bao kv put
+anthropic/token credentialsJson='…'` as above, force-sync the ExternalSecret
+(`kubectl annotate externalsecret agenity-anthropic-token
+force-sync=$(date +%s) --overwrite`), and restart the StatefulSet pod (or wait
+for the next restart) so the init container re-seeds the new blob. The next
+spawn then authenticates. This is the standing **operator activation cost** of
+the OAuth journey until upstream `claude-code` gains a reliable
+non-interactive refresh — track it as a recurring per-Sovereign chore, not a
+one-time seed.
+
 > **Why not chart-seed it?** A Helm-seeded placeholder would pin an **empty**
 > value forever under the reflector/ESO empty-seed trap (the bp-wordpress-tenant
 > empty-password lesson) — the agent would then hold a permanently-blank
@@ -155,7 +195,7 @@ The full live e2e walk runs in the orchestrator's wipe → prov → walk loop.
 On a fresh prov, after a User installs bp-agenity:
 
 1. `kubectl -n <org>-prod get statefulset,svc,httproute,externalsecret -l catalyst.openova.io/blueprint=bp-agenity` → all present; the StatefulSet pod becomes `Ready` (`/healthz` 200).
-2. The Agenity pod env carries `CHEPHERD_DEFAULT_MODEL=claude-opus-4-7`, `ANTHROPIC_API_KEY` (from the Secret), and `CHEPHERD_EXTRA_MCP_JSON` with the `openova` server stanza.
+2. The Agenity pod env carries `CHEPHERD_DEFAULT_MODEL=claude-opus-4-7` and `CHEPHERD_EXTRA_MCP_JSON` with the `openova` server stanza. In OAuth mode (`anthropic.credentialsKey` set, the default) the spawned agent authenticates from the init-seeded `~/.claude/.credentials.json` blob — `ANTHROPIC_API_KEY` is deliberately **omitted** (an `sk-ant-oat01-…` OAuth token in that env is rejected by `claude-code`, and it would shadow the valid `credentials.json`); only key-only mode (no `credentialsKey`) sets `ANTHROPIC_API_KEY` from the Secret. The `seed-claude-creds` init log states whether the seeded OAuth token is valid or expired.
 3. The Agenity console loads at `agenity.<org>.<sovereign-fqdn>` (SSO).
 4. Spawning the solo agent → its `.mcp.json` lists **both** the `chepherd` runtime MCP and the `openova` MCP servers, and the agent was launched with `--model claude-opus-4-7`.
 5. Asking the agent to install an app → a new `Application` CR appears in the User's Org namespace, created via the openova MCP `create_application` tool (tier-admin-gated, Org-pinned).

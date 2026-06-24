@@ -8,6 +8,9 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.6 -> 0.5.7 (#4180 + #4111, combined on rebase): two ADDITIVE changes land
+# together — the workspaces dashboard image (appVersion 0.9.7, #4180) AND the
+# seed-claude-creds expired-OAuth detector (#4111). Both documented below.
 # 0.5.5 -> 0.5.6 (#4180): publish the bp-agenity build from agenity#752 —
 # /app now serves the WORKSPACES (v0.9.4) multi-pane dashboard (Work/Terminal/
 # Talk/Board tabs + Sessions/Terminal/Details panes), NOT the archaic
@@ -17,6 +20,23 @@ type: application
 # the chart version bump publishes it so a fresh-Org install (HR pins `*`)
 # auto-resolves to it. ADDITIVE over 0.5.5 (no chart-template change — the
 # delta is the image bytes the new appVersion points at).
+# 0.5.5 -> 0.5.6 (#4111): the seed-claude-creds init container now parses the
+# seeded credentialsJson's claudeAiOauth.expiresAt and emits a LOUD, greppable
+# WARNING when the OAuth token is ALREADY expired. Live root-cause on
+# omantel.biz 2026-06-24: the seeded blob was correctly shaped (full
+# claudeAiOauth pair) but its accessToken had expired ~45h prior, and
+# claude-code's headless BareExec spawn does NOT reliably refresh from the
+# refreshToken — so every "+ spawn agent" failed "401 Invalid authentication
+# credentials" while the dashboard still served (the silent "runtime offline /
+# 0 workers" symptom). The check is diagnostic-only: it never blocks the pod
+# (the dashboard must still serve) and never mutates the blob (claude-code owns
+# rotation) — it converts an invisible auth failure into an actionable
+# re-seed cue. README gains the OAuth-token-expiry reality + the "agent went
+# offline → re-seed" operator step. appVersion (dashboard image) stays 0.9.6 —
+# image bytes UNCHANGED; 0.5.6 is ADDITIVE (chart-only) over 0.5.5. (The
+# image's claude-code binary + the chart's forceLocalSpawner/authMode/
+# runAsUser/creds-seed wiring — the issue's three named blockers — all already
+# landed in #4115/#4138/#4173/#4225/#4233 and are confirmed present live.)
 # 0.5.4 -> 0.5.5 (#4228): make the OPENOVA_MCP_RS256_PUBKEY_PEM secretKeyRef
 # optional:true. Its source Secret (catalyst-handover-jwt-public, #4114) lives
 # in the host catalyst-system namespace, NOT the per-Org namespace this
@@ -34,7 +54,7 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.6
+version: 0.5.7
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752
