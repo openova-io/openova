@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T09:00:04Z` |
+| Last refreshed | `2026-06-24T09:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 17 |
+| Open issues | 14 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 17 open items (clickable table)
+### All 14 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -208,11 +208,8 @@ flowchart LR
 | [#4018](https://github.com/openova-io/openova/issues/4018) | fix(cloud): Path B — provisioning instantiates Crossplane XRCs so the XRC laye | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
 | [#4143](https://github.com/openova-io/openova/issues/4143) | bp-cnpg multi-operator webhook-cert conflict: per-Org + cnpg-system operators sh | Other |
-| [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
 | [#4181](https://github.com/openova-io/openova/issues/4181) | UAT-215: drive EVERY row to ✅/❌ with live evidence on omantel.biz — ZERO � | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: light the object-model/DR backbone at runtime — ONE build (un-gate Cross | Other |
-| [#4220](https://github.com/openova-io/openova/issues/4220) | FUNNEL install-gauntlet: demo Org WordPress DOWN — bp-keycloak `*`→stale 1.5 | Other |
-| [#4231](https://github.com/openova-io/openova/issues/4231) | P1: node-pinned catalyst-api (EVS #4102) gets DiskPressure-evicted by co-tenant  | Other |
 | [#4246](https://github.com/openova-io/openova/issues/4246) | Demo Org tertiary apps never converge on fresh Org — 3 durable RCs: per-Org HR | Other |
 | [#4249](https://github.com/openova-io/openova/issues/4249) | bp-openclaw controller image does not exist — no controller source/Dockerfile/ | Other |
 | [#4257](https://github.com/openova-io/openova/issues/4257) | fix(continuum): bp-continuum 0.1.8 mutable-tag overwrite blocks #4254 roll — b | Other |
@@ -224,6 +221,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T09:01 | [#4269](https://github.com/openova-io/openova/pull/4269) | #3678 | fix(bp-self-sovereign-cutover): apply default-deny egress CC |
 | 2026-06-24T08:55 | [#4268](https://github.com/openova-io/openova/pull/4268) | #4252 | docs(uat): #3374 SSO-landing + #3376 funnel signed-in GREEN; |
 | 2026-06-24T08:33 | [#4267](https://github.com/openova-io/openova/pull/4267) | #4180 | docs(sessions): agenity #4180 workspaces /app dashboard — li |
 | 2026-06-24T08:34 | [#4266](https://github.com/openova-io/openova/pull/4266) | #4206 | fix(org-provisioning): self-heal corrupted JSON-envelope par |
@@ -253,7 +251,6 @@ flowchart LR
 | 2026-06-24T01:36 | [#4230](https://github.com/openova-io/openova/pull/4230) | #4226 | fix(bp-wordpress-tenant): managed-by:flux on db-secret-sync  |
 | 2026-06-24T01:35 | [#4229](https://github.com/openova-io/openova/pull/4229) | #4102 | fix(ci): render api-deployment.yaml before apply in strategy |
 | 2026-06-24T01:05 | [#4227](https://github.com/openova-io/openova/pull/4227) | #4222 | fix(bp-cnpg): managed-by:flux on webhook Helm-hook Jobs → un |
-| 2026-06-24T01:05 | [#4225](https://github.com/openova-io/openova/pull/4225) | #4180 | feat(bp-agenity): durable per-Org install + Cilium-gateway C |
 
 ---
 
