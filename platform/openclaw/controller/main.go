@@ -239,7 +239,7 @@ func rootHandler(cfg *config, v *jwtVerifier, s *podSpawner) http.HandlerFunc {
 		}
 
 		if !cfg.requireAuth {
-			http.Error(w, "openclaw-controller is not yet configured for this tenant (OIDC issuer unset)", http.StatusServiceUnavailable)
+			http.Error(w, "openclaw-controller is not yet configured for this Organization (OIDC issuer unset)", http.StatusServiceUnavailable)
 			mets.inc(&mets.authUnconfigured)
 			return
 		}
