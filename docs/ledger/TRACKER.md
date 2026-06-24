@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-24T06:30:03Z` |
+| Last refreshed | `2026-06-24T06:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 22 |
 | Open DoD gates | 0 / 41 |
@@ -229,6 +229,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-24T06:41 | [#4254](https://github.com/openova-io/openova/pull/4254) | #4242 | fix(continuum): k8s-lease witness + region fallback → health |
 | 2026-06-24T05:36 | [#4252](https://github.com/openova-io/openova/pull/4252) | #4250 | fix(org-provisioning): transient parent-index read no longer |
 | 2026-06-24T04:57 | [#4251](https://github.com/openova-io/openova/pull/4251) | #1 | fix(catalyst-api): register funnel-Org console hosts from th |
 | 2026-06-24T04:36 | [#4248](https://github.com/openova-io/openova/pull/4248) | #4246 | fix: per-Org HR disableWait passthrough (newapi DSN deadlock |
@@ -258,7 +259,6 @@ flowchart LR
 | 2026-06-23T22:51 | [#4211](https://github.com/openova-io/openova/pull/4211) | #4192 | docs(walk): goal#4 demo-user 7283eb4a RBAC walk — own apps + |
 | 2026-06-23T22:18 | [#4210](https://github.com/openova-io/openova/pull/4210) | #4200 | docs(walk): post-P0 signed-in console walk evidence (dashboa |
 | 2026-06-23T21:46 | [#4209](https://github.com/openova-io/openova/pull/4209) | #3925 | docs(uat): flip 10 rows ✅ — post-roll re-walk of merged Jobs |
-| 2026-06-23T21:23 | [#4208](https://github.com/openova-io/openova/pull/4208) | #893 | docs(backlog): audit #2 verdict table — 24→21 open, evidence |
 
 ---
 
