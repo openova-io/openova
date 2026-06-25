@@ -1,0 +1,85 @@
+# bp-plane-isolation — Catalyst bootstrap-kit Blueprint slot 26b
+# (#4291 Workstream C — Refs #4293 #3642 #3373).
+#
+# Per-component default-deny + gateway-ingress micro-segmentation for the
+# de-vclustered platform planes. When #4291 flips the mgmt/rtz/dmz APP rows
+# from `vcluster: mgmt|rtz|dmz` to `vcluster: host` (each component in its
+# OWN first-class host namespace), the whole-plane NetworkPolicy +
+# gateway-ingress CiliumNetworkPolicy that bp-{mgmt,rtz,dmz}-vcluster shipped
+# per syncer-namespace is replaced by THIS chart's PER-COMPONENT policy pair:
+# one default-deny NetworkPolicy + (for gateway-fronted components) the
+# fromEntities:[ingress,host,remote-node] CiliumNetworkPolicy, in each
+# component's own host namespace. The allow-set tightens from coarse
+# whole-plane to per-component — the core micro-segmentation win of #4291.
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane, AFTER
+# bp-cilium (slot 01) installs the cilium.io CRDs the CiliumNetworkPolicy
+# template targets, and AFTER the component host namespaces exist (Flux
+# applies Namespace kinds + the per-component HRs' createNamespace before
+# this HR's policies resolve). The cilium.io/v2 Capabilities gate in the
+# chart keeps the CNP out of the render on CRD-less clusters.
+#
+# Ordering: slot 26b runs after slot 26 (bp-network-policies, the cluster-
+# wide baseline) and slot 01 (bp-cilium). The HR→HR dependsOn below is the
+# load-bearing signal; the Kustomization slot ordering is belt-and-suspenders.
+#
+# Wrapper chart: platform/plane-isolation/chart/ (pure overlay; no upstream
+# subchart — CRDs come from bp-cilium's upstream Cilium chart).
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-plane-isolation
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  # ghcr-pull authenticates the OCI pull — bp-plane-isolation is a PRIVATE
+  # ghcr package (like every other bp-* chart). Without this secretRef Flux
+  # falls back to anonymous auth → 401 → the chart never pulls → the
+  # bootstrap-kit Kustomization wedges on this HR. Mirrors slots 26/13/16b.
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-plane-isolation
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "26b"
+spec:
+  interval: 15m
+  releaseName: plane-isolation
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-network-policies
+  chart:
+    spec:
+      chart: bp-plane-isolation
+      # 0.1.0 (#4291 Workstream C) — per-component default-deny + gateway
+      # CNP for the de-vclustered platform planes. CI populates the SHA-pinned
+      # OCI digest on tag.
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-plane-isolation
+        namespace: flux-system
+  install:
+    timeout: 5m
+    # The per-component policies land in namespaces other charts own
+    # (keycloak/gitea/…), which may not all be Ready when this HR
+    # reconciles. disableWait so the HR reaches Ready on apply (the
+    # policies are additive + idempotent — they take effect as each
+    # namespace materializes). Mirrors slot 26 (bp-network-policies).
+    disableWait: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 5m
+    disableWait: true
+    remediation:
+      retries: 3

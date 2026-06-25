@@ -96,10 +96,9 @@ metadata:
   # longer needs to colocate with vc-mgmt. Reverting also restores
   # the Helm valuesFrom lookup of secrets like 'object-storage'
   # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "19"
-    catalyst.openova.io/vcluster: mgmt
 spec:
   # G50 (Refs #2602, 2026-05-30): interval 15m → 1m so install remediation
   # retries fire within ~5min total (5 × 1m) instead of 45min (3 × 15m).
@@ -112,27 +111,7 @@ spec:
   interval: 1m
   releaseName: harbor
   targetNamespace: harbor
-  storageNamespace: harbor
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
-  # G105-followup #2697 (2026-06-01) — G92.3 #2662 placement REVERTED.
-  # vCluster lacks Gateway API + ExternalSecret CRDs + the mgmt
-  # namespace inside itself. App installs on HOST until vCluster CRD
-  # sync ships. Application-controller G92.1 Blueprint-layer pivot
-  # stays; only slot-level forcing removed.
-  # Harbor depends on:
-  #   - bp-cnpg(16): registry metadata DB (postgresql.cnpg.io/v1.Cluster).
-  #   - bp-cert-manager(02): registry endpoint TLS via ClusterIssuer.
-  # bp-seaweedfs dependency REMOVED per ADR-0001 §13 (cloud-direct).
   dependsOn:
-    # G92.3 #2662 (2026-06-01): bp-mgmt-vcluster MUST be Ready before
-    # this HR tries to install — vc-mgmt Secret + the customResources
-    # sync policy both materialise from that release.
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
     - name: bp-cnpg
       namespace: flux-system
     - name: bp-cert-manager
@@ -308,7 +287,7 @@ spec:
         name: bp-harbor
         namespace: flux-system
     gateway:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      enabled: true  # #4291 DE-VCLUSTER — harbor renders its OWN HTTPRoute natively in host ns `harbor` (was suppressed by the #3642 host-bridge)
       host: registry.${SOVEREIGN_FQDN}
       # #3150 (2026-06-09): the chart's HTTPRoute backend defaults to
       # `harbor-core`, but harbor-core is the API backend — it returns 404 for
@@ -322,12 +301,9 @@ spec:
     # auth_mode=oidc_auth + oidc_endpoint computed from sovereignFqdn.
     sso:
       externalSecret:
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-      # #3934 (Refs #3642): sso.enabled STAYS true so the in-vCluster
-      # sso-configure Deployment renders (it PUTs auth_mode=oidc_auth to
-      # harbor-core /api/v2.0/configurations). Only the chart's ExternalSecret
-      # is suppressed above (host-rendered). NOT placement-generated —
-      # placement.yaml no longer declares sso.enabled.
+        enabled: true  # #4291 DE-VCLUSTER — harbor renders its OWN SSO ExternalSecret natively in host ns `harbor` (host ESO reconciles it; was suppressed by the #3642 host-bridge)
+      # sso.enabled STAYS true so the sso-configure Deployment PUTs
+      # auth_mode=oidc_auth to harbor-core /api/v2.0/configurations.
       enabled: true
       sovereignFqdn: ${SOVEREIGN_FQDN}
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
@@ -354,11 +330,11 @@ spec:
         # harbor-database-secret are provisioned by the shared bp-postgres
         # instance (slot 16a).
         #
-        # NOTE (#4059, Refs #3642): the #3642 host-bridge placement ALSO renders
-        # this false (the harbor-pg Cluster CR is host-rendered via placement.yaml,
-        # not in-vc), so cluster.enabled=false does NOT imply shared-pg. The
-        # DB-secret renamer is gated separately on databaseSecretSync.enabled below.
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        # #4291 DE-VCLUSTER — restore the env-templated own-cluster default
+        # (the #3642 host-bridge had hardcoded false because it rendered the
+        # harbor-pg Cluster host-side; native host-ns render owns its CNPG now).
+        # The cloud-init var flips false only when enable_shared_pg=true.
+        enabled: ${SOVEREIGN_HARBOR_PG_OWN_CLUSTER:=true}
       # #4059: gate the harbor-pg-app → harbor-database-secret rename bridge on
       # whether harbor OWNS a harbor-pg Cluster — true in BOTH the embedded and
       # the #3642 host-bridge paths (both mint harbor-pg-app), false ONLY in

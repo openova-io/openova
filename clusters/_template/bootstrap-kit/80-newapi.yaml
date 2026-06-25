@@ -44,39 +44,22 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-newapi
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
-    catalyst.openova.io/vcluster: mgmt
     catalyst.openova.io/slot: "80"
 spec:
   interval: 15m
   releaseName: newapi
   targetNamespace: newapi
-  storageNamespace: newapi
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
   dependsOn:
-    # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
-    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
-    # #3831: the host-seams HR (slot 80a) renders the CNPG Cluster + the
-    # database-secret-sync Job that PATCHes the real DSN into
-    # newapi-bp-newapi-newapi-db-dsn before the bp-mgmt-vcluster `newapi/*`
-    # mirror delivers it into vc-mgmt — gate the app on it so the Deployment's
-    # SQL_DSN-readiness initContainer is not left waiting on an unmirrored Secret.
-    - name: bp-newapi-host-seams
-      namespace: flux-system
-    # G92.2 #2661 (2026-06-01): bp-openbao + bp-keycloak HRs moved to
-    # host ns `mgmt`.
+    # #4291 DE-VCLUSTER — the slot-80a host-seams companion is RETIRED; newapi
+    # renders its OWN CNPG Cluster + DSN-sync Job natively in host ns `newapi`
+    # (placement.role=all, cnpg.enabled=true), so the dependsOn bp-newapi-host-
+    # seams edge is removed (the seams are now in THIS HR's own render).
     - name: bp-openbao
-      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-keycloak
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-cnpg
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:
@@ -352,9 +335,16 @@ spec:
   # these by setting them in this HelmRelease's spec.values.
   values:
     database:
-      existingSecret: newapi-bp-newapi-newapi-db-dsn  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      # #4291 DE-VCLUSTER — newapi OWNS its CNPG natively in host ns `newapi`
+      # (cnpg.enabled below), and the chart's own DSN-sync Job writes exactly
+      # this `<release>-newapi-db-dsn` Secret, so the app reads its native DSN.
+      existingSecret: newapi-bp-newapi-newapi-db-dsn
     placement:
-      role: vcluster-app  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      # #4291 DE-VCLUSTER — `all` (chart DEFAULT) renders EVERYTHING natively in
+      # the host `newapi` ns: Deployment + Service + HTTPRoute + CNPG Cluster +
+      # DSN-sync + admin-sso-seed + AppRegistration + ExternalSecrets. The
+      # #3831 vcluster-app/host-seams render-split COLLAPSES (slot 80a retired).
+      role: all
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for newapi (the canonical
     # instance representation every console surface reads), marked
@@ -378,7 +368,7 @@ spec:
     # Mirror the chart's value path. (Same shape for slot 81-sme if that
     # chart also reads cnpg.cluster.instances — track separately.)
     cnpg:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      enabled: true  # #4291 DE-VCLUSTER — newapi renders its OWN CNPG Cluster natively in host ns `newapi` (host cnpg-operator reconciles it; was suppressed by the #3831 host-bridge render-split)
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     postgres:
@@ -404,14 +394,14 @@ spec:
       # API spec, so enabling this on every Sovereign restores LLM
       # reachability without touching the marketplace wildcard.
       httpRoute:
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        enabled: true  # #4291 DE-VCLUSTER — newapi renders its OWN HTTPRoute natively in host ns `newapi` (was suppressed by the #3831 host-bridge; the public front door was the host-bridge route)
         host: newapi.${SOVEREIGN_FQDN}
     auth:
       adminUI:
         mode: keycloak
         keycloak:
           ssoBridgeSync:
-            enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+            enabled: true  # #4291 DE-VCLUSTER — newapi renders its OWN SSO AppRegistration ConfigMap + oidc-sync ExternalSecret natively in host ns `newapi` (host bp-sso-bridge + ESO reconcile them; was suppressed by the #3831 host-bridge render-split)
           # #3374: was realms/ops — a realm that does not exist on any
           # Sovereign (bp-keycloak imports only `sovereign` + per-Org
           # realms; measured live on hw130 2026-06-13). The sovereign
@@ -426,7 +416,7 @@ spec:
       enabled: true
       existingSecret: catalyst-newapi-admin-token
       externalSecret:
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        enabled: true  # #4291 DE-VCLUSTER — newapi renders its OWN catalyst-newapi-admin-token ExternalSecret natively in host ns `newapi` (host ESO reconciles it; was suppressed by the #3831 host-bridge render-split)
         refreshInterval: "1h"
         secretStoreRef:
           kind: ClusterSecretStore

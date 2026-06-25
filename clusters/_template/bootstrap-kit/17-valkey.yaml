@@ -51,26 +51,14 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-valkey
-  namespace: rtz  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
-    catalyst.openova.io/vcluster: rtz
     catalyst.openova.io/slot: "17"
 spec:
   interval: 15m
   releaseName: valkey
   targetNamespace: valkey
-  storageNamespace: valkey
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-rtz
-      key: config
-  # Valkey is a self-contained cache — only needs Flux Ready.
   dependsOn:
-    # bp-rtz-vcluster MUST be Ready first — the vc-rtz
-    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    - name: bp-rtz-vcluster
-      namespace: flux-system
     - name: bp-flux
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:

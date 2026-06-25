@@ -146,7 +146,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.5.7",
+    "version": "0.5.9",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-external-secrets"
@@ -1039,7 +1039,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.4",
+    "version": "1.1.5",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [],
     "shareable": false,
@@ -2261,7 +2261,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.5.1",
+    "version": "1.5.2",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -2516,7 +2516,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.39",
+    "version": "1.0.40",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -3452,7 +3452,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -3508,7 +3508,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.125",
+    "version": "1.4.129",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3710,7 +3710,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.3",
+    "version": "0.2.6",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
@@ -3978,6 +3978,62 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "perTopology": {
         "singleton": {
           "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-plane-isolation",
+    "slug": "plane-isolation",
+    "title": "Plane isolation (per-component default-deny)",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [
+      "bp-cilium"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
           "switchover": null,
           "placement": {
             "tier": "",
@@ -4570,7 +4626,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.78",
+    "version": "0.1.79",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -4839,7 +4895,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.6",
+    "version": "0.1.8",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-keycloak",
@@ -5646,7 +5702,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.4.16",
+    "version": "0.4.17",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",
@@ -5801,6 +5857,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",
   "platform/opentelemetry/blueprint.yaml",
+  "platform/plane-isolation/blueprint.yaml",
   "platform/postgres/blueprint.yaml",
   "platform/powerdns-admin/blueprint.yaml",
   "platform/powerdns/blueprint.yaml",
@@ -5853,13 +5910,6 @@ export interface BootstrapKitEntry {
 }
 
 export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
-  {
-    "id": "bp-vcluster-host-namespaces",
-    "slug": "vcluster-host-namespaces",
-    "label": "vcluster-host-namespaces",
-    "file": "00-vcluster-host-namespaces.yaml",
-    "order": 0
-  },
   {
     "id": "bp-cilium",
     "slug": "cilium",
@@ -6134,13 +6184,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 52
   },
   {
-    "id": "bp-dmz-vcluster",
-    "slug": "dmz-vcluster",
-    "label": "dmz-vcluster",
-    "file": "54-bp-dmz-vcluster.yaml",
-    "order": 54
-  },
-  {
     "id": "bp-hcloud-ccm",
     "slug": "hcloud-ccm",
     "label": "hcloud-ccm",
@@ -6160,20 +6203,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "openova-flow-emitter",
     "file": "57-bp-openova-flow-emitter.yaml",
     "order": 57
-  },
-  {
-    "id": "bp-mgmt-vcluster",
-    "slug": "mgmt-vcluster",
-    "label": "mgmt-vcluster",
-    "file": "58-bp-mgmt-vcluster.yaml",
-    "order": 58
-  },
-  {
-    "id": "bp-rtz-vcluster",
-    "slug": "rtz-vcluster",
-    "label": "rtz-vcluster",
-    "file": "59-bp-rtz-vcluster.yaml",
-    "order": 59
   },
   {
     "id": "bp-vcluster-helmrepo",

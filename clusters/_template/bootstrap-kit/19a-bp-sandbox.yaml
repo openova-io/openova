@@ -57,36 +57,24 @@ metadata:
   # (host-substrate today, per G92.3 follow-up) is now cross-cluster:
   # the controller inside RTZ vCluster resolves catalyst-api via the
   # vCluster CoreDNS forwarder.
-  namespace: rtz
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "19a"
     catalyst.openova.io/component: sandbox-controller
-    catalyst.openova.io/vcluster: rtz
 spec:
   suspend: ${SECONDARY_HR_SUSPEND:=false}
   interval: 15m
   releaseName: sandbox
   # targetNamespace = inner namespace INSIDE the rtz vCluster.
-  targetNamespace: catalyst-system
+  targetNamespace: sandbox
   # hw92 2026-06-04: pin storageNamespace = targetNamespace, else
   # helm-controller defaults it to the HR's own namespace (`rtz`) and
   # fails `namespaces "rtz" not found` storing the release inside the
   # vCluster (createNamespace only creates the target `catalyst-system`).
   # Same latent defect as bp-coraza, masked until the #3038/#3043
   # vCluster-kubeconfig SAN fix made the apiserver reachable.
-  storageNamespace: catalyst-system
-  # vCluster pivot — helm-controller installs the chart inside rtz
   # vCluster (Flux v2 HelmRelease v2 contract). G92.5 #2664.
-  kubeConfig:
-    secretRef:
-      name: vc-rtz
-      key: config
   dependsOn:
-    # G92.5 #2664 (2026-06-01): bp-rtz-vcluster MUST be Ready before
-    # this HR tries to install — vc-rtz Secret + the customResources
-    # sync policy both materialise from that release.
-    - name: bp-rtz-vcluster
-      namespace: flux-system
     - name: bp-vcluster-helmrepo
       namespace: flux-system
     - name: bp-catalyst-platform
@@ -108,7 +96,7 @@ spec:
     # flux-system), wedging bp-sandbox at "unable to get 'rtz/bp-harbor'
     # dependency" and holding the bootstrap-kit health gate forever.
     - name: bp-harbor
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # #3098 (2026-06-08, hw100): the sandbox chart ships an
     # externalsecret.external-secrets.io resource
     # (platform/sandbox/chart/templates/sso-oauth-source-externalsecret.yaml,

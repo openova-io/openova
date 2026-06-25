@@ -1,0 +1,46 @@
+apiVersion: v2
+name: bp-plane-isolation
+# 0.1.0 (#4291 Workstream C — Refs #4293 #3642 #3373, 2026-06-25): the
+# de-vcluster inverse of #3642. When the mgmt/rtz/dmz platform planes
+# stop being vClusters and each platform component runs in its OWN
+# first-class HOST namespace (placement.yaml `vcluster: host`), the
+# whole-plane NetworkPolicy + gateway-ingress CNP that bp-{mgmt,rtz,dmz}-
+# vcluster shipped per syncer-namespace (mgmt/rtz/dmz) must be replaced by
+# a PER-COMPONENT default-deny + explicit-allow pair — the core
+# micro-segmentation win of #4291. This chart renders, for each declared
+# host namespace, BOTH:
+#   (a) a default-deny NetworkPolicy (podSelector:{}, Ingress+Egress) with
+#       only the explicit namespaceSelector allows that component needs
+#       (derived from the cross-component call graph) + DNS egress, AND
+#   (b) the mandatory CiliumNetworkPolicy fromEntities:[ingress,host,
+#       remote-node] — without which Cilium-Gateway/envoy traffic (which
+#       carries the reserved `ingress` ENTITY no namespaceSelector can
+#       match) is silently dropped → curl 000/503 (the #2940 hw159–hw165
+#       app-plane wedge). No `world` — only the gateway reaches them.
+# The allow-set tightens from coarse-namespace (whole-plane) to
+# per-component — one-component blast radius instead of whole-plane.
+version: 0.1.0
+description: |
+  Per-component default-deny + explicit-allow micro-segmentation for the
+  de-vclustered platform planes (#4291 Workstream C). For each platform
+  component's host namespace, renders a default-deny NetworkPolicy +
+  the gateway-ingress CiliumNetworkPolicy (fromEntities ingress/host/
+  remote-node). The inverse of the #3642 host-bridge: replaces the
+  whole-plane NetworkPolicy on the mgmt/rtz/dmz vCluster syncer namespaces
+  with a tight per-component policy pair. Default ON per ADR-0001 §2
+  (zero-trust) — every fresh Sovereign micro-segments its platform planes.
+type: application
+keywords: [catalyst, blueprint, network-policy, cilium, zero-trust, devcluster, micro-segmentation]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Annotations:
+#
+# - catalyst.openova.io/no-upstream: "true"
+#   Opt out of the hollow-chart guard (issue #181): this chart ships only
+#   Catalyst-authored CRs (NetworkPolicy + CiliumNetworkPolicy targeting
+#   the cilium.io CRDs installed by bp-cilium). No upstream Helm subchart.
+#   Same shape as bp-network-policies / bp-kyverno-policies / bp-continuum.
+annotations:
+  catalyst.openova.io/no-upstream: "true"

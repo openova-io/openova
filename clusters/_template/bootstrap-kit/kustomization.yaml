@@ -5,11 +5,12 @@ kind: Kustomization
 # dependsOn declarations for actual install order. Listing in canonical
 # Phase 0 sequence per SOVEREIGN-PROVISIONING.md §3.
 resources:
-  # Slot 00 — vCluster host namespaces (dmz/mgmt/rtz). MUST be first so the
-  # host namespaces exist before bp-coraza (35) / bp-sandbox (19a) HR objects
-  # that live in them are applied. Prevents the fresh-prov atomic-apply wedge
-  # caught on hw88 2026-06-03 (see file header for the full RCA).
-  - 00-vcluster-host-namespaces.yaml
+  # #4291 Workstream C — slot 00 (vCluster host namespaces dmz/mgmt/rtz)
+  # RETIRED. The platform planes are no longer vClusters: every component
+  # runs in its OWN host namespace (placement.yaml vcluster: host), so NO HR
+  # object lives in mgmt/rtz/dmz anymore — the host-namespace pre-creation
+  # the hw88 wedge needed is moot. The 3 vCluster runtime slots (54/58/59)
+  # are retired below in lockstep.
   - 01-cilium.yaml
   - 01a-gateway-api.yaml
   - 02-cert-manager.yaml
@@ -191,6 +192,12 @@ resources:
   # CiliumClusterwideNetworkPolicy default-deny + DNS-egress + system-ns
   # allow set on boot. dependsOn bp-cilium (slot 01) for the cilium.io CRDs.
   - 26-network-policies.yaml
+  # bp-plane-isolation (#4291 Workstream C) — per-component default-deny +
+  # gateway-ingress CNP for the de-vclustered platform planes. dependsOn
+  # bp-cilium (CRDs) + bp-network-policies (the cluster-wide baseline this
+  # tightens per-component). The micro-segmentation that replaces the
+  # whole-plane vCluster NetworkPolicy.
+  - 26b-bp-plane-isolation.yaml
   - 27-kyverno.yaml
   - 27a-kyverno-policies.yaml
   - 28-reloader.yaml
@@ -238,12 +245,10 @@ resources:
   # via NETBIRD_ENABLED=true / DMZ_VCLUSTER_ENABLED=true on the
   # bootstrap-kit Kustomization substitute.
   #
-  # Slot 54 (bp-dmz-vcluster) implements docs/SOVEREIGN-MULTI-REGION-
-  # DOD.md A4 ("each region runs a DMZ vCluster") + A2 ("inter-region
-  # link = DMZ WireGuard over PUBLIC IPs"). Default-ON because the DMZ
-  # vCluster is the public-fronted vCluster AND the inter-region WG
-  # hop — every region needs it for the topology to converge.
-  - 54-bp-dmz-vcluster.yaml
+  # #4291 Workstream C — slot 54 (bp-dmz-vcluster) RETIRED. The dmz plane is
+  # no longer a vCluster: bp-coraza runs natively in host ns `coraza`
+  # (placement.yaml vcluster: host) with a per-component default-deny + CNP
+  # (slot 26b). A vCluster is the per-Organization boundary ONLY (EPIC #4293).
   # qa-loop iter-12 Fix #54 Workstream 1 — bp-hcloud-ccm (slot 55).
   # Hetzner Cloud Controller Manager. The CCM owns node providerID
   # flips (k3s://… → hcloud://<server-id>) AND materialisation of
@@ -293,17 +298,17 @@ resources:
   # land in the same per-deployment flow.
   - 56-bp-openova-flow-server.yaml
   - 57-bp-openova-flow-emitter.yaml
-  # DoD A4 vCluster topology (2026-05-16) — slots 58 + 59 finish the
-  # primary-mgmt + secondary-rtz pair that goes alongside the slot 54
-  # DMZ vCluster (every region). Combined topology per region:
-  #   primary    region → MGMT (58) + DMZ (54) vCluster
-  #   secondary  region → DMZ  (54) + RTZ (59) vCluster
-  # Slot 58 default-OFF until the per-CP postBuild substitute follow-up
-  # PR adds MGMT_VCLUSTER_ENABLED only on primary. Slot 59 same shape
-  # for secondaries via RTZ_VCLUSTER_ENABLED. See each slot's header
-  # comment for the migration plan.
-  - 58-bp-mgmt-vcluster.yaml
-  - 59-bp-rtz-vcluster.yaml
+  # #4291 Workstream C — slots 58 (bp-mgmt-vcluster) + 59 (bp-rtz-vcluster)
+  # RETIRED. The mgmt + rtz planes are no longer vClusters: every component
+  # (keycloak/gitea/harbor/grafana/openbao/guacamole/newapi/nats-system/loki/
+  # mimir/tempo · valkey/seaweedfs/vllm/sandbox) runs natively in its OWN
+  # host namespace (placement.yaml vcluster: host) with a per-component
+  # default-deny + gateway-ingress CNP (slot 26b bp-plane-isolation). This
+  # also retires the ~2-pod syncer overhead per plane + the whole
+  # host↔vCluster reachability-hack surface (hostServiceAliases /
+  # replicateServices.fromHost / sync.fromHost.secrets). A vCluster is the
+  # per-Organization boundary ONLY (EPIC #4293). Slot 60 (bp-vcluster-helmrepo)
+  # STAYS — the org-controller still spawns per-Organization vClusters.
   # bp-vcluster-helmrepo (slot 60) — pre-stages the upstream loft-sh
   # vcluster Helm chart source so the Organization controller
   # (core/controllers/organization) can render per-tenant
@@ -336,13 +341,12 @@ resources:
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.
   # See clusters/_template/bootstrap-kit/80-newapi.yaml for full
   # dependsOn rationale and per-Sovereign override surface.
+  # #4291 Workstream C — newapi de-vclustered to its native host ns `newapi`
+  # (placement.role=all). The #3831 vcluster-app/host-seams render-split
+  # COLLAPSES: slot 80 now renders EVERYTHING natively (app + HTTPRoute +
+  # CNPG Cluster + DSN-sync + admin-sso-seed + AppRegistration + both
+  # ExternalSecrets). Slot 80a (bp-newapi-host-seams) is RETIRED.
   - 80-newapi.yaml
-  # bp-newapi-host-seams (slot 80a, #3831) — the HOST-reconciled CNPG-owner
-  # seams (CNPG Cluster + DSN-sync Job + admin-sso-seed Job/CronJob +
-  # newapi-admin AppRegistration ConfigMap + both ExternalSecrets) for newapi.
-  # Slot 80 now re-homes newapi's app workload INTO vc-mgmt (placement.role=
-  # vcluster-app); this companion renders the seams host-side (host-seams).
-  - 80a-newapi-host-seams.yaml
   # bp-stalwart-sovereign (slot 95) — REMOVED 2026-05-05.
   # Phase-2 Sovereign-local mail (per-Sovereign Stalwart for Console
   # PIN/magic-link delivery, umbrella #924) is OUT OF SCOPE for the

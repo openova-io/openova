@@ -146,26 +146,15 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-vllm
-  namespace: rtz  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
-    catalyst.openova.io/vcluster: rtz
     catalyst.openova.io/slot: "39"
     catalyst.openova.io/component: ai-runtime
 spec:
   interval: 15m
   releaseName: vllm
   targetNamespace: vllm
-  storageNamespace: vllm
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-rtz
-      key: config
   dependsOn:
-    # bp-rtz-vcluster MUST be Ready first — the vc-rtz
-    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    - name: bp-rtz-vcluster
-      namespace: flux-system
   # #3373 Batch A: bp-rtz-vcluster is the ONLY explicit dependsOn — the
   # vc-rtz Secret doesn't exist until it is Ready (the kubeConfig pivot
   # dangles otherwise). The chart itself only needs CNI + Flux (implicit
