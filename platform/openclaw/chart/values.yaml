@@ -67,10 +67,13 @@ controller:
     tag: "d82cfaf" # OVERRIDE on install with SHA-pinned tag
     pullPolicy: IfNotPresent
   port: 8080
+  # #4389/#4292: per-Org LimitRange maxLimitRequestRatio {cpu:1,memory:1}
+  # rejects Burstable pods (a funnel Org's boundary forces Guaranteed QoS).
+  # Render requests==limits so the controller pod is admitted.
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 500m
+      memory: 512Mi
     limits:
       cpu: 500m
       memory: 512Mi
@@ -183,12 +186,13 @@ perUserPod:
     repository: ghcr.io/openova-io/openova/openclaw-runtime
     tag: "34ff594" # OVERRIDE on install with SHA-pinned tag
     pullPolicy: IfNotPresent
+  # #4389/#4292: Guaranteed QoS for the per-Org LimitRange.
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: "1"
+      memory: 1Gi
     limits:
-      cpu: 1
+      cpu: "1"
       memory: 1Gi
   securityContext:
     runAsNonRoot: true

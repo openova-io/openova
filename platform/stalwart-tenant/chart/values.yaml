@@ -96,12 +96,15 @@ stalwart:
       duration: "2160h"      # 90d
       renewBefore: "360h"    # 15d
 
+  # #4389/#4292: per-Org LimitRange maxLimitRequestRatio {cpu:1,memory:1}
+  # forces Guaranteed QoS — render requests==limits or the StatefulSet pod is
+  # 'forbidden: limit to request ratio is 1'.
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: "1"
+      memory: 1Gi
     limits:
-      cpu: 1
+      cpu: "1"
       memory: 1Gi
 
   # SecurityContext — non-root + NET_BIND_SERVICE (issue #898).
@@ -437,10 +440,12 @@ mailboxProvisioner:
     # nothing — mirror the bp-newapi hook-Job footprint
     # (database-secret-sync-job etc.). Overridable per Inviolable
     # Principle #4.
+    # #4389/#4292: Guaranteed QoS for the per-Org LimitRange (the setup Job
+    # runs in the Org ns too).
     resources:
       requests:
-        cpu: 10m
-        memory: 32Mi
+        cpu: 100m
+        memory: 64Mi
       limits:
         cpu: 100m
         memory: 64Mi

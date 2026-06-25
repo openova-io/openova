@@ -43,7 +43,7 @@ spec:
   # and wired it onto the Job container. Verified live on the tkt0625
   # demo Org (omantel.biz region-a).
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.9
+  version: 0.1.10
   card:
     title: Stalwart (per-Organization)
     summary: |
