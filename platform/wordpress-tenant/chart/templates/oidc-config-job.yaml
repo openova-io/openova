@@ -160,8 +160,20 @@ spec:
               if [ ! -f wp-content/db.php ]; then
                 echo "[oidc-config] seeding pg4wp db.php drop-in (Postgres adapter)"
                 mkdir -p wp-content
+                # The release tag is `v3.3.1` — the GitHub archive path keeps
+                # the `v` prefix (this is the SAME URL the deployment's
+                # wp-plugin-install initContainer uses). The bare `3.3.1.zip`
+                # (no `v`) returns HTTP 404, which left this Job FATAL
+                # ("curl: (22) The requested URL returned error: 404") on the
+                # FIRST post-install/post-upgrade hook of a fresh Org — the hook
+                # never seeded db.php, `wp` could not reach the bp-cnpg Postgres
+                # backend, the hook errored, Helm timed out and the HelmRelease
+                # stuck Ready=False (root-caused live on the tkt0625 fresh Org,
+                # omantel.biz region-a). GitHub still extracts the archive to
+                # `postgresql-for-wordpress-3.3.1` (the `v` is stripped from the
+                # top-level directory name), so the cp paths below are unchanged.
                 curl -fsSL -o /tmp/pg4wp.zip \
-                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/3.3.1.zip
+                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.3.1.zip
                 # wp-cli's bundled PHP can unzip without a system `unzip`.
                 php -r '$z=new ZipArchive();$z->open("/tmp/pg4wp.zip");$z->extractTo("/tmp/");$z->close();'
                 cp -a /tmp/postgresql-for-wordpress-3.3.1/pg4wp wp-content/
