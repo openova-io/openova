@@ -3004,28 +3004,6 @@ name: bp-catalyst-platform
 #   catalyst-api runs in catalyst-system. Pure-additive: priorityClassName/Value are new
 #   values, default-on; no other behaviour changes. Chart-version bump forces the Flux
 #   re-pull (the deploy-bot mutable-tag trap, #4257).
-# 1.4.833 — #4286 mechanism D (env-controller cross-namespace secret reflection):
-#   the LAST leg of the "authenticated by construction AND by admission" EPIC.
-#   A=shared fluxsource factory + C=non-empty config shipped in #4288; B=Kyverno
-#   mutate ClusterPolicy shipped in #4301; D closes the env-controller in-vCluster
-#   leg. The env-controller's per-Environment GitRepository
-#   (core/controllers/environment/internal/gitops/render.go) carries
-#   spec.secretRef.name=openova-org-tenants-git-auth (mechanism C), but that
-#   canonical secret is minted by gitea-flux-auth-secrets-sync-job ONLY in
-#   flux-system. An env-controller source that lands in a DIFFERENT namespace
-#   (a per-env / per-vCluster flux namespace) would resolve the secretRef as
-#   "secret not found" → 401. D mirrors the canonical secret into every
-#   source-bearing namespace via emberstack/reflector (the same cross-ns seam
-#   org-services-secrets.yaml / cnpg-cluster.yaml use): BOTH creators of
-#   openova-org-tenants-git-auth now carry the 4 reflector annotations —
-#   org-repo-gitrepo-auth-secret.yaml (the lookup-template fallback) and
-#   gitea-flux-auth-secrets-sync-job.yaml (the reliable runtime creator). New
-#   operator-overridable knob orgTenants.gitRepository.secretRef.reflectNamespaces
-#   (default "flux-system,tenant-.*,org-.*", emberstack allow-list semantics;
-#   empty disables reflection). No-op for the 3 flux-system sources; closes the
-#   one namespace-locality gap the EPIC's mechanism D names. Per Inviolable
-#   Principle #4 every value stays overridable. Chart-version bump forces the
-#   Flux re-pull (deploy-bot mutable-tag trap).
 # 1.4.833 — #4277: auto-seed the per-Org Anthropic credential so the agentic
 #   journey (Pillar 4) is zero-touch on a FRESH Org. The READ side (bp-agenity
 #   seed-claude-creds init container + anthropic ExternalSecret, #4111) was
@@ -3105,7 +3083,7 @@ name: bp-catalyst-platform
 #   every secret name stays operator-overridable; external ghcr/upstream sources are
 #   untouched (the guard applies only to the local-Gitea/Harbor host). Clean version tag
 #   forces the Flux re-pull (deploy-bot mutable-tag trap).
-version: 1.4.836
+version: 1.4.837
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
