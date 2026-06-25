@@ -160,7 +160,15 @@ spec:
       # 1.2.42 — #4347: gitea-sso-configure Deployment gains liveness + readiness
       #   probes (heartbeat sentinel) so the host-ns Kyverno `probes-present`
       #   Enforce ClusterPolicy admits it post-#4325 de-vcluster. Refs #4347 #4325 #4340.
-      version: 1.2.42
+      # 1.2.43 — #4354: git-data PRESERVATION guard (pre-install,pre-upgrade hook).
+      #   The #4325 vCluster→host re-home via FRESH helm install provisioned a NEW
+      #   empty gitea-shared-storage PVC + abandoned the prior PV while the external
+      #   CNPG metadata DB survived → catastrophic DB↔disk drift (#4353 P0). The hook
+      #   ADOPTS an orphan Released/Available PV (Retain → clear claimRef → pre-bind
+      #   the host PVC via volumeName) so the re-home rides the SAME git-data volume,
+      #   NO-OPs on a fresh prov, and FAILS LOUD when the DB reports repos but no PV
+      #   can be adopted — no silent empty boot. Refs #4354 #4325 #4353 #4352.
+      version: 1.2.43
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

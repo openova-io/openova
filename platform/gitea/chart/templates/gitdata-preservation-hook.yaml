@@ -1,0 +1,385 @@
+{{- /*
+git-data preservation guard (#4354, Refs #4325 #4353).
+
+THE BUG this hook closes
+========================
+#4325 de-vclustered the platform planes: gitea moved from the mgmt vCluster
+into the host `gitea` namespace via a FRESH helm install. A fresh install lets
+the upstream gitea subchart dynamically PROVISION a brand-new empty
+`gitea-shared-storage` PVC (→ a fresh empty PV) and SILENTLY ABANDONS the prior
+per-vCluster PV. Gitea's metadata lives in an EXTERNAL CNPG database (its own
+`gitea-pg` Cluster / a shared-pg instance) whose PVC is untouched by the re-home,
+so the DB survives with all 42 repo rows while the disk is empty. The product is
+a catastrophic DB↔disk drift (#4353 live P0): the API reports repos
+`empty:false`/`main`, but every `contents?ref=main` 500s "no such file or
+directory" because `/data/git/gitea-repositories` is empty → 22/23 Flux
+GitRepository sources `pkt-line EOF` → catalyst-platform upgrade wedged.
+
+THE INVARIANT this hook enforces
+================================
+A stateful plane re-home (vCluster → host-ns) MUST NEVER boot a fresh-empty
+git-data volume when a prior populated git-data volume exists OR the metadata DB
+already reports repositories. Either the prior data volume is ADOPTED (reused),
+or the install FAILS LOUD so an operator restores from backup — never a silent
+empty boot.
+
+WHY A pre-install,pre-upgrade HOOK (not a post-render Job, not a chart rename)
+=============================================================================
+The PVC the upstream subchart renders binds to whatever PV the provisioner hands
+it the moment the manifest lands. To ride the existing PV across the re-home we
+must PRE-BIND the host-ns PVC (set spec.volumeName) to the orphan PV BEFORE the
+subchart's PVC manifest is applied. A Helm `pre-install,pre-upgrade` hook runs in
+exactly that window. It mirrors the proven guacamole
+`recordings-pvc-migrate-hook.yaml` shape (kubectl in a one-shot Job, hook-weight
+ordering, before-hook-creation delete policy) — but where guacamole DELETES a
+mismatched PVC, this hook PRESERVES the data by adoption and otherwise REFUSES to
+proceed.
+
+DECISION MATRIX (idempotent — re-runs cleanly on every reconcile)
+=================================================================
+  1. PVC <claimName> already Bound .................. NO-OP (steady state).
+  2. No PVC, an adoptable orphan PV exists .......... ADOPT it:
+       a. force the PV's reclaimPolicy → Retain (a transient unbind during
+          adoption can never delete the data — closes the #4352 Retain→Delete
+          interaction),
+       b. clear the PV's stale claimRef (Released → Available),
+       c. pre-create the host-ns PVC with spec.volumeName = that PV so the
+          chart-rendered PVC (which carries helm.sh/resource-policy: keep, same
+          name) adopts it and binds to the SAME data volume.
+  3. No PVC, no adoptable PV, metadata DB reports repos > 0 ... FAIL LOUD
+       (exit 1) unless failOnDbDiskDrift=false. The pre-upgrade gate fails; the
+       gitea Deployment is never rolled against an empty volume.
+  4. No PVC, no adoptable PV, DB empty/absent (FRESH prov) ... NO-OP. The only
+       case where provisioning a fresh empty PVC is correct.
+
+ADOPTABLE PV DEFINITION (case 2)
+================================
+A PV is adoptable when it is Released or Available (i.e. not Bound to a live
+PVC) AND its `spec.claimRef.name` equals <claimName> (the canonical name the
+upstream gitea PVC always used — identical across the vCluster and host-ns
+installs). The claimRef NAME is the durable join key: vCluster syncer-mangled
+namespaces differ, but the claim name is stable. We additionally prefer a PV
+carrying this chart's git-data label when present, but match on claimRef.name
+alone so PVs created before this chart existed are still recoverable.
+*/ -}}
+{{- if .Values.gitDataMigration.enabled }}
+{{- $claim := .Values.gitDataMigration.claimName | default "gitea-shared-storage" }}
+{{- $pgCluster := .Values.postgres.cluster.name | default "gitea-pg" }}
+{{- $pgDatabase := .Values.postgres.cluster.database | default "gitea" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-gitdata-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    app.kubernetes.io/name: gitea-gitdata-guard
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation
+---
+# Cluster-scoped: PersistentVolumes are NOT namespaced, and the guard must
+# read/patch the orphan PV (reclaimPolicy + claimRef). Tightly scoped to the
+# two verbs on the two resources it actually needs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-gitdata-guard
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-gitdata-guard
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-gitdata-guard
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-gitdata-guard
+    namespace: {{ .Release.Namespace }}
+---
+# Namespaced: create/get the host-ns PVC (case 2 pre-bind) + read the gitea Pod
+# and the CNPG app Secret + exec into the live postgres Pod to count repos.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-gitdata-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-gitdata-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-gitdata-guard
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-gitdata-guard
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-gitdata-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    catalyst.openova.io/component: gitdata-guard
+    # kyverno flux-managed (Enforce): hook Jobs carry no HR ownerReference
+    # (#3297 class — same carve-out the sso-configure / guacamole hooks use).
+    app.kubernetes.io/managed-by: flux
+  annotations:
+    # weight -10 runs AFTER the RBAC above (-20) so the ServiceAccount + roles
+    # exist before the Job's Pod starts. Still well before the chart's own
+    # resources (default weight 0).
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-gitea
+        catalyst.openova.io/component: gitdata-guard
+    spec:
+      serviceAccountName: {{ .Release.Name }}-gitdata-guard
+      restartPolicy: Never
+      {{- with .Values.gitea.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        # readOnlyRootFilesystem=true ⇒ /tmp must be a writable emptyDir for the
+        # guard to stage the PVC manifest it kubectl-applies.
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: guard
+          image: {{ .Values.gitDataMigration.image | default "bitnamilegacy/kubectl:1.30.7" | quote }}
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 192Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: CLAIM_NAME
+              value: {{ $claim | quote }}
+            - name: NS
+              value: {{ .Release.Namespace | quote }}
+            - name: PG_CLUSTER
+              value: {{ $pgCluster | quote }}
+            - name: PG_DATABASE
+              value: {{ $pgDatabase | quote }}
+            - name: FAIL_ON_DRIFT
+              value: {{ .Values.gitDataMigration.failOnDbDiskDrift | default true | quote }}
+            - name: RELEASE_NAME
+              value: {{ .Release.Name | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[gitdata-guard] claim=${CLAIM_NAME} ns=${NS} pgCluster=${PG_CLUSTER} db=${PG_DATABASE} failOnDrift=${FAIL_ON_DRIFT}"
+
+              # ── case 1: PVC already exists → steady state, nothing to do ──
+              if kubectl get pvc "${CLAIM_NAME}" -n "${NS}" >/dev/null 2>&1; then
+                PHASE="$(kubectl get pvc "${CLAIM_NAME}" -n "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
+                echo "[gitdata-guard] PVC ${NS}/${CLAIM_NAME} already exists (phase=${PHASE}) — no migration needed."
+                exit 0
+              fi
+
+              # ── case 2: look for an ADOPTABLE orphan PV ──
+              # A PV is adoptable when its claimRef.name == CLAIM_NAME and it is
+              # NOT Bound to a live PVC (phase Released or Available). claimRef
+              # name is the durable join key across the vCluster→host re-home.
+              echo "[gitdata-guard] no live PVC — scanning for an adoptable orphan PV (claimRef.name=${CLAIM_NAME})..."
+              ADOPT_PV=""
+              # iterate PVs whose claimRef.name matches; pick the first Released/Available one
+              for pv in $(kubectl get pv -o jsonpath="{range .items[?(@.spec.claimRef.name=='${CLAIM_NAME}')]}{.metadata.name}{'\n'}{end}" 2>/dev/null || true); do
+                [ -z "${pv}" ] && continue
+                PV_PHASE="$(kubectl get pv "${pv}" -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
+                if [ "${PV_PHASE}" = "Released" ] || [ "${PV_PHASE}" = "Available" ]; then
+                  ADOPT_PV="${pv}"
+                  echo "[gitdata-guard] adoptable PV found: ${pv} (phase=${PV_PHASE})"
+                  break
+                else
+                  echo "[gitdata-guard] PV ${pv} matches claimRef but phase=${PV_PHASE} (not adoptable) — skipping."
+                fi
+              done
+
+              if [ -n "${ADOPT_PV}" ]; then
+                echo "[gitdata-guard] ADOPTING PV ${ADOPT_PV} → preserve git-data across the re-home."
+                # (a) force reclaimPolicy Retain so a transient unbind can never
+                #     delete the data (#4352 evs-ssd Retain→Delete interaction).
+                kubectl patch pv "${ADOPT_PV}" --type=merge \
+                  -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+                # (b) clear the stale claimRef so the PV goes Available and our
+                #     pre-bound PVC (volumeName) can claim it cleanly.
+                kubectl patch pv "${ADOPT_PV}" --type=json \
+                  -p '[{"op":"remove","path":"/spec/claimRef"}]' 2>/dev/null || \
+                  kubectl patch pv "${ADOPT_PV}" --type=merge -p '{"spec":{"claimRef":null}}'
+                # (c) discover the PV's capacity + storageClass so the new PVC's
+                #     request matches (a smaller request than the PV capacity
+                #     still binds; we mirror the PV to avoid any class mismatch).
+                PV_SIZE="$(kubectl get pv "${ADOPT_PV}" -o jsonpath='{.spec.capacity.storage}' 2>/dev/null || echo '20Gi')"
+                PV_SC="$(kubectl get pv "${ADOPT_PV}" -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo '')"
+                echo "[gitdata-guard] pre-creating PVC ${NS}/${CLAIM_NAME} bound to ${ADOPT_PV} (size=${PV_SIZE} sc=${PV_SC:-<none>})."
+                # helm.sh/resource-policy: keep so a later helm rollback/uninstall
+                # never reaps the adopted claim; the chart's own PVC carries the
+                # same name + keep policy, so Helm adopts (does not recreate) it.
+                #
+                # Build the manifest flush-left into /tmp (emptyDir) with printf
+                # so the YAML passed to kubectl carries NO ambient indentation —
+                # a here-doc inside this `|` literal would leak the template's
+                # leading spaces into the document and break the parse.
+                # Helm-ownership metadata so the subsequent `helm install/upgrade`
+                # ADOPTS this pre-created PVC (Helm 3 imports an existing object
+                # only when it carries managed-by:Helm + the release name/ns) —
+                # the subchart's PVC manifest (same name, persistence.create=true)
+                # then matches it instead of erroring "exists and cannot be
+                # imported", and binds to the adopted PV.
+                MANIFEST=/tmp/gitdata-pvc.yaml
+                {
+                  printf 'apiVersion: v1\n'
+                  printf 'kind: PersistentVolumeClaim\n'
+                  printf 'metadata:\n'
+                  printf '  name: %s\n' "${CLAIM_NAME}"
+                  printf '  namespace: %s\n' "${NS}"
+                  printf '  labels:\n'
+                  printf '    catalyst.openova.io/blueprint: bp-gitea\n'
+                  printf '    catalyst.openova.io/git-data: "true"\n'
+                  printf '    app.kubernetes.io/managed-by: Helm\n'
+                  printf '  annotations:\n'
+                  printf '    helm.sh/resource-policy: keep\n'
+                  printf '    meta.helm.sh/release-name: "%s"\n' "${RELEASE_NAME}"
+                  printf '    meta.helm.sh/release-namespace: "%s"\n' "${NS}"
+                  printf '    catalyst.openova.io/adopted-pv: "%s"\n' "${ADOPT_PV}"
+                  printf 'spec:\n'
+                  printf '  accessModes: ["ReadWriteOnce"]\n'
+                  printf '  volumeName: %s\n' "${ADOPT_PV}"
+                  if [ -n "${PV_SC}" ]; then printf '  storageClassName: %s\n' "${PV_SC}"; fi
+                  printf '  resources:\n'
+                  printf '    requests:\n'
+                  printf '      storage: %s\n' "${PV_SIZE}"
+                } > "${MANIFEST}"
+                kubectl apply -f "${MANIFEST}"
+                echo "[gitdata-guard] adoption complete — chart PVC will bind to the preserved git-data volume."
+                exit 0
+              fi
+
+              # ── no adoptable PV: discriminate FRESH prov (case 4) from
+              #    DB↔disk DRIFT (case 3) by probing the metadata DB repo count ──
+              echo "[gitdata-guard] no adoptable PV — probing metadata DB to tell a fresh prov from a data-loss drift."
+              REPO_COUNT="unknown"
+              PG_POD="$(kubectl get pods -n "${NS}" \
+                -l "cnpg.io/cluster=${PG_CLUSTER},role=primary" \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+              if [ -z "${PG_POD}" ]; then
+                # role label vary by CNPG version; fall back to any cluster pod.
+                PG_POD="$(kubectl get pods -n "${NS}" \
+                  -l "cnpg.io/cluster=${PG_CLUSTER}" \
+                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+              fi
+              if [ -n "${PG_POD}" ]; then
+                echo "[gitdata-guard] probing repo count via ${NS}/${PG_POD} (db=${PG_DATABASE})."
+                # `repository` is gitea's core metadata table. psql is present in
+                # the CNPG image; we exec as the in-pod postgres superuser (local
+                # peer auth) so no DB password is needed in this Job.
+                set +e
+                # Capture psql output WITHOUT a pipe so $? is kubectl-exec's real
+                # exit (a `| tr` would make $? reflect tr, masking a probe failure
+                # as success). Strip whitespace after, in the same shell.
+                RAW="$(kubectl exec -n "${NS}" "${PG_POD}" -c postgres -- \
+                  psql -tAX -U postgres -d "${PG_DATABASE}" \
+                  -c "SELECT count(*) FROM repository;" 2>/dev/null)"
+                RC=$?
+                REPO_COUNT="$(printf '%s' "${RAW}" | tr -d '[:space:]')"
+                set -e
+                if [ "${RC}" -ne 0 ] || [ -z "${REPO_COUNT}" ]; then
+                  # DB unreachable / table absent → treat as fresh (case 4). A
+                  # genuinely populated DB whose pod is up will answer; an absent
+                  # table means initdb hasn't run a gitea schema yet.
+                  echo "[gitdata-guard] repo-count probe inconclusive (rc=${RC}) — treating as fresh DB."
+                  REPO_COUNT="0"
+                fi
+              else
+                echo "[gitdata-guard] no CNPG pod for cluster ${PG_CLUSTER} in ${NS} — DB not yet provisioned, treating as fresh prov."
+                REPO_COUNT="0"
+              fi
+              echo "[gitdata-guard] metadata DB repository count = ${REPO_COUNT}"
+
+              if [ "${REPO_COUNT}" != "0" ] && [ "${REPO_COUNT}" != "unknown" ]; then
+                # case 3: DB says non-empty but NO git-data volume to adopt.
+                if [ "${FAIL_ON_DRIFT}" = "true" ]; then
+                  echo "[gitdata-guard] ❌ DB↔disk DRIFT: metadata DB reports ${REPO_COUNT} repositories but no git-data PV exists to adopt."
+                  echo "[gitdata-guard] Refusing to boot gitea on an EMPTY git-data volume (would reproduce #4353)."
+                  echo "[gitdata-guard] Restore git-data from backup (Velero / SeaweedFS object-store mirror) OR set gitDataMigration.failOnDbDiskDrift=false to allow a deliberate empty rebuild."
+                  exit 1
+                fi
+                echo "[gitdata-guard] ⚠️ DB↔disk drift detected (${REPO_COUNT} repos, empty disk) but failOnDbDiskDrift=false — allowing empty boot per operator override."
+                exit 0
+              fi
+
+              # case 4: empty/absent DB + no PV → genuinely fresh prov.
+              echo "[gitdata-guard] fresh prov (empty DB, no prior git-data) — chart provisions a fresh PVC. OK."
+              exit 0
+{{- end }}
