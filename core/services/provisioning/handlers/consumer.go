@@ -170,8 +170,18 @@ func (h *Handler) runInstallJob(ctx context.Context, data appChangeData) error {
 	// Step 0 SYNC: commit manifests to Git. This is the actual durable state
 	// change; once it returns, Flux will converge regardless of what happens
 	// to this process afterwards.
+	//
+	// #4404 — the funnel cart dispatches this install the instant the Org CR
+	// is created, which can BEAT organization-controller's per-Org Gitea
+	// org/repo create. The commit then 404s ("user redirect does not exist
+	// [name: <slug>]" / branch-missing). Because BOTH transports share one
+	// idempotency Job, a failed first attempt poisons the key and the sibling
+	// dispatch is suppressed as a duplicate — so the purchased app's manifest
+	// is lost forever and the customer's console stays empty. Retry the commit
+	// with bounded backoff while the failure is the transient Gitea-not-ready
+	// race; any other error fails immediately as before.
 	h.markJobStep(ctx, job, 0, "running", "")
-	if err := h.applyTenantChange(ctx, data, "install"); err != nil {
+	if err := h.commitInstallWithGiteaReadyRetry(ctx, data); err != nil {
 		h.markJobStep(ctx, job, 0, "failed", err.Error())
 		h.finalizeJob(ctx, job, "failed", err.Error())
 		h.publishEvent(ctx, "provision.app_failed", data.TenantID, map[string]any{
@@ -195,6 +205,62 @@ func (h *Handler) runInstallJob(ctx context.Context, data appChangeData) error {
 		h.waitAndFinalizeInstall(waitCtx, data, job)
 	}()
 	return nil
+}
+
+// day2GiteaReadyRetryAttempts / day2GiteaReadyRetryDelay bound the #4404
+// commit retry. The per-Org Gitea org/repo is created by organization-controller
+// within a few seconds of the Org CR, so a short fixed backoff covers the race
+// without holding the consumer callback open for long. Kept small + var (not
+// const) so the test can drive it to zero.
+var (
+	day2GiteaReadyRetryAttempts = 6
+	day2GiteaReadyRetryDelay    = 5 * time.Second
+)
+
+// commitInstallWithGiteaReadyRetry runs applyTenantChange(install) and retries
+// with bounded backoff while the only thing wrong is that the per-Org Gitea
+// org/repo does not exist yet (#4404 — the funnel cart races the
+// organization-controller's repo create). On any non-transient error, or once
+// the attempts are exhausted, it returns the last error so the caller fails the
+// Job as before. ctx cancellation aborts the wait immediately.
+func (h *Handler) commitInstallWithGiteaReadyRetry(ctx context.Context, data appChangeData) error {
+	var err error
+	for attempt := 1; ; attempt++ {
+		err = h.applyTenantChange(ctx, data, "install")
+		if err == nil {
+			return nil
+		}
+		if !isGiteaNotReadyError(err) || attempt >= day2GiteaReadyRetryAttempts {
+			return err
+		}
+		slog.Warn("day-2 install: per-Org Gitea repo not ready yet — retrying commit (#4404)",
+			"tenant", data.TenantSlug, "app_slug", data.AppSlug,
+			"attempt", attempt, "max_attempts", day2GiteaReadyRetryAttempts,
+			"error", err.Error())
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(day2GiteaReadyRetryDelay):
+		}
+	}
+}
+
+// isGiteaNotReadyError reports whether the commit error is the transient
+// "per-Org Gitea org/repo does not exist yet" race (#4404) — distinct from a
+// permanent failure (bad manifest, auth, malformed slug). Gitea surfaces the
+// not-yet-created org as a 404 "user redirect does not exist [name: <slug>]" on
+// the ref read, and getRef also reports a missing branch the same way. Both are
+// safe to retry: organization-controller creates the repo seconds later.
+func isGiteaNotReadyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "user redirect does not exist") ||
+		strings.Contains(s, "user does not exist") ||
+		strings.Contains(s, " 404 ") ||
+		strings.Contains(s, "Not Found") ||
+		strings.Contains(s, "auto-create branch")
 }
 
 // waitAndFinalizeInstall runs the async tail of an install job: wait for each
