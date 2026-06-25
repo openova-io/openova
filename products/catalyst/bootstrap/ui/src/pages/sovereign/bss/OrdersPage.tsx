@@ -399,13 +399,34 @@ function formatRelative(iso: string): { display: string; absolute: string } {
   return { display, absolute }
 }
 
-function formatCurrency(cents: number, currency: string): string {
-  const value = cents / 100
+/**
+ * MINOR_UNITS_PER_MAJOR — the integer minor-unit divisor per ISO-4217
+ * currency. The Sovereign billing service is OMR-denominated and emits
+ * amounts in BAISA (1/1000 OMR — three minor digits per ISO-4217), which
+ * the catalyst-api bridge (org_orders.go) carries verbatim in the generic
+ * `totalCents` minor-unit field. A blanket `/100` (the cents convention)
+ * therefore rendered every OMR order 10× inflated (a 9-OMR order showed
+ * as "OMR 90.00"). Look the scale up by currency so OMR/BHD/KWD divide by
+ * 1000 and dollar/euro-style codes keep /100 — mirrors RevenuePage's
+ * BAISA_PER_OMR fix (#4274). The currency itself drives Intl's fraction
+ * digits, so no explicit maximumFractionDigits is needed.
+ */
+const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
+  OMR: 1000,
+  BHD: 1000,
+  KWD: 1000,
+}
+
+function minorUnitDivisor(currency: string): number {
+  return MINOR_UNITS_PER_MAJOR[currency.toUpperCase()] ?? 100
+}
+
+function formatCurrency(minor: number, currency: string): string {
+  const value = minor / minorUnitDivisor(currency)
   try {
     return new Intl.NumberFormat(undefined, {
       style: 'currency',
       currency,
-      maximumFractionDigits: 2,
     }).format(value)
   } catch {
     // Unknown ISO-4217 code → fall back to a plain numeric format with

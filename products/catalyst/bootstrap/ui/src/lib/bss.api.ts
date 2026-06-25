@@ -401,9 +401,15 @@ export interface Order {
   createdAt: string
   /** ISO-8601 last-status-change timestamp. Empty string tolerated. */
   updatedAt: string
-  /** Order total in cents. */
+  /** Order total in the currency's minor unit. The Sovereign billing
+   *  service is OMR-denominated and emits BAISA (1/1000 OMR), so for OMR
+   *  this is baisa, not cents — OrdersPage's formatCurrency scales by the
+   *  per-currency minor-unit divisor. The `Cents` suffix is the generic
+   *  minor-unit label kept for type stability. */
   totalCents: number
-  /** ISO-4217 currency code; defaults to USD when absent. */
+  /** ISO-4217 currency code; defaults to OMR (the Sovereign billing
+   *  currency) when absent so an omitted code never mis-renders the baisa
+   *  amount as 10×-inflated USD. */
   currency: string
 }
 
@@ -464,7 +470,7 @@ export async function getOrders(): Promise<OrdersResponse> {
               ? r.totalCents
               : 0,
           currency:
-            typeof r.currency === 'string' && r.currency !== '' ? r.currency : 'USD',
+            typeof r.currency === 'string' && r.currency !== '' ? r.currency : 'OMR',
         }
       })
       .filter((o): o is Order => o !== null)
