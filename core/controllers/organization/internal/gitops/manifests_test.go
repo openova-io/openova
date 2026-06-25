@@ -298,6 +298,78 @@ func TestRender_NetworkPolicyBaselineInAppsTree(t *testing.T) {
 	}
 }
 
+// TestRender_CiliumNetworkPolicyReservedEntities proves the MANDATORY CNP
+// companion renders into the SAME apps tree as the K8s NP (so it lands on the
+// boundary the keystone #4299 installs the Org's real workloads onto — INSIDE
+// the vcluster for the paid tier, the host `<slug>` ns for free/S — never an
+// empty host shell), and that it admits the reserved entities a plain K8s
+// NetworkPolicy cannot express: `ingress`/`host`/`remote-node` (so the Org's
+// Application behind its Cilium-Gateway HTTPRoute is reachable, not 503) and
+// `kube-apiserver` egress (so an in-vcluster Org pod can reach the cluster API).
+func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
+	t.Parallel()
+	// Both a paid (vcluster) tier and the free/host tier must carry the CNP in
+	// the apps tree — it must bind the real workloads wherever they land.
+	for _, slug := range []string{"m", "s"} {
+		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+			PlanSlug: slug, SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+		if err != nil {
+			t.Fatalf("Render(%s): %v", slug, err)
+		}
+		// It must live in the apps/ tree — the path the per-Org apps Flux
+		// Kustomization (per_org_flux.go) reconciles INTO the vcluster (paid
+		// tier, via spec.kubeConfig) / the host `<slug>` ns (free tier). It must
+		// NOT be in the boundary kustomization (./vcluster, host-applied).
+		cnp, ok := out["vcluster/apps/ciliumnetworkpolicy.yaml"]
+		if !ok {
+			t.Fatalf("plan %s: missing vcluster/apps/ciliumnetworkpolicy.yaml — the K8s default-deny would silently 503 the Org's app behind the Cilium Gateway", slug)
+		}
+		s := string(cnp)
+		for _, want := range []string{
+			"kind: CiliumNetworkPolicy",
+			"apiVersion: cilium.io/v2",
+			"namespace: apps", // the apps NS the syncer rewrites → host <slug> ns
+			"endpointSelector: {}",
+			"fromEntities:",
+			"- ingress",
+			"- host",
+			"- remote-node",
+			"toEntities:",
+			"- kube-apiserver",
+			`port: "443"`,
+			`port: "6443"`,
+			"openova.io/organization: acme",
+		} {
+			if !strings.Contains(s, want) {
+				t.Errorf("plan %s ciliumnetworkpolicy.yaml missing %q\n%s", slug, want, s)
+			}
+		}
+		// NO `world` — only the gateway may reach the Org, never direct public ingress.
+		if strings.Contains(s, "world") {
+			t.Errorf("plan %s CNP must NOT admit the `world` entity (direct public ingress forbidden)\n%s", slug, s)
+		}
+		var v any
+		if err := yaml.Unmarshal(cnp, &v); err != nil {
+			t.Errorf("plan %s ciliumnetworkpolicy.yaml invalid YAML: %v\n%s", slug, err, s)
+		}
+		// The apps kustomization index must enumerate the CNP so
+		// `kustomize build ./vcluster/apps` applies it deterministically.
+		appsKz := string(out["vcluster/apps/kustomization.yaml"])
+		for _, want := range []string{"- networkpolicy.yaml", "- ciliumnetworkpolicy.yaml"} {
+			if !strings.Contains(appsKz, want) {
+				t.Errorf("plan %s apps/kustomization.yaml missing %q\n%s", slug, want, appsKz)
+			}
+		}
+		// Anti-theater guard: the CNP must NOT be in the host-applied boundary
+		// kustomization (./vcluster) — that would apply it to the empty host
+		// shell, not the workload boundary.
+		boundaryKz := string(out["vcluster/kustomization.yaml"])
+		if strings.Contains(boundaryKz, "ciliumnetworkpolicy.yaml") {
+			t.Errorf("plan %s: CNP leaked into the boundary kustomization (host shell) — it must live in the apps tree (workload boundary)\n%s", slug, boundaryKz)
+		}
+	}
+}
+
 // TestRender_TierGate proves the founder default: free/S → host-ns (NO
 // vcluster.yaml), paid M+ → dedicated vCluster.
 func TestRender_TierGate(t *testing.T) {
