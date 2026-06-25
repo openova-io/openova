@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T17:00:01Z` |
+| Last refreshed | `2026-06-25T17:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 18 |
+| Open issues | 19 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 18 open items (clickable table)
+### All 19 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,6 +218,7 @@ flowchart LR
 | [#4322](https://github.com/openova-io/openova/issues/4322) | bp-wordpress-tenant: fresh-Org HR Ready=False — oidc-config hook pg4wp fetch 4 | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
 | [#4360](https://github.com/openova-io/openova/issues/4360) | P0 bp-plane-isolation default-deny egress 0.0.0.0/0 drops ALL in-cluster traffic | Other |
+| [#4362](https://github.com/openova-io/openova/issues/4362) | bp-agenity Degraded post-#4325 de-vcluster: blueprint topology + per-Org placeme | Other |
 
 ---
 
@@ -225,6 +226,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T17:13 | [#4364](https://github.com/openova-io/openova/pull/4364) | #4179 | fix(tenant): funnel CreateOrg renders selected cart Applicat |
+| 2026-06-25T17:07 | [#4363](https://github.com/openova-io/openova/pull/4363) | #4304 | fix(application-controller): typed-nil spec.parameters valid |
+| 2026-06-25T17:13 | [#4361](https://github.com/openova-io/openova/pull/4361) | #4272 | fix(bp-plane-isolation): default-deny egress 0.0.0.0/0 is Ci |
 | 2026-06-25T15:17 | [#4359](https://github.com/openova-io/openova/pull/4359) | #4358 | fix(bp-huawei-evs-csi): post-upgrade default-class hook Job  |
 | 2026-06-25T15:09 | [#4358](https://github.com/openova-io/openova/pull/4358) | #4356 | fix(bp-huawei-evs-csi): reclaim-reconcile hook Job carries m |
 | 2026-06-25T14:58 | [#4357](https://github.com/openova-io/openova/pull/4357) | #4340 | fix(bp-catalyst-platform): gitea repo-bootstrap hooks self-h |
@@ -252,9 +256,6 @@ flowchart LR
 | 2026-06-25T07:34 | [#4320](https://github.com/openova-io/openova/pull/4320) | #4307 | fix(bp-stalwart-tenant): setup-Job declares resources.reques |
 | 2026-06-25T07:34 | [#4319](https://github.com/openova-io/openova/pull/4319) | #4272 | fix(bp-openclaw): kube-apiserver entity egress for the contr |
 | 2026-06-25T06:53 | [#4318](https://github.com/openova-io/openova/pull/4318) | #4279 | docs(uat): reconcile UAT.md to live omantel.biz — headline + |
-| 2026-06-25T07:34 | [#4317](https://github.com/openova-io/openova/pull/4317) | #4180 | fix(catalyst-api): declare bp-agenity HelmRepository in org- |
-| 2026-06-25T07:28 | [#4316](https://github.com/openova-io/openova/pull/4316) | #4293 | fix(vcluster-epic): resolve the #4293/#4297 adversarial-revi |
-| 2026-06-25T07:16 | [#4315](https://github.com/openova-io/openova/pull/4315) | #4276 | feat(catalyst+bp-agenity): per-Org openova-MCP Catalyst bear |
 
 ---
 
