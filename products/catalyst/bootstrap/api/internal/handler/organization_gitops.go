@@ -1707,6 +1707,23 @@ spec:
         kind: HelmRepository
         name: bp-stalwart-tenant
         namespace: flux-system
+  # #4307 — disableWait: the StatefulSet mounts the stalwart-tls Secret
+  # NON-optional, so the Pod blocks at ContainerCreating until cert-manager
+  # issues the mail.<host> leaf via DNS-01 (minutes). With Flux's default
+  # --wait, helm-controller blocks on StatefulSet readiness BEFORE running the
+  # post-install setup Job (a Helm hook that seeds the OIDC directory), so the
+  # install burns its 15m budget, exits "context deadline exceeded", the HR
+  # wedges InstallFailed/RetriesExceeded, and the setup Job never fires
+  # (verified live on the omantel.biz demo Org 2026-06-24). disableWait lets
+  # the release reach hook execution so the Job runs and the HR converges.
+  # Keycloak readiness is still gated by dependsOn below. Mirrors bp-newapi.
+  install:
+    timeout: 15m
+    disableWait: true
+  upgrade:
+    timeout: 15m
+    cleanupOnFail: true
+    disableWait: true
   dependsOn:
     - name: bp-keycloak
       namespace: {{.Namespace}}
@@ -1717,6 +1734,18 @@ spec:
     ingress:
       webmail:
         host: {{.MailHost}}
+        # #4307 — parent the DEDICATED cilium-gateway-console (NOT the apps
+        # cilium-gateway): mail.<slug>.<pool> resolves to the console-ELB EIP
+        # fronting the console Gateway, which carries the *.<pool> wildcard
+        # listener. Parenting the apps gateway makes the HTTPRoute go
+        # Accepted=False/NoMatchingListenerHostname → 404 despite a healthy Pod
+        # (matches the wordpress/keycloak/agenity per-Org convention). The
+        # chart default is already cilium-gateway-console post-#4307; restated
+        # here so the overlay intent is explicit and survives a chart-default
+        # regression.
+        parentRef:
+          name: cilium-gateway-console
+          namespace: kube-system
         tls:
           enabled: true
           issuer: letsencrypt-prod
