@@ -110,10 +110,17 @@ spec:
   chart:
     spec:
       chart: bp-mimir
+      # 1.0.7 — #4347 (Refs #4325): proxy every image through Harbor +
+      #   livenessProbe on all 13 workload containers so every container clears
+      #   BOTH the host-ns Kyverno probes-present AND harbor-proxy-pull Enforce
+      #   policies. The gateway/rollout-operator/MinIO (no upstream liveness
+      #   knob) are disabled + re-rendered probe-compliant in the chart's
+      #   templates/devcluster-workloads.yaml; the bundled-MinIO blocks-storage
+      #   S3 wiring is preserved via mimir.structuredConfig.
       # 1.0.6 — #4343: gateway.resources + MinIO cpu requests so every
       #   container clears the host-ns Kyverno resource-requests Enforce
       #   policy (post-#4325).
-      version: 1.0.6
+      version: 1.0.7
       sourceRef:
         kind: HelmRepository
         name: bp-mimir

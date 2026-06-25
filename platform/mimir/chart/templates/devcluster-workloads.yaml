@@ -1,0 +1,761 @@
+{{- /*
+devcluster-workloads.yaml — #4347 (Refs #4325)
+
+Catalyst-owned replacements for the three upstream mimir-distributed
+sub-components whose containers the upstream chart renders WITHOUT a
+`livenessProbe` (and, for MinIO, without ANY probe). The pinned
+mimir-distributed 6.0.6 chart exposes no per-component `livenessProbe` knob
+for the gateway (nginx), the rollout-operator, or the bundled MinIO, so they
+can never satisfy the host-ns Kyverno `probes-present` Enforce ClusterPolicy
+through subchart values alone.
+
+After #4325 (de-vcluster) bp-mimir installs into the NATIVE host namespace
+`mimir`, which is NOT in the policy's excludeNamespaces — so every
+Deployment/StatefulSet/DaemonSet container must declare BOTH livenessProbe
+AND readinessProbe (and pull a Harbor proxy-cache image). The three upstream
+sub-components are therefore DISABLED in values.yaml
+(`mimir-distributed.gateway.enabled=false`,
+`mimir-distributed.rollout_operator.enabled=false`,
+`mimir-distributed.minio.enabled=false`) and faithfully re-rendered here with
+BOTH probes + the Harbor-proxied images.
+
+Naming is kept byte-identical to the upstream render so every downstream
+contract is preserved (mimirFullname = release "mimir" -> "mimir";
+release "t" -> "t-mimir"):
+  - gateway Service `<mimirFullname>-gateway` (port 80 → http-metrics) — on the
+    production HelmRelease named `mimir` this is `mimir-gateway`, the Service
+    Grafana's datasource targets.
+  - rollout-operator Service `<release>-rollout-operator` (the webhook-gate
+    hook in templates/webhook-gate-hook.yaml polls its Endpoints) — `mimir`
+    release -> `mimir-rollout-operator`.
+  - MinIO Service `<release>-minio` (port 9000) + Secret `<release>-minio`
+    (the Mimir blocks/ruler/alertmanager S3 config in values.yaml's
+    `mimir-distributed.mimir.structuredConfig` points here) — `mimir` release
+    -> `mimir-minio`.
+
+Image + resource knobs are READ FROM the same `mimir-distributed.*` values
+keys the disabled subcharts would have consumed, so a per-Sovereign overlay
+that bumps an image/tag/resource still flows through unchanged.
+*/}}
+{{- $md := index .Values "mimir-distributed" -}}
+{{- $rel := .Release.Name -}}
+{{- $ns := .Release.Namespace -}}
+{{- $httpPort := 8080 -}}
+{{- /* mimirFullname = the upstream `mimir.fullname` (release "mimir" -> "mimir";
+       release "t" -> "t-mimir"). Used for the gateway Service name + every
+       mimir-component upstream DNS name the nginx proxy_pass targets. */}}
+{{- $mf := include "bp-mimir.mimirFullname" . -}}
+
+{{/* ───────────────────────── GATEWAY (nginx) ───────────────────────── */}}
+{{- $gw := $md.gateway | default dict -}}
+{{- $gwName := printf "%s-gateway" (include "bp-mimir.mimirFullname" .) -}}
+{{- $gwImg := (($gw.nginx).image) | default dict -}}
+{{- $gwRegistry := $gwImg.registry | default "harbor.openova.io" -}}
+{{- $gwRepo := $gwImg.repository | default "proxy-dockerhub/nginxinc/nginx-unprivileged" -}}
+{{- $gwTag := $gwImg.tag | default "1.29-alpine" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $gwName }}-nginx
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-nginx
+data:
+  nginx.conf: |
+    worker_processes  5;  ## Default: 1
+    error_log  /dev/stderr error;
+    pid        /tmp/nginx.pid;
+    worker_rlimit_nofile 8192;
+
+    events {
+      worker_connections  4096;  ## Default: 1024
+    }
+
+    http {
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path       /tmp/proxy_temp_path;
+      fastcgi_temp_path     /tmp/fastcgi_temp;
+      uwsgi_temp_path       /tmp/uwsgi_temp;
+      scgi_temp_path        /tmp/scgi_temp;
+
+      default_type application/octet-stream;
+      log_format   main '$remote_addr - $remote_user [$time_local]  $status '
+            '"$request" $body_bytes_sent "$http_referer" '
+            '"$http_user_agent" "$http_x_forwarded_for"';
+      access_log   /dev/stderr  main;
+
+      sendfile           on;
+      tcp_nopush         on;
+      proxy_http_version 1.1;
+      resolver kube-dns.kube-system.svc.cluster.local.;
+
+      map $http_x_scope_orgid $ensured_x_scope_orgid {
+        default $http_x_scope_orgid;
+        "" "anonymous";
+      }
+
+      map $http_x_scope_orgid $has_multiple_orgid_headers {
+        default 0;
+        "~^.+,.+$" 1;
+      }
+
+      proxy_read_timeout 300;
+      server {
+        listen 8080;
+        listen [::]:8080;
+        client_max_body_size 540M;
+
+        if ($has_multiple_orgid_headers = 1) {
+            return 400 'Sending multiple X-Scope-OrgID headers is not allowed. Use a single header with | as separator instead.';
+        }
+
+        location = / {
+          return 200 'OK';
+          auth_basic off;
+        }
+
+        location = /ready {
+          return 200 'OK';
+          auth_basic off;
+        }
+
+        proxy_set_header X-Scope-OrgID $ensured_x_scope_orgid;
+
+        # Distributor endpoints
+        location /distributor {
+          set $distributor {{ $mf }}-distributor-headless.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$distributor:{{ $httpPort }}$request_uri;
+        }
+        location = /api/v1/push {
+          set $distributor {{ $mf }}-distributor-headless.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$distributor:{{ $httpPort }}$request_uri;
+        }
+        location /otlp/v1/metrics {
+          set $distributor {{ $mf }}-distributor-headless.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$distributor:{{ $httpPort }}$request_uri;
+        }
+
+        # Alertmanager endpoints
+        location /alertmanager {
+          set $alertmanager {{ $mf }}-alertmanager-headless.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$alertmanager:{{ $httpPort }}$request_uri;
+        }
+        location = /multitenant_alertmanager/status {
+          set $alertmanager {{ $mf }}-alertmanager-headless.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$alertmanager:{{ $httpPort }}$request_uri;
+        }
+        location = /multitenant_alertmanager/configs {
+          set $alertmanager {{ $mf }}-alertmanager-headless.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$alertmanager:{{ $httpPort }}$request_uri;
+        }
+        location = /api/v1/alerts {
+          set $alertmanager {{ $mf }}-alertmanager-headless.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$alertmanager:{{ $httpPort }}$request_uri;
+        }
+
+        # Ruler endpoints
+        location /prometheus/config/v1/rules {
+          set $ruler {{ $mf }}-ruler.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$ruler:{{ $httpPort }}$request_uri;
+        }
+        location /prometheus/api/v1/rules {
+          set $ruler {{ $mf }}-ruler.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$ruler:{{ $httpPort }}$request_uri;
+        }
+        location /prometheus/api/v1/alerts {
+          set $ruler {{ $mf }}-ruler.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$ruler:{{ $httpPort }}$request_uri;
+        }
+        location = /ruler/ring {
+          set $ruler {{ $mf }}-ruler.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$ruler:{{ $httpPort }}$request_uri;
+        }
+
+        # Rest of /prometheus goes to the query frontend
+        location /prometheus {
+          set $query_frontend {{ $mf }}-query-frontend.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$query_frontend:{{ $httpPort }}$request_uri;
+        }
+
+        # Buildinfo endpoint can go to any component
+        location = /api/v1/status/buildinfo {
+          set $query_frontend {{ $mf }}-query-frontend.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$query_frontend:{{ $httpPort }}$request_uri;
+        }
+
+        # Compactor endpoint for uploading blocks
+        location /api/v1/upload/block/ {
+          set $compactor {{ $mf }}-compactor.{{ $ns }}.svc.cluster.local.;
+          proxy_pass      http://$compactor:{{ $httpPort }}$request_uri;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $gwName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  type: ClusterIP
+  internalTrafficPolicy: Cluster
+  ports:
+    - port: 80
+      protocol: TCP
+      name: http-metrics
+      targetPort: http-metrics
+    - port: 8080
+      protocol: TCP
+      name: legacy-http-metrics
+      targetPort: http-metrics
+  selector:
+    {{- include "bp-mimir.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $gwName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ $gw.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "bp-mimir.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 15%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "bp-mimir.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: {{ printf "%s/%s:%s" $gwRegistry $gwRepo $gwTag }}
+          imagePullPolicy: {{ ($md.image).pullPolicy | default "IfNotPresent" }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: tmp
+              mountPath: /tmp
+            - name: docker-entrypoint-d-override
+              mountPath: /docker-entrypoint.d
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+              protocol: TCP
+          # #4347 — BOTH probes. nginx serves `/ready` (return 200) on 8080.
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 15
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 15
+            timeoutSeconds: 1
+          resources:
+            {{- toYaml ($gw.resources | default (dict "requests" (dict "cpu" "10m" "memory" "32Mi") "limits" (dict "cpu" "500m" "memory" "128Mi"))) | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ $gwName }}-nginx
+        - name: docker-entrypoint-d-override
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+{{/* ─────────────────────── ROLLOUT-OPERATOR ─────────────────────── */}}
+{{- $ro := $md.rollout_operator | default dict -}}
+{{- $roName := printf "%s-rollout-operator" $rel -}}
+{{- $roImg := $ro.image | default dict -}}
+{{- $roRegistry := $roImg.registry | default "harbor.openova.io" -}}
+{{- $roRepo := $roImg.repository | default "proxy-dockerhub/grafana/rollout-operator" -}}
+{{- $roTag := $roImg.tag | default "v0.32.0" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $roName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list, get, watch, delete]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [list, get, watch, patch]
+  - apiGroups: [apps]
+    resources: [statefulsets/status]
+    verbs: [update]
+  - apiGroups: [rollout-operator.grafana.com]
+    resources: [zoneawarepoddisruptionbudgets]
+    verbs: [get, list, watch]
+  - apiGroups: [rollout-operator.grafana.com]
+    resources: [replicatemplates/scale, replicatemplates/status]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $roName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $roName }}
+    namespace: {{ $ns }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $roName }}-webhook-clusterrole
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+rules:
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations]
+    verbs: [list, patch, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $roName }}-webhook-clusterrolebinding
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $roName }}-webhook-clusterrole
+subjects:
+  - kind: ServiceAccount
+    name: {{ $roName }}
+    namespace: {{ $ns }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roName }}-webhook-role
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [update, get]
+    resourceNames: [certificate]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roName }}-webhook-rolebinding
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $roName }}-webhook-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ $roName }}
+    namespace: {{ $ns }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $roName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 8443
+      name: https
+  selector:
+    {{- include "bp-mimir.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $roName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rollout-operator
+spec:
+  replicas: {{ $ro.replicas | default 1 }}
+  revisionHistoryLimit: 10
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      {{- include "bp-mimir.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: rollout-operator
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "bp-mimir.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: rollout-operator
+    spec:
+      serviceAccountName: {{ $roName }}
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rollout-operator
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          image: {{ printf "%s/%s:%s" $roRegistry $roRepo $roTag }}
+          imagePullPolicy: {{ ($md.image).pullPolicy | default "IfNotPresent" }}
+          args:
+            - -kubernetes.namespace={{ $ns }}
+            - -server-tls.enabled=true
+            - -server-tls.self-signed-cert.secret-name=certificate
+            - -server-tls.self-signed-cert.dns-name={{ $roName }}.{{ $ns }}.svc
+          ports:
+            - name: http-metrics
+              containerPort: 8001
+              protocol: TCP
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          # #4347 — BOTH probes on the rollout-operator `/ready` http endpoint.
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+---
+{{/* ───────────────────────────── MINIO ───────────────────────────── */}}
+{{- $minio := $md.minio | default dict -}}
+{{- $minioName := printf "%s-minio" $rel -}}
+{{- $minioImg := $minio.image | default dict -}}
+{{- $minioRepo := $minioImg.repository | default "harbor.openova.io/proxy-quay/minio/minio" -}}
+{{- $minioTag := $minioImg.tag | default "RELEASE.2024-12-18T13-15-44Z" -}}
+{{- $mcImg := $minio.mcImage | default dict -}}
+{{- $mcRepo := $mcImg.repository | default "harbor.openova.io/proxy-quay/minio/mc" -}}
+{{- $mcTag := $mcImg.tag | default "RELEASE.2024-11-21T17-21-54Z" -}}
+{{- $minioUser := $minio.rootUser | default "grafana-mimir" -}}
+{{- $minioPass := $minio.rootPassword | default "supersecret" -}}
+{{- $minioSize := ($minio.persistence).size | default "5Gi" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $minioName }}-sa
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $minioName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+type: Opaque
+data:
+  rootUser: {{ $minioUser | b64enc | quote }}
+  rootPassword: {{ $minioPass | b64enc | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $minioName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+data:
+  initialize: |-
+    #!/bin/sh
+    set -e
+    MC_CONFIG_DIR="/tmp/minio/mc/"
+    MC="/usr/bin/mc --insecure --config-dir ${MC_CONFIG_DIR}"
+    connectToMinio() {
+      ATTEMPTS=0 ; LIMIT=29
+      ACCESS=$(cat /config/rootUser) ; SECRET=$(cat /config/rootPassword)
+      set +e
+      MC_COMMAND="${MC} alias set myminio http://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET"
+      $MC_COMMAND ; STATUS=$?
+      until [ $STATUS = 0 ]; do
+        ATTEMPTS=$(expr $ATTEMPTS + 1)
+        if [ $ATTEMPTS -gt $LIMIT ]; then exit 1; fi
+        sleep 2 ; $MC_COMMAND ; STATUS=$?
+      done
+      set -e
+    }
+    createBucket() {
+      BUCKET=$1
+      if ! ${MC} stat myminio/$BUCKET >/dev/null 2>&1; then
+        echo "Creating bucket '$BUCKET'"
+        ${MC} mb myminio/$BUCKET
+      else
+        echo "Bucket '$BUCKET' already exists."
+      fi
+    }
+    connectToMinio
+    createBucket mimir-tsdb
+    createBucket mimir-ruler
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $minioName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ $minioSize | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $minioName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+  selector:
+    {{- include "bp-mimir.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $minioName }}-console
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9001
+      protocol: TCP
+      targetPort: 9001
+  selector:
+    {{- include "bp-mimir.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $minioName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 0
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "bp-mimir.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        {{- include "bp-mimir.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: minio
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsUser: 1000
+      serviceAccountName: {{ $minioName }}-sa
+      containers:
+        - name: minio
+          image: {{ printf "%s:%s" $minioRepo $minioTag }}
+          imagePullPolicy: {{ $minioImg.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -ce
+            - /usr/bin/docker-entrypoint.sh minio server /export -S /etc/minio/certs/ --address :9000 --console-address :9001
+          volumeMounts:
+            - name: export
+              mountPath: /export
+          ports:
+            - name: http
+              containerPort: 9000
+            - name: http-console
+              containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $minioName }}
+                  key: rootUser
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $minioName }}
+                  key: rootPassword
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: "public"
+          # #4347 — BOTH probes on MinIO's native health endpoints.
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            {{- toYaml ($minio.resources | default (dict "requests" (dict "cpu" "50m" "memory" "512Mi"))) | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: false
+      volumes:
+        - name: export
+          persistentVolumeClaim:
+            claimName: {{ $minioName }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $mf }}-make-minio-buckets
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-make-bucket
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "bp-mimir.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: minio-make-bucket
+    spec:
+      restartPolicy: OnFailure
+      volumes:
+        - name: minio-configuration
+          projected:
+            sources:
+              - configMap:
+                  name: {{ $minioName }}
+              - secret:
+                  name: {{ $minioName }}
+      containers:
+        - name: minio-mc
+          image: {{ printf "%s:%s" $mcRepo $mcTag }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/config/initialize"]
+          env:
+            - name: MINIO_ENDPOINT
+              value: {{ $minioName }}
+            - name: MINIO_PORT
+              value: "9000"
+          volumeMounts:
+            - name: minio-configuration
+              mountPath: /config
+          resources:
+            {{- toYaml (($minio.makeBucketJob).resources | default (dict "requests" (dict "cpu" "10m" "memory" "128Mi"))) | nindent 12 }}

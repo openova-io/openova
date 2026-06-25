@@ -16,10 +16,31 @@ catalystBlueprint:
 # ─── Upstream chart values (subchart key: mimir-distributed) ─────────────
 mimir-distributed:
   # Pin the global image tag — DO NOT use floating tags.
+  #
+  # #4347 — pull the Mimir image through the Sovereign's Harbor pull-through
+  # proxy so it satisfies the host-ns Kyverno `harbor-proxy-pull` Enforce
+  # ClusterPolicy (every image must match `*/proxy-*/*` or `*/openova-io/*`).
+  # The `mimir.imageReference` helper renders `<repository>:<tag>` (no registry
+  # field), so the proxy host is folded into the repository. dockerhub →
+  # `harbor.openova.io/proxy-dockerhub/<path>`. All 10 Mimir components
+  # (distributor/querier/query-frontend/query-scheduler/ruler/alertmanager/
+  # compactor/ingester/store-gateway/overrides-exporter) inherit this global
+  # image unless they set a per-component `image:` override (none do here).
   image:
-    repository: grafana/mimir
+    repository: harbor.openova.io/proxy-dockerhub/grafana/mimir
     tag: "3.0.4"
     pullPolicy: IfNotPresent
+
+  # #4347 — every Mimir component renders `readinessProbe` from its
+  # `<component>.readinessProbe` value but leaves `<component>.livenessProbe`
+  # empty by default (only `overrides_exporter` ships a default liveness). The
+  # host-ns Kyverno `probes-present` Enforce ClusterPolicy requires BOTH probes
+  # on every container of a Deployment/StatefulSet/DaemonSet; post-#4325 this
+  # chart installs into the native host namespace where that policy applies.
+  # Mirror each component's readiness shape (HTTP GET `/ready` on the
+  # `http-metrics` port — the Mimir process health endpoint) into a
+  # livenessProbe. The value path the upstream template renders is
+  # `mimir-distributed.<component>.livenessProbe`.
 
   # Per-component replicas — solo-Sovereign minimum is 1 each. Per-Sovereign
   # overlays scale these up and flip zoneAwareReplication on for HA.
@@ -27,33 +48,116 @@ mimir-distributed:
     replicas: 1
     zoneAwareReplication:
       enabled: false
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 45
   distributor:
     replicas: 1
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 45
   ingester:
     replicas: 1
     zoneAwareReplication:
       enabled: false
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 60
   querier:
     replicas: 1
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 45
   query_frontend:
     replicas: 1
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 45
   query_scheduler:
     replicas: 1
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 45
   store_gateway:
     replicas: 1
     zoneAwareReplication:
       enabled: false
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 60
   compactor:
     replicas: 1
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 60
   ruler:
     replicas: 1
+    # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 45
   overrides_exporter:
     replicas: 1
+    # overrides_exporter already ships a default livenessProbe upstream (#4347
+    # leaves it untouched); its image inherits the proxied global image above.
 
-  # Gateway (nginx in front of Mimir) — keep enabled, scale to 1.
+  # Gateway (nginx in front of Mimir).
+  #
+  # #4347 — the upstream gateway Deployment template renders ONLY a
+  # readinessProbe (no livenessProbe knob), so its nginx container can never
+  # satisfy the host-ns `probes-present` Enforce policy through values alone.
+  # The bundled gateway is therefore DISABLED here and a Catalyst-owned
+  # equivalent — nginx ConfigMap + ClusterIP Service + Deployment with BOTH
+  # probes + the proxied image — is rendered by this umbrella in
+  # `templates/devcluster-workloads.yaml`. The replacement keeps the exact
+  # `mimir-nginx` Service name + port 80 contract that Grafana's datasource
+  # (`http://mimir-nginx...svc:80/prometheus`) depends on.
   gateway:
-    enabled: true
+    enabled: false
     replicas: 1
+    nginx:
+      # #4347 — route the nginx image through the Harbor pull-through proxy so
+      # it satisfies the host-ns Kyverno `harbor-proxy-pull` Enforce policy.
+      # The gateway template renders `<registry>/<repository>:<tag>`, so the
+      # proxy host goes in `registry` + the `proxy-dockerhub/` segment leads the
+      # repository → `harbor.openova.io/proxy-dockerhub/nginxinc/nginx-unprivileged`.
+      image:
+        registry: harbor.openova.io
+        repository: proxy-dockerhub/nginxinc/nginx-unprivileged
+        tag: 1.29-alpine
+    # #4347 — the upstream gateway template renders ONLY a readinessProbe (no
+    # livenessProbe knob exists). To satisfy the host-ns `probes-present`
+    # Enforce policy the bundled gateway Deployment is disabled below and a
+    # Catalyst-owned equivalent (with BOTH probes) is rendered by this umbrella
+    # at `templates/devcluster-workloads.yaml`. The upstream gateway Service +
+    # nginx ConfigMap + PodDisruptionBudget stay (they don't carry probes), so
+    # Grafana's `mimir-nginx` datasource Service selector is preserved.
     # #4343 — the gateway/nginx Deployment MUST declare resources.requests.
     # Upstream defaults `gateway.resources: {}` → the container renders with
     # NO requests. Pre-#4325 this chart ran INSIDE a vCluster where the host's
@@ -76,7 +180,29 @@ mimir-distributed:
   # The bundled MinIO is single-replica, ephemeral-friendly, and not for
   # production data.
   minio:
-    enabled: true
+    # #4347 — the bundled MinIO subchart renders its server Deployment with NO
+    # probes AT ALL (no livenessProbe knob, no readinessProbe knob), so it can
+    # never satisfy the host-ns `probes-present` Enforce policy through values
+    # alone. The bundled MinIO is therefore DISABLED here and a Catalyst-owned
+    # equivalent — Secret + ConfigMap (bucket-init) + PVC + Service + SA +
+    # Deployment (with BOTH probes on the minio `/minio/health/{live,ready}`
+    # endpoints) + bucket-creation Job — is rendered by this umbrella in
+    # `templates/devcluster-workloads.yaml` with the proxied images. The
+    # replacement keeps the exact `<release>-minio` Service + Secret contract the
+    # Mimir blocks-storage S3 config (`<release>-minio.<ns>.svc:9000`) expects.
+    enabled: false
+    # #4347 — route the MinIO server + `mc` client images through the Harbor
+    # pull-through proxy so they satisfy the host-ns `harbor-proxy-pull` Enforce
+    # policy. Both render `<repository>:<tag>` (no registry field), so the proxy
+    # host folds into the repository. quay → `harbor.openova.io/proxy-quay/...`.
+    # These values feed the Catalyst-owned MinIO render (the bundled subchart is
+    # disabled above) via `.Values.<...>.minio.image` lookups in the umbrella.
+    image:
+      repository: harbor.openova.io/proxy-quay/minio/minio
+      tag: RELEASE.2024-12-18T13-15-44Z
+    mcImage:
+      repository: harbor.openova.io/proxy-quay/minio/mc
+      tag: RELEASE.2024-11-21T17-21-54Z
     # #4343 — the bundled MinIO subchart's defaults declare ONLY a memory
     # request (server 16Gi, post-bucket Job 128Mi) with NO cpu. The cluster-
     # wide Kyverno `resource-requests` Enforce policy requires BOTH cpu AND
@@ -133,6 +259,43 @@ mimir-distributed:
       # Caught live on otech43.
       ingester:
         push_grpc_method_enabled: true
+      # #4347 — re-inject the MinIO S3 backend wiring. The upstream
+      # mimir-distributed config template only injects the blocks /
+      # ruler / alertmanager S3 stanzas when `minio.enabled=true`; since
+      # #4347 DISABLES the bundled MinIO subchart (its Deployment lacks a
+      # probes knob and so fails the host-ns `probes-present` Enforce
+      # policy) and re-renders a probe-compliant MinIO in
+      # templates/devcluster-workloads.yaml, the auto-wiring is gone and
+      # MUST be restated here so Mimir still points at the Catalyst-owned
+      # MinIO Service. Endpoint/creds/buckets are byte-identical to what
+      # the upstream `minio.enabled` path produced (`<release>-minio`,
+      # grafana-mimir / supersecret, mimir-tsdb / mimir-ruler) — a
+      # per-Sovereign overlay that swaps in SeaweedFS/cloud S3 overrides
+      # these three stanzas.
+      blocks_storage:
+        backend: s3
+        s3:
+          endpoint: "{{ .Release.Name }}-minio.{{ .Release.Namespace }}.svc:9000"
+          bucket_name: mimir-tsdb
+          access_key_id: grafana-mimir
+          secret_access_key: supersecret
+          insecure: true
+      ruler_storage:
+        backend: s3
+        s3:
+          endpoint: "{{ .Release.Name }}-minio.{{ .Release.Namespace }}.svc:9000"
+          bucket_name: mimir-ruler
+          access_key_id: grafana-mimir
+          secret_access_key: supersecret
+          insecure: true
+      alertmanager_storage:
+        backend: s3
+        s3:
+          endpoint: "{{ .Release.Name }}-minio.{{ .Release.Namespace }}.svc:9000"
+          bucket_name: mimir-ruler
+          access_key_id: grafana-mimir
+          secret_access_key: supersecret
+          insecure: true
 
   # MetaMonitoring (ServiceMonitor + Grafana dashboards) — DEFAULT FALSE
   # per docs/BLUEPRINT-AUTHORING.md §11.2.
@@ -162,11 +325,29 @@ mimir-distributed:
   continuous_test:
     enabled: false
 
-  # rollout-operator subchart — keep enabled (it manages zone-aware rollouts
-  # and is referenced by the upstream chart even with zone-awareness off).
+  # rollout-operator subchart.
+  #
+  # #4347 — the rollout-operator subchart renders its Deployment with ONLY a
+  # readinessProbe (no livenessProbe knob), so it can never satisfy the host-ns
+  # `probes-present` Enforce policy through values alone. The bundled
+  # rollout-operator is therefore DISABLED here and a Catalyst-owned equivalent
+  # — SA + Role/RoleBinding + webhook ClusterRole/Binding + Service + Deployment
+  # (with BOTH probes on `/ready`) + the proxied image — is rendered by this
+  # umbrella in `templates/devcluster-workloads.yaml`. It keeps the exact
+  # `<release>-rollout-operator` Service name that the webhook-gate hook polls
+  # and that the upstream `prepare-downscale-mimir.grafana.com` MutatingWebhook
+  # routes to.
   rollout_operator:
-    enabled: true
+    enabled: false
     replicas: 1
+    # #4347 — route the rollout-operator image through the Harbor pull-through
+    # proxy so it satisfies the host-ns `harbor-proxy-pull` Enforce policy.
+    # Consumed by the Catalyst-owned rollout-operator render (the bundled
+    # subchart is disabled above).
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/grafana/rollout-operator
+      tag: v0.32.0
 
   # Service account — chart manages its own.
   serviceAccount:
@@ -224,5 +405,9 @@ webhookGate:
     namespace: mimir
   timeoutSeconds: 300
   intervalSeconds: 2
-  image: "bitnamilegacy/kubectl:1.30.7"
+  # #4347 — route the webhook-gate kubectl image through the Harbor pull-through
+  # proxy so the pre-upgrade hook Job satisfies the host-ns `harbor-proxy-pull`
+  # Enforce policy (it covers Jobs too). Canonical proxied path used across the
+  # repo (cert-manager / cnpg / external-secrets-stores).
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
   imagePullPolicy: IfNotPresent
