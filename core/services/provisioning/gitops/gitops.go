@@ -163,7 +163,41 @@ type ManifestGenerator struct {
 	// Empty / unknown defaults to "hetzner" so the legacy contabo/Hetzner
 	// path renders hcloud-volumes unchanged (NO-REGRESS).
 	CloudProvider string
+
+	// ReplicaRegionKubeSecret is the flux-system Secret name that holds
+	// the STANDBY region's (region-B) host-cluster kubeconfig. The
+	// cross-region active-hot-standby standby Cluster CR must be reconciled
+	// into region-B's apiserver — NOT region-A's — because region B is the
+	// only place with nodes labelled `openova.io/region=<replica_region>`
+	// that the chart's replica-side node-affinity requires. The host
+	// helm-controller (region A) installs the replica HelmRelease INTO
+	// region B via HR-level `spec.kubeConfig.secretRef: <this>` (#4282/#4275).
+	//
+	// THE BUG (#4282): before this field the per-Org bp-cnpg-pair emitted a
+	// SINGLE HR (chart default `side: primary`) into ONE target cluster, so
+	// the replica half either never rendered or — via the WP-tenant inline
+	// path — landed in region A's cluster where its region-B affinity matched
+	// 0/N nodes → the standby pod (`*-pgbasebackup`) hung Pending for 16h and
+	// the HR install-timeouts. With no standby in region B the region-kill
+	// pillar (#4275) had nothing to fail over to (live demo Org, 2026-06-25).
+	//
+	// Populated from CATALYST_REPLICA_REGION_KUBECONFIG_SECRET in main.go;
+	// empty resolves to the deterministic default
+	// `sovereign-replica-region-kubeconfig` (replicaRegionKubeSecretDefault).
+	// The bootstrap mirrors region-B's host kubeconfig into flux-system under
+	// this name (companion to the secondary-kubeconfig handler that already
+	// persists it on the catalyst-api PVC at
+	// /var/lib/catalyst/kubeconfigs/<depID>-<region>.yaml).
+	ReplicaRegionKubeSecret string
 }
+
+// replicaRegionKubeSecretDefault is the deterministic flux-system Secret
+// name the cross-region standby HelmRelease's spec.kubeConfig.secretRef
+// targets when CATALYST_REPLICA_REGION_KUBECONFIG_SECRET is unset. The
+// bootstrap mirrors region-B's host kubeconfig into flux-system under this
+// name so the host helm-controller can install the replica CNPG Cluster
+// INTO region B (#4282/#4275).
+const replicaRegionKubeSecretDefault = "sovereign-replica-region-kubeconfig"
 
 // defaultVClusterRegistryMirror is the bootstrap Harbor proxy host.
 const defaultVClusterRegistryMirror = "harbor.openova.io"
@@ -196,6 +230,18 @@ func (g *ManifestGenerator) cnpgStorageClass() string {
 			"cloud_provider", g.CloudProvider, "storageClass", hetznerBlockStorageClass)
 		return hetznerBlockStorageClass
 	}
+}
+
+// replicaRegionKubeSecret resolves the flux-system Secret name holding the
+// standby region's (region-B) kubeconfig for the cross-region active-hot-
+// standby HelmRelease's HR-level spec.kubeConfig (#4282/#4275). Empty falls
+// back to the deterministic default the bootstrap mirrors region-B's host
+// kubeconfig into.
+func (g *ManifestGenerator) replicaRegionKubeSecret() string {
+	if s := strings.TrimSpace(g.ReplicaRegionKubeSecret); s != "" {
+		return s
+	}
+	return replicaRegionKubeSecretDefault
 }
 
 func NewManifestGenerator(basePath string) *ManifestGenerator {
@@ -395,9 +441,62 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			// chart target is `<slug>`, co-located with the app pods + the
 			// postgres-credentials Secret.
 			//
-			// HOST-reconciled HelmRelease (+ HelmRepository) with HR-level
-			// kubeConfig → installs the CNPG Clusters INTO the vcluster.
-			hostFiles["db-cnpg-pair.yaml"] = generateCNPGPair(slug, dbPassword, postgresApps, pgCfg, primaryRegion, replicaRegion, g.cnpgStorageClass(), cnpgKubeSecret)
+			// #4282/#4275 — CROSS-REGION SPLIT-SIDE. A 2-region Sovereign is
+			// TWO separate clusters joined by Cilium ClusterMesh; the chart is
+			// already split-side (cnpgPair.side primary|replica — each side
+			// renders ONLY its own Cluster CR, pinned to its region's nodes via
+			// node-affinity). The keystone emitted ONE HR (chart default
+			// side=primary) into ONE target cluster, so the standby Cluster
+			// either never rendered or landed in region-A's cluster where its
+			// region-B affinity matches 0/N nodes → the `*-pgbasebackup` pod
+			// hangs Pending forever and the region-kill pillar has no standby to
+			// fail over to. Fix: emit TWO HRs —
+			//   • PRIMARY side → region A. For the vcluster tier its kubeConfig
+			//     targets the Org vcluster (which lives on region A's host); the
+			//     primary Cluster's region-A affinity matches the local nodes.
+			//   • REPLICA side → region B. Its kubeConfig targets region-B's
+			//     host-cluster kubeconfig (the flux-system mirror), so the host
+			//     helm-controller installs the standby Cluster INTO region B,
+			//     where the matching `openova.io/region=<replica_region>` nodes
+			//     live. THIS is the cross-region placement the keystone's
+			//     spec.kubeConfig mechanism extended to the standby region.
+			// Both HRs carry the SAME full values (both regions + both storage
+			// blocks) so the chart's validateRegions + the replica's
+			// externalClusters source resolve; only `cnpgPair.side` and the
+			// kubeConfig differ. This mirrors the bootstrap-kit slot-16b path
+			// where each region's own Flux installs its side from the same chart.
+			hostFiles["db-cnpg-pair-primary.yaml"] = generateCNPGPair(cnpgPairOpts{
+				side:          "primary",
+				ns:            slug,
+				password:      dbPassword,
+				apps:          postgresApps,
+				cfg:           pgCfg,
+				primaryRegion: primaryRegion,
+				replicaRegion: replicaRegion,
+				storageClass:  g.cnpgStorageClass(),
+				kubeSecret:    cnpgKubeSecret,
+			})
+			// The replica HR ALWAYS carries a kubeConfig — even for the host
+			// tier — because the standby Cluster MUST land in region B's cluster,
+			// a DIFFERENT physical cluster than the host Flux's own (region A).
+			// For the host tier there is no vcluster, so the chart installs into
+			// region B's host `<slug>` ns; for the vcluster tier region B has no
+			// per-Org vcluster mirror, so the standby CNPG Cluster lands in region
+			// B's host `<slug>` ns and streams WAL to the region-A primary over
+			// ClusterMesh (CNPG replica clusters are mesh-reachable regardless of
+			// which side runs inside a vcluster). The target namespace is `<slug>`
+			// in region B either way.
+			hostFiles["db-cnpg-pair-replica.yaml"] = generateCNPGPair(cnpgPairOpts{
+				side:          "replica",
+				ns:            slug,
+				password:      dbPassword,
+				apps:          postgresApps,
+				cfg:           pgCfg,
+				primaryRegion: primaryRegion,
+				replicaRegion: replicaRegion,
+				storageClass:  g.cnpgStorageClass(),
+				kubeSecret:    g.replicaRegionKubeSecret(),
+			})
 			// The standalone postgres-credentials Secret the app pods read goes
 			// INSIDE the vcluster (apps/ tree), co-located with the app pods. It
 			// is authored with the apps-tree namespace ("apps"); the apps-sync
@@ -829,11 +928,52 @@ spec:
 // (where the apps-sync-rewritten app pods + postgres-credentials Secret live);
 // for the host tier the chart installs into the host `<slug>` ns.
 //
-// kubeSecret is the flux-system-co-located vcluster kubeconfig mirror
-// (`tenant-<slug>-kubeconfig`); empty for the host tier (no vcluster → the HR
-// reconciles on the host and the chart installs into the host `<slug>` ns).
-func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, primaryRegion, replicaRegion, storageClass, kubeSecret string) string {
-	sortedApps := sortStrings(append([]string{}, apps...))
+// kubeSecret is the flux-system-co-located kubeconfig mirror the host
+// helm-controller installs THROUGH:
+//   - PRIMARY side, vcluster tier → `tenant-<slug>-kubeconfig` (the Org
+//     vcluster, on region A's host). Empty for the host tier (no vcluster →
+//     the HR reconciles on the host + chart installs into the host `<slug>`).
+//   - REPLICA side → ALWAYS the region-B host-cluster kubeconfig
+//     (`sovereign-replica-region-kubeconfig`), so the standby Cluster lands in
+//     region B where its region-B node-affinity matches the local nodes
+//     (#4282/#4275). Region B is a DIFFERENT physical cluster than region A's
+//     host Flux, so a kubeConfig is mandatory even for the host tier.
+//
+// #4282/#4275 — SPLIT-SIDE. opt.side selects WHICH half of the pair this HR
+// renders (the chart is side-gated: side=primary renders ONLY the primary
+// Cluster + mesh Service, side=replica renders ONLY the replica Cluster +
+// failover probe). The two sides MUST be installed into DIFFERENT regions'
+// clusters; a single HR (the keystone shape) could only ever reach one. The
+// HR / HelmRepository / releaseName are suffixed `-<side>` so the primary and
+// replica HRs (both authored in flux-system) never collide.
+
+// cnpgPairOpts is the option bag for generateCNPGPair — keeping the call site
+// readable now that side + per-side kubeConfig are threaded through.
+type cnpgPairOpts struct {
+	side          string // "primary" | "replica" — selects the chart's side-gate
+	ns            string // chart targetNamespace (= Org <slug>)
+	password      string
+	apps          []string
+	cfg           map[string]any
+	primaryRegion string
+	replicaRegion string
+	storageClass  string
+	kubeSecret    string // flux-system kubeconfig mirror the HR installs THROUGH
+}
+
+func generateCNPGPair(opt cnpgPairOpts) string {
+	ns := opt.ns
+	side := strings.TrimSpace(opt.side)
+	if side != "primary" && side != "replica" {
+		// Defensive: callers pass a literal; an unexpected side would render a
+		// chart the side-gate fails. Default to primary (the chart's own
+		// default) + log so the gap is visible rather than emitting garbage.
+		slog.Warn("generateCNPGPair: unexpected side — defaulting to primary",
+			"side", opt.side)
+		side = "primary"
+	}
+
+	sortedApps := sortStrings(append([]string{}, opt.apps...))
 	primaryDB := "appdb"
 	if len(sortedApps) > 0 {
 		primaryDB = "db_" + sortedApps[0]
@@ -847,7 +987,7 @@ func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, pr
 	// (active-hot-standby HA requires a 3-node quorum per region). If
 	// the customer chose 1-2 we clamp to 3 and log loud so the gap is
 	// operator-visible.
-	requested := readIntCfg(cfg, "replicas", 3, 1, 5, "postgres")
+	requested := readIntCfg(opt.cfg, "replicas", 3, 1, 5, "postgres")
 	instances := requested
 	if instances < 3 {
 		slog.Warn("generateCNPGPair: replicas < 3 incompatible with active-hot-standby quorum — clamping to 3",
@@ -859,43 +999,57 @@ func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, pr
 	// default of 100Gi when customer doesn't pick — but we default to
 	// the configSchema's 5GB floor for predictability + parity with
 	// the legacy single-cluster path).
-	diskGB := readIntCfg(cfg, "disk_gb", 5, 1, 500, "postgres")
+	diskGB := readIntCfg(opt.cfg, "disk_gb", 5, 1, 500, "postgres")
 
-	// HR-level kubeConfig (vcluster tier only). Flux's HelmRelease secretRef
-	// accepts name+key only — the namespace is implied from the HR's OWN
-	// namespace. The provisioning workflow mirrors `<slug>/vc-vcluster` →
-	// `flux-system/tenant-<slug>-kubeconfig`, so for the secretRef to resolve
-	// the HR (+ its HelmRepository) must ALSO live in flux-system. Authoring the
-	// HR in flux-system for the vcluster tier keeps the kubeconfig reachable and
-	// mirrors the apps-sync CR's placement. Host tier omits kubeConfig and the
-	// HR is authored in the host `<slug>` ns (= ns) where the chart installs.
+	// HR-level kubeConfig. Flux's HelmRelease secretRef accepts name+key only —
+	// the namespace is implied from the HR's OWN namespace — so for the secretRef
+	// to resolve the HR (+ its HelmRepository) must live alongside the mirror in
+	// flux-system. PRIMARY side, host tier carries NO kubeConfig (no vcluster →
+	// the HR reconciles on region A's host + chart installs into the host
+	// `<slug>` ns). REPLICA side ALWAYS carries a kubeConfig (region B is a
+	// separate cluster). When kubeSecret is set, author the HR in flux-system
+	// next to the mirror; otherwise author it in the host `<slug>` ns.
 	hrNamespace := ns
 	kubeConfigBlock := ""
-	if kubeSecret != "" {
+	if opt.kubeSecret != "" {
 		hrNamespace = "flux-system"
 		kubeConfigBlock = fmt.Sprintf(`
   kubeConfig:
     secretRef:
       name: %s
-      key: config`, kubeSecret)
+      key: config`, opt.kubeSecret)
 	}
 
-	return fmt.Sprintf(`# bp-cnpg-pair — Pillar-3 active-hot-standby install path for
-# postgres-backed marketplace apps (TBD-V17 #2068). Renders the
-# primary + replica CNPG Cluster CR pair across the two regions the
-# customer picked at signup. Synchronous WAL replication over Cilium
-# ClusterMesh; failover-readiness probe + audit ConfigMap wired by the
-# chart's own templates (platform/cnpg-pair/chart/templates/*).
+	// Per-side resource names so the primary + replica HRs (both in flux-system)
+	// never collide. The releaseName stays distinct too so the host
+	// helm-controller tracks two independent releases.
+	hrName := "bp-cnpg-pair-" + side
+	releaseName := "cnpg-pair-" + side
+
+	return fmt.Sprintf(`# bp-cnpg-pair (%s side) — Pillar-3 active-hot-standby install path for
+# postgres-backed marketplace apps (TBD-V17 #2068). A 2-region Sovereign is
+# TWO separate clusters joined by Cilium ClusterMesh, so the pair is installed
+# SPLIT-SIDE (chart 0.2.0): this HR renders ONLY the %s Cluster CR + its
+# side-local resources, pinned to its region's nodes via node-affinity.
 #
-# #4297 — HOST-reconciled HR with HR-level spec.kubeConfig (vcluster tier):
-# the host helm-controller installs the chart INTO the Org vCluster API so
-# the chart's CNPG Clusters land inside the vcluster. The companion
-# postgres-credentials Secret is emitted separately into the apps/ tree
-# (generateCNPGPairSecret) so the in-vcluster app pods can read it.
+# #4282/#4275 — the %s side is installed INTO its OWN region's cluster via the
+# HR-level spec.kubeConfig below. The PRIMARY side lands in region A (the host
+# Flux's own cluster / the Org vcluster on it); the REPLICA side lands in
+# region B (sovereign-replica-region-kubeconfig), where the
+# openova.io/region=%s nodes the replica node-affinity requires actually live.
+# Before this split the standby Cluster landed in region A and its
+# region-B affinity matched 0/N nodes → the *-pgbasebackup pod hung Pending
+# and the region-kill pillar had no standby to fail over to.
+#
+# Synchronous WAL replication over Cilium ClusterMesh; failover-readiness probe
+# + audit ConfigMap wired by the chart's own side-gated templates
+# (platform/cnpg-pair/chart/templates/*). The companion postgres-credentials
+# Secret is emitted separately into the apps/ tree (generateCNPGPairSecret) so
+# the in-vcluster app pods can read it.
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
-  name: bp-cnpg-pair
+  name: %s
   namespace: %s
 spec:
   type: oci
@@ -907,27 +1061,32 @@ spec:
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: bp-cnpg-pair
+  name: %s
   namespace: %s
   labels:
     catalyst.openova.io/component: cnpg-pair
+    catalyst.openova.io/cnpg-pair-side: %s
     openova.io/category: customer-facing-capability
     openova.io/pillar: "3"
 spec:
   interval: 15m
-  releaseName: cnpg-pair
+  releaseName: %s
   targetNamespace: %s%s
   chart:
     spec:
       chart: bp-cnpg-pair
-      # 0.1.2 — first version with synchronous replication default
-      # (remote_apply, numSync=1 — #2064 ship). Pinned via the
-      # bootstrap-kit slot when one lands (currently install via the
-      # vCluster HelmRepository above).
-      version: 0.1.2
+      # 0.2.7 — split-side topology (cnpgPair.side primary|replica): each
+      # side renders ONLY its own Cluster CR so the replica's region-B
+      # node-affinity matches the cluster it is APPLIED to. ≤0.1.x (the
+      # keystone's 0.1.2 pin) rendered BOTH Clusters in one release + relied
+      # on node-affinity to schedule each to its region — IMPOSSIBLE on two
+      # separate ClusterMesh clusters, so the replica wedged Pending forever
+      # in region A (#4282). The side-gate landed in 0.2.0; 0.2.7 is the
+      # current published chart.
+      version: 0.2.7
       sourceRef:
         kind: HelmRepository
-        name: bp-cnpg-pair
+        name: %s
         namespace: %s
   install:
     timeout: 15m
@@ -940,6 +1099,10 @@ spec:
   values:
     cnpgPair:
       enabled: true
+      # Which half of the pair this HR renders. Both HRs carry the SAME full
+      # values (both regions + both storage blocks) so validateRegions + the
+      # replica's externalClusters source resolve; only side + kubeConfig differ.
+      side: %s
       primary:
         region: %s
         instances: %d
@@ -963,7 +1126,15 @@ spec:
       # clusterMesh.enabled + audit subjects). Per-Sovereign overlays
       # may patch values via Flux postBuild substitute; we intentionally
       # do NOT override here.
-`, hrNamespace, hrNamespace, ns, kubeConfigBlock, hrNamespace, primaryRegion, instances, diskGB, storageClass, primaryDB, replicaRegion, instances, diskGB, storageClass)
+`,
+		side, side, side, opt.replicaRegion, // header comment
+		hrName, hrNamespace, // HelmRepository name/ns
+		hrName, hrNamespace, side, releaseName, ns, kubeConfigBlock, // HR metadata + spec head
+		hrName, hrNamespace, // sourceRef name/ns
+		side,                                                              // cnpgPair.side
+		opt.primaryRegion, instances, diskGB, opt.storageClass, primaryDB, // primary block
+		opt.replicaRegion, instances, diskGB, opt.storageClass, // replica block
+	)
 }
 
 // generateCNPGPairSecret emits the standalone postgres-credentials Secret the

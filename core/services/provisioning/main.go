@@ -11,8 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
 	"github.com/openova-io/openova/core/services/provisioning/gitguard"
+	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
 	"github.com/openova-io/openova/core/services/provisioning/gitops"
 	"github.com/openova-io/openova/core/services/provisioning/handlers"
 	"github.com/openova-io/openova/core/services/provisioning/store"
@@ -179,6 +179,18 @@ func main() {
 	// forever → Pillar-3 silently dead for tenant Orgs. Empty / unknown
 	// defaults to the Hetzner class inside gitops.cnpgStorageClass().
 	generator.CloudProvider = getEnv("CLOUD_PROVIDER", "hetzner")
+
+	// #4282/#4275 CROSS-REGION STANDBY: the flux-system Secret name holding
+	// region-B's (the STANDBY region's) host-cluster kubeconfig. The per-Org
+	// active-hot-standby bp-cnpg-pair is now split-side — the primary HR lands
+	// in region A (host Flux's own cluster), the REPLICA HR is installed THROUGH
+	// this kubeconfig INTO region B, where the openova.io/region=<replica_region>
+	// nodes the standby's node-affinity requires actually live. Without this the
+	// standby Cluster landed in region A → 0/N node match → pgbasebackup Pending
+	// forever + no standby for the region-kill pillar (#4275). Empty falls back
+	// to the deterministic default `sovereign-replica-region-kubeconfig` the
+	// bootstrap mirrors region-B's kubeconfig into.
+	generator.ReplicaRegionKubeSecret = getEnv("CATALYST_REPLICA_REGION_KUBECONFIG_SECRET", "")
 
 	// ── Git host coordinates (issue #940) ────────────────────────────
 	// On Sovereigns the canonical Git target is the local Gitea (the

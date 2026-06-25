@@ -118,7 +118,7 @@ func TestPostgres_AppConfigs_OutOfRangeFallsBack(t *testing.T) {
 		"deadbeef",
 		map[string]map[string]any{
 			"postgres": {
-				"replicas": float64(99), // out of [1,5]
+				"replicas": float64(99),  // out of [1,5]
 				"disk_gb":  float64(999), // out of [1,500]
 			},
 		},
@@ -285,11 +285,12 @@ func TestReadIntCfg_MistypeFallsBack(t *testing.T) {
 // With active_hot_standby=true + distinct primary_region/replica_region,
 // the rendered output MUST:
 //
-//	1. Emit `db-cnpg-pair.yaml` (the bp-cnpg-pair HelmRelease + its
-//	   companion HelmRepository + postgres-credentials Secret).
-//	2. NOT emit `db-postgres.yaml` (the legacy single-Pod Deployment
-//	   would collide on `postgres` Service name and credentials Secret).
-//	3. Carry the customer-chosen region pair into the HelmRelease values.
+//  1. Emit the split-side `db-cnpg-pair-primary.yaml` +
+//     `db-cnpg-pair-replica.yaml` (each a bp-cnpg-pair HelmRelease + its
+//     companion HelmRepository) plus the postgres-credentials Secret.
+//  2. NOT emit `db-postgres.yaml` (the legacy single-Pod Deployment
+//     would collide on `postgres` Service name and credentials Secret).
+//  3. Carry the customer-chosen region pair into the HelmRelease values.
 func TestPostgres_AppConfigs_ActiveHotStandby_GenericApp(t *testing.T) {
 	g := &ManifestGenerator{BasePath: "clusters/contabo-mkt/tenants"}
 	files := g.GenerateAllWithAppConfigs("acme", "flexi",
@@ -306,20 +307,34 @@ func TestPostgres_AppConfigs_ActiveHotStandby_GenericApp(t *testing.T) {
 		},
 	)
 
-	var pairManifest, legacyManifest string
+	var primaryManifest, replicaManifest, legacyManifest string
 	for path, content := range files {
-		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
-			pairManifest = content
+		if strings.HasSuffix(path, "db-cnpg-pair-primary.yaml") {
+			primaryManifest = content
+		}
+		if strings.HasSuffix(path, "db-cnpg-pair-replica.yaml") {
+			replicaManifest = content
 		}
 		if strings.HasSuffix(path, "db-postgres.yaml") {
 			legacyManifest = content
 		}
 	}
-	if pairManifest == "" {
-		t.Fatal("db-cnpg-pair.yaml NOT generated when active_hot_standby=true — Pillar 3 install path broken")
+	if primaryManifest == "" {
+		t.Fatal("db-cnpg-pair-primary.yaml NOT generated when active_hot_standby=true — Pillar 3 install path broken")
+	}
+	if replicaManifest == "" {
+		t.Fatal("db-cnpg-pair-replica.yaml NOT generated when active_hot_standby=true — cross-region standby broken (#4282)")
 	}
 	if legacyManifest != "" {
 		t.Errorf("legacy db-postgres.yaml ALSO generated alongside cluster-pair — would collide on `postgres` Service")
+	}
+	// Both side files carry the full region pair + sizing; only side + kubeConfig
+	// differ. Assert the side-gates + content on both.
+	if !strings.Contains(primaryManifest, "side: primary") {
+		t.Errorf("primary file missing cnpgPair.side: primary:\n%s", primaryManifest)
+	}
+	if !strings.Contains(replicaManifest, "side: replica") {
+		t.Errorf("replica file missing cnpgPair.side: replica:\n%s", replicaManifest)
 	}
 	must := []string{
 		"chart: bp-cnpg-pair",
@@ -329,9 +344,14 @@ func TestPostgres_AppConfigs_ActiveHotStandby_GenericApp(t *testing.T) {
 		"size: 50Gi",
 		"database: db_umami", // per-app database name
 	}
-	for _, want := range must {
-		if !strings.Contains(pairManifest, want) {
-			t.Errorf("db-cnpg-pair.yaml missing %q — full manifest:\n%s", want, pairManifest)
+	for _, side := range []struct {
+		name     string
+		manifest string
+	}{{"primary", primaryManifest}, {"replica", replicaManifest}} {
+		for _, want := range must {
+			if !strings.Contains(side.manifest, want) {
+				t.Errorf("db-cnpg-pair-%s.yaml missing %q — full manifest:\n%s", side.name, want, side.manifest)
+			}
 		}
 	}
 }
@@ -354,8 +374,8 @@ func TestPostgres_AppConfigs_ActiveHotStandby_OFF(t *testing.T) {
 		},
 	)
 	for path := range files {
-		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
-			t.Errorf("db-cnpg-pair.yaml emitted with active_hot_standby unset — should default-OFF")
+		if strings.Contains(path, "db-cnpg-pair") {
+			t.Errorf("a db-cnpg-pair-*.yaml emitted with active_hot_standby unset — should default-OFF (%s)", path)
 		}
 	}
 	var legacy string
@@ -377,9 +397,9 @@ func TestPostgres_AppConfigs_ActiveHotStandby_OFF(t *testing.T) {
 // Symmetric with the WP-tenant path (org_tenant_gitops.go:560).
 func TestPostgres_AppConfigs_ActiveHotStandby_InvalidRegionPair(t *testing.T) {
 	cases := []struct {
-		name           string
-		primary        string
-		replica        string
+		name            string
+		primary         string
+		replica         string
 		wantClusterPair bool
 	}{
 		{"identical regions", "hz-fsn-rtz-prod", "hz-fsn-rtz-prod", false},
@@ -405,7 +425,7 @@ func TestPostgres_AppConfigs_ActiveHotStandby_InvalidRegionPair(t *testing.T) {
 			gotPair := false
 			gotLegacy := false
 			for path := range files {
-				if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+				if strings.HasSuffix(path, "db-cnpg-pair-primary.yaml") || strings.HasSuffix(path, "db-cnpg-pair-replica.yaml") {
 					gotPair = true
 				}
 				if strings.HasSuffix(path, "db-postgres.yaml") {
@@ -448,12 +468,12 @@ func TestPostgres_AppConfigs_ActiveHotStandby_ReplicasClamped(t *testing.T) {
 	)
 	var pairManifest string
 	for path, content := range files {
-		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+		if strings.HasSuffix(path, "db-cnpg-pair-primary.yaml") {
 			pairManifest = content
 		}
 	}
 	if pairManifest == "" {
-		t.Fatal("db-cnpg-pair.yaml not generated")
+		t.Fatal("db-cnpg-pair-primary.yaml not generated")
 	}
 	if !strings.Contains(pairManifest, "instances: 3") {
 		t.Errorf("replicas=1 not clamped to instances:3 — full manifest:\n%s", pairManifest)
@@ -504,14 +524,17 @@ func cnpgPairAppConfigs() map[string]map[string]any {
 	}
 }
 
+// cnpgPairManifest returns the PRIMARY-side HR (#4282 split). Both side files
+// carry the same storageClass in both their primary+replica values blocks, so
+// the storage-class occurrence-count assertions hold per-file unchanged.
 func cnpgPairManifest(t *testing.T, files map[string]string) string {
 	t.Helper()
 	for path, content := range files {
-		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+		if strings.HasSuffix(path, "db-cnpg-pair-primary.yaml") {
 			return content
 		}
 	}
-	t.Fatal("db-cnpg-pair.yaml NOT generated when active_hot_standby=true — Pillar-3 install path broken")
+	t.Fatal("db-cnpg-pair-primary.yaml NOT generated when active_hot_standby=true — Pillar-3 install path broken")
 	return ""
 }
 
@@ -583,9 +606,9 @@ func TestCNPGStorageClass_Resolver(t *testing.T) {
 		{"huawei", "evs-ssd"},
 		{"Huawei", "evs-ssd"}, // case-insensitive
 		{"hetzner", "hcloud-volumes"},
-		{"", "hcloud-volumes"},        // empty → Hetzner default
+		{"", "hcloud-volumes"},            // empty → Hetzner default
 		{"  hetzner  ", "hcloud-volumes"}, // trimmed
-		{"gcp", "hcloud-volumes"},     // unknown → safe Hetzner fallback
+		{"gcp", "hcloud-volumes"},         // unknown → safe Hetzner fallback
 	}
 	for _, tc := range cases {
 		g := &ManifestGenerator{CloudProvider: tc.provider}
