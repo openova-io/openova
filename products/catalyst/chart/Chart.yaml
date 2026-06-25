@@ -3161,7 +3161,20 @@ name: bp-catalyst-platform
 #   INGRESS entry → `guacamole` (bp-guacamole re-homed to its own host ns by
 #   #4325; the guacamole webapp→guacamole-pg:5432 path needs it). Config-default-
 #   only change; no new bootstrap state. Refs #4388 #4325 #4291 #4293.
-version: 1.4.863
+# 1.4.864 — #4395: catalog-seed pins the QoS-fixed funnel-Org charts so #4394
+#   actually reaches a funnel Org. bp-openclaw 0.2.5 -> 0.2.8 + bp-stalwart-tenant
+#   0.1.3 -> 0.1.10 (Guaranteed QoS, requests==limits). The per-Org LimitRange
+#   (#4292, maxLimitRequestRatio 1) rejected the OLD Burstable charts, so an
+#   openclaw/stalwart funnel Org never scheduled its pod even after #4394 published
+#   the fixed charts to ghcr. A funnel Org's Application resolves
+#   spec.blueprintRef.version from the catalog Blueprint CR seeded here; without
+#   this bump it kept installing the Burstable 0.2.5/0.1.3. ALSO re-pins the
+#   organization-controller image 5cbfbd8 -> b23af68 (#4393 vcluster Guaranteed
+#   QoS): the deploy-bot bumped it in 3b9235c1f then the #2851 controller sweep
+#   reverted it ~2min later, so the live chart still shipped the pre-#4393
+#   org-controller — every m-tier funnel Org stayed wedged at 'vcluster-0
+#   forbidden: ratio 20' (verified live on g10vc). Refs #4395 #4394 #4393 #4307 #4292 #4389.
+version: 1.4.864
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
