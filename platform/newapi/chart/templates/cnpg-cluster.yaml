@@ -95,22 +95,56 @@ spec:
 {{- end }}
 {{- /*
 DSN placeholder Secret — populated by templates/database-secret-sync-
-job.yaml at runtime. Rendered as a regular chart-managed resource (NOT
-a Helm hook) so it remains owned by the bp-newapi HelmRelease and Flux
-re-applies it on every reconcile. The post-install/post-upgrade
-sync-job PATCHes the SQL_DSN bytes in place — Flux's strategic-merge
-re-apply preserves those patched bytes because the chart-managed
-template renders SQL_DSN: "" only as a placeholder; the sync-job's
-strategic-merge PATCH wins server-side until the next chart render,
-which then immediately fires the sync-job again. Idempotent.
+job.yaml at runtime (a post-install/post-upgrade Helm hook that composes
+the full DSN from CNPG's `<cluster>-app` password and PATCHes the
+SQL_DSN key here).
 
-Empty data.SQL_DSN value prevents CreateContainerConfigError on first
-Pod schedule (kubelet only checks that the named key EXISTS, not that
-it has non-empty content). The Pod will fail Postgres authentication
-once and CrashLoop until the post-install sync-job completes — about
-30-90s on a cold install — then come up Ready on the next kubelet
-restart.
+#4278-followup (2026-06-25) — DSN-CLOBBER REGRESSION (the #1834 hole):
+  Pre-fix this Secret was a PLAIN chart-managed resource rendering
+  `SQL_DSN: ""` on EVERY render. The original #1834 comment assumed the
+  sync-job's strategic-merge PATCH would survive across renders — it does
+  NOT: helm-controller owns this Secret and re-applies the empty
+  placeholder on every reconcile/upgrade, RESETTING SQL_DSN to "". The
+  populated value only survives if the post-install/post-upgrade DSN-sync
+  HOOK completes and re-patches it AFTER the render. When the upgrade
+  hook chain fails or times out FOR ANY REASON (measured live: the
+  admin-promote hook hitting `context deadline exceeded`, and a fresh
+  install failing at the cluster-singleton CNPG mutating-webhook x509),
+  the post-hook never runs → SQL_DSN is left EMPTY → the
+  `wait-for-sql-dsn` initContainer polls the empty /dsn/SQL_DSN for its
+  full budget → exit 1 → the data-plane Pod wedges in
+  `Init:CrashLoopBackOff` even though CNPG is healthy and the `-app`
+  password exists. Caught live on omantel.biz Orgs org-5d392c0b
+  (fresh install failed at the CNPG webhook) and org-7283 (1.4.127
+  upgrade hook context-deadline) — both with SQL_DSN reset to 0 bytes.
+
+FIX (self-preserving placeholder, gitea database-secret.yaml precedent):
+  1. `lookup` the existing Secret at render time. If it already carries a
+     NON-EMPTY SQL_DSN, RE-EMIT that exact (base64) value instead of "" —
+     so a value the sync-job populated once is NEVER clobbered by a later
+     render, regardless of whether the post-upgrade hook re-runs.
+  2. `helm.sh/resource-policy: keep` so the Secret is treated as
+     independently managed (the sync-job owns its bytes) and is not
+     deleted on uninstall.
+  On a TRUE first install `lookup` returns nil → SQL_DSN renders "" → the
+  `wait-for-sql-dsn` gate holds the Pod (no SQLite fallback) → the
+  post-install sync-job patches the real DSN → the gate clears. On EVERY
+  subsequent render the lookup preserves the populated value, so an
+  unrelated hook failure can no longer empty the DSN and crash the Pod.
+
+Empty data.SQL_DSN value (first install only) prevents
+CreateContainerConfigError on first Pod schedule (kubelet only checks
+that the named key EXISTS, not that it has non-empty content).
 */ -}}
+{{- /* Preserve an already-populated SQL_DSN across re-renders. `lookup`
+   is evaluated at install/upgrade render time; on a client-only
+   dry-run/`helm template` it returns an empty value, so the placeholder
+   path is taken — safe (the sync-job repopulates post-install). */ -}}
+{{- $existing := (lookup "v1" "Secret" .Release.Namespace $dsnSecretName) -}}
+{{- $existingDsn := "" -}}
+{{- if and $existing $existing.data (hasKey $existing.data "SQL_DSN") -}}
+{{- $existingDsn = (get $existing.data "SQL_DSN") -}}
+{{- end -}}
 {{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
 ---
 {{- end }}
@@ -120,7 +154,13 @@ metadata:
   name: {{ $dsnSecretName }}
   labels:
     {{- include "bp-newapi.labels" . | nindent 4 }}
+  annotations:
+    # Independently managed by the database-secret-sync Job after first
+    # creation — keep on uninstall, and (paired with the lookup above)
+    # never clobber the populated SQL_DSN on a later render.
+    helm.sh/resource-policy: keep
 type: Opaque
 data:
-  SQL_DSN: ""
+  # lookup-preserved populated DSN (already base64) > empty placeholder.
+  SQL_DSN: {{ $existingDsn | quote }}
 {{- end }}

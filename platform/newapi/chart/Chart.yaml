@@ -851,7 +851,43 @@ name: bp-newapi
 # the host's redirectUris in the shared sovereign realm -> kills the live
 # "Invalid parameter: redirect_uri" SSO regression on newapi.<sovereign-fqdn>.
 # Lockstep: both slot pins + blueprint → 1.4.122.
-version: 1.4.127
+# 1.4.128 (#4278-followup, 2026-06-25): the DSN-placeholder Secret
+# (templates/cnpg-cluster.yaml) no longer CLOBBERS an already-populated
+# SQL_DSN on re-render → kills the `wait-for-sql-dsn` Init:CrashLoopBackOff
+# that wedged the data plane on a fresh Org (the #4278 close-blocker).
+#
+# ROOT CAUSE (measured live, omantel.biz Orgs org-5d392c0b + org-7283,
+# chart 1.4.127):
+#   The `bp-newapi-newapi-db-dsn` Secret was a PLAIN chart-managed resource
+#   rendering `SQL_DSN: ""` on EVERY helm render. The real DSN is composed +
+#   PATCHed in by the database-secret-sync-job, a POST-install/POST-upgrade
+#   Helm HOOK that runs AFTER the render. So the populated value only
+#   survives if that hook completes. When the upgrade hook chain fails OR
+#   times out for ANY reason — the admin-promote hook `context deadline
+#   exceeded`, or a fresh install failing at the cluster-singleton CNPG
+#   mutating-webhook x509 — helm-controller's render leaves SQL_DSN reset to
+#   "" and the post-hook never repopulates it. The `wait-for-sql-dsn`
+#   initContainer then polls the empty /dsn/SQL_DSN for its full 300s budget,
+#   exit 1, and the Pod wedges `Init:CrashLoopBackOff` even though CNPG is
+#   healthy and the `-app` password (64 bytes) exists. This is the #1834
+#   hole: #1834 added `resource-policy: keep` to the CNPG *Cluster* but NOT
+#   to this *Secret*, and the sync-job's strategic-merge PATCH does NOT win
+#   across a subsequent chart render (helm-controller re-applies the empty
+#   placeholder).
+#
+# FIX (#4278-followup): the DSN placeholder Secret is now SELF-PRESERVING —
+#   it `lookup`s its own existing value at render time and re-emits a
+#   non-empty SQL_DSN unchanged (instead of ""), plus carries
+#   `helm.sh/resource-policy: keep`. On a true first install the lookup is
+#   nil → "" placeholder → the gate holds the Pod off SQLite → the
+#   post-install sync-job patches the real DSN → the gate clears. On every
+#   later render the populated DSN is preserved, so an unrelated hook
+#   failure can no longer empty it and CrashLoop the data plane. Mirrors the
+#   gitea database-secret.yaml `lookup`+`keep` precedent. vcluster-app role
+#   (cnpg.enabled=false) is unaffected — that path mirrors the DSN host→vc.
+#   Lockstep: 80-newapi.yaml + 80a-newapi-host-seams.yaml pins + blueprint.yaml
+#   → 1.4.128.
+version: 1.4.128
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
