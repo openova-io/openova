@@ -17,11 +17,11 @@
 //
 // This hook is that producer. After Phase-1 reaches OutcomeReady it, for
 // each DR-capable spine HelmRelease present on the Sovereign:
-//   1. composes one idempotent Application CR (spec.blueprintRef → the spine
-//      Blueprint, spec.environmentRef → the Sovereign control-plane env,
-//      spec.regions[] → the deployment's declared regions),
-//   2. SERVER-SIDE APPLIES it onto the Sovereign cluster via the kubeconfig
-//      the cloud-init posted back.
+//  1. composes one idempotent Application CR (spec.blueprintRef → the spine
+//     Blueprint, spec.environmentRef → the Sovereign control-plane env,
+//     spec.regions[] → the deployment's declared regions),
+//  2. SERVER-SIDE APPLIES it onto the Sovereign cluster via the kubeconfig
+//     the cloud-init posted back.
 //
 // ADOPT, never roll (Invariant #3). The CR carries a
 // `catalyst.openova.io/adopts-helmrelease` label naming the EXISTING spine
@@ -61,6 +61,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
@@ -89,27 +90,58 @@ type spineComponent struct {
 	HRName           string
 	BlueprintName    string
 	BlueprintVersion string
+
+	// MultiRegionMode is the canonical placement mode this spine
+	// component resolves to on a MULTI-region Sovereign — it mirrors the
+	// Blueprint's `spec.topology.defaults.multi-region`
+	// (platform/<chart>/blueprint.yaml). The producer stamps this verbatim
+	// onto the Application CR's spec.placement when the deployment carries
+	// ≥2 regions (singleton otherwise). This is load-bearing: the
+	// application-controller's per-app Continuum producer
+	// (continuum.go buildContinuumPlan) mints a Continuum CR ONLY when the
+	// resolved placement plan carries a standby region — i.e. an
+	// active-passive / active-hot-standby plan. Omitting placement made the
+	// controller derive `singleton` (the spine Blueprints declare no
+	// placementSchema.defaultOnMultiRegion), so the plan had no standby and
+	// NO Continuum CR was ever minted — the producer-write reached no
+	// consumer. Stamping the explicit multi-region mode here closes that
+	// half of Seam 3 so the write actually flows to the Continuum reader.
+	MultiRegionMode string
 }
 
-// drCapableSpine — the canonical DR-capable bootstrap-spine roster. The
-// Blueprint name/version mirror the pins in platform/<chart>/blueprint.yaml
-// (`metadata.name` + `spec.version`). harbor's Blueprint is named bare
-// `harbor` (legacy — its blueprint.yaml metadata.name is `harbor`, not
-// `bp-harbor`); the other three carry the `bp-` prefix. The HelmRelease is
-// `bp-<chart>` for all four (the bootstrap-kit names every spine HR with the
-// `bp-` prefix regardless of the Blueprint's own metadata.name).
+// drCapableSpine — the canonical DR-capable bootstrap-spine roster.
 //
-// Versions are intentionally the floor the bootstrap-kit installs; the
-// application-controller resolves the Blueprint by name+version from the
-// per-Sovereign catalog (Gitea-mirrored), and an exact-semver miss surfaces
-// as Pending (ReasonBlueprintMissing) rather than a hard failure — so a
-// catalog that has rolled the spine pin forward simply needs the Application
-// CR's version bumped on the next enrollment pass (idempotent).
+// BlueprintName is the name the application-controller resolves the live
+// Blueprint CR by (fetchBlueprint is a by-NAME Get). On a Sovereign the
+// resolvable Blueprint CRs come from the catalog-seed
+// (products/catalyst/chart/templates/catalog-seed/blueprints.yaml), which
+// names all four with the `bp-` prefix (bp-openbao / bp-keycloak / bp-harbor
+// / bp-gitea) — so the roster uses those names. (Note: platform/harbor/
+// blueprint.yaml's own metadata.name is the bare `harbor`, but that file is
+// only mirrored to Gitea post-cutover; the LIVE catalog CR is bp-harbor.)
+// The HelmRelease the CR adopts is `bp-<chart>` for all four (the
+// bootstrap-kit convention).
+//
+// BlueprintVersion is the catalog-seed `spec.version` (the version present in
+// the live catalog at bootstrap). fetchBlueprint is by-name not version-
+// pinned, so the pin only needs to be a valid exact semver the Application CR
+// can carry; tracking the seeded value keeps `kubectl get applications`
+// honest about the version actually in the catalog. An exact-semver miss
+// surfaces as Pending (ReasonBlueprintMissing), never a hard failure — the
+// next enrollment pass picks up the rolled-forward pin (idempotent).
+//
+// MultiRegionMode mirrors each Blueprint's `spec.topology.defaults.multi-region`:
+// openbao's raft stream is async → active-passive; keycloak/harbor/gitea ride
+// a synchronous cnpg-pair → active-hot-standby. These are the SAME modes
+// ResolveTopology picks from `defaults.multi-region`, so stamping them
+// explicitly keeps the placement plan (placement.Resolve) and the topology
+// variant (ResolveTopology) in agreement — both then describe a primary +
+// standby pair, which buildContinuumPlan needs to mint the Continuum CR.
 var drCapableSpine = []spineComponent{
-	{Chart: "openbao", HRName: "bp-openbao", BlueprintName: "bp-openbao", BlueprintVersion: "1.2.51"},
-	{Chart: "keycloak", HRName: "bp-keycloak", BlueprintName: "bp-keycloak", BlueprintVersion: "1.5.2"},
-	{Chart: "harbor", HRName: "bp-harbor", BlueprintName: "harbor", BlueprintVersion: "1.2.36"},
-	{Chart: "gitea", HRName: "bp-gitea", BlueprintName: "bp-gitea", BlueprintVersion: "1.2.40"},
+	{Chart: "openbao", HRName: "bp-openbao", BlueprintName: "bp-openbao", BlueprintVersion: "1.2.25", MultiRegionMode: "active-passive"},
+	{Chart: "keycloak", HRName: "bp-keycloak", BlueprintName: "bp-keycloak", BlueprintVersion: "1.0.0", MultiRegionMode: "active-hot-standby"},
+	{Chart: "harbor", HRName: "bp-harbor", BlueprintName: "bp-harbor", BlueprintVersion: "1.2.26", MultiRegionMode: "active-hot-standby"},
+	{Chart: "gitea", HRName: "bp-gitea", BlueprintName: "bp-gitea", BlueprintVersion: "1.2.24", MultiRegionMode: "active-hot-standby"},
 }
 
 // spineApplicationNamespace — where the spine Application CRs land. The
@@ -173,12 +205,36 @@ func (h *Handler) runPostHandoverSpineApplications(dep *Deployment) {
 
 	// Compose the deployment-derived fields shared by every spine CR.
 	envRef := spineEnvironmentRef(dep)
+	orgRef := spineOrganizationSlug(dep)
 	regions := spineRegions(dep)
 	if len(regions) == 0 {
 		h.log.Warn("spine-apps: deployment carries no regions; skipping (spec.regions[] is required)", "id", dep.ID)
 		return
 	}
 	ownerLabels := spineOwnerLabels(dep)
+
+	// Ensure the CONSUMER prerequisites the application-controller hard-
+	// requires before it will reconcile any spine Application CR. The
+	// controller resolves spec.environmentRef → Environment CR →
+	// spec.organizationRef → Organization CR; a miss leaves the Application
+	// at phase=Pending (ReasonEnvironmentMissing / ReasonOrganizationMissing)
+	// forever and NO Continuum CR is minted. Per-Org Environments are minted
+	// by the organization-controller off a Ready vCluster (environment_ensure.go),
+	// but the SPINE is the Sovereign-self control plane — it has no per-Org
+	// vCluster, so nothing ever stamps its Environment/Organization. We stamp
+	// both here, idempotently, so the producer-write actually reaches the
+	// Continuum reader. The control-plane Environment carries the deployment's
+	// REAL region count so the controller resolves multi-region topology
+	// (len(env.spec.regions) > 1) — the gate ResolveTopology + buildContinuumPlan
+	// both key off.
+	if err := h.ensureSpineOrganization(dyn, dep, orgRef); err != nil {
+		h.log.Warn("spine-apps: ensure control-plane Organization failed; spine apps will sit Pending until it lands",
+			"id", dep.ID, "org", orgRef, "err", err)
+	}
+	if err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions); err != nil {
+		h.log.Warn("spine-apps: ensure control-plane Environment failed; spine apps will sit Pending until it lands",
+			"id", dep.ID, "env", envRef, "err", err)
+	}
 
 	// Wait for the spine HRs to appear, then enroll each present one. The
 	// Application CRD ships with catalyst (present immediately); the spine
@@ -188,7 +244,7 @@ func (h *Handler) runPostHandoverSpineApplications(dep *Deployment) {
 	wantPresent := len(drCapableSpine)
 	for {
 		present := h.presentSpineHRs(dyn, dep)
-		enrolled = h.enrollSpineApplications(dyn, dep, present, envRef, regions, ownerLabels)
+		enrolled = h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, ownerLabels)
 		// Done once we have enrolled an Application CR for every spine HR
 		// that is actually present. If a spine HR never appears (a Sovereign
 		// that does not install all four) we still finish on the budget.
@@ -263,12 +319,13 @@ func (h *Handler) enrollSpineApplications(
 	dep *Deployment,
 	present []spineComponent,
 	envRef string,
+	orgRef string,
 	regions []string,
 	ownerLabels map[string]string,
 ) int {
 	enrolled := 0
 	for _, sc := range present {
-		obj := renderSpineApplicationCR(sc, envRef, regions, ownerLabels)
+		obj := renderSpineApplicationCR(sc, envRef, orgRef, regions, ownerLabels)
 		err := applySpineApplicationCR(dyn, obj)
 		if err != nil {
 			if isNoMatchOrCRDMissing(err) {
@@ -311,19 +368,33 @@ var applySpineApplicationCR = func(dyn dynamic.Interface, obj *unstructured.Unst
 // renderSpineApplicationCR composes the idempotent Application CR for one
 // spine component. Pure function — no client calls. The shape mirrors the
 // REST install path (newApplicationUnstructured) + parseSpec's required set
-// (environmentRef, blueprintRef.{name,version}, regions[]). spec.placement
-// is intentionally OMITTED so the application-controller derives the
-// effective default from the Blueprint's defaultOnMultiRegion + the
-// Sovereign-wide BCP topology (SOVEREIGN_BCP_TOPOLOGY) — exactly the seam
-// that lands a multi-region Sovereign's spine on active-passive zero-touch,
-// which buildContinuumPlan needs to mint the Continuum contract.
+// (environmentRef, blueprintRef.{name,version}, regions[], placement).
+//
+// spec.placement is stamped EXPLICITLY (singleton on a single-region
+// Sovereign, the Blueprint's topology.defaults.multi-region —
+// active-passive / active-hot-standby — on a multi-region one). It is NOT
+// omitted: the spine Blueprints declare no `placementSchema.defaultOnMultiRegion`,
+// so an omitted placement makes the application-controller's EffectiveDefault
+// derive `singleton` regardless of region count — and a singleton plan has
+// no standby region, so buildContinuumPlan returns (zero,false) and NO
+// Continuum CR is ever minted. Worse, a singleton placement with >1 region
+// fails placement.Resolve outright (Application → Failed). Stamping the
+// explicit multi-region mode makes placement.Resolve emit a primary+standby
+// plan that agrees with the topology variant ResolveTopology picks from the
+// same `defaults.multi-region` — the two halves the Continuum producer reads
+// — so the producer-write actually reaches the Continuum reader (Seam 3).
+//
+// spec.organizationRef pins the control-plane Organization the spine
+// Environment references, so the application-controller's
+// fetchOrganization existence check passes (it would otherwise leave the
+// Application at Pending/ReasonOrganizationMissing).
 //
 // The CR name is `spine-<chart>` (e.g. spine-openbao) so an operator's
 // `kubectl get applications.apps.openova.io -A` reads as a spine roster
 // distinct from Org / signup apps. The
 // `catalyst.openova.io/adopts-helmrelease` label names the EXISTING spine
 // HR the CR adopts (Invariant #3 — adopt, never roll).
-func renderSpineApplicationCR(sc spineComponent, envRef string, regions []string, ownerLabels map[string]string) *unstructured.Unstructured {
+func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions []string, ownerLabels map[string]string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
@@ -335,6 +406,7 @@ func renderSpineApplicationCR(sc spineComponent, envRef string, regions []string
 		lbls[k] = v
 	}
 	lbls["catalyst.openova.io/managed-by"] = "catalyst-api"
+	lbls["catalyst.openova.io/organization"] = orgRef
 	lbls["catalyst.openova.io/blueprint"] = sc.BlueprintName
 	lbls["catalyst.openova.io/blueprint-version"] = sc.BlueprintVersion
 	// Spine marker + adopt back-pointer: the object model can tell a spine
@@ -350,7 +422,9 @@ func renderSpineApplicationCR(sc spineComponent, envRef string, regions []string
 	}
 
 	spec := map[string]interface{}{
-		"environmentRef": envRef,
+		"environmentRef":  envRef,
+		"organizationRef": orgRef,
+		"placement":       spinePlacementMode(sc, len(regions)),
 		"blueprintRef": map[string]interface{}{
 			"name":    sc.BlueprintName,
 			"version": sc.BlueprintVersion,
@@ -359,6 +433,21 @@ func renderSpineApplicationCR(sc spineComponent, envRef string, regions []string
 	}
 	obj.Object["spec"] = spec
 	return obj
+}
+
+// spinePlacementMode picks the explicit placement mode to stamp on a spine
+// Application CR. On a single-region Sovereign the spine is a singleton; on
+// a multi-region Sovereign it rides the Blueprint's declared
+// topology.defaults.multi-region (active-passive for the async raft spine,
+// active-hot-standby for the synchronous cnpg-pair spine). The number of
+// regions is authoritative — a spine component whose roster row carries no
+// MultiRegionMode (defensive) falls back to singleton so the producer never
+// stamps an unrenderable mode.
+func spinePlacementMode(sc spineComponent, regionCount int) string {
+	if regionCount > 1 && sc.MultiRegionMode != "" {
+		return sc.MultiRegionMode
+	}
+	return "singleton"
 }
 
 // spineApplicationName composes the spine Application CR name (`spine-<chart>`).
@@ -421,4 +510,238 @@ func spineOwnerLabels(dep *Deployment) map[string]string {
 	}
 	out["catalyst.openova.io/environment"] = spineEnvironmentRef(dep)
 	return out
+}
+
+// spineOrganizationSlug returns the control-plane Organization slug the
+// spine Environment + Application CRs reference. It is the slugged Sovereign
+// FQDN (e.g. "t99-omani-works" for "t99.omani.works") — an RFC-1123 label
+// the Organization CRD's slug pattern accepts, derived the same way the REST
+// install path slugs its namespace. This is the Sovereign-self "platform"
+// Organization, distinct from any customer tenant Org.
+func spineOrganizationSlug(dep *Deployment) string {
+	dep.mu.Lock()
+	fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
+	dep.mu.Unlock()
+	base := fqdn
+	if base == "" {
+		base = dep.ID
+	}
+	return orgNamespace(base)
+}
+
+// ensureSpineOrganization server-side-applies the Sovereign-self
+// (platform-scope) Organization CR the spine Environment references. It is
+// existence-only from the application-controller's perspective (fetchOrganization
+// is a presence check), so we stamp the minimal valid spec the Organization
+// CRD requires (slug, displayName, kind, tier, billingMode, sovereignRef +
+// one owner). The `openova.io/scope: platform` label marks it as the
+// control-plane self-org, distinct from a customer tenant Org. Idempotent:
+// a re-run server-side-applies the same fields. NotFound of the CRD (e.g.
+// the Organization CRD not yet registered) is surfaced so the caller logs +
+// the next enrollment pass retries.
+func (h *Handler) ensureSpineOrganization(dyn dynamic.Interface, dep *Deployment, orgRef string) error {
+	dep.mu.Lock()
+	fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
+	email := strings.TrimSpace(dep.Request.OrgEmail)
+	name := strings.TrimSpace(dep.Request.OrgName)
+	dep.mu.Unlock()
+	if fqdn == "" {
+		fqdn = orgRef
+	}
+	display := name
+	if display == "" {
+		display = fqdn + " (platform spine)"
+	}
+	owners := []interface{}{}
+	if email != "" {
+		owners = append(owners, map[string]interface{}{"email": email, "role": "owner"})
+	}
+	spec := map[string]interface{}{
+		"slug":         orgRef,
+		"displayName":  display,
+		"kind":         "internal",
+		"tier":         "platform",
+		"billingMode":  "free",
+		"sovereignRef": fqdn,
+	}
+	if len(owners) > 0 {
+		spec["owners"] = owners
+	}
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion("orgs.openova.io/v1")
+	obj.SetKind("Organization")
+	obj.SetName(orgRef)
+	obj.SetLabels(map[string]string{
+		"catalyst.openova.io/managed-by": "catalyst-api",
+		"openova.io/scope":               "platform",
+		"openova.io/sovereign":           fqdn,
+	})
+	obj.Object["spec"] = spec
+	return applySpineClusterResource(dyn, organizationGVR(), "", obj)
+}
+
+// ensureSpineEnvironment server-side-applies the Sovereign-self control-plane
+// Environment CR (`<sovereign>-cp`) the spine Application CRs reference. The
+// application-controller reads ONLY spec.organizationRef, spec.envType,
+// spec.placement, and len(spec.regions) off the Environment (parseEnvSpec) —
+// the per-region provider/region/buildingBlock VALUES are only used by the
+// environment-controller to derive Gitea host-cluster paths, and the spine
+// install pivots through the Blueprint topology, not those strings. So the
+// load-bearing field for Seam 3 is len(spec.regions): it MUST equal the
+// deployment's real region count so ResolveTopology resolves multi-region
+// (defaults.multi-region) on a ≥2-region Sovereign. We emit one CRD-valid
+// region triple per real region (provider/region/buildingBlock satisfying
+// the CRD enums + the `^[a-z]{3}[a-z0-9]?$` region pattern). Idempotent.
+func (h *Handler) ensureSpineEnvironment(dyn dynamic.Interface, dep *Deployment, envRef, orgRef string, regions []string) error {
+	regionObjs := make([]interface{}, 0, len(regions))
+	for _, sc := range spineRegionSpecs(dep) {
+		regionObjs = append(regionObjs, spineEnvRegionObject(sc))
+	}
+	// Defensive: if the deployment carried region strings but no RegionSpec
+	// rows (single Request.Region path), synthesise CRD-valid triples from
+	// the count so len(spec.regions) still drives the topology resolution.
+	for len(regionObjs) < len(regions) {
+		regionObjs = append(regionObjs, spineEnvRegionObject(provisioner.RegionSpec{}))
+	}
+	placement := "single-region"
+	if len(regionObjs) > 1 {
+		placement = "multi-region"
+	}
+	spec := map[string]interface{}{
+		"organizationRef": orgRef,
+		"envType":         "prod",
+		"placement":       placement,
+		"regions":         regionObjs,
+	}
+	dep.mu.Lock()
+	fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
+	dep.mu.Unlock()
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion(EnvironmentGVR().Group + "/" + EnvironmentGVR().Version)
+	obj.SetKind("Environment")
+	obj.SetName(envRef)
+	obj.SetLabels(map[string]string{
+		"catalyst.openova.io/managed-by": "catalyst-api",
+		"openova.io/scope":               "platform",
+		"openova.io/organization":        orgRef,
+		"openova.io/sovereign":           fqdn,
+	})
+	obj.Object["spec"] = spec
+	return applySpineClusterResource(dyn, EnvironmentGVR(), "", obj)
+}
+
+// spineRegionSpecs returns the deployment's RegionSpec rows (provider +
+// cloud-region), falling back to a single synthesised row from the umbrella
+// Request.Region when Regions[] is empty. Mirrors spineRegions but keeps the
+// provider so the Environment region triple carries a real provider enum.
+func spineRegionSpecs(dep *Deployment) []provisioner.RegionSpec {
+	dep.mu.Lock()
+	regs := append([]provisioner.RegionSpec(nil), dep.Request.Regions...)
+	single := strings.TrimSpace(dep.Request.Region)
+	dep.mu.Unlock()
+	out := make([]provisioner.RegionSpec, 0, len(regs))
+	for _, rs := range regs {
+		if strings.TrimSpace(rs.CloudRegion) != "" {
+			out = append(out, rs)
+		}
+	}
+	if len(out) == 0 && single != "" {
+		out = append(out, provisioner.RegionSpec{CloudRegion: single})
+	}
+	return out
+}
+
+// spineEnvRegionObject maps a RegionSpec onto a CRD-valid Environment
+// region triple. The Environment CRD constrains region to `^[a-z]{3}[a-z0-9]?$`
+// (3-4 chars) and provider/buildingBlock to fixed enums; a cloud-region like
+// "me-east-215-a" or "fsn1" does not satisfy the pattern, so we derive a
+// short canonical code. The VALUES are cosmetic for the spine path (the
+// application-controller never reads them; the install pivots through the
+// Blueprint topology) — only len(spec.regions) is load-bearing — so a safe
+// canonical triple per row is sufficient and always schema-valid.
+func spineEnvRegionObject(sc provisioner.RegionSpec) map[string]interface{} {
+	return map[string]interface{}{
+		"provider":      spineEnvProvider(sc.Provider),
+		"region":        spineEnvRegionCode(sc.CloudRegion),
+		"buildingBlock": "rtz",
+	}
+}
+
+// spineEnvProviderAllowed mirrors the Environment CRD provider enum.
+var spineEnvProviderAllowed = map[string]struct{}{
+	"hetzner": {}, "huawei": {}, "oci": {}, "aws": {}, "gcp": {}, "azure": {}, "contabo": {},
+}
+
+// spineEnvProvider lower-cases/trims the provider and falls back to "huawei"
+// (the canonical default, same as environment_ensure.go) when it is empty or
+// not in the CRD enum.
+func spineEnvProvider(provider string) string {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	if _, ok := spineEnvProviderAllowed[p]; ok {
+		return p
+	}
+	return "huawei"
+}
+
+// spineEnvRegionCode derives a CRD-pattern-valid (`^[a-z]{3}[a-z0-9]?$`)
+// region code from a cloud-region string. It takes the first run of
+// lowercase letters/digits, keeps at most the first 3 letters + an optional
+// trailing alphanumeric, and falls back to "reg" when the input yields no
+// pattern-valid prefix. The exact code is cosmetic for the spine path
+// (only len(spec.regions) is read by the application-controller), so a
+// stable schema-valid value is all that's required.
+func spineEnvRegionCode(cloudRegion string) string {
+	s := strings.ToLower(strings.TrimSpace(cloudRegion))
+	letters := make([]rune, 0, 3)
+	var tail rune
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			if len(letters) < 3 {
+				letters = append(letters, r)
+			} else if tail == 0 {
+				tail = r
+			}
+		case r >= '0' && r <= '9':
+			if len(letters) == 3 && tail == 0 {
+				tail = r
+			}
+		}
+		if len(letters) == 3 && tail != 0 {
+			break
+		}
+	}
+	if len(letters) < 3 {
+		return "reg"
+	}
+	code := string(letters)
+	if tail != 0 {
+		code += string(tail)
+	}
+	return code
+}
+
+// applySpineClusterResource server-side-applies a cluster-scoped (ns="")
+// or namespaced spine prerequisite (Organization / Environment). Like
+// applySpineApplicationCR it is a package-level var so unit tests can swap a
+// Create/Update-based applier (the dynamic-fake client cannot decode an
+// ApplyPatchType body). force:true CREATES-or-MERGES idempotently against a
+// real apiserver.
+var applySpineClusterResource = func(dyn dynamic.Interface, gvr schema.GroupVersionResource, namespace string, obj *unstructured.Unstructured) error {
+	data, err := obj.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ri := dyn.Resource(gvr)
+	var applied dynamic.ResourceInterface = ri
+	if namespace != "" {
+		applied = ri.Namespace(namespace)
+	}
+	_, err = applied.Patch(ctx, obj.GetName(), types.ApplyPatchType, data, metav1.PatchOptions{
+		FieldManager: spineApplyFieldManager,
+		Force:        boolPtr(true),
+	})
+	return err
 }

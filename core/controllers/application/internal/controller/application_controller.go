@@ -1355,9 +1355,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// backend source. This is READ-ONLY + NON-BLOCKING: an unsupported
 	// backing-service type is logged, never fatal (a recommendation must
 	// never fail a reconcile).
+	// #3969 read-model rides on Seam 3: when the Application stamps the
+	// legacy placement string (the spine producer + every pre-#3969 app),
+	// derive the desired-state targets from the resolved plan so the
+	// backing-service cascade + the observed-target rollup below operate on
+	// the REAL primary+standby target set rather than an empty list.
+	effectiveTargets := effectivePlacementTargets(spec.PlacementTargets, plan)
 	if bindings, berr := resolveBackingPlacement(
 		spec.BlueprintName, app.GetName(), app.GetNamespace(),
-		blueprintBackingServices(bp), spec.PlacementTargets, spec.OwnedDependencies,
+		blueprintBackingServices(bp), effectiveTargets, spec.OwnedDependencies,
 	); berr != nil {
 		r.Log.Warn("backing-service placement cascade skipped",
 			"app", app.GetName(), "blueprint", spec.BlueprintName, "err", berr)
@@ -1396,7 +1402,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// desired-state targets are declared we carry their richer
 	// Primary|Standby role + Hot|Cold type onto the rollup, region-matched.
 	readyByRegion := readbackByRegion(plan, finalPhase)
-	observed := observedTargetsFromPlan(plan, spec.PlacementTargets, readyByRegion)
+	observed := observedTargetsFromPlan(plan, effectiveTargets, readyByRegion)
 	su.PlacementRecon, su.PlacementReason, su.ObservedTargets = reconStatusBlock(observed)
 
 	return r.updateStatus(ctx, app, su)

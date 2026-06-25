@@ -279,3 +279,45 @@ func TestReconStatusBlock_EmptyObserved(t *testing.T) {
 	}
 	_ = unstructured.Unstructured{} // keep the import meaningful in this file
 }
+
+// TestEffectivePlacementTargets_DerivesFromPlanWhenLegacy proves the #3969
+// read-model rides on Seam 3: an Application that stamps the legacy
+// placement string (the spine producer + every pre-#3969 app) gets its
+// desired-state targets DERIVED from the resolved plan, so the backing-
+// service cascade + observed rollup see the real primary+standby target set
+// instead of an empty list. Explicit declared targets always win verbatim.
+func TestEffectivePlacementTargets_DerivesFromPlanWhenLegacy(t *testing.T) {
+	// active-passive plan: regions[0] primary, regions[1] standby.
+	plan, err := placement.Resolve("active-passive", []string{"region-a", "region-b"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	// Legacy (no declared targets) → derived from the plan.
+	got := effectivePlacementTargets(nil, plan)
+	if len(got) != 2 {
+		t.Fatalf("derived targets = %d, want 2", len(got))
+	}
+	if got[0].Region != "region-a" || got[0].Role != bpv1alpha1.DataRolePrimary {
+		t.Fatalf("target[0] = %+v, want region-a/Primary", got[0])
+	}
+	if got[1].Region != "region-b" || got[1].Role != bpv1alpha1.DataRoleStandby || got[1].StandbyType != bpv1alpha1.StandbyHot {
+		t.Fatalf("target[1] = %+v, want region-b/Standby/Hot", got[1])
+	}
+
+	// Singleton plan → one Primary target, no standby.
+	sp, _ := placement.Resolve("singleton", []string{"region-a"})
+	one := effectivePlacementTargets(nil, sp)
+	if len(one) != 1 || one[0].Role != bpv1alpha1.DataRolePrimary || one[0].StandbyType != "" {
+		t.Fatalf("singleton derived = %+v, want one Primary", one)
+	}
+
+	// Explicit declared targets win verbatim (never overwritten by the plan).
+	declared := []bpv1alpha1.PlacementTarget{
+		{Region: "region-x", Cluster: "mgmt-A", Role: bpv1alpha1.DataRolePrimary},
+	}
+	keep := effectivePlacementTargets(declared, plan)
+	if len(keep) != 1 || keep[0].Region != "region-x" || keep[0].Cluster != "mgmt-A" {
+		t.Fatalf("declared targets not preserved: %+v", keep)
+	}
+}

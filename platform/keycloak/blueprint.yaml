@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.5.2
+  version: 1.5.3
   card:
     title: keycloak
     summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).
@@ -21,6 +21,18 @@ spec:
   defaultPlacement:
     vcluster: mgmt
   allowedPlacements: [host, mgmt]
+
+  # placementSchema aligned with spec.topology below (#4212 Seam 3). The
+  # spine Application-CR producer stamps active-hot-standby on a multi-region
+  # Sovereign (matching topology.defaults.multi-region) — modes[] must admit
+  # it AND defaultOnMultiRegion must name it so the placement is accepted and
+  # the Continuum CR is minted.
+  placementSchema:
+    modes: [singleton, active-hot-standby]
+    default: singleton
+    defaultOnMultiRegion: active-hot-standby
+    minRegions: 1
+    maxRegions: 2
 
   manifests:
     chart: ./chart

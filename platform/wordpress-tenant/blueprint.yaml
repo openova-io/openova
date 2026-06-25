@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: tenant-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.4.18
+  version: 0.4.19
   card:
     title: WordPress (per-Organization)
     summary: |
@@ -185,9 +185,20 @@ spec:
                 type: string
                 default: letsencrypt-prod
                 description: cert-manager ClusterIssuer name.
+  # placementSchema aligned with spec.topology below (#4212 Seam 4). The
+  # application-controller derives the effective placement from
+  # default / defaultOnMultiRegion (EffectiveDefault) and validates it
+  # against modes[] (blueprintAllowedModes). With only `single-region` here,
+  # a multi-region Sovereign's per-Org WordPress resolved to singleton — a
+  # plan with no standby region — so the generic per-app Continuum producer
+  # (continuum.go buildContinuumPlan) minted NO Continuum CR and the per-Org
+  # DR contract never existed. Naming the active-passive multi-region default
+  # (matching topology.defaults.multi-region) lets the producer emit a
+  # primary+standby plan and mint the per-Org Continuum CR.
   placementSchema:
-    modes: [single-region]
+    modes: [single-region, singleton, active-passive]
     default: single-region
+    defaultOnMultiRegion: active-passive
   manifests:
     chart: ./chart
   depends:

@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.36
+  version: 1.2.37
   card:
     title: Harbor
     family: foundation
@@ -50,10 +50,19 @@ spec:
         default: false
         description: Enable OIDC SSO via Catalyst Keycloak. Default off — opt in via per-Sovereign overlay once bp-keycloak has reconciled.
   placementSchema:
-    modes: [single-region]           # legacy field — superseded by spec.topology below; kept for backward compatibility with the existing application-controller path
+    # Aligned with spec.topology below (#4212 Seam 3): the application-
+    # controller validates an Application's spec.placement against modes[]
+    # (blueprintAllowedModes) and derives the effective default from
+    # default / defaultOnMultiRegion (EffectiveDefault). The spine
+    # Application-CR producer stamps active-hot-standby on a multi-region
+    # Sovereign (matching topology.defaults.multi-region), so modes[] must
+    # admit it AND defaultOnMultiRegion must name it — otherwise the
+    # explicit placement is rejected and no Continuum CR is minted.
+    modes: [single-region, singleton, active-hot-standby]
     default: single-region
+    defaultOnMultiRegion: active-hot-standby
     minRegions: 1
-    maxRegions: 1
+    maxRegions: 2
   # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
   # Placement is an INSTANCE property (Application.spec.placement); this is
   # only the default every instance inherits silently — the provisioning

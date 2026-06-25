@@ -214,7 +214,9 @@ spec:
       #         chart.spec.version:"*" stops resolving to it (SemVer 1.5.0 >
       #         1.4.38) and its non-proxied bitnamilegacy images stop tripping
       #         harbor-proxy-pull. Chart content byte-identical to 1.4.38.
-      version: 1.5.2
+      # 1.5.3 — #4212 Seam 3: placementSchema aligned with spec.topology
+      #   (modes[] admit active-hot-standby + defaultOnMultiRegion). Chart bumped in lockstep.
+      version: 1.5.3
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
