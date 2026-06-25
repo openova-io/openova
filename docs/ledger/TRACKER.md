@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T08:15:03Z` |
+| Last refreshed | `2026-06-25T08:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T08:26 | [#4331](https://github.com/openova-io/openova/pull/4331) | #4329 | fix(bp-kyverno-policies): admit per-Org vCluster CIDR-probe  |
 | 2026-06-25T08:08 | [#4327](https://github.com/openova-io/openova/pull/4327) | #4274 | fix(bss): OrdersPage renders OMR from baisa — kill the 10×-i |
 | 2026-06-25T08:10 | [#4326](https://github.com/openova-io/openova/pull/4326) | #4322 | fix(bp-cnpg): durable webhook caBundle fix — cnpg-system ope |
 | 2026-06-25T08:08 | [#4324](https://github.com/openova-io/openova/pull/4324) | #3784 | fix(catalog-seed): lockstep guard asserts placementSchema.mo |
@@ -260,7 +261,6 @@ flowchart LR
 | 2026-06-25T06:40 | [#4298](https://github.com/openova-io/openova/pull/4298) | #4293 | feat(org-controller): enforce+cap the Org-vcluster boundary  |
 | 2026-06-25T06:38 | [#4295](https://github.com/openova-io/openova/pull/4295) | #4293 | fix(provisioning): collapse the Organization-provisioning do |
 | 2026-06-24T18:20 | [#4294](https://github.com/openova-io/openova/pull/4294) | #4279 | docs: consolidated gap-analysis + action backlog index for d |
-| 2026-06-24T17:48 | [#4289](https://github.com/openova-io/openova/pull/4289) | #4280 | fix(catalyst): owner keeps catalog name+light/dark logo edit |
 
 ---
 
