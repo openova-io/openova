@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T09:30:05Z` |
+| Last refreshed | `2026-06-25T09:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 24 |
+| Open issues | 25 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 24 open items (clickable table)
+### All 25 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -224,6 +224,7 @@ flowchart LR
 | [#4328](https://github.com/openova-io/openova/issues/4328) | ghcr-pull reflector miss on slug-named per-Org namespaces (post-#4293 namespace  | Other |
 | [#4329](https://github.com/openova-io/openova/issues/4329) | P0: per-Org vCluster CrashLoops — flux-managed Kyverno denies CIDR-probe Servi | Other |
 | [#4330](https://github.com/openova-io/openova/issues/4330) | sovereign-fqdn ConfigMap renders empty lbIP/consoleLBIP/controlPlaneIP → per-O | Other |
+| [#4337](https://github.com/openova-io/openova/issues/4337) | P0: per-Org bp-cnpg operator retains cluster-scoped webhookconfigurations RBAC � | Other |
 
 ---
 
@@ -231,6 +232,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T09:37 | [#4338](https://github.com/openova-io/openova/pull/4338) | #4143 | fix(bp-cnpg): kill the per-Org webhook-hijack RBAC vector +  |
 | 2026-06-25T09:20 | [#4336](https://github.com/openova-io/openova/pull/4336) | #4322 | fix(bp-wordpress-tenant): oidc-config hook vendors OIDC plug |
 | 2026-06-25T08:50 | [#4335](https://github.com/openova-io/openova/pull/4335) | #4292 | feat(org-controller): admit Cilium reserved entities on the  |
 | 2026-06-25T09:21 | [#4333](https://github.com/openova-io/openova/pull/4333) | #1844 | fix(catalyst): render sovereign-fqdn LB/CP IPs — unhalt the  |
@@ -260,7 +262,6 @@ flowchart LR
 | 2026-06-25T07:18 | [#4304](https://github.com/openova-io/openova/pull/4304) | #4282 | fix(catalyst-api): Application CR producers always emit non- |
 | 2026-06-25T07:05 | [#4303](https://github.com/openova-io/openova/pull/4303) | #4277 | feat(catalyst): auto-seed the per-Org Anthropic credential a |
 | 2026-06-25T04:10 | [#4302](https://github.com/openova-io/openova/pull/4302) | #4274 | fix(bss): wire /billing/orders + /billing/revenue to live bi |
-| 2026-06-25T04:10 | [#4301](https://github.com/openova-io/openova/pull/4301) | #4286 | feat(bp-kyverno-policies): Kyverno admission floor injects s |
 
 ---
 
