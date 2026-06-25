@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T20:45:02Z` |
+| Last refreshed | `2026-06-25T21:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 19 |
 | Open DoD gates | 0 / 41 |
@@ -226,6 +226,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T20:59 | [#4394](https://github.com/openova-io/openova/pull/4394) | #4307 | fix(bp-openclaw/bp-stalwart-tenant #4389/#4292): Guaranteed  |
+| 2026-06-25T20:59 | [#4393](https://github.com/openova-io/openova/pull/4393) | #4297 | fix(org-controller #4389/#4297): vcluster control-plane Guar |
+| 2026-06-25T20:59 | [#4392](https://github.com/openova-io/openova/pull/4392) | #4272 | fix(bp-catalyst-platform #4389): orgTag b3465e8 -> 903eed4 — |
 | 2026-06-25T20:17 | [#4391](https://github.com/openova-io/openova/pull/4391) | #4388 | fix(#4325 fallout): completeness sweep — repoint ALL remaini |
 | 2026-06-25T20:00 | [#4390](https://github.com/openova-io/openova/pull/4390) | #4322 | fix(bp-catalyst-platform #4389): keycloakHostBridge.keycloak |
 | 2026-06-25T19:18 | [#4387](https://github.com/openova-io/openova/pull/4387) | #4322 | fix(provisioning): funnel cart day-2 install commits to per- |
@@ -253,9 +256,6 @@ flowchart LR
 | 2026-06-25T13:04 | [#4348](https://github.com/openova-io/openova/pull/4348) | #4347 | fix(planes #4347): end the host-ns Kyverno whack-a-mole — pr |
 | 2026-06-25T11:32 | [#4346](https://github.com/openova-io/openova/pull/4346) | #4344 | fix(bp-keycloak #4344): stable admin-password across reinsta |
 | 2026-06-25T11:29 | [#4345](https://github.com/openova-io/openova/pull/4345) | #4325 | fix(planes): resources.requests for host-ns plane components |
-| 2026-06-25T10:41 | [#4342](https://github.com/openova-io/openova/pull/4342) | #4338 | fix(bootstrap-kit): drop orphaned `dependsOn: null` in 5 slo |
-| 2026-06-25T10:18 | [#4340](https://github.com/openova-io/openova/pull/4340) | #4292 | fix(catalyst): tier-aware org vclusterReadiness — host-tier  |
-| 2026-06-25T09:37 | [#4338](https://github.com/openova-io/openova/pull/4338) | #4143 | fix(bp-cnpg): kill the per-Org webhook-hijack RBAC vector +  |
 
 ---
 
