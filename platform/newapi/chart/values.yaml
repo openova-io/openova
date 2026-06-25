@@ -677,8 +677,14 @@ channelSeed:
   # Image for the curl-based seed loop. Pinned at the upstream-mutable
   # default tag; production overlays SHA-pin per
   # docs/INVIOLABLE-PRINCIPLES.md #4a.
+  # #4347 — route through the Sovereign-local Harbor proxy-cache so the host-ns
+  # Kyverno `harbor-proxy-pull` Enforce ClusterPolicy admits this post-install/
+  # post-upgrade hook Job (applied on every reconcile, after #4325 re-homed
+  # bp-newapi into the native host ns `newapi`). The raw `docker.io/curlimages/
+  # curl` matches no allowed glob; the sibling db-dsn-sync Job already proxies
+  # the identical image.
   image:
-    repository: docker.io/curlimages/curl
+    repository: harbor.openova.io/proxy-dockerhub/curlimages/curl
     tag: "8.10.1"
     pullPolicy: IfNotPresent
   # Resource budget — small. Each channel is one GET (probe) + zero

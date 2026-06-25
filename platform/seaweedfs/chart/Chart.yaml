@@ -35,7 +35,12 @@ type: application
 # csi.hetzner.cloud (durable). local-path is FORBIDDEN (k3s
 # --disable=local-storage + Kyverno ENFORCE deny). bp-hcloud-csi gates the
 # stateful root slots so the cloud CSI is Ready before any seaweedfs PVC binds.
-version: 1.2.3
+# 1.2.4 (#4347): route the seaweedfs image through the Sovereign-local Harbor
+#   proxy-cache (`harbor.openova.io/proxy-dockerhub/chrislusf/seaweedfs`) so the
+#   host-ns Kyverno `harbor-proxy-pull` Enforce policy admits all 4 seaweedfs
+#   workloads (master/volume/filer/s3) after #4325 re-homed bp-seaweedfs into
+#   the native host ns. Refs #4347 #4325.
+version: 1.2.4
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:

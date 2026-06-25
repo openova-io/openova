@@ -23,7 +23,14 @@ coraza:
   # Pin upstream image tag — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md.
   image:
-    repository: ghcr.io/corazawaf/coraza-spoa
+    # #4347 — route through the Sovereign-local Harbor proxy-cache so the
+    # host-ns Kyverno `harbor-proxy-pull` Enforce ClusterPolicy admits it (after
+    # #4325 moved bp-coraza into a native host namespace where the cluster-wide
+    # Enforce policies apply). The raw `ghcr.io/corazawaf/coraza-spoa` source
+    # matches neither allowed glob (`*/proxy-*/*` nor `*/openova-io/*`) and was
+    # DENIED at admission. `proxy-ghcr` is the canonical ghcr.io proxy-cache
+    # project (mirrors the fluxcd/cnpg refs across the platform charts).
+    repository: harbor.openova.io/proxy-ghcr/corazawaf/coraza-spoa
     tag: "0.7.0"
     pullPolicy: IfNotPresent
 

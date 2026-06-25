@@ -157,7 +157,10 @@ spec:
       # vCluster placement (caught live hw171). Refs #3374 #3642.
       # 1.2.41 — #4212 Seam 3: placementSchema aligned with spec.topology
       #   (modes[] admit active-hot-standby + defaultOnMultiRegion). Chart bumped in lockstep.
-      version: 1.2.41
+      # 1.2.42 — #4347: gitea-sso-configure Deployment gains liveness + readiness
+      #   probes (heartbeat sentinel) so the host-ns Kyverno `probes-present`
+      #   Enforce ClusterPolicy admits it post-#4325 de-vcluster. Refs #4347 #4325 #4340.
+      version: 1.2.42
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

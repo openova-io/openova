@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.0.1  # lockstep with chart/Chart.yaml (#4343 loki.sidecar.resources for host-ns Kyverno resource-requests Enforce)
+  version: 1.0.2  # lockstep with chart/Chart.yaml (#4347 probes-present + harbor-proxy images for host-ns Kyverno Enforce)
   card:
     title: Loki
     family: insights

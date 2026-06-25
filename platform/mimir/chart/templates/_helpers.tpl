@@ -45,3 +45,21 @@ catalyst.openova.io/family: observability
 app.kubernetes.io/name: {{ include "bp-mimir.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
+
+{{/* #4347 — replicate the upstream `mimir.fullname` naming exactly so the
+     Catalyst-owned gateway replacement in templates/devcluster-workloads.yaml
+     uses the SAME Service name the bundled gateway would have. Upstream uses
+     infix "mimir" with a `contains` short-circuit: if the release name already
+     contains "mimir" (the production HelmRelease is named `mimir`), the
+     fullname IS the release name; otherwise it's `<release>-mimir`. So:
+       release "mimir" -> "mimir"      -> gateway svc "mimir-gateway"
+       release "t"     -> "t-mimir"    -> gateway svc "t-mimir-gateway"
+     This keeps Grafana's `mimir-gateway` datasource Service contract intact. */}}
+{{- define "bp-mimir.mimirFullname" -}}
+{{- $name := "mimir" -}}
+{{- if contains $name .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}

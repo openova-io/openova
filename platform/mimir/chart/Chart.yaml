@@ -13,12 +13,25 @@ description: |
   overlays scale per-component replicas + flip zone-aware-replication on
   for HA Sovereigns.
 type: application
+# 1.0.7 (#4347, Refs #4325, 2026-06-25): make EVERY rendered workload container
+# satisfy the host-ns Kyverno `probes-present` AND `harbor-proxy-pull` Enforce
+# policies. (a) Proxy every image through Harbor (grafana/mimir,
+# grafana/rollout-operator, nginxinc/nginx-unprivileged, minio + mc). (b) Add a
+# livenessProbe to the 9 Mimir components that shipped readiness-only via the
+# upstream `<component>.livenessProbe` value knob. (c) The gateway (nginx),
+# rollout-operator, and bundled MinIO expose NO livenessProbe knob in
+# mimir-distributed 6.0.6, so those three subcharts are disabled and re-rendered
+# as Catalyst-owned probe-compliant equivalents in
+# templates/devcluster-workloads.yaml (the Mimir S3 wiring is restated in
+# values under mimir.structuredConfig since disabling the bundled MinIO drops
+# its auto-injection).
+#
 # 1.0.6 (#4343, 2026-06-25): set `gateway.resources.requests` and add the
 # missing cpu request on the bundled MinIO StatefulSet + create-bucket Job so
 # every container satisfies the cluster-wide Kyverno `resource-requests`
 # Enforce policy. Post-#4325 this chart installs into the native host namespace
 # (not a vCluster) where the policy applies.
-version: 1.0.6
+version: 1.0.7
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:

@@ -18,9 +18,13 @@ tempo:
   replicas: 1
 
   # Pin upstream Tempo image tag — DO NOT use floating tags.
+  # #4347 — route through the Sovereign-local Harbor proxy-cache so the host-ns
+  # Kyverno `harbor-proxy-pull` Enforce ClusterPolicy admits it (after #4325
+  # re-homed bp-tempo into the native host ns `tempo`). The raw
+  # `docker.io/grafana/tempo` matches neither allowed glob.
   tempo:
-    registry: docker.io
-    repository: grafana/tempo
+    registry: harbor.openova.io
+    repository: proxy-dockerhub/grafana/tempo
     tag: "2.9.0"
     pullPolicy: IfNotPresent
     resources:

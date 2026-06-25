@@ -32,7 +32,7 @@ chart still installs on CRD-less clusters (kind CI).
 {{- if and .Values.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
 {{- range .Values.components }}
 {{- if .gatewayIngress }}
-{{- $ns := .namespace -}}
+{{- $ns := .namespace }}
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy

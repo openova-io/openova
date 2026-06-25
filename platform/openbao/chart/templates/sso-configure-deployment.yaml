@@ -169,7 +169,21 @@ data:
 
     log "bp-openbao sso-configure starting; addr=${BAO_ADDR} interval=${INTERVAL_SECONDS}s"
 
+    # #4347 — liveness/readiness heartbeat sentinel. This continuous reconciler
+    # has NO serving port, so the Pod's livenessProbe / readinessProbe (required
+    # by the host-ns Kyverno `probes-present` Enforce ClusterPolicy after the
+    # #4325 de-vcluster re-homed bp-openbao into a host namespace) exec a
+    # freshness check against this file. We `touch` it on startup (readiness
+    # goes green as soon as the loop is up) and re-touch it at the top of every
+    # tick; the liveness probe ages it out and restarts a wedged loop. Lives
+    # under the writable /tmp emptyDir (readOnlyRootFilesystem: true).
+    HEARTBEAT_FILE=/tmp/sso-configure-heartbeat
+    touch "${HEARTBEAT_FILE}"
+
     while true; do
+      # Re-touch the heartbeat each iteration so a healthy loop keeps the
+      # sentinel fresh; a wedged loop lets it age out → liveness restart (#4347).
+      touch "${HEARTBEAT_FILE}"
       sleep "${INTERVAL_SECONDS}"
 
       # Skip until the ExternalSecret materialises.
@@ -456,6 +470,34 @@ spec:
             limits:
               cpu: "200m"
               memory: "128Mi"
+          # #4347 — liveness + readiness EXEC probes (required by the host-ns
+          # Kyverno `probes-present` Enforce ClusterPolicy after #4325 moved
+          # bp-openbao into a native host namespace). This reconciler has NO
+          # serving port, so both probes check the /tmp/sso-configure-heartbeat
+          # sentinel the loop re-touches each tick: readiness = file exists
+          # (green once the loop's startup touch lands), liveness = file
+          # modified within the last 5 minutes (a wedged loop ages it out →
+          # kubelet restart).
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'test -f /tmp/sso-configure-heartbeat'
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - '[ -n "$(find /tmp/sso-configure-heartbeat -mmin -5 2>/dev/null)" ]'
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

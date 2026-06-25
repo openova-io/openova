@@ -13,7 +13,13 @@ description: |
   Pairs with bp-cilium (L7 policy enforcement), bp-keycloak (auth-front),
   and bp-stalwart (mail-front).
 type: application
-version: 1.0.0
+# 1.0.1 (#4347): host-ns Kyverno Enforce compliance after #4325 de-vcluster
+#   re-homed bp-coraza into a native host namespace — (a) coraza-spoa Deployment
+#   gains tcpSocket liveness + readiness probes (probes-present Enforce);
+#   (b) the image source moves from raw `ghcr.io/corazawaf/coraza-spoa` to
+#   `harbor.openova.io/proxy-ghcr/corazawaf/coraza-spoa` (harbor-proxy-pull
+#   Enforce). Adds tests/kyverno-probes-present.sh. Refs #4347 #4325.
+version: 1.0.1
 appVersion: "0.7.0"
 keywords: [catalyst, blueprint, coraza, waf, modsecurity, security]
 maintainers:

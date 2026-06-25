@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-nats-jetstream
+# 1.3.5 (#4347, 2026-06-25): make EVERY rendered workload container satisfy the
+# host-ns Kyverno `probes-present` AND `harbor-proxy-pull` Enforce policies now
+# that #4325 installs this chart into the native host namespace `nats-system`.
+#   - harbor-proxy-pull: route all 4 dockerhub images through the Sovereign
+#     Harbor proxy — nats server (proxy-dockerhub/library/nats), reloader +
+#     nats-box (proxy-dockerhub/natsio/*), and the nack jetstream-controller
+#     (proxy-dockerhub/natsio/jetstream-controller via nack.jetstream.image).
+#   - probes-present: inject exec liveness+readiness on the reloader sidecar
+#     (`pidof nats-server-config-reloader`) and the nats-box keep-alive
+#     (`pidof sleep`) via the nats `merge` knob; the nats SERVER already ships
+#     HTTP probes (monitor enabled). The nack jetstream-controller Deployment
+#     had NO probe hook in 0.29.0 → bump the nack dependency to 0.34.0 and set
+#     `nack.jetstream.controlLoop: true`, which renders upstream HTTP
+#     /healthz + /readyz probes on :8081. No Kyverno exclusion needed.
 # 1.3.4 (#4343, 2026-06-25): relocate the nats server resources from the
 # inert `container.resources` to `container.merge.resources` (the nats 1.2.0
 # loadMergePatch helper reads ONLY `.merge`/`.patch`, so the prior block was
@@ -7,7 +21,7 @@ name: bp-nats-jetstream
 # `reloader.merge.resources` + `natsBox.container.merge.resources`. Satisfies
 # the cluster-wide Kyverno `resource-requests` Enforce policy now that #4325
 # installs this chart into the native host namespace (not a vCluster).
-version: 1.3.4
+version: 1.3.5
 description: |
   Catalyst-curated Blueprint umbrella chart for NATS JetStream. Depends
   on TWO upstream subcharts:
@@ -46,6 +60,13 @@ dependencies:
     version: "1.2.0"
     repository: "https://nats-io.github.io/k8s/helm/charts"
   - name: nack
-    version: "0.29.0"
+    # #4347 — bumped 0.29.0 -> 0.34.0: the jetstream-controller Deployment
+    # template gained an HTTP /healthz + /readyz probe block (gated on the
+    # controller-runtime backend, enabled via nack.jetstream.controlLoop) so
+    # the host-ns Kyverno `probes-present` Enforce policy admits the workload.
+    # KeyValue + Stream CRDs remain served at jetstream.nats.io/v1beta2, so the
+    # Catalyst-curated templates/kv-buckets.yaml + templates/streams.yaml CRs
+    # are unchanged-compatible.
+    version: "0.34.0"
     repository: "https://nats-io.github.io/k8s/helm/charts"
     condition: nack.enabled

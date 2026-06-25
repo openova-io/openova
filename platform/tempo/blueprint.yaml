@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.0.0
+  version: 1.0.1  # lockstep with chart/Chart.yaml (#4347 harbor-proxy image for host-ns Kyverno harbor-proxy-pull Enforce)
   card:
     title: Tempo
     family: insights
