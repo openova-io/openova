@@ -947,6 +947,19 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// warn but never fail the handover (adoption is a day-2
 		// observability surface). See post_handover_adoption_apply.go.
 		go h.runPostHandoverAdoptionApply(dep)
+
+		// #4212 Seam 3 (folds #3829): enroll the DR-capable bootstrap spine
+		// (openbao/keycloak/harbor/gitea) into the object model by stamping
+		// one idempotent Application CR per spine HelmRelease. Each enters
+		// the application-controller reconcile fan-out, which mints its
+		// Continuum DR contract — adopt-not-roll (the CR is additive; the
+		// upsertHostResource byte-equal short-circuit never re-renders the
+		// healthy spine pod). Background goroutine + internal retry budget:
+		// the spine HRs may still be reconciling at first OutcomeReady, so
+		// this must NOT block the terminate path. Failures log + emit SSE
+		// warn but never fail the handover (spine enrollment is a day-2
+		// object-model surface). See post_handover_spine_apps.go.
+		go h.runPostHandoverSpineApplications(dep)
 	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
 		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
 		// recoverable classification ("components observed, none

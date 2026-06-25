@@ -107,6 +107,10 @@ func (h *Handler) runConvergedLateRescue(dep *Deployment) {
 	// converged-late path too (idempotent server-side-apply). See
 	// post_handover_adoption_apply.go.
 	go h.runPostHandoverAdoptionApply(dep)
+	// #4212 Seam 3 — enroll the DR-capable spine into the object model on the
+	// converged-late path too (idempotent server-side-apply; adopt-not-roll).
+	// See post_handover_spine_apps.go.
+	go h.runPostHandoverSpineApplications(dep)
 }
 
 // censusHelmReleases counts Ready=True vs total HelmReleases on the

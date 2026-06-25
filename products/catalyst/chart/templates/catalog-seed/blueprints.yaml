@@ -4238,7 +4238,7 @@ metadata:
     # must not claw it back (DoD §9.4).
     helm.sh/resource-policy: keep
 spec:
-  version: "1.1.4"
+  version: "1.1.5"
   visibility: unlisted
   card:
     title: "Crossplane"
@@ -4255,7 +4255,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane
-    version: "1.1.4"
+    version: "1.1.5"
   topology:
     supported:
       - singleton
