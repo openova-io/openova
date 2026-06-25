@@ -170,6 +170,45 @@ openovaMCP:
     name: ""
     key: bearer
 
+  # ── Per-Org MCP bearer + verify-pubkey ExternalSecret (#4276 hop 7/7b) ───
+  # The PRODUCER side of the OPENOVA_MCP_BEARER + OPENOVA_MCP_RS256_PUBKEY_PEM
+  # wiring. The catalyst-api org-pipeline (seedMCPBearer, #4276) mints an
+  # Org-scoped Catalyst session JWT (tier=org-admin, org_id=<slug>,
+  # role=openova-user, typ=session, RS256-signed by the Sovereign handover
+  # signer) AND the matching RS256 verify PUBKEY (PKIX PEM), and writes BOTH
+  # to the per-Org OpenBao path `secret/catalyst/agenity/<slug>/mcp-bearer`
+  # (properties `bearer` + `pubkeyPem`). With externalSecret.enabled, this
+  # chart pulls them into the per-Org K8s Secret `secretName`, and the
+  # org-gitops emitter (organization_gitops.go) points
+  # openovaMCP.bearerSecret + openovaMCP.rs256PubkeySecret at it so the
+  # StatefulSet projects OPENOVA_MCP_BEARER and OPENOVA_MCP_RS256_PUBKEY_PEM.
+  #
+  # Why bearer + pubkey travel together: the pubkey that VERIFIES the bearer
+  # is the public half of the SAME handover signer that MINTED it. Seeding
+  # them through one path/ExternalSecret sidesteps the JWK-vs-PEM
+  # cross-namespace mismatch (the only published mirror,
+  # catalyst-handover-jwt-public in catalyst-system, holds a JWK, while the
+  # MCP wants PKIX PEM and lives in the per-Org ns, #4228).
+  #
+  # Disabled by default (no producer outside a Sovereign Org-pipeline). When
+  # enabled, the org-gitops emitter sets remoteKey to the per-Org path.
+  mcpBearer:
+    secretName: agenity-mcp-bearer
+    externalSecret:
+      enabled: false
+      refreshInterval: 1h
+      secretStoreRef: vault-region1
+      secretStoreKind: ClusterSecretStore
+      # Per-Org OpenBao KV-v2 key — set by the org-gitops emitter to
+      # `catalyst/agenity/<slug>/mcp-bearer`.
+      remoteKey: ""
+      # KV-v2 property names the producer writes (seedMCPBearer).
+      remoteBearerProperty: bearer
+      remotePubkeyProperty: pubkeyPem
+    # K8s Secret keys the StatefulSet's bearerSecret/rs256PubkeySecret read.
+    bearerKey: bearer
+    pubkeyKey: pubkeyPem
+
 # ── Daemon HTTP auth (browser chat-box trust mode) ────────────────────────
 # The chepherd daemon's default auth mode is "local": it mints a bootstrap
 # Bearer token and the authMiddleware enforces it on every /api/v1/* path.

@@ -100,8 +100,13 @@ private base image (`ghcr.io/agenity-org/chepherd`) is gone.
 - **Multi-region**: single-region `singleton` only — Agenity is a
   per-Org control surface, not a replicated data plane.
 - **Auth**: the Agenity console is reached via the Cilium Gateway HTTPRoute
-  with the Org's Keycloak SSO (silent login). The agent presents the User's
-  session bearer to the openova MCP on each `tools/call`.
+  with the Org's Keycloak SSO (silent login). The agent's openova MCP calls
+  catalyst-api with an **Org-scoped service bearer** projected into the pod as
+  `OPENOVA_MCP_BEARER` (see the next section, #4276). The MCP verifies its own
+  bearer against the seeded RS256 pubkey (`OPENOVA_MCP_RS256_PUBKEY_PEM`); a
+  future enhancement may additionally forward the live User's per-call
+  `_auth.token` from the chat UI, but the auto-seeded service bearer is what
+  makes the agentic `create_application` journey work zero-touch today.
 
 ## Seeding the `catalyst/anthropic/token` openbao path (#4277 / #4111 / #4228)
 
@@ -221,6 +226,57 @@ one-time seed.
 > credential. Absent-and-unseeded (the ExternalSecret renders, the key is
 > simply missing) is the correct pre-seed state; the operator's one `bao kv put`
 > is the activation.
+
+## The openova-MCP Catalyst bearer (#4276 hop 7 — the create_application credential)
+
+Seeding the Anthropic credential (above) only lets the spawned `claude-code`
+talk to **Anthropic**. It does **not** give the agent a **Catalyst** identity to
+call `create_application`. The openova MCP forwards a **session bearer** to
+catalyst-api on every tool call, resolved from either a per-call `_auth.token`
+argument **or** the `OPENOVA_MCP_BEARER` env. On a fresh funnel Org neither was
+supplied, so every `create_application` returned **`-32001 unauthenticated`** —
+even with the Anthropic key seeded. #4276 closes that gap (hop 7) plus the
+coupled verify-pubkey gap (hop 7b).
+
+**Auto-seeded at Org-create (#4276).** The catalyst-api producer `seedMCPBearer`
+(called from `runOrganizationPipeline`, right beside `seedAnthropicToken`):
+
+1. **Mints an Org-scoped session JWT** via the handover signer
+   (`SignCustomClaims`) — the byte-for-byte shape `HandlePinVerify` /
+   `auth_org_handover` mint for an Org customer session: `tier=org-admin`,
+   `role=openova-user`, `typ=session`, `org`+`org_id=<slug>`,
+   `realm_access.roles=[org-admin]`, `iss=<CATALYST_PIN_ISSUER>`, RS256-signed.
+   This resolves in the MCP to `(context=organization, tier=admin, org_id=<org>)`
+   → `create_application` (`MinTier=Admin`) is allowed AND routes to the own-org
+   `POST /api/v1/org/applications` path (#4116); cross-Org create stays
+   forbidden. A sovereign-admin bearer would be **wrong** here (it 403s under the
+   #4110 host-scope guard).
+2. **Emits the matching RS256 verify pubkey** as PKIX **PEM** — the public half
+   of the same signer, the exact format `OPENOVA_MCP_RS256_PUBKEY_PEM` parses
+   (`x509.ParsePKIXPublicKey`). Bearer + verify-key travel together (gap 7b),
+   sidestepping the JWK-vs-PEM cross-namespace mismatch the host
+   `catalyst-handover-jwt-public` mirror (a JWK) would otherwise impose (#4228).
+3. **Writes both** to the **per-Org** OpenBao path
+   `secret/catalyst/agenity/<slug>/mcp-bearer` (properties `bearer` + `pubkeyPem`)
+   — per-Org because the bearer carries the Org slug, unlike the cluster-shared
+   Anthropic path. Same `catalyst/`-prefix write-policy reasoning as above.
+
+The chart's `templates/externalsecret-mcp-bearer.yaml` pulls both into the
+per-Org Secret `agenity-mcp-bearer`; the org-gitops emitter points
+`openovaMCP.bearerSecret` + `openovaMCP.rs256PubkeySecret` at it so the
+StatefulSet projects `OPENOVA_MCP_BEARER` + `OPENOVA_MCP_RS256_PUBKEY_PEM`. No
+per-Org hand action — zero-touch by construction.
+
+**TTL + re-mint.** A session JWT expires. The StatefulSet is long-lived, so the
+bearer is minted with a **1-year** service-identity TTL and **re-seeded
+idempotently on every Org reconcile** (`PutKVv2` overwrites — each reconcile
+pushes the expiry window forward). This mirrors the #4303 Anthropic-blob
+re-seed and the OAuth-expiry pre-flight class #4111 documents.
+
+> **Why not chart-seed the bearer/pubkey?** Same reflector/ESO empty-seed trap:
+> a Helm placeholder would pin an empty bearer forever. The values default
+> `mcpBearer.externalSecret.enabled=false` (no producer outside a Sovereign
+> Org-pipeline); the emitter enables it with the per-Org `remoteKey`.
 
 ## What the fresh-prov walk should see
 

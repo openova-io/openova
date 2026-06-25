@@ -917,6 +917,21 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		// every Org-create both makes new Orgs converge and keeps the
 		// short-lived OAuth blob fresh.
 		_ = h.seedAnthropicToken(ctx)
+
+		// #4276 (hop 7/7b) — seed the per-Org OpenBao
+		// `secret/catalyst/agenity/<slug>/mcp-bearer` with an Org-scoped
+		// Catalyst session bearer + the RS256 verify pubkey (PEM) so this
+		// Org's bp-agenity MCP authenticates create_application against
+		// catalyst-api. Without it the spawned claude-code agent reaches
+		// the openova MCP with NO bearer → -32001 unauthenticated, even
+		// after the Anthropic key (#4277) is seeded (that only authenticates
+		// claude-code to ANTHROPIC, not to CATALYST). Same posture as
+		// seedAnthropicToken: idempotent (PutKVv2 overwrites — refreshes the
+		// bearer's expiry every reconcile) and NEVER fails the pipeline (a
+		// signer/OpenBao gap only leaves the MCP create path unauthenticated;
+		// the agenity dashboard still serves). rec.Subdomain is the Org slug
+		// the bearer is scoped to; rec.AdminEmail is the owner subject.
+		_ = h.seedMCPBearer(ctx, rec.Subdomain, rec.AdminEmail)
 	}
 
 	// Step 2 — bp_charts_installed.

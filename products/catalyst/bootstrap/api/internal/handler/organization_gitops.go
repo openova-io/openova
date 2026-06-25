@@ -1677,6 +1677,36 @@ spec:
         remoteKey: catalyst/anthropic/token
         remoteProperty: apiKey
         remoteCredentialsProperty: credentialsJson
+    # openova-MCP Catalyst bearer + RS256 verify-pubkey (#4276 hop 7/7b).
+    # The catalyst-api org-pipeline producer (seedMCPBearer) mints an
+    # Org-scoped session JWT (tier=org-admin, org_id={{.Subdomain}},
+    # role=openova-user, typ=session, RS256-signed by the Sovereign handover
+    # signer) plus the matching RS256 verify pubkey (PKIX PEM), and writes
+    # BOTH to the per-Org OpenBao path secret/catalyst/agenity/{{.Subdomain}}
+    # /mcp-bearer (properties bearer + pubkeyPem). The chart's
+    # externalsecret-mcp-bearer.yaml pulls them into the per-Org Secret
+    # agenity-mcp-bearer; bearerSecret + rs256PubkeySecret below point the
+    # StatefulSet at it so it projects OPENOVA_MCP_BEARER +
+    # OPENOVA_MCP_RS256_PUBKEY_PEM. Without this the spawned claude-code
+    # agent reaches the openova MCP with NO bearer → -32001 unauthenticated,
+    # even after the Anthropic key (#4277) is seeded. The path MUST live
+    # under catalyst/ (the only KV sub-tree a Sovereign can WRITE via the
+    # catalyst-api-write policy; vault-region1's role is read-only).
+    openovaMCP:
+      bearerSecret:
+        name: agenity-mcp-bearer
+        key: bearer
+      rs256PubkeySecret:
+        name: agenity-mcp-bearer
+        key: pubkeyPem
+      mcpBearer:
+        externalSecret:
+          enabled: true
+          secretStoreRef: vault-region1
+          secretStoreKind: ClusterSecretStore
+          remoteKey: catalyst/agenity/{{.Subdomain}}/mcp-bearer
+          remoteBearerProperty: bearer
+          remotePubkeyProperty: pubkeyPem
 `
 
 const orgTenantBPStalwart = `# bp-stalwart-tenant (#801, OIDC wiring #915) — dedicated mail server

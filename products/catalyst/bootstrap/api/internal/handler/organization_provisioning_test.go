@@ -423,6 +423,51 @@ func TestDeleteOrganization_RemovesFromRegistry(t *testing.T) {
 	}
 }
 
+// TestRenderOrganizationOverlay_AgenityMCPBearerWiring is the #4276 hop 7/7b
+// emitter guard. The bp-agenity overlay MUST set openovaMCP.bearerSecret +
+// rs256PubkeySecret + enable the per-Org mcpBearer ExternalSecret pointed at
+// secret/catalyst/agenity/<slug>/mcp-bearer, so the StatefulSet projects
+// OPENOVA_MCP_BEARER + OPENOVA_MCP_RS256_PUBKEY_PEM. Without this the spawned
+// claude-code agent reaches the openova MCP with no bearer → -32001
+// unauthenticated, even after the Anthropic key (#4277) is seeded.
+func TestRenderOrganizationOverlay_AgenityMCPBearerWiring(t *testing.T) {
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "t-acme",
+		Subdomain:       "acme",
+		DomainMode:      store.OrganizationDomainFreeSubdomain,
+		AdminEmail:      "admin@acme.test",
+		OTECHFQDN:       "otech.example",
+		ParentDomain:    "omani.homes",
+		TenantNamespace: "org-t-acme",
+	}
+	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body, ok := files["bp-agenity.yaml"]
+	if !ok {
+		t.Fatalf("bp-agenity.yaml missing")
+	}
+	for _, want := range []string{
+		"openovaMCP:",
+		"bearerSecret:",
+		"name: agenity-mcp-bearer",
+		"key: bearer",
+		"rs256PubkeySecret:",
+		"key: pubkeyPem",
+		"mcpBearer:",
+		"externalSecret:",
+		"enabled: true",
+		"remoteKey: catalyst/agenity/acme/mcp-bearer",
+		"remoteBearerProperty: bearer",
+		"remotePubkeyProperty: pubkeyPem",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("bp-agenity.yaml missing %q\n---\n%s", want, body)
+		}
+	}
+}
+
 func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID:  "t-acme",
