@@ -2562,3 +2562,5 @@ migrations:
     dryRun: false
     serviceAccountName: catalyst-application-migrator
     image: ghcr.io/openova-io/catalyst-migrator:0.1.0
+
+# (#4368 ci-trigger touch — NATS host-ns revert; no value change)
