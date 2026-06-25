@@ -138,7 +138,12 @@ spec:
       # CIDR-probe Service (`test-service-delete-me-*`) by name pattern so a
       # stale `openova.io/tenant`-labelled boundary no longer Enforce-denies it
       # → no more 11/11 vcluster-0 CrashLoop. Refs #4329 #4297 #4293.
-      version: 1.0.41
+      # 1.0.42 (#4349): exempt crossplane-system from harbor-proxy-pull — the
+      # upstream xpkg.upbound.io crossplane image is not Harbor-mirrored, so the
+      # Enforce policy denied the crossplane pod create → bp-crossplane
+      # rollback-loop gated bp-catalyst-platform via the crossplane-claims
+      # dependsOn chain. Refs #4349 #4212.
+      version: 1.0.42
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
