@@ -47,7 +47,16 @@ name: bp-huawei-evs-csi
 # storage tier wedged behind a GREEN evs-ssd StorageClass (verified live on
 # hw178). Fix: default imagePullSecrets:[ghcr-pull] on both pod specs + add
 # huawei-evs-csi to the reflection-namespaces in cloudinit-control-plane.tftpl.
-version: 1.0.3
+#
+# 1.0.4 (#4350, kom4dc dep 4635277cae4ffed9, 2026-06-25): flip the cluster-default
+# evs-ssd StorageClass reclaimPolicy Retain → Delete. Retain leaks EVS volumes:
+# Huawei enforces a project-wide volume-COUNT quota (400 hard), and Retain keeps
+# every churned PVC's backing EVS volume alive under a Released PV until the
+# project hit EVS.1034 "volume count exceeded" / 413 VolumeLimitExceeded →
+# gitea/harbor/seaweedfs/per-Org PVCs Pending → bp-gitea False →
+# bp-catalyst-platform never converged. Delete reclaim bounds the volume count.
+# Values-only change. Refs #4350 #3971.
+version: 1.0.4
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable
