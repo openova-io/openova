@@ -3143,7 +3143,7 @@ name: bp-catalyst-platform
 #   plane-vcluster-mangled name (regression-guards both #4378's NATS fix and this
 #   Valkey fix). Config-default-only change; no new bootstrap state.
 #   Refs #4368 #4373 #4325 #4347 #4322.
-version: 1.4.856
+version: 1.4.857
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
@@ -3254,7 +3254,7 @@ version: 1.4.856
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.850
+appVersion: 1.4.857
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
