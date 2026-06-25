@@ -3126,7 +3126,24 @@ name: bp-catalyst-platform
 #   own Org ns), not a platform-plane workload — tier '' renders the HR in the
 #   App's own namespace. Catalog-seed + agenity chart bumped 0.5.9 -> 0.5.12 in
 #   lockstep (resources requests==limits + helmRelease.disableWait). Refs #4111 #4325 #4297.
-version: 1.4.854
+# 1.4.855 — #4368/#4373: the VALKEY sibling of the 1.4.851 NATS fix. The same
+#   #4325 de-vcluster re-home moved bp-valkey from INSIDE the rtz vCluster back
+#   to host ns `valkey`, but org-services + projector still defaulted VALKEY_ADDR
+#   at the dead rtz-vcluster-syncer-mangled name
+#   (`valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`). With no rtz vCluster /
+#   `rtz` ns / mangled syncer Service left, that name resolves NXDOMAIN →
+#   org-services/auth CrashLoops on `dial tcp: lookup ...-rtz-vcluster... no such
+#   host`, keeping the funnel door's auth path DOWN even after the NATS fix
+#   (live kom4dc/omantel.biz dep 4635277cae4ffed9, 2026-06-26: auth recovered
+#   1/1 Running only after VALKEY_ADDR was re-pointed; live Valkey is
+#   valkey-primary.valkey.svc:6379, CIP 10.96.81.215). Re-point catalystApi.valkey.addr
+#   + orgServices.valkey.host to the plain host name. Also add
+#   tests/nats-url-host-ns-contract.sh — a helm-template render gate asserting
+#   every NATS *and* Valkey default resolves to its host-ns Service and NEVER a
+#   plane-vcluster-mangled name (regression-guards both #4378's NATS fix and this
+#   Valkey fix). Config-default-only change; no new bootstrap state.
+#   Refs #4368 #4373 #4325 #4347 #4322.
+version: 1.4.855
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
