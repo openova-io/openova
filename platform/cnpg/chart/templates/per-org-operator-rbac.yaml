@@ -1,0 +1,212 @@
+{{- /*
+G65 (Refs #4322 #4143 #4201, 2026-06-25): KILL the per-Org operator's
+cluster-scoped webhook-hijack capability at its ROOT — the RBAC grant.
+
+THE HIJACK VECTOR
+=================
+The upstream cloudnative-pg subchart's `cloudnative-pg.clusterwideRules` helper
+ALWAYS grants `get,patch` on `mutating/validatingwebhookconfigurations` at
+CLUSTER scope, and the subchart's rbac.yaml includes those rules in the
+`ClusterRole bp-cnpg-cloudnative-pg` UNCONDITIONALLY — even when
+`config.clusterWide=false` (the namespace-scoped, webhook-LESS per-Org mode).
+So a per-Org operator, although it is supposed to touch only its own namespace,
+is handed `get,patch` on the cluster-singleton webhook configs. On each restart
+the per-Org operator (with MANAGE_WEBHOOK_CONFIGURATIONS at its default) injects
+ITS OWN org-namespace leaf cert (CN=cnpg-webhook-service.org-<id>.svc, CA:FALSE)
+into the shared cnpg webhook caBundle → apiserver x509-fails verifying the
+platform operator's served cert → EVERY postgresql.cnpg.io/v1.Cluster
+create/patch is rejected cluster-wide → all Postgres apps (wordpress, newapi)
+break. Live-confirmed on omantel.biz (dep 4635277cae4ffed9): the demo Org
+`org-7283eb4a…` had `auth can-i patch validatingwebhookconfigurations = yes`,
+newer Orgs did not — yet the grant is STILL templated for every per-Org install.
+
+THE FIX (two halves — this file + the per-Org generator)
+========================================================
+1. The per-Org generator (organization_gitops.go orgTenantBPCNPG) sets
+   `cloudnative-pg.rbac.create=false` so the upstream subchart renders NONE of
+   its RBAC (the ClusterRole carrying the webhookconfigurations patch verbs is
+   the object we must NOT create). It already sets
+   `cloudnative-pg.serviceAccount.create` to its default (true) — the operator
+   SA `bp-cnpg-cloudnative-pg` still exists.
+2. THIS template renders the REPLACEMENT RBAC for the per-Org operator —
+   structurally incapable of touching the cluster webhook singleton:
+     - a namespace-scoped Role with the operator's full in-namespace
+       permissions (mirrors the subchart `commonRules`), bound in the Org ns;
+     - a MINIMAL cluster-scoped ClusterRole granting ONLY the cluster reads a
+       namespace-scoped operator genuinely needs — `nodes` (get/list/watch) and
+       `clusterimagecatalogs` (get/list/watch) — and DELIBERATELY OMITTING
+       `*webhookconfigurations`. A per-Org operator can NEVER patch the
+       singleton again.
+
+This renders ONLY in webhook-LESS mode (per-Org). The platform cnpg-system
+install is webhook-FULL and keeps the upstream subchart RBAC unchanged
+(`cloudnative-pg.rbac.create` stays true there) — it is the single operator that
+legitimately owns the cluster webhook configs, and the G64 reasserter
+(MANAGE_WEBHOOK_CONFIGURATIONS=false + the reasserter Job/CronJob) owns the
+caBundle authoritatively. The `bp-cnpg.webhookConfigsCreated` helper is the
+inverse switch: false ⇒ webhook-LESS ⇒ this replacement RBAC renders.
+*/}}
+{{- $cnpg := (index .Values "cloudnative-pg") | default dict -}}
+{{- $rbac := (index $cnpg "rbac") | default dict -}}
+{{- /* Only render the replacement when the install is webhook-LESS (per-Org)
+       AND the subchart RBAC has been turned off (rbac.create=false). If an
+       operator leaves rbac.create at its true default in a webhook-less topology
+       we do NOT render — there would be two ClusterRoles of different names but
+       the subchart's would still carry the hijack grant, so the per-Org
+       generator MUST pair webhook-less with rbac.create=false (it does). */ -}}
+{{- $rbacCreate := true -}}
+{{- if hasKey $rbac "create" -}}{{- $rbacCreate = $rbac.create -}}{{- end -}}
+{{- $webhookLess := eq (include "bp-cnpg.webhookConfigsCreated" .) "false" -}}
+{{- if and $webhookLess (not $rbacCreate) }}
+{{- /* The operator SA name the subchart's `cloudnative-pg.serviceAccountName`
+       resolves to = its `cloudnative-pg.fullname`: if the release name already
+       CONTAINS the chart name "cloudnative-pg" use the release name verbatim,
+       else "<release>-cloudnative-pg". For the per-Org install the release is
+       "bp-cnpg" → "bp-cnpg-cloudnative-pg". Mirror it EXACTLY (`contains`, not
+       `hasPrefix`) so the bindings target the same SA the Deployment runs as.
+       Honour an explicit serviceAccount.name override if the overlay sets one. */ -}}
+{{- $sa := (index $cnpg "serviceAccount") | default dict -}}
+{{- $fullname := printf "%s-cloudnative-pg" .Release.Name -}}
+{{- if contains "cloudnative-pg" .Release.Name -}}{{- $fullname = (.Release.Name | trunc 63 | trimSuffix "-") -}}{{- end -}}
+{{- $saName := $fullname -}}
+{{- if (index $sa "name") -}}{{- $saName = (index $sa "name") -}}{{- end -}}
+{{- $roleName := $fullname -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roleName }}-perorg
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: per-org-operator-rbac
+rules:
+  # In-namespace operator permissions — mirrors the upstream subchart
+  # `cloudnative-pg.commonRules`. A namespace-scoped (clusterWide=false)
+  # operator gets these as a Role, NOT a ClusterRole, so they cannot leak past
+  # the Org namespace.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps/status", "secrets/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "pods", "pods/exec"]
+    verbs: ["create", "delete", "get", "list", "patch", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["create", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "patch", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "update"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["podmonitors"]
+    verbs: ["create", "delete", "get", "list", "patch", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources:
+      - backups
+      - clusters
+      - databases
+      - poolers
+      - publications
+      - scheduledbackups
+      - subscriptions
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["failoverquorums"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources:
+      - backups/status
+      - databases/status
+      - publications/status
+      - scheduledbackups/status
+      - subscriptions/status
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["imagecatalogs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters/finalizers", "poolers/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters/status", "poolers/status", "failoverquorums/status"]
+    verbs: ["get", "patch", "update", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings", "roles"]
+    verbs: ["create", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["create", "get", "list", "patch", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roleName }}-perorg
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: per-org-operator-rbac
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ $roleName }}-perorg
+  apiGroup: rbac.authorization.k8s.io
+---
+# MINIMAL cluster-scoped grant for the namespace-scoped per-Org operator:
+# ONLY the cluster reads it genuinely needs. NO admissionregistration.k8s.io —
+# the per-Org operator must be STRUCTURALLY INCAPABLE of patching the
+# cluster-singleton webhook configs (#4322 hijack vector).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $roleName }}-perorg
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: per-org-operator-rbac
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusterimagecatalogs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $roleName }}-perorg
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: per-org-operator-rbac
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $roleName }}-perorg
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

@@ -1041,6 +1041,25 @@ spec:
           create: false
         validating:
           create: false
+      # #4322 (G65): KILL the webhook-HIJACK RBAC vector at its root. The
+      # upstream cloudnative-pg subchart includes its clusterwideRules
+      # (which grant get,patch on mutating/validatingwebhookconfigurations)
+      # in the ClusterRole bp-cnpg-cloudnative-pg UNCONDITIONALLY — even when
+      # clusterWide=false. So a per-Org operator, despite being namespace-
+      # scoped + webhook-less, was STILL granted cluster-scoped patch on the
+      # webhook singleton and on each restart over-wrote the shared caBundle
+      # with its own org-ns leaf cert (CA:FALSE) → apiserver x509-fail → every
+      # CNPG Cluster create/patch rejected cluster-wide (live omantel.biz
+      # org-7283eb4a, #4322). Turning OFF the subchart RBAC (rbac.create=false)
+      # stops that ClusterRole rendering; the bp-cnpg umbrella's
+      # templates/per-org-operator-rbac.yaml then renders REPLACEMENT RBAC —
+      # a namespace Role with the operator's in-ns permissions + a minimal
+      # ClusterRole (nodes + clusterimagecatalogs reads ONLY, NO
+      # webhookconfigurations) — so the per-Org operator is STRUCTURALLY
+      # INCAPABLE of patching the cluster singleton. (serviceAccount.create
+      # stays at its true default so the operator SA still exists.)
+      rbac:
+        create: false
       # #4143: namespace-scoped watch — the per-Org operator reconciles
       # ONLY its own Org namespace, never cluster-scoped singletons. The
       # platform cnpg-system operator stays cluster-wide and admits this

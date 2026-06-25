@@ -74,7 +74,34 @@ name: bp-cnpg
 #   (3) webhook-gate-hook.yaml now asserts the caBundle is a CA (CA:TRUE), not
 #       merely non-empty — the producer-side proof the reasserter landed; gate
 #       image bumped 1.30.7 -> 1.31.4 for openssl. Refs #4322 #4143 #4201.
-version: 1.0.13
+#
+# 1.0.14 (G65 #4322, 2026-06-25): TWO durable fixes for the recurring
+# cnpg-webhook caBundle re-hijack (the #4143/#4322 family).
+#   (A) ROGUE-RBAC VECTOR — the per-Org operator could STILL patch the
+#       cluster-singleton webhook. The upstream cloudnative-pg subchart's
+#       `clusterwideRules` (get,patch on mutating/validatingwebhookconfigurations)
+#       are included in the ClusterRole bp-cnpg-cloudnative-pg UNCONDITIONALLY,
+#       even under config.clusterWide=false — so a namespace-scoped, webhook-less
+#       per-Org operator was handed cluster-scoped webhook-patch and on each
+#       restart over-wrote the shared caBundle with its own org-ns leaf cert
+#       (CA:FALSE) → apiserver x509-fail → every CNPG Cluster create/patch
+#       rejected cluster-wide (live omantel.biz org-7283eb4a, #4322). FIX: the
+#       per-Org generator sets cloudnative-pg.rbac.create=false (subchart RBAC
+#       off) + the new templates/per-org-operator-rbac.yaml renders REPLACEMENT
+#       RBAC — a namespace Role (operator in-ns perms) + a minimal ClusterRole
+#       (nodes + clusterimagecatalogs reads ONLY, NO webhookconfigurations). The
+#       per-Org operator is now STRUCTURALLY INCAPABLE of patching the singleton.
+#   (B) #4326 REASSERT-JOB BackoffLimitExceeded — the webhook-cabundle-reasserter
+#       Job/CronJob ran `command: ["/bin/sh", ...]` with `set -euo pipefail`, but
+#       the bitnami kubectl image's /bin/sh is DASH, which rejects
+#       `set -o pipefail` ("Illegal option -o pipefail") → the script aborted on
+#       its FIRST line every run → the post-upgrade hook failed
+#       `BackoffLimitExceeded` → Helm rolled 1.0.13 back to 1.0.12, so the G64
+#       reassert defense never held (reproduced live 2026-06-25, dep
+#       4635277cae4ffed9). FIX: switch both to `command: ["/bin/bash", ...]`
+#       (the image carries /bin/bash + /usr/bin/openssl; webhook-gate-hook.yaml
+#       already uses bash). Refs #4322 #4143 #4201 #4326.
+version: 1.0.14
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
