@@ -8,6 +8,17 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.9 -> 0.5.10 (#4362, #4325 fallout): flip blueprint.yaml topology
+# singleton placement.tier `rtz` -> '' (host-native). #4325 de-vclustered the
+# platform planes (mgmt/rtz/dmz) into native host namespaces and removed the
+# `rtz` plane vCluster; the application-controller resolved the agenity
+# Application's `tier: rtz` through VClusterPlacements and upserted the
+# per-cluster HelmRelease into the now-absent `rtz` namespace -> Ready=False
+# `namespaces "rtz" not found` (Degraded on the omantel.biz demo Org). A per-Org
+# agentic dashboard lands on the HOST in its own Org namespace (#4297 keystone),
+# so tier '' is correct: no vCluster pivot, HR renders in the App's own
+# namespace. The `rtz-A` cluster ID stays (region designator, not a vCluster).
+# blueprint-metadata-only change; chart TEMPLATES + appVersion image UNCHANGED.
 # 0.5.8 -> 0.5.9 (#4276 hop 7/7b): add the per-Org openova-MCP Catalyst-bearer
 # seam — templates/externalsecret-mcp-bearer.yaml + the openovaMCP.mcpBearer
 # values block. The catalyst-api org-pipeline producer (seedMCPBearer) mints an
@@ -76,7 +87,7 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.9
+version: 0.5.10
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752

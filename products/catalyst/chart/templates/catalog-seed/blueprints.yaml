@@ -6569,12 +6569,15 @@ spec:
 # with the built-in solo agent (Claude Opus 4.7, token pre-configured), and
 # the agent creates more Applications in the User's Org via the RBAC-scoped
 # openova MCP. The north-star self-service journey (UAT rows 218-223).
-# Lockstep with products/agenity/chart/Chart.yaml version 0.5.8 + the
-# published chart ghcr.io/openova-io/bp-agenity:0.5.8 (appVersion 0.9.7 — the
+# Lockstep with products/agenity/chart/Chart.yaml version 0.5.10 + the
+# published chart ghcr.io/openova-io/bp-agenity:0.5.10 (appVersion 0.9.7 — the
 # image whose /app mounts the WORKSPACES dashboard rather than the archaic
-# single-column one, built from agenity#752, #4180; chart 0.5.8 moves the
-# anthropic ExternalSecret remoteKey to the writable catalyst/anthropic/token
-# path the new catalyst-api producer seeds at Org-create, #4277, over 0.5.7).
+# single-column one, built from agenity#752, #4180). 0.5.10 (#4362, #4325
+# fallout) flips the topology singleton placement.tier `rtz` -> '' (host-native)
+# so a fresh Org's agenity Application lands on the HOST in its own Org
+# namespace (#4297) — #4325 de-vclustered mgmt/rtz/dmz into native host
+# namespaces and removed the `rtz` plane vCluster, so a `tier: rtz` resolves
+# to the absent `rtz` namespace -> Degraded `namespaces "rtz" not found`.
 # Fresh provs seed THIS pin,
 # so the chart-version here gates which image a new Sovereign installs — bump
 # in lockstep with the chart on every agenity release. (The per-Org install
@@ -6596,7 +6599,7 @@ metadata:
   annotations:
     helm.sh/resource-policy: keep
 spec:
-  version: "0.5.8"
+  version: "0.5.10"
   visibility: listed
   card:
     title: "Agenity"
@@ -6618,7 +6621,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.3
+    version: 0.5.10
   topology:
     supported:
       - singleton
@@ -6628,7 +6631,15 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          # #4325 de-vclustered mgmt/rtz/dmz → native host namespaces and
+          # removed the `rtz` plane vCluster. A per-Org agentic dashboard
+          # lands on the HOST in its own Org namespace (#4297), so tier MUST
+          # be '' (host-native); a non-empty tier resolves through the
+          # controller's VClusterPlacements → HR upsert into the removed
+          # `rtz` namespace → `namespaces "rtz" not found` (Degraded). The
+          # `rtz-A` cluster ID is the region designator, NOT a vCluster.
+          # Lockstep with products/agenity/blueprint.yaml.
+          tier: ''
           clusters: [rtz-A]
           roles:
             rtz-A: singleton

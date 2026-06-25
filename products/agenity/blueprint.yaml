@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.5.9
+  version: 0.5.10
   card:
     title: Agenity
     summary: |
@@ -130,7 +130,17 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          # #4325 de-vclustered the platform planes (mgmt/rtz/dmz → native
+          # host namespaces) and removed the `rtz` plane vCluster. A per-Org
+          # agentic dashboard is NOT a platform-plane workload — it lands on
+          # the HOST in its own Org namespace (#4297 keystone). tier MUST be
+          # '' (host-native, no vCluster pivot); a non-empty tier resolves
+          # through the controller's VClusterPlacements and the rendered HR
+          # is upserted into the removed `rtz` namespace → `namespaces "rtz"
+          # not found` (Degraded). The `rtz-A` cluster ID is the
+          # region-cluster designator (kept for the region pin), NOT a
+          # vCluster name.
+          tier: ''
           clusters:
             - rtz-A
           roles:
