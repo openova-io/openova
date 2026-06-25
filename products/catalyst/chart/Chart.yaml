@@ -3143,7 +3143,7 @@ name: bp-catalyst-platform
 #   plane-vcluster-mangled name (regression-guards both #4378's NATS fix and this
 #   Valkey fix). Config-default-only change; no new bootstrap state.
 #   Refs #4368 #4373 #4325 #4347 #4322.
-version: 1.4.855
+version: 1.4.856
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
