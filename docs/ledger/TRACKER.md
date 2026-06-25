@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T14:30:02Z` |
+| Last refreshed | `2026-06-25T14:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 34 |
 | Open DoD gates | 0 / 41 |
@@ -241,6 +241,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T14:42 | [#4356](https://github.com/openova-io/openova/pull/4356) | #4352 | fix(bp-huawei-evs-csi): pre-upgrade hook delete+recreate evs |
 | 2026-06-25T13:45 | [#4352](https://github.com/openova-io/openova/pull/4352) | #3971 | fix(bp-huawei-evs-csi): evs-ssd reclaimPolicy Retain -> Dele |
 | 2026-06-25T13:45 | [#4351](https://github.com/openova-io/openova/pull/4351) | #560 | fix(bp-kyverno-policies): exempt crossplane-system from harb |
 | 2026-06-25T13:04 | [#4348](https://github.com/openova-io/openova/pull/4348) | #4347 | fix(planes #4347): end the host-ns Kyverno whack-a-mole — pr |
@@ -270,7 +271,6 @@ flowchart LR
 | 2026-06-25T07:24 | [#4314](https://github.com/openova-io/openova/pull/4314) | #3969 | feat(#3969): wire placement model into reconcile path — targ |
 | 2026-06-25T07:22 | [#4313](https://github.com/openova-io/openova/pull/4313) | #4275 | fix(provisioning): cross-region active-hot-standby — place t |
 | 2026-06-25T07:29 | [#4312](https://github.com/openova-io/openova/pull/4312) | #4212 | feat(catalyst): wire the 2 object-model/DR backbone seams —  |
-| 2026-06-25T07:22 | [#4311](https://github.com/openova-io/openova/pull/4311) | #3376 | fix(catalyst-api): org-handover on-demand registers the funn |
 
 ---
 
