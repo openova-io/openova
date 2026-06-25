@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T19:00:03Z` |
+| Last refreshed | `2026-06-25T19:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T19:00 | [#4386](https://github.com/openova-io/openova/pull/4386) | #4325 | fix(bp-plane-isolation): comprehensive de-vcluster dial-grap |
 | 2026-06-25T18:46 | [#4383](https://github.com/openova-io/openova/pull/4383) | #4377 | fix(bp-plane-isolation): add org-services to gitea allowIngr |
 | 2026-06-25T18:44 | [#4381](https://github.com/openova-io/openova/pull/4381) | #3969 | feat(application-controller #3969): fan-out HR render from s |
 | 2026-06-25T18:29 | [#4380](https://github.com/openova-io/openova/pull/4380) | #4325 | fix(cutover): plane-isolation carve-out opens catalyst→{gite |
@@ -256,7 +257,6 @@ flowchart LR
 | 2026-06-25T09:20 | [#4336](https://github.com/openova-io/openova/pull/4336) | #4322 | fix(bp-wordpress-tenant): oidc-config hook vendors OIDC plug |
 | 2026-06-25T08:50 | [#4335](https://github.com/openova-io/openova/pull/4335) | #4292 | feat(org-controller): admit Cilium reserved entities on the  |
 | 2026-06-25T09:49 | [#4334](https://github.com/openova-io/openova/pull/4334) | #4212 | fix(catalyst): wire spine Application→Continuum write/read s |
-| 2026-06-25T09:21 | [#4333](https://github.com/openova-io/openova/pull/4333) | #1844 | fix(catalyst): render sovereign-fqdn LB/CP IPs — unhalt the  |
 
 ---
 
