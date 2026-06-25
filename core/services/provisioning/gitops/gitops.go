@@ -928,6 +928,27 @@ spec:
           envFrom:
             - secretRef:
                 name: postgres-credentials
+          # #4389: Kyverno 'probes-present' (svc-fail/enforce) blocks any
+          # Deployment whose containers omit BOTH probes → the vcluster/apps
+          # Kustomization fails dry-run and no app in the apply lands. pg_isready
+          # readiness + TCP liveness (POSTGRES_USER from the credentials envFrom).
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -h 127.0.0.1 -U "$POSTGRES_USER"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             requests:
               cpu: 50m
@@ -1354,6 +1375,30 @@ spec:
           envFrom:
             - secretRef:
                 name: mysql-credentials
+          # #4389: the Sovereign's Kyverno 'probes-present' policy
+          # (containers-must-have-liveness-and-readiness, svc-fail/enforce)
+          # blocks any Deployment whose containers omit BOTH probes — without
+          # these the whole vcluster/apps Kustomization fails dry-run and
+          # NEITHER mysql NOR the co-installed app (wordpress) lands. TCP
+          # liveness + 'mariadb-admin ping' readiness (mariadb:11 ships the
+          # client; root creds come from the mysql-credentials envFrom).
+          livenessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             requests:
               cpu: 50m
@@ -1430,6 +1475,27 @@ spec:
           image: %s
           ports:
             - containerPort: 6379
+          # #4389: Kyverno 'probes-present' (svc-fail/enforce) blocks any
+          # Deployment whose containers omit BOTH probes → the vcluster/apps
+          # Kustomization fails dry-run. 'redis-cli ping' (valkey ships it) +
+          # TCP liveness on 6379.
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -h 127.0.0.1 ping | grep -q PONG
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             requests:
               cpu: 25m
@@ -1677,7 +1743,28 @@ spec:
           ports:
             - containerPort: %d
           env:
-%s          resources:
+%s          # #4389: the Sovereign's Kyverno 'probes-present' policy
+          # (containers-must-have-liveness-and-readiness, svc-fail/enforce)
+          # rejects any Deployment whose containers omit BOTH probes — without
+          # these the whole vcluster/apps Kustomization fails dry-run and the
+          # app (+ any co-installed app in the same apply) never lands. A
+          # generic TCP probe on the app's own port works for every
+          # marketplace app (they all serve HTTP on spec.Port).
+          livenessProbe:
+            tcpSocket:
+              port: %d
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: %d
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
             requests:
               cpu: %s
               memory: %s
@@ -1702,6 +1789,7 @@ spec:
 		initContainers,
 		appSlug, spec.Image, spec.Port,
 		envLines,
+		spec.Port, spec.Port,
 		spec.CPUMilli, spec.RAMMI,
 		limCPU, limMem,
 		volumeMounts, volumes,
