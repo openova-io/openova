@@ -3083,7 +3083,7 @@ name: bp-catalyst-platform
 #   every secret name stays operator-overridable; external ghcr/upstream sources are
 #   untouched (the guard applies only to the local-Gitea/Harbor host). Clean version tag
 #   forces the Flux re-pull (deploy-bot mutable-tag trap).
-version: 1.4.834
+version: 1.4.835
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
@@ -3194,7 +3194,7 @@ version: 1.4.834
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.818
+appVersion: 1.4.835
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
