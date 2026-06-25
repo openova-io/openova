@@ -821,7 +821,7 @@ controllers:
       # loops the env-controller.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "895f961"
+      tag: "8c532a7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -873,7 +873,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "895f961"
+      tag: "8c532a7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -911,7 +911,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "895f961"
+      tag: "8c532a7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1135,7 +1135,7 @@ services:
       # Pre-G92.2 default `nats-jetstream.nats-system.svc.cluster.local:4222`
       # returned NXDOMAIN because the `nats-system` namespace no longer
       # exists on the host k3s.
-      url: "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222"
+      url: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:

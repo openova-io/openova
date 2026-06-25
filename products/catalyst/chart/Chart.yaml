@@ -3102,7 +3102,22 @@ name: bp-catalyst-platform
 #   re-inits `main` via the contents API before branching. Idempotent + bounded.
 #   lookup-source change; no new bootstrap state. Chart-version bump forces the
 #   Flux re-pull (deploy-bot mutable-tag trap). bootstrap-kit slot-13 lockstep.
-version: 1.4.850
+# 1.4.851 — #4373: TWO fixes the de-vcluster re-home (#4291/#4325/#4347/#4348)
+#   left stale. (1) org-services NATS_URL default re-pointed from the dead
+#   mgmt-vcluster-syncer-mangled name
+#   (`nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc`) BACK to the plain
+#   host name `nats-jetstream.nats-system.svc` — bp-nats-jetstream was re-homed to
+#   the host `nats-system` ns, the mgmt vCluster + mangled syncer Service are gone,
+#   so the mangled default resolved NXDOMAIN → org-services/provisioning CrashLooped
+#   `nats connect: no such host`, wedging #4364's funnel-cart install (live
+#   kom4dc/omantel.biz dep 4635277cae4ffed9, 2026-06-26). Fixed in 4 places:
+#   org-services/configmap.yaml ($defaultNATS), values.yaml (catalystApi.nats.url),
+#   api-deployment.yaml + api-deployment-kustomize.yaml (CATALYST_NATS_URL default).
+#   (2) environment/blueprint/application controller pins bumped 895f961 -> 8c532a7
+#   (the #4363 application-controller typed-nil configSchema fix) — they were 223
+#   commits behind latest GHCR, tripping the Controller-image-tag freshness gate.
+#   Config-default + pin-bump only; no new bootstrap state. Refs #4373 #4363 #4322.
+version: 1.4.851
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
