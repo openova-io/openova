@@ -106,6 +106,42 @@ describe('TopologyTab — #3969 { Placement, Status }', () => {
     expect(screen.getByTestId('topology-tab-target-card-1')).toBeTruthy()
   })
 
+  it('#3969 §8d: reads status.placementRecon while status.placement is the legacy OBJECT (no collision)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    // The REAL controller shape: status.placement is an OBJECT
+    // ({vcluster, source, regions}) AND the ONE recon value lives in the
+    // dedicated status.placementRecon string. The tab must read the recon
+    // field and never choke on the object (the pre-#3969 code cast
+    // status.placement to a string and would have shown the wrong status).
+    getApplicationStatus.mockResolvedValue({
+      name: 'keycloak',
+      namespace: 'keycloak',
+      spec: {
+        placement: {
+          targets: [
+            { region: 'region-a', cluster: 'mgmt-A', vcluster: 'mgmt', role: 'Primary' },
+            { region: 'region-b', cluster: 'mgmt-B', vcluster: 'mgmt', role: 'Standby', standbyType: 'Hot' },
+          ],
+        },
+      },
+      status: {
+        placement: { vcluster: 'mgmt', source: 'instance', regions: ['region-a', 'region-b'] },
+        placementRecon: 'Reconciling',
+        placementReason: 'region-b Standby·Hot is reconciling',
+      },
+    })
+
+    render(withProviders(<TopologyTab sovereignId="test-sov" applicationName="keycloak" namespace="keycloak" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Reconciling')
+    })
+    // The plain reason is surfaced, never a second contradictory class.
+    expect(document.body.textContent).toContain('region-b Standby·Hot is reconciling')
+    expect(document.body.textContent).not.toContain('[object Object]')
+    expect(document.body.textContent).not.toContain('mandate unbuilt')
+  })
+
   it('singleton placement shows one card, pattern singleton, no contradiction', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     const initialApp = {

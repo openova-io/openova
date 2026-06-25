@@ -704,6 +704,32 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				spec.Placement, spec.BlueprintName, allowedModes))
 	}
 
+	// 5.1 (#3969) — validate the canonical desired-state placement
+	// (spec.placement.targets[]) against the Blueprint capability gate.
+	// This is the authoritative enforcement of the model invariants:
+	// every target has a valid role; a Standby carries a Hot|Cold type; a
+	// Primary carries none; ≥1 Primary when any target is declared; and
+	// — the load-bearing gate — >1 Primary requires the Blueprint to
+	// declare `placementCapability: multi-primary`, else the Application
+	// moves to Ready=False, reason=MultiPrimaryNotSupported (DoD item 5).
+	// When no targets are declared this is a no-op (the legacy posture
+	// string drives the fan-out unchanged).
+	if len(spec.PlacementTargets) > 0 {
+		capability := blueprintPlacementCapability(bp)
+		desired := bpv1alpha1.Placement{
+			Targets:           spec.PlacementTargets,
+			OwnedDependencies: spec.OwnedDependencies,
+		}
+		if perr := bpv1alpha1.ValidatePlacement(desired, capability); perr != nil {
+			var pe *bpv1alpha1.PlacementError
+			reason := ReasonInvalidPlacement
+			if errors.As(perr, &pe) {
+				reason = pe.Reason
+			}
+			return r.markFailed(ctx, app, reason, perr.Error())
+		}
+	}
+
 	// 5.5 (#3373) — resolve the instance's effective vCluster
 	// placement. Resolution order (founder-ratified law §2.1):
 	//
@@ -1317,7 +1343,86 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		}
 		su.Placement["clusters"] = clusters
 	}
+
+	// #3969 §8a/§8b/§8e — run the owned-dependency cascade + the shared-dep
+	// recommendation closure for this Application's declared backing
+	// services. Owned (private) instances follow the consumer's resolved
+	// placement by DEFAULT (unless decoupled via
+	// spec.placement.ownedDependencies[].follow=false); shared instances
+	// never cascade — they get a SOFT, non-blocking recommendation. The
+	// result is surfaced on status so the rebuilt Topology tab's owned-deps
+	// "[✓ follow]" rows + the shared-dep recommendation banner have a
+	// backend source. This is READ-ONLY + NON-BLOCKING: an unsupported
+	// backing-service type is logged, never fatal (a recommendation must
+	// never fail a reconcile).
+	if bindings, berr := resolveBackingPlacement(
+		spec.BlueprintName, app.GetName(), app.GetNamespace(),
+		blueprintBackingServices(bp), spec.PlacementTargets, spec.OwnedDependencies,
+	); berr != nil {
+		r.Log.Warn("backing-service placement cascade skipped",
+			"app", app.GetName(), "blueprint", spec.BlueprintName, "err", berr)
+	} else if len(bindings) > 0 {
+		ownedRows := make([]interface{}, 0, len(bindings))
+		var recs []interface{}
+		for _, b := range bindings {
+			if b.Mode == bpv1alpha1.BackingServiceModePrivate {
+				ownedRows = append(ownedRows, map[string]interface{}{
+					"name":   b.InstanceName,
+					"follow": b.Followed,
+				})
+			}
+			for _, rec := range b.Recommendations {
+				recs = append(recs, rec)
+			}
+		}
+		if len(ownedRows) > 0 {
+			su.Placement["ownedDependencies"] = ownedRows
+		}
+		if len(recs) > 0 {
+			su.Placement["recommendations"] = recs
+		}
+	}
+
+	// #3969 §7.4 — derive the ONE recon status (Reconciled / Reconciling /
+	// Degraded + plain reason) + the observed per-target rollup, and
+	// surface them via dedicated status fields. This is the single status
+	// value the rebuilt Topology tab reads; there is NO second contradictory
+	// "effective class" / "mandate unbuilt" derivation anywhere — that
+	// machinery is deleted by this ticket.
+	//
+	// The per-region readiness is projected from the overall HR phase
+	// rollup the controller already observed (PhaseReady ⇒ all ready;
+	// PhaseDegraded/PhaseFailed ⇒ degraded; otherwise ⇒ reconciling). When
+	// desired-state targets are declared we carry their richer
+	// Primary|Standby role + Hot|Cold type onto the rollup, region-matched.
+	readyByRegion := readbackByRegion(plan, finalPhase)
+	observed := observedTargetsFromPlan(plan, spec.PlacementTargets, readyByRegion)
+	su.PlacementRecon, su.PlacementReason, su.ObservedTargets = reconStatusBlock(observed)
+
 	return r.updateStatus(ctx, app, su)
+}
+
+// readbackByRegion projects the overall HR phase rollup onto a per-region
+// readiness map for the #3969 recon rollup. The controller's
+// observeRegionHelmReleases collapses the per-region HRs to a single
+// worst-of phase; we fan that back out across the plan's regions so the
+// ObservedTarget rollup is consistent with the Application phase the rest
+// of the status already reports. PhaseReady ⇒ every region ready;
+// PhaseDegraded/PhaseFailed ⇒ every region degraded; otherwise ⇒ none
+// ready yet (Reconciling), never degraded.
+func readbackByRegion(plan placement.Plan, phase string) map[string]regionReadback {
+	out := make(map[string]regionReadback, len(plan.Regions))
+	for _, rp := range plan.Regions {
+		switch phase {
+		case PhaseReady:
+			out[rp.Name] = regionReadback{ready: true}
+		case PhaseDegraded, PhaseFailed:
+			out[rp.Name] = regionReadback{degraded: true}
+		default:
+			out[rp.Name] = regionReadback{}
+		}
+	}
+	return out
 }
 
 // observeRegionHelmReleases polls the per-region HelmRelease CRs the
@@ -1883,6 +1988,28 @@ type statusUpdate struct {
 	// Git-committed truth (law §2.4: the console reflects Git, never
 	// fights it). Nil leaves the field untouched.
 	Placement map[string]interface{}
+
+	// ── #3969 §7.4 — the ONE recon status (no second class) ──────────
+	//
+	// PlacementRecon — the single recon value: Reconciled | Reconciling |
+	// Degraded. Surfaced via `status.placementRecon` (a string, distinct
+	// from the legacy `status.placement` OBJECT so the existing
+	// placementInfoFromCR object-reader is untouched). The rebuilt
+	// Topology tab reads this as the ONE status value. Empty leaves the
+	// field untouched.
+	PlacementRecon string
+
+	// PlacementReason — the plain, operator-readable reason that
+	// accompanies a non-Reconciled status (e.g. "region-b Standby·Hot is
+	// reconciling"). NEVER a second class. Surfaced via
+	// `status.placementReason`. Empty clears any prior reason.
+	PlacementReason string
+
+	// ObservedTargets — the §7.4 observed per-target rollup
+	// (region/cluster/role/standbyType/ready/degraded). Surfaced via
+	// `status.targets[]` — the same key the rebuilt Topology tab reads as
+	// the recon rollup fallback. Nil leaves the field untouched.
+	ObservedTargets []interface{}
 }
 
 // updateStatus writes the status sub-resource via the dynamic client.
@@ -1923,6 +2050,20 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 	if su.Placement != nil {
 		// #3373 — effective placement reflection.
 		currentStatus["placement"] = su.Placement
+	}
+	if su.PlacementRecon != "" {
+		// #3969 §7.4 — the ONE recon status value (string), distinct from
+		// the legacy `status.placement` object above. Reconciled /
+		// Reconciling / Degraded — never a second contradictory class.
+		currentStatus["placementRecon"] = su.PlacementRecon
+		// The plain reason is set (or cleared) alongside the status so a
+		// stale reason never lingers once the placement reconciles green.
+		currentStatus["placementReason"] = su.PlacementReason
+	}
+	if su.ObservedTargets != nil {
+		// #3969 §7.4 — the observed per-target rollup the Topology tab
+		// reads. One status value, never two.
+		currentStatus["targets"] = su.ObservedTargets
 	}
 	if su.GiteaRepo != "" {
 		currentStatus["giteaRepo"] = su.GiteaRepo
@@ -2190,6 +2331,24 @@ type appSpec struct {
 	// HelmRelease(s) and stamps Flux `spec.dependsOn` on every HR it
 	// renders — the runtime wiring stays purely Flux.
 	DependsOn []dependsOnRef
+
+	// ── #3969 application-centric Placement (desired-state targets) ──
+	//
+	// PlacementTargets — the canonical desired-state placement: a list
+	// of targets, each = region × cluster × vCluster × data-role
+	// (Primary|Standby, with a Standby type Hot|Cold). When non-empty it
+	// is the source of truth; the pattern (singleton / active-passive /
+	// active-hot-standby / active-active) is DERIVED via DerivePattern,
+	// never stored. Parsed from `spec.placement.targets[]`. Empty ⇒ the
+	// legacy `Placement` posture string drives the fan-out (back-compat).
+	PlacementTargets []bpv1alpha1.PlacementTarget
+
+	// OwnedDependencies — #3969 per-owned-dependency cascade overrides
+	// parsed from `spec.placement.ownedDependencies[]`. An owned
+	// (private) backing service follows the consumer's placement by
+	// DEFAULT; an entry with Follow:false decouples it. Absent ⇒ every
+	// owned dep follows.
+	OwnedDependencies []bpv1alpha1.OwnedDependencyOverride
 }
 
 // dependsOnRef is one parsed spec.dependsOn[] entry (#3370).
@@ -2276,6 +2435,29 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 				}
 				out.PlacementRegions = append(out.PlacementRegions, s)
 			}
+		}
+
+		// #3969 — the canonical desired-state placement: spec.placement.targets[].
+		// Each target = {region, cluster, vcluster, role Primary|Standby,
+		// standbyType Hot|Cold}. When present it is the source of truth; the
+		// pattern is DERIVED (never stored) and the capability gate validates it.
+		if raw, exists := plMap["targets"]; exists {
+			targets, perr := parsePlacementTargets(raw)
+			if perr != nil {
+				return out, perr
+			}
+			out.PlacementTargets = targets
+		}
+
+		// #3969 — per-owned-dependency cascade overrides.
+		// spec.placement.ownedDependencies[]. Absent ⇒ every owned dep follows;
+		// an entry with follow:false decouples that owned dep.
+		if raw, exists := plMap["ownedDependencies"]; exists {
+			overrides, perr := parseOwnedDependencies(raw)
+			if perr != nil {
+				return out, perr
+			}
+			out.OwnedDependencies = overrides
 		}
 	}
 

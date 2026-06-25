@@ -190,7 +190,14 @@ export function TopologyTab({
       return statusTargets as PlacementTarget[]
     }
     const statusRegions = (status.regions ?? []) as RegionStatus[]
-    const mode = typeof specPlacement === 'string' ? specPlacement : ((status.placement as string) ?? '')
+    // status.placement is an OBJECT on a real (#3373/#3969) controller; only
+    // a pre-#3969 controller wrote the legacy posture string here.
+    const mode =
+      typeof specPlacement === 'string'
+        ? specPlacement
+        : typeof status.placement === 'string'
+          ? status.placement
+          : ''
     const regions = Array.isArray(app?.spec?.regions) ? app!.spec!.regions! : statusRegions.map((r) => r.name)
     return targetsFromLegacy({ mode, regions, statusRegions })
   }, [app, runtimeTargets])
@@ -228,13 +235,24 @@ export function TopologyTab({
   }, [app, blueprint, applicationName])
 
   // Recon status — read the single status value (no second derived class).
+  //
+  // #3969 §7.4: the application-controller writes the ONE recon value to
+  // `status.placementRecon` (a string) + a plain `status.placementReason`.
+  // That field is distinct from the legacy `status.placement` OBJECT
+  // ({vcluster, source, regions}) so the two never collide. We prefer the
+  // dedicated recon field; legacy string placement + phase remain a
+  // fallback for pre-#3969 controllers. There is NEVER a second
+  // contradictory class anywhere here.
   const recon: { status: ReconStatus; reason: string } = useMemo(() => {
     const status = (app?.status ?? {}) as Record<string, unknown>
-    const placement = (status.placement as string) ?? ''
-    const reason = (status.reason as string) ?? ''
-    // Accept the canonical recon vocabulary verbatim; map the legacy phase
-    // strings (Ready/Provisioning/Degraded) onto it.
-    const v = placement.toLowerCase()
+    // The dedicated recon field wins; its reason is the plain operator
+    // string, falling back to the generic status.reason.
+    const reason = (status.placementReason as string) || (status.reason as string) || ''
+    const recon = typeof status.placementRecon === 'string' ? status.placementRecon : ''
+    // The legacy `status.placement` is an object on a real controller; only
+    // treat it as a recon string on the (pre-#3969) string form.
+    const legacyPlacement = typeof status.placement === 'string' ? status.placement : ''
+    const v = (recon || legacyPlacement).toLowerCase()
     if (v === 'reconciled' || v === 'ready') return { status: 'Reconciled', reason }
     if (v === 'degraded') return { status: 'Degraded', reason }
     if (v === 'reconciling' || v === 'provisioning') return { status: 'Reconciling', reason }
