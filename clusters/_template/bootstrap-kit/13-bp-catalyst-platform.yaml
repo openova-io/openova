@@ -1128,10 +1128,6 @@ spec:
       #   `keycloak.keycloak.svc.cluster.local` after the #4325 de-vcluster left
       #   the bridge defaults at the dead `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc`
       #   syncer name (NXDOMAIN → /auth/handover 401). Chart.yaml bumped in lockstep.
-      # 1.4.860 — #4388 (#4325 fallout completeness sweep): repoint the remaining
-      #   ACTIVE dead plane-vCluster references (CATALYST_MIMIR_URL, keycloak/gitea
-      #   bridges, qaFixtures S3, baseline CNP mgmt→guacamole). Chart.yaml bumped in
-      #   lockstep. Refs #4388 #4325 #4291 #4293.
       version: 1.4.862
       sourceRef:
         kind: HelmRepository
