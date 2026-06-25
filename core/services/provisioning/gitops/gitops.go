@@ -240,6 +240,34 @@ func (g *ManifestGenerator) GenerateAllWithPassword(slug, planSlug string, appSl
 	return g.GenerateAllWithAppConfigs(slug, planSlug, appSlugs, dbPassword, nil)
 }
 
+// BoundaryIsVcluster is the funnel-side TIER GATE (#4297, keystone of EPIC
+// #4293). It MUST stay in lockstep with the org-controller's authoritative
+// gate `boundaryIsVcluster` in
+// core/controllers/organization/internal/gitops/manifests.go (const
+// allTiersVcluster + the same free/S/"" → host-ns, m/l/xl/flexi → vCluster
+// switch). That gate lives in an `internal/` package the provisioning module
+// cannot import, so this is a deliberate small duplicate, NOT a divergence —
+// flip both together if the Sovereign-level policy changes.
+//
+// The funnel uses it to decide whether the per-Org app-install tree is
+// REDIRECTED into the Org vCluster (paid M+ tiers — the apps-sync Kustomization
+// carries spec.kubeConfig so the host Flux installs INTO the vcluster API) or
+// reconciled straight into the host `<slug>` namespace (free/S tiers — NO
+// kubeConfig, the org-controller's `<slug>` ns IS the boundary). Exported so
+// the provisioning consumer can gate its vcluster-only waits (vcluster-HR
+// Ready / kubeconfig-mirror / synced-pod-name match) on the same predicate.
+func BoundaryIsVcluster(planSlug string) bool {
+	switch strings.ToLower(strings.TrimSpace(planSlug)) {
+	case "", "s", "free":
+		// free/S → the host `<slug>` ns IS the boundary; apps reconcile there
+		// directly (the org-controller still renders the ns + quota + np).
+		return false
+	default:
+		// m/l/xl/flexi → dedicated Org vCluster; apps are redirected into it.
+		return true
+	}
+}
+
 // GenerateAllWithAppConfigs is the canonical entry point (TBD-V27 #2042).
 // `appConfigs` carries the customer-chosen configSchema values keyed by
 // app SLUG (e.g. {"postgres": {"replicas": 3, "disk_gb": 20,
@@ -268,6 +296,15 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	hostNS := slug
 	appNS := "apps"
 
+	// #4297 (keystone of EPIC #4293) — TIER GATE. Paid M+ Orgs get a dedicated
+	// vCluster; the apps-sync Kustomization REDIRECTS the apps/ tree INTO it via
+	// spec.kubeConfig (the host helm/kustomize controller installs into the
+	// vcluster API). Free/S Orgs have NO vcluster — the org-controller's `<slug>`
+	// host ns IS the boundary, so the apps-sync reconciles straight into it with
+	// NO kubeConfig (a kubeConfig referencing the never-created `vc-vcluster`
+	// mirror would StateError forever → host-tier apps would never deploy).
+	isVcluster := BoundaryIsVcluster(planSlug)
+
 	// --- databases required by selected apps ---
 	needsRedis := false
 	mysqlApps := []string{}
@@ -295,12 +332,15 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	// ONLY: the apps-sync Flux Kustomization (reconciles apps/ into that
 	// vCluster), the provisioning ServiceAccount RBAC the sync needs, and the
 	// host ingress for the synced services — all targeting `<slug>`.
+	// #4297: the host kustomization.yaml is assembled LAST (below) so it can
+	// include any host-reconciled HelmRelease the db block adds (e.g. the
+	// bp-cnpg-pair HR, which must live on the host with HR-level kubeConfig —
+	// never inside the vcluster-redirected apps/ tree).
 	hostFiles := map[string]string{
 		"ingress.yaml":           generateHostIngress(hostNS, slug, appSlugs),
-		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath),
+		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath, isVcluster),
 		"provisioning-rbac.yaml": generateProvisioningTenantRBAC(hostNS),
 	}
-	hostFiles["kustomization.yaml"] = generateKustomization("", hostFiles)
 
 	// --- in-vCluster files under apps/ ---
 	vcFiles := map[string]string{
@@ -332,7 +372,38 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		primaryRegion := strings.TrimSpace(readStringCfg(pgCfg, "primary_region", "", "postgres"))
 		replicaRegion := strings.TrimSpace(readStringCfg(pgCfg, "replica_region", "", "postgres"))
 		if enableHA && primaryRegion != "" && replicaRegion != "" && primaryRegion != replicaRegion {
-			vcFiles["db-cnpg-pair.yaml"] = generateCNPGPair(appNS, dbPassword, postgresApps, pgCfg, primaryRegion, replicaRegion, g.cnpgStorageClass())
+			// #4297 keystone — the bp-cnpg-pair HelmRelease is a HelmRelease CR,
+			// NOT a plain manifest. The apps-sync Kustomization REDIRECTS the
+			// apps/ tree INTO the Org vCluster, but a vcluster runs NO
+			// in-cluster helm-controller (#3055 StateError), so an HR CR landing
+			// inside it would never reconcile. Instead emit it as a HOST file
+			// (reconciled by the host flux-system kustomization, alongside the
+			// apps-sync CR) carrying HR-level spec.kubeConfig → the HOST
+			// helm-controller runs `helm install` INTO the vcluster API. For the
+			// host tier there is no vcluster, so the HR reconciles on the host
+			// `<slug>` ns with no kubeConfig. See generateCNPGPair (isVcluster).
+			cnpgKubeSecret := ""
+			if isVcluster {
+				cnpgKubeSecret = "tenant-" + slug + "-kubeconfig"
+			}
+			// chartTargetNS — the namespace the chart installs into. For the
+			// vcluster tier the host helm-controller installs INTO the vcluster
+			// API, where the apps live in the `<slug>` namespace (the apps-sync
+			// Kustomization rewrites the apps/ tree's `apps` → `<slug>` on apply
+			// into the vcluster). For the host tier the HR reconciles on the host
+			// and the chart installs into the host `<slug>` ns. Either way the
+			// chart target is `<slug>`, co-located with the app pods + the
+			// postgres-credentials Secret.
+			//
+			// HOST-reconciled HelmRelease (+ HelmRepository) with HR-level
+			// kubeConfig → installs the CNPG Clusters INTO the vcluster.
+			hostFiles["db-cnpg-pair.yaml"] = generateCNPGPair(slug, dbPassword, postgresApps, pgCfg, primaryRegion, replicaRegion, g.cnpgStorageClass(), cnpgKubeSecret)
+			// The standalone postgres-credentials Secret the app pods read goes
+			// INSIDE the vcluster (apps/ tree), co-located with the app pods. It
+			// is authored with the apps-tree namespace ("apps"); the apps-sync
+			// Kustomization rewrites it to `<slug>` on apply, matching the chart
+			// targetNamespace above.
+			vcFiles["db-cnpg-pair-secret.yaml"] = generateCNPGPairSecret(appNS, dbPassword, postgresApps)
 		} else {
 			if enableHA {
 				// Operator opted in but didn't supply distinct region
@@ -372,6 +443,14 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	}
 	vcFiles["kustomization.yaml"] = generateKustomization(appNS, vcFiles)
 
+	// #4297: assemble the host kustomization.yaml LAST so it enumerates every
+	// host-scoped file including any host-reconciled HelmRelease the db block
+	// added above (the bp-cnpg-pair HR lives here, not in apps/). The host
+	// kustomization carries no `namespace:` — the apps-sync CR + ingress are
+	// flux-system / host-namespaced by their own metadata, and the cnpg-pair HR
+	// stamps its own namespace.
+	hostFiles["kustomization.yaml"] = generateKustomization("", hostFiles)
+
 	// --- assemble paths prefixed by tenant dir ---
 	dir := g.TenantDir(slug)
 	result := make(map[string]string, len(hostFiles)+len(vcFiles))
@@ -406,18 +485,44 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 // by the teardown handler and its finalizer completes against a still-live
 // flux-system namespace.
 //
-// spec.targetNamespace is informational here because reconciliation is
-// redirected into the vCluster via spec.kubeConfig; we still set it so the
-// intent ("these resources belong to tenant-<slug>") is visible in the CR.
+// spec.targetNamespace stamps the destination ns. For BOTH tiers it is the
+// org-controller-owned `<slug>` namespace — for the vcluster tier it is the
+// in-vcluster namespace the synced resources land in; for the host tier it is
+// the host namespace the resources are applied into directly.
 //
-// kubeConfig.secretRef: Flux's Kustomization API only accepts `name` and
-// `key` on secretRef (no namespace override), so the secret must live in
-// flux-system. The vcluster HelmRelease writes the kubeconfig to
-// `tenant-<slug>/vc-vcluster`; the provisioning workflow mirrors that secret
-// into `flux-system/tenant-<slug>-kubeconfig` after HelmRelease becomes
-// Ready (see handlers.MirrorVClusterKubeconfig). The mirror is deleted
-// during teardown.
-func generateAppsSyncKustomization(ns, slug, basePath string) string {
+// #4297 keystone — TIER-AWARE kubeConfig. For the VCLUSTER tier (isVcluster
+// true) the Kustomization carries spec.kubeConfig.secretRef so the host Flux
+// kustomize-controller reconciles the apps tree INTO the Org vCluster apiserver
+// (the apps then run inside the vcluster, not on the host). For the HOST tier
+// (free/S) there is NO vcluster — emitting a kubeConfig referencing the
+// never-created `vc-vcluster` mirror would StateError forever and the host-tier
+// Org's apps would never deploy. So host-tier omits kubeConfig entirely and the
+// apps reconcile straight into the host `<slug>` ns (which IS the boundary).
+//
+// kubeConfig.secretRef (vcluster tier only): Flux's Kustomization API accepts
+// only `name`+`key` on secretRef (no namespace override), so the secret must
+// live in flux-system alongside the CR. The org-controller's `vcluster`
+// HelmRelease exports the kubeconfig to `<slug>/vc-vcluster`; the provisioning
+// workflow mirrors that into `flux-system/tenant-<slug>-kubeconfig` after the
+// vcluster HelmRelease becomes Ready (handlers.mirrorVClusterKubeconfig). The
+// mirror is deleted during teardown.
+//
+// Readiness gating: NO manifest-level dependsOn is used (Flux Kustomization
+// dependsOn references other Kustomizations, not the vcluster HelmRelease). The
+// gate is enforced in code: the consumer waits for the vcluster HR Ready and
+// mirrors the kubeconfig BEFORE the apps are expected up; until the mirror
+// exists this Kustomization simply StateErrors-then-retries (retryInterval 1m)
+// — the intended self-healing for the vcluster tier. The host tier has no
+// secret dependency at all, so it reconciles immediately.
+func generateAppsSyncKustomization(ns, slug, basePath string, isVcluster bool) string {
+	kubeConfig := ""
+	if isVcluster {
+		kubeConfig = fmt.Sprintf(`
+  kubeConfig:
+    secretRef:
+      name: tenant-%s-kubeconfig
+      key: config`, slug)
+	}
 	return fmt.Sprintf(`apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -434,12 +539,8 @@ spec:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  path: ./%s/%s/apps
-  kubeConfig:
-    secretRef:
-      name: tenant-%s-kubeconfig
-      key: config
-`, slug, ns, basePath, slug, slug)
+  path: ./%s/%s/apps%s
+`, slug, ns, basePath, slug, kubeConfig)
 }
 
 func generateHostIngress(ns, slug string, appSlugs []string) string {
@@ -707,7 +808,31 @@ spec:
 // per-Sovereign overlay MUST pin a SHA digest. Leaving it empty in the
 // orchestrator output keeps the contract that overlay layer is the
 // single owner of image pins.
-func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, primaryRegion, replicaRegion, storageClass string) string {
+// #4297 — generateCNPGPair emits a HelmRelease CR. Unlike the plain-manifest db
+// paths (generatePostgres/MySQL/Redis), an HR CR cannot simply be redirected
+// INTO the vcluster by the apps-sync Kustomization: vclusters run NO in-cluster
+// helm-controller, so the synced HR StateErrors (#3055). The robust model is
+// HelmRelease.spec.kubeConfig — the HR CR + its HelmRepository live on the HOST
+// (reconciled by the host helm-controller / flux-system kustomization), and the
+// host helm-controller runs `helm install` INTO the vcluster API named by
+// kubeSecret. The chart's resources (CNPG Clusters etc.) then land in the
+// vcluster `targetNamespace` (= ns, "apps").
+//
+// The `postgres-credentials` Secret is NOT chart-templated — the marketplace
+// app pods read its POSTGRES_* keys directly. It must therefore live INSIDE the
+// vcluster alongside the app pods, so it is emitted SEPARATELY by
+// generateCNPGPairSecret into the apps/ tree (Kustomization-redirected), NOT
+// here on the host.
+//
+// ns is the chart TARGET namespace (= the Org `<slug>`): for the vcluster tier
+// the host helm-controller installs the chart into the vcluster's `<slug>` ns
+// (where the apps-sync-rewritten app pods + postgres-credentials Secret live);
+// for the host tier the chart installs into the host `<slug>` ns.
+//
+// kubeSecret is the flux-system-co-located vcluster kubeconfig mirror
+// (`tenant-<slug>-kubeconfig`); empty for the host tier (no vcluster → the HR
+// reconciles on the host and the chart installs into the host `<slug>` ns).
+func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, primaryRegion, replicaRegion, storageClass, kubeSecret string) string {
 	sortedApps := sortStrings(append([]string{}, apps...))
 	primaryDB := "appdb"
 	if len(sortedApps) > 0 {
@@ -736,6 +861,25 @@ func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, pr
 	// the legacy single-cluster path).
 	diskGB := readIntCfg(cfg, "disk_gb", 5, 1, 500, "postgres")
 
+	// HR-level kubeConfig (vcluster tier only). Flux's HelmRelease secretRef
+	// accepts name+key only — the namespace is implied from the HR's OWN
+	// namespace. The provisioning workflow mirrors `<slug>/vc-vcluster` →
+	// `flux-system/tenant-<slug>-kubeconfig`, so for the secretRef to resolve
+	// the HR (+ its HelmRepository) must ALSO live in flux-system. Authoring the
+	// HR in flux-system for the vcluster tier keeps the kubeconfig reachable and
+	// mirrors the apps-sync CR's placement. Host tier omits kubeConfig and the
+	// HR is authored in the host `<slug>` ns (= ns) where the chart installs.
+	hrNamespace := ns
+	kubeConfigBlock := ""
+	if kubeSecret != "" {
+		hrNamespace = "flux-system"
+		kubeConfigBlock = fmt.Sprintf(`
+  kubeConfig:
+    secretRef:
+      name: %s
+      key: config`, kubeSecret)
+	}
+
 	return fmt.Sprintf(`# bp-cnpg-pair — Pillar-3 active-hot-standby install path for
 # postgres-backed marketplace apps (TBD-V17 #2068). Renders the
 # primary + replica CNPG Cluster CR pair across the two regions the
@@ -743,23 +887,11 @@ func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, pr
 # ClusterMesh; failover-readiness probe + audit ConfigMap wired by the
 # chart's own templates (platform/cnpg-pair/chart/templates/*).
 #
-# postgres-credentials Secret carries the same shape the legacy
-# single-cluster path emits so co-installed marketplace apps' env
-# bindings (POSTGRES_HOST=postgres, POSTGRES_USER=app, etc.) keep
-# working. The Service the apps connect to is the primary Cluster
-# CR's bootstrap-managed RW endpoint (cnpgPair.primary.bootstrap.database
-# = primary DB name).
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-credentials
-  namespace: %s
-type: Opaque
-stringData:
-  POSTGRES_USER: app
-  POSTGRES_PASSWORD: "%s"
-  POSTGRES_DB: %s
----
+# #4297 — HOST-reconciled HR with HR-level spec.kubeConfig (vcluster tier):
+# the host helm-controller installs the chart INTO the Org vCluster API so
+# the chart's CNPG Clusters land inside the vcluster. The companion
+# postgres-credentials Secret is emitted separately into the apps/ tree
+# (generateCNPGPairSecret) so the in-vcluster app pods can read it.
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
@@ -784,7 +916,7 @@ metadata:
 spec:
   interval: 15m
   releaseName: cnpg-pair
-  targetNamespace: %s
+  targetNamespace: %s%s
   chart:
     spec:
       chart: bp-cnpg-pair
@@ -831,7 +963,37 @@ spec:
       # clusterMesh.enabled + audit subjects). Per-Sovereign overlays
       # may patch values via Flux postBuild substitute; we intentionally
       # do NOT override here.
-`, ns, password, primaryDB, ns, ns, ns, ns, primaryRegion, instances, diskGB, storageClass, primaryDB, replicaRegion, instances, diskGB, storageClass)
+`, hrNamespace, hrNamespace, ns, kubeConfigBlock, hrNamespace, primaryRegion, instances, diskGB, storageClass, primaryDB, replicaRegion, instances, diskGB, storageClass)
+}
+
+// generateCNPGPairSecret emits the standalone postgres-credentials Secret the
+// marketplace app pods read (POSTGRES_USER/PASSWORD/DB). It is NOT chart-
+// templated, so it must live INSIDE the vcluster alongside the app pods — it is
+// emitted into the apps/ tree (Kustomization-redirected into the vcluster),
+// separate from the host-reconciled HelmRelease (#4297). ns is the in-vcluster
+// app namespace ("apps"); targetNamespace on the apps-sync Kustomization rewrites
+// it to the vcluster's `<slug>` on apply.
+func generateCNPGPairSecret(ns, password string, apps []string) string {
+	sortedApps := sortStrings(append([]string{}, apps...))
+	primaryDB := "appdb"
+	if len(sortedApps) > 0 {
+		primaryDB = "db_" + sortedApps[0]
+	}
+	return fmt.Sprintf(`# postgres-credentials — read by the in-vcluster marketplace app pods
+# (POSTGRES_HOST=postgres, POSTGRES_USER=app, etc.). Lives inside the vcluster
+# (apps/ tree) so it co-locates with the app pods; the CNPG Clusters are
+# installed by the host-reconciled bp-cnpg-pair HelmRelease (#4297).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: %s
+type: Opaque
+stringData:
+  POSTGRES_USER: app
+  POSTGRES_PASSWORD: "%s"
+  POSTGRES_DB: %s
+`, ns, password, primaryDB)
 }
 
 func generateMySQL(ns, password string, apps []string, cfg map[string]any, registryMirror string) string {
