@@ -95,23 +95,24 @@ func TestExpectedSandboxPlans_Shape(t *testing.T) {
 	}
 }
 
-// TestDeployableAppSlugs_OpenclawStalwartDisabled asserts that openclaw and
-// stalwart-mail are NOT in the deployable map. They were briefly enabled by
-// #941 (catalog flag flipped) but the Organization provisioning generator at
-// core/services/provisioning/gitops/apps.go has no AppSpec for either, so
-// the rendered Deployment manifests are invalid (missing image + ports).
-// Live failure 2026-05-06 on tenant "test11":
+// TestDeployableAppSlugs_OpenclawStalwartEnabled asserts that openclaw and
+// stalwart-mail ARE deployable now that the generic provisioning generator
+// emits their HelmRelease overlays (#4272/#4307,
+// core/services/provisioning/gitops/helmrelease_apps.go). Before this fix they
+// were flagged non-deployable since #941 because the generator only rendered a
+// single Deployment (Image + Port) and both apps need HelmRelease-shaped
+// overlays — the live failure being `Deployment.apps "openclaw" is invalid:
+// containers[0].image: Required value` on tenant "test11" (2026-05-06).
 //
-//	tenant-test11-apps Kustomization rejected:
-//	Deployment.apps "openclaw" is invalid: containers[0].image: Required value
-//
-// Re-enabling these requires per-app HelmRelease overlays beyond the single
-// Deployment template the generator currently supports.
-func TestDeployableAppSlugs_OpenclawStalwartDisabled(t *testing.T) {
+// Deployable=true is load-bearing twice: it re-opens the marketplace cards
+// (no "COMING SOON" overlay) AND admits both apps through the funnel cart
+// filter (#4364 dispatches ONLY deployable apps), so a cart Org now renders
+// their HelmReleases into the per-Org gitops vcluster/apps tree.
+func TestDeployableAppSlugs_OpenclawStalwartEnabled(t *testing.T) {
 	d := DeployableAppSlugs()
 	for _, slug := range []string{"openclaw", "stalwart-mail"} {
-		if d[slug] {
-			t.Errorf("%q must NOT be deployable until per-app overlay exists in the Organization provisioning generator", slug)
+		if !d[slug] {
+			t.Errorf("%q must be deployable now that the generic generator emits its HelmRelease overlay (#4272/#4307)", slug)
 		}
 	}
 }
@@ -125,6 +126,10 @@ func TestDeployableAppSlugs_StableShape(t *testing.T) {
 		"wordpress", "ghost", "nextcloud", "bookstack", "uptime-kuma",
 		"gitea", "vaultwarden", "umami", "nocodb", "cal-com",
 		"invoiceshelf", "formbricks", "listmonk",
+		// HelmRelease-shaped per-Org apps (#4272/#4307) — render via the
+		// generic generator's HelmRelease overlay path, not the one-Deployment
+		// template.
+		"openclaw", "stalwart-mail",
 		"postgres", "mysql", "redis",
 		// Wave 4 — Sandbox marketplace catalog entry.
 		"sandbox",

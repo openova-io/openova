@@ -192,6 +192,15 @@ func main() {
 	// bootstrap mirrors region-B's kubeconfig into.
 	generator.ReplicaRegionKubeSecret = getEnv("CATALYST_REPLICA_REGION_KUBECONFIG_SECRET", "")
 
+	// #4272/#4307: the per-Sovereign org-pool parent zone (e.g. "omani.homes")
+	// the funnel stamps onto the HelmRelease-shaped per-Org app hostnames
+	// (bp-openclaw → openclaw.<slug>.<parent>, bp-stalwart-tenant →
+	// mail.<slug>.<parent>). Same TENANT_PARENT_DOMAIN env the Handler reads
+	// for the tenant-public patch — wired through the generator so the
+	// openclaw/stalwart overlays emit the correct console-isolation hostnames.
+	// Empty falls back to the catalog-canon default pool inside the generator.
+	generator.ParentDomain = tenantParentDomain
+
 	// ── Git host coordinates (issue #940) ────────────────────────────
 	// On Sovereigns the canonical Git target is the local Gitea (the
 	// cutover step flipped the Sovereign's GitRepository CR to point
