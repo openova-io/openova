@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T07:15:02Z` |
+| Last refreshed | `2026-06-25T07:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 20 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 20 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 20 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -209,7 +209,6 @@ flowchart LR
 | [#4272](https://github.com/openova-io/openova/issues/4272) | bp-openclaw controller never Ready on a Sovereign — NetworkPolicy assumes trae | Other |
 | [#4274](https://github.com/openova-io/openova/issues/4274) | BILLING: /billing/orders + /billing/revenue render empty / non-granular / off th | Other |
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
-| [#4276](https://github.com/openova-io/openova/issues/4276) | PILLAR-4 ACCEPTANCE: agentic MCP create-app walk — agenity chat spawns claude- | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4278](https://github.com/openova-io/openova/issues/4278) | per-Org bp-newapi admin-promote hook loops forever — missing ServiceAccount 'b | Other |
 | [#4282](https://github.com/openova-io/openova/issues/4282) | bp-postgres multi-region (active-hot-standby) provision FAILS + per-Org PostgreS | Other |
@@ -229,10 +228,18 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-06-25T06:53 | [#4318](https://github.com/openova-io/openova/pull/4318) | #4279 | docs(uat): reconcile UAT.md to live omantel.biz — headline + |
+| 2026-06-25T07:28 | [#4316](https://github.com/openova-io/openova/pull/4316) | #4293 | fix(vcluster-epic): resolve the #4293/#4297 adversarial-revi |
+| 2026-06-25T07:16 | [#4315](https://github.com/openova-io/openova/pull/4315) | #4276 | feat(catalyst+bp-agenity): per-Org openova-MCP Catalyst bear |
+| 2026-06-25T07:24 | [#4314](https://github.com/openova-io/openova/pull/4314) | #3969 | feat(#3969): wire placement model into reconcile path — targ |
+| 2026-06-25T07:22 | [#4313](https://github.com/openova-io/openova/pull/4313) | #4275 | fix(provisioning): cross-region active-hot-standby — place t |
+| 2026-06-25T07:29 | [#4312](https://github.com/openova-io/openova/pull/4312) | #4212 | feat(catalyst): wire the 2 object-model/DR backbone seams —  |
+| 2026-06-25T07:22 | [#4311](https://github.com/openova-io/openova/pull/4311) | #3376 | fix(catalyst-api): org-handover on-demand registers the funn |
+| 2026-06-25T07:22 | [#4310](https://github.com/openova-io/openova/pull/4310) | #4286 | fix(bp-catalyst): #4286 mechanism D — env-controller cross-n |
 | 2026-06-25T04:10 | [#4309](https://github.com/openova-io/openova/pull/4309) | #4273 | fix(marketplace): gate console redirect on per-Org host read |
 | 2026-06-25T04:10 | [#4308](https://github.com/openova-io/openova/pull/4308) | #4307 | fix(bp-stalwart-tenant): webmail 404 (wrong gateway) + HR in |
 | 2026-06-25T04:10 | [#4306](https://github.com/openova-io/openova/pull/4306) | #3914 | fix(bootstrap-ui): light up the Phase-1 bootstrap-kit timeli |
 | 2026-06-25T04:10 | [#4305](https://github.com/openova-io/openova/pull/4305) | #4278 | fix(bp-newapi): admin-promote CronJob gets its own release-m |
+| 2026-06-25T07:18 | [#4304](https://github.com/openova-io/openova/pull/4304) | #4282 | fix(catalyst-api): Application CR producers always emit non- |
 | 2026-06-25T07:05 | [#4303](https://github.com/openova-io/openova/pull/4303) | #4277 | feat(catalyst): auto-seed the per-Org Anthropic credential a |
 | 2026-06-25T04:10 | [#4302](https://github.com/openova-io/openova/pull/4302) | #4274 | fix(bss): wire /billing/orders + /billing/revenue to live bi |
 | 2026-06-25T04:10 | [#4301](https://github.com/openova-io/openova/pull/4301) | #4286 | feat(bp-kyverno-policies): Kyverno admission floor injects s |
@@ -250,14 +257,6 @@ flowchart LR
 | 2026-06-24T08:55 | [#4268](https://github.com/openova-io/openova/pull/4268) | #4252 | docs(uat): #3374 SSO-landing + #3376 funnel signed-in GREEN; |
 | 2026-06-24T08:33 | [#4267](https://github.com/openova-io/openova/pull/4267) | #4180 | docs(sessions): agenity #4180 workspaces /app dashboard — li |
 | 2026-06-24T08:34 | [#4266](https://github.com/openova-io/openova/pull/4266) | #4206 | fix(org-provisioning): self-heal corrupted JSON-envelope par |
-| 2026-06-24T08:26 | [#4264](https://github.com/openova-io/openova/pull/4264) | #4180 | fix(bp-agenity): resync catalog-seed pin + generated catalog |
-| 2026-06-24T08:33 | [#4263](https://github.com/openova-io/openova/pull/4263) | #4006 | feat(crossplane): light the OpenTofu→Crossplane adoption sea |
-| 2026-06-24T08:08 | [#4262](https://github.com/openova-io/openova/pull/4262) | #4249 | feat(bp-openclaw): build the missing openclaw-controller ima |
-| 2026-06-24T08:08 | [#4261](https://github.com/openova-io/openova/pull/4261) | #4111 | fix(bp-agenity): detect expired claude-code OAuth at seed +  |
-| 2026-06-24T07:56 | [#4260](https://github.com/openova-io/openova/pull/4260) | #4231 | fix(bp-catalyst-platform): high PriorityClass for catalyst-a |
-| 2026-06-24T08:01 | [#4259](https://github.com/openova-io/openova/pull/4259) | #4180 | fix(bp-agenity): /app serves the workspaces (v0.9.4) dashboa |
-| 2026-06-24T07:45 | [#4258](https://github.com/openova-io/openova/pull/4258) | #4254 | fix(bp-continuum): bump 0.1.8->0.1.9 to force Flux re-pull o |
-| 2026-06-24T07:29 | [#4256](https://github.com/openova-io/openova/pull/4256) | #4179 | fix(pool-domain): default managed-domains to the full offere |
 
 ---
 
