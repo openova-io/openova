@@ -226,6 +226,17 @@ spec:
           image:
             registry: {{ .VClusterImageRegistry }}
             repository: proxy-ghcr/loft-sh/kubernetes
+          # #4389/#4297: the k8s-distro is initContainers[0] with an asymmetric
+          # 40m/100m + 64Mi/256Mi shape (ratio 2.5/4) — the per-Org LimitRange
+          # (#4292, maxLimitRequestRatio 1) rejects it alongside the syncer.
+          # Render requests==limits so the whole vcluster-0 pod is admitted.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       coredns:
         # #3859 (first proven walkorg/hw167): vcluster 0.33.x's baked-in default
         # coredns is coredns/coredns:1.14.1 — a tag that does NOT exist on
@@ -251,13 +262,22 @@ spec:
         image:
           registry: {{ .VClusterImageRegistry }}
           repository: proxy-ghcr/loft-sh/vcluster-oss
+        # #4389/#4297: the per-Org LimitRange (#4292) maxLimitRequestRatio
+        # {cpu:1,memory:1} ALSO applies to the vcluster control-plane
+        # StatefulSet (it runs natively in the Org host ns, NOT inside the
+        # vcluster) — the asymmetric 100m/2000m + 192Mi/2Gi shape was 'forbidden:
+        # cpu limit to request ratio is 20' → vcluster-0 never scheduled → m-tier
+        # Orgs could not provision their vcluster at all (#4297 keystone). Render
+        # requests==limits (Guaranteed QoS) so the LimitRange admits the syncer.
+        # The platform mgmt/rtz/dmz vclusters escape only because their ns has
+        # no LimitRange; the per-Org boundary must instead satisfy it.
         resources:
           requests:
-            cpu: 100m
-            memory: 192Mi
+            cpu: 500m
+            memory: 1Gi
           limits:
-            cpu: 2000m
-            memory: 2Gi
+            cpu: 500m
+            memory: 1Gi
         persistence:
           volumeClaim:
             size: 5Gi
