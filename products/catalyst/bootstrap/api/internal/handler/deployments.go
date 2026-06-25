@@ -527,6 +527,7 @@ func (h *Handler) restoreFromStore() {
 
 	resumed := 0
 	meshReconciles := 0
+	spineReconciles := 0
 	for _, rec := range records {
 		dep := fromRecord(rec)
 		h.deployments.Store(dep.ID, dep)
@@ -610,6 +611,22 @@ func (h *Handler) restoreFromStore() {
 			go h.runConvergedLateRescue(dep)
 		}
 
+		// #4212 — level-triggered spine Application-CR enrollment on startup.
+		// The spine producer (runPostHandoverSpineApplications) is otherwise
+		// one-shot (Phase-1 OutcomeReady + converged-late only), so a
+		// Sovereign that handed over before the producer shipped never
+		// enrolls its DR-capable spine into the object model and mints no
+		// Continuum CR. This re-fires the idempotent producer (force:true
+		// server-side-apply) for any ready, handed-over deployment, healing
+		// the seam zero-touch on the next catalyst-api roll. Independent of
+		// the rescue hook above — a normally-handed-over record never enters
+		// the converged-late branch, so the spine would otherwise stay
+		// unenrolled forever. No-op on an already-enrolled Sovereign.
+		if h.shouldStartupSpineReconcile(dep) {
+			spineReconciles++
+			go h.runPostHandoverSpineApplications(dep)
+		}
+
 		// #1907 — bake-time top-up of the canonical .omani.X org-pool.
 		// On a Pod restart the import already ran on a prior Pod and
 		// the on-disk record may still be short of 4 entries (the
@@ -624,6 +641,7 @@ func (h *Handler) restoreFromStore() {
 		"count", len(records),
 		"resumed", resumed,
 		"clusterMeshReconciles", meshReconciles,
+		"spineReconciles", spineReconciles,
 		"dir", h.store.Dir(),
 	)
 }

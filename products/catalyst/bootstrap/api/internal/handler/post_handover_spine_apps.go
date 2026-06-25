@@ -169,6 +169,60 @@ const (
 	spineApplyPoll    = 30 * time.Second
 )
 
+// shouldStartupSpineReconcile reports whether a rehydrated deployment needs
+// the spine Application-CR producer kicked at catalyst-api startup — the
+// level-triggered sibling of shouldStartupClusterMeshReconcile (#3241) and
+// shouldConvergedLateRescue (#3319).
+//
+// THE GAP THIS CLOSES (#4212). runPostHandoverSpineApplications is wired ONLY
+// into the Phase-1 OutcomeReady terminal block (phase1_watch.go) + the
+// converged-late rescue (phase1_converged_late.go) — both ONE-SHOT, fired
+// once as a deployment first reaches handover. A Sovereign that handed over
+// BEFORE this producer shipped (or before a catalyst-api roll that carries a
+// later spine roster) therefore never enrolls its spine into the object
+// model: `kubectl get applications.apps.openova.io -n catalyst` is empty,
+// the DR-capable spine mints NO Continuum CR, and the seam stays inert with
+// no path to heal short of a fresh prov. Live-confirmed on omantel.biz (dep
+// 4635277cae4ffed9, 2026-06-26): the chart-templated bootstrap-owned spine
+// CRs (singleton, adopt-only) are present but the multi-region `spine-*`
+// producer CRs are absent, so `kubectl get continuums.dr.openova.io -A`
+// carries no spine row.
+//
+// The fix mirrors the ClusterMesh-reconcile heal: re-run the idempotent
+// producer at startup for any ready, handed-over deployment whose primary
+// kubeconfig is still readable on the PVC. Every step of the producer is a
+// force:true server-side-apply (CREATE-or-MERGE), so a re-run on an
+// already-enrolled Sovereign is a no-op merge — and one that handed over
+// pre-producer enrolls zero-touch on the next mothership roll. Status=ready
+// AND Result.HandoverFiredAt!=nil is the same "cleanly handed over" idiom the
+// handover-export resume gate uses (deployments.go). Mothership-self records
+// (no SovereignFQDN, no regions) and unresolvable-kubeconfig records are
+// warn-and-skipped so the loop never spins a budget on a lost file.
+func (h *Handler) shouldStartupSpineReconcile(dep *Deployment) bool {
+	dep.mu.Lock()
+	status := dep.Status
+	fired := dep.Result != nil && dep.Result.HandoverFiredAt != nil
+	regionCount := len(dep.Request.Regions)
+	if regionCount == 0 && strings.TrimSpace(dep.Request.Region) != "" {
+		regionCount = 1
+	}
+	dep.mu.Unlock()
+	if status != "ready" || !fired {
+		return false
+	}
+	if regionCount == 0 {
+		// Mothership-self / record with no declared regions — nothing to
+		// enroll a DR-capable spine over.
+		return false
+	}
+	if _, ok := h.resolvePrimaryKubeconfigPath(dep); !ok {
+		h.log.Warn("spine-apps: ready record has no resolvable kubeconfig; skipping startup enrollment",
+			"id", dep.ID)
+		return false
+	}
+	return true
+}
+
 // runPostHandoverSpineApplications enrolls every DR-capable bootstrap-spine
 // HelmRelease into the object model by stamping one idempotent Application
 // CR each. See file header.

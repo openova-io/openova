@@ -10,8 +10,11 @@ package handler
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -477,5 +480,93 @@ func TestDRCapableSpineRoster_MatchesEPICSet(t *testing.T) {
 		default:
 			t.Fatalf("chart %q MultiRegionMode = %q, want a DR-capable multi-region mode", sc.Chart, sc.MultiRegionMode)
 		}
+	}
+}
+
+// TestShouldStartupSpineReconcile_Guards covers the #4212 startup-enrollment
+// gate: a ready, handed-over deployment with a readable kubeconfig re-fires
+// the idempotent spine producer (so an env that handed over before the
+// producer shipped heals zero-touch on the next catalyst-api roll), while
+// not-ready / not-handed-over / regionless / kubeconfig-lost records are
+// skipped.
+func TestShouldStartupSpineReconcile_Guards(t *testing.T) {
+	dir := t.TempDir()
+	h := &Handler{log: silentLogger(), kubeconfigsDir: dir}
+	kcPath := filepath.Join(dir, "depspine.yaml")
+	if err := os.WriteFile(kcPath, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	now := time.Now().UTC()
+	twoRegions := []provisioner.RegionSpec{
+		{Provider: "huawei", CloudRegion: "me-east-215-a"},
+		{Provider: "huawei", CloudRegion: "me-east-215-b"},
+	}
+	cases := []struct {
+		name string
+		dep  *Deployment
+		want bool
+	}{
+		{
+			name: "ready-handed-over-kubeconfig-present",
+			dep: &Deployment{ID: "s1", Status: "ready",
+				Request: provisioner.Request{SovereignFQDN: "t99.omani.works", Regions: twoRegions},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath, HandoverFiredAt: &now}},
+			want: true,
+		},
+		{
+			name: "single-region-ready-handed-over-still-enrolls",
+			dep: &Deployment{ID: "s2", Status: "ready",
+				Request: provisioner.Request{SovereignFQDN: "t99.omani.works", Regions: twoRegions[:1]},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath, HandoverFiredAt: &now}},
+			want: true,
+		},
+		{
+			name: "not-yet-handed-over-skipped",
+			dep: &Deployment{ID: "s3", Status: "ready",
+				Request: provisioner.Request{SovereignFQDN: "t99.omani.works", Regions: twoRegions},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath}},
+			want: false,
+		},
+		{
+			name: "failed-status-skipped",
+			dep: &Deployment{ID: "s4", Status: "failed",
+				Request: provisioner.Request{SovereignFQDN: "t99.omani.works", Regions: twoRegions},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath, HandoverFiredAt: &now}},
+			want: false,
+		},
+		{
+			name: "no-regions-mothership-self-skipped",
+			dep: &Deployment{ID: "s5", Status: "ready",
+				Request: provisioner.Request{},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath, HandoverFiredAt: &now}},
+			want: false,
+		},
+		{
+			name: "kubeconfig-missing-warn-and-skip",
+			dep: &Deployment{ID: "s6", Status: "ready",
+				Request: provisioner.Request{SovereignFQDN: "t99.omani.works", Regions: twoRegions},
+				Result:  &provisioner.Result{KubeconfigPath: filepath.Join(dir, "absent.yaml"), HandoverFiredAt: &now}},
+			want: false,
+		},
+		{
+			name: "result-nil-skipped",
+			dep: &Deployment{ID: "s7", Status: "ready",
+				Request: provisioner.Request{SovereignFQDN: "t99.omani.works", Regions: twoRegions}},
+			want: false,
+		},
+		{
+			name: "single-region-via-request-region-field",
+			dep: &Deployment{ID: "s8", Status: "ready",
+				Request: provisioner.Request{SovereignFQDN: "t99.omani.works", Region: "me-east-215"},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath, HandoverFiredAt: &now}},
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := h.shouldStartupSpineReconcile(tc.dep); got != tc.want {
+				t.Errorf("shouldStartupSpineReconcile = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
