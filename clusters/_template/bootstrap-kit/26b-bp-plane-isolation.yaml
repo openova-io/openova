@@ -65,7 +65,10 @@ spec:
       # OCI digest on tag.
       # 0.1.1 — #4347 (Refs #4325): YAML doc-separator fix so the HR install no
       #   longer fails post-render with `mapping key "apiVersion" already defined`.
-      version: 0.1.1
+      # 0.1.2 — #4360 (Refs #4272 #4307 #4322 #4179): default-deny egress
+      #   `ipBlock 0.0.0.0/0` is Cilium world-only → dropped ALL in-cluster dials
+      #   (gitea→shared-pg etc.); add a `namespaceSelector {}` egress allow rule.
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-plane-isolation
