@@ -174,7 +174,19 @@ name: bp-gitea
 #   so the silent empty boot can never recur. Gated `gitDataMigration.enabled`
 #   (default true; safe no-op when no prior state). Adds
 #   tests/gitdata-preservation-guard.sh (CI gate). Refs #4354 #4325 #4353 #4352.
-version: 1.2.43
+# 1.2.44 (#4369, Refs #4367 #4354): the 1.2.43 gitdata-preservation guard Job
+#   defaulted its kubectl image to a BARE `bitnamilegacy/kubectl:1.30.7`
+#   (docker.io) ref. On a converged Sovereign the cluster-wide Kyverno
+#   `harbor-proxy-pull` Enforce policy admits ONLY `*/proxy-*/*` (proxy-cache) or
+#   `*/openova-io/*` (native-push) — the bare ref is DENIED at admission, the
+#   pre-upgrade hook Job can't schedule, the pre-upgrade gate FAILS, and the whole
+#   bp-gitea HR rollback-loops 1.2.43→1.2.42 → bp-catalyst-platform / bp-continuum /
+#   bp-sandbox all blocked. Fix: default the guard image to the Harbor-proxy form
+#   `harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7` in BOTH
+#   values.yaml and the template inline default (mirrors sso-configure-deployment.yaml
+#   / database-secret-sync-job.yaml). Adds tests/kyverno-harbor-proxy-images.sh
+#   (CI gate asserting every rendered image passes harbor-proxy-pull + image-pin).
+version: 1.2.44
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

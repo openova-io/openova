@@ -168,7 +168,13 @@ spec:
       #   the host PVC via volumeName) so the re-home rides the SAME git-data volume,
       #   NO-OPs on a fresh prov, and FAILS LOUD when the DB reports repos but no PV
       #   can be adopted — no silent empty boot. Refs #4354 #4325 #4353 #4352.
-      version: 1.2.43
+      # 1.2.44 — #4369: the 1.2.43 guard Job defaulted its kubectl image to a BARE
+      #   docker.io ref → the cluster-wide Kyverno harbor-proxy-pull Enforce policy
+      #   (admits `*/proxy-*/*` or `*/openova-io/*`) DENIED the pre-upgrade hook Job
+      #   at admission → pre-upgrade gate failed → bp-gitea HR rollback-looped and
+      #   stranded bp-catalyst-platform / bp-continuum / bp-sandbox. Fix: default the
+      #   guard image to the harbor-proxy form. Refs #4369 #4367 #4354.
+      version: 1.2.44
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
