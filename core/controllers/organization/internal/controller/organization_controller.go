@@ -599,7 +599,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// namespace to exist; until then it sits False with a reason naming
 	// what is pending, and the reconcile requeues so the status converges
 	// as Flux brings the vCluster up.
-	vcPhase, vcReady, vcMsg := r.vclusterReadiness(ctx, org.Spec.Slug)
+	//
+	// #4339 (Refs #4292): the readback is TIER-AWARE. A host-tier Org
+	// (""/s/free — the same gitops.BoundaryIsVcluster gate that decides the
+	// boundary primitive) renders NO vcluster HR, so there is nothing to
+	// wait on — the host `<slug>` namespace IS the boundary. Gating those
+	// Orgs on a `vcluster` HR that is correctly never authored wedged them
+	// at Ready=False:VClusterProvisioning forever, so ensureEnvironment
+	// never ran and the apps-install phase was never reached. We pass the
+	// plan slug through so vclusterReadiness can short-circuit to host-ns
+	// readiness for host-tier and only wait on the HR for the vcluster tier.
+	vcPhase, vcReady, vcMsg := r.vclusterReadiness(ctx, org.Spec.Slug, org.Spec.PlanSlug)
 
 	// 6a. Auto-ensure the parent Environment CR (issue #4077, Refs #3687)
 	// once the vCluster can actually host Applications. Without this, every
@@ -699,7 +709,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // Org/host, no per-org-name special-casing (#3687 §7d). Read failures
 // other than NotFound degrade to Provisioning (transient API blips
 // shouldn't flip a healthy Org to Pending) and requeue.
-func (r *Reconciler) vclusterReadiness(ctx context.Context, slug string) (phase string, ready bool, message string) {
+//
+// #4339 (Refs #4292): TIER-AWARE. For a host-tier Org (""/s/free — same
+// gitops.BoundaryIsVcluster gate that decides the boundary primitive) the
+// controller authors NO vcluster HR; the host `<slug>` namespace IS the
+// boundary. So host-tier readiness keys solely off the namespace existing —
+// waiting on a `vcluster` HR that is correctly never rendered would wedge the
+// Org at Ready=False forever and never reach the apps-install phase. Only the
+// vcluster tier (m/l/xl/flexi) reads back + waits on the HR.
+func (r *Reconciler) vclusterReadiness(ctx context.Context, slug, planSlug string) (phase string, ready bool, message string) {
 	nsExists := false
 	ns := &corev1.Namespace{}
 	switch err := r.Get(ctx, types.NamespacedName{Name: slug}, ns); {
@@ -710,6 +728,18 @@ func (r *Reconciler) vclusterReadiness(ctx context.Context, slug string) (phase 
 	default:
 		return "Provisioning", false,
 			fmt.Sprintf("vCluster namespace readback error (transient): %s", err)
+	}
+
+	// Host-tier boundary: no vcluster HR is ever authored (gitops.Render omits
+	// vcluster.yaml from ./vcluster for ""/s/free). Readiness = the host ns is
+	// Active. The phase string stays "Ready"/"Pending" so the existing status
+	// projection + the vcReady-gated ensureEnvironment / apps phase proceed.
+	if !gitops.BoundaryIsVcluster(planSlug) {
+		if nsExists {
+			return "Ready", true, ""
+		}
+		return "Pending", false,
+			"host-tier Org namespace not yet Active (no vCluster HR is authored for this tier; the host namespace is the boundary)"
 	}
 
 	hr := &unstructured.Unstructured{}
