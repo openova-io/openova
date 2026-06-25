@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T22:15:02Z` |
+| Last refreshed | `2026-06-25T22:30:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T22:15 | [#4398](https://github.com/openova-io/openova/pull/4398) | #4282 | fix(application-controller): route per-Org CNPG Blueprint Cl |
 | 2026-06-25T21:51 | [#4397](https://github.com/openova-io/openova/pull/4397) | #4307 | fix(bp-openclaw,bp-stalwart-tenant): self-gen per-Org OIDC c |
 | 2026-06-25T21:11 | [#4396](https://github.com/openova-io/openova/pull/4396) | #4394 | fix(catalog-seed #4395): pin QoS-fixed funnel-Org charts (bp |
 | 2026-06-25T20:59 | [#4394](https://github.com/openova-io/openova/pull/4394) | #4307 | fix(bp-openclaw/bp-stalwart-tenant #4389/#4292): Guaranteed  |
@@ -249,7 +250,6 @@ flowchart LR
 | 2026-06-25T14:42 | [#4356](https://github.com/openova-io/openova/pull/4356) | #4352 | fix(bp-huawei-evs-csi): pre-upgrade hook delete+recreate evs |
 | 2026-06-25T13:45 | [#4352](https://github.com/openova-io/openova/pull/4352) | #3971 | fix(bp-huawei-evs-csi): evs-ssd reclaimPolicy Retain -> Dele |
 | 2026-06-25T13:45 | [#4351](https://github.com/openova-io/openova/pull/4351) | #560 | fix(bp-kyverno-policies): exempt crossplane-system from harb |
-| 2026-06-25T13:04 | [#4348](https://github.com/openova-io/openova/pull/4348) | #4347 | fix(planes #4347): end the host-ns Kyverno whack-a-mole — pr |
 
 ---
 
