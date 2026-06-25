@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T09:45:02Z` |
+| Last refreshed | `2026-06-25T10:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 25 |
 | Open DoD gates | 0 / 41 |
@@ -235,6 +235,7 @@ flowchart LR
 | 2026-06-25T09:37 | [#4338](https://github.com/openova-io/openova/pull/4338) | #4143 | fix(bp-cnpg): kill the per-Org webhook-hijack RBAC vector +  |
 | 2026-06-25T09:20 | [#4336](https://github.com/openova-io/openova/pull/4336) | #4322 | fix(bp-wordpress-tenant): oidc-config hook vendors OIDC plug |
 | 2026-06-25T08:50 | [#4335](https://github.com/openova-io/openova/pull/4335) | #4292 | feat(org-controller): admit Cilium reserved entities on the  |
+| 2026-06-25T09:49 | [#4334](https://github.com/openova-io/openova/pull/4334) | #4212 | fix(catalyst): wire spine Application→Continuum write/read s |
 | 2026-06-25T09:21 | [#4333](https://github.com/openova-io/openova/pull/4333) | #1844 | fix(catalyst): render sovereign-fqdn LB/CP IPs — unhalt the  |
 | 2026-06-25T08:36 | [#4332](https://github.com/openova-io/openova/pull/4332) | #4293 | fix(cloud-init): reflect ghcr-pull into slug-named per-Org n |
 | 2026-06-25T08:26 | [#4331](https://github.com/openova-io/openova/pull/4331) | #4329 | fix(bp-kyverno-policies): admit per-Org vCluster CIDR-probe  |
@@ -261,7 +262,6 @@ flowchart LR
 | 2026-06-25T04:10 | [#4305](https://github.com/openova-io/openova/pull/4305) | #4278 | fix(bp-newapi): admin-promote CronJob gets its own release-m |
 | 2026-06-25T07:18 | [#4304](https://github.com/openova-io/openova/pull/4304) | #4282 | fix(catalyst-api): Application CR producers always emit non- |
 | 2026-06-25T07:05 | [#4303](https://github.com/openova-io/openova/pull/4303) | #4277 | feat(catalyst): auto-seed the per-Org Anthropic credential a |
-| 2026-06-25T04:10 | [#4302](https://github.com/openova-io/openova/pull/4302) | #4274 | fix(bss): wire /billing/orders + /billing/revenue to live bi |
 
 ---
 
