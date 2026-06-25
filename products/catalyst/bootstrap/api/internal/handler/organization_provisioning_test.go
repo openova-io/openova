@@ -550,6 +550,96 @@ func TestOrgTenantSharedHelmRepositories_NoLoft(t *testing.T) {
 	}
 }
 
+// TestOrgTenantSharedHelmRepositories_DeclaresAgenity pins the #4180/#4239
+// gap: the per-Org overlay emits a bp-agenity HelmRelease whose sourceRef
+// is HelmRepository/bp-agenity/flux-system, but the shared HelmRepository
+// set declared blocks ONLY for keycloak/cnpg/newapi/wordpress-tenant/
+// openclaw/stalwart-tenant — no bp-agenity. A fresh per-Org prov therefore
+// failed `HelmRepository bp-agenity not found`, only resolving when someone
+// hand-applied the HelmRepository (the forbidden kubectl patch). This test
+// asserts the block is present and shape-matches its siblings, and that
+// EVERY chart the overlay sourceRefs into has a declared HelmRepository.
+func TestOrgTenantSharedHelmRepositories_DeclaresAgenity(t *testing.T) {
+	// 1. bp-agenity must be declared.
+	if !strings.Contains(orgTenantSharedHelmRepositories, "name: bp-agenity") {
+		t.Fatalf("#4180 regression: shared HelmRepositories missing bp-agenity block:\n%s", orgTenantSharedHelmRepositories)
+	}
+
+	// 2. Every chart whose overlay HelmRelease pins
+	//    sourceRef: HelmRepository/bp-* MUST have a matching block, or the
+	//    rendered HR fails `HelmRepository <name> not found` on a fresh Org.
+	for _, want := range []string{
+		"name: bp-keycloak",
+		"name: bp-cnpg",
+		"name: bp-newapi",
+		"name: bp-wordpress-tenant",
+		"name: bp-openclaw",
+		"name: bp-stalwart-tenant",
+		"name: bp-agenity",
+	} {
+		if !strings.Contains(orgTenantSharedHelmRepositories, want) {
+			t.Errorf("shared HelmRepositories missing %q", want)
+		}
+	}
+
+	// 3. Shape parity with the siblings: the bp-agenity block must carry
+	//    the canonical oci type + ghcr url + ghcr-pull secretRef + the
+	//    flux-system namespace, so Flux owns it (GitOps-managed, never a
+	//    hand-applied patch).
+	idx := strings.Index(orgTenantSharedHelmRepositories, "name: bp-agenity")
+	block := orgTenantSharedHelmRepositories[idx:]
+	for _, want := range []string{
+		"namespace: flux-system",
+		"type: oci",
+		"url: oci://ghcr.io/openova-io",
+		"name: ghcr-pull",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("bp-agenity HelmRepository block missing %q\n--- block ---\n%s", want, block)
+		}
+	}
+}
+
+// TestRenderOrganizationOverlay_AgenityHRResolvesToDeclaredRepo proves the
+// fresh-prov fix end-to-end: a rendered per-Org overlay emits the
+// bp-agenity HelmRelease AND its sourceRef HelmRepository is declared in
+// the shared set written alongside it (#4180).
+func TestRenderOrganizationOverlay_AgenityHRResolvesToDeclaredRepo(t *testing.T) {
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "t-acme",
+		Subdomain:       "acme",
+		DomainMode:      store.OrganizationDomainFreeSubdomain,
+		AdminEmail:      "admin@acme.test",
+		OTECHFQDN:       "otech.example",
+		VClusterName:    "vc-acme",
+		TenantNamespace: "org-t-acme",
+	}
+	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	hr, ok := files["bp-agenity.yaml"]
+	if !ok {
+		t.Fatalf("bp-agenity.yaml missing from rendered overlay")
+	}
+	// The HR pins this exact source.
+	for _, want := range []string{
+		"kind: HelmRepository",
+		"name: bp-agenity",
+		"namespace: flux-system",
+	} {
+		if !strings.Contains(hr, want) {
+			t.Errorf("rendered bp-agenity HR missing sourceRef line %q\n--- rendered ---\n%s", want, hr)
+		}
+	}
+	// And that source is declared in the shared set written to the same
+	// overlay parent, so Flux resolves it (no `not found`, no hand-patch).
+	if !strings.Contains(orgTenantSharedHelmRepositories, "name: bp-agenity") {
+		t.Fatalf("#4180: rendered HR sourceRefs HelmRepository/bp-agenity but the shared set never declares it")
+	}
+}
+
 func TestRenderOrganizationOverlay_BYO_EmitsCertificate(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID:  "t-acme",
