@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T17:15:02Z` |
+| Last refreshed | `2026-06-25T17:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 19 |
 | Open DoD gates | 0 / 41 |
@@ -226,6 +226,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T17:20 | [#4367](https://github.com/openova-io/openova/pull/4367) | #4354 | fix(bp-gitea): preserve git-data PVC on vcluster→host-ns re- |
 | 2026-06-25T17:13 | [#4364](https://github.com/openova-io/openova/pull/4364) | #4179 | fix(tenant): funnel CreateOrg renders selected cart Applicat |
 | 2026-06-25T17:07 | [#4363](https://github.com/openova-io/openova/pull/4363) | #4304 | fix(application-controller): typed-nil spec.parameters valid |
 | 2026-06-25T17:13 | [#4361](https://github.com/openova-io/openova/pull/4361) | #4272 | fix(bp-plane-isolation): default-deny egress 0.0.0.0/0 is Ci |
@@ -255,7 +256,6 @@ flowchart LR
 | 2026-06-25T07:34 | [#4321](https://github.com/openova-io/openova/pull/4321) | #4278 | fix(bp-newapi): DSN-placeholder Secret self-preserves SQL_DS |
 | 2026-06-25T07:34 | [#4320](https://github.com/openova-io/openova/pull/4320) | #4307 | fix(bp-stalwart-tenant): setup-Job declares resources.reques |
 | 2026-06-25T07:34 | [#4319](https://github.com/openova-io/openova/pull/4319) | #4272 | fix(bp-openclaw): kube-apiserver entity egress for the contr |
-| 2026-06-25T06:53 | [#4318](https://github.com/openova-io/openova/pull/4318) | #4279 | docs(uat): reconcile UAT.md to live omantel.biz — headline + |
 
 ---
 
