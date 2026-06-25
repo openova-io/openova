@@ -75,3 +75,32 @@ The end-to-end mutate-before-validate proof (admission-time ordering against
 the REAL 09/11 Enforce baselines on a kind + kyverno v1.18 cluster) is captured
 in the PR body — `kyverno apply` exercises only the policy logic offline, not
 the apiserver's webhook phase ordering.
+
+## EPIC #4286 mechanism B — `inject-gitea-source-secretref`
+
+The `inject-gitea-source-secretref` MUTATE policy (the regression-proof
+admission floor for Flux→Sovereign-local-Gitea source auth) has its own
+self-contained `kyverno test` suite — NOT in this `fixtures/` tree but in the
+sibling `tests/inject-gitea-source-secretref/` directory, because it ships a
+formal `kyverno-test.yaml` with `patchedResource` assertions (the canonical
+mutate-conformance gate) plus a committed rendered `policy.yaml`.
+
+```bash
+cd platform/kyverno-policies/chart
+# (re-render policy.yaml if the template/values changed — see the header
+#  of tests/inject-gitea-source-secretref/kyverno-test.yaml)
+kyverno test tests/inject-gitea-source-secretref/
+# → 5 tests passed and 0 tests failed
+```
+
+| Case | Input fixture | Expectation |
+|---|---|---|
+| in-cluster Gitea, no secretRef | `resource-incluster-gitea-no-secretref.yaml` | MUTATE → inject `openova-org-tenants-git-auth` (`patched-incluster-gitea.yaml`) |
+| per-Sovereign Gitea DNS, no secretRef | `resource-persovereign-gitea-no-secretref.yaml` | MUTATE → inject (`patched-persovereign-gitea.yaml`) |
+| github.com public, no secretRef | `resource-github-public-no-secretref.yaml` | SKIP (no `gitea` host substring) |
+| local Gitea WITH secretRef | `resource-incluster-gitea-with-secretref.yaml` | SKIP (idempotent — never overrides) |
+| OCIRepository at Gitea host, no secretRef | `resource-ocirepository-gitea-no-secretref.yaml` | MUTATE → inject (cross-kind coverage; `patched-ocirepository-gitea.yaml`) |
+
+The DEFERRED live-conformance proof (a controlled `kubectl apply` on a running
+Sovereign → observe the injected secretRef) is the command in the PR body;
+a controlled live apply is out of the read-only audit session's scope.

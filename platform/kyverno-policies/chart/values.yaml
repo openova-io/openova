@@ -461,3 +461,51 @@ compliancePolicies:
   ciliumEnforcedLabelMutate:
     enabled: true
     excludeNamespaces: *complianceDefaultExcludes
+
+  # EPIC #4286 mechanism B (Refs #4286, 2026-06-25) — MUTATE policy that
+  # auto-injects the canonical basic-auth `spec.secretRef.name` on any Flux
+  # GitRepository/HelmRepository/OCIRepository whose `spec.url` host targets the
+  # Sovereign-local Gitea AND which has an empty/absent secretRef.
+  #
+  # WHY: bp-gitea ships `service.REQUIRE_SIGNIN_VIEW=true`
+  # (platform/gitea/chart/values.yaml), so an ANONYMOUS git clone of the
+  # in-cluster Gitea returns HTTP 401 "authentication required" for EVERY repo
+  # (public included). A Flux source targeting the local Gitea WITHOUT a
+  # secretRef is therefore structurally invalid — it sits "authentication
+  # required" forever (the #4283/#4284/#4285 bug class across 4 generators).
+  # Mechanism A (the shared `core/controllers/pkg/fluxsource` Go factory, #4285)
+  # enforces this for the 3 in-tree Go generators; THIS policy is the admission
+  # floor that ALSO covers sources from ANY OTHER origin (charts, Blueprints,
+  # hand-applied CRs, a future fourth generator) — the regression-proof layer
+  # that structurally defeats "the Nth generator forgets".
+  #
+  # The host law mirrors fluxsource.IsLocalSovereignSource exactly: a URL is
+  # Sovereign-local when its host carries the `gitea` substring (the in-cluster
+  # `gitea-http.gitea.svc...` service AND the per-Sovereign
+  # `gitea.<loc>.<dom>` DNS). github.com catalog-mirror sources carry no such
+  # substring and are left untouched (they need no auth). Scope is GITEA ONLY;
+  # the local-Harbor leg (post-cutover registry pivot) reuses the same
+  # admission guarantee and is the forward-looking follow-up the EPIC flags.
+  #
+  # MUTATE (not VALIDATE/deny): a deny would fail-closed any not-yet-migrated
+  # generator and could wedge a fresh prov; the mutate silently injects the
+  # secretRef so the source becomes authenticated + Ready=True. Idempotent — the
+  # precondition fires ONLY when secretRef.name is empty/absent (never overrides
+  # an operator-set or org-controller-set value) and the `+(secretRef)`
+  # add-when-missing anchor is a second guard. Per docs/INVIOLABLE-PRINCIPLES.md
+  # #4 the injected secret name + host marker are operator-overridable.
+  #
+  # Enabled by default — a non-rejecting MUTATE cannot block any workload; it
+  # only enriches an otherwise-dead source. NOT bootstrapMode-gated (a mutate
+  # has no validationFailureAction; it injects in Audit and Enforce alike).
+  injectGiteaSourceSecretRef:
+    enabled: true
+    # Canonical flux-system basic-auth Secret (the gitea_admin PAT) minted by
+    # the catalyst chart's gitea-flux-auth-secrets-sync-job — the EXACT secret
+    # the correctly-wired organization-controller leg uses
+    # (products/catalyst/chart/values.yaml:751). Operator-overridable.
+    secretRefName: openova-org-tenants-git-auth
+    # Host substring that marks a URL as targeting the Sovereign-local Gitea —
+    # mirrors fluxsource.localSourceHostMarkers (`gitea`). Operator-overridable
+    # for a Sovereign that renames its in-cluster Gitea host.
+    giteaHostMarker: gitea

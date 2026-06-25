@@ -1,5 +1,37 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.40 (EPIC #4286 mechanism B, 2026-06-25): NEW MUTATE policy
+# `inject-gitea-source-secretref` (templates/mutate/01-...) — the ADMISSION FLOOR
+# that auto-injects the canonical basic-auth `spec.secretRef.name`
+# (openova-org-tenants-git-auth) on any Flux GitRepository/HelmRepository/
+# OCIRepository whose `spec.url` host targets the Sovereign-local Gitea AND which
+# has an empty/absent secretRef. bp-gitea ships `service.REQUIRE_SIGNIN_VIEW=true`
+# (platform/gitea/chart/values.yaml), so an ANONYMOUS clone of the in-cluster
+# Gitea returns HTTP 401 "authentication required" for EVERY repo — a
+# secretRef-less local-Gitea source is therefore structurally invalid and sits
+# "authentication required" forever (the #4283 → #4284 → #4285 bug class that
+# recurred across 4 separate generators). Mechanism A (the shared
+# `core/controllers/pkg/fluxsource` Go factory, #4285) closes this for the 3
+# in-tree Go generators; THIS policy is the regression-proof admission layer that
+# ALSO covers sources from ANY OTHER origin (charts, Blueprints, hand-applied
+# CRs, a future fourth generator) — the layer that structurally defeats "the Nth
+# generator forgets". The host law mirrors fluxsource.IsLocalSovereignSource
+# (host carries the `gitea` substring): the in-cluster
+# `gitea-http.gitea.svc.cluster.local` service AND the per-Sovereign
+# `gitea.<loc>.<dom>` DNS match; github.com catalog-mirror sources do NOT and are
+# left untouched. MUTATE (not VALIDATE/deny) so a not-yet-migrated generator is
+# silently healed rather than fail-closed; idempotent — fires only when
+# secretRef.name is empty/absent, never overrides the org-controller/operator
+# value (the 19 catalyst-tenant-* sources are untouched). Scope is GITEA ONLY;
+# the local-Harbor leg (post-bp-self-sovereign-cutover registry pivot) reuses the
+# SAME admission guarantee and is the flagged follow-up. Mechanism D
+# (env-controller cross-namespace secret reflection) is OUT OF SCOPE — it stacks
+# behind the vcluster EPIC reshaping the env-controller. VERIFIED with
+# `kyverno test tests/inject-gitea-source-secretref/` (5/5 pass): a secretRef-less
+# in-cluster + per-Sovereign Gitea GitRepository (and an OCIRepository at a Gitea
+# host) are mutate-injected with openova-org-tenants-git-auth; a github.com source
+# is untouched; an already-secretRef'd source is untouched. Default ENABLED
+# (non-rejecting mutate). Refs #4286 #4285 #4283.
 # 1.0.36 (#3825, hw165, 2026-06-19): EXEMPT the `trivy-system` namespace from
 # BOTH the flux-managed (10) and harbor-proxy-pull (11) Enforce policies via
 # the existing per-policy `extraExcludeNamespaces` carve-outs. The
@@ -233,7 +265,7 @@ type: application
 # unprotected user PVCs stay subject to the velero-backed requirement. Mirrors
 # the by-label CNPG carve-out on the flux-managed policy (#3374). Template-only
 # behavior change + new test fixtures. Refs #3971.
-version: 1.0.39
+version: 1.0.40
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

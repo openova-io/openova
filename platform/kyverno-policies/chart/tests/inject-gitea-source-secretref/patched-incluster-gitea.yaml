@@ -1,0 +1,15 @@
+# EPIC #4286 mechanism B — EXPECTED patched resource for the in-cluster-Gitea
+# secretRef-less GitRepository after the inject-gitea-source-secretref mutate.
+# spec.secretRef.name=openova-org-tenants-git-auth has been injected.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: catalyst-app-omantel-biz-agenity
+  namespace: flux-system
+spec:
+  interval: 60s
+  ref:
+    branch: main
+  secretRef:
+    name: openova-org-tenants-git-auth
+  url: http://gitea-http.gitea.svc.cluster.local:3000/omantel-biz/agenity.git

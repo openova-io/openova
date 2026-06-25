@@ -118,7 +118,23 @@ spec:
       # barman/object-store WAL-streaming, not Velero, so the over-broad rule
       # stranded the entire DB tier (harbor-pg/gitea-pg/guacamole-pg/pdns-pg).
       # Mirrors the by-label CNPG carve-out on flux-managed (#3374).
-      version: 1.0.39
+      # 1.0.40 (EPIC #4286 mechanism B, 2026-06-25): NEW MUTATE policy
+      # `inject-gitea-source-secretref` — the ADMISSION FLOOR that auto-injects
+      # the canonical basic-auth secretRef (openova-org-tenants-git-auth) on any
+      # Flux GitRepository/HelmRepository/OCIRepository whose `spec.url` host
+      # targets the Sovereign-local Gitea AND which has an empty/absent secretRef.
+      # bp-gitea REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401 for every
+      # repo, so a secretRef-less local-Gitea source sits "authentication
+      # required" forever (the #4283/#4284/#4285 bug class across 4 generators).
+      # Mechanism A (shared fluxsource Go factory, #4285) fixes the 3 in-tree Go
+      # generators; THIS policy is the regression-proof admission layer covering
+      # ANY origin (charts/Blueprints/hand-applied CRs/future generator). Host
+      # law mirrors fluxsource.IsLocalSovereignSource (`gitea` substring);
+      # github.com untouched; idempotent (never overrides org/operator secret).
+      # Scope GITEA ONLY (local-Harbor leg is the flagged follow-up); mechanism D
+      # (env-controller cross-ns reflection) stacks behind the vcluster EPIC.
+      # VERIFIED `kyverno test` 5/5. Refs #4286 #4285 #4283.
+      version: 1.0.40
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
