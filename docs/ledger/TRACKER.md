@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T11:15:02Z` |
+| Last refreshed | `2026-06-25T11:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 28 |
 | Open DoD gates | 0 / 41 |
@@ -235,6 +235,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T11:29 | [#4345](https://github.com/openova-io/openova/pull/4345) | #4325 | fix(planes): resources.requests for host-ns plane components |
 | 2026-06-25T10:41 | [#4342](https://github.com/openova-io/openova/pull/4342) | #4338 | fix(bootstrap-kit): drop orphaned `dependsOn: null` in 5 slo |
 | 2026-06-25T10:18 | [#4340](https://github.com/openova-io/openova/pull/4340) | #4292 | fix(catalyst): tier-aware org vclusterReadiness — host-tier  |
 | 2026-06-25T09:37 | [#4338](https://github.com/openova-io/openova/pull/4338) | #4143 | fix(bp-cnpg): kill the per-Org webhook-hijack RBAC vector +  |
@@ -264,7 +265,6 @@ flowchart LR
 | 2026-06-25T04:10 | [#4309](https://github.com/openova-io/openova/pull/4309) | #4273 | fix(marketplace): gate console redirect on per-Org host read |
 | 2026-06-25T04:10 | [#4308](https://github.com/openova-io/openova/pull/4308) | #4307 | fix(bp-stalwart-tenant): webmail 404 (wrong gateway) + HR in |
 | 2026-06-25T04:10 | [#4306](https://github.com/openova-io/openova/pull/4306) | #3914 | fix(bootstrap-ui): light up the Phase-1 bootstrap-kit timeli |
-| 2026-06-25T04:10 | [#4305](https://github.com/openova-io/openova/pull/4305) | #4278 | fix(bp-newapi): admin-promote CronJob gets its own release-m |
 
 ---
 
