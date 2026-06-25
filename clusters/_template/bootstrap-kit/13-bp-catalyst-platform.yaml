@@ -1124,7 +1124,11 @@ spec:
       #   de-vcluster re-homed bp-valkey to host ns `valkey` — auth CrashLooped on
       #   `no such host`, keeping the funnel door's auth path DOWN. Chart.yaml bumped
       #   in lockstep. Refs #4368 #4373 #4325 #4347.
-      version: 1.4.857
+      # 1.4.858 — #4389: keycloakHostBridge.keycloakAddr re-pointed to host
+      #   `keycloak.keycloak.svc.cluster.local` after the #4325 de-vcluster left
+      #   the bridge defaults at the dead `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc`
+      #   syncer name (NXDOMAIN → /auth/handover 401). Chart.yaml bumped in lockstep.
+      version: 1.4.858
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
