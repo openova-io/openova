@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T20:00:03Z` |
+| Last refreshed | `2026-06-25T20:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 22 |
+| Open issues | 21 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 22 open items (clickable table)
+### All 21 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -215,7 +215,6 @@ flowchart LR
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4297](https://github.com/openova-io/openova/issues/4297) | Keystone: Org apps land on the HOST, not inside the Org vcluster — every tenan | Other |
 | [#4307](https://github.com/openova-io/openova/issues/4307) | bp-stalwart-tenant webmail 404 at mail.<pool> despite pod 1/1 Running + HR insta | Other |
-| [#4322](https://github.com/openova-io/openova/issues/4322) | bp-wordpress-tenant: fresh-Org HR Ready=False — oidc-config hook pg4wp fetch 4 | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
 | [#4375](https://github.com/openova-io/openova/issues/4375) | #4325 fallout: per-Org catalog blueprints (wordpress-tenant/stalwart-tenant/open | Other |
 | [#4384](https://github.com/openova-io/openova/issues/4384) | Funnel cart day-2 install commits to global openova/openova repo (empty-SHA tree | Other |
@@ -229,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T20:00 | [#4390](https://github.com/openova-io/openova/pull/4390) | #4322 | fix(bp-catalyst-platform #4389): keycloakHostBridge.keycloak |
 | 2026-06-25T19:18 | [#4387](https://github.com/openova-io/openova/pull/4387) | #4322 | fix(provisioning): funnel cart day-2 install commits to per- |
 | 2026-06-25T19:00 | [#4386](https://github.com/openova-io/openova/pull/4386) | #4325 | fix(bp-plane-isolation): comprehensive de-vcluster dial-grap |
 | 2026-06-25T18:46 | [#4383](https://github.com/openova-io/openova/pull/4383) | #4377 | fix(bp-plane-isolation): add org-services to gitea allowIngr |
@@ -258,7 +258,6 @@ flowchart LR
 | 2026-06-25T10:18 | [#4340](https://github.com/openova-io/openova/pull/4340) | #4292 | fix(catalyst): tier-aware org vclusterReadiness — host-tier  |
 | 2026-06-25T09:37 | [#4338](https://github.com/openova-io/openova/pull/4338) | #4143 | fix(bp-cnpg): kill the per-Org webhook-hijack RBAC vector +  |
 | 2026-06-25T09:20 | [#4336](https://github.com/openova-io/openova/pull/4336) | #4322 | fix(bp-wordpress-tenant): oidc-config hook vendors OIDC plug |
-| 2026-06-25T08:50 | [#4335](https://github.com/openova-io/openova/pull/4335) | #4292 | feat(org-controller): admit Cilium reserved entities on the  |
 
 ---
 
