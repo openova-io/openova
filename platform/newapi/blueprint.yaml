@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.132 # lockstep with chart/Chart.yaml (#4388 valkey.url + egress NP → host-ns valkey, #4325 fallout)
+  version: 1.4.133 # lockstep with chart/Chart.yaml (#4388 valkey.url + egress NP → host-ns valkey, #4325 fallout)
   card:
     title: NewAPI
     summary: |

@@ -899,7 +899,7 @@ name: bp-newapi
 #   `valkey-primary.valkey.svc` / ns `valkey` (bp-valkey re-homed to host ns by
 #   #4325; the old `rtz` namespace selector denied newapi→valkey:6379 egress).
 #   Config-default-only. Refs #4388 #4325 #4376.
-version: 1.4.132
+version: 1.4.133
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
