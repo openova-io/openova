@@ -8,6 +8,16 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.10 -> 0.5.11 (#4362, #4325 fallout): set the chepherd container
+# resources requests == limits (Guaranteed QoS, 1:1 ratio). Once #4325 moved
+# agenity host-native into the per-Org namespace (above), the namespace's plan
+# `plan-limits` LimitRange (maxLimitRequestRatio cpu:1/memory:1 — the Sovereign
+# sells Guaranteed quota) REJECTED the prior Burstable spec (cpu 200m->2 = 10:1,
+# memory 512Mi->4Gi = 8:1) at pod admission: `max limit to request ratio per
+# Container is 1, but provided ratio is N`. The StatefulSet then never created a
+# Pod and the Application wedged Provisioning. requests == limits (cpu 1 / mem
+# 2Gi) keeps the pod admissible and right-sizes the singleton dashboard + one
+# solo claude REPL. Values-only change; appVersion image UNCHANGED.
 # 0.5.9 -> 0.5.10 (#4362, #4325 fallout): flip blueprint.yaml topology
 # singleton placement.tier `rtz` -> '' (host-native). #4325 de-vclustered the
 # platform planes (mgmt/rtz/dmz) into native host namespaces and removed the
@@ -87,7 +97,7 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.10
+version: 0.5.11
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752

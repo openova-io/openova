@@ -305,13 +305,24 @@ persistence:
 # ── Resources ─────────────────────────────────────────────────────────────
 # chepherd itself is a light coordinator; the per-agent claude REPLs are the
 # heavy users and run as sidecar/podman children inside the pod.
+#
+# requests == limits (Guaranteed QoS, 1:1 ratio). A per-Org namespace carries
+# the plan `plan-limits` LimitRange with maxLimitRequestRatio cpu:1/memory:1
+# (the Sovereign sells Guaranteed quota — every reserved vCPU/GB is committed),
+# so a Burstable spec (e.g. cpu 200m->2 = 10:1, memory 512Mi->4Gi = 8:1) is
+# REJECTED at pod admission: `max limit to request ratio per Container is 1,
+# but provided ratio is N` → the StatefulSet never creates a Pod and the
+# Application wedges Provisioning (live on the omantel.biz demo Org post-#4325
+# de-vcluster, when agenity moved host-native into the Org namespace under the
+# plan LimitRange). Pinning requests == limits keeps the pod admissible AND
+# right-sizes the singleton dashboard + one solo claude REPL.
 resources:
   requests:
-    cpu: 200m
-    memory: 512Mi
+    cpu: "1"
+    memory: 2Gi
   limits:
-    cpu: "2"
-    memory: 4Gi
+    cpu: "1"
+    memory: 2Gi
 
 # ── Pod security / scheduling ─────────────────────────────────────────────
 podAnnotations: {}
