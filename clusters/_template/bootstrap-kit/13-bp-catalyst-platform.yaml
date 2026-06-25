@@ -1114,7 +1114,10 @@ spec:
       #   CrashLoop) + environment/blueprint/application controller pins → 8c532a7
       #   (#4363 configSchema fix; clears the freshness gate). (slot-13 was also 2
       #   behind: the deploy-bot 1.4.850 bump never synced this pin.) Refs #4373 #4363.
-      version: 1.4.852
+      # 1.4.853 — #4362 (#4325 fallout): catalog-seed bp-agenity topology
+      #   tier rtz -> '' (host-native) + resources requests==limits +
+      #   helmRelease.disableWait; lockstep slot-pin bump (chart 1.4.853).
+      version: 1.4.853
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
