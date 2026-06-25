@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T13:45:01Z` |
+| Last refreshed | `2026-06-25T14:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 31 |
 | Open DoD gates | 0 / 41 |
@@ -238,6 +238,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T13:45 | [#4352](https://github.com/openova-io/openova/pull/4352) | #3971 | fix(bp-huawei-evs-csi): evs-ssd reclaimPolicy Retain -> Dele |
+| 2026-06-25T13:45 | [#4351](https://github.com/openova-io/openova/pull/4351) | #560 | fix(bp-kyverno-policies): exempt crossplane-system from harb |
 | 2026-06-25T13:04 | [#4348](https://github.com/openova-io/openova/pull/4348) | #4347 | fix(planes #4347): end the host-ns Kyverno whack-a-mole — pr |
 | 2026-06-25T11:32 | [#4346](https://github.com/openova-io/openova/pull/4346) | #4344 | fix(bp-keycloak #4344): stable admin-password across reinsta |
 | 2026-06-25T11:29 | [#4345](https://github.com/openova-io/openova/pull/4345) | #4325 | fix(planes): resources.requests for host-ns plane components |
@@ -266,8 +268,6 @@ flowchart LR
 | 2026-06-25T07:22 | [#4313](https://github.com/openova-io/openova/pull/4313) | #4275 | fix(provisioning): cross-region active-hot-standby — place t |
 | 2026-06-25T07:29 | [#4312](https://github.com/openova-io/openova/pull/4312) | #4212 | feat(catalyst): wire the 2 object-model/DR backbone seams —  |
 | 2026-06-25T07:22 | [#4311](https://github.com/openova-io/openova/pull/4311) | #3376 | fix(catalyst-api): org-handover on-demand registers the funn |
-| 2026-06-25T07:22 | [#4310](https://github.com/openova-io/openova/pull/4310) | #4286 | fix(bp-catalyst): #4286 mechanism D — env-controller cross-n |
-| 2026-06-25T04:10 | [#4309](https://github.com/openova-io/openova/pull/4309) | #4273 | fix(marketplace): gate console redirect on per-Org host read |
 
 ---
 
