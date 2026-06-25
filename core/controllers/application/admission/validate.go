@@ -46,6 +46,7 @@ import (
 	"strings"
 
 	appv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/application/v1alpha1"
+	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 )
 
 // DecisionCode is the wire-stable identifier returned to clients on
@@ -73,6 +74,14 @@ const (
 	// CodeIsolationLevelInvalid — spec.isolationLevel is set to a
 	// value not in {namespace, vcluster}.
 	CodeIsolationLevelInvalid DecisionCode = "isolation-level-invalid"
+
+	// CodePlacementInvalid — #3969. spec.placement.targets[] violates a
+	// model invariant: an invalid role/standbyType, no Primary, or — the
+	// load-bearing gate — >1 Primary when the Blueprint capability is
+	// primary+standby (MultiPrimaryNotSupported). The Message carries the
+	// specific ValidatePlacement reason so the operator sees the actionable
+	// error at ADMISSION (not silently at reconcile).
+	CodePlacementInvalid DecisionCode = "placement-invalid"
 )
 
 // Decision is the verdict of an admission gate. Allowed=true means the
@@ -241,6 +250,59 @@ func EvaluateUpdate(req UpdateRequest) Decision {
 			Allowed: false,
 			Code:    CodeIsolationLevelInvalid,
 			Message: fmt.Sprintf("isolationLevel %q not in {namespace, vcluster}", req.NewIsolationLevel),
+		}
+	}
+	return AllowedDecision
+}
+
+// PlacementRequest is the locked projection of a placement-validation
+// admission request (#3969). The webhook decodes the incoming Application
+// CR into this shape — the desired-state placement (spec.placement.targets[]
+// + ownedDependencies) plus the Blueprint's placementCapability gate — and
+// calls EvaluatePlacement. Both fields come off the wire; the Blueprint
+// capability is resolved by the webhook from the referenced Blueprint (it
+// folds to the safe primary+standby default when the Blueprint omits it, per
+// NormalizeCapability), so a malformed/multi-primary placement is rejected
+// BEFORE the apiserver persists the CR.
+type PlacementRequest struct {
+	// Placement — the candidate desired-state placement off the wire.
+	Placement bpv1alpha1.Placement
+
+	// Capability — the referenced Blueprint's placementCapability. Empty /
+	// unrecognised folds to primary+standby (the single-Primary default)
+	// inside ValidatePlacement, so an absent gate is never accidentally
+	// treated as multi-primary.
+	Capability bpv1alpha1.PlacementCapability
+}
+
+// EvaluatePlacement runs the #3969 capability + role/standbyType invariant
+// gate at ADMISSION time. It is the authoritative pre-persist enforcement of
+// ValidatePlacement: a placement that declares >1 Primary against a
+// primary+standby Blueprint (or carries an invalid role / a Standby with no
+// type / no Primary at all) is REJECTED at admission rather than landing as a
+// silently-Degraded Application the reconciler only catches later.
+//
+// An empty target list is a no-op (the legacy posture-string path drives the
+// fan-out unchanged) → AllowedDecision.
+//
+// On rejection the Decision carries CodePlacementInvalid and the underlying
+// ValidatePlacement reason + message so the operator sees exactly which
+// invariant failed (e.g. MultiPrimaryNotSupported).
+func EvaluatePlacement(req PlacementRequest) Decision {
+	if len(req.Placement.Targets) == 0 {
+		return AllowedDecision
+	}
+	if err := bpv1alpha1.ValidatePlacement(req.Placement, req.Capability); err != nil {
+		msg := err.Error()
+		var pe *bpv1alpha1.PlacementError
+		if errors.As(err, &pe) {
+			// Surface the stable reason + the human message verbatim.
+			msg = pe.Reason + ": " + pe.Msg
+		}
+		return Decision{
+			Allowed: false,
+			Code:    CodePlacementInvalid,
+			Message: msg,
 		}
 	}
 	return AllowedDecision
