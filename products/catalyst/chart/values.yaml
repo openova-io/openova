@@ -316,20 +316,26 @@ keycloakHostBridge:
   # the common case + Catalyst-Zero.
   realmName: sovereign
   # ── Host-routable Keycloak Service URL (addr field) ────────────────────
-  # keycloak now lives in vc-mgmt; from the HOST its Service is the
-  # vCluster-syncer-mirrored `<innerSvc>-x-<innerNs>-x-<vclusterRelease>` in
-  # the syncer host namespace (mgmt). For the MGMT vCluster that resolves to
-  # keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local (verified live
-  # serving the sovereign-realm OIDC discovery doc). The in-vCluster name
-  # `keycloak.keycloak.svc` does NOT resolve from the host. Browsers are
-  # unaffected (they use auth.<fqdn> via the host Gateway, slot-09 bridged).
-  keycloakAddr: http://keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local
+  # #4389: #4325 de-vclustered keycloak OUT of vc-mgmt INTO the host
+  # `keycloak` namespace, where bp-keycloak now runs it as a plain host
+  # StatefulSet behind Service `keycloak.keycloak.svc.cluster.local` (verified
+  # live on omantel.biz: resolves + serves the sovereign-realm OIDC discovery
+  # doc). The OLD vCluster-syncer-mirrored name
+  # `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local` is NXDOMAIN
+  # post-de-vcluster — it was wedging /auth/handover EnsureUser → 401 → ZERO
+  # funnel auth (sibling of the #4344 admin-password fallout, which fixed the
+  # master-password lookup but missed THIS addr). Browsers are unaffected
+  # (they use auth.<fqdn> via the host Gateway, slot-09 bridged).
+  keycloakAddr: http://keycloak.keycloak.svc.cluster.local
   # ── Source of the master admin password (the one non-derivable value) ──
-  # The bitnami `keycloak` Secret IS mounted by keycloak-0, so vCluster
-  # mirrors it host-side under the syncer-mangled name in ns `mgmt`. The
-  # bridge looks it up for `admin-password`.
-  bitnamiSecretNamespace: mgmt
-  bitnamiSecretName: keycloak-x-keycloak-x-mgmt-vcluster
+  # #4389/#4344: post-#4325 the master admin password comes from the host
+  # `keycloak/keycloak-admin` Secret (the bridge's PRIMARY source, see the
+  # template's $stable lookup). These bitnami* coords are the back-compat
+  # FALLBACK; point them at the host `keycloak/keycloak` bitnami Secret so the
+  # fallback resolves host-side too (the old `mgmt`/`keycloak-x-...` syncer
+  # name is NXDOMAIN after de-vcluster).
+  bitnamiSecretNamespace: keycloak
+  bitnamiSecretName: keycloak
   masterAdminUser: admin
 # ─── Pool-domain PowerDNS credential bridge (#4218) ────────────────────
 # The org-tenant DNS provisioner writes the per-Org pool subdomain A-record
