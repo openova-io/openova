@@ -100,7 +100,21 @@ name: bp-stalwart-tenant
 #        spec.manifests.helmRelease.disableWait in blueprint.yaml so the
 #        per-Org Application render path stamps install/upgrade.disableWait.
 #        Mirrors bp-newapi #4246/#4278.
-version: 0.1.7
+# 0.1.8 (#4307): per-Org HR STILL Ready=False after 0.1.7 despite a 1/1
+#   Running Pod AND disableWait rendering true/true on the per-Org HR.
+#   Live diagnosis on the tkt0625 demo Org (omantel.biz region-a) showed
+#   the residual False was NOT the cert-mount wait and NOT a hook runtime
+#   failure — the HR was InstallFailed/RetriesExceeded because the
+#   post-install setup Job (templates/mailbox-provision-job.yaml) declared
+#   NO `resources.requests`, so the Sovereign's Kyverno
+#   `resource-requests/requests-workload` admission policy DENIED the Job
+#   at creation ("Every container must declare resources.requests.cpu and
+#   resources.requests.memory"). The denied hook failed the Helm install.
+#   Fix: added `mailboxProvisioner.setupJob.resources` (req 10m/32Mi, lim
+#   100m/64Mi — overridable) and wired it onto the Job container. The
+#   StatefulSet already declared resources (stalwart.resources); only the
+#   hook Job was missing them. Mirrors the bp-newapi hook-Job convention.
+version: 0.1.8
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated

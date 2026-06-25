@@ -31,8 +31,19 @@ spec:
   # manifests.helmRelease.disableWait so the non-optional cert mount + Flux
   # --wait no longer deadlock the post-install setup Job (HR was Ready=False
   # "context deadline exceeded"). Mirrors bp-newapi + bp-wordpress-tenant.
+  # 0.1.8 (#4307): the per-Org HR stayed Ready=False even with a 1/1
+  # Running Pod + disableWait=true/true. Root cause was NOT the wait or a
+  # hook runtime failure — the post-install setup Job
+  # (mailbox-provision-job.yaml) declared NO resources.requests, so the
+  # Sovereign's Kyverno `resource-requests/requests-workload` policy
+  # DENIED the Job at admission ("Every container must declare
+  # resources.requests.cpu and resources.requests.memory"). The denied
+  # hook failed the Helm install → HR InstallFailed/RetriesExceeded.
+  # Added setupJob.resources (10m/32Mi req, 100m/64Mi lim, overridable)
+  # and wired it onto the Job container. Verified live on the tkt0625
+  # demo Org (omantel.biz region-a).
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.7
+  version: 0.1.8
   card:
     title: Stalwart (per-Organization)
     summary: |

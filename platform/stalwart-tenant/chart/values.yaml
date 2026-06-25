@@ -425,6 +425,25 @@ mailboxProvisioner:
     # nodes.
     activeDeadlineSeconds: 600
     backoffLimit: 6
+    # 0.1.8 (#4307) — the setup Job container MUST declare
+    # resources.requests.{cpu,memory} or the Sovereign's Kyverno
+    # `resource-requests/requests-workload` admission policy DENIES the
+    # Job at creation ("Every container must declare resources.requests.cpu
+    # and resources.requests.memory"). On the tkt0625 demo Org the
+    # StatefulSet Pod was 1/1 Running and `disableWait` rendered true/true,
+    # yet the HR wedged InstallFailed/RetriesExceeded because this
+    # post-install Helm hook Job was rejected at admission and never
+    # created. A short-lived curl/stalwart-cli bootstrap needs almost
+    # nothing — mirror the bp-newapi hook-Job footprint
+    # (database-secret-sync-job etc.). Overridable per Inviolable
+    # Principle #4.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
   # Continuous NATS subscriber Deployment. OFF by default at chart
   # level — turned on by the per-tenant overlay in #804 once the Organization
   # vcluster's NATS subject is known.
