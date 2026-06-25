@@ -710,7 +710,7 @@ controllers:
       # landed because app-wordpress.yaml was dropped from the kustomization
       # resources). The deploy-bot's 88f998913 "bump to 5cbfbd8" missed THIS
       # field. Pin it explicitly so the chart delivers the #4387 guard.
-      tag: "5cbfbd8"
+      tag: "b23af68"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
