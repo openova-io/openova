@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.10
+version: 0.2.11
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,41 @@ description: |
 
   Changelog
   ─────────
+  0.2.11 (2026-06-26, #4272 — public-HTTPS egress for the JWKS hairpin: the
+          TITULAR egress-NetworkPolicy gap, the LAST openclaw layer)
+    - After 0.2.10 made the issuer RESOLVABLE (auth.<fqdn>/realms/sovereign), a
+      live re-walk (fresh Org w4282walk) found the controller STILL 0/1 with
+      /readyz 503: the issuer is correct + in-cluster-reachable, but the
+      controller's CILIUM egress allowed ONLY the kube-apiserver entity, so the
+      /readyz `ensureKeys` JWKS fetch to the PUBLIC auth.<fqdn> host (console-ELB
+      EIP, hairpinned back through the in-cluster Cilium Gateway on :443) was
+      egress-denied → 503 forever. This is the "NetworkPolicy assumption" in
+      #4272's own title — the final layer the prior two fixes (#4397 secret,
+      #4399 issuer) exposed.
+        • ROOT CAUSE: the companion CiliumNetworkPolicy
+          (cilium-ingress-networkpolicy.yaml) already attaches an `egress` block
+          (kube-apiserver entity, 0.2.6). On Cilium, the moment a CNP attaches
+          ANY egress rule to an endpoint, that endpoint's egress is
+          CNP-enforced. The K8s NetworkPolicy's `ipBlock 0.0.0.0/0 :443` rule
+          (networkpolicy.yaml `allowPublicHttps`) does NOT match the reserved
+          identities the JWKS hairpin carries — `world` for the external EIP,
+          `cluster`/`host`/`remote-node` for the gateway bounce — the exact
+          `policy-cidr-match-mode: ""` behaviour documented in
+          platform/external-dns/chart/templates/ciliumnetworkpolicy.yaml. So the
+          K8s NP world-:443 egress is INERT for the hairpin once the CNP egress
+          block exists.
+        • THE FIX: add a `toEntities` :443 egress to the CNP over the SAME
+          identity set the products/catalyst baseline-cilium-gateway allow-world
+          CNP admits (world + cluster + host + remote-node), covering BOTH the
+          genuine-external resolution AND the in-cluster gateway hairpin. Gated
+          on the new `networkPolicy.egress.allowPublicHttps` (default true) +
+          `publicHttpsEntities` / `publicHttpsPort`; the template now emits the
+          CNP `egress:` block when EITHER the apiserver OR the public-HTTPS rule
+          is enabled, each independently gated, still behind the cilium.io/v2
+          Capabilities check (CRD-less kind CI unaffected). The funnel generator
+          (core/services/provisioning/gitops generateOpenClawHR) now stamps
+          `networkPolicy.egress.allowPublicHttps: true` explicitly so a funnel
+          openclaw renders the carve-out independent of any chart-default flip.
   0.2.10 (2026-06-26, #4272 — resolvable OIDC issuer when per-Org realm OFF)
     - DOC-ONLY chart change paired with the provisioning-layer fix that
       stops the funnel generator emitting an UNRESOLVABLE OIDC issuer. After

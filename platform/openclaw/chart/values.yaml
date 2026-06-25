@@ -339,6 +339,43 @@ networkPolicy:
     apiserverPorts:
       - "443"
       - "6443"
+    # ── Public-host HTTPS egress, CNP layer (the TITULAR #4272 gap) ────────
+    # The controller's /readyz fetches the OIDC issuer's JWKS at the PUBLIC
+    # host (https://auth.<fqdn>/realms/<realm> on a Sovereign whose per-Org
+    # realm is disabled — the SAME issuer the console resolves, #4399). That
+    # host resolves to the console-ELB EIP, so the fetch hairpins OUT to the
+    # EIP and BACK IN through the in-cluster Cilium Gateway on :443. The K8s
+    # NetworkPolicy already allows `ipBlock 0.0.0.0/0 :443` — but the moment
+    # THIS CNP attaches an `egress` block to the controller endpoint (for the
+    # apiserver hop above), Cilium makes the controller's egress CNP-enforced,
+    # and an `ipBlock 0.0.0.0/0` rule does NOT match the reserved identities
+    # the hairpin carries (`world` for the genuine-external EIP, but
+    # `cluster`/`host`/`remote-node` for the gateway bounce — the exact
+    # `policy-cidr-match-mode: ""` behaviour documented in
+    # platform/external-dns/chart/templates/ciliumnetworkpolicy.yaml). So the
+    # JWKS hairpin is egress-denied → `ensureKeys` fails → /readyz 503 → the
+    # controller stays 0/1 forever. THIS is the LAST openclaw layer (#4272).
+    #
+    # The canonical Cilium expression is a `toEntities` :443 egress over the
+    # SAME identity set the baseline-cilium-gateway allow-world CNP admits
+    # (world + cluster + host + remote-node), so both the genuine-external
+    # resolution AND the in-cluster gateway hairpin are covered. Default ON (a
+    # Sovereign needs it). Set false on a fully in-cluster overlay whose
+    # issuer resolves to an in-namespace Keycloak Service.
+    allowPublicHttps: true
+    # Reserved entities the controller may egress to on the public-HTTPS port.
+    # `world` covers the genuine external EIP; `cluster`/`host`/`remote-node`
+    # cover the JWKS hairpin bounced back through the in-cluster Cilium Gateway
+    # (the reserved-identity hop no ipBlock can express). Mirrors the allow-set
+    # in products/catalyst baseline-cilium-gateway.yaml.
+    publicHttpsEntities:
+      - world
+      - cluster
+      - host
+      - remote-node
+    # Port the public OIDC issuer (auth.<fqdn>) terminates TLS on. 443 is the
+    # console-ELB / Cilium-Gateway HTTPS listener.
+    publicHttpsPort: 443
   controller:
     ingress:
       # K8s namespace-selector ingress. EMPTY on a Sovereign — the gateway hop

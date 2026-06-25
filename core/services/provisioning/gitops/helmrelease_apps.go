@@ -246,6 +246,20 @@ spec:
       enabled: true
       ingress:
         allowGatewayEntity: true
+      # #4272 (the TITULAR egress gap): the controller's /readyz fetches the
+      # OIDC issuer's JWKS at the PUBLIC host (auth.<fqdn>, #4399), which
+      # hairpins out to the console-ELB EIP and back through the Cilium Gateway
+      # on :443. Once the companion CNP attaches an egress block (kube-apiserver
+      # entity), Cilium makes the controller egress CNP-enforced and an ipBlock
+      # 0.0.0.0/0 rule no longer matches the reserved identities the hairpin
+      # carries → JWKS egress-denied → /readyz 503 → controller 0/1 forever.
+      # allowPublicHttps emits the CNP toEntities :443 carve-out (world+cluster+
+      # host+remote-node). The chart default is already true; stamp it
+      # explicitly so a funnel openclaw is correct independent of any future
+      # chart-default flip.
+      egress:
+        allowApiserverEntity: true
+        allowPublicHttps: true
 `, helmRepoBlock("bp-openclaw"), opt.slug, opt.slug, opt.kubeConfigBlock(),
 		keycloakRealm, newapiBase, keycloakRealm, newapiBase, opt.slug, host)
 }

@@ -92,6 +92,30 @@ func TestFunnelCart_OpenClawStalwart_RenderHelmReleases(t *testing.T) {
 	}
 }
 
+// TestFunnelCart_OpenClaw_PublicHttpsEgress — the TITULAR #4272 gap: the funnel
+// openclaw HR MUST stamp networkPolicy.egress.allowPublicHttps so the chart's
+// CiliumNetworkPolicy emits the :443 public-HTTPS egress carve-out the /readyz
+// JWKS hairpin to the public auth.<fqdn> host needs. Once the companion CNP
+// attaches the apiserver-entity egress block, Cilium makes the controller
+// egress CNP-enforced, so the K8s NP's ipBlock 0.0.0.0/0 :443 rule is inert for
+// the reserved-identity hairpin — the CNP must carry the egress itself.
+func TestFunnelCart_OpenClaw_PublicHttpsEgress(t *testing.T) {
+	out := cartOrgFor(t, "acme", "m", []string{"openclaw"})
+	openclaw, ok := out[testBasePath+"/acme/app-openclaw.yaml"]
+	if !ok {
+		t.Fatalf("bp-openclaw HelmRelease NOT rendered (keys: %v)", keys(out))
+	}
+	if !strings.Contains(openclaw, "allowPublicHttps: true") {
+		t.Errorf("funnel openclaw HR must stamp networkPolicy.egress.allowPublicHttps: true (#4272 titular egress gap):\n%s", openclaw)
+	}
+	if !strings.Contains(openclaw, "allowApiserverEntity: true") {
+		t.Errorf("funnel openclaw HR must keep networkPolicy.egress.allowApiserverEntity: true (#4319 reaper hop):\n%s", openclaw)
+	}
+	if !strings.Contains(openclaw, "allowGatewayEntity: true") {
+		t.Errorf("funnel openclaw HR must keep networkPolicy.ingress.allowGatewayEntity: true (#4300 gateway hop):\n%s", openclaw)
+	}
+}
+
 // TestFunnelCart_HRApps_NoDeploymentNoHostIngress — the HR apps must NOT also
 // produce a raw app-*.yaml Deployment in the vcluster apps/ tree, and must NOT
 // be wired into the traefik host ingress (they carry their own chart HTTPRoute
