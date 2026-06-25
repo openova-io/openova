@@ -513,9 +513,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "feb1025"
+    tag: "5cbfbd8"
   catalystUi:
-    tag: "feb1025"
+    tag: "5cbfbd8"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -689,7 +689,7 @@ controllers:
       # 34ff594 had drifted 470 commits behind latest GHCR. The merge-time
       # build-organization-controller.yaml auto-bump re-pins this to the image
       # built from THIS PR's tenant_dns.go code.
-      tag: "5cbfbd8"
+      tag: "405ee6d"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
