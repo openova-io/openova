@@ -200,6 +200,33 @@ type ManifestGenerator struct {
 	// back to parentDomainDefault so a render never produces a bare `<slug>.`
 	// with no zone.
 	ParentDomain string
+
+	// SovereignFQDN is the per-Sovereign apex domain (e.g. "omantel.biz").
+	// On a Sovereign where the per-Org Keycloak realm is DISABLED (the
+	// intentional default — CATALYST_PER_ORG_REALM_ENABLED=false → the
+	// org-controller never provisions a `keycloak.<slug>.<parent>` host), the
+	// only resolvable OIDC issuer is the SHARED realm fronted at
+	// `auth.<SovereignFQDN>` (the same host the console + every other app
+	// authenticates against). bp-openclaw's controller /readyz runs
+	// ensureKeys, which fetches the issuer's `.well-known/openid-configuration`
+	// + JWKS; against the NXDOMAIN per-Org host it fails → 503 forever (the
+	// live #4272 re-walk on funnel Org `g11clawmail`). When SovereignFQDN is
+	// set, generateOpenClawHR points the issuer at the resolvable shared realm
+	// so JWKS resolves and /readyz returns 200. Empty (Catalyst-Zero, or no
+	// SOVEREIGN_FQDN wiring) falls back to the conventional per-Org realm host
+	// — the legacy behavior, harmless on a cluster that DOES run per-Org realms.
+	//
+	// Populated from SOVEREIGN_FQDN in main.go (the same env the Handler reads
+	// for the KC-broker URL + git-base-path guard). Never hardcoded (Inviolable
+	// Principle 4).
+	SovereignFQDN string
+
+	// SharedRealmName is the realm segment of the shared-realm issuer
+	// (`https://auth.<SovereignFQDN>/realms/<SharedRealmName>`). The canonical
+	// Sovereign realm name is `sovereign` (platform/keycloak/blueprint.yaml
+	// `realm: sovereign`; catalyst-api's CATALYST_KC_REALM default). Empty
+	// resolves to sharedRealmNameDefault.
+	SharedRealmName string
 }
 
 // parentDomain resolves the funnel's org-pool parent zone for the
@@ -212,10 +239,37 @@ func (g *ManifestGenerator) parentDomain() string {
 	return parentDomainDefault
 }
 
+// sharedRealmIssuer returns the resolvable SHARED-realm OIDC issuer
+// `https://auth.<SovereignFQDN>/realms/<SharedRealmName>` when SovereignFQDN is
+// set, else "" (the caller falls back to the per-Org realm host). This is the
+// issuer the HelmRelease-shaped per-Org apps (#4272 openclaw, #4307 stalwart)
+// MUST use on a Sovereign whose per-Org Keycloak realm is disabled — the
+// per-Org `keycloak.<slug>.<parent>` host is NXDOMAIN there, so its JWKS fetch
+// (openclaw controller /readyz ensureKeys) fails → 503 forever. The shared
+// realm at auth.<fqdn> is the SAME issuer the console + every other Sovereign
+// app resolves, so its discovery + JWKS endpoints are live.
+func (g *ManifestGenerator) sharedRealmIssuer() string {
+	fqdn := strings.TrimSpace(g.SovereignFQDN)
+	if fqdn == "" {
+		return ""
+	}
+	realm := strings.TrimSpace(g.SharedRealmName)
+	if realm == "" {
+		realm = sharedRealmNameDefault
+	}
+	return fmt.Sprintf("https://auth.%s/realms/%s", fqdn, realm)
+}
+
 // parentDomainDefault is the org-pool parent zone the funnel stamps onto the
 // HelmRelease-shaped per-Org app hostnames when ParentDomain is unset. Matches
 // the catalog-canon default pool (docs/DOD.md §Domains-canon).
 const parentDomainDefault = "omani.homes"
+
+// sharedRealmNameDefault is the canonical Sovereign-wide Keycloak realm name
+// the shared-realm issuer (`auth.<fqdn>/realms/<this>`) targets when
+// SharedRealmName is unset. Matches platform/keycloak/blueprint.yaml
+// (`realm: sovereign`) + catalyst-api's CATALYST_KC_REALM default.
+const sharedRealmNameDefault = "sovereign"
 
 // replicaRegionKubeSecretDefault is the deterministic flux-system Secret
 // name the cross-region standby HelmRelease's spec.kubeConfig.secretRef
@@ -617,6 +671,11 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			slug:         slug,
 			parentDomain: g.parentDomain(),
 			kubeSecret:   hrKubeSecret,
+			// #4272: the resolvable SHARED-realm OIDC issuer
+			// (auth.<fqdn>/realms/sovereign) when this Sovereign runs no
+			// per-Org realm. Empty falls the HR templates back to the per-Org
+			// keycloak.<slug>.<parent> host (legacy / Catalyst-Zero).
+			sharedRealmIssuer: g.sharedRealmIssuer(),
 		})
 	}
 
