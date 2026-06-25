@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T23:30:02Z` |
+| Last refreshed | `2026-06-25T23:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 12 |
 | Open DoD gates | 0 / 41 |
@@ -219,6 +219,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T23:37 | [#4401](https://github.com/openova-io/openova/pull/4401) | #4272 | fix(bp-openclaw): public-HTTPS egress for the /readyz JWKS h |
 | 2026-06-25T22:50 | [#4400](https://github.com/openova-io/openova/pull/4400) | #4307 | fix(bp-stalwart-tenant): bundle SnappyMail webmail SPA so ma |
 | 2026-06-25T22:47 | [#4399](https://github.com/openova-io/openova/pull/4399) | #4272 | fix(provisioning,bp-openclaw): resolvable shared-realm OIDC  |
 | 2026-06-25T22:15 | [#4398](https://github.com/openova-io/openova/pull/4398) | #4282 | fix(application-controller): route per-Org CNPG Blueprint Cl |
@@ -248,7 +249,6 @@ flowchart LR
 | 2026-06-25T15:17 | [#4359](https://github.com/openova-io/openova/pull/4359) | #4358 | fix(bp-huawei-evs-csi): post-upgrade default-class hook Job  |
 | 2026-06-25T15:09 | [#4358](https://github.com/openova-io/openova/pull/4358) | #4356 | fix(bp-huawei-evs-csi): reclaim-reconcile hook Job carries m |
 | 2026-06-25T14:58 | [#4357](https://github.com/openova-io/openova/pull/4357) | #4340 | fix(bp-catalyst-platform): gitea repo-bootstrap hooks self-h |
-| 2026-06-25T14:42 | [#4356](https://github.com/openova-io/openova/pull/4356) | #4352 | fix(bp-huawei-evs-csi): pre-upgrade hook delete+recreate evs |
 
 ---
 
