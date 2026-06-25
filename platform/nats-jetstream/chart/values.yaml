@@ -33,6 +33,19 @@ nats:
         pvc:
           size: 10Gi
   container:
+    # #4347 — the nats SERVER image must route through the Sovereign-local
+    # Harbor dockerhub proxy so it satisfies the cluster-wide Kyverno
+    # `harbor-proxy-pull` Enforce ClusterPolicy (every container image must
+    # match glob `*/proxy-*/*` or `*/openova-io/*`). Post-#4325 this chart
+    # installs into the native host namespace `nats-system` where that policy
+    # applies. `nats` is an OFFICIAL (library) dockerhub image, so the proxy
+    # path is `proxy-dockerhub/library/nats` (mirrors platform/openbao +
+    # keycloak `proxy-dockerhub/library/*`). The nats.image helper composes
+    # `<registry>/<repository>:<tag>` → harbor.openova.io/proxy-dockerhub/
+    # library/nats:2.10.16-alpine. Tag unchanged.
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/library/nats
     # #4343 — the vendored nats 1.2.0 chart renders each container via the
     # file-based `loadMergePatch` helper, which consumes ONLY `.merge` (and
     # `.patch`) — NOT the top-level container dict. A bare `container.resources`
@@ -42,6 +55,10 @@ nats:
     # it, masking the gap; after the de-vcluster migration it installs into the
     # native host namespace and the StatefulSet admission is DENIED. Resources
     # MUST live under `container.merge.resources` to actually reach the pod.
+    # (The nats server container already ships liveness+readiness probes from
+    # the upstream chart — gated on `config.monitor.enabled: true`, which is
+    # the default — so it already satisfies the host-ns `probes-present`
+    # Enforce policy and needs no probe injection here.)
     merge:
       resources:
         requests: { cpu: 100m, memory: 256Mi }
@@ -51,20 +68,81 @@ nats:
   # resources. Set them via the same `merge` knob so the sidecar carries
   # requests.
   reloader:
+    # #4347 — route the reloader image through the Harbor dockerhub proxy
+    # (`harbor-proxy-pull` Enforce). `natsio/nats-server-config-reloader` is a
+    # namespaced (non-library) dockerhub repo, so the proxy path keeps the
+    # `natsio/` segment: proxy-dockerhub/natsio/nats-server-config-reloader.
+    # The nats.image helper composes <registry>/<repository>:<tag>. Tag kept.
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/natsio/nats-server-config-reloader
     merge:
       resources:
         requests: { cpu: 10m, memory: 16Mi }
         limits: { memory: 64Mi }
+      # #4347 — the reloader sidecar has NO serving/health HTTP port (it's a
+      # file-watcher that signals the nats-server via a PID file), so the
+      # host-ns Kyverno `probes-present` Enforce policy (which requires BOTH
+      # liveness + readiness on every Deployment/StatefulSet/DaemonSet
+      # container) was DENYING the StatefulSet. The image is alpine-based (NOT
+      # distroless — verified: ships /bin/sh + busybox `pidof`), and the
+      # entrypoint `exec`s the binary as PID 1, so a meaningful exec probe is
+      # `pidof nats-server-config-reloader` — it proves the watcher process is
+      # alive without any network dependency (never flaps on broker state).
+      livenessProbe:
+        exec:
+          command: ["/bin/sh", "-c", "pidof nats-server-config-reloader >/dev/null"]
+        initialDelaySeconds: 10
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+      readinessProbe:
+        exec:
+          command: ["/bin/sh", "-c", "pidof nats-server-config-reloader >/dev/null"]
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
   # #4343 — the nats-box utility Deployment (upstream default `natsBox.enabled:
   # true`) is a separate workload whose base container template ships NO
   # resources. Set them via `natsBox.container.merge` so its single container
   # carries requests.
   natsBox:
     container:
+      # #4347 — route the nats-box image through the Harbor dockerhub proxy
+      # (`harbor-proxy-pull` Enforce). `natsio/nats-box` is a namespaced
+      # dockerhub repo, so the proxy path keeps the `natsio/` segment:
+      # proxy-dockerhub/natsio/nats-box. Tag kept.
+      image:
+        registry: harbor.openova.io
+        repository: proxy-dockerhub/natsio/nats-box
       merge:
         resources:
           requests: { cpu: 10m, memory: 32Mi }
           limits: { memory: 64Mi }
+        # #4347 — nats-box is a debug toolbox Deployment whose only workload is
+        # a `sleep infinity` keep-alive (no serving port), so it shipped with
+        # NO probes and the host-ns Kyverno `probes-present` Enforce policy
+        # DENIED the Deployment. The image is alpine/busybox-based (verified:
+        # ships /bin/sh + `pidof`); PID 1 is `sh` running the keep-alive with
+        # `sleep` as its child. A meaningful, non-flapping exec probe is
+        # `pidof sleep` — it proves the box's keep-alive is alive. Deliberately
+        # NOT coupled to broker reachability: a debug toolbox must not flip
+        # NotReady whenever the NATS server restarts.
+        livenessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pidof sleep >/dev/null"]
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pidof sleep >/dev/null"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
   # Prometheus exporter + PodMonitor — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
@@ -163,12 +241,12 @@ catalystStreams:
 # release namespace (nats-system). Watch namespace empty = cluster-wide.
 nack:
   enabled: true
-  # #4343 — the nack 0.29.0 jetstream-controller container reads its resources
-  # from the TOP-LEVEL `resources` key (`{{- with .Values.resources }}` in
+  # #4343 — the nack jetstream-controller container reads its resources from
+  # the TOP-LEVEL `resources` key (`{{- with .Values.resources }}` in
   # deployment-jetstream-controller.yml), NOT `jetstream.resources` — the
-  # latter is inert in this chart version. Setting it here is what actually
-  # gives the `jsc` container requests, so it clears the host-ns Kyverno
-  # `resource-requests` Enforce policy (post-#4325). Modest controller request.
+  # latter is inert. Setting it here is what actually gives the `jsc` container
+  # requests, so it clears the host-ns Kyverno `resource-requests` Enforce
+  # policy (post-#4325). Modest controller request.
   resources:
     requests:
       cpu: 50m
@@ -177,6 +255,27 @@ nack:
       cpu: 200m
       memory: 256Mi
   jetstream:
+    # #4347 — route the jetstream-controller image through the Harbor
+    # dockerhub proxy (`harbor-proxy-pull` Enforce). The jsc.image helper
+    # composes `<registry>/<repository>:<tag>`; with the tag left empty it
+    # falls back to the nack subchart `.Chart.AppVersion` (0.23.0 for chart
+    # 0.34.0). `natsio/jetstream-controller` is a namespaced dockerhub repo,
+    # so the proxy path keeps the `natsio/` segment.
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/natsio/jetstream-controller
+    # #4347 — the nack 0.29.0 jetstream-controller Deployment template had NO
+    # livenessProbe/readinessProbe hook and exposed no health port, so the
+    # host-ns Kyverno `probes-present` Enforce policy DENIED the Deployment and
+    # there was NO values knob to inject probes. The clean upstream-native fix
+    # is the nack 0.34.0 dependency bump (Chart.yaml): its
+    # deployment-jetstream-controller.yml renders an HTTP `/healthz` liveness +
+    # `/readyz` readiness probe on port 8081 — BUT only when the controller
+    # runs its controller-runtime backend, which also binds the health probe
+    # address (`--health-probe-bind-address=:8081`). `controlLoop: true` is the
+    # flag that enables that backend AND the probe block in one switch. This is
+    # the upstream-recommended reconcile path; it needs no shell/exclusion.
+    controlLoop: true
     # Point at the broker subchart's Service. Same-namespace, no auth
     # required (NATS auth is operator-config'd separately if at all).
     nats:
