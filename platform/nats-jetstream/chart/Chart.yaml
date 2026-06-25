@@ -1,6 +1,13 @@
 apiVersion: v2
 name: bp-nats-jetstream
-version: 1.3.3
+# 1.3.4 (#4343, 2026-06-25): relocate the nats server resources from the
+# inert `container.resources` to `container.merge.resources` (the nats 1.2.0
+# loadMergePatch helper reads ONLY `.merge`/`.patch`, so the prior block was
+# silently dropped and the server container rendered with NO requests) and add
+# `reloader.merge.resources` + `natsBox.container.merge.resources`. Satisfies
+# the cluster-wide Kyverno `resource-requests` Enforce policy now that #4325
+# installs this chart into the native host namespace (not a vCluster).
+version: 1.3.4
 description: |
   Catalyst-curated Blueprint umbrella chart for NATS JetStream. Depends
   on TWO upstream subcharts:

@@ -109,7 +109,9 @@ spec:
   chart:
     spec:
       chart: bp-loki
-      version: 1.0.0
+      # 1.0.1 — #4343: loki.sidecar.resources.requests so the rules sidecar
+      #   clears the host-ns Kyverno resource-requests Enforce policy (post-#4325).
+      version: 1.0.1
       sourceRef:
         kind: HelmRepository
         name: bp-loki

@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.3.3
+  version: 1.3.4  # lockstep with chart/Chart.yaml (#4343 server/reloader/nats-box resources via container.merge for host-ns Kyverno resource-requests Enforce)
   card:
     title: nats-jetstream
     summary: Event spine for the Catalyst control plane. JetStream Streams + KV + Object Store via bundled nack JetStream Controller (Wave 5.45 #2254). Per-Organization Accounts. Replaces what was previously specified as Redpanda + Valkey for the control plane.

@@ -110,7 +110,10 @@ spec:
   chart:
     spec:
       chart: bp-mimir
-      version: 1.0.5
+      # 1.0.6 — #4343: gateway.resources + MinIO cpu requests so every
+      #   container clears the host-ns Kyverno resource-requests Enforce
+      #   policy (post-#4325).
+      version: 1.0.6
       sourceRef:
         kind: HelmRepository
         name: bp-mimir

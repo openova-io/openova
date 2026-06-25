@@ -38,6 +38,11 @@ description: |
   this Blueprint hard-depends on bp-cnpg + bp-cert-manager. The
   earlier dependency on bp-seaweedfs is REMOVED (cloud-direct S3 path).
 type: application
+# 1.2.38 (#4343, 2026-06-25): set `nginx.resources.requests` (cpu/memory) so
+# the harbor-nginx Deployment satisfies the cluster-wide Kyverno
+# `resource-requests` Enforce policy. Post-#4325 this chart installs into the
+# native host namespace (not a vCluster) where the policy applies; the upstream
+# goharbor subchart only emits nginx resources when `nginx.resources` is set.
 # 1.2.16 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): database-secret-sync-job
 # hook image switched from curlimages/curl:8.10.1 to
 # harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
@@ -142,7 +147,7 @@ type: application
 # materialise. The cnpg-cluster.yaml Cluster-CR gate is UNCHANGED (still
 # cluster.enabled — the host-bridge must not double-create it). Non-host-bridged
 # render byte-identical.
-version: 1.2.37
+version: 1.2.38
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

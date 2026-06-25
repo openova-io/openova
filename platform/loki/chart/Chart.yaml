@@ -14,7 +14,12 @@ description: |
   overlays MUST flip storage to S3 (SeaweedFS / cloud) when SimpleScalable
   or Distributed is selected — the upstream chart enforces this.
 type: application
-version: 1.0.0
+# 1.0.1 (#4343, 2026-06-25): set `loki.sidecar.resources.requests` so the
+# rules sidecar (loki-sc-rules) in the SingleBinary StatefulSet satisfies the
+# cluster-wide Kyverno `resource-requests` Enforce policy. Post-#4325 this
+# chart installs into the native host namespace (not a vCluster) where the
+# policy applies; upstream defaults the sidecar resources to empty.
+version: 1.0.1
 appVersion: "3.6.7"
 keywords: [catalyst, blueprint, loki, observability, logs]
 maintainers:

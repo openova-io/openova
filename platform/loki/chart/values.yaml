@@ -64,6 +64,23 @@ loki:
         cpu: 1
         memory: 1Gi
 
+  # #4343 — the rules sidecar (kiwigrid/k8s-sidecar `loki-sc-rules`) co-runs
+  # in the SingleBinary StatefulSet whenever the upstream `sidecar.rules.enabled`
+  # default (true) holds. Its resources come from `sidecar.resources`, which
+  # upstream defaults to `{}` → the sidecar container renders with NO requests.
+  # Pre-#4325 this chart ran INSIDE a vCluster where the host's Kyverno
+  # `resource-requests` Enforce ClusterPolicy didn't reach it; after the
+  # de-vcluster migration it installs into the native host namespace and the
+  # StatefulSet admission is DENIED. Modest request for the light k8s watcher.
+  sidecar:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
+
   # SimpleScalable / Distributed pools — DEFAULT 0 replicas. Per-Sovereign
   # overlays bump these (and flip `deploymentMode`) when scaling out.
   read:

@@ -13,7 +13,12 @@ description: |
   overlays scale per-component replicas + flip zone-aware-replication on
   for HA Sovereigns.
 type: application
-version: 1.0.5
+# 1.0.6 (#4343, 2026-06-25): set `gateway.resources.requests` and add the
+# missing cpu request on the bundled MinIO StatefulSet + create-bucket Job so
+# every container satisfies the cluster-wide Kyverno `resource-requests`
+# Enforce policy. Post-#4325 this chart installs into the native host namespace
+# (not a vCluster) where the policy applies.
+version: 1.0.6
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:

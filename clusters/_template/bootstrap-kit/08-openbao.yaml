@@ -133,7 +133,9 @@ spec:
       # 1.2.50: #3374 — in-vCluster k8s-auth mount + gateway-decoupled zero-click SSO landing.
       # 1.2.52 — #4212 Seam 3: placementSchema aligned with spec.topology
       #   (modes[] admit active-passive + defaultOnMultiRegion). Chart bumped in lockstep.
-      version: 1.2.52
+      # 1.2.53 — #4343: injector.resources.requests so the agent-injector clears
+      #   the host-ns Kyverno resource-requests Enforce policy (post-#4325).
+      version: 1.2.53
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
