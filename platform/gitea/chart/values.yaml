@@ -537,3 +537,61 @@ bootstrapOwned:
   helmRelease:
     name: ""
     namespace: flux-system
+
+# ─── git-data preservation guard (#4354, Refs #4325 #4353) ───────────────────
+# The #4325 de-vcluster re-homes gitea from the mgmt vCluster into the host
+# `gitea` namespace via a FRESH helm install. The fresh install's PVC
+# (`gitea-shared-storage`) dynamically provisions a BRAND-NEW empty PV and
+# ABANDONS the prior per-vCluster PV — while gitea's external CNPG metadata DB
+# (which lives in its OWN persistent PVC, untouched by the re-home) survives.
+# The result is a catastrophic DB↔disk drift: the API reports N repos
+# `empty:false` but every `contents?ref=main` 500s "no such file or directory"
+# because /data/git/gitea-repositories is empty (the live #4353 P0).
+#
+# This guard runs as a Helm pre-install,pre-upgrade hook Job — BEFORE the
+# upstream subchart's PVC manifest lands and BEFORE the gitea Deployment boots —
+# and enforces the invariant: gitea MUST NOT boot a fresh-empty git-data volume
+# whenever a prior populated git-data volume exists OR its metadata DB already
+# reports repositories.
+#
+# Decision matrix (idempotent on every reconcile):
+#   1. PVC `gitea-shared-storage` already Bound          → NO-OP (steady state).
+#   2. No PVC, but a RELEASED/AVAILABLE orphan PV carries
+#      the prior gitea git-data (matched by the claimRef
+#      name the upstream chart used + the git-data label
+#      this chart stamps)                                 → ADOPT: force the
+#      adopted PV's reclaim policy to Retain (so a transient unbind can never
+#      delete it — #4352 evs-ssd Retain→Delete interaction), clear its stale
+#      claimRef, then pre-create the host-ns PVC with `volumeName` set to that
+#      PV so the chart-rendered PVC binds to the SAME data volume (the re-home
+#      rides the existing repositories across).
+#   3. No PVC and no adoptable PV, but the external metadata
+#      DB already reports repositories (host-ns re-home onto
+#      a surviving DB whose disk was lost)                → FAIL LOUD: the hook
+#      exits non-zero, the pre-upgrade gate fails, and the gitea Deployment is
+#      NEVER rolled against an empty volume. The operator restores git-data
+#      from backup (Velero / SeaweedFS object-store mirror) or re-mirrors from
+#      upstream before the install can proceed — no silent empty boot.
+#   4. No PVC, no adoptable PV, empty/absent metadata DB
+#      (a genuinely FRESH prov)                           → NO-OP: the chart
+#      provisions a fresh PVC normally. This is the only case where an empty
+#      git-data volume is correct.
+gitDataMigration:
+  # Master switch. Default ON — the guard is a no-op on a fresh prov (case 4)
+  # and only acts when prior state exists, so it is always safe to leave on.
+  # An operator who has externalised ALL git-data to object storage
+  # (objectStorage.enabled=true with no local repositories) MAY disable it.
+  enabled: true
+  # The canonical PVC name the upstream gitea subchart binds /data to
+  # (gitea.persistence.claimName upstream default). Keep in lockstep with any
+  # gitea.persistence.claimName override.
+  claimName: gitea-shared-storage
+  # When the metadata DB reports repos but no git-data volume can be adopted,
+  # the guard fails the install (case 3). Set false ONLY for a deliberate
+  # destroy-and-rebuild where losing repositories is acceptable (the guard then
+  # logs the drift and allows the empty boot). NEVER flip this to suppress a
+  # real data-loss — that is the exact #4353 footgun.
+  failOnDbDiskDrift: true
+  # kubectl image for the guard Job (mirrors the guacamole recordings-migrate
+  # hook convention). Operator-overridable per docs/PRINCIPLES.md #4a.
+  image: bitnamilegacy/kubectl:1.30.7

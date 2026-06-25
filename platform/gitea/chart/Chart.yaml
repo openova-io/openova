@@ -158,7 +158,23 @@ name: bp-gitea
 #   ClusterPolicy admits it — after #4325 de-vcluster re-homed bp-gitea into a
 #   native host namespace where the cluster-wide Enforce policies apply. Adds
 #   tests/kyverno-probes-present.sh (CI gate). Refs #4347 #4325 #4340.
-version: 1.2.42
+# 1.2.43 (#4354, Refs #4325 #4353): git-data PRESERVATION guard. The #4325
+#   de-vcluster re-homed gitea vCluster→host via a FRESH helm install, which
+#   dynamically provisioned a brand-NEW empty `gitea-shared-storage` PVC and
+#   ABANDONED the prior PV — while gitea's EXTERNAL CNPG metadata DB survived →
+#   catastrophic DB↔disk drift (42 repos `empty:false` but every contents 500s
+#   "no such file or directory"; the live #4353 P0). New
+#   templates/gitdata-preservation-hook.yaml (pre-install,pre-upgrade Helm hook)
+#   enforces: never boot a fresh-empty git-data volume when prior data or a
+#   non-empty metadata DB exists. It (1) NO-OPs on a fresh prov / steady state,
+#   (2) ADOPTS an orphan Released/Available PV (force reclaimPolicy Retain →
+#   clear claimRef → pre-bind the host-ns PVC via volumeName so the chart PVC
+#   rides the SAME data volume), and (3) FAILS LOUD (blocks the gitea
+#   Deployment) when the DB reports repos but no git-data PV can be adopted —
+#   so the silent empty boot can never recur. Gated `gitDataMigration.enabled`
+#   (default true; safe no-op when no prior state). Adds
+#   tests/gitdata-preservation-guard.sh (CI gate). Refs #4354 #4325 #4353 #4352.
+version: 1.2.43
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
