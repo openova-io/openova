@@ -5,7 +5,10 @@
 # products/catalyst/chart/templates/catalog-seed/blueprints.yaml that
 # has a corresponding platform/<name>/blueprint.yaml source declares
 # matching topology.supported[] + endpoints[].name[] + sso.realm
-# fields.
+# fields. #4282/#4275 extends it to placementSchema.modes canonical-HA
+# coverage (the seed must ADMIT every canonical HA mode —
+# active-hot-standby / active-passive — the source materialises, so the
+# LIVE Blueprint CR never rejects a multi-region placement).
 #
 # Why: the catalog-seed is the in-cluster fallback path the bp-catalog-
 # client uses when the gitea catalog-sovereign repo 404s. The 14/14
@@ -145,6 +148,45 @@ for bp_name in $bp_names; do
     echo "  platform/ : '$src_ctx'"
     fail=1
   fi
+
+  # ── #4282 / #4275 — placementSchema.modes canonical-HA-mode coverage ──
+  # The LIVE Blueprint CR is materialised from THIS catalog-seed. The
+  # application-controller validates a requested placement against the
+  # CR's spec.placementSchema.modes (blueprintAllowedModes). If the
+  # platform/ source advertises a canonical multi-region HA mode
+  # (active-hot-standby / active-passive — the Pillar-3 sync-replication
+  # topologies) but the seed omits it, the Sovereign FORBIDS the very
+  # topology the platform supports: a topology=active-hot-standby
+  # PostgreSQL Application is rejected "not in Blueprint allowed modes"
+  # (the exact bp-postgres regression — the seed served the banned legacy
+  # dialect [single-region, active-active] while the source carried the
+  # canonical active-hot-standby; #4287 synced it). This is the SECOND
+  # seed-vs-source drift after #3784, so the guard now covers
+  # placementSchema.modes — not only topology.supported.
+  #
+  # We assert CONTAINMENT (seed ⊇ the source's canonical-HA modes) rather
+  # than full set-equality: the legacy banned-dialect spellings
+  # (single-region / active-hotstandby) the seed still carries for many
+  # non-HA Blueprints are folded by the validator and tracked separately,
+  # so an equality check would drown this load-bearing invariant in
+  # orthogonal dialect noise. The invariant that matters for #4282/#4275
+  # is narrow and unambiguous: every canonical HA topology the source
+  # genuinely materialises MUST be ADMITTED by the LIVE Blueprint CR.
+  for ha_mode in active-hot-standby active-passive; do
+    src_has_ha="$(yq eval "[.spec.placementSchema.modes[]?] | contains([\"$ha_mode\"])" "$source_file" 2>/dev/null || echo false)"
+    if [ "$src_has_ha" = "true" ]; then
+      seed_has_ha="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | [.spec.placementSchema.modes[]?] | contains([\"$ha_mode\"])" "$TMP/rendered.yaml" 2>/dev/null || echo false)"
+      if [ "$seed_has_ha" != "true" ]; then
+        seed_modes="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | .spec.placementSchema.modes[]?" "$TMP/rendered.yaml" 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
+        src_modes="$(yq eval '.spec.placementSchema.modes[]?' "$source_file" 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
+        echo "DRIFT: $bp_name placementSchema.modes missing canonical HA mode '$ha_mode':"
+        echo "  platform/ advertises '$ha_mode' but the chart-seed does NOT — the LIVE Blueprint CR will REJECT a '$ha_mode' placement (#4282/#4275)"
+        echo "  chart-seed modes: [$seed_modes]"
+        echo "  platform/  modes: [$src_modes]"
+        fail=1
+      fi
+    fi
+  done
 done
 
 echo
