@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T08:30:03Z` |
+| Last refreshed | `2026-06-25T08:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,9 +231,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T08:36 | [#4332](https://github.com/openova-io/openova/pull/4332) | #4293 | fix(cloud-init): reflect ghcr-pull into slug-named per-Org n |
 | 2026-06-25T08:26 | [#4331](https://github.com/openova-io/openova/pull/4331) | #4329 | fix(bp-kyverno-policies): admit per-Org vCluster CIDR-probe  |
 | 2026-06-25T08:08 | [#4327](https://github.com/openova-io/openova/pull/4327) | #4274 | fix(bss): OrdersPage renders OMR from baisa — kill the 10×-i |
 | 2026-06-25T08:10 | [#4326](https://github.com/openova-io/openova/pull/4326) | #4322 | fix(bp-cnpg): durable webhook caBundle fix — cnpg-system ope |
+| 2026-06-25T08:35 | [#4325](https://github.com/openova-io/openova/pull/4325) | #4293 | feat(bootstrap-kit): de-vcluster the platform planes (mgmt/r |
 | 2026-06-25T08:08 | [#4324](https://github.com/openova-io/openova/pull/4324) | #3784 | fix(catalog-seed): lockstep guard asserts placementSchema.mo |
 | 2026-06-25T07:42 | [#4323](https://github.com/openova-io/openova/pull/4323) | #4220 | fix(bp-wordpress-tenant): oidc-config hook fetches pg4wp fro |
 | 2026-06-25T07:34 | [#4321](https://github.com/openova-io/openova/pull/4321) | #4278 | fix(bp-newapi): DSN-placeholder Secret self-preserves SQL_DS |
@@ -259,8 +261,6 @@ flowchart LR
 | 2026-06-25T04:10 | [#4300](https://github.com/openova-io/openova/pull/4300) | #4272 | fix(bp-openclaw): Cilium-Gateway NetworkPolicy + HTTPRoute s |
 | 2026-06-25T07:09 | [#4299](https://github.com/openova-io/openova/pull/4299) | #4293 | fix(provisioning): wire per-Org apps INTO the Org vCluster,  |
 | 2026-06-25T06:40 | [#4298](https://github.com/openova-io/openova/pull/4298) | #4293 | feat(org-controller): enforce+cap the Org-vcluster boundary  |
-| 2026-06-25T06:38 | [#4295](https://github.com/openova-io/openova/pull/4295) | #4293 | fix(provisioning): collapse the Organization-provisioning do |
-| 2026-06-24T18:20 | [#4294](https://github.com/openova-io/openova/pull/4294) | #4279 | docs: consolidated gap-analysis + action backlog index for d |
 
 ---
 
