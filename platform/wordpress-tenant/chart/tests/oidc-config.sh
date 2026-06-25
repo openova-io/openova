@@ -60,10 +60,13 @@ if ! grep -qE 'image: "wordpress:cli-2\.12\.0-php8\.3@sha256:[0-9a-f]{64}"' "$TM
 fi
 
 # wp-cli command flow — verifies the user-visible commands the Job runs.
+# Refs #4322: the OIDC plugin is now VENDORED from a pinned GitHub release
+# and ACTIVATED (never `wp plugin install`, which fetches from wordpress.org
+# over egress and hangs the hook). So the needle is `wp plugin activate`,
+# not `wp plugin install` — Case 8 below locks the no-wordpress.org contract.
 for needle in \
   'wp core install' \
-  'wp plugin install openid-connect-generic --activate' \
-  'wp plugin is-installed openid-connect-generic' \
+  'wp plugin activate' \
   'wp option update openid_connect_generic_settings' \
   'wp option update default_role' \
   'wp theme activate' \
@@ -243,6 +246,78 @@ assert 'archive/refs/tags/v3.3.1.zip' in cmd, \
 assert 'archive/refs/tags/3.3.1.zip' not in cmd, \
   "oidc-config Job must NOT use the un-prefixed pg4wp tag (3.3.1.zip 404s)"
 print(f"  emptyDir wp-content -> {mount['mountPath']}; pg4wp db.php self-seeded (v3.3.1)")
+PYEOF
+echo "  PASS"
+
+echo "[oidc-config] Case 8: oidc plugin is VENDORED from a pinned GitHub release — the hook never depends on a wordpress.org fetch (#4322)"
+# #4322: this Job mounts an EPHEMERAL emptyDir (Case 7), so the plugin the
+# runtime Deployment seeds onto the persistent PVC is NOT visible here. The
+# previous `wp plugin install openid-connect-generic --activate` therefore
+# ALWAYS fetched the plugin zip from wordpress.org over egress and HUNG the
+# hook until its deadline on a slow-egress / air-gapped Sovereign → the
+# post-upgrade hook timed out → HelmRelease Ready=False. The fix VENDORS the
+# plugin from a pinned GitHub release archive (same mechanism as the pg4wp
+# db.php seed) and TOLERATES a fetch failure (logs + continues) so the release
+# reaches Ready WITHOUT any external plugin download.
+#
+# Assert (on the rendered oidc-config Job command):
+#   - NO `wp plugin install` (the wordpress.org egress fetch that hangs).
+#   - NO `wordpress.org` / `downloads.wordpress.org` reference at all.
+#   - The plugin is vendored from the pinned GitHub release archive whose
+#     repo + version come from oidc.plugin.{repo,version}.
+#   - The step is fetch-bounded (`--max-time`) and tolerant (a fetch failure
+#     does not abort the script — it continues so the HR reaches Ready).
+python3 - "$TMP/canonical.yaml" <<'PYEOF'
+import sys, yaml
+docs = list(yaml.safe_load_all(open(sys.argv[1])))
+job = next(
+  (d for d in docs if d and d.get('kind') == 'Job'
+   and d['metadata']['name'].endswith('-oidc-config')),
+  None,
+)
+assert job, "oidc-config Job missing"
+spec = job['spec']['template']['spec']
+container = spec['containers'][0]
+cmd = "\n".join(container.get('command') or []) \
+    + "\n".join(container.get('args') or [])
+
+# (1) The hook MUST NOT INVOKE `wp plugin install` (the wordpress.org egress
+#     fetch that hangs the hook). We check command LINES, not prose — the
+#     surrounding comments legitimately explain why we avoid that command, so a
+#     naive substring match would false-positive on `# ... wp plugin install`.
+invocation_lines = [
+    ln.lstrip() for ln in cmd.splitlines()
+    if ln.lstrip() and not ln.lstrip().startswith('#')
+]
+assert not any(ln.startswith('wp plugin install') for ln in invocation_lines), \
+  "oidc-config hook must NOT run `wp plugin install` (it fetches from " \
+  "wordpress.org over egress and hangs the hook → HR Ready=False)"
+
+# (2) No command line may fetch from wordpress.org (air-gapped Sovereigns cannot
+#     reach it — a runtime fetch from there is structurally wrong).
+assert not any('wordpress.org' in ln for ln in invocation_lines), \
+  "oidc-config hook must not depend on a wordpress.org plugin fetch"
+
+# (3) The plugin MUST be vendored from a PINNED GitHub release archive, with
+#     repo + version threaded from oidc.plugin.{repo,version} via env.
+env = {e['name']: e.get('value') for e in (container.get('env') or [])}
+assert env.get('OIDC_PLUGIN_REPO'), "OIDC_PLUGIN_REPO env not rendered from oidc.plugin.repo"
+assert env.get('OIDC_PLUGIN_VERSION'), "OIDC_PLUGIN_VERSION env not rendered from oidc.plugin.version"
+assert 'github.com/${OIDC_PLUGIN_REPO}/archive/refs/tags/${OIDC_PLUGIN_VERSION}.zip' in cmd, \
+  "oidc-config hook must vendor the OIDC plugin from the pinned GitHub release archive"
+assert 'wp plugin activate' in cmd, \
+  "oidc-config hook must `wp plugin activate` the vendored plugin"
+
+# (4) The fetch MUST be time-bounded AND the step MUST be tolerant (continue on
+#     failure) so a black-holed egress route can never stall/fail the release.
+assert '--max-time' in cmd, \
+  "the OIDC plugin fetch must be --max-time bounded so a black-holed egress " \
+  "route cannot stall the hook"
+assert 'continuing without failing the release' in cmd or 'continuing so the release' in cmd, \
+  "the OIDC plugin install must LOG + CONTINUE on failure (never fail the " \
+  "release) so the HR reaches Ready without an external plugin download"
+print(f"  OIDC plugin vendored from GitHub ({env['OIDC_PLUGIN_REPO']} "
+      f"{env['OIDC_PLUGIN_VERSION']}); no wordpress.org fetch; tolerant + bounded")
 PYEOF
 echo "  PASS"
 
