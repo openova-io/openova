@@ -3126,7 +3126,7 @@ name: bp-catalyst-platform
 #   own Org ns), not a platform-plane workload — tier '' renders the HR in the
 #   App's own namespace. Catalog-seed + agenity chart bumped 0.5.9 -> 0.5.12 in
 #   lockstep (resources requests==limits + helmRelease.disableWait). Refs #4111 #4325 #4297.
-version: 1.4.853
+version: 1.4.854
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
