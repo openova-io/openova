@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: tenant-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.4.19
+  version: 0.4.20
   card:
     title: WordPress (per-Organization)
     summary: |
@@ -246,7 +246,11 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 0
         placement:
-          tier: rtz
+          # #4375 (#4325 de-vcluster fallout): the `rtz` plane vCluster was
+          # removed; per-Org apps land host-native in their OWN Org namespace
+          # (#4297 keystone). Host placement = empty tier; keep the rtz-A/-B
+          # region designators (clusters/roles) for the multi-region split.
+          tier: ''
           clusters:
           - rtz-A
           - rtz-B
@@ -255,7 +259,7 @@ spec:
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters:
           - rtz-A
           roles:

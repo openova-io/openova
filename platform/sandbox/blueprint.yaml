@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-sandbox
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.3.10
+  version: 0.3.11
   card:
     title: Sandbox
     summary: |
@@ -98,14 +98,18 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: rtz
+          # #4375 (#4325 de-vcluster fallout): the `rtz` plane vCluster was
+          # removed; per-Org apps land host-native in their OWN Org namespace
+          # (#4297 keystone). Host placement = empty tier; keep the rtz-A/-B
+          # region designators (clusters/roles) for the multi-region split.
+          tier: ''
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
