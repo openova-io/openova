@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T09:15:02Z` |
+| Last refreshed | `2026-06-25T09:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,7 +231,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T09:20 | [#4336](https://github.com/openova-io/openova/pull/4336) | #4322 | fix(bp-wordpress-tenant): oidc-config hook vendors OIDC plug |
 | 2026-06-25T08:50 | [#4335](https://github.com/openova-io/openova/pull/4335) | #4292 | feat(org-controller): admit Cilium reserved entities on the  |
+| 2026-06-25T09:21 | [#4333](https://github.com/openova-io/openova/pull/4333) | #1844 | fix(catalyst): render sovereign-fqdn LB/CP IPs — unhalt the  |
 | 2026-06-25T08:36 | [#4332](https://github.com/openova-io/openova/pull/4332) | #4293 | fix(cloud-init): reflect ghcr-pull into slug-named per-Org n |
 | 2026-06-25T08:26 | [#4331](https://github.com/openova-io/openova/pull/4331) | #4329 | fix(bp-kyverno-policies): admit per-Org vCluster CIDR-probe  |
 | 2026-06-25T08:08 | [#4327](https://github.com/openova-io/openova/pull/4327) | #4274 | fix(bss): OrdersPage renders OMR from baisa — kill the 10×-i |
@@ -259,8 +261,6 @@ flowchart LR
 | 2026-06-25T07:05 | [#4303](https://github.com/openova-io/openova/pull/4303) | #4277 | feat(catalyst): auto-seed the per-Org Anthropic credential a |
 | 2026-06-25T04:10 | [#4302](https://github.com/openova-io/openova/pull/4302) | #4274 | fix(bss): wire /billing/orders + /billing/revenue to live bi |
 | 2026-06-25T04:10 | [#4301](https://github.com/openova-io/openova/pull/4301) | #4286 | feat(bp-kyverno-policies): Kyverno admission floor injects s |
-| 2026-06-25T04:10 | [#4300](https://github.com/openova-io/openova/pull/4300) | #4272 | fix(bp-openclaw): Cilium-Gateway NetworkPolicy + HTTPRoute s |
-| 2026-06-25T07:09 | [#4299](https://github.com/openova-io/openova/pull/4299) | #4293 | fix(provisioning): wire per-Org apps INTO the Org vCluster,  |
 
 ---
 
