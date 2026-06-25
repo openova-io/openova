@@ -234,7 +234,15 @@ cmd = "\n".join(spec['containers'][0].get('command') or []) \
     + "\n".join(spec['containers'][0].get('args') or [])
 assert 'pg4wp' in cmd and 'db.php' in cmd, \
   "oidc-config Job command must self-seed the pg4wp db.php drop-in"
-print(f"  emptyDir wp-content -> {mount['mountPath']}; pg4wp db.php self-seeded")
+# 0.4.17 (Refs #4220): the pg4wp GitHub archive tag is `v3.3.1` — the bare
+# `tags/3.3.1.zip` (no `v`) 404s, which left a fresh Org's HR Ready=False
+# (the hook errored on its first run). Assert the `v`-prefixed URL and reject
+# the un-prefixed form so the regression cannot recur.
+assert 'archive/refs/tags/v3.3.1.zip' in cmd, \
+  "oidc-config Job must fetch pg4wp from the v-prefixed tag (v3.3.1.zip), not a 404 path"
+assert 'archive/refs/tags/3.3.1.zip' not in cmd, \
+  "oidc-config Job must NOT use the un-prefixed pg4wp tag (3.3.1.zip 404s)"
+print(f"  emptyDir wp-content -> {mount['mountPath']}; pg4wp db.php self-seeded (v3.3.1)")
 PYEOF
 echo "  PASS"
 

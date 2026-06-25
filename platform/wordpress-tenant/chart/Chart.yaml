@@ -204,7 +204,25 @@ name: bp-wordpress-tenant
 #   backend. The OIDC plugin settings + admin user persist in POSTGRES, not on
 #   the PVC, so an ephemeral wp-content is correct + deadlock-free. The recovered
 #   demo-Org HR converges Ready without the Multi-Attach stall.
-version: 0.4.16
+# 0.4.17 (Refs #4220 #4155): FIX the oidc-config hook Job 404 that left a FRESH
+#   Org's HelmRelease Ready=False. The 0.4.16 emptyDir self-seed (above) fetched
+#   the pg4wp adapter from the GitHub tag archive but used the path
+#   `.../tags/3.3.1.zip` — the release tag is `v3.3.1`, so the un-prefixed path
+#   returns HTTP 404 ("curl: (22) The requested URL returned error: 404"). The
+#   hook is hook-weight 10 (the first thing after db-secret-sync), so on a fresh
+#   Org it failed on its VERY FIRST run → db.php never seeded → wp-cli could not
+#   reach the bp-cnpg Postgres backend → the post-install/post-upgrade hook
+#   errored → Helm timed out → HR Ready=False. The deployment's wp-plugin-install
+#   initContainer already used the CORRECT `.../tags/v3.3.1.zip` (so the runtime
+#   data-plane Pod served fine) — only the Job's URL was wrong, hence the split
+#   where the WordPress Pod was 1/1 Running 302 but the HR stayed False.
+#   FIX: align the Job's pg4wp fetch URL to `v3.3.1.zip` (identical to the
+#   deployment). The extracted top-level dir is still `postgresql-for-wordpress-
+#   3.3.1` (GitHub strips the `v`), so the cp paths are unchanged. Root-caused
+#   live on the tkt0625 fresh Org (omantel.biz region-a, 2026-06-25): the live
+#   oidc-config pod logged exactly `[oidc-config] seeding pg4wp db.php drop-in
+#   (Postgres adapter)` then `curl: (22) ... error: 404`; `v3.3.1.zip` returns 200.
+version: 0.4.17
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
