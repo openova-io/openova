@@ -1031,18 +1031,17 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 		"placement": placementValue,
 		"regions":   regions,
 	}
-	if len(req.Parameters) > 0 {
-		// Map the user-passed JSON-shaped parameters straight in. The
-		// CRD's `x-kubernetes-preserve-unknown-fields` makes any tree
-		// valid; the controller's admission webhook + this handler's
-		// validate.Parameters call have already gated against
-		// configSchema.
-		paramsCopy := make(map[string]any, len(req.Parameters))
-		for k, v := range req.Parameters {
-			paramsCopy[k] = v
-		}
-		spec["parameters"] = paramsCopy
-	}
+	// #4283 / #4282 Root-B — ALWAYS stamp a non-null spec.parameters
+	// OBJECT. Caller-supplied parameters are used verbatim; otherwise we
+	// emit at least `{}` (plus a configSchema-valid topology.mode for
+	// bp-postgres) so the Application CR never round-trips through Git
+	// YAML as `parameters: null` and never fails the application-
+	// controller's configSchema validation ("#: expected object, but got
+	// null"). The CRD's `x-kubernetes-preserve-unknown-fields` makes any
+	// tree valid; the controller's admission webhook + this handler's
+	// validate.Parameters call have already gated explicit params against
+	// configSchema.
+	spec["parameters"] = defaultedParameters(req.BlueprintRef.Name, canonMode, req.Parameters)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }

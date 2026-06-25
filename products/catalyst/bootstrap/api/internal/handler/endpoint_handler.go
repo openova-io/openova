@@ -2179,13 +2179,17 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 		"isolationLevel": string(seed.IsolationLevel),
 		"namingTemplate": seed.NamingTemplate,
 	}
-	if len(seed.Values) > 0 {
-		vals := make(map[string]interface{}, len(seed.Values))
-		for k, v := range seed.Values {
-			vals[k] = v
-		}
-		spec["parameters"] = vals
-	}
+	// #4283 / #4282 Root-B — ALWAYS stamp a non-null spec.parameters
+	// OBJECT. The auto-created backing-service path (wireBackingServices)
+	// builds postgres seeds (`shared-pg-d`/`-e`) with NO Values, so the CR
+	// used to be emitted with `parameters` entirely absent → it
+	// materialised as `parameters: null` after the per-Org IaC Git
+	// round-trip → the application-controller's configSchema validation
+	// failed ("#: expected object, but got null") BEFORE anything else
+	// reconciled (phase=Failed). Now seed.Values (when present) is used
+	// verbatim; otherwise we emit at least `{}` plus a configSchema-valid
+	// topology.mode for bp-postgres.
+	spec["parameters"] = defaultedParameters(seed.Blueprint, seed.Topology, seed.Values)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }
