@@ -1106,7 +1106,7 @@ spec:
       #   Secret (bp-keycloak 1.5.4) FIRST, fixing the empty master-realm-admin-password
       #   the bridge emitted after the #4325 de-vcluster re-homed keycloak host-side.
       #   Chart.yaml bumped in lockstep.
-      version: 1.4.845
+      version: 1.4.846
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
