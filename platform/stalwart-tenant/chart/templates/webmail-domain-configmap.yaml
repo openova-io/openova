@@ -1,0 +1,103 @@
+{{- /*
+SnappyMail default-login-domain seed (#4307).
+
+SnappyMail auto-lists any `<domain>.json` placed under its data dir at
+`_data_/_default_/domains/`. This ConfigMap renders one for the tenant's mail
+domain pointing IMAP/SMTP at the IN-CLUSTER Stalwart Services so the webmail
+login page works zero-touch — the user types `<user>@<domain>` + password and
+SnappyMail proxies to Stalwart's IMAP (auth) + SMTP (send).
+
+`type` is the connection security mode (SnappyMail schema):
+  0 = None, 1 = STARTTLS, 2 = SSL/TLS (implicit).
+
+IMAP → `<fullname>-imap` Service: 993 implicit-TLS (type 2) by default.
+SMTP → `<fullname>-smtp` Service: 587 STARTTLS (type 1) by default, useAuth.
+
+The Stalwart leaf cert is issued for `mail.<domain>`, NOT the in-cluster
+Service DNS name, so `verify_peer` is disabled for this internal hop (the
+public-facing TLS terminates at the Cilium gateway; the in-cluster IMAP/SMTP
+hop stays inside the Org namespace). Sieve is left disabled.
+
+Skipped when the tenant domain is unresolved (smoke-render-safe) or when
+webmail.domainSeed.enabled=false.
+*/}}
+{{- $domain := include "bp-stalwart-tenant.tenantDomain" . -}}
+{{- if and .Values.stalwart.enabled .Values.webmail.enabled .Values.webmail.domainSeed.enabled $domain }}
+{{- $imapHost := printf "%s-imap" (include "bp-stalwart-tenant.fullname" .) -}}
+{{- $smtpHost := printf "%s-smtp" (include "bp-stalwart-tenant.fullname" .) -}}
+{{- $imap := .Values.webmail.domainSeed.imap -}}
+{{- $smtp := .Values.webmail.domainSeed.smtp -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-stalwart-tenant.webmailFullname" . }}-domain-seed
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: webmail
+data:
+  domain.json: |
+    {
+      "IMAP": {
+        "host": {{ $imapHost | quote }},
+        "port": {{ $imap.port | int }},
+        "type": {{ $imap.type | int }},
+        "timeout": 300,
+        "shortLogin": false,
+        "lowerLogin": true,
+        "sasl": ["PLAIN", "LOGIN"],
+        "ssl": {
+          "verify_peer": false,
+          "verify_peer_name": false,
+          "allow_self_signed": true,
+          "SNI_enabled": true,
+          "disable_compression": true,
+          "security_level": 1
+        },
+        "use_expunge_all_on_delete": false,
+        "fast_simple_search": true,
+        "force_select": false,
+        "message_all_headers": false,
+        "message_list_limit": 10000,
+        "search_filter": ""
+      },
+      "SMTP": {
+        "host": {{ $smtpHost | quote }},
+        "port": {{ $smtp.port | int }},
+        "type": {{ $smtp.type | int }},
+        "timeout": 60,
+        "shortLogin": false,
+        "lowerLogin": true,
+        "sasl": ["PLAIN", "LOGIN"],
+        "ssl": {
+          "verify_peer": false,
+          "verify_peer_name": false,
+          "allow_self_signed": true,
+          "SNI_enabled": true,
+          "disable_compression": true,
+          "security_level": 1
+        },
+        "useAuth": true,
+        "setSender": false,
+        "usePhpMail": false
+      },
+      "Sieve": {
+        "host": {{ $imapHost | quote }},
+        "port": 4190,
+        "type": 0,
+        "timeout": 10,
+        "shortLogin": false,
+        "lowerLogin": true,
+        "sasl": ["PLAIN", "LOGIN"],
+        "ssl": {
+          "verify_peer": false,
+          "verify_peer_name": false,
+          "allow_self_signed": true,
+          "SNI_enabled": true,
+          "disable_compression": true,
+          "security_level": 1
+        },
+        "enabled": false
+      },
+      "whiteList": ""
+    }
+{{- end }}

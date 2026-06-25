@@ -340,8 +340,140 @@ service:
       http: 8080
       https: 443
 
+# ─── Webmail SPA (#4307) ───────────────────────────────────────────────
+# Stalwart v0.15.5 is a mail SERVER (JMAP/IMAP/SMTP + a webadmin API) — it
+# ships NO end-user webmail SPA. Live probes on the omantel.biz demo Org
+# (2026-06-24) confirmed `/`, `/login`, `/webadmin` all return 404 from the
+# Stalwart HTTP listener; only `/jmap/session` returns 200. So routing
+# `mail.<slug>` straight at Stalwart's `-web` Service is STRUCTURALLY 404 for
+# a browser user — there is no login page to serve.
+#
+# This block bundles SnappyMail — a lightweight, single-container PHP webmail
+# that speaks IMAP+SMTP directly (NO database; stores config + per-user data
+# as files under /var/lib/snappymail). It is the canonical webmail pairing for
+# Stalwart. The webmail Deployment+Service is fronted by the `mail.<slug>`
+# HTTPRoute (re-pointed off Stalwart onto this Service), pre-seeded with this
+# Stalwart server as the default login domain so the user lands on a working
+# login page. Stalwart's own webadmin/JMAP stays reachable in-cluster on the
+# `-web` Service and (optionally) on a separate `mailadmin.<slug>` host.
+#
+# Roundcube was the considered fallback but needs its own MySQL/Postgres DB —
+# heavier footprint, an extra StatefulSet + Secret per Org. SnappyMail's
+# fileystem-only model fits the per-Org footprint trade-off (#795) far better,
+# so it is the default. Gate via webmail.enabled so the pairing is explicit
+# and an overlay can opt a BYO-webmail Org out.
+webmail:
+  enabled: true
+  image:
+    # #4307 — pull SnappyMail through the Sovereign Harbor proxy-dockerhub
+    # project so the node cold-pull does NOT traverse the public internet
+    # (mirrors the stalwart image + bp-newapi #4139 convention). A per-
+    # Sovereign overlay may rewrite via global.imageRegistry post-handover.
+    registry: harbor.openova.io/proxy-dockerhub
+    repository: djmaze/snappymail
+    # Pin upstream (Inviolable Principle #4 — no floating tags). v2.38.2 is a
+    # current stable SnappyMail release; an overlay may re-pin a digest.
+    tag: "v2.38.2"
+    digest: ""
+    pullPolicy: IfNotPresent
+    # Per-Sovereign Harbor pull secret — empty by default; the bootstrap-kit
+    # overlay reflects the org-namespace ghcr/dockercfg secret name.
+    pullSecrets: []
+  replicas: 1
+  # SnappyMail HTTP listener (upstream djmaze/snappymail default).
+  containerPort: 8888
+  # #4389/#4292: per-Org LimitRange maxLimitRequestRatio {cpu:1,memory:1}
+  # forces Guaranteed QoS — render requests==limits.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  # SnappyMail's official image (the-djmaze/.docker/release/Dockerfile) ends
+  # with `USER root`: its entrypoint MUST start as root to
+  # `chown -R www-data:www-data /var/lib/snappymail` + create the default
+  # config, then supervisord drops nginx + php-fpm to the alpine `www-data`
+  # user (UID/GID 82). Forcing runAsNonRoot would break that entrypoint chown.
+  # This mirrors the bp-wordpress-tenant runtime (runAsUser:0 / runAsNonRoot:
+  # false) which the Sovereign already admits — the per-Org Kyverno
+  # `runasnonroot` policy is permissive (audit) by design §4.3; the ENFORCED
+  # gate is resource-requests (declared below). fsGroup 82 makes the PVC mount
+  # group-writable by www-data so the dropped services can write.
+  podSecurityContext:
+    runAsUser: 0
+    runAsNonRoot: false
+    fsGroup: 82
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop: ["ALL"]
+      # The entrypoint chown/chmod the data volume as root before demotion.
+      add: ["CHOWN", "FOWNER", "DAC_OVERRIDE", "SETUID", "SETGID"]
+  # ─── Default login domain (pre-seed) ──────────────────────────────────
+  # SnappyMail auto-lists any `<domain>.json` placed under its data dir at
+  # `_data_/_default_/domains/`. The chart renders one for the tenant's mail
+  # domain (templates/webmail-domain-configmap.yaml) pointing IMAP/SMTP at the
+  # in-cluster Stalwart Services, and an initContainer copies it into the data
+  # dir on start so the login page works zero-touch. `type` is the secure
+  # mode: 0=None, 1=STARTTLS, 2=SSL/TLS.
+  domainSeed:
+    enabled: true
+    imap:
+      # In-cluster Stalwart IMAP Service (service-imap.yaml). 993 = implicit
+      # TLS (type 2). The Stalwart leaf cert is for mail.<domain>, not the
+      # in-cluster Service DNS name, so peer verification is disabled for this
+      # internal hop (the public TLS terminates at the Cilium gateway).
+      port: 993
+      type: 2
+    smtp:
+      # In-cluster Stalwart SMTP submission Service (service-smtp.yaml). 587 =
+      # STARTTLS (type 1), with SMTP AUTH enabled.
+      port: 587
+      type: 1
+  # SnappyMail persists per-user settings + sessions on disk. A small PVC
+  # keeps them across pod rolls. emptyDir is acceptable for a stateless
+  # login-only surface; default to a PVC for durability.
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+  # Liveness/readiness on the SnappyMail HTTP port.
+  probes:
+    liveness:
+      initialDelaySeconds: 20
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 5
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+  # ─── Stalwart webadmin/JMAP route (optional, separate host) ────────────
+  # The `mail.<slug>` HTTPRoute now fronts the SnappyMail webmail Service (see
+  # ingress-webmail.yaml). Stalwart's own webadmin/JMAP is still reachable
+  # in-cluster on the `-web` Service; an operator who wants it publicly
+  # exposed can flip this to render a SECOND HTTPRoute on `mailadmin.<slug>`
+  # (host composed from the tenant domain) → the Stalwart `-web` Service. OFF
+  # by default — the per-Org admin UI is an operator surface, not customer-
+  # facing, and is reachable via in-cluster port-forward / the console.
+  adminRoute:
+    enabled: false
+    # Empty = composed as `mailadmin.<tenant-domain>`. Operator overlay may
+    # override for a vanity host.
+    host: ""
+
 # ─── Webmail Ingress / HTTPRoute ───────────────────────────────────────
-# Two backends in front of the chart:
+# The `mail.<domain.primary>` HTTPRoute fronts the SnappyMail webmail Service
+# (#4307 — see the `webmail` block above), NOT the Stalwart mail server, which
+# ships no end-user SPA. Two backends in front of the chart:
 #   - Cilium Gateway HTTPRoute (ADR-0001 §"gateway") at
 #     `mail.<domain.primary>`, parentRef the per-Sovereign cilium-gateway
 #     in kube-system. This is the canonical Sovereign exposure.
@@ -360,6 +492,15 @@ ingress:
     # wins).
     host: ""
     path: "/"
+    # #4307 — the route backend. Default targets the SnappyMail webmail
+    # Service (`<fullname>-webmail` on webmail.containerPort) when
+    # webmail.enabled, so `mail.<slug>/` serves a webmail login UI instead of
+    # the Stalwart server's bare 404. EMPTY here = the chart's webmailRoute
+    # helpers auto-resolve to the webmail Service (or, when webmail.enabled is
+    # false, fall back to the Stalwart `-web` Service for backward compat). An
+    # overlay may pin an explicit backend Service+port.
+    backendService: ""
+    backendPort: 0
     # Gateway parentRef — the DEDICATED cilium-gateway-console (#4307),
     # NOT the apps cilium-gateway. The per-Org webmail host
     # `mail.<slug>.<pool>` resolves to the console-ELB EIP which fronts the

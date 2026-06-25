@@ -24,22 +24,39 @@ Cost: **mail-server resources multiply by N tenants**. Each install = 1 small St
 
 | Resource | Purpose |
 |---|---|
-| `StatefulSet` | Stalwart pod, single replica, RocksDB on PVC |
-| `Service` (×3) | LoadBalancer for SMTP/submission/submissions, LoadBalancer for IMAP/IMAPS, ClusterIP for webmail/JMAP |
-| `HTTPRoute` _or_ `Ingress` | webmail UI at `mail.<domain>` (Cilium Gateway by default; Traefik fallback) |
+| `StatefulSet` | Stalwart mail server pod, single replica, RocksDB on PVC |
+| `Deployment` (webmail) | SnappyMail webmail SPA — the end-user login UI at `mail.<domain>` (#4307) |
+| `Service` (Stalwart ×3) | LoadBalancer for SMTP/submission/submissions, LoadBalancer for IMAP/IMAPS, ClusterIP for Stalwart webadmin/JMAP |
+| `Service` (webmail) | ClusterIP for the SnappyMail SPA (the `mail.<domain>` HTTPRoute backend) |
+| `PVC` (webmail) | SnappyMail per-user settings + sessions (file-based; no database) |
+| `HTTPRoute` _or_ `Ingress` | webmail UI at `mail.<domain>` → SnappyMail (Cilium Gateway by default; Traefik fallback). Optional `mailadmin.<domain>` → Stalwart webadmin |
 | `ConfigMap` (config) | Stalwart bootstrap `config.toml` — applied when RocksDB is empty |
+| `ConfigMap` (webmail domain-seed) | SnappyMail `<domain>.json` pre-seeding this Stalwart as the default login domain |
 | `ConfigMap` (dns-records-required) | MX/SPF/DKIM/DMARC the SME admin must publish — surfaced by unified-rbac UI |
 | `ExternalSecret` (admin) | Pulls Stalwart admin password from OpenBao |
 | `ExternalSecret` (oidc) | Pulls Keycloak client secret from OpenBao |
 | `Job` (post-install) | Bootstraps admin principal + send-allow row (idempotent) |
 | `NetworkPolicy` | Default-deny + explicit allows for SMTP/IMAP/webmail/Keycloak/PowerDNS/DNS/outbound SMTP |
-| `ServiceAccount` | Identity for the Stalwart pod and the setup Job |
+| `ServiceAccount` | Identity for the Stalwart pod, webmail pod, and the setup Job |
 
 ---
 
+## Webmail SPA (SnappyMail) — #4307
+
+Stalwart v0.15.5 is a mail **server** (JMAP/IMAP/SMTP + a webadmin API) — it ships **no end-user webmail SPA**. Routing `mail.<domain>` straight at the Stalwart HTTP listener returns a bare 404 to a browser user (`/`, `/login`, `/webadmin` all 404; only `/jmap/session` returns 200). So the chart bundles **SnappyMail** — a lightweight, single-container PHP webmail that speaks IMAP+SMTP directly with **no database** (config + per-user data live on disk under `/var/lib/snappymail`). SnappyMail is the canonical webmail pairing for Stalwart; Roundcube was the fallback but needs its own MySQL/Postgres DB, a heavier per-Org footprint.
+
+How it wires up:
+
+- A `webmail` Deployment + ClusterIP Service run SnappyMail; the `mail.<domain>` HTTPRoute backend is re-pointed off the Stalwart `-web` Service onto this webmail Service (`webmail.enabled`, default **true**).
+- A `domain-seed` ConfigMap renders a SnappyMail `<domain>.json` pointing IMAP at the in-cluster Stalwart `-imap` Service (993 implicit-TLS) and SMTP at the `-smtp` Service (587 STARTTLS, `useAuth`). An initContainer copies it into `_data_/_default_/domains/` so the login page lists this Stalwart server zero-touch.
+- Stalwart's own webadmin/JMAP stays reachable in-cluster on the `-web` Service; flip `webmail.adminRoute.enabled=true` to expose it on a separate `mailadmin.<domain>` host.
+- Gateway→webmail hop is admitted on port 8888 in both the K8s `NetworkPolicy` and the `CiliumNetworkPolicy` (`fromEntities: [ingress]`).
+
+Acceptance: `mail.<domain>/` → HTTP 200/302 serving the SnappyMail login UI (not 404).
+
 ## SSO via SME-vcluster Keycloak
 
-The Stalwart webmail authenticates users against the SME's per-vcluster Keycloak realm — **NOT** the otech-level Keycloak.
+The Stalwart mail server authenticates IMAP/SMTP/JMAP users against the SME's per-vcluster Keycloak realm — **NOT** the otech-level Keycloak. (The bundled SnappyMail webmail proxies username/password to Stalwart's IMAP/SMTP; OIDC bearer-token login flows are validated by Stalwart's OIDC directory.)
 
 The OIDC client `stalwart` is registered in the SME realm at vcluster provisioning time (handled by [#804](https://github.com/openova-io/openova/issues/804) — tenant provisioning pipeline). The client secret is written to OpenBao at the canonical path:
 

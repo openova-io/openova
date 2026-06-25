@@ -144,6 +144,77 @@ valid (but non-functional) manifest tree.
 {{- end -}}
 
 {{/*
+Webmail (SnappyMail) Service name (#4307). Distinct from the Stalwart
+`-web` Service so the `mail.<slug>` HTTPRoute can front the SPA while the
+Stalwart server's admin/JMAP listener stays on `-web`.
+*/}}
+{{- define "bp-stalwart-tenant.webmailFullname" -}}
+{{- printf "%s-webmail" (include "bp-stalwart-tenant.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Webmail HTTPRoute backend Service name (#4307). Resolution order:
+  1. explicit `ingress.webmail.backendService` (overlay pin).
+  2. the SnappyMail webmail Service when `webmail.enabled` (the default —
+     so `mail.<slug>/` serves the webmail login UI, not the Stalwart 404).
+  3. the Stalwart `-web` Service (back-compat when webmail is disabled).
+*/}}
+{{- define "bp-stalwart-tenant.webmailRouteBackend" -}}
+{{- if .Values.ingress.webmail.backendService -}}
+{{- .Values.ingress.webmail.backendService -}}
+{{- else if .Values.webmail.enabled -}}
+{{- include "bp-stalwart-tenant.webmailFullname" . -}}
+{{- else -}}
+{{- printf "%s-web" (include "bp-stalwart-tenant.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Webmail HTTPRoute backend port (#4307). Mirrors webmailRouteBackend:
+  1. explicit `ingress.webmail.backendPort` (>0) wins.
+  2. the SnappyMail HTTP port when webmail.enabled.
+  3. the Stalwart `-web` http port (back-compat).
+*/}}
+{{- define "bp-stalwart-tenant.webmailRoutePort" -}}
+{{- if gt (int .Values.ingress.webmail.backendPort) 0 -}}
+{{- .Values.ingress.webmail.backendPort -}}
+{{- else if .Values.webmail.enabled -}}
+{{- .Values.webmail.containerPort -}}
+{{- else -}}
+{{- .Values.service.web.ports.http -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Stalwart webadmin route host (#4307). Composes `mailadmin.<tenant-domain>`
+when `webmail.adminRoute.host` is unset; an explicit value wins. Empty when
+the tenant domain is unresolved (smoke-render-safe).
+*/}}
+{{- define "bp-stalwart-tenant.adminHost" -}}
+{{- $domain := include "bp-stalwart-tenant.tenantDomain" . -}}
+{{- if .Values.webmail.adminRoute.host -}}
+{{- .Values.webmail.adminRoute.host -}}
+{{- else if $domain -}}
+{{- printf "mailadmin.%s" $domain -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Effective SnappyMail webmail image reference (#4307). Honours
+`global.imageRegistry` rewrite; SHA-pinned via digest when present.
+*/}}
+{{- define "bp-stalwart-tenant.webmailImage" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $img := .Values.webmail.image -}}
+{{- $reg := default $img.registry $g.imageRegistry -}}
+{{- if $img.digest -}}
+{{- printf "%s/%s@%s" $reg $img.repository $img.digest -}}
+{{- else -}}
+{{- printf "%s/%s:%s" $reg $img.repository $img.tag -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Effective image reference. Honours `global.imageRegistry` rewrite for
 post-handover Sovereign Harbor proxy-cache (ADR-0001 §11.5). Always
 SHA-pinned via digest when present (Inviolable Principle #4 / #4a).

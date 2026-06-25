@@ -1,0 +1,28 @@
+{{- /*
+SnappyMail webmail data PVC (#4307). Keeps per-user SnappyMail settings +
+sessions across Pod rolls. A Deployment cannot own volumeClaimTemplates, so
+the PVC is a standalone object mounted by name in webmail-deployment.yaml.
+RWO + replicas:1 is sufficient (login-only surface; no horizontal scale).
+*/}}
+{{- if and .Values.stalwart.enabled .Values.webmail.enabled .Values.webmail.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bp-stalwart-tenant.webmailFullname" . }}-data
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: webmail
+  annotations:
+    # Survive helm uninstall/reinstall churn so per-user webmail settings are
+    # not wiped on a chart-version roll.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.webmail.persistence.accessModes | nindent 4 }}
+  {{- if .Values.webmail.persistence.storageClassName }}
+  storageClassName: {{ .Values.webmail.persistence.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.webmail.persistence.size | quote }}
+{{- end }}
