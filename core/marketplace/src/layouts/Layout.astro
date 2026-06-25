@@ -68,6 +68,10 @@ const { title, step = 0 } = Astro.props;
     //  - /auth/callback completes OAuth before we can check
     //  - /checkout with ?order_id is Stripe's return URL and must stay so
     //    CheckoutStep can wire up the active-org and redirect itself
+    //  - /launching (#4273) is the provisioning interstitial that itself
+    //    waits for the per-Org console host and forwards there once ready;
+    //    auto-redirecting away from it would defeat the readiness gate and
+    //    re-introduce the NXDOMAIN race it exists to prevent.
     //  - ?new=1 lets an existing customer spin up a second workspace
     (function () {
       try {
@@ -79,6 +83,7 @@ const { title, step = 0 } = Astro.props;
         var path = window.location.pathname;
         var qs = new URLSearchParams(window.location.search);
         if (path.indexOf('/auth/callback') === 0) return;
+        if (path.indexOf('/launching') === 0) return;
         if (qs.get('order_id')) return;
         if (qs.get('new') === '1') return;
         var token = localStorage.getItem('org-token');
@@ -159,9 +164,31 @@ const { title, step = 0 } = Astro.props;
         // handed to the secure server endpoint which burns it into a cookie;
         // the refresh stays in client storage (org-refresh-token, written by
         // setAuthTokens). On the secure path the landing URL is a clean /jobs.
-        var url = perTenant
-          ? base + '/auth/org-handover?token=' + encodeURIComponent(token)
-          : base + '/?token=' + encodeURIComponent(token) + (refresh ? '&refresh_token=' + encodeURIComponent(refresh) : '');
+        //
+        // #4273: a per-Org Sovereign console host (console.<slug>.<sov>) may
+        // not have its DNS/TLS/HTTPRoute provisioned yet when a freshly-signed-
+        // up returning visitor lands here, so an immediate cross-host bounce
+        // hits NXDOMAIN. Route the per-tenant case through the marketplace-
+        // origin /launching interstitial (mirrors src/lib/config.ts::
+        // consoleLaunchHref — kept inline so it fires before the Svelte
+        // bundle), which polls the console /healthz and only forwards to
+        // /auth/org-handover once the host serves a response. The mothership
+        // /nova path always resolves, so it keeps the direct shape.
+        var url;
+        if (perTenant) {
+          var launchQs = new URLSearchParams({
+            host: base,
+            token: token,
+            next: '/jobs',
+          });
+          // The marketplace is served at the site root (no Astro `base:`
+          // configured), so `/launching` is the interstitial page route. This
+          // is an `is:inline` script — NOT processed by Vite — so we use a
+          // literal root path rather than import.meta.env.BASE_URL.
+          url = '/launching?' + launchQs.toString();
+        } else {
+          url = base + '/?token=' + encodeURIComponent(token) + (refresh ? '&refresh_token=' + encodeURIComponent(refresh) : '');
+        }
         window.location.replace(url);
       }
     })();

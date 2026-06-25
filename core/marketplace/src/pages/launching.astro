@@ -1,0 +1,16 @@
+---
+// #4273 — provisioning interstitial page.
+//
+// Served from the marketplace origin (`marketplace.<sov-fqdn>`), which ALWAYS
+// resolves — so the customer never hits a raw browser DNS error while the
+// per-Org console host (`console.<slug>.<sov-fqdn>`) is still having its
+// async DNS A-record (#4236) / TLS cert (#4241/#4242) / cilium-gateway-console
+// HTTPRoute provisioned by the organization-controller. LaunchingStep polls
+// the per-Org `/healthz` and forwards to the secure `/auth/org-handover` once
+// the host serves a response. See src/lib/config.ts::consoleLaunchHref.
+import Layout from '../layouts/Layout.astro';
+import LaunchingStep from '../components/LaunchingStep.svelte';
+---
+<Layout title="Setting up your console">
+  <LaunchingStep client:load />
+</Layout>

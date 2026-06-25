@@ -763,4 +763,84 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     expect(finalUrl, 'navigation landed on a /jobs path').toContain('/jobs')
     expect(finalUrl, 'handover token query param present').toMatch(/[?&]token=/)
   })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // #4273 — provisioning interstitial (redirect-before-ready race fix).
+  //
+  // The funnel no longer hard-bounces to the per-Org console host the instant
+  // checkout succeeds (its DNS/TLS/HTTPRoute are still provisioning → the
+  // first click hit NXDOMAIN). It now lands on `/launching` — served from the
+  // marketplace origin, which always resolves — which polls the per-Org
+  // console `/healthz` and only forwards to `/auth/org-handover` once the host
+  // serves a response. These tests are hermetic: the `/healthz` probe is
+  // intercepted so no real per-Org host is needed.
+  // ──────────────────────────────────────────────────────────────────────
+  test('18 launching interstitial shows immediately, then forwards once the per-Org host is ready', async ({ page }) => {
+    const consoleHost = 'https://console.abc.omani.trade'
+    // The per-Org host's /healthz: fail (abort = NXDOMAIN/conn-refused shape)
+    // for the first 2 probes, then resolve — emulating DNS/TLS/route landing.
+    let probes = 0
+    await page.route('**/console.abc.omani.trade/healthz**', (route) => {
+      probes += 1
+      if (probes <= 2) return route.abort('namenotresolved')
+      return route.fulfill({ status: 200, body: 'ok' })
+    })
+    // Stop the real cross-host /auth/org-handover navigation (no live host) —
+    // intercept so the forward lands on an interceptable response and the test
+    // can assert the final URL deterministically.
+    await page.route('**/console.abc.omani.trade/auth/org-handover**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>handover-ok</body></html>' }),
+    )
+
+    const params = new URLSearchParams({ host: consoleHost, token: 'mock-session-jwt', next: '/jobs' })
+    await page.goto('/launching?' + params.toString())
+
+    // The branded "Setting up your console…" state must appear immediately —
+    // never a blank page or a raw browser DNS error.
+    await expect(page.getByRole('heading', { name: /Setting up your console/i }))
+      .toBeVisible({ timeout: 5_000 })
+
+    // Once the probe starts succeeding, the interstitial forwards to the
+    // secure handover endpoint on the per-Org host, carrying the token intact.
+    await page.waitForURL(/console\.abc\.omani\.trade\/auth\/org-handover/, { timeout: 20_000 })
+    const url = page.url()
+    expect(url, 'forwarded to /auth/org-handover on the per-Org host').toContain('/auth/org-handover')
+    expect(url, 'session token carried through to the handover').toContain('token=mock-session-jwt')
+    expect(probes, 'polled /healthz until ready (tolerated early NXDOMAIN)').toBeGreaterThanOrEqual(3)
+  })
+
+  test('19 launching interstitial keeps a friendly waiting state while the host stays unreachable (no raw NXDOMAIN)', async ({ page }) => {
+    // Probe never succeeds — the host is still provisioning. The customer must
+    // see the on-brand "Setting up…" spinner (and an elapsed hint), NEVER a
+    // dead browser error page, and must remain ON the marketplace origin.
+    await page.route('**/console.def.omani.rest/healthz**', (route) => route.abort('namenotresolved'))
+
+    const params = new URLSearchParams({ host: 'https://console.def.omani.rest', token: 'mock-session-jwt', next: '/jobs' })
+    await page.goto('/launching?' + params.toString())
+
+    await expect(page.getByRole('heading', { name: /Setting up your console/i }))
+      .toBeVisible({ timeout: 5_000 })
+    // After a few seconds of failing probes it still shows the waiting state
+    // (and the elapsed-time hint) — we have NOT navigated away to a dead host.
+    await expect(page.getByText(/Still working/i)).toBeVisible({ timeout: 12_000 })
+    expect(page.url(), 'stays on the marketplace-origin /launching page').toContain('/launching')
+  })
+
+  test('20 launching interstitial rejects a missing/invalid host param (no open-redirect, honest error)', async ({ page }) => {
+    // A non-console host (open-redirect attempt) or a missing host must NOT be
+    // forwarded to — the interstitial surfaces an honest error instead.
+    await page.goto('/launching?host=' + encodeURIComponent('https://evil.example.com') + '&token=x&next=/jobs')
+    await expect(page.getByRole('heading', { name: /Something went wrong/i }))
+      .toBeVisible({ timeout: 5_000 })
+    // We must NOT have navigated to the attacker origin — staying on the
+    // marketplace-origin /launching page with the error state is correct.
+    // (The query string still echoes the rejected host; that's harmless — the
+    // assertion is on the ORIGIN we landed on, not the URL text.)
+    expect(new URL(page.url()).origin, 'stayed on the marketplace origin').toBe('http://localhost:4321')
+    expect(new URL(page.url()).pathname, 'stayed on /launching').toContain('/launching')
+
+    await page.goto('/launching')
+    await expect(page.getByRole('heading', { name: /Something went wrong/i }))
+      .toBeVisible({ timeout: 5_000 })
+  })
 })
