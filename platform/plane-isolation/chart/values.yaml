@@ -49,6 +49,12 @@ components:
       - external-secrets-system    # ESO reconciles gitea SSO ExternalSecret
       - catalyst-system            # Flux GitRepository pull from gitea (per-app sources)
       - flux-system                # (also implicit) Flux source-controller mirrors the catalog
+      - org-services               # provisioning validates its bootstrap PAT (GET /api/v1/user)
+                                   # + bootstraps per-Org gitops repos on the funnel CreateOrg path
+                                   # (core/services/provisioning/github/client.go → gitea-http:3000).
+                                   # Without this the provisioning wait-for-gitea-token init dials
+                                   # gitea and Cilium drops it → HTTP 000 → funnel Org bootstrap
+                                   # wedged (#4382, live kom4dc dep 4635277cae4ffed9 2026-06-26).
   - namespace: harbor              # OCI registry
     gatewayIngress: true           # registry.<fqdn> public route
     allowIngressFrom:
