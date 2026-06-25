@@ -80,7 +80,7 @@ spec:
       # (below), so it STILL renders the ConfigMap — it is the CANONICAL owner of
       # the sovereign-realm newapi-admin client. The gate only EXCLUDES per-Org
       # tenant installs (issuer .../realms/org-<sub>) that were clobbering it.
-      version: 1.4.124
+      version: 1.4.126
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

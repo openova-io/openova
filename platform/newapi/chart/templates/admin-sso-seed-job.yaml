@@ -208,12 +208,115 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ---
 {{- /*
+#4278 (2026-06-25) — DEDICATED, NON-HOOK ServiceAccount + Role + RoleBinding
+for the per-minute admin-promote CronJob, RELEASE-MANAGED (NOT a Helm hook).
+
+ROOT CAUSE measured live (omantel.biz demo Org `org-7283eb4a-…`, chart 1.4.125):
+the admin-promote CronJob fired every minute but its Pods were
+`forbidden: error looking up service account …/bp-newapi-admin-seed:
+serviceaccount "bp-newapi-admin-seed" not found` → every spawned Job
+DeadlineExceeded → the Helm post-install hook never completed →
+`bp-newapi` HR stuck `context deadline exceeded` (release wedged at v1,
+install-failed) even though the newapi data plane was 3/3 Running.
+
+WHY the SA vanished while the CronJob persisted: the CronJob borrowed the
+admin-SEED Job's ServiceAccount (`{{ $jobName }}`), which is a Helm HOOK
+resource (`post-install,post-upgrade` + `hook-delete-policy:
+before-hook-creation`). A long-lived per-minute CronJob is NOT a one-shot
+hook — but it had been annotated as one (no hook-weight ⇒ weight 0 ⇒ created
+FIRST, before its weight-8 SA). When the install's hook phase timed out,
+Helm's `before-hook-creation` cleanup deleted the hook-scoped
+SA/Role/RoleBinding/ConfigMap, yet the CronJob — already spawning child Jobs
+— was left orphaned, firing forever against a ServiceAccount that no longer
+existed. This is the canonical "long-lived CronJob must not be a Helm hook"
+defect: every other long-lived CronJob in this repo (openbao
+snapshot-replication, self-sovereign-cutover mirror-resync, syft-grype, flux
+stuck-HR-recovery) is a plain release-managed resource with its OWN
+release-managed RBAC — bp-newapi was the odd one out.
+
+FIX: give the CronJob a dedicated SA/Role/RoleBinding that are ordinary
+release resources (no hook annotations) so they are ALWAYS present for the
+long-lived CronJob and Flux reconciles them in lockstep with it — fully
+decoupled from the one-shot seed Job's hook lifecycle. The promote path only
+needs to READ the CNPG `-app` Secret and run promote.sh's reload (get+patch
+the NewAPI Deployment), so this Role mirrors the seed Role's verbs exactly
+(minus the OIDC secret, which promote.sh never reads). The SA/Role/RoleBinding
+kinds are NOT gated by the kyverno `flux-managed` Enforce policy (it matches
+only Deployment/StatefulSet/DaemonSet/Job/CronJob/Service/Ingress), so they
+carry the normal `bp-newapi.labels`. The CronJob itself DOES need
+`managed-by: flux` (hookLabels) to clear that gate — see its block below.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $cronName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-promote
+  {{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $cronName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-promote
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ $cnpgSecretName | quote }}
+    verbs: ["get"]
+  # promote.sh runs reload_newapi_provider → get+patch EXACTLY the NewAPI
+  # Deployment (idempotent, hash-gated rollout-restart). Same scope as the
+  # seed Role's deployment rule.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames:
+      - {{ $deployName | quote }}
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $cronName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-promote
+subjects:
+  - kind: ServiceAccount
+    name: {{ $cronName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ $cronName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+{{- /*
 The SQL is identical for the one-shot seed Job and the periodic promote
 CronJob's catch-up, so it lives in one ConfigMap mounted into both. Two
 scripts: seed.sh (full init, Job) + promote.sh (promote-only, CronJob).
 The CNPG <cluster>-app Secret (basic-auth) carries host/port/dbname/user/
 password; we read them from a mounted Secret volume rather than env so the
 plaintext never lands in the Pod manifest.
+
+#4278 (2026-06-25) — this scripts ConfigMap is now a RELEASE-MANAGED resource
+(no Helm-hook annotations), NOT a `before-hook-creation` hook. It is mounted
+by BOTH the one-shot seed Job (a hook) AND the long-lived admin-promote
+CronJob (now also non-hook). A `before-hook-creation` ConfigMap would be
+deleted-then-recreated on every reconcile and, like the SA, vanish out from
+under the orphaned CronJob — leaving promote Pods unable to mount /scripts.
+As a plain release resource it is applied (and updated in place) during the
+main install/upgrade phase, so it always exists before any post-install hook
+Pod OR CronJob Pod starts. ConfigMap is not gated by the kyverno
+`flux-managed` policy, so `bp-newapi.labels` is sufficient.
 */ -}}
 apiVersion: v1
 kind: ConfigMap
@@ -223,10 +326,6 @@ metadata:
   labels:
     {{- include "bp-newapi.labels" . | nindent 4 }}
     catalyst.openova.io/component: admin-seed
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "8"
-    "helm.sh/hook-delete-policy": before-hook-creation
 data:
   common.sh: |
     # Shared: build PSQL from the mounted CNPG -app Secret + wait for tables.
@@ -676,7 +775,19 @@ spec:
             catalyst.openova.io/component: admin-promote
         spec:
           restartPolicy: OnFailure
-          serviceAccountName: {{ $jobName }}
+          # #4278 (2026-06-25) — bind to the CronJob's OWN dedicated,
+          # release-managed ServiceAccount ($cronName), NOT the one-shot seed
+          # Job's HOOK SA ($jobName). The seed SA is a `before-hook-creation`
+          # Helm hook resource; when an install/upgrade hook phase fails or
+          # times out, Helm deletes it, but this long-lived (regular-resource)
+          # CronJob survives and then fires forever against a now-missing SA
+          # → every spawned Job is `forbidden: serviceaccount …admin-seed not
+          # found` → DeadlineExceeded → the Helm post-install hook never
+          # completes → bp-newapi HR wedged "context deadline exceeded"
+          # (measured live omantel.biz demo Org 2026-06-24). The dedicated
+          # $cronName SA/Role/RoleBinding are release-managed, so they always
+          # exist for the CronJob's lifetime.
+          serviceAccountName: {{ $cronName }}
           {{- with .Values.imagePullSecrets }}
           imagePullSecrets:
             {{- toYaml . | nindent 12 }}
