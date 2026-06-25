@@ -114,7 +114,7 @@ name: bp-stalwart-tenant
 #   100m/64Mi — overridable) and wired it onto the Job container. The
 #   StatefulSet already declared resources (stalwart.resources); only the
 #   hook Job was missing them. Mirrors the bp-newapi hook-Job convention.
-version: 0.1.9
+version: 0.1.10
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated
