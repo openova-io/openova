@@ -310,6 +310,14 @@ def check(data, by_hr, verbose=True):
         if vc == "host":
             if kc:
                 errors.append(f"{slot['file']}: host placement must NOT carry spec.kubeConfig (has {kc.get('name')!r})")
+            # #4291: a host placement has no vCluster, so it must NOT carry a
+            # catalyst.openova.io/vcluster label (the de-vcluster inverse of the
+            # vcluster-branch assertion below). A stale label is a topology lie.
+            stale_lbl = (md.get("labels") or {}).get("catalyst.openova.io/vcluster")
+            if stale_lbl is not None:
+                errors.append(f"{slot['file']}: host placement carries a stale "
+                              f"catalyst.openova.io/vcluster: {stale_lbl!r} label — run "
+                              f"scripts/render-slot-placement.py fix to strip it (#4291)")
         else:
             vci = vclusters[vc]
             if kc.get("name") != vci["kubeconfigSecret"] or kc.get("key") != "config":
@@ -665,24 +673,74 @@ def fix_slot(slot, data, by_hr):
                     indent += 2
 
     else:
-        # host placement: drop kubeConfig block + storageNamespace if a
-        # previous vcluster placement left them behind.
+        # host placement: drop kubeConfig block + storageNamespace + the
+        # catalyst.openova.io/vcluster label if a previous vcluster placement
+        # left them behind (#4291 — the de-vcluster inverse of #3642: a host
+        # placement has no vCluster, so the label is a stale lie the console
+        # topology would surface; placement is DATA so the generator strips it).
         i = s
         while i < e:
             if re.match(r"^  kubeConfig:", lines[i]):
+                # also strip the generator's preceding "# vCluster pivot …"
+                # comment line (the vcluster branch inserts it right above the
+                # kubeConfig block; without this it dangles after de-vcluster).
+                lo = i
+                if lo > s and lines[lo - 1].lstrip().startswith("# vCluster pivot"):
+                    lo -= 1
                 j = i + 1
                 while j < e and (lines[j].startswith("    ") or lines[j].strip().startswith("#")):
                     j += 1
-                del lines[i:j]
-                e -= j - i
+                del lines[lo:j]
+                e -= j - lo
+                i = lo
                 continue
             if re.match(r"^  storageNamespace: ", lines[i]):
+                del lines[i]
+                e -= 1
+                continue
+            if re.match(r"^    catalyst\.openova\.io/vcluster: ", lines[i]):
+                del lines[i]
+                e -= 1
+                continue
+            # strip a standalone orphaned "# vCluster pivot …" comment (left
+            # behind when a prior fix already removed the kubeConfig block it
+            # introduced) — #4291.
+            if lines[i].lstrip().startswith("# vCluster pivot"):
                 del lines[i]
                 e -= 1
                 continue
             i += 1
         set_line_value(lines, s, e, r"^  targetNamespace: ",
                        f"  targetNamespace: {slot['namespace']}")
+
+        # #4291: a host placement must NOT dependsOn a vCluster runtime HR
+        # (bp-{mgmt,rtz,dmz}-vcluster) — that edge is the vcluster-branch's
+        # "the vc-<tier> Secret doesn't exist until the runtime is Ready"
+        # anchor. When a slot is de-vclustered the runtime is retired, so the
+        # edge dangles. Strip the `- name: <runtimeHR>` dependsOn entry (its
+        # name line + any following namespace/comment lines, plus the
+        # generator's preceding "MUST be Ready first" comment lines).
+        runtime_hrs = {v["runtimeHR"] for v in vclusters.values()}
+        i = s
+        while i < e:
+            m = re.match(r"^    - name: (\S+)", lines[i])
+            if m and m.group(1).strip('"') in runtime_hrs:
+                # back up over the generator's leading comment lines for this edge
+                lo = i
+                while lo > s + 1 and lines[lo - 1].lstrip().startswith("#") \
+                        and lines[lo - 1].startswith("    "):
+                    lo -= 1
+                # consume the name line + its indented children (namespace/comments)
+                hi = i + 1
+                while hi < e and (lines[hi].startswith("      ")
+                                  or lines[hi].lstrip().startswith("#")
+                                  and lines[hi].startswith("      ")):
+                    hi += 1
+                del lines[lo:hi]
+                e -= hi - lo
+                i = lo
+                continue
+            i += 1
 
     with open(fpath, "w") as f:
         f.write("\n".join(lines) + "\n")

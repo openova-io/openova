@@ -1,0 +1,56 @@
+{{- /*
+Per-component gateway-ingress CiliumNetworkPolicy (#4291 Workstream C).
+
+THE single most important carry-over from the bp-{mgmt,rtz,dmz}-vcluster
+gateway-ingress-cnp.yaml. The companion default-deny NetworkPolicy is
+podSelector:{} default-deny-ingress whose allow-list is PURELY
+namespaceSelector rules. The Cilium Gateway API (envoy) proxies external
+traffic to backend pods under the reserved `ingress` security identity —
+which is NOT a pod and NOT a namespace, so NO namespaceSelector can ever
+match it. Result: every gateway→app request is silently dropped → curl 000
+(timeout) / 503 (envoy ejects the "unhealthy" backend). This is the exact
+#2940 hw159–hw165 app-plane wedge, fixed live on hw165 2026-06-19 by
+admitting the ingress entity.
+
+A vanilla K8s NetworkPolicy cannot express reserved:ingress, so this
+CiliumNetworkPolicy admits the ingress proxy (plus host / remote-node,
+since envoy runs in the host netns and a backend pod may sit on a peer
+node). Cilium computes the UNION of every policy selecting an endpoint, so
+this is purely additive to the default-deny — it grants gateway
+reachability without weakening isolation (note: NO `world`, so direct
+public ingress stays forbidden — only the gateway reaches the component).
+
+Rendered ONLY for components with a public HTTPRoute (gatewayIngress:
+true); pure-backend components (loki/mimir/tempo/valkey/seaweedfs/vllm/
+nats-system/sandbox) never face the gateway so they get no `ingress`-entity
+admit — a tighter posture than the whole-plane policy which admitted the
+entity for EVERY pod in the plane.
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI).
+*/ -}}
+{{- if and .Values.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+{{- range .Values.components }}
+{{- if .gatewayIngress }}
+{{- $ns := .namespace -}}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ $ns }}-allow-gateway-ingress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-plane-isolation.labels" $ | nindent 4 }}
+    catalyst.openova.io/component: {{ $ns }}-gateway-netpol
+spec:
+  # endpointSelector {} = every endpoint in this namespace, matching the
+  # default-deny policy's scope.
+  endpointSelector: {}
+  ingress:
+    - fromEntities:
+        - ingress
+        - host
+        - remote-node
+{{- end }}
+{{- end }}
+{{- end -}}

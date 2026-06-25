@@ -1,0 +1,82 @@
+{{- /*
+Per-component default-deny NetworkPolicy (#4291 Workstream C).
+
+The de-vcluster inverse of the whole-plane NetworkPolicy that
+bp-{mgmt,rtz,dmz}-vcluster shipped on the mgmt/rtz/dmz syncer namespace.
+Each de-vclustered platform component's HOST namespace gets its OWN
+default-deny (podSelector:{} = every pod in the namespace, Ingress+Egress)
+with ONLY the explicit cross-component allows that component needs — the
+core micro-segmentation win (one-component blast radius vs whole-plane).
+
+Same-namespace pod-to-pod and DNS egress are always allowed (a component's
+own pods talk to each other; every pod needs CoreDNS). flux-system ingress
+is allowed so the helm-controller can reconcile the component's HR + CRs.
+
+NOTE on the gateway: a vanilla K8s NetworkPolicy cannot express the
+reserved `ingress` ENTITY that Cilium-Gateway/envoy traffic carries, so the
+public-route allow lives in the companion gateway-ingress-cnp.yaml
+CiliumNetworkPolicy (Cilium unions every policy selecting an endpoint).
+*/ -}}
+{{- if .Values.enabled -}}
+{{- $dnsNamespace := .Values.dnsNamespace | default "kube-system" -}}
+{{- range .Values.components }}
+{{- $ns := .namespace -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $ns }}-default-deny
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-plane-isolation.labels" $ | nindent 4 }}
+    catalyst.openova.io/component: {{ $ns }}-default-deny
+spec:
+  # podSelector {} = ALL pods in this namespace.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Always allow same-namespace pod-to-pod (the component's own pods).
+    - from:
+        - podSelector: {}
+    # Always allow flux-system (the helm-controller reconciles this
+    # component's HelmRelease + its CRs through the kube-API path).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: flux-system
+    {{- /* The EXPLICIT per-component cross-component allow-list — each entry
+           is one source namespace this component legitimately receives from
+           (derived from the cross-component call graph). This is the tighten
+           from whole-plane to per-component. */}}
+    {{- range .allowIngressFrom }}
+    {{- if ne . "flux-system" }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+    {{- end }}
+    {{- end }}
+  egress:
+    # Always allow DNS egress to CoreDNS — without it every pod breaks on
+    # the first name lookup.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $dnsNamespace | quote }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Egress is otherwise unconstrained (the whole-plane policy left egress
+    # open too). Per-component egress narrowing is a follow-up once the live
+    # call graph is captured — tightening egress blind risks severing a
+    # legitimate cross-component dial. An empty `to:`/`ports:` rule allows
+    # all remaining egress (the documented K8s NetworkPolicy allow-all shape).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+{{- end }}
+{{- end -}}

@@ -55,29 +55,17 @@ metadata:
   # longer needs to colocate with vc-mgmt. Reverting also restores
   # the Helm valuesFrom lookup of secrets like 'object-storage'
   # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "10"
-    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   releaseName: gitea
   targetNamespace: gitea
-  storageNamespace: gitea
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
   dependsOn:
-    # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
-    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
     # bp-keycloak now lives in flux-system (G105-followup #2697).
     - name: bp-keycloak
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
@@ -219,12 +207,9 @@ spec:
     # below makes SSO work zero-touch on every fresh Sovereign.
     sso:
       externalSecret:
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-      # #3934 (Refs #3642): sso.enabled STAYS true so the in-vCluster
-      # sso-configure Deployment renders (it seeds the `openova-sso`
-      # login_source DB row via kubectl-exec into the live gitea Pod). Only
-      # the chart's ExternalSecret is suppressed above (host-rendered). NOT
-      # placement-generated — placement.yaml no longer declares sso.enabled.
+        enabled: true  # #4291 DE-VCLUSTER — gitea renders its OWN SSO ExternalSecret natively in host ns `gitea` (host ESO reconciles it; was suppressed by the #3642 host-bridge)
+      # sso.enabled STAYS true so the sso-configure Deployment seeds the
+      # `openova-sso` login_source DB row (kubectl-exec into the live gitea Pod).
       enabled: true
       sovereignFqdn: ${SOVEREIGN_FQDN}
     # G87 #2634 (2026-06-01): multi-region Sovereigns default CNPG
@@ -254,7 +239,11 @@ spec:
         # and its DB host points at the shared cluster's -rw Service. The
         # `gitea` Database + role + reflected gitea-database-secret are
         # provisioned by the shared bp-postgres instance (slot 16a).
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        # #4291 DE-VCLUSTER — restore the env-templated own-cluster default
+        # (the #3642 host-bridge had hardcoded false because it rendered the
+        # gitea-pg Cluster host-side; native host-ns render owns its CNPG now).
+        # The cloud-init var flips false only when enable_shared_pg=true.
+        enabled: ${SOVEREIGN_GITEA_PG_OWN_CLUSTER:=true}
     # Per-Sovereign overrides — issue #387:
     # Cilium Gateway HTTPRoute exposes Gitea at gitea.${SOVEREIGN_FQDN}.
     # Upstream chart's own Ingress is disabled (gitea.ingress.enabled=false
@@ -263,7 +252,7 @@ spec:
       host: gitea.${SOVEREIGN_FQDN}
     # Restored 2026-06-13 (same #3373/#3391 shape as slot 09).
     gateway:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      enabled: true  # #4291 DE-VCLUSTER — gitea renders its OWN HTTPRoute natively in host ns `gitea` (was suppressed by the #3642 host-bridge)
       host: gitea.${SOVEREIGN_FQDN}
     # DoD D25 (t129 2026-05-16): override the chart's baked dev hostname
     # `gitea.catalyst.local` so the Gitea Web UI renders the LIVE

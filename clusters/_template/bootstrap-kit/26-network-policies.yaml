@@ -74,7 +74,10 @@ spec:
       # the reserved entity `all` (was a bare `{}` rule that didn't cover
       # kube-apiserver/host/world) — fixes control-plane Pods losing the
       # apiserver under default-deny. See the `enabled: false` gate below.
-      version: 1.0.4
+      # 1.0.5 (#4291 Workstream C): allowSystemNamespaces drops the retired
+      # dmz/mgmt/rtz vCluster syncer namespaces + adds guacamole + sandbox
+      # (de-vclustered to their own host namespaces).
+      version: 1.0.5
       sourceRef:
         kind: HelmRepository
         name: bp-network-policies

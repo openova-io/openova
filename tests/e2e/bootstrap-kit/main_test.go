@@ -412,6 +412,140 @@ func TestBootstrapKit_TemplateClusterParses(t *testing.T) {
 	}
 }
 
+// TestBootstrapKit_PlatformPlanesAreHostNative is the #4291 Workstream-C lock
+// (the inverse of #3642). After de-vclustering the platform planes, a vCluster
+// is the per-Organization boundary ONLY; the mgmt/rtz/dmz platform planes are
+// NOT tenant boundaries, so every platform-plane HelmRelease in the bootstrap
+// kit reconciles into its OWN first-class HOST namespace — never pivoted into a
+// plane vCluster. The companion Org-app half ("apps reconcile INTO the per-Org
+// vCluster") is locked by the keystone #4297 tests in
+// core/services/provisioning/gitops (TestAppsSync_VclusterTier_HasKubeConfig).
+//
+// This test asserts the platform-plane invariants that must hold post-#4291:
+//
+//   1. NO bootstrap-kit HelmRelease carries a `kubeConfig.secretRef` pointing
+//      at a plane-vCluster mirror Secret (vc-mgmt / vc-rtz / vc-dmz) — that was
+//      the #3642 "vCluster pivot" render mechanism, now retired for platform
+//      planes. (Per-Org vClusters are NOT in clusters/_template/bootstrap-kit/;
+//      they are emitted per-Organization by the org-controller.)
+//   2. NO HelmRelease carries the stale `catalyst.openova.io/vcluster` label.
+//   3. The plane-vCluster runtime slots (54 bp-dmz-vcluster, 58 bp-mgmt-vcluster,
+//      59 bp-rtz-vcluster) and slot 00 (vcluster-host-namespaces) are RETIRED.
+//   4. The newapi render-split companion slot 80a (bp-newapi-host-seams) is
+//      RETIRED and its #4321/#4305/#4278 fixes are preserved in slot 80, which
+//      now renders host-native `placement.role: all` with `cnpg.enabled: true`
+//      (the app HR itself renders the CNPG Cluster + DSN-sync + admin-promote
+//      + AppRegistration + ExternalSecrets natively in host ns `newapi`).
+//   5. bp-plane-isolation (slot 26b) — the per-component default-deny
+//      micro-segmentation that replaces the coarse whole-plane vCluster
+//      boundary — IS present.
+func TestBootstrapKit_PlatformPlanesAreHostNative(t *testing.T) {
+	root := repoRoot(t)
+	kitDir := filepath.Join(root, "clusters", "_template", "bootstrap-kit")
+	if _, err := os.Stat(kitDir); err != nil {
+		t.Skipf("clusters/_template/bootstrap-kit/ not present — skipping #4291 platform-plane host-native test")
+	}
+
+	entries, err := os.ReadDir(kitDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", kitDir, err)
+	}
+
+	// (3) + (4): the retired slots must be gone; bp-plane-isolation (5) must be present.
+	retired := map[string]string{
+		"00-vcluster-host-namespaces.yaml": "slot 00 (vcluster-host-namespaces) must be RETIRED post-#4291 — platform components own first-class host namespaces directly",
+		"54-bp-dmz-vcluster.yaml":          "slot 54 (bp-dmz-vcluster) must be RETIRED post-#4291 — the dmz plane is no longer a vCluster",
+		"58-bp-mgmt-vcluster.yaml":         "slot 58 (bp-mgmt-vcluster) must be RETIRED post-#4291 — the mgmt plane is no longer a vCluster",
+		"59-bp-rtz-vcluster.yaml":          "slot 59 (bp-rtz-vcluster) must be RETIRED post-#4291 — the rtz plane is no longer a vCluster",
+		"80a-newapi-host-seams.yaml":       "slot 80a (bp-newapi-host-seams) must be RETIRED post-#4291 — the #3831 vcluster-app/host-seams render-split collapses into slot 80 placement.role=all",
+	}
+	present := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		present[name] = true
+		if msg, dead := retired[name]; dead {
+			t.Errorf("RETIRED SLOT STILL ON DISK (#4291): %s — %s", name, msg)
+		}
+	}
+	if !present["26b-bp-plane-isolation.yaml"] {
+		t.Errorf("MISSING slot 26b (bp-plane-isolation): the per-component default-deny micro-segmentation that replaces the whole-plane vCluster boundary must be present post-#4291")
+	}
+
+	// (1) + (2): scan every remaining HelmRelease for a plane-vCluster pivot.
+	planeMirrors := []string{"vc-mgmt", "vc-rtz", "vc-dmz"}
+	sawNewapiAppHR := false
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(kitDir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		rendered := strings.ReplaceAll(string(raw), "SOVEREIGN_FQDN_PLACEHOLDER", "test-sov.example.com")
+		dec := yaml.NewDecoder(strings.NewReader(rendered))
+		for {
+			var doc map[string]any
+			derr := dec.Decode(&doc)
+			if derr != nil {
+				break // EOF or last doc
+			}
+			if doc == nil || doc["kind"] != "HelmRelease" {
+				continue
+			}
+			meta, _ := doc["metadata"].(map[string]any)
+			spec, _ := doc["spec"].(map[string]any)
+			hrName, _ := meta["name"].(string)
+
+			// (2) stale vcluster label.
+			if labels, ok := meta["labels"].(map[string]any); ok {
+				if _, has := labels["catalyst.openova.io/vcluster"]; has {
+					t.Errorf("%s: HelmRelease %q still carries the stale catalyst.openova.io/vcluster label (#4291 — platform planes are host-native)", e.Name(), hrName)
+				}
+			}
+
+			// (1) plane-vCluster kubeConfig pivot.
+			if kc, ok := spec["kubeConfig"].(map[string]any); ok {
+				if sr, ok := kc["secretRef"].(map[string]any); ok {
+					if refName, _ := sr["name"].(string); refName != "" {
+						for _, m := range planeMirrors {
+							if refName == m {
+								t.Errorf("%s: HelmRelease %q pivots into plane vCluster via kubeConfig.secretRef.name=%q — platform planes must be HOST-native post-#4291", e.Name(), hrName, refName)
+							}
+						}
+					}
+				}
+			}
+
+			// (4) newapi app HR must be host-native role: all with cnpg.enabled.
+			if hrName == "bp-newapi" {
+				sawNewapiAppHR = true
+				values, _ := spec["values"].(map[string]any)
+				if pl, ok := values["placement"].(map[string]any); ok {
+					if role, _ := pl["role"].(string); role != "all" {
+						t.Errorf("%s: bp-newapi placement.role=%q, want \"all\" — post-#4291 the app HR renders ALL seams (CNPG + DSN-sync + admin-promote + AppRegistration + ExternalSecrets) host-native, not split with the retired slot 80a", e.Name(), role)
+					}
+				} else {
+					t.Errorf("%s: bp-newapi values.placement.role missing — want \"all\" post-#4291", e.Name())
+				}
+				if cnpg, ok := values["cnpg"].(map[string]any); ok {
+					if en, _ := cnpg["enabled"].(bool); !en {
+						t.Errorf("%s: bp-newapi cnpg.enabled=false — post-#4291 newapi renders its OWN CNPG Cluster natively in host ns newapi (was suppressed by the #3831 host-bridge split)", e.Name())
+					}
+				} else {
+					t.Errorf("%s: bp-newapi values.cnpg.enabled missing — want true post-#4291", e.Name())
+				}
+			}
+		}
+	}
+	if !sawNewapiAppHR {
+		t.Error("bp-newapi HelmRelease not found in bootstrap-kit — slot 80 (the de-vclustered newapi app HR) must be present")
+	}
+}
+
 // errEOF returns the io.EOF sentinel. Importing io for one variable bloats
 // the file; this helper keeps the test deps minimal.
 func errEOF() error {

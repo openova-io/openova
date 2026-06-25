@@ -65,10 +65,9 @@ metadata:
   # #2745: HR lives in host ns `mgmt` (where bp-mgmt-vcluster exports
   # the vc-mgmt Secret). helm-controller authenticates against the
   # vCluster apiserver and installs the chart inside the vCluster.
-  namespace: mgmt
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "24"
-    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   timeout: 15m
@@ -80,19 +79,8 @@ spec:
   # else helm-controller defaults it to the HR's own namespace (`mgmt`)
   # and fails `namespaces "mgmt" not found` storing the release inside
   # the vCluster (createNamespace only creates the target `tempo`).
-  storageNamespace: tempo
-  # vCluster pivot — helm-controller installs the chart inside the
   # mgmt vCluster (Flux v2 HelmRelease v2 contract). #2745.
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
   dependsOn:
-    # #2745: bp-mgmt-vcluster MUST be Ready before this HR tries to
-    # install — the vc-mgmt Secret doesn't exist until then. Cross-ns
-    # dependsOn requires explicit `namespace:`.
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
     # bp-seaweedfs dependency REMOVED (Refs #840) — mirrors the slot-19
     # bp-harbor seaweedfs-dep removal (ADR-0001 §13). The DEFAULT Tempo
     # render is `tempo.storage.trace.backend: local` (platform/tempo/chart/

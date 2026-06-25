@@ -51,10 +51,9 @@ metadata:
   # G92.4 #2663: HR lives in host ns `dmz` (where bp-dmz-vcluster
   # exports vc-dmz Secret). helm-controller authenticates against the
   # vCluster apiserver and installs the chart inside the vCluster.
-  namespace: dmz
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "35"
-    catalyst.openova.io/vcluster: dmz
 spec:
   interval: 15m
   releaseName: coraza
@@ -69,19 +68,8 @@ spec:
   # kubeconfig server was never reachable (localhost → SAN-mismatch,
   # #3038/#3043), so bp-coraza never reached the release-store stage.
   # Pin storage to the (created) target namespace = vanilla-helm behaviour.
-  storageNamespace: coraza
-  # vCluster pivot — helm-controller installs the chart inside dmz
   # vCluster (Flux v2 HelmRelease v2 contract). G92.4 #2663.
-  kubeConfig:
-    secretRef:
-      name: vc-dmz
-      key: config
   dependsOn:
-    # G92.4 #2663: bp-dmz-vcluster MUST be Ready before this HR tries
-    # to install — vc-dmz Secret doesn't exist until then. Cross-ns
-    # dependsOn requires explicit `namespace:`.
-    - name: bp-dmz-vcluster
-      namespace: flux-system
     - name: bp-cilium
       namespace: flux-system
     - name: bp-cert-manager

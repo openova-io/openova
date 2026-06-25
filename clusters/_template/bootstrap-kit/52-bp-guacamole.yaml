@@ -62,9 +62,8 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-guacamole
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
-    catalyst.openova.io/vcluster: mgmt
     catalyst.openova.io/slot: "52"
 spec:
   interval: 15m
@@ -73,29 +72,19 @@ spec:
   # k8s-ws-proxy + the rest of the Catalyst control-plane stack. The
   # chart's NetworkPolicies allow cross-namespace egress to keycloak
   # / seaweedfs / nats-jetstream regardless of where it lands.
-  targetNamespace: catalyst-system
-  storageNamespace: catalyst-system
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
+  targetNamespace: guacamole
   dependsOn:
-    # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
-    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
     - name: bp-cilium
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-cert-manager
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-sealed-secrets
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-seaweedfs
-      namespace: rtz  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-k8s-ws-proxy
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # #3374 — bp-guacamole now ships a CNPG Cluster CR for its JDBC
@@ -230,7 +219,7 @@ spec:
     guacamole:
       database:
         cluster:
-          enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+          enabled: true  # #4291 DE-VCLUSTER — guacamole renders its OWN CNPG Cluster natively in host ns `guacamole` (host cnpg-operator reconciles it; was suppressed by the #3642 host-bridge)
           # #3971 (Refs #3992 #4012) — name the per-provider durable CSI class
           # explicitly so the guacamole-pg PVC is NEVER created classless. An
           # UNSET storageClassName freezes to "" the instant a PVC is created
@@ -247,7 +236,7 @@ spec:
       # clusters/<sovereign>/bootstrap-kit/kustomization.yaml.
       enabled: true
       httproute:
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        enabled: true  # #4291 DE-VCLUSTER — guacamole renders its OWN HTTPRoute natively in host ns `guacamole` (was suppressed by the #3642 host-bridge)
         # Resolved from the per-Sovereign Kustomize overlay's
         # SOVEREIGN_FQDN env var, which envsubst materializes when the
         # bootstrap-kit Kustomization renders.
