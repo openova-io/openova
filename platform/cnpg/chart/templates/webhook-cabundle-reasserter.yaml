@@ -276,7 +276,16 @@ spec:
             - { name: MUT_WEBHOOK, value: {{ $mutName | quote }} }
             - { name: VAL_WEBHOOK, value: {{ $valName | quote }} }
             - { name: WAIT_SECONDS, value: {{ $bootstrapTimeout | quote }} }
-          command: ["/bin/sh", "-c"]
+          # G64-followup (#4322): MUST be /bin/bash, NOT /bin/sh. The bitnami
+          # kubectl image's /bin/sh is dash, which rejects `set -o pipefail`
+          # ("Illegal option -o pipefail") → the script aborts on its FIRST
+          # line → the hook Job fails its full backoffLimit → post-upgrade hook
+          # `job cnpg-cabundle-reassert failed: BackoffLimitExceeded` → Helm
+          # rolled bp-cnpg 1.0.13 back to 1.0.12 (live on omantel.biz dep
+          # 4635277cae4ffed9, reproduced 2026-06-25). The webhook-gate-hook.yaml
+          # already uses /bin/bash for the same reason; the image carries
+          # /bin/bash (and /usr/bin/openssl for the CA:TRUE assertion).
+          command: ["/bin/bash", "-c"]
           args:
             - |
               {{- $script | nindent 14 }}
@@ -338,7 +347,9 @@ spec:
                 # CronJob runs in steady state — the CA secret already exists,
                 # so a short wait is enough.
                 - { name: WAIT_SECONDS, value: "30" }
-              command: ["/bin/sh", "-c"]
+              # G64-followup (#4322): /bin/bash, NOT /bin/sh (dash) — see the
+              # hook Job above; `set -o pipefail` is a bash builtin.
+              command: ["/bin/bash", "-c"]
               args:
                 - |
                   {{- $script | nindent 18 }}

@@ -7,7 +7,10 @@ metadata:
 spec:
   # 1.0.13 (G64 #4322): lockstep with chart/Chart.yaml — durable fix for the
   # cnpg-system operator corrupting the webhook caBundle with a leaf cert.
-  version: 1.0.13
+  # 1.0.14 (G65 #4322): lockstep — (A) per-Org operator RBAC can no longer patch
+  # the cluster webhook singleton (subchart rbac.create=false + minimal
+  # replacement RBAC), (B) reasserter Job /bin/sh→/bin/bash (#4326 fix).
+  version: 1.0.14
   card:
     title: CloudNativePG
     summary: |

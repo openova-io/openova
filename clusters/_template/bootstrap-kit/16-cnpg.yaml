@@ -107,7 +107,16 @@ spec:
       #         corruption at source) + ships a webhook-cabundle-reasserter
       #         (Helm-hook Job + 10m CronJob) that writes the real CA, + hardens
       #         the gate to assert CA:TRUE. Fresh provs never hit the x509 wall.
-      version: 1.0.13
+      # 1.0.14 (G65 #4322): (A) per-Org operator can no longer patch the cluster
+      #         webhook singleton — the upstream subchart's clusterwideRules
+      #         (get,patch on *webhookconfigurations) were granted UNCONDITIONALLY
+      #         even under clusterWide=false; the per-Org install now sets
+      #         cloudnative-pg.rbac.create=false + the umbrella renders minimal
+      #         replacement RBAC (no webhookconfigurations). (B) fix the #4326
+      #         reasserter Job BackoffLimitExceeded — /bin/sh (dash) rejected
+      #         `set -o pipefail`; switched to /bin/bash. Both halves end the
+      #         recurring caBundle re-hijack for good.
+      version: 1.0.14
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg
