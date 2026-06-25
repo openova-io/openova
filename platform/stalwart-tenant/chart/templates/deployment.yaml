@@ -77,6 +77,14 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.keycloak.clientSecretName | quote }}
                   key: OIDC_CLIENT_SECRET
+                  # #4307/#4272 (FINAL gate): optional so the StatefulSet Pod
+                  # can SCHEDULE before the OIDC client_secret Secret is
+                  # reflected/seeded (the chart self-generates it via
+                  # oidc-client-secret.yaml, but the kubelet evaluates env-
+                  # secretKeyRef at container start — a non-optional ref hard-
+                  # fails CreateContainerConfigError if the Secret lags the Pod).
+                  # Matches the already-optional ref in mailbox-provision-job.yaml.
+                  optional: true
             - name: STALWART_DOMAIN
               value: {{ include "bp-stalwart-tenant.tenantDomain" . | quote }}
             - name: STALWART_HOSTNAME
