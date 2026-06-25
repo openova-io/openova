@@ -72,12 +72,29 @@ idc: true
 # (confirmed live via the EVS cinder list-volume-types probe, main.tf line
 # ~1066) — SSD is pinned for production IOPS. The volume-type parameter key is
 # the FLAT `type` key (verified in pkg/evs/nodeserver.go:512 — NOT everest's
-# `everest.io/disk-volume-type`). reclaimPolicy Retain gives the same
-# production-data durability posture as hcloud-volumes.
+# `everest.io/disk-volume-type`).
+#
+# reclaimPolicy: Delete (#4350, kom4dc dep 4635277cae4ffed9, 2026-06-25).
+# WAS Retain — but Retain on the CLUSTER-DEFAULT class is an EVS-volume LEAK:
+# Huawei EVS enforces a project-wide volume-COUNT hard quota (400), and with
+# Retain every PVC that is deleted/churned (re-prov, Org teardown, pod
+# reschedule, StatefulSet replica scale-down) leaves its backing EVS volume
+# ALIVE under a `Released` PV — still billed, still counting against the 400.
+# Live forensic on kom4dc: 72 Bound + 63 Released PVs in region-a alone (66
+# more in region-B) drove the project to EVS.1034 "volume count exceeded" /
+# 413 "Maximum number of volumes allowed (400) exceeded" → every new PVC
+# (gitea-shared-storage, harbor-jobservice, seaweedfs, per-Org wordpress
+# replicas) stuck Pending → bp-gitea False → bp-catalyst-platform (dependsOn
+# bp-gitea) never converged. Delete reclaim frees the EVS volume when the PV
+# is released, so churn no longer leaks count quota. Stateful tiers that need
+# true retain-on-delete durability (CNPG already streams its own barman WAL
+# backups, so it does NOT) can opt into a dedicated retain class via an extra
+# catalystStorageClasses entry; the cluster-DEFAULT must be Delete to bound
+# the volume count.
 catalystStorageClasses:
   - name: evs-ssd
     volumeType: SSD
-    reclaimPolicy: Retain
+    reclaimPolicy: Delete
     volumeBindingMode: WaitForFirstConsumer
     allowVolumeExpansion: true
     fsType: ext4

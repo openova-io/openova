@@ -68,10 +68,13 @@
 #   - The EVS CSI controller Deployment (provisioner/attacher/resizer/
 #     snapshotter sidecars + the evs-csi-plugin) + node DaemonSet + CSIDriver
 #     `evs.csi.huaweicloud.com`.
-#   - The `evs-ssd` StorageClass — reclaimPolicy Retain (the backing EVS
-#     volume survives PVC/PV deletion), volumeBindingMode WaitForFirstConsumer
-#     (the volume lands in the consuming Pod's AZ), allowVolumeExpansion true,
-#     type SSD (HCS me-east-215 exposes SSD / SAS only).
+#   - The `evs-ssd` StorageClass — reclaimPolicy Delete (#4350: Retain on the
+#     cluster-default class LEAKED EVS volumes — every churned PVC left a
+#     Released PV whose backing volume stayed alive + billed + counting against
+#     Huawei's project-wide 400-volume hard quota, until kom4dc hit EVS.1034 /
+#     413 VolumeLimitExceeded and every new PVC went Pending), volumeBindingMode
+#     WaitForFirstConsumer (the volume lands in the consuming Pod's AZ),
+#     allowVolumeExpansion true, type SSD (HCS me-east-215 exposes SSD / SAS only).
 #   - VolumeSnapshotClass `evs-snapshots` (storage-level DR).
 #   - A post-install hook Job that promotes evs-ssd to cluster-default (the
 #     provisioner-agnostic flip hook reused from bp-hcloud-csi).
@@ -159,7 +162,11 @@ spec:
   chart:
     spec:
       chart: bp-huawei-evs-csi
-      version: 1.0.3
+      # 1.0.4 (#4350): evs-ssd default reclaimPolicy Retain → Delete to stop the
+      # EVS volume-count quota leak (Released PVs kept their EVS volume alive →
+      # project hit the 400 hard quota → gitea/harbor/per-Org PVCs Pending →
+      # bp-catalyst-platform never converged).
+      version: 1.0.4
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi
