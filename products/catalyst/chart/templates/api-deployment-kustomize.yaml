@@ -409,10 +409,12 @@ spec:
             # allowedPlatformNamespaces (see network-policies/
             # baseline-catalyst-system.yaml) so no extra CNP is needed.
             - name: CATALYST_NATS_URL
-              # G105 #2697 default flipped to the syncer-mangled name —
-              # post-G92.2 nats-jetstream runs INSIDE the mgmt vCluster
-              # and the host's `nats-system` namespace no longer exists.
-              value: '{{ .Values.catalystApi.natsURL | default "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222" }}'
+              # #4368: #4291/#4293 DE-VCLUSTERED bp-nats-jetstream back into
+              # the first-class host ns `nats-system` (placement.yaml:
+              # `vcluster: host, namespace: nats-system`). The #2697 syncer-
+              # mangled mgmt name now returns NXDOMAIN (no mgmt vCluster);
+              # dial the host-ns Service directly.
+              value: '{{ .Values.catalystApi.natsURL | default "nats://nats-jetstream.nats-system.svc.cluster.local:4222" }}'
             # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
             # the k8scache.Factory reads kubeconfigs from at startup.
             # The data-plane SharedInformerFactory opens one informer

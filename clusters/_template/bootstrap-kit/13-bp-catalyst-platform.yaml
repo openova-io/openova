@@ -1109,7 +1109,11 @@ spec:
       # 1.4.847 — #4355: gitea repo-bootstrap hooks self-heal disk-vs-DB-drift
       #   repos (re-init main before branching) so a recovered-empty gitea never
       #   wedges the umbrella upgrade with BackoffLimitExceeded.
-      version: 1.4.849
+      # 1.4.850 — #4368 (Refs #3376 #4291 #4293): revert NATS_URL (org-services +
+      #   catalyst-api + projector) from the dead mgmt-vcluster-synced name back to
+      #   the host-ns `nats-jetstream.nats-system.svc` after #4291 de-vclustered
+      #   bp-nats-jetstream — unwedges the funnel (org-services CrashLoop on NATS).
+      version: 1.4.850
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

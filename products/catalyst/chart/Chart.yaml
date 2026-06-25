@@ -3102,7 +3102,17 @@ name: bp-catalyst-platform
 #   re-inits `main` via the contents API before branching. Idempotent + bounded.
 #   lookup-source change; no new bootstrap state. Chart-version bump forces the
 #   Flux re-pull (deploy-bot mutable-tag trap). bootstrap-kit slot-13 lockstep.
-version: 1.4.849
+version: 1.4.850
+# 1.4.850 — #4368 (Refs #3376 #4291 #4293): revert the SME/org-services + catalyst-api
+#   NATS_URL from the dead mgmt-vcluster-synced name back to the host-ns Service.
+#   #4291/#4293 DE-VCLUSTERED bp-nats-jetstream into first-class host ns `nats-system`
+#   (placement.yaml: vcluster: host), but this chart's $defaultNATS (org-services
+#   configmap), services.projector.nats.url, and CATALYST_NATS_URL default kept
+#   pointing at `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc` → NXDOMAIN
+#   (no mgmt vCluster) → every org-service (tenant/billing/provisioning/domain/
+#   notification) CrashLoops → funnel tenant.created never consumed → no Org CR.
+#   All four refs now dial `nats-jetstream.nats-system.svc.cluster.local:4222`.
+#   Chart-version bump forces the Flux re-pull; bootstrap-kit slot-13 lockstep.
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
@@ -3213,7 +3223,7 @@ version: 1.4.849
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.849
+appVersion: 1.4.850
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

@@ -821,7 +821,10 @@ controllers:
       # loops the env-controller.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "895f961"
+      # 8c532a7 (2026-06-26, #4368 freshness sweep): 895f961 had drifted 223
+      # commits behind latest GHCR; the controller-image-tag-freshness gate
+      # (50-commit threshold) tripped on this PR's values.yaml touch.
+      tag: "8c532a7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -873,7 +876,10 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "895f961"
+      # 8c532a7 (2026-06-26, #4368 freshness sweep): 895f961 had drifted 223
+      # commits behind latest GHCR; the controller-image-tag-freshness gate
+      # (50-commit threshold) tripped on this PR's values.yaml touch.
+      tag: "8c532a7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -911,7 +917,10 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "895f961"
+      # 8c532a7 (2026-06-26, #4368 freshness sweep): 895f961 had drifted 223
+      # commits behind latest GHCR; the controller-image-tag-freshness gate
+      # (50-commit threshold) tripped on this PR's values.yaml touch.
+      tag: "8c532a7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1126,16 +1135,18 @@ services:
     nats:
       # In-cluster NATS JetStream Service URL.
       #
-      # G105 #2697 (2026-06-01): post-G92.2 #2687, bp-nats-jetstream's
-      # HR carries `placementSchema.vcluster: mgmt` so the chart lives
-      # INSIDE the mgmt vCluster (Service `nats-jetstream.nats-system`
-      # in vCluster apiserver). The bp-mgmt-vcluster syncer reflects
-      # it to the host as the syncer-mangled name
-      # `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222`.
-      # Pre-G92.2 default `nats-jetstream.nats-system.svc.cluster.local:4222`
-      # returned NXDOMAIN because the `nats-system` namespace no longer
-      # exists on the host k3s.
-      url: "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222"
+      # #4368 (2026-06-26): bp-nats-jetstream is now DE-VCLUSTERED. HISTORY:
+      # G105 #2697 once placed it INSIDE the mgmt vCluster, exposing it on the
+      # host under the syncer-mangled name
+      # `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc`. #4291/#4293
+      # (DE-VCLUSTER, placement.yaml:
+      # `bp-nats-jetstream → vcluster: host, target: host, namespace: nats-system`)
+      # reverted that — the control-plane event bus is a platform plane, not a
+      # tenant boundary, so it runs in the first-class host ns `nats-system`
+      # and serves at `nats-jetstream.nats-system.svc.cluster.local:4222` again.
+      # The mgmt-synced name now returns NXDOMAIN (no mgmt vCluster), so the
+      # SME services + catalyst-api/continuum must dial the host-ns name.
+      url: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:
