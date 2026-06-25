@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T11:30:03Z` |
+| Last refreshed | `2026-06-25T11:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 28 |
+| Open issues | 29 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 29 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 28 open items (clickable table)
+### All 29 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -228,6 +228,7 @@ flowchart LR
 | [#4341](https://github.com/openova-io/openova/issues/4341) | fix(bootstrap-kit): empty `dependsOn: null` in 5 slots wedges the WHOLE bootstra | Other |
 | [#4343](https://github.com/openova-io/openova/issues/4343) | fix(bootstrap-kit #4325 fallout): host-ns components missing resources.requests  | Other |
 | [#4344](https://github.com/openova-io/openova/issues/4344) | fix(bp-keycloak #4325 fallout): host-ns reinstall regenerates admin-password but | Other |
+| [#4347](https://github.com/openova-io/openova/issues/4347) | fix(bp-gitea): gitea-sso-configure Deployment lacks liveness/readiness probes � | Other |
 
 ---
 
@@ -235,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T11:32 | [#4346](https://github.com/openova-io/openova/pull/4346) | #4344 | fix(bp-keycloak #4344): stable admin-password across reinsta |
 | 2026-06-25T11:29 | [#4345](https://github.com/openova-io/openova/pull/4345) | #4325 | fix(planes): resources.requests for host-ns plane components |
 | 2026-06-25T10:41 | [#4342](https://github.com/openova-io/openova/pull/4342) | #4338 | fix(bootstrap-kit): drop orphaned `dependsOn: null` in 5 slo |
 | 2026-06-25T10:18 | [#4340](https://github.com/openova-io/openova/pull/4340) | #4292 | fix(catalyst): tier-aware org vclusterReadiness — host-tier  |
@@ -264,7 +266,6 @@ flowchart LR
 | 2026-06-25T07:22 | [#4310](https://github.com/openova-io/openova/pull/4310) | #4286 | fix(bp-catalyst): #4286 mechanism D — env-controller cross-n |
 | 2026-06-25T04:10 | [#4309](https://github.com/openova-io/openova/pull/4309) | #4273 | fix(marketplace): gate console redirect on per-Org host read |
 | 2026-06-25T04:10 | [#4308](https://github.com/openova-io/openova/pull/4308) | #4307 | fix(bp-stalwart-tenant): webmail 404 (wrong gateway) + HR in |
-| 2026-06-25T04:10 | [#4306](https://github.com/openova-io/openova/pull/4306) | #3914 | fix(bootstrap-ui): light up the Phase-1 bootstrap-kit timeli |
 
 ---
 
