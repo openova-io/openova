@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T07:30:03Z` |
+| Last refreshed | `2026-06-25T07:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 20 |
+| Open issues | 21 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 20 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 20 open items (clickable table)
+### All 21 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -220,6 +220,7 @@ flowchart LR
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4297](https://github.com/openova-io/openova/issues/4297) | Keystone: Org apps land on the HOST, not inside the Org vcluster — every tenan | Other |
 | [#4307](https://github.com/openova-io/openova/issues/4307) | bp-stalwart-tenant webmail 404 at mail.<pool> despite pod 1/1 Running + HR insta | Other |
+| [#4322](https://github.com/openova-io/openova/issues/4322) | bp-wordpress-tenant: fresh-Org HR Ready=False — oidc-config hook pg4wp fetch 4 | Other |
 
 ---
 
@@ -227,7 +228,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T07:42 | [#4323](https://github.com/openova-io/openova/pull/4323) | #4220 | fix(bp-wordpress-tenant): oidc-config hook fetches pg4wp fro |
+| 2026-06-25T07:34 | [#4321](https://github.com/openova-io/openova/pull/4321) | #4278 | fix(bp-newapi): DSN-placeholder Secret self-preserves SQL_DS |
+| 2026-06-25T07:34 | [#4320](https://github.com/openova-io/openova/pull/4320) | #4307 | fix(bp-stalwart-tenant): setup-Job declares resources.reques |
+| 2026-06-25T07:34 | [#4319](https://github.com/openova-io/openova/pull/4319) | #4272 | fix(bp-openclaw): kube-apiserver entity egress for the contr |
 | 2026-06-25T06:53 | [#4318](https://github.com/openova-io/openova/pull/4318) | #4279 | docs(uat): reconcile UAT.md to live omantel.biz — headline + |
+| 2026-06-25T07:34 | [#4317](https://github.com/openova-io/openova/pull/4317) | #4180 | fix(catalyst-api): declare bp-agenity HelmRepository in org- |
 | 2026-06-25T07:28 | [#4316](https://github.com/openova-io/openova/pull/4316) | #4293 | fix(vcluster-epic): resolve the #4293/#4297 adversarial-revi |
 | 2026-06-25T07:16 | [#4315](https://github.com/openova-io/openova/pull/4315) | #4276 | feat(catalyst+bp-agenity): per-Org openova-MCP Catalyst bear |
 | 2026-06-25T07:24 | [#4314](https://github.com/openova-io/openova/pull/4314) | #3969 | feat(#3969): wire placement model into reconcile path — targ |
@@ -252,11 +258,6 @@ flowchart LR
 | 2026-06-24T17:30 | [#4288](https://github.com/openova-io/openova/pull/4288) | #4284 | fix(bp-catalyst-platform): permanent root-cause for Flux→loc |
 | 2026-06-24T17:53 | [#4287](https://github.com/openova-io/openova/pull/4287) | #4281 | feat(console+catalog): HelmReleases Target Namespace column  |
 | 2026-06-24T09:30 | [#4271](https://github.com/openova-io/openova/pull/4271) | #4179 | docs(sessions): Goal-2 live browser evidence — funnel JWT +  |
-| 2026-06-24T09:40 | [#4270](https://github.com/openova-io/openova/pull/4270) | #898 | fix(org-provisioning): converge per-Org tertiary apps — imag |
-| 2026-06-24T09:01 | [#4269](https://github.com/openova-io/openova/pull/4269) | #3678 | fix(bp-self-sovereign-cutover): apply default-deny egress CC |
-| 2026-06-24T08:55 | [#4268](https://github.com/openova-io/openova/pull/4268) | #4252 | docs(uat): #3374 SSO-landing + #3376 funnel signed-in GREEN; |
-| 2026-06-24T08:33 | [#4267](https://github.com/openova-io/openova/pull/4267) | #4180 | docs(sessions): agenity #4180 workspaces /app dashboard — li |
-| 2026-06-24T08:34 | [#4266](https://github.com/openova-io/openova/pull/4266) | #4206 | fix(org-provisioning): self-heal corrupted JSON-envelope par |
 
 ---
 
