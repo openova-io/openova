@@ -2,7 +2,9 @@
 #4272: the Cilium Gateway path to the OpenClaw controller is DEAD without
 this CNP, AND the kubelet readiness/liveness probe is dropped by the K8s
 NetworkPolicy on a Sovereign, AND the controller's pod-reaper cannot reach
-the in-cluster Kubernetes API. Three facts drive this template:
+the in-cluster Kubernetes API, AND the /readyz JWKS fetch to the PUBLIC
+auth.<fqdn> host (the console-ELB EIP, hairpinned back through the Cilium
+Gateway) is egress-denied. Four facts drive this template:
 
   1. Cilium Gateway API traffic reaches the backend with the reserved
      `ingress` ENTITY identity (the Envoy proxy embedded in the cilium
@@ -36,20 +38,49 @@ the in-cluster Kubernetes API. Three facts drive this template:
      `toEntities: [kube-apiserver]` is the canonical expression — same
      idiom as platform/sso-bridge cilium-networkpolicy-apiserver.yaml.
 
-CiliumNetworkPolicy from/toEntities is the canonical, ADDITIVE expression:
-when both a K8s NetworkPolicy and a CNP select the same Pod the allow-sets
-UNION, so this only opens the gateway→controller + node→controller ingress
-hops and the controller→apiserver egress hop, and leaves every other
-default-deny posture intact.
+  4. The controller's /readyz `ensureKeys` fetches the OIDC issuer's JWKS at
+     the PUBLIC host (https://auth.<fqdn>/realms/<realm> on a per-Org-realm-
+     disabled Sovereign — the SAME issuer the console resolves, #4399). That
+     host DNS-resolves to the console-ELB EIP, so the fetch hairpins OUT to
+     the EIP and BACK IN through the in-cluster Cilium Gateway on :443. The
+     K8s NP (networkpolicy.yaml `allowPublicHttps`) already allows `ipBlock
+     0.0.0.0/0 :443` — BUT (the subtle trap, the TITULAR #4272 gap) the
+     moment THIS CNP attaches an `egress` block to the controller endpoint
+     (fact 3's apiserver hop), Cilium makes the endpoint's egress
+     CNP-enforced, and an `ipBlock 0.0.0.0/0` rule does NOT match the
+     reserved identities the hairpin carries (`world` for the external EIP,
+     `cluster`/`host`/`remote-node` for the gateway bounce — the
+     `policy-cidr-match-mode: ""` behaviour documented in
+     platform/external-dns/chart/templates/ciliumnetworkpolicy.yaml). So the
+     K8s NP's world-:443 egress is INERT for the hairpin once the CNP egress
+     block exists → JWKS egress-denied → /readyz 503 → controller 0/1 forever.
+     A `toEntities` :443 egress over the baseline-cilium-gateway allow-set
+     (world + cluster + host + remote-node) admits BOTH the genuine-external
+     resolution AND the in-cluster gateway hairpin. NOTE: #4300's commit
+     message claimed the K8s NP :443 egress fixed this — it did NOT once the
+     0.2.6 CNP egress block landed; THIS rule is the real fix.
+
+CiliumNetworkPolicy from/toEntities is the canonical expression for the
+reserved-identity hops (gateway ingress, apiserver/public-HTTPS egress) that
+NO K8s NetworkPolicy selector (podSelector / namespaceSelector / ipBlock) can
+express. CAVEAT (the fact-4 trap): a CNP egress block makes the selected
+endpoint's egress CNP-enforced, so once ANY egress rule lands here EVERY
+permitted egress hop (apiserver AND public-HTTPS) must be enumerated in the
+CNP — a K8s NP ipBlock rule no longer suffices for a reserved-identity dest.
+Ingress stays a true union; egress here is the authoritative reserved-identity
+allow-set for this endpoint.
 
 Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
 chart still installs on CRD-less clusters (kind CI), and on
 networkPolicy.ingress.allowGatewayEntity / networkPolicy.egress.
-allowApiserverEntity so a non-Cilium overlay can opt out of either half.
+allowApiserverEntity / networkPolicy.egress.allowPublicHttps so a non-Cilium
+overlay (or a fully in-cluster issuer overlay) can opt out of any half.
 */ -}}
 {{- $apiserverEgress := .Values.networkPolicy.egress.allowApiserverEntity }}
+{{- $publicHttpsEgress := .Values.networkPolicy.egress.allowPublicHttps }}
 {{- $gatewayIngress := .Values.networkPolicy.ingress.allowGatewayEntity }}
-{{- if and .Values.controller.enabled .Values.networkPolicy.enabled (or $gatewayIngress $apiserverEgress) (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- $anyEgress := or $apiserverEgress $publicHttpsEgress }}
+{{- if and .Values.controller.enabled .Values.networkPolicy.enabled (or $gatewayIngress $anyEgress) (.Capabilities.APIVersions.Has "cilium.io/v2") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -71,8 +102,9 @@ spec:
             - port: {{ .Values.controller.port | quote }}
               protocol: TCP
   {{- end }}
-  {{- if $apiserverEgress }}
+  {{- if $anyEgress }}
   egress:
+    {{- if $apiserverEgress }}
     # ── In-cluster Kubernetes API (the pod-reaper hop, #4272) ──────────────
     # The controller's reaper lists/creates/deletes per-user pods + reads
     # Secrets against the `kubernetes.default` ClusterIP (10.96.0.1:443).
@@ -89,5 +121,30 @@ spec:
             - port: {{ . | quote }}
               protocol: TCP
             {{- end }}
+    {{- end }}
+    {{- if $publicHttpsEgress }}
+    # ── Public-host HTTPS — the /readyz OIDC-JWKS hairpin (the TITULAR #4272 ──
+    # gap). The controller's OIDC issuer is the PUBLIC host
+    # (https://auth.<fqdn>/realms/<realm> on a per-Org-realm-disabled Sovereign
+    # — the SAME issuer the console resolves, #4399), which DNS-resolves to the
+    # console-ELB EIP. /readyz `ensureKeys` fetches that issuer's JWKS, so the
+    # request hairpins OUT to the EIP and BACK IN through the in-cluster Cilium
+    # Gateway on :443. The K8s NP already allows `ipBlock 0.0.0.0/0 :443`, but
+    # the moment THIS CNP attaches an egress block to the controller endpoint,
+    # Cilium makes the endpoint's egress CNP-enforced, and an `ipBlock
+    # 0.0.0.0/0` rule does NOT match the reserved identities the hairpin carries
+    # (`world` for the external EIP, `cluster`/`host`/`remote-node` for the
+    # gateway bounce — the `policy-cidr-match-mode: ""` behaviour documented in
+    # platform/external-dns/chart/templates/ciliumnetworkpolicy.yaml). Without
+    # this `toEntities` :443 carve-out the JWKS fetch is egress-denied → /readyz
+    # 503 → the controller never reaches Ready (0/1). The entity set mirrors the
+    # products/catalyst baseline-cilium-gateway allow-world CNP.
+    - toEntities:
+        {{- toYaml .Values.networkPolicy.egress.publicHttpsEntities | nindent 8 }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.networkPolicy.egress.publicHttpsPort | quote }}
+              protocol: TCP
+    {{- end }}
   {{- end }}
 {{- end }}
