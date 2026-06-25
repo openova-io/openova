@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T04:00:02Z` |
+| Last refreshed | `2026-06-25T04:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T04:10 | [#4309](https://github.com/openova-io/openova/pull/4309) | #4273 | fix(marketplace): gate console redirect on per-Org host read |
+| 2026-06-25T04:10 | [#4308](https://github.com/openova-io/openova/pull/4308) | #4307 | fix(bp-stalwart-tenant): webmail 404 (wrong gateway) + HR in |
+| 2026-06-25T04:10 | [#4306](https://github.com/openova-io/openova/pull/4306) | #3914 | fix(bootstrap-ui): light up the Phase-1 bootstrap-kit timeli |
+| 2026-06-25T04:10 | [#4305](https://github.com/openova-io/openova/pull/4305) | #4278 | fix(bp-newapi): admin-promote CronJob gets its own release-m |
+| 2026-06-25T04:10 | [#4302](https://github.com/openova-io/openova/pull/4302) | #4274 | fix(bss): wire /billing/orders + /billing/revenue to live bi |
+| 2026-06-25T04:10 | [#4301](https://github.com/openova-io/openova/pull/4301) | #4286 | feat(bp-kyverno-policies): Kyverno admission floor injects s |
+| 2026-06-25T04:10 | [#4300](https://github.com/openova-io/openova/pull/4300) | #4272 | fix(bp-openclaw): Cilium-Gateway NetworkPolicy + HTTPRoute s |
 | 2026-06-24T18:20 | [#4294](https://github.com/openova-io/openova/pull/4294) | #4279 | docs: consolidated gap-analysis + action backlog index for d |
 | 2026-06-24T17:48 | [#4289](https://github.com/openova-io/openova/pull/4289) | #4280 | fix(catalyst): owner keeps catalog name+light/dark logo edit |
 | 2026-06-24T17:30 | [#4288](https://github.com/openova-io/openova/pull/4288) | #4284 | fix(bp-catalyst-platform): permanent root-cause for Flux→loc |
@@ -254,13 +261,6 @@ flowchart LR
 | 2026-06-24T04:57 | [#4251](https://github.com/openova-io/openova/pull/4251) | #1 | fix(catalyst-api): register funnel-Org console hosts from th |
 | 2026-06-24T04:36 | [#4248](https://github.com/openova-io/openova/pull/4248) | #4246 | fix: per-Org HR disableWait passthrough (newapi DSN deadlock |
 | 2026-06-24T04:32 | [#4247](https://github.com/openova-io/openova/pull/4247) | #1 | docs(sessions): #4179 close-gate walk — SAN-match fix proven |
-| 2026-06-24T04:06 | [#4245](https://github.com/openova-io/openova/pull/4245) | #1 | fix(bp-catalyst-platform): bump chart 1.4.813->1.4.814 to de |
-| 2026-06-24T03:43 | [#4244](https://github.com/openova-io/openova/pull/4244) | #4155 | fix(bp-wordpress-tenant): oidc-config Job emptyDir + pg4wp s |
-| 2026-06-24T03:26 | [#4243](https://github.com/openova-io/openova/pull/4243) | #4110 | docs(sessions): demo org-user agentic-RBAC walk — org-scoped |
-| 2026-06-24T03:27 | [#4242](https://github.com/openova-io/openova/pull/4242) | #4179 | fix(org-controller): per-Org 2-label console TLS cert+listen |
-| 2026-06-24T03:12 | [#4240](https://github.com/openova-io/openova/pull/4240) | #4179 | fix(org-controller): write console.<slug>.<pool> pool-DNS A- |
-| 2026-06-24T02:56 | [#4238](https://github.com/openova-io/openova/pull/4238) | #4192 | docs(sessions): marketplace funnel walk — JWT in HttpOnly co |
-| 2026-06-24T02:24 | [#4237](https://github.com/openova-io/openova/pull/4237) | #4179 | docs(sessions): #4179 close-gate walk evidence — redirect ho |
 
 ---
 
