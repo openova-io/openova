@@ -161,10 +161,15 @@ topology:
     # affinity: local → primary region keeps reads local; the replica region
     # (zero local backends with cnpg-role=primary) falls through to remote.
     affinity: local
-  # ── NetworkPolicy carve-out (active-hot-standby only). The platform
-  # default-deny CCNP (bp-network-policies) covers shared-data; these knobs
-  # open the cross-region + own-cluster replication path + the CNPG operator
-  # status probe (the #3322 + hw126 carve-outs bp-cnpg-pair proved).
+  # ── NetworkPolicy carve-out. The platform default-deny CCNP
+  # (bp-network-policies) covers shared-data; these knobs open the
+  # cross-region + own-cluster replication path + the CNPG operator status
+  # probe (the #3322 + hw126 carve-outs bp-cnpg-pair proved). The operator
+  # status-probe rule is ALSO consulted for the SINGLETON path
+  # (networkpolicy-singleton-operator-probe.yaml) because #4398 routes a
+  # per-Org singleton Cluster host-side into a default-deny per-Org namespace
+  # where the cross-namespace cnpg-system operator probe would otherwise be
+  # denied (#4282).
   networkPolicy:
     enabled: true
     operatorNamespace: cnpg-system
