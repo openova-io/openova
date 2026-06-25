@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T21:45:02Z` |
+| Last refreshed | `2026-06-25T22:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 15 |
+| Open issues | 13 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 15 open items (clickable table)
+### All 13 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -210,11 +210,9 @@ flowchart LR
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4282](https://github.com/openova-io/openova/issues/4282) | bp-postgres multi-region (active-hot-standby) provision FAILS + per-Org PostgreS | Other |
 | [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
-| [#4291](https://github.com/openova-io/openova/issues/4291) | Workstream C — De-vcluster the platform planes (mgmt/rtz/dmz) → native host  | Other |
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4307](https://github.com/openova-io/openova/issues/4307) | bp-stalwart-tenant webmail 404 at mail.<pool> despite pod 1/1 Running + HR insta | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
-| [#4389](https://github.com/openova-io/openova/issues/4389) | fix(bp-catalyst-platform #4325 fallout): keycloakHostBridge.keycloakAddr still p | Other |
 
 ---
 
@@ -222,6 +220,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T21:51 | [#4397](https://github.com/openova-io/openova/pull/4397) | #4307 | fix(bp-openclaw,bp-stalwart-tenant): self-gen per-Org OIDC c |
 | 2026-06-25T21:11 | [#4396](https://github.com/openova-io/openova/pull/4396) | #4394 | fix(catalog-seed #4395): pin QoS-fixed funnel-Org charts (bp |
 | 2026-06-25T20:59 | [#4394](https://github.com/openova-io/openova/pull/4394) | #4307 | fix(bp-openclaw/bp-stalwart-tenant #4389/#4292): Guaranteed  |
 | 2026-06-25T20:59 | [#4393](https://github.com/openova-io/openova/pull/4393) | #4297 | fix(org-controller #4389/#4297): vcluster control-plane Guar |
@@ -251,7 +250,6 @@ flowchart LR
 | 2026-06-25T13:45 | [#4352](https://github.com/openova-io/openova/pull/4352) | #3971 | fix(bp-huawei-evs-csi): evs-ssd reclaimPolicy Retain -> Dele |
 | 2026-06-25T13:45 | [#4351](https://github.com/openova-io/openova/pull/4351) | #560 | fix(bp-kyverno-policies): exempt crossplane-system from harb |
 | 2026-06-25T13:04 | [#4348](https://github.com/openova-io/openova/pull/4348) | #4347 | fix(planes #4347): end the host-ns Kyverno whack-a-mole — pr |
-| 2026-06-25T11:32 | [#4346](https://github.com/openova-io/openova/pull/4346) | #4344 | fix(bp-keycloak #4344): stable admin-password across reinsta |
 
 ---
 
