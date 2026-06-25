@@ -63,6 +63,15 @@ spec:
           imagePullPolicy: {{ .Values.mailboxProvisioner.setupJob.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.stalwart.containerSecurityContext | nindent 12 }}
+          # #4307 — declare resources.requests so the Sovereign's Kyverno
+          # `resource-requests/requests-workload` policy admits this hook
+          # Job. Without it the policy DENIES the Job at creation, the
+          # post-install Helm hook fails, and the HR wedges
+          # InstallFailed/RetriesExceeded even with a healthy 1/1 Pod and
+          # disableWait=true. A short-lived curl/stalwart-cli bootstrap —
+          # minimal footprint, overridable per Inviolable Principle #4.
+          resources:
+            {{- toYaml .Values.mailboxProvisioner.setupJob.resources | nindent 12 }}
           env:
             {{- include "bp-stalwart-tenant.adminPasswordEnv" . | nindent 12 }}
             - name: OIDC_CLIENT_SECRET
