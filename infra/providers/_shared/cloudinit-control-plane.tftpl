@@ -196,18 +196,17 @@ write_files:
   # notification/organization/provisioning) → marketplace 503. Point the reflect
   # lists at the post-#3383 mesh namespace. Refs #3383.
   #
-  # #4246 (per-Org image-pull): per-Organization workload namespaces are created
-  # dynamically as `org-<uuid>` when an Organization is franchised — they CANNOT
-  # be enumerated statically here. Their HelmReleases run private
-  # `ghcr.io/openova-io/openova/*` runtime images (newapi-sandbox-bridge,
-  # services-metering-sidecar, openclaw-controller/-runtime, …) that need the
-  # `ghcr-pull` credential. Without a matching entry the reflector skips every
-  # `org-*` namespace → the private images fall back to an anonymous pull →
-  # `failed to fetch anonymous token … 401 Unauthorized` → ImagePullBackOff
-  # (bp-newapi + bp-openclaw never converge on the demo Org). The emberstack
-  # reflector treats each comma-separated entry as a REGULAR EXPRESSION
-  # (full-match), so `org-.*` auto-reflects `ghcr-pull` into every per-Org
-  # namespace the moment it is created. Refs #3383, #4246.
+  # #4246/#4328 (per-Org image-pull): per-Org workload namespaces are created
+  # dynamically and CANNOT be enumerated statically. Their HelmReleases run
+  # private `ghcr.io/openova-io/openova/*` images (newapi, wordpress-tenant-pg,
+  # openclaw, stalwart-tenant) needing `ghcr-pull`; an unmatched ns falls back to
+  # anonymous pull → `401 Unauthorized` → ImagePullBackOff. Reflector entries are
+  # full-match REGEXes. #4293/#4295 renamed the per-Org ns from `org-<uuid>` to
+  # the bare Organization SLUG (= subdomain, e.g. `tkt0626`; manifests.go
+  # `name: {{ .Slug }}`), which matched NEITHER the static list NOR `org-.*` →
+  # 401 on every fresh Org (live omantel.biz). The slug regex
+  # `[a-z][a-z0-9-]{2,30}` (the signup validator, handlers.go:28) reflects into
+  # every slug-named Org ns; `org-.*` retained for legacy. Refs #3383, #4246, #4293, #4328.
   - path: /var/lib/catalyst/ghcr-pull-secret.yaml
     permissions: '0600'
     content: |
@@ -218,9 +217,9 @@ write_files:
         namespace: flux-system
         annotations:
           reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi,huawei-evs-csi,org-.*"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi,huawei-evs-csi,org-.*,[a-z][a-z0-9-]{2,30}"
           reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi,huawei-evs-csi,org-.*"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi,huawei-evs-csi,org-.*,[a-z][a-z0-9-]{2,30}"
       type: kubernetes.io/dockerconfigjson
       data:
         .dockerconfigjson: ${base64encode(jsonencode({
