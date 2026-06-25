@@ -1,0 +1,52 @@
+# #4329 — Kyverno conformance test for the flux-managed (10) carve-out that
+# admits the per-Org vCluster CIDR-probe Service.
+#
+# Run with the Kyverno CLI:
+#   cd platform/kyverno-policies/chart
+#   # re-render the policy if the template/values changed:
+#   helm template . --set compliancePolicies.fluxManaged.action=Enforce \
+#     --show-only templates/baseline/10-flux-managed.yaml \
+#     | grep -v '^# Source:' | sed '/^---$/d' \
+#     > tests/vcluster-cidr-probe-admitted/policy.yaml
+#   kyverno test tests/vcluster-cidr-probe-admitted/
+#
+# `policy.yaml` is the rendered ClusterPolicy (committed so the test is
+# self-contained + CI-runnable without a Helm pass in the test step).
+#
+# THREE cases prove the fix (LIVE shape: omantel.biz/kom4dc, ALL 11/11 customer
+# vClusters CrashLoopBackOff 277×/23h because the probe Service was Enforce-denied):
+#   1. probe Service in the legacy `openova.io/tenant` boundary → ADMITTED (pass)
+#   2. probe Service in a label-less namespace               → ADMITTED (pass)
+#   3. REAL non-probe Service in the same boundary, no Flux label → DENIED (fail)
+#      (proves the carve-out is name-scoped, not a blanket namespace exemption)
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: vcluster-cidr-probe-admitted-test
+policies:
+  - policy.yaml
+resources:
+  - resource-namespaces.yaml
+  - resource-services.yaml
+results:
+  # 1. CIDR-probe Service in the legacy openova.io/tenant boundary → admitted.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - tenant-demo/test-service-delete-me-qwgml
+    kind: Service
+    result: pass
+  # 2. CIDR-probe Service in a namespace with NO Org-boundary label → admitted.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - app-prod/test-service-delete-me-qgxrt
+    kind: Service
+    result: pass
+  # 3. REAL non-probe Service, no Flux label, same legacy boundary → DENIED.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - tenant-demo/customer-api
+    kind: Service
+    result: fail

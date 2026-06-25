@@ -134,7 +134,11 @@ spec:
       # Scope GITEA ONLY (local-Harbor leg is the flagged follow-up); mechanism D
       # (env-controller cross-ns reflection) stacks behind the vcluster EPIC.
       # VERIFIED `kyverno test` 5/5. Refs #4286 #4285 #4283.
-      version: 1.0.40
+      # 1.0.41 (#4329): flux-managed (10) harden — admit the per-Org vCluster
+      # CIDR-probe Service (`test-service-delete-me-*`) by name pattern so a
+      # stale `openova.io/tenant`-labelled boundary no longer Enforce-denies it
+      # → no more 11/11 vcluster-0 CrashLoop. Refs #4329 #4297 #4293.
+      version: 1.0.41
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

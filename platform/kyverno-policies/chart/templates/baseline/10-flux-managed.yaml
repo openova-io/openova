@@ -121,6 +121,36 @@ spec:
                 matchExpressions:
                   - key: openova.io/organization
                     operator: Exists
+          {{- /*
+            #4329 (2026-06-25, proven live on omantel.biz/kom4dc — ALL 11/11
+            customer vClusters CrashLoopBackOff 277×/23h): the #3859 carve-out
+            above only matches namespaces stamped `openova.io/organization`.
+            The org-controller (post-#4295 single boundary producer) stamps
+            exactly that on its `<slug>` namespaces — but the retired pre-#4295
+            funnel `tenant-<slug>` boundary stamped `openova.io/tenant: <slug>`
+            + `openova.io/managed-by: provisioning` instead, so its vCluster
+            CIDR-probe Service is denied → the syncer's startup
+            `failed to get service cidr` is fatal → vcluster-0 CrashLoops
+            forever → the #4297 apps-in-vCluster keystone is unreachable.
+
+            Rather than chase every boundary-label convention (organization vs
+            tenant vs a not-yet-invented key), exclude the vCluster
+            CIDR-detection probe Service DIRECTLY. vCluster 0.33.x
+            (servicecidr/servicecidr.go) creates a throwaway Service named
+            `test-service-delete-me-<rand>` purely to read the apiserver's
+            ipFamily error, then deletes it — by design it can NEVER carry a
+            Flux label/ownerRef. Matching it by name pattern (cluster-wide, in
+            ANY namespace) admits ONLY that ephemeral probe while every real
+            customer/operator Service stays fully gated. Convention-resilient:
+            it survives any future drift in the Org-namespace label. Mirrors
+            the by-label CNPG operator carve-out above — carve out the
+            definitionally-unmanageable object, not the namespace.
+          */}}
+          - resources:
+              kinds:
+                - Service
+              names:
+                - "test-service-delete-me-*"
       validate:
         message: >-
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
