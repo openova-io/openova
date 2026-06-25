@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T07:00:02Z` |
+| Last refreshed | `2026-06-25T07:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -233,9 +233,11 @@ flowchart LR
 | 2026-06-25T04:10 | [#4308](https://github.com/openova-io/openova/pull/4308) | #4307 | fix(bp-stalwart-tenant): webmail 404 (wrong gateway) + HR in |
 | 2026-06-25T04:10 | [#4306](https://github.com/openova-io/openova/pull/4306) | #3914 | fix(bootstrap-ui): light up the Phase-1 bootstrap-kit timeli |
 | 2026-06-25T04:10 | [#4305](https://github.com/openova-io/openova/pull/4305) | #4278 | fix(bp-newapi): admin-promote CronJob gets its own release-m |
+| 2026-06-25T07:05 | [#4303](https://github.com/openova-io/openova/pull/4303) | #4277 | feat(catalyst): auto-seed the per-Org Anthropic credential a |
 | 2026-06-25T04:10 | [#4302](https://github.com/openova-io/openova/pull/4302) | #4274 | fix(bss): wire /billing/orders + /billing/revenue to live bi |
 | 2026-06-25T04:10 | [#4301](https://github.com/openova-io/openova/pull/4301) | #4286 | feat(bp-kyverno-policies): Kyverno admission floor injects s |
 | 2026-06-25T04:10 | [#4300](https://github.com/openova-io/openova/pull/4300) | #4272 | fix(bp-openclaw): Cilium-Gateway NetworkPolicy + HTTPRoute s |
+| 2026-06-25T07:09 | [#4299](https://github.com/openova-io/openova/pull/4299) | #4293 | fix(provisioning): wire per-Org apps INTO the Org vCluster,  |
 | 2026-06-25T06:40 | [#4298](https://github.com/openova-io/openova/pull/4298) | #4293 | feat(org-controller): enforce+cap the Org-vcluster boundary  |
 | 2026-06-25T06:38 | [#4295](https://github.com/openova-io/openova/pull/4295) | #4293 | fix(provisioning): collapse the Organization-provisioning do |
 | 2026-06-24T18:20 | [#4294](https://github.com/openova-io/openova/pull/4294) | #4279 | docs: consolidated gap-analysis + action backlog index for d |
@@ -256,8 +258,6 @@ flowchart LR
 | 2026-06-24T08:01 | [#4259](https://github.com/openova-io/openova/pull/4259) | #4180 | fix(bp-agenity): /app serves the workspaces (v0.9.4) dashboa |
 | 2026-06-24T07:45 | [#4258](https://github.com/openova-io/openova/pull/4258) | #4254 | fix(bp-continuum): bump 0.1.8->0.1.9 to force Flux re-pull o |
 | 2026-06-24T07:29 | [#4256](https://github.com/openova-io/openova/pull/4256) | #4179 | fix(pool-domain): default managed-domains to the full offere |
-| 2026-06-24T06:41 | [#4254](https://github.com/openova-io/openova/pull/4254) | #4242 | fix(continuum): k8s-lease witness + region fallback → health |
-| 2026-06-24T05:36 | [#4252](https://github.com/openova-io/openova/pull/4252) | #4250 | fix(org-provisioning): transient parent-index read no longer |
 
 ---
 
