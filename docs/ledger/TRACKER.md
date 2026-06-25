@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T22:45:01Z` |
+| Last refreshed | `2026-06-25T23:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T22:50 | [#4400](https://github.com/openova-io/openova/pull/4400) | #4307 | fix(bp-stalwart-tenant): bundle SnappyMail webmail SPA so ma |
+| 2026-06-25T22:47 | [#4399](https://github.com/openova-io/openova/pull/4399) | #4272 | fix(provisioning,bp-openclaw): resolvable shared-realm OIDC  |
 | 2026-06-25T22:15 | [#4398](https://github.com/openova-io/openova/pull/4398) | #4282 | fix(application-controller): route per-Org CNPG Blueprint Cl |
 | 2026-06-25T21:51 | [#4397](https://github.com/openova-io/openova/pull/4397) | #4307 | fix(bp-openclaw,bp-stalwart-tenant): self-gen per-Org OIDC c |
 | 2026-06-25T21:11 | [#4396](https://github.com/openova-io/openova/pull/4396) | #4394 | fix(catalog-seed #4395): pin QoS-fixed funnel-Org charts (bp |
@@ -248,8 +250,6 @@ flowchart LR
 | 2026-06-25T15:09 | [#4358](https://github.com/openova-io/openova/pull/4358) | #4356 | fix(bp-huawei-evs-csi): reclaim-reconcile hook Job carries m |
 | 2026-06-25T14:58 | [#4357](https://github.com/openova-io/openova/pull/4357) | #4340 | fix(bp-catalyst-platform): gitea repo-bootstrap hooks self-h |
 | 2026-06-25T14:42 | [#4356](https://github.com/openova-io/openova/pull/4356) | #4352 | fix(bp-huawei-evs-csi): pre-upgrade hook delete+recreate evs |
-| 2026-06-25T13:45 | [#4352](https://github.com/openova-io/openova/pull/4352) | #3971 | fix(bp-huawei-evs-csi): evs-ssd reclaimPolicy Retain -> Dele |
-| 2026-06-25T13:45 | [#4351](https://github.com/openova-io/openova/pull/4351) | #560 | fix(bp-kyverno-policies): exempt crossplane-system from harb |
 
 ---
 
