@@ -559,6 +559,15 @@ spec:
       # every cutover Job's dial timed out and the cutover wedged at step-01 (gitea-mirror)
       # on hw165. Purely additive (Cilium unions policies) — opens the path without editing
       # bp-mgmt-vcluster. mgmtIsolationCarveOut.{enabled,mgmtNamespace} (default enabled,mgmt).
+      # 0.1.80 (#4325 de-vcluster, Refs #3379 #4291 #4293): the platform planes are no
+      # longer vClusters — gitea/harbor/openbao are native HOST namespaces, each behind a
+      # per-component bp-plane-isolation default-deny CNP (slot 26b) whose allow-list still
+      # OMITS `catalyst`. The single `catalyst -> mgmt` carve-out went INERT (mgmt ns gone)
+      # → the SAME step-01/02/03/09 wedge regressed, now owned by bp-plane-isolation. The
+      # carve-out now emits one additive allow-ingress NetworkPolicy per plane ns it dials
+      # (mgmtIsolationCarveOut.targetNamespaces, default [gitea,harbor,openbao]). Step-10's
+      # bp-{mgmt,rtz,dmz}-vcluster HR pivots + slot 54/58/59 git-edits are skip-if-absent so
+      # the retired plane HRs/slots no-op cleanly (no false residual-tether FATAL).
       # 0.1.77 (#3944, Refs #3379 #3642 #3927): step-03 harbor-prewarm's skopeo
       # copies (Phase A images + Phase A2 charts) gain `--command-timeout`
       # (prewarm.skopeoCommandTimeout, default 1200s) so a silently-stalled
@@ -574,7 +583,11 @@ spec:
       # 0.1.79 (#3379, omantel.biz 2026-06-24): step-08 egress-block now APPLIES
       # the default-deny CCNP under the shipped defaultDenyEgress:true (the apply
       # was stranded in the legacy else-branch → assertion-only hold).
-      version: 0.1.79
+      # 0.1.80 (#4325 de-vcluster fallout, Refs #3379 #4291 #4293): plane-isolation
+      # carve-out emits per-plane-ns allow-ingress NetworkPolicies (gitea/harbor/
+      # openbao) instead of one dead `catalyst -> mgmt` policy — unwedges step-01/
+      # 02/03/09 on a de-vclustered Sovereign whose planes are host namespaces.
+      version: 0.1.80
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -59,44 +59,54 @@ sovereign:
   #    token still carried a mothership `iss`.
   consolePublicURL: "https://console.example.local"
 
-# ── mgmt-vCluster isolation carve-out for the cutover Job namespace ────
-# (#3821, Refs #3379 #3642)
+# ── plane-isolation carve-out for the cutover Job namespace ───────────
+# (#3821 mgmt-era, Refs #3379 #3642; #4325 de-vcluster update, Refs #4291 #4293)
 #
 # The cutover step Jobs are stamped by catalyst-api into THIS chart's
 # release namespace (`.Release.Namespace`, the `catalyst` ns). Several
-# steps must reach apps that the #3642 host->mgmt move re-homed INSIDE
-# the mgmt vCluster and surfaced to the host as ExternalName/headless
-# Services in the `mgmt` host namespace:
-#   - step 01 (gitea-mirror)        -> gitea-http.gitea.svc  (-> mgmt)
-#   - step 02/03 (harbor-projects/prewarm) -> harbor-core.harbor.svc (-> mgmt)
-#   - step 09 (gitea-token-mint)    -> gitea-http.gitea.svc  (-> mgmt)
+# steps must reach the platform-plane apps gitea / harbor / openbao:
+#   - step 01 (gitea-mirror)               -> gitea-http.gitea.svc
+#   - step 02/03 (harbor-projects/prewarm) -> harbor-core.harbor.svc
+#   - step 09 (gitea-token-mint)           -> gitea-http.gitea.svc
 #
-# bp-mgmt-vcluster ships a default-deny-ingress NetworkPolicy
-# (`mgmt-vcluster-bp-mgmt-vcluster-isolation`, podSelector {}) whose
-# allow-list (`mgmtVcluster.networkPolicy.allowedIngressNamespaces`)
-# enumerates the host->mgmt consumer namespaces — it includes
-# `catalyst-system` but NOT `catalyst`. So every cutover Job's dial into
-# the mgmt vCluster pod network silently TIMES OUT (proven live on hw165:
-# from `catalyst` the gitea pod IP times out, from `catalyst-system` it
-# returns 403 i.e. datapath open). The cutover wedges at step 01/11 with
+# Post-#4325 the platform planes are first-class HOST namespaces
+# (gitea / harbor / openbao), each carrying a per-component default-deny
+# CiliumNetworkPolicy from bp-plane-isolation (slot 26b). Those allow-lists
+# admit `catalyst-system`, `flux-system`, `cnpg-system`,
+# `external-secrets-system` — but NOT `catalyst`. So every cutover Job's
+# dial from the `catalyst` ns into a plane namespace is dropped at the
+# Cilium policy verdict and the cutover wedges at step 01/02/03/09 with
 # `watch Job catalyst/cutover-gitea-mirror-...: context deadline exceeded`.
+# (Pre-#4325 the same wedge had a different owner — bp-mgmt-vcluster's
+# `-isolation` NetworkPolicy on the single `mgmt` mirror namespace, #3821.)
 #
-# This chart-owned NetworkPolicy is PURELY ADDITIVE (Cilium unions every
-# NetworkPolicy + CiliumNetworkPolicy selecting an endpoint — same
+# These chart-owned NetworkPolicies are PURELY ADDITIVE (Cilium unions
+# every NetworkPolicy + CiliumNetworkPolicy selecting an endpoint — same
 # additive idiom bp-mgmt-vcluster #3817 uses for its gateway-ingress CNP)
-# so it opens `catalyst -> mgmt` ingress WITHOUT editing bp-mgmt-vcluster
-# (owned separately). The canonical complement is to also add `catalyst`
-# to `mgmtVcluster.networkPolicy.allowedIngressNamespaces` (#3820 family);
-# carrying the carve-out here makes the cutover self-contained regardless.
+# so they open `catalyst -> <plane>` ingress WITHOUT editing
+# bp-plane-isolation / bp-mgmt-vcluster (owned separately). The canonical
+# complement is to add `catalyst` to each plane's bp-plane-isolation
+# allowIngressFrom; carrying the carve-out here makes the cutover
+# self-contained regardless of who owns the plane policy.
 #
-# Disable on a Sovereign whose gitea/harbor are NOT inside the mgmt
-# vCluster (e.g. a pre-#3642 topology) by setting enabled: false.
+# Disable on a Sovereign with NO plane-isolation NetworkPolicies by setting
+# enabled: false.
 mgmtIsolationCarveOut:
   enabled: true
-  # Host namespace that hosts the mgmt vCluster's synced Service mirrors
-  # (gitea-http-x-…/harbor-core-x-…/openbao-x-… live here behind the
-  # isolation netpol). Matches bp-mgmt-vcluster's hostNamespace.
-  mgmtNamespace: mgmt
+  # Plane host namespaces the cutover Jobs dial. Post-#4325 the planes are
+  # native host namespaces; gitea/harbor/openbao are the apps steps
+  # 01/02/03/09 reach. A pre-#4325 (mgmt-vCluster) Sovereign overrides this
+  # to `[mgmt]` (the single ExternalName-mirror namespace) — or just sets
+  # the legacy `mgmtNamespace` below, which is folded into this set.
+  targetNamespaces:
+    - gitea
+    - harbor
+    - openbao
+  # Legacy single mgmt host namespace (pre-#4325 topology). Empty by default
+  # post-de-vcluster (mgmt is no longer a namespace). When non-empty it is
+  # ADDED to targetNamespaces, so an operator overlay that only flips this
+  # value still opens the path. Backward-compatible with #3821 overlays.
+  mgmtNamespace: ""
 
 # Upstream openova-io read-only public clone — the source for cutover
 # step 01. Step-1 calls Gitea's /repos/migrate API with mirror=true so

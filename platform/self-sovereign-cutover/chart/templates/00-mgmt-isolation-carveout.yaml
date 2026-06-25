@@ -1,45 +1,79 @@
 {{- /*
-mgmt-vCluster isolation carve-out for the cutover Job namespace.
-#3821 (Refs #3379 #3642).
+Plane-isolation carve-out for the cutover Job namespace.
+#3821 (mgmt-vCluster era) → #4325 de-vcluster update (Refs #3379 #3642 #4291 #4293).
 
-The cutover step Jobs run in THIS chart's release namespace (the
-`catalyst` ns). After the #3642 host->mgmt move, gitea / harbor /
-openbao live INSIDE the mgmt vCluster and are surfaced to the host as
-ExternalName/headless Services in the `mgmt` host namespace, behind
-bp-mgmt-vcluster's default-deny `-isolation` NetworkPolicy. That
-policy's namespace allow-list includes `catalyst-system` but NOT
-`catalyst`, so the cutover Jobs' dials into the mgmt vCluster pod
-network silently time out and the cutover wedges at step 01
-(gitea-mirror) / 02-03 (harbor) / 09 (gitea-token-mint).
+The cutover step Jobs run in THIS chart's release namespace (the `catalyst`
+ns — slot 06a `targetNamespace: catalyst`). Several steps must dial the
+platform-plane apps gitea / harbor / openbao directly:
+  - step 01 (gitea-mirror)               -> gitea-http.gitea.svc
+  - step 02/03 (harbor-projects/prewarm) -> harbor-core.harbor.svc
+  - step 09 (gitea-token-mint)           -> gitea-http.gitea.svc
 
-NetworkPolicies are ADDITIVE under Cilium (every NetworkPolicy +
-CiliumNetworkPolicy selecting an endpoint is unioned), so this
-chart-owned policy opens `<release-namespace> -> mgmt` ingress WITHOUT
-editing bp-mgmt-vcluster (owned separately; the canonical complement is
-to add `catalyst` to mgmtVcluster.networkPolicy.allowedIngressNamespaces
-too — #3820 family). The cutover Job traffic is a real Pod with a real
-namespace label, so a vanilla k8s NetworkPolicy namespaceSelector
-matches it (no reserved-identity CNP needed, unlike the gateway/envoy
-datapath of #3817).
+History — two topologies this carve-out must serve:
 
-No cutover-step labels here (app.kubernetes.io/component / cutover-order
-/ cutover-mode) so catalyst-api's step discovery + the contract test's
-exact-step-count assertion are unaffected. The `00-` filename prefix
-sorts this network primitive ahead of the step ConfigMaps.
+  (A) PRE-#4325 (mgmt-vCluster era, #3642/#3821): gitea/harbor/openbao ran
+      INSIDE the mgmt vCluster, surfaced to the host as ExternalName/headless
+      Services in the `mgmt` host namespace behind bp-mgmt-vcluster's
+      default-deny `-isolation` NetworkPolicy. That policy's allow-list
+      (`mgmtVcluster.networkPolicy.allowedIngressNamespaces`) included
+      `catalyst-system` but NOT `catalyst` → cutover Jobs in `catalyst` timed
+      out → wedge at step 01/02/03/09.
+
+  (B) POST-#4325 (de-vcluster, current default): the platform planes are
+      first-class HOST namespaces (gitea / harbor / openbao), each carrying a
+      per-component default-deny CiliumNetworkPolicy from bp-plane-isolation
+      (slot 26b). Those per-component allow-lists admit `catalyst-system`,
+      `flux-system`, `cnpg-system`, `external-secrets-system` — but NOT
+      `catalyst`. The dead `mgmt` namespace from era (A) no longer exists, so a
+      single `catalyst -> mgmt` policy is now INERT (it selects pods in an
+      absent / empty namespace) AND the cutover Jobs in `catalyst` are silently
+      blocked from gitea/harbor/openbao → the SAME step-01/02/03/09 wedge as (A),
+      now caused by bp-plane-isolation instead of bp-mgmt-vcluster.
+
+THE FIX (chart-only): emit ONE additive allow-ingress NetworkPolicy PER target
+plane namespace the cutover Jobs dial, opening `<release-namespace> -> <plane>`
+ingress. NetworkPolicies are ADDITIVE under Cilium (every NetworkPolicy +
+CiliumNetworkPolicy selecting an endpoint is unioned), so this opens the path
+WITHOUT editing bp-plane-isolation / bp-mgmt-vcluster (owned separately). The
+cutover Job traffic is a real Pod with a real namespace label, so a vanilla k8s
+NetworkPolicy namespaceSelector matches it (no reserved-identity CNP needed —
+that is only required on the gateway/envoy datapath of #3817/#2940, not for
+pod-to-pod inside the cluster).
+
+`targetNamespaces` defaults to the de-vcluster host plane namespaces
+(gitea/harbor/openbao). A pre-#4325 Sovereign overrides it to `[mgmt]` (the
+single ExternalName mirror namespace). The legacy `mgmtNamespace` value is kept
+for backward compatibility: when set, it is folded into the target set so an
+operator overlay that only flips `mgmtNamespace` still works. A namespace that
+does not exist makes its NetworkPolicy a benign no-op (it selects nothing).
+
+No cutover-step labels here (app.kubernetes.io/component / cutover-order /
+cutover-mode) so catalyst-api's step discovery + the contract test's
+exact-step-count assertion are unaffected. The `00-` filename prefix sorts these
+network primitives ahead of the step ConfigMaps.
 */ -}}
 {{- if .Values.mgmtIsolationCarveOut.enabled }}
+{{- $targets := .Values.mgmtIsolationCarveOut.targetNamespaces | default (list) }}
+{{- /* Backward compat: fold the legacy single mgmtNamespace into the set if present and not already listed. */ -}}
+{{- if .Values.mgmtIsolationCarveOut.mgmtNamespace }}
+{{- if not (has .Values.mgmtIsolationCarveOut.mgmtNamespace $targets) }}
+{{- $targets = append $targets .Values.mgmtIsolationCarveOut.mgmtNamespace }}
+{{- end }}
+{{- end }}
+{{- range $ns := $targets }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "bp-self-sovereign-cutover.name" . }}-allow-cutover-to-mgmt
-  namespace: {{ .Values.mgmtIsolationCarveOut.mgmtNamespace | quote }}
+  name: {{ include "bp-self-sovereign-cutover.name" $ }}-allow-cutover-to-{{ $ns }}
+  namespace: {{ $ns | quote }}
   labels:
-    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    {{- include "bp-self-sovereign-cutover.labels" $ | nindent 4 }}
 spec:
-  # podSelector {} = all pods in the mgmt host namespace (the same scope
-  # bp-mgmt-vcluster's -isolation policy selects). This policy ONLY adds
-  # an ingress allow; it declares no Egress policyType, so it never
-  # constrains mgmt egress.
+  # podSelector {} = all pods in the plane namespace (the same scope the
+  # plane's own default-deny policy selects). This policy ONLY adds an
+  # ingress allow; it declares no Egress policyType, so it never constrains
+  # plane egress.
   podSelector: {}
   policyTypes:
     - Ingress
@@ -51,5 +85,6 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+              kubernetes.io/metadata.name: {{ $.Release.Namespace | quote }}
+{{- end }}
 {{- end }}

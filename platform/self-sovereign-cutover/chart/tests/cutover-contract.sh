@@ -910,4 +910,46 @@ if ! grep -q 'openova_images=$(printf' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-03 Phase A unions running-Pod + declared Deployment/StatefulSet/DaemonSet/CronJob/Job image templates — complete on any vCluster sync mode)"
 
+echo "[cutover-contract] Case 29: plane-isolation carve-out opens catalyst -> {gitea,harbor,openbao} host namespaces, NOT a dead catalyst -> mgmt (#4325 de-vcluster fallout, Refs #3379 #4291 #4293)"
+# After #4325 the platform planes are native HOST namespaces (gitea/harbor/
+# openbao), each behind a per-component bp-plane-isolation default-deny CNP that
+# admits catalyst-system/flux-system but NOT `catalyst` (the cutover Job ns). The
+# pre-#4325 carve-out only opened `catalyst -> mgmt`; mgmt no longer exists, so
+# that policy went INERT and the cutover wedges at step-01/02/03/09 reaching
+# gitea-http.gitea.svc / harbor-core.harbor.svc. The default render MUST emit one
+# additive allow-ingress NetworkPolicy per plane ns the cutover Jobs dial.
+for plane_ns in gitea harbor openbao; do
+  if ! grep -q "name: bp-self-sovereign-cutover-allow-cutover-to-${plane_ns}$" "$TMP/render.yaml"; then
+    echo "FAIL: default render is missing the plane-isolation carve-out NetworkPolicy for the '${plane_ns}' host namespace — the cutover Jobs in 'catalyst' cannot reach it post-de-vcluster (#4325)" >&2
+    exit 1
+  fi
+  # …and the policy MUST land IN the plane namespace (not catalyst).
+  if ! grep -A1 "name: bp-self-sovereign-cutover-allow-cutover-to-${plane_ns}$" "$TMP/render.yaml" | grep -q "namespace: \"${plane_ns}\""; then
+    echo "FAIL: the '${plane_ns}' carve-out NetworkPolicy is not emitted into the '${plane_ns}' namespace (#4325)" >&2
+    exit 1
+  fi
+done
+# The carve-out MUST allow ingress FROM the cutover Job namespace (the chart
+# release namespace — `catalyst` via slot-06a `targetNamespace: catalyst`). The
+# release namespace at smoke-render is `default`, so assert the namespaceSelector
+# matches kubernetes.io/metadata.name of the release namespace.
+if ! grep -A30 "name: bp-self-sovereign-cutover-allow-cutover-to-gitea$" "$TMP/render.yaml" | grep -q "kubernetes.io/metadata.name:"; then
+  echo "FAIL: the gitea carve-out NetworkPolicy does not allow ingress from the cutover release namespace via a kubernetes.io/metadata.name namespaceSelector (#4325)" >&2
+  exit 1
+fi
+# The default render MUST NOT emit a dead `catalyst -> mgmt` policy (mgmtNamespace
+# defaults empty post-de-vcluster). A legacy overlay that sets mgmtNamespace=mgmt
+# still gets it (backward compat), proven separately below.
+if grep -q "name: bp-self-sovereign-cutover-allow-cutover-to-mgmt$" "$TMP/render.yaml"; then
+  echo "FAIL: the default render still emits the dead 'catalyst -> mgmt' carve-out — mgmtNamespace must default empty post-de-vcluster (#4325)" >&2
+  exit 1
+fi
+# Backward compat: a pre-#4325 overlay (mgmtNamespace=mgmt) still opens the mgmt path.
+helm template smoke-legacy . --set 'mgmtIsolationCarveOut.targetNamespaces=null' --set 'mgmtIsolationCarveOut.mgmtNamespace=mgmt' > "$TMP/render-legacy.yaml"
+if ! grep -q "name: bp-self-sovereign-cutover-allow-cutover-to-mgmt$" "$TMP/render-legacy.yaml"; then
+  echo "FAIL: legacy mgmtNamespace=mgmt overlay no longer opens the 'catalyst -> mgmt' path — backward compat broken (#3821)" >&2
+  exit 1
+fi
+echo "  PASS (carve-out opens catalyst -> {gitea,harbor,openbao} host namespaces by default; legacy mgmtNamespace=mgmt still works; no dead mgmt policy by default)"
+
 echo "[cutover-contract] All gates green."
