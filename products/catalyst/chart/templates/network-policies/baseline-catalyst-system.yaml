@@ -73,26 +73,24 @@ unconditionally on every Sovereign and protects catalyst-system even
 when qaFixtures is disabled.
 */}}
 {{- if .Values.security.baselineCnp.enabled }}
-{{- /* #2745: "mgmt" added — loki/mimir/tempo re-homed INSIDE the mgmt
-     vCluster; their synced host-side endpoints (the Pods backing
-     <svc>-x-<ns>-x-mgmt-vcluster Services) live in host ns `mgmt`.
-     The plain loki/mimir/tempo entries stay for Sovereigns that keep
-     the host-side placement via per-Sovereign overlay. */}}
+{{- /* #2745 → #4325: loki/mimir/tempo are host-native in their OWN namespaces
+     (placement.yaml slots 22/23/24 → vcluster: host) and already listed below.
+     The #4325 de-vcluster removed the mgmt plane vCluster + its `mgmt` host ns,
+     so the stale `mgmt` egress entry is dropped. */}}
 {{- /* #3859: ns `sme` → `org-services` (#3383). org-services hosts the
      BSS/funnel control-plane Deployments. #3985: the legacy `sme` entry
      was removed — fresh provs allow only `org-services`. */}}
-{{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "org-services" "newapi" "mgmt") }}
-{{- /* #3934 (Refs #3642): "mgmt" added to the INGRESS allow-list. The #3642
-     host-bridge promotes guacamole INTO the mgmt vCluster — its webapp Pod
-     now runs in host ns `mgmt` (synced `guacamole-server-x-catalyst-system-x-
-     mgmt-vcluster`) while its CNPG DB `guacamole-pg` stays host-rendered in
-     `catalyst-system`. With `mgmt` absent here this baseline default-deny
-     dropped the webapp→guacamole-pg:5432 connection → the postgresql auth
-     provider halted → /guacamole/api/session 403, blank page (caught live
-     hw171 2026-06-19). gitea-pg / harbor-pg sit in their OWN host namespaces
-     (gitea/harbor), already in $allowedPlatform's EGRESS list, so this single
-     INGRESS add covers the only DB that re-homed to catalyst-system. */}}
-{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system" "oidc-gate" "mgmt") }}
+{{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "org-services" "newapi") }}
+{{- /* #3934 → #4325: the #4325 de-vcluster re-homed bp-guacamole to its OWN
+     host namespace `guacamole` (placement.yaml slot 52 → vcluster: host,
+     namespace: guacamole); the mgmt plane vCluster (where #3642 had promoted
+     the guacamole webapp Pod as `guacamole-server-x-catalyst-system-x-mgmt-
+     vcluster`) is gone. The guacamole webapp still needs INGRESS to its CNPG
+     DB `guacamole-pg` host-rendered in `catalyst-system`, so the allow-list
+     entry tracks the new home: `mgmt` → `guacamole`. Without it this baseline
+     default-deny drops webapp→guacamole-pg:5432 → /guacamole/api/session 403,
+     blank page (the live hw171 2026-06-19 shape). */}}
+{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system" "oidc-gate" "guacamole") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:

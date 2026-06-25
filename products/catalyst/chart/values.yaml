@@ -394,9 +394,10 @@ poolPowerdnsBridge:
 # provisioning-github-token.yaml / valkey-cross-ns-secret.yaml.
 giteaAdminBridge:
   # Master gate. When false the bridge template renders nothing — set
-  # false on Catalyst-Zero (contabo, no vCluster, gitea-admin-secret is
-  # hand-rolled) or any topology where bp-gitea stays host-side. On a
-  # franchised Sovereign (gitea in vc-mgmt) leave true.
+  # false on any topology where the host already carries a plain
+  # `gitea/gitea-admin-secret` directly (the post-#4325 default). Left true
+  # for back-compat; with source == dest the bridge is an idempotent self-
+  # copy (the Helm lookup short-circuits when the source is absent).
   enabled: true
   # The host namespace the bridge writes the PLAIN gitea-admin-secret into
   # — MUST be where the mint hook's RBAC (catalyst-gitea-admin-reader Role)
@@ -404,17 +405,15 @@ giteaAdminBridge:
   destNamespace: gitea
   # The plain Secret name the mint hook + the pre-#3642 contract expect.
   destSecretName: gitea-admin-secret
-  # ── Source: the vCluster-syncer-mirrored mangled host secret ──────────
-  # The syncer writes the in-vCluster `gitea/gitea-admin-secret` to the
-  # host as `<name>-x-<inner-ns>-x-<vcluster-release>` in the syncer host
-  # namespace. For the MGMT vCluster (bp-mgmt-vcluster HR releaseName
-  # `mgmt-vcluster`, hostNamespace `mgmt`, inner ns `gitea`) that resolves
-  # to `mgmt/gitea-admin-secret-x-gitea-x-mgmt-vcluster`. Reading the
-  # syncer ORIGIN (ns `mgmt`) — not the reflector copy (ns `catalyst`) —
-  # makes the bridge independent of the gitea chart's reflector
-  # allow-namespaces config.
-  sourceNamespace: mgmt
-  sourceSecretName: gitea-admin-secret-x-gitea-x-mgmt-vcluster
+  # ── Source ─────────────────────────────────────────────────────────────
+  # #4325 de-vcluster re-homed bp-gitea to the native HOST namespace `gitea`
+  # (placement.yaml slot 10 → vcluster: host); the mgmt plane vCluster + its
+  # syncer-mangled `gitea-admin-secret-x-gitea-x-mgmt-vcluster` in ns `mgmt`
+  # are gone. bp-gitea now publishes the plain `gitea/gitea-admin-secret`
+  # directly, so the bridge sources from there (the token-mint render gate is
+  # satisfied by the host-native secret; this self-copy is a no-op safety net).
+  sourceNamespace: gitea
+  sourceSecretName: gitea-admin-secret
 
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
@@ -2393,10 +2392,12 @@ qaFixtures:
   # qa-omantel namespace so cluster-primary's spec.backup resolves.
   # Override these for off-cluster S3 (R2 / B2 / native AWS).
   cnpgBackupBucket: qa-fixtures
-  # #3373 Batch A (2026-06-14): bp-seaweedfs moved INSIDE the rtz vCluster →
-  # the host-synced S3 Service carries the syncer-mangled name below (qa-fixtures
-  # only; override for off-cluster S3).
-  cnpgBackupEndpointURL: http://seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333
+  # #4325 de-vcluster re-homed bp-seaweedfs to the native HOST namespace
+  # `seaweedfs` (placement.yaml slot 18 → vcluster: host, namespace: seaweedfs);
+  # the rtz plane vCluster + its syncer-mangled
+  # `seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc` are gone. The S3 Service
+  # is the plain host-ns name (qa-fixtures only; override for off-cluster S3).
+  cnpgBackupEndpointURL: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
   cnpgBackupS3SecretName: qa-cnpg-backup-s3
   cnpgBackupSourceSecretNamespace: seaweedfs
   cnpgBackupSourceSecretName: seaweedfs-s3-secret
@@ -2468,17 +2469,14 @@ security:
       - openbao
       - harbor
       - nats-system
-      # #2745 (2026-06-12): loki/mimir/tempo run INSIDE the mgmt
-      # vCluster; their host-side synced Service endpoints
-      # (<svc>-x-<ns>-x-mgmt-vcluster) are Pods in host ns `mgmt` —
-      # the `mgmt` entry below carries that traffic (e.g. the
-      # CATALYST_MIMIR_URL query-frontend). The plain loki/mimir/tempo
-      # entries stay for Sovereigns that keep host-side placement via
-      # per-Sovereign overlay.
+      # #2745 → #4325: loki/mimir/tempo are host-native in their OWN
+      # namespaces (placement.yaml slots 22/23/24 → vcluster: host); the
+      # CATALYST_MIMIR_URL query-frontend dial now targets `mimir`. The
+      # #4325 de-vcluster removed the mgmt plane vCluster + its `mgmt` host
+      # ns, so the stale `mgmt` egress entry is dropped.
       - loki
       - mimir
       - tempo
-      - mgmt
       - alloy
       - opentelemetry
       - external-secrets-system
@@ -2517,22 +2515,23 @@ security:
     #     proxied request — oidc-gate authenticates the User but the
     #     app 502s on upstream timeout (hw133 #813, fresh prov
     #     2026-06-14; same isolation class as the sme→NATS #3423 block).
-    #   - mgmt (#3934 / Refs #3642) — the #3642 host-bridge promotes
-    #     guacamole INTO the mgmt vCluster: its webapp Pod runs in host ns
-    #     `mgmt` (synced `guacamole-server-x-catalyst-system-x-mgmt-vcluster`)
-    #     while its CNPG DB `guacamole-pg` stays host-rendered in
-    #     catalyst-system. Without `mgmt` here the baseline default-deny
-    #     dropped webapp→guacamole-pg:5432 → the postgresql auth provider
-    #     halted → /guacamole/api/session 403, blank page (caught live hw171
-    #     2026-06-19). The other re-homed apps' DBs (gitea-pg, harbor-pg)
-    #     live in their own host namespaces, not catalyst-system, so this
-    #     single ingress entry is the complete fix for the catalyst-system DB.
+    #   - guacamole (#3934 → #4325) — #4325 de-vcluster re-homed bp-guacamole
+    #     to its OWN host namespace `guacamole` (placement.yaml slot 52 →
+    #     vcluster: host); the mgmt plane vCluster (where #3642 had promoted
+    #     the guacamole webapp Pod as `guacamole-server-x-catalyst-system-x-
+    #     mgmt-vcluster`) is gone. The webapp still needs ingress to its CNPG
+    #     DB `guacamole-pg` host-rendered in catalyst-system, so the allow-list
+    #     tracks the new home: `mgmt` → `guacamole`. Without it the baseline
+    #     default-deny drops webapp→guacamole-pg:5432 → the postgresql auth
+    #     provider halts → /guacamole/api/session 403, blank page (the hw171
+    #     2026-06-19 shape). gitea-pg / harbor-pg sit in their own host
+    #     namespaces, so this single ingress entry is the complete fix.
     allowedIngressNamespaces:
       - catalyst
       - flux-system
       - kube-system
       - oidc-gate
-      - mgmt
+      - guacamole
 
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId

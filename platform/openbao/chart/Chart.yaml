@@ -178,7 +178,13 @@ name: bp-openbao
 #   (b) server.livenessProbe ENABLED (sealed-tolerant httpGet) — upstream
 #   shipped readiness-only, so the StatefulSet had no livenessProbe. Adds
 #   tests/kyverno-probes-present.sh. Refs #4347 #4325.
-version: 1.2.54
+# 1.2.55 — #4388 (#4325 fallout sweep): repoint the snapshot-replication S3
+#   endpoint + credentialsSeeder source (values + template defaults) off the
+#   dead rtz-vcluster-syncer-mangled seaweedfs names to the host-native
+#   `seaweedfs-s3.seaweedfs.svc` / ns `seaweedfs` (bp-seaweedfs re-homed to host
+#   ns by #4325). snapshot-replication is default-OFF — applies only when an
+#   operator enables it. Test assertions updated in lockstep. Refs #4388 #4325.
+version: 1.2.55
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

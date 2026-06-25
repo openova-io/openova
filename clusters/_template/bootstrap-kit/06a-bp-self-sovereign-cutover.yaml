@@ -652,19 +652,18 @@ spec:
       # hw91. This is the missing lockstep half of #3012; mirror of
       # harbor/giteaPublicURL.
       consolePublicURL: https://console.${SOVEREIGN_FQDN}
-    # #3642/#3926: post-#3642 the bp-harbor `harbor-admin` Secret is minted
-    # INSIDE vc-mgmt (with reflector `reflectionAllowedNamespaces: catalyst`);
-    # it reaches the HOST `catalyst` ns — where step-02 (harbor-projects) runs —
-    # ONLY under the vCluster-synced mangled name
-    # `harbor-admin-x-harbor-x-mgmt-vcluster` (toHost secret sync + reflector,
-    # `reflects: mgmt/harbor-admin-x-...`, verified deterministic on hw171). The
-    # chart default `harbor-admin` does NOT exist host-side, so the Job's
-    # same-namespace secretKeyRef would fail. Point it at the synced name so the
-    # password resolves. (HARBOR_ADMIN_USERNAME stays optional → the Job defaults
-    # `admin`, matching upstream Harbor's hardcoded admin user.) Refs #3379 #3926.
+    # #4325 de-vcluster re-homed bp-harbor to the native HOST namespace
+    # `harbor`; the mgmt plane vCluster + its syncer-mangled
+    # `harbor-admin-x-harbor-x-mgmt-vcluster` are gone. bp-harbor mints the
+    # plain `harbor-admin` Secret in ns `harbor` and reflects it to the HOST
+    # `catalyst` ns (reflector `reflectionAllowedNamespaces: catalyst`,
+    # admin-secret.yaml) — where step-02 (harbor-projects) runs. Point the Job's
+    # same-namespace secretKeyRef at the host-native name. (HARBOR_ADMIN_USERNAME
+    # stays optional → the Job defaults `admin`, matching upstream Harbor's
+    # hardcoded admin user.) Refs #3379 #3926.
     harbor:
       adminSecretRef:
-        name: harbor-admin-x-harbor-x-mgmt-vcluster
+        name: harbor-admin
     # #3379 (2026-06-13): enable the REAL 10-minute deny-egress hold for
     # Step-08 (egress-block-test). The chart default
     # (egressTest.enforceCIDRBlock: false, values.yaml) ships the passive

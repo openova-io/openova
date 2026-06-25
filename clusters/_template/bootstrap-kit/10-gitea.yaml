@@ -174,7 +174,7 @@ spec:
       #   at admission → pre-upgrade gate failed → bp-gitea HR rollback-looped and
       #   stranded bp-catalyst-platform / bp-continuum / bp-sandbox. Fix: default the
       #   guard image to the harbor-proxy form. Refs #4369 #4367 #4354.
-      version: 1.2.44
+      version: 1.2.45
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

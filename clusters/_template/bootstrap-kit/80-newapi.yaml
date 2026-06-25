@@ -298,7 +298,7 @@ spec:
       # 1.4.130 — #4347: channel-seed hook Job curl image harbor-proxied so it
       #   clears the host-ns Kyverno harbor-proxy-pull Enforce policy on every
       #   reconcile (post-#4325). Refs #4347 #4325.
-      version: 1.4.131
+      version: 1.4.132
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -545,15 +545,13 @@ spec:
         # _helpers.tpl fullname template), and slot 39's HR sets
         # targetNamespace=vllm + releaseName=vllm. Port 8000 matches
         # the chart's service.port.
-        # #3373 Batch A (2026-06-14): bp-vllm moved INSIDE the rtz vCluster
-        # (placement.yaml). The bp-rtz-vcluster syncer reflects the
-        # in-vCluster `vllm-bp-vllm` Service to the HOST under the
-        # syncer-mangled name below, so the old `vllm-bp-vllm.vllm.svc`
-        # resolves NXDOMAIN. newapi is host-placed in Batch A and this
-        # channel is default-OFF (lockstep ${SOVEREIGN_VLLM_ENABLED:-false}
-        # with slot 39) — this endpoint applies only when an operator opts
-        # in; align it to the synced name now.
-        endpoint: "http://vllm-bp-vllm-x-vllm-x-rtz-vcluster.rtz.svc.cluster.local:8000/v1"
+        # #4325 de-vcluster re-homed bp-vllm to the native HOST namespace
+        # `vllm` (placement.yaml slot 39 → vcluster: host); the rtz plane
+        # vCluster + its syncer-mangled `vllm-bp-vllm-x-vllm-x-rtz-vcluster.rtz`
+        # are gone, so the vLLM Service is the plain host-ns name. This channel
+        # is default-OFF (lockstep ${SOVEREIGN_VLLM_ENABLED:-false} with slot
+        # 39) — this endpoint applies only when an operator opts in.
+        endpoint: "http://vllm-bp-vllm.vllm.svc.cluster.local:8000/v1"
         models:
           - qwen3-coder
           # Underlying upstream model id served by the bp-vllm chart's

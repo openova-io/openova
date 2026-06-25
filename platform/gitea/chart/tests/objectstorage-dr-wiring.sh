@@ -66,8 +66,8 @@ echo "[objectstorage-dr] Case 2: enabled → STORAGE_TYPE=minio @ rtz-vCluster s
 # config ConfigMap: STORAGE_TYPE=minio pointing at the canonical S3 endpoint
 grep -q 'GITEA__storage__STORAGE_TYPE: "minio"' "$tmp/on.yaml" \
   || fail "enabled: STORAGE_TYPE must be minio"
-grep -q 'GITEA__storage__MINIO_ENDPOINT: "seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333"' "$tmp/on.yaml" \
-  || fail "enabled: MINIO_ENDPOINT must be the rtz-vCluster synced seaweedfs-s3:8333 Service (#3373 Batch A)"
+grep -q 'GITEA__storage__MINIO_ENDPOINT: "seaweedfs-s3.seaweedfs.svc.cluster.local:8333"' "$tmp/on.yaml" \
+  || fail "enabled: MINIO_ENDPOINT must be the host-native seaweedfs-s3:8333 Service (#4325 de-vcluster)"
 grep -q 'GITEA__storage__MINIO_BUCKET: "gitea-blobs"' "$tmp/on.yaml" \
   || fail "enabled: MINIO_BUCKET must be gitea-blobs"
 # reflected Secret bridges the cross-namespace seaweedfs-s3-secret

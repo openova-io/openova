@@ -58,7 +58,12 @@ name: bp-external-secrets-stores
 # host-side) override `clusterSecretStore.server` back. Paired with the
 # bp-openbao crossClusterTokenReview auth fix — BOTH required for vault-region1
 # to authenticate + resolve end-to-end. Refs #3642.
-version: 1.0.7
+# 1.0.8 — #4388 (#4325 fallout sweep): repoint clusterSecretStore.server off the
+#   dead mgmt-vcluster-syncer-mangled `openbao-x-openbao-x-mgmt-vcluster.mgmt.svc`
+#   to the host-native `openbao.openbao.svc.cluster.local:8200` (bp-openbao
+#   re-homed to host ns by #4325 — the mangled name is the only address now gone).
+#   Config-default-only. Refs #4388 #4325.
+version: 1.0.8
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao

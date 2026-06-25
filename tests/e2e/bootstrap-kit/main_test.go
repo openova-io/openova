@@ -40,6 +40,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -673,10 +674,15 @@ func TestBootstrapKit_PerOrgBlueprintsAreHostNative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm template catalog-seed failed: %v\noutput:\n%s", err, out)
 	}
-	// The rendered output also carries the per-Org WordPress alias
-	// (bp-wordpress), which points at the same wordpress-tenant chart and
-	// shares the per-Org topology — assert it too.
-	perOrgSeedNames := map[string]bool{"bp-wordpress": true}
+	// The rendered output also carries per-Org Blueprints that have NO source
+	// platform/<x>/blueprint.yaml — they live ONLY in the catalog-seed:
+	//   - bp-wordpress: the per-Org alias pointing at the wordpress-tenant
+	//     chart, sharing the per-Org topology.
+	//   - bp-agenity: the per-Org agentic dashboard (#4365 flipped its
+	//     tier rtz -> ''). It installs through the application-controller
+	//     fan-out (no bootstrap: true application-cr) so a regression to a
+	//     removed plane would Degrade a fresh Org — assert it here too.
+	perOrgSeedNames := map[string]bool{"bp-wordpress": true, "bp-agenity": true}
 	for bpName := range perOrgCatalogBlueprints {
 		perOrgSeedNames[bpName] = true
 	}
@@ -698,6 +704,137 @@ func TestBootstrapKit_PerOrgBlueprintsAreHostNative(t *testing.T) {
 			t.Errorf("catalog-seed: per-Org Blueprint %q not found in rendered seed — the #4375 host-native lock cannot verify it", name)
 		}
 	}
+}
+
+// deadPlaneVclusterMangle matches a vCluster-syncer-mangled DNS name or Secret
+// name of the form `<svc>-x-<ns>-x-{mgmt,rtz,dmz}-vcluster` — the host-visible
+// name the (now-removed, #4325) mgmt/rtz/dmz plane vClusters' syncers produced.
+// On a de-vclustered Sovereign these names resolve NXDOMAIN / 404, so ANY
+// active config carrying one is dead fallout.
+var deadPlaneVclusterMangle = regexp.MustCompile(`-x-[a-z0-9-]+-x-(mgmt|rtz|dmz)-vcluster`)
+
+// devclusterScanExcludedDirs are subtrees that legitimately still carry the
+// mangled token and must NOT trip the sweep:
+//   - the retired plane-vCluster charts themselves (their internal naming is
+//     self-referential / orphaned, retired separately from this code sweep);
+//   - vendored / VCS / node deps.
+var devclusterScanExcludedDirs = map[string]bool{
+	"bp-mgmt-vcluster": true,
+	"bp-rtz-vcluster":  true,
+	"bp-dmz-vcluster":  true,
+	"node_modules":     true,
+	".git":             true,
+	"vendor":           true,
+	"testdata":         true, // Go demangle-logic fixtures (per-Org vcluster) live here
+}
+
+// TestBootstrapKit_NoDeadPlaneVclusterReferences is the #4325-fallout
+// "completeness critic" guard. It walks the catalog source tree (platform/* +
+// products/* charts, blueprints, and the bootstrap-kit slots) and FAILS if any
+// ACTIVE (non-comment) line in a chart values/template, blueprint, or
+// bootstrap-kit slot still carries a syncer-mangled
+// `*-x-*-x-{mgmt,rtz,dmz}-vcluster` reference for a PLATFORM-PLANE component.
+//
+// The platform planes were de-vclustered into native host namespaces by #4325;
+// every consumer must dial the plain host-ns Service / read the host-ns Secret
+// (e.g. nats-jetstream.nats-system.svc, valkey-primary.valkey.svc,
+// keycloak.keycloak.svc, seaweedfs-s3.seaweedfs.svc). Without this lock the
+// fallout recurred one-at-a-time on live walks (#4365/#4376/#4378/#4380/#4383).
+//
+// Scope is the deterministic, fresh-prov-blocking surface: YAML config under
+// platform/ + products/ + clusters/_template/bootstrap-kit/. Pure comments
+// (`#…`, `{{/* … */}}`, `//…`) are skipped — they are stale narrative, not a
+// rendered reference. Go cross-region-mesh code (clustermesh.go) + its
+// vocabulary are tracked separately (multi-region correctness, higher-risk).
+func TestBootstrapKit_NoDeadPlaneVclusterReferences(t *testing.T) {
+	root := repoRoot(t)
+	scanRoots := []string{
+		filepath.Join(root, "platform"),
+		filepath.Join(root, "products"),
+		filepath.Join(root, "clusters", "_template", "bootstrap-kit"),
+	}
+	var offenders []string
+	for _, sr := range scanRoots {
+		err := filepath.Walk(sr, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // best-effort; a missing optional subtree is not a failure
+			}
+			if info.IsDir() {
+				if devclusterScanExcludedDirs[info.Name()] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			// Only scan rendered-config file types where an active reference
+			// would land in a deployed manifest.
+			switch {
+			case strings.HasSuffix(path, ".yaml"), strings.HasSuffix(path, ".yml"),
+				strings.HasSuffix(path, ".tpl"), strings.HasSuffix(path, ".tftpl"):
+			default:
+				return nil
+			}
+			raw, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			// Track whether we are inside a multi-line Helm template comment
+			// block `{{/* … */}}` (or the whitespace-trim `{{- /* … */}}`) so
+			// stale-narrative mentions of a mangled name inside a comment block
+			// don't trip the sweep — only RENDERED references count.
+			inTplComment := false
+			for i, line := range strings.Split(string(raw), "\n") {
+				wasInComment := inTplComment
+				if !inTplComment {
+					if idx := strings.Index(line, "{{/*"); idx >= 0 {
+						inTplComment = true
+					} else if idx := strings.Index(line, "{{- /*"); idx >= 0 {
+						inTplComment = true
+					}
+				}
+				lineIsComment := wasInComment || inTplComment
+				if inTplComment && strings.Contains(line, "*/}}") {
+					inTplComment = false // block closes on this line
+				}
+				if !deadPlaneVclusterMangle.MatchString(line) {
+					continue
+				}
+				if lineIsComment || isCommentLine(line) {
+					continue
+				}
+				rel, _ := filepath.Rel(root, path)
+				offenders = append(offenders, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(line)))
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", sr, err)
+		}
+	}
+	sort.Strings(offenders)
+	for _, o := range offenders {
+		t.Errorf("dead plane-vCluster (#4325) reference in active config — repoint to the host-ns target:\n  %s", o)
+	}
+}
+
+// isCommentLine reports whether a YAML/Helm-template line is purely a comment
+// (so a stale-narrative mention of a mangled name does not trip the sweep). It
+// handles `#…`, `{{/* …`, `*/`, `{{- /*`, and Go-style `//…` leading content.
+func isCommentLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(trimmed, "#"):
+		return true
+	case strings.HasPrefix(trimmed, "//"):
+		return true
+	case strings.HasPrefix(trimmed, "{{/*"), strings.HasPrefix(trimmed, "{{- /*"):
+		return true
+	case strings.HasPrefix(trimmed, "*"): // continuation / close of a {{/* … */}} block
+		return true
+	}
+	return false
 }
 
 // TestBootstrapKit_DependencyOrderMatchesCanonical loads every blueprint.yaml
