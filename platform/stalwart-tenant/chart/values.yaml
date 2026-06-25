@@ -206,8 +206,9 @@ keycloak:
   # client secret from OpenBao at the canonical path
   # `sovereign/<sovereign-fqdn>/stalwart/<tenant>/oidc` (property
   # OIDC_CLIENT_SECRET). Operator overlay supplies the per-tenant
-  # `remoteRef.key`. EMPTY at chart level — render fails closed if
-  # `enabled=true` and `remoteRef.key` is unset (Inviolable Principle #4).
+  # `remoteRef.key`. EMPTY at chart level — the ExternalSecret renders
+  # only when `enabled=true` AND `remoteRef.key` is non-empty; otherwise
+  # the lookup-or-generate fallback (oidc-client-secret.yaml) owns it.
   oidcExternalSecret:
     enabled: true
     refreshInterval: "1h"
@@ -217,6 +218,21 @@ keycloak:
     remoteRef:
       key: ""
       property: "OIDC_CLIENT_SECRET"
+
+  # #4307/#4272 (FINAL gate): chart-side lookup-or-generate of the OIDC
+  # client_secret Secret (templates/oidc-client-secret.yaml) — mirrors this
+  # chart's admin-secret.yaml auto-provision. On a funnel Org (or any Org
+  # where CATALYST_PER_ORG_REALM_ENABLED=false) NO per-Org bp-keycloak realm
+  # is installed, so the authoritative `stalwart-oidc-client-secret` Secret
+  # that bp-keycloak's configmap-tenant-realm.yaml would emit is never
+  # created; with no ExternalSecret remoteRef.key either, the StatefulSet's
+  # required OIDC_CLIENT_SECRET secretKeyRef → CreateContainerConfigError.
+  # Default ON: self-generate a stable client_secret so the Pod starts
+  # zero-touch. Auto-provisioning is SKIPPED when the ExternalSecret is
+  # active (oidcExternalSecret.enabled + remoteRef.key) so the two never
+  # fight over the Secret. An overlay may opt out via enabled=false.
+  oidcAutoProvision:
+    enabled: true
 
 # ─── Mail-spool persistence ────────────────────────────────────────────
 # Stalwart RocksDB lives on a PVC. Resize via volumeClaimTemplates

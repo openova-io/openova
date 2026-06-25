@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.8
+version: 0.2.9
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,25 @@ description: |
 
   Changelog
   ─────────
+  0.2.9 (2026-06-26, #4272 #4307 — FINAL gate)
+    - Self-generate the per-Org OIDC client_secret + make the controller's
+      OIDC secretKeyRef optional, so the controller Pod STARTS on a funnel
+      Org where CATALYST_PER_ORG_REALM_ENABLED=false (the intentional
+      default → no per-Org bp-keycloak realm → the authoritative
+      `openclaw-oidc-client-secret` Secret is never created → the required
+      OIDC_CLIENT_SECRET secretKeyRef → CreateContainerConfigError → Pod
+      never started; the live #4272/#4307 final blocker on a cart Org).
+        • New templates/oidc-client-secret.yaml: lookup-or-generate the
+          client_secret Secret (mirrors bp-wordpress-tenant sso-secret.yaml),
+          emitting BOTH `OIDC_CLIENT_SECRET` + `client-secret` keys with
+          helm.sh/resource-policy: keep so bp-keycloak's
+          configmap-tenant-realm.yaml (when a per-Org realm IS installed) can
+          land the authoritative bytes without either side clobbering the
+          other. Gated on new value `oidc.selfSignClientSecret` (default true).
+        • controller-deployment.yaml: OIDC_CLIENT_SECRET / KEYCLOAK_CLIENT_
+          SECRET secretKeyRefs now `optional: true` so the Pod schedules in
+          the pre-seed window (matches the already-optional LLM apiKey refs);
+          /readyz still gates real OIDC reachability so SSO correctness holds.
   0.2.6 (2026-06-25, #4272)
     - Add in-cluster Kubernetes API egress for the controller pod-reaper.
       Even after 0.2.5 (public-host JWKS :443) + #4300, the controller

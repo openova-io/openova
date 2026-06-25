@@ -52,6 +52,15 @@ spec:
                 secretKeyRef:
                   name: {{ include "bp-openclaw.oidc.clientSecretName" . }}
                   key: {{ include "bp-openclaw.oidc.clientSecretKey" . }}
+                  # #4272/#4307 (FINAL gate): optional so the Pod can SCHEDULE
+                  # before the OIDC client_secret Secret is reflected/seeded
+                  # (the chart self-generates it via oidc-client-secret.yaml,
+                  # but the kubelet evaluates env-secretKeyRef at container
+                  # start — a non-optional ref hard-fails CreateContainerConfig-
+                  # Error if the Secret lags the Pod). The controller's /readyz
+                  # gates on real OIDC reachability, so a transiently-empty
+                  # secret just keeps the Pod un-Ready, never crash-looping.
+                  optional: true
             - name: KEYCLOAK_REALM_URL
               value: {{ include "bp-openclaw.oidc.issuerURL" . | quote }}
             - name: KEYCLOAK_CLIENT_ID
@@ -61,6 +70,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "bp-openclaw.oidc.clientSecretName" . }}
                   key: {{ include "bp-openclaw.oidc.clientSecretKey" . }}
+                  optional: true
 
             # ── Tenant placement for per-user pods ────────────────────
             - name: TENANT_NAMESPACE

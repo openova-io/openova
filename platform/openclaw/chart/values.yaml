@@ -126,6 +126,19 @@ oidc:
     # unset — see _helpers.tpl).
     name: "openclaw-oidc"
     key: "OIDC_CLIENT_SECRET"
+  # #4272/#4307 (FINAL gate): chart-side lookup-or-generate of the OIDC
+  # client_secret Secret (templates/oidc-client-secret.yaml). On a funnel
+  # Org (or any Org where CATALYST_PER_ORG_REALM_ENABLED=false) NO per-Org
+  # bp-keycloak realm is installed, so the authoritative
+  # `openclaw-oidc-client-secret` Secret that bp-keycloak's
+  # configmap-tenant-realm.yaml would emit is never created → the controller
+  # Pod's required OIDC_CLIENT_SECRET secretKeyRef → CreateContainerConfigError.
+  # Default ON: self-generate a stable client_secret so the Pod starts
+  # zero-touch. When the authoritative realm-config DOES seed the Secret it
+  # wins (both carry helm.sh/resource-policy: keep + lookup-or-generate, so
+  # this fallback re-emits the existing bytes — a no-op). An overlay whose
+  # realm-config is guaranteed to seed first may set this false.
+  selfSignClientSecret: true
 # ─── LLM gateway: per-tenant NewAPI ─────────────────────────────────────
 # OpenClaw uses the per-tenant NewAPI as its OpenAI-compatible LLM
 # gateway (NOT direct OpenAI). The orchestrator points this at
