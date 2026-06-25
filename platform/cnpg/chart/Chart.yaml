@@ -49,7 +49,32 @@ name: bp-cnpg
 # (live omantel.biz dep 4635277cae4ffed9). The label is the policy's own
 # documented escape (same as openbao init-job #3374, gitea/harbor hooks
 # #3296→#3297) — guardrail stays fully in force. Refs #4179 #4223 #4220 #3374.
-version: 1.0.12
+#
+# 1.0.13 (G64 #4322, 2026-06-25): durable fix for the cnpg-system operator
+# CORRUPTING the cluster-singleton webhook caBundle with a LEAF cert (CA:FALSE)
+# instead of the cnpg-ca-secret CA (CA:TRUE). Upstream cloudnative-pg bug #9817
+# (fix PR #9819 still UNMERGED): the operator's PKI reconciler injects the
+# webhook clientConfig.caBundle from cnpg-webhook-cert tls.crt (the serving
+# LEAF) and re-asserts it on an `@every 1h` tick + every restart. When the
+# served leaf and the stale caBundle-leaf diverge (cert renewal/regen/restart)
+# the apiserver fails `x509: certificate signed by unknown authority` → EVERY
+# postgresql.cnpg.io/v1.Cluster create/patch rejected cluster-wide (wordpress-db,
+# newapi-pg, all PG-backed apps). Live-confirmed on omantel.biz region-a.
+# THREE changes (webhook-FULL platform install only — webhook-LESS per-Org
+# installs skip all of it via bp-cnpg.webhookGateEnabled):
+#   (1) cloudnative-pg.config.data.MANAGE_WEBHOOK_CONFIGURATIONS="false" — stops
+#       the operator injecting (corrupting) the caBundle at the source (upstream
+#       operator_conf opt-out for GitOps-managed CA injection; independent of
+#       serving-cert/CA generation, so cnpg-ca-secret is still minted).
+#   (2) templates/webhook-cabundle-reasserter.yaml — the GitOps-side CA injector:
+#       a post-install/upgrade Helm-hook Job (weight 4) + a CronJob (every 10m)
+#       that read cnpg-ca-secret ca.crt (validated CA:TRUE) and write it into
+#       both webhook configs' caBundle. The CronJob self-heals against any
+#       residual re-corruption (pre-flip operator pod) within minutes.
+#   (3) webhook-gate-hook.yaml now asserts the caBundle is a CA (CA:TRUE), not
+#       merely non-empty — the producer-side proof the reasserter landed; gate
+#       image bumped 1.30.7 -> 1.31.4 for openssl. Refs #4322 #4143 #4201.
+version: 1.0.13
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so

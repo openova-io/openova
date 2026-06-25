@@ -5,7 +5,9 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-4-1-data-services
 spec:
-  version: 1.0.12
+  # 1.0.13 (G64 #4322): lockstep with chart/Chart.yaml — durable fix for the
+  # cnpg-system operator corrupting the webhook caBundle with a leaf cert.
+  version: 1.0.13
   card:
     title: CloudNativePG
     summary: |

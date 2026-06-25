@@ -1,0 +1,345 @@
+{{- /*
+G64 (Refs #4322 #4143 #4201, 2026-06-25): durable fix for the cnpg-system
+operator corrupting the cluster-singleton webhook caBundle with a LEAF cert.
+
+The bug (upstream cloudnative-pg #9817, fix PR #9819 still UNMERGED)
+====================================================================
+CNPG's PKI reconciler (`pkg/certs/k8s.go`, injectPublicKeyInto{Mutating,
+Validating}Webhook) writes the webhook `clientConfig.caBundle` from
+`cnpg-webhook-cert` `tls.crt` — i.e. the SERVING LEAF (X509 BasicConstraints
+CA:FALSE) — instead of `cnpg-ca-secret` `ca.crt` (the real CA, CA:TRUE). The
+operator re-runs this injection on a periodic maintenance tick (`@every 1h`)
+AND on every operator restart/leader-election, so it CONTINUOUSLY re-corrupts
+the field — a manual `kubectl patch` of the caBundle back to the CA survives
+at most ~1h.
+
+While the served leaf and the caBundle-leaf are byte-identical the apiserver
+accepts the degenerate single-cert chain, so admission "works" — but the
+moment the operator rotates/regenerates `cnpg-webhook-cert` (cert renewal,
+secret deletion, pod restart) the served leaf and the stale caBundle-leaf
+DIVERGE → the apiserver fails `x509: certificate signed by unknown authority`
+verifying the served chain → EVERY `postgresql.cnpg.io/v1.Cluster` create/patch
+is rejected CLUSTER-WIDE (wordpress-db, newapi-pg, every Postgres-backed app).
+Live-confirmed on omantel.biz region-a (#4322): caBundle held
+`CN=cnpg-webhook-service.cnpg-system.svc CA:FALSE`; the real CA in
+`cnpg-ca-secret` is `CN=cnpg-ca-secret CA:TRUE`.
+
+The durable fix — two complementary levers (this file + values.yaml)
+====================================================================
+1. values.yaml sets the operator config `MANAGE_WEBHOOK_CONFIGURATIONS: "false"`
+   (cnpg-controller-manager-config ConfigMap, read by the operator at startup).
+   Per the upstream operator_conf doc this STOPS the operator injecting the CA
+   bundle into the webhook configs — "Set to false when the CA bundle is
+   injected externally, for example by cert-manager's CA injector or by GitOps"
+   — and is INDEPENDENT of the serving-cert/CA generation (the operator still
+   mints `cnpg-ca-secret` + `cnpg-webhook-cert`). So the corruption STOPS at the
+   source, and a real CA is still available to read.
+
+2. THIS file is the GitOps-side injector that doc refers to: a tiny reasserter
+   that reads `ca.crt` (CA:TRUE) from `cnpg-ca-secret` and writes it into both
+   webhook configs' caBundle. It runs in two shapes for defence-in-depth:
+     (a) a post-install + post-upgrade Helm-hook Job — asserts the correct CA
+         immediately on every chart install/upgrade (before dependents that
+         create Cluster CRs reconcile), and
+     (b) a CronJob (default every 10m) — self-heals against ANY residual path
+         that re-corrupts the field: an operator that started BEFORE the config
+         flip took effect, a pre-flip operator image, a manual mis-patch, a
+         webhook-config re-create. Faster than the operator's 1h tick so the
+         window of corruption is bounded to minutes even in the worst case.
+
+Both poll until `cnpg-ca-secret` exists (the operator generates it
+asynchronously), validate `ca.crt` is genuinely a CA (CA:TRUE) before writing,
+and patch every webhook entry in BOTH configs.
+
+This renders ONLY in webhook-FULL mode (the PLATFORM cnpg-system install). A
+per-Org bp-cnpg install is webhook-LESS (#4143/#4201:
+cloudnative-pg.webhook.{mutating,validating}.create=false) — it owns no
+cluster-singleton webhook, so the reasserter (like the gate + cert-bootstrap)
+MUST NOT render. The same `bp-cnpg.webhookGateEnabled` helper gates it.
+
+Both Jobs carry `app.kubernetes.io/managed-by: flux` so the baseline
+`flux-managed` Kyverno Enforce policy admits the helm-controller-created Job /
+CronJob (same escape as the webhook-gate + cert-wait Jobs, #4226).
+*/}}
+{{- $ca := .Values.webhookCabundleReasserter | default dict -}}
+{{- /* `default true` would WRONGLY coerce an explicit `enabled: false` back to
+       true (Helm treats boolean false as "empty"), so read it via hasKey. */ -}}
+{{- $caEnabled := true -}}
+{{- if hasKey $ca "enabled" -}}{{- $caEnabled = $ca.enabled -}}{{- end -}}
+{{- if and (eq (include "bp-cnpg.webhookGateEnabled" .) "true") $caEnabled }}
+{{- $svcNs := (($ca.service).namespace) | default "cnpg-system" -}}
+{{- $caSecret := $ca.caSecretName | default "cnpg-ca-secret" -}}
+{{- $mutName := $ca.mutatingWebhookName | default "cnpg-mutating-webhook-configuration" -}}
+{{- $valName := $ca.validatingWebhookName | default "cnpg-validating-webhook-configuration" -}}
+{{- $image := $ca.image | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4" -}}
+{{- $pullPolicy := $ca.imagePullPolicy | default "IfNotPresent" -}}
+{{- $schedule := $ca.cronSchedule | default "*/10 * * * *" -}}
+{{- $bootstrapTimeout := $ca.bootstrapTimeoutSeconds | default 300 -}}
+{{- /* The reassert script is shared verbatim by the hook Job and the CronJob. */ -}}
+{{- $script := `
+set -euo pipefail
+echo "cnpg webhook caBundle reasserter: source=${CA_SECRET}/ca.crt (must be CA:TRUE) -> ${MUT_WEBHOOK} + ${VAL_WEBHOOK}"
+
+# 1. Wait for the operator-generated CA secret to exist + carry ca.crt.
+deadline=$(( $(date +%s) + WAIT_SECONDS ))
+ca_b64=""
+while [ "$(date +%s)" -lt "${deadline}" ]; do
+  ca_b64="$(kubectl get secret "${CA_SECRET}" -n "${CA_NS}" \
+    --ignore-not-found -o jsonpath='{.data.ca\.crt}' 2>/dev/null || true)"
+  if [ -n "${ca_b64}" ]; then break; fi
+  echo "waiting for ${CA_NS}/${CA_SECRET} ca.crt ..."
+  sleep 5
+done
+if [ -z "${ca_b64}" ]; then
+  echo "FATAL: ${CA_NS}/${CA_SECRET} ca.crt not found within ${WAIT_SECONDS}s." >&2
+  exit 1
+fi
+
+# 2. Validate the source really is a CA (BasicConstraints CA:TRUE). NEVER write
+#    a leaf — that is the very corruption we are healing. openssl may be absent
+#    in a kubectl image, so fall back to a base64-decode sanity check.
+ca_pem="$(printf '%s' "${ca_b64}" | base64 -d 2>/dev/null || true)"
+if [ -z "${ca_pem}" ]; then
+  echo "FATAL: ca.crt is not valid base64 PEM." >&2
+  exit 1
+fi
+if command -v openssl >/dev/null 2>&1; then
+  bc="$(printf '%s' "${ca_pem}" | openssl x509 -noout -ext basicConstraints 2>/dev/null || true)"
+  case "${bc}" in
+    *CA:TRUE*) : ;;
+    *) echo "FATAL: ${CA_SECRET} ca.crt is NOT a CA (basicConstraints='${bc}'); refusing to write a non-CA caBundle." >&2; exit 1 ;;
+  esac
+  echo "verified ${CA_SECRET} ca.crt is CA:TRUE."
+else
+  echo "openssl unavailable; skipped CA:TRUE assertion (base64 PEM sanity passed)."
+fi
+
+# 3. Patch every webhook entry in BOTH configs whose caBundle != the CA.
+patch_config() {
+  kind="$1"; name="$2"
+  n="$(kubectl get "${kind}" "${name}" --ignore-not-found \
+    -o jsonpath='{.webhooks}' 2>/dev/null | tr ',' '\n' | grep -c 'clientConfig' || true)"
+  if [ -z "${n}" ] || [ "${n}" -eq 0 ]; then
+    echo "  ${kind}/${name}: not found or zero webhooks; skipping."
+    return 0
+  fi
+  i=0
+  ops=""
+  while [ "${i}" -lt "${n}" ]; do
+    cur="$(kubectl get "${kind}" "${name}" \
+      -o jsonpath="{.webhooks[${i}].clientConfig.caBundle}" 2>/dev/null || true)"
+    if [ "${cur}" != "${ca_b64}" ]; then
+      [ -n "${ops}" ] && ops="${ops},"
+      ops="${ops}{\"op\":\"replace\",\"path\":\"/webhooks/${i}/clientConfig/caBundle\",\"value\":\"${ca_b64}\"}"
+    fi
+    i=$(( i + 1 ))
+  done
+  if [ -z "${ops}" ]; then
+    echo "  ${kind}/${name}: caBundle already the CA on all ${n} webhook(s); no-op."
+    return 0
+  fi
+  kubectl patch "${kind}" "${name}" --type='json' -p "[${ops}]" >/dev/null
+  echo "  ${kind}/${name}: reasserted CA caBundle on the drifted webhook(s)."
+}
+
+patch_config mutatingwebhookconfiguration "${MUT_WEBHOOK}"
+patch_config validatingwebhookconfiguration "${VAL_WEBHOOK}"
+echo "cnpg webhook caBundle reasserter: done."
+` -}}
+---
+# ── RBAC (shared by the hook Job + the CronJob) ─────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-cabundle-reasserter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-cabundle-reasserter
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-cabundle-reasserter
+  namespace: {{ $svcNs | quote }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-cabundle-reasserter
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $caSecret | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-cabundle-reasserter
+  namespace: {{ $svcNs | quote }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-cabundle-reasserter
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-cabundle-reasserter
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-cabundle-reasserter
+  apiGroup: rbac.authorization.k8s.io
+---
+# Cluster-scoped: webhook configurations live at cluster scope; GET + PATCH.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-cabundle-reasserter
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-cabundle-reasserter
+rules:
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-cabundle-reasserter
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-cabundle-reasserter
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-cabundle-reasserter
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Release.Name }}-cabundle-reasserter
+  apiGroup: rbac.authorization.k8s.io
+---
+# ── (a) post-install/post-upgrade Helm-hook Job: assert CA immediately ──────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-cabundle-reassert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-cabundle-reasserter
+    # #4226: helm-controller-created hook Job needs the flux-managed label so
+    # the kyverno baseline `flux-managed` Enforce policy admits it.
+    app.kubernetes.io/managed-by: flux
+  annotations:
+    # hook-weight 4 = BEFORE the webhook-gate Job (weight 5). With
+    # MANAGE_WEBHOOK_CONFIGURATIONS=false the operator no longer injects the
+    # caBundle, so on a fresh install the field is empty until THIS reasserter
+    # writes the CA. It must therefore run first; the gate (weight 5) then
+    # validates the caBundle is a real CA (CA:TRUE) — see webhook-gate-hook.yaml.
+    # The reasserter itself polls cnpg-ca-secret (operator-generated
+    # asynchronously) so it tolerates the operator's PKI bootstrap still being
+    # in flight.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-cnpg
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: webhook-cabundle-reasserter
+    spec:
+      serviceAccountName: {{ .Release.Name }}-cabundle-reasserter
+      restartPolicy: Never
+      containers:
+        - name: reassert
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          resources:
+            requests: { cpu: "10m", memory: "32Mi" }
+            limits:   { cpu: "100m", memory: "128Mi" }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          env:
+            - { name: CA_SECRET,   value: {{ $caSecret | quote }} }
+            - { name: CA_NS,       value: {{ $svcNs | quote }} }
+            - { name: MUT_WEBHOOK, value: {{ $mutName | quote }} }
+            - { name: VAL_WEBHOOK, value: {{ $valName | quote }} }
+            - { name: WAIT_SECONDS, value: {{ $bootstrapTimeout | quote }} }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              {{- $script | nindent 14 }}
+---
+# ── (b) CronJob: self-heal against any residual re-corruption ────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-cabundle-reassert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-cabundle-reasserter
+    app.kubernetes.io/managed-by: flux
+spec:
+  schedule: {{ $schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-cnpg
+        catalyst.openova.io/component: webhook-cabundle-reasserter
+        app.kubernetes.io/managed-by: flux
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 120
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: bp-cnpg
+            catalyst.openova.io/component: webhook-cabundle-reasserter
+        spec:
+          serviceAccountName: {{ .Release.Name }}-cabundle-reasserter
+          restartPolicy: Never
+          containers:
+            - name: reassert
+              image: {{ $image | quote }}
+              imagePullPolicy: {{ $pullPolicy | quote }}
+              resources:
+                requests: { cpu: "10m", memory: "32Mi" }
+                limits:   { cpu: "100m", memory: "128Mi" }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1001
+                runAsGroup: 1001
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+                seccompProfile: { type: RuntimeDefault }
+              env:
+                - { name: CA_SECRET,   value: {{ $caSecret | quote }} }
+                - { name: CA_NS,       value: {{ $svcNs | quote }} }
+                - { name: MUT_WEBHOOK, value: {{ $mutName | quote }} }
+                - { name: VAL_WEBHOOK, value: {{ $valName | quote }} }
+                # CronJob runs in steady state — the CA secret already exists,
+                # so a short wait is enough.
+                - { name: WAIT_SECONDS, value: "30" }
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  {{- $script | nindent 18 }}
+{{- end }}
