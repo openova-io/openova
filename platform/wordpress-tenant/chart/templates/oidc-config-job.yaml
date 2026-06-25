@@ -2,15 +2,19 @@
 {{- /*
 Helm post-install / post-upgrade Job that:
 
-  1. Waits for the WordPress Pod to be reachable (its initContainers
-     have seeded /var/www/html/wp-content with pg4wp + the
-     openid-connect-generic plugin from the wordpress.org plugin
-     registry — see deployment.yaml).
+  1. Seeds the pg4wp db.php drop-in into THIS Job's ephemeral
+     wp-content (step 0) so wp-cli reaches the bp-cnpg Postgres backend.
+     The runtime Deployment's initContainers seed the persistent
+     wp-content PVC separately — see deployment.yaml.
   2. Runs `wp core install` (idempotent — `wp core is-installed` first).
      This populates the wp_* tables via WordPress's own install code,
      which goes through pg4wp and is therefore Postgres-safe.
-  3. Runs `wp plugin install openid-connect-generic --activate` —
-     idempotent: skips when the plugin is already present.
+  3. VENDORS `openid-connect-generic` from a pinned GitHub release
+     archive into the Job's ephemeral wp-content + `wp plugin activate`
+     (Refs #4322). NEVER `wp plugin install` (a wordpress.org egress
+     fetch that hangs the hook → HR Ready=False on slow/air-gapped
+     egress). Tolerant: a fetch failure logs + continues so the
+     release still reaches Ready.
   4. Runs `wp option update openid_connect_generic_settings <json>`
      with the per-tenant Keycloak realm + client + secret from the
      chart values. Idempotent — overwrites with the same values on
@@ -35,8 +39,10 @@ Why post-install / weight 10
 ────────────────────────────
 - weight 5: database-secret-sync-job populates `wordpress-database-
   secret` from the CNPG-emitted `<cluster>-app` Secret.
-- weight 10: this Job — DB Secret is now real, WordPress Pod is up,
-  PVC initContainers seeded wp-content + db.php drop-in.
+- weight 10: this Job — DB Secret is now real, WordPress Pod is up;
+  this Job self-seeds its own pg4wp db.php drop-in (step 0) and
+  vendors the OIDC plugin from GitHub (step 4) into an ephemeral
+  emptyDir — it does NOT depend on the runtime PVC.
 - weight 15: admin-user-job pre-seeds the Organization admin's wp_users row.
 
 Canonical seam — see umbrella issue #915 (D1 sub-task) and the
@@ -125,6 +131,17 @@ spec:
             # surface in observability immediately.
             - name: OIDC_IDP_HINT
               value: {{ .Values.ssoIdpHint | default "" | quote }}
+            # Refs #4322: openid-connect-generic plugin source. The Job
+            # VENDORS the plugin from this pinned GitHub release archive
+            # into its ephemeral wp-content (step 4 below) instead of
+            # running `wp plugin install` (which fetches from wordpress.org
+            # over egress and hangs the hook → HR Ready=False on an
+            # air-gapped / slow-egress Sovereign). Same deterministic,
+            # version-pinned mechanism as the pg4wp seed in step 0.
+            - name: OIDC_PLUGIN_REPO
+              value: {{ .Values.oidc.plugin.repo | quote }}
+            - name: OIDC_PLUGIN_VERSION
+              value: {{ .Values.oidc.plugin.version | quote }}
           command:
             - /bin/sh
             - -c
@@ -254,20 +271,71 @@ spec:
                 echo "[oidc-config] WordPress already installed — skipping core install"
               fi
 
-              # 4. Install + activate openid-connect-generic. wp-cli
-              #    deduplicates: --activate is a no-op when already
-              #    active; `wp plugin is-installed` returns 0 when the
-              #    plugin directory exists on the PVC (seeded by the
-              #    wp-plugin-install initContainer in deployment.yaml,
-              #    so wp-cli skips the wordpress.org download).
-              if wp plugin is-installed openid-connect-generic --allow-root >/dev/null 2>&1; then
-                echo "[oidc-config] openid-connect-generic already installed"
-                wp plugin activate openid-connect-generic --allow-root >/dev/null
-              else
-                echo "[oidc-config] installing openid-connect-generic from wordpress.org"
-                wp plugin install openid-connect-generic --activate --allow-root
+              # 4. Vendor + activate openid-connect-generic (Refs #4322).
+              #
+              #    This Job mounts an EPHEMERAL emptyDir wp-content (#4220),
+              #    so the plugin the runtime Deployment's initContainer
+              #    seeds onto the PERSISTENT PVC is NOT visible here. The
+              #    previous code therefore fell through to
+              #    `wp plugin install openid-connect-generic --activate`,
+              #    which fetches the zip from wordpress.org over egress and
+              #    HANGS until the hook deadline on an air-gapped or
+              #    slow-egress Sovereign → the post-upgrade hook timed out →
+              #    HelmRelease Ready=False (root-caused live on the tkt0626
+              #    fresh Org, omantel.biz, chart 0.4.17).
+              #
+              #    Fix: VENDOR the plugin from a pinned GitHub release
+              #    archive into THIS Job's wp-content — exactly the
+              #    deterministic, version-pinned mechanism step 0 uses for
+              #    pg4wp. No wordpress.org runtime fetch. GitHub archives
+              #    extract to `<name>-<version>` (un-prefixed tag), so we
+              #    copy from `openid-connect-generic-<version>/`.
+              #
+              #    Activation only flips the `active_plugins` option row,
+              #    which lives in POSTGRES (not on the ephemeral PVC) — so
+              #    once the plugin dir exists here, `wp plugin activate`
+              #    persists the activation for the runtime Pod (whose
+              #    initContainer seeds the real plugin files onto the
+              #    persistent PVC).
+              #
+              #    The whole step is WRAPPED so a fetch/activate failure
+              #    LOGS and CONTINUES — it MUST NOT fail the release. A
+              #    fully air-gapped Sovereign with no egress at all still
+              #    reaches Ready (the OIDC settings written in step 5 live
+              #    in Postgres; the runtime initContainer handles the files).
+              OIDC_SLUG="openid-connect-generic"
+              install_oidc_plugin() {
+                if wp plugin is-installed "${OIDC_SLUG}" --allow-root >/dev/null 2>&1; then
+                  echo "[oidc-config] ${OIDC_SLUG} already present — activating"
+                  wp plugin activate "${OIDC_SLUG}" --allow-root >/dev/null
+                  return 0
+                fi
+                # NEVER `wp plugin install` (wordpress.org egress fetch that
+                # hangs the hook). Vendor the pinned GitHub release instead.
+                OIDC_URL="https://github.com/${OIDC_PLUGIN_REPO}/archive/refs/tags/${OIDC_PLUGIN_VERSION}.zip"
+                OIDC_DIR="openid-connect-generic-${OIDC_PLUGIN_VERSION}"
+                echo "[oidc-config] vendoring ${OIDC_SLUG} from ${OIDC_URL}"
+                # --max-time bounds the fetch so a black-holed egress route
+                # can NEVER stall the hook — it fails fast and we continue.
+                if ! curl -fsSL --max-time 120 -o /tmp/oidc.zip "${OIDC_URL}"; then
+                  echo "[oidc-config] WARN: could not fetch ${OIDC_SLUG} from GitHub" \
+                       "(air-gapped / egress blocked?) — the runtime Pod's" \
+                       "wp-plugin-install initContainer seeds it onto the" \
+                       "persistent PVC; continuing without failing the release"
+                  return 0
+                fi
+                php -r '$z=new ZipArchive();$z->open("/tmp/oidc.zip");$z->extractTo("/tmp/");$z->close();'
+                mkdir -p wp-content/plugins
+                cp -a "/tmp/${OIDC_DIR}" "wp-content/plugins/${OIDC_SLUG}"
+                rm -rf "/tmp/${OIDC_DIR}" /tmp/oidc.zip
+                wp plugin activate "${OIDC_SLUG}" --allow-root >/dev/null
+                echo "[oidc-config] ${OIDC_SLUG} vendored + activated"
+              }
+              if ! install_oidc_plugin; then
+                echo "[oidc-config] WARN: ${OIDC_SLUG} install/activate failed —" \
+                     "continuing so the release reaches Ready (settings persist" \
+                     "in Postgres; runtime initContainer seeds the plugin files)"
               fi
-              echo "[oidc-config] openid-connect-generic activated"
 
               # 5. Compose the OIDC settings option row. Fields match
               #    the openid-connect-generic plugin's option schema —

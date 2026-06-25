@@ -222,7 +222,34 @@ name: bp-wordpress-tenant
 #   live on the tkt0625 fresh Org (omantel.biz region-a, 2026-06-25): the live
 #   oidc-config pod logged exactly `[oidc-config] seeding pg4wp db.php drop-in
 #   (Postgres adapter)` then `curl: (22) ... error: 404`; `v3.3.1.zip` returns 200.
-version: 0.4.17
+# 0.4.18 (Refs #4322): FIX the oidc-config hook Job TIMEOUT that left a FRESH
+#   Org's HelmRelease Ready=False even though the WordPress Pod was 1/1 Running
+#   serving HTTP 302 (the #4323 pg4wp fix above is validated at Pod level). After
+#   step 0 seeds db.php OK, step 4 ran `wp plugin install openid-connect-generic
+#   --activate`, which fetches the plugin zip from wordpress.org over egress.
+#   Because this Job mounts an EPHEMERAL emptyDir (#4220) — not the runtime PVC
+#   the deployment initContainer seeds the plugin onto — the plugin is never
+#   present, so the install ALWAYS triggers that download; on a slow-egress /
+#   air-gapped Sovereign (no wordpress.org reachability) it HANGS until the hook
+#   deadline → post-upgrade hook timed out → HR Ready=False. Root-caused live on
+#   the tkt0626 fresh Org (omantel.biz, chart 0.4.17).
+#   FIX (two layers, structural):
+#     1. VENDOR openid-connect-generic from a PINNED GitHub release archive
+#        (`oidc.plugin.{repo,version}`, default oidc-wp/openid-connect-generic
+#        3.11.3) into the Job's wp-content — the SAME deterministic mechanism
+#        step 0 already uses for pg4wp. NO wordpress.org runtime fetch (air-gapped
+#        Sovereigns can't reach it, so a runtime fetch was structurally wrong).
+#        `wp plugin install` is removed entirely.
+#     2. TOLERANT hook — the fetch is `--max-time` bounded and the whole
+#        install/activate step LOGS + CONTINUES on failure (never fails the
+#        release). A fully air-gapped Sovereign with zero egress still reaches
+#        Ready: the OIDC settings persist in POSTGRES, and the runtime
+#        Deployment's wp-plugin-install initContainer seeds the actual plugin
+#        files onto the persistent PVC for serving.
+#   tests/oidc-config.sh Case 8 asserts the Job has no `wp plugin install`, never
+#   references wordpress.org, vendors from the pinned GitHub tag, and tolerates a
+#   fetch failure — so the HR reaches Ready without ANY external plugin download.
+version: 0.4.18
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

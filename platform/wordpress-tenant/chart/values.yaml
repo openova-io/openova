@@ -347,6 +347,32 @@ oidc:
     author: "author"
     contributor: "contributor"
     subscriber: "subscriber"
+  # ── openid-connect-generic plugin source (Refs #4322) ────────────────
+  # The post-install `oidc-config` Job (templates/oidc-config-job.yaml)
+  # must NOT shell out to `wp plugin install openid-connect-generic`,
+  # which fetches the plugin zip from wordpress.org over egress and
+  # hangs the hook (→ HelmRelease Ready=False) on an air-gapped or
+  # slow-egress Sovereign. Instead the Job VENDORS the plugin from a
+  # pinned GitHub release archive into its ephemeral wp-content, exactly
+  # the way the pg4wp db.php drop-in is already seeded — a deterministic,
+  # version-pinned source per docs/INVIOLABLE-PRINCIPLES.md #4.
+  #
+  # `repo`     — `<owner>/<name>` on GitHub. The official upstream is
+  #              oidc-wp/openid-connect-generic (the same code wordpress.org
+  #              redistributes).
+  # `version`  — release tag. GitHub archives extract to
+  #              `<name>-<version>` (tags here are UN-prefixed, unlike
+  #              pg4wp's `v3.3.1`), so the Job copies from
+  #              `openid-connect-generic-<version>/`.
+  #
+  # If the GitHub vendor fetch fails (fully air-gapped, no egress), the
+  # Job LOGS and CONTINUES rather than failing the release — the OIDC
+  # settings it writes live in Postgres, and the runtime Deployment's
+  # wp-plugin-install initContainer seeds the actual plugin files onto
+  # the persistent wp-content PVC, so the release still reaches Ready.
+  plugin:
+    repo: "oidc-wp/openid-connect-generic"
+    version: "3.11.3"
   # `wp-cli` image (canonical wp-cli release). Used by the post-
   # install Job to run `wp plugin install --activate` + `wp option
   # update`. Pinned to a SemVer tag + manifest-list digest per
