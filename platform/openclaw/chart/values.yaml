@@ -270,6 +270,12 @@ httpRoute:
 #   - Cilium Gateway Envoy (`ingress` entity) + kubelet probe (`host` /
 #     `remote-node` entities) — admitted by the CNP, NOT the K8s NP
 #     (#4272 — reserved entities are not Pod-selectable).
+# Controller egress (reserved-entity, CNP-only):
+#   - in-cluster Kubernetes API (`kube-apiserver` entity, 10.96.0.1:443) —
+#     the pod-reaper hop; the K8s NP kube-system :443 rule does NOT match the
+#     apiserver entity, so it MUST be admitted by the CNP toEntities carve-out
+#     (#4272 — else `reaper: list pods 10.96.0.1:443 context deadline exceeded`
+#     keeps the controller 0/1, beyond the #4300 public-host JWKS :443 fix).
 # Per-user pods receive their NetworkPolicy from a controller-rendered
 # template at session-start, NOT from this chart.
 networkPolicy:
@@ -290,6 +296,32 @@ networkPolicy:
       - ingress
       - host
       - remote-node
+  # Reserved-ENTITY EGRESS (#4272). The controller's pod-reaper + every
+  # apiserver call (list/create/delete per-user pods, get/list Secrets) dials
+  # the in-cluster Kubernetes API at the `kubernetes.default` ClusterIP
+  # (10.96.0.1:443). Cilium classifies that destination as the reserved
+  # `kube-apiserver` ENTITY — no K8s NetworkPolicy selector can express it
+  # (even ipBlock 0.0.0.0/0 EXCLUDES it), so the K8s NP's kube-system :443
+  # rule does NOT admit it → `reaper: list pods 10.96.0.1:443 context deadline
+  # exceeded` → the controller never becomes Ready (0/1). The companion CNP
+  # opens this hop additively. #4300 fixed the public-host JWKS :443 egress
+  # but left this in-cluster-API hop denied — this knob closes that gap.
+  egress:
+    # Emit the CiliumNetworkPolicy toEntities egress carve-out for the
+    # apiserver. Default ON (a Sovereign needs it). A non-Cilium overlay can
+    # set this false — the template is also gated on the cilium.io/v2
+    # Capabilities check so it never breaks CRD-less installs.
+    allowApiserverEntity: true
+    # Reserved entities the controller may egress to. `kube-apiserver` is the
+    # canonical entity for the in-cluster API (10.96.0.1:443) on both a k3s
+    # host-process apiserver and a managed cluster.
+    apiserverEntities:
+      - kube-apiserver
+    # Ports the apiserver listens on. 443 is the in-cluster `kubernetes`
+    # Service port; 6443 covers k3s/embedded apiservers fronted directly.
+    apiserverPorts:
+      - "443"
+      - "6443"
   controller:
     ingress:
       # K8s namespace-selector ingress. EMPTY on a Sovereign — the gateway hop
