@@ -119,6 +119,88 @@ func TestParameters_NilParameters(t *testing.T) {
 	}
 }
 
+// objectNoRequiredSchema mirrors the bp-postgres configSchema shape:
+// `type: object` with NO top-level `required` and every property
+// defaulting. `{}` (and an absent parameters block normalised to `{}`)
+// must validate cleanly against it.
+func objectNoRequiredSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"type":    "object",
+		"properties": map[string]interface{}{
+			"enabled": map[string]interface{}{
+				"type":    "boolean",
+				"default": true,
+			},
+			"topology": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"mode": map[string]interface{}{
+						"type": "string",
+						"enum": []interface{}{"singleton", "active-hot-standby"},
+					},
+				},
+			},
+		},
+	}
+}
+
+// TestParameters_TypedNilMap is the #4282 regression: the controller
+// reads `spec.parameters` via `unstructured.NestedMap`, which returns a
+// TYPED-nil `map[string]interface{}` when the key is absent (the live
+// shared-pg-d/shared-pg-e shape — those CRs carry no spec.parameters
+// key at all). A typed-nil map boxed into `interface{}` is NOT `== nil`,
+// so before the fix it slipped past the `!= nil` guard, marshalled to
+// JSON `null`, and the bp-postgres `type: object` schema rejected it as
+// `#: expected object, but got null` on EVERY reconcile — leaving the
+// Application Failed forever. The validator must normalise it to `{}`.
+func TestParameters_TypedNilMap(t *testing.T) {
+	var typedNil map[string]interface{} // typed-nil — NOT an untyped nil
+	rep, err := Parameters(objectNoRequiredSchema(), typedNil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !rep.Valid {
+		t.Fatalf("typed-nil map parameters against an object-no-required "+
+			"schema must validate (normalise to {}); got errors: %v", rep.Errors)
+	}
+	for _, e := range rep.Errors {
+		if strings.Contains(e, "expected object, but got null") {
+			t.Fatalf("regression #4282: typed-nil parameters produced the "+
+				"forbidden null error: %q", e)
+		}
+	}
+}
+
+// TestParameters_TypedNilMap_RequiredStillCaught proves the typed-nil
+// normalisation does NOT silence genuine `required` violations — a
+// typed-nil map against a schema with required fields is still invalid
+// (it validates as `{}`, which is missing the required field).
+func TestParameters_TypedNilMap_RequiredStillCaught(t *testing.T) {
+	var typedNil map[string]interface{}
+	rep, err := Parameters(sampleSchema(), typedNil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rep.Valid {
+		t.Error("typed-nil map against a schema with a required field must " +
+			"still be invalid (normalises to {}, which lacks the required field)")
+	}
+}
+
+// TestParameters_EmptyObject is the positive baseline: an explicit `{}`
+// against the bp-postgres-shaped schema validates (no required fields).
+func TestParameters_EmptyObject(t *testing.T) {
+	rep, err := Parameters(objectNoRequiredSchema(), map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !rep.Valid {
+		t.Errorf("empty object against object-no-required schema must validate; "+
+			"got errors: %v", rep.Errors)
+	}
+}
+
 func TestParameters_MalformedSchema(t *testing.T) {
 	// "type" with an unknown value is rejected by the compiler.
 	bad := map[string]interface{}{

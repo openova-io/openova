@@ -112,7 +112,29 @@ func Parameters(schema interface{}, parameters interface{}) (Report, error) {
 	}
 
 	// Normalise parameters through JSON for the same reason.
-	normalised := parameters
+	//
+	// A nil/absent parameters block is treated as `{}` — an empty
+	// object. This is the canonical shape an Application carries when no
+	// explicit parameters are supplied (every configSchema property
+	// defaults; the engine applies its own defaults). JSON Schema's
+	// `required` keyword still catches any genuinely required-field
+	// omissions, so this is safe.
+	//
+	// CRITICAL (#4282): `parameters != nil` is NOT sufficient to detect
+	// "no parameters". The controller reads `spec.parameters` via
+	// `unstructured.NestedMap`, which — when the key is absent or
+	// explicitly `null` — returns a TYPED-nil `map[string]interface{}`.
+	// A typed-nil map boxed into an `interface{}` is `!= nil` (the
+	// interface carries a non-nil type descriptor), so it slips past the
+	// `!= nil` guard, then `json.Marshal` of a nil map emits `null`, and
+	// the schema rejects it as `#: expected object, but got null`. That
+	// was the live, recurring `shared-pg-d`/`shared-pg-e` failure: those
+	// Application CRs carry no `spec.parameters` key at all, so every
+	// reconcile pass produced this false-Invalid regardless of which
+	// producer wrote the CR. We therefore normalise FIRST, then treat a
+	// post-marshal `nil` (typed-nil map/slice/pointer, or literal null)
+	// as the empty object.
+	var normalised interface{} = map[string]interface{}{}
 	if parameters != nil {
 		paramBytes, err := json.Marshal(parameters)
 		if err != nil {
@@ -122,9 +144,11 @@ func Parameters(schema interface{}, parameters interface{}) (Report, error) {
 		if err := json.Unmarshal(paramBytes, &v); err != nil {
 			return Report{}, fmt.Errorf("validate: unmarshal parameters: %w", err)
 		}
-		normalised = v
-	} else {
-		normalised = map[string]interface{}{}
+		if v != nil {
+			normalised = v
+		}
+		// v == nil here means `parameters` was a typed-nil map/slice/
+		// pointer that marshalled to JSON null → keep the `{}` default.
 	}
 
 	if err := compiled.Validate(normalised); err != nil {
