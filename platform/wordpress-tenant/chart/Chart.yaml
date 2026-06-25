@@ -222,6 +222,11 @@ name: bp-wordpress-tenant
 #   live on the tkt0625 fresh Org (omantel.biz region-a, 2026-06-25): the live
 #   oidc-config pod logged exactly `[oidc-config] seeding pg4wp db.php drop-in
 #   (Postgres adapter)` then `curl: (22) ... error: 404`; `v3.3.1.zip` returns 200.
+# 0.4.19 (Refs #4212): placementSchema aligned with spec.topology (Seam 4) —
+#   modes[] now admit single-region/singleton/active-passive +
+#   defaultOnMultiRegion=active-passive so a multi-region Sovereign's per-Org
+#   WordPress resolves to primary+standby and the per-app Continuum producer
+#   mints the per-Org Continuum CR (was singleton → no standby → no CR).
 # 0.4.18 (Refs #4322): FIX the oidc-config hook Job TIMEOUT that left a FRESH
 #   Org's HelmRelease Ready=False even though the WordPress Pod was 1/1 Running
 #   serving HTTP 302 (the #4323 pg4wp fix above is validated at Pod level). After
@@ -249,7 +254,7 @@ name: bp-wordpress-tenant
 #   tests/oidc-config.sh Case 8 asserts the Job has no `wp plugin install`, never
 #   references wordpress.org, vendors from the pinned GitHub tag, and tolerates a
 #   fetch failure — so the HR reaches Ready without ANY external plugin download.
-version: 0.4.18
+version: 0.4.19
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

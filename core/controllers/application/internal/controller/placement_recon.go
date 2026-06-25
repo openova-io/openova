@@ -228,6 +228,49 @@ func observedTargetsFromPlan(
 	return out
 }
 
+// effectivePlacementTargets returns the placement targets the #3969
+// read-model (backing-service cascade + observed-target rollup) should ride
+// on. When the Application declares explicit desired-state targets
+// (spec.placement.targets[]) they win verbatim. Otherwise — the legacy
+// string-mode case, which is what the spine producer stamps
+// (active-passive / active-hot-standby / singleton) AND every pre-#3969
+// Application — we DERIVE the targets from the already-resolved placement
+// plan (placementTargetsFromPlan), so the cascade + the observed rollup
+// "ride on Seam 3" instead of seeing an empty target list. This is the
+// thread the EPIC calls for: spine CRs carry a legacy placement string, but
+// the consumer placement reaching backingservice.Input.Targets is the real
+// primary+standby target set, region-matched.
+func effectivePlacementTargets(declared []bpv1alpha1.PlacementTarget, plan placement.Plan) []bpv1alpha1.PlacementTarget {
+	if len(declared) > 0 {
+		return declared
+	}
+	return placementTargetsFromPlan(plan)
+}
+
+// placementTargetsFromPlan derives the canonical desired-state target list
+// from a resolved placement plan. regions[0] (or the plan's PrimaryRegion)
+// is Primary; the standby regions are Standby/Hot (the plan does not encode
+// hot-vs-cold — the #3698 fan-out treats both as replicas:0 standbys — so we
+// surface Hot, the conservative DR posture the Topology tab renders). An
+// active-active plan (no PrimaryRegion, every region Active) yields all
+// Primary targets. Cluster is left empty: the legacy plan carries only the
+// region name; the read-model keys off region + role, and a downstream
+// consumer that needs the cluster reads it from the fan-out HR labels.
+func placementTargetsFromPlan(plan placement.Plan) []bpv1alpha1.PlacementTarget {
+	out := make([]bpv1alpha1.PlacementTarget, 0, len(plan.Regions))
+	for _, rp := range plan.Regions {
+		t := bpv1alpha1.PlacementTarget{Region: rp.Name}
+		if rp.Standby || rp.Role == placement.RoleStandby {
+			t.Role = bpv1alpha1.DataRoleStandby
+			t.StandbyType = bpv1alpha1.StandbyHot
+		} else {
+			t.Role = bpv1alpha1.DataRolePrimary
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 // regionReadback is the per-region readiness signal the controller already
 // derives from the per-region HelmRelease, projected into the recon
 // rollup.

@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.51  # lockstep with chart/Chart.yaml (#3888 prov-time openbao KV-seed mechanism for evicting inline cloud-init Secrets to Flux ExternalSecrets)
+  version: 1.2.52  # lockstep with chart/Chart.yaml (#3888 prov-time openbao KV-seed mechanism for evicting inline cloud-init Secrets to Flux ExternalSecrets)
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
@@ -21,6 +21,21 @@ spec:
   defaultPlacement:
     vcluster: mgmt
   allowedPlacements: [host, mgmt]
+
+  # placementSchema aligned with spec.topology below (#4212 Seam 3). The
+  # application-controller validates an Application's spec.placement against
+  # modes[] (blueprintAllowedModes) and derives the effective default from
+  # default / defaultOnMultiRegion (EffectiveDefault). The spine
+  # Application-CR producer stamps active-passive on a multi-region
+  # Sovereign (matching topology.defaults.multi-region) — modes[] must
+  # admit it AND defaultOnMultiRegion must name it so the placement is
+  # accepted and the Continuum CR is minted.
+  placementSchema:
+    modes: [singleton, active-passive]
+    default: singleton
+    defaultOnMultiRegion: active-passive
+    minRegions: 1
+    maxRegions: 2
 
   manifests:
     chart: ./chart

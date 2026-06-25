@@ -155,7 +155,9 @@ spec:
       # the chart ExternalSecret is suppressed via sso.externalSecret.enabled,
       # not sso.enabled), so the login_source row gets seeded in the mgmt
       # vCluster placement (caught live hw171). Refs #3374 #3642.
-      version: 1.2.40
+      # 1.2.41 — #4212 Seam 3: placementSchema aligned with spec.topology
+      #   (modes[] admit active-hot-standby + defaultOnMultiRegion). Chart bumped in lockstep.
+      version: 1.2.41
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

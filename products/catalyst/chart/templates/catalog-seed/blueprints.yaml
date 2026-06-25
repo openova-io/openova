@@ -74,9 +74,16 @@ spec:
     license: "GPL-2.0-or-later"
     tags: [wordpress, cms, org, organization, sso, keycloak, postgres]
     docs: "https://wordpress.org/documentation/"
+  # placementSchema aligned with spec.topology (#4212 Seam 4) — the
+  # catalog-seed copy the application-controller resolves by name for the
+  # per-Org WordPress install. modes[] must admit active-passive AND
+  # defaultOnMultiRegion must name it so a multi-region Org install resolves
+  # to a primary+standby plan and the generic per-app Continuum producer
+  # mints the per-Org Continuum CR. Mirrors platform/wordpress-tenant/blueprint.yaml.
   placementSchema:
-    modes: [single-region]
+    modes: [single-region, singleton, active-passive]
     default: single-region
+    defaultOnMultiRegion: active-passive
   manifests:
     chart: bp-wordpress-tenant
   source:
@@ -586,9 +593,15 @@ spec:
     license: "Apache-2.0"
     tags: [identity, sso, oidc, saml, iam, keycloak]
     docs: "https://www.keycloak.org/documentation"
+  # placementSchema aligned with spec.topology below (#4212 Seam 3) — the
+  # catalog-seed copy the application-controller resolves by name. modes[]
+  # must admit active-hot-standby AND defaultOnMultiRegion must name it so
+  # the spine producer's explicit multi-region placement is accepted and the
+  # Continuum CR is minted. Mirrors platform/<chart>/blueprint.yaml.
   placementSchema:
-    modes: [single-region]
-    default: single-region
+    modes: [singleton, active-hot-standby]
+    default: singleton
+    defaultOnMultiRegion: active-hot-standby
   manifests:
     chart: bp-keycloak
   source:
@@ -3561,9 +3574,15 @@ spec:
     summary: "Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane."
     description: "Per-Sovereign OCI registry mirroring Catalyst Blueprint OCI artefacts + container images. Keycloak OIDC SSO; blobs in Object Storage, metadata in CNPG."
     icon: "harbor.svg"
+  # placementSchema aligned with spec.topology below (#4212 Seam 3) — the
+  # catalog-seed copy the application-controller resolves by name. modes[]
+  # must admit active-hot-standby AND defaultOnMultiRegion must name it so
+  # the spine producer's explicit multi-region placement is accepted and the
+  # Continuum CR is minted. Mirrors platform/<chart>/blueprint.yaml.
   placementSchema:
-    modes: [single-region]
-    default: single-region
+    modes: [singleton, active-hot-standby]
+    default: singleton
+    defaultOnMultiRegion: active-hot-standby
   manifests:
     chart: bp-harbor
   source:
@@ -3670,9 +3689,16 @@ spec:
     summary: "Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement."
     description: "OpenBao secret backend (Raft per region, async perf-replication across regions). UI + CLI login via the Keycloak OIDC auth method."
     icon: "openbao.svg"
+  # placementSchema aligned with spec.topology below (#4212 Seam 3). This is
+  # the catalog-seed copy the application-controller resolves by name when it
+  # reconciles a spine Application CR — modes[] must admit active-passive AND
+  # defaultOnMultiRegion must name it, else the spine producer's explicit
+  # multi-region placement is rejected (blueprintAllowedModes) and no Continuum
+  # CR is minted. Mirrors platform/openbao/blueprint.yaml.
   placementSchema:
-    modes: [single-region]
-    default: single-region
+    modes: [singleton, active-passive]
+    default: singleton
+    defaultOnMultiRegion: active-passive
   manifests:
     chart: bp-openbao
   source:
@@ -4702,9 +4728,15 @@ spec:
     category: platform
     summary: "Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope."
     icon: gitea.svg
+  # placementSchema aligned with spec.topology below (#4212 Seam 3) — the
+  # catalog-seed copy the application-controller resolves by name. modes[]
+  # must admit active-hot-standby AND defaultOnMultiRegion must name it so
+  # the spine producer's explicit multi-region placement is accepted and the
+  # Continuum CR is minted. Mirrors platform/<chart>/blueprint.yaml.
   placementSchema:
-    modes: [single-region]
-    default: single-region
+    modes: [singleton, active-hot-standby]
+    default: singleton
+    defaultOnMultiRegion: active-hot-standby
   manifests:
     chart: bp-gitea
   source:
