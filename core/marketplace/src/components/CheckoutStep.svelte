@@ -2,7 +2,7 @@
   import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type AddOn } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
-  import { consoleHandoffHref } from '../lib/config';
+  import { consoleHandoffHref, consoleLaunchHref } from '../lib/config';
   import PinInput6 from './PinInput6.svelte';
 
   let cart = $state(readCart());
@@ -221,7 +221,16 @@
     // catalyst-api burns the token into an HttpOnly cookie and 302s to a
     // clean /jobs. NO token/refresh ever lands in the browser address bar
     // after the hop; the refresh token stays in client storage.
-    window.location.href = consoleHandoffHref(tok, refresh, { slug });
+    //
+    // #4273: for a per-Org Sovereign console the host's DNS/TLS/HTTPRoute are
+    // still provisioning at this instant — an immediate cross-host bounce
+    // raced them and landed the FIRST click on NXDOMAIN. `consoleLaunchHref`
+    // routes through the marketplace-origin `/launching` interstitial which
+    // polls the per-Org `/healthz` and only forwards to `/auth/org-handover`
+    // once the host serves a response. The mothership `/nova` console always
+    // resolves, so there `consoleLaunchHref` is a pass-through to the direct
+    // handoff (no extra hop).
+    window.location.href = consoleLaunchHref(tok, refresh, { slug });
   }
 
   async function handleSendCode() {
@@ -507,7 +516,7 @@
         </div>
         {#if provision.status === 'completed'}
           <a
-            href={consoleHandoffHref(
+            href={consoleLaunchHref(
               localStorage.getItem('org-token') || '',
               localStorage.getItem('org-refresh-token') || '',
               { slug: (typeof localStorage !== 'undefined' ? localStorage.getItem('org-active-org-slug') : null) || undefined },

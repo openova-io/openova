@@ -1,7 +1,7 @@
 <script lang="ts">
   import { readCart, cartItemCount, type CartState } from '../lib/cart';
   import { getMe, logout as apiLogout, AUTH_CHANGED_EVENT, type User } from '../lib/api';
-  import { consoleHref, consoleHandoffHref } from '../lib/config';
+  import { consoleHref, consoleLaunchHref } from '../lib/config';
 
   let { currentStep = 0 }: { currentStep?: number } = $props();
 
@@ -117,7 +117,11 @@
     if (!t) return consoleHref();
     // #4182/#4186: secure server-side handoff — no token/refresh in the URL
     // after the hop (catalyst-api burns the token into an HttpOnly cookie).
-    return consoleHandoffHref(t, r);
+    // #4273: route a per-Org Sovereign console through the marketplace-origin
+    // `/launching` interstitial so a customer clicking "Console" right after
+    // signup (host DNS/TLS still provisioning) sees a "Setting up…" state
+    // instead of a raw NXDOMAIN. Mothership `/nova` passes straight through.
+    return consoleLaunchHref(t, r);
   }
 </script>
 

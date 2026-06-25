@@ -276,5 +276,60 @@ export const consoleHandoffHref = (
   return `${base}/auth/org-handover?token=${encodeURIComponent(token)}`;
 };
 
+/**
+ * #4273 — gate the post-checkout redirect on per-Org host readiness.
+ *
+ * The per-Org console host (`console.<slug>.<sov-fqdn>`) is provisioned
+ * ASYNCHRONOUSLY by the organization-controller AFTER the Org CR is created:
+ * pool-DNS A-record (#4236), per-Org TLS cert (#4241/#4242), and the HTTPRoute
+ * on `cilium-gateway-console` all land over seconds-to-minutes. The route maps
+ * `GET /healthz` to catalyst-api (see organization/internal/controller/
+ * tenant_route.go), so a reachable `https://<consoleHost>/healthz` is the
+ * canonical "this host now resolves, serves TLS, AND has its console route"
+ * signal — the exact precondition the `/auth/org-handover` redirect needs.
+ *
+ * This replaces the IMMEDIATE cross-host bounce to `console.<slug>.<sov-fqdn>/
+ * auth/org-handover` (which raced that async provisioning and landed the
+ * customer's FIRST click on ERR_NAME_NOT_RESOLVED, negative-cached for the
+ * 300s pool-zone SOA minimum). Instead the marketplace navigates to a
+ * provisioning interstitial served from the marketplace origin — a host that
+ * ALWAYS resolves — at `<BASE>launching?host=<consoleHost>&token=<jwt>&next=
+ * <path>`. The `/launching` page (LaunchingStep.svelte) shows a branded
+ * "Setting up your console…" state, polls the per-Org `/healthz` with backoff
+ * (NXDOMAIN / TLS-handshake / connection-refused all tolerated as "still
+ * provisioning"), and only forwards to the real `/auth/org-handover` once the
+ * host serves a response.
+ *
+ * For the mothership `/nova` console (which has no per-Org async provisioning
+ * — the host is always live) the direct `consoleHandoffHref` shape is kept:
+ * there is nothing to wait for, so an interstitial would only add a hop.
+ *
+ * The token is passed THROUGH the interstitial unchanged and handed to the
+ * existing secure `/auth/org-handover` endpoint at the end of the wait, so the
+ * #4182/#4186 contract (token burned into an HttpOnly cookie server-side, no
+ * bearer in the final address bar) is preserved. The refresh token is NEVER
+ * placed in any URL — it stays in client storage.
+ *
+ * Pass `opts.slug` to override the active-org-slug read from localStorage.
+ */
+export const consoleLaunchHref = (
+  token: string,
+  refreshToken?: string | null,
+  opts?: { slug?: string | null; next?: string },
+): string => {
+  const base = opts && opts.slug !== undefined
+    ? deriveConsoleURL(opts.slug)
+    : CONSOLE_URL;
+  const next = (opts && opts.next) || '/jobs';
+  // Mothership console always resolves — keep the direct handoff (no wait).
+  if (base.includes('/nova')) {
+    return consoleHandoffHref(token, refreshToken, opts);
+  }
+  // Sovereign per-Org (or operator) console — route through the marketplace-
+  // origin interstitial that waits for the host to be reachable.
+  const params = new URLSearchParams({ host: base, token, next });
+  return `${BASE}launching?${params.toString()}`;
+};
+
 /** Prepend base to an internal marketplace route (strip leading '/'). */
 export const path = (p: string): string => `${BASE}${p.replace(/^\//, '')}`;
