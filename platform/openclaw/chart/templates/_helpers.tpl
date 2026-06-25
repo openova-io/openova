@@ -195,8 +195,11 @@ HelmRelease.
 {{- if eq .Values.tenant.namespace "sme-example" }}
 {{- fail "tenant.namespace is still the placeholder — overlay must supply the SME tenant namespace" }}
 {{- end }}
-{{- if eq .Values.ingress.host "openclaw.example.local" }}
-{{- fail "ingress.host is still the placeholder — overlay must supply the controller public hostname" }}
+{{- /* #4272: ingress.host only matters when the traefik Ingress is rendered.
+       On a Sovereign the public exposure is httpRoute.hostnames (Cilium Gateway)
+       and ingress.enabled is false, so the placeholder host is harmless. */}}
+{{- if and .Values.ingress.enabled (eq .Values.ingress.host "openclaw.example.local") }}
+{{- fail "ingress.host is still the placeholder — overlay must supply the controller public hostname (or use httpRoute.hostnames on a Cilium-Gateway Sovereign)" }}
 {{- end }}
 {{- end }}
 {{- end }}
