@@ -184,7 +184,9 @@ spec:
       # 0.3.10 (#3189): topology source drift fix —
       # switchover.mechanism leader-election → bp-continuum (valid CRD
       # enum) + non-empty metrics hostnameTemplate; matches catalog-seed.
-      version: 0.3.10
+      # 0.3.11 (#4375): topology placement.tier rtz → '' (host-native)
+      # post-#4325 de-vcluster — lockstep with the chart + blueprint bump.
+      version: 0.3.11
       sourceRef:
         kind: HelmRepository
         name: bp-sandbox
