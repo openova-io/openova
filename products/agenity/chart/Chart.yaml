@@ -8,6 +8,17 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.11 -> 0.5.12 (#4362, #4325 fallout): declare manifests.helmRelease.
+# disableWait=true so the application-controller stamps install.disableWait +
+# upgrade.disableWait on the rendered HR. The large agenity image (appVersion
+# 0.9.7) cold-pulls slowly on a fresh Org node; with Flux's default --wait the
+# helm install times out waiting for the Pod, helm-controller UNINSTALLS the
+# release (deleting the StatefulSet + Pod) and retries — restarting the image
+# pull from zero every cycle, so the Pod never converges (live on the
+# omantel.biz demo Org post-#4325). disableWait lets the release reach Released
+# so the StatefulSet survives and the Pod finishes pulling on its own schedule;
+# the dashboard SPA has zero dependsOn so nothing needs the readiness gate.
+# blueprint-metadata-only; chart TEMPLATES + appVersion image UNCHANGED.
 # 0.5.10 -> 0.5.11 (#4362, #4325 fallout): set the chepherd container
 # resources requests == limits (Guaranteed QoS, 1:1 ratio). Once #4325 moved
 # agenity host-native into the per-Org namespace (above), the namespace's plan
@@ -97,7 +108,7 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.11
+version: 0.5.12
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752

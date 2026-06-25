@@ -6569,8 +6569,8 @@ spec:
 # with the built-in solo agent (Claude Opus 4.7, token pre-configured), and
 # the agent creates more Applications in the User's Org via the RBAC-scoped
 # openova MCP. The north-star self-service journey (UAT rows 218-223).
-# Lockstep with products/agenity/chart/Chart.yaml version 0.5.11 + the
-# published chart ghcr.io/openova-io/bp-agenity:0.5.11 (appVersion 0.9.7 — the
+# Lockstep with products/agenity/chart/Chart.yaml version 0.5.12 + the
+# published chart ghcr.io/openova-io/bp-agenity:0.5.12 (appVersion 0.9.7 — the
 # image whose /app mounts the WORKSPACES dashboard rather than the archaic
 # single-column one, built from agenity#752, #4180). 0.5.10 (#4362, #4325
 # fallout) flips the topology singleton placement.tier `rtz` -> '' (host-native)
@@ -6599,7 +6599,7 @@ metadata:
   annotations:
     helm.sh/resource-policy: keep
 spec:
-  version: "0.5.11"
+  version: "0.5.12"
   visibility: listed
   card:
     title: "Agenity"
@@ -6616,12 +6616,20 @@ spec:
     default: single-region
   manifests:
     chart: bp-agenity
+    helmRelease:
+      # disableWait — the large agenity image (appVersion 0.9.7) cold-pulls
+      # slowly on a fresh Org node; without this the helm install times out
+      # waiting for the Pod, helm-controller uninstalls + retries, and the
+      # image pull restarts from zero every cycle so the Pod never converges
+      # (live on the omantel.biz demo Org post-#4325, #4362). Lockstep with
+      # products/agenity/blueprint.yaml.
+      disableWait: true
   source:
     kind: HelmRepository
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.11
+    version: 0.5.12
   topology:
     supported:
       - singleton

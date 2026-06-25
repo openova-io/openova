@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.5.11
+  version: 0.5.12
   card:
     title: Agenity
     summary: |
@@ -109,6 +109,19 @@ spec:
     default: single-region
   manifests:
     chart: ./chart
+    helmRelease:
+      # disableWait — do NOT block the helm install on workload (pod)
+      # readiness. The agenity image (chepherd + claude-code + node runtime,
+      # appVersion 0.9.7) is large and cold-pulls slowly on a fresh Org node;
+      # with Flux's default --wait the install burns its timeout waiting for
+      # the Pod, then helm-controller UNINSTALLS the release (deleting the
+      # StatefulSet + Pod) and retries — restarting the image pull from zero
+      # every cycle, so the Pod never converges (live on the omantel.biz demo
+      # Org post-#4325, #4362). disableWait lets the release reach Released so
+      # the StatefulSet survives and the Pod finishes pulling on its own
+      # schedule. The dashboard SPA has zero dependsOn (it must serve while
+      # keycloak/cnpg converge), so nothing downstream needs the readiness gate.
+      disableWait: true
   depends:
     - blueprint: bp-external-secrets
       version: ^1.0
