@@ -3155,7 +3155,7 @@ name: bp-catalyst-platform
 #   INGRESS entry → `guacamole` (bp-guacamole re-homed to its own host ns by
 #   #4325; the guacamole webapp→guacamole-pg:5432 path needs it). Config-default-
 #   only change; no new bootstrap state. Refs #4388 #4325 #4291 #4293.
-version: 1.4.860
+version: 1.4.861
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
