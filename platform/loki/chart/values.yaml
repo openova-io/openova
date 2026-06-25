@@ -44,11 +44,35 @@ loki:
         ruler: ruler
         admin: admin
     # Pin upstream image — DO NOT use floating tags.
+    # #4347 — route through the Sovereign-local Harbor proxy-cache so the
+    # host-ns Kyverno `harbor-proxy-pull` Enforce ClusterPolicy admits it
+    # (after #4325 moved bp-loki into a native host namespace). The raw
+    # `docker.io/grafana/loki` matches neither allowed glob.
     image:
-      registry: docker.io
-      repository: grafana/loki
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/grafana/loki
       tag: "3.6.7"
       pullPolicy: IfNotPresent
+
+    # #4347 — ENABLE the Loki pod livenessProbe. The upstream chart ships
+    # `loki.readinessProbe` (httpGet /ready) populated but `loki.livenessProbe:
+    # {}` (empty) → the SingleBinary StatefulSet rendered a readinessProbe but
+    # NO livenessProbe → the host-ns Kyverno `probes-present` Enforce
+    # ClusterPolicy (requires BOTH on every container, after #4325) would DENY
+    # it. NOTE the key lives at loki.loki.livenessProbe: the subchart is named
+    # `loki`, so the parent's `loki:` map IS the subchart's `.Values`, and the
+    # statefulset reads `.Values.loki.livenessProbe` — i.e. parent
+    # `loki.loki.livenessProbe`. Mirror the readiness httpGet against /ready;
+    # generous initial delay so WAL replay / compaction startup settles first.
+    livenessProbe:
+      httpGet:
+        path: /ready
+        port: http-metrics
+      initialDelaySeconds: 60
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 5
+      successThreshold: 1
 
   # SingleBinary StatefulSet — 1 replica, 10Gi PVC for chunks + index.
   singleBinary:
@@ -73,6 +97,13 @@ loki:
   # de-vcluster migration it installs into the native host namespace and the
   # StatefulSet admission is DENIED. Modest request for the light k8s watcher.
   sidecar:
+    # #4347 — proxy the kiwigrid/k8s-sidecar image through the Sovereign-local
+    # Harbor so the host-ns `harbor-proxy-pull` Enforce policy admits it
+    # (`docker.io/kiwigrid/k8s-sidecar` matches no allowed glob). Mirror the
+    # grafana sidecar's proxy-dockerhub convention.
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/kiwigrid/k8s-sidecar
     resources:
       requests:
         cpu: 10m
@@ -80,6 +111,32 @@ loki:
       limits:
         cpu: 50m
         memory: 64Mi
+    # #4347 — the loki-sc-rules sidecar (kiwigrid/k8s-sidecar) had NO probes →
+    # the host-ns Kyverno `probes-present` Enforce policy denies the StatefulSet.
+    # The sidecar serves no HTTP health port, so both probes are EXEC checks
+    # confirming PID 1 is still the python sidecar process (a crashed/replaced
+    # PID 1 fails the grep). /proc/1/cmdline is null-separated; grep -q matches
+    # the `python` / `sidecar` substring on the python-slim base image.
+    livenessProbe:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - 'grep -aq -e python -e sidecar /proc/1/cmdline'
+      initialDelaySeconds: 15
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readinessProbe:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - 'grep -aq -e python -e sidecar /proc/1/cmdline'
+      initialDelaySeconds: 5
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
 
   # SimpleScalable / Distributed pools — DEFAULT 0 replicas. Per-Sovereign
   # overlays bump these (and flip `deploymentMode`) when scaling out.

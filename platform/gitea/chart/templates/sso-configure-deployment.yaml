@@ -151,7 +151,25 @@ data:
     log "bp-gitea sso-configure starting; interval=${INTERVAL_SECONDS}s"
     log "  AUTH_NAME=${AUTH_NAME} ADMIN_GROUP=${ADMIN_GROUP} GITEA_NAMESPACE=${GITEA_NAMESPACE} POD_SELECTOR=${POD_SELECTOR}"
 
+    # #4347 — liveness/readiness heartbeat sentinel. This continuous
+    # reconciler has NO serving port, so the Pod's livenessProbe /
+    # readinessProbe (required by the host-ns Kyverno `probes-present`
+    # Enforce ClusterPolicy after the #4325 de-vcluster re-homed bp-gitea
+    # into a host namespace) exec a freshness check against this file. We
+    # `touch` it on startup (so the readiness probe passes as soon as the
+    # loop is up) and re-touch it at the top of every tick; the probe
+    # `[ -f ]`-checks it exists and tests freshness so a wedged loop (no
+    # tick within a few intervals) flips the probe to failing and kubelet
+    # restarts the Pod. Lives under the writable /tmp emptyDir
+    # (readOnlyRootFilesystem: true on the container).
+    HEARTBEAT_FILE=/tmp/sso-configure-heartbeat
+    touch "${HEARTBEAT_FILE}"
+
     while true; do
+      # Re-touch the heartbeat at the top of each iteration so a healthy
+      # loop keeps the sentinel fresh; a wedged/blocked loop lets it age
+      # out and the liveness probe restarts the Pod (#4347).
+      touch "${HEARTBEAT_FILE}"
       sleep "${INTERVAL_SECONDS}"
 
       # Read the OAuth client creds from the MOUNTED Secret each tick (not
@@ -323,6 +341,41 @@ spec:
             limits:
               cpu: "200m"
               memory: "128Mi"
+          # #4347 — liveness + readiness probes (required by the host-ns
+          # Kyverno `probes-present` Enforce ClusterPolicy after #4325 moved
+          # bp-gitea into a native host namespace). This reconciler has NO
+          # serving port, so both probes are EXEC checks against the
+          # /tmp/sso-configure-heartbeat sentinel the loop re-touches each
+          # tick.
+          #   readiness: the file merely EXISTS — goes green as soon as the
+          #     loop's startup `touch` lands (well within the loop's first
+          #     sub-second), gating nothing downstream (this Deployment has no
+          #     Service) but satisfying the policy with a real signal.
+          #   liveness: the file was modified within the last 5 minutes — a
+          #     wedged loop (no tick within ~5× the default 60s interval) lets
+          #     it age out and kubelet restarts the Pod. `find -mmin -5`
+          #     prints the path when fresh (exit 0) and nothing when stale,
+          #     so `[ -n "$(...)" ]` is the freshness gate.
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'test -f /tmp/sso-configure-heartbeat'
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - '[ -n "$(find /tmp/sso-configure-heartbeat -mmin -5 2>/dev/null)" ]'
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: script
               mountPath: /etc/gitea-sso

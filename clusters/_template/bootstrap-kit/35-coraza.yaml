@@ -77,7 +77,11 @@ spec:
   chart:
     spec:
       chart: bp-coraza
-      version: 1.0.0
+      # 1.0.1 — #4347: coraza-spoa tcpSocket liveness/readiness probes +
+      #   harbor-proxy image source so it clears the host-ns Kyverno
+      #   probes-present + harbor-proxy-pull Enforce policies (post-#4325).
+      #   Refs #4347 #4325.
+      version: 1.0.1
       sourceRef:
         kind: HelmRepository
         name: bp-coraza

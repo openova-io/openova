@@ -103,7 +103,9 @@ spec:
   chart:
     spec:
       chart: bp-tempo
-      version: 1.0.0
+      # 1.0.1 — #4347: harbor-proxy the Tempo image so it clears the host-ns
+      #   Kyverno harbor-proxy-pull Enforce policy (post-#4325). Refs #4347 #4325.
+      version: 1.0.1
       sourceRef:
         kind: HelmRepository
         name: bp-tempo

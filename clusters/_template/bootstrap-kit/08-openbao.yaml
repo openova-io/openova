@@ -135,7 +135,11 @@ spec:
       #   (modes[] admit active-passive + defaultOnMultiRegion). Chart bumped in lockstep.
       # 1.2.53 — #4343: injector.resources.requests so the agent-injector clears
       #   the host-ns Kyverno resource-requests Enforce policy (post-#4325).
-      version: 1.2.53
+      # 1.2.54 — #4347: probes-present compliance — sso-configure liveness/
+      #   readiness EXEC probes + server.livenessProbe ENABLED (sealed-tolerant)
+      #   so the StatefulSet + sso-configure Deployment clear the host-ns Kyverno
+      #   probes-present Enforce policy (post-#4325). Refs #4347 #4325.
+      version: 1.2.54
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

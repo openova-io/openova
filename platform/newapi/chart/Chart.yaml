@@ -887,7 +887,13 @@ name: bp-newapi
 #   (cnpg.enabled=false) is unaffected — that path mirrors the DSN host→vc.
 #   Lockstep: 80-newapi.yaml + 80a-newapi-host-seams.yaml pins + blueprint.yaml
 #   → 1.4.128.
-version: 1.4.129
+# 1.4.130 (#4347): route the channel-seed post-install/post-upgrade hook Job's
+#   curl image through the Sovereign-local Harbor proxy-cache
+#   (`harbor.openova.io/proxy-dockerhub/curlimages/curl`) so the host-ns Kyverno
+#   `harbor-proxy-pull` Enforce policy admits it on every reconcile (the sibling
+#   db-dsn-sync Job already proxied it; channel-seed was the lone raw
+#   docker.io/curlimages/curl). Refs #4347 #4325.
+version: 1.4.130
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

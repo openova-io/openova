@@ -101,7 +101,20 @@ data:
     log "  OIDC_ADMIN_GROUP=${OIDC_ADMIN_GROUP}"
     log "  INTERVAL_SECONDS=${INTERVAL_SECONDS}"
 
+    # #4347 — liveness/readiness heartbeat sentinel. This continuous reconciler
+    # has NO serving port, so the Pod's livenessProbe / readinessProbe (required
+    # by the host-ns Kyverno `probes-present` Enforce ClusterPolicy after the
+    # #4325 de-vcluster re-homed bp-harbor into a host namespace) exec a
+    # freshness check against this file. Touched on startup (readiness green)
+    # and re-touched every tick; a wedged loop ages it out → liveness restart.
+    # Lives under the writable /tmp emptyDir (readOnlyRootFilesystem: true).
+    HEARTBEAT_FILE=/tmp/sso-configure-heartbeat
+    touch "${HEARTBEAT_FILE}"
+
     while true; do
+      # Re-touch the heartbeat each iteration so a healthy loop keeps the
+      # sentinel fresh; a wedged loop lets it age out → liveness restart (#4347).
+      touch "${HEARTBEAT_FILE}"
       sleep "${INTERVAL_SECONDS}"
 
       # 1) harbor-core reachable?
@@ -256,6 +269,33 @@ spec:
             limits:
               cpu: "200m"
               memory: "128Mi"
+          # #4347 — liveness + readiness EXEC probes (required by the host-ns
+          # Kyverno `probes-present` Enforce ClusterPolicy after #4325 moved
+          # bp-harbor into a native host namespace). This reconciler has NO
+          # serving port, so both probes check the /tmp/sso-configure-heartbeat
+          # sentinel the loop re-touches each tick: readiness = file exists,
+          # liveness = file modified within the last 5 minutes (wedged loop →
+          # kubelet restart).
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'test -f /tmp/sso-configure-heartbeat'
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - '[ -n "$(find /tmp/sso-configure-heartbeat -mmin -5 2>/dev/null)" ]'
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: script
               mountPath: /etc/harbor-sso

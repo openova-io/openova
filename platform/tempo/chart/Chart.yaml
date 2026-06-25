@@ -14,7 +14,13 @@ description: |
   dependency by republishing this chart with a different `dependencies:`
   entry.
 type: application
-version: 1.0.0
+# 1.0.1 (#4347): route the Tempo image through the Sovereign-local Harbor
+#   proxy-cache (`harbor.openova.io/proxy-dockerhub/grafana/tempo`) so the
+#   host-ns Kyverno `harbor-proxy-pull` Enforce policy admits the Tempo
+#   StatefulSet after #4325 re-homed bp-tempo into the native host ns `tempo`.
+#   The upstream chart already ships both probes. Adds
+#   tests/kyverno-probes-present.sh. Refs #4347 #4325.
+version: 1.0.1
 appVersion: "2.9.0"
 keywords: [catalyst, blueprint, tempo, observability, traces]
 maintainers:

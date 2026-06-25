@@ -172,7 +172,13 @@ name: bp-openbao
 # Both default-OFF for host-side openbao (XCR off) → byte-identical render.
 # Verified GREEN live hw167 2026-06-19: bao.<fqdn>/ui/ → /sso/landing → lands
 # /ui/vault/secrets (sso-zero-click-probe openbao row GREEN). Pin in lockstep.
-version: 1.2.53
+# 1.2.54 (#4347): probes-present compliance for the host-ns Kyverno Enforce
+#   ClusterPolicy (after #4325 de-vcluster). (a) openbao-sso-configure
+#   Deployment gains liveness + readiness EXEC probes (heartbeat sentinel);
+#   (b) server.livenessProbe ENABLED (sealed-tolerant httpGet) — upstream
+#   shipped readiness-only, so the StatefulSet had no livenessProbe. Adds
+#   tests/kyverno-probes-present.sh. Refs #4347 #4325.
+version: 1.2.54
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

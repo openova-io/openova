@@ -170,6 +170,33 @@ grafana:
       limits:
         cpu: 100m
         memory: 192Mi
+    # #4347 — the dashboard + datasource sidecars (kiwigrid/k8s-sidecar) had NO
+    # probes → the host-ns Kyverno `probes-present` Enforce policy denies the
+    # grafana Pod (after #4325 re-homed bp-grafana into a native host
+    # namespace). The sidecar serves no HTTP health port, so both probes are
+    # EXEC checks confirming PID 1 is still the python sidecar process (a
+    # crashed/replaced PID 1 fails the grep). /proc/1/cmdline is null-separated;
+    # `grep -aq` matches the python/sidecar substring on the python-slim base.
+    livenessProbe:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - 'grep -aq -e python -e sidecar /proc/1/cmdline'
+      initialDelaySeconds: 15
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readinessProbe:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - 'grep -aq -e python -e sidecar /proc/1/cmdline'
+      initialDelaySeconds: 5
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
     datasources:
       enabled: true
       label: grafana_datasource

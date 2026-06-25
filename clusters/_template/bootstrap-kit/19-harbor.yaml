@@ -212,7 +212,10 @@ spec:
       #   (modes[] admit active-hot-standby + defaultOnMultiRegion). Chart bumped in lockstep.
       # 1.2.38 — #4343: nginx.resources.requests so harbor-nginx clears the
       #   host-ns Kyverno resource-requests Enforce policy (post-#4325).
-      version: 1.2.38
+      # 1.2.39 — #4347: harbor-sso-configure liveness/readiness EXEC probes so
+      #   it clears the host-ns Kyverno probes-present Enforce policy (post-#4325).
+      #   Refs #4347 #4325.
+      version: 1.2.39
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

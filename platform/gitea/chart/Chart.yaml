@@ -153,7 +153,12 @@ name: bp-gitea
 # IN the vCluster and seeds the row (its creds cross in via bp-mgmt-vcluster
 # sync.fromHost). Non-host-bridged render is byte-identical. Refs #3374 #3642.
 # 1.2.40 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 1.2.41
+# 1.2.42 (#4347): gitea-sso-configure Deployment gains liveness + readiness EXEC
+#   probes (heartbeat sentinel) so the host-ns Kyverno `probes-present` Enforce
+#   ClusterPolicy admits it — after #4325 de-vcluster re-homed bp-gitea into a
+#   native host namespace where the cluster-wide Enforce policies apply. Adds
+#   tests/kyverno-probes-present.sh (CI gate). Refs #4347 #4325 #4340.
+version: 1.2.42
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

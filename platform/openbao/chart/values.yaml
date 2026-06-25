@@ -42,6 +42,28 @@ openbao:
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { memory: 512Mi }
+    # #4347 — ENABLE the server livenessProbe. The upstream openbao subchart
+    # ships `server.readinessProbe.enabled: true` but `server.livenessProbe.
+    # enabled: false` (liveness off by default), so the rendered StatefulSet had
+    # a readinessProbe but NO livenessProbe → the host-ns Kyverno
+    # `probes-present` Enforce ClusterPolicy (which requires BOTH on every
+    # container, after #4325 re-homed bp-openbao into a native host namespace)
+    # would DENY the StatefulSet on its next roll. Enable the httpGet liveness
+    # against /v1/sys/health with SEALED-TOLERANT query codes: a sealed /
+    # uninitialized / standby node returns 204 (success) so kubelet does NOT
+    # kill a healthy-but-sealed Pod (sealing needs an unseal, not a restart) —
+    # this is exactly why upstream defaults it off; the codes make it safe to
+    # turn on. Initial delay is generous so raft bootstrap + auto-unseal settle
+    # before liveness starts checking.
+    livenessProbe:
+      enabled: true
+      path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204&drsecondarycode=204&performancestandbycode=204"
+      port: 8200
+      initialDelaySeconds: 120
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 5
+      successThreshold: 1
     dataStorage:
       size: 10Gi
   ui:

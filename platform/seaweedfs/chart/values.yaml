@@ -36,7 +36,15 @@ seaweedfs:
     # _helpers.tpl seaweedfs.image renders `printf "%s/%s:%s" registry name tag`.
     # A trailing slash in registry produces a double slash: "chrislusf//seaweedfs:4.22"
     # which is an invalid image reference (issue #568).
-    registry: "chrislusf"
+    # #4347 — route through the Sovereign-local Harbor proxy-cache so the
+    # host-ns Kyverno `harbor-proxy-pull` Enforce ClusterPolicy admits it (after
+    # #4325 re-homed bp-seaweedfs into the native host ns `seaweedfs`). The raw
+    # `chrislusf/seaweedfs` (dockerhub) matches no allowed glob. The registry
+    # field carries the proxy prefix UP TO the chrislusf org segment so the
+    # `printf "%s/%s:%s" registry imageName imageTag` helper composes
+    # `harbor.openova.io/proxy-dockerhub/chrislusf/seaweedfs:4.22` (matches
+    # `*/proxy-*/*`).
+    registry: "harbor.openova.io/proxy-dockerhub/chrislusf"
     repository: ""
     imageName: seaweedfs
     imageTag: "4.22"

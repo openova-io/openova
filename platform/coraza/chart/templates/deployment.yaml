@@ -28,6 +28,26 @@ spec:
             - name: spoa
               containerPort: {{ .Values.coraza.spoaPort }}
               protocol: TCP
+          # #4347 — liveness + readiness probes (required by the host-ns Kyverno
+          # `probes-present` Enforce ClusterPolicy after #4325 moved bp-coraza
+          # into a native host namespace). coraza-spoa is a TCP SPOA (HAProxy
+          # SPOE) server with no HTTP health endpoint, so both probes are
+          # tcpSocket checks against the spoa listener — a bound, accepting
+          # socket is the correct readiness/liveness signal for the WAF agent.
+          readinessProbe:
+            tcpSocket:
+              port: spoa
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: spoa
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.coraza.resources | nindent 12 }}
           securityContext:
