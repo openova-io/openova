@@ -124,6 +124,16 @@ sovereignRealm:
 # value here.
 catalystApiServerClientSecret: ""
 
+# keycloakAdminPasswordOverride: operator-supplied master-realm `admin`
+# password (#2914 / #4344). When set it is the highest-priority source for
+# BOTH the parent-chart `keycloak-admin` Secret (templates/admin-credentials.yaml,
+# wired into the bitnami subchart via keycloak.auth.existingSecret) AND the
+# catalyst-kc-master-admin-credentials Secret bp-sso-bridge consumes. Leave
+# empty for self-bootstrap (lookup-or-generate). Set only when replicating a
+# known admin password from a sealed-secret / external store. Per
+# INVIOLABLE-PRINCIPLES #10 NEVER commit a real value here.
+keycloakAdminPasswordOverride: ""
+
 # ─── SMTP for outbound realm email (welcome / password-reset) (issue #604) ─
 #
 # Pre-handover default: contabo Stalwart relay (cluster-internal FQDN, reachable
@@ -296,6 +306,28 @@ keycloak:
     app.kubernetes.io/managed-by: flux
   auth:
     adminUser: admin
+    # ─── Stable admin password (#4344) ─────────────────────────────────────
+    # Point the bitnami subchart at the parent-chart-owned `keycloak-admin`
+    # Secret (templates/admin-credentials.yaml, lookup-or-generate +
+    # helm.sh/resource-policy: keep) instead of letting the subchart manage
+    # its own `keycloak` Secret. The subchart's `common.secrets.passwords.
+    # manage` regenerates a FRESH random admin-password whenever no prior
+    # same-named Secret exists IN THE INSTALL NAMESPACE — which is exactly
+    # what happens on a topology re-home (the #4325 de-vcluster moved keycloak
+    # from the `mgmt` vCluster into the host `keycloak` ns: brand-new ns, no
+    # prior Secret, fresh random password). Keycloak only honours
+    # KC_BOOTSTRAP_ADMIN_PASSWORD on an EMPTY-DB first boot, so against the
+    # PERSISTENT keycloak DB the master `admin` user kept its ORIGINAL
+    # password → keycloak-config-cli got HTTP 401 → realm import never ran →
+    # bp-keycloak HR never Ready → bp-gitea/bp-catalyst-platform wedged
+    # (#4344, root-caused live omantel.biz kom4dc 2026-06-25). With the
+    # existingSecret pinned to a `keep`-annotated parent Secret the password
+    # is STABLE across reinstall + re-home and can never regenerate.
+    # BOTH the StatefulSet's KC_BOOTSTRAP_ADMIN_PASSWORD and
+    # keycloak-config-cli's KEYCLOAK_PASSWORD read keycloak.secretName/
+    # secretKey → this same Secret, so they stay in lockstep.
+    existingSecret: "keycloak-admin"
+    passwordSecretKey: "admin-password"
   production: true
   # Chart 25.x renamed `proxy: edge` to `proxyHeaders: "xforwarded"`. Catalyst
   # fronts Keycloak with Cilium Gateway (which sets `X-Forwarded-*`), and we

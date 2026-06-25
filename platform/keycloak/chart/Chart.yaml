@@ -1,5 +1,27 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.5.4 (#4344, Refs #4325 #4340, 2026-06-25): STABLE master-realm admin
+# password across HR re-install + topology re-home. The #4325 de-vcluster
+# moved keycloak from the mgmt vCluster into the host `keycloak` namespace
+# and did a FRESH helm install there; the bitnami subchart's
+# `common.secrets.passwords.manage` regenerated a fresh random admin-password
+# (no prior `keycloak` Secret in the brand-new namespace) while the keycloak
+# DB PERSISTS (external CNPG, days old). Keycloak only honours
+# KC_BOOTSTRAP_ADMIN_PASSWORD on an EMPTY-DB first boot, so the master `admin`
+# user kept its ORIGINAL password → keycloak-config-cli got HTTP 401
+# invalid_user_credentials → the sovereign-realm import never ran → bp-keycloak
+# HR never Ready → bp-gitea (gitea-http NXDOMAIN) → every Org GiteaOrgFailed →
+# bp-catalyst-platform never rolled (#4340 org-controller blocked). Root-caused
+# live omantel.biz kom4dc dep 4635277cae4ffed9. Durable fix (mirrors the 1.4.8
+# postgresql-credentials defense): new templates/admin-credentials.yaml
+# materialises a `keycloak-admin` Secret via lookup-or-generate +
+# helm.sh/resource-policy: keep, and values.yaml wires the bitnami subchart at
+# it (keycloak.auth.existingSecret=keycloak-admin + passwordSecretKey=
+# admin-password). BOTH the StatefulSet's KC_BOOTSTRAP_ADMIN_PASSWORD and
+# keycloak-config-cli's KEYCLOAK_PASSWORD read that one stable Secret, so the
+# password can never regenerate or diverge across reinstall/re-home. The
+# master-admin-credentials emission now sources from `keycloak-admin` too. New
+# chart test tests/admin-password-stable.sh locks all of it. Refs #4344 #4325 #4340.
 # 1.4.21 (#3150, 2026-06-09): federated user must inherit ZERO Keycloak
 # required actions on EVERY path. The sovereign realm is passwordless (every
 # user authenticates only through the catalyst-pin OIDC broker) but a fresh
@@ -403,7 +425,7 @@ name: bp-keycloak
 # images pass admission. No chart-content change beyond the version line + this
 # changelog — the 1.4.38 templates/values are byte-identical and already
 # proxy-compliant. Refs #3785 (sibling proxy-class defect for the WP image).
-version: 1.5.3
+version: 1.5.4
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

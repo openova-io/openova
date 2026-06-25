@@ -3083,7 +3083,18 @@ name: bp-catalyst-platform
 #   every secret name stays operator-overridable; external ghcr/upstream sources are
 #   untouched (the guard applies only to the local-Gitea/Harbor host). Clean version tag
 #   forces the Flux re-pull (deploy-bot mutable-tag trap).
-version: 1.4.844
+# 1.4.845 — #4344 (Refs #4325 #4340): the keycloak-credentials host-bridge
+#   (templates/catalyst-keycloak-credentials-host-bridge.yaml) now sources the
+#   master-realm admin password from the STABLE host `keycloak/keycloak-admin`
+#   Secret (minted by bp-keycloak 1.5.4) FIRST, falling back to the legacy
+#   vCluster-syncer-mangled `keycloak-x-keycloak-x-mgmt-vcluster`/`mgmt` lookup
+#   for back-compat. After the #4325 de-vcluster re-homed keycloak into the host
+#   `keycloak` ns, that vCluster-mangled secret no longer exists host-side, so
+#   the bridge was emitting an EMPTY master-realm-admin-password (the seam the
+#   #4344 issue flagged) → bp-sso-bridge could not POST /admin/realms. Pure
+#   lookup-source change; no new bootstrap state. Chart-version bump forces the
+#   Flux re-pull (deploy-bot mutable-tag trap). bootstrap-kit slot-13 lockstep.
+version: 1.4.845
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /

@@ -216,7 +216,17 @@ spec:
       #         harbor-proxy-pull. Chart content byte-identical to 1.4.38.
       # 1.5.3 — #4212 Seam 3: placementSchema aligned with spec.topology
       #   (modes[] admit active-hot-standby + defaultOnMultiRegion). Chart bumped in lockstep.
-      version: 1.5.3
+      # 1.5.4 — #4344 (Refs #4325 #4340): STABLE master-realm admin password. The
+      #   #4325 de-vcluster re-homed keycloak into the host `keycloak` ns with a
+      #   FRESH helm install → the bitnami subchart regenerated the admin-password
+      #   while the keycloak DB persisted → keycloak-config-cli HTTP 401 → realm
+      #   import never ran → bp-keycloak HR not-Ready → bp-gitea/bp-catalyst-platform
+      #   wedged. New templates/admin-credentials.yaml materialises a stable
+      #   `keycloak-admin` Secret (lookup-or-generate + resource-policy: keep) and
+      #   values.yaml wires keycloak.auth.existingSecret=keycloak-admin so the
+      #   password is reused (never regenerated) across reinstall + re-home. Chart
+      #   + blueprint bumped in lockstep.
+      version: 1.5.4
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
