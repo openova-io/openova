@@ -6537,11 +6537,13 @@ spec:
 # with the built-in solo agent (Claude Opus 4.7, token pre-configured), and
 # the agent creates more Applications in the User's Org via the RBAC-scoped
 # openova MCP. The north-star self-service journey (UAT rows 218-223).
-# Lockstep with products/agenity/chart/Chart.yaml version 0.5.7 + the
-# published chart ghcr.io/openova-io/bp-agenity:0.5.7 (appVersion 0.9.7 — the
+# Lockstep with products/agenity/chart/Chart.yaml version 0.5.8 + the
+# published chart ghcr.io/openova-io/bp-agenity:0.5.8 (appVersion 0.9.7 — the
 # image whose /app mounts the WORKSPACES dashboard rather than the archaic
-# single-column one, built from agenity#752, #4180; chart 0.5.7 adds the
-# #4261 expired-OAuth seed detection over 0.5.6). Fresh provs seed THIS pin,
+# single-column one, built from agenity#752, #4180; chart 0.5.8 moves the
+# anthropic ExternalSecret remoteKey to the writable catalyst/anthropic/token
+# path the new catalyst-api producer seeds at Org-create, #4277, over 0.5.7).
+# Fresh provs seed THIS pin,
 # so the chart-version here gates which image a new Sovereign installs — bump
 # in lockstep with the chart on every agenity release. (The per-Org install
 # in organization_gitops.go pins `*` and so auto-resolves the newest published
@@ -6562,7 +6564,7 @@ metadata:
   annotations:
     helm.sh/resource-policy: keep
 spec:
-  version: "0.5.7"
+  version: "0.5.8"
   visibility: listed
   card:
     title: "Agenity"

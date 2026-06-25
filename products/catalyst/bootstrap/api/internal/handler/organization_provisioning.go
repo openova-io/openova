@@ -902,6 +902,21 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		rec.LastError = ""
 		rec.RetryCount = 0
 		rec = persist(rec)
+
+		// #4277 — seed the Sovereign's OpenBao
+		// `secret/catalyst/anthropic/token` so this Org's (and every
+		// Org's — the path is cluster-shared) bp-agenity ExternalSecret
+		// resolves and the spawned claude-code authenticates zero-touch.
+		// The READ side (chart init container + ExternalSecret) was already
+		// wired (#4111); this is the missing producer. Deliberately NOT
+		// gated on success: a credential gap or transient OpenBao blip must
+		// not fail the Org pipeline (the agenity HR still installs; only its
+		// chat-runtime stays offline until the path is seeded). seedAnthropicToken
+		// surfaces the outcome loudly via the catalyst-api log and never
+		// returns an error. Idempotent (PutKVv2 overwrites) so re-running on
+		// every Org-create both makes new Orgs converge and keeps the
+		// short-lived OAuth blob fresh.
+		_ = h.seedAnthropicToken(ctx)
 	}
 
 	// Step 2 — bp_charts_installed.

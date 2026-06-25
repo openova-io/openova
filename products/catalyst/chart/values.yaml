@@ -92,6 +92,30 @@ sovereign:
     host: mail.openova.io
     port: "587"
     from: noreply@openova.io
+  # ── Anthropic credential for the per-Org agentic agent (#4277) ──
+  # Consumed by the auto-provisioned `catalyst-openova-kc-credentials`
+  # Secret (anthropic-api-key / anthropic-credentials-json keys) → the
+  # catalyst-api env (CATALYST_ANTHROPIC_*) → the producer seedAnthropicToken,
+  # which writes the Sovereign OpenBao `secret/catalyst/anthropic/token` at
+  # Org-create so every Org's bp-agenity ExternalSecret resolves and the
+  # spawned claude-code authenticates zero-touch.
+  #
+  # 🛑 EMPTY by default — FOUNDER-SUPPLIED-SECRET GAP. The platform ships no
+  # Anthropic credential (Principle #4: never hardcode secrets). To make the
+  # agentic journey zero-touch on every Org, the operator supplies the
+  # credential ONCE per Sovereign via one of:
+  #   (a) the operator-rotatable `catalyst-system/sovereign-anthropic-credentials`
+  #       Secret (keys `apiKey` / `credentialsJson`) — source-wins, the seam
+  #       to re-seed the EXPIRING OAuth blob without a chart upgrade; OR
+  #   (b) a per-Sovereign overlay setting these values.
+  # `credentialsJson` is the full `{"claudeAiOauth":{...}}` blob the OAuth
+  # journey needs (the channel claude-code actually authenticates with);
+  # `apiKey` is the bare `sk-ant-…` key-only fallback. Until supplied, the
+  # seed loud-skips and agenity stays offline (the ExternalSecret renders,
+  # the key is simply absent — the correct pre-seed state).
+  anthropic:
+    apiKey: ""
+    credentialsJson: ""
   # ── Configured-but-not-active regions (qa-loop iter-16 Fix #88) ──
   # Hetzner regions the operator declared at provision time. The
   # provisioner's tofu module currently materialises the *first* entry
@@ -665,7 +689,7 @@ controllers:
       # 34ff594 had drifted 470 commits behind latest GHCR. The merge-time
       # build-organization-controller.yaml auto-bump re-pins this to the image
       # built from THIS PR's tenant_dns.go code.
-      tag: "09dcc10"
+      tag: "724668b"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -797,7 +821,7 @@ controllers:
       # loops the env-controller.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -849,7 +873,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -887,7 +911,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "6d7aacd"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -956,7 +980,7 @@ controllers:
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "34ff594"
+      tag: "895f961"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:

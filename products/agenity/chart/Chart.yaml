@@ -8,6 +8,14 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.7 -> 0.5.8 (#4277): the anthropic ExternalSecret remoteKey moves from the
+# bare `anthropic/token` to `catalyst/anthropic/token`. A Sovereign has NO
+# writer for `secret/anthropic/*` (the external-secrets role vault-region1
+# reads with is read-only), so the bare path stayed SecretSyncedError on every
+# fresh Org. The catalyst/ prefix is the only KV sub-tree a Sovereign CAN write
+# (catalyst-api-write policy), and the new catalyst-api producer
+# (seedAnthropicToken) writes it at Org-create — making the agentic journey
+# zero-touch by construction. Template-only change; appVersion unchanged.
 # 0.5.6 -> 0.5.7 (#4180 + #4111, combined on rebase): two ADDITIVE changes land
 # together — the workspaces dashboard image (appVersion 0.9.7, #4180) AND the
 # seed-claude-creds expired-OAuth detector (#4111). Both documented below.
@@ -54,7 +62,7 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.7
+version: 0.5.8
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752

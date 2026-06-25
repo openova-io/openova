@@ -1080,6 +1080,11 @@ spec:
       #   storm that fills the node's ephemeral disk evicts THOSE reschedulable Pods
       #   first instead of the EVS-node-pinned (#4102) control-plane API (~17min
       #   console outage, omantel.biz 2026-06-24). Chart.yaml bumped in lockstep.
+      # 1.4.833 — #4277: catalyst-api auto-seeds the per-Org Anthropic credential
+      #   at Org-create (secret/catalyst/anthropic/token) so the agentic journey
+      #   (Pillar 4) is zero-touch on a fresh Org. Loud-skips until the founder
+      #   populates the sovereign-anthropic-credentials Secret once per Sovereign
+      #   (Principle #4 — no silent empty seed). Chart.yaml bumped in lockstep.
       # 1.4.830 — #4281 + #4282: console Cloud HelmReleases list gains a
       #   "Target Namespace" column (spec.targetNamespace) + catalog-seed
       #   bp-postgres synced to 0.2.5 (placement modes incl. active-hot-standby

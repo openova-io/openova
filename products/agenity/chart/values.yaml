@@ -78,7 +78,17 @@ anthropic:
     secretStoreRef: vault-region1
     secretStoreKind: ClusterSecretStore
     # openbao path + property holding the sk-ant-... token.
-    remoteKey: anthropic/token
+    #
+    # #4277 — the PRODUCER (catalyst-api seedAnthropicToken) writes this
+    # path at Org-create. It lives under the `catalyst/` prefix because
+    # that is the ONLY KV sub-tree a Sovereign can WRITE: the catalyst-api
+    # holds the `catalyst-api-write` OpenBao policy (secret/{data,metadata}/
+    # catalyst/*), whereas the `external-secrets` role `vault-region1`
+    # reads with is read-only. A bare `anthropic/token` path has no writer
+    # on a Sovereign, so the ExternalSecret stayed SecretSyncedError on
+    # every fresh Org. The path is cluster-shared — one seed serves every
+    # Org's agenity install.
+    remoteKey: catalyst/anthropic/token
     remoteProperty: apiKey
     # openbao property holding the full claude-code credentials.json blob.
     remoteCredentialsProperty: credentialsJson
