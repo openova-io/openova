@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.5
+version: 0.2.6
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,26 @@ description: |
 
   Changelog
   ─────────
+  0.2.6 (2026-06-25, #4272)
+    - Add in-cluster Kubernetes API egress for the controller pod-reaper.
+      Even after 0.2.5 (public-host JWKS :443) + #4300, the controller
+      stayed 0/1 on a fresh Org with `reaper: list pods 10.96.0.1:443
+      context deadline exceeded`. Root cause: the reaper dials the
+      `kubernetes.default` ClusterIP (10.96.0.1:443), which Cilium
+      classifies as the reserved `kube-apiserver` ENTITY — no K8s
+      NetworkPolicy selector (podSelector / namespaceSelector / ipBlock,
+      even 0.0.0.0/0 EXCLUDES it) can express it, so the K8s NP's
+      kube-system :443 rule did NOT admit it → every apiserver call
+      default-denied → never Ready.
+        • cilium-ingress-networkpolicy.yaml: add an `egress` block with
+          `toEntities: [kube-apiserver]` → :443/:6443 (the canonical idiom
+          from platform/sso-bridge cilium-networkpolicy-apiserver.yaml). The
+          CNP now opens BOTH the ingress (gateway + kubelet probe) AND the
+          egress (apiserver) reserved-entity hops; each half is independently
+          gated (`networkPolicy.ingress.allowGatewayEntity` /
+          `networkPolicy.egress.allowApiserverEntity`, both default true) and
+          the whole template stays gated on the cilium.io/v2 Capabilities
+          check (CRD-less kind CI installs unaffected).
   0.2.5 (2026-06-25, #4272)
     - Rework NetworkPolicy + exposure for the Cilium-Gateway Sovereign
       topology (was traefik + separate-keycloak-namespace). The controller

@@ -1,7 +1,8 @@
 {{- /*
 #4272: the Cilium Gateway path to the OpenClaw controller is DEAD without
 this CNP, AND the kubelet readiness/liveness probe is dropped by the K8s
-NetworkPolicy on a Sovereign. Two facts drive this template:
+NetworkPolicy on a Sovereign, AND the controller's pod-reaper cannot reach
+the in-cluster Kubernetes API. Three facts drive this template:
 
   1. Cilium Gateway API traffic reaches the backend with the reserved
      `ingress` ENTITY identity (the Envoy proxy embedded in the cilium
@@ -20,16 +21,35 @@ NetworkPolicy on a Sovereign. Two facts drive this template:
      ingress, so the probe MUST be admitted here or the Pod stays 0/1 even
      after the JWKS egress is fixed.
 
-CiliumNetworkPolicy fromEntities is the canonical, ADDITIVE expression:
+  3. The controller's pod-reaper (and every other apiserver call: list/
+     create/delete per-user pods, get/list Secrets) dials the in-cluster
+     Kubernetes API at the `kubernetes.default` ClusterIP (10.96.0.1:443).
+     Cilium classifies that destination as the reserved `kube-apiserver`
+     ENTITY — which, like `ingress`/`host`, NO K8s NetworkPolicy selector
+     (podSelector / namespaceSelector / ipBlock — even ipBlock 0.0.0.0/0
+     EXCLUDES it) can express. The K8s NP's `namespaceSelector:
+     kube-system` :443 rule matches the kube-system Pods, NOT the
+     apiserver ENTITY, so every reaper `list pods` to 10.96.0.1:443 is
+     default-denied → `reaper: list pods 10.96.0.1:443 context deadline
+     exceeded` → the controller never becomes Ready (0/1). #4300 fixed the
+     public-host JWKS :443 egress but left this in-cluster-API hop denied.
+     `toEntities: [kube-apiserver]` is the canonical expression — same
+     idiom as platform/sso-bridge cilium-networkpolicy-apiserver.yaml.
+
+CiliumNetworkPolicy from/toEntities is the canonical, ADDITIVE expression:
 when both a K8s NetworkPolicy and a CNP select the same Pod the allow-sets
-UNION, so this only opens the gateway→controller + node→controller hops and
-leaves every other default-deny posture intact.
+UNION, so this only opens the gateway→controller + node→controller ingress
+hops and the controller→apiserver egress hop, and leaves every other
+default-deny posture intact.
 
 Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
 chart still installs on CRD-less clusters (kind CI), and on
-networkPolicy.ingress.allowGatewayEntity so a non-Cilium overlay can opt out.
+networkPolicy.ingress.allowGatewayEntity / networkPolicy.egress.
+allowApiserverEntity so a non-Cilium overlay can opt out of either half.
 */ -}}
-{{- if and .Values.controller.enabled .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- $apiserverEgress := .Values.networkPolicy.egress.allowApiserverEntity }}
+{{- $gatewayIngress := .Values.networkPolicy.ingress.allowGatewayEntity }}
+{{- if and .Values.controller.enabled .Values.networkPolicy.enabled (or $gatewayIngress $apiserverEgress) (.Capabilities.APIVersions.Has "cilium.io/v2") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -42,6 +62,7 @@ spec:
     matchLabels:
       {{- include "bp-openclaw.selectorLabels" . | nindent 6 }}
       catalyst.openova.io/component: controller
+  {{- if $gatewayIngress }}
   ingress:
     - fromEntities:
         {{- toYaml .Values.networkPolicy.ingress.gatewayEntities | nindent 8 }}
@@ -49,4 +70,24 @@ spec:
         - ports:
             - port: {{ .Values.controller.port | quote }}
               protocol: TCP
+  {{- end }}
+  {{- if $apiserverEgress }}
+  egress:
+    # ── In-cluster Kubernetes API (the pod-reaper hop, #4272) ──────────────
+    # The controller's reaper lists/creates/deletes per-user pods + reads
+    # Secrets against the `kubernetes.default` ClusterIP (10.96.0.1:443).
+    # Cilium classifies that destination as the reserved `kube-apiserver`
+    # ENTITY — no K8s NetworkPolicy selector can express it (even ipBlock
+    # 0.0.0.0/0 EXCLUDES it), so the K8s NP's kube-system :443 rule does NOT
+    # admit it. Without this carve-out the reaper logs `list pods
+    # 10.96.0.1:443 context deadline exceeded` and the Pod stays 0/1.
+    - toEntities:
+        {{- toYaml .Values.networkPolicy.egress.apiserverEntities | nindent 8 }}
+      toPorts:
+        - ports:
+            {{- range .Values.networkPolicy.egress.apiserverPorts }}
+            - port: {{ . | quote }}
+              protocol: TCP
+            {{- end }}
+  {{- end }}
 {{- end }}
