@@ -918,6 +918,39 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				fanoutKubeSecretFor = r.clusterResolver().SecretFor
 			}
 
+			// #4282 root-cause-B — CNPG-bearing Blueprints reconcile their
+			// `postgresql.cnpg.io/v1 Cluster` CR HOST-SIDE, never inside a
+			// per-Org / plane vCluster. A vCluster apiserver registers NO
+			// `postgresql.cnpg.io/v1` CRD and runs NO cnpg operator (the CNPG
+			// operator + its CRDs are CLUSTER-SINGLETONS owned by the host
+			// cnpg-system release at bootstrap-kit slot 16, and the per-Org
+			// host-ns operator the catalyst funnel installs is webhook-less +
+			// WATCH_NAMESPACE-scoped to that host ns). So a bp-postgres HR
+			// pivoted into a vCluster renders a hollow `InstallSucceeded`: the
+			// chart's `cluster.yaml` is gated on
+			// `.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1"`, which is
+			// FALSE in the vCluster, so ZERO Cluster CRs render and the
+			// Application hangs Provisioning forever (the #4282 shared-pg-d
+			// repro). This is the SAME invariant the funnel's bp-cnpg-pair path
+			// already enforces (#4293 BLOCKER-1 / TestCNPGPair_PrimaryStaysHost
+			// Side_BothTiers): keep the Cluster CR on the host where the
+			// operator+CRD live; the in-vCluster app pods reach the DB through
+			// the synced Service + the reflected credential Secret. Suppress the
+			// vCluster pivot (no kubeConfig secretRef) and author the HR in the
+			// Application's own host namespace so the host helm-controller
+			// installs the chart into a namespace the host/per-Org cnpg-system
+			// operator reconciles. Detection is by the Blueprint's
+			// `catalyst.openova.io/companion: bp-cnpg` label (present on the LIVE
+			// catalog-seed CR) with a fallback to a `spec.depends[].blueprint:
+			// bp-cnpg` edge for source-authored Blueprints. Non-CNPG Blueprints
+			// (grafana/keycloak/…) keep the proven vCluster pivot unchanged.
+			if placementTier != "" && blueprintRequiresHostCNPGOperator(bp) {
+				r.Log.Info("CNPG-bearing Blueprint placed in a vCluster tier — routing the Cluster CR host-side (no vCluster pivot) so the host cnpg-system operator reconciles it (#4282)",
+					"blueprint", spec.BlueprintName, "tier", placementTier, "hostNamespace", app.GetNamespace())
+				fanoutWriteNamespace = app.GetNamespace()
+				fanoutKubeSecretFor = nil
+			}
+
 			// Source-ref + chart: read from Blueprint.spec.manifests
 			// (same lookup as the per-region path below).
 			fanoutSourceKind, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "kind")
@@ -2658,6 +2691,46 @@ func blueprintChart(bp *unstructured.Unstructured) string {
 	}
 	c, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "chart")
 	return c
+}
+
+// blueprintRequiresHostCNPGOperator reports whether the Blueprint renders
+// a `postgresql.cnpg.io/v1` resource and therefore needs the host-side CNPG
+// operator (the cluster-singleton bp-cnpg) to reconcile it — which means its
+// per-cluster HelmRelease must NOT pivot into a vCluster (#4282 root-cause-B).
+//
+// Two equivalent signals, either of which is authoritative:
+//
+//   - the `catalyst.openova.io/companion: bp-cnpg` metadata label — set on
+//     the LIVE catalog-seed Blueprint CR (products/catalyst/chart/templates/
+//     catalog-seed/blueprints.yaml) AND on platform/postgres/blueprint.yaml.
+//     This is the primary signal because the seed (the source the catalyst-api
+//     actually materializes into the cluster) carries the label but NOT the
+//     full `spec.depends[]` block.
+//   - a `spec.depends[].blueprint: bp-cnpg` edge — present on source-authored
+//     Blueprints (platform/postgres/blueprint.yaml). Fallback for CRs
+//     reconciled straight from source without the curated seed.
+//
+// A future CNPG-bearing Blueprint (e.g. a dedicated bp-cnpg-pair instance card)
+// inherits the routing for free by declaring either signal — there is no
+// hard-coded `bp-postgres` name here.
+func blueprintRequiresHostCNPGOperator(bp *unstructured.Unstructured) bool {
+	if bp == nil {
+		return false
+	}
+	if bp.GetLabels()["catalyst.openova.io/companion"] == "bp-cnpg" {
+		return true
+	}
+	deps, _, _ := unstructured.NestedSlice(bp.Object, "spec", "depends")
+	for _, d := range deps {
+		dm, ok := d.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, _ := dm["blueprint"].(string); name == "bp-cnpg" {
+			return true
+		}
+	}
+	return false
 }
 
 // fanoutOwnerLabels builds the org / env-type / app-uid label set the
