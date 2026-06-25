@@ -44,6 +44,13 @@ metadata:
     app.kubernetes.io/name: bp-huawei-evs-csi
     app.kubernetes.io/component: default-class-hook
     catalyst.openova.io/blueprint: bp-huawei-evs-csi
+    # Required by the kyverno `flux-managed` Enforce policy on converged
+    # Sovereigns — a post-* Helm hook carries no HelmRelease ownerReference, so
+    # without this label the policy denies the Job ("...is not Flux-managed")
+    # → the post-upgrade hook fails → the bp-huawei-evs-csi upgrade rolls back
+    # → the whole stateful chain stays dependency-gated. Sibling of the
+    # reclaim-reconcile hook fix in the same chart (#4350).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -56,6 +63,7 @@ spec:
       labels:
         app.kubernetes.io/name: bp-huawei-evs-csi
         app.kubernetes.io/component: default-class-hook
+        app.kubernetes.io/managed-by: flux
     spec:
       serviceAccountName: {{ .Release.Name }}-default-class
       restartPolicy: Never

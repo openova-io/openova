@@ -182,7 +182,11 @@ spec:
       # Enforce policy admits it on a converged Sovereign — without it the
       # pre-upgrade hook was denied → HR stalled → the whole stateful chain
       # (bp-cnpg → bp-gitea → bp-catalyst-platform → org-controller) stayed gated.
-      version: 1.0.6
+      # 1.0.7 (#4350 follow-up): the POST-upgrade default-class-hook Job carries
+      # the same `managed-by: flux` label so the kyverno policy admits BOTH the
+      # pre- and post- hooks — without it the 1.0.6 upgrade rolled back on the
+      # post-upgrade phase and the HR stayed Stalled.
+      version: 1.0.7
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi
