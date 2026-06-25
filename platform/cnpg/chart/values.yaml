@@ -144,6 +144,38 @@ cloudnative-pg:
   monitoring:
     podMonitorEnabled: false
 
+  # G64 (Refs #4322 #4143, 2026-06-25): STOP the operator corrupting the
+  # cluster-singleton webhook caBundle.
+  #
+  # Upstream cloudnative-pg bug #9817 (fix PR #9819 still UNMERGED): the
+  # operator's PKI reconciler injects the webhook `clientConfig.caBundle` from
+  # `cnpg-webhook-cert` `tls.crt` — the SERVING LEAF (BasicConstraints
+  # CA:FALSE) — instead of `cnpg-ca-secret` `ca.crt` (the real CA, CA:TRUE),
+  # and re-asserts it on a periodic `@every 1h` tick + every restart. The
+  # moment the served leaf and the stale caBundle-leaf diverge (cert renewal,
+  # secret regen, pod restart) the apiserver fails `x509: certificate signed
+  # by unknown authority` verifying the served chain → EVERY
+  # postgresql.cnpg.io/v1.Cluster create/patch is rejected cluster-wide.
+  # Live-confirmed on omantel.biz region-a (#4322).
+  #
+  # `MANAGE_WEBHOOK_CONFIGURATIONS: "false"` tells the operator to STOP
+  # injecting the CA bundle into the webhook configs (upstream operator_conf:
+  # "Set to false when the CA bundle is injected externally, ... or by
+  # GitOps"). It is INDEPENDENT of serving-cert/CA generation — the operator
+  # still mints `cnpg-ca-secret` + `cnpg-webhook-cert`, so the GitOps-side
+  # injector (templates/webhook-cabundle-reasserter.yaml) still has a real CA
+  # to read. The corruption stops at the source; the reasserter owns the
+  # caBundle authoritatively (CA:TRUE). This config flows into the operator's
+  # `cnpg-controller-manager-config` ConfigMap (consumed via --config-map-name).
+  #
+  # NOTE: per-Org (webhook-LESS) installs set webhook.{mutating,validating}.
+  # create=false and config.clusterWide=false; they own no cluster-singleton
+  # webhook, so this flag is harmless there (nothing to manage). The reasserter
+  # itself renders ONLY in webhook-FULL mode (bp-cnpg.webhookGateEnabled).
+  config:
+    data:
+      MANAGE_WEBHOOK_CONFIGURATIONS: "false"
+
   # Webhook is enabled by default in upstream — keep it that way (CNPG
   # uses the webhook to validate Cluster CRs). cert-manager (bp-cert-
   # manager) provides the TLS cert per Sovereign convention.
@@ -196,5 +228,37 @@ webhookGate:
   # kubectl` ref pulled straight from dockerhub — same harbor-proxy-pull
   # baseline violation + ghcr/dockerhub DNS-flake exposure as the operator
   # image, and the gate Job runs on every install (enabled: true).
-  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+  #
+  # G64 (#4322): bumped 1.30.7 -> 1.31.4 so the gate image carries openssl —
+  # the gate now asserts the caBundle is a CA (CA:TRUE), not merely non-empty.
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4"
+  imagePullPolicy: IfNotPresent
+
+# G64 (Refs #4322 #4143, 2026-06-25): webhook caBundle reasserter — the
+# GitOps-side CA injector paired with cloudnative-pg.config.data.
+# MANAGE_WEBHOOK_CONFIGURATIONS=false above. Reads `ca.crt` (CA:TRUE) from
+# cnpg-ca-secret and writes it into both webhook configs' caBundle, healing the
+# upstream #9817 leaf-in-caBundle corruption. Runs as a post-install/upgrade
+# Helm-hook Job (immediate) + a CronJob (every 10m self-heal). Renders ONLY in
+# webhook-FULL mode (the platform cnpg-system install); per-Org webhook-LESS
+# installs skip it via the bp-cnpg.webhookGateEnabled helper. See
+# templates/webhook-cabundle-reasserter.yaml for the full rationale.
+webhookCabundleReasserter:
+  enabled: true
+  service:
+    namespace: cnpg-system
+  caSecretName: cnpg-ca-secret
+  mutatingWebhookName: cnpg-mutating-webhook-configuration
+  validatingWebhookName: cnpg-validating-webhook-configuration
+  # Self-heal cadence — must be faster than the operator's 1h corruption tick
+  # so the worst-case window where the caBundle holds a leaf is bounded to
+  # minutes (relevant only if the operator config flip hasn't taken effect on
+  # a not-yet-restarted pre-flip operator pod).
+  cronSchedule: "*/10 * * * *"
+  # The operator generates cnpg-ca-secret asynchronously after install; the
+  # post-install Job polls up to this long for ca.crt to appear.
+  bootstrapTimeoutSeconds: 300
+  # Pinned to the in-Sovereign Harbor proxy-cache (kubectl image carries
+  # openssl for the CA:TRUE assertion). Matches webhookCertBootstrap.kubectlImage.
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4"
   imagePullPolicy: IfNotPresent

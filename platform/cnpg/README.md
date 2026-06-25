@@ -200,6 +200,41 @@ spec:
       default_pool_size: "20"
 ```
 
+## Webhook caBundle integrity (G64, #4322)
+
+The platform (`cnpg-system`) install owns the cluster-singleton admission
+webhooks (`cnpg-{mutating,validating}-webhook-configuration`). Upstream CNPG
+(bug [#9817](https://github.com/cloudnative-pg/cloudnative-pg/issues/9817), fix
+PR #9819 unmerged) injects the **serving leaf** (`cnpg-webhook-cert` `tls.crt`,
+`CA:FALSE`) into the webhook `caBundle` instead of the CA
+(`cnpg-ca-secret` `ca.crt`, `CA:TRUE`), and re-asserts it on an hourly tick.
+When the served leaf rotates and diverges from the stale caBundle-leaf, the
+apiserver fails `x509: certificate signed by unknown authority` and **every
+`postgresql.cnpg.io/v1.Cluster` create/patch is rejected cluster-wide**.
+
+This chart fixes it durably (webhook-FULL platform install only — per-Org
+webhook-LESS installs skip all of it):
+
+- `cloudnative-pg.config.data.MANAGE_WEBHOOK_CONFIGURATIONS: "false"` — stops the
+  operator injecting (corrupting) the caBundle at the source (upstream
+  `operator_conf` opt-out for GitOps-managed CA injection; independent of
+  serving-cert/CA generation).
+- `templates/webhook-cabundle-reasserter.yaml` — the GitOps-side CA injector: a
+  post-install/upgrade hook Job + a 10-minute CronJob that read
+  `cnpg-ca-secret` `ca.crt` (validated `CA:TRUE`) and write it into both webhook
+  configs. The CronJob self-heals any residual re-corruption within minutes.
+- `webhook-gate-hook.yaml` asserts the caBundle is a **CA** (`CA:TRUE`), not
+  merely non-empty.
+
+Diagnose a recurrence:
+
+```bash
+kubectl get validatingwebhookconfiguration cnpg-validating-webhook-configuration \
+  -o jsonpath='{.webhooks[0].clientConfig.caBundle}' | base64 -d \
+  | openssl x509 -noout -subject -ext basicConstraints     # must be CA:TRUE / CN=cnpg-ca-secret
+kubectl -n cnpg-system get cronjob,job -l catalyst.openova.io/component=webhook-cabundle-reasserter
+```
+
 ---
 
 *Part of [OpenOva](https://openova.io)*
