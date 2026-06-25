@@ -47,7 +47,12 @@ spec:
   # inside the vCluster and resolve `nats-jetstream.nats-system.svc.
   # cluster.local` natively via vCluster CoreDNS.
   targetNamespace: nats-system
-  dependsOn:
+  # dependsOn: (key removed #4341) — #4325 de-vcluster dropped the last
+  # `- name: bp-mgmt-vcluster` array item; leaving the bare `dependsOn:` key
+  # rendered `dependsOn: null`, which the HelmRelease CRD rejects
+  # (`spec.dependsOn must be of type array`) and wedged the WHOLE
+  # bootstrap-kit Kustomization. With the planes now native host namespaces
+  # there is no vc-mgmt Secret gate, so NATS has no remaining hard dependency.
   chart:
     spec:
       chart: bp-nats-jetstream

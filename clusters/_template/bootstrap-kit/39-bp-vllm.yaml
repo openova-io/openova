@@ -154,8 +154,12 @@ spec:
   interval: 15m
   releaseName: vllm
   targetNamespace: vllm
-  dependsOn:
-  # #3373 Batch A: bp-rtz-vcluster is the ONLY explicit dependsOn — the
+  # dependsOn: (key removed #4341) — #4325 de-vcluster dropped the last
+  # `- name: bp-rtz-vcluster` array item; leaving the bare `dependsOn:` key
+  # rendered `dependsOn: null`, which the HelmRelease CRD rejects and wedged
+  # the WHOLE bootstrap-kit Kustomization. With the planes now native host
+  # namespaces there is no vc-rtz Secret gate.
+  # #3373 Batch A: bp-rtz-vcluster WAS the ONLY explicit dependsOn — the
   # vc-rtz Secret doesn't exist until it is Ready (the kubeConfig pivot
   # dangles otherwise). The chart itself only needs CNI + Flux (implicit
   # cluster-bootstrap deps); no bp-kserve edge (slot 38 has no on-disk
