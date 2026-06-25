@@ -1109,7 +1109,12 @@ spec:
       # 1.4.847 — #4355: gitea repo-bootstrap hooks self-heal disk-vs-DB-drift
       #   repos (re-init main before branching) so a recovered-empty gitea never
       #   wedges the umbrella upgrade with BackoffLimitExceeded.
-      version: 1.4.849
+      # 1.4.851 — #4373: org-services NATS_URL default → host nats-system (de-vcluster
+      #   re-home left it on the dead mgmt-vcluster mangled name → provisioning
+      #   CrashLoop) + environment/blueprint/application controller pins → 8c532a7
+      #   (#4363 configSchema fix; clears the freshness gate). (slot-13 was also 2
+      #   behind: the deploy-bot 1.4.850 bump never synced this pin.) Refs #4373 #4363.
+      version: 1.4.851
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

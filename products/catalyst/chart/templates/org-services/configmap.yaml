@@ -77,7 +77,7 @@ Redpanda default so contabo's existing Organization consumers keep functioning.
        synced name in #2697; the Organization default was missed in the move.
        Align it here. Override via orgServices.eventBus.natsURL for a
        host-placed NATS. */ -}}
-  {{- $defaultNATS = "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222" -}}
+  {{- $defaultNATS = "nats://nats-jetstream.nats-system.svc.cluster.local:4222" -}}
 {{- end -}}
 {{- $brokers := default $defaultBrokers (index (default (dict) .Values.orgServices.eventBus) "brokers") -}}
 {{- $natsURL := default $defaultNATS (index (default (dict) .Values.orgServices.eventBus) "natsURL") -}}
