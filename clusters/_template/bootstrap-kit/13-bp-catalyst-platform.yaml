@@ -1080,6 +1080,14 @@ spec:
       #   storm that fills the node's ephemeral disk evicts THOSE reschedulable Pods
       #   first instead of the EVS-node-pinned (#4102) control-plane API (~17min
       #   console outage, omantel.biz 2026-06-24). Chart.yaml bumped in lockstep.
+      # 1.4.833 — #4286 mechanism D: env-controller cross-namespace reflection
+      #   of the canonical openova-org-tenants-git-auth secret (the LAST EPIC
+      #   leg; A+C in #4288, B-Kyverno in #4301). Both creators of the secret
+      #   now carry emberstack/reflector annotations so the env-controller's
+      #   in-vCluster GitRepository.spec.secretRef RESOLVES in every
+      #   source-bearing namespace (else 401 "secret not found"). New knob
+      #   orgTenants.gitRepository.secretRef.reflectNamespaces (default
+      #   flux-system,tenant-.*,org-.*). Chart.yaml bumped in lockstep.
       # 1.4.833 — #4277: catalyst-api auto-seeds the per-Org Anthropic credential
       #   at Org-create (secret/catalyst/anthropic/token) so the agentic journey
       #   (Pillar 4) is zero-touch on a fresh Org. Loud-skips until the founder
