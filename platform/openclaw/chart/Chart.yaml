@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.9
+version: 0.2.10
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,35 @@ description: |
 
   Changelog
   ─────────
+  0.2.10 (2026-06-26, #4272 — resolvable OIDC issuer when per-Org realm OFF)
+    - DOC-ONLY chart change paired with the provisioning-layer fix that
+      stops the funnel generator emitting an UNRESOLVABLE OIDC issuer. After
+      0.2.9 let the controller Pod START on a per-Org-realm-disabled Org, a
+      live re-walk found /readyz still 503: the funnel overlay set
+      `oidc.issuerURL` to the PER-ORG realm host
+      `https://keycloak.<slug>.<parent>/realms/org-<slug>`, but per-Org realms
+      are disabled on the Sovereign (CATALYST_PER_ORG_REALM_ENABLED=false) → no
+      such bp-keycloak host exists → that hostname is NXDOMAIN. The controller's
+      /readyz handler runs the JWKS `ensureKeys` fetch against the issuer's
+      `.well-known/openid-configuration`; an NXDOMAIN issuer fails the fetch →
+      /readyz 503 forever → openclaw.<slug>/ serves public HTTP 503.
+        • THE FIX (provisioning layer, not chart bytes): the funnel generator
+          (core/services/provisioning/gitops) now points the issuer at the
+          RESOLVABLE shared realm `https://auth.<sovereign-fqdn>/realms/sovereign`
+          — the SAME live issuer the console + every other Sovereign app uses —
+          whenever SOVEREIGN_FQDN is set. Its discovery + JWKS endpoints are
+          live, so ensureKeys succeeds and /readyz returns 200. The shared-realm
+          host/name come from the Sovereign config (SOVEREIGN_FQDN +
+          CATALYST_KC_REALM, default `sovereign`), never hardcoded. Empty
+          SOVEREIGN_FQDN (Catalyst-Zero / a cluster that DOES run per-Org
+          realms) falls back to the per-Org realm host (NO-REGRESS).
+        • The chart's `oidc.issuerURL` value is unchanged — it has always been
+          the overlay-supplied issuer; the controller's /readyz JWKS gate is
+          unchanged. NOTE: OIDC *login* additionally needs openclaw's client
+          registered in the shared realm (the 0.2.9 self-gen secret + this
+          resolvable issuer get the Pod to /readyz-200; full login-client
+          registration in the shared realm is follow-up beyond the #4272
+          /readyz-200 acceptance).
   0.2.9 (2026-06-26, #4272 #4307 — FINAL gate)
     - Self-generate the per-Org OIDC client_secret + make the controller's
       OIDC secretKeyRef optional, so the controller Pod STARTS on a funnel

@@ -226,6 +226,79 @@ func TestFunnelCart_NoHRApps_NoHostHRFiles(t *testing.T) {
 	}
 }
 
+// TestFunnelCart_HRApps_SharedRealmIssuer — THE #4272 render-proof. On a
+// Sovereign whose per-Org Keycloak realm is DISABLED (the default), the
+// per-Org `keycloak.<slug>.<parent>` host is NXDOMAIN, so openclaw's controller
+// /readyz (which fetches the issuer's JWKS) hangs at 503 forever. When the
+// generator carries a SovereignFQDN it MUST stamp the resolvable SHARED-realm
+// issuer (auth.<fqdn>/realms/sovereign — the SAME live issuer the console uses)
+// onto BOTH the canonical oidc.issuerURL and the legacy keycloak.realmURL, and
+// must NOT emit the NXDOMAIN per-Org host.
+func TestFunnelCart_HRApps_SharedRealmIssuer(t *testing.T) {
+	g := NewManifestGenerator(testBasePath)
+	g.ParentDomain = "omani.homes"
+	g.SovereignFQDN = "omantel.biz"
+	out := g.GenerateAllWithAppConfigs("acme", "m", []string{"openclaw", "stalwart-mail"}, "pw", nil)
+
+	const wantIssuer = "https://auth.omantel.biz/realms/sovereign"
+	const nxPerOrg = "keycloak.acme.omani.homes"
+
+	openclaw := out[testBasePath+"/acme/app-openclaw.yaml"]
+	if !strings.Contains(openclaw, "issuerURL: "+wantIssuer) {
+		t.Errorf("openclaw oidc.issuerURL must be the resolvable shared realm %q:\n%s", wantIssuer, openclaw)
+	}
+	if !strings.Contains(openclaw, "realmURL: "+wantIssuer) {
+		t.Errorf("openclaw keycloak.realmURL must be the resolvable shared realm %q:\n%s", wantIssuer, openclaw)
+	}
+	if strings.Contains(openclaw, nxPerOrg) {
+		t.Errorf("openclaw must NOT emit the NXDOMAIN per-Org realm host %q when the per-Org realm is disabled:\n%s", nxPerOrg, openclaw)
+	}
+
+	stalwart := out[testBasePath+"/acme/app-stalwart-mail.yaml"]
+	if !strings.Contains(stalwart, "realmURL: "+wantIssuer) {
+		t.Errorf("stalwart keycloak.realmURL must be the resolvable shared realm %q:\n%s", wantIssuer, stalwart)
+	}
+	if strings.Contains(stalwart, nxPerOrg) {
+		t.Errorf("stalwart must NOT emit the NXDOMAIN per-Org realm host %q when the per-Org realm is disabled:\n%s", nxPerOrg, stalwart)
+	}
+}
+
+// TestFunnelCart_HRApps_PerOrgRealmFallback — when SovereignFQDN is unset
+// (Catalyst-Zero, or a cluster that genuinely runs per-Org realms), the issuer
+// stays on the conventional per-Org realm host (NO-REGRESS for the legacy path).
+func TestFunnelCart_HRApps_PerOrgRealmFallback(t *testing.T) {
+	g := NewManifestGenerator(testBasePath)
+	g.ParentDomain = "omani.homes"
+	// SovereignFQDN intentionally unset.
+	out := g.GenerateAllWithAppConfigs("acme", "m", []string{"openclaw", "stalwart-mail"}, "pw", nil)
+
+	const perOrg = "https://keycloak.acme.omani.homes/realms/org-acme"
+	openclaw := out[testBasePath+"/acme/app-openclaw.yaml"]
+	if !strings.Contains(openclaw, "issuerURL: "+perOrg) {
+		t.Errorf("openclaw must fall back to the per-Org realm host when SovereignFQDN is unset:\n%s", openclaw)
+	}
+	stalwart := out[testBasePath+"/acme/app-stalwart-mail.yaml"]
+	if !strings.Contains(stalwart, "realmURL: "+perOrg) {
+		t.Errorf("stalwart must fall back to the per-Org realm host when SovereignFQDN is unset:\n%s", stalwart)
+	}
+}
+
+// TestSharedRealmIssuer_RealmOverride — CATALYST_KC_REALM override flows into
+// the shared issuer realm segment (so a Sovereign with a non-default realm name
+// still gets a resolvable issuer).
+func TestSharedRealmIssuer_RealmOverride(t *testing.T) {
+	g := NewManifestGenerator(testBasePath)
+	g.SovereignFQDN = "omantel.biz"
+	g.SharedRealmName = "catalyst"
+	if got, want := g.sharedRealmIssuer(), "https://auth.omantel.biz/realms/catalyst"; got != want {
+		t.Errorf("sharedRealmIssuer() = %q, want %q", got, want)
+	}
+	g.SovereignFQDN = ""
+	if got := g.sharedRealmIssuer(); got != "" {
+		t.Errorf("sharedRealmIssuer() with empty SovereignFQDN = %q, want empty", got)
+	}
+}
+
 // TestParentDomain_DefaultFallback — an unset ParentDomain falls back to the
 // catalog-canon default pool so a render never produces a bare `<slug>.` host.
 func TestParentDomain_DefaultFallback(t *testing.T) {

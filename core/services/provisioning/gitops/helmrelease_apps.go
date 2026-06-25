@@ -93,6 +93,17 @@ type helmReleaseAppOpts struct {
 	// tier so the host helm-controller installs the chart INTO the vcluster;
 	// empty on the host tier (install straight into the host `<slug>` ns).
 	kubeSecret string
+	// sharedRealmIssuer, when non-empty, is the resolvable SHARED-realm OIDC
+	// issuer (`https://auth.<sovereign-fqdn>/realms/sovereign`) the HR templates
+	// stamp instead of the per-Org `keycloak.<slug>.<parent>` realm host. On a
+	// Sovereign whose per-Org Keycloak realm is DISABLED (the default —
+	// CATALYST_PER_ORG_REALM_ENABLED=false) the per-Org host is NXDOMAIN, so
+	// openclaw's controller /readyz (which fetches the issuer's JWKS) hangs at
+	// 503 forever (#4272). The shared realm at auth.<fqdn> is the SAME issuer
+	// the console resolves, so its discovery + JWKS endpoints are live. Empty
+	// falls back to the per-Org realm host (legacy / Catalyst-Zero / a cluster
+	// that DOES run per-Org realms).
+	sharedRealmIssuer string
 }
 
 // generateHelmReleaseApp renders the HelmRepository + HelmRelease pair for a
@@ -146,7 +157,18 @@ spec:
 // Keycloak realm + NewAPI gateway, exposed via the dedicated console Gateway.
 func generateOpenClawHR(opt helmReleaseAppOpts) string {
 	host := fmt.Sprintf("openclaw.%s.%s", opt.slug, opt.parentDomain)
-	keycloakRealm := fmt.Sprintf("https://keycloak.%s.%s/realms/org-%s", opt.slug, opt.parentDomain, opt.slug)
+	// #4272: the OIDC issuer openclaw's controller /readyz validates the JWKS
+	// against. On a Sovereign whose per-Org realm is DISABLED the per-Org
+	// `keycloak.<slug>.<parent>` host is NXDOMAIN → the JWKS fetch fails →
+	// /readyz 503 forever → openclaw.<slug>/ serves public 503. When the
+	// generator resolves a shared-realm issuer (auth.<fqdn>/realms/sovereign —
+	// the SAME live issuer the console uses), stamp THAT so JWKS resolves and
+	// /readyz returns 200. Empty falls back to the per-Org realm host (legacy /
+	// Catalyst-Zero / a cluster that genuinely runs per-Org realms).
+	keycloakRealm := strings.TrimSpace(opt.sharedRealmIssuer)
+	if keycloakRealm == "" {
+		keycloakRealm = fmt.Sprintf("https://keycloak.%s.%s/realms/org-%s", opt.slug, opt.parentDomain, opt.slug)
+	}
 	newapiBase := fmt.Sprintf("https://api.%s.%s/v1", opt.slug, opt.parentDomain)
 	return fmt.Sprintf(`# bp-openclaw (#4272) — per-Org workspace controller rendered by the generic
 # funnel generator. Mirrors the BSS-door orgTenantBPOpenClaw overlay so a cart
@@ -235,7 +257,14 @@ spec:
 func generateStalwartHR(opt helmReleaseAppOpts) string {
 	mailHost := fmt.Sprintf("mail.%s.%s", opt.slug, opt.parentDomain)
 	primaryDomain := fmt.Sprintf("%s.%s", opt.slug, opt.parentDomain)
-	keycloakRealm := fmt.Sprintf("https://keycloak.%s.%s/realms/org-%s", opt.slug, opt.parentDomain, opt.slug)
+	// #4272/#4307: same resolvable-issuer rule as openclaw — on a per-Org-realm-
+	// disabled Sovereign the per-Org keycloak.<slug>.<parent> host is NXDOMAIN,
+	// so point SSO at the shared realm (auth.<fqdn>/realms/sovereign) when the
+	// generator resolved one; else fall back to the per-Org realm host.
+	keycloakRealm := strings.TrimSpace(opt.sharedRealmIssuer)
+	if keycloakRealm == "" {
+		keycloakRealm = fmt.Sprintf("https://keycloak.%s.%s/realms/org-%s", opt.slug, opt.parentDomain, opt.slug)
+	}
 	adminEmail := strings.TrimSpace(opt.adminEmail)
 	if adminEmail == "" {
 		adminEmail = fmt.Sprintf("admin@%s", primaryDomain)

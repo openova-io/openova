@@ -201,6 +201,22 @@ func main() {
 	// Empty falls back to the catalog-canon default pool inside the generator.
 	generator.ParentDomain = tenantParentDomain
 
+	// #4272: the per-Sovereign apex domain (e.g. "omantel.biz") + the shared
+	// Keycloak realm name. On a Sovereign whose per-Org Keycloak realm is
+	// DISABLED (the default — CATALYST_PER_ORG_REALM_ENABLED=false → no
+	// keycloak.<slug>.<parent> host is ever provisioned, so that host is
+	// NXDOMAIN), the HelmRelease-shaped per-Org apps (bp-openclaw #4272,
+	// bp-stalwart-tenant #4307) MUST point their OIDC issuer at the resolvable
+	// SHARED realm fronted at auth.<fqdn> — the SAME issuer the console + every
+	// other app uses — or openclaw's controller /readyz (which fetches the
+	// issuer's JWKS) hangs at 503 forever. SOVEREIGN_FQDN is the same env the
+	// git-base-path guard + KC-broker URL read; CATALYST_KC_REALM defaults to
+	// "sovereign" (platform/keycloak/blueprint.yaml realm: sovereign). Empty
+	// SOVEREIGN_FQDN (Catalyst-Zero) leaves the generator on the legacy per-Org
+	// realm host — harmless on a cluster that genuinely runs per-Org realms.
+	generator.SovereignFQDN = sovereignFQDN
+	generator.SharedRealmName = getEnv("CATALYST_KC_REALM", "sovereign")
+
 	// ── Git host coordinates (issue #940) ────────────────────────────
 	// On Sovereigns the canonical Git target is the local Gitea (the
 	// cutover step flipped the Sovereign's GitRepository CR to point
