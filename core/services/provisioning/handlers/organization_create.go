@@ -125,6 +125,12 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 	if tier == "" {
 		tier = "org"
 	}
+	// Resolve the purchased plan UUID → catalog slug (s|m|l|xl|flexi) so the
+	// Organization CR carries the SINGLE truth-source for the resource cap the
+	// org-controller materializes (Workstream B, #4292). resolvePlanSlug
+	// defaults to "s" on any catalog miss, so an empty PlanID still yields a
+	// valid cap rather than running uncapped.
+	planSlug := h.resolvePlanSlug(ctx, data.PlanID)
 	billingMode := strings.TrimSpace(data.BillingMode)
 	if billingMode == "" {
 		billingMode = "real"
@@ -154,6 +160,7 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 			"displayName":  displayName,
 			"kind":         "customer",
 			"tier":         tier,
+			"planSlug":     planSlug,
 			"billingMode":  billingMode,
 			"sovereignRef": h.SovereignFQDN,
 			"owners": []map[string]any{
@@ -210,11 +217,13 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 		"tenant_id", data.ID,
 		"parent_domain", parentDomain,
 		"tier", tier,
+		"plan_slug", planSlug,
 		"sovereign", h.SovereignFQDN,
 	)
 	h.publishEvent(ctx, "provision.org_created", data.ID, map[string]string{
 		"slug":          slug,
 		"tier":          tier,
+		"plan_slug":     planSlug,
 		"parent_domain": parentDomain,
 		"sovereign":     h.SovereignFQDN,
 	})

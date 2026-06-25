@@ -33,6 +33,9 @@ spec:
         - name: Tier
           type: string
           jsonPath: .spec.tier
+        - name: Plan
+          type: string
+          jsonPath: .spec.planSlug
         - name: Billing
           type: string
           jsonPath: .spec.billingMode
@@ -120,6 +123,19 @@ spec:
                     corporate = managed onboarding, dedicated DMZ vCluster
                     auto-provisioned (EPIC-5 #1100), per-Sovereign realm
                     federation.
+                planSlug:
+                  type: string
+                  enum: [s, m, l, xl, flexi]
+                  description: |
+                    Purchased catalog plan slug (Workstream B, #4292). The
+                    SINGLE truth-source for the resource cap the
+                    organization-controller materializes on the boundary
+                    namespace: the ResourceQuota + LimitRange (planQuota table —
+                    S=2vCPU/4Gi, M=4/8, L=8/16, XL=16/32, Flexi=on-demand) and
+                    the tier-gate that picks host-ns (free/S) vs dedicated
+                    vCluster (paid M+). Both CR-minting emitters resolve the
+                    plan UUID to this slug before stamping the CR. Empty
+                    defaults to "s" in the renderer.
                 billingMode:
                   type: string
                   enum: [real, chargeback, showback]

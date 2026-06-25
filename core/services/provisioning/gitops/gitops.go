@@ -368,7 +368,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		// a no-op when registryMirror is empty or the image is already
 		// proxied / on a registry without a Harbor proxy project.
 		spec.Image = proxyImage(spec.Image, g.registryMirror())
-		vcFiles[fmt.Sprintf("app-%s.yaml", a)] = generateAppDeployment(appNS, slug, a, spec, dbPassword)
+		vcFiles[fmt.Sprintf("app-%s.yaml", a)] = generateAppDeployment(appNS, slug, planSlug, a, spec, dbPassword)
 	}
 	vcFiles["kustomization.yaml"] = generateKustomization(appNS, vcFiles)
 
@@ -1028,7 +1028,33 @@ spec:
 `, ns, proxyImage("valkey/valkey:8-alpine", registryMirror), ns)
 }
 
-func generateAppDeployment(ns, slug, appSlug string, spec AppSpec, dbPassword string) string {
+// qosResources returns the (requests, limits) cpu/memory pair for an app
+// container under a given plan slug (#4292). Fixed tiers (S/M/L/XL) render
+// limits==requests so the pod is Guaranteed QoS — and so the per-Org
+// LimitRange's maxLimitRequestRatio {cpu:1,memory:1} admits it. Flexi (and any
+// unknown slug treated as Flexi-shaped here only for the empty case) keeps the
+// historical asymmetric shape (requests<limits) → Burstable QoS, matching the
+// on-demand plan. The request floor stays the app's own CPUMilli/RAMMI; the
+// Guaranteed limit is raised to the request so the QoS class flips without
+// shrinking any app below its declared need.
+func qosResources(planSlug, reqCPU, reqMem string) (cpu string, mem string, guaranteed bool) {
+	switch strings.ToLower(strings.TrimSpace(planSlug)) {
+	case "flexi":
+		// Burstable: historical asymmetric ceiling.
+		return "500m", "512Mi", false
+	default:
+		// s/m/l/xl (and empty → smallest paid): Guaranteed — limit==request.
+		return reqCPU, reqMem, true
+	}
+}
+
+func generateAppDeployment(ns, slug, planSlug, appSlug string, spec AppSpec, dbPassword string) string {
+	// QoS split (#4292): fixed tiers (S/M/L/XL) render limits==requests →
+	// Guaranteed (also what the per-Org LimitRange maxLimitRequestRatio
+	// {cpu:1,memory:1} requires to admit the pod); Flexi keeps the historical
+	// asymmetric ceiling → Burstable.
+	limCPU, limMem, _ := qosResources(planSlug, spec.CPUMilli, spec.RAMMI)
+
 	// Alphabetize static env so the generated YAML is stable across commits
 	// (Go map iteration is randomized → would cause noisy diffs on every
 	// regenerate, which is hostile to PR review).
@@ -1232,8 +1258,8 @@ spec:
               cpu: %s
               memory: %s
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: %s
+              memory: %s
 %s%s---
 apiVersion: v1
 kind: Service
@@ -1253,6 +1279,7 @@ spec:
 		appSlug, spec.Image, spec.Port,
 		envLines,
 		spec.CPUMilli, spec.RAMMI,
+		limCPU, limMem,
 		volumeMounts, volumes,
 		appSlug, ns, appSlug, spec.Port)
 }

@@ -183,6 +183,11 @@ type OrganizationProvisionRecord struct {
 	Tier        string `json:"tier,omitempty"`
 	BillingMode string `json:"billing_mode,omitempty"`
 	Isolation   string `json:"isolation,omitempty"`
+	// PlanSlug — purchased catalog plan slug (s|m|l|xl|flexi), #4292. Carried
+	// onto the Organization CR spec.planSlug so the org-controller materializes
+	// the matching ResourceQuota + LimitRange on the boundary namespace. Empty
+	// (legacy records) reads as "s" at the renderer.
+	PlanSlug string `json:"plan_slug,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
