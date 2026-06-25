@@ -3102,7 +3102,19 @@ name: bp-catalyst-platform
 #   re-inits `main` via the contents API before branching. Idempotent + bounded.
 #   lookup-source change; no new bootstrap state. Chart-version bump forces the
 #   Flux re-pull (deploy-bot mutable-tag trap). bootstrap-kit slot-13 lockstep.
-version: 1.4.849
+# 1.4.850 — #4373: org-services NATS_URL default re-pointed from the dead
+#   mgmt-vcluster-syncer-mangled name
+#   (`nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc`) back to the plain
+#   host name `nats-jetstream.nats-system.svc`. The de-vcluster re-home
+#   (#4325/#4347/#4348) moved bp-nats-jetstream BACK to the host `nats-system`
+#   ns; the mgmt vCluster + its mangled syncer Service no longer exist, so the
+#   mangled default resolved NXDOMAIN → org-services/provisioning CrashLooped on
+#   `nats connect: no such host`, wedging #4364's funnel-cart install (live
+#   kom4dc/omantel.biz dep 4635277cae4ffed9, 2026-06-26). Fixed in 4 places:
+#   org-services/configmap.yaml ($defaultNATS), values.yaml (catalystApi.nats.url),
+#   api-deployment.yaml + api-deployment-kustomize.yaml (CATALYST_NATS_URL default).
+#   Config-default-only change; no new bootstrap state. Refs #4325 #4347 #4322.
+version: 1.4.850
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /

@@ -1126,16 +1126,14 @@ services:
     nats:
       # In-cluster NATS JetStream Service URL.
       #
-      # G105 #2697 (2026-06-01): post-G92.2 #2687, bp-nats-jetstream's
-      # HR carries `placementSchema.vcluster: mgmt` so the chart lives
-      # INSIDE the mgmt vCluster (Service `nats-jetstream.nats-system`
-      # in vCluster apiserver). The bp-mgmt-vcluster syncer reflects
-      # it to the host as the syncer-mangled name
-      # `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222`.
-      # Pre-G92.2 default `nats-jetstream.nats-system.svc.cluster.local:4222`
-      # returned NXDOMAIN because the `nats-system` namespace no longer
-      # exists on the host k3s.
-      url: "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222"
+      # HISTORY: G105 #2697 placed bp-nats-jetstream INSIDE the mgmt vCluster,
+      # so this pointed at the syncer-mangled host name
+      # `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc`. The de-vcluster
+      # re-home (#4325/#4347/#4348) moved bp-nats-jetstream BACK to the HOST
+      # `nats-system` namespace — the mgmt vCluster, its `mgmt` namespace, and
+      # the mangled syncer Service no longer exist, so the mangled name now
+      # returns NXDOMAIN (#4373). NATS again resolves at the plain host name.
+      url: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:
