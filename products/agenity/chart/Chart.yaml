@@ -8,6 +8,20 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.8 -> 0.5.9 (#4276 hop 7/7b): add the per-Org openova-MCP Catalyst-bearer
+# seam — templates/externalsecret-mcp-bearer.yaml + the openovaMCP.mcpBearer
+# values block. The catalyst-api org-pipeline producer (seedMCPBearer) mints an
+# Org-scoped session JWT (tier=org-admin, org_id=<slug>, role=openova-user,
+# typ=session, RS256-signed by the Sovereign handover signer) AND the matching
+# RS256 verify PUBKEY (PKIX PEM), writing BOTH to secret/catalyst/agenity/
+# <slug>/mcp-bearer. This ExternalSecret pulls them into the per-Org Secret
+# agenity-mcp-bearer; the org-gitops emitter points openovaMCP.bearerSecret +
+# rs256PubkeySecret at it so the StatefulSet projects OPENOVA_MCP_BEARER +
+# OPENOVA_MCP_RS256_PUBKEY_PEM. Closes the hop-7 gap: without a bearer the
+# spawned claude-code agent reached the openova MCP unauthenticated (-32001),
+# even after the Anthropic key (#4277) was seeded. externalSecret defaults to
+# DISABLED (no producer outside a Sovereign Org-pipeline); the emitter enables
+# it. Template-only change; appVersion unchanged.
 # 0.5.7 -> 0.5.8 (#4277): the anthropic ExternalSecret remoteKey moves from the
 # bare `anthropic/token` to `catalyst/anthropic/token`. A Sovereign has NO
 # writer for `secret/anthropic/*` (the external-secrets role vault-region1
@@ -62,7 +76,7 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.8
+version: 0.5.9
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752
