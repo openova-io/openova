@@ -76,6 +76,11 @@
 #     WaitForFirstConsumer (the volume lands in the consuming Pod's AZ),
 #     allowVolumeExpansion true, type SSD (HCS me-east-215 exposes SSD / SAS only).
 #   - VolumeSnapshotClass `evs-snapshots` (storage-level DR).
+#   - A pre-install/pre-upgrade hook Job (#4350) that reconciles the evs-ssd SC
+#     reclaimPolicy: if the live SC still carries the OLD immutable Retain, it
+#     DELETES the SC so Helm recreates it with Delete (a values-only flip alone
+#     STALLS the HR because reclaimPolicy is immutable). Idempotent — a no-op
+#     when already Delete or on a fresh prov; Bound PVs/PVCs are unaffected.
 #   - A post-install hook Job that promotes evs-ssd to cluster-default (the
 #     provisioner-agnostic flip hook reused from bp-hcloud-csi).
 #
@@ -166,7 +171,13 @@ spec:
       # EVS volume-count quota leak (Released PVs kept their EVS volume alive →
       # project hit the 400 hard quota → gitea/harbor/per-Org PVCs Pending →
       # bp-catalyst-platform never converged).
-      version: 1.0.4
+      # 1.0.5 (#4350 follow-up): a pre-install/pre-upgrade hook DELETES + lets
+      # Helm RECREATE the evs-ssd SC when its live reclaimPolicy is still the OLD
+      # Retain — reclaimPolicy is IMMUTABLE so the 1.0.4 values-flip alone STALLS
+      # the HR on a live Sovereign that already had the Retain SC (the kom4dc
+      # convergence gate). Idempotent (no-op when already Delete / on fresh prov);
+      # existing Bound PVs/PVCs are unaffected.
+      version: 1.0.5
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi
