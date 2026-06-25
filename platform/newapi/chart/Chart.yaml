@@ -887,7 +887,7 @@ name: bp-newapi
 #   (cnpg.enabled=false) is unaffected — that path mirrors the DSN host→vc.
 #   Lockstep: 80-newapi.yaml + 80a-newapi-host-seams.yaml pins + blueprint.yaml
 #   → 1.4.128.
-version: 1.4.128
+version: 1.4.129
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
