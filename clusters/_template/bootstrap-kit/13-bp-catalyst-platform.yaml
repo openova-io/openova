@@ -1132,7 +1132,7 @@ spec:
       #   ACTIVE dead plane-vCluster references (CATALYST_MIMIR_URL, keycloak/gitea
       #   bridges, qaFixtures S3, baseline CNP mgmt→guacamole). Chart.yaml bumped in
       #   lockstep. Refs #4388 #4325 #4291 #4293.
-      version: 1.4.860
+      version: 1.4.862
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

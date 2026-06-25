@@ -556,7 +556,15 @@ images:
   # the live Organization CRD rejects 422 ("Unsupported value sme: supported
   # values org, corporate"), so only 34ff594 lets tenant.created mint the Org CR.
   # Refs #3964 #3995.
-  orgTag: "b3465e8"
+  # 903eed4 (#4389, 2026-06-26) — the deploy-bot's a48e7b3be REVERTED orgTag
+  # from 5cbfbd8 (the #4387 per-Org-repo fix, set by 6b9a210b2) back to the
+  # stale b3465e8, so EVERY org-service (provisioning incl.) lost #4387: the
+  # HelmRelease-shaped cart apps (openclaw #4272 / stalwart-mail #4307) still
+  # committed to the GLOBAL openova/openova repo → 404 'list existing tree'
+  # (verified live on g8mail). 903eed4 is the image built from main AFTER
+  # #4390 merged — it carries #4387 (per-Org <slug>/catalyst-tenant commit) for
+  # the HR-app path too. Pin it so the cart HR apps land in the per-Org repo.
+  orgTag: "903eed4"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────

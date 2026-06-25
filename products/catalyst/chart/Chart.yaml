@@ -3143,6 +3143,12 @@ name: bp-catalyst-platform
 #   plane-vcluster-mangled name (regression-guards both #4378's NATS fix and this
 #   Valkey fix). Config-default-only change; no new bootstrap state.
 #   Refs #4368 #4373 #4325 #4347 #4322.
+# 1.4.862 — #4389: orgTag b3465e8 -> 903eed4 — the deploy-bot's a48e7b3be
+#   REVERTED orgTag from 5cbfbd8 (the #4387 per-Org-repo fix) back to the stale
+#   b3465e8, so every org-service regressed to pre-#4387 and the HelmRelease-
+#   shaped cart apps (openclaw #4272 / stalwart-mail #4307) still committed to
+#   the GLOBAL openova/openova repo (404). 903eed4 = main-post-#4390, carries
+#   #4387 for the HR-app path. Refs #4389 #4387 #4307 #4272.
 # 1.4.860 — #4388 (#4325 fallout completeness sweep): repoint the remaining
 #   ACTIVE dead plane-vCluster references that the one-at-a-time live walks had
 #   not yet hit. CATALYST_MIMIR_URL (api-deployment + -kustomize) → host-ns
@@ -3155,7 +3161,7 @@ name: bp-catalyst-platform
 #   INGRESS entry → `guacamole` (bp-guacamole re-homed to its own host ns by
 #   #4325; the guacamole webapp→guacamole-pg:5432 path needs it). Config-default-
 #   only change; no new bootstrap state. Refs #4388 #4325 #4291 #4293.
-version: 1.4.861
+version: 1.4.862
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
