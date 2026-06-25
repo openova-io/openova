@@ -919,6 +919,11 @@ spec:
     metadata:
       labels:
         app: postgres
+      annotations:
+        # #4389: Kyverno 'backup-configured' (pvc-must-be-velero-backed,
+        # enforce) blocks the PVC unless the owning Pod annotates the volume
+        # for Velero backup. Annotate pgdata so the PVC admits + is backed up.
+        velero.io/backup-volumes: pgdata
     spec:
       containers:
         - name: postgres
@@ -950,11 +955,15 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
+            # #4389: per-Org LimitRange (#4292) enforces maxLimitRequestRatio
+            # {cpu:1,memory:1} (Guaranteed QoS) — limits MUST equal requests or
+            # the pod is forbidden ('limit to request ratio is 1, but provided
+            # ratio is 10'). Render symmetric requests==limits.
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: 250m
               memory: 256Mi
           volumeMounts:
             - name: pgdata
@@ -1366,6 +1375,13 @@ spec:
     metadata:
       labels:
         app: mysql
+      annotations:
+        # #4389: the Sovereign's Kyverno 'backup-configured' policy
+        # (pvc-must-be-velero-backed, enforce) blocks the PVC unless its owning
+        # Pod template annotates the volume for Velero file-level backup (or the
+        # PVC carries velero.io/managed-by-schedule). Annotate mysqldata so the
+        # PVC admits AND the DB volume is actually backed up.
+        velero.io/backup-volumes: mysqldata
     spec:
       containers:
         - name: mysql
@@ -1400,11 +1416,15 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
+            # #4389: per-Org LimitRange (#4292) enforces maxLimitRequestRatio
+            # {cpu:1,memory:1} (Guaranteed QoS) — limits MUST equal requests or
+            # the pod is forbidden ('limit to request ratio is 1, but provided
+            # ratio is 10'). Render symmetric requests==limits.
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: 250m
               memory: 256Mi
           volumeMounts:
             - name: mysqldata
@@ -1497,11 +1517,13 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
+            # #4389: per-Org LimitRange (#4292) maxLimitRequestRatio 1 →
+            # symmetric requests==limits (Guaranteed QoS).
             requests:
-              cpu: 25m
-              memory: 64Mi
+              cpu: 100m
+              memory: 128Mi
             limits:
-              cpu: 200m
+              cpu: 100m
               memory: 128Mi
 ---
 apiVersion: v1
