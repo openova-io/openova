@@ -177,7 +177,12 @@ spec:
       # the HR on a live Sovereign that already had the Retain SC (the kom4dc
       # convergence gate). Idempotent (no-op when already Delete / on fresh prov);
       # existing Bound PVs/PVCs are unaffected.
-      version: 1.0.5
+      # 1.0.6 (#4350 follow-up): the 1.0.5 reclaim-reconcile hook Job carries the
+      # `app.kubernetes.io/managed-by: flux` label so the kyverno `flux-managed`
+      # Enforce policy admits it on a converged Sovereign — without it the
+      # pre-upgrade hook was denied → HR stalled → the whole stateful chain
+      # (bp-cnpg → bp-gitea → bp-catalyst-platform → org-controller) stayed gated.
+      version: 1.0.6
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi
