@@ -3117,7 +3117,16 @@ name: bp-catalyst-platform
 #   (the #4363 application-controller typed-nil configSchema fix) — they were 223
 #   commits behind latest GHCR, tripping the Controller-image-tag freshness gate.
 #   Config-default + pin-bump only; no new bootstrap state. Refs #4373 #4363 #4322.
-version: 1.4.852
+# 1.4.853 — #4362 (#4325 fallout): catalog-seed bp-agenity topology singleton
+#   placement.tier rtz -> '' (host-native). #4325 de-vclustered the platform planes
+#   and removed the `rtz` plane vCluster; the seeded bp-agenity Blueprint still
+#   declared tier: rtz, so the application-controller resolved it to the now-gone
+#   host namespace `rtz` and the agenity Application wedged Degraded
+#   `namespaces "rtz" not found`. A per-Org agentic dashboard is host-native (its
+#   own Org ns), not a platform-plane workload — tier '' renders the HR in the
+#   App's own namespace. Catalog-seed + agenity chart bumped 0.5.9 -> 0.5.12 in
+#   lockstep (resources requests==limits + helmRelease.disableWait). Refs #4111 #4325 #4297.
+version: 1.4.853
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
