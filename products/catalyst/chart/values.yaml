@@ -513,9 +513,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "0500641"
+    tag: "bf7d1ce"
   catalystUi:
-    tag: "0500641"
+    tag: "bf7d1ce"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -1548,32 +1548,6 @@ orgTenants:
       username: gitea_admin
       patSourceSecretName: catalyst-gitea-token
       patSourceKey: token
-      # ─── #4286 mechanism D — cross-namespace reflection ──────────────
-      # The env-controller's per-Environment GitRepository
-      # (core/controllers/environment/internal/gitops/render.go) is
-      # committed to Gitea and reconciled into the env-controller source
-      # namespace (controllers.environment.fluxNamespace, default
-      # flux-system) — but its spec.secretRef.name points at THIS secret,
-      # which the gitea-flux-auth-secrets-sync Job mints ONLY in
-      # flux-system. Any env-controller source that lands in a DIFFERENT
-      # namespace (a per-env / per-vCluster flux namespace) would resolve
-      # the secretRef as "secret not found" and 401. Mechanism A/C make
-      # the source carry a non-empty secretRef BY CONSTRUCTION (#4288);
-      # mechanism B injects it by admission (#4301); mechanism D guarantees
-      # the referenced secret is actually PRESENT in every source-bearing
-      # namespace by mirroring it there via emberstack/reflector — the same
-      # cross-namespace seam org-services-secrets.yaml / cnpg-cluster.yaml /
-      # provisioning-github-token.yaml already use.
-      #
-      # reflectNamespaces is the reflector allow-list (a comma-separated
-      # list of namespace names and/or RE2 regexes — emberstack-reflector
-      # semantics). Defaults cover the env-controller source namespace
-      # (flux-system, already the mint namespace — a same-ns no-op) plus
-      # the per-Org / per-env namespace families the keystone vcluster EPIC
-      # lands sources into. Per Inviolable Principle #4 the operator may
-      # narrow or widen this; empty string disables reflection (the
-      # flux-system mint still happens).
-      reflectNamespaces: "flux-system,tenant-.*,org-.*"
   # ─── Pre-cutover local-Gitea repo bootstrap (#3454, Refs #3376) ─────
   # The Organization-tenant gitops chain (catalyst-api push target + the
   # openova-org-tenants GitRepository above) targets the local Gitea
@@ -2052,18 +2026,6 @@ orgServices:
     # harbor.openova.io for bootstrap; cutover Step-04 (ADR-0002) flips it to
     # harbor.<sovereign-fqdn> post-handover. Operator-overridable (Principle #4).
     vclusterImageRegistry: "harbor.openova.io"
-    # replicaRegionKubeconfigSecret (#4282/#4275 CROSS-REGION STANDBY): the
-    # flux-system Secret name holding region-B's (the STANDBY region's)
-    # host-cluster kubeconfig. The per-Org active-hot-standby bp-cnpg-pair is
-    # split-side — the replica HelmRelease installs THROUGH this kubeconfig
-    # INTO region B so the standby CNPG Cluster lands where its
-    # openova.io/region=<replica_region> nodes live (NOT region A, where the
-    # standby Cluster's region-B node-affinity matched 0/N nodes and the
-    # *-pgbasebackup pod hung Pending forever — the live #4282 failure). Empty
-    # → provisioning defaults to "sovereign-replica-region-kubeconfig", the
-    # name the bootstrap mirrors region-B's kubeconfig into. Operator-
-    # overridable (Principle #4).
-    replicaRegionKubeconfigSecret: ""
     # githubToken: Secret name + key the Deployment reads GITHUB_TOKEN
     # from. Defaults match the chart-emitted
     # templates/org-services/provisioning-github-token.yaml output
