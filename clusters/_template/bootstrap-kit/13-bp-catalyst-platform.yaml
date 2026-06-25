@@ -1109,7 +1109,7 @@ spec:
       # 1.4.847 — #4355: gitea repo-bootstrap hooks self-heal disk-vs-DB-drift
       #   repos (re-init main before branching) so a recovered-empty gitea never
       #   wedges the umbrella upgrade with BackoffLimitExceeded.
-      version: 1.4.848
+      version: 1.4.849
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
