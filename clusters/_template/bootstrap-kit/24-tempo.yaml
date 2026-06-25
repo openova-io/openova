@@ -80,21 +80,26 @@ spec:
   # and fails `namespaces "mgmt" not found` storing the release inside
   # the vCluster (createNamespace only creates the target `tempo`).
   # mgmt vCluster (Flux v2 HelmRelease v2 contract). #2745.
-  dependsOn:
-    # bp-seaweedfs dependency REMOVED (Refs #840) — mirrors the slot-19
-    # bp-harbor seaweedfs-dep removal (ADR-0001 §13). The DEFAULT Tempo
-    # render is `tempo.storage.trace.backend: local` (platform/tempo/chart/
-    # values.yaml — traces + WAL on a local 10Gi PVC), NOT SeaweedFS S3. The
-    # "MUST replace this with S3" per-Sovereign overlay every slot-comment
-    # assumed was specced but never written, so Tempo never references
-    # `seaweedfs-s3` / `seaweedfs-s3-secret`. The old
-    # `dependsOn: bp-seaweedfs (ns rtz)` was a FALSE coupling that gated
-    # Tempo — and grafana (slot 25, which dependsOn bp-tempo) — on the
-    # rtz-vCluster seaweedfs HR reaching Ready, needlessly wedging the
-    # LGTM+grafana chain in the SECONDARY region when seaweedfs is
-    # slow/not-Ready there (hw159 region-b 41/55). Decoupled, Tempo
-    # converges on its own PVC in BOTH regions. NOTE: a future overlay that
-    # flips Tempo to SeaweedFS S3 MUST re-add this edge (ns rtz) in lockstep.
+  # dependsOn: (key removed #4341) — #4325 de-vcluster dropped the last
+  # `- name: bp-mgmt-vcluster` array item; leaving the bare `dependsOn:` key
+  # rendered `dependsOn: null`, which the HelmRelease CRD rejects and wedged
+  # the WHOLE bootstrap-kit Kustomization. With the planes now native host
+  # namespaces there is no vc-mgmt Secret gate, so Tempo has no remaining
+  # hard dependency.
+  # bp-seaweedfs dependency REMOVED (Refs #840) — mirrors the slot-19
+  # bp-harbor seaweedfs-dep removal (ADR-0001 §13). The DEFAULT Tempo
+  # render is `tempo.storage.trace.backend: local` (platform/tempo/chart/
+  # values.yaml — traces + WAL on a local 10Gi PVC), NOT SeaweedFS S3. The
+  # "MUST replace this with S3" per-Sovereign overlay every slot-comment
+  # assumed was specced but never written, so Tempo never references
+  # `seaweedfs-s3` / `seaweedfs-s3-secret`. The old
+  # `dependsOn: bp-seaweedfs (ns rtz)` was a FALSE coupling that gated
+  # Tempo — and grafana (slot 25, which dependsOn bp-tempo) — on the
+  # rtz-vCluster seaweedfs HR reaching Ready, needlessly wedging the
+  # LGTM+grafana chain in the SECONDARY region when seaweedfs is
+  # slow/not-Ready there (hw159 region-b 41/55). Decoupled, Tempo
+  # converges on its own PVC in BOTH regions. NOTE: a future overlay that
+  # flips Tempo to SeaweedFS S3 MUST re-add this edge (ns rtz) in lockstep.
   chart:
     spec:
       chart: bp-tempo
