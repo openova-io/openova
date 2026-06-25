@@ -491,6 +491,20 @@ write_files:
             # #4236/#4179: primary LB IPv4 → slot-13 sovereignLBIP → ConfigMap lbIP
             # (was undeclared here → lbIP empty → org-controller pool-DNS skip).
             SOVEREIGN_LB_IP: ${load_balancer_ipv4}
+            # #4330 — primary LB IPv4 → slot-13 sovereign.controlPlaneIP →
+            # ConfigMap controlPlaneIP key. The #1844 design intent (documented
+            # in products/catalyst/chart/Chart.yaml) was to source this from
+            # load_balancer_ipv4 — "the canonical operator-facing CP IP" — but
+            # the substitute line was never actually added to this consolidated
+            # shared template, so controlPlaneIP rendered EMPTY on EVERY Sovereign
+            # (even a fresh prov). load_balancer_ipv4 is the right source: it is
+            # the only CP-class IP uniformly known at tofu-apply / template-render
+            # time on BOTH providers (Hetzner resolves the raw CP node IP only at
+            # runtime via metadata → node_external_ip_value is "" here), and it is
+            # the operator-facing entry point the Settings page surfaces. Without
+            # this the catalyst-api SOVEREIGN_CONTROL_PLANE_IP env (and the
+            # Settings page controlPlaneIP) stay blank.
+            SOVEREIGN_CONTROL_PLANE_IP: ${load_balancer_ipv4}
             # SOVEREIGN_OWNER_EMAIL (founder NS-3 #3263) — the deployment
             # owner's email (same org_email as sovereign.json's orgEmail).
             # bp-keycloak slot 09 threads it into sovereignRealm.ownerEmail;
