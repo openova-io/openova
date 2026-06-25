@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.3  # lockstep with chart/Chart.yaml (#4382 add org-services to gitea allowIngressFrom)
+  version: 0.1.4  # lockstep with chart/Chart.yaml (#4325 #4382 comprehensive dial-graph sweep — close all remaining de-vcluster ingress gaps)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

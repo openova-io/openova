@@ -875,3 +875,164 @@ func kubectlApply(t *testing.T, manifest string) error {
 	}
 	return err
 }
+
+// TestBootstrapKit_PlaneIsolationDialGraphIsCovered locks the #4325 #4382
+// comprehensive dial-graph contract for bp-plane-isolation (slot 26b).
+//
+// After the #4325 de-vcluster the mgmt/rtz/dmz platform planes became native
+// HOST namespaces, each behind a per-component default-deny CiliumNetworkPolicy
+// whose ingress allow-list must enumerate every legitimate cross-component
+// dialer. The allow-lists were originally written for the pre-de-vcluster
+// topology, so gaps surfaced ONE AT A TIME as live traffic hit them — #4361
+// (world-egress drop), #4380 (cutover Jobs → gitea/harbor), #4383 (org-services
+// → gitea). This test asserts the FULL known steady-state + provisioning +
+// cutover + observability dial graph is covered IN ONE PLACE so a future
+// de-vcluster / re-home can't silently drop an edge again (the whack-a-mole
+// this PR ends).
+//
+// Each `wantEdges` entry is TARGET-namespace -> the set of SOURCE namespaces
+// that MUST appear in that target's bp-plane-isolation default-deny ingress
+// allow-list (rendered as a `namespaceSelector` matching
+// kubernetes.io/metadata.name). same-namespace (podSelector) + flux-system are
+// template-implicit and not asserted here. Egress is intentionally NOT checked
+// — the 0.1.2 union leaves egress open (namespaceSelector{} + world); this test
+// guards the INGRESS allow-list, which is where every gap has landed.
+//
+// The edges below are each backed by a real consumer in the codebase:
+//   - org-services -> {gitea,keycloak,nats-system,valkey, shared-pg}        (BSS/auth/provisioning)
+//   - sandbox      -> {keycloak,gitea,seaweedfs,newapi(via catalyst-system)} (controller + per-Sandbox MCP)
+//   - newapi       -> {keycloak,nats-system,valkey,vllm}                     (admin OIDC, metering, cache, inference)
+//   - guacamole    -> {keycloak,nats-system,seaweedfs}                       (OIDC, audit, recordings)
+//   - grafana      -> {keycloak,loki,mimir,tempo} + cnpg-system(its PG)      (SSO + datasource queries + state DB)
+//   - alloy/otel   -> {loki,mimir,tempo,opentelemetry}                       (observability shippers)
+func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
+	root := repoRoot(t)
+	chartDir := filepath.Join(root, "platform", "plane-isolation", "chart")
+	if _, err := os.Stat(chartDir); err != nil {
+		t.Skipf("platform/plane-isolation/chart not present — skipping #4325 dial-graph test")
+	}
+
+	helmBin := os.Getenv("HELM_BIN")
+	if helmBin == "" {
+		helmBin = "helm"
+	}
+	if _, err := exec.LookPath(helmBin); err != nil {
+		t.Skipf("helm not on PATH (%v) — skipping dial-graph render test", err)
+	}
+
+	// Render with the cilium.io/v2 API present so the gateway-ingress CNP also
+	// renders (we assert its presence for gateway-fronted components).
+	cmd := exec.Command(helmBin, "template", "plane-isolation", ".", "--api-versions", "cilium.io/v2")
+	cmd.Dir = chartDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template bp-plane-isolation failed: %v\noutput:\n%s", err, out)
+	}
+
+	// Parse the rendered ingress allow-lists: ns -> set(source-namespaces).
+	type npDoc struct {
+		Kind     string `yaml:"kind"`
+		Metadata struct {
+			Namespace string `yaml:"namespace"`
+		} `yaml:"metadata"`
+		Spec struct {
+			Ingress []struct {
+				From []struct {
+					NamespaceSelector *struct {
+						MatchLabels map[string]string `yaml:"matchLabels"`
+					} `yaml:"namespaceSelector"`
+				} `yaml:"from"`
+			} `yaml:"ingress"`
+		} `yaml:"spec"`
+	}
+	ingressFrom := map[string]map[string]bool{} // targetNs -> set(sourceNs)
+	gatewayCNP := map[string]bool{}             // targetNs that have an ingress-entity CNP
+
+	dec := yaml.NewDecoder(strings.NewReader(string(out)))
+	for {
+		var raw map[string]any
+		if derr := dec.Decode(&raw); derr != nil {
+			break
+		}
+		if raw == nil {
+			continue
+		}
+		kind, _ := raw["kind"].(string)
+		switch kind {
+		case "NetworkPolicy":
+			// Re-decode into the typed struct for the ingress walk.
+			b, _ := yaml.Marshal(raw)
+			var d npDoc
+			if yaml.Unmarshal(b, &d) != nil {
+				continue
+			}
+			ns := d.Metadata.Namespace
+			if ingressFrom[ns] == nil {
+				ingressFrom[ns] = map[string]bool{}
+			}
+			for _, rule := range d.Spec.Ingress {
+				for _, f := range rule.From {
+					if f.NamespaceSelector != nil {
+						if src := f.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]; src != "" {
+							ingressFrom[ns][src] = true
+						}
+					}
+				}
+			}
+		case "CiliumNetworkPolicy":
+			meta, _ := raw["metadata"].(map[string]any)
+			if ns, _ := meta["namespace"].(string); ns != "" {
+				gatewayCNP[ns] = true
+			}
+		}
+	}
+
+	// The known dial graph — TARGET ns -> required SOURCE namespaces.
+	wantEdges := map[string][]string{
+		// SSO IdP — every OIDC consumer's backchannel lands here.
+		"keycloak": {"org-services", "oidc-gate", "sandbox", "newapi", "guacamole", "grafana", "external-secrets-system", "cnpg-system"},
+		// Source forge — provisioning + sandbox repo ops + flux/catalyst pulls.
+		"gitea": {"org-services", "sandbox", "catalyst-system", "external-secrets-system", "cnpg-system"},
+		// Event bus — every publisher.
+		"nats-system": {"org-services", "guacamole", "catalyst-system", "newapi"},
+		// Shared object store — its blob-storage consumers (default-off but legitimate).
+		"seaweedfs": {"gitea", "harbor", "loki", "mimir", "tempo", "velero", "guacamole", "catalyst-system", "sandbox"},
+		// Dashboards — SSO + ESO + its own Postgres backend.
+		"grafana": {"external-secrets-system", "cnpg-system"},
+		// Log/metric/trace stores — their queriers + shippers.
+		"loki":  {"grafana", "alloy", "opentelemetry"},
+		"mimir": {"grafana", "alloy", "opentelemetry"},
+		"tempo": {"grafana", "alloy", "opentelemetry"},
+		// OTLP collector — alloy forwards + catalyst-system emits.
+		"opentelemetry": {"alloy", "catalyst-system"},
+		// Shared cache — its clients.
+		"valkey": {"org-services", "newapi"},
+		// In-cluster inference channel.
+		"vllm": {"newapi"},
+		// LLM gateway — sandbox-controller (via catalyst-system) + per-Sandbox runtimes.
+		"newapi": {"catalyst-system", "sandbox", "external-secrets-system", "cnpg-system"},
+	}
+
+	for target, sources := range wantEdges {
+		got, ok := ingressFrom[target]
+		if !ok {
+			t.Errorf("bp-plane-isolation: NO default-deny NetworkPolicy rendered for de-vcluster'd plane %q — the dial graph cannot be covered (#4325). Add it to chart/values.yaml components[]", target)
+			continue
+		}
+		for _, src := range sources {
+			if !got[src] {
+				t.Errorf("bp-plane-isolation DIAL-GRAPH GAP (#4325 #4382): namespace %q is dialed by %q in steady-state/provisioning/cutover, but %q is MISSING from %q's allowIngressFrom — Cilium will DROP the dial (the #4361/#4380/#4383 whack-a-mole class). Add %q to the %q entry in platform/plane-isolation/chart/values.yaml", target, src, src, target, src, target)
+			}
+		}
+	}
+
+	// Gateway-fronted components MUST also carry the ingress-entity CNP — without
+	// it the cilium-gateway/envoy traffic (reserved `ingress` entity, no
+	// namespaceSelector can match) is silently dropped → curl 000/503.
+	wantGatewayCNP := []string{"keycloak", "gitea", "harbor", "grafana", "openbao", "guacamole", "newapi", "coraza", "oidc-gate"}
+	for _, ns := range wantGatewayCNP {
+		if !gatewayCNP[ns] {
+			t.Errorf("bp-plane-isolation: gateway-fronted component %q is MISSING its allow-gateway-ingress CiliumNetworkPolicy — public route traffic (reserved `ingress` entity) will be dropped → 000/503. Set gatewayIngress: true on the %q entry", ns, ns)
+		}
+	}
+}

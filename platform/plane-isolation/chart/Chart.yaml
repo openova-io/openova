@@ -51,7 +51,28 @@ name: bp-plane-isolation
 #   `curl --max-time 8 http://gitea-http.gitea.svc:3000/api/v1/version` → code=000
 #   exit=28 from the provisioning pod while the same PAT returns 200 from a gitea
 #   pod. core/services/provisioning/github/client.go is the legitimate consumer.
-version: 0.1.3
+# 0.1.4 (#4325 #4382 comprehensive dial-graph sweep): the #4361/#4380/#4383
+#   fixes each closed ONE de-vcluster ingress gap as live traffic hit it. This
+#   sweep audits the FULL cross-component dial graph (org-services/provisioning/
+#   sandbox/newapi/guacamole/grafana/observability) and closes every remaining
+#   denied-but-legitimate ingress edge in ONE pass, plus adds the three
+#   de-vcluster'd host namespaces that had NO default-deny at all (opentelemetry,
+#   alloy, oidc-gate) so the plane segmentation is complete. ADDED ingress edges:
+#     keycloak     ← sandbox (controller+MCP realm/user OIDC admin), newapi
+#                    (admin-UI OIDC), guacamole (OIDC silent-login), grafana (SSO)
+#     gitea        ← sandbox (per-Sandbox repo create/read)
+#     nats-system  ← newapi (metering-sidecar usage events)
+#     seaweedfs    ← sandbox (per-Sandbox MCP S3 storage)
+#     grafana      ← cnpg-system (grafana-app Postgres backend)
+#   NEW components (own default-deny, were un-policied → wide open post-#4325):
+#     opentelemetry ← alloy (OTLP forward), catalyst-system (OTLP emit)
+#     alloy         (pure source — default-deny ingress, nothing dials in)
+#     oidc-gate     (gateway-fronted auth proxy — gatewayIngress CNP only)
+#   A new contract test (Case 30, tests/e2e/bootstrap-kit) asserts the known
+#   dial graph is fully covered so a future de-vcluster/re-home can't silently
+#   drop an edge. Egress stays open (0.1.2 union) — only ingress edges added;
+#   default-deny posture intact. Refs #4325 #4382 #4361 #4380 #4383.
+version: 0.1.4
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform
