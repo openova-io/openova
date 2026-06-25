@@ -366,18 +366,20 @@ gateway:
 # 22-loki.yaml, 23-mimir.yaml, 24-tempo.yaml. Multi-cluster federation
 # overlays MAY point at a regional aggregator instead.
 #
-# #2745 (2026-06-12): bp-loki/bp-mimir/bp-tempo are re-homed INSIDE the
-# mgmt vCluster (NS-1 founder DoD). Grafana itself still runs host-side
-# (audit Phase-2 candidate), so these defaults point at the host-visible
-# syncer-mangled Service names the bp-mgmt-vcluster
-# sync.toHost.services reflector creates:
-#   <svc>-x-<inner-ns>-x-mgmt-vcluster.<host-ns mgmt>.svc.cluster.local
-# (suffix = the vCluster instance name = slot-58 releaseName
-# `mgmt-vcluster` — same convention as the nats-jetstream/keycloak
-# G92.2 entries in products/catalyst values). When grafana promotes
-# into the mgmt vCluster (audit Phase-2) these revert to the plain
-# in-vCluster names (loki.loki.svc / mimir-nginx.mimir.svc /
-# tempo.tempo.svc) via overlay or follow-up bump.
+# #2745 (2026-06-12): bp-loki/bp-mimir/bp-tempo were re-homed INSIDE the
+# mgmt vCluster (NS-1 founder DoD), so these defaults pointed at the
+# host-visible syncer-mangled Service names the bp-mgmt-vcluster
+# sync.toHost.services reflector created
+# (<svc>-x-<inner-ns>-x-mgmt-vcluster.mgmt.svc.cluster.local).
+#
+# #4347 (2026-06-25, Refs #4325): #4325 DE-VCLUSTERED the mgmt/rtz/dmz
+# platform planes — bp-loki/bp-mimir/bp-tempo now run NATIVELY in their
+# OWN host namespaces (loki/mimir/tempo), so the syncer-mangled
+# `*-x-*-x-mgmt-vcluster.mgmt.svc` names NO LONGER RESOLVE (the syncer is
+# gone) → every Grafana datasource health-check failed + all dashboards
+# rendered empty. The URLs below are corrected to the host-ns Service
+# names of the de-vclustered planes: mimir-gateway.mimir.svc:80,
+# loki.loki.svc:3100, tempo.tempo.svc:3200.
 observabilityStack:
   enabled: true
   # Custom sidecar discovery label override (mirrors
@@ -388,38 +390,32 @@ observabilityStack:
   datasources:
     prometheus:
       enabled: true
-      # bp-mimir 1.0.5+ exposes its query frontend via the
-      # `<release>-mimir-nginx` Service on port 80 in the (inner) mimir
-      # namespace. #2745: bp-mimir lives inside the mgmt vCluster; the
-      # host-visible synced Service is
-      # mimir-nginx-x-mimir-x-mgmt-vcluster in host ns mgmt.
-      url: "http://mimir-nginx-x-mimir-x-mgmt-vcluster.mgmt.svc.cluster.local:80/prometheus"
+      # #4347 (Refs #4325): bp-mimir is now host-ns (namespace `mimir`).
+      # Its query frontend is fronted by the `mimir-gateway` Service on
+      # port 80 (the Catalyst-owned gateway nginx renders this Service name
+      # via the upstream `<release>-gateway` contract). The pre-#4325
+      # syncer-mangled `mimir-nginx-x-mimir-x-mgmt-vcluster.mgmt.svc` name
+      # is dead.
+      url: "http://mimir-gateway.mimir.svc.cluster.local:80/prometheus"
       tenantId: anonymous
     loki:
       enabled: true
-      # bp-loki 1.0.0 single-binary chart Service name is `<release>`
-      # (no -gateway suffix on the simple-deployment values shipped by
-      # bp-loki today). #2745: bp-loki lives inside the mgmt vCluster;
-      # the host-visible synced Service is loki-x-loki-x-mgmt-vcluster
-      # in host ns mgmt.
-      url: "http://loki-x-loki-x-mgmt-vcluster.mgmt.svc.cluster.local:3100"
+      # #4347 (Refs #4325): bp-loki is now host-ns (namespace `loki`). The
+      # single-binary chart's Service name is `<release>` = `loki`, port
+      # 3100. The pre-#4325 `loki-x-loki-x-mgmt-vcluster.mgmt.svc` name is
+      # dead.
+      url: "http://loki.loki.svc.cluster.local:3100"
       tenantId: anonymous
     tempo:
       enabled: true
-      # bp-tempo 1.0.0 single-binary chart Service name is `<release>`.
-      # #2745: bp-tempo lives inside the mgmt vCluster; the host-visible
-      # synced Service is tempo-x-tempo-x-mgmt-vcluster in host ns mgmt,
-      # port 3200 for the query API.
-      #
-      # Port 3200 is the upstream Tempo `http_listen_port` default
-      # (grafana/helm-charts tempo-1.24.4 values.yaml `tempo.config`
-      # block) — the same port the rendered Service exposes as the
-      # `tempo-prom-metrics` named port for tempo-query traffic. The
-      # earlier value 3100 was a copy-paste mismatch from Loki's HTTP
-      # port (also `:3100` in the Loki single-binary chart) and would
-      # have produced `Tempo is not responding` in Grafana's datasource
-      # health-check on a fresh-prov walk. G117.5a (Refs #2788).
-      url: "http://tempo-x-tempo-x-mgmt-vcluster.mgmt.svc.cluster.local:3200"
+      # #4347 (Refs #4325): bp-tempo is now host-ns (namespace `tempo`). The
+      # single-binary chart's Service name is `<release>` = `tempo`, port
+      # 3200 (the upstream Tempo `http_listen_port` default — the same port
+      # the Service exposes for tempo-query traffic). The pre-#4325
+      # `tempo-x-tempo-x-mgmt-vcluster.mgmt.svc` name is dead. (Port 3200,
+      # not 3100 — the earlier 3100 was a copy-paste from Loki's HTTP port,
+      # G117.5a / #2788.)
+      url: "http://tempo.tempo.svc.cluster.local:3200"
     alertmanager:
       # Default OFF — Mimir's bundled AM and standalone bp-alertmanager
       # are not yet wired in clusters/_template/. Per-Sovereign overlay

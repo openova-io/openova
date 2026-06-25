@@ -67,10 +67,16 @@ type: application
 # readTopology serves spec.placement VERBATIM to the Topology tab + the
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
-# 1.0.17 (#4347): add EXEC liveness + readiness probes to the dashboard +
-#   datasource kiwigrid/k8s-sidecar containers so the grafana Pod clears the
-#   host-ns Kyverno `probes-present` Enforce policy (post-#4325 de-vcluster).
-#   Adds tests/kyverno-probes-present.sh. Refs #4347 #4325.
+# 1.0.17 (#4347): host-ns Kyverno + de-vcluster cleanup (post-#4325).
+#   (a) add EXEC liveness + readiness probes to the dashboard + datasource
+#   kiwigrid/k8s-sidecar containers so the grafana Pod clears the host-ns
+#   Kyverno `probes-present` Enforce policy (+ tests/kyverno-probes-present.sh);
+#   (b) CORRECT the three default datasource URLs — #4325 de-vclustered
+#   bp-loki/bp-mimir/bp-tempo into their OWN host namespaces, so the pre-#4325
+#   syncer-mangled `<svc>-x-<inner-ns>-x-mgmt-vcluster.mgmt.svc` targets are
+#   DEAD (every Grafana datasource health-check failed → empty dashboards).
+#   Now mimir-gateway.mimir.svc:80 / loki.loki.svc:3100 / tempo.tempo.svc:3200
+#   (g115-datasources-dashboards.sh updated to match). Refs #4347 #4325.
 version: 1.0.17
 appVersion: "12.3.1"
 # 1.0.14 (#3374, 2026-06-14): raise the sidecar memory limit 64Mi → 192Mi
