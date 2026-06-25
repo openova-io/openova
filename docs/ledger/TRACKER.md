@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T10:00:03Z` |
+| Last refreshed | `2026-06-25T10:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 25 |
 | Open DoD gates | 0 / 41 |
@@ -223,8 +223,8 @@ flowchart LR
 | [#4322](https://github.com/openova-io/openova/issues/4322) | bp-wordpress-tenant: fresh-Org HR Ready=False — oidc-config hook pg4wp fetch 4 | Other |
 | [#4328](https://github.com/openova-io/openova/issues/4328) | ghcr-pull reflector miss on slug-named per-Org namespaces (post-#4293 namespace  | Other |
 | [#4329](https://github.com/openova-io/openova/issues/4329) | P0: per-Org vCluster CrashLoops — flux-managed Kyverno denies CIDR-probe Servi | Other |
-| [#4330](https://github.com/openova-io/openova/issues/4330) | sovereign-fqdn ConfigMap renders empty lbIP/consoleLBIP/controlPlaneIP → per-O | Other |
 | [#4337](https://github.com/openova-io/openova/issues/4337) | P0: per-Org bp-cnpg operator retains cluster-scoped webhookconfigurations RBAC � | Other |
+| [#4339](https://github.com/openova-io/openova/issues/4339) | P0: org-controller vclusterReadiness apps-install gate is tier-unaware — host- | Other |
 
 ---
 
