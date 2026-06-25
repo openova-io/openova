@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T06:30:02Z` |
+| Last refreshed | `2026-06-25T06:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 23 |
+| Open issues | 22 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 23 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,13 +196,12 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 23 open items (clickable table)
+### All 22 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
 | [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
 | [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
-| [#3914](https://github.com/openova-io/openova/issues/3914) | Provisioning UX: fill the ~30-min 'Provision <provider>: Success' void with a li | Other |
 | [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (Primary/Standby·Hot/Cold, capability-gated | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
 | [#4180](https://github.com/openova-io/openova/issues/4180) | AGENITY: deliver the NEW dashboard DURABLY — the install must pin the current  | Other |
@@ -237,6 +236,8 @@ flowchart LR
 | 2026-06-25T04:10 | [#4302](https://github.com/openova-io/openova/pull/4302) | #4274 | fix(bss): wire /billing/orders + /billing/revenue to live bi |
 | 2026-06-25T04:10 | [#4301](https://github.com/openova-io/openova/pull/4301) | #4286 | feat(bp-kyverno-policies): Kyverno admission floor injects s |
 | 2026-06-25T04:10 | [#4300](https://github.com/openova-io/openova/pull/4300) | #4272 | fix(bp-openclaw): Cilium-Gateway NetworkPolicy + HTTPRoute s |
+| 2026-06-25T06:40 | [#4298](https://github.com/openova-io/openova/pull/4298) | #4293 | feat(org-controller): enforce+cap the Org-vcluster boundary  |
+| 2026-06-25T06:38 | [#4295](https://github.com/openova-io/openova/pull/4295) | #4293 | fix(provisioning): collapse the Organization-provisioning do |
 | 2026-06-24T18:20 | [#4294](https://github.com/openova-io/openova/pull/4294) | #4279 | docs: consolidated gap-analysis + action backlog index for d |
 | 2026-06-24T17:48 | [#4289](https://github.com/openova-io/openova/pull/4289) | #4280 | fix(catalyst): owner keeps catalog name+light/dark logo edit |
 | 2026-06-24T17:30 | [#4288](https://github.com/openova-io/openova/pull/4288) | #4284 | fix(bp-catalyst-platform): permanent root-cause for Flux→loc |
@@ -258,8 +259,6 @@ flowchart LR
 | 2026-06-24T06:41 | [#4254](https://github.com/openova-io/openova/pull/4254) | #4242 | fix(continuum): k8s-lease witness + region fallback → health |
 | 2026-06-24T05:36 | [#4252](https://github.com/openova-io/openova/pull/4252) | #4250 | fix(org-provisioning): transient parent-index read no longer |
 | 2026-06-24T04:57 | [#4251](https://github.com/openova-io/openova/pull/4251) | #1 | fix(catalyst-api): register funnel-Org console hosts from th |
-| 2026-06-24T04:36 | [#4248](https://github.com/openova-io/openova/pull/4248) | #4246 | fix: per-Org HR disableWait passthrough (newapi DSN deadlock |
-| 2026-06-24T04:32 | [#4247](https://github.com/openova-io/openova/pull/4247) | #1 | docs(sessions): #4179 close-gate walk — SAN-match fix proven |
 
 ---
 
