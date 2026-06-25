@@ -1,0 +1,147 @@
+{{- /*
+StorageClass reclaim-policy reconcile hook — bp-huawei-evs-csi (#4350).
+
+THE FIX
+=======
+#4352 (chart 1.0.4) flipped the catalystStorageClasses[].reclaimPolicy default
+Retain → Delete to stop the EVS volume-COUNT quota leak (Huawei enforces a
+project-wide 400 hard quota; Retain kept every churned PVC's backing EVS volume
+alive under a Released PV until the project hit EVS.1034 / 413). But a
+StorageClass's `reclaimPolicy` is an IMMUTABLE field — `kubectl apply` /
+`helm upgrade` against an EXISTING `evs-ssd` SC that still carries
+`reclaimPolicy: Retain` is REJECTED with `StorageClass.storage.k8s.io
+"evs-ssd" is invalid: reclaimPolicy: Forbidden: updates to reclaimPolicy are
+forbidden`. So on a LIVE Huawei Sovereign that already had the 1.0.x evs-ssd SC
+(Retain), the 1.0.4 upgrade STALLS the bp-huawei-evs-csi HelmRelease — and the
+whole stateful chain (bp-cnpg → bp-postgres-shared → bp-keycloak → bp-gitea →
+bp-catalyst-platform) that gates on it never converges, so the org-controller
+roll wedges (kom4dc dep 4635277cae4ffed9, #4350).
+
+A StorageClass field can only be changed by DELETE + RECREATE. This
+pre-install/pre-upgrade Job runs BEFORE Helm applies the rendered StorageClass
+template: it reads the live `evs-ssd` SC's reclaimPolicy and, if it differs
+from the DESIRED reclaimPolicy ({{ (index .Values.catalystStorageClasses 0).reclaimPolicy | default "Retain" }}),
+DELETES the stale SC so Helm's subsequent apply CREATES it fresh with the
+correct (immutable-at-create) reclaimPolicy. If the live SC already matches the
+desired policy — or does not exist yet (fresh prov) — the hook is a NO-OP.
+
+WHY DELETE-THEN-RECREATE IS SAFE FOR BOUND VOLUMES
+==================================================
+reclaimPolicy is stamped onto each PV at BIND time (the PV copies
+`.spec.persistentVolumeReclaimPolicy` from the SC when it is provisioned); it
+is NOT re-read from the SC afterwards. Deleting and recreating the SC therefore
+does NOT touch any EXISTING PV or Bound PVC — their reclaim behaviour is fixed
+on the PV object. Only NEW dynamic provisioning reads the SC's policy. The hook
+keeps the delete→recreate window tiny (the very next step is Helm applying the
+SC template), and the recreate is left to Helm so the SC's full spec stays the
+single source of truth in the chart (provisioner/parameters/volumeBindingMode/
+allowVolumeExpansion/default-class annotation are all re-applied by the regular
+StorageClass template + the post-upgrade default-class hook).
+
+IDEMPOTENCY
+===========
+  - Live reclaimPolicy already == desired → no-op (logs "already Delete").
+  - Live SC absent (fresh prov) → no-op (Helm just creates it).
+  - Live reclaimPolicy != desired → delete the SC (Helm recreates it).
+So the hook is safe on EVERY reconcile and on a fresh prov.
+
+Gated on .Values.enabled (the SAME master gate as the StorageClass + the
+default-class hook) so a default-off / Hetzner render emits ZERO resources
+(smoke-render guard). hook-weight -10 so it runs BEFORE the default-class hook
+(weight -5 RBAC / 0 Job) — but as a pre-* hook it runs before the main release
+apply regardless; the negative weight only orders it relative to its own RBAC.
+*/}}
+{{- if .Values.enabled }}
+{{- $sc := "evs-ssd" -}}
+{{- if .Values.catalystStorageClasses }}
+{{-   $sc = (index .Values.catalystStorageClasses 0).name -}}
+{{- end -}}
+{{- $desired := "Retain" -}}
+{{- if .Values.catalystStorageClasses }}
+{{-   $desired = ((index .Values.catalystStorageClasses 0).reclaimPolicy | default "Retain") -}}
+{{- end -}}
+{{- $image := "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-reclaim-reconcile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: reclaim-reconcile-hook
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-huawei-evs-csi
+        app.kubernetes.io/component: reclaim-reconcile-hook
+    spec:
+      serviceAccountName: {{ .Release.Name }}-reclaim-reconcile
+      restartPolicy: Never
+      containers:
+        - name: reconcile
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 96Mi }
+          env:
+            - name: TARGET_SC
+              value: {{ $sc | quote }}
+            - name: DESIRED_RECLAIM
+              value: {{ $desired | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "bp-huawei-evs-csi reclaim-reconcile: StorageClass=${TARGET_SC} desired reclaimPolicy=${DESIRED_RECLAIM}"
+
+              # Fresh prov / first install: the SC does not exist yet. Helm's
+              # main apply will create it with the desired policy → no-op.
+              if ! kubectl get storageclass "${TARGET_SC}" >/dev/null 2>&1; then
+                echo "StorageClass ${TARGET_SC} does not exist yet — nothing to reconcile (Helm will create it)."
+                exit 0
+              fi
+
+              live="$(kubectl get storageclass "${TARGET_SC}" \
+                -o jsonpath='{.reclaimPolicy}' 2>/dev/null || true)"
+              echo "live reclaimPolicy = '${live:-<empty>}'"
+
+              # Already correct → idempotent no-op. (Empty live policy means the
+              # API server default 'Delete' — treat an empty desired-Delete match
+              # as already-correct too.)
+              if [ "${live}" = "${DESIRED_RECLAIM}" ]; then
+                echo "reclaimPolicy already ${DESIRED_RECLAIM} — no-op."
+                exit 0
+              fi
+              if [ -z "${live}" ] && [ "${DESIRED_RECLAIM}" = "Delete" ]; then
+                echo "reclaimPolicy unset (API default Delete) already matches desired Delete — no-op."
+                exit 0
+              fi
+
+              # reclaimPolicy is IMMUTABLE — the only way to change it is
+              # delete + recreate. Delete the stale SC; Helm's subsequent apply
+              # (this is a pre-* hook) recreates it with the desired policy.
+              # Existing Bound PVs/PVCs are UNAFFECTED (policy is stamped on the
+              # PV at bind time, never re-read from the SC).
+              echo "reclaimPolicy ${live} != desired ${DESIRED_RECLAIM} — deleting StorageClass ${TARGET_SC} so Helm recreates it with ${DESIRED_RECLAIM}."
+              kubectl delete storageclass "${TARGET_SC}" --wait=true --timeout=60s
+              echo "deleted ${TARGET_SC}; Helm will recreate it with reclaimPolicy=${DESIRED_RECLAIM}."
+{{- end }}

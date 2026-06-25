@@ -56,7 +56,23 @@ name: bp-huawei-evs-csi
 # gitea/harbor/seaweedfs/per-Org PVCs Pending → bp-gitea False →
 # bp-catalyst-platform never converged. Delete reclaim bounds the volume count.
 # Values-only change. Refs #4350 #3971.
-version: 1.0.4
+#
+# 1.0.5 (#4350 follow-up, 2026-06-25): the 1.0.4 values-only flip is INERT on a
+# LIVE Huawei Sovereign that already carries the evs-ssd SC with the OLD
+# reclaimPolicy Retain — `reclaimPolicy` is an IMMUTABLE StorageClass field, so
+# Helm's apply of the 1.0.4 SC template is REJECTED (`reclaimPolicy: Forbidden:
+# updates to reclaimPolicy are forbidden`) → the bp-huawei-evs-csi HelmRelease
+# STALLS → the whole stateful chain that gates on it (bp-cnpg →
+# bp-postgres-shared → bp-keycloak → bp-gitea → bp-catalyst-platform) never
+# converges → the org-controller roll wedges (kom4dc dep 4635277cae4ffed9).
+# A StorageClass field can only be changed by DELETE + RECREATE. This release
+# adds a pre-install/pre-upgrade hook Job (templates/reclaim-reconcile-hook.yaml
+# + its RBAC) that reads the live evs-ssd reclaimPolicy and, if it differs from
+# the desired Delete, DELETES the stale SC so Helm's subsequent apply recreates
+# it with reclaimPolicy=Delete. Idempotent: a no-op when the SC is already
+# Delete or absent (fresh prov). Existing Bound PVs/PVCs are UNAFFECTED —
+# reclaimPolicy is stamped on the PV at bind time and never re-read from the SC.
+version: 1.0.5
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable

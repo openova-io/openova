@@ -1,0 +1,68 @@
+{{- /*
+RBAC for the StorageClass reclaim-policy reconcile hook (#4350).
+
+The pre-install/pre-upgrade Job (templates/reclaim-reconcile-hook.yaml) reads
+the live `evs-ssd` StorageClass's reclaimPolicy and, when it differs from the
+chart's desired policy, DELETES the (immutable-reclaimPolicy) SC so Helm's
+subsequent apply recreates it with the correct policy. Reading + deleting a
+cluster-scoped StorageClass needs a ClusterRole + binding.
+
+Gated on the SAME .Values.enabled master gate as the hook + the StorageClass so
+a default-off / Hetzner render emits ZERO resources (smoke-render guard).
+
+hook-weight -15 (earlier than the Job's -10) so the SA + ClusterRole + Binding
+land BEFORE the Job that consumes them.
+*/}}
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-reclaim-reconcile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: reclaim-reconcile-hook
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-reclaim-reconcile
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: reclaim-reconcile-hook
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-reclaim-reconcile
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: reclaim-reconcile-hook
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-reclaim-reconcile
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-reclaim-reconcile
+    namespace: {{ .Release.Namespace }}
+{{- end }}
