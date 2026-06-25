@@ -893,7 +893,13 @@ name: bp-newapi
 #   `harbor-proxy-pull` Enforce policy admits it on every reconcile (the sibling
 #   db-dsn-sync Job already proxied it; channel-seed was the lone raw
 #   docker.io/curlimages/curl). Refs #4347 #4325.
-version: 1.4.131
+# 1.4.132 — #4388 (#4325 fallout sweep): repoint the valkey.url configSchema
+#   default + chart values default + the egress NetworkPolicy namespaceSelector
+#   off the dead rtz-vcluster-syncer-mangled name to the host-native
+#   `valkey-primary.valkey.svc` / ns `valkey` (bp-valkey re-homed to host ns by
+#   #4325; the old `rtz` namespace selector denied newapi→valkey:6379 egress).
+#   Config-default-only. Refs #4388 #4325 #4376.
+version: 1.4.132
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

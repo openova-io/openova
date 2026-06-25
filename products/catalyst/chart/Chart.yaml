@@ -3143,7 +3143,19 @@ name: bp-catalyst-platform
 #   plane-vcluster-mangled name (regression-guards both #4378's NATS fix and this
 #   Valkey fix). Config-default-only change; no new bootstrap state.
 #   Refs #4368 #4373 #4325 #4347 #4322.
-version: 1.4.859
+# 1.4.860 — #4388 (#4325 fallout completeness sweep): repoint the remaining
+#   ACTIVE dead plane-vCluster references that the one-at-a-time live walks had
+#   not yet hit. CATALYST_MIMIR_URL (api-deployment + -kustomize) → host-ns
+#   mimir-query-frontend.mimir.svc; keycloakHostBridge.keycloakAddr +
+#   bitnamiSecret → host-native keycloak/keycloak-admin; giteaAdminBridge source
+#   → host-native gitea/gitea-admin-secret (the bridge becomes an idempotent
+#   self-copy post-de-vcluster); qaFixtures.cnpgBackupEndpointURL +
+#   cnpg-clusters-qa fallback → seaweedfs-s3.seaweedfs.svc; baseline-catalyst-
+#   system CNP drops the dead `mgmt` egress entry and repoints the `mgmt`
+#   INGRESS entry → `guacamole` (bp-guacamole re-homed to its own host ns by
+#   #4325; the guacamole webapp→guacamole-pg:5432 path needs it). Config-default-
+#   only change; no new bootstrap state. Refs #4388 #4325 #4291 #4293.
+version: 1.4.860
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /

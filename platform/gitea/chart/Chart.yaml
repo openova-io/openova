@@ -186,7 +186,13 @@ name: bp-gitea
 #   values.yaml and the template inline default (mirrors sso-configure-deployment.yaml
 #   / database-secret-sync-job.yaml). Adds tests/kyverno-harbor-proxy-images.sh
 #   (CI gate asserting every rendered image passes harbor-proxy-pull + image-pin).
-version: 1.2.44
+# 1.2.45 — #4388 (#4325 fallout sweep): repoint the objectStorage S3 endpoint +
+#   mirror filerEndpoint (values + template defaults) off the dead
+#   rtz-vcluster-syncer-mangled seaweedfs names to host-native
+#   `seaweedfs-s3.seaweedfs.svc` / `seaweedfs-filer.seaweedfs.svc` (bp-seaweedfs
+#   re-homed to host ns by #4325). objectStorage/mirror are default-OFF. Test
+#   assertion updated in lockstep. Refs #4388 #4325.
+version: 1.2.45
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

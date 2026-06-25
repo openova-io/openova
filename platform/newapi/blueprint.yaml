@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.131 # lockstep with chart/Chart.yaml (#4347 channel-seed hook image harbor-proxy)
+  version: 1.4.132 # lockstep with chart/Chart.yaml (#4388 valkey.url + egress NP → host-ns valkey, #4325 fallout)
   card:
     title: NewAPI
     summary: |
@@ -82,8 +82,8 @@ spec:
         properties:
           url:
             type: string
-            default: redis://valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379
-            description: Valkey URL for session and rate-limit cache. #3373 Batch A — bp-valkey is in the rtz vCluster; the syncer mangles the host-synced Service name to `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` (mirrors the Organization VALKEY_ADDR rewire #3476).
+            default: redis://valkey-primary.valkey.svc.cluster.local:6379
+            description: Valkey URL for session and rate-limit cache. #4325 de-vcluster re-homed bp-valkey to the native HOST namespace `valkey`; the bitnami subchart's primary Service is `valkey-primary.valkey.svc` (the rtz plane vCluster + its syncer-mangled name are gone, #4376).
       auth:
         type: object
         properties:

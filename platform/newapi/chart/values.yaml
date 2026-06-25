@@ -281,19 +281,15 @@ valkey:
   # #1944 — t34 newapi pod 31x CrashLoopBackOff with
   # `lookup valkey.valkey.svc.cluster.local: no such host`).
   #
-  # #3373 Batch A (2026-06-14): bp-valkey moved INSIDE the rtz vCluster
-  # (placement.yaml: `bp-valkey → vcluster: rtz, namespace: valkey`). The
-  # bp-rtz-vcluster syncer reflects the in-vCluster `valkey-primary` Service
-  # to the HOST under the syncer-mangled name
-  # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`, so the host `valkey`
-  # namespace no longer carries a `valkey-primary` Service — the old
-  # `valkey-primary.valkey.svc` now resolves NXDOMAIN (same FATAL Redis-ping
-  # CrashLoop, observed live on hw133). newapi is host-placed in Batch A and
-  # this consumer is default-ON (`valkey.enabled: true`), so this default
-  # must point at the synced name. Mirrors the Organization `VALKEY_ADDR` /
-  # projector `valkey.addr` rewire (#3476). Override `url` for a host-placed
-  # valkey.
-  url: "redis://valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379"
+  # #4325 de-vcluster re-homed bp-valkey BACK to the native HOST namespace
+  # `valkey` (placement.yaml slot 17 → vcluster: host, namespace: valkey); the
+  # rtz plane vCluster + its syncer-mangled
+  # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` are gone. The host `valkey`
+  # namespace again carries the bitnami subchart's `valkey-primary` Service, so
+  # the plain host-ns name resolves (ClusterIP confirmed live, #4376). The
+  # subchart's primary Service is `<release>-primary` = `valkey-primary`.
+  # Override `url` for an off-cluster Valkey.
+  url: "redis://valkey-primary.valkey.svc.cluster.local:6379"
   # If the operator's Valkey requires auth, supply via ExternalSecret.
   # Required key: REDIS_CONN_STRING (full URL with credentials).
   existingSecret: "" # e.g. "newapi-valkey-conn"
@@ -975,14 +971,13 @@ networkPolicy:
     # bp-valkey — #3373 Batch A (2026-06-14) moved bp-valkey INTO the rtz
     # vCluster (placement.yaml: `bp-valkey → vcluster: rtz, namespace:
     # valkey`). The bp-rtz-vcluster syncer reflects the in-vCluster
-    # `valkey-primary` Service to the HOST `rtz` namespace under the
-    # syncer-mangled name `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`
-    # — matching the rewired REDIS_CONN_STRING (#3483). The `valkey` host
-    # namespace no longer exists, so this egress rule MUST select the `rtz`
-    # namespace where the synced Service actually lives; otherwise newapi's
-    # egress to valkey:6379 is denied and the Pod CrashLoops on the Redis
-    # ping probe (`Redis ping test failed`, measured live hw135 #3374).
-    - namespaceLabel: rtz
+    # #4325 de-vcluster re-homed bp-valkey BACK to the native HOST namespace
+    # `valkey`; the rtz plane vCluster + its `rtz` host namespace are gone.
+    # This egress rule MUST select the `valkey` namespace where the
+    # `valkey-primary` Service now lives; otherwise newapi's egress to
+    # valkey:6379 is denied and the Pod CrashLoops on the Redis ping probe
+    # (`Redis ping test failed`, the hw135 #3374 shape).
+    - namespaceLabel: valkey
       port: 6379
     # bp-keycloak (OIDC discovery + token)
     - namespaceLabel: keycloak

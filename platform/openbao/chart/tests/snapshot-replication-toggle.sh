@@ -76,10 +76,10 @@ if ! grep -qE "sys/storage/raft/snapshot" "$TMP/primary.yaml"; then
   echo "FAIL: primary CronJob missing the raft snapshot save (sys/storage/raft/snapshot)." >&2
   exit 1
 fi
-# The S3 upload must point at the SeaweedFS S3 endpoint. #3373 Batch A
-# (2026-06-14): bp-seaweedfs moved INTO the rtz vCluster, so the default
-# endpoint is now the syncer-mangled host Service name.
-if ! grep -qE "seaweedfs-s3-x-seaweedfs-x-rtz-vcluster\.rtz\.svc\.cluster\.local:8333" "$TMP/primary.yaml"; then
+# The S3 upload must point at the SeaweedFS S3 endpoint. #4325 de-vcluster:
+# bp-seaweedfs is host-native in ns `seaweedfs`, so the default endpoint is
+# the plain host-ns Service name.
+if ! grep -qE "seaweedfs-s3\.seaweedfs\.svc\.cluster\.local:8333" "$TMP/primary.yaml"; then
   echo "FAIL: primary CronJob missing the seaweedfs-s3 endpoint." >&2
   exit 1
 fi
@@ -136,10 +136,10 @@ if ! grep -qE "^  name: openbao-snapshot-s3-seeder$" "$TMP/primary.yaml"; then
   echo "FAIL: primary render missing the seeder ServiceAccount (#3629)." >&2
   exit 1
 fi
-# The seeder reads the HOST-synced rtz-vCluster source Secret (NOT a bare
-# `seaweedfs-s3-secret` in a non-existent ns) and writes the openbao-ns copy.
-if ! grep -q "seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster" "$TMP/primary.yaml"; then
-  echo "FAIL: seeder does not source from the rtz-vCluster-synced Secret (#3629)." >&2
+# The seeder reads bp-seaweedfs's native S3 admin Secret from its host
+# namespace `seaweedfs` (#4325 de-vcluster) and writes the openbao-ns copy.
+if ! grep -qE 'SRC_NS="seaweedfs"' "$TMP/primary.yaml"; then
+  echo "FAIL: seeder does not source from the host-native seaweedfs namespace (#3629/#4325)." >&2
   exit 1
 fi
 # The seeder's cross-ns read ClusterRole must be resourceNames-pinned (least
@@ -173,7 +173,7 @@ if ! grep -qE "s3api list-objects-v2" "$TMP/secondary.yaml"; then
   echo "FAIL: secondary CronJob missing the S3 list-objects fetch." >&2
   exit 1
 fi
-if ! grep -qE "seaweedfs-s3-x-seaweedfs-x-rtz-vcluster\.rtz\.svc\.cluster\.local:8333" "$TMP/secondary.yaml"; then
+if ! grep -qE "seaweedfs-s3\.seaweedfs\.svc\.cluster\.local:8333" "$TMP/secondary.yaml"; then
   echo "FAIL: secondary CronJob missing the seaweedfs-s3 endpoint." >&2
   exit 1
 fi
