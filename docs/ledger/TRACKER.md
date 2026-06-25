@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T21:00:03Z` |
+| Last refreshed | `2026-06-25T21:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 19 |
+| Open issues | 20 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 20 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 19 open items (clickable table)
+### All 20 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -219,6 +219,7 @@ flowchart LR
 | [#4375](https://github.com/openova-io/openova/issues/4375) | #4325 fallout: per-Org catalog blueprints (wordpress-tenant/stalwart-tenant/open | Other |
 | [#4384](https://github.com/openova-io/openova/issues/4384) | Funnel cart day-2 install commits to global openova/openova repo (empty-SHA tree | Other |
 | [#4389](https://github.com/openova-io/openova/issues/4389) | fix(bp-catalyst-platform #4325 fallout): keycloakHostBridge.keycloakAddr still p | Other |
+| [#4395](https://github.com/openova-io/openova/issues/4395) | catalog-seed pins OLD Burstable bp-openclaw 0.2.5 / bp-stalwart-tenant 0.1.3 — | Other |
 
 ---
 
@@ -226,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T21:11 | [#4396](https://github.com/openova-io/openova/pull/4396) | #4394 | fix(catalog-seed #4395): pin QoS-fixed funnel-Org charts (bp |
 | 2026-06-25T20:59 | [#4394](https://github.com/openova-io/openova/pull/4394) | #4307 | fix(bp-openclaw/bp-stalwart-tenant #4389/#4292): Guaranteed  |
 | 2026-06-25T20:59 | [#4393](https://github.com/openova-io/openova/pull/4393) | #4297 | fix(org-controller #4389/#4297): vcluster control-plane Guar |
 | 2026-06-25T20:59 | [#4392](https://github.com/openova-io/openova/pull/4392) | #4272 | fix(bp-catalyst-platform #4389): orgTag b3465e8 -> 903eed4 — |
@@ -255,7 +257,6 @@ flowchart LR
 | 2026-06-25T13:45 | [#4351](https://github.com/openova-io/openova/pull/4351) | #560 | fix(bp-kyverno-policies): exempt crossplane-system from harb |
 | 2026-06-25T13:04 | [#4348](https://github.com/openova-io/openova/pull/4348) | #4347 | fix(planes #4347): end the host-ns Kyverno whack-a-mole — pr |
 | 2026-06-25T11:32 | [#4346](https://github.com/openova-io/openova/pull/4346) | #4344 | fix(bp-keycloak #4344): stable admin-password across reinsta |
-| 2026-06-25T11:29 | [#4345](https://github.com/openova-io/openova/pull/4345) | #4325 | fix(planes): resources.requests for host-ns plane components |
 
 ---
 
