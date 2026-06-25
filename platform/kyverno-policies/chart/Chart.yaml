@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.41 (#4329, proven live omantel.biz/kom4dc 2026-06-25): HARDEN the
+# flux-managed (10) carve-out for the per-Org vCluster CIDR-probe Service. The
+# #3859 exclusion only matched namespaces stamped `openova.io/organization`; the
+# retired pre-#4295 funnel `tenant-<slug>` boundary stamps `openova.io/tenant`
+# instead, so on a stale/legacy host ALL 11/11 customer vClusters CrashLooped
+# (277×/23h): vcluster 0.33.x's startup CIDR-detection Service
+# `test-service-delete-me-<rand>` was Enforce-denied → syncer fatal
+# `failed to get service cidr` → no vCluster booted → the #4297
+# apps-in-vCluster keystone unreachable. Added a label-convention-resilient
+# exclude that matches the throwaway probe Service DIRECTLY by name pattern
+# (`Service/test-service-delete-me-*`, any namespace) — admits ONLY that
+# definitionally-unmanageable ephemeral probe while every real customer/operator
+# Service stays gated. Mirrors the by-label CNPG operator carve-out (carve out
+# the unmanageable object, not the namespace). Template-only behavior change +
+# new `kyverno test tests/vcluster-cidr-probe-admitted/` (probe ADMITTED;
+# unlabeled real Service DENIED). Refs #4329 #4297 #4293.
 # 1.0.40 (EPIC #4286 mechanism B, 2026-06-25): NEW MUTATE policy
 # `inject-gitea-source-secretref` (templates/mutate/01-...) — the ADMISSION FLOOR
 # that auto-injects the canonical basic-auth `spec.secretRef.name`
@@ -265,7 +281,7 @@ type: application
 # unprotected user PVCs stay subject to the velero-backed requirement. Mirrors
 # the by-label CNPG carve-out on the flux-managed policy (#3374). Template-only
 # behavior change + new test fixtures. Refs #3971.
-version: 1.0.40
+version: 1.0.41
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

@@ -1,0 +1,23 @@
+# #4329 — INPUT fixtures: the two host-cluster namespaces the test exercises.
+#
+#   tenant-demo  — the STALE/legacy funnel boundary (retired pre-#4295 path).
+#                  Carries `openova.io/tenant: demo` + `openova.io/managed-by:
+#                  provisioning` — NOT `openova.io/organization`. This is the
+#                  EXACT live shape on omantel.biz/kom4dc where ALL 11/11
+#                  vClusters CrashLooped. The #3859 `openova.io/organization`
+#                  namespaceSelector carve-out does NOT match it.
+#   app-prod     — an ordinary application namespace with NO Org-boundary label.
+#                  A real, non-probe Service here MUST stay Enforce-denied to
+#                  prove the policy's real intent is preserved.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-demo
+  labels:
+    openova.io/tenant: demo
+    openova.io/managed-by: provisioning
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-prod

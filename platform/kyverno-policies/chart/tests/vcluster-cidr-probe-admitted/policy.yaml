@@ -1,0 +1,97 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: flux-managed
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: governance
+  annotations:
+    policies.kyverno.io/title: Workloads must be managed by Flux
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Workload-rendering resources must carry
+      `app.kubernetes.io/managed-by: flux` (the upstream Flux label) OR
+      have an ownerReference pointing at a HelmRelease / Kustomization.
+      Direct kubectl apply is rejected — IaC-first per
+      docs/INVIOLABLE-PRINCIPLES.md #3.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: workload-must-be-flux-managed
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+                - Service
+                - Ingress
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - flux-system
+                - cilium
+                - cilium-gateway
+                - cert-manager
+                - openova-system
+                - catalyst
+                - kyverno
+                - monitoring
+                - ingress
+                - dmz
+                - mgmt
+                - rtz
+                - sso-bridge
+                - cnpg
+                - shared-data
+                - powerdns-admin
+                - trivy-system
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/managed-by: cloudnative-pg
+          - resources:
+              namespaceSelector:
+                matchExpressions:
+                  - key: openova.io/organization
+                    operator: Exists
+          - resources:
+              kinds:
+                - Service
+              names:
+                - "test-service-delete-me-*"
+      validate:
+        message: >-
+          {{request.object.kind}}/{{request.object.metadata.name}} is
+          not Flux-managed. Add label
+          `app.kubernetes.io/managed-by: flux` on metadata.labels OR
+          attach an ownerReference to a HelmRelease / Kustomization.
+        deny:
+          conditions:
+            all:
+              - key: '{{ request.object.metadata.labels."app.kubernetes.io/managed-by" || '''' }}'
+                operator: NotEquals
+                value: flux
+              # Wave 5.97 nil-safety: check Flux-applied labels instead of
+              # ownerReferences. Flux sets BOTH helm.toolkit.fluxcd.io/name AND
+              # kustomize.toolkit.fluxcd.io/name on every resource it manages.
+              # The original JMESPath filter `ownerReferences[?kind==X]` errors
+              # when ownerReferences is nil (most kubectl-created Pods + debug
+              # pods + admission-time injected sidecars), and admission webhook
+              # failurePolicy=Fail blocks all pod creation cluster-wide.
+              # Label-based check is nil-safe via the `||` JMESPath fallback.
+              - key: '{{ request.object.metadata.labels."helm.toolkit.fluxcd.io/name" || '''' }}'
+                operator: Equals
+                value: ''
+              - key: '{{ request.object.metadata.labels."kustomize.toolkit.fluxcd.io/name" || '''' }}'
+                operator: Equals
+                value: ''

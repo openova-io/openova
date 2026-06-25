@@ -1,0 +1,44 @@
+# #4329 — INPUT fixtures: the Services the flux-managed (Enforce) policy judges.
+# None carry a Flux label/ownerRef (no `app.kubernetes.io/managed-by: flux`, no
+# `helm.toolkit.fluxcd.io/name`, no `kustomize.toolkit.fluxcd.io/name`), so the
+# deny rule's conditions are all true UNLESS an exclude carve-out spares them.
+
+# 1. The vCluster 0.33.x CIDR-detection probe Service, in the legacy
+#    `openova.io/tenant`-labelled boundary. Name matches `test-service-delete-me-*`.
+#    MUST be ADMITTED by the new name-pattern carve-out (else vcluster-0 syncer
+#    is fatal at `failed to get service cidr` → the live 11/11 CrashLoop).
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-service-delete-me-qwgml
+  namespace: tenant-demo
+spec:
+  ports:
+    - port: 80
+---
+# 2. The SAME probe Service shape but in a namespace with NO Org-boundary label.
+#    The carve-out is keyed on the probe's NAME (any namespace), so this is also
+#    ADMITTED — the syncer's host-CIDR probe must succeed even before any
+#    Org-boundary label exists.
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-service-delete-me-qgxrt
+  namespace: app-prod
+spec:
+  ports:
+    - port: 80
+---
+# 3. NEGATIVE control: a REAL, non-probe Service in the same legacy
+#    `openova.io/tenant` boundary, with no Flux label. The new carve-out keys on
+#    the `test-service-delete-me-*` name, NOT the namespace, so this real
+#    Service stays Enforce-DENIED — proving the policy's intent is preserved and
+#    the carve-out is not a blanket namespace exemption.
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-api
+  namespace: tenant-demo
+spec:
+  ports:
+    - port: 8080
