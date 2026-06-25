@@ -3083,7 +3083,7 @@ name: bp-catalyst-platform
 #   every secret name stays operator-overridable; external ghcr/upstream sources are
 #   untouched (the guard applies only to the local-Gitea/Harbor host). Clean version tag
 #   forces the Flux re-pull (deploy-bot mutable-tag trap).
-version: 1.4.833
+version: 1.4.834
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
