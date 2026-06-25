@@ -507,6 +507,32 @@ spec:
             {{- else }}
               value: "main"
             {{- end }}
+            # ── #4384 — Sovereign per-Org commit target ───────────────────
+            # On a Sovereign the funnel/day-2 cart install commits the
+            # customer's purchased Applications into the per-Org
+            # `<slug>/catalyst-tenant` repo's `vcluster/apps/` tree (the one
+            # the org-controller bootstrapped + wired a Flux Kustomization for),
+            # NOT the global catalog repo (GITHUB_OWNER/GITHUB_REPO =
+            # openova/openova on a Sovereign). The global repo is the WRONG
+            # target for a Sovereign's per-Org apps and 404'd on the empty-SHA
+            # tree path → the wordpress HelmRelease never landed.
+            #
+            # Default ON when global.sovereignFQDN is set (the same signal that
+            # flips GITHUB_API_URL/GITHUB_OWNER to the local Gitea). Empty on
+            # Catalyst-Zero (contabo) → the legacy per-tenant-overlay path.
+            # Operator-overridable per Inviolable Principle #4.
+            - name: TENANT_GITOPS_PER_ORG
+              value: {{ .Values.orgServices.provisioning.perOrgGitops | default (ternary "true" "" (ne (.Values.global.sovereignFQDN | default "") "")) | quote }}
+            # The per-Org Gitea repo name the org-controller bootstraps (matches
+            # its `catalyst-tenant` constant).
+            - name: TENANT_GITOPS_REPO
+              value: {{ .Values.orgServices.provisioning.perOrgRepo | default "catalyst-tenant" | quote }}
+            # CRITICAL: the per-Org repo tracks `main`, NOT the org-tenants
+            # GITHUB_BRANCH above (which is the cutover-mirror-protected branch
+            # of the GLOBAL openova/openova catalog repo). The org-controller's
+            # per-Org Flux GitRepository watches `main` of <slug>/catalyst-tenant.
+            - name: TENANT_GITOPS_BRANCH
+              value: {{ .Values.orgServices.provisioning.perOrgBranch | default "main" | quote }}
           resources:
             requests:
               cpu: 25m

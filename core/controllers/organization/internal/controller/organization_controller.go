@@ -487,6 +487,31 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		branch = "main"
 	}
 	for path, data := range manifests {
+		// #4384 — the funnel/day-2 cart install commits the customer's
+		// purchased Applications into THIS repo's `vcluster/apps/` tree and
+		// read-modify-writes `vcluster/apps/kustomization.yaml` to enumerate
+		// them (alongside the NP/CNP boundary baseline). If the controller
+		// kept overwriting that index with its baseline-only list on every
+		// reconcile, it would CLOBBER the funnel's app entries → Flux's
+		// `kustomize build ./vcluster/apps` would drop the customer's apps and
+		// the wordpress HelmRelease would never land. So the apps
+		// kustomization is SEED-ONLY here: the controller creates it once (so a
+		// fresh Org has a valid index before any cart install) and never
+		// overwrites it thereafter. The boundary docs it references
+		// (networkpolicy.yaml / ciliumnetworkpolicy.yaml) are still authored +
+		// kept current via their own PutFile entries above/below, and the
+		// funnel's merge always re-includes them, so the baseline stays live.
+		if path == "vcluster/apps/kustomization.yaml" {
+			if _, gerr := r.GiteaClient.GetFile(ctx, gOrg.Username, repoName, branch, path); gerr == nil {
+				// Already present (seeded earlier, possibly funnel-merged) —
+				// leave it untouched so cart app entries survive.
+				continue
+			} else if !errors.Is(gerr, gitea.ErrFileNotFound) {
+				return r.fail(ctx, &org, "GitopsWriteFailed",
+					fmt.Sprintf("probe %s: %s", path, gerr))
+			}
+			// Genuinely absent → fall through to create it.
+		}
 		if _, _, err := r.GiteaClient.PutFile(ctx,
 			gOrg.Username, repoName, branch, path, data,
 			fmt.Sprintf("organization-controller: reconcile %s for %s", path, org.Spec.Slug)); err != nil {

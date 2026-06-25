@@ -60,6 +60,21 @@ func NewClientWithAPIURL(token, owner, repo, apiURL string) *Client {
 	return &Client{Token: token, Owner: owner, Repo: repo, APIURL: strings.TrimRight(apiURL, "/")}
 }
 
+// WithRepo returns a shallow copy of the client retargeted at a different
+// owner/repo on the SAME API host + token. Used by the funnel/day-2 cart
+// install (#4384) to commit the customer's purchased Applications into the
+// per-Org `<slug>/catalyst-tenant` repo the org-controller bootstrapped —
+// instead of the globally-configured catalog repo (`openova/openova`), which
+// is the WRONG target for a Sovereign's per-Org apps (and 404s on the
+// empty-SHA tree path). The receiver is untouched, so the global client keeps
+// serving the legacy contabo per-tenant overlays.
+func (c *Client) WithRepo(owner, repo string) *Client {
+	clone := *c
+	clone.Owner = owner
+	clone.Repo = repo
+	return &clone
+}
+
 // commitAttemptsMax is how many times CommitFilesWithPrune retries a full
 // rebuild (getRef → tree → commit → updateRef) when updateRef returns
 // "Update is not a fast forward". Concurrent day-2 installs race at the
@@ -651,11 +666,45 @@ func (c *Client) getContentSHA(ctx context.Context, branch, path string) (string
 	return meta.SHA, nil
 }
 
+// resolveTreeish returns the tree-ish to feed `GET /git/trees/{sha}` for a
+// recursive listing of the commit `commitSHA`'s tree.
+//
+// #4384 — the EMPTY-SHA 404. On the upstream GitHub Git Data path the tree
+// endpoint expects a TREE SHA, so we first resolve commit→tree via
+// `GET /git/commits/{sha}`. But Gitea does NOT serve the Git Data commit-read
+// endpoint the same way: `getCommitTree` came back with an EMPTY tree SHA,
+// which then built `GET /git/trees/?recursive=1` (no SHA component) → 404 —
+// the exact failure the live day-2 cart install hit. Gitea's
+// `GET /git/trees/{sha}` accepts a COMMIT SHA (and even a branch name)
+// directly and resolves the tree itself, so on the Gitea path we skip the
+// broken commit-read hop and pass the commit SHA straight through. We also
+// fail LOUD on an empty resolved tree-ish instead of silently emitting the
+// SHA-less URL that 404s.
+func (c *Client) resolveTreeish(ctx context.Context, commitSHA string) (string, error) {
+	if strings.TrimSpace(commitSHA) == "" {
+		return "", fmt.Errorf("resolveTreeish: empty commit SHA (cannot list tree)")
+	}
+	if c.targetsGitea() {
+		// Gitea resolves commit→tree inside GET /git/trees/{sha}; no
+		// separate commit-read round-trip (which returns an empty tree SHA
+		// and 404s the listing — #4384).
+		return commitSHA, nil
+	}
+	treeSHA, err := c.getCommitTree(ctx, commitSHA)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(treeSHA) == "" {
+		return "", fmt.Errorf("resolveTreeish: commit %q resolved to an empty tree SHA", commitSHA)
+	}
+	return treeSHA, nil
+}
+
 // listTreeBlobsWithSHA is like listTreeBlobs but also returns each blob's
 // SHA, keyed by path. Used by commitOnceContents to populate update/delete
 // operations in the ChangeFiles batch.
 func (c *Client) listTreeBlobsWithSHA(ctx context.Context, commitSHA string, prefixes []string) (map[string]string, error) {
-	treeSHA, err := c.getCommitTree(ctx, commitSHA)
+	treeSHA, err := c.resolveTreeish(ctx, commitSHA)
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +746,7 @@ func (c *Client) listTreeBlobsWithSHA(ctx context.Context, commitSHA string, pre
 // listTreeBlobs returns all blob paths in commitSHA's tree that begin with any
 // of the given prefixes. Uses the recursive tree API for efficiency.
 func (c *Client) listTreeBlobs(ctx context.Context, commitSHA string, prefixes []string) ([]string, error) {
-	treeSHA, err := c.getCommitTree(ctx, commitSHA)
+	treeSHA, err := c.resolveTreeish(ctx, commitSHA)
 	if err != nil {
 		return nil, err
 	}

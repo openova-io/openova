@@ -220,6 +220,25 @@ func main() {
 		slog.Warn("GITHUB_TOKEN not set — provisioning will fail to commit manifests")
 	}
 
+	// #4384 — Sovereign per-Org commit target. On a Sovereign the funnel/day-2
+	// cart install commits the customer's purchased Applications into the
+	// per-Org `<slug>/catalyst-tenant` repo's `vcluster/apps/` tree (the one
+	// the org-controller bootstrapped + wired a Flux Kustomization for) instead
+	// of the global catalog repo (GITHUB_OWNER/GITHUB_REPO = openova/openova),
+	// which is the WRONG target for per-Org apps on a Sovereign and 404'd on
+	// the empty-SHA tree path. Default ON when SOVEREIGN_FQDN is set (the same
+	// signal that flips the chart's git coordinates to the local Gitea);
+	// explicitly overridable via TENANT_GITOPS_PER_ORG (true|false).
+	perOrgGitops := sovereignFQDN != ""
+	if v := getEnv("TENANT_GITOPS_PER_ORG", ""); v != "" {
+		perOrgGitops = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	perOrgRepoName := getEnv("TENANT_GITOPS_REPO", "catalyst-tenant")
+	// The per-Org repo tracks `main` (the org-controller's per-Org Flux
+	// GitRepository ref.branch) — NOT the global GITHUB_BRANCH (`org-tenants`
+	// on a Sovereign, the cutover-mirror-protected branch of openova/openova).
+	perOrgBranch := getEnv("TENANT_GITOPS_BRANCH", "main")
+
 	h := &handlers.Handler{
 		Store:              provisionStore,
 		Producer:           publisher,
@@ -230,10 +249,16 @@ func main() {
 		SovereignFQDN:      sovereignFQDN,
 		GitBranch:          githubBranch,
 		TenantParentDomain: tenantParentDomain,
+		PerOrgGitops:       perOrgGitops,
+		PerOrgRepoName:     perOrgRepoName,
+		PerOrgBranch:       perOrgBranch,
 	}
 	slog.Info("tenant-public patch wired",
 		"tenant_parent_domain", tenantParentDomain,
 		"enabled", tenantParentDomain != "")
+	slog.Info("per-Org gitops commit target wired (#4384)",
+		"per_org_gitops", perOrgGitops, "per_org_repo", perOrgRepoName,
+		"per_org_branch", perOrgBranch, "sovereign_fqdn_set", sovereignFQDN != "")
 
 	// Start event consumer in a background goroutine. The subscriber
 	// fans events in from BOTH transports (whichever the operator wired
