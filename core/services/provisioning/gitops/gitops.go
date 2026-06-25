@@ -596,6 +596,16 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		// proxied / on a registry without a Harbor proxy project.
 		spec.Image = proxyImage(spec.Image, g.registryMirror())
 		vcFiles[fmt.Sprintf("app-%s.yaml", a)] = generateAppDeployment(appNS, slug, planSlug, a, spec, dbPassword)
+		// #4389: a raw-Deployment app has a ClusterIP Service but NO public
+		// ingress — `<app>.<slug>.<pool>` returns bare envoy 404. Sovereigns
+		// run the Cilium Gateway API (NOT traefik Ingress); the per-app route
+		// must attach to cilium-gateway-console (the console-ELB) on the pool
+		// wildcard listener (so NO per-host cert — the *.<slug>.<pool> wildcard
+		// covers it) AND ship a CiliumNetworkPolicy admitting the reserved
+		// `ingress` entity (else gateway→pod is 503 "upstream connect error",
+		// per the per-Org-product-chart-needs-HTTPRoute reference). Mirrors the
+		// HelmRelease apps' openclaw.<slug>/mail.<slug> hostname shape.
+		vcFiles[fmt.Sprintf("route-%s.yaml", a)] = generateAppHTTPRoute(appNS, slug, a, spec.Port, g.parentDomain())
 	}
 	vcFiles["kustomization.yaml"] = generateKustomization(appNS, vcFiles)
 
@@ -1816,6 +1826,68 @@ spec:
 		limCPU, limMem,
 		volumeMounts, volumes,
 		appSlug, ns, appSlug, spec.Port)
+}
+
+// generateAppHTTPRoute renders the public Cilium-Gateway HTTPRoute (+ its
+// mandatory ingress-admitting CiliumNetworkPolicy) for a raw-Deployment funnel
+// app (#4389). Without it the app's ClusterIP Service has no front door and
+// `<app>.<slug>.<pool>` returns bare envoy 404.
+//
+// Anatomy (mirrors the working per-Org console route + the
+// per-Org-product-chart-needs-HTTPRoute reference):
+//   - parentRef = cilium-gateway-console/kube-system — the dedicated console
+//     ELB the pool hosts (console.<slug>, <app>.<slug>) resolve to. Its
+//     `*.<slug>.<pool>` wildcard listener already carries the wildcard TLS, so
+//     this route needs NO per-host Certificate.
+//   - hostname = <app>.<slug>.<pool> (matches the openclaw.<slug>/mail.<slug>
+//     shape the HelmRelease apps use).
+//   - backendRef = the app's own Service (port 80, the Service the Deployment
+//     template publishes).
+//   - CiliumNetworkPolicy admits the reserved `ingress` entity — gateway
+//     traffic carries it and no K8s NetworkPolicy selector matches it, so
+//     without this the gateway→pod hop is dropped as a 503 "upstream connect
+//     error … connection timeout". `cluster` is added so same-Org backing
+//     services (db) reach the app too.
+func generateAppHTTPRoute(ns, slug, appSlug string, port int, parentDomain string) string {
+	host := fmt.Sprintf("%s.%s.%s", appSlug, slug, parentDomain)
+	return fmt.Sprintf(`apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app-%s
+  namespace: %s
+  labels:
+    catalyst.openova.io/org: %s
+    catalyst.openova.io/app: %s
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: cilium-gateway-console
+      namespace: kube-system
+  hostnames:
+    - %s
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: %s
+          port: 80
+          weight: 1
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: app-%s-allow-ingress
+  namespace: %s
+spec:
+  endpointSelector:
+    matchLabels:
+      app: %s
+  ingress:
+    - fromEntities:
+        - ingress
+        - cluster
+`, appSlug, ns, slug, appSlug, host, appSlug, appSlug, ns, appSlug)
 }
 
 // generateProvisioningTenantRBAC emits a Role + RoleBinding that gives the
