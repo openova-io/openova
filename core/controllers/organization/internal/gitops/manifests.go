@@ -164,6 +164,14 @@ func boundaryIsVcluster(planSlug string) bool {
 	}
 }
 
+// BoundaryIsVcluster is the EXPORTED tier-gate predicate so the controller
+// package (per_org_flux.go, #4293 MAJOR-2) can decide whether the per-Org apps
+// Flux Kustomization reconciles the apps/ tree INTO the vcluster (kubeConfig)
+// or straight into the host `<slug>` ns. It MUST stay in lockstep with the
+// unexported boundaryIsVcluster (and the funnel's gitops.BoundaryIsVcluster) so
+// the NetworkPolicy reconciler targets the same boundary the apps land on.
+func BoundaryIsVcluster(planSlug string) bool { return boundaryIsVcluster(planSlug) }
+
 // renderTemplates is the named template set the controller uses.
 // Keep these inline (text/template) — the rendered output is YAML
 // that Flux applies via Kustomization. Per Inviolable Principle #4
@@ -417,6 +425,17 @@ resources:
 {{- end }}
 `
 
+// appsKustomizationTemplate is the kustomize index for the apps/ tree the
+// per-Org apps Flux Kustomization reconciles (#4293 MAJOR-2). Today it lists
+// only the default-deny NetworkPolicy baseline; the funnel's app-install tree
+// (a DIFFERENT repo) carries the customer's purchased Applications. Keeping an
+// explicit index here makes `kustomize build ./vcluster/apps` deterministic.
+const appsKustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ` + networkPolicyDoc + `
+`
+
 // renderView is the data the templates execute against: the flat Inputs plus
 // the plan-derived fields (#4292). Embedding Inputs keeps every existing field
 // reachable as `.Slug`, `.Tier`, … while the added fields surface the resolved
@@ -516,10 +535,20 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 	// The default-deny + same-Org-allow baseline lives in the apps tree so
 	// the syncer (sync.toHost.networkPolicies.enabled) reflects it to the
-	// host `<slug>` ns. It is reconciled by the funnel's apps-sync
-	// Kustomization, not the boundary kustomization, so it is NOT listed in
-	// res — it is a separate path under apps/.
+	// host `<slug>` ns (vcluster tier) / it applies directly (host tier). It is
+	// NOT listed in the boundary kustomization `res` — it is a SEPARATE path
+	// under apps/ reconciled by its OWN per-Org Flux Kustomization
+	// (catalyst-tenant-<slug>-apps, per_org_flux.go), tier-aware: the vcluster
+	// tier carries spec.kubeConfig so the NP lands in the vcluster apiserver;
+	// the host tier applies it to the host `<slug>` ns. #4293 MAJOR-2 closed the
+	// gap where this NP was committed to a path NO Kustomization referenced
+	// (the boundary kustomization omits apps/, and the funnel apps-sync reads a
+	// DIFFERENT repo) → intra-Org isolation stayed inert.
 	files["vcluster/apps/"+networkPolicyDoc] = networkPolicyTemplate
+	// Explicit apps/kustomization.yaml so the per-Org apps Flux Kustomization's
+	// `kustomize build ./vcluster/apps` enumerates the NP deterministically
+	// (mirrors the funnel apps-tree, which also ships its own kustomization.yaml).
+	files["vcluster/apps/kustomization.yaml"] = appsKustomizationTemplate
 
 	// Stable order for the kustomization resource list (map iteration above
 	// is randomized — keep the rendered kustomization byte-stable).

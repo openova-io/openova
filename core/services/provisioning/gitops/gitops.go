@@ -422,23 +422,40 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			// NOT a plain manifest. The apps-sync Kustomization REDIRECTS the
 			// apps/ tree INTO the Org vCluster, but a vcluster runs NO
 			// in-cluster helm-controller (#3055 StateError), so an HR CR landing
-			// inside it would never reconcile. Instead emit it as a HOST file
-			// (reconciled by the host flux-system kustomization, alongside the
-			// apps-sync CR) carrying HR-level spec.kubeConfig → the HOST
-			// helm-controller runs `helm install` INTO the vcluster API. For the
-			// host tier there is no vcluster, so the HR reconciles on the host
-			// `<slug>` ns with no kubeConfig. See generateCNPGPair (isVcluster).
-			cnpgKubeSecret := ""
-			if isVcluster {
-				cnpgKubeSecret = "tenant-" + slug + "-kubeconfig"
-			}
-			// chartTargetNS — the namespace the chart installs into. For the
-			// vcluster tier the host helm-controller installs INTO the vcluster
-			// API, where the apps live in the `<slug>` namespace (the apps-sync
-			// Kustomization rewrites the apps/ tree's `apps` → `<slug>` on apply
-			// into the vcluster). For the host tier the HR reconciles on the host
-			// and the chart installs into the host `<slug>` ns. Either way the
-			// chart target is `<slug>`, co-located with the app pods + the
+			// inside it would never reconcile. So the pair HRs are emitted as
+			// HOST files (reconciled by the host flux-system kustomization,
+			// alongside the apps-sync CR), NOT under apps/.
+			//
+			// #4293 BLOCKER-1 FIX — the CNPG Cluster CRs must stay HOST-SIDE for
+			// BOTH tiers. bp-cnpg-pair ships ONLY `postgresql.cnpg.io/v1 Cluster`
+			// CRs — no operator, no CRD. The cnpg-system operator + the Cluster
+			// CRD are CLUSTER-SINGLETONS that live on the HOST (slot 16,
+			// `target: host`); they do NOT exist inside a per-Org vCluster
+			// apiserver (the vcluster syncs no CRDs and runs no cnpg operator).
+			// The keystone's earlier shape gave the PRIMARY side an HR-level
+			// kubeConfig → the host helm-controller ran `helm install` of the
+			// primary Cluster CR INTO the vcluster, where `helm install` fails
+			// `no matches for kind "Cluster" in version "postgresql.cnpg.io/v1"`
+			// and (even if the CRD were synced) nothing would reconcile it →
+			// the paid M+ active-hot-standby HA path WEDGES on every fresh prov.
+			// Fix: the PRIMARY HR carries NO vcluster kubeConfig regardless of
+			// tier, so it reconciles on region A's HOST where the operator+CRD
+			// live and the chart installs the primary Cluster into the host
+			// `<slug>` ns. The in-vcluster app pods reach the DB via the synced
+			// `postgres` Service (sync.toHost.services is enabled on the
+			// org-vcluster) — the credentials Secret (generateCNPGPairSecret)
+			// lands inside the vcluster apps/ tree pointing at that Service.
+			// This matches the EPIC's own "the per-component CNPG Clusters
+			// already live host-side" migration note + the cluster-singleton
+			// webhook invariant (exactly ONE cnpg operator, host-only). The
+			// _ = isVcluster reference is retained below only for the apps-sync /
+			// pod-name tier gate — the CNPG-pair primary is host-side for all.
+			//
+			// chartTargetNS — the namespace the chart installs into. For BOTH
+			// tiers the primary Cluster lands in the host `<slug>` ns (where the
+			// org-controller renders the boundary ns + quota), co-located with
+			// the host cnpg-system operator that reconciles it. The app pods
+			// inside the vcluster read the synced Service + the apps-tree
 			// postgres-credentials Secret.
 			//
 			// #4282/#4275 — CROSS-REGION SPLIT-SIDE. A 2-region Sovereign is
@@ -474,7 +491,12 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 				primaryRegion: primaryRegion,
 				replicaRegion: replicaRegion,
 				storageClass:  g.cnpgStorageClass(),
-				kubeSecret:    cnpgKubeSecret,
+				// #4293 BLOCKER-1 — NO vcluster kubeConfig. The primary Cluster CR
+				// reconciles on region A's HOST (where the cnpg-system operator +
+				// the postgresql.cnpg.io CRD live), installing into the host
+				// `<slug>` ns for BOTH tiers. Routing it into the vcluster (the
+				// keystone's old shape) `helm install`-failed on the missing CRD.
+				kubeSecret: "",
 			})
 			// The replica HR ALWAYS carries a kubeConfig — even for the host
 			// tier — because the standby Cluster MUST land in region B's cluster,

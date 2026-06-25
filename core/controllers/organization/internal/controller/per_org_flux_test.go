@@ -298,3 +298,118 @@ func TestTeardownPerOrgFlux_DeletesBoth(t *testing.T) {
 		t.Errorf("second teardown (absent) must succeed, got %v", err)
 	}
 }
+
+// newTestOrgPlan is newTestOrg with an explicit plan slug so the #4293 MAJOR-2
+// tier-gate on the apps Kustomization (kubeConfig only for the vcluster tier)
+// can be exercised.
+func newTestOrgPlan(slug, planSlug string) *orgapi.Organization {
+	o := newTestOrg(slug)
+	o.Spec.PlanSlug = planSlug
+	return o
+}
+
+// TestReconcilePerOrgFlux_AppsKustomization_VclusterTier is the #4293 MAJOR-2
+// lock. The default-deny NetworkPolicy the gitops renderer writes to
+// vcluster/apps/networkpolicy.yaml must be reconciled by SOMETHING. The
+// `-vcluster` Kustomization reconciles ./vcluster (and omits apps/); the funnel
+// apps-sync reads a DIFFERENT repo. So the org-controller authors a SECOND
+// Kustomization `catalyst-tenant-<slug>-apps` over ./vcluster/apps. For the
+// VCLUSTER tier it carries spec.kubeConfig → the NP lands in the vcluster
+// apiserver (the syncer reflects it to the host ns).
+func TestReconcilePerOrgFlux_AppsKustomization_VclusterTier(t *testing.T) {
+	const slug = "acme"
+	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
+	r := &Reconciler{
+		Log:                logr.Discard(),
+		GiteaInClusterURL:  "http://gitea-http.gitea.svc.cluster.local:3000",
+		FluxGiteaSecretRef: "openova-org-tenants-git-auth",
+	}
+	r.Client = cl
+	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, "m")); err != nil {
+		t.Fatalf("reconcilePerOrgFlux: %v", err)
+	}
+	appsName := perOrgAppsKustomizationName(slug)
+	ks := getFlux(t, cl, fluxKustomizationGVK, "flux-system", appsName)
+
+	if path, _, _ := unstructured.NestedString(ks.Object, "spec", "path"); path != "./vcluster/apps" {
+		t.Errorf("apps Kustomization spec.path = %q, want ./vcluster/apps", path)
+	}
+	if tns, _, _ := unstructured.NestedString(ks.Object, "spec", "targetNamespace"); tns != slug {
+		t.Errorf("apps Kustomization spec.targetNamespace = %q, want %q (rewrites the NP's apps ns → <slug>)", tns, slug)
+	}
+	// VCLUSTER tier MUST carry spec.kubeConfig referencing the vcluster mirror,
+	// else the NP lands on the host (never reflected back in) — the bug B fixes.
+	kcName, found, _ := unstructured.NestedString(ks.Object, "spec", "kubeConfig", "secretRef", "name")
+	if !found {
+		t.Fatalf("vcluster-tier apps Kustomization MISSING spec.kubeConfig — the NP would apply to the host, not the vcluster")
+	}
+	if kcName != perOrgKubeconfigSecretName(slug) {
+		t.Errorf("apps Kustomization kubeConfig.secretRef.name = %q, want %q (must match the funnel apps-sync mirror)", kcName, perOrgKubeconfigSecretName(slug))
+	}
+	if kcKey, _, _ := unstructured.NestedString(ks.Object, "spec", "kubeConfig", "secretRef", "key"); kcKey != "config" {
+		t.Errorf("apps Kustomization kubeConfig.secretRef.key = %q, want config", kcKey)
+	}
+	if prune, _, _ := unstructured.NestedBool(ks.Object, "spec", "prune"); !prune {
+		t.Errorf("apps Kustomization spec.prune must be true")
+	}
+}
+
+// TestReconcilePerOrgFlux_AppsKustomization_HostTier — for the HOST tier (free/S)
+// there is NO vcluster, so the apps Kustomization MUST NOT carry a kubeConfig
+// (a referenced never-created vcluster mirror would StateError forever). The NP
+// applies straight to the host `<slug>` ns (which IS the boundary).
+func TestReconcilePerOrgFlux_AppsKustomization_HostTier(t *testing.T) {
+	for _, plan := range []string{"s", "free", ""} {
+		t.Run("plan="+plan, func(t *testing.T) {
+			const slug = "acme"
+			cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
+			r := &Reconciler{
+				Log:                logr.Discard(),
+				GiteaInClusterURL:  "http://gitea-http.gitea.svc.cluster.local:3000",
+				FluxGiteaSecretRef: "openova-org-tenants-git-auth",
+			}
+			r.Client = cl
+			if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, plan)); err != nil {
+				t.Fatalf("reconcilePerOrgFlux: %v", err)
+			}
+			ks := getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgAppsKustomizationName(slug))
+			if _, found, _ := unstructured.NestedMap(ks.Object, "spec", "kubeConfig"); found {
+				t.Errorf("host-tier (plan=%q) apps Kustomization MUST NOT carry kubeConfig — it would StateError on the never-created vcluster mirror", plan)
+			}
+			// Still targets the host `<slug>` ns so the NP applies there directly.
+			if tns, _, _ := unstructured.NestedString(ks.Object, "spec", "targetNamespace"); tns != slug {
+				t.Errorf("host-tier apps Kustomization spec.targetNamespace = %q, want %q", tns, slug)
+			}
+		})
+	}
+}
+
+// TestTeardownPerOrgFlux_DeletesAppsKustomization — the apps Kustomization must
+// be torn down with the rest of the per-Org Flux loop (#4293 MAJOR-2).
+func TestTeardownPerOrgFlux_DeletesAppsKustomization(t *testing.T) {
+	const slug = "acme"
+	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
+	r := &Reconciler{
+		Log:                logr.Discard(),
+		GiteaInClusterURL:  "http://gitea-http.gitea.svc.cluster.local:3000",
+		FluxGiteaSecretRef: "openova-org-tenants-git-auth",
+	}
+	r.Client = cl
+	ctx := context.Background()
+	org := newTestOrgPlan(slug, "m")
+
+	if err := r.reconcilePerOrgFlux(ctx, org); err != nil {
+		t.Fatalf("setup reconcile: %v", err)
+	}
+	// Sanity: it exists before teardown.
+	_ = getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgAppsKustomizationName(slug))
+
+	if err := r.teardownPerOrgFlux(ctx, org); err != nil {
+		t.Fatalf("teardownPerOrgFlux: %v", err)
+	}
+	ks := &unstructured.Unstructured{}
+	ks.SetGroupVersionKind(fluxKustomizationGVK)
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: "flux-system", Name: perOrgAppsKustomizationName(slug)}, ks); err == nil {
+		t.Errorf("apps Kustomization must be deleted after teardown")
+	}
+}

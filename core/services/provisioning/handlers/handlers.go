@@ -372,6 +372,109 @@ func (h *Handler) resolvePlanSlug(ctx context.Context, planID string) string {
 	return "s"
 }
 
+// resolveTenantPlanSlug is the #4293 MAJOR-3 fail-safe resolver for the DAY-2
+// path. The bug it closes: resolvePlanSlug silently returns "s" on ANY transient
+// catalog failure (3s timeout, non-200, decode error, plan-not-found). On a
+// day-2 install/uninstall for a paid (M+) Org, if the catalog is briefly
+// unreachable at that instant, the day-2 manifests would be re-generated as the
+// HOST tier (no kubeConfig) and the apps RE-ROUTED out of the vcluster into the
+// host `<slug>` ns — orphaning the original in-vcluster copy. A transient blip
+// must NEVER silently downgrade a paid Org's boundary.
+//
+// Fix: read the AUTHORITATIVE persisted plan slug off the Organization CR
+// (`spec.planSlug`), which the funnel resolved ONCE at creation
+// (organization_create.go) and which the EPIC designates the single
+// truth-source for the resource cap + boundary tier. The CR read has no
+// dependency on the live catalog service, so it is immune to the transient. We
+// only fall back to the live catalog (resolvePlanSlug) when the CR genuinely
+// carries no planSlug (legacy tenants created before Workstream B, or a tenant
+// with no Organization CR) — and even then we surface ok=false so the caller can
+// fail-closed (retry) rather than commit a host-tier downgrade off a guess.
+//
+// Returns (slug, true) when the slug is authoritative (from the CR, or a
+// confirmed live catalog hit); (slug, false) when it could only be guessed
+// (catalog unreachable AND no CR planSlug) — the caller MUST treat false as
+// retryable for the day-2 boundary decision, never as a confirmed host-tier.
+func (h *Handler) resolveTenantPlanSlug(ctx context.Context, tenantSlug, planID string) (string, bool) {
+	// 1. Authoritative: the persisted Organization CR's spec.planSlug.
+	if tenantSlug != "" {
+		body, err := h.k8sGet("/apis/orgs.openova.io/v1/organizations/" + tenantSlug)
+		if err == nil {
+			var org struct {
+				Spec struct {
+					PlanSlug string `json:"planSlug"`
+				} `json:"spec"`
+			}
+			if jerr := json.Unmarshal(body, &org); jerr == nil {
+				if slug := strings.TrimSpace(org.Spec.PlanSlug); slug != "" {
+					return slug, true
+				}
+			}
+		}
+		// A 404 (no Organization CR — legacy tenant-service flow) or any read
+		// error falls through to the catalog lookup; it is not, by itself, a
+		// reason to fail the day-2 change.
+	}
+
+	// 2. Fallback: live catalog. Distinguish a CONFIRMED hit from the
+	// silent-"s" default so the caller can fail-closed on a transient. We
+	// re-run the lookup but inspect whether the catalog was actually reachable
+	// + the plan resolved, rather than trusting resolvePlanSlug's "s" sentinel.
+	slug, reachable := h.lookupPlanSlug(ctx, planID)
+	if reachable {
+		return slug, true
+	}
+	// Catalog unreachable AND no CR planSlug: return the historical "s" default
+	// but flag it non-authoritative so day-2 boundary decisions fail-closed.
+	return "s", false
+}
+
+// lookupPlanSlug is the catalog HTTP plan-slug lookup that DISTINGUISHES a
+// confirmed result from an unreachable-catalog transient. It returns
+// (slug, reachable): reachable=true means the catalog answered (the plan
+// resolved, or is genuinely absent → "s" is then a real answer); reachable=false
+// means the catalog could not be consulted (no URL / timeout / non-200 / decode
+// error) so the "s" is a GUESS, not a confirmed downgrade. resolvePlanSlug keeps
+// its original always-"s"-on-failure contract for the creation path (which is
+// self-consistent because it resolves once); the day-2 path uses this richer
+// signal via resolveTenantPlanSlug.
+func (h *Handler) lookupPlanSlug(ctx context.Context, planID string) (slug string, reachable bool) {
+	if h.CatalogURL == "" {
+		return "s", false
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, h.CatalogURL+"/catalog/plans", nil)
+	if err != nil {
+		return "s", false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "s", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
+		return "s", false
+	}
+	var plans []struct {
+		ID   string `json:"id"`
+		Slug string `json:"slug"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&plans); err != nil {
+		return "s", false
+	}
+	// Catalog answered. A matching plan is authoritative; a genuine miss
+	// (unknown/empty planID) is a real "s" answer (reachable=true).
+	for _, p := range plans {
+		if p.ID == planID {
+			return p.Slug, true
+		}
+	}
+	return "s", true
+}
+
 // appDisplayName returns a human-readable name for an app.
 func appDisplayName(names map[string]string, id string) string {
 	if names != nil {
