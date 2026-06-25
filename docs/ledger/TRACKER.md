@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T18:00:03Z` |
+| Last refreshed | `2026-06-25T18:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 22 |
+| Open issues | 20 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 20 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 22 open items (clickable table)
+### All 20 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -217,8 +217,6 @@ flowchart LR
 | [#4307](https://github.com/openova-io/openova/issues/4307) | bp-stalwart-tenant webmail 404 at mail.<pool> despite pod 1/1 Running + HR insta | Other |
 | [#4322](https://github.com/openova-io/openova/issues/4322) | bp-wordpress-tenant: fresh-Org HR Ready=False — oidc-config hook pg4wp fetch 4 | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
-| [#4362](https://github.com/openova-io/openova/issues/4362) | bp-agenity Degraded post-#4325 de-vcluster: blueprint topology + per-Org placeme | Other |
-| [#4368](https://github.com/openova-io/openova/issues/4368) | SME org-services CrashLoop on dead NATS name — catalyst-platform chart NATS_UR | Other |
 | [#4369](https://github.com/openova-io/openova/issues/4369) | P0 bp-gitea 1.2.43 gitdata-preservation-hook image is bare docker.io ref → Kyv | Other |
 | [#4373](https://github.com/openova-io/openova/issues/4373) | P0 org-services NATS_URL default still points at the dead mgmt-vcluster-mangled  | Other |
 | [#4375](https://github.com/openova-io/openova/issues/4375) | #4325 fallout: per-Org catalog blueprints (wordpress-tenant/stalwart-tenant/open | Other |
@@ -229,9 +227,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T18:03 | [#4378](https://github.com/openova-io/openova/pull/4378) | #4372 | fix(catalyst): org-services NATS_URL → host nats-system + co |
 | 2026-06-25T17:55 | [#4377](https://github.com/openova-io/openova/pull/4377) | #4367 | fix(bp-gitea): gitdata-preservation guard image → harbor-pro |
 | 2026-06-25T17:40 | [#4371](https://github.com/openova-io/openova/pull/4371) | #4272 | fix(funnel): make openclaw + stalwart deployable through the |
 | 2026-06-25T17:20 | [#4367](https://github.com/openova-io/openova/pull/4367) | #4354 | fix(bp-gitea): preserve git-data PVC on vcluster→host-ns re- |
+| 2026-06-25T18:09 | [#4366](https://github.com/openova-io/openova/pull/4366) | #4212 | fix(catalyst): re-fire spine Application-CR producer on star |
 | 2026-06-25T17:13 | [#4364](https://github.com/openova-io/openova/pull/4364) | #4179 | fix(tenant): funnel CreateOrg renders selected cart Applicat |
 | 2026-06-25T17:07 | [#4363](https://github.com/openova-io/openova/pull/4363) | #4304 | fix(application-controller): typed-nil spec.parameters valid |
 | 2026-06-25T17:13 | [#4361](https://github.com/openova-io/openova/pull/4361) | #4272 | fix(bp-plane-isolation): default-deny egress 0.0.0.0/0 is Ci |
@@ -257,8 +257,6 @@ flowchart LR
 | 2026-06-25T08:10 | [#4326](https://github.com/openova-io/openova/pull/4326) | #4322 | fix(bp-cnpg): durable webhook caBundle fix — cnpg-system ope |
 | 2026-06-25T08:35 | [#4325](https://github.com/openova-io/openova/pull/4325) | #4293 | feat(bootstrap-kit): de-vcluster the platform planes (mgmt/r |
 | 2026-06-25T08:08 | [#4324](https://github.com/openova-io/openova/pull/4324) | #3784 | fix(catalog-seed): lockstep guard asserts placementSchema.mo |
-| 2026-06-25T07:42 | [#4323](https://github.com/openova-io/openova/pull/4323) | #4220 | fix(bp-wordpress-tenant): oidc-config hook fetches pg4wp fro |
-| 2026-06-25T07:34 | [#4321](https://github.com/openova-io/openova/pull/4321) | #4278 | fix(bp-newapi): DSN-placeholder Secret self-preserves SQL_DS |
 
 ---
 
