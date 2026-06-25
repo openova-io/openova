@@ -1352,9 +1352,21 @@ stringData:
 {{- if .Values.keycloakAdminPasswordOverride -}}
   {{- $masterAdminPassword = .Values.keycloakAdminPasswordOverride -}}
 {{- else -}}
-  {{- $bitnamiAdmin := lookup "v1" "Secret" .Release.Namespace "keycloak" -}}
-  {{- if $bitnamiAdmin -}}
-    {{- $masterAdminPassword = index $bitnamiAdmin.data "admin-password" | b64dec -}}
+  {{- /* #4344: source the admin password from the STABLE parent-chart
+         `keycloak-admin` Secret (templates/admin-credentials.yaml) that the
+         bitnami subchart now reads via keycloak.auth.existingSecret. With
+         existingSecret set the subchart no longer creates its own `keycloak`
+         Secret, so the legacy bitnami lookup would always miss. Fall back to
+         the bitnami `keycloak` Secret for back-compat on any older topology
+         where existingSecret was unset and the subchart owned the Secret. */ -}}
+  {{- $stableAdmin := lookup "v1" "Secret" .Release.Namespace "keycloak-admin" -}}
+  {{- if and $stableAdmin $stableAdmin.data (index $stableAdmin.data "admin-password") -}}
+    {{- $masterAdminPassword = index $stableAdmin.data "admin-password" | b64dec -}}
+  {{- else -}}
+    {{- $bitnamiAdmin := lookup "v1" "Secret" .Release.Namespace "keycloak" -}}
+    {{- if and $bitnamiAdmin $bitnamiAdmin.data (index $bitnamiAdmin.data "admin-password") -}}
+      {{- $masterAdminPassword = index $bitnamiAdmin.data "admin-password" | b64dec -}}
+    {{- end -}}
   {{- end -}}
 {{- end }}
 apiVersion: v1
