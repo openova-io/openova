@@ -10,6 +10,10 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -153,6 +157,89 @@ func TestAuthOrgHandover_HappyPath(t *testing.T) {
 	}
 	if claims["email"] != "demo@openova.io" {
 		t.Errorf("email = %v, want demo@openova.io", claims["email"])
+	}
+}
+
+// TestAuthOrgHandover_OnDemandRegistersFunnelOrg is the #3376 terminal-step
+// race assertion: a fresh MARKETPLACE funnel stranger lands on org-handover
+// BEFORE the 60s tenant-registry reconcile tick has registered their console
+// host. The registry starts EMPTY; only the Organization CR exists. The handler
+// must do an on-demand single-host sync, register the host, and STILL land the
+// stranger signed-in (302 + Org-scoped cookie) — not bounce them to /login with
+// `invalid audience`.
+func TestAuthOrgHandover_OnDemandRegistersFunnelOrg(t *testing.T) {
+	dir := t.TempDir()
+
+	privPEM, _, err := handoverjwt.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	signer, err := handoverjwt.New(privPEM, "https://console.openova.io", 8*time.Hour)
+	if err != nil {
+		t.Fatalf("handoverjwt.New: %v", err)
+	}
+
+	// EMPTY registry — the periodic reconcile has not run for this funnel Org.
+	reg, err := store.NewTenantRegistry(dir)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	orgSecret := []byte("test-org-jwt-secret-aaaaaaaaaaaaaaaaaaaa")
+	h := &Handler{
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		handoverSigner: signer,
+		orgJWTSecret:   orgSecret,
+	}
+	h.SetTenantRegistry(reg)
+	h.SetOrganizationDeps(OrganizationDeps{OTECHFQDN: "omantel.biz"})
+	// The Organization CR for the funnel Org DOES exist on the apiserver.
+	h.SetSovereignDepsFactory(orgCRDepsFactory(orgCR("g4wpsso", "omani.works", "", "tnt-g4")))
+
+	token := mintMemberToken(t, orgSecret, "g4wpsso-stranger@omani.works", time.Now().Add(15*time.Minute))
+	req := httptest.NewRequest(http.MethodGet, "/auth/org-handover?token="+token, nil)
+	req.Header.Set("X-Forwarded-Host", "console.g4wpsso.omani.works")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	rec := httptest.NewRecorder()
+	h.AuthOrgHandover(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302 (on-demand sync should rescue the empty-registry race); body=%s",
+			rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "/jobs" {
+		t.Fatalf("Location = %q, want /jobs", loc)
+	}
+	var sess *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "catalyst_session" {
+			sess = c
+		}
+	}
+	if sess == nil || sess.Value == "" {
+		t.Fatal("catalyst_session cookie must be set after the on-demand sync rescue")
+	}
+	// The host must now be persisted so subsequent requests resolve directly.
+	if _, ok := reg.Get("console.g4wpsso.omani.works"); !ok {
+		t.Error("on-demand sync should have persisted the funnel Org host into the registry")
+	}
+}
+
+// orgCRDepsFactory returns a SovereignDepsFactory backed by a fake dynamic
+// client seeded with the given Organization CRs (mirrors the wiring in
+// tenant_registry_reconcile_test.go's newRegistryReconcileHandler).
+func orgCRDepsFactory(orgs ...*unstructured.Unstructured) SovereignDepsFactory {
+	scheme := runtime.NewScheme()
+	gvrToList := map[schema.GroupVersionResource]string{
+		organizationGVR(): "OrganizationList",
+	}
+	seed := make([]runtime.Object, 0, len(orgs))
+	for _, o := range orgs {
+		seed = append(seed, o)
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList, seed...)
+	return func() (*sovereignDeps, error) {
+		return &sovereignDeps{core: nil, dyn: dyn}, nil
 	}
 }
 

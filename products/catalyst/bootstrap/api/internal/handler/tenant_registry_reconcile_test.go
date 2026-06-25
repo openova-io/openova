@@ -187,6 +187,78 @@ func TestReconcileTenantRegistryOnce_Idempotent(t *testing.T) {
 	}
 }
 
+// TestEnsureTenantRegisteredForHost is the #3376 terminal-step race fix at the
+// unit level: a fresh funnel Org's row is NOT yet in the registry (the periodic
+// reconcile tick has not fired), but its Organization CR exists. An on-demand
+// sync for the exact console host must resolve + register it immediately so the
+// very next resolveOrgScope ACCEPTS the org-handover.
+func TestEnsureTenantRegisteredForHost(t *testing.T) {
+	t.Run("on-demand registers the matching host", func(t *testing.T) {
+		h, registry := newRegistryReconcileHandler(t,
+			orgCR("funnelorg", "omani.works", "", "tnt-funnel"),
+			orgCR("other", "omani.rest", "", "tnt-other"),
+		)
+		// Registry starts empty (no periodic tick has run).
+		if n := len(registry.List()); n != 0 {
+			t.Fatalf("registry should start empty, has %d", n)
+		}
+
+		if !h.ensureTenantRegisteredForHost(context.Background(), "console.funnelorg.omani.works") {
+			t.Fatal("ensureTenantRegisteredForHost should have registered the funnel Org host")
+		}
+		got, ok := registry.Get("console.funnelorg.omani.works")
+		if !ok {
+			t.Fatal("funnel Org host not in registry after on-demand sync")
+		}
+		if got.TenantKind != store.TenantKindOrg || got.TenantID != "tnt-funnel" {
+			t.Errorf("unexpected row: %+v", got)
+		}
+		// Only the requested host is written — the unrelated Org is not pulled in.
+		if _, ok := registry.Get("console.other.omani.rest"); ok {
+			t.Error("on-demand sync must only register the requested host, not every Org")
+		}
+	})
+
+	t.Run("already-registered host is a fast no-op true", func(t *testing.T) {
+		h, registry := newRegistryReconcileHandler(t,
+			orgCR("acme", "omani.works", "", "tnt-1"),
+		)
+		if err := registry.Put(store.TenantRegistration{
+			Host: "console.acme.omani.works", TenantID: "tnt-1", TenantKind: store.TenantKindOrg,
+		}); err != nil {
+			t.Fatalf("seed put: %v", err)
+		}
+		if !h.ensureTenantRegisteredForHost(context.Background(), "console.acme.omani.works") {
+			t.Fatal("already-registered host should return true")
+		}
+	})
+
+	t.Run("no matching Org CR → false (caller refuses)", func(t *testing.T) {
+		h, _ := newRegistryReconcileHandler(t,
+			orgCR("acme", "omani.works", "", "tnt-1"),
+		)
+		if h.ensureTenantRegisteredForHost(context.Background(), "console.ghost.omani.works") {
+			t.Fatal("a host with no Organization CR must NOT register")
+		}
+	})
+
+	t.Run("no dynamic client → false, no panic", func(t *testing.T) {
+		dir := t.TempDir()
+		registry, err := store.NewTenantRegistry(dir)
+		if err != nil {
+			t.Fatalf("tenant registry: %v", err)
+		}
+		h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		h.SetTenantRegistry(registry)
+		h.SetSovereignDepsFactory(func() (*sovereignDeps, error) {
+			return &sovereignDeps{core: nil, dyn: nil}, nil
+		})
+		if h.ensureTenantRegisteredForHost(context.Background(), "console.acme.omani.works") {
+			t.Fatal("out-of-cluster ensure must return false")
+		}
+	})
+}
+
 // TestReconcileTenantRegistryOnce_NoDynamicClientIsNoop confirms the out-of-
 // cluster / CI degrade path: no dynamic client → no crash, registry untouched.
 func TestReconcileTenantRegistryOnce_NoDynamicClientIsNoop(t *testing.T) {

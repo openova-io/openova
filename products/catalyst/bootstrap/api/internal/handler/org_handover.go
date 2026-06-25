@@ -111,6 +111,20 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 	// sovereign-admin session.
 	scope, ok := h.resolveOrgScope(r)
 	if !ok {
+		// On-demand registry sync (the #3376 terminal-step race): a fresh
+		// MARKETPLACE funnel Org is registered only by the periodic 60s
+		// ReconcileTenantRegistryFromOrgCRs loop — the funnel door never runs
+		// the BSS pipeline that writes the row synchronously. A stranger who
+		// completes checkout is redirected here IMMEDIATELY, so the row may not
+		// exist yet. Resolve the Org CR for THIS exact request host and register
+		// it now, then retry the scope resolution once. If the host still has no
+		// matching Org CR (or we're out-of-cluster), we refuse exactly as before
+		// — no regression for a genuinely-unknown host.
+		if h.ensureTenantRegisteredForHost(r.Context(), requestHost(r)) {
+			scope, ok = h.resolveOrgScope(r)
+		}
+	}
+	if !ok {
 		h.log.Warn("auth_org_handover: refused — request host is not a registered Org console",
 			"host", requestHost(r))
 		writeAuthError(w, "invalid audience: not an org console host")

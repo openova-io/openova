@@ -138,6 +138,78 @@ func (h *Handler) reconcileTenantRegistryOnce(ctx context.Context) {
 	}
 }
 
+// ensureTenantRegisteredForHost performs an ON-DEMAND, single-host registry
+// sync: it lists Organization CRs, finds the one whose pool console host
+// equals `host`, and registers it immediately — without waiting for the next
+// 60s ReconcileTenantRegistryFromOrgCRs tick.
+//
+// THE RACE this closes (the #3376 terminal "signed-in" gate): a marketplace
+// funnel stranger completes checkout, the Organization CR lands, and the
+// marketplace IMMEDIATELY redirects the browser to
+// `console.<slug>.<pool>/auth/org-handover?token=…`. The funnel door never
+// runs the BSS provisioning pipeline (which writes the registry synchronously
+// at Step 6), so until the periodic reconcile loop next fires (up to 60s) the
+// registry has no row for this host → resolveOrgScope MISSES → AuthOrgHandover
+// returns 401 `invalid audience` → the stranger sees /login instead of landing
+// signed-in. This makes the registration deterministic at handover time rather
+// than dependent on the periodic tick's timing.
+//
+// Returns true when a row for `host` is present after the call (either it
+// already existed or this call just wrote it). Best-effort: any apiserver /
+// list / Put failure returns false and is logged — AuthOrgHandover then falls
+// back to refusing, exactly as before this method existed (no regression — the
+// periodic loop still backfills the row within one interval).
+func (h *Handler) ensureTenantRegisteredForHost(ctx context.Context, host string) bool {
+	if h == nil || h.tenantRegistry == nil {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	// Already known? Nothing to do — the steady-state path.
+	if _, found := h.tenantRegistry.Get(host); found {
+		return true
+	}
+
+	deps, err := h.sovereignDepsFor()
+	if err != nil || deps == nil || deps.dyn == nil {
+		// Out-of-cluster / CI: no apiserver to resolve the CR from. Refuse and
+		// let the caller surface the existing 401 — identical to pre-#3376.
+		h.log.Info("tenant-registry-ensure: skipped — no in-cluster dynamic client",
+			"host", host, "err", err)
+		return false
+	}
+
+	list, err := deps.dyn.Resource(organizationGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		h.log.Warn("tenant-registry-ensure: list Organizations failed",
+			"host", host, "err", err)
+		return false
+	}
+
+	sovereignFQDN := strings.TrimSpace(h.orgTenantDeps.OTECHFQDN)
+	for i := range list.Items {
+		reg, ok := tenantRegistrationFromOrgCR(&list.Items[i], sovereignFQDN)
+		if !ok || reg.Host != host {
+			continue
+		}
+		if err := h.tenantRegistry.Put(reg); err != nil {
+			h.log.Warn("tenant-registry-ensure: Put failed for Org console host",
+				"host", reg.Host, "tenant_id", reg.TenantID, "err", err)
+			return false
+		}
+		h.log.Info("tenant-registry-ensure: on-demand registered Org console host",
+			"host", reg.Host, "tenant_id", reg.TenantID)
+		return true
+	}
+	// No Org CR matches this host yet — the CR has not been created (or its
+	// pool console host differs). Refuse; the caller surfaces 401.
+	h.log.Info("tenant-registry-ensure: no Organization CR matches host",
+		"host", host, "orgs", len(list.Items))
+	return false
+}
+
 // tenantRegistrationFromOrgCR builds the TenantRegistration for an Organization
 // CR, mirroring the shape the BSS pipeline writes at Step 6
 // (organization_provisioning.go) byte-for-byte so both doors yield an identical
