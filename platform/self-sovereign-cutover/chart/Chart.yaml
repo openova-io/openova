@@ -986,7 +986,25 @@ name: bp-self-sovereign-cutover
 # call-home + #3647 fresh-pull proofs skipped → the 600s hold was assertion-only
 # and cutoverComplete=true could be earned WITHOUT a witnessed deny-egress.
 # Lockstep: blueprint.yaml bumped in step.
-version: 0.1.79
+# 0.1.79 -> 0.1.80 (#4325 de-vcluster fallout, Refs #3379 #4291 #4293): the platform
+# planes stopped being vClusters — gitea/harbor/openbao are now native HOST namespaces,
+# each behind a per-component bp-plane-isolation default-deny CiliumNetworkPolicy
+# (slot 26b) whose allow-list admits catalyst-system/flux-system but NOT `catalyst`
+# (the cutover Job namespace). The pre-existing `00-mgmt-isolation-carveout.yaml`
+# opened only `catalyst -> mgmt`; post-de-vcluster the `mgmt` namespace is gone, so
+# that single policy went INERT and the cutover Jobs (step-01 gitea-mirror, 02/03
+# harbor-projects/prewarm, 09 gitea-token-mint) are silently dropped at the Cilium
+# verdict reaching gitea-http.gitea.svc / harbor-core.harbor.svc — the SAME wedge
+# #3821 fixed for the mgmt-vCluster topology, regressed by #4325 with a new owner.
+# The carve-out now emits ONE additive allow-ingress NetworkPolicy per target plane
+# namespace (mgmtIsolationCarveOut.targetNamespaces, default [gitea,harbor,openbao]),
+# keeping the legacy single `mgmtNamespace` as a backward-compat override that folds
+# into the set. Step-10 (10-vcluster-registry-pivot-job) already skip-if-absent guards
+# every bp-{mgmt,rtz,dmz}-vcluster HR patch + slot 54/58/59 git-edit, so the retired
+# plane HRs/slots no-op without tripping the residual-tether FATAL. Chart-only +
+# additive; render byte-identical on a pre-#4325 Sovereign that sets mgmtNamespace.
+# Lockstep: 06a pin + blueprint.yaml bumped in step.
+version: 0.1.80
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
