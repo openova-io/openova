@@ -1117,7 +1117,14 @@ spec:
       # 1.4.853 — #4362 (#4325 fallout): catalog-seed bp-agenity topology
       #   tier rtz -> '' (host-native) + resources requests==limits +
       #   helmRelease.disableWait; lockstep slot-pin bump (chart 1.4.853).
-      version: 1.4.853
+      # 1.4.855 — #4368/#4373: the VALKEY sibling of the 1.4.851 NATS fix —
+      #   org-services + projector VALKEY_ADDR default re-pointed from the dead
+      #   rtz-vcluster mangled name (`valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`)
+      #   back to the plain host name `valkey-primary.valkey.svc` after the #4325
+      #   de-vcluster re-homed bp-valkey to host ns `valkey` — auth CrashLooped on
+      #   `no such host`, keeping the funnel door's auth path DOWN. Chart.yaml bumped
+      #   in lockstep. Refs #4368 #4373 #4325 #4347.
+      version: 1.4.855
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
