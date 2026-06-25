@@ -254,7 +254,7 @@ name: bp-wordpress-tenant
 #   tests/oidc-config.sh Case 8 asserts the Job has no `wp plugin install`, never
 #   references wordpress.org, vendors from the pinned GitHub tag, and tolerates a
 #   fetch failure — so the HR reaches Ready without ANY external plugin download.
-version: 0.4.19
+version: 0.4.20
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

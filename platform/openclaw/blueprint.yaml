@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-7-agentic-workspace
 spec:
-  version: 0.2.6
+  version: 0.2.7
   card:
     title: OpenClaw
     summary: |
@@ -124,7 +124,11 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          # #4375 (#4325 de-vcluster fallout): the `rtz` plane vCluster was
+          # removed; per-Org apps land host-native in their OWN Org namespace
+          # (#4297 keystone). Host placement = empty tier; keep the rtz-A
+          # region designator (clusters/roles).
+          tier: ''
           clusters:
             - rtz-A
           roles:

@@ -554,6 +554,152 @@ func errEOF() error {
 
 var errEOFSentinel = fmt.Errorf("EOF")
 
+// perOrgCatalogBlueprints are the catalog Blueprints that install through
+// the application-controller fan-out into a per-Organization namespace
+// (#4297 keystone). For these, the topology variant's placement.tier is
+// LIVE — the controller resolves it through VClusterPlacements and upserts
+// the per-cluster HelmRelease into that tier's host namespace. After #4325
+// de-vclustered the mgmt/rtz/dmz platform planes (their plane vClusters +
+// host namespaces were removed), a per-Org Blueprint that still pins
+// `tier: rtz` (or mgmt/dmz) Degrades the instant it installs with
+// `namespaces "rtz" not found` (#4362 agenity, #4375 cohort). A per-Org app
+// MUST land HOST-native in its OWN Org namespace → placement.tier == "" (or
+// the "host" sentinel). The rtz-A / rtz-B cluster IDs (region designators)
+// are unaffected and stay.
+//
+// NOTE: platform-PLANE Blueprints (loki/redis/temporal/llm-gateway/openmeter/
+// …) that legitimately carry `tier: mgmt|rtz` in their catalog topology are
+// DORMANT for bootstrap installs — they are placed by the bootstrap-kit
+// placement.yaml (already host-flipped by #4325), not by the catalog topology.
+// They are deliberately NOT in this set.
+var perOrgCatalogBlueprints = map[string]string{
+	"bp-wordpress-tenant": "wordpress-tenant",
+	"bp-stalwart-tenant":  "stalwart-tenant",
+	"bp-openclaw":         "openclaw",
+	"bp-sandbox":          "sandbox",
+}
+
+// deVclusteredPlanes are the platform-plane vCluster tiers removed by #4325.
+// A per-Org topology placement.tier MUST NOT reference any of them.
+var deVclusteredPlanes = map[string]bool{"mgmt": true, "rtz": true, "dmz": true}
+
+// topologyDoc is the minimal shape needed to read the per-variant placement
+// tier out of a Blueprint manifest (source blueprint.yaml OR a rendered
+// catalog-seed doc).
+type topologyDoc struct {
+	Kind     string `yaml:"kind"`
+	Metadata struct {
+		Name string `yaml:"name"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Topology struct {
+			PerTopology map[string]struct {
+				Placement struct {
+					Tier string `yaml:"tier"`
+				} `yaml:"placement"`
+			} `yaml:"perTopology"`
+		} `yaml:"topology"`
+	} `yaml:"spec"`
+}
+
+// assertHostNativeTopology fails t if any perTopology variant in doc pins a
+// placement.tier that names a de-vclustered plane. src is a human-readable
+// origin label for the error message.
+func assertHostNativeTopology(t *testing.T, src string, doc topologyDoc) {
+	t.Helper()
+	if len(doc.Spec.Topology.PerTopology) == 0 {
+		t.Errorf("%s (%s): no topology.perTopology variants found — a per-Org Blueprint must declare its host-native placement", src, doc.Metadata.Name)
+		return
+	}
+	for variant, v := range doc.Spec.Topology.PerTopology {
+		tier := strings.TrimSpace(v.Placement.Tier)
+		if deVclusteredPlanes[tier] {
+			t.Errorf("%s (%s): topology variant %q pins placement.tier=%q — a removed (#4325 de-vcluster) plane vCluster. Per-Org apps land HOST-native in their own Org namespace; flip to tier: '' (#4375)", src, doc.Metadata.Name, variant, tier)
+		}
+	}
+}
+
+// TestBootstrapKit_PerOrgBlueprintsAreHostNative locks the #4375 (#4325
+// fallout) contract: every PER-ORG catalog Blueprint — the ones that install
+// through the application-controller fan-out into a per-Organization
+// namespace — declares a HOST-native topology placement (tier ""/host), NOT
+// a removed mgmt/rtz/dmz plane vCluster. It checks BOTH sides that must stay
+// in lockstep:
+//
+//	(1) the source platform/<x>/blueprint.yaml, and
+//	(2) the rendered products/catalyst catalog-seed Blueprint CR (the
+//	    in-cluster fallback the bp-catalog-client reads when the Gitea
+//	    catalog repo 404s).
+//
+// Without this lock, the next edit to either side can re-introduce a
+// `tier: rtz` that Degrades a fresh Org's app with `namespaces "rtz" not
+// found` the moment it installs.
+func TestBootstrapKit_PerOrgBlueprintsAreHostNative(t *testing.T) {
+	root := repoRoot(t)
+
+	// (1) Source blueprints.
+	for bpName, dir := range perOrgCatalogBlueprints {
+		t.Run("source/"+dir, func(t *testing.T) {
+			bpPath := filepath.Join(root, "platform", dir, "blueprint.yaml")
+			raw, err := os.ReadFile(bpPath)
+			if err != nil {
+				t.Fatalf("read source blueprint %s: %v", bpPath, err)
+			}
+			var doc topologyDoc
+			if err := yaml.Unmarshal(raw, &doc); err != nil {
+				t.Fatalf("unmarshal %s: %v", bpPath, err)
+			}
+			if doc.Metadata.Name != bpName {
+				t.Errorf("%s metadata.name = %q, want %q", bpPath, doc.Metadata.Name, bpName)
+			}
+			assertHostNativeTopology(t, "platform/"+dir+"/blueprint.yaml", doc)
+		})
+	}
+
+	// (2) Rendered catalog-seed. helm collapses the `{{ "{{" }}` escape
+	// tokens to literal runtime placeholders so the docs parse as YAML.
+	// Skip gracefully if helm is unavailable in the runner.
+	helmBin := os.Getenv("HELM_BIN")
+	if helmBin == "" {
+		helmBin = "helm"
+	}
+	if _, err := exec.LookPath(helmBin); err != nil {
+		t.Skipf("helm not on PATH (%v) — skipping rendered catalog-seed half; the source-blueprint half above still runs", err)
+	}
+	chartDir := filepath.Join(root, "products", "catalyst", "chart")
+	cmd := exec.Command(helmBin, "template", ".", "--show-only", "templates/catalog-seed/blueprints.yaml")
+	cmd.Dir = chartDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template catalog-seed failed: %v\noutput:\n%s", err, out)
+	}
+	// The rendered output also carries the per-Org WordPress alias
+	// (bp-wordpress), which points at the same wordpress-tenant chart and
+	// shares the per-Org topology — assert it too.
+	perOrgSeedNames := map[string]bool{"bp-wordpress": true}
+	for bpName := range perOrgCatalogBlueprints {
+		perOrgSeedNames[bpName] = true
+	}
+	seen := map[string]bool{}
+	dec := yaml.NewDecoder(strings.NewReader(string(out)))
+	for {
+		var doc topologyDoc
+		if derr := dec.Decode(&doc); derr != nil {
+			break
+		}
+		if doc.Kind != "Blueprint" || !perOrgSeedNames[doc.Metadata.Name] {
+			continue
+		}
+		seen[doc.Metadata.Name] = true
+		assertHostNativeTopology(t, "catalog-seed:"+doc.Metadata.Name, doc)
+	}
+	for name := range perOrgSeedNames {
+		if !seen[name] {
+			t.Errorf("catalog-seed: per-Org Blueprint %q not found in rendered seed — the #4375 host-native lock cannot verify it", name)
+		}
+	}
+}
+
 // TestBootstrapKit_DependencyOrderMatchesCanonical loads every blueprint.yaml
 // in the bootstrap-kit list and verifies that the implicit ordering — by
 // blueprint metadata.name — matches the canonical 11-phase order from

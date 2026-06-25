@@ -43,7 +43,7 @@ spec:
   # and wired it onto the Job container. Verified live on the tkt0625
   # demo Org (omantel.biz region-a).
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.8
+  version: 0.1.9
   card:
     title: Stalwart (per-Organization)
     summary: |
@@ -234,7 +234,11 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 0
         placement:
-          tier: rtz
+          # #4375 (#4325 de-vcluster fallout): the `rtz` plane vCluster was
+          # removed; per-Org apps land host-native in their OWN Org namespace
+          # (#4297 keystone). Host placement = empty tier; keep the rtz-A/-B
+          # region designators (clusters/roles) for the multi-region split.
+          tier: ''
           clusters:
           - rtz-A
           - rtz-B
@@ -243,7 +247,7 @@ spec:
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters:
           - rtz-A
           roles:
