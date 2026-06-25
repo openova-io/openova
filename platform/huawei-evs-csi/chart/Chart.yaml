@@ -72,7 +72,17 @@ name: bp-huawei-evs-csi
 # it with reclaimPolicy=Delete. Idempotent: a no-op when the SC is already
 # Delete or absent (fresh prov). Existing Bound PVs/PVCs are UNAFFECTED —
 # reclaimPolicy is stamped on the PV at bind time and never re-read from the SC.
-version: 1.0.5
+# 1.0.6 (#4350 follow-up, kom4dc dep 4635277cae4ffed9, 2026-06-25): the 1.0.5
+# reclaim-reconcile hook Job is DENIED admission on a converged Sovereign by the
+# kyverno `flux-managed` Enforce policy ("Job/huawei-evs-csi-reclaim-reconcile
+# is not Flux-managed") — a pre-* Helm hook carries NO HelmRelease
+# ownerReference, so the policy needs the `app.kubernetes.io/managed-by: flux`
+# label to admit it. Without it the pre-upgrade hook fails → bp-huawei-evs-csi
+# rolls back to 1.0.4 (Stalled RetriesExceeded) → the entire stateful chain
+# (bp-cnpg → bp-gitea → bp-catalyst-platform → org-controller) stays
+# dependency-gated. Stamp the label on the Job metadata + pod template. Same
+# fix shape as bp-cnpg webhook-gate hooks (#4226) + gitea repo-bootstrap (#3462).
+version: 1.0.6
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable

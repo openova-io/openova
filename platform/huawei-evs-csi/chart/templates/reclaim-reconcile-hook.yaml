@@ -70,6 +70,15 @@ metadata:
     app.kubernetes.io/name: bp-huawei-evs-csi
     app.kubernetes.io/component: reclaim-reconcile-hook
     catalyst.openova.io/blueprint: bp-huawei-evs-csi
+    # Required by the kyverno `flux-managed` Enforce policy on converged
+    # Sovereigns. Helm hook Jobs are applied directly by the helm-controller
+    # (no HelmRelease ownerReference is stamped on a pre-* hook resource), so
+    # without this label the policy denies admission ("...is not Flux-managed")
+    # → the pre-upgrade hook fails → the bp-huawei-evs-csi upgrade rolls back
+    # → bp-cnpg/gitea/catalyst-platform stay dependency-gated. Same fix shape
+    # as the bp-cnpg webhook-gate hooks (#4226) and the gitea repo-bootstrap
+    # hook (#3462).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-weight": "-10"
@@ -82,6 +91,7 @@ spec:
       labels:
         app.kubernetes.io/name: bp-huawei-evs-csi
         app.kubernetes.io/component: reclaim-reconcile-hook
+        app.kubernetes.io/managed-by: flux
     spec:
       serviceAccountName: {{ .Release.Name }}-reclaim-reconcile
       restartPolicy: Never
