@@ -254,10 +254,82 @@ spec:
               # Step 3: ensure the repo exists with an initial commit so it has a
               # default branch (auto_init=true). private=false matches cutover
               # Step 01's create.
+              #
+              # #4355 — a GET 200 is NOT proof the repo is USABLE. When gitea's
+              # metadata DB says the repo EXISTS but the on-disk git data is GONE
+              # (the #4353 DB-vs-disk drift after a PVC/EVS loss), the repo GETs
+              # 200 yet has NO branches and EVERY branch-create / contents write
+              # 500s ("object does not exist [id: refs/heads/main ...]"). The old
+              # gate keyed purely on REPO_CODE=200 → skipped auto_init → Step 4
+              # branch-create FATAL → BackoffLimitExceeded → the whole
+              # bp-catalyst-platform upgrade rolls back (org-controller stuck on
+              # the old pin). The fix: when the repo exists, additionally verify
+              # it is NOT disk-empty, and re-seed an initial `main` commit if it
+              # is — idempotent and bounded (no infinite backoff). The reusable
+              # `seed_default_branch` helper below recreates `main` via the
+              # contents API (no git binary, no clone/push, no RBAC) whether the
+              # repo was just auto_init'd or recovered-empty.
               REPO_CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
                 -H "Authorization: token ${GITEA_TOKEN}" "${API}/repos/${GITEA_ORG}/${GITEA_REPO}")
+
+              # repo_disk_empty: 0 (true) when the repo metadata exists but has no
+              # usable git data — detected by an empty branches list OR a 500 from
+              # the branches endpoint OR the repo meta reporting "empty":true.
+              # Returns 1 (false) when at least one branch is resolvable.
+              repo_disk_empty() {
+                BR_LIST_CODE=$(curl -sS -o /tmp/brlist.json -w '%{http_code}' \
+                  -H "Authorization: token ${GITEA_TOKEN}" \
+                  "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches" 2>/dev/null || echo 000)
+                if [ "$BR_LIST_CODE" = "500" ]; then return 0; fi
+                if [ "$BR_LIST_CODE" = "200" ]; then
+                  # "[]" (no branches) → disk-empty; a non-empty array → usable.
+                  if grep -q '"name"' /tmp/brlist.json 2>/dev/null; then return 1; fi
+                  return 0
+                fi
+                # Any other code (e.g. 404 for a truly-missing repo) → let the
+                # caller's auto_init path handle it; treat as "not disk-empty
+                # here" so we don't double-seed a repo that is about to be created.
+                return 1
+              }
+
+              # seed_default_branch: (re-)create `main` with one valid commit via
+              # the contents API so the repo has a resolvable default branch.
+              # Idempotent — a PUT/POST against an existing path 422s harmlessly;
+              # success is verified by re-probing `repo_disk_empty`.
+              seed_default_branch() {
+                echo "[repo-bootstrap] re-initialising default branch 'main' (repo metadata present but git data missing — #4355)"
+                SEED_README=$(printf '%s\n' \
+                  "# openova/openova (Sovereign-local Organization-tenant gitops target)" \
+                  "" \
+                  "Re-initialised by bp-catalyst-platform repo-bootstrap (#4355) after the" \
+                  "gitea metadata DB reported this repo present while its on-disk git data" \
+                  "was lost. Cutover Step 01 force-pushes the full upstream content over this" \
+                  "seed; the org-tenants + catalog-sovereign branches re-derive from here." \
+                  | base64 | tr -d '\n')
+                curl -sS -o /dev/null -w '[repo-bootstrap] PUT README (re-init main) -> %{http_code}\n' \
+                  -H "Authorization: token ${GITEA_TOKEN}" -H "Content-Type: application/json" \
+                  -X POST "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/README.md" \
+                  -d "{\"branch\":\"main\",\"content\":\"${SEED_README}\",\"message\":\"chore: re-init main after disk-vs-DB drift (#4355)\"}" || true
+                for j in $(seq 1 30); do
+                  if ! repo_disk_empty; then
+                    echo "[repo-bootstrap] default branch re-initialised (repo non-empty)"
+                    return 0
+                  fi
+                  echo "[repo-bootstrap] waiting for re-init to materialise ($j/30)"
+                  sleep 2
+                done
+                echo "[repo-bootstrap] FATAL: repo still disk-empty after re-init attempt (#4355)" >&2
+                return 1
+              }
+
               if [ "$REPO_CODE" = "200" ]; then
                 echo "[repo-bootstrap] repo ${GITEA_ORG}/${GITEA_REPO} already present"
+                # #4355 — present-in-DB is not enough; recover a disk-empty repo.
+                if repo_disk_empty; then
+                  seed_default_branch || exit 1
+                else
+                  echo "[repo-bootstrap] repo has resolvable branches (git data intact)"
+                fi
               else
                 echo "[repo-bootstrap] creating repo ${GITEA_ORG}/${GITEA_REPO} (GET was ${REPO_CODE})"
                 curl -sS -o /dev/null -w '[repo-bootstrap] POST /orgs/repos -> %{http_code}\n' \
@@ -285,6 +357,13 @@ spec:
               if [ "$BR_CODE" = "200" ]; then
                 echo "[repo-bootstrap] branch ${TENANTS_BRANCH} already present"
               else
+                # #4355 safety net — if the repo went disk-empty between Step 3
+                # and here (or Step 3 created it fresh and the seed lagged),
+                # branching from a non-existent default ref 500s. Re-seed `main`
+                # before branching so the old-branch ref is resolvable.
+                if repo_disk_empty; then
+                  seed_default_branch || exit 1
+                fi
                 # Resolve the repo's actual default branch (auto_init names it
                 # per the instance default, usually "main").
                 DEFAULT_BRANCH=$(curl -sS -H "Authorization: token ${GITEA_TOKEN}" \

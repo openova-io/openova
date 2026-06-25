@@ -178,6 +178,53 @@ spec:
                 sleep 2
               done
 
+              # #4355 — same disk-vs-DB-drift hardening as the Organization repo
+              # hook (weight 12). A GET 200 does NOT guarantee usable git data;
+              # when gitea's metadata DB outlived its on-disk git objects (the
+              # #4353 EVS/PVC loss), branching from `main` 500s ("object does not
+              # exist [id: refs/heads/main ...]") → exit 1 → BackoffLimitExceeded
+              # → bp-catalyst-platform upgrade rolls back. The Organization hook
+              # (weight 12) normally re-seeds `main`, but this hook re-checks +
+              # self-heals so an isolated disk-empty repo never wedges the umbrella
+              # upgrade here. Helpers detect emptiness via the branches endpoint
+              # (500 or [] ⇒ disk-empty) and re-init `main` via the contents API.
+              repo_disk_empty() {
+                BR_LIST_CODE=$(curl -sS -o /tmp/brlist.json -w '%{http_code}' \
+                  -H "Authorization: token ${GITEA_TOKEN}" \
+                  "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches" 2>/dev/null || echo 000)
+                if [ "$BR_LIST_CODE" = "500" ]; then return 0; fi
+                if [ "$BR_LIST_CODE" = "200" ]; then
+                  if grep -q '"name"' /tmp/brlist.json 2>/dev/null; then return 1; fi
+                  return 0
+                fi
+                return 1
+              }
+              seed_default_branch() {
+                echo "[catalog-repo-bootstrap] re-initialising default branch 'main' (repo metadata present but git data missing — #4355)"
+                SEED_README=$(printf '%s\n' \
+                  "# openova/openova (Sovereign-local Organization-tenant gitops target)" \
+                  "" \
+                  "Re-initialised by bp-catalyst-platform catalog-repo-bootstrap (#4355)." \
+                  | base64 | tr -d '\n')
+                curl -sS -o /dev/null -w '[catalog-repo-bootstrap] PUT README (re-init main) -> %{http_code}\n' \
+                  -H "Authorization: token ${GITEA_TOKEN}" -H "Content-Type: application/json" \
+                  -X POST "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/README.md" \
+                  -d "{\"branch\":\"main\",\"content\":\"${SEED_README}\",\"message\":\"chore: re-init main after disk-vs-DB drift (#4355)\"}" || true
+                for j in $(seq 1 30); do
+                  if ! repo_disk_empty; then
+                    echo "[catalog-repo-bootstrap] default branch re-initialised (repo non-empty)"
+                    return 0
+                  fi
+                  echo "[catalog-repo-bootstrap] waiting for re-init to materialise ($j/30)"
+                  sleep 2
+                done
+                echo "[catalog-repo-bootstrap] FATAL: repo still disk-empty after re-init attempt (#4355)" >&2
+                return 1
+              }
+              if repo_disk_empty; then
+                seed_default_branch || exit 1
+              fi
+
               # Step 3: ensure the catalog-sovereign branch exists (from the
               # repo's actual default branch — auto_init names it per the
               # instance default, usually "main").

@@ -3092,9 +3092,17 @@ name: bp-catalyst-platform
 #   `keycloak` ns, that vCluster-mangled secret no longer exists host-side, so
 #   the bridge was emitting an EMPTY master-realm-admin-password (the seam the
 #   #4344 issue flagged) → bp-sso-bridge could not POST /admin/realms. Pure
+# 1.4.847 — #4355: gitea repo-bootstrap hooks (org-tenants weight-12 +
+#   catalog-sovereign weight-13) self-heal a disk-vs-DB-drift repo (gitea
+#   metadata says the repo exists but its on-disk git data is gone after an
+#   EVS/PVC loss). The old gate keyed purely on GET /repos = 200 → skipped
+#   auto_init → branch-create 500 → BackoffLimitExceeded → the whole
+#   bp-catalyst-platform upgrade rolled back (org-controller stuck on the old
+#   pin). Now both hooks probe the branches endpoint; an empty list / 500
+#   re-inits `main` via the contents API before branching. Idempotent + bounded.
 #   lookup-source change; no new bootstrap state. Chart-version bump forces the
 #   Flux re-pull (deploy-bot mutable-tag trap). bootstrap-kit slot-13 lockstep.
-version: 1.4.846
+version: 1.4.847
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
