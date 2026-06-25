@@ -2052,6 +2052,18 @@ orgServices:
     # harbor.openova.io for bootstrap; cutover Step-04 (ADR-0002) flips it to
     # harbor.<sovereign-fqdn> post-handover. Operator-overridable (Principle #4).
     vclusterImageRegistry: "harbor.openova.io"
+    # replicaRegionKubeconfigSecret (#4282/#4275 CROSS-REGION STANDBY): the
+    # flux-system Secret name holding region-B's (the STANDBY region's)
+    # host-cluster kubeconfig. The per-Org active-hot-standby bp-cnpg-pair is
+    # split-side — the replica HelmRelease installs THROUGH this kubeconfig
+    # INTO region B so the standby CNPG Cluster lands where its
+    # openova.io/region=<replica_region> nodes live (NOT region A, where the
+    # standby Cluster's region-B node-affinity matched 0/N nodes and the
+    # *-pgbasebackup pod hung Pending forever — the live #4282 failure). Empty
+    # → provisioning defaults to "sovereign-replica-region-kubeconfig", the
+    # name the bootstrap mirrors region-B's kubeconfig into. Operator-
+    # overridable (Principle #4).
+    replicaRegionKubeconfigSecret: ""
     # githubToken: Secret name + key the Deployment reads GITHUB_TOKEN
     # from. Defaults match the chart-emitted
     # templates/org-services/provisioning-github-token.yaml output
