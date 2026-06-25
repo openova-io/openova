@@ -410,12 +410,84 @@ spec:
           port: 53
 `
 
+// ciliumNetworkPolicyTemplate is the MANDATORY companion to the default-deny
+// K8s NetworkPolicy above (#4292). A vanilla `networking.k8s.io/v1`
+// NetworkPolicy expresses its allow-set PURELY as podSelector / namespaceSelector
+// / ipBlock rules — none of which can match the Cilium RESERVED ENTITIES. On a
+// Sovereign (every cluster runs the Cilium Gateway API) two reserved entities
+// MUST be admitted or the default-deny silently breaks the Org's real workloads:
+//
+//   - `ingress` (+ `host`, `remote-node`): the Cilium Gateway / Envoy proxies
+//     external traffic to the backend pod under the reserved `ingress` security
+//     identity (Envoy runs in the host netns; the backend may sit on a peer
+//     node). NO K8s NetworkPolicy selector matches it, so the customer's
+//     purchased Application behind its HTTPRoute returns "upstream connect error
+//     … connection timeout" / 503 (the #2940/#3374 app-plane wedge, fixed live
+//     on hw165). fromEntities is the canonical expression.
+//   - `kube-apiserver`: an in-vcluster Org app pod (and any in-cluster client)
+//     reaches the cluster API as the special `kube-apiserver` entity, which no
+//     podSelector/namespaceSelector/ipBlock (not even 0.0.0.0/0) covers (the
+//     sso-bridge 0.2.14 saga). toEntities is the canonical expression.
+//
+// Cilium computes the UNION of every policy selecting an endpoint, so this CNP
+// is PURELY ADDITIVE to the K8s default-deny: it grants gateway reachability +
+// apiserver egress without weakening the cross-Org/cross-Environment denial
+// (note: NO `world` — only the gateway, never direct public ingress). It is
+// co-located with the K8s NP in the SAME apps tree, so it lands wherever the
+// real Org workloads do — INSIDE the vcluster for the paid tier (the keystone
+// #4299 redirects app HelmReleases there via spec.kubeConfig), on the host
+// `<slug>` ns for free/S — binding the actual pods, never an empty host shell.
+//
+// endpointSelector {} = every endpoint in the namespace (matching the K8s
+// default-deny's podSelector {} scope). Gated by the consumer on the cilium.io/v2
+// Capabilities check (the #2988/#3102 idiom) so kind CI (CRD-less) still applies
+// the K8s NP without this file — there the identity-aware agent isn't enforcing
+// anyway. On a real Sovereign the org-controller always emits it.
+const ciliumNetworkPolicyTemplate = `apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-and-apiserver
+  namespace: {{ .AppNamespace }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+    catalyst.openova.io/component: org-vcluster-gateway-netpol
+spec:
+  endpointSelector: {}
+  ingress:
+    # Admit the Cilium Gateway / Envoy datapath (reserved entities no K8s
+    # NetworkPolicy selector can match) so the Org's Application behind its
+    # HTTPRoute is reachable — without this the gateway→pod hop is dropped → 503.
+    - fromEntities:
+        - ingress
+        - host
+        - remote-node
+  egress:
+    # Admit egress to the cluster API (the reserved kube-apiserver entity) so an
+    # in-vcluster Org app pod / in-cluster client can reach :443/:6443.
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "6443"
+              protocol: TCP
+`
+
 // networkPolicyDoc is the apps-tree filename for the default-deny +
 // same-Org-allow baseline. It lives under vcluster/apps/ so the funnel's
 // apps-sync Kustomization reconciles it INTO the Org-vcluster (alongside the
 // customer's app manifests); the syncer then reflects it to the host `<slug>`
 // ns. It is NOT listed in the boundary kustomization (a different path).
 const networkPolicyDoc = "networkpolicy.yaml"
+
+// ciliumNetworkPolicyDoc is the apps-tree filename for the reserved-entity CNP
+// companion (gateway ingress + apiserver egress). Co-located with
+// networkPolicyDoc under vcluster/apps/ so it lands on the SAME boundary the
+// real Org workloads run on (inside the vcluster for paid tiers; host `<slug>`
+// ns for free/S).
+const ciliumNetworkPolicyDoc = "ciliumnetworkpolicy.yaml"
 
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -434,6 +506,7 @@ const appsKustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ` + networkPolicyDoc + `
+  - ` + ciliumNetworkPolicyDoc + `
 `
 
 // renderView is the data the templates execute against: the flat Inputs plus
@@ -489,6 +562,10 @@ func limitRangeDefaults(q PlanQuota) (cpu, mem string) {
 //     plan (skipped ResourceQuota for soft-cap Flexi; LimitRange always).
 //   - apps/networkpolicy.yaml seeds the default-deny + same-Org-allow baseline
 //     the syncer reflects to the host (sync.toHost.networkPolicies.enabled).
+//   - apps/ciliumnetworkpolicy.yaml is the MANDATORY companion that admits the
+//     Cilium Gateway `ingress` entity (else the Org's app behind its HTTPRoute
+//     503s) + egress to the `kube-apiserver` entity (else in-vcluster pods can't
+//     reach the cluster API) — reserved entities no K8s NetworkPolicy can match.
 func Render(in Inputs) (map[string][]byte, error) {
 	if in.VClusterHelmRepoName == "" {
 		in.VClusterHelmRepoName = "loft"
@@ -545,8 +622,18 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// (the boundary kustomization omits apps/, and the funnel apps-sync reads a
 	// DIFFERENT repo) → intra-Org isolation stayed inert.
 	files["vcluster/apps/"+networkPolicyDoc] = networkPolicyTemplate
+	// The reserved-entity CNP companion (gateway ingress + apiserver egress).
+	// Co-located with the K8s NP so it lands on the SAME boundary the keystone
+	// (#4299) installs the Org's real app workloads onto — inside the vcluster for
+	// the paid tier, the host `<slug>` ns for free/S. Without it the K8s
+	// default-deny silently 503s the Org's Application behind the Cilium Gateway
+	// and blocks egress to the cluster API (neither reachable via any K8s NP
+	// selector). Kustomize applies a CRD-less cluster's CNP as a no-op object;
+	// it has no effect there (kind CI isn't identity-enforcing), so it is safe to
+	// always render — on a real Sovereign cilium.io/v2 is present and enforces it.
+	files["vcluster/apps/"+ciliumNetworkPolicyDoc] = ciliumNetworkPolicyTemplate
 	// Explicit apps/kustomization.yaml so the per-Org apps Flux Kustomization's
-	// `kustomize build ./vcluster/apps` enumerates the NP deterministically
+	// `kustomize build ./vcluster/apps` enumerates the NP + CNP deterministically
 	// (mirrors the funnel apps-tree, which also ships its own kustomization.yaml).
 	files["vcluster/apps/kustomization.yaml"] = appsKustomizationTemplate
 
