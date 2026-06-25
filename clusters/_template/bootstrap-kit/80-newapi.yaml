@@ -307,7 +307,12 @@ spec:
       # 1.4.122 (#4169): issuer-realm gate on the sovereign-realm newapi-admin
       # AppRegistration (host-side concern; this vcluster-app slot already sets
       # ssoBridgeSync.enabled=false so it never emitted it — pure lockstep bump).
-      version: 1.4.126
+      # 1.4.128 (#4278-followup): DSN-placeholder Secret self-preserves SQL_DSN
+      # across re-renders (lookup + resource-policy:keep) so a failed post-hook
+      # no longer empties it → kills the wait-for-sql-dsn Init:CrashLoopBackOff.
+      # vcluster-app slot (cnpg.enabled=false) renders no CNPG/DSN secret — pure
+      # lockstep bump.
+      version: 1.4.128
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
