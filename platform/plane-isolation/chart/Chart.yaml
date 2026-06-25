@@ -19,7 +19,15 @@ name: bp-plane-isolation
 #       app-plane wedge). No `world` — only the gateway reaches them.
 # The allow-set tightens from coarse-namespace (whole-plane) to
 # per-component — one-component blast radius instead of whole-plane.
-version: 0.1.0
+# 0.1.1 (#4347 / Refs #4325): FIX the missing YAML document separator between
+#   rendered manifests. Both templates chomped the newline before `---` (the
+#   `{{- $ns := .namespace -}}` trailing `-}}`), gluing `---` onto the previous
+#   doc's last line (`cidr: 0.0.0.0/0---`, `- remote-node---`) → Helm's
+#   post-render saw ONE doc with N duplicate `apiVersion` keys → `unmarshal
+#   errors: mapping key "apiVersion" already defined` → bp-plane-isolation HR
+#   install FAILED (live on omantel.biz region-a). All 24 docs now separate
+#   cleanly. Dropped the `-}}` chomp on the $ns assignment in both templates.
+version: 0.1.1
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform
