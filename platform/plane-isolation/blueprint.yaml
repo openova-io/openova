@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.1  # lockstep with chart/Chart.yaml (#4347 doc-separator fix)
+  version: 0.1.2  # lockstep with chart/Chart.yaml (#4360 Cilium world-only egress fix)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

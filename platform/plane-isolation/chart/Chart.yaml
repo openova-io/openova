@@ -27,7 +27,19 @@ name: bp-plane-isolation
 #   errors: mapping key "apiVersion" already defined` → bp-plane-isolation HR
 #   install FAILED (live on omantel.biz region-a). All 24 docs now separate
 #   cleanly. Dropped the `-}}` chomp on the $ns assignment in both templates.
-version: 0.1.1
+# 0.1.2 (#4360 / Refs #4272 #4307 #4322 #4179): FIX the default-deny egress
+#   rule silently dropping ALL in-cluster traffic under Cilium. The egress
+#   allow was `ipBlock: 0.0.0.0/0` ONLY — but a K8s NetworkPolicy CIDR rule
+#   matches Cilium's `world` entity, NOT in-cluster pod identities, so every
+#   covered component's cross-component dial (gitea→shared-pg, keycloak→CNPG,
+#   harbor→openbao, …) was Policy-denied. Live proof on omantel.biz region-a:
+#   `cilium monitor` drop `identity gitea->shared-pg 10.42.2.135 -> 10.42.4.241:5432
+#   tcp SYN` → gitea SQL 2m timeouts → all git auth 401 → every funnel Org's
+#   GitRepository source False → org-controller GiteaOrgFailed → ZERO funnel
+#   Orgs converge. Added a companion `namespaceSelector: {}` egress rule so the
+#   union admits in-cluster identities alongside world. Same reserved-entity
+#   class as the gateway `ingress` CNP this chart already ships.
+version: 0.1.2
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform
