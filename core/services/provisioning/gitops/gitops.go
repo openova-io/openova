@@ -189,7 +189,33 @@ type ManifestGenerator struct {
 	// persists it on the catalyst-api PVC at
 	// /var/lib/catalyst/kubeconfigs/<depID>-<region>.yaml).
 	ReplicaRegionKubeSecret string
+
+	// ParentDomain is the per-Sovereign org-pool parent zone (e.g.
+	// "omani.homes") the funnel stamps onto the public hostnames of the
+	// HelmRelease-shaped per-Org apps (bp-openclaw → openclaw.<slug>.<parent>,
+	// bp-stalwart-tenant → mail.<slug>.<parent>). It is the SAME
+	// TENANT_PARENT_DOMAIN env the Handler reads for the tenant-public patch;
+	// wired through the generator in main.go so the openclaw/stalwart overlays
+	// (#4272/#4307) emit the correct console-isolation hostnames. Empty falls
+	// back to parentDomainDefault so a render never produces a bare `<slug>.`
+	// with no zone.
+	ParentDomain string
 }
+
+// parentDomain resolves the funnel's org-pool parent zone for the
+// HelmRelease-shaped per-Org apps, falling back to parentDomainDefault when the
+// generator was constructed without a TENANT_PARENT_DOMAIN wiring.
+func (g *ManifestGenerator) parentDomain() string {
+	if pd := strings.TrimSpace(g.ParentDomain); pd != "" {
+		return pd
+	}
+	return parentDomainDefault
+}
+
+// parentDomainDefault is the org-pool parent zone the funnel stamps onto the
+// HelmRelease-shaped per-Org app hostnames when ParentDomain is unset. Matches
+// the catalog-canon default pool (docs/DOD.md §Domains-canon).
+const parentDomainDefault = "omani.homes"
 
 // replicaRegionKubeSecretDefault is the deterministic flux-system Secret
 // name the cross-region standby HelmRelease's spec.kubeConfig.secretRef
@@ -549,6 +575,15 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		if a == "mysql" || a == "postgres" || a == "redis" {
 			continue
 		}
+		// HelmRelease-shaped apps (openclaw #4272, stalwart-mail #4307) are
+		// emitted as HOST files below (the helm-controller runs on the host,
+		// not inside the per-Org vcluster — #3055), NOT as a synced in-vcluster
+		// Deployment. Skip them here so the generic one-Deployment template
+		// doesn't render an invalid `image: Required value` manifest under
+		// their name (the #941 live failure that flagged them non-deployable).
+		if isHelmReleaseApp(a) {
+			continue
+		}
 		spec := GetAppSpec(a)
 		// MIRROR-EVERYTHING (#3785, Refs #3376 #3761): route the app image
 		// (main container + the InitCommand initContainer that reuses it)
@@ -563,6 +598,27 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		vcFiles[fmt.Sprintf("app-%s.yaml", a)] = generateAppDeployment(appNS, slug, planSlug, a, spec, dbPassword)
 	}
 	vcFiles["kustomization.yaml"] = generateKustomization(appNS, vcFiles)
+
+	// HelmRelease-shaped per-Org apps (openclaw #4272, stalwart-mail #4307) —
+	// emitted as HOST files (helm-controller runs on the host, NOT inside the
+	// per-Org vcluster, #3055), tier-aware via the SAME HR-level kubeConfig the
+	// bp-cnpg-pair path uses: vcluster tier installs the chart INTO the Org
+	// vcluster through the flux-system `tenant-<slug>-kubeconfig` mirror; host
+	// tier installs straight into the host `<slug>` ns (kubeSecret ""). Each HR
+	// ships its own bp-* HelmRepository so a fresh funnel Org resolves the
+	// sourceRef. Mirrors the BSS-door orgTenantBPOpenClaw / orgTenantBPStalwart
+	// overlays so a cart Org gets the SAME releases the BSS door emits.
+	hrKubeSecret := ""
+	if isVcluster {
+		hrKubeSecret = fmt.Sprintf("tenant-%s-kubeconfig", slug)
+	}
+	for _, a := range sortedHelmReleaseApps(appSlugs) {
+		hostFiles[fmt.Sprintf("app-%s.yaml", a)] = generateHelmReleaseApp(a, helmReleaseAppOpts{
+			slug:         slug,
+			parentDomain: g.parentDomain(),
+			kubeSecret:   hrKubeSecret,
+		})
+	}
 
 	// #4297: assemble the host kustomization.yaml LAST so it enumerates every
 	// host-scoped file including any host-reconciled HelmRelease the db block
@@ -665,6 +721,19 @@ spec:
 }
 
 func generateHostIngress(ns, slug string, appSlugs []string) string {
+	// HelmRelease-shaped apps (openclaw #4272, stalwart-mail #4307) carry their
+	// OWN chart-emitted HTTPRoute parented to cilium-gateway-console — they must
+	// NOT also appear in this traefik host ingress (a second route to a service
+	// that doesn't exist as `<app>-x-...-x-vcluster` would 404). Filter to the
+	// Deployment-shaped apps that actually sync a Service into the vcluster.
+	routable := make([]string, 0, len(appSlugs))
+	for _, a := range appSlugs {
+		if isHelmReleaseApp(a) {
+			continue
+		}
+		routable = append(routable, a)
+	}
+	appSlugs = routable
 	if len(appSlugs) == 0 {
 		return ""
 	}

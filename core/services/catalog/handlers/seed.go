@@ -130,7 +130,7 @@ func (h *Handler) seedAllData(ctx context.Context) {
 				"BYOS / newapi-gated LLM gateway — no agent keys leak",
 				"Preview deploys at <pr>.<app>.<sb-owner>.<sov>",
 			},
-			RelatedApps:  []string{"gitea", "librechat", "dify"},
+			RelatedApps: []string{"gitea", "librechat", "dify"},
 			ConfigSchema: []store.ConfigField{
 				{
 					Key:         "agents",
@@ -848,31 +848,37 @@ func (h *Handler) migrateAppDependencies(ctx context.Context) {
 // silently filtered them out because they were missing here.
 func DeployableAppSlugs() map[string]bool {
 	return map[string]bool{
-		"wordpress":     true,
-		"ghost":         true,
-		"nextcloud":     true,
-		"bookstack":     true,
-		"uptime-kuma":   true,
-		"gitea":         true,
-		"vaultwarden":   true,
-		"umami":         true,
-		"nocodb":        true,
-		"cal-com":       true,
-		"invoiceshelf":  true,
-		"formbricks":    true,
-		"listmonk":      true, // fixed in #101 — DBEnvStyle:"listmonk" + InitCommand
-		// openclaw + stalwart-mail were flagged Deployable in #941 but have
-		// no entry in core/services/provisioning/gitops/apps.go KnownApps —
-		// the Organization provisioning service generates manifests via a single
-		// Deployment template that requires Image + Port; both apps need
-		// HelmRelease-shaped overlays (controller + runtime for openclaw;
-		// IMAP/SMTP services for stalwart-mail). Live failure 2026-05-06
-		// on tenant "test11": tenant-test11-apps Kustomization rejected
-		// `Deployment.apps "openclaw" is invalid: containers[0].image
-		// Required value`. Re-enabling these requires per-app overlay
-		// templates beyond the one-Deployment generator.
-		// "openclaw":      true, // #941 — disabled until proper overlay
-		// "stalwart-mail": true, // #941 — disabled until proper overlay
+		"wordpress":    true,
+		"ghost":        true,
+		"nextcloud":    true,
+		"bookstack":    true,
+		"uptime-kuma":  true,
+		"gitea":        true,
+		"vaultwarden":  true,
+		"umami":        true,
+		"nocodb":       true,
+		"cal-com":      true,
+		"invoiceshelf": true,
+		"formbricks":   true,
+		"listmonk":     true, // fixed in #101 — DBEnvStyle:"listmonk" + InitCommand
+		// openclaw (#4272) + stalwart-mail (#4307) — NOW DEPLOYABLE. They were
+		// flagged non-deployable since #941 because the generic provisioning
+		// generator only rendered a single Deployment (Image + Port) and both
+		// apps need HelmRelease-shaped overlays (controller + per-user pods +
+		// HTTPRoute for openclaw; StatefulSet + IMAP/SMTP/web Services + OIDC
+		// setup Job for stalwart-mail). Live failure 2026-05-06 on tenant
+		// "test11": `Deployment.apps "openclaw" is invalid: containers[0].image
+		// Required value`. The fix (core/services/provisioning/gitops/
+		// helmrelease_apps.go) emits the upstream bp-openclaw /
+		// bp-stalwart-tenant HelmReleases as HOST files from the generic
+		// generator — mirroring the BSS-door orgTenantBPOpenClaw /
+		// orgTenantBPStalwart overlays — so a funnel cart Org (#4364, which only
+		// dispatches DEPLOYABLE apps) now renders their HelmReleases into the
+		// per-Org gitops vcluster/apps tree. Flagging them deployable here is
+		// what re-opens the marketplace cards AND admits them through the funnel
+		// cart filter.
+		"openclaw":      true, // #4272 — bp-openclaw HelmRelease overlay
+		"stalwart-mail": true, // #4307 — bp-stalwart-tenant HelmRelease overlay
 		// Backing services are always deployable — they come bundled with
 		// whichever business app needs them. Marking them true so the
 		// catalog UI doesn't draw a 'Coming soon' overlay on them. #112.
