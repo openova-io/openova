@@ -57,6 +57,35 @@ type Handler struct {
 	// hardcoded — every Sovereign picks its own pool zone.
 	TenantParentDomain string
 
+	// PerOrgGitops enables the Sovereign per-Org commit target (#4384). When
+	// true, the day-2 cart install commits the customer's purchased
+	// Applications into the per-Org `<slug>/catalyst-tenant` repo's
+	// `vcluster/apps/` tree (the one the org-controller bootstrapped + wired a
+	// Flux Kustomization for) instead of the globally-configured catalog repo
+	// (GITHUB_OWNER/GITHUB_REPO = openova/openova on a Sovereign). The global
+	// repo is the WRONG target for per-Org apps on a Sovereign and 404'd on the
+	// empty-SHA tree path. Sourced from TENANT_GITOPS_PER_ORG env; defaults ON
+	// when SOVEREIGN_FQDN is set (the same signal that flips the chart's git
+	// coordinates to the local Gitea). Off (legacy contabo per-tenant overlay
+	// path) when empty.
+	PerOrgGitops bool
+
+	// PerOrgRepoName is the per-Org Gitea repo the org-controller bootstraps
+	// and the funnel cart install targets when PerOrgGitops is true. Matches
+	// the org-controller's `catalyst-tenant` constant (organization_controller.go).
+	// Operator-overridable via TENANT_GITOPS_REPO env; defaults "catalyst-tenant".
+	PerOrgRepoName string
+
+	// PerOrgBranch is the branch the per-Org `<slug>/catalyst-tenant` repo
+	// commits land on. CRITICAL: this is NOT the global GitBranch — on a
+	// Sovereign GitBranch is `org-tenants` (the cutover-mirror-protected branch
+	// of the global openova/openova catalog repo), but the per-Org repo the
+	// org-controller bootstrapped tracks branch `main` (per_org_flux.go's
+	// GitRepository ref.branch + the org-controller's own PutFile branch). A
+	// commit to the wrong branch would land on a ref no Flux GitRepository
+	// watches. Operator-overridable via TENANT_GITOPS_BRANCH env; defaults "main".
+	PerOrgBranch string
+
 	// day2Cancels tracks in-flight day-2 job wait contexts so tenant.deleted
 	// can preempt them (issue #99). Zero value is ready to use.
 	day2Cancels day2CancelRegistry

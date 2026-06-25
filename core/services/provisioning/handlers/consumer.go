@@ -452,6 +452,21 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 	}
 	appSlugs := h.resolveAppSlugs(ctx, data.Apps)
 
+	branch := h.GitBranch
+	if branch == "" {
+		branch = "main"
+	}
+
+	// #4384 — on a Sovereign the customer's purchased Applications belong in
+	// the per-Org `<slug>/catalyst-tenant` repo's `vcluster/apps/` tree (the
+	// one the org-controller bootstrapped + wired a Flux Kustomization for),
+	// NOT the globally-configured catalog repo (openova/openova). Retarget the
+	// commit there. The legacy contabo per-tenant overlay path keeps using the
+	// global repo + tenant-dir tree below.
+	if h.PerOrgGitops {
+		return h.applyTenantChangePerOrg(ctx, data, action, planSlug, appSlugs, branch)
+	}
+
 	// Preserve the existing DB password if a db file is present in Git.
 	// Without this, regenerating the Secret mints a fresh password and the
 	// running DB pods keep the old one — apps would fail to connect.
@@ -478,10 +493,6 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 		return fmt.Errorf("commit guard: %w", err)
 	}
 
-	branch := h.GitBranch
-	if branch == "" {
-		branch = "main"
-	}
 	commitMsg := fmt.Sprintf("day-2: %s %s on tenant %s (apps: %d)",
 		action, data.AppSlug, data.TenantSlug, len(appSlugs))
 	if err := h.GitHubClient.CommitFilesWithPrune(ctx, branch, commitMsg, manifests, prunePrefixes); err != nil {
@@ -490,6 +501,124 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 	slog.Info("day-2: committed tenant manifests",
 		"tenant", data.TenantSlug, "action", action, "apps", len(appSlugs))
 	return nil
+}
+
+// perOrgRepoName returns the per-Org Gitea repo the funnel cart install
+// targets (matches the org-controller's `catalyst-tenant` constant). Operator-
+// overridable via TENANT_GITOPS_REPO; defaults "catalyst-tenant".
+func (h *Handler) perOrgRepoName() string {
+	if strings.TrimSpace(h.PerOrgRepoName) != "" {
+		return h.PerOrgRepoName
+	}
+	return "catalyst-tenant"
+}
+
+// perOrgBranch returns the branch the per-Org `<slug>/catalyst-tenant` repo
+// commits land on. Defaults "main" (the org-controller's per-Org Flux
+// GitRepository ref.branch) — explicitly NOT the global GitBranch.
+func (h *Handler) perOrgBranch() string {
+	if strings.TrimSpace(h.PerOrgBranch) != "" {
+		return h.PerOrgBranch
+	}
+	return "main"
+}
+
+// applyTenantChangePerOrg is the Sovereign per-Org commit path (#4384). It
+// renders ONLY the customer's app payload, re-roots it into `vcluster/apps/`,
+// and commits to the per-Org `<slug>/catalyst-tenant` repo — the tree the
+// org-controller's `catalyst-tenant-<slug>-apps` Flux Kustomization reconciles
+// into the host `<slug>` namespace. The funnel-owned app files are pruned (so
+// an uninstall removes them) WITHOUT touching the org-controller's boundary
+// baseline (networkpolicy.yaml / ciliumnetworkpolicy.yaml), which is preserved
+// in the merged kustomization.
+func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeData, action, planSlug string, appSlugs []string, _ string) error {
+	slug := data.TenantSlug
+	repoClient := h.GitHubClient.WithRepo(slug, h.perOrgRepoName())
+	// The per-Org repo tracks `main`, NOT the global GitBranch (`org-tenants`
+	// on a Sovereign). Commit to the branch the org-controller's per-Org Flux
+	// GitRepository actually watches.
+	branch := h.perOrgBranch()
+
+	// Preserve the existing DB password if the per-Org repo already carries a
+	// db Secret (so a second cart install / day-2 change keeps the running DB
+	// password). Read from the SAME per-Org tree we write to.
+	dbPassword := readDBPasswordFromTree(ctx, repoClient, branch, gitops.PerOrgAppsDir)
+	if dbPassword == "" {
+		slog.Info("day-2: no existing DB password found in per-Org repo — generating fresh (first DB install)",
+			"tenant", slug, "action", action, "repo", slug+"/"+h.perOrgRepoName())
+	}
+
+	appFiles, appDocs := h.Generator.GeneratePerOrgAppsTree(slug, planSlug, appSlugs, dbPassword)
+	if len(appFiles) == 0 && action == "install" {
+		// No deployable Application payload on an INSTALL (e.g. the cart held
+		// only HR-overlay apps the generic generator can't emit, or an empty
+		// cart). Nothing to commit — not an error. On an UNINSTALL we still
+		// fall through to prune the stale file + rebuild the kustomization.
+		slog.Info("day-2 (per-Org): no deployable app payload to commit",
+			"tenant", slug, "action", action, "apps", len(appSlugs))
+		return nil
+	}
+	if appFiles == nil {
+		appFiles = map[string]string{}
+	}
+
+	// Merge the new app docs into the org-controller's vcluster/apps
+	// kustomization (read-modify-write so the NP/CNP baseline + any prior
+	// cart apps survive). On uninstall, the rebuilt list reflects ONLY the
+	// surviving app docs (appDocs no longer lists the removed app) plus the
+	// baseline. Empty existing → MergePerOrgAppsKustomization seeds the
+	// baseline + the current docs.
+	kustPath := gitops.PerOrgAppsDir + "/kustomization.yaml"
+	existingKust := ""
+	if content, err := repoClient.ReadFile(ctx, branch, kustPath); err == nil {
+		existingKust = content
+	}
+	if action == "uninstall" {
+		// Rebuild from the baseline + the SURVIVING app docs only, so the
+		// removed app is dropped from resources (a plain merge would preserve
+		// it because it's still listed in the existing kustomization).
+		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization("", appDocs)
+	} else {
+		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, appDocs)
+	}
+
+	// Prune scope: ONLY the funnel-owned app docs (so uninstalled apps are
+	// removed), never the whole vcluster/apps tree — pruning the org-controller
+	// baseline (networkpolicy.yaml / ciliumnetworkpolicy.yaml) would tear down
+	// intra-Org isolation. CommitFilesWithPrune deletes blobs under a prune
+	// prefix that are NOT in the committed file set; we re-commit every funnel
+	// app doc each render, so a removed app's stale file is the only thing
+	// pruned. Scope the prefix to app-/db- files under the apps dir.
+	prunePrefixes := []string{
+		gitops.PerOrgAppsDir + "/app-",
+		gitops.PerOrgAppsDir + "/db-",
+	}
+
+	commitMsg := fmt.Sprintf("day-2: %s %s on Org %s (apps: %d) → vcluster/apps",
+		action, data.AppSlug, slug, len(appSlugs))
+	if err := repoClient.CommitFilesWithPrune(ctx, branch, commitMsg, appFiles, prunePrefixes); err != nil {
+		return fmt.Errorf("commit to per-Org repo %s/%s: %w", slug, h.perOrgRepoName(), err)
+	}
+	slog.Info("day-2 (per-Org): committed app manifests to per-Org repo",
+		"tenant", slug, "action", action, "apps", len(appSlugs),
+		"repo", slug+"/"+h.perOrgRepoName(), "branch", branch, "files", len(appFiles))
+	return nil
+}
+
+// readDBPasswordFromTree reads db-postgres.yaml / db-mysql.yaml from the given
+// dir in the given repo client + branch and extracts the DB password, "" if
+// neither exists (first install) or it can't be parsed.
+func readDBPasswordFromTree(ctx context.Context, client *ghclient.Client, branch, dir string) string {
+	for _, name := range []string{"db-postgres.yaml", "db-mysql.yaml"} {
+		content, err := client.ReadFile(ctx, branch, dir+"/"+name)
+		if err != nil {
+			continue
+		}
+		if pw := gitops.ExtractDBPassword(content); pw != "" {
+			return pw
+		}
+	}
+	return ""
 }
 
 // readExistingDBPassword tries db-postgres.yaml then db-mysql.yaml from the
