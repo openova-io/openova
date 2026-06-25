@@ -199,8 +199,12 @@ func TestCreateOrganization_HappyPathFreeSubdomain(t *testing.T) {
 	if reg.TenantKind != store.TenantKindOrg {
 		t.Errorf("registry kind: %s", reg.TenantKind)
 	}
-	if reg.OrganizationNamespace == "" || !strings.HasPrefix(reg.OrganizationNamespace, "org-") {
-		t.Errorf("registry namespace: %s", reg.OrganizationNamespace)
+	// #4290 — the per-Organization host namespace is the org-controller-owned
+	// `<slug>` (the single boundary), NOT a stray `org-<uuid>`. The registry
+	// row must reference that `<slug>` namespace so day-2 surfaces resolve to
+	// the boundary the org-controller actually builds.
+	if reg.OrganizationNamespace != "acme" {
+		t.Errorf("registry namespace: want <slug> \"acme\" got %q", reg.OrganizationNamespace)
 	}
 }
 

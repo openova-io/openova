@@ -257,7 +257,15 @@ func (g *ManifestGenerator) GenerateAllWithPassword(slug, planSlug string, appSl
 // 2Gi PVC) — every call site that doesn't ship customer values keeps
 // working unchanged.
 func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, appSlugs []string, dbPassword string, appConfigs map[string]map[string]any) map[string]string {
-	hostNS := "tenant-" + slug
+	// Workstream A (#4290 / EPIC #4293) — the per-Organization host namespace
+	// + vCluster are produced by the org-controller (the SINGLE boundary
+	// producer; core/controllers/organization/internal/gitops/manifests.go),
+	// named `<slug>`. The funnel no longer builds a SECOND `tenant-<slug>`
+	// boundary — it only renders the customer's app-install tree (apps/) and
+	// the Flux apps-sync Kustomization that reconciles that tree INTO the
+	// org-controller-owned `<slug>` vCluster. So hostNS is now `<slug>`, the
+	// same namespace the org-controller's `vcluster` HelmRelease lives in.
+	hostNS := slug
 	appNS := "apps"
 
 	// --- databases required by selected apps ---
@@ -281,9 +289,13 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	}
 
 	// --- host-scoped files ---
+	// Workstream A (#4290 / EPIC #4293): NO namespace.yaml + NO vcluster.yaml.
+	// The org-controller is the SINGLE producer of the `<slug>` namespace +
+	// the `vcluster` HelmRelease (from the Organization CR). The funnel emits
+	// ONLY: the apps-sync Flux Kustomization (reconciles apps/ into that
+	// vCluster), the provisioning ServiceAccount RBAC the sync needs, and the
+	// host ingress for the synced services — all targeting `<slug>`.
 	hostFiles := map[string]string{
-		"namespace.yaml":         generateHostNamespace(hostNS, slug),
-		"vcluster.yaml":          generateVCluster(hostNS, slug, planSlug, g.registryMirror()),
 		"ingress.yaml":           generateHostIngress(hostNS, slug, appSlugs),
 		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath),
 		"provisioning-rbac.yaml": generateProvisioningTenantRBAC(hostNS),
@@ -373,94 +385,14 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 }
 
 // --- host-scoped manifests ---
-
-func generateHostNamespace(ns, slug string) string {
-	return fmt.Sprintf(`apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  labels:
-    openova.io/tenant: "%s"
-    openova.io/managed-by: provisioning
-`, ns, slug)
-}
-
-func generateVCluster(ns, slug, planSlug, registryMirror string) string {
-	limits := planLimits(planSlug)
-	return fmt.Sprintf(`apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: vcluster
-  namespace: %s
-spec:
-  interval: 10m
-  chart:
-    spec:
-      chart: vcluster
-      version: "0.33.*"
-      sourceRef:
-        kind: HelmRepository
-        name: loft
-        namespace: vcluster-system
-  values:
-    controlPlane:
-      distro:
-        k8s:
-          enabled: true
-          # MIRROR-EVERYTHING (#3760): the k8s-distro image is
-          # initContainers[0] of the vcluster StatefulSet (vcluster 0.33.x
-          # renders ghcr.io/loft-sh/kubernetes:vX). The harbor-proxy-pull
-          # Kyverno ClusterPolicy (Enforce) DENIES it off ghcr.io — pull
-          # through the Sovereign Harbor proxy-cache so it matches the
-          # */proxy-*/* glob, lockstep with bp-dmz/mgmt/rtz-vcluster.
-          image:
-            registry: %s
-            repository: proxy-ghcr/loft-sh/kubernetes
-      backingStore:
-        database:
-          embedded:
-            enabled: true
-      statefulSet:
-        # MIRROR-EVERYTHING (#3760): the syncer image is initContainers[1]
-        # (+ the main container). Pull it through the Sovereign Harbor
-        # proxy-cache too — ghcr.io is denied by harbor-proxy-pull.
-        image:
-          registry: %s
-          repository: proxy-ghcr/loft-sh/vcluster-oss
-        resources:
-          requests:
-            cpu: 100m
-            memory: 192Mi
-          limits:
-            cpu: %s
-            memory: %s
-        persistence:
-          volumeClaim:
-            size: 5Gi
-      service:
-        enabled: true
-        spec:
-          type: ClusterIP
-    exportKubeConfig:
-      context: vcluster
-      server: https://vcluster.%s:443
-      insecure: false
-      additionalSecrets:
-        - name: vc-vcluster
-          server: https://vcluster.%s:443
-          insecure: false
-          context: vcluster
-    sync:
-      toHost:
-        services:
-          enabled: true
-        ingresses:
-          enabled: false
-      fromHost:
-        ingressClasses:
-          enabled: true
-`, ns, registryMirror, registryMirror, limits.CPULimit, limits.MemoryLimit, ns, ns)
-}
+//
+// Workstream A (#4290 / EPIC #4293) retired the funnel's boundary builders
+// generateHostNamespace + generateVCluster. The org-controller
+// (core/controllers/organization/internal/gitops/manifests.go) is the SINGLE
+// producer of the `<slug>` namespace + `vcluster` HelmRelease, materialized
+// from the Organization CR. The funnel renders only the apps-sync
+// Kustomization, the provisioning RBAC, and the host ingress — all into the
+// org-controller-owned `<slug>` namespace.
 
 // generateAppsSyncKustomization emits the per-tenant Flux Kustomization CR
 // that reconciles the tenant's apps/ tree into the vCluster.
@@ -1443,29 +1375,12 @@ func sortStrings(ss []string) []string {
 	return out
 }
 
-// --- plan resource limits (apply to vCluster control plane + tenant apps) ---
-
-type planLimit struct {
-	CPU         string
-	Memory      string
-	CPULimit    string
-	MemoryLimit string
-}
-
-func planLimits(slug string) planLimit {
-	switch slug {
-	case "s":
-		return planLimit{CPU: "500m", Memory: "512Mi", CPULimit: "1000m", MemoryLimit: "1Gi"}
-	case "m":
-		return planLimit{CPU: "1000m", Memory: "1Gi", CPULimit: "2000m", MemoryLimit: "2Gi"}
-	case "l":
-		return planLimit{CPU: "2000m", Memory: "2Gi", CPULimit: "4000m", MemoryLimit: "4Gi"}
-	case "xl":
-		return planLimit{CPU: "4000m", Memory: "4Gi", CPULimit: "8000m", MemoryLimit: "8Gi"}
-	default:
-		return planLimit{CPU: "500m", Memory: "512Mi", CPULimit: "1000m", MemoryLimit: "1Gi"}
-	}
-}
+// NOTE — the per-plan resource limits (planLimits/planLimit) were retired with
+// the funnel's boundary builders in Workstream A (#4290). They only ever sized
+// the funnel's own vCluster syncer Pod, which the org-controller now owns.
+// Workstream B (#4293) introduces a catalog-slug-keyed planQuota that renders a
+// ResourceQuota + LimitRange on the org-controller's `<slug>` host namespace —
+// the proper cap that materializes the plan the customer paid for.
 
 // parentKustomizationHeader is the canonical comment + kind preamble the
 // org-tenants parent kustomization.yaml carries. It mirrors the bytes the

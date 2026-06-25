@@ -640,7 +640,19 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		CompanyName:     strings.TrimSpace(body.CompanyName),
 		OTECHFQDN:       otech,
 		VClusterName:    "vc-" + subdomain,
-		TenantNamespace: "org-" + orgTenantID,
+		// Workstream A (#4290 / EPIC #4293) — the per-Organization host
+		// namespace is the org-controller-owned `<slug>`, NOT a stray
+		// `org-<uuid>`. The org-controller (core/controllers/organization/
+		// internal/gitops/manifests.go) is the SINGLE boundary producer: it
+		// renders `<slug>` namespace + the `vcluster` HelmRelease from the
+		// Organization CR. This BSS door MINTS the CR (createOrgOrganizationCR)
+		// and co-renders its bp-* charts INTO that same `<slug>` namespace, so
+		// no second boundary is built. The prior `org-<uuid>` value produced a
+		// duplicate, never-referenced namespace (the #4179 stray) that diverged
+		// from the org-controller's DNS/TLS/registry. The Org CR slug == the
+		// subdomain (orgSlugRE), and the org-controller stamps `<slug>` as the
+		// namespace name, so the two paths now resolve to ONE namespace.
+		TenantNamespace: subdomain,
 		// Organizations model (issue #3378 B1) — stamp the resolved
 		// kind/tier/billingMode/isolation so the directory badges the
 		// org correctly and the controller can later read the spec

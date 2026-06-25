@@ -717,7 +717,12 @@ func (h *Handler) k8sRequest(method, path string, body []byte) ([]byte, error) {
 // password rotation or kubeconfig CA rotation). Call this after the vcluster
 // HelmRelease reaches Ready so the source secret definitely exists.
 func (h *Handler) mirrorVClusterKubeconfig(ctx context.Context, tenantSlug string) error {
-	srcNS := "tenant-" + tenantSlug
+	// #4290: the vCluster kubeconfig secret `vc-vcluster` is exported by the
+	// org-controller's `vcluster` HelmRelease into the `<slug>` namespace (the
+	// single boundary), not a `tenant-<slug>` stray. Mirror it from there into
+	// flux-system as `tenant-<slug>-kubeconfig`, the name the apps-sync
+	// Kustomization (generateAppsSyncKustomization) references.
+	srcNS := tenantSlug
 	srcName := "vc-vcluster"
 	dstNS := "flux-system"
 	dstName := "tenant-" + tenantSlug + "-kubeconfig"
