@@ -1124,7 +1124,7 @@ spec:
       #   de-vcluster re-homed bp-valkey to host ns `valkey` — auth CrashLooped on
       #   `no such host`, keeping the funnel door's auth path DOWN. Chart.yaml bumped
       #   in lockstep. Refs #4368 #4373 #4325 #4347.
-      version: 1.4.855
+      version: 1.4.856
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
