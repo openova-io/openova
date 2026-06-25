@@ -33,9 +33,38 @@ nats:
         pvc:
           size: 10Gi
   container:
-    resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits: { memory: 1Gi }
+    # #4343 — the vendored nats 1.2.0 chart renders each container via the
+    # file-based `loadMergePatch` helper, which consumes ONLY `.merge` (and
+    # `.patch`) — NOT the top-level container dict. A bare `container.resources`
+    # is therefore SILENTLY DROPPED and the nats server container rendered with
+    # NO resources.requests. Pre-#4325 this chart ran INSIDE a vCluster where
+    # the host's Kyverno `resource-requests` Enforce ClusterPolicy didn't reach
+    # it, masking the gap; after the de-vcluster migration it installs into the
+    # native host namespace and the StatefulSet admission is DENIED. Resources
+    # MUST live under `container.merge.resources` to actually reach the pod.
+    merge:
+      resources:
+        requests: { cpu: 100m, memory: 256Mi }
+        limits: { memory: 1Gi }
+  # #4343 — the config-reloader sidecar (upstream default `reloader.enabled:
+  # true`) shares the StatefulSet pod and its base container template ships NO
+  # resources. Set them via the same `merge` knob so the sidecar carries
+  # requests.
+  reloader:
+    merge:
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits: { memory: 64Mi }
+  # #4343 — the nats-box utility Deployment (upstream default `natsBox.enabled:
+  # true`) is a separate workload whose base container template ships NO
+  # resources. Set them via `natsBox.container.merge` so its single container
+  # carries requests.
+  natsBox:
+    container:
+      merge:
+        resources:
+          requests: { cpu: 10m, memory: 32Mi }
+          limits: { memory: 64Mi }
   # Prometheus exporter + PodMonitor — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
@@ -134,6 +163,19 @@ catalystStreams:
 # release namespace (nats-system). Watch namespace empty = cluster-wide.
 nack:
   enabled: true
+  # #4343 — the nack 0.29.0 jetstream-controller container reads its resources
+  # from the TOP-LEVEL `resources` key (`{{- with .Values.resources }}` in
+  # deployment-jetstream-controller.yml), NOT `jetstream.resources` — the
+  # latter is inert in this chart version. Setting it here is what actually
+  # gives the `jsc` container requests, so it clears the host-ns Kyverno
+  # `resource-requests` Enforce policy (post-#4325). Modest controller request.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
   jetstream:
     # Point at the broker subchart's Service. Same-namespace, no auth
     # required (NATS auth is operator-config'd separately if at all).
@@ -142,13 +184,6 @@ nack:
     # Modest defaults at solo-Sovereign scale. Bump replicas via overlay
     # when HA is sized.
     replicas: 1
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
   # No webhook or PodMonitor for the controller in our solo profile.
   podMonitor:
     enabled: false

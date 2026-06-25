@@ -210,7 +210,9 @@ spec:
       # TRUE shared-pg mode. Non-host-bridged render byte-identical.
       # 1.2.37 — #4212 Seam 3: placementSchema aligned with spec.topology
       #   (modes[] admit active-hot-standby + defaultOnMultiRegion). Chart bumped in lockstep.
-      version: 1.2.37
+      # 1.2.38 — #4343: nginx.resources.requests so harbor-nginx clears the
+      #   host-ns Kyverno resource-requests Enforce policy (post-#4325).
+      version: 1.2.38
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

@@ -50,6 +50,21 @@ openbao:
   injector:
     metrics:
       enabled: false
+    # #4343 — the agent-injector Deployment MUST declare resources.requests.
+    # The upstream subchart defaults `injector.resources: {}` (empty), so the
+    # injector container renders with NO requests. Pre-#4325 this chart ran
+    # INSIDE a vCluster where the host's Kyverno `resource-requests` Enforce
+    # ClusterPolicy didn't reach it; after the de-vcluster migration it
+    # installs into the native host namespace and the first
+    # `Deployment/openbao-agent-injector` admission is DENIED
+    # (`requests-workload: Every container must declare resources.requests.cpu
+    # and resources.requests.memory`), timing out the Helm install →
+    # bp-openbao InstallFailed → wedges bp-external-secrets-stores →
+    # bp-sso-bridge. Modest sidecar request (the injector is a lightweight
+    # mutating-webhook controller).
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 128Mi }
     # #3375 — proxy-glob the agent-injector images through the Sovereign's
     # local Harbor so the kyverno `harbor-proxy-pull` Enforce policy admits
     # them. The upstream subchart defaults the injector to

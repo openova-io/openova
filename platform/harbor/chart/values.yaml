@@ -231,6 +231,22 @@ harbor:
     image:
       repository: harbor.openova.io/proxy-dockerhub/goharbor/nginx-photon
       tag: "v2.14.3"
+    # #4343 — the harbor-nginx Deployment MUST declare resources.requests. The
+    # upstream goharbor subchart only renders `resources:` when
+    # `.Values.nginx.resources` is set; left unset, harbor-nginx ships with NO
+    # requests. Pre-#4325 this chart ran INSIDE a vCluster where the host's
+    # Kyverno `resource-requests` Enforce ClusterPolicy didn't reach it; after
+    # the de-vcluster migration it installs into the native host namespace and
+    # the `Deployment/harbor-nginx` admission is DENIED, timing out the Helm
+    # install → bp-harbor InstallFailed. Mirror the portal/core sibling
+    # requests — modest for the reverse-proxy front door.
+    resources:
+      requests:
+        memory: 64Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 500m
 
   # ─── Component replica counts ──────────────────────────────────────────
   portal:

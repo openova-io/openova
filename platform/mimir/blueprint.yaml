@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.0.5
+  version: 1.0.6  # lockstep with chart/Chart.yaml (#4343 gateway + MinIO cpu requests for host-ns Kyverno resource-requests Enforce)
   card:
     title: Mimir
     family: insights

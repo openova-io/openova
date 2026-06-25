@@ -54,6 +54,20 @@ mimir-distributed:
   gateway:
     enabled: true
     replicas: 1
+    # #4343 — the gateway/nginx Deployment MUST declare resources.requests.
+    # Upstream defaults `gateway.resources: {}` → the container renders with
+    # NO requests. Pre-#4325 this chart ran INSIDE a vCluster where the host's
+    # Kyverno `resource-requests` Enforce ClusterPolicy didn't reach it; after
+    # the de-vcluster migration it installs into the native host namespace and
+    # the `Deployment/mimir-gateway` admission is DENIED. Modest reverse-proxy
+    # request.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 500m
+        memory: 128Mi
 
   # Bundled MinIO — DEFAULT ON only as a stop-gap so the chart renders;
   # Catalyst routes object storage through SeaweedFS. Per-Sovereign
@@ -63,6 +77,36 @@ mimir-distributed:
   # production data.
   minio:
     enabled: true
+    # #4343 — the bundled MinIO subchart's defaults declare ONLY a memory
+    # request (server 16Gi, post-bucket Job 128Mi) with NO cpu. The cluster-
+    # wide Kyverno `resource-requests` Enforce policy requires BOTH cpu AND
+    # memory, so on a host-ns install (post-#4325) the MinIO StatefulSet and
+    # the create-bucket Job are DENIED. Add the missing cpu request and pull
+    # the oversized 16Gi memory default down to a sane stop-gap value (this
+    # MinIO is single-replica + ephemeral; production overlays disable it).
+    resources:
+      requests:
+        cpu: 50m
+        memory: 512Mi
+    # The MinIO post-install hook Job renders one container per configured
+    # bucket/user/policy list; the default `users:` list (the `console`
+    # account) makes `makeUserJob` render too. Both Job containers default to
+    # a memory-only request → add cpu so they clear the Kyverno policy.
+    makeBucketJob:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
+    makeUserJob:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
+    makePolicyJob:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
 
   # Kafka (ingest-storage architecture) — DISABLED. The classic blocks-
   # storage architecture is the Catalyst default; Kafka ingest-storage is
@@ -105,8 +149,16 @@ mimir-distributed:
         enabled: false
 
   # Smoke + continuous-test pods — disabled in production.
+  # #4343 — the smoke-test renders as a `helm.sh/hook: test` Job (only created
+  # by `helm test`, not on install), but its container defaults to empty
+  # resources. Give it requests so that if an operator ever runs the test hook
+  # on a host-ns install it still clears the Kyverno `resource-requests` policy.
   smoke_test:
     enabled: false
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
   continuous_test:
     enabled: false
 

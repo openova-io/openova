@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.37
+  version: 1.2.38  # lockstep with chart/Chart.yaml (#4343 nginx.resources.requests for host-ns Kyverno resource-requests Enforce)
   card:
     title: Harbor
     family: foundation
