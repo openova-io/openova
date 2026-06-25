@@ -298,7 +298,7 @@ spec:
       # 1.4.130 — #4347: channel-seed hook Job curl image harbor-proxied so it
       #   clears the host-ns Kyverno harbor-proxy-pull Enforce policy on every
       #   reconcile (post-#4325). Refs #4347 #4325.
-      version: 1.4.130
+      version: 1.4.131
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
