@@ -277,6 +277,21 @@ compliancePolicies:
       # exact mixed-source shape the stale `sme` exempt (line 89) was added
       # for on hw130. org-services stays subject to every OTHER policy.
       - org-services
+      # crossplane-system (#4349, 2026-06-25, kom4dc dep 4635277cae4ffed9): the
+      # bp-crossplane Deployment + crossplane-rbac-manager pull the upstream
+      # control-plane image `xpkg.upbound.io/crossplane/crossplane:v1.18.0`
+      # (Upbound's registry — Crossplane core is NOT mirrored into Harbor and
+      # the chart's `global.imageRegistry` Harbor-rewrite is unset on a fresh
+      # prov, #560). Neither `*/proxy-*/*` nor `*/openova-io/*` matches, so
+      # harbor-proxy-pull (Enforce) denied the crossplane pod create
+      # (ReplicaSet FailedCreate) → the bp-crossplane HR sat in a 15m-timeout
+      # rollback loop → bp-crossplane-claims (dependsOn bp-crossplane) →
+      # bp-catalyst-platform (dependsOn bp-crossplane-claims) never converged →
+      # the org-controller roll was gated. crossplane-system is platform
+      # plumbing (every comparable plumbing ns — cilium/cert-manager/kyverno —
+      # is already exempt via complianceDefaultExcludes); exempt it here for
+      # the image-source glob only. It stays subject to every OTHER policy.
+      - crossplane-system
 
   imageTagPinned:
     enabled: true

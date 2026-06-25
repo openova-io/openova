@@ -281,7 +281,16 @@ type: application
 # unprotected user PVCs stay subject to the velero-backed requirement. Mirrors
 # the by-label CNPG carve-out on the flux-managed policy (#3374). Template-only
 # behavior change + new test fixtures. Refs #3971.
-version: 1.0.41
+# 1.0.42 (#4349, kom4dc dep 4635277cae4ffed9, 2026-06-25): EXEMPT crossplane-system
+# from harbor-proxy-pull. bp-crossplane's control-plane pod pulls upstream
+# xpkg.upbound.io/crossplane/crossplane:v1.18.0 (not Harbor-mirrored; chart
+# imageRegistry-rewrite unset on a fresh prov), which matches neither
+# */proxy-*/* nor */openova-io/*, so the Enforce policy denied the pod create →
+# bp-crossplane rollback-loop → bp-crossplane-claims → bp-catalyst-platform
+# never converged → org-controller roll gated. Added crossplane-system to the
+# policy-scoped harborProxyPull.extraExcludeNamespaces (same shape as
+# powerdns/trivy-system/org-services). Values-only change. Refs #4349 #4212.
+version: 1.0.42
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
