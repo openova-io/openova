@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T16:30:02Z` |
+| Last refreshed | `2026-06-25T16:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 34 |
+| Open issues | 20 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 34 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 20 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 34 open items (clickable table)
+### All 20 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -212,8 +212,6 @@ flowchart LR
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4278](https://github.com/openova-io/openova/issues/4278) | per-Org bp-newapi admin-promote hook loops forever — missing ServiceAccount 'b | Other |
 | [#4282](https://github.com/openova-io/openova/issues/4282) | bp-postgres multi-region (active-hot-standby) provision FAILS + per-Org PostgreS | Other |
-| [#4283](https://github.com/openova-io/openova/issues/4283) | Per-Application GitRepository clones Gitea anonymously → 'authentication requi | Other |
-| [#4286](https://github.com/openova-io/openova/issues/4286) | EPIC: Flux→Sovereign-local-Gitea source-auth is GENERIC across 4 generators wi | Other |
 | [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
 | [#4291](https://github.com/openova-io/openova/issues/4291) | Workstream C — De-vcluster the platform planes (mgmt/rtz/dmz) → native host  | Other |
 | [#4292](https://github.com/openova-io/openova/issues/4292) | Workstream B — Org-vcluster as enforced tenant boundary: ENABLE networkPolicy- | Other |
@@ -221,19 +219,7 @@ flowchart LR
 | [#4297](https://github.com/openova-io/openova/issues/4297) | Keystone: Org apps land on the HOST, not inside the Org vcluster — every tenan | Other |
 | [#4307](https://github.com/openova-io/openova/issues/4307) | bp-stalwart-tenant webmail 404 at mail.<pool> despite pod 1/1 Running + HR insta | Other |
 | [#4322](https://github.com/openova-io/openova/issues/4322) | bp-wordpress-tenant: fresh-Org HR Ready=False — oidc-config hook pg4wp fetch 4 | Other |
-| [#4328](https://github.com/openova-io/openova/issues/4328) | ghcr-pull reflector miss on slug-named per-Org namespaces (post-#4293 namespace  | Other |
-| [#4329](https://github.com/openova-io/openova/issues/4329) | P0: per-Org vCluster CrashLoops — flux-managed Kyverno denies CIDR-probe Servi | Other |
-| [#4337](https://github.com/openova-io/openova/issues/4337) | P0: per-Org bp-cnpg operator retains cluster-scoped webhookconfigurations RBAC � | Other |
-| [#4339](https://github.com/openova-io/openova/issues/4339) | P0: org-controller vclusterReadiness apps-install gate is tier-unaware — host- | Other |
-| [#4341](https://github.com/openova-io/openova/issues/4341) | fix(bootstrap-kit): empty `dependsOn: null` in 5 slots wedges the WHOLE bootstra | Other |
-| [#4343](https://github.com/openova-io/openova/issues/4343) | fix(bootstrap-kit #4325 fallout): host-ns components missing resources.requests  | Other |
-| [#4344](https://github.com/openova-io/openova/issues/4344) | fix(bp-keycloak #4325 fallout): host-ns reinstall regenerates admin-password but | Other |
-| [#4347](https://github.com/openova-io/openova/issues/4347) | fix(bp-gitea): gitea-sso-configure Deployment lacks liveness/readiness probes � | Other |
-| [#4349](https://github.com/openova-io/openova/issues/4349) | bp-crossplane rollback-loop on kom4dc: harbor-proxy-pull Kyverno policy (Enforce | Other |
-| [#4350](https://github.com/openova-io/openova/issues/4350) | kom4dc EVS-CSI PVC-Pending: Huawei EVS volume-COUNT quota EXHAUSTED (400 hard li | Other |
-| [#4353](https://github.com/openova-io/openova/issues/4353) | P0: omantel.biz gitea git-data LOST on #4325 de-vcluster re-home — empty PVC + | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
-| [#4355](https://github.com/openova-io/openova/issues/4355) | fix(bp-catalyst-platform): gitea repo-bootstrap hooks must be resilient to DB-sa | Other |
 
 ---
 
