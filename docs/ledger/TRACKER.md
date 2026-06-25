@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-25T06:45:02Z` |
+| Last refreshed | `2026-06-25T07:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 22 |
+| Open issues | 21 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 22 open items (clickable table)
+### All 21 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -212,7 +212,6 @@ flowchart LR
 | [#4276](https://github.com/openova-io/openova/issues/4276) | PILLAR-4 ACCEPTANCE: agentic MCP create-app walk — agenity chat spawns claude- | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4278](https://github.com/openova-io/openova/issues/4278) | per-Org bp-newapi admin-promote hook loops forever — missing ServiceAccount 'b | Other |
-| [#4279](https://github.com/openova-io/openova/issues/4279) | GAP ANALYSIS 2026-06-24 — prioritized implementation backlog + UAT.md reconcil | Other |
 | [#4282](https://github.com/openova-io/openova/issues/4282) | bp-postgres multi-region (active-hot-standby) provision FAILS + per-Org PostgreS | Other |
 | [#4283](https://github.com/openova-io/openova/issues/4283) | Per-Application GitRepository clones Gitea anonymously → 'authentication requi | Other |
 | [#4286](https://github.com/openova-io/openova/issues/4286) | EPIC: Flux→Sovereign-local-Gitea source-auth is GENERIC across 4 generators wi | Other |
@@ -229,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-25T06:53 | [#4318](https://github.com/openova-io/openova/pull/4318) | #4279 | docs(uat): reconcile UAT.md to live omantel.biz — headline + |
 | 2026-06-25T04:10 | [#4309](https://github.com/openova-io/openova/pull/4309) | #4273 | fix(marketplace): gate console redirect on per-Org host read |
 | 2026-06-25T04:10 | [#4308](https://github.com/openova-io/openova/pull/4308) | #4307 | fix(bp-stalwart-tenant): webmail 404 (wrong gateway) + HR in |
 | 2026-06-25T04:10 | [#4306](https://github.com/openova-io/openova/pull/4306) | #3914 | fix(bootstrap-ui): light up the Phase-1 bootstrap-kit timeli |
@@ -258,7 +258,6 @@ flowchart LR
 | 2026-06-24T07:29 | [#4256](https://github.com/openova-io/openova/pull/4256) | #4179 | fix(pool-domain): default managed-domains to the full offere |
 | 2026-06-24T06:41 | [#4254](https://github.com/openova-io/openova/pull/4254) | #4242 | fix(continuum): k8s-lease witness + region fallback → health |
 | 2026-06-24T05:36 | [#4252](https://github.com/openova-io/openova/pull/4252) | #4250 | fix(org-provisioning): transient parent-index read no longer |
-| 2026-06-24T04:57 | [#4251](https://github.com/openova-io/openova/pull/4251) | #1 | fix(catalyst-api): register funnel-Org console hosts from th |
 
 ---
 
