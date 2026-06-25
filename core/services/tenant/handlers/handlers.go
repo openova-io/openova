@@ -300,6 +300,26 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// #4360 funnel cart-placement (Refs #4272 #4307 #4322 #4179): the
+	// marketplace funnel persists the selected cart `Apps` on the Tenant +
+	// emits `tenant.created` (which mints ONLY the Organization CR — the
+	// org-controller renders the boundary ns + vCluster + network policies,
+	// but NO cart Applications). Without an explicit install dispatch the
+	// customer's purchased apps NEVER land in the per-Org gitops tree (the
+	// `vcluster/apps/` tree carried only networkpolicy.yaml) — the exact
+	// BSS-vs-funnel divergence #4179 catalogs, this time for cart placement
+	// (the BSS door's Step-6 renders the cart; the funnel door skipped it).
+	//
+	// Mirror the day-2 InstallApp path: for each deployable cart app, fire
+	// `tenant.app_install_requested` + the HTTP `/provisioning/apps/install`
+	// so the provisioning service renders the Applications into the per-Org
+	// gitops tree (same applyTenantChange → GenerateAllWithPassword path Flux
+	// reconciles once the org-controller boundary is up). Best-effort: a
+	// dispatch failure logs loud but does NOT fail Org creation (the shell is
+	// already minted; the day-2 page can re-install). `sandbox` is excluded
+	// here — it has its own `tenant.sandbox_requested` path below.
+	h.dispatchFunnelCartInstall(r.Context(), tenant)
+
 	// Wave 4 — Sandbox: when the cart contains the sandbox product,
 	// emit a sibling `tenant.sandbox_requested` event so the
 	// sandbox-controller (or its upstream orchestrator) can mint a
@@ -347,6 +367,115 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		Tenant:      tenant,
 		ConsoleHost: deriveTenantConsoleHost(tenant),
 	})
+}
+
+// dispatchFunnelCartInstall renders the customer's selected cart apps into the
+// per-Org gitops tree at signup time (#4360, Refs #4272 #4307 #4322 #4179).
+//
+// The marketplace funnel (CreateOrg) persists the chosen `Apps` on the Tenant
+// and emits `tenant.created`, which mints ONLY the Organization CR — the
+// org-controller then renders the boundary namespace + vCluster + network
+// policies, but NOT the cart Applications. This helper closes that gap by
+// dispatching the SAME day-2 install path InstallApp uses for each deployable
+// cart app, so the provisioning service commits the Applications into the
+// per-Org `vcluster/apps/` tree (the applyTenantChange → GenerateAllWithPassword
+// path Flux reconciles into the Org boundary once it is up). It is the funnel
+// analogue of the BSS door's Step-6 cart placement.
+//
+// Best-effort + non-fatal: a catalog miss, a non-deployable slug, or a publish
+// failure is logged loud but never fails Org creation (the shell is already
+// minted; the day-2 page can re-install). `sandbox` is excluded — it has its
+// own `tenant.sandbox_requested` dispatch. When the Catalog client is unwired
+// (capacity was validated at checkout, the consumer resolves slugs itself) the
+// helper still dispatches the raw cart slugs so provisioning can render them.
+func (h *Handler) dispatchFunnelCartInstall(ctx context.Context, t *store.Tenant) {
+	if t == nil || len(t.Apps) == 0 {
+		return
+	}
+
+	// Resolve the catalog so we can (a) filter to deployable apps and (b) map
+	// slug↔ID. When the Catalog is unwired we cannot filter, so we fall back to
+	// dispatching the raw cart entries (minus sandbox) and let the provisioning
+	// consumer resolve + skip non-deployable slugs.
+	var bySlug map[string]*catalog.App
+	var byID map[string]*catalog.App
+	if h.Catalog != nil {
+		if apps, err := h.Catalog.ListApps(ctx); err == nil {
+			bySlug = make(map[string]*catalog.App, len(apps))
+			byID = make(map[string]*catalog.App, len(apps))
+			for i := range apps {
+				bySlug[apps[i].Slug] = &apps[i]
+				byID[apps[i].ID] = &apps[i]
+			}
+		} else {
+			slog.Warn("funnel cart-install: catalog list failed — dispatching raw cart slugs",
+				"tenant_id", t.ID, "slug", t.Subdomain, "error", err)
+		}
+	}
+
+	for _, entry := range t.Apps {
+		// Cart entries may be catalog IDs or slugs depending on the marketplace
+		// build. Normalize to (slug, id) via whichever index hits.
+		slug, id := entry, ""
+		if byID != nil {
+			if a, ok := byID[entry]; ok {
+				slug, id = a.Slug, a.ID
+			} else if a, ok := bySlug[entry]; ok {
+				slug, id = a.Slug, a.ID
+			}
+		}
+		// Sandbox has its own dispatch (tenant.sandbox_requested) — never push it
+		// through the app-install path (it has no provisioning Deployment template).
+		if slug == "sandbox" {
+			continue
+		}
+		// Filter to deployable apps when the catalog is available. A catalog entry
+		// that is listed-but-not-deployable (e.g. openclaw/stalwart-mail, which
+		// need HelmRelease overlays the one-Deployment generator can't emit) is
+		// skipped with a loud log rather than dispatched to fail downstream.
+		if bySlug != nil {
+			a, ok := bySlug[slug]
+			if !ok {
+				slog.Warn("funnel cart-install: cart app not in catalog — skipping",
+					"tenant_id", t.ID, "slug", t.Subdomain, "app", slug)
+				continue
+			}
+			if !a.Deployable {
+				slog.Warn("funnel cart-install: cart app not deployable yet — skipping (day-2 page can retry once the template ships)",
+					"tenant_id", t.ID, "slug", t.Subdomain, "app", slug)
+				continue
+			}
+		}
+
+		// Mirror InstallApp's dispatch shape exactly so the provisioning service
+		// dedups + renders identically across the funnel and day-2 doors.
+		idempotencyKey := t.ID + ":cart:" + slug
+		payload := map[string]any{
+			"tenant_id":       t.ID,
+			"tenant_slug":     t.Subdomain,
+			"plan_id":         t.PlanID,
+			"app_slug":        slug,
+			"app_id":          id,
+			"idempotency_key": idempotencyKey,
+			"deploy_ids":      []string{},
+			"deploy_slugs":    []string{slug},
+			"apps":            t.Apps,
+		}
+		if err := h.callProvisioning(ctx, "/provisioning/apps/install", payload); err != nil {
+			slog.Error("funnel cart-install: provisioning HTTP call failed (event fallback still fires)",
+				"tenant_id", t.ID, "slug", t.Subdomain, "app", slug, "error", err)
+		}
+		if evt, err := events.NewEvent("tenant.app_install_requested", "tenant-service", t.ID, payload); err == nil {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
+				slog.Debug("funnel cart-install: event publish (best-effort)",
+					"tenant_id", t.ID, "app", slug, "error", pubErr)
+			}
+			cancel()
+		}
+		slog.Info("funnel cart-install: dispatched cart app",
+			"tenant_id", t.ID, "slug", t.Subdomain, "app", slug)
+	}
 }
 
 // deriveTenantConsoleHost composes the per-Org customer console host:
