@@ -974,7 +974,14 @@ func (h *Handler) AdminDeletePromo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminRevenue(w http.ResponseWriter, r *http.Request) {
-	if err := requireAdmin(r); err != nil {
+	// #4274 — widened from superadmin-only to superadmin OR sovereign-admin
+	// so a franchised Sovereign's operator can read the revenue rollup that
+	// backs the console's native /billing/revenue page. This is a read-only
+	// aggregate (no PII, no Stripe keys, no per-customer rows) — the same
+	// policy precedent the voucher list/issue/revoke surface set in #117
+	// (requireVoucherIssuer). Stripe-settings + per-customer mutations stay
+	// superadmin-only.
+	if err := requireVoucherIssuer(r); err != nil {
 		respond.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -996,7 +1003,12 @@ func (h *Handler) AdminRevenue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminOrders(w http.ResponseWriter, r *http.Request) {
-	if err := requireAdmin(r); err != nil {
+	// #4274 — widened from superadmin-only to superadmin OR sovereign-admin
+	// so a franchised Sovereign's operator can read the recent-orders ledger
+	// that backs the console's native /billing/orders page. Read-only
+	// aggregate of orders the operator already provisions; same precedent as
+	// requireVoucherIssuer (#117). Stripe-settings stay superadmin-only.
+	if err := requireVoucherIssuer(r); err != nil {
 		respond.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
