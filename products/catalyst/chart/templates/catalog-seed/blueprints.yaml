@@ -2589,7 +2589,7 @@ metadata:
     # must not claw it back (DoD §9.4).
     helm.sh/resource-policy: keep
 spec:
-  version: "0.2.5"
+  version: "0.2.8"
   visibility: listed
   card:
     title: "OpenClaw"
@@ -2624,7 +2624,7 @@ hook (ADR-0003). Identity-blind by construction.
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openclaw
-    version: "0.2.5"
+    version: "0.2.8"
   topology:
     supported:
       - singleton
@@ -2914,7 +2914,7 @@ metadata:
     # must not claw it back (DoD §9.4).
     helm.sh/resource-policy: keep
 spec:
-  version: "0.1.3"
+  version: "0.1.10"
   visibility: listed
   card:
     title: "Stalwart (per-Organization)"
@@ -2955,7 +2955,7 @@ is event-driven (ADR-0003 §3).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-stalwart-tenant
-    version: "0.1.3"
+    version: "0.1.10"
   topology:
     supported:
     - active-passive

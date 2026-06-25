@@ -710,7 +710,14 @@ controllers:
       # landed because app-wordpress.yaml was dropped from the kustomization
       # resources). The deploy-bot's 88f998913 "bump to 5cbfbd8" missed THIS
       # field. Pin it explicitly so the chart delivers the #4387 guard.
-      tag: "5cbfbd8"
+      # b23af68 (#4393/#4297, 2026-06-26) — vcluster control-plane Guaranteed QoS
+      # so vcluster-0 is admitted by the per-Org LimitRange (#4292). The deploy-bot
+      # bumped this field to b23af68 in 3b9235c1f, then the #2851 controller sweep
+      # (86c5a7cfd) REVERTED it back to 5cbfbd8 ~2min later — the exact deploy-bot
+      # treadmill that left every m-tier funnel Org stuck at 'vcluster-0 forbidden:
+      # ratio 20' (verified live on g10vc). Re-pin to b23af68 (#4393) explicitly;
+      # without it the org-controller never renders the Guaranteed-QoS vcluster.
+      tag: "b23af68"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:

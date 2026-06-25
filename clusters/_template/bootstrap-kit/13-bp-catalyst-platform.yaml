@@ -1128,7 +1128,11 @@ spec:
       #   `keycloak.keycloak.svc.cluster.local` after the #4325 de-vcluster left
       #   the bridge defaults at the dead `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc`
       #   syncer name (NXDOMAIN → /auth/handover 401). Chart.yaml bumped in lockstep.
-      version: 1.4.863
+      # 1.4.864 — #4395: catalog-seed pins QoS-fixed funnel-Org charts (bp-openclaw
+      #   0.2.5 -> 0.2.8, bp-stalwart-tenant 0.1.3 -> 0.1.10) so #4394 reaches a funnel
+      #   Org — the per-Org LimitRange (#4292) rejected the OLD Burstable pins.
+      #   Chart-only. Refs #4395 #4394 #4307 #4292.
+      version: 1.4.864
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
