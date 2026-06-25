@@ -425,7 +425,7 @@ name: bp-keycloak
 # images pass admission. No chart-content change beyond the version line + this
 # changelog — the 1.4.38 templates/values are byte-identical and already
 # proxy-compliant. Refs #3785 (sibling proxy-class defect for the WP image).
-version: 1.5.4
+version: 1.5.5
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

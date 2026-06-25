@@ -152,7 +152,7 @@ type: application
 #   Enforce ClusterPolicy admits it (after #4325 de-vcluster re-homed bp-harbor
 #   into a native host namespace). Adds tests/kyverno-probes-present.sh.
 #   Refs #4347 #4325.
-version: 1.2.39
+version: 1.2.40
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

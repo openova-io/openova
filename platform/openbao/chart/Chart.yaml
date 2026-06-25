@@ -184,7 +184,7 @@ name: bp-openbao
 #   `seaweedfs-s3.seaweedfs.svc` / ns `seaweedfs` (bp-seaweedfs re-homed to host
 #   ns by #4325). snapshot-replication is default-OFF — applies only when an
 #   operator enables it. Test assertions updated in lockstep. Refs #4388 #4325.
-version: 1.2.55
+version: 1.2.56
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

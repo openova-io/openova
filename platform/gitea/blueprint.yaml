@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.45 # lockstep with chart/Chart.yaml (#4388 objectStorage seaweedfs → host-ns, #4325 fallout)
+  version: 1.2.46 # lockstep with chart/Chart.yaml (#4402 spine topology tier:mgmt → '' host-native, #4325 de-vcluster fallout)
   card:
     title: gitea
     summary: Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).
@@ -69,14 +69,21 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          # #4402 (#4325 de-vcluster fallout): the `mgmt` plane vCluster was
+          # removed; the spine lands host-native in its own host namespace.
+          # The #4334 spine producer drives this Blueprint through the
+          # application-controller fan-out, which resolved `tier: mgmt` → host
+          # ns `mgmt` (now absent) → `namespaces "mgmt" not found` and never
+          # reached the Continuum producer. Host placement = empty tier; keep
+          # the mgmt-A/-B region designators. Mirrors #4375/#4379.
+          tier: ''
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
