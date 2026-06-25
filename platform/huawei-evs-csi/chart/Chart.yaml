@@ -82,7 +82,14 @@ name: bp-huawei-evs-csi
 # (bp-cnpg → bp-gitea → bp-catalyst-platform → org-controller) stays
 # dependency-gated. Stamp the label on the Job metadata + pod template. Same
 # fix shape as bp-cnpg webhook-gate hooks (#4226) + gitea repo-bootstrap (#3462).
-version: 1.0.6
+# 1.0.7 (#4350 follow-up, kom4dc dep 4635277cae4ffed9, 2026-06-25): the
+# POST-upgrade default-class-hook Job hit the SAME kyverno `flux-managed`
+# denial the reclaim hook did in 1.0.6 ("Job/huawei-evs-csi-default-class is
+# not Flux-managed") — a post-* Helm hook also carries no HelmRelease
+# ownerReference. Stamp `app.kubernetes.io/managed-by: flux` on it too so the
+# 1.0.6 upgrade no longer rolls back on the post-upgrade phase. Completes the
+# hook-label sweep for this chart (both pre- and post- hooks now admitted).
+version: 1.0.7
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable
