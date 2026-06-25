@@ -1,5 +1,38 @@
 apiVersion: v2
 name: bp-stalwart-tenant
+# 0.1.12 (#4307) — bundle an end-user webmail SPA so `mail.<slug>/` serves a
+# login UI instead of 404. Stalwart v0.15.5 is a mail SERVER (JMAP/IMAP/SMTP +
+# a webadmin API) — it ships NO end-user webmail SPA. A LIVE re-walk of the
+# omantel.biz demo Org (after the 0.1.11 pod/HR/route/DNS/TLS gaps were fixed)
+# probed `/`, `/login`, `/webadmin` → all 404; only `/jmap/session` → 200. So
+# routing `mail.<slug>` straight at the Stalwart `-web` Service is structurally
+# 404 for a browser user (no login page to serve).
+#   - New templates/webmail-deployment.yaml + webmail-service.yaml + webmail-
+#     pvc.yaml: SnappyMail (docker.io/djmaze/snappymail) — a lightweight,
+#     single-container PHP webmail that speaks IMAP+SMTP directly with NO
+#     database (config + per-user data on disk). The canonical webmail pairing
+#     for Stalwart. Roundcube was the fallback but needs its own MySQL/Postgres
+#     DB → heavier per-Org footprint, so SnappyMail is the default.
+#   - New templates/webmail-domain-configmap.yaml: pre-seeds a SnappyMail
+#     `<domain>.json` pointing IMAP at the in-cluster `<fullname>-imap` Service
+#     (993 implicit-TLS) + SMTP at `<fullname>-smtp` (587 STARTTLS, useAuth), so
+#     the login page lists this Stalwart server zero-touch. An initContainer
+#     copies it into SnappyMail's data dir `_data_/_default_/domains/`.
+#   - ingress-webmail.yaml: the `mail.<slug>` HTTPRoute backendRef now resolves
+#     (via the new webmailRouteBackend/webmailRoutePort helpers) to the
+#     SnappyMail webmail Service when webmail.enabled (default), falling back to
+#     the Stalwart `-web` Service for back-compat. Plus an OPTIONAL (default-
+#     off) `mailadmin.<slug>` HTTPRoute → the Stalwart `-web` Service so the
+#     webadmin/JMAP can be exposed on a separate host if needed.
+#   - cilium-ingress-networkpolicy.yaml + networkpolicy.yaml: admit the
+#     gateway→webmail hop on the SnappyMail HTTP port (8888) so the route does
+#     not envoy-503 on connect (the webmail Pod shares this chart's
+#     selectorLabels, so the same policies select it).
+#   - Gated behind webmail.enabled (default true) so the pairing is explicit
+#     and an overlay can opt a BYO-webmail Org out.
+#   Acceptance: `mail.<slug>/` → HTTP 200/302 serving the SnappyMail login UI
+#   (verified by the live re-walk, NOT by this chart edit).
+#
 # 0.1.11 (#4307 #4272 — FINAL gate) — self-generate the per-Org OIDC
 # client_secret + make the StatefulSet's OIDC secretKeyRef optional so the
 # Stalwart Pod STARTS on a funnel Org where CATALYST_PER_ORG_REALM_ENABLED=
@@ -133,7 +166,7 @@ name: bp-stalwart-tenant
 #   100m/64Mi — overridable) and wired it onto the Job container. The
 #   StatefulSet already declared resources (stalwart.resources); only the
 #   hook Job was missing them. Mirrors the bp-newapi hook-Job convention.
-version: 0.1.11
+version: 0.1.12
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated

@@ -54,6 +54,13 @@ spec:
           protocol: TCP
         - port: 8443
           protocol: TCP
+        {{- if .Values.webmail.enabled }}
+        # #4307 — the SnappyMail webmail Pod (the `mail.<slug>` HTTPRoute
+        # backend) shares this chart's selectorLabels and is selected by this
+        # same NetworkPolicy. Allow the gateway-namespace hop to its HTTP port.
+        - port: {{ .Values.webmail.containerPort }}
+          protocol: TCP
+        {{- end }}
   egress:
     # In-cluster service egress.
     {{- range .Values.networkPolicy.egress }}

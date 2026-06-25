@@ -16,8 +16,12 @@ domain.primary by default; operator overlay may override.
 */}}
 {{- if .Values.stalwart.enabled }}
 {{- $host := include "bp-stalwart-tenant.webmailHost" . -}}
-{{- $svc := printf "%s-web" (include "bp-stalwart-tenant.fullname" .) -}}
-{{- $port := .Values.service.web.ports.http -}}
+{{- /* #4307 — front the SnappyMail webmail Service (NOT the Stalwart server,
+       which ships no end-user SPA → bare 404). webmailRouteBackend resolves
+       to the webmail Service when webmail.enabled, else the Stalwart -web
+       Service for back-compat. */ -}}
+{{- $svc := include "bp-stalwart-tenant.webmailRouteBackend" . -}}
+{{- $port := include "bp-stalwart-tenant.webmailRoutePort" . -}}
 {{- /* Skip if host is empty (smoke-render-safe per default values). */ -}}
 {{- if $host }}
 
@@ -44,7 +48,7 @@ spec:
             value: {{ .Values.ingress.webmail.path | default "/" | quote }}
       backendRefs:
         - name: {{ $svc | quote }}
-          port: {{ $port }}
+          port: {{ $port | int }}
 {{- else if eq .Values.ingress.webmail.mode "ingress" }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -77,7 +81,44 @@ spec:
               service:
                 name: {{ $svc | quote }}
                 port:
-                  number: {{ $port }}
+                  number: {{ $port | int }}
 {{- end }}
+{{- end }}
+{{- end }}
+
+{{- /* #4307 — optional Stalwart webadmin/JMAP route on a SEPARATE host
+       (`mailadmin.<slug>`), since `mail.<slug>` now fronts the SnappyMail SPA.
+       OFF by default — the per-Org admin UI is an operator surface. Gateway
+       mode only (mirrors the primary route's parentRef + wildcard-listener
+       TLS). */ -}}
+{{- if and .Values.stalwart.enabled .Values.webmail.enabled .Values.webmail.adminRoute.enabled }}
+{{- $adminHost := include "bp-stalwart-tenant.adminHost" . -}}
+{{- $adminSvc := printf "%s-web" (include "bp-stalwart-tenant.fullname" .) -}}
+{{- if and $adminHost (eq .Values.ingress.webmail.mode "gateway") }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "bp-stalwart-tenant.fullname" . }}-webadmin
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: stalwart-webadmin
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.webmail.parentRef.name | quote }}
+      namespace: {{ .Values.ingress.webmail.parentRef.namespace | quote }}
+      {{- with .Values.ingress.webmail.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $adminHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: {{ $adminSvc | quote }}
+          port: {{ .Values.service.web.ports.http | int }}
 {{- end }}
 {{- end }}

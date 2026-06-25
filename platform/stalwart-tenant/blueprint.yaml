@@ -42,8 +42,21 @@ spec:
   # Added setupJob.resources (10m/32Mi req, 100m/64Mi lim, overridable)
   # and wired it onto the Job container. Verified live on the tkt0625
   # demo Org (omantel.biz region-a).
+  # 0.1.12 (#4307): a LIVE re-walk after the 0.1.11 pod/HR/route/DNS/TLS
+  # gaps were fixed found `mail.<slug>/` STILL 404 — Stalwart v0.15.5 is a
+  # mail SERVER (JMAP/IMAP/SMTP + webadmin API) that ships NO end-user
+  # webmail SPA (`/`, `/login`, `/webadmin` all 404; only `/jmap/session`
+  # 200). Bundled SnappyMail (single-container PHP webmail, IMAP+SMTP, no
+  # DB) as a webmail Deployment+Service+PVC, pre-seeded with this Stalwart
+  # server as the default login domain (IMAP `<fullname>-imap`:993 SSL,
+  # SMTP `<fullname>-smtp`:587 STARTTLS), and re-pointed the `mail.<slug>`
+  # HTTPRoute backendRef off the Stalwart `-web` Service onto the webmail
+  # Service. Gateway→webmail hop admitted on port 8888 in the K8s + Cilium
+  # NetworkPolicies. Gated behind webmail.enabled (default true). Stalwart
+  # webadmin stays in-cluster on `-web` with an optional default-off
+  # `mailadmin.<slug>` HTTPRoute.
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.11
+  version: 0.1.12
   card:
     title: Stalwart (per-Organization)
     summary: |
@@ -145,6 +158,16 @@ spec:
               enabled:
                 type: boolean
                 default: true
+      webmail:
+        type: object
+        description: |
+          End-user webmail SPA (#4307). Stalwart ships no webmail UI, so the
+          chart bundles SnappyMail (single-container PHP webmail, IMAP+SMTP, no
+          DB) and fronts `mail.<slug>` with it. Default ON.
+        properties:
+          enabled:
+            type: boolean
+            default: true
       ingress:
         type: object
         properties:

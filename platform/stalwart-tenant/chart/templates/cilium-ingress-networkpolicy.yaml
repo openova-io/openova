@@ -48,4 +48,12 @@ spec:
               protocol: TCP
             - port: "8443"
               protocol: TCP
+            {{- if .Values.webmail.enabled }}
+            # #4307 — the SnappyMail webmail Pod (the `mail.<slug>` HTTPRoute
+            # backend) shares this chart's selectorLabels, so it is selected by
+            # the same CNP. Admit the gateway→webmail hop on the SnappyMail
+            # HTTP port or the route lands but envoy 503s on connect.
+            - port: {{ .Values.webmail.containerPort | quote }}
+              protocol: TCP
+            {{- end }}
 {{- end }}

@@ -1,0 +1,136 @@
+{{- /*
+SnappyMail webmail SPA Deployment (#4307).
+
+Root cause this template fixes
+──────────────────────────────
+Stalwart v0.15.5 is a mail SERVER (JMAP/IMAP/SMTP + a webadmin API) — it
+ships NO end-user webmail SPA. Live probes on the omantel.biz demo Org
+(2026-06-24): `/`, `/login`, `/webadmin` all 404; only `/jmap/session` 200.
+So routing `mail.<slug>` straight at the Stalwart `-web` Service serves a bare
+404 to a browser user even with the Pod 1/1 Running. This Deployment runs
+SnappyMail — a lightweight, single-container PHP webmail that speaks IMAP+SMTP
+directly (NO database; config + per-user data live on disk under
+/var/lib/snappymail). The `mail.<slug>` HTTPRoute is re-pointed onto this
+webmail Service (ingress-webmail.yaml + webmailRouteBackend helper).
+
+Pre-seed: an initContainer copies the rendered tenant-domain JSON
+(templates/webmail-domain-configmap.yaml) into SnappyMail's data dir at
+`_data_/_default_/domains/<domain>.json` so the login page lists this Stalwart
+server zero-touch. SnappyMail auto-loads any <domain>.json there.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob is operator-tunable; per
+ADR-0001 the per-Sovereign Harbor proxy-cache is honoured via
+`global.imageRegistry`.
+*/}}
+{{- if and .Values.stalwart.enabled .Values.webmail.enabled }}
+{{- $domain := include "bp-stalwart-tenant.tenantDomain" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-stalwart-tenant.webmailFullname" . }}
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: webmail
+spec:
+  replicas: {{ .Values.webmail.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 6 }}
+      catalyst.openova.io/component: webmail
+  template:
+    metadata:
+      labels:
+        {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/component: webmail
+      annotations:
+        # Roll the webmail Pod when the seeded domain config changes.
+        checksum/domain-seed: {{ include (print $.Template.BasePath "/webmail-domain-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "bp-stalwart-tenant.serviceAccountName" . }}
+      {{- with .Values.webmail.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.webmail.podSecurityContext | nindent 8 }}
+      {{- if and .Values.webmail.domainSeed.enabled $domain }}
+      initContainers:
+        # Copy the rendered tenant-domain JSON into SnappyMail's data dir so
+        # the login page lists this Stalwart server zero-touch. The data dir
+        # is a writable volume (PVC or emptyDir); the ConfigMap is mounted
+        # read-only at /seed.
+        - name: seed-domain
+          image: {{ include "bp-stalwart-tenant.webmailImage" . | quote }}
+          imagePullPolicy: {{ .Values.webmail.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.webmail.containerSecurityContext | nindent 12 }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              # /var/lib/snappymail is the upstream image's data VOLUME
+              # (the-djmaze/.docker/release/Dockerfile: `mv /snappymail/data
+              # /var/lib/snappymail; VOLUME /var/lib/snappymail`). SnappyMail
+              # auto-lists any <domain>.json under _data_/_default_/domains/.
+              DEST="/var/lib/snappymail/_data_/_default_/domains"
+              mkdir -p "${DEST}"
+              cp /seed/domain.json "${DEST}/{{ $domain }}.json"
+              echo "seeded ${DEST}/{{ $domain }}.json"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/snappymail
+            - name: domain-seed
+              mountPath: /seed
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: webmail
+          image: {{ include "bp-stalwart-tenant.webmailImage" . | quote }}
+          imagePullPolicy: {{ .Values.webmail.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.webmail.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.webmail.containerPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.webmail.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/snappymail
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.webmail.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.webmail.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.webmail.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.webmail.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: {{ .Values.webmail.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.webmail.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.webmail.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.webmail.probes.readiness.failureThreshold }}
+      volumes:
+        {{- if and .Values.webmail.domainSeed.enabled $domain }}
+        - name: domain-seed
+          configMap:
+            name: {{ include "bp-stalwart-tenant.webmailFullname" . }}-domain-seed
+            items:
+              - key: domain.json
+                path: domain.json
+        {{- end }}
+        # SnappyMail per-user settings + sessions. A Deployment cannot own
+        # volumeClaimTemplates (StatefulSet-only), so when persistence is
+        # enabled the `data` volume references the chart-managed PVC rendered
+        # in webmail-pvc.yaml; otherwise an emptyDir (login-only is stateless).
+        - name: data
+          {{- if .Values.webmail.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "bp-stalwart-tenant.webmailFullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

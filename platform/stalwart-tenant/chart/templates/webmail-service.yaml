@@ -1,0 +1,25 @@
+{{- /*
+SnappyMail webmail Service (#4307) — ClusterIP fronted by the
+`mail.<slug>` Cilium Gateway HTTPRoute (ingress-webmail.yaml, re-pointed onto
+this Service). TLS terminates at the gateway via the console Gateway's
+`*.<pool>` wildcard listener. NEVER LoadBalancer.
+*/}}
+{{- if and .Values.stalwart.enabled .Values.webmail.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-stalwart-tenant.webmailFullname" . }}
+  labels:
+    {{- include "bp-stalwart-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: webmail
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 4 }}
+    catalyst.openova.io/component: webmail
+  ports:
+    - name: http
+      port: {{ .Values.webmail.containerPort }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
