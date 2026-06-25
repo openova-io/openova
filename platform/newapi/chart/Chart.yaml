@@ -893,7 +893,7 @@ name: bp-newapi
 #   `harbor-proxy-pull` Enforce policy admits it on every reconcile (the sibling
 #   db-dsn-sync Job already proxied it; channel-seed was the lone raw
 #   docker.io/curlimages/curl). Refs #4347 #4325.
-version: 1.4.130
+version: 1.4.131
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
