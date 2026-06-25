@@ -110,73 +110,85 @@ func TestBoundaryIsVcluster_FunnelParity(t *testing.T) {
 	}
 }
 
-// TestCNPGPair_VclusterTier_HRLevelKubeConfig — the active-hot-standby
-// bp-cnpg-pair HelmRelease is a HelmRelease CR, so it cannot be redirected into
-// the vcluster by the apps-sync Kustomization (no in-cluster helm-controller →
-// #3055 StateError). For the vcluster tier the PRIMARY side is a HOST file
-// carrying HR-level spec.kubeConfig (the host helm-controller installs INTO the
-// vcluster on region A). #4282/#4275 — the pair is now SPLIT-SIDE across two
-// host files: db-cnpg-pair-primary.yaml + db-cnpg-pair-replica.yaml.
-func TestCNPGPair_VclusterTier_HRLevelKubeConfig(t *testing.T) {
-	g := NewManifestGenerator(testBasePath)
-	out := g.GenerateAllWithAppConfigs("acme", "m",
-		[]string{"umami"}, "pw",
-		map[string]map[string]any{
-			"postgres": {
-				"active_hot_standby": true,
-				"primary_region":     "hz-fsn-rtz-prod",
-				"replica_region":     "hz-hel-rtz-prod",
-			},
-		},
-	)
+// TestCNPGPair_PrimaryStaysHostSide_BothTiers is the #4293 BLOCKER-1 lock. The
+// bp-cnpg-pair chart ships ONLY postgresql.cnpg.io/v1 Cluster CRs — the operator
+// + CRD are cluster-singletons that live on the HOST (slot 16). A vcluster has
+// neither the CRD nor a watching operator, so a primary Cluster `helm install`ed
+// INTO the vcluster (the keystone's old HR-level kubeConfig shape) fails
+// `no matches for kind "Cluster"` and the paid M+ active-hot-standby HA path
+// WEDGES on every fresh prov. The PRIMARY side must therefore land on region A's
+// HOST `<slug>` ns — with NO vcluster kubeConfig — for BOTH tiers. The in-vcluster
+// app pods reach the DB via the synced `postgres` Service + the apps-tree
+// credentials Secret.
+func TestCNPGPair_PrimaryStaysHostSide_BothTiers(t *testing.T) {
+	for _, plan := range []string{"m", "s"} {
+		t.Run("plan="+plan, func(t *testing.T) {
+			g := NewManifestGenerator(testBasePath)
+			out := g.GenerateAllWithAppConfigs("acme", plan,
+				[]string{"umami"}, "pw",
+				map[string]map[string]any{
+					"postgres": {
+						"active_hot_standby": true,
+						"primary_region":     "hz-fsn-rtz-prod",
+						"replica_region":     "hz-hel-rtz-prod",
+					},
+				},
+			)
 
-	// The PRIMARY HR lives as a HOST file (NOT under apps/) so the host
-	// helm-controller reconciles it; it installs the primary INTO the Org
-	// vcluster (region A) via the vcluster kubeconfig mirror.
-	hostHR, ok := out[testBasePath+"/acme/db-cnpg-pair-primary.yaml"]
-	if !ok {
-		t.Fatalf("vcluster-tier CNPG-pair PRIMARY HR not emitted as a HOST file (keys: %v)", keys(out))
-	}
-	// Neither side may land in the vcluster-redirected apps/ tree (StateError).
-	if _, inApps := out[testBasePath+"/acme/apps/db-cnpg-pair-primary.yaml"]; inApps {
-		t.Errorf("CNPG-pair PRIMARY HR must NOT be in the vcluster-redirected apps/ tree (it would StateError)")
-	}
-	if _, inApps := out[testBasePath+"/acme/apps/db-cnpg-pair-replica.yaml"]; inApps {
-		t.Errorf("CNPG-pair REPLICA HR must NOT be in the vcluster-redirected apps/ tree (it would StateError)")
-	}
-	if !strings.Contains(hostHR, "kind: HelmRelease") {
-		t.Errorf("host CNPG-pair PRIMARY file missing HelmRelease:\n%s", hostHR)
-	}
-	if !strings.Contains(hostHR, "side: primary") {
-		t.Errorf("PRIMARY HR must set cnpgPair.side: primary:\n%s", hostHR)
-	}
-	if !strings.Contains(hostHR, "kubeConfig:") {
-		t.Errorf("vcluster-tier CNPG-pair PRIMARY HR MISSING HR-level kubeConfig:\n%s", hostHR)
-	}
-	if !strings.Contains(hostHR, "name: tenant-acme-kubeconfig") {
-		t.Errorf("vcluster-tier CNPG-pair PRIMARY HR kubeConfig must reference the vcluster mirror secret:\n%s", hostHR)
-	}
-	// HR authored in flux-system so the secretRef (no namespace field) resolves
-	// against the co-located mirror.
-	if !strings.Contains(hostHR, "namespace: flux-system") {
-		t.Errorf("vcluster-tier CNPG-pair PRIMARY HR must be authored in flux-system (mirror ns):\n%s", hostHR)
-	}
-	// Chart installs into the in-vcluster `<slug>` ns where the app pods live.
-	if !strings.Contains(hostHR, "targetNamespace: acme") {
-		t.Errorf("CNPG-pair PRIMARY chart targetNamespace must be the Org <slug> ns acme:\n%s", hostHR)
-	}
+			// The PRIMARY HR lives as a HOST file (NOT under apps/) so the host
+			// helm-controller reconciles it where the cnpg operator + CRD live.
+			hostHR, ok := out[testBasePath+"/acme/db-cnpg-pair-primary.yaml"]
+			if !ok {
+				t.Fatalf("CNPG-pair PRIMARY HR not emitted as a HOST file (keys: %v)", keys(out))
+			}
+			// Neither side may land in the vcluster-redirected apps/ tree (StateError).
+			if _, inApps := out[testBasePath+"/acme/apps/db-cnpg-pair-primary.yaml"]; inApps {
+				t.Errorf("CNPG-pair PRIMARY HR must NOT be in the vcluster-redirected apps/ tree (it would StateError)")
+			}
+			if _, inApps := out[testBasePath+"/acme/apps/db-cnpg-pair-replica.yaml"]; inApps {
+				t.Errorf("CNPG-pair REPLICA HR must NOT be in the vcluster-redirected apps/ tree (it would StateError)")
+			}
+			if !strings.Contains(hostHR, "kind: HelmRelease") {
+				t.Errorf("host CNPG-pair PRIMARY file missing HelmRelease:\n%s", hostHR)
+			}
+			if !strings.Contains(hostHR, "side: primary") {
+				t.Errorf("PRIMARY HR must set cnpgPair.side: primary:\n%s", hostHR)
+			}
+			// BLOCKER-1: the PRIMARY HR must NOT carry an HR-level kubeConfig — the
+			// Cluster CR has to reconcile on the HOST where the operator+CRD live.
+			if strings.Contains(hostHR, "kubeConfig:") {
+				t.Errorf("CNPG-pair PRIMARY HR (plan=%q) MUST NOT carry an HR-level kubeConfig — installing the Cluster CR into the vcluster fails on the missing postgresql.cnpg.io CRD (#4293 BLOCKER-1):\n%s", plan, hostHR)
+			}
+			if strings.Contains(hostHR, "tenant-acme-kubeconfig") {
+				t.Errorf("CNPG-pair PRIMARY HR (plan=%q) MUST NOT reference the vcluster kubeconfig mirror — that routes the primary Cluster INTO the vcluster (the BLOCKER-1 bug):\n%s", plan, hostHR)
+			}
+			// With no kubeConfig the HR is authored in the host `<slug>` ns (NOT
+			// flux-system, which is only for the kubeConfig-carrying replica/mirror).
+			if !strings.Contains(hostHR, "namespace: acme") {
+				t.Errorf("host-side CNPG-pair PRIMARY HR must be authored in the host `<slug>` ns acme (plan=%q):\n%s", plan, hostHR)
+			}
+			if strings.Contains(hostHR, "namespace: flux-system") {
+				t.Errorf("host-side CNPG-pair PRIMARY HR must NOT live in flux-system (no kubeConfig secretRef to co-locate) (plan=%q):\n%s", plan, hostHR)
+			}
+			// Chart installs into the host `<slug>` ns where the operator reconciles
+			// the Cluster + the synced Service the in-vcluster app pods dial.
+			if !strings.Contains(hostHR, "targetNamespace: acme") {
+				t.Errorf("CNPG-pair PRIMARY chart targetNamespace must be the host `<slug>` ns acme (plan=%q):\n%s", plan, hostHR)
+			}
 
-	// The standalone postgres-credentials Secret the app pods read lives INSIDE
-	// the vcluster (apps/ tree), NOT on the host.
-	secret, ok := out[testBasePath+"/acme/apps/db-cnpg-pair-secret.yaml"]
-	if !ok {
-		t.Fatalf("CNPG-pair postgres-credentials Secret not emitted into apps/ tree (keys: %v)", keys(out))
-	}
-	if !strings.Contains(secret, "kind: Secret") || !strings.Contains(secret, "name: postgres-credentials") {
-		t.Errorf("apps-tree CNPG secret wrong shape:\n%s", secret)
-	}
-	if strings.Contains(secret, "kind: HelmRelease") {
-		t.Errorf("apps-tree CNPG secret must NOT carry the HelmRelease (that lives on the host):\n%s", secret)
+			// The standalone postgres-credentials Secret the app pods read lives
+			// INSIDE the vcluster (apps/ tree), NOT on the host.
+			secret, ok := out[testBasePath+"/acme/apps/db-cnpg-pair-secret.yaml"]
+			if !ok {
+				t.Fatalf("CNPG-pair postgres-credentials Secret not emitted into apps/ tree (keys: %v)", keys(out))
+			}
+			if !strings.Contains(secret, "kind: Secret") || !strings.Contains(secret, "name: postgres-credentials") {
+				t.Errorf("apps-tree CNPG secret wrong shape:\n%s", secret)
+			}
+			if strings.Contains(secret, "kind: HelmRelease") {
+				t.Errorf("apps-tree CNPG secret must NOT carry the HelmRelease (that lives on the host):\n%s", secret)
+			}
+		})
 	}
 }
 

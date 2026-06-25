@@ -23,7 +23,8 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	// #4292: the paid-tier set is namespace + vcluster + resourcequota +
-	// limitrange + kustomization + the apps-tree networkpolicy baseline.
+	// limitrange + kustomization + the apps-tree networkpolicy baseline +
+	// (#4293 MAJOR-2) the apps-tree kustomization index.
 	wantPaths := []string{
 		"vcluster/namespace.yaml",
 		"vcluster/vcluster.yaml",
@@ -31,6 +32,7 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 		"vcluster/limitrange.yaml",
 		"vcluster/kustomization.yaml",
 		"vcluster/apps/networkpolicy.yaml",
+		"vcluster/apps/kustomization.yaml",
 	}
 	for _, p := range wantPaths {
 		if _, ok := out[p]; !ok {

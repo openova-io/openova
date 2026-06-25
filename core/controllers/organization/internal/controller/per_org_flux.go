@@ -79,6 +79,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/fluxsource"
 )
@@ -111,6 +112,28 @@ var (
 func perOrgFluxNames(slug string) (gitRepo, kustomization string) {
 	return fmt.Sprintf("catalyst-tenant-%s", slug),
 		fmt.Sprintf("catalyst-tenant-%s-vcluster", slug)
+}
+
+// perOrgAppsKustomizationName is the #4293 MAJOR-2 second Kustomization that
+// reconciles the per-Org Gitea repo's `./vcluster/apps` tree (today: the
+// default-deny + same-Org-allow NetworkPolicy baseline) INTO the boundary the
+// Org's workloads actually run in. The `-vcluster` Kustomization above
+// reconciles `./vcluster` (ns/quota/limitrange/vcluster HR) onto the HOST and
+// does NOT list apps/, so the NP was committed to a path NOTHING reconciled —
+// intra-Org isolation stayed inert. This separate Kustomization closes that gap.
+func perOrgAppsKustomizationName(slug string) string {
+	return fmt.Sprintf("catalyst-tenant-%s-apps", slug)
+}
+
+// perOrgKubeconfigSecretName is the flux-system Secret the provisioning workflow
+// mirrors the per-Org vcluster's exported kubeconfig into (after the vcluster HR
+// goes Ready). The apps Kustomization references it via spec.kubeConfig for the
+// VCLUSTER tier so the NP lands in the vcluster apiserver (the syncer then
+// reflects it to the host `<slug>` ns). MUST match the funnel's apps-sync
+// consumer name (provisioning gitops.generateAppsSyncKustomization →
+// `tenant-<slug>-kubeconfig`) so both producers agree on the mirror.
+func perOrgKubeconfigSecretName(slug string) string {
+	return fmt.Sprintf("tenant-%s-kubeconfig", slug)
 }
 
 // reconcilePerOrgFlux find-or-creates the host-cluster Flux GitRepository +
@@ -227,10 +250,72 @@ func (r *Reconciler) reconcilePerOrgFlux(ctx context.Context, org *orgapi.Organi
 		return fmt.Errorf("upsert per-Org Kustomization %s/%s: %w", ns, kustomizationName, err)
 	}
 
+	// --- Apps Kustomization (./vcluster/apps → the WORKLOAD boundary) ---
+	// #4293 MAJOR-2. The `-vcluster` Kustomization above reconciles ./vcluster
+	// (ns/quota/limitrange/[vcluster HR]) onto the HOST and does NOT list apps/,
+	// so the default-deny NetworkPolicy the gitops renderer writes to
+	// vcluster/apps/networkpolicy.yaml was reconciled by nothing — intra-Org
+	// isolation stayed inert. This second Kustomization reconciles the apps/
+	// tree into the boundary the Org's workloads actually run in:
+	//   • VCLUSTER tier (paid M+): carries spec.kubeConfig → the host
+	//     kustomize-controller applies the NP INTO the Org vcluster apiserver,
+	//     where the syncer (sync.toHost.networkPolicies, enabled on the
+	//     org-vcluster) reflects it to the host `<slug>` ns Cilium enforces.
+	//   • HOST tier (free/S): NO kubeConfig → the NP applies straight to the
+	//     host `<slug>` ns (which IS the boundary). Emitting a kubeConfig for a
+	//     never-created vcluster mirror would StateError forever.
+	// targetNamespace rewrites the NP's authored `apps` ns → `<slug>` on apply,
+	// matching the funnel apps-sync's targetNamespace + the org-controller
+	// boundary ns. Self-healing: for the vcluster tier the kubeConfig mirror is
+	// created by the provisioning workflow after the vcluster HR is Ready; until
+	// then this Kustomization StateErrors-then-retries (same as the funnel
+	// apps-sync) — never a deadlock.
+	appsKustomizationName := perOrgAppsKustomizationName(slug)
+	appsKS := &unstructured.Unstructured{}
+	appsKS.SetGroupVersionKind(fluxKustomizationGVK)
+	appsKS.SetNamespace(ns)
+	appsKS.SetName(appsKustomizationName)
+	appsLabels := copyLabels(labels)
+	appsLabels["catalyst.openova.io/component"] = "per-org-apps-reconciler"
+	if err := unstructured.SetNestedMap(appsKS.Object, appsLabels, "metadata", "labels"); err != nil {
+		return fmt.Errorf("set apps Kustomization labels: %w", err)
+	}
+	appsKSSpec := map[string]any{
+		"interval":        fmt.Sprintf("%ds", interval),
+		"retryInterval":   fmt.Sprintf("%ds", interval),
+		"path":            "./vcluster/apps",
+		"prune":           true,
+		"targetNamespace": slug,
+		"sourceRef": map[string]any{
+			"kind":      "GitRepository",
+			"name":      gitRepoName,
+			"namespace": ns,
+		},
+	}
+	// Tier gate (#4292 BoundaryIsVcluster): only the vcluster tier routes the
+	// apps tree THROUGH the vcluster kubeconfig mirror. Host tier applies to the
+	// host ns directly (no kubeConfig).
+	if gitops.BoundaryIsVcluster(org.Spec.PlanSlug) {
+		appsKSSpec["kubeConfig"] = map[string]any{
+			"secretRef": map[string]any{
+				"name": perOrgKubeconfigSecretName(slug),
+				"key":  "config",
+			},
+		}
+	}
+	if err := unstructured.SetNestedMap(appsKS.Object, appsKSSpec, "spec"); err != nil {
+		return fmt.Errorf("set apps Kustomization spec: %w", err)
+	}
+	if err := r.upsertFluxResource(ctx, ns, appsKustomizationName, appsKS); err != nil {
+		return fmt.Errorf("upsert per-Org apps Kustomization %s/%s: %w", ns, appsKustomizationName, err)
+	}
+
 	r.Log.Info("reconciled per-Org vCluster Flux loop",
 		"organization", slug,
 		"git_repository", fmt.Sprintf("%s/%s", ns, gitRepoName),
 		"kustomization", fmt.Sprintf("%s/%s", ns, kustomizationName),
+		"apps_kustomization", fmt.Sprintf("%s/%s", ns, appsKustomizationName),
+		"apps_boundary_vcluster", gitops.BoundaryIsVcluster(org.Spec.PlanSlug),
 		"url", repoURL,
 		"branch", branch)
 	return nil
@@ -254,16 +339,19 @@ func (r *Reconciler) teardownPerOrgFlux(ctx context.Context, org *orgapi.Organiz
 		ns = "flux-system"
 	}
 	gitRepoName, kustomizationName := perOrgFluxNames(slug)
+	appsKustomizationName := perOrgAppsKustomizationName(slug)
 
-	// Delete the Kustomization first so Flux stops reconciling the tree
+	// Delete the Kustomizations first so Flux stops reconciling the trees
 	// before the source disappears (avoids a transient source-not-found
 	// error on the Kustomization's last reconcile). prune:true means the
-	// vCluster Namespace + HR are GC'd by Flux as the Kustomization is
-	// removed.
+	// vCluster Namespace + HR (and the apps NP) are GC'd by Flux as the
+	// Kustomizations are removed. The apps Kustomization is removed before the
+	// vcluster one + the source (#4293 MAJOR-2).
 	for _, target := range []struct {
 		gvk  schema.GroupVersionKind
 		name string
 	}{
+		{fluxKustomizationGVK, appsKustomizationName},
 		{fluxKustomizationGVK, kustomizationName},
 		{fluxGitRepositoryGVK, gitRepoName},
 	} {

@@ -210,7 +210,14 @@ func (h *Handler) waitAndFinalizeInstall(ctx context.Context, data appChangeData
 	// #4297 TIER GATE — vcluster tiers (M+) sync app pods up to the host ns
 	// with the `-x-apps-x-vcluster` suffix; host tiers (free/S) run them with
 	// native names in the host ns. Match the right shape.
-	isVcluster := gitops.BoundaryIsVcluster(h.resolvePlanSlug(ctx, data.PlanID))
+	//
+	// #4293 MAJOR-3 — resolve the tier AUTHORITATIVELY off the Organization CR
+	// (immune to a transient catalog blip) so the pod-name matcher tracks the
+	// boundary the manifests were actually committed against, not a catalog-miss
+	// "s" downgrade. (This wait is for the matcher only; the manifests were
+	// already committed authoritatively by applyTenantChange, which fails-closed.)
+	planSlug, _ := h.resolveTenantPlanSlug(ctx, data.TenantSlug, data.PlanID)
+	isVcluster := gitops.BoundaryIsVcluster(planSlug)
 	waitSlugs := data.DeploySlugs
 	if len(waitSlugs) == 0 {
 		waitSlugs = []string{data.AppSlug}
@@ -328,7 +335,12 @@ func (h *Handler) waitAndFinalizeUninstall(ctx context.Context, data appChangeDa
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
-	if err := h.waitForVclusterAppGone(ctx, hostNS, data.AppSlug, 5*time.Minute); err != nil {
+	// #4293 MINOR-4 — tier-gate the uninstall wait so a host-tier (native pod
+	// name) Org isn't reported "gone" while its pod is still Terminating.
+	// Authoritative tier off the Organization CR (immune to a catalog blip).
+	planSlug, _ := h.resolveTenantPlanSlug(ctx, data.TenantSlug, data.PlanID)
+	isVcluster := gitops.BoundaryIsVcluster(planSlug)
+	if err := h.waitForVclusterAppGone(ctx, hostNS, data.AppSlug, 5*time.Minute, isVcluster); err != nil {
 		if ctx.Err() != nil {
 			slog.Warn("day-2 uninstall: wait canceled — tenant delete preempted",
 				"tenant", data.TenantSlug, "app", data.AppSlug, "job_id", job.ID)
@@ -425,7 +437,19 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 		return fmt.Errorf("manifest generator not configured")
 	}
 
-	planSlug := h.resolvePlanSlug(ctx, data.PlanID)
+	// #4293 MAJOR-3 — fail-CLOSED tier resolution on the day-2 re-generation
+	// path. resolvePlanSlug returns "s" on ANY transient catalog failure; if
+	// that fired here for a paid (M+) Org we'd re-emit apps-sync WITHOUT
+	// kubeConfig (host tier) and Flux would RE-ROUTE the apps from the vcluster
+	// into the host `<slug>` ns, orphaning the in-vcluster copy. resolveTenantPlanSlug
+	// reads the AUTHORITATIVE `spec.planSlug` off the Organization CR first
+	// (immune to a catalog blip); ok=false means it could only guess (catalog
+	// unreachable AND no CR planSlug) — in that case ABORT the day-2 change so
+	// the job retries rather than silently downgrading the boundary.
+	planSlug, authoritative := h.resolveTenantPlanSlug(ctx, data.TenantSlug, data.PlanID)
+	if !authoritative {
+		return fmt.Errorf("day-2 %s aborted: could not authoritatively resolve plan tier for tenant %q (catalog unreachable + no persisted Organization.spec.planSlug) — refusing to re-generate manifests that could re-route apps to the wrong boundary (#4293 MAJOR-3); will retry", action, data.TenantSlug)
+	}
 	appSlugs := h.resolveAppSlugs(ctx, data.Apps)
 
 	// Preserve the existing DB password if a db file is present in Git.
@@ -492,10 +516,17 @@ func (h *Handler) readExistingDBPassword(ctx context.Context, tenantSlug string)
 
 // waitForVclusterAppGone is the inverse of waitForVclusterApp — it waits
 // until no pod matching the app slug exists in the host namespace.
-func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug string, timeout time.Duration) error {
+//
+// #4293 MINOR-4 — TIER-GATED. The keystone tier-gated the install wait
+// (waitForVclusterApp via appPodNameMatches) but left this uninstall wait
+// hardcoded to the vcluster syncer suffix `-x-apps-x-vcluster`. For a host-tier
+// (free/S) Org the app pod has a NATIVE name (no suffix), so the hardcoded
+// matcher never found it → the "no matching pod" branch returned success on the
+// first poll, reporting "gone" while the native pod was still Terminating. Thread
+// isVcluster + reuse appPodNameMatches so both tiers wait on the right shape,
+// mirroring the install side.
+func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug string, timeout time.Duration, isVcluster bool) error {
 	deadline := time.Now().Add(timeout)
-	prefix := appSlug + "-"
-	suffix := "-x-apps-x-vcluster"
 	for time.Now().Before(deadline) {
 		body, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace))
 		if err == nil {
@@ -509,7 +540,7 @@ func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug
 			found := false
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
-					if strings.HasPrefix(pod.Metadata.Name, prefix) && strings.HasSuffix(pod.Metadata.Name, suffix) {
+					if appPodNameMatches(pod.Metadata.Name, appSlug, isVcluster) {
 						found = true
 						break
 					}
