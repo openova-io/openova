@@ -594,4 +594,9 @@ gitDataMigration:
   failOnDbDiskDrift: true
   # kubectl image for the guard Job (mirrors the guacamole recordings-migrate
   # hook convention). Operator-overridable per docs/PRINCIPLES.md #4a.
-  image: bitnamilegacy/kubectl:1.30.7
+  # #4369: MUST be the Harbor-proxy form so the cluster-wide Kyverno
+  # `harbor-proxy-pull` Enforce policy (admits `*/proxy-*/*` or `*/openova-io/*`)
+  # ADMITS the pre-upgrade hook Job. A bare docker.io ref is DENIED at admission,
+  # which fails the pre-upgrade gate and rollback-loops the whole gitea HR.
+  # Identical proxy ref to sso-configure-deployment.yaml / database-secret-sync-job.yaml.
+  image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
