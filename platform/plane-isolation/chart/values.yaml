@@ -42,6 +42,18 @@ components:
       - external-secrets-system    # ESO reconciles keycloak ExternalSecrets
       - org-services               # BSS/auth tier validates tokens against keycloak
       - oidc-gate                  # the host auth proxy fronting gateway routes
+      - sandbox                    # sandbox-controller realm/user-mgmt + per-Sandbox MCP OIDC
+                                   # ops (platform/sandbox SANDBOX_MCP_KEYCLOAK_ADMIN_URL →
+                                   # keycloak.keycloak.svc:8080). The sandbox plane is its own
+                                   # host ns post-#4325 → its keycloak admin dial is dropped
+                                   # without this carve-out (Refs #4325 #4382).
+      - newapi                     # newapi admin-UI OIDC discovery + token validation
+                                   # (platform/newapi auth.adminUI.mode=keycloak → keycloak
+                                   # issuer URL). De-vcluster split newapi into its own host ns.
+      - guacamole                  # guacamole OIDC silent-login (sso.realm=sovereign,
+                                   # silentLogin=true → keycloak backchannel) — own host ns.
+      - grafana                    # grafana SSO via keycloak OIDC (slot 25-grafana lists
+                                   # bp-keycloak as the SSO IdP) — de-vcluster'd host ns.
   - namespace: gitea               # source forge
     gatewayIngress: true           # gitea.<fqdn> public route
     allowIngressFrom:
@@ -55,6 +67,10 @@ components:
                                    # Without this the provisioning wait-for-gitea-token init dials
                                    # gitea and Cilium drops it → HTTP 000 → funnel Org bootstrap
                                    # wedged (#4382, live kom4dc dep 4635277cae4ffed9 2026-06-26).
+      - sandbox                    # sandbox-controller + per-Sandbox MCP create/read per-Sandbox
+                                   # repos (platform/sandbox CATALYST_GITEA_URL +
+                                   # SANDBOX_MCP_GITEA_BASE_URL → gitea-http.gitea.svc:3000). The
+                                   # sandbox plane is its own host ns post-#4325 (Refs #4325).
   - namespace: harbor              # OCI registry
     gatewayIngress: true           # registry.<fqdn> public route
     allowIngressFrom:
@@ -66,6 +82,9 @@ components:
     allowIngressFrom:
       - external-secrets-system    # ESO reconciles grafana SSO ExternalSecret
       - opentelemetry              # otel collector → grafana (optional dashboards)
+      - cnpg-system                # CNPG operator → grafana's own grafana-app PG (slot 25
+                                   # dependsOn bp-cnpg — Postgres backend for dashboard/folder/
+                                   # alert state). De-vcluster'd grafana host ns (Refs #4325).
   - namespace: openbao             # secrets engine (the ESO ClusterSecretStore backend)
     gatewayIngress: true           # bao.<fqdn> public route
     allowIngressFrom:
@@ -89,6 +108,10 @@ components:
       - org-services               # BSS/auth/billing/notification publish + consume events
       - guacamole                  # guacamole publishes session-open/close audit events
       - catalyst-system            # catalyst-api audit indexer + controllers
+      - newapi                     # newapi metering-sidecar emits usage events to NATS
+                                   # JetStream (platform/newapi metering-sidecar NATS_URL →
+                                   # nats-jetstream.nats-system.svc:4222, #798). De-vcluster'd
+                                   # newapi host ns post-#4325 (Refs #4325).
   - namespace: loki                # log store (Grafana backend, no public route)
     gatewayIngress: false
     allowIngressFrom:
@@ -107,6 +130,20 @@ components:
       - grafana                    # grafana queries tempo
       - alloy                      # alloy ships traces
       - opentelemetry              # otel collector ships traces
+  - namespace: opentelemetry       # OTLP collector (no public route)
+    gatewayIngress: false
+    allowIngressFrom:
+      - alloy                      # alloy forwards OTLP logs/metrics/traces to the collector
+                                   # (slot 21-alloy → opentelemetry-collector:4317). The otel
+                                   # collector is its own de-vcluster'd host ns; without its own
+                                   # default-deny it was un-policied/wide-open (Refs #4325).
+      - catalyst-system            # catalyst-api + app workloads may emit OTLP to the collector
+  - namespace: alloy               # node telemetry shipper (DaemonSet, no public route)
+    gatewayIngress: false
+    allowIngressFrom: []           # alloy is a pure SOURCE (tails node logs, pushes to loki/
+                                   # mimir/tempo/otel) — nothing dials INTO it. Default-deny
+                                   # ingress + same-ns + flux is correct; it gets its own
+                                   # default-deny so the alloy plane is segmented post-#4325.
   # ── rtz-tier shared platform components ────────────────────────────────
   - namespace: valkey              # shared cache (no public route)
     gatewayIngress: false
@@ -124,6 +161,9 @@ components:
       - velero                     # cluster backup target
       - guacamole                  # session recordings; cnpg barman backups
       - catalyst-system            # cnpg barman backups, showback
+      - sandbox                    # per-Sandbox MCP S3 object storage (platform/sandbox
+                                   # SANDBOX_MCP storage endpoint → seaweedfs S3, default-off
+                                   # overlay). De-vcluster'd sandbox host ns (Refs #4325).
   - namespace: vllm                # LLM inference (no public route; newapi channel)
     gatewayIngress: false
     allowIngressFrom:
@@ -132,6 +172,16 @@ components:
     gatewayIngress: false          # per-Sandbox pty/MCP routes are per-Sandbox, not this ns
     allowIngressFrom:
       - catalyst-system            # catalyst-api dispatches Sandbox CRs to the controller
+  - namespace: oidc-gate           # host auth proxy (oauth2-proxy) fronting gateway routes
+    gatewayIngress: true           # the cilium gateway forwards protected hosts THROUGH oidc-gate
+                                   # before the upstream app; the proxy receives the reserved
+                                   # `ingress` entity (slot 13c-bp-oidc-gate). Without its own
+                                   # gateway-ingress CNP every protected route is dropped at the
+                                   # proxy → 000/503 (the #2940 wedge class). De-vcluster'd own ns.
+    allowIngressFrom: []           # oidc-gate is reached ONLY via the gateway (the gatewayIngress
+                                   # CNP admits the ingress entity); no in-cluster peer dials it.
+                                   # It egresses to keycloak (backchannel OIDC) + its upstream app
+                                   # — both covered by the open egress rule (Refs #4325).
   # ── dmz-tier platform component ────────────────────────────────────────
   - namespace: coraza              # WAF (sits on the public ingress path)
     gatewayIngress: true           # the gateway proxies through coraza (ext_authz)
