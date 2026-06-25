@@ -792,27 +792,60 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	var resolvedTopoChoice bpv1alpha1.BcpTopology
 	var resolvedTopoVariant *bpv1alpha1.TopologyVariant
 	var continuumOwnerLabels map[string]string
-	if bpTopo != nil {
+	// #3969 §8c/§8d — the fan-out HR render now derives from the canonical
+	// desired-state placement (`spec.placement.targets[]`) when it is
+	// declared. The targets carry their own cluster IDs + Primary|Standby
+	// roles, so we synthesize the fan-out variant straight from them
+	// (placementVariantFromTargets) and feed the SAME proven render.FanoutHRs
+	// path — the per-region HelmReleases now FOLLOW the desired-state
+	// placement (provision-write / switchover / singleton→multi). The legacy
+	// `Blueprint.spec.topology` → ResolveTopology path is the FALLBACK only
+	// when no targets are declared (every pre-#3969 Application + the spine
+	// producer that still stamps the legacy posture string). No new logic is
+	// written against `Mode`/`BcpTopology` (§8d).
+	fanoutFromTargets := len(spec.PlacementTargets) > 0
+	if bpTopo != nil || fanoutFromTargets {
 		appTopo := spec.Topology
 		sovRegions := len(envSpec.Regions)
-		choice, variant, terr := topo.ResolveTopology(appTopo, bpTopo, sovRegions)
-		if terr != nil {
-			r.Log.Warn("topology resolution failed",
+		var (
+			choice  bpv1alpha1.BcpTopology
+			variant *bpv1alpha1.TopologyVariant
+		)
+		if fanoutFromTargets {
+			// §8c — desired-state targets drive the render. The capability
+			// gate already ran above (step 5.1); here we only map the
+			// targets onto the renderer's (choice, variant) inputs.
+			capability := blueprintPlacementCapability(bp)
+			choice, variant = placementVariantFromTargets(spec.PlacementTargets, capability)
+			r.Log.Info("placement targets resolved (desired-state fan-out)",
 				"app", app.GetName(),
 				"blueprint", spec.BlueprintName,
-				"appTopology", appTopo,
+				"choice", choice,
+				"targets", len(spec.PlacementTargets),
+				"clusters", placementClusters(variant))
+		} else {
+			// Legacy fallback — no desired-state targets; resolve the
+			// per-Application topology choice off `Blueprint.spec.topology`.
+			c, v, terr := topo.ResolveTopology(appTopo, bpTopo, sovRegions)
+			if terr != nil {
+				r.Log.Warn("topology resolution failed",
+					"app", app.GetName(),
+					"blueprint", spec.BlueprintName,
+					"appTopology", appTopo,
+					"sovereignRegions", sovRegions,
+					"err", terr)
+				// G117.6 acceptance: InvalidTopology must surface as
+				// Ready=False, reason=InvalidTopology, phase=Failed.
+				return r.markFailed(ctx, app, ReasonInvalidTopology, terr.Error())
+			}
+			choice, variant = c, v
+			r.Log.Info("topology resolved",
+				"app", app.GetName(),
+				"blueprint", spec.BlueprintName,
+				"choice", choice,
 				"sovereignRegions", sovRegions,
-				"err", terr)
-			// G117.6 acceptance: InvalidTopology must surface as
-			// Ready=False, reason=InvalidTopology, phase=Failed.
-			return r.markFailed(ctx, app, ReasonInvalidTopology, terr.Error())
+				"clusters", placementClusters(variant))
 		}
-		r.Log.Info("topology resolved",
-			"app", app.GetName(),
-			"blueprint", spec.BlueprintName,
-			"choice", choice,
-			"sovereignRegions", sovRegions,
-			"clusters", placementClusters(variant))
 
 		// #3375 DoD-3 — remember the resolved topology so the per-app
 		// Continuum CR producer (after placement.Resolve below) can mint

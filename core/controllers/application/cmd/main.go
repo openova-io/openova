@@ -154,6 +154,13 @@ func main() {
 	// per-Sovereign deployment of a new CRD version.
 	go runProbes(ctx, metricsAddr, probeAddr, logger)
 
+	// #3969 — the placement ValidatingWebhook. Disabled unless
+	// PLACEMENT_WEBHOOK_ADDR is set, so this is byte-additive for existing
+	// deployments. When enabled it rejects an invalid desired-state placement
+	// (multi-primary on a primary+standby Blueprint, etc.) synchronously at
+	// admission rather than silently at reconcile.
+	maybeRunPlacementWebhook(ctx, dyn, logger)
+
 	if err := r.Run(ctx); err != nil && ctx.Err() == nil {
 		logger.Error("controller exited", "err", err)
 		os.Exit(1)
