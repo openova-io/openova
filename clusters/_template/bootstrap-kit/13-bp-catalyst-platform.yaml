@@ -1153,7 +1153,7 @@ spec:
       #   lands zero-touch so the provisioning service clears Init:0/1 on a fresh
       #   prov and every Org can render its vcluster/apps. Guard test extended.
       #   Lockstep w/ Chart.yaml. Refs #4447.
-      version: 1.4.890
+      version: 1.4.891
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
