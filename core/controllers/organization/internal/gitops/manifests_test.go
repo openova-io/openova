@@ -24,7 +24,8 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	}
 	// #4292: the paid-tier set is namespace + vcluster + resourcequota +
 	// limitrange + kustomization + the apps-tree networkpolicy baseline +
-	// (#4293 MAJOR-2) the apps-tree kustomization index.
+	// (#4293 MAJOR-2) the apps-tree kustomization index + (#4475 §1) the
+	// host-apps-tree CNP + its kustomization index.
 	wantPaths := []string{
 		"vcluster/namespace.yaml",
 		"vcluster/vcluster.yaml",
@@ -33,6 +34,8 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 		"vcluster/kustomization.yaml",
 		"vcluster/apps/networkpolicy.yaml",
 		"vcluster/apps/kustomization.yaml",
+		"vcluster/host-apps/ciliumnetworkpolicy.yaml",
+		"vcluster/host-apps/kustomization.yaml",
 	}
 	for _, p := range wantPaths {
 		if _, ok := out[p]; !ok {
@@ -299,36 +302,38 @@ func TestRender_NetworkPolicyBaselineInAppsTree(t *testing.T) {
 }
 
 // TestRender_CiliumNetworkPolicyReservedEntities proves the MANDATORY CNP
-// companion renders into the SAME apps tree as the K8s NP (so it lands on the
-// boundary the keystone #4299 installs the Org's real workloads onto — INSIDE
-// the vcluster for the paid tier, the host `<slug>` ns for free/S — never an
-// empty host shell), and that it admits the reserved entities a plain K8s
-// NetworkPolicy cannot express: `ingress`/`host`/`remote-node` (so the Org's
+// companion renders into the HOST-applied host-apps/ tree (#4475 §1) — NOT the
+// syncer-reflected apps/ tree, because a CiliumNetworkPolicy cannot apply into a
+// CRD-less vcluster apiserver — and that it admits the reserved entities a plain
+// K8s NetworkPolicy cannot express: `ingress`/`host`/`remote-node` (so the Org's
 // Application behind its Cilium-Gateway HTTPRoute is reachable, not 503) and
 // `kube-apiserver` egress (so an in-vcluster Org pod can reach the cluster API).
 func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
 	t.Parallel()
 	// Both a paid (vcluster) tier and the free/host tier must carry the CNP in
-	// the apps tree — it must bind the real workloads wherever they land.
+	// the host-apps tree — it binds the host `<slug>` ns endpoints (the Org's own
+	// pods for the host tier; the syncer-reflected vcluster pods for the paid
+	// tier) for every tier identically.
 	for _, slug := range []string{"m", "s"} {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
 			PlanSlug: slug, SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
 		if err != nil {
 			t.Fatalf("Render(%s): %v", slug, err)
 		}
-		// It must live in the apps/ tree — the path the per-Org apps Flux
-		// Kustomization (per_org_flux.go) reconciles INTO the vcluster (paid
-		// tier, via spec.kubeConfig) / the host `<slug>` ns (free tier). It must
-		// NOT be in the boundary kustomization (./vcluster, host-applied).
-		cnp, ok := out["vcluster/apps/ciliumnetworkpolicy.yaml"]
+		// It must live in the host-apps/ tree — the path the per-Org host-apps
+		// Flux Kustomization (per_org_flux.go) reconciles ALWAYS host-side onto the
+		// `<slug>` ns. It must NOT be in the apps/ tree (which the vcluster tier
+		// routes through the CRD-less vcluster apiserver via kubeConfig), nor in
+		// the boundary kustomization (./vcluster, host-applied empty shell).
+		cnp, ok := out["vcluster/host-apps/ciliumnetworkpolicy.yaml"]
 		if !ok {
-			t.Fatalf("plan %s: missing vcluster/apps/ciliumnetworkpolicy.yaml — the K8s default-deny would silently 503 the Org's app behind the Cilium Gateway", slug)
+			t.Fatalf("plan %s: missing vcluster/host-apps/ciliumnetworkpolicy.yaml — the K8s default-deny would silently 503 the Org's app behind the Cilium Gateway", slug)
 		}
 		s := string(cnp)
 		for _, want := range []string{
 			"kind: CiliumNetworkPolicy",
 			"apiVersion: cilium.io/v2",
-			"namespace: apps", // the apps NS the syncer rewrites → host <slug> ns
+			"namespace: apps", // the apps NS the host-apps Kustomization rewrites → host <slug> ns
 			"endpointSelector: {}",
 			"fromEntities:",
 			"- ingress",
@@ -352,20 +357,30 @@ func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
 		if err := yaml.Unmarshal(cnp, &v); err != nil {
 			t.Errorf("plan %s ciliumnetworkpolicy.yaml invalid YAML: %v\n%s", slug, err, s)
 		}
-		// The apps kustomization index must enumerate the CNP so
-		// `kustomize build ./vcluster/apps` applies it deterministically.
+		// #4475 §1: the CNP must NOT be in the apps/ tree (it would be routed into
+		// the CRD-less vcluster apiserver for the paid tier and wedge the tree).
+		if _, leaked := out["vcluster/apps/ciliumnetworkpolicy.yaml"]; leaked {
+			t.Errorf("plan %s: CNP leaked into vcluster/apps/ — for the vcluster tier that wedges the kubeConfig-targeted Kustomization (no cilium.io/v2 CRD in the vcluster). It must live in host-apps/", slug)
+		}
 		appsKz := string(out["vcluster/apps/kustomization.yaml"])
-		for _, want := range []string{"- networkpolicy.yaml", "- ciliumnetworkpolicy.yaml"} {
-			if !strings.Contains(appsKz, want) {
-				t.Errorf("plan %s apps/kustomization.yaml missing %q\n%s", slug, want, appsKz)
-			}
+		if strings.Contains(appsKz, "ciliumnetworkpolicy.yaml") {
+			t.Errorf("plan %s: apps/kustomization.yaml must NOT enumerate the CNP — it lives in host-apps/\n%s", slug, appsKz)
+		}
+		if !strings.Contains(appsKz, "- networkpolicy.yaml") {
+			t.Errorf("plan %s apps/kustomization.yaml missing the K8s NetworkPolicy\n%s", slug, appsKz)
+		}
+		// The host-apps kustomization index must enumerate the CNP so
+		// `kustomize build ./vcluster/host-apps` applies it deterministically.
+		hostAppsKz := string(out["vcluster/host-apps/kustomization.yaml"])
+		if !strings.Contains(hostAppsKz, "- ciliumnetworkpolicy.yaml") {
+			t.Errorf("plan %s host-apps/kustomization.yaml missing the CNP\n%s", slug, hostAppsKz)
 		}
 		// Anti-theater guard: the CNP must NOT be in the host-applied boundary
 		// kustomization (./vcluster) — that would apply it to the empty host
 		// shell, not the workload boundary.
 		boundaryKz := string(out["vcluster/kustomization.yaml"])
 		if strings.Contains(boundaryKz, "ciliumnetworkpolicy.yaml") {
-			t.Errorf("plan %s: CNP leaked into the boundary kustomization (host shell) — it must live in the apps tree (workload boundary)\n%s", slug, boundaryKz)
+			t.Errorf("plan %s: CNP leaked into the boundary kustomization (host shell) — it must live in the host-apps tree (workload boundary)\n%s", slug, boundaryKz)
 		}
 	}
 }

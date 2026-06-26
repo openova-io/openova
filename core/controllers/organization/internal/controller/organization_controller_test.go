@@ -506,8 +506,8 @@ func TestReconcile_HappyPath(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 gitea repo create, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 8 {
-		t.Errorf("expected 8 gitea file creates (namespace, vcluster, resourcequota, limitrange, kustomization, apps/networkpolicy, apps/ciliumnetworkpolicy, apps/kustomization), got %d", gs.createFiles)
+	if gs.createFiles != 9 {
+		t.Errorf("expected 9 gitea file creates (namespace, vcluster, resourcequota, limitrange, kustomization, apps/networkpolicy, apps/kustomization, host-apps/ciliumnetworkpolicy, host-apps/kustomization), got %d", gs.createFiles)
 	}
 	if gs.updateFiles != 0 {
 		t.Errorf("expected 0 file updates on first reconcile, got %d", gs.updateFiles)
@@ -726,8 +726,8 @@ func TestReconcile_GiteaOrgAlreadyExists(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 repo create even with pre-existing org, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 8 {
-		t.Errorf("expected 8 file creates even with pre-existing org, got %d", gs.createFiles)
+	if gs.createFiles != 9 {
+		t.Errorf("expected 9 file creates even with pre-existing org, got %d", gs.createFiles)
 	}
 }
 

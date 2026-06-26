@@ -384,6 +384,84 @@ func TestReconcilePerOrgFlux_AppsKustomization_HostTier(t *testing.T) {
 	}
 }
 
+// TestReconcilePerOrgFlux_HostAppsKustomization_AlwaysHostSide is the #4475 §1
+// lock. The reserved-entity CiliumNetworkPolicy (vcluster/host-apps/) CANNOT
+// apply into a CRD-less vcluster apiserver — so the org-controller authors a
+// THIRD Kustomization `catalyst-tenant-<slug>-host-apps` over ./vcluster/host-apps
+// that ALWAYS applies host-side (NO kubeConfig) for EVERY tier, targeting the
+// host `<slug>` ns. For the vcluster tier this is the fix: without it the CNP in
+// the kubeConfig-targeted apps tree wedged the whole tree.
+func TestReconcilePerOrgFlux_HostAppsKustomization_AlwaysHostSide(t *testing.T) {
+	// Both a paid (vcluster) tier and a free/host tier must get the host-apps
+	// Kustomization, and NEITHER may carry a kubeConfig.
+	for _, plan := range []string{"m", "s", "free", ""} {
+		t.Run("plan="+plan, func(t *testing.T) {
+			const slug = "acme"
+			cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
+			r := &Reconciler{
+				Log:                logr.Discard(),
+				GiteaInClusterURL:  "http://gitea-http.gitea.svc.cluster.local:3000",
+				FluxGiteaSecretRef: "openova-org-tenants-git-auth",
+			}
+			r.Client = cl
+			if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, plan)); err != nil {
+				t.Fatalf("reconcilePerOrgFlux: %v", err)
+			}
+			ks := getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgHostAppsKustomizationName(slug))
+
+			if path, _, _ := unstructured.NestedString(ks.Object, "spec", "path"); path != "./vcluster/host-apps" {
+				t.Errorf("host-apps Kustomization spec.path = %q, want ./vcluster/host-apps", path)
+			}
+			if tns, _, _ := unstructured.NestedString(ks.Object, "spec", "targetNamespace"); tns != slug {
+				t.Errorf("host-apps Kustomization spec.targetNamespace = %q, want %q", tns, slug)
+			}
+			// CRITICAL (#4475 §1): the host-apps Kustomization must NEVER carry a
+			// kubeConfig — the CNP can only apply where Cilium's CRD lives (the
+			// host), regardless of tier. A kubeConfig would route it into the
+			// CRD-less vcluster apiserver and wedge.
+			if _, found, _ := unstructured.NestedMap(ks.Object, "spec", "kubeConfig"); found {
+				t.Errorf("host-apps Kustomization (plan=%q) MUST NOT carry kubeConfig — the CNP must apply host-side where Cilium's CRD lives", plan)
+			}
+			if prune, _, _ := unstructured.NestedBool(ks.Object, "spec", "prune"); !prune {
+				t.Errorf("host-apps Kustomization spec.prune must be true")
+			}
+		})
+	}
+}
+
+// TestReconcilePerOrgFlux_AppsKustomization_NoCNPInVclusterTree is the companion
+// #4475 §1 guard: the vcluster-tier apps Kustomization (kubeConfig-targeted into
+// the vcluster apiserver) reconciles ./vcluster/apps — which must carry ONLY the
+// syncable K8s NetworkPolicy, NOT the CNP. (Path-level separation; the gitops
+// render test proves the CNP file lives under host-apps/.)
+func TestReconcilePerOrgFlux_AppsKustomization_NoCNPInVclusterTree(t *testing.T) {
+	const slug = "acme"
+	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
+	r := &Reconciler{
+		Log:                logr.Discard(),
+		GiteaInClusterURL:  "http://gitea-http.gitea.svc.cluster.local:3000",
+		FluxGiteaSecretRef: "openova-org-tenants-git-auth",
+	}
+	r.Client = cl
+	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, "m")); err != nil {
+		t.Fatalf("reconcilePerOrgFlux: %v", err)
+	}
+	// The vcluster-tier apps Kustomization (kubeConfig) reconciles ./vcluster/apps.
+	apps := getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgAppsKustomizationName(slug))
+	if path, _, _ := unstructured.NestedString(apps.Object, "spec", "path"); path != "./vcluster/apps" {
+		t.Errorf("apps Kustomization spec.path = %q, want ./vcluster/apps", path)
+	}
+	if _, found, _ := unstructured.NestedMap(apps.Object, "spec", "kubeConfig"); !found {
+		t.Errorf("vcluster-tier apps Kustomization MUST carry kubeConfig (syncs the K8s NP through the vcluster apiserver)")
+	}
+	// The host-apps Kustomization (./vcluster/host-apps) is the distinct host-side
+	// reconciler for the CNP.
+	host := getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgHostAppsKustomizationName(slug))
+	if path, _, _ := unstructured.NestedString(host.Object, "spec", "path"); path != "./vcluster/host-apps" {
+		t.Errorf("host-apps Kustomization spec.path = %q, want ./vcluster/host-apps", path)
+	}
+}
+
 // TestTeardownPerOrgFlux_DeletesAppsKustomization — the apps Kustomization must
 // be torn down with the rest of the per-Org Flux loop (#4293 MAJOR-2).
 func TestTeardownPerOrgFlux_DeletesAppsKustomization(t *testing.T) {
@@ -411,5 +489,11 @@ func TestTeardownPerOrgFlux_DeletesAppsKustomization(t *testing.T) {
 	ks.SetGroupVersionKind(fluxKustomizationGVK)
 	if err := cl.Get(ctx, client.ObjectKey{Namespace: "flux-system", Name: perOrgAppsKustomizationName(slug)}, ks); err == nil {
 		t.Errorf("apps Kustomization must be deleted after teardown")
+	}
+	// #4475 §1: the host-apps Kustomization must also be torn down.
+	hostKS := &unstructured.Unstructured{}
+	hostKS.SetGroupVersionKind(fluxKustomizationGVK)
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: "flux-system", Name: perOrgHostAppsKustomizationName(slug)}, hostKS); err == nil {
+		t.Errorf("host-apps Kustomization must be deleted after teardown")
 	}
 }

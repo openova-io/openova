@@ -13,11 +13,12 @@ import (
 
 // #4384 — the org-controller must NOT clobber `vcluster/apps/kustomization.yaml`
 // once it exists. The funnel/day-2 cart install read-modify-writes that index
-// to enumerate the customer's purchased Applications (alongside the NP/CNP
-// boundary baseline). If a subsequent org reconcile overwrote it with its
-// baseline-only list, Flux's `kustomize build ./vcluster/apps` would drop the
-// customer's apps and the wordpress HelmRelease would never land. So the
-// controller SEEDS the index once and never overwrites it.
+// to enumerate the customer's purchased Applications (alongside the K8s NP
+// boundary baseline; the CNP lives in the separate host-apps/ tree per #4475 §1).
+// If a subsequent org reconcile overwrote it with its baseline-only list, Flux's
+// `kustomize build ./vcluster/apps` would drop the customer's apps and the
+// wordpress HelmRelease would never land. So the controller SEEDS the index once
+// and never overwrites it.
 func TestReconcile_AppsKustomization_SeedOnly_NotClobbered_4384(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
@@ -41,11 +42,12 @@ func TestReconcile_AppsKustomization_SeedOnly_NotClobbered_4384(t *testing.T) {
 
 	// Simulate the funnel cart install merging the customer's wordpress app
 	// into the index (the read-modify-write the provisioning service does).
+	// The CNP is NOT in this tree (#4475 §1 — it lives in host-apps/); the funnel
+	// merges app manifests alongside the K8s NP baseline only.
 	merged := `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - app-wordpress.yaml
-  - ciliumnetworkpolicy.yaml
   - db-mysql.yaml
   - networkpolicy.yaml
 `
@@ -63,7 +65,7 @@ resources:
 	if !strings.Contains(after, "app-wordpress.yaml") {
 		t.Errorf("regression: org-controller CLOBBERED the funnel-merged apps kustomization — wordpress dropped:\n%s", after)
 	}
-	for _, want := range []string{"networkpolicy.yaml", "ciliumnetworkpolicy.yaml", "db-mysql.yaml"} {
+	for _, want := range []string{"networkpolicy.yaml", "db-mysql.yaml"} {
 		if !strings.Contains(after, want) {
 			t.Errorf("apps kustomization lost %q after reconcile:\n%s", want, after)
 		}

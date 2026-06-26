@@ -125,6 +125,18 @@ func perOrgAppsKustomizationName(slug string) string {
 	return fmt.Sprintf("catalyst-tenant-%s-apps", slug)
 }
 
+// perOrgHostAppsKustomizationName is the #4475 §1 THIRD Kustomization that
+// reconciles the per-Org Gitea repo's `./vcluster/host-apps` tree (today: the
+// reserved-entity CiliumNetworkPolicy) ALWAYS host-side onto the `<slug>` ns.
+// Unlike the `-apps` Kustomization above it NEVER carries spec.kubeConfig: a
+// CiliumNetworkPolicy cannot be applied into a vanilla vcluster apiserver (no
+// cilium.io/v2 CRD → kustomize dry-run rejection wedges the whole tree). It must
+// land on the HOST `<slug>` ns where Cilium's CRD lives, the syncer reflects the
+// Org's vcluster pods, and the host-tier Org's own pods already run.
+func perOrgHostAppsKustomizationName(slug string) string {
+	return fmt.Sprintf("catalyst-tenant-%s-host-apps", slug)
+}
+
 // perOrgKubeconfigSecretName is the flux-system Secret the provisioning workflow
 // mirrors the per-Org vcluster's exported kubeconfig into (after the vcluster HR
 // goes Ready). The apps Kustomization references it via spec.kubeConfig for the
@@ -310,11 +322,59 @@ func (r *Reconciler) reconcilePerOrgFlux(ctx context.Context, org *orgapi.Organi
 		return fmt.Errorf("upsert per-Org apps Kustomization %s/%s: %w", ns, appsKustomizationName, err)
 	}
 
+	// --- Host-apps Kustomization (./vcluster/host-apps → the HOST `<slug>` ns) ---
+	// #4475 §1. The reserved-entity CiliumNetworkPolicy (gateway ingress +
+	// apiserver egress) renders into ./vcluster/host-apps, a tree DISTINCT from
+	// ./vcluster/apps. The `-apps` Kustomization routes its tree THROUGH the
+	// vcluster apiserver (spec.kubeConfig) for the vcluster tier — but a CNP
+	// CANNOT apply there: a vanilla vcluster has no cilium.io/v2 CRD, so the
+	// kustomize-controller dry-run rejects it ("no matches for kind
+	// CiliumNetworkPolicy") and WEDGES the entire apps tree for an M+ tier Org
+	// (the K8s NPs and every day-2 Application install go down with it). A CNP is
+	// also not a syncable workload object. This THIRD Kustomization reconciles the
+	// host-apps tree ALWAYS host-side (NO kubeConfig, for EVERY tier) onto the
+	// `<slug>` ns — where Cilium's CRD lives, where the syncer reflects the Org's
+	// vcluster pods (so endpointSelector:{} binds the reflected endpoints), and
+	// where the host-tier Org's own pods already run. targetNamespace rewrites the
+	// CNP's authored `apps` ns → `<slug>` on apply, matching the org-controller
+	// boundary ns.
+	hostAppsKustomizationName := perOrgHostAppsKustomizationName(slug)
+	hostAppsKS := &unstructured.Unstructured{}
+	hostAppsKS.SetGroupVersionKind(fluxKustomizationGVK)
+	hostAppsKS.SetNamespace(ns)
+	hostAppsKS.SetName(hostAppsKustomizationName)
+	hostAppsLabels := copyLabels(labels)
+	hostAppsLabels["catalyst.openova.io/component"] = "per-org-host-apps-reconciler"
+	if err := unstructured.SetNestedMap(hostAppsKS.Object, hostAppsLabels, "metadata", "labels"); err != nil {
+		return fmt.Errorf("set host-apps Kustomization labels: %w", err)
+	}
+	hostAppsKSSpec := map[string]any{
+		"interval":        fmt.Sprintf("%ds", interval),
+		"retryInterval":   fmt.Sprintf("%ds", interval),
+		"path":            "./vcluster/host-apps",
+		"prune":           true,
+		"targetNamespace": slug,
+		// NO kubeConfig — host-side for EVERY tier (the CNP can only apply where
+		// Cilium's CRD lives, #4475 §1). Deliberately tier-INDEPENDENT.
+		"sourceRef": map[string]any{
+			"kind":      "GitRepository",
+			"name":      gitRepoName,
+			"namespace": ns,
+		},
+	}
+	if err := unstructured.SetNestedMap(hostAppsKS.Object, hostAppsKSSpec, "spec"); err != nil {
+		return fmt.Errorf("set host-apps Kustomization spec: %w", err)
+	}
+	if err := r.upsertFluxResource(ctx, ns, hostAppsKustomizationName, hostAppsKS); err != nil {
+		return fmt.Errorf("upsert per-Org host-apps Kustomization %s/%s: %w", ns, hostAppsKustomizationName, err)
+	}
+
 	r.Log.Info("reconciled per-Org vCluster Flux loop",
 		"organization", slug,
 		"git_repository", fmt.Sprintf("%s/%s", ns, gitRepoName),
 		"kustomization", fmt.Sprintf("%s/%s", ns, kustomizationName),
 		"apps_kustomization", fmt.Sprintf("%s/%s", ns, appsKustomizationName),
+		"host_apps_kustomization", fmt.Sprintf("%s/%s", ns, hostAppsKustomizationName),
 		"apps_boundary_vcluster", gitops.BoundaryIsVcluster(org.Spec.PlanSlug),
 		"url", repoURL,
 		"branch", branch)
@@ -340,17 +400,19 @@ func (r *Reconciler) teardownPerOrgFlux(ctx context.Context, org *orgapi.Organiz
 	}
 	gitRepoName, kustomizationName := perOrgFluxNames(slug)
 	appsKustomizationName := perOrgAppsKustomizationName(slug)
+	hostAppsKustomizationName := perOrgHostAppsKustomizationName(slug)
 
 	// Delete the Kustomizations first so Flux stops reconciling the trees
 	// before the source disappears (avoids a transient source-not-found
 	// error on the Kustomization's last reconcile). prune:true means the
-	// vCluster Namespace + HR (and the apps NP) are GC'd by Flux as the
-	// Kustomizations are removed. The apps Kustomization is removed before the
-	// vcluster one + the source (#4293 MAJOR-2).
+	// vCluster Namespace + HR (and the apps NP + host-apps CNP) are GC'd by Flux
+	// as the Kustomizations are removed. The apps + host-apps Kustomizations are
+	// removed before the vcluster one + the source (#4293 MAJOR-2 / #4475 §1).
 	for _, target := range []struct {
 		gvk  schema.GroupVersionKind
 		name string
 	}{
+		{fluxKustomizationGVK, hostAppsKustomizationName},
 		{fluxKustomizationGVK, appsKustomizationName},
 		{fluxKustomizationGVK, kustomizationName},
 		{fluxGitRepositoryGVK, gitRepoName},
