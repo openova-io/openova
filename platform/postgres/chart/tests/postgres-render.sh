@@ -275,7 +275,7 @@ helm template shared-pg . -f "$TMP/xr.values.yaml" --namespace shared-data \
 grep -qE '^  name: shared-pg-replica$' "$TMP/xr-replica.yaml" || fail "crossRegion=true + side=secondary did NOT render the follower Cluster"
 
 # ── Case 5: singleton → byte-identical (NO sync, NO mesh, NO netpol) ──────
-echo "[render] Case 5: singleton → no synchronous block, no -mesh Service, no NetworkPolicy"
+echo "[render] Case 5: singleton → no synchronous block, no -mesh Service, only the CNPG-operator status-probe NetworkPolicy (no AHS replication carve-out)"
 if grep -q 'synchronous_commit' "$TMP/shared.yaml"; then
   fail "singleton render leaked synchronous_commit"
 fi
@@ -298,9 +298,17 @@ grep -q 'host: "shared-pg-rw.shared-data.svc.cluster.local"' "$TMP/shared.yaml" 
 if grep -q 'service.cilium.io/global' "$TMP/shared.yaml"; then
   fail "singleton render leaked the ClusterMesh global annotation (active-hot-standby only)"
 fi
-if grep -qE '^kind: NetworkPolicy$' "$TMP/shared.yaml"; then
-  fail "singleton render leaked a NetworkPolicy (active-hot-standby only)"
+# #4282/#4403: singleton MUST NOT leak the active-hot-standby replication
+# carve-outs, BUT it MUST render the CNPG-operator status-probe NetworkPolicy
+# (networkpolicy-singleton-operator-probe.yaml) — #4398 lands a per-Org
+# singleton Cluster host-side into a default-deny per-Org namespace where the
+# cross-namespace cnpg-system operator probe would otherwise be denied (the
+# Cluster stalls Ready=False at "Instance Status Extraction Error").
+if grep -qE 'allow-replication-to-(primary|replica)' "$TMP/shared.yaml"; then
+  fail "singleton render leaked an AHS replication NetworkPolicy (active-hot-standby only)"
 fi
+grep -qE '^  name: shared-pg-allow-cnpg-operator-probe$' "$TMP/shared.yaml" \
+  || fail "#4282: singleton render missing the CNPG-operator status-probe NetworkPolicy"
 if grep -qE '^kind: Cluster$' "$TMP/shared.yaml" && grep -qE '^  name: shared-pg-replica$' "$TMP/shared.yaml"; then
   fail "singleton render leaked a replica follower Cluster"
 fi
