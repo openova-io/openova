@@ -8,6 +8,22 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.12 -> 0.5.13 (#4111): default `imagePullSecrets` to `[{name: ghcr-pull}]`
+# so EVERY image-pulling Pod (the seed-claude-creds init container AND the
+# chepherd main container) references the reflected ghcr-pull dockerconfigjson
+# Secret. The agenity image is a PRIVATE ghcr.io/openova-io/* package, so an
+# anonymous pull 401s. The Sovereign emberstack-reflector already reflects
+# `ghcr-pull` into every per-Org `org-*`/pool namespace, but a reflected Secret
+# is INERT unless the Pod spec references it — with the prior empty default the
+# StatefulSet rendered `imagePullSecrets: []` and the Pod wedged at
+# Init:ImagePullBackOff on a fresh Org (live root-cause on the omantel.biz demo
+# Org `uatwalk91` namespace 2026-06-27: pod agenity-rtz-a-bp-agenity-0 0/1
+# Init:ImagePullBackOff with ghcr-pull PRESENT in the ns — the missing piece was
+# the pod-spec reference, exactly the reflected-secret-is-inert trap). The
+# per-Org install pins `*` so this re-reconciles live via Flux; no fresh prov
+# needed for the chart-level half. Values-only change; chart templates already
+# render `{{- with .Values.imagePullSecrets }}` (no template edit). appVersion
+# (dashboard image) stays 0.9.7 — image bytes UNCHANGED.
 # 0.5.11 -> 0.5.12 (#4362, #4325 fallout): declare manifests.helmRelease.
 # disableWait=true so the application-controller stamps install.disableWait +
 # upgrade.disableWait on the rendered HR. The large agenity image (appVersion
@@ -108,7 +124,7 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.12
+version: 0.5.13
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752
