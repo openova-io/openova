@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T11:30:06Z` |
+| Last refreshed | `2026-06-26T11:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T11:32 | [#4456](https://github.com/openova-io/openova/pull/4456) | #4452 | fix(bp-catalyst): provisioning-github-token-sync RBAC ordere |
 | 2026-06-26T11:21 | [#4453](https://github.com/openova-io/openova/pull/4453) | #4114 | fix(catalyst-api #4450): preserve mothership-injected handov |
 | 2026-06-26T11:14 | [#4452](https://github.com/openova-io/openova/pull/4452) | #4447 | fix(bp-catalyst): gitea-flux-auth-sync RBAC ordered before t |
 | 2026-06-26T10:59 | [#4449](https://github.com/openova-io/openova/pull/4449) | #4325 | fix(bp-plane-isolation #4448): add sso-bridge to openbao all |
@@ -256,7 +257,6 @@ flowchart LR
 | 2026-06-25T22:50 | [#4400](https://github.com/openova-io/openova/pull/4400) | #4307 | fix(bp-stalwart-tenant): bundle SnappyMail webmail SPA so ma |
 | 2026-06-25T22:47 | [#4399](https://github.com/openova-io/openova/pull/4399) | #4272 | fix(provisioning,bp-openclaw): resolvable shared-realm OIDC  |
 | 2026-06-25T22:15 | [#4398](https://github.com/openova-io/openova/pull/4398) | #4282 | fix(application-controller): route per-Org CNPG Blueprint Cl |
-| 2026-06-25T21:51 | [#4397](https://github.com/openova-io/openova/pull/4397) | #4307 | fix(bp-openclaw,bp-stalwart-tenant): self-gen per-Org OIDC c |
 
 ---
 
