@@ -87,7 +87,7 @@ spec:
       # vc-mgmt as the syncer-mangled host object (no fromHost mirror → no
       # vcluster-0.23.0 deadlock, no missing GF_DATABASE_* env). Lockstep with
       # 16a/16d. Refs #3876 #3374 #3737.
-      version: 0.2.6
+      version: 0.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

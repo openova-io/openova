@@ -75,7 +75,7 @@ spec:
       # the 4 vc-mgmt-homed deadlock apps; newapi keeps its `newapi/*` fromHost
       # wildcard per #3876), so this slot renders byte-identical to 0.2.2 on the
       # additive chart. Lockstep with 16a/16c. Refs #3876 #3374 #3737.
-      version: 0.2.6
+      version: 0.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
