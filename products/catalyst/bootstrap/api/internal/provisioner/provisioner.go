@@ -74,6 +74,24 @@ type vpcQuotaFunc func(ctx context.Context, accessKey, secretKey, projectID, reg
 // before tofu init for provider == "huawei".
 var VPCQuotaHook vpcQuotaFunc
 
+// #4431 — pluggable hook for reclaiming orphaned VPC quota in-band on a
+// fresh prov. When the VPC pre-flight finds the project at/over its (un-
+// raisable) HCS quota, the cause is almost always catalyst-* VPCs leaked
+// by a prior wipe whose teardown lagged — NOT genuine concurrent demand
+// (a 2-region prov needs only 2 VPCs and the project cap is 5). Rather
+// than hard-fail the operator with "wipe an existing Sovereign" (the
+// exact back-and-forth #4431 removes), the pre-flight calls this hook to
+// reclaim the operator's own reclaimable orphan VPCs, then re-reads the
+// quota. activeDepIDPrefixes protects in-flight provs; this prov's own
+// (not-yet-created) deployment ID is included so the hook never touches
+// a sibling live prov. Returns the count reclaimed. Same decoupling
+// rationale as VPCQuotaHook — the huawei adapter registers it at init().
+type vpcReclaimFunc func(ctx context.Context, accessKey, secretKey, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error)
+
+// VPCReclaimHook is the registration point. nil by default — only the
+// huawei adapter's init() sets it (→ SweepOrphanVPCs).
+var VPCReclaimHook vpcReclaimFunc
+
 // ParentDomain is one entry in Request.ParentDomains — a registered
 // parent zone the Sovereign-side PowerDNS becomes authoritative for
 // after NS-flip lands at the registrar.
@@ -1815,18 +1833,29 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		return nil, fmt.Errorf("write tfvars: %w", err)
 	}
 
-	// G68 #2617: HCS VPC quota pre-flight. The HCS project has a hard cap
-	// on VPCs per project (default 5). A multi-region prov requests one
-	// VPC per region; if the project is at-or-near the cap from prior
-	// failed wipes, `tofu apply` fails mid-run after Phase 0 has already
-	// allocated CP + EIPs + SGs (~3 min sunk cost). Pre-flight the quota
-	// here so the wizard surfaces a clear error immediately and the
-	// operator can wipe an old prov before retrying.
+	// G68 #2617 + #4431: HCS VPC quota pre-flight. The HCS project has a
+	// hard cap on VPCs per project (Kom4DC me-east-215 default 5; the
+	// raise endpoint is NOT tenant-facing — GET-only, PUT/POST return
+	// APIGW.0101). A multi-region prov requests one VPC per region; if the
+	// project is at-or-near the cap, `tofu apply` fails mid-run after
+	// Phase 0 has already allocated CP + EIPs + SGs (~3 min sunk cost).
+	// Pre-flight the live quota here so the wizard surfaces the condition
+	// immediately rather than 3 min into apply.
+	//
+	// #4431 — DO NOT hard-fail the operator with "wipe an existing
+	// Sovereign" on the first over-quota read. The cause is almost always
+	// catalyst-* VPCs leaked by a prior wipe whose teardown lagged (NAT /
+	// peering / residual-port 409s), NOT genuine concurrent demand: a
+	// 2-region prov needs 2 VPCs and the cap is 5. Since the external
+	// quota cannot be raised from code, the fix is to RECLAIM the leaked
+	// orphans in-band, then re-read. Only if the project is STILL over
+	// after reclaim is the request genuinely blocked.
 	//
 	// The check is BEST-EFFORT: any quota-API failure (transient 5xx,
 	// missing `vpc` resource type in response) falls through to tofu
 	// apply, which is the canonical authority. We never block on quota
-	// uncertainty — only on quota *known to be insufficient*.
+	// uncertainty — only on quota *known to be insufficient after a
+	// reclaim attempt*.
 	if req.Provider == "huawei" && len(req.Regions) > 0 && VPCQuotaHook != nil {
 		needed := len(req.Regions)
 		region := strings.TrimSpace(req.HuaweiRegion)
@@ -1838,8 +1867,33 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 			emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota check skipped (transient API error): %v", qerr))
 		} else {
 			emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota: used %d / %d, requesting %d", used, limit, needed))
+			if used+needed > limit && VPCReclaimHook != nil {
+				// Protect this prov's own (not-yet-created) VPCs + any
+				// in-flight sibling prov by passing this DeploymentID's
+				// 8-char prefix — the reclaim only touches terminal-state
+				// catalyst-* orphans.
+				protect := map[string]struct{}{}
+				if len(req.DeploymentID) >= 8 {
+					protect[req.DeploymentID[:8]] = struct{}{}
+				}
+				emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota over budget (%d/%d, need %d) — reclaiming orphaned catalyst VPCs before failing", used, limit, needed))
+				reclaimed, rerr := VPCReclaimHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region, protect, func(msg string) {
+					emit("tofu-init", "info", "vpc-reclaim: "+msg)
+				})
+				if rerr != nil {
+					emit("tofu-init", "warn", fmt.Sprintf("HCS orphan-VPC reclaim error (continuing to re-check quota): %v", rerr))
+				} else {
+					emit("tofu-init", "info", fmt.Sprintf("HCS orphan-VPC reclaim freed %d VPC(s); re-reading quota", reclaimed))
+				}
+				// Re-read the quota after reclaim. A failed re-read falls
+				// through (best-effort — tofu apply remains authority).
+				if u2, l2, q2 := VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region); q2 == nil {
+					used, limit = u2, l2
+					emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota after reclaim: used %d / %d, requesting %d", used, limit, needed))
+				}
+			}
 			if used+needed > limit {
-				return nil, fmt.Errorf("HCS VPC quota exhausted: project at %d/%d, this prov requests %d more — wipe an existing Sovereign before retrying", used, limit, needed)
+				return nil, fmt.Errorf("HCS VPC quota exhausted: project at %d/%d after orphan reclaim, this prov requests %d more — a concurrent Sovereign genuinely occupies the project; wipe one before retrying", used, limit, needed)
 			}
 		}
 	}

@@ -231,6 +231,18 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	// 8-char deployment-ID prefix, bastion-* hard-protected.
 	stats.OrphanKeypairs = h.cleanOrphanKeypairsHuawei(tofuWorkDir, activeIDs)
 
+	// Step 5: #4431 — per-provider orphan-VPC sweep. VPCs are not tagged
+	// on HCS so per-deployment Wipe.cascadeDeleteVPC finds them only via
+	// the parent Sovereign FQDN in tfvars; a wipe whose VPC teardown
+	// lagged (peering pin / residual ports) leaks a catalyst-* VPC that
+	// occupies the project quota (Kom4DC me-east-215 cap = 5, NOT
+	// tenant-raisable) until a manual bastion cleanup — false-failing the
+	// next fresh multi-region prov at the G68 VPC pre-flight. EIPs (Step
+	// 3) and keypairs (Step 4) already had a reclaim sweep; VPCs did not.
+	// Same catalyst- prefix match + 8-char in-flight protection, with
+	// bastion / non-catalyst VPCs hard-protected.
+	stats.OrphanVPCs = h.cleanOrphanVPCsHuawei(tofuWorkDir, activeIDs)
+
 	h.log.Info("[JANITOR] pass complete",
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
 		"reaped", stats.Reaped,
@@ -239,6 +251,7 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		"orphanTofuWorkdirsDeleted", stats.OrphanTofuWorkdirs,
 		"orphanEIPsDeleted", stats.OrphanEIPs,
 		"orphanKeypairsDeleted", stats.OrphanKeypairs,
+		"orphanVPCsDeleted", stats.OrphanVPCs,
 	)
 }
 
@@ -255,6 +268,7 @@ type janitorStats struct {
 	OrphanTofuWorkdirs int
 	OrphanEIPs         int
 	OrphanKeypairs     int
+	OrphanVPCs         int
 }
 
 // reapDeployment is the cleanup primitive used by the janitor. It
@@ -582,6 +596,106 @@ func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[st
 	return deleted
 }
 
+// cleanOrphanVPCsHuawei mirrors cleanOrphanEIPsHuawei / cleanOrphanKeypairsHuawei
+// but for VPCs (#4431). VPCs are untagged on HCS so the per-deployment
+// Wipe finds them only via the parent Sovereign FQDN in tfvars; a wipe
+// whose VPC teardown lagged (peering pin / residual ports) leaks an
+// orphaned catalyst-* VPC that occupies the HCS project quota (default
+// cap = 5 on Kom4DC me-east-215, NOT tenant-raisable) forever — so the
+// next fresh 2-region prov false-fails the G68 VPC pre-flight at
+// "project at 5/5 VPCs". This sweep is the missing reclaim path: EIPs
+// and keypairs already had one, VPCs did not.
+//
+// Same in-flight protection scheme as its siblings: only statuses
+// pending / provisioning / tofu-applying / flux-bootstrapping /
+// phase1-watching / wiping mark a deployment's 8-char ID prefix as
+// protected. Terminal statuses (ready / failed / wiped / adopted) leave
+// their VPCs reclaimable. Bastion / non-catalyst VPCs are hard-protected
+// in SweepOrphanVPCs itself.
+func (h *Handler) cleanOrphanVPCsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
+	if tofuWorkDir == "" {
+		return 0
+	}
+	entries, err := os.ReadDir(tofuWorkDir)
+	if err != nil {
+		return 0
+	}
+	var ak, sk, projectID, region string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		tfvarsPath := filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json")
+		data, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			continue
+		}
+		var tv map[string]any
+		if err := json.Unmarshal(data, &tv); err != nil {
+			continue
+		}
+		akV, _ := tv["huawei_access_key"].(string)
+		skV, _ := tv["huawei_secret_key"].(string)
+		pidV, _ := tv["huawei_project_id"].(string)
+		regV, _ := tv["huawei_region"].(string)
+		if akV != "" && skV != "" && pidV != "" {
+			ak = akV
+			sk = skV
+			projectID = pidV
+			region = regV
+			if region == "" {
+				region = "me-east-215"
+			}
+			break
+		}
+	}
+	if ak == "" {
+		return 0
+	}
+	cp, perr := providers.Get("huawei")
+	if perr != nil || cp == nil {
+		h.log.Warn("[JANITOR] huawei provider not wired — skipping orphan-VPC sweep", "err", perr)
+		return 0
+	}
+	hp, ok := cp.(*huaweiprovider.Provider)
+	if !ok || hp == nil {
+		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping orphan-VPC sweep")
+		return 0
+	}
+	// VPC cascade teardown (peerings → floating-IPs → subnets → ports →
+	// VPC) is slower than the EIP/keypair single-DELETE, so give it a
+	// wider budget than the 2-minute sibling sweeps.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	activePrefixes := map[string]struct{}{}
+	h.deployments.Range(func(_, val any) bool {
+		dep, ok := val.(*Deployment)
+		if !ok || dep == nil {
+			return true
+		}
+		dep.mu.Lock()
+		st := dep.Status
+		id := dep.ID
+		dep.mu.Unlock()
+		switch st {
+		case "pending", "provisioning", "tofu-applying",
+			"flux-bootstrapping", "phase1-watching", "wiping":
+			if len(id) >= 8 {
+				activePrefixes[id[:8]] = struct{}{}
+			}
+		}
+		return true
+	})
+	deleted, err := hp.SweepOrphanVPCs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
+		h.log.Info("[JANITOR] " + msg)
+	})
+	if err != nil {
+		h.log.Warn("[JANITOR] orphan-VPC sweep error", "err", err.Error())
+		return deleted
+	}
+	return deleted
+}
+
 // cleanOrphanTofuWorkdirs walks tofuWorkDir and deletes any sub-dir
 // whose name (deployment ID) has no matching deployment.
 func (h *Handler) cleanOrphanTofuWorkdirs(tofuWorkDir string, activeIDs map[string]struct{}) int {
@@ -633,4 +747,3 @@ func durationEnv(key string, def time.Duration) time.Duration {
 	}
 	return d
 }
-
