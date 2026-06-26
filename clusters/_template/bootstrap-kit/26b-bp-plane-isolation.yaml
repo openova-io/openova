@@ -121,7 +121,16 @@ spec:
       #   OCI publish stops wedging — the all-template lookup-guard renders ZERO
       #   resources client-side by design (the gate's short-render trip). Annotation-
       #   only; no policy/behaviour change vs 0.1.8.
-      version: 0.1.9
+      # 0.1.10 (#4499 / Refs #4325 #4448 #4477 #4277): add catalyst-system to openbao's
+      #   INGRESS allowlist. The openbao default-deny covered external-secrets-system +
+      #   cnpg-system + sso-bridge (#4448) but OMITTED catalyst-system — so catalyst-api's
+      #   kubernetes-auth login to openbao.openbao.svc:8200 (read/write secret/catalyst/*
+      #   — newapi admin-token #4477, anthropic token #4277, mcp-bearer) was Cilium-
+      #   dropped → login timeout → every ExternalSecret on a secret/catalyst/* path went
+      #   SecretSyncedError → the seeds never landed. Same de-vcluster ingress-gap class
+      #   as #4448 (sso-bridge→openbao). Network-only: catalyst-api's k8s-auth role is
+      #   already bound.
+      version: 0.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-plane-isolation

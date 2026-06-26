@@ -1158,12 +1158,15 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 		"nats-system": {"org-services", "guacamole", "catalyst-system", "newapi"},
 		// Shared object store — its blob-storage consumers (default-off but legitimate).
 		"seaweedfs": {"gitea", "harbor", "loki", "mimir", "tempo", "velero", "guacamole", "catalyst-system", "sandbox"},
-		// Secrets engine — ESO reads it, CNPG operator manages adjuncts, and
+		// Secrets engine — ESO reads it, CNPG operator manages adjuncts,
 		// bp-sso-bridge logs in each reconciler tick (k8s-auth) to fetch/store
-		// the per-app KC OIDC client_secret bundle. Missing sso-bridge → the
-		// reconciler curl(28)-timeouts → no secret/sso/* → grafana/hubble/gitea
-		// SSO secrets never materialize → 503/503/500 (#4448, kom4dc b9f9590b).
-		"openbao": {"external-secrets-system", "cnpg-system", "sso-bridge"},
+		// the per-app KC OIDC client_secret bundle, and catalyst-api logs in via
+		// kubernetes-auth to read/write secret/catalyst/* (newapi admin-token,
+		// anthropic token, mcp-bearer). Missing sso-bridge → no secret/sso/* →
+		// grafana/hubble/gitea SSO 503/503/500 (#4448). Missing catalyst-system →
+		// catalyst-api login times out → every secret/catalyst/* ExternalSecret
+		// goes SecretSyncedError (#4499, Refs #4477 #4277). kom4dc b9f9590b.
+		"openbao": {"external-secrets-system", "cnpg-system", "sso-bridge", "catalyst-system"},
 		// Dashboards — SSO + ESO + its own Postgres backend.
 		"grafana": {"external-secrets-system", "cnpg-system"},
 		// Log/metric/trace stores — their queriers + shippers.
