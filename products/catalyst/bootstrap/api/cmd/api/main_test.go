@@ -209,3 +209,83 @@ func TestRunBakeTimeOwnerSeed_IdempotentReRun(t *testing.T) {
 func silentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// TestDecidePubkeyPublish locks the #4450 write guard: on a Sovereign the
+// runtime signer's local pubkey must NEVER overwrite a pre-existing,
+// DIFFERENT key in catalyst-handover-jwt-public (the mothership-injected
+// inbound-handover verification key). On the mothership (SOVEREIGN_FQDN
+// empty) the original #4114 self-heal still applies.
+func TestDecidePubkeyPublish(t *testing.T) {
+	const (
+		localJWK = `{"kty":"RSA","alg":"RS256","n":"wjDc-local","e":"AQAB"}`
+		mothJWK  = `{"kty":"RSA","alg":"RS256","n":"u8Ca-mothership","e":"AQAB"}`
+	)
+	cases := []struct {
+		name        string
+		pubJWK      string
+		current     []byte // nil ⇒ Secret key absent
+		isSovereign bool
+		want        pubkeyPublishDecision
+	}{
+		{
+			// THE #4450 REGRESSION GUARD: Sovereign, Secret already holds the
+			// mothership key, runtime signer is the self-gen local key. Must
+			// PRESERVE the injected key, not overwrite.
+			name:        "sovereign preserves injected mothership key",
+			pubJWK:      localJWK,
+			current:     []byte(mothJWK),
+			isSovereign: true,
+			want:        pubkeyPublishPreserveInjected,
+		},
+		{
+			// Sovereign, Secret empty/absent (no injected key to clobber) —
+			// safe to publish so off-pod consumers have something.
+			name:        "sovereign with empty secret writes",
+			pubJWK:      localJWK,
+			current:     nil,
+			isSovereign: true,
+			want:        pubkeyPublishWrite,
+		},
+		{
+			// Sovereign, Secret already carries our exact JWK — no-op (avoids
+			// Reloader bounce). Should win over the preserve branch.
+			name:        "sovereign already current is no-op",
+			pubJWK:      mothJWK,
+			current:     []byte(mothJWK),
+			isSovereign: true,
+			want:        pubkeyPublishAlreadyCurrent,
+		},
+		{
+			// Mothership / Catalyst-Zero: the Secret IS the local signer's
+			// mirror, so a stale differing value must be overwritten (#4114).
+			name:        "mothership overwrites stale mirror",
+			pubJWK:      localJWK,
+			current:     []byte(`{"kty":"RSA","n":"stale-self","e":"AQAB"}`),
+			isSovereign: false,
+			want:        pubkeyPublishWrite,
+		},
+		{
+			name:        "mothership already current is no-op",
+			pubJWK:      localJWK,
+			current:     []byte(localJWK),
+			isSovereign: false,
+			want:        pubkeyPublishAlreadyCurrent,
+		},
+		{
+			name:        "mothership empty secret writes",
+			pubJWK:      localJWK,
+			current:     nil,
+			isSovereign: false,
+			want:        pubkeyPublishWrite,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := decidePubkeyPublish([]byte(tc.pubJWK), tc.current, tc.isSovereign)
+			if got != tc.want {
+				t.Errorf("decidePubkeyPublish(isSovereign=%v, current=%q) = %d, want %d",
+					tc.isSovereign, string(tc.current), got, tc.want)
+			}
+		})
+	}
+}

@@ -2123,6 +2123,57 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+// pubkeyPublishDecision is the outcome of the guard that decides whether the
+// runtime signer's pubkey may overwrite the catalyst-handover-jwt-public
+// Secret. Pure + table-testable (no cluster) — see main_test.go.
+type pubkeyPublishDecision int
+
+const (
+	// pubkeyPublishWrite — the Secret's current value differs from ours and it
+	// is safe to overwrite (mothership / Catalyst-Zero, or the Sovereign Secret
+	// is empty/absent so there is no injected key to clobber).
+	pubkeyPublishWrite pubkeyPublishDecision = iota
+	// pubkeyPublishAlreadyCurrent — the Secret already carries our exact JWK.
+	pubkeyPublishAlreadyCurrent
+	// pubkeyPublishPreserveInjected — this is a Sovereign and the Secret already
+	// holds a DIFFERENT key (the mothership-injected inbound-handover key).
+	// Preserve it; publishing our local-signer key here would break owner
+	// handover (#4450).
+	pubkeyPublishPreserveInjected
+)
+
+// decidePubkeyPublish is the pure core of publishHandoverPubkey's write guard
+// (#4450). Given the runtime signer's JWK, the Secret's current value (nil when
+// the key is absent / Secret missing) and whether this process is a Sovereign
+// (SOVEREIGN_FQDN set), it decides whether to overwrite.
+//
+// Why the Sovereign guard exists (#4450 root cause):
+//
+//	cloud-init seeds catalyst-handover-jwt-public with the MOTHERSHIP's public
+//	key (the key the inbound owner-handover JWT must verify against — read by
+//	auth_handover.go). On a Sovereign the local handoverSigner is a SEPARATE,
+//	self-generated keypair (the mothership never shares its private key —
+//	sovereignty). #4114 added an unconditional per-boot PATCH that published the
+//	LOCAL signer's pubkey over the injected mothership key, so every
+//	mothership-signed owner handover 401'd "invalid token". The local signer's
+//	pubkey already reaches its real consumer (agenity openova-mcp) via openbao
+//	(seedMCPBearer → secret/catalyst/agenity/<slug>/mcp-bearer), so the Secret
+//	mirror is not needed on a Sovereign — preserve the injected key there.
+//
+// On the mothership (SOVEREIGN_FQDN empty) the Secret IS the local signer's
+// mirror, so the original #4114 self-heal still applies: overwrite when stale.
+func decidePubkeyPublish(pubJWK, current []byte, isSovereign bool) pubkeyPublishDecision {
+	if current != nil && string(current) == string(pubJWK) {
+		return pubkeyPublishAlreadyCurrent
+	}
+	// A non-empty, DIFFERENT existing value on a Sovereign is the
+	// mothership-injected inbound-handover key — never clobber it.
+	if isSovereign && len(current) > 0 {
+		return pubkeyPublishPreserveInjected
+	}
+	return pubkeyPublishWrite
+}
+
 // publishHandoverPubkey PATCHes the catalyst-handover-jwt-public Secret's
 // public.jwk with the runtime signer's ACTUAL public JWK so off-pod
 // consumers verify session bearers against the same key catalyst-api signs
@@ -2130,6 +2181,11 @@ func env(key, fallback string) string {
 // Secret absent) is logged, never fatal — the handover signer still works
 // in-process; only the published mirror lags. The Secret name/namespace are
 // the chart defaults, overridable via env for non-standard installs.
+//
+// #4450: on a Sovereign the Secret holds the MOTHERSHIP-injected public key
+// (the inbound owner-handover verification key), NOT a mirror of the local
+// signer — so the write is gated by decidePubkeyPublish to preserve it. See
+// that function's doc for the full root-cause.
 func publishHandoverPubkey(ctx context.Context, log *slog.Logger, pubJWK []byte) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
@@ -2153,13 +2209,30 @@ func publishHandoverPubkey(ctx context.Context, log *slog.Logger, pubJWK []byte)
 	name := env("CATALYST_HANDOVER_PUBKEY_SECRET_NAME", "catalyst-handover-jwt-public")
 	key := env("CATALYST_HANDOVER_PUBKEY_SECRET_KEY", "public.jwk")
 
-	// Skip the write when the Secret already carries our exact JWK — avoids
-	// a needless write + Reloader bounce on every restart.
+	// A Sovereign always carries SOVEREIGN_FQDN; the mothership / Catalyst-Zero
+	// leaves it empty (see api-deployment.yaml line ~798).
+	isSovereign := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")) != ""
+
+	var current []byte
 	if cur, getErr := cs.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{}); getErr == nil {
-		if existing, ok := cur.Data[key]; ok && string(existing) == string(pubJWK) {
-			log.Info("handoverjwt: published pubkey already current (#4114)", "secret", ns+"/"+name)
-			return
+		if existing, ok := cur.Data[key]; ok {
+			current = existing
 		}
+	}
+
+	switch decidePubkeyPublish(pubJWK, current, isSovereign) {
+	case pubkeyPublishAlreadyCurrent:
+		// Skip the write — avoids a needless write + Reloader bounce on every restart.
+		log.Info("handoverjwt: published pubkey already current (#4114)", "secret", ns+"/"+name)
+		return
+	case pubkeyPublishPreserveInjected:
+		// #4450: preserve the mothership-injected inbound-handover key on a
+		// Sovereign — overwriting it 401's every owner-handover JWT. The local
+		// signer's pubkey reaches openova-mcp via openbao (seedMCPBearer), not
+		// this Secret, so no consumer is regressed.
+		log.Info("handoverjwt: preserving mothership-injected handover pubkey; not publishing local signer key (#4450)",
+			"secret", ns+"/"+name)
+		return
 	}
 
 	// strategic-merge patch on the stringData field — server base64-encodes it.
