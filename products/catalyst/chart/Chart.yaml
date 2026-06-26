@@ -3310,7 +3310,7 @@ name: bp-catalyst-platform
 #   bump back to b23af68, shipping org-controller WITHOUT #4455 tenant-dns +
 #   #4462 delete-cascade on every fresh prov). 89993b2 is a descendant of b23af68
 #   so it retains #4393 Guaranteed-QoS. Lockstep w/ bootstrap-kit slot 13 pin.
-version: 1.4.904
+version: 1.4.905
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
