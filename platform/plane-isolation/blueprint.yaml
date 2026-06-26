@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.5  # lockstep with chart/Chart.yaml (#4428 — kube-apiserver egress CNP per component)
+  version: 0.1.6  # lockstep with chart/Chart.yaml (#4448 — add sso-bridge to openbao allowIngressFrom)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

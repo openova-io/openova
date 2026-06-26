@@ -90,6 +90,16 @@ components:
     allowIngressFrom:
       - external-secrets-system    # ESO authenticates to openbao:8200 (the vault-region1 store)
       - cnpg-system                # CNPG operator → openbao audit/storage adjuncts (when used)
+      - sso-bridge                 # bp-sso-bridge (G91.1 #2652) logs into openbao.openbao.svc:8200
+                                   # each reconciler tick (k8s-auth, SA sso-bridge-reconciler) to
+                                   # fetch/store the per-app KC OIDC client_secret bundle under
+                                   # secret/sso/<cid>. De-vcluster split openbao into its own host
+                                   # ns post-#4325 → without this carve-out Cilium drops the dial →
+                                   # curl(28) timeout → `skipping tick (no OpenBao token)` → the
+                                   # grafana/hubble/gitea SSO secrets never materialize (503/503/500).
+                                   # openbao auth-bootstrap already binds this SA (#2655,
+                                   # bound_service_account_namespaces=sso-bridge) — network-only gap
+                                   # (Refs #4325 #4448 #4437 #4354).
   - namespace: guacamole           # remote-desktop gateway (was catalyst-system in vc-mgmt)
     gatewayIngress: true           # guacamole.<fqdn> public route
     allowIngressFrom:
