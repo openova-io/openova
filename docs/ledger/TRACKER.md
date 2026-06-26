@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T20:45:02Z` |
+| Last refreshed | `2026-06-26T21:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 12 |
+| Open issues | 11 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 12 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 11 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 12 open items (clickable table)
+### All 11 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -209,7 +209,6 @@ flowchart LR
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4431](https://github.com/openova-io/openova/issues/4431) | Fresh multi-region HCS prov false-fails on VPC quota — orphan VPCs leak quota  | Other |
 | [#4475](https://github.com/openova-io/openova/issues/4475) | Org vcluster-tier convergence: CiliumNetworkPolicy can't apply inside vanilla vc | Other |
-| [#4477](https://github.com/openova-io/openova/issues/4477) | SSO seeding faults on fresh prov: openbao external-group alias never binds (admi | Other |
 | [#4486](https://github.com/openova-io/openova/issues/4486) | DR backbone self-fire: standby-absent on a converged primary must NOT latch the  | Other |
 | [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
 
@@ -219,6 +218,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T20:51 | [#4502](https://github.com/openova-io/openova/pull/4502) | #4053 | feat(infra+catalyst): console-isolation toggle to fit a 3-EI |
 | 2026-06-26T20:29 | [#4501](https://github.com/openova-io/openova/pull/4501) | #4486 | docs(ledger): session 2026-06-27 state — 22 closed (audited  |
 | 2026-06-26T20:15 | [#4500](https://github.com/openova-io/openova/pull/4500) | #4448 | fix(bp-plane-isolation #4499): add catalyst-system to openba |
 | 2026-06-26T19:41 | [#4498](https://github.com/openova-io/openova/pull/4498) | #3969 | feat(application-controller): #3969 §13 — arm the Continuum  |
@@ -248,7 +248,6 @@ flowchart LR
 | 2026-06-26T11:57 | [#4461](https://github.com/openova-io/openova/pull/4461) | #4448 | fix(bp-sso-bridge): CNP egress names openbao+keycloak+dns —  |
 | 2026-06-26T12:03 | [#4457](https://github.com/openova-io/openova/pull/4457) | #4454 | fix(catalyst-api): janitor orphan-sweep no longer reaps its  |
 | 2026-06-26T11:32 | [#4456](https://github.com/openova-io/openova/pull/4456) | #4452 | fix(bp-catalyst): provisioning-github-token-sync RBAC ordere |
-| 2026-06-26T12:32 | [#4455](https://github.com/openova-io/openova/pull/4455) | #4290 | fix(org-controller): self-heal tenant-dns pool-PowerDNS key  |
 
 ---
 
