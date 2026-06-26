@@ -53,10 +53,24 @@ instance:
   # local-path.
   storageClass: ""
 
+  # #4282 — requests == limits (Guaranteed QoS). A per-Org bp-postgres
+  # placed in a vCluster tier has its CNPG Cluster CR routed HOST-SIDE into
+  # the Application's own per-Org namespace (#4398), where the catalyst
+  # tenant kustomization stamps a `plan-limits` LimitRange enforcing
+  # `maxLimitRequestRatio: {cpu: 1, memory: 1}` (Guaranteed-only, zero
+  # overcommit — the per-Org plan-tier economics). A request<limit ratio
+  # (the old 100m/500m = 5:1 cpu, 256Mi/512Mi = 2:1 memory) is DENIED by
+  # that LimitRange, so the CNPG operator's `<cluster>-1-initdb` job pod is
+  # `forbidden: cpu max limit to request ratio per Container is 1, but
+  # provided ratio is 5` and the Cluster hangs in "Setting up primary"
+  # forever. Setting requests == limits makes the engine pod (and every
+  # CNPG-spawned job/instance pod that inherits Cluster.spec.resources)
+  # Guaranteed, so it satisfies the per-Org LimitRange AND the host
+  # shared-data path (no LimitRange there) unchanged.
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 500m
+      memory: 512Mi
     limits:
       cpu: 500m
       memory: 512Mi
@@ -147,10 +161,15 @@ topology:
     # affinity: local → primary region keeps reads local; the replica region
     # (zero local backends with cnpg-role=primary) falls through to remote.
     affinity: local
-  # ── NetworkPolicy carve-out (active-hot-standby only). The platform
-  # default-deny CCNP (bp-network-policies) covers shared-data; these knobs
-  # open the cross-region + own-cluster replication path + the CNPG operator
-  # status probe (the #3322 + hw126 carve-outs bp-cnpg-pair proved).
+  # ── NetworkPolicy carve-out. The platform default-deny CCNP
+  # (bp-network-policies) covers shared-data; these knobs open the
+  # cross-region + own-cluster replication path + the CNPG operator status
+  # probe (the #3322 + hw126 carve-outs bp-cnpg-pair proved). The operator
+  # status-probe rule is ALSO consulted for the SINGLETON path
+  # (networkpolicy-singleton-operator-probe.yaml) because #4398 routes a
+  # per-Org singleton Cluster host-side into a default-deny per-Org namespace
+  # where the cross-namespace cnpg-system operator probe would otherwise be
+  # denied (#4282).
   networkPolicy:
     enabled: true
     operatorNamespace: cnpg-system

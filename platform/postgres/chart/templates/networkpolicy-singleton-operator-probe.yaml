@@ -1,0 +1,57 @@
+{{- /*
+Singleton CNPG-operator status-probe NetworkPolicy (#4282 root-cause-D).
+
+#4398 routes a per-Org bp-postgres placed in a vCluster tier HOST-SIDE into
+the Application's own per-Org namespace, where the host cnpg-system operator
+reconciles the Cluster CR. A real customer-Org (plan-tier) namespace carries a
+`default-deny-all` + `allow-same-org` (same-namespace podSelector only)
+NetworkPolicy pair stamped by the catalyst tenant kustomization. That pair
+denies the cnpg-system OPERATOR (a DIFFERENT namespace) reaching the instance
+Pod's `:8000/pg/status` probe, so — even though the postgres pod is Running
+1/1 and serving SQL — the operator cannot extract status and the Cluster phase
+stalls at "Instance Status Extraction Error: HTTP communication issue" /
+Ready=False (the same symptom the active-hot-standby networkpolicy.yaml already
+fixes for the cnpg-pair path, and which the live `openova-flow-pg` exhibits).
+
+The active-hot-standby networkpolicy.yaml carries this exact operator carve-out
+(its lines 82-93) but is GATED on activeHotStandby — it documents "Singleton
+mode renders NOTHING here" because singleton was assumed to live in a namespace
+with no default-deny (the host `shared-data`). Once #4398 lands a SINGLETON
+Cluster in a per-Org default-deny namespace, that assumption breaks. This
+template opens ONLY the operator status + metrics probe for the singleton path
+(no broad consumer 5432 rule — singleton per-Org consumers are same-Org and the
+`allow-same-org` policy already covers them).
+
+Renders only when NOT active-hot-standby (the AHS path's own netpol already
+carries the carve-out) AND the netpol is enabled AND a Cluster is actually
+rendered (the postgresql.cnpg.io/v1 capability gate — same as cluster.yaml).
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (not (include "bp-postgres.activeHotStandby" .)) .Values.topology.networkPolicy.enabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-allow-cnpg-operator-probe
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+  policyTypes: [Ingress]
+  ingress:
+    # CNPG operator status + metrics probe — without this the operator cannot
+    # extract instance status from a per-Org default-deny namespace and the
+    # Cluster phase stalls at "Instance Status Extraction Error" / Ready=False
+    # despite the postgres pod serving SQL (#4282).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.topology.networkPolicy.operatorNamespace }}
+      ports:
+        - port: {{ .Values.topology.networkPolicy.operatorStatusPort }}
+          protocol: TCP
+        - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
+          protocol: TCP
+{{- end }}

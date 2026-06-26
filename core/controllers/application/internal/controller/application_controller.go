@@ -1331,7 +1331,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	//     Provisioning | Ready | Degraded | Failed | Uninstalling) and
 	//     matches the matrix-author assertion in TC-066's must_contain
 	//     ("Ready").
-	hrPhase, hrReason, hrMessage := r.observeRegionHelmReleases(ctx, app, plan)
+	// #4282 — the topology fan-out (placement.Clusters, e.g. a per-Org
+	// bp-postgres routed host-side by #4398) names each per-cluster HR
+	// `<app>-<cluster>` (HRNameFor), NOT the bare `<app>` the single-HR
+	// host path uses. The phase rollup must observe the ACTUAL fan-out HR
+	// names or it GETs `<app>` → NotFound → the Application is pinned at
+	// Provisioning forever even though `w4282-pg-rtz-a` is Ready=True.
+	// perClusterStatus carries the real names (hr.GetName()); pass them in.
+	fanoutHRNames := make([]string, 0, len(perClusterStatus))
+	for _, pcs := range perClusterStatus {
+		if n, _ := pcs["hr"].(string); n != "" {
+			fanoutHRNames = append(fanoutHRNames, n)
+		}
+	}
+	hrPhase, hrReason, hrMessage := r.observeRegionHelmReleases(ctx, app, plan, fanoutHRNames)
 	regionStatuses = mergeRegionReadiness(regionStatuses, hrPhase, plan, ctx, r, app)
 
 	// 11. Status update — phase derived from observed HR readiness,
@@ -1498,11 +1511,20 @@ func readbackByRegion(plan placement.Plan, phase string) map[string]regionReadba
 }
 
 // observeRegionHelmReleases polls the per-region HelmRelease CRs the
-// Sovereign's Flux installer materialised (named `app.GetName()` in
-// the Application's own namespace, per render.HelmReleaseName / the
-// chart's HelmRelease template). Returns the rolled-up phase string +
-// the reason+message of the WORST region (so a single-region Failed
-// surfaces in the UI verbatim instead of being averaged out).
+// Sovereign's Flux installer materialised in the Application's own
+// namespace. Returns the rolled-up phase string + the reason+message of
+// the WORST region (so a single-region Failed surfaces in the UI verbatim
+// instead of being averaged out).
+//
+// HR naming has TWO shapes:
+//   - SINGLE-HR host path: the HR is named exactly `app.GetName()`
+//     (render.HelmReleaseName / the chart's `metadata.name: {{ .AppName }}`).
+//   - TOPOLOGY FAN-OUT (placement.Clusters, e.g. a per-Org bp-postgres
+//     routed host-side by #4398): one HR per cluster named
+//     `<app>-<cluster>` (HRNameFor). `fanoutHRNames` carries those real
+//     names; when non-empty we observe THEM (one GET per fan-out HR)
+//     instead of the bare `app.GetName()`, which does not exist for the
+//     fan-out and would pin the Application at Provisioning forever (#4282).
 //
 // Idempotent + side-effect-free: only reads the API.
 //
@@ -1511,19 +1533,31 @@ func (r *Reconciler) observeRegionHelmReleases(
 	ctx context.Context,
 	app *unstructured.Unstructured,
 	plan placement.Plan,
+	fanoutHRNames []string,
 ) (phase, reason, message string) {
 	allReady := true
 	anyDegraded := false
 	worstReason := ""
 	worstMessage := ""
 	sawAny := false
-	for _, rp := range plan.Regions {
-		// HR lives in the Application's own namespace, named after the
-		// Application (matches render.HelmReleaseName + the chart's
-		// HelmRelease template's `metadata.name: {{ .AppName }}`).
+	// Build the (name, region-label) work list. Fan-out → the real
+	// per-cluster HR names; else one bare-name entry per planned region.
+	type hrRef struct{ name, region string }
+	refs := make([]hrRef, 0)
+	if len(fanoutHRNames) > 0 {
+		for _, n := range fanoutHRNames {
+			refs = append(refs, hrRef{name: n, region: n})
+		}
+	} else {
+		for _, rp := range plan.Regions {
+			refs = append(refs, hrRef{name: app.GetName(), region: rp.Name})
+		}
+	}
+	for _, ref := range refs {
+		// HR lives in the Application's own namespace.
 		hr, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
 			Namespace(app.GetNamespace()).
-			Get(ctx, app.GetName(), metav1.GetOptions{})
+			Get(ctx, ref.name, metav1.GetOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				// HR not yet materialised — Flux still pulling. Roll up
@@ -1533,8 +1567,8 @@ func (r *Reconciler) observeRegionHelmReleases(
 			}
 			r.Log.Warn("application-controller: GET HelmRelease failed",
 				"namespace", app.GetNamespace(),
-				"name", app.GetName(),
-				"region", rp.Name,
+				"name", ref.name,
+				"region", ref.region,
 				"err", err)
 			allReady = false
 			continue
@@ -1549,7 +1583,7 @@ func (r *Reconciler) observeRegionHelmReleases(
 			allReady = false
 			if worstReason == "" {
 				worstReason = "DownstreamHelmReleaseFailed"
-				worstMessage = fmt.Sprintf("region %s HelmRelease Ready=False: %s — %s", rp.Name, hrReason, hrMsg)
+				worstMessage = fmt.Sprintf("region %s HelmRelease Ready=False: %s — %s", ref.region, hrReason, hrMsg)
 			}
 		default:
 			// Unknown — Flux still working.
