@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.9  # lockstep with chart/Chart.yaml (#4468 — smoke-render-mode=default-off so the OCI publish stops wedging on the empty client-side render)
+  version: 0.1.10  # lockstep with chart/Chart.yaml (#4499 — add catalyst-system to openbao allowIngressFrom)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

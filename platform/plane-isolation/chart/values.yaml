@@ -101,6 +101,14 @@ components:
     allowIngressFrom:
       - external-secrets-system    # ESO authenticates to openbao:8200 (the vault-region1 store)
       - cnpg-system                # CNPG operator → openbao audit/storage adjuncts (when used)
+      - catalyst-system            # catalyst-api logs into openbao.openbao.svc:8200 via
+                                   # kubernetes-auth to read/write secret/catalyst/* (newapi
+                                   # admin-token #4477, anthropic token #4277, mcp-bearer). De-vcluster
+                                   # split openbao into its own host ns post-#4325 → without this
+                                   # carve-out Cilium drops the login dial → timeout → every
+                                   # ExternalSecret on a secret/catalyst/* path is SecretSyncedError.
+                                   # Network-only gap, same class as sso-bridge below (Refs #4325
+                                   # #4499 #4448 #4477 #4277).
       - sso-bridge                 # bp-sso-bridge (G91.1 #2652) logs into openbao.openbao.svc:8200
                                    # each reconciler tick (k8s-auth, SA sso-bridge-reconciler) to
                                    # fetch/store the per-app KC OIDC client_secret bundle under
