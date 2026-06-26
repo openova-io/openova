@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.11
+version: 0.2.12
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,30 @@ description: |
 
   Changelog
   ─────────
+  0.2.12 (2026-06-26, #4272 #4407 — controller TLS-trust: verify the PUBLIC
+          LE cert on the OIDC issuer, the 4th + FINAL openclaw layer)
+    - After 0.2.11 opened public-HTTPS egress so the JWKS hairpin REACHED
+      auth.<fqdn>, a live re-walk found /readyz STILL 503 — now at the TLS
+      handshake: `tls: failed to verify certificate: x509: certificate
+      signed by unknown authority`. auth.<fqdn> serves a valid Let's Encrypt
+      cert (curl from a CA-bundled pod verifies it), but the controller did
+      not.
+        • ROOT CAUSE (controller binary, not chart bytes): main.go
+          buildAPIClient() did `tlsCfg.RootCAs = clusterPool`, REPLACING the
+          system root pool with ONLY the in-cluster api-server CA (Go does
+          not merge system roots once RootCAs is set). main() hands that SAME
+          CA-pinned client to the OIDC verifier, so the discovery/JWKS fetch
+          to the public LE-signed issuer could not be verified → /readyz 503
+          forever. Masked until 0.2.6/0.2.11 egress fixes let the call reach
+          the handshake.
+        • THE FIX: base the trust pool on x509.SystemCertPool() (so the
+          public LE roots stay trusted) and APPEND the in-cluster api-server
+          CA (so api-server calls still verify) — one client trusts BOTH
+          peers. Off-cluster (no SA CA file) the system pool stands alone.
+          Regression unit-test: the combined pool verifies a cluster-CA-
+          signed leaf AND preserves the system roots (the old replace-pool
+          behaviour drops them). Controller image rebuilds on merge; the CI
+          deploy-bot bumps controller.image.tag to the new SHA.
   0.2.11 (2026-06-26, #4272 — public-HTTPS egress for the JWKS hairpin: the
           TITULAR egress-NetworkPolicy gap, the LAST openclaw layer)
     - After 0.2.10 made the issuer RESOLVABLE (auth.<fqdn>/realms/sovereign), a
