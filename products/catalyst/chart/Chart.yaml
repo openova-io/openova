@@ -3329,7 +3329,7 @@ name: bp-catalyst-platform
 #   source.version reaches the LIVE Blueprint CR zero-touch. Chart 0.5.13 is a
 #   published OCI artifact. Bump bp-catalyst-platform chart + bootstrap-kit
 #   slot 13 pin in lockstep so Flux re-rolls the seed. Refs #4111 #4494 #4417.
-version: 1.4.910
+version: 1.4.911
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
