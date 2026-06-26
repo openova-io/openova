@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T00:45:02Z` |
+| Last refreshed | `2026-06-26T01:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 14 |
 | Open DoD gates | 0 / 41 |
@@ -221,6 +221,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T00:49 | [#4412](https://github.com/openova-io/openova/pull/4412) | #4403 | fix(bp-postgres #4411): unwedge bp-postgres:0.2.6 publish —  |
 | 2026-06-26T00:34 | [#4410](https://github.com/openova-io/openova/pull/4410) | #4226 | fix(bp-external-secrets-stores #4409): flux-managed label on |
 | 2026-06-26T00:25 | [#4408](https://github.com/openova-io/openova/pull/4408) | #4272 | fix(bp-openclaw): controller trusts public LE root + cluster |
 | 2026-06-26T00:13 | [#4406](https://github.com/openova-io/openova/pull/4406) | #4212 | fix(catalyst): unwedge spine Application→Continuum round-tri |
@@ -250,7 +251,6 @@ flowchart LR
 | 2026-06-25T17:20 | [#4367](https://github.com/openova-io/openova/pull/4367) | #4354 | fix(bp-gitea): preserve git-data PVC on vcluster→host-ns re- |
 | 2026-06-25T18:09 | [#4366](https://github.com/openova-io/openova/pull/4366) | #4212 | fix(catalyst): re-fire spine Application-CR producer on star |
 | 2026-06-25T18:16 | [#4365](https://github.com/openova-io/openova/pull/4365) | #4325 | fix(bp-agenity #4325): topology placement.tier rtz -> '' (ho |
-| 2026-06-25T17:13 | [#4364](https://github.com/openova-io/openova/pull/4364) | #4179 | fix(tenant): funnel CreateOrg renders selected cart Applicat |
 
 ---
 
