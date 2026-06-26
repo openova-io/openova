@@ -715,9 +715,20 @@ controllers:
       # bumped this field to b23af68 in 3b9235c1f, then the #2851 controller sweep
       # (86c5a7cfd) REVERTED it back to 5cbfbd8 ~2min later — the exact deploy-bot
       # treadmill that left every m-tier funnel Org stuck at 'vcluster-0 forbidden:
-      # ratio 20' (verified live on g10vc). Re-pin to b23af68 (#4393) explicitly;
-      # without it the org-controller never renders the Guaranteed-QoS vcluster.
-      tag: "b23af68"
+      # ratio 20' (verified live on g10vc).
+      # 89993b2 (#4464, 2026-06-26) — b23af68 LACKS both #4455 tenant-dns self-heal
+      # (resolvePoolPowerDNSAPIKey → kills console.<slug>.<pool> NXDOMAIN, #4290/#4179)
+      # AND #4462 delete-cascade (TenantNetworkingFinalizer → kills Org-delete leak).
+      # Both merged on main (89993b2c2 / d864ce942); the build-organization-controller
+      # workflow bumped this field → 89993b2 in 69d5d3af4, then the catalyst-build
+      # deploy-bump (#2584 whole-file snapshot re-apply) REVERTED it → b23af68 in
+      # 04bff9030 — a fast-forward CHILD of the per-controller bump that still
+      # clobbered the line because its stale snapshot carried b23af68 (the #2851
+      # sweep that run logged '0/5 bumped', so the revert came from the snapshot
+      # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
+      # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
+      # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
+      tag: "89993b2"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:

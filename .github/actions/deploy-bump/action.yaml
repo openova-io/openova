@@ -137,27 +137,40 @@ runs:
         # fix. Lead had to manually `workflow_dispatch` Build & Deploy
         # to recover.
         #
-        # Fix: instead of trying to rebase our commit across a race,
-        # we (a) snapshot the intended file contents up-front, then
-        # (b) on every push retry, hard-reset to the latest origin/main
-        # AND re-apply the snapshot. The action becomes
-        # state-machine-shaped: "make origin/main have these file
-        # contents, with this commit message." Conflicts can't drop
-        # the bump because there IS no rebase — every retry starts
-        # fresh from origin/main and re-applies the intent on top.
-        INTENT_DIR="${RUNNER_TEMP:-/tmp}/deploy-bump-intent-$$"
-        mkdir -p "${INTENT_DIR}"
-        SNAPSHOTTED_PATHS=()
-        # shellcheck disable=SC2086
-        for p in $(echo "${DEPLOY_BUMP_PATHS}"); do
-          if [ -e "${p}" ]; then
-            mkdir -p "${INTENT_DIR}/$(dirname "${p}")"
-            cp "${p}" "${INTENT_DIR}/${p}"
-            SNAPSHOTTED_PATHS+=("${p}")
-          fi
-        done
-        echo "deploy-bump: snapshotted ${#SNAPSHOTTED_PATHS[@]} path(s) into ${INTENT_DIR}"
-
+        # Fix v1 (#2584, 2026-06-01): instead of trying to rebase our
+        # commit across a race, we snapshot the intended file contents
+        # up-front, then on every push retry hard-reset to the latest
+        # origin/main AND re-apply the snapshot. State-machine-shaped:
+        # "make origin/main have these file contents."
+        #
+        # Fix v2 (#4464, 2026-06-26) — the v1 WHOLE-FILE snapshot was
+        # itself a clobber. It re-applied the ENTIRE file content this
+        # job rendered, so any OTHER line a concurrent deploy job
+        # changed in the same file got reverted to THIS job's stale
+        # snapshot. Concrete damage: build-organization-controller
+        # bumped controllers.organization.image.tag b23af68 -> 89993b2
+        # (committed 69d5d3af4), then catalyst-build's deploy-bump
+        # re-applied its whole values.yaml snapshot (which still carried
+        # b23af68 because its checkout predated the per-controller bump)
+        # and clobbered org-ctrl back to b23af68 in 04bff9030 — a
+        # fast-forward CHILD of 69d5d3af4 that STILL reverted the line.
+        # Result: every fresh prov shipped org-controller WITHOUT #4455
+        # tenant-dns + #4462 delete-cascade. Same delivery-gap class as
+        # #4409/#4411/#4415.
+        #
+        # v2 fix: commit this job's change as a normal commit, then on
+        # each push retry reset to fresh origin/main and CHERRY-PICK that
+        # commit back on. cherry-pick is a per-hunk three-way merge, so
+        # it re-applies ONLY this job's hunks onto whatever a concurrent
+        # job already pushed: lines another job changed are PRESERVED,
+        # only lines THIS job intended to change are touched. When two
+        # jobs changed the EXACT same field (e.g. both bumped
+        # catalystApi.tag — a legitimate last-writer-wins case), `-X
+        # theirs` favours our deploy commit so the newer build still
+        # wins (matches the v1 behaviour for that field). A structural
+        # conflict git cannot auto-resolve fails loudly rather than
+        # pushing a half-merged tree.
+        #
         # Initial check — if nothing actually changed vs HEAD, exit
         # early with pushed=false (idempotent re-runs).
         # shellcheck disable=SC2086
@@ -166,7 +179,6 @@ runs:
           echo "deploy-bump: no staged changes — skipping commit/push."
           echo "pushed=false"   >> "$GITHUB_OUTPUT"
           echo "commit_sha="   >> "$GITHUB_OUTPUT"
-          rm -rf "${INTENT_DIR}"
           exit 0
         fi
 
@@ -181,7 +193,7 @@ runs:
             pushed=true
             break
           fi
-          echo "deploy-bump: push attempt ${i}/${MAX} failed — refetching + re-applying snapshot."
+          echo "deploy-bump: push attempt ${i}/${MAX} failed — refetching + re-applying intent commit (per-line cherry-pick)."
 
           # Recover from any prior iteration that may have left a
           # rebase / cherry-pick / merge in progress. Best-effort: if
@@ -192,38 +204,67 @@ runs:
           git merge --abort 2>/dev/null || true
 
           # Fetch latest origin/main and hard-reset HEAD onto it. This
-          # discards our local deploy commit; we re-create it from the
-          # snapshot below, which guarantees the values.yaml /
-          # template / Chart.yaml content we intended is what reaches
-          # main (regardless of what the racing deploy committed).
+          # discards our local deploy commit; we RE-CREATE it by
+          # cherry-picking our intent commit (#4464), which is a
+          # per-hunk three-way merge — a concurrent job's edits to
+          # OTHER lines of the same file survive (unlike the v1
+          # whole-file snapshot re-apply that reverted them).
           git fetch origin main
           git reset --hard origin/main
 
-          # Re-apply the snapshotted intent.
-          for p in "${SNAPSHOTTED_PATHS[@]}"; do
-            src="${INTENT_DIR}/${p}"
-            if [ -f "${src}" ]; then
-              mkdir -p "$(dirname "${p}")"
-              cp "${src}" "${p}"
+          # cherry-pick replays ONLY our hunks onto fresh origin/main.
+          # Conflict-resolution policy (#4464): when a concurrent deploy
+          # changed the SAME field this job owns (e.g. both bumped
+          # catalystApi.tag), take OURS — last-writer-wins for the field
+          # this job is the authoritative builder of, while still
+          # PRESERVING every line neither job's hunk touched. Lines only
+          # the OTHER job changed never conflict (different hunk) and are
+          # carried through untouched — that's the v1 clobber this fixes.
+          if git cherry-pick --keep-redundant-commits -X theirs "${COMMIT_SHA}" 2>/tmp/deploy-bump-cp-err; then
+            # Clean replay (possibly redundant if origin/main already
+            # has our change — --keep-redundant-commits makes that an
+            # empty commit whose TREE equals origin/main). Detect that
+            # and accept as no-op success, resetting HEAD back to the
+            # remote tip so the post-push verification (FINAL_SHA must
+            # be an ancestor of origin/main) holds.
+            #
+            # NOTE: `-X theirs` here means "favour the side being
+            # PICKED" (our deploy commit) on conflict — cherry-pick
+            # inverts the ours/theirs sense vs merge, so `theirs` ==
+            # our intent. See the -X-theirs test in test-clobber.sh.
+            if git diff --quiet "origin/main" HEAD; then
+              echo "deploy-bump: intent already present on origin/main after refetch on attempt ${i} — accepting as no-op success."
+              git reset --hard origin/main
+              pushed=true
+              break
             fi
-          done
-
-          # shellcheck disable=SC2086
-          echo "${DEPLOY_BUMP_PATHS}" | xargs git add --
-          if git diff --staged --quiet; then
-            # The racing deploy already pushed identical content (rare
-            # but possible — both jobs computed the same SHA short for
-            # the same git tree). Accept as no-op success.
-            echo "deploy-bump: intent matches origin/main after refetch on attempt ${i} — accepting as no-op success."
-            pushed=true
-            break
+          else
+            # cherry-pick stopped. With -X theirs the only way here is an
+            # add/add or delete/modify edge git can't auto-resolve, or an
+            # empty pick. If nothing is staged/changed, the intent was
+            # already on main — no-op success. Otherwise fail loudly
+            # rather than push a half-merged tree.
+            if git diff --quiet && git diff --staged --quiet; then
+              echo "deploy-bump: cherry-pick empty (intent already on origin/main) on attempt ${i} — accepting as no-op success."
+              git cherry-pick --abort 2>/dev/null || true
+              git reset --hard origin/main
+              pushed=true
+              break
+            fi
+            echo "deploy-bump: ERROR — intent commit ${COMMIT_SHA} could not be cherry-picked onto fresh origin/main even with -X theirs (structural conflict). Failing loudly rather than pushing a half-merged tree (#4464)." >&2
+            cat /tmp/deploy-bump-cp-err >&2 || true
+            git status --porcelain || true
+            git cherry-pick --abort 2>/dev/null || true
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "commit_sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+            exit 1
           fi
 
-          git commit -m "${DEPLOY_BUMP_MESSAGE}"
+          # The cherry-pick recreated the commit; refresh COMMIT_SHA so
+          # the post-push verification checks the SHA we actually pushed.
+          COMMIT_SHA="$(git rev-parse HEAD)"
           sleep "$((i * 2))"
         done
-
-        rm -rf "${INTENT_DIR}"
 
         if [ "${pushed}" != "true" ]; then
           echo "deploy-bump: all ${MAX} push attempts failed." >&2
