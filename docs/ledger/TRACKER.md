@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T00:15:02Z` |
+| Last refreshed | `2026-06-26T00:30:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -212,7 +212,7 @@ flowchart LR
 | [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
-| [#4407](https://github.com/openova-io/openova/issues/4407) | openclaw-controller OIDC verifier reuses the api-server-CA-pinned HTTP client � | Other |
+| [#4409](https://github.com/openova-io/openova/issues/4409) | bp-external-secrets-stores webhook-gate hook Job missing 'app.kubernetes.io/mana | Other |
 
 ---
 
@@ -220,8 +220,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T00:25 | [#4408](https://github.com/openova-io/openova/pull/4408) | #4272 | fix(bp-openclaw): controller trusts public LE root + cluster |
 | 2026-06-26T00:13 | [#4406](https://github.com/openova-io/openova/pull/4406) | #4212 | fix(catalyst): unwedge spine Application→Continuum round-tri |
 | 2026-06-26T00:07 | [#4405](https://github.com/openova-io/openova/pull/4405) | #3376 | fix(provisioning): retry day-2 app install while per-Org Git |
+| 2026-06-26T00:27 | [#4403](https://github.com/openova-io/openova/pull/4403) | #4398 | fix(bp-postgres): Guaranteed QoS so a per-Org CNPG Cluster p |
 | 2026-06-25T23:37 | [#4401](https://github.com/openova-io/openova/pull/4401) | #4272 | fix(bp-openclaw): public-HTTPS egress for the /readyz JWKS h |
 | 2026-06-25T22:50 | [#4400](https://github.com/openova-io/openova/pull/4400) | #4307 | fix(bp-stalwart-tenant): bundle SnappyMail webmail SPA so ma |
 | 2026-06-25T22:47 | [#4399](https://github.com/openova-io/openova/pull/4399) | #4272 | fix(provisioning,bp-openclaw): resolvable shared-realm OIDC  |
@@ -248,8 +250,6 @@ flowchart LR
 | 2026-06-25T18:16 | [#4365](https://github.com/openova-io/openova/pull/4365) | #4325 | fix(bp-agenity #4325): topology placement.tier rtz -> '' (ho |
 | 2026-06-25T17:13 | [#4364](https://github.com/openova-io/openova/pull/4364) | #4179 | fix(tenant): funnel CreateOrg renders selected cart Applicat |
 | 2026-06-25T17:07 | [#4363](https://github.com/openova-io/openova/pull/4363) | #4304 | fix(application-controller): typed-nil spec.parameters valid |
-| 2026-06-25T17:13 | [#4361](https://github.com/openova-io/openova/pull/4361) | #4272 | fix(bp-plane-isolation): default-deny egress 0.0.0.0/0 is Ci |
-| 2026-06-25T15:17 | [#4359](https://github.com/openova-io/openova/pull/4359) | #4358 | fix(bp-huawei-evs-csi): post-upgrade default-class hook Job  |
 
 ---
 
