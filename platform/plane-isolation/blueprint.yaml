@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.7  # lockstep with chart/Chart.yaml (#4442 — defer per-component default-deny when its namespace is absent)
+  version: 0.1.8  # lockstep with chart/Chart.yaml (#4468 — extend the #4445 defer-if-absent guard to apiserver-egress + gateway-ingress CNPs)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

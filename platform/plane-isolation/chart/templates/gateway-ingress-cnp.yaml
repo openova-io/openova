@@ -33,6 +33,16 @@ chart still installs on CRD-less clusters (kind CI).
 {{- range .Values.components }}
 {{- if .gatewayIngress }}
 {{- $ns := .namespace }}
+{{- /* #4456 deadlock-guard parity (see apiserver-egress-cnp.yaml / default-deny-
+       networkpolicy.yaml): skip a gatewayIngress component whose namespace is
+       absent so the atomic Helm install can't fail on a not-yet-created ns. No
+       current gatewayIngress component is created late, but the guard keeps all
+       three per-component templates uniform so a future late-created public
+       component can't re-introduce the fresh-prov deadlock. */ -}}
+{{- $guardNamespace := not (eq (toString .ensureNamespacePresent) "false") }}
+{{- if and $guardNamespace (not $.Values.renderUnconditional) (not (lookup "v1" "Namespace" "" $ns)) }}
+{{- /* namespace not present yet — defer this component's CNP to a later reconcile */ -}}
+{{- else }}
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -51,6 +61,7 @@ spec:
         - ingress
         - host
         - remote-node
+{{- end }}{{/* end namespace-present guard */}}
 {{- end }}
 {{- end }}
 {{- end -}}
