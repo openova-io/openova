@@ -25,22 +25,24 @@ catalystBlueprint:
 crossplane:
   # Crossplane CORE resources (#4212 Seam 1+2 — runtime-Observe blocker).
   #
-  # The 1Gi limit OOMKilled the core pod the moment provider-opentofu was
-  # installed + a Workspace was reconciled: measured live on omantel.biz
-  # (EPIC #4212) at CrashLoopBackOff with 144 restarts (exit 137). Core
-  # holds informer caches for the FULL managed-resource set the provider
-  # registers (provider-opentofu's Workspace + every adopted CloudAdoption),
-  # and that working set exceeds 1Gi on a Sovereign carrying the ~24
-  # Observe-first CloudAdoptions the adoption generator emits. With core
-  # OOM-looping, NO Workspace can ever reconcile to Synced+Ready — the seam
-  # stays inert regardless of provider install. Raise the limit to 2Gi and
-  # lift the request floor to 512Mi so the scheduler reserves real headroom
-  # (a 256Mi request against a 1Gi+ working set let the node overcommit core
-  # into the OOM window). RBAC-manager is untouched (it is not the OOM
+  # History: the original 1Gi limit OOMKilled core the moment
+  # provider-opentofu was installed (144 restarts, exit 137). The first fix
+  # raised it to 2Gi — but a capstone verify on omantel.biz (dep
+  # 4635277cae4ffed9, region-a) found core STILL CrashLoopBackOff at 2Gi
+  # with 55 restarts (OOMKilled, exit 137, killed ~90s after start) even
+  # though ZERO providers / ZERO CloudAdoptions were yet installed. core
+  # `start` builds discovery + composition/GC informer caches across EVERY
+  # CRD on the cluster (190 here, 8 compose.openova.io XRDs Established),
+  # and that startup working set alone overruns 2Gi on this Sovereign — so
+  # the seam can never reach the point of installing a provider. Raise the
+  # limit to 4Gi (2x the failing limit; the node carries ~64Gi allocatable,
+  # core is a cluster-singleton, ample headroom) and lift the request floor
+  # to 1Gi so the scheduler reserves real space instead of overcommitting
+  # core into the OOM window. RBAC-manager is untouched (it is not the OOM
   # offender). Operator-tunable per Inviolable Principle #4.
   resourcesCrossplane:
-    requests: { cpu: 100m, memory: 512Mi }
-    limits: { memory: 2Gi }
+    requests: { cpu: 100m, memory: 1Gi }
+    limits: { memory: 4Gi }
   # Prometheus metrics annotations — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md

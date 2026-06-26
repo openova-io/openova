@@ -3191,7 +3191,15 @@ name: bp-catalyst-platform
 #   alike; operator card/visibility/topology curation stays Flux-owned +
 #   revert-immune. Render-diff: only the 81 keep annotations removed, the CRs
 #   otherwise byte-identical. Refs #4415 #3668 #3702.
-version: 1.4.879
+version: 1.4.880
+# 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
+#   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
+#   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
+#   at the prior 2Gi limit on omantel.biz region-a (dep 4635277cae4ffed9) with ZERO
+#   providers/CloudAdoptions installed — core `start` builds discovery/composition/GC
+#   informer caches across every CRD (190) and that startup working set overran 2Gi. 1.1.6
+#   raises resourcesCrossplane to limits.memory 4Gi / requests.memory 1Gi so the seam can
+#   reach the point of installing provider-opentofu.
 # 1.4.871 — #4413: catalog-seed bp-openclaw pin 0.2.8 -> 0.2.11 (lockstep w/ blueprint.yaml)
 #   so the #4272 egress CNP (#4401) + controller TLS-trust (#4408) actually reach
 #   fresh funnel Orgs — the catalog Blueprint was serving 0.2.8 (pre-fix) on omantel.biz.
