@@ -1,6 +1,44 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.22
+version: 0.2.23
+# 0.2.23 (#4437, 2026-06-26): re-read the keycloak credentials Secret EACH
+# TICK so a reflected `addr`/`client-secret` change is picked up without a
+# pod roll — the permanent fix for grafana (et al) 503 on omantel.biz.
+#
+# LIVE RCA (dep 4635277cae4ffed9): grafana Pod 2/3 CreateContainerConfigError
+# → 503; secret `grafana-sso-oidc-credentials` NotFound; the chart-side
+# ExternalSecret rendered fine but reported `SecretSyncedError: Secret does
+# not exist` for `sso/grafana` — the ClusterSecretStore vault-region1 was
+# Valid/Ready, so OpenBao was reachable but the path was UNSEEDED. bp-sso-
+# bridge seeds `secret/sso/<app>`, but it was `skipping tick (no KC token)`
+# on EVERY tick with `curl: (6) Could not resolve host:
+# keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local`. #4325/#4347
+# DE-VCLUSTERED the mgmt plane → keycloak moved back to host ns `keycloak`
+# (`keycloak.keycloak.svc`) and bp-keycloak re-emitted the CORRECTED `addr`
+# into catalyst-kc-sa-credentials. But KC_ADDR is consumed as an ENV VAR via
+# secretKeyRef, and env-var secretKeyRef values are snapshotted at Pod start
+# and NEVER hot-reload on Secret content change (only volume mounts do). The
+# 4d-old reconciler Pod kept the stale KC_ADDR forever, dialing the dead host
+# → no token → no `sso/grafana` seed → grafana chart ES failed → secret never
+# created → Pod wedged → 503.
+#   Fix (script): new `refresh_kc_credentials()` re-reads the live
+#   catalyst-kc-sa-credentials + catalyst-kc-master-admin-credentials Secrets
+#   by NAME at the start of every tick (before mint_kc_token), overriding the
+#   boot env snapshot; KC_ADDR/KC_SA_* boot guards relaxed to "" so the
+#   per-tick refresh can recover even a never-populated snapshot. RBAC already
+#   grants secrets:get cluster-wide. Self-healing by construction: reflected
+#   addr/secret drift is absorbed within one 60s tick, ZERO pod roll.
+#   Fix (deployment): pass KC_CREDENTIALS_SECRET_NAME /
+#   KC_MASTER_CREDENTIALS_SECRET_NAME / RECONCILER_NAMESPACE (downward API) so
+#   the script reads the live Secret by name.
+#   Fix (values): re-home the stale `mgmt` keycloak/openbao egress
+#   NetworkPolicy namespaces back to the de-vclustered host namespaces
+#   (`keycloak`/`openbao`) — once KC_ADDR is correct, Cilium egress must allow
+#   traffic to that namespace or it is policy-dropped. (Reverts 0.2.21's `mgmt`
+#   default, which was correct for the #3642 vCluster topology #4325 undid.)
+# Sibling of #4344 (keycloak admin-password regen) — the same secretKeyRef-
+# snapshot staleness trap on the SA client-secret, now also self-healed.
+# Refs #4437 #4347 #4325.
 # 0.2.22 (#3374 cleanup-race, 2026-06-19): STOP the app-registration
 # ExternalSecret create-then-delete churn. cleanup_orphans() deletes any ES
 # labelled `bp-sso-bridge.openova.io/managed=true` whose client-id is NOT in

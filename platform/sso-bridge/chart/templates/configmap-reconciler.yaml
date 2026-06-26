@@ -97,9 +97,18 @@ data:
       || echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | WARN: kubeconfig bootstrap probe failed (server=${KAPI}) — ticks will retry" >&2
 
     : "${KC_REALM:?KC_REALM must be set}"
-    : "${KC_ADDR:?KC_ADDR must be set}"
-    : "${KC_SA_CLIENT_ID:?KC_SA_CLIENT_ID must be set}"
-    : "${KC_SA_CLIENT_SECRET:?KC_SA_CLIENT_SECRET must be set}"
+    # 0.2.23 (#4437): KC_ADDR / KC_SA_CLIENT_ID / KC_SA_CLIENT_SECRET are NO
+    # LONGER hard-required at boot — they are a boot-time secretKeyRef env
+    # snapshot that NEVER hot-reloads when the reflected
+    # catalyst-kc-sa-credentials Secret changes (the #4325 de-vcluster
+    # addr correction was the live trap: the pod kept curling the dead
+    # `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc` host forever). The new
+    # refresh_kc_credentials() re-reads the LIVE Secret at the start of
+    # every tick, so the boot snapshot may be empty/stale; default to ""
+    # under `set -u` and let the per-tick refresh populate them.
+    KC_ADDR="${KC_ADDR:-}"
+    KC_SA_CLIENT_ID="${KC_SA_CLIENT_ID:-}"
+    KC_SA_CLIENT_SECRET="${KC_SA_CLIENT_SECRET:-}"
     : "${OPENBAO_ADDR:?OPENBAO_ADDR must be set}"
     : "${OPENBAO_KV_MOUNT:?OPENBAO_KV_MOUNT must be set}"
     : "${OPENBAO_K8S_AUTH_PATH:?OPENBAO_K8S_AUTH_PATH must be set}"
@@ -112,6 +121,15 @@ data:
     : "${SOVEREIGN_FQDN_SOVEREIGN_FQDN_KEY:?SOVEREIGN_FQDN_SOVEREIGN_FQDN_KEY must be set}"
 
     OPERATOR_EMAIL_OVERRIDE="${OPERATOR_EMAIL_OVERRIDE:-}"
+
+    # 0.2.23 (#4437): the keycloak credentials Secret names + the namespace
+    # this reconciler runs in, so refresh_kc_credentials() can re-read the
+    # LIVE Secret each tick (the KC_ADDR/KC_SA_* env vars below are only a
+    # BOOT-TIME snapshot — see the function docstring). Safe fallbacks so an
+    # older deployment.yaml (or a smoke render) still starts.
+    KC_CREDENTIALS_SECRET_NAME="${KC_CREDENTIALS_SECRET_NAME:-catalyst-kc-sa-credentials}"
+    KC_MASTER_CREDENTIALS_SECRET_NAME="${KC_MASTER_CREDENTIALS_SECRET_NAME:-catalyst-kc-master-admin-credentials}"
+    RECONCILER_NAMESPACE="${RECONCILER_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo sso-bridge)}"
 
     log() { printf '%s | %s\n' "$(date -u +%FT%TZ)" "$*"; }
     warn() { log "WARN: $*" >&2; }
@@ -153,7 +171,74 @@ data:
       return 1
     }
 
+    # 0.2.23 (#4437): re-read the keycloak credentials from the LIVE
+    # catalyst-kc-sa-credentials / catalyst-kc-master-admin-credentials
+    # Secrets at the start of every tick, overriding the boot-time
+    # secretKeyRef env snapshot.
+    #
+    # WHY this is the permanent fix (live RCA, omantel.biz dep
+    # 4635277cae4ffed9, 2026-06-26): #4325/#3642 de-vclustered the mgmt
+    # plane, re-homing keycloak from the `mgmt` vCluster (syncer-mangled
+    # Service `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc`) back into the
+    # native host ns `keycloak` (`keycloak.keycloak.svc`). bp-keycloak
+    # re-emitted the CORRECTED `addr` into catalyst-kc-sa-credentials — but
+    # KC_ADDR is consumed as an ENV VAR via secretKeyRef, and env-var
+    # secretKeyRef values are snapshotted at Pod start and NEVER
+    # propagate when the Secret content changes (only VOLUME-mounted
+    # secrets hot-reload). The long-lived reconciler Pod therefore kept
+    # curling the DEAD syncer-mangled host (`Could not resolve host` ->
+    # `failed to mint Keycloak admin token` -> `skipping tick`), so the
+    # OpenBao `sso/<app>` bundles (grafana/harbor/openbao/gitea/...) were
+    # NEVER written -> every chart-side ExternalSecret reported
+    # `SecretSyncedError: Secret does not exist` -> the *-sso-oidc-
+    # credentials Secret never materialised -> the app Pod wedged at
+    # CreateContainerConfigError -> 503. Re-reading the Secret each tick
+    # makes the reconciler pick up any reflected addr/secret drift within
+    # one interval, self-healing by construction (matches the idempotent-
+    # tick design) with ZERO pod roll. Sibling of the #4344 keycloak
+    # admin-password-regen drift (same secretKeyRef-snapshot trap on the
+    # SA client-secret).
+    refresh_kc_credentials() {
+      local sec addr cid csec
+      sec="$(k_retry get secret "${KC_CREDENTIALS_SECRET_NAME}" -n "${RECONCILER_NAMESPACE}" -o json)" || {
+        warn "refresh_kc_credentials: could not read Secret ${RECONCILER_NAMESPACE}/${KC_CREDENTIALS_SECRET_NAME} (using boot env snapshot)"
+        return 0
+      }
+      addr="$(printf '%s' "${sec}" | jq -r '.data.addr            // "" | @base64d')"
+      cid="$(printf '%s'  "${sec}" | jq -r '.data["client-id"]    // "" | @base64d')"
+      csec="$(printf '%s' "${sec}" | jq -r '.data["client-secret"]// "" | @base64d')"
+      # Only override a field when the live Secret actually carries it, so a
+      # transiently-empty reflected key never blanks a working value.
+      [ -n "${addr}" ] && {
+        if [ "${addr}" != "${KC_ADDR}" ]; then
+          log "refresh_kc_credentials: KC_ADDR drift detected (was '${KC_ADDR:-<empty>}' -> '${addr}')"
+        fi
+        KC_ADDR="${addr}"
+      }
+      [ -n "${cid}" ]  && KC_SA_CLIENT_ID="${cid}"
+      [ -n "${csec}" ] && KC_SA_CLIENT_SECRET="${csec}"
+
+      # Master-realm admin creds (provision_org_realm). Optional Secret —
+      # absent until reflector mirrors bp-keycloak's catalyst-kc-master-
+      # admin-credentials; tolerate NotFound silently (same as the boot
+      # env's `optional: true`).
+      local msec
+      msec="$(k_retry get secret "${KC_MASTER_CREDENTIALS_SECRET_NAME}" -n "${RECONCILER_NAMESPACE}" -o json)" || return 0
+      local mrealm muser mpass
+      mrealm="$(printf '%s' "${msec}" | jq -r '.data["master-realm"]              // "" | @base64d')"
+      muser="$(printf '%s'  "${msec}" | jq -r '.data["master-realm-admin-user"]   // "" | @base64d')"
+      mpass="$(printf '%s'  "${msec}" | jq -r '.data["master-realm-admin-password"]// "" | @base64d')"
+      [ -n "${mrealm}" ] && KC_MASTER_REALM="${mrealm}"
+      [ -n "${muser}" ]  && KC_MASTER_ADMIN_USER="${muser}"
+      [ -n "${mpass}" ]  && KC_MASTER_ADMIN_PASSWORD="${mpass}"
+      return 0
+    }
+
     mint_kc_token() {
+      if [ -z "${KC_ADDR}" ] || [ -z "${KC_SA_CLIENT_ID}" ] || [ -z "${KC_SA_CLIENT_SECRET}" ]; then
+        err "keycloak credentials unresolved (KC_ADDR/KC_SA_CLIENT_ID/KC_SA_CLIENT_SECRET empty) — reflector may not have mirrored ${KC_CREDENTIALS_SECRET_NAME} yet"
+        return 1
+      fi
       KC_ADMIN_TOKEN="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -X POST "${KC_ADDR%/}/realms/${KC_REALM}/protocol/openid-connect/token" \
         -H "Content-Type: application/x-www-form-urlencoded" \
@@ -1040,6 +1125,13 @@ data:
       # 0.2.13: bound SA tokens rotate (~1h) — refresh the synthesized
       # kubeconfig's credential each tick so long-lived pods keep working.
       kubectl config set-credentials sa --token="$(cat "${SA_DIR}/token")" >/dev/null 2>&1 || true
+
+      # 0.2.23 (#4437): re-read the live keycloak credentials Secret BEFORE
+      # minting the token, so a reflected addr/secret change (the #4325
+      # de-vcluster host correction, or a #4344 admin-password regen) is
+      # picked up THIS tick — the boot-time secretKeyRef env snapshot never
+      # hot-reloads on its own.
+      refresh_kc_credentials
 
       mint_kc_token || { warn "skipping tick (no KC token)"; sleep "${INTERVAL_SECONDS}"; continue; }
       openbao_login || { warn "skipping tick (no OpenBao token)"; sleep "${INTERVAL_SECONDS}"; continue; }
