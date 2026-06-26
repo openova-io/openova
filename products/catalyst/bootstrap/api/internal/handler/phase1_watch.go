@@ -731,20 +731,44 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		dep.Error = fmt.Sprintf("Phase 1 watch terminated with unhandled outcome %q — catalyst-api is missing a status mapping for it. The deployment is NOT marked ready; please file an issue with the deployment ID and the catalyst-api logs from this run.", outcome)
 	}
 
-	// #3375 DoD-7 — DR INTEGRITY GATE. An otherwise-ready deployment that
-	// REQUESTED active-hot-standby (or active-active) but whose standby
-	// region never came up must NOT claim the topology. The honest
-	// outcome is `failed` with the canonical standby-region-absent reason
-	// — the DR sibling of the "did not PUT kubeconfig" primary failure.
+	// #3375 DoD-7 — DR INTEGRITY GATE, made SELF-FIRING for a converged
+	// primary (#4486, Refs #3375 #4212). A deployment that REQUESTED
+	// active-hot-standby (or active-active) but whose standby region never
+	// came up cannot HONESTLY claim the topology — but the corrective
+	// action depends entirely on whether the PRIMARY converged:
 	//
-	// This re-evaluates ONLY an already-ready deployment (it never
-	// upgrades a failed one) and keys on the OBSERVED secondary-region
-	// count (non-primary entries in the #3611 census). A SLOW-but-present
-	// secondary HAS an observed watcher → it is counted → it does NOT
-	// trip this gate (the surface-not-gate design for slow secondaries is
-	// preserved). Only a GENUINELY-ABSENT region (no cluster, no
-	// kubeconfig, zero observed secondary — the hw150 shape) trips it.
-	// Generic: keys on Request.BcpTopology + region counts, no app name.
+	//   (a) Primary NOT ready (outcome != OutcomeReady — kubeconfig-missing,
+	//       flux-not-reconciling, a hard-FAILED component, timeout): this is
+	//       a GENUINE failure. Keep `failed` + the standby-region-absent
+	//       reason. Nothing converged; there is nothing to hand over.
+	//
+	//   (b) Primary IS ready (outcome == OutcomeReady) but the standby is
+	//       absent: the primary region is a DEGRADED-BUT-FUNCTIONAL
+	//       single-region spine. Latching this to `failed` was an
+	//       ARCHITECTURAL FAULT — `finalStatus=="failed"` makes the
+	//       OutcomeReady terminal block below skip `fireHandover`, so
+	//       `HandoverFiredAt` stays nil and the ENTIRE post-handover
+	//       producer chain (spine Applications, adoption-apply, policy-flip,
+	//       ClusterMesh) is permanently inert, with NO level-triggered heal
+	//       (`runConvergedLateRescue` + `shouldStartupSpineReconcile` both
+	//       gate on `HandoverFiredAt != nil`). A single-region-up
+	//       multi-region prov could never enroll even its degraded spine.
+	//       The honest, self-healing outcome is to STAY `ready`, fire the
+	//       handover for the converged primary, run the spine producer, and
+	//       record the standby absence as a NON-FATAL `SecondaryDegraded`
+	//       condition (the same surface-not-gate idiom #3611 uses for a
+	//       slow-but-present secondary) plus the `standby-region-absent`
+	//       Phase1Outcome so the operator console + logs stay honest.
+	//
+	// This re-evaluates ONLY an already-ready deployment (it never upgrades
+	// a failed one) and keys on the OBSERVED secondary-region count
+	// (non-primary entries in the #3611 census). A SLOW-but-present
+	// secondary HAS an observed watcher → it is counted → it does NOT trip
+	// this gate at all (its slowness rides the #3611 SecondaryDegraded
+	// surface independently). Only a GENUINELY-ABSENT region (no cluster, no
+	// kubeconfig, zero observed secondary — the hw150 shape) reaches the
+	// branch here. Generic: keys on Request.BcpTopology + region counts, no
+	// app name.
 	if dep.Status == "ready" {
 		observedSecondary := 0
 		for _, rh := range dep.Result.Regions {
@@ -755,9 +779,28 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		if ok, reason := provisioner.DeclaredDRStandbyIntegrity(
 			dep.Request.BcpTopology, len(dep.Request.Regions), observedSecondary,
 		); !ok {
-			dep.Status = "failed"
-			dep.Error = reason
+			// The primary converged (dep.Status=="ready" is only reached on
+			// outcome==OutcomeReady; the storage/kubeconfig/timeout/failed
+			// branches above all set "failed"). So this is case (b): keep
+			// the converged primary HANDED-OVER as a degraded single-region
+			// spine instead of latching the whole chain off.
+			//
+			// NB: do NOT set dep.Error here — the deployment is `ready`, and
+			// /deployments/{id} surfaces a non-empty Error as a top-level
+			// `error` field that the wizard's FailureCard renders as a hard
+			// failure. The standby absence rides the honest, non-fatal
+			// channels instead: SecondaryDegraded (the #3611 surface-not-gate
+			// badge), the standby-region-absent Phase1Outcome, and the loud
+			// warn below. `reason` is logged, not stamped as a failure.
+			dep.Result.SecondaryDegraded = true
 			dep.Result.Phase1Outcome = provisioner.ReasonStandbyRegionAbsent
+			h.log.Warn("phase 1 ready on the PRIMARY but the declared DR STANDBY region is ABSENT — handing over the converged primary as a DEGRADED single-region spine (NOT latching failed); DR is INACTIVE until the standby provisions (#4486, Refs #3375)",
+				"id", dep.ID,
+				"bcpTopology", dep.Request.BcpTopology,
+				"declaredRegions", len(dep.Request.Regions),
+				"observedSecondary", observedSecondary,
+				"reason", reason,
+			)
 		}
 	}
 
