@@ -3174,7 +3174,7 @@ name: bp-catalyst-platform
 #   reverted it ~2min later, so the live chart still shipped the pre-#4393
 #   org-controller — every m-tier funnel Org stayed wedged at 'vcluster-0
 #   forbidden: ratio 20' (verified live on g10vc). Refs #4395 #4394 #4393 #4307 #4292 #4389.
-version: 1.4.868
+version: 1.4.869
 # 1.4.774 — #4082: application-controller ClusterRole gains dr.openova.io/continuums
 #   (get/list/watch/create/update/patch/delete) — was in the controller's own
 #   deploy/rbac.yaml but MISSING from this platform chart, so a singleton /
