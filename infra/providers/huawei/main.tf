@@ -984,7 +984,13 @@ locals {
       sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       marketplace_enabled      = var.marketplace_enabled
-      wildcard_cert_issuer     = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
+      # #4053 console-isolation toggle (Refs #4431 #4212). Threads into the
+      # shared template's SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13
+      # ingress.gateway.parentRef.name. "true" → cilium-gateway-console
+      # (default isolation); "false" → cilium-gateway (shared) so the console
+      # resolves even when no dedicated console ELB exists.
+      console_isolation_enabled = var.console_isolation_enabled
+      wildcard_cert_issuer      = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
 
       ghcr_pull_username = local.ghcr_pull_username
       ghcr_pull_token    = var.ghcr_pull_token
@@ -1012,7 +1018,7 @@ locals {
       # cloud-init → bootstrap-kit slot 13 → sovereign-fqdn ConfigMap `consoleLBIP`
       # → organization-controller so the per-Org pool-DNS `console.<slug>.<pool>`
       # A-record targets the console front door (the #4179 final layer).
-      console_load_balancer_ipv4 = huaweicloud_vpc_eip.elb_console.publicip.0.ip_address
+      console_load_balancer_ipv4 = local.console_isolation_on ? huaweicloud_vpc_eip.elb_console[0].publicip.0.ip_address : ""
 
       # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
       registry_mirror_yaml          = local.registry_mirror_yaml_huawei
@@ -1366,6 +1372,14 @@ locals {
       if w.region == local.region_keys[0]
     ],
   )
+
+  # #4053 console-isolation gate (Refs #4431 #4212). When "true" (default) the
+  # dedicated console ELB stack is created; "false" drops it to save one EIP on
+  # a 3-EIP single-region validation prov. The member resources fan out per
+  # node, so their count is the node count multiplied by the gate (0 → no
+  # members when isolation is off).
+  console_isolation_on = var.console_isolation_enabled == "true"
+  console_member_count = local.console_isolation_on ? length(local.primary_lb_node_ips) : 0
 }
 
 resource "huaweicloud_elb_member" "https" {
@@ -1428,6 +1442,7 @@ resource "huaweicloud_elb_monitor" "http" {
 # Byte-identical design to the Hetzner console LB (infra/providers/hetzner).
 
 resource "huaweicloud_vpc_eip" "elb_console" {
+  count = local.console_isolation_on ? 1 : 0
   publicip {
     type = "5_bgp"
   }
@@ -1440,10 +1455,11 @@ resource "huaweicloud_vpc_eip" "elb_console" {
 }
 
 resource "huaweicloud_elb_loadbalancer" "console" {
+  count             = local.console_isolation_on ? 1 : 0
   name              = "${local.name_prefix}-elb-console"
   vpc_id            = huaweicloud_vpc.region[local.region_keys[0]].id
   ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
-  ipv4_eip_id       = huaweicloud_vpc_eip.elb_console.id
+  ipv4_eip_id       = huaweicloud_vpc_eip.elb_console[0].id
   availability_zone = [var.huawei_az]
   description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→31443 + 80→31080 routing"
 
@@ -1461,37 +1477,41 @@ resource "huaweicloud_elb_loadbalancer" "console" {
 }
 
 resource "huaweicloud_elb_pool" "console_https" {
+  count           = local.console_isolation_on ? 1 : 0
   name            = "${local.name_prefix}-elb-pool-console-https"
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
-  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console[0].id
   description     = "cilium-gateway-console targets on port 31443"
 }
 
 resource "huaweicloud_elb_pool" "console_http" {
+  count           = local.console_isolation_on ? 1 : 0
   name            = "${local.name_prefix}-elb-pool-console-http"
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
-  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console[0].id
   description     = "cilium-gateway-console targets on port 31080"
 }
 
 resource "huaweicloud_elb_listener" "console_https" {
-  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  count           = local.console_isolation_on ? 1 : 0
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console[0].id
   name            = "${local.name_prefix}-elb-listener-console-https"
   protocol        = "TCP"
   protocol_port   = 443
-  default_pool_id = huaweicloud_elb_pool.console_https.id
+  default_pool_id = huaweicloud_elb_pool.console_https[0].id
   idle_timeout    = 60
   description     = "TCP passthrough — cilium-gateway-console terminates TLS at 31443"
 }
 
 resource "huaweicloud_elb_listener" "console_http" {
-  loadbalancer_id = huaweicloud_elb_loadbalancer.console.id
+  count           = local.console_isolation_on ? 1 : 0
+  loadbalancer_id = huaweicloud_elb_loadbalancer.console[0].id
   name            = "${local.name_prefix}-elb-listener-console-http"
   protocol        = "TCP"
   protocol_port   = 80
-  default_pool_id = huaweicloud_elb_pool.console_http.id
+  default_pool_id = huaweicloud_elb_pool.console_http[0].id
   idle_timeout    = 60
   description     = "TCP passthrough — console HTTP→HTTPS redirect"
 }
@@ -1500,23 +1520,24 @@ resource "huaweicloud_elb_listener" "console_http" {
 # cilium-envoy runs on every node and binds BOTH 30443 (shared) and 31443
 # (console), so every node is a valid console-ELB target on 31443/31080.
 resource "huaweicloud_elb_member" "console_https" {
-  count         = length(local.primary_lb_node_ips)
-  pool_id       = huaweicloud_elb_pool.console_https.id
+  count         = local.console_member_count
+  pool_id       = huaweicloud_elb_pool.console_https[0].id
   address       = local.primary_lb_node_ips[count.index]
   protocol_port = 31443
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
 resource "huaweicloud_elb_member" "console_http" {
-  count         = length(local.primary_lb_node_ips)
-  pool_id       = huaweicloud_elb_pool.console_http.id
+  count         = local.console_member_count
+  pool_id       = huaweicloud_elb_pool.console_http[0].id
   address       = local.primary_lb_node_ips[count.index]
   protocol_port = 31080
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
 resource "huaweicloud_elb_monitor" "console_https" {
-  pool_id     = huaweicloud_elb_pool.console_https.id
+  count       = local.console_isolation_on ? 1 : 0
+  pool_id     = huaweicloud_elb_pool.console_https[0].id
   protocol    = "TCP"
   port        = 31443
   interval    = 10
@@ -1525,7 +1546,8 @@ resource "huaweicloud_elb_monitor" "console_https" {
 }
 
 resource "huaweicloud_elb_monitor" "console_http" {
-  pool_id     = huaweicloud_elb_pool.console_http.id
+  count       = local.console_isolation_on ? 1 : 0
+  pool_id     = huaweicloud_elb_pool.console_http[0].id
   protocol    = "TCP"
   port        = 31080
   interval    = 10

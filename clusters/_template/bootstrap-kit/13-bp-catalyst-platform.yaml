@@ -1403,6 +1403,20 @@ spec:
       # MUST persist to local Gitea source-of-truth).
       imageRegistry: ''
     ingress:
+      gateway:
+        parentRef:
+          # #4053 console-isolation toggle (Refs #4431 #4212). Threaded from
+          # cloud-init's SOVEREIGN_CONSOLE_GATEWAY postBuild substitute (fed by
+          # tofu var console_isolation_enabled). Default cilium-gateway-console
+          # (the chart's own default, #4053 poison-proof isolation). On a 3-EIP
+          # single-region validation prov where the dedicated console ELB is NOT
+          # created (console_isolation_enabled=false), this resolves to
+          # cilium-gateway so the catalyst-ui/catalyst-api HTTPRoutes re-parent
+          # onto the SHARED gateway and the console still resolves at the
+          # primary LB IP (no #4070-shape 404-with-TLS-green). When the
+          # substitute is absent (legacy contabo/Catalyst-Zero Kustomize build)
+          # the envsubst fallback keeps the chart default.
+          name: ${SOVEREIGN_CONSOLE_GATEWAY:-cilium-gateway-console}
       hosts:
         console:
           host: console.${SOVEREIGN_FQDN}

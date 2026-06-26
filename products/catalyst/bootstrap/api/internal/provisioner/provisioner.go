@@ -253,6 +253,26 @@ func bcpTopologyEnableHotStandby(topology string) string {
 	}
 }
 
+// consoleIsolationEnabled resolves the #4053 console-isolation toggle (Refs
+// #4431 #4212) for a Request, applying the default-TRUE rule:
+//
+//   - Request.ConsoleIsolationEnabled == nil (the POST omitted the field — the
+//     common case + every legacy/automation payload) → true (the canonical
+//     production posture: dedicated console ELB + isolated cilium-gateway-
+//     console, byte-identical to pre-#4431 behaviour).
+//   - Request.ConsoleIsolationEnabled == &false → false (the 3-EIP single-
+//     region validation shape: no console ELB, console front doors collapse
+//     onto elb_primary + the shared cilium-gateway).
+//   - Request.ConsoleIsolationEnabled == &true → true (explicit production).
+//
+// One source of truth shared by writeTfvars() and the unit tests.
+func consoleIsolationEnabled(req Request) bool {
+	if req.ConsoleIsolationEnabled == nil {
+		return true
+	}
+	return *req.ConsoleIsolationEnabled
+}
+
 // Per-provider default StorageClass names — the durable cloud-block-storage
 // CSI class each provider's bootstrap-kit installs and flips to
 // cluster-default (#3971/#892). These are the FALLBACKS the operator gets
@@ -543,6 +563,35 @@ type Request struct {
 	// — operator opts in via wizard's "Enable Marketplace" component
 	// checkbox.
 	MarketplaceEnabled bool `json:"marketplaceEnabled"`
+
+	// ConsoleIsolationEnabled — #4053 dedicated-console-gateway toggle (Refs
+	// #4431 #4212). When true (the canonical default, set in NewRequest /
+	// applyDefaults below), the Sovereign provisions the dedicated console ELB
+	// + its own public EIP so the console./api./marketplace. front doors ride
+	// an isolated cilium-gateway-console whose CEC can never be poisoned by a
+	// half-converged app on the shared gateway (#4053). The catalyst-ui /
+	// catalyst-api HTTPRoutes parent that dedicated gateway.
+	//
+	// When false, the dedicated console ELB stack is NOT created — the
+	// Sovereign consumes ONE FEWER public EIP (cp + nat + elb_primary = 3
+	// instead of 4), the console_load_balancer_ip tofu output resolves EMPTY
+	// (the DNS-writer recordTargetIP collapses console/api/marketplace onto
+	// elb_primary, sovereign_dns_records.go, test-covered), and the
+	// SOVEREIGN_CONSOLE_GATEWAY cloud-init substitute re-parents the console
+	// HTTPRoutes onto the SHARED cilium-gateway so the console still resolves
+	// (no #4070-shape 404-with-TLS-green). This is the seam that lets a
+	// single-region validation prov fit a 3-free-EIP kom4dc pool.
+	//
+	// Threaded through the EXACT same seam as MarketplaceEnabled: this Request
+	// field → tofu var `console_isolation_enabled` (string "true"/"false") →
+	// the IaC console-ELB `count` gate + the cloud-init SOVEREIGN_CONSOLE_GATEWAY
+	// substitute → bootstrap-kit slot 13 ingress.gateway.parentRef.name.
+	//
+	// Default TRUE (production posture). A POST that omits this field lands the
+	// isolated-console production shape, byte-identical to today. A pointer so
+	// "omitted" (nil → defaulted true) is distinguishable from an explicit
+	// false; applyConsoleIsolationDefault() resolves it.
+	ConsoleIsolationEnabled *bool `json:"consoleIsolationEnabled,omitempty"`
 
 	// EnableSharedPostgres — opt-in switch for the ADR-0010 reusable,
 	// shareable backing-services model (#3188). When true, bootstrap-kit
@@ -2598,6 +2647,19 @@ func writeTfvars(deployDir string, req Request) error {
 		// Kustomization postBuild.substitute block at cloud-init render
 		// time without quoting surprises.
 		"marketplace_enabled": map[bool]string{true: "true", false: "false"}[req.MarketplaceEnabled],
+
+		// #4053 console-isolation toggle (Refs #4431 #4212). Stringified
+		// "true"/"false" for the same envsubst-passthrough reason as
+		// marketplace_enabled. true (the default, resolved by
+		// consoleIsolationEnabled when the field is omitted) → the IaC
+		// console-ELB `count` gate provisions the dedicated console ELB + EIP
+		// and the cloud-init SOVEREIGN_CONSOLE_GATEWAY substitute keeps the
+		// console HTTPRoutes on cilium-gateway-console (#4053 isolation).
+		// false → the console ELB stack is dropped (one fewer EIP) and the
+		// console re-parents onto the shared cilium-gateway. The matching
+		// infra/providers/{hetzner,huawei}/variables.tf carry the
+		// `["true","false"]` validation so a typo fails at `tofu plan`.
+		"console_isolation_enabled": map[bool]string{true: "true", false: "false"}[consoleIsolationEnabled(req)],
 
 		// QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle iter-16).
 		// Stringified for symmetric reasons as marketplace_enabled. When

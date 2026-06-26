@@ -46,6 +46,27 @@ variable "marketplace_enabled" {
   }
 }
 
+# ── #4053 console gateway isolation toggle (Refs #4431 #4212) ──────────────
+# Companion to the Huawei port's `console_isolation_enabled`. When 'true' (the
+# canonical default) the Sovereign provisions the dedicated console LB
+# (hcloud_load_balancer.console + its targets/services) so the console./api./
+# marketplace. front doors ride an isolated cilium-gateway-console whose CEC
+# can never be poisoned by a half-converged app on the shared gateway (#4053).
+# When 'false' the dedicated console LB stack is NOT created — the console
+# front doors collapse onto hcloud_load_balancer.main and bp-catalyst-platform
+# re-parents the catalyst-ui/catalyst-api HTTPRoutes onto the shared
+# cilium-gateway (SOVEREIGN_CONSOLE_GATEWAY substitute) so the console still
+# resolves. Set from catalyst-api Request.ConsoleIsolationEnabled.
+variable "console_isolation_enabled" {
+  type        = string
+  description = "When 'true' (canonical default) the Sovereign provisions the dedicated console LB (#4053 gateway isolation). 'false' drops the console LB stack (console front doors collapse onto the shared LB + cilium-gateway). Set from catalyst-api Request.ConsoleIsolationEnabled."
+  default     = "true"
+  validation {
+    condition     = contains(["true", "false"], var.console_isolation_enabled)
+    error_message = "console_isolation_enabled must be the string 'true' or 'false'."
+  }
+}
+
 # ── BCP topology (Refs #2666 G93.1) ──────────────────────────────────────
 # Business-Continuity-Planning topology the operator chose at provision
 # time. The canonical seam between the Catalyst console's wizard

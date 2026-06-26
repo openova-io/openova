@@ -408,6 +408,33 @@ variable "marketplace_enabled" {
   EOT
 }
 
+# ── #4053 console gateway isolation toggle (Refs #4431 #4212) ──────────────
+# When true (the canonical default), the Sovereign provisions the DEDICATED
+# console ELB (huaweicloud_elb_loadbalancer.console + its own EIP/pools/
+# listeners/members/monitors) so the console./api./marketplace. front doors
+# ride an isolated cilium-gateway-console whose CEC can never be poisoned by a
+# half-converged app on the shared gateway (#4053).
+#
+# When false, the dedicated console ELB stack is NOT created → the Sovereign
+# consumes ONE FEWER public EIP (cp + nat + elb_primary = 3 instead of 4). The
+# console_load_balancer_ip output then resolves EMPTY, which the catalyst-api
+# DNS-writer (sovereign_dns_records.go recordTargetIP, test-covered) already
+# collapses onto elb_primary for every record — and bp-catalyst-platform
+# re-parents the catalyst-ui/catalyst-api HTTPRoutes onto the shared
+# cilium-gateway (SOVEREIGN_CONSOLE_GATEWAY substitute) so the console still
+# resolves (no #4070-shape 404). This is the seam that lets a single-region
+# validation prov fit a 3-free-EIP kom4dc pool. Set 'false' for those provs;
+# production stays byte-identical on the 'true' default.
+variable "console_isolation_enabled" {
+  type        = string
+  description = "When 'true' (canonical default) the Sovereign provisions the dedicated console ELB + EIP (#4053 gateway isolation). 'false' drops the console ELB stack (one fewer EIP; console front doors collapse onto elb_primary + the shared cilium-gateway) — used by 3-EIP single-region validation provs. Set from catalyst-api Request.ConsoleIsolationEnabled."
+  default     = "true"
+  validation {
+    condition     = contains(["true", "false"], var.console_isolation_enabled)
+    error_message = "console_isolation_enabled must be the string 'true' or 'false'."
+  }
+}
+
 # ── BCP topology (Refs #2666 G93.1) ────────────────────────────────────
 # Companion to the Hetzner port's `bcp_topology` + `enable_hot_standby`
 # vars. Pre-G93.1 the Huawei cloud-init template OMITTED the

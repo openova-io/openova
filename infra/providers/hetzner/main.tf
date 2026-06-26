@@ -294,6 +294,14 @@ resource "hcloud_ssh_key" "main" {
 locals {
   control_plane_count = var.ha_enabled ? 3 : 1
 
+  # #4053 console-isolation gate (Refs #4431 #4212). When "true" (default) the
+  # dedicated console LB stack is created; "false" drops it (console front
+  # doors collapse onto hcloud_load_balancer.main). The console LB-target
+  # resources fan out per node, so their counts multiply by the gate.
+  console_isolation_on        = var.console_isolation_enabled == "true"
+  console_cp_target_count     = local.console_isolation_on ? local.control_plane_count : 0
+  console_worker_target_count = local.console_isolation_on ? var.worker_count : 0
+
   # Wildcard cert ClusterIssuer selector (Fix #176 — qa-loop iter-1 LE
   # PROD rate-limit unblock for clusters/_template/sovereign-tls/cilium-
   # gateway-cert.yaml). The sovereign-tls Kustomization's
@@ -865,20 +873,23 @@ locals {
     replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
       local.region_canonical_label[keys(local.secondary_regions)[0]]
     ) : ""
-    cluster_mesh_name        = var.cluster_mesh_name
-    cluster_mesh_id          = var.cluster_mesh_id
-    k3s_version              = var.k3s_version
-    k3s_token                = local.k3s_token
-    gitops_repo_url          = var.gitops_repo_url
-    gitops_branch            = var.gitops_branch
-    marketplace_enabled      = var.marketplace_enabled
-    wildcard_cert_issuer     = local.wildcard_cert_issuer
-    bcp_topology             = var.bcp_topology
-    enable_hot_standby       = var.enable_hot_standby
-    enable_shared_pg         = var.enable_shared_pg
-    default_storage_class    = var.default_storage_class
-    sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-    continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
+    cluster_mesh_name   = var.cluster_mesh_name
+    cluster_mesh_id     = var.cluster_mesh_id
+    k3s_version         = var.k3s_version
+    k3s_token           = local.k3s_token
+    gitops_repo_url     = var.gitops_repo_url
+    gitops_branch       = var.gitops_branch
+    marketplace_enabled = var.marketplace_enabled
+    # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
+    # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
+    console_isolation_enabled = var.console_isolation_enabled
+    wildcard_cert_issuer      = local.wildcard_cert_issuer
+    bcp_topology              = var.bcp_topology
+    enable_hot_standby        = var.enable_hot_standby
+    enable_shared_pg          = var.enable_shared_pg
+    default_storage_class     = var.default_storage_class
+    sovereign_cnpg_instances  = length(var.regions) > 1 ? "2" : "1"
+    continuum_enabled         = length(var.regions) > 1 ? "true" : "false"
     parent_domains_yaml = coalesce(
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
@@ -909,7 +920,7 @@ locals {
     # cloud-init → bootstrap-kit slot 13 → sovereign-fqdn ConfigMap `consoleLBIP`
     # → organization-controller so the per-Org pool-DNS `console.<slug>.<pool>`
     # A-record targets the console front door (the #4179 final layer).
-    console_load_balancer_ipv4 = hcloud_load_balancer.console.ipv4
+    console_load_balancer_ipv4 = local.console_isolation_on ? hcloud_load_balancer.console[0].ipv4 : ""
 
     # Huawei-branch substitute vars — passed empty/placeholder on Hetzner so
     # the shared template's `provider == "huawei"` block parses (tofu
@@ -1168,6 +1179,7 @@ resource "hcloud_load_balancer_service" "dns" {
 # front gateway (TLSRoute is a startup CRD presence-check only on 1.16.x), which
 # rules out the single-IP front-gateway alternative.
 resource "hcloud_load_balancer" "console" {
+  count              = local.console_isolation_on ? 1 : 0
   name               = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-console-lb"
   load_balancer_type = "lb11"
   location           = var.region
@@ -1181,7 +1193,8 @@ resource "hcloud_load_balancer" "console" {
 }
 
 resource "hcloud_load_balancer_network" "console" {
-  load_balancer_id = hcloud_load_balancer.console.id
+  count            = local.console_isolation_on ? 1 : 0
+  load_balancer_id = hcloud_load_balancer.console[0].id
   network_id       = hcloud_network.region["primary"].id
   # .253 — one below the shared LB's .254 anchor (see hcloud_load_balancer_
   # network.main). Pins the console LB's private IP so it cannot race the CP /
@@ -1195,9 +1208,9 @@ resource "hcloud_load_balancer_network" "console" {
 # DaemonSet on every node and binds BOTH 30443 (shared) and 31443 (console), so
 # every node is a valid target for the console LB too.
 resource "hcloud_load_balancer_target" "console_control_plane" {
-  count            = local.control_plane_count
+  count            = local.console_cp_target_count
   type             = "server"
-  load_balancer_id = hcloud_load_balancer.console.id
+  load_balancer_id = hcloud_load_balancer.console[0].id
   server_id        = hcloud_server.control_plane[count.index].id
   use_private_ip   = true
 
@@ -1205,9 +1218,9 @@ resource "hcloud_load_balancer_target" "console_control_plane" {
 }
 
 resource "hcloud_load_balancer_target" "console_workers" {
-  count            = var.worker_count
+  count            = local.console_worker_target_count
   type             = "server"
-  load_balancer_id = hcloud_load_balancer.console.id
+  load_balancer_id = hcloud_load_balancer.console[0].id
   server_id        = hcloud_server.worker[count.index].id
   use_private_ip   = true
 
@@ -1218,7 +1231,8 @@ resource "hcloud_load_balancer_target" "console_workers" {
 }
 
 resource "hcloud_load_balancer_service" "console_http" {
-  load_balancer_id = hcloud_load_balancer.console.id
+  count            = local.console_isolation_on ? 1 : 0
+  load_balancer_id = hcloud_load_balancer.console[0].id
   protocol         = "tcp"
   listen_port      = 80
   # 31080 — the console gateway's HTTP host-port (cilium-gateway-console.yaml).
@@ -1226,7 +1240,8 @@ resource "hcloud_load_balancer_service" "console_http" {
 }
 
 resource "hcloud_load_balancer_service" "console_https" {
-  load_balancer_id = hcloud_load_balancer.console.id
+  count            = local.console_isolation_on ? 1 : 0
+  load_balancer_id = hcloud_load_balancer.console[0].id
   protocol         = "tcp"
   listen_port      = 443
   # 31443 — the console gateway's HTTPS host-port. TLS terminates at the
@@ -1399,20 +1414,23 @@ locals {
       replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
         local.region_canonical_label[keys(local.secondary_regions)[0]]
       ) : ""
-      cluster_mesh_name        = local.secondary_region_cluster_mesh_name[k]
-      cluster_mesh_id          = local.secondary_region_cluster_mesh_id[k]
-      k3s_version              = var.k3s_version
-      k3s_token                = local.k3s_token
-      gitops_repo_url          = var.gitops_repo_url
-      gitops_branch            = var.gitops_branch
-      marketplace_enabled      = var.marketplace_enabled
-      wildcard_cert_issuer     = local.wildcard_cert_issuer
-      bcp_topology             = var.bcp_topology
-      enable_hot_standby       = var.enable_hot_standby
-      enable_shared_pg         = var.enable_shared_pg
-      default_storage_class    = var.default_storage_class
-      sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-      continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
+      cluster_mesh_name   = local.secondary_region_cluster_mesh_name[k]
+      cluster_mesh_id     = local.secondary_region_cluster_mesh_id[k]
+      k3s_version         = var.k3s_version
+      k3s_token           = local.k3s_token
+      gitops_repo_url     = var.gitops_repo_url
+      gitops_branch       = var.gitops_branch
+      marketplace_enabled = var.marketplace_enabled
+      # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
+      # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
+      console_isolation_enabled = var.console_isolation_enabled
+      wildcard_cert_issuer      = local.wildcard_cert_issuer
+      bcp_topology              = var.bcp_topology
+      enable_hot_standby        = var.enable_hot_standby
+      enable_shared_pg          = var.enable_shared_pg
+      default_storage_class     = var.default_storage_class
+      sovereign_cnpg_instances  = length(var.regions) > 1 ? "2" : "1"
+      continuum_enabled         = length(var.regions) > 1 ? "true" : "false"
       parent_domains_yaml = coalesce(
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
@@ -1444,7 +1462,7 @@ locals {
       # ${console_load_balancer_ipv4} substitute resolves. The organization-
       # controller only runs in the primary region but the substitute must be
       # defined in both templatefile() calls.
-      console_load_balancer_ipv4 = hcloud_load_balancer.console.ipv4
+      console_load_balancer_ipv4 = local.console_isolation_on ? hcloud_load_balancer.console[0].ipv4 : ""
 
       # Huawei-branch substitute vars — inert on Hetzner (see primary call),
       # EXCEPT sovereign_region_role: live via the shared
