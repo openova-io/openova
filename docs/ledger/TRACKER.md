@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T10:45:02Z` |
+| Last refreshed | `2026-06-26T11:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 18 |
 | Open DoD gates | 0 / 41 |
@@ -225,6 +225,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T10:59 | [#4449](https://github.com/openova-io/openova/pull/4449) | #4325 | fix(bp-plane-isolation #4448): add sso-bridge to openbao all |
 | 2026-06-26T08:29 | [#4441](https://github.com/openova-io/openova/pull/4441) | #4279 | docs(ledger): reset UAT.md clean + expand with session-fix c |
 | 2026-06-26T08:20 | [#4440](https://github.com/openova-io/openova/pull/4440) | #4325 | fix(bp-sso-bridge #4437): re-read keycloak creds each tick — |
 | 2026-06-26T08:29 | [#4439](https://github.com/openova-io/openova/pull/4439) | #4436 | fix(catalyst-api): re-stamp secondary-region shared-pg WRITE |
@@ -254,7 +255,6 @@ flowchart LR
 | 2026-06-25T21:51 | [#4397](https://github.com/openova-io/openova/pull/4397) | #4307 | fix(bp-openclaw,bp-stalwart-tenant): self-gen per-Org OIDC c |
 | 2026-06-25T21:11 | [#4396](https://github.com/openova-io/openova/pull/4396) | #4394 | fix(catalog-seed #4395): pin QoS-fixed funnel-Org charts (bp |
 | 2026-06-25T20:59 | [#4394](https://github.com/openova-io/openova/pull/4394) | #4307 | fix(bp-openclaw/bp-stalwart-tenant #4389/#4292): Guaranteed  |
-| 2026-06-25T20:59 | [#4393](https://github.com/openova-io/openova/pull/4393) | #4297 | fix(org-controller #4389/#4297): vcluster control-plane Guar |
 
 ---
 
