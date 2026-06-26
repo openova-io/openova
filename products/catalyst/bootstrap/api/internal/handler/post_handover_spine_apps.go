@@ -107,6 +107,18 @@ type spineComponent struct {
 	// consumer. Stamping the explicit multi-region mode here closes that
 	// half of Seam 3 so the write actually flows to the Continuum reader.
 	MultiRegionMode string
+
+	// Config is the minimal spec.config the producer must stamp so the
+	// Application passes the Blueprint configSchema validation in the
+	// application-controller (#4402). Most spine Blueprints declare no
+	// required config; bp-keycloak's live catalog-seed configSchema has
+	// `required: [realmName]`, so a spine-keycloak CR with no config Fails
+	// validation (`missing properties: 'realmName'`) BEFORE it can reach the
+	// Continuum producer. The spine adopts the already-installed bootstrap
+	// HR (catalyst.openova.io/adopts-helmrelease) and never re-renders it, so
+	// this value only has to satisfy schema validation — the realm value is
+	// the platform SSO realm the bootstrap Keycloak already serves.
+	Config map[string]interface{}
 }
 
 // drCapableSpine — the canonical DR-capable bootstrap-spine roster.
@@ -139,7 +151,7 @@ type spineComponent struct {
 // standby pair, which buildContinuumPlan needs to mint the Continuum CR.
 var drCapableSpine = []spineComponent{
 	{Chart: "openbao", HRName: "bp-openbao", BlueprintName: "bp-openbao", BlueprintVersion: "1.2.25", MultiRegionMode: "active-passive"},
-	{Chart: "keycloak", HRName: "bp-keycloak", BlueprintName: "bp-keycloak", BlueprintVersion: "1.0.0", MultiRegionMode: "active-hot-standby"},
+	{Chart: "keycloak", HRName: "bp-keycloak", BlueprintName: "bp-keycloak", BlueprintVersion: "1.0.0", MultiRegionMode: "active-hot-standby", Config: map[string]interface{}{"realmName": "sovereign"}},
 	{Chart: "harbor", HRName: "bp-harbor", BlueprintName: "bp-harbor", BlueprintVersion: "1.2.26", MultiRegionMode: "active-hot-standby"},
 	{Chart: "gitea", HRName: "bp-gitea", BlueprintName: "bp-gitea", BlueprintVersion: "1.2.24", MultiRegionMode: "active-hot-standby"},
 }
@@ -485,6 +497,17 @@ func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions 
 		},
 		"regions": rgs,
 	}
+	// #4402 — stamp the minimal spec.config the Blueprint configSchema requires
+	// (e.g. bp-keycloak's required `realmName`) so the Application passes
+	// validation and reaches the Continuum producer. Components with no required
+	// config carry a nil Config and stamp nothing.
+	if len(sc.Config) > 0 {
+		cfg := make(map[string]interface{}, len(sc.Config))
+		for k, v := range sc.Config {
+			cfg[k] = v
+		}
+		spec["config"] = cfg
+	}
 	obj.Object["spec"] = spec
 	return obj
 }
@@ -610,12 +633,21 @@ func (h *Handler) ensureSpineOrganization(dyn dynamic.Interface, dep *Deployment
 	if email != "" {
 		owners = append(owners, map[string]interface{}{"email": email, "role": "owner"})
 	}
+	// CRD-valid enums (#4402): the Organization CRD admits tier∈{org,corporate},
+	// billingMode∈{real,chargeback,showback}, kind∈{customer,internal}. An earlier
+	// draft stamped tier:"platform"/billingMode:"free" — both rejected by the live
+	// CRD, so the control-plane Organization never landed → the spine Environment
+	// could not resolve → spine apps wedged and minted no Continuum. The spine is
+	// the Sovereign-self internal control plane, billed to no one: tier:"org",
+	// billingMode:"showback" (cost-attribution-only, never invoiced), kind:"internal".
+	// The `openova.io/scope: platform` label below is what marks it the control-plane
+	// self-org, distinct from a customer tenant Org.
 	spec := map[string]interface{}{
 		"slug":         orgRef,
 		"displayName":  display,
 		"kind":         "internal",
-		"tier":         "platform",
-		"billingMode":  "free",
+		"tier":         "org",
+		"billingMode":  "showback",
 		"sovereignRef": fqdn,
 	}
 	if len(owners) > 0 {

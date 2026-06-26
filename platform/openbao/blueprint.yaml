@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.55  # lockstep with chart/Chart.yaml (#4388 snapshot-replication seaweedfs → host-ns, #4325 fallout)
+  version: 1.2.56  # lockstep with chart/Chart.yaml (#4402 spine topology tier:mgmt → '' host-native, #4325 de-vcluster fallout)
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
@@ -75,14 +75,23 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 30
         placement:
-          tier: mgmt
+          # #4402 (#4325 de-vcluster fallout): the `mgmt` plane vCluster was
+          # removed; the spine lands host-native in its own host namespace
+          # (openbao/keycloak/harbor/gitea). The #4334 spine producer drives
+          # this Blueprint through the application-controller fan-out, which
+          # resolved `tier: mgmt` → host ns `mgmt` (now absent) → the spine
+          # Application Degraded with `namespaces "mgmt" not found` and never
+          # reached the Continuum producer. Host placement = empty tier; keep
+          # the mgmt-A/-B region designators for the multi-region split.
+          # Mirrors the per-Org #4375/#4379 tier:rtz→'' repoint.
+          tier: ''
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton

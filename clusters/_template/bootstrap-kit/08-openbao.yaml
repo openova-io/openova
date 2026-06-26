@@ -139,7 +139,7 @@ spec:
       #   readiness EXEC probes + server.livenessProbe ENABLED (sealed-tolerant)
       #   so the StatefulSet + sso-configure Deployment clear the host-ns Kyverno
       #   probes-present Enforce policy (post-#4325). Refs #4347 #4325.
-      version: 1.2.55
+      version: 1.2.56
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

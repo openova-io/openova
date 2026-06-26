@@ -139,6 +139,44 @@ func TestRenderSpineApplicationCR_ContractShape(t *testing.T) {
 	}
 }
 
+// TestRenderSpineApplicationCR_StampsRequiredConfig proves the producer stamps
+// the minimal spec.config a Blueprint's configSchema requires (#4402). The live
+// bp-keycloak configSchema is `required: [realmName]`, so a spine-keycloak CR
+// with no config Fails validation in the application-controller
+// (`missing properties: 'realmName'`) BEFORE it can reach the Continuum
+// producer. A component whose roster row carries no Config stamps no spec.config.
+func TestRenderSpineApplicationCR_StampsRequiredConfig(t *testing.T) {
+	owner := map[string]string{}
+
+	// keycloak roster row carries Config{realmName} → spec.config.realmName set.
+	kc := spineComponent{Chart: "keycloak", HRName: "bp-keycloak", BlueprintName: "bp-keycloak", BlueprintVersion: "1.0.0", MultiRegionMode: "active-hot-standby", Config: map[string]interface{}{"realmName": "sovereign"}}
+	cr := renderSpineApplicationCR(kc, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner)
+	realm, found, _ := unstructured.NestedString(cr.Object, "spec", "config", "realmName")
+	if !found {
+		t.Fatalf("spec.config.realmName must be stamped for the keycloak spine (configSchema required: [realmName]); it was omitted")
+	}
+	if realm != "sovereign" {
+		t.Fatalf("spec.config.realmName = %q, want sovereign", realm)
+	}
+
+	// openbao roster row has no Config → no spec.config at all (Blueprint declares
+	// no required config; stamping an empty map would be noise).
+	ob := spineComponent{Chart: "openbao", HRName: "bp-openbao", BlueprintName: "bp-openbao", BlueprintVersion: "1.2.25", MultiRegionMode: "active-passive"}
+	crOB := renderSpineApplicationCR(ob, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner)
+	if _, found, _ := unstructured.NestedMap(crOB.Object, "spec", "config"); found {
+		t.Fatalf("spec.config must be absent for a component with no required config (openbao)")
+	}
+
+	// The live keycloak roster row carries the realmName config (regression pin).
+	for _, sc := range drCapableSpine {
+		if sc.Chart == "keycloak" {
+			if sc.Config["realmName"] != "sovereign" {
+				t.Fatalf("drCapableSpine keycloak Config.realmName = %v, want sovereign", sc.Config["realmName"])
+			}
+		}
+	}
+}
+
 // TestSpinePlacementMode_SingleVsMultiRegion proves the producer stamps
 // singleton on a single-region Sovereign and the Blueprint's multi-region
 // default on a ≥2-region one — the exact gate buildContinuumPlan reads.
@@ -408,6 +446,21 @@ func TestEnsureSpinePrereqs_OrgAndMultiRegionEnv(t *testing.T) {
 	}
 	if org.GetLabels()["openova.io/scope"] != "platform" {
 		t.Fatalf("Organization missing platform-scope label: %v", org.GetLabels())
+	}
+	// #4402 — spec.tier/billingMode/kind MUST be CRD-valid enum values, else
+	// the apiserver rejects the Organization (tier∈{org,corporate},
+	// billingMode∈{real,chargeback,showback}, kind∈{customer,internal}). An
+	// earlier draft stamped tier:"platform"/billingMode:"free" — both rejected
+	// live → the control-plane Org never landed → the spine wedged with no
+	// Continuum. Pin the valid values so the regression can't return.
+	if tier, _, _ := unstructured.NestedString(org.Object, "spec", "tier"); tier != "org" {
+		t.Fatalf("Organization spec.tier = %q, want CRD-valid %q", tier, "org")
+	}
+	if bm, _, _ := unstructured.NestedString(org.Object, "spec", "billingMode"); bm != "showback" {
+		t.Fatalf("Organization spec.billingMode = %q, want CRD-valid %q", bm, "showback")
+	}
+	if kind, _, _ := unstructured.NestedString(org.Object, "spec", "kind"); kind != "internal" {
+		t.Fatalf("Organization spec.kind = %q, want CRD-valid %q", kind, "internal")
 	}
 
 	// Environment exists, references the org, and carries the REAL region

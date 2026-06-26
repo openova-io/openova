@@ -634,14 +634,18 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          # #4402 (#4325 de-vcluster fallout): spine lands host-native (own host
+          # ns); the #4334 producer drives this via the app-controller fan-out
+          # which resolved tier:mgmt → absent host ns mgmt → no Continuum. Empty
+          # tier = host placement; keep mgmt-A/-B region designators. (#4375/#4379)
+          tier: ''
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3609,7 +3613,11 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          # #4402 (#4325 de-vcluster fallout): spine lands host-native (own host
+          # ns); the #4334 producer drives this via the app-controller fan-out
+          # which resolved tier:mgmt → absent host ns mgmt → no Continuum. Empty
+          # tier = host placement; keep mgmt-A/-B region designators. (#4375/#4379)
+          tier: ''
           clusters:
           - mgmt-A
           - mgmt-B
@@ -3618,7 +3626,7 @@ spec:
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters:
           - mgmt-A
           roles:
@@ -3725,7 +3733,11 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          # #4402 (#4325 de-vcluster fallout): spine lands host-native (own host
+          # ns); the #4334 producer drives this via the app-controller fan-out
+          # which resolved tier:mgmt → absent host ns mgmt → no Continuum. Empty
+          # tier = host placement; keep mgmt-A/-B region designators. (#4375/#4379)
+          tier: ''
           clusters:
           - mgmt-A
           - mgmt-B
@@ -3734,7 +3746,7 @@ spec:
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters:
           - mgmt-A
           roles:
@@ -4763,14 +4775,18 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          # #4402 (#4325 de-vcluster fallout): spine lands host-native (own host
+          # ns); the #4334 producer drives this via the app-controller fan-out
+          # which resolved tier:mgmt → absent host ns mgmt → no Continuum. Empty
+          # tier = host placement; keep mgmt-A/-B region designators. (#4375/#4379)
+          tier: ''
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton

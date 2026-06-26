@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.39  # lockstep with chart/Chart.yaml (#4347 harbor-sso-configure liveness/readiness probes for host-ns Kyverno probes-present Enforce)
+  version: 1.2.40  # lockstep with chart/Chart.yaml (#4402 spine topology tier:mgmt → '' host-native, #4325 de-vcluster fallout)
   card:
     title: Harbor
     family: foundation
@@ -122,14 +122,21 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          # #4402 (#4325 de-vcluster fallout): the `mgmt` plane vCluster was
+          # removed; the spine lands host-native in its own host namespace.
+          # The #4334 spine producer drives this Blueprint through the
+          # application-controller fan-out, which resolved `tier: mgmt` → host
+          # ns `mgmt` (now absent) → `namespaces "mgmt" not found` and never
+          # reached the Continuum producer. Host placement = empty tier; keep
+          # the mgmt-A/-B region designators. Mirrors #4375/#4379.
+          tier: ''
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
