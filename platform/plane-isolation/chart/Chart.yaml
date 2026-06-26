@@ -120,7 +120,21 @@ name: bp-plane-isolation
 #   `ensureNamespacePresent: false` opts back into the old hard-require behavior;
 #   chart-level `renderUnconditional: true` forces all components to render regardless
 #   of lookup (the static dial-graph contract render / CI client-side template path).
-version: 0.1.7
+# 0.1.8 (#4456 / Refs #4442 #4445 #4428 #4325): EXTEND the #4445 defer-if-absent
+#   lookup-guard to the OTHER two per-component templates that #4445 missed. #4445
+#   guarded ONLY default-deny-networkpolicy.yaml, but apiserver-egress-cnp.yaml
+#   (added 0.1.5/#4428) and gateway-ingress-cnp.yaml ALSO render `namespace: <ns>`
+#   resources for every component — so the absent `sandbox` namespace STILL atomic-
+#   failed the whole release (`namespaces "sandbox" not found`) via the apiserver-
+#   egress CNP, leaving the EXACT same circular deadlock #4445 was meant to break:
+#   no plane-isolation policy lands → gitea default-deny + catalyst-system allow
+#   never apply → gitea-token-mint curl-28 timeout CrashLoop → bp-catalyst-platform
+#   install hangs 30m → bp-sandbox never creates `sandbox`. Live-caught on the fresh
+#   re-prov 91dc05917e44d1c1 (kom4dc, 2026-06-26): published 0.1.7 HR install FAILED
+#   despite the changelog claiming the deadlock fixed. All three per-component
+#   templates now carry the identical lookup-guard so a deferred namespace lands on
+#   the next helm-controller reconcile once its consumer chart creates it.
+version: 0.1.8
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform

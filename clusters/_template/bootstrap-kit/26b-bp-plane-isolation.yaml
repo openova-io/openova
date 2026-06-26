@@ -109,7 +109,15 @@ spec:
       #   DEADLOCK (live b9f9590b, 2026-06-26). Cilium unions every policy +
       #   helm-controller reconciles on interval, so the deferred policy lands on the
       #   NEXT reconcile once the namespace exists.
-      version: 0.1.7
+      # 0.1.8 (#4468 / Refs #4456 #4445): EXTEND the 0.1.7 defer-if-absent guard to the
+      #   OTHER two per-component templates it missed — apiserver-egress-cnp.yaml
+      #   (added 0.1.5/#4428) and gateway-ingress-cnp.yaml ALSO render `namespace: <ns>`
+      #   CNPs per component, so the absent `sandbox` ns STILL atomic-failed the release
+      #   ("namespaces sandbox not found") via the apiserver-egress CNP → the SAME
+      #   circular deadlock 0.1.7 was meant to break. Live-caught on fresh re-prov
+      #   91dc05917e44d1c1 (kom4dc, 2026-06-26): published 0.1.7 HR install STILL FAILED.
+      #   All three per-component templates now carry the identical lookup-guard.
+      version: 0.1.8
       sourceRef:
         kind: HelmRepository
         name: bp-plane-isolation

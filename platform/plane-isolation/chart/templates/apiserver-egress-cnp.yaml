@@ -46,10 +46,29 @@ radius.
 
 Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
 chart still installs on CRD-less clusters (kind CI).
+
+#4456 deadlock-guard parity: this CNP carries the SAME `namespace: <ns>` apply
+requirement as the default-deny NetworkPolicy, and Helm install is ATOMIC — so
+an absent namespace here (`sandbox`, created LATE by bp-sandbox behind
+bp-catalyst-platform) fails the WHOLE release exactly like #4442/#4445, with the
+same CIRCULAR DEADLOCK (gitea default-deny + catalyst-system allow never land →
+gitea-token-mint CrashLoops → bp-catalyst-platform hangs → bp-sandbox never
+creates `sandbox`). #4445 added the defer-if-absent guard to the default-deny
+template ONLY and missed this one (added in 0.1.5, #4428), so the published
+0.1.7 STILL atomic-failed `namespaces "sandbox" not found` on a fresh prov (live
+91dc05917e44d1c1, 2026-06-26). Mirror the guard here: skip a component whose
+namespace is absent and let helm-controller's next reconcile land it once the
+consumer chart creates the namespace (Cilium unions every policy selecting an
+endpoint). `ensureNamespacePresent: false` / chart-level `renderUnconditional:
+true` behave identically to the default-deny template.
 */ -}}
 {{- if and .Values.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
 {{- range .Values.components }}
 {{- $ns := .namespace }}
+{{- $guardNamespace := not (eq (toString .ensureNamespacePresent) "false") }}
+{{- if and $guardNamespace (not $.Values.renderUnconditional) (not (lookup "v1" "Namespace" "" $ns)) }}
+{{- /* namespace not present yet — defer this component's CNP to a later reconcile */ -}}
+{{- else }}
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -66,5 +85,6 @@ spec:
   egress:
     - toEntities:
         - kube-apiserver
+{{- end }}{{/* end namespace-present guard */}}
 {{- end }}
 {{- end -}}
