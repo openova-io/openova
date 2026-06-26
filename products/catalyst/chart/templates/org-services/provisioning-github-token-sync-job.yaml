@@ -90,7 +90,13 @@ metadata:
     catalyst.openova.io/component: provisioning-github-token-sync
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "20"
+    # weight 15 < the Job's weight 20 (#4447): the ServiceAccount + the
+    # pat-reader/writer RBAC below MUST bind BEFORE the Job pod polls the PAT.
+    # Same-weight RBAC raced the Job on hw-prov b9f9590b558262b6 — the pod
+    # polled WITHOUT read RBAC (silent 403) for the full 300s budget, exit-0'd
+    # the FATAL branch creating NO Secret, leaving org-services/provisioning-
+    # github-token absent → the provisioning service hung Init:0/1 forever.
+    helm.sh/hook-weight: "15"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 ---
 {{- /* Read the PAT from catalyst-gitea-token in the source namespace. */}}
@@ -103,7 +109,7 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-platform
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "20"
+    helm.sh/hook-weight: "15"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 rules:
   - apiGroups: [""]
@@ -120,7 +126,7 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-platform
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "20"
+    helm.sh/hook-weight: "15"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 subjects:
   - kind: ServiceAccount
@@ -142,7 +148,7 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-platform
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "20"
+    helm.sh/hook-weight: "15"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 rules:
   - apiGroups: [""]
@@ -158,7 +164,7 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-platform
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "20"
+    helm.sh/hook-weight: "15"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 subjects:
   - kind: ServiceAccount
@@ -260,18 +266,38 @@ spec:
               POLL_INTERVAL="${POLL_INTERVAL:-5}"
               i=1
               while [ "$i" -le "$POLL_ATTEMPTS" ]; do
+                # #4447: keep the kubectl read error so a 403 (RBAC not yet
+                # bound) is NOT swallowed as "PAT empty" — that was the silent
+                # exit-0 that left provisioning-github-token absent. RBAC now
+                # lands at weight 15 (< this Job's 20) so the read should succeed
+                # immediately; the error capture is the belt-and-braces.
+                geterr=$(kubectl -n "$PAT_NAMESPACE" get secret "$PAT_SECRET" \
+                  -o jsonpath="{.data.${PAT_KEY}}" 2>/tmp/geterr; cat /tmp/geterr) || geterr="$(cat /tmp/geterr 2>/dev/null)"
                 kubectl -n "$PAT_NAMESPACE" get secret "$PAT_SECRET" \
                   -o jsonpath="{.data.${PAT_KEY}}" 2>/dev/null | base64 -d > /tmp/token 2>/dev/null || true
                 if [ -s /tmp/token ]; then
                   echo "[provisioning-github-token-sync] ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} populated (attempt $i/${POLL_ATTEMPTS})"
                   break
                 fi
-                echo "[provisioning-github-token-sync] waiting for ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} ($i/${POLL_ATTEMPTS}) — mint hook not landed yet"
+                if printf '%s' "$geterr" | grep -qiE 'forbidden|cannot get|is not allowed'; then
+                  echo "[provisioning-github-token-sync] RBAC not yet bound to read ${PAT_NAMESPACE}/${PAT_SECRET} ($i/${POLL_ATTEMPTS}): ${geterr}" >&2
+                else
+                  echo "[provisioning-github-token-sync] waiting for ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} ($i/${POLL_ATTEMPTS}) — mint hook not landed yet"
+                fi
                 i=$((i + 1))
                 sleep "$POLL_INTERVAL"
               done
               if [ ! -s /tmp/token ]; then
-                echo "[provisioning-github-token-sync] WARN: ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} still empty after ${POLL_ATTEMPTS} attempts (~$((POLL_ATTEMPTS * POLL_INTERVAL))s) — catalyst-platform NOT wedged; provisioning-github-token self-heals on the next reconcile once the mint lands" >&2
+                # #4447: budget exhausted on RBAC-forbidden reads → FAIL LOUD so
+                # restartPolicy:OnFailure re-runs (RBAC bound by then). Only the
+                # genuine "PAT never minted" case keeps the benign exit-0 (#3763)
+                # so a truly-absent mint doesn't wedge the catalyst-platform
+                # upgrade.
+                if printf '%s' "$geterr" | grep -qiE 'forbidden|cannot get|is not allowed'; then
+                  echo "[provisioning-github-token-sync] FATAL: still cannot READ ${PAT_NAMESPACE}/${PAT_SECRET} after ${POLL_ATTEMPTS} attempts — RBAC race (#4447). Failing so OnFailure re-runs with RBAC bound: ${geterr}" >&2
+                  exit 1
+                fi
+                echo "[provisioning-github-token-sync] WARN: ${PAT_NAMESPACE}/${PAT_SECRET}.${PAT_KEY} still empty after ${POLL_ATTEMPTS} attempts (~$((POLL_ATTEMPTS * POLL_INTERVAL))s) — PAT not minted; catalyst-platform NOT wedged; provisioning-github-token self-heals on the next reconcile once the mint lands (#3763)" >&2
                 exit 0
               fi
               # ── Idempotent create-or-update of the dest Secret with the PAT

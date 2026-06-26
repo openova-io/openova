@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.886 — #4447 (2026-06-26): the two PAT-sync post-install hooks
+# (gitea-flux-auth-secrets-sync-job + provisioning-github-token-sync-job)
+# raced their OWN read-RBAC. The Job and its pat-reader Role/RoleBinding were
+# all hook-weight 20, so the Job pod started polling catalyst-gitea-token
+# BEFORE the RBAC bound; the kubectl read was a silent 403 (`2>/dev/null||true`)
+# for the FULL 300s poll budget, then hit the FATAL branch which `exit 0`'d
+# having created ZERO secrets. The HR sat Ready=True/InstallSucceeded at
+# revision v1 and never re-ran the hook → openova-catalog-sovereign-git-auth +
+# openova-org-tenants-git-auth + provisioning-github-token all ABSENT →
+# catalog-sovereign/org-tenants Flux sources stuck "Source artifact not found"
+# AND the provisioning service hung Init:0/1 → no catalog, no Org provisioning
+# (Pillar-1 dead). FIX: drop the ServiceAccount + all 4 RBAC objects to
+# hook-weight 15 (< the Job's 20) so Helm binds RBAC before the Job polls;
+# capture the kubectl error and, if the budget is exhausted on a *forbidden*
+# read, `exit 1` (OnFailure re-runs with RBAC bound) instead of masking it as
+# "PAT empty" — only the genuine never-minted-PAT case keeps the benign exit-0.
+# Root-caused live on fresh omantel.biz prov b9f9590b558262b6.
 # 1.4.761 — #4061 (2026-06-22): stop a PERMANENT Sovereign from auto-firing the
 # self-sovereignty cutover the moment the mothership completes handover. The
 # child catalyst-api's ReceiveTofuArchive (handover.go) seals the
@@ -3202,7 +3219,7 @@ name: bp-catalyst-platform
 #   versions are published OCI charts; the funnel door already resolves latest
 #   via version:"*", this aligns the catalog Blueprint-CR install path.
 #   Refs #4432 #4408 #4400 #4409 #4417.
-version: 1.4.885
+version: 1.4.886
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
