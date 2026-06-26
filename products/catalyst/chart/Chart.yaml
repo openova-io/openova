@@ -3254,12 +3254,25 @@ name: bp-catalyst-platform
 #   preserved verbatim. The #4452 guard chart/tests/gitea-flux-auth-sync-rbac-
 #   order.sh is extended with parallel gate-3/gate-4 cases for this second job.
 #   Lockstep w/ bootstrap-kit slot 13 pin. Refs #4447 #3763 #3781.
+# 1.4.896 — #4471/#4462: organization-controller ClusterRole was missing update +
+#   patch on the MAIN `organizations` resource — it granted only get/list/watch
+#   there + update/patch on the /status + /finalizers SUBRESOURCES. The #4462
+#   delete-cascade added finalizer add/remove via client.Update on the parent
+#   Organization object (organization_controller.go finalizer ensure/remove), and
+#   k8s only routes to the /finalizers subresource when the request explicitly
+#   targets it — so client.Update on the parent 403'd `cannot update resource
+#   "organizations"`. EVERY Org reconcile bailed on the first finalizer-add: no
+#   tenant-networking finalizer, no per-Org Certificate, no console-https-<slug>
+#   Gateway listener, no pool DNS — keystone gates 4-5 blocked on a fresh prov.
+#   FIX: add update + patch to the `organizations` resource rule (additive,
+#   least-privilege — the /status + /finalizers grants stay). Lockstep w/
+#   bootstrap-kit slot 13 pin. Refs #4471 #4462 #4290.
 # 1.4.894 — #4464: re-pin organization-controller image b23af68 -> 89993b2 (the
 #   deploy-bump #2584 whole-file snapshot re-apply clobbered the per-controller
 #   bump back to b23af68, shipping org-controller WITHOUT #4455 tenant-dns +
 #   #4462 delete-cascade on every fresh prov). 89993b2 is a descendant of b23af68
 #   so it retains #4393 Guaranteed-QoS. Lockstep w/ bootstrap-kit slot 13 pin.
-version: 1.4.895
+version: 1.4.896
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
