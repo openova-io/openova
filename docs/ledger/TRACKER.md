@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T15:30:05Z` |
+| Last refreshed | `2026-06-26T15:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 31 |
+| Open issues | 32 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 31 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 32 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 31 open items (clickable table)
+### All 32 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -231,6 +231,7 @@ flowchart LR
 | [#4473](https://github.com/openova-io/openova/issues/4473) | Funnel plan selection does not propagate to the Organization CR — every funnel | Other |
 | [#4475](https://github.com/openova-io/openova/issues/4475) | Org vcluster-tier convergence: CiliumNetworkPolicy can't apply inside vanilla vc | Other |
 | [#4477](https://github.com/openova-io/openova/issues/4477) | SSO seeding faults on fresh prov: openbao external-group alias never binds (admi | Other |
+| [#4479](https://github.com/openova-io/openova/issues/4479) | console org-list/detail reads only local provision store, not orgs.openova.io CR | Other |
 
 ---
 
