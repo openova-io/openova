@@ -83,6 +83,57 @@ replica side renders ONLY the follower Cluster + its mesh stub + netpol.
 {{- end -}}
 
 {{/*
+Whether this install publishes the ClusterMesh-global `-mesh` (read) +
+`-mesh-rw` (write) Service aliases — gated on `topology.clusterMesh.enabled`
++ a MULTI-REGION signal, deliberately DECOUPLED from `activeHotStandby` (#4460).
+
+WHY decoupled (the #4460 root cause): the secondary region's consumer host
+(keycloak/gitea/harbor `externalDatabase.host`) is baked to
+`<instance>-mesh-rw.shared-data…` UNCONDITIONALLY at cloud-init boot whenever
+`enable_shared_pg=true` (cloudinit-control-plane.tftpl), AND #4439's
+patchSecondaryCrossRegionPGHosts re-stamps the same. But the `-mesh-rw` global
+Service used to render ONLY under `$ahs` (`crossRegion=true`), which flips true
+LATE — after full ClusterMesh convergence AND the cnpg-pair replication flip
+(`SOVEREIGN_ENABLE_CNPG_PAIR=true`, catalyst-api enableCNPGPairAfterFullMesh).
+So during the entire pre-flip window — and PERMANENTLY if the mesh never
+converges (`0 remote clusters ready`) — the baked host had no backing Service
+→ NXDOMAIN → region-B CrashLoop (the §2/§6 UAT walkers' symptom; also gates the
+#4275 region-kill walk).
+
+Host RESOLUTION is a mesh property; WAL REPLICATION is a cnpg-pair property.
+Publishing these `service.cilium.io/global` aliases the moment ClusterMesh is
+enabled (not when replication flips) lets the secondary's host resolve
+cross-mesh to the primary's `-rw`/`-r` endpoint as soon as the mesh peers.
+
+MULTI-REGION SIGNAL (not just clusterMesh.enabled): a TRUE singleton
+(single-region prov) must stay byte-identical — NO mesh aliases, NO
+`service.cilium.io/global` annotation. The signal that distinguishes a pre-flip
+SECONDARY-of-a-2-region-prov from a true singleton is that BOTH
+`topology.primary.region` AND `topology.replica.region` are non-empty:
+cloud-init stamps SOVEREIGN_PRIMARY_REGION + SOVEREIGN_REPLICA_REGION onto EVERY
+region's bootstrap-kit substitute at boot (cloudinit-control-plane.tftpl,
+unconditional), so both are populated on a 2-region prov from the very first
+reconcile — BEFORE and independent of the cnpg-pair flip. A single-region prov
+leaves replica.region empty, so the aliases never render there. This is the
+exact same precondition the cnpg-pair flip itself `required`s (distinct
+non-empty primary/replica regions), so the two gates can never disagree.
+
+nil-safe: clusterMesh / primary / replica may be absent on a direct chart
+consumer that --sets only `mode`. The values.yaml defaults them, but dig keeps
+the helper panic-free even when an overlay nulls the sub-map. Sprig-safe
+`ne (toString …) "false"` so a literal clusterMesh.enabled=false (operator
+opt-out) is honoured.
+*/}}
+{{- define "bp-postgres.meshGlobalServices" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- $cmOn := ne (toString (dig "clusterMesh" "enabled" true $topology)) "false" -}}
+{{- $primaryRegion := dig "primary" "region" "" $topology -}}
+{{- $replicaRegion := dig "replica" "region" "" $topology -}}
+{{- $multiRegion := and (ne (trim (toString $primaryRegion)) "") (ne (trim (toString $replicaRegion)) "") -}}
+{{- if and $cmOn $multiRegion -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 The follower Cluster CR name on the replica side. Distinct from the
 primary instance name (which the consumer host `<instance>-rw` resolves
 to) so the two Cluster CRs never collide and bp-continuum's switchover

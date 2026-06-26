@@ -31,7 +31,17 @@ This stub:
 This is the bp-cnpg-pair replica-mesh-service.yaml shape, with the names
 keyed off the data instance (`<instance>`) instead of `<fullname>-primary`.
 */ -}}
-{{- if and (ne (toString .Values.enabled) "false") .Values.topology.clusterMesh.enabled (include "bp-postgres.renderReplicaHalf" .) }}
+{{- /* #4460: the secondary-side stub renders whenever the multi-region
+   meshGlobalServices signal is set AND this is the SECONDARY side — DECOUPLED
+   from $ahs/renderReplicaHalf. In the PRE-FLIP singleton window region-B is
+   side=secondary but $ahs=false, so it renders the singleton primary Cluster
+   (cluster.yaml) — whose local managed Services are #4460-suppressed on the
+   secondary side precisely so this zero-backend stub owns the `-mesh`/`-mesh-rw`
+   names instead. That makes the secondary's baked `-mesh-rw` host route
+   cross-mesh to region-A's primary the moment the mesh peers, NOT to region-B's
+   own pre-flip singleton DB. Post-flip (renderReplicaHalf=true) the render is
+   byte-identical to the prior gate. */ -}}
+{{- if and (ne (toString .Values.enabled) "false") (eq (include "bp-postgres.meshGlobalServices" .) "true") (ne (include "bp-postgres.side" .) "primary") }}
 apiVersion: v1
 kind: Service
 metadata:

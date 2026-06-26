@@ -143,7 +143,17 @@ spec:
       # (no fromHost mirror of a pod-mounted Secret → no vcluster-0.23.0
       # from-host/to-host deadlock, and no missing credential). Lockstep with
       # 16c/16d. Refs #3876 #3374 #3737.
-      version: 0.2.7
+      # 0.2.8 (#4460, Refs #4439 #4436 #4275): the ClusterMesh-global
+      # `shared-pg-mesh`/`-mesh-rw` Service aliases now render on the MULTI-REGION
+      # signal (both primary.region + replica.region stamped — cloud-init sets
+      # both on every region at boot) instead of gated on the LATE cnpg-pair flip
+      # ($ahs/crossRegion). The secondary region's keycloak/gitea/harbor host is
+      # baked to `shared-pg-mesh-rw` at cloud-init regardless of the flip, so the
+      # alias must exist the moment the mesh peers — else region-B keycloak/gitea/
+      # harbor NXDOMAIN'd on a fresh 2-region prov (0 remote clusters ready). The
+      # cross-mesh consumer-5432 path is already opened by 0.2.7's sharedConsumers
+      # (#4442). Lockstep with 16c/16d.
+      version: 0.2.8
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

@@ -274,6 +274,64 @@ helm template shared-pg . -f "$TMP/xr.values.yaml" --namespace shared-data \
   --api-versions postgresql.cnpg.io/v1 > "$TMP/xr-replica.yaml" 2>&1 || fail "crossRegion replica render errored"
 grep -qE '^  name: shared-pg-replica$' "$TMP/xr-replica.yaml" || fail "crossRegion=true + side=secondary did NOT render the follower Cluster"
 
+# ── Case 4d: #4460 — PRE-FLIP multi-region → mesh aliases DECOUPLED from $ahs ──
+# A 2-region prov bakes the secondary's keycloak/gitea/harbor host to
+# `shared-pg-mesh-rw` at cloud-init (cloudinit-control-plane.tftpl) + #4439
+# re-stamps it — REGARDLESS of the cnpg-pair flip. But the cnpg-pair flip
+# (crossRegion=true → $ahs) lands LATE (post-mesh-convergence). So the
+# `-mesh`/`-mesh-rw` global Service aliases MUST render the moment the mesh is
+# enabled + the prov is multi-region (both primary/replica regions stamped),
+# NOT only after crossRegion flips. The pre-flip topology is mode=singleton,
+# crossRegion=false (NOT yet flipped), but BOTH regions ARE stamped.
+#
+# Multi-region signal = primary.region AND replica.region both non-empty
+# (cloud-init stamps both on every region at boot). A TRUE singleton leaves
+# replica.region empty → no aliases (Case 5 lock).
+echo "[render] Case 4d: #4460 PRE-FLIP multi-region (singleton + regions stamped) → -mesh/-mesh-rw aliases render WITHOUT the cnpg-pair flip"
+cat > "$TMP/preflip.values.yaml" <<'YAML'
+instance: { name: shared-pg }
+topology:
+  mode: singleton
+  crossRegion: false
+  side: primary
+  instances: 1
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+databases:
+  - { name: registry, owner: harbor, reflect: { secretName: harbor-database-secret, namespaces: [harbor] } }
+YAML
+# Primary side (pre-flip): the singleton Cluster (instances:1, NO $ahs sync
+# block) PLUS the -mesh/-mesh-rw managed Service aliases (real local backends).
+helm template shared-pg . -f "$TMP/preflip.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/preflip-primary.yaml" 2>&1 || fail "#4460 pre-flip primary render errored"
+grep -qE '^  instances: 1$' "$TMP/preflip-primary.yaml" || fail "#4460 pre-flip primary expected the SINGLETON Cluster (instances: 1), not the \$ahs 3-instance"
+if grep -qE '^    synchronous:$' "$TMP/preflip-primary.yaml"; then
+  fail "#4460 pre-flip primary leaked the \$ahs synchronous block (crossRegion is still false — replication must NOT be active pre-flip)"
+fi
+grep -q 'name: shared-pg-mesh-rw' "$TMP/preflip-primary.yaml" \
+  || fail "#4460 pre-flip primary MISSING the -mesh-rw WRITE alias (the secondary's baked host would NXDOMAIN)"
+grep -q 'name: shared-pg-mesh' "$TMP/preflip-primary.yaml" || fail "#4460 pre-flip primary missing the -mesh read alias"
+grep -q 'service.cilium.io/global: "true"' "$TMP/preflip-primary.yaml" || fail "#4460 pre-flip primary -mesh alias missing the global annotation"
+grep -qE '^        - selectorType: rw$' "$TMP/preflip-primary.yaml" || fail "#4460 pre-flip primary -mesh-rw not selectorType rw (real backends)"
+# Secondary side (pre-flip): renders the singleton Cluster locally (side gate is
+# $ahs-false → not the replica follower) BUT the -mesh/-mesh-rw STUB owns the
+# global names (zero-backend cross-mesh), NOT the local managed Services — so the
+# secondary's writes cross the mesh to region-A, never to its own pre-flip DB.
+helm template shared-pg . -f "$TMP/preflip.values.yaml" --namespace shared-data \
+  --set topology.side=secondary \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/preflip-secondary.yaml" 2>&1 || fail "#4460 pre-flip secondary render errored"
+grep -q 'name: shared-pg-mesh-rw' "$TMP/preflip-secondary.yaml" \
+  || fail "#4460 pre-flip SECONDARY MISSING the -mesh-rw stub (root-cause NXDOMAIN: keycloak/gitea/harbor host baked to -mesh-rw resolves nothing)"
+grep -q 'name: shared-pg-mesh' "$TMP/preflip-secondary.yaml" || fail "#4460 pre-flip secondary missing the -mesh stub"
+grep -q 'catalyst.openova.io/role: write-endpoint' "$TMP/preflip-secondary.yaml" || fail "#4460 pre-flip secondary -mesh-rw stub missing write-endpoint label"
+# The secondary's -mesh-rw must be the zero-backend STUB, NOT a managed Service
+# under the local Cluster's managed.services.additional (which would bind local
+# backends and shadow region-A).
+if grep -qE '^      additional:$' "$TMP/preflip-secondary.yaml"; then
+  fail "#4460 pre-flip secondary leaked the managed.services.additional aliases (local backends would shadow region-A — must be the zero-backend stub)"
+fi
+grep -q 'cnpg.io/instanceRole: primary' "$TMP/preflip-secondary.yaml" || fail "#4460 pre-flip secondary -mesh-rw stub missing primary-role selector"
+
 # ── Case 5: singleton → byte-identical (NO sync, NO mesh, NO netpol) ──────
 echo "[render] Case 5: singleton → no synchronous block, no -mesh Service, only the CNPG-operator status-probe NetworkPolicy (no AHS replication carve-out)"
 if grep -q 'synchronous_commit' "$TMP/shared.yaml"; then

@@ -5800,7 +5800,9 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.6"
+  # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
+  # cnpg-pair flip (region-B cross-region consumer DB host NXDOMAIN fix).
+  version: "0.2.8"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5893,7 +5895,10 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-postgres
-    version: 0.2.6
+    # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
+    # cnpg-pair flip (render on the multi-region signal so cross-region consumer
+    # DB hosts resolve the moment the mesh peers; region-B NXDOMAIN fix).
+    version: 0.2.8
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

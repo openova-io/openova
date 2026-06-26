@@ -123,7 +123,29 @@ name: bp-postgres
 #   the singleton analogue of the 0.2.1/#3577 active-hot-standby consumer-allow).
 #   Adds topology.networkPolicy.sharedConsumers (default false → per-Org byte-identical);
 #   slots 16a/16c/16d set it true → the probe NP also opens 5432 namespaceSelector:{}.
-version: 0.2.7
+# 0.2.8 (#4460, Refs #4439 #4436 #4275): DECOUPLE the ClusterMesh-global
+#   `-mesh`/`-mesh-rw` Service aliases from the cnpg-pair replication flip. The
+#   secondary region's keycloak/gitea/harbor consumer host is baked to
+#   `<instance>-mesh-rw.shared-data…` at cloud-init (cloudinit-control-plane.tftpl)
+#   + #4439's patchSecondaryCrossRegionPGHosts re-stamps it — REGARDLESS of the
+#   cnpg-pair flip. But the aliases used to render ONLY under $ahs
+#   (crossRegion=true), which flips LATE (after full ClusterMesh convergence +
+#   the SOVEREIGN_ENABLE_CNPG_PAIR patch). So on a fresh 2-region prov whose mesh
+#   shows `0 remote clusters ready`, the baked `-mesh-rw` host NXDOMAIN'd → region-B
+#   keycloak/gitea/harbor CrashLoop (the §2/§6 UAT walkers' symptom; also gates the
+#   #4275 region-kill walk). Host RESOLUTION is a mesh property; WAL REPLICATION is
+#   a cnpg-pair property. New helper `meshGlobalServices` gates the aliases on
+#   `clusterMesh.enabled` + a MULTI-REGION signal (both primary.region AND
+#   replica.region stamped — cloud-init sets both on EVERY region at boot, so a
+#   true single-region singleton is byte-identical, NO aliases). Primary side
+#   renders the managed `-mesh`/`-mesh-rw` Services (real backends); secondary side
+#   renders the zero-backend stub so writes cross the mesh to region-A — never to
+#   its own pre-flip singleton DB. The cross-mesh consumer-5432 path is already
+#   opened by 0.2.7's networkPolicy.sharedConsumers (#4442). The cnpg-pair-specific
+#   carve-outs (sync GUCs, replica-Pod cross-cluster allow, own-cluster
+#   pg_basebackup join, replica-side policy) stay $ahs-gated. Post-flip render is
+#   byte-identical to 0.2.7's $ahs shape.
+version: 0.2.8
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
