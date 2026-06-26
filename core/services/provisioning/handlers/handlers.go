@@ -203,6 +203,12 @@ func (h *Handler) ApplyAppInstall(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "tenant_id and tenant_slug are required")
 		return
 	}
+	// #4404 — runInstallJob now retries the step-0 commit while the per-Org
+	// Gitea repo is still being created (the funnel cart races the
+	// organization-controller), so a transient race no longer drops the
+	// purchased app. A logged error here is therefore a genuine, exhausted
+	// failure, not the race. context.Background() (no deadline) lets the
+	// retry loop run to completion in the detached goroutine.
 	go func() {
 		if err := h.runInstallJob(context.Background(), data); err != nil {
 			slog.Error("day-2 install (http)", "tenant", data.TenantSlug, "error", err)
