@@ -703,38 +703,70 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 }
 
 // HandleListOrganizations — GET /api/v1/org/tenants.
+//
+// #4479 (Refs #4179 #4290 #3687): the directory unions the local
+// provision-record store (the BSS door's in-flight timeline detail) with
+// the canonical orgs.openova.io Organization CRs (the truth BOTH doors
+// write). Without the CR read every funnel-created Org — and the parent
+// Sovereign Org — was invisible because the funnel never writes a local
+// record. The CR read is nil-tolerant (orgResponsesFromCRs returns
+// (nil,nil) out-of-cluster/CI), so the store-only path is preserved when
+// no in-cluster dynamic client exists. Local rows win on slug collision
+// (richer provisioning timeline); CR-only rows are appended.
 func (h *Handler) HandleListOrganizations(w http.ResponseWriter, r *http.Request) {
 	deps := h.orgTenantDeps
-	if deps.Store == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"items": []orgTenantResponse{}})
-		return
+	local := make([]orgTenantResponse, 0)
+	if deps.Store != nil {
+		for _, rec := range deps.Store.List() {
+			local = append(local, orgTenantRecordToResponse(rec))
+		}
 	}
-	rows := deps.Store.List()
-	out := make([]orgTenantResponse, 0, len(rows))
-	for _, rec := range rows {
-		out = append(out, orgTenantRecordToResponse(rec))
+
+	fromCR, err := h.orgResponsesFromCRs(r.Context())
+	if err != nil {
+		// CRD absent / apiserver blip / RBAC gap — degrade to store-only
+		// rather than 5xx-ing the directory. Loud log, soft fall-through.
+		h.log.Warn("org-tenant: list Organization CRs failed — directory degrades to local store only", "err", err)
 	}
+
+	out := mergeOrgResponses(local, fromCR)
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
 // HandleGetOrganization — GET /api/v1/org/tenants/{id}.
+//
+// #4479 (Refs #4179 #4290 #3687): org-detail resolves the path param
+// against the local provision store FIRST (the param is the BSS door's
+// UUID), then falls back to an orgs.openova.io Organization CR lookup by
+// slug. The console + openova-MCP address org-detail by slug
+// (console.<slug>...), and a funnel-created Org has no local record — only
+// the CR — so without the CR fallback BOTH the customer Org and the parent
+// Sovereign Org 404'd org-tenant-not-found. The CR read is nil-tolerant
+// (no dynamic client → fall through to 404), preserving the store-only
+// path in CI / out-of-cluster.
 func (h *Handler) HandleGetOrganization(w http.ResponseWriter, r *http.Request) {
 	deps := h.orgTenantDeps
-	if deps.Store == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "org-tenant-store-unavailable",
-		})
-		return
-	}
 	id := chi.URLParam(r, "id")
-	rec, ok := deps.Store.Get(id)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "org-tenant-not-found",
-		})
+
+	// 1) Local provision store keyed by the BSS-door UUID.
+	if deps.Store != nil {
+		if rec, ok := deps.Store.Get(id); ok {
+			writeJSON(w, http.StatusOK, orgTenantRecordToResponse(rec))
+			return
+		}
+	}
+
+	// 2) Canonical Organization CR keyed by slug (the funnel-Org path + the
+	//    parent Sovereign Org). `id` doubles as the slug for slug-addressed
+	//    callers (console / openova-MCP).
+	if resp, ok := h.orgCRFromSlug(r.Context(), id); ok {
+		writeJSON(w, http.StatusOK, *resp)
 		return
 	}
-	writeJSON(w, http.StatusOK, orgTenantRecordToResponse(rec))
+
+	writeJSON(w, http.StatusNotFound, map[string]string{
+		"error": "org-tenant-not-found",
+	})
 }
 
 // HandleReconcileOrganization — POST /api/v1/org/tenants/{id}/reconcile.
