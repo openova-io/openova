@@ -106,19 +106,21 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 		return h.failOrgCreate(ctx, data.ID, slug,
 			"missing owner_email — cannot mint Organization CR without an owner roster entry")
 	}
-	// Parent domain resolution: payload override → Handler default.
-	// Both may legitimately be empty on a Sovereign that hasn't opted
-	// into the Organization-pool flow yet. In that case the Organization CR
-	// still mints (the controller skips the HTTPRoute step on empty
-	// parent), so we do NOT fail here — but we log loud so operators
-	// notice they're running half-configured.
-	parentDomain := strings.ToLower(strings.TrimSpace(data.ParentDomain))
-	if parentDomain == "" {
-		parentDomain = strings.ToLower(strings.TrimSpace(h.TenantParentDomain))
-	}
+	// Parent domain resolution (#4421) — see resolveOrgParentDomain. The Org
+	// CR's pool MUST equal the pool the per-Org apps-HTTPRoute renders under,
+	// else the app host falls through to a stale apex wildcard → dead IP.
+	parentDomain := resolveOrgParentDomain(h.AppsParentDomain, data.ParentDomain)
 	if parentDomain == "" {
 		slog.Warn("tenant.created consumer: no parent domain configured — Organization will mint without TenantPublic HTTPRoute",
 			"slug", slug)
+	} else if pd := strings.ToLower(strings.TrimSpace(data.ParentDomain)); pd != "" && pd != parentDomain {
+		// The customer's funnel pick disagrees with the Sovereign's apps
+		// pool. We deliberately override it (the apps zone is the one that
+		// must win, else the app host falls through to a stale wildcard) —
+		// log loud so an operator notices the funnel is offering a pool the
+		// Sovereign doesn't actually serve.
+		slog.Warn("tenant.created consumer: payload parent_domain overridden by the Sovereign apps pool to keep the Org DNS pool aligned with the apps-HTTPRoute pool (#4421)",
+			"slug", slug, "payload_parent_domain", pd, "apps_parent_domain", parentDomain)
 	}
 
 	tier := strings.TrimSpace(data.Tier)
@@ -228,6 +230,33 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 		"sovereign":     h.SovereignFQDN,
 	})
 	return nil
+}
+
+// resolveOrgParentDomain picks the org-pool parent zone the Organization CR's
+// spec.tenantPublic.parentDomain is stamped with (#4421). It returns
+// lowercased/trimmed.
+//
+// THE INVARIANT it enforces: the pool the org-controller's DNS writer
+// (tenant_dns.go) + console route (tenant_route.go) key off MUST equal the pool
+// the per-Org apps-HTTPRoute generator renders product hosts under. Otherwise
+// the per-Org A-records land in one zone (the customer's funnel pick) while the
+// app hosts `<app>.<slug>.<otherZone>` have no record and fall through to a
+// stale apex `*.<otherZone>` wildcard → a DEAD IP (the #4421 failure:
+// openclaw.<slug>.omani.homes → 49.12.16.160 when the Org's funnel pick was
+// omani.rest).
+//
+// appsParentDomain is the EFFECTIVE pool the apps generator renders under
+// (gitops.ResolveParentDomain(TENANT_PARENT_DOMAIN), defaulting to omani.homes),
+// resolved ONCE in main.go and handed to both the generator and this handler so
+// the two can never drift. It is non-empty on any real Sovereign (the apps
+// ALWAYS render under a zone), so it WINS — the per-customer payloadParentDomain
+// is honored only as a last-resort fallback on a degenerate Sovereign with no
+// apps pool wired at all.
+func resolveOrgParentDomain(appsParentDomain, payloadParentDomain string) string {
+	if pd := strings.ToLower(strings.TrimSpace(appsParentDomain)); pd != "" {
+		return pd
+	}
+	return strings.ToLower(strings.TrimSpace(payloadParentDomain))
 }
 
 // failOrgCreate logs + publishes a `provision.org_create_failed` event
