@@ -1088,12 +1088,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				)
 			}
 
-			for _, s := range topo.PerClusterStatusesFor(hrs) {
+			// #4282 — seed each per-cluster row with the HR's authored
+			// namespace + a provisional "Provisioning" status. The status
+			// is NOT left hardcoded: the §10 HR readback below
+			// (observeRegionHelmReleases) flips each row to "Ready" once its
+			// per-cluster HelmRelease reports Ready=True, so a vCluster-placed
+			// Application (whose Cluster CR #4398 routes host-side) rolls up
+			// out of Provisioning the same way the single-HR host path does.
+			// The namespace is captured because a fan-out HR is authored in
+			// its WriteNamespace (host app-ns for #4398 CNPG routing, or the
+			// vCluster host-ns for the legacy pivot) — the readback must GET
+			// it where it was actually written, not always app.GetNamespace().
+			for i, s := range topo.PerClusterStatusesFor(hrs) {
+				hrNamespace := app.GetNamespace()
+				if i < len(hrs) {
+					if ns := hrs[i].GetNamespace(); ns != "" {
+						hrNamespace = ns
+					}
+				}
 				perClusterStatus = append(perClusterStatus, map[string]interface{}{
-					"cluster": s.Cluster,
-					"role":    s.Role,
-					"hr":      s.HR,
-					"status":  "Pending",
+					"cluster":   s.Cluster,
+					"role":      s.Role,
+					"hr":        s.HR,
+					"namespace": hrNamespace,
+					"status":    PhaseProvisioning,
 				})
 			}
 		}
@@ -1339,18 +1357,42 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// #4282 — the topology fan-out (placement.Clusters, e.g. a per-Org
 	// bp-postgres routed host-side by #4398) names each per-cluster HR
 	// `<app>-<cluster>` (HRNameFor), NOT the bare `<app>` the single-HR
-	// host path uses. The phase rollup must observe the ACTUAL fan-out HR
-	// names or it GETs `<app>` → NotFound → the Application is pinned at
-	// Provisioning forever even though `w4282-pg-rtz-a` is Ready=True.
-	// perClusterStatus carries the real names (hr.GetName()); pass them in.
-	fanoutHRNames := make([]string, 0, len(perClusterStatus))
+	// host path uses, and authors it in the HR's WriteNamespace (the host
+	// app-ns for #4398 CNPG routing, or the vCluster host-ns for the legacy
+	// pivot). The phase rollup must observe the ACTUAL fan-out HR names IN
+	// THEIR AUTHORED NAMESPACE or it GETs `<app>` (or the wrong ns)
+	// → NotFound → the Application is pinned at Provisioning forever even
+	// though `w4282-pg-rtz-a` is Ready=True. perClusterStatus carries the
+	// real names + namespaces (seeded above); pass them in.
+	fanoutHRRefs := make([]hrRef, 0, len(perClusterStatus))
 	for _, pcs := range perClusterStatus {
-		if n, _ := pcs["hr"].(string); n != "" {
-			fanoutHRNames = append(fanoutHRNames, n)
+		n, _ := pcs["hr"].(string)
+		if n == "" {
+			continue
+		}
+		ns, _ := pcs["namespace"].(string)
+		if ns == "" {
+			ns = app.GetNamespace()
+		}
+		fanoutHRRefs = append(fanoutHRRefs, hrRef{name: n, namespace: ns, region: n})
+	}
+	hrPhase, hrReason, hrMessage, perHRReady := r.observeRegionHelmReleases(ctx, app, plan, fanoutHRRefs)
+	regionStatuses = mergeRegionReadiness(regionStatuses, hrPhase, plan, ctx, r, app)
+
+	// #4282 — flip each per-cluster row's status from the provisional
+	// "Provisioning" seed to the HR's observed readiness so the console's
+	// per-cluster view (and any consumer rolling up perCluster[].status)
+	// reflects the live HelmRelease, not a hardcoded placeholder. A row
+	// with no live HR yet (NotFound) stays Provisioning.
+	for _, pcs := range perClusterStatus {
+		n, _ := pcs["hr"].(string)
+		switch perHRReady[n] {
+		case "True":
+			pcs["status"] = PhaseReady
+		case "False":
+			pcs["status"] = PhaseDegraded
 		}
 	}
-	hrPhase, hrReason, hrMessage := r.observeRegionHelmReleases(ctx, app, plan, fanoutHRNames)
-	regionStatuses = mergeRegionReadiness(regionStatuses, hrPhase, plan, ctx, r, app)
 
 	// 11. Status update — phase derived from observed HR readiness,
 	//     fall back to Provisioning when no signal is available yet.
@@ -1519,21 +1561,34 @@ func readbackByRegion(plan placement.Plan, phase string) map[string]regionReadba
 	return out
 }
 
-// observeRegionHelmReleases polls the per-region HelmRelease CRs the
-// Sovereign's Flux installer materialised in the Application's own
-// namespace. Returns the rolled-up phase string + the reason+message of
-// the WORST region (so a single-region Failed surfaces in the UI verbatim
-// instead of being averaged out).
+// hrRef is one HelmRelease the rollup observes: its name + the namespace
+// it was authored in + a region/cluster label for the worst-case message.
+// A fan-out HR is authored in its WriteNamespace (host app-ns for #4398
+// CNPG routing, the vCluster host-ns for the legacy pivot), so the
+// namespace MUST travel with the name — reading every HR from
+// app.GetNamespace() pins a vCluster-placed Application at Provisioning
+// forever (#4282).
+type hrRef struct{ name, namespace, region string }
+
+// observeRegionHelmReleases polls the per-region / per-cluster HelmRelease
+// CRs the Sovereign's Flux installer materialised. Returns the rolled-up
+// phase string + the reason+message of the WORST region (so a single-region
+// Failed surfaces in the UI verbatim instead of being averaged out) + a
+// per-HR readiness map (HR name → "True"|"False"|"" ) the caller uses to
+// flip each status.perCluster[] row.
 //
 // HR naming has TWO shapes:
 //   - SINGLE-HR host path: the HR is named exactly `app.GetName()`
-//     (render.HelmReleaseName / the chart's `metadata.name: {{ .AppName }}`).
+//     (render.HelmReleaseName / the chart's `metadata.name: {{ .AppName }}`)
+//     in the Application's own namespace. `fanoutRefs` empty ⇒ we synthesize
+//     one bare-name ref per planned region.
 //   - TOPOLOGY FAN-OUT (placement.Clusters, e.g. a per-Org bp-postgres
-//     routed host-side by #4398): one HR per cluster named
-//     `<app>-<cluster>` (HRNameFor). `fanoutHRNames` carries those real
-//     names; when non-empty we observe THEM (one GET per fan-out HR)
-//     instead of the bare `app.GetName()`, which does not exist for the
-//     fan-out and would pin the Application at Provisioning forever (#4282).
+//     routed host-side by #4398): one HR per cluster named `<app>-<cluster>`
+//     (HRNameFor), authored in its WriteNamespace. `fanoutRefs` carries those
+//     real names + namespaces; when non-empty we observe THEM (one GET per
+//     fan-out HR, each in ITS namespace) instead of the bare `app.GetName()`,
+//     which does not exist for the fan-out and would pin the Application at
+//     Provisioning forever (#4282).
 //
 // Idempotent + side-effect-free: only reads the API.
 //
@@ -1542,30 +1597,30 @@ func (r *Reconciler) observeRegionHelmReleases(
 	ctx context.Context,
 	app *unstructured.Unstructured,
 	plan placement.Plan,
-	fanoutHRNames []string,
-) (phase, reason, message string) {
+	fanoutRefs []hrRef,
+) (phase, reason, message string, perHRReady map[string]string) {
 	allReady := true
 	anyDegraded := false
 	worstReason := ""
 	worstMessage := ""
 	sawAny := false
-	// Build the (name, region-label) work list. Fan-out → the real
-	// per-cluster HR names; else one bare-name entry per planned region.
-	type hrRef struct{ name, region string }
-	refs := make([]hrRef, 0)
-	if len(fanoutHRNames) > 0 {
-		for _, n := range fanoutHRNames {
-			refs = append(refs, hrRef{name: n, region: n})
-		}
-	} else {
+	perHRReady = make(map[string]string, len(fanoutRefs))
+	// Build the work list. Fan-out → the real per-cluster HR names +
+	// namespaces; else one bare-name entry (app-ns) per planned region.
+	refs := fanoutRefs
+	if len(refs) == 0 {
+		refs = make([]hrRef, 0, len(plan.Regions))
 		for _, rp := range plan.Regions {
-			refs = append(refs, hrRef{name: app.GetName(), region: rp.Name})
+			refs = append(refs, hrRef{name: app.GetName(), namespace: app.GetNamespace(), region: rp.Name})
 		}
 	}
 	for _, ref := range refs {
-		// HR lives in the Application's own namespace.
+		ns := ref.namespace
+		if ns == "" {
+			ns = app.GetNamespace()
+		}
 		hr, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-			Namespace(app.GetNamespace()).
+			Namespace(ns).
 			Get(ctx, ref.name, metav1.GetOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
@@ -1575,7 +1630,7 @@ func (r *Reconciler) observeRegionHelmReleases(
 				continue
 			}
 			r.Log.Warn("application-controller: GET HelmRelease failed",
-				"namespace", app.GetNamespace(),
+				"namespace", ns,
 				"name", ref.name,
 				"region", ref.region,
 				"err", err)
@@ -1584,6 +1639,7 @@ func (r *Reconciler) observeRegionHelmReleases(
 		}
 		sawAny = true
 		ready, hrReason, hrMsg := readReadyCondition(hr)
+		perHRReady[ref.name] = ready
 		switch ready {
 		case "True":
 			// good — keep allReady
@@ -1601,11 +1657,11 @@ func (r *Reconciler) observeRegionHelmReleases(
 	}
 	switch {
 	case anyDegraded:
-		return PhaseDegraded, worstReason, worstMessage
+		return PhaseDegraded, worstReason, worstMessage, perHRReady
 	case allReady && sawAny:
-		return PhaseReady, "", ""
+		return PhaseReady, "", "", perHRReady
 	default:
-		return PhaseProvisioning, "", ""
+		return PhaseProvisioning, "", "", perHRReady
 	}
 }
 

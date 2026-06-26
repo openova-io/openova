@@ -1428,16 +1428,20 @@ func TestObserveRegionHelmReleases_FanoutHRNames(t *testing.T) {
 	app.SetName("w4282-pg")
 	plan := placement.Plan{Regions: []placement.RegionPlan{{Name: "me-east-215-a", Role: "primary"}}}
 
-	// WITH the fan-out name → Ready (the fix).
-	phase, _, _ := r.observeRegionHelmReleases(context.Background(), app, plan, []string{"w4282-pg-rtz-a"})
+	// WITH the fan-out name + namespace → Ready (the fix).
+	phase, _, _, perHRReady := r.observeRegionHelmReleases(context.Background(), app, plan,
+		[]hrRef{{name: "w4282-pg-rtz-a", namespace: "w4282walk", region: "w4282-pg-rtz-a"}})
 	if phase != PhaseReady {
 		t.Errorf("fan-out HR-name rollup: phase=%q, want %q (the per-cluster HR w4282-pg-rtz-a is Ready=True)", phase, PhaseReady)
 	}
+	if perHRReady["w4282-pg-rtz-a"] != "True" {
+		t.Errorf("per-HR readiness for w4282-pg-rtz-a = %q, want \"True\"", perHRReady["w4282-pg-rtz-a"])
+	}
 
-	// WITHOUT the fan-out names → falls back to the bare `<app>` which does
+	// WITHOUT the fan-out refs → falls back to the bare `<app>` which does
 	// NOT exist for a fan-out → Provisioning (the pre-fix wrong behavior,
 	// preserved for the single-HR host path which legitimately uses <app>).
-	phaseBare, _, _ := r.observeRegionHelmReleases(context.Background(), app, plan, nil)
+	phaseBare, _, _, _ := r.observeRegionHelmReleases(context.Background(), app, plan, nil)
 	if phaseBare != PhaseProvisioning {
 		t.Errorf("bare-name fallback with no <app> HR: phase=%q, want %q", phaseBare, PhaseProvisioning)
 	}
