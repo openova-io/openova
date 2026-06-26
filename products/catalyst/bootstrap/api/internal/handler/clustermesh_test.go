@@ -2862,3 +2862,145 @@ func TestSyncSSOOIDCMangledSecrets(t *testing.T) {
 		h.syncSSOOIDCMangledSecrets(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
 	})
 }
+
+// TestPatchSecondaryCrossRegionPGHosts — #4436. On a 2-region shared-pg
+// Sovereign the CNPG primary's region-local `shared-pg-rw` Service exists ONLY
+// in region-A; the SECONDARY region has no such Service, so keycloak/gitea/
+// harbor (which dial the write host as a scalar) NXDOMAIN there. The post-mesh
+// gate must re-stamp the SECONDARY region's bootstrap-kit substitute map to the
+// ClusterMesh-global `shared-pg-mesh-rw` WRITE alias — self-healing stale (pre-
+// #4159) envs whose substitute map carries the region-local `-rw` host (or omits
+// the keycloak key entirely → the slot 09 default `shared-pg-rw` wins). The
+// PRIMARY region's map is left untouched (its `-rw` Service resolves locally),
+// and an own-cluster (non-shared-pg) Sovereign is skipped entirely.
+func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dep := &Deployment{ID: "dep4436"}
+
+	primaryPath := "/kc/primary.yaml"
+	secondaryPath := "/kc/secondary.yaml"
+	slots := []regionSlot{
+		{key: "", kubeconfigPath: primaryPath},
+		{key: testReplicaRegionLabel, kubeconfigPath: secondaryPath},
+	}
+	meshHost := clusterMeshSharedPGMeshRWHost
+
+	t.Run("stale-secondary-flips-to-mesh-rw-primary-untouched", func(t *testing.T) {
+		// PRIMARY carries the region-local -rw host (correct for it) + shared-pg ON.
+		primarySub := defaultBootstrapKitSubstitute()
+		primarySub[clusterMeshSharedPGSubstituteKey] = "true"
+		primarySub[clusterMeshGiteaPGHostSubstituteKey] = "shared-pg-rw.shared-data.svc.cluster.local"
+		primarySub[clusterMeshHarborPGHostSubstituteKey] = "shared-pg-rw.shared-data.svc.cluster.local"
+		// keycloak key DELIBERATELY ABSENT on the primary too (slot default wins).
+		primaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(primarySub))
+
+		// SECONDARY (stale, pre-#4159): gitea/harbor carry the region-local -rw
+		// host, keycloak key is ABSENT — exactly the live dep 4635277cae4ffed9 shape.
+		secSub := defaultBootstrapKitSubstitute()
+		secSub[clusterMeshSharedPGSubstituteKey] = "true"
+		secSub[clusterMeshRegionRoleSubstituteKey] = "secondary"
+		secSub[clusterMeshGiteaPGHostSubstituteKey] = "shared-pg-rw.shared-data.svc.cluster.local"
+		secSub[clusterMeshHarborPGHostSubstituteKey] = "shared-pg-rw.shared-data.svc.cluster.local"
+		secondaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(secSub))
+
+		restore := installClusterMeshDynamicClientFactory(map[string]dynamic.Interface{
+			primaryPath:   primaryDyn,
+			secondaryPath: secondaryDyn,
+		})
+		defer restore()
+
+		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, slots)
+
+		// SECONDARY: every write-host key now resolves to the mesh alias.
+		secKS := getBootstrapKitKustomization(t, secondaryDyn)
+		gotSub, _, _ := unstructured.NestedStringMap(secKS.Object, "spec", "postBuild", "substitute")
+		for _, k := range []string{
+			clusterMeshKeycloakPGHostSubstituteKey,
+			clusterMeshGiteaPGHostSubstituteKey,
+			clusterMeshHarborPGHostSubstituteKey,
+		} {
+			if got := gotSub[k]; got != meshHost {
+				t.Errorf("secondary substitute[%s] = %q, want %q (region-local -rw NXDOMAINs the replica region)", k, got, meshHost)
+			}
+		}
+		// Sibling keys must survive the MERGE patch (never replaced).
+		if got := gotSub[clusterMeshPrimaryRegionSubstituteKey]; got != testPrimaryRegionLabel {
+			t.Errorf("secondary substitute[%s] = %q, want %q (merge patch clobbered a sibling key)", clusterMeshPrimaryRegionSubstituteKey, got, testPrimaryRegionLabel)
+		}
+		// Flux reconcile must be requested so the flip lands immediately.
+		if stamp := secKS.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp == "" {
+			t.Errorf("secondary: %q annotation absent — Flux reconcile never requested", fluxReconcileRequestedAtAnnotation)
+		}
+
+		// PRIMARY: untouched — keeps the region-local -rw host (resolves locally)
+		// and the keycloak key stays ABSENT (no needless indirection).
+		priKS := getBootstrapKitKustomization(t, primaryDyn)
+		priSub, _, _ := unstructured.NestedStringMap(priKS.Object, "spec", "postBuild", "substitute")
+		if got := priSub[clusterMeshGiteaPGHostSubstituteKey]; got != "shared-pg-rw.shared-data.svc.cluster.local" {
+			t.Errorf("primary substitute[%s] = %q, want the region-local -rw host (primary must NOT be flipped to mesh)", clusterMeshGiteaPGHostSubstituteKey, got)
+		}
+		if _, present := priSub[clusterMeshKeycloakPGHostSubstituteKey]; present {
+			t.Errorf("primary substitute[%s] should stay ABSENT (slot default resolves locally); patch wrongly touched the primary", clusterMeshKeycloakPGHostSubstituteKey)
+		}
+		if stamp := priKS.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
+			t.Errorf("primary: %q annotation set — primary must not be patched/reconciled", fluxReconcileRequestedAtAnnotation)
+		}
+	})
+
+	t.Run("already-mesh-rw-is-noop", func(t *testing.T) {
+		secSub := defaultBootstrapKitSubstitute()
+		secSub[clusterMeshSharedPGSubstituteKey] = "true"
+		secSub[clusterMeshRegionRoleSubstituteKey] = "secondary"
+		secSub[clusterMeshKeycloakPGHostSubstituteKey] = meshHost
+		secSub[clusterMeshGiteaPGHostSubstituteKey] = meshHost
+		secSub[clusterMeshHarborPGHostSubstituteKey] = meshHost
+		secondaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(secSub))
+		primaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(defaultBootstrapKitSubstitute()))
+
+		restore := installClusterMeshDynamicClientFactory(map[string]dynamic.Interface{
+			primaryPath:   primaryDyn,
+			secondaryPath: secondaryDyn,
+		})
+		defer restore()
+
+		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, slots)
+
+		// No-op: nothing to change → no reconcile stamp (the merge patch never fired).
+		secKS := getBootstrapKitKustomization(t, secondaryDyn)
+		if stamp := secKS.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
+			t.Errorf("secondary already carries -mesh-rw on every key — expected a no-op, but a reconcile stamp %q was written", stamp)
+		}
+	})
+
+	t.Run("own-cluster-shared-pg-off-is-skipped", func(t *testing.T) {
+		// shared-pg DISABLED → keycloak/gitea/harbor dial their OWN <app>-pg-rw
+		// hosts (resolve locally) → must NOT be touched.
+		secSub := defaultBootstrapKitSubstitute()
+		secSub[clusterMeshRegionRoleSubstituteKey] = "secondary"
+		// SOVEREIGN_ENABLE_SHARED_PG intentionally absent (own-cluster).
+		secondaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(secSub))
+		primaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(defaultBootstrapKitSubstitute()))
+
+		restore := installClusterMeshDynamicClientFactory(map[string]dynamic.Interface{
+			primaryPath:   primaryDyn,
+			secondaryPath: secondaryDyn,
+		})
+		defer restore()
+
+		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, slots)
+
+		secKS := getBootstrapKitKustomization(t, secondaryDyn)
+		gotSub, _, _ := unstructured.NestedStringMap(secKS.Object, "spec", "postBuild", "substitute")
+		if _, present := gotSub[clusterMeshKeycloakPGHostSubstituteKey]; present {
+			t.Errorf("own-cluster Sovereign: keycloak host key was wrongly stamped (shared-pg is OFF — apps dial their own local host)")
+		}
+		if stamp := secKS.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
+			t.Errorf("own-cluster Sovereign: reconcile stamp %q written — must be skipped entirely", stamp)
+		}
+	})
+
+	t.Run("single-region-is-noop", func(t *testing.T) {
+		// len(slots) == 1 → no secondary → return immediately, no panic.
+		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, []regionSlot{{key: "", kubeconfigPath: primaryPath}})
+	})
+}
