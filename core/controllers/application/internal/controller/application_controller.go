@@ -1123,8 +1123,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	if continuumOwnerLabels == nil {
 		continuumOwnerLabels = fanoutOwnerLabels(envSpec, app)
 	}
-	if cerr := r.reconcileContinuumCR(ctx, app.GetName(), app.GetNamespace(),
-		resolvedTopoChoice, resolvedTopoVariant, plan, continuumOwnerLabels); cerr != nil {
+	// continuumRef carries the `<ns>/<name>` of any per-app Continuum CR
+	// minted below onto the status write at the end of Reconcile (#4416 —
+	// the back-pointer that closes the #4212 round-trip). Empty for a non-DR
+	// app (no CR produced).
+	continuumRef, cerr := r.reconcileContinuumCR(ctx, app.GetName(), app.GetNamespace(),
+		resolvedTopoChoice, resolvedTopoVariant, plan, continuumOwnerLabels)
+	if cerr != nil {
 		return r.markDegraded(ctx, app, ReasonRenderError,
 			fmt.Sprintf("per-app Continuum DR contract: %v", cerr))
 	}
@@ -1483,6 +1488,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	readyByRegion := readbackByRegion(plan, finalPhase)
 	observed := observedTargetsFromPlan(plan, effectiveTargets, readyByRegion)
 	su.PlacementRecon, su.PlacementReason, su.ObservedTargets = reconStatusBlock(observed)
+
+	// #4416 — write the Continuum back-pointer the producer minted above so
+	// the spine→Continuum round-trip closes (the #4212 consumer-READ).
+	su.ContinuumRef = continuumRef
 
 	return r.updateStatus(ctx, app, su)
 }
@@ -2116,6 +2125,15 @@ type statusUpdate struct {
 	// `status.targets[]` — the same key the rebuilt Topology tab reads as
 	// the recon rollup fallback. Nil leaves the field untouched.
 	ObservedTargets []interface{}
+
+	// ContinuumRef — #4416. The `<namespace>/<name>` of the per-app
+	// Continuum DR contract this Application minted (e.g.
+	// `catalyst/dr-spine-gitea`). Surfaced via `status.continuumRef` — the
+	// consumer-READ back-pointer that CLOSES the spine→Continuum round-trip
+	// (#4212): an operator (or a console projection) reading the Application
+	// can hop straight to its Continuum. Empty leaves the field untouched
+	// (a non-DR app mints no Continuum and writes no back-ref).
+	ContinuumRef string
 }
 
 // updateStatus writes the status sub-resource via the dynamic client.
@@ -2170,6 +2188,11 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 		// #3969 §7.4 — the observed per-target rollup the Topology tab
 		// reads. One status value, never two.
 		currentStatus["targets"] = su.ObservedTargets
+	}
+	if su.ContinuumRef != "" {
+		// #4416 — the back-pointer to this Application's per-app Continuum DR
+		// contract, closing the #4212 spine→Continuum round-trip.
+		currentStatus["continuumRef"] = su.ContinuumRef
 	}
 	if su.GiteaRepo != "" {
 		currentStatus["giteaRepo"] = su.GiteaRepo
@@ -2303,13 +2326,35 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 		break
 	}
 
+	// #4416 — mint the per-app Continuum DR contract for an ADOPTED
+	// DR-capable spine app (openbao/keycloak/harbor/gitea) + carry its
+	// back-pointer. The bootstrap-owned path is status-only (it never
+	// renders a fan-out HR), but the spine app is STILL a DR-capable
+	// multi-region Application whose Continuum contract must exist — that
+	// is the forward half of the #4212 round-trip. We resolve the contract
+	// from the CR's own spec.placement + spec.regions + the Blueprint
+	// topology variant (no fan-out render needed) and upsert the same
+	// Continuum CR the normal path would. A non-DR bootstrap app
+	// (singleton shared-pg, single-region) produces NO CR (the
+	// buildContinuumPlan gate) and writes no back-ref — the shared-pg
+	// adoption path is unchanged. Errors here are surfaced as Degraded so
+	// a missing DR contract retries (never silently passes).
+	continuumRef, cerr := r.reconcileBootstrapContinuum(ctx, app)
+	if cerr != nil {
+		return r.markDegraded(ctx, app, ReasonRenderError,
+			fmt.Sprintf("adopted spine Continuum DR contract: %v", cerr))
+	}
+
 	// Churn guard: a status write bumps resourceVersion → MODIFIED
 	// watch event → another reconcile. The normal path's Gitea
 	// byte-equality short-circuit naturally dampens that loop; this
 	// status-only path has no such stage, so skip the write when
 	// nothing meaningful changed (proven hot-looping at ~600ms/CR on
-	// the envtest adoption walk without this).
-	if bootstrapStatusUnchanged(app, phase, message, ready) {
+	// the envtest adoption walk without this). The continuumRef is part
+	// of the changed-set: an adoption that just minted its Continuum must
+	// write the back-ref even when the HR phase is unchanged.
+	if bootstrapStatusUnchanged(app, phase, message, ready) &&
+		bootstrapContinuumRefUnchanged(app, continuumRef) {
 		return nil
 	}
 
@@ -2317,7 +2362,8 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 		"app", app.GetName(),
 		"namespace", app.GetNamespace(),
 		"helmRelease", hrNamespace+"/"+hrName,
-		"phase", phase)
+		"phase", phase,
+		"continuumRef", continuumRef)
 
 	return r.updateStatus(ctx, app, statusUpdate{
 		Phase:            phase,
@@ -2325,7 +2371,117 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 		Message:          message,
 		Ready:            ready,
 		LastReconciledAt: now,
+		ContinuumRef:     continuumRef,
 	})
+}
+
+// reconcileBootstrapContinuum mints the per-app Continuum DR contract for a
+// bootstrap-owned (adopted) Application and returns its `<ns>/<name>`
+// back-pointer (#4416). It is the adoption-path equivalent of the normal
+// reconcile's step-7.5 Continuum producer: the adoption path never resolves
+// a fan-out render, so we resolve the minimal inputs the Continuum producer
+// needs (placement plan + Blueprint topology variant) directly from the
+// Application's own spec + the referenced Blueprint.
+//
+// A non-DR bootstrap app (singleton / single-region / Blueprint with no
+// switchover mechanism) produces NO CR — buildContinuumPlan returns
+// (zero,false) and reconcileContinuumCR is a no-op that returns "". So the
+// pre-existing shared-pg / substrate adoption apps are unaffected (they
+// keep being pure status-mirrors with no Continuum + no back-ref). Only a
+// DR-capable multi-region spine app mints a contract here.
+//
+// Resolution mirrors the normal path: spec.placement (the explicit posture
+// string the spine producer stamps — active-hot-standby / active-passive)
+// + spec.regions → placement.Resolve; the Blueprint's spec.topology variant
+// → the switchover mechanism. A missing/non-DR placement or a Blueprint
+// without a topology block simply yields no contract (returns "", nil),
+// never an error — the gate is the same buildContinuumPlan the normal path
+// applies.
+func (r *Reconciler) reconcileBootstrapContinuum(
+	ctx context.Context,
+	app *unstructured.Unstructured,
+) (string, error) {
+	spec, err := parseSpec(app)
+	if err != nil {
+		// A bootstrap app with an unparseable spec is not a DR contract we
+		// can mint — leave it a pure status-mirror rather than fail the
+		// adoption (the HR observation above is the load-bearing signal).
+		return "", nil
+	}
+	// Only an explicit single-primary DR posture has a switchover to drive.
+	// A singleton / active-active / empty posture is not a DR contract — skip
+	// without fetching the Blueprint (keeps the shared-pg adoption path a
+	// zero-extra-GET status-mirror).
+	switch spec.Placement {
+	case string(bpv1alpha1.BcpActiveHotStandby), string(bpv1alpha1.BcpActivePassive):
+		// DR-capable posture — resolve the contract below.
+	default:
+		return "", nil
+	}
+	if len(spec.Regions) < 2 {
+		// A DR contract needs ≥2 regions (primary + ≥1 standby). A
+		// single-region spine on a single-region Sovereign has nothing to
+		// fail over to — no CR.
+		return "", nil
+	}
+
+	plan, perr := placement.Resolve(spec.Placement, spec.Regions)
+	if perr != nil {
+		// An unresolvable placement is not mintable; do not fail the
+		// adoption over it (the HR is still healthy + observed).
+		r.Log.Warn("bootstrap-owned: placement resolve failed; no Continuum minted",
+			"app", app.GetName(), "placement", spec.Placement, "err", perr)
+		return "", nil
+	}
+
+	bp, berr := r.fetchBlueprint(ctx, spec.BlueprintName)
+	if berr != nil {
+		if isNotFound(berr) {
+			// Blueprint not yet in the catalog — retry on the next pass
+			// rather than minting an incomplete contract.
+			r.Log.Info("bootstrap-owned: Blueprint not found; Continuum mint deferred",
+				"app", app.GetName(), "blueprint", spec.BlueprintName)
+			return "", nil
+		}
+		return "", fmt.Errorf("fetch Blueprint %q: %w", spec.BlueprintName, berr)
+	}
+	bpTopo := parseBlueprintTopology(bp)
+	if bpTopo == nil {
+		// No topology block ⇒ no switchover variant ⇒ not a DR contract.
+		return "", nil
+	}
+	// Resolve the variant for the chosen posture (operator override = the
+	// explicit posture string; sovereignRegions = the CR's region count).
+	choice, variant, terr := topo.ResolveTopology(spec.Placement, bpTopo, len(spec.Regions))
+	if terr != nil {
+		r.Log.Warn("bootstrap-owned: topology resolve failed; no Continuum minted",
+			"app", app.GetName(), "blueprint", spec.BlueprintName,
+			"placement", spec.Placement, "err", terr)
+		return "", nil
+	}
+
+	ownerLabels := map[string]string{
+		"catalyst.openova.io/app-uid": string(app.GetUID()),
+	}
+	if org := app.GetLabels()["catalyst.openova.io/organization"]; org != "" {
+		ownerLabels["catalyst.openova.io/organization"] = org
+	}
+	return r.reconcileContinuumCR(ctx, app.GetName(), app.GetNamespace(),
+		choice, variant, plan, ownerLabels)
+}
+
+// bootstrapContinuumRefUnchanged reports whether the Application's current
+// status already carries the given Continuum back-ref (#4416). Part of the
+// adoption-path churn guard so a freshly-minted Continuum still writes its
+// back-ref even when the adopted HR's phase is unchanged.
+func bootstrapContinuumRefUnchanged(app *unstructured.Unstructured, continuumRef string) bool {
+	if continuumRef == "" {
+		// Nothing to write — never forces an extra status write on the
+		// non-DR adoption path.
+		return true
+	}
+	cur, _, _ := unstructured.NestedString(app.Object, "status", "continuumRef")
+	return cur == continuumRef
 }
 
 // bootstrapStatusUnchanged reports whether the Application's current

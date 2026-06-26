@@ -121,6 +121,23 @@ func TestRenderSpineApplicationCR_ContractShape(t *testing.T) {
 		t.Fatalf("spec.placement = %q, want active-passive (multi-region openbao default)", pl)
 	}
 
+	// #4416 — ADOPT, never roll (Invariant #3): the CR is bootstrap-owned +
+	// names the existing bootstrap HelmRelease so the application-controller
+	// takes its adoption path (observe the healthy HR's Ready condition) and
+	// NEVER renders a duplicate fan-out HelmRelease.
+	boot, found, _ := unstructured.NestedBool(cr.Object, "spec", "bootstrap")
+	if !found || !boot {
+		t.Fatalf("spec.bootstrap must be true so the controller ADOPTS the existing spine HR (no duplicate render); got found=%v boot=%v", found, boot)
+	}
+	hrName, _, _ := unstructured.NestedString(cr.Object, "spec", "helmRelease", "name")
+	hrNS, _, _ := unstructured.NestedString(cr.Object, "spec", "helmRelease", "namespace")
+	if hrName != "bp-openbao" {
+		t.Fatalf("spec.helmRelease.name = %q, want bp-openbao", hrName)
+	}
+	if hrNS != "flux-system" {
+		t.Fatalf("spec.helmRelease.namespace = %q, want flux-system", hrNS)
+	}
+
 	// Adopt-not-roll contract (Invariant #3): the CR names the EXISTING
 	// HelmRelease it enrolls + is marked spine.
 	lbls := cr.GetLabels()
@@ -140,31 +157,38 @@ func TestRenderSpineApplicationCR_ContractShape(t *testing.T) {
 }
 
 // TestRenderSpineApplicationCR_StampsRequiredConfig proves the producer stamps
-// the minimal spec.config a Blueprint's configSchema requires (#4402). The live
-// bp-keycloak configSchema is `required: [realmName]`, so a spine-keycloak CR
-// with no config Fails validation in the application-controller
-// (`missing properties: 'realmName'`) BEFORE it can reach the Continuum
-// producer. A component whose roster row carries no Config stamps no spec.config.
+// the minimal spec.PARAMETERS a Blueprint's configSchema requires (#4402/#4416).
+// The live bp-keycloak configSchema is `required: [realmName]`, so a
+// spine-keycloak CR with no parameters Fails validation in the
+// application-controller (`missing properties: 'realmName'`) BEFORE it can reach
+// the Continuum producer. The controller validates `spec.parameters` (the CRD +
+// REST install + parseSpec all use that key) — the prior `spec.config` key was
+// never read, which is why spine-keycloak Failed despite carrying the value. A
+// component whose roster row carries no Config stamps no spec.parameters.
 func TestRenderSpineApplicationCR_StampsRequiredConfig(t *testing.T) {
 	owner := map[string]string{}
 
-	// keycloak roster row carries Config{realmName} → spec.config.realmName set.
+	// keycloak roster row carries Config{realmName} → spec.parameters.realmName set.
 	kc := spineComponent{Chart: "keycloak", HRName: "bp-keycloak", BlueprintName: "bp-keycloak", BlueprintVersion: "1.0.0", MultiRegionMode: "active-hot-standby", Config: map[string]interface{}{"realmName": "sovereign"}}
 	cr := renderSpineApplicationCR(kc, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner)
-	realm, found, _ := unstructured.NestedString(cr.Object, "spec", "config", "realmName")
+	realm, found, _ := unstructured.NestedString(cr.Object, "spec", "parameters", "realmName")
 	if !found {
-		t.Fatalf("spec.config.realmName must be stamped for the keycloak spine (configSchema required: [realmName]); it was omitted")
+		t.Fatalf("spec.parameters.realmName must be stamped for the keycloak spine (configSchema required: [realmName]); it was omitted")
 	}
 	if realm != "sovereign" {
-		t.Fatalf("spec.config.realmName = %q, want sovereign", realm)
+		t.Fatalf("spec.parameters.realmName = %q, want sovereign", realm)
+	}
+	// Regression pin: the config must NOT land under the never-read spec.config key.
+	if _, badFound, _ := unstructured.NestedMap(cr.Object, "spec", "config"); badFound {
+		t.Fatalf("spec.config must NOT be set — the controller reads spec.parameters, never spec.config (the #4416 bug)")
 	}
 
-	// openbao roster row has no Config → no spec.config at all (Blueprint declares
-	// no required config; stamping an empty map would be noise).
+	// openbao roster row has no Config → no spec.parameters at all (Blueprint
+	// declares no required config; stamping an empty map would be noise).
 	ob := spineComponent{Chart: "openbao", HRName: "bp-openbao", BlueprintName: "bp-openbao", BlueprintVersion: "1.2.25", MultiRegionMode: "active-passive"}
 	crOB := renderSpineApplicationCR(ob, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner)
-	if _, found, _ := unstructured.NestedMap(crOB.Object, "spec", "config"); found {
-		t.Fatalf("spec.config must be absent for a component with no required config (openbao)")
+	if _, found, _ := unstructured.NestedMap(crOB.Object, "spec", "parameters"); found {
+		t.Fatalf("spec.parameters must be absent for a component with no required config (openbao)")
 	}
 
 	// The live keycloak roster row carries the realmName config (regression pin).
