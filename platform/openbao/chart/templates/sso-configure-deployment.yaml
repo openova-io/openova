@@ -306,18 +306,32 @@ data:
       if [ -z "${OIDC_ACCESSOR}" ]; then
         log "WARN: could not resolve oidc auth mount accessor; admin-group mapping deferred to next tick"
       else
-        # group_field pulls the FIRST "<key>":"<value>" out of a
-        # `bao_get identity/group/name/<name>` body (one comma-joined line).
-        # The body nests an `alias` sub-object that ALSO carries `id` +
-        # `canonical_id`, so a greedy `.*"id":"…"` over the whole line is
-        # ambiguous. We split on commas first (tr , \n) and take head -1,
-        # which deterministically returns the EARLIEST key occurrence:
-        #   - `canonical_id` appears once (inside the alias) and its value
-        #     IS the canonical group id we must bind the alias to → _gid;
-        #   - `id` appears first as the alias's own id → _aid (the alias to
-        #     UPDATE on re-runs). $1=json body, $2=key name.
-        group_field() {
-          printf '%s' "$1" | tr ',' '\n' | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -1
+        # #4477 — robust id extraction from a `bao_get identity/group/name/<name>`
+        # body (one comma-joined JSON line). The PRIOR code read the group's
+        # canonical id from a `canonical_id` field and the alias id from the
+        # FIRST `id` — both WRONG, and the bug that made admin/ops never bind:
+        #
+        #   - A freshly-created EXTERNAL group has NO `canonical_id` anywhere in
+        #     its body — `canonical_id` appears ONLY inside the nested `alias`
+        #     sub-object, which is `{}` empty until an alias exists. So
+        #     `_gid="$(group_field … canonical_id)"` was EMPTY on the very first
+        #     tick → `[ -z "$_gid" ] && return 1` → the alias was NEVER created
+        #     → "mapping external group sovereign-admins/-ops failed" forever
+        #     (measured live 91dc0591/omantel.biz 2026-06-26 — sovereign-viewers
+        #     was unaffected only because the loop never maps viewers). The
+        #     group's canonical id is its OWN top-level `id`, ALWAYS present.
+        #   - The alias id (`_aid`, for the UPDATE path) is the alias
+        #     sub-object's `id`, present only once the alias exists.
+        #
+        # `exact_id` lists every EXACT `"id"` key value (not request_id /
+        # canonical_id / lease_id / *_id) in body order. The alias's `id`, when
+        # present, is nested first; the group's own `id` is last. So:
+        #   _gid = exact_id | tail -1   (group's canonical id — always present)
+        #   _aid = exact_id | head -1   (alias id — ONLY when an alias exists,
+        #                                gated on a `canonical_id` being present).
+        # $1 = json body.
+        exact_id() {
+          printf '%s' "$1" | tr ',{}' '\n\n\n' | grep -E '(^|[^A-Za-z_])"id":"' | sed -n 's/.*"id":"\([^"]*\)".*/\1/p'
         }
         map_admin_group() {
           # $1 = realm group name (claim value). Fully idempotent: creates
@@ -330,16 +344,24 @@ data:
           # id via identity/group-alias/id/<alias_id>.
           _grp="$1"
           _gjson="$(bao_get "identity/group/name/${_grp}")"
-          # The canonical group id == the alias.canonical_id in the body.
-          _gid="$(group_field "${_gjson}" canonical_id)"
-          # The existing group-alias id (absent until the first alias write).
-          _aid="$(group_field "${_gjson}" id)"
+          # The group's canonical id == its OWN top-level `id` (always present
+          # on any existing group). The nested alias.id (if any) sorts FIRST in
+          # the body, so the group id is the LAST exact-id occurrence (#4477).
+          _gid="$(exact_id "${_gjson}" | tail -1)"
+          # The existing group-alias id (absent until the first alias write) —
+          # the alias sub-object's `id`, present only when a `canonical_id`
+          # field exists in the body (i.e. the alias is non-empty).
+          if printf '%s' "${_gjson}" | grep -q '"canonical_id"'; then
+            _aid="$(exact_id "${_gjson}" | head -1)"
+          else
+            _aid=""
+          fi
           if [ -z "${_gid}" ]; then
             # Group does not exist yet — create it, then re-read its id.
             bao_write "identity/group" "$(printf '{"name":"%s","type":"external","policies":["sso-operator-admin"]}' "${_grp}")" || return 1
             _gjson="$(bao_get "identity/group/name/${_grp}")"
-            _gid="$(group_field "${_gjson}" canonical_id)"
-            _aid="$(group_field "${_gjson}" id)"
+            _gid="$(exact_id "${_gjson}" | tail -1)"
+            _aid=""
           else
             # Group exists — keep its policy current (last-write-wins).
             bao_write "identity/group/name/${_grp}" '{"type":"external","policies":["sso-operator-admin"]}' || return 1

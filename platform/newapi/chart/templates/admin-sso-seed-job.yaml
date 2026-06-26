@@ -272,6 +272,9 @@ rules:
     resources: ["secrets"]
     resourceNames:
       - {{ $cnpgSecretName | quote }}
+      # #4477 — promote.sh now also reads the OIDC secret to re-sync the
+      # provider's client_secret when KC rotates it (resync_provider_secret).
+      - {{ $oidcSecretName | quote }}
     verbs: ["get"]
   # promote.sh runs reload_newapi_provider → get+patch EXACTLY the NewAPI
   # Deployment (idempotent, hash-gated rollout-restart). Same scope as the
@@ -348,6 +351,43 @@ data:
       done
       echo "[admin-seed] FATAL: users table not present after 5min (newapi never migrated?)" >&2
       return 1
+    }
+    resync_provider_secret() {
+      # #4477 — keep the seeded custom_oauth_providers row's client_secret in
+      # sync with the LIVE KC `newapi-admin` client secret on EVERY promote
+      # tick, so a Keycloak client-secret ROTATION self-heals.
+      #
+      # ROOT CAUSE (measured live 91dc0591/omantel.biz 2026-06-26): the one-shot
+      # seed.sh upserts client_secret exactly once (post-install/upgrade hook).
+      # When KC later rotates the `newapi-admin` client secret — or the seed ran
+      # before bp-sso-bridge published the final secret — the DB row keeps the
+      # STALE secret forever; the per-minute promote CronJob only promoted users
+      # + reloaded, it NEVER re-upserted the provider secret. NewAPI's
+      # token-exchange then sends the old secret → Keycloak `unauthorized_client
+      # - Invalid client credentials` → the in-app SSO button errors "Failed to
+      # get token from OpenOva SSO" (live DB had pbzwee… while live KC + the
+      # synced newapi-oidc Secret had s9uH2s…).
+      #
+      # The mounted /oidc secret (the SAME ESO-synced `newapi-oidc` the seed
+      # reads) is the live source of truth — bp-sso-bridge publishes the LIVE KC
+      # client_secret to OpenBao and ESO syncs it here. Re-read it each tick and
+      # UPDATE the provider row when it drifts. Best-effort + idempotent: a no-op
+      # when the secret already matches (UPDATE … WHERE client_secret <> …), and
+      # when the secret/provider isn't present yet it simply skips. After a real
+      # update we trigger reload_newapi_provider (the hash changes → restart) so
+      # the running pod re-reads the corrected secret.
+      LIVE_CS="$(cat /oidc/client_secret 2>/dev/null || cat /oidc/OIDC_CLIENT_SECRET 2>/dev/null || echo '')"
+      if [ -z "${LIVE_CS}" ]; then
+        return 0
+      fi
+      changed="$($PSQL -c "UPDATE custom_oauth_providers
+              SET client_secret = '${LIVE_CS}', updated_at = now()
+              WHERE slug = '{{ $providerSlug }}'
+                AND client_secret IS DISTINCT FROM '${LIVE_CS}'
+            RETURNING id;" 2>/dev/null | wc -l | tr -d ' ')"
+      if [ "${changed:-0}" != "0" ]; then
+        echo "[admin-seed] provider {{ $providerSlug }} client_secret drifted from the live KC secret — resynced from /oidc"
+      fi
     }
     promote_oidc_users() {
       # Any SSO-authenticated, active user that is not yet root → root (100).
@@ -550,6 +590,10 @@ data:
   promote.sh: |
     . /scripts/common.sh
     wait_for_users_table
+    # #4477 — self-heal a stale provider client_secret BEFORE promote/reload, so a
+    # KC client-secret rotation never wedges token-exchange. Idempotent no-op when
+    # the DB already matches the live /oidc secret.
+    resync_provider_secret
     promote_oidc_users
     # (e') #3374/#3563 — SELF-HEALING provider reload. The one-shot seed.sh
     #      reload (step e) fires EXACTLY ONCE and is best-effort: if it is
@@ -807,6 +851,14 @@ spec:
             - name: cnpg
               secret:
                 secretName: {{ $cnpgSecretName | quote }}
+            # #4477 — promote.sh resync_provider_secret reads the live OIDC
+            # client_secret here to self-heal a drifted provider row. optional:
+            # true so a tick before bp-sso-bridge has published the secret still
+            # schedules (resync_provider_secret soft-skips when /oidc is empty).
+            - name: oidc
+              secret:
+                secretName: {{ $oidcSecretName | quote }}
+                optional: true
             - name: tmp
               emptyDir:
                 medium: Memory
@@ -827,6 +879,9 @@ spec:
                   mountPath: /scripts
                 - name: cnpg
                   mountPath: /cnpg
+                  readOnly: true
+                - name: oidc
+                  mountPath: /oidc
                   readOnly: true
                 - name: tmp
                   mountPath: /tmp

@@ -899,7 +899,17 @@ name: bp-newapi
 #   `valkey-primary.valkey.svc` / ns `valkey` (bp-valkey re-homed to host ns by
 #   #4325; the old `rtz` namespace selector denied newapi→valkey:6379 egress).
 #   Config-default-only. Refs #4388 #4325 #4376.
-version: 1.4.133
+# 1.4.134 — #4477: SELF-HEAL a stale OIDC provider client_secret. The one-shot
+#   admin-seed upserts custom_oauth_providers.client_secret ONCE; when Keycloak
+#   rotates the newapi-admin client secret (or the seed ran before bp-sso-bridge
+#   published the final secret) the DB row goes stale → newapi token-exchange
+#   sends the old secret → KC `unauthorized_client` → in-app SSO errors "Failed
+#   to get token from OpenOva SSO". The per-minute admin-promote CronJob now runs
+#   resync_provider_secret (reads the live /oidc secret, UPDATEs the row only on
+#   drift, then hash-gated reload), mounts the OIDC secret, and its Role reads
+#   it. Live-verified on 91dc0591/omantel.biz: DB secret resynced, pod reloaded
+#   "Loaded 1 custom OAuth providers", KC authenticates the corrected secret.
+version: 1.4.134
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

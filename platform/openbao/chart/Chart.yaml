@@ -184,7 +184,18 @@ name: bp-openbao
 #   `seaweedfs-s3.seaweedfs.svc` / ns `seaweedfs` (bp-seaweedfs re-homed to host
 #   ns by #4325). snapshot-replication is default-OFF — applies only when an
 #   operator enables it. Test assertions updated in lockstep. Refs #4388 #4325.
-version: 1.2.56
+# 1.2.57 — #4477: FIX the sso-configure reconciler's external-group→policy
+#   binding for sovereign-admins + sovereign-ops. map_admin_group read the
+#   group's canonical id from a `canonical_id` field that DOES NOT EXIST on a
+#   fresh external group (it appears only inside the nested alias once an alias
+#   is bound) → _gid was empty on the first tick → the group-alias was never
+#   created → `WARN: mapping external group … failed` forever → the OIDC user's
+#   sovereign-admins group mapped to no policy → openbao UI 403 on
+#   /sys/internal/ui/mounts. The group's canonical id is its OWN top-level `id`;
+#   new `exact_id` helper extracts the group id (last exact "id") + alias id
+#   (first exact "id", only when a canonical_id is present). Live-verified on
+#   91dc0591/omantel.biz: both groups now bind sso-operator-admin on tick-1.
+version: 1.2.57
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid
