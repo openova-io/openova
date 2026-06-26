@@ -230,6 +230,28 @@ const (
 	// deadlock) keys the patch ordering off it.
 	clusterMeshRegionRoleSubstituteKey = "SOVEREIGN_REGION_ROLE"
 	fluxReconcileRequestedAtAnnotation = "reconcile.fluxcd.io/requestedAt"
+
+	// Cross-region shared-pg WRITE-host substitute keys (#4436, Refs
+	// #4159). On a 2-region shared-pg Sovereign the CNPG primary (the
+	// region-local `shared-pg-rw` Service) lives ONLY in region-A; the
+	// SECONDARY region runs the streaming replica and has NO `shared-pg-rw`
+	// Service, so a secondary consumer that dials it NXDOMAINs
+	// (`cannot resolve host shared-pg-rw…` — keycloak-0 CrashLoop, live on
+	// dep 4635277cae4ffed9 region-B). keycloak/gitea/harbor read this host
+	// as a scalar (bitnami externalDatabase.host / a plain env value, NOT a
+	// secretKeyRef), so they can't pick up the topology-aware host the hub
+	// Secret carries — the host must be flipped in the bootstrap-kit
+	// substitute map. cloud-init #4159 already renders these as `-mesh-rw`
+	// on the secondary for FRESH provs, but the substitute map is baked at
+	// boot and never re-patched, so PRE-#4159 (stale) 2-region envs keep the
+	// region-local `-rw` host (or omit the keycloak key entirely → the slot
+	// default `:=shared-pg-rw` wins). The post-mesh gate re-stamps these to
+	// the ClusterMesh-global `shared-pg-mesh-rw` WRITE alias so stale envs
+	// self-heal AND fresh provs are belt-and-suspenders idempotent.
+	clusterMeshSharedPGMeshRWHost          = "shared-pg-mesh-rw.shared-data.svc.cluster.local"
+	clusterMeshKeycloakPGHostSubstituteKey = "SOVEREIGN_KEYCLOAK_PG_HOST"
+	clusterMeshGiteaPGHostSubstituteKey    = "SOVEREIGN_GITEA_PG_HOST"
+	clusterMeshHarborPGHostSubstituteKey   = "SOVEREIGN_HARBOR_PG_HOST"
 )
 
 // Cross-cluster CNPG replica-auth Secret sync (#3254, the prerequisite
@@ -1338,6 +1360,21 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			// resolved) is a harmless skip and the level-trigger re-run converges
 			// it. NEVER gates the flip.
 			h.syncSSOOIDCMangledSecrets(ctx, dep, slots)
+			// #4436 (best-effort, never blocks): keycloak/gitea/harbor run on
+			// EVERY region's control plane and dial the shared-pg WRITE host as a
+			// scalar (bitnami externalDatabase.host / a plain env value). The
+			// region-local `shared-pg-rw` Service exists ONLY in region-A, so a
+			// SECONDARY region that dials it NXDOMAINs (`cannot resolve host
+			// shared-pg-rw…` — keycloak-0 CrashLoop, live on dep 4635277cae4ffed9
+			// region-B). cloud-init #4159 already renders these as `-mesh-rw` on
+			// the secondary for FRESH provs, but the substitute map is baked at
+			// boot and never re-patched → PRE-#4159 (stale) 2-region envs keep the
+			// region-local `-rw` host (keycloak omits the key entirely → the slot
+			// default `:=shared-pg-rw` wins). Re-stamp the secondary regions'
+			// substitute maps to the ClusterMesh-global `shared-pg-mesh-rw` WRITE
+			// alias so stale envs self-heal AND fresh provs stay idempotent. NEVER
+			// gates the flip.
+			h.patchSecondaryCrossRegionPGHosts(ctx, dep, slots)
 		}
 	}
 	if patched == 0 {
@@ -1623,6 +1660,150 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 		h.emitClusterMeshProgress(dep, "info",
 			fmt.Sprintf("ClusterMesh: synced %d shared-pg consumer-hub Secret(s) (%s) primary → %d replica region(s) — cross-region consumer DB host/password (#3629)",
 				len(synced), strings.Join(synced, ", "), len(slots)-1))
+	}
+}
+
+// patchSecondaryCrossRegionPGHosts re-stamps the cross-region shared-pg WRITE
+// host onto every SECONDARY region's bootstrap-kit Kustomization substitute map
+// (#4436, Refs #4159). keycloak/gitea/harbor run on every region's control
+// plane and dial the write host as a SCALAR (bitnami externalDatabase.host / a
+// plain env value — NOT a secretKeyRef, so they cannot pick up the topology-
+// aware host the hub Secret carries the way grafana's hostPortKey does). The
+// region-local `shared-pg-rw` Service exists ONLY where the primary Cluster runs
+// (region-A), so a SECONDARY control plane that dials it gets NXDOMAIN (measured
+// live on dep 4635277cae4ffed9 region-B: keycloak-0 CrashLoop `cannot resolve
+// host shared-pg-rw…`). The ClusterMesh-global WRITE alias `shared-pg-mesh-rw`
+// (bp-postgres publishes it on the primary as a `service.cilium.io/global`
+// managed Service + a same-named replica stub) resolves in BOTH regions and
+// routes writes to the CURRENT primary — and bp-continuum re-homes the `rw`
+// selector on failover, so the host needs no change on promotion.
+//
+// cloud-init #4159 already renders these keys as `-mesh-rw` on the secondary for
+// FRESH provs, but the substitute map is baked at boot and NEVER re-patched, so
+// PRE-#4159 (stale) 2-region envs keep the region-local `-rw` host — or omit the
+// keycloak key entirely, in which case the slot 09 default `:=shared-pg-rw`
+// wins. Re-stamping at the post-mesh gate self-heals those stale envs AND is a
+// belt-and-suspenders idempotent no-op on fresh provs (the merge patch only
+// fires when a key is missing or still carries the region-local host).
+//
+// BEST-EFFORT — like syncSharedPGConsumerHubSecrets / syncKeycloakAdminSecret
+// this NEVER blocks/refuses the cnpg-pair flip: a Get/Patch failure or a region
+// whose substitute map already carries `-mesh-rw` is logged/skipped, and the
+// #3241/#3583 level-trigger re-run converges it on a later pass. It returns
+// nothing precisely so it can never wedge convergence.
+//
+// Scope guard: ONLY secondary regions whose substitute map carries
+// SOVEREIGN_ENABLE_SHARED_PG=true are patched. The PRIMARY region keeps its
+// region-local `shared-pg-rw` (its `-rw` Service is local and resolves — flipping
+// it to `-mesh-rw` would be a needless indirection), and an own-cluster
+// (non-shared) Sovereign is left entirely untouched (its keycloak/gitea/harbor
+// dial their OWN per-app `<app>-pg-rw` host, never shared-pg). Single-region
+// (len(slots)<2) is a no-op.
+func (h *Handler) patchSecondaryCrossRegionPGHosts(ctx context.Context, dep *Deployment, slots []regionSlot) {
+	if len(slots) < 2 {
+		return // single-region — no secondary control plane to patch
+	}
+	// slots[0] is the primary (regionKeyFromSpec returns "" for idx 0); the
+	// region-local `shared-pg-rw` resolves there, so skip it. Patch slots[1:].
+	patchedRegions := make([]string, 0, len(slots)-1)
+	for i := 1; i < len(slots); i++ {
+		s := &slots[i]
+		regionLabel := s.key
+		if regionLabel == "" {
+			regionLabel = fmt.Sprintf("region-%d", i)
+		}
+		if s.kubeconfigPath == "" {
+			h.log.Warn("clustermesh: secondary PG-host patch: region kubeconfig path empty — skipping (best-effort, re-run converges)",
+				"id", dep.ID, "region", regionLabel)
+			continue
+		}
+		dyn, err := h.clusterMeshDynamicClient(s.kubeconfigPath)
+		if err != nil {
+			h.log.Warn("clustermesh: secondary PG-host patch: dynamic client build failed — skipping (best-effort, re-run converges)",
+				"id", dep.ID, "region", regionLabel, "err", err)
+			continue
+		}
+		getCtx, cancelGet := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		ks, err := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+			Get(getCtx, bootstrapKitKustomizationName, metav1.GetOptions{})
+		cancelGet()
+		if err != nil {
+			h.log.Warn("clustermesh: secondary PG-host patch: Get bootstrap-kit Kustomization failed — skipping (best-effort, re-run converges)",
+				"id", dep.ID, "region", regionLabel, "err", err)
+			continue
+		}
+		substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+		if err != nil || !found {
+			h.log.Warn("clustermesh: secondary PG-host patch: bootstrap-kit Kustomization has no readable substitute map — skipping (best-effort)",
+				"id", dep.ID, "region", regionLabel, "found", found, "err", err)
+			continue
+		}
+		// Scope guard: only shared-pg Sovereigns. An own-cluster install dials
+		// per-app hosts (gitea-pg-rw.gitea, …) that resolve locally — never touch.
+		if !strings.EqualFold(strings.TrimSpace(substitute[clusterMeshSharedPGSubstituteKey]), "true") {
+			h.log.Info("clustermesh: secondary PG-host patch: shared-pg not enabled on this region — skipping (own-cluster hosts resolve locally)",
+				"id", dep.ID, "region", regionLabel)
+			continue
+		}
+		// Build the merge patch ONLY for keys that are missing or still carry a
+		// region-local (non-`-mesh-rw`) host — so the patch is a true no-op once
+		// the map already carries the mesh host (fresh prov / already-healed).
+		hostKeys := []string{
+			clusterMeshKeycloakPGHostSubstituteKey,
+			clusterMeshGiteaPGHostSubstituteKey,
+			clusterMeshHarborPGHostSubstituteKey,
+		}
+		sub := map[string]any{}
+		for _, k := range hostKeys {
+			if strings.TrimSpace(substitute[k]) != clusterMeshSharedPGMeshRWHost {
+				sub[k] = clusterMeshSharedPGMeshRWHost
+			}
+		}
+		if len(sub) == 0 {
+			h.log.Info("clustermesh: secondary PG-host patch: substitute map already carries the -mesh-rw write host on every key — no-op",
+				"id", dep.ID, "region", regionLabel)
+			continue
+		}
+		stamp := time.Now().UTC().Format(time.RFC3339Nano)
+		patch := map[string]any{
+			"metadata": map[string]any{
+				"annotations": map[string]any{
+					fluxReconcileRequestedAtAnnotation: stamp,
+				},
+			},
+			"spec": map[string]any{
+				"postBuild": map[string]any{
+					"substitute": sub,
+				},
+			},
+		}
+		patchBytes, err := json.Marshal(patch)
+		if err != nil {
+			h.log.Warn("clustermesh: secondary PG-host patch: marshal merge patch failed — skipping (best-effort)",
+				"id", dep.ID, "region", regionLabel, "err", err)
+			continue
+		}
+		patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		_, patchErr := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+			Patch(patchCtx, bootstrapKitKustomizationName, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+		cancelPatch()
+		if patchErr != nil {
+			h.log.Warn("clustermesh: secondary PG-host patch: Patch bootstrap-kit Kustomization failed — skipping (best-effort, re-run converges)",
+				"id", dep.ID, "region", regionLabel, "err", patchErr)
+			continue
+		}
+		keys := make([]string, 0, len(sub))
+		for k := range sub {
+			keys = append(keys, k)
+		}
+		h.log.Info("clustermesh: secondary PG-host patch: stamped shared-pg-mesh-rw WRITE host onto secondary region's bootstrap-kit Kustomization (keycloak/gitea/harbor cross-region DB host, #4436)",
+			"id", dep.ID, "region", regionLabel, "keys", keys, "host", clusterMeshSharedPGMeshRWHost, "requestedAt", stamp)
+		patchedRegions = append(patchedRegions, regionLabel)
+	}
+	if len(patchedRegions) > 0 {
+		h.emitClusterMeshProgress(dep, "info",
+			fmt.Sprintf("ClusterMesh: flipped keycloak/gitea/harbor cross-region DB write host to %s on %d secondary region(s) (%s) — region-local shared-pg-rw NXDOMAINs the replica region (#4436)",
+				clusterMeshSharedPGMeshRWHost, len(patchedRegions), strings.Join(patchedRegions, ", ")))
 	}
 }
 
