@@ -77,6 +77,7 @@ func init() {
 	providers.RegisterProvider(Name, New())
 	provisioner.NATEIPPreflightHook = RotateBlocklistedNATEIPs
 	provisioner.VPCQuotaHook = VPCQuotaPreflight
+	provisioner.VPCReclaimHook = VPCReclaimPreflight
 }
 
 // VPCQuotaPreflight is the function registered as
@@ -87,6 +88,14 @@ func init() {
 // provisioner for the Provision delegate).
 func VPCQuotaPreflight(ctx context.Context, accessKey, secretKey, projectID, region string) (used, limit int, err error) {
 	return New().VPCQuota(ctx, accessKey, secretKey, projectID, region)
+}
+
+// VPCReclaimPreflight is the function registered as
+// provisioner.VPCReclaimHook by init() (#4431). Same free-function
+// shape as VPCQuotaPreflight so the provisioner can reclaim leaked VPC
+// quota in-band without importing huawei. Delegates to SweepOrphanVPCs.
+func VPCReclaimPreflight(ctx context.Context, accessKey, secretKey, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
+	return New().SweepOrphanVPCs(ctx, accessKey, secretKey, projectID, region, activeDepIDPrefixes, progress)
 }
 
 // Name returns the canonical provider name.
@@ -1917,6 +1926,158 @@ func (p *Provider) SweepOrphanKeypairs(ctx context.Context, ak, sk, projectID, r
 		deleted++
 	}
 	return deleted, nil
+}
+
+// SweepOrphanVPCs lists every VPC in the HCS project and reclaims
+// catalyst-owned VPCs that carry no in-flight deployment-ID prefix. It
+// is the VPC-tier sibling of SweepOrphanEIPs (Wave 5.138) and
+// SweepOrphanKeypairs (G73 #2620): both EIPs and keypairs already have a
+// project-wide reclaim sweep because they are untagged on HCS so the
+// per-deployment Wipe cannot find them once the parent record is gone —
+// VPCs had the SAME leak with NO reclaim path (#4431).
+//
+// Why VPCs leak: the per-Sovereign Wipe (cascadeDeleteVPC) only runs
+// while the deployment record still names the VPC's Sovereign FQDN. A
+// wipe whose VPC teardown lagged (the NAT→subnet→port→VPC chain 409s on
+// residual ports/routes, and a peering pinning the VPC blocks the delete
+// — see purgeVPCPeerings) leaves an orphaned catalyst-* VPC that counts
+// against the project quota forever. The HCS Kom4DC me-east-215 default
+// VPC quota is 5 (publicIp 10), and the raise endpoint is NOT
+// tenant-facing (GET-only; PUT/POST return APIGW.0101 — memory
+// feedback_hcs_quota_raise_apigw_not_published). So the only way to keep
+// a fresh 2-region prov (needs 2 VPCs) from false-failing the G68
+// pre-flight at "project at 5/5 VPCs" is to RECLAIM the leaked orphans —
+// code cannot raise the wall. Witnessed live: hw94/hw96/hw128/hw129 each
+// left their VPC pair until a manual bastion cleanup.
+//
+// Match shape: VPC name prefix `catalyst-` (the renderer in
+// infra/providers/huawei/main.tf names every VPC
+// `catalyst-<sovereign-dashed>-<8charDepIDPrefix>-<region>-vpc`).
+// bastion / non-catalyst VPCs are hard-protected — the prefix filter
+// alone excludes them. activeDepIDPrefixes is the set of 8-char prefixes
+// of in-flight deployment IDs (status pending / provisioning /
+// tofu-applying / flux-bootstrapping / phase1-watching / wiping); any
+// VPC whose name contains one is skipped so the sweep never eats a VPC
+// from a live `tofu apply`. Empty set = no protection (post-wipe sweep).
+//
+// Each reclaimable orphan is torn down via cascadeDeleteVPC (the same
+// NAT/floating-IP/subnet/port cascade the per-Sovereign Wipe uses) after
+// deleting any VPC peering that references it (HCS refuses the VPC
+// delete while a peering pins it — #3140). Idempotent + safe to run
+// during active provisioning.
+//
+// Returns the count of VPCs deleted.
+func (p *Provider) SweepOrphanVPCs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	hw := hwCreds{AccessKey: ak, SecretKey: sk, ProjectID: projectID}
+	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
+
+	listURL := fmt.Sprintf("%s/v1/%s/vpcs", endpointFor("vpc", region), projectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, listURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("list vpcs: %w", err)
+	}
+	if status >= 400 {
+		return 0, fmt.Errorf("list vpcs: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		VPCs []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"vpcs"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return 0, fmt.Errorf("decode vpcs: %w", err)
+	}
+	deleted := 0
+	for _, v := range decoded.VPCs {
+		if !isReclaimableOrphanVPC(v.Name, activeDepIDPrefixes) {
+			if v.Name != "" && strings.HasPrefix(v.Name, "catalyst-") {
+				progress(fmt.Sprintf("sweep orphan VPC %s: skipped (active deployment)", v.Name))
+			}
+			continue
+		}
+		// Delete any peering pinning this VPC before the cascade, else
+		// the VPC delete 409s "Router contains subnet" / peering-bound.
+		deleteVPCPeeringsTouching(ctx, client, hw, region, v.ID, progress)
+		if err := cascadeDeleteVPC(ctx, client, hw, region, v.ID); err != nil {
+			progress(fmt.Sprintf("sweep orphan VPC %s: cascade delete failed: %v", v.Name, err))
+			continue
+		}
+		progress(fmt.Sprintf("sweep orphan VPC %s: deleted", v.Name))
+		deleted++
+	}
+	return deleted, nil
+}
+
+// isReclaimableOrphanVPC is the pure match/protection predicate used by
+// SweepOrphanVPCs (#4431). A VPC is reclaimable when its name carries the
+// `catalyst-` prefix (so bastion / operator-owned VPCs are excluded) AND
+// the name contains none of the in-flight deployment-ID 8-char prefixes
+// (so a live `tofu apply`'s VPC is never swept). Bastion is doubly
+// guarded: any name containing "bastion" is protected even if it somehow
+// carried the catalyst- prefix. Extracted as a free function so the
+// decision is unit-testable without an HCS endpoint seam.
+func isReclaimableOrphanVPC(name string, activeDepIDPrefixes map[string]struct{}) bool {
+	if name == "" {
+		return false
+	}
+	// Hard-protect bastion-* and any non-catalyst VPC — operator-owned,
+	// never part of a catalyst deployment.
+	if strings.Contains(name, "bastion") || !strings.HasPrefix(name, "catalyst-") {
+		return false
+	}
+	// Skip VPCs of any in-flight deployment. The 8-char deployment-ID
+	// prefix appears in the name as `catalyst-<sovereign>-<prefix>-<region>-vpc`.
+	for prefix := range activeDepIDPrefixes {
+		if strings.Contains(name, "-"+prefix+"-") {
+			return false
+		}
+	}
+	return true
+}
+
+// deleteVPCPeeringsTouching removes every VPC peering whose requester or
+// accepter endpoint is the given VPC, so the subsequent cascadeDeleteVPC
+// is not blocked by a peering pinning the VPC (HCS #3140). Best-effort —
+// peering-list / delete failures are surfaced via progress and never
+// abort the sweep. Sibling of purgeVPCPeerings (which is scoped to a
+// Sovereign FQDN); this variant is scoped to a single VPC ID for the
+// orphan reclaim path where the Sovereign record is already gone.
+func deleteVPCPeeringsTouching(ctx context.Context, client *http.Client, hw hwCreds, region, vpcID string, progress func(msg string)) {
+	url := fmt.Sprintf("%s/v2.0/vpc/peerings", endpointFor("vpc", region))
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if err != nil || status >= 400 {
+		return
+	}
+	var decoded struct {
+		Peerings []struct {
+			ID         string `json:"id"`
+			Name       string `json:"name"`
+			RequestVPC struct {
+				VPCID string `json:"vpc_id"`
+			} `json:"request_vpc_info"`
+			AcceptVPC struct {
+				VPCID string `json:"vpc_id"`
+			} `json:"accept_vpc_info"`
+		} `json:"peerings"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return
+	}
+	for _, pr := range decoded.Peerings {
+		if pr.RequestVPC.VPCID != vpcID && pr.AcceptVPC.VPCID != vpcID {
+			continue
+		}
+		delURL := fmt.Sprintf("%s/v2.0/vpc/peerings/%s", endpointFor("vpc", region), pr.ID)
+		if _, dStatus, dErr := doSignedRequest(client, hw, http.MethodDelete, delURL, nil); dErr != nil || (dStatus >= 400 && dStatus != http.StatusNotFound) {
+			progress(fmt.Sprintf("sweep orphan VPC: delete peering %s failed", pr.Name))
+			continue
+		}
+		progress("sweep orphan VPC: deleted peering " + pr.Name)
+	}
 }
 
 // VPCQuota returns the project's VPC quota usage as (used, limit). HCS

@@ -202,11 +202,19 @@ variable "huawei_control_plane_count" {
 
     Set to 3 for HA control plane on a tenancy with sufficient EIP
     headroom (public Huawei Cloud or HCS POD enterprise tier).
+
+    #4431 — the validation is `>= 1` (any positive count), NOT a closed
+    `1 || 3` enum. The old enum was an artificial soft-cap with no
+    technical basis: an operator on a quota-raised tenancy may legitimately
+    want 2 or 5 CP nodes per region, and only the primary CP carries an EIP
+    (see locals.cp_eip_regions in main.tf), so a higher count costs no extra
+    EIP quota. odd counts remain the recommendation for etcd quorum, but
+    that is operator guidance, not a hard reject.
   EOT
   default     = 1
   validation {
-    condition     = var.huawei_control_plane_count == 1 || var.huawei_control_plane_count == 3
-    error_message = "huawei_control_plane_count must be 1 (POC) or 3 (HA)."
+    condition     = var.huawei_control_plane_count >= 1
+    error_message = "huawei_control_plane_count must be >= 1 (1 = POC single CP; 3 = HA etcd quorum; higher allowed on quota-raised tenancies)."
   }
 }
 
