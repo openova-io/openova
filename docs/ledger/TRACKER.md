@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T04:00:03Z` |
+| Last refreshed | `2026-06-26T04:15:01Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 17 |
+| Open issues | 13 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,16 +196,14 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 17 open items (clickable table)
+### All 13 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3376](https://github.com/openova-io/openova/issues/3376) | FUNNEL: a stranger with a voucher ends signed-in in their OWN org console with t | Other |
 | [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns cutoverComplete=true only via a DURABLE, reconcile-im | Other |
 | [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (Primary/Standby·Hot/Cold, capability-gated | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity: spawned claude-code agent cannot authenticate or run (no claude bina | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — 2 seams still unwired (spine Application- | Other |
-| [#4272](https://github.com/openova-io/openova/issues/4272) | bp-openclaw controller never Ready on a Sovereign — NetworkPolicy assumes trae | Other |
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
@@ -213,8 +211,6 @@ flowchart LR
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
 | [#4409](https://github.com/openova-io/openova/issues/4409) | bp-external-secrets-stores webhook-gate hook Job missing 'app.kubernetes.io/mana | Other |
 | [#4415](https://github.com/openova-io/openova/issues/4415) | catalog-seed Blueprints carry helm.sh/resource-policy:keep → every catalog ver | Other |
-| [#4421](https://github.com/openova-io/openova/issues/4421) | Per-Org app hosts resolve to a dead IP (49.12.16.160) — stale *.omani.homes wi | Other |
-| [#4422](https://github.com/openova-io/openova/issues/4422) | Funnel WordPress mysql Deployment is admission-blocked in per-Org ns (non-1:1 Li | Other |
 | [#4423](https://github.com/openova-io/openova/issues/4423) | ghcr-pull reflector MISSES fresh per-Org namespaces — reflection-auto-namespac | Other |
 | [#4428](https://github.com/openova-io/openova/issues/4428) | bp-plane-isolation default-deny strands kube-apiserver egress (10.96.0.1:443 i/o | Other |
 
