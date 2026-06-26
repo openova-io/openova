@@ -92,7 +92,21 @@ name: bp-plane-isolation
 #   cannot express reserved:kube-apiserver, so the allow lives in a
 #   CiliumNetworkPolicy — same reserved-entity class as the gateway `ingress`
 #   CNP this chart already ships, and the egress sibling of the #4360 fix.
-version: 0.1.5
+# 0.1.6 (#4448 / Refs #4325 #4382 #4437 #4354): ADD sso-bridge to openbao's
+#   allowIngressFrom. The openbao default-deny INGRESS allowlist covered
+#   external-secrets-system + cnpg-system but OMITTED sso-bridge — so
+#   bp-sso-bridge's reconciler dialing openbao.openbao.svc:8200 each tick
+#   (k8s-auth, SA sso-bridge-reconciler) to fetch/store the per-app KC OIDC
+#   client_secret bundle was Cilium-dropped → `curl (28) timeout` → the
+#   reconciler logged `skipping tick (no OpenBao token)` and NO `secret/sso/*`
+#   bundle was ever written → grafana-sso-oidc-credentials / hubble-ui-oauth2-
+#   proxy-oidc / gitea-oauth-source-credentials never materialized → grafana
+#   503 / hubble 503 / gitea 500. Live proof on omantel.biz (kom4dc dep
+#   b9f9590b558262b6, 2026-06-26). openbao auth-bootstrap already binds the
+#   sso-bridge SA (#2655, bound_service_account_namespaces=sso-bridge) → this
+#   was purely the missing network ingress edge — the same de-vcluster gap
+#   class as #4382 (org-services→gitea) and the #4360/#4361/#4380/#4383 sweep.
+version: 0.1.6
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform

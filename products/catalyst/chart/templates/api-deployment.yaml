@@ -278,7 +278,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "7d3ce77"
+              value: "5d8fb3c"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
@@ -1464,7 +1464,19 @@ spec:
             # CATALYST_HANDOVER_SIGNER_PATH — path to the RS256 PRIVATE
             # key catalyst-api uses to mint magic-link + handover JWTs. The
             # signer auto-generates the keypair on first start if absent.
-            # MUST be on a writable PVC mount. Catalyst-Zero only.
+            # MUST be on a writable PVC mount.
+            #
+            # On a SOVEREIGN this auto-generated keypair is the Sovereign's
+            # OWN local signer (for PIN-auth sessions, locally-minted session
+            # JWTs and Enter-org support tokens). It is a SEPARATE key from the
+            # MOTHERSHIP-injected handover pubkey (catalyst-handover-jwt-public,
+            # seeded by cloud-init) that auth_handover.go verifies inbound owner
+            # handover JWTs against — the mothership never shares its private
+            # key (sovereignty). #4450: cmd/api/main.go's publishHandoverPubkey
+            # MUST NOT overwrite that injected pubkey with this local key on a
+            # Sovereign (it 401'd every owner handover); the local signer's
+            # pubkey reaches openova-mcp via openbao (seedMCPBearer), not this
+            # Secret. See decidePubkeyPublish.
             #
             # NB: env name was CATALYST_HANDOVER_KEY_PATH until 2026-06-03.
             # Renamed because Kyverno cluster-policy

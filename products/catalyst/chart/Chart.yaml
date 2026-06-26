@@ -3202,7 +3202,49 @@ name: bp-catalyst-platform
 #   versions are published OCI charts; the funnel door already resolves latest
 #   via version:"*", this aligns the catalog Blueprint-CR install path.
 #   Refs #4432 #4408 #4400 #4409 #4417.
-version: 1.4.885
+# 1.4.886 — #4447: gitea-flux-auth-sync hook no longer exit-0's on its own RBAC
+#   race. The sole creator of the two Flux basic-auth Secrets
+#   (openova-catalog-sovereign-git-auth + openova-org-tenants-git-auth) had its
+#   pat-reader Role/RoleBinding at hook-weight 20 — SAME as the Job — so the Job
+#   often polled the minted PAT before its RoleBinding bound → silent 403 for the
+#   whole budget → FATAL branch exit-0'd having created NEITHER Secret → both
+#   catalog-sovereign + org-tenants GitRepositories stuck "Source artifact not
+#   found" → catalog + per-Org provisioning never converged (fresh prov
+#   b9f9590b558262b6, Pillar-1 blocked, manual secret-recreation needed). FIX:
+#   (a) the SA + all four RBAC objects are hook-weight 15 (< the Job's 20) so
+#   Helm waits the RBAC batch Ready before the Job; (b) the PAT read now captures
+#   the kubectl exit code (no more 2>/dev/null||true swallow) + an `auth can-i`
+#   preflight — a budget exhausted with ANY read error fails LOUD (exit 1, retry)
+#   instead of masking a 403 as "empty"; only a CLEAN empty token stays the
+#   benign mint-race self-heal (exit 0, #3781); (c) a post-apply read-back
+#   verifies both Secrets exist with a non-empty password (task-4 defense in
+#   depth: #4286's secretRef.name floor guarantees name-set, NOT secret-exists).
+#   New guard chart/tests/gitea-flux-auth-sync-rbac-order.sh. Lockstep w/
+#   bootstrap-kit slot 13 pin. Refs #4447 #3780 #3765 #3781 #4286.
+# 1.4.887 — deploy-bot auto-bump (image roll to 6f99289 + #2851 controller sweep).
+# 1.4.888 — deploy-bot auto-bump (image roll to eea6e19 + #2851 controller sweep).
+# 1.4.889 — #4447 (the SECOND instance #4452 missed): the SAME RBAC-race /
+#   silent-exit-0 antipattern lived in the org-services provisioning-github-
+#   token-sync Job (provisioning-github-token-sync-job.yaml) — the sole reliable
+#   creator of org-services/provisioning-github-token (key GITHUB_TOKEN), which
+#   the provisioning service init-gates on. Pre-fix its SA + all four RBAC
+#   objects sat at hook-weight 20 (SAME batch as the Job) → the pod polled the
+#   minted PAT before its RoleBinding bound → silent 403 swallowed by
+#   2>/dev/null||true → FATAL branch exit-0'd creating NOTHING → provisioning-
+#   github-token never landed → the provisioning service hung Init:0/1 → NO Org
+#   could render its vcluster/apps. #4452 fixed only the sibling gitea-flux-auth-
+#   sync Job. FIX (mirrors #4452 exactly): (a) the SA + all four RBAC objects are
+#   hook-weight 15 (< the Job's 20) so Helm waits the RBAC batch Ready before the
+#   Job; (b) an `auth can-i` preflight + the PAT read now captures the kubectl
+#   exit code (no more 2>/dev/null||true swallow) — a budget exhausted with ANY
+#   read error fails LOUD (exit 1, retry) instead of masking a 403 as "empty";
+#   only a CLEAN empty token stays the benign mint-race self-heal (exit 0,
+#   #3763/#3781); (c) a post-apply read-back verifies the dest Secret carries a
+#   non-empty GITHUB_TOKEN. The cutover-ownership Step-09 no-op guard is
+#   preserved verbatim. The #4452 guard chart/tests/gitea-flux-auth-sync-rbac-
+#   order.sh is extended with parallel gate-3/gate-4 cases for this second job.
+#   Lockstep w/ bootstrap-kit slot 13 pin. Refs #4447 #3763 #3781.
+version: 1.4.890
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)

@@ -1148,6 +1148,12 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 		"nats-system": {"org-services", "guacamole", "catalyst-system", "newapi"},
 		// Shared object store — its blob-storage consumers (default-off but legitimate).
 		"seaweedfs": {"gitea", "harbor", "loki", "mimir", "tempo", "velero", "guacamole", "catalyst-system", "sandbox"},
+		// Secrets engine — ESO reads it, CNPG operator manages adjuncts, and
+		// bp-sso-bridge logs in each reconciler tick (k8s-auth) to fetch/store
+		// the per-app KC OIDC client_secret bundle. Missing sso-bridge → the
+		// reconciler curl(28)-timeouts → no secret/sso/* → grafana/hubble/gitea
+		// SSO secrets never materialize → 503/503/500 (#4448, kom4dc b9f9590b).
+		"openbao": {"external-secrets-system", "cnpg-system", "sso-bridge"},
 		// Dashboards — SSO + ESO + its own Postgres backend.
 		"grafana": {"external-secrets-system", "cnpg-system"},
 		// Log/metric/trace stores — their queriers + shippers.
