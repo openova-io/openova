@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T14:15:02Z` |
+| Last refreshed | `2026-06-26T14:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 25 |
+| Open issues | 27 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 27 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 25 open items (clickable table)
+### All 27 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -225,6 +225,8 @@ flowchart LR
 | [#4460](https://github.com/openova-io/openova/issues/4460) | Fresh 2-region prov: shared-pg-mesh-rw global Service gated on cnpg-pair flip, b | Other |
 | [#4464](https://github.com/openova-io/openova/issues/4464) | deploy-bump whole-file snapshot clobbers concurrent per-controller image bumps � | Other |
 | [#4466](https://github.com/openova-io/openova/issues/4466) | Harden orphan-sweep janitor: protect-by-default + log-only-until-proven + active | Other |
+| [#4467](https://github.com/openova-io/openova/issues/4467) | fix(bp-cilium): set MTU=1370 for wireguard+vxlan datapath — cross-node pod TCP | Other |
+| [#4468](https://github.com/openova-io/openova/issues/4468) | bp-plane-isolation: #4445 deadlock-guard missed apiserver-egress + gateway-ingre | Other |
 
 ---
 
