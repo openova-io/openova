@@ -161,7 +161,16 @@ spec:
       #   re-homes the stale `mgmt` keycloak/openbao egress NetworkPolicy
       #   namespaces back to host ns keycloak/openbao (post-#4325/#4347).
       #   Refs #4437 #4347 #4325.
-      version: 0.2.23
+      # 0.2.24 (#4458): EGRESS half of the #4448/#4449 sso-bridge↔openbao gap.
+      #   The sso-bridge-reconciler-apiserver CiliumNetworkPolicy attaches an
+      #   egress rule → the reconciler endpoint becomes CNP-ENFORCED egress, so
+      #   the sibling K8s-NP openbao/keycloak/DNS egress allow is INERT (Cilium
+      #   reserved-identity supersession, same class as 0.2.7/#2861). Pre-fix the
+      #   CNP listed ONLY kube-apiserver → openbao:8200 + keycloak:8080 dials
+      #   policy-dropped → `no OpenBao token` every tick → grafana/hubble 503,
+      #   gitea 500. Fix: CNP egress now also names kube-dns + keycloak + openbao.
+      #   #4449 fixed the INGRESS side; this is the EGRESS side. Refs #4458 #4449.
+      version: 0.2.24
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
