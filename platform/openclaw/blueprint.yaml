@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-7-agentic-workspace
 spec:
-  version: 0.2.11
+  version: 0.2.12
   card:
     title: OpenClaw
     summary: |
