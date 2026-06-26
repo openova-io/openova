@@ -717,7 +717,7 @@ controllers:
       # treadmill that left every m-tier funnel Org stuck at 'vcluster-0 forbidden:
       # ratio 20' (verified live on g10vc). Re-pin to b23af68 (#4393) explicitly;
       # without it the org-controller never renders the Guaranteed-QoS vcluster.
-      tag: "b23af68"
+      tag: "d864ce9"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
