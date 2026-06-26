@@ -677,3 +677,56 @@ Founder reopened 13 G117 issues 2026-06-03 demanding brutal revalidation after c
 Operational: hw86-b cluster cascade recovered via canonical chart-cred-persistence Defense applied at the KC admin layer (PBKDF2-SHA512 hash reset on `master`/admin credential row + KC-0 force-restart to clear in-memory credential cache). All non-suspended HRs on -b Ready=True. New memory `feedback_keycloak_admin_password_recovery_pbkdf2.md` codifies the 8-step recovery.
 
 Per `feedback_definition_of_done_operator_walk.md` — #2737 stays OPEN with sub-EPIC #2741 + #2743 flipped to 🟡 VERIFIED-PARTIAL (mechanical+routing verified; visual class-detail render + silent-SSO new-tab URL require founder PIN-walk on hw86).
+
+## 2026-06-27 — session board sweep: 22 closed (audited 22/22 clean) + 7 merged-roll-gated fixes pending keystone
+
+**Context.** Board dropped 35 → 12 gated this session against the permanent live env `omantel.biz` dep `91dc05917e44d1c1` (2-region, converged 62/62 + 56/56). 22 issues were closed with live evidence and then INDEPENDENTLY AUDITED — 22/22 clean, **zero false-closes**. Those 22 surfaces flip to 🟢 VERIFIED-PASS below. A separate set of fixes merged this session but is roll-gated: the permanent env is pin-frozen, so the merged charts/images are inert on it until a fresh prov rolls them. Those surfaces are 🔴 UNVERIFIED-pending-keystone — a fresh single-region GO-3EIP keystone prov on current main (kom4dc) is FIRING to close that gate.
+
+### 22 closed surfaces — 🟢 VERIFIED-PASS (audited 22/22 clean, zero false-closes)
+
+| # | Surface | State | Note |
+|---|---|---|---|
+| [#4454](https://github.com/openova-io/openova/issues/4454) | Janitor orphan-sweep reaped its own `ready` dep ~2min after convergence (self-destruct) | 🟢 VERIFIED-PASS | audited clean — `ready` restored to activePrefixes protection; live env survived convergence |
+| [#4467](https://github.com/openova-io/openova/issues/4467) | bp-cilium MTU=1370 for wireguard+vxlan — cross-node pod TCP timed out on Huawei fresh prov | 🟢 VERIFIED-PASS | audited clean — cross-node pod TCP holds on the live 2-region env |
+| [#4448](https://github.com/openova-io/openova/issues/4448) | bp-plane-isolation openbao default-deny omitted sso-bridge → grafana/hubble/gitea SSO secrets never materialized | 🟢 VERIFIED-PASS | audited clean — sso-bridge reaches openbao:8200; SSO secrets land |
+| [#4458](https://github.com/openova-io/openova/issues/4458) | bp-sso-bridge egress CNP omitted openbao:8200 + keycloak (Cilium reserved-identity trap) | 🟢 VERIFIED-PASS | audited clean — egress CNP names openbao+keycloak+dns; token mints |
+| [#4437](https://github.com/openova-io/openova/issues/4437) | bp-sso-bridge cached stale KC_ADDR after #4325 de-vcluster → grafana 503 | 🟢 VERIFIED-PASS | audited clean — KC token re-mints on addr change |
+| [#4442](https://github.com/openova-io/openova/issues/4442) | bp-postgres singleton-operator-probe NP default-denied host consumers on 5432 → keycloak/gitea/harbor JDBC timeout | 🟢 VERIFIED-PASS | audited clean — host shared-data consumers reach 5432 |
+| [#4444](https://github.com/openova-io/openova/issues/4444) | bp-plane-isolation atomic install failed on late-created `sandbox` ns → catalyst-platform deadlock | 🟢 VERIFIED-PASS | audited clean — defer-if-absent guard clears the circular deadlock |
+| [#4447](https://github.com/openova-io/openova/issues/4447) | gitea-flux-auth-sync hook exit-0'd on its own RBAC race → catalog never converged (Pillar-1) | 🟢 VERIFIED-PASS | audited clean — *-git-auth secrets created; catalog/org-tenants sources converge |
+| [#4446](https://github.com/openova-io/openova/issues/4446) | oidc-gate consumer client_secret not seeded into OpenBao → bp-powerdns-admin install hung | 🟢 VERIFIED-PASS | audited clean — sso/sovereign/* secrets seeded; ExternalSecret syncs |
+| [#4471](https://github.com/openova-io/openova/issues/4471) | org-controller ClusterRole missing update/patch on organizations → ALL Org reconcile blocked | 🟢 VERIFIED-PASS | audited clean — finalizer add permitted; Org reconcile proceeds |
+| [#4354](https://github.com/openova-io/openova/issues/4354) | #4325 fallout: gitea vcluster→host-ns re-home must migrate git-data PVC (DB↔disk drift) | 🟢 VERIFIED-PASS | audited clean — git-data preserved across the re-home |
+| [#4460](https://github.com/openova-io/openova/issues/4460) | 2-region: shared-pg-mesh-rw gated on cnpg-pair flip but secondary baked -mesh-rw at boot → region-B NXDOMAIN | 🟢 VERIFIED-PASS | audited clean — region-B keycloak/gitea/harbor resolve write host |
+| [#4436](https://github.com/openova-io/openova/issues/4436) | region-B keycloak/gitea/harbor CrashLoop: shared-pg-rw NXDOMAIN (must be -mesh-rw) | 🟢 VERIFIED-PASS | audited clean — secondary substitute map uses -mesh-rw |
+| [#4479](https://github.com/openova-io/openova/issues/4479) | console org-list/detail read only local provision store → funnel Orgs invisible | 🟢 VERIFIED-PASS | audited clean — console reads orgs.openova.io CRs; funnel Orgs + parent visible |
+| [#4473](https://github.com/openova-io/openova/issues/4473) | funnel plan selection did not propagate to the Org CR → every funnel Org provisioned at plan S | 🟢 VERIFIED-PASS | audited clean — plan propagates from funnel to the Organization CR |
+| [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — collapse the 3 Org-provisioning doors to ONE (org-controller producer) | 🟢 VERIFIED-PASS | audited clean — org-controller is the single boundary producer |
+| [#4459](https://github.com/openova-io/openova/issues/4459) | Org-CR deletion did not cascade — leaked per-Org console listener/Certificate/HTTPRoute/pool-DNS | 🟢 VERIFIED-PASS | audited clean — clean-boundary teardown cascades |
+| [#4450](https://github.com/openova-io/openova/issues/4450) | catalyst-api self-published its local signer pubkey over the mothership key → handover JWT 401 | 🟢 VERIFIED-PASS | audited clean — mothership-injected key preserved; handover JWT validates |
+| [#4482](https://github.com/openova-io/openova/issues/4482) | bp-sandbox: catalyst-gitea-token never reflected into `sandbox` ns → 0 Sandboxes reconcile (Pillar-4) | 🟢 VERIFIED-PASS | audited clean — token reflected; sandbox-controller stable |
+| [#4464](https://github.com/openova-io/openova/issues/4464) | deploy-bump whole-file snapshot clobbered concurrent per-controller image bumps | 🟢 VERIFIED-PASS | audited clean — per-line cherry-pick keeps concurrent bumps |
+| [#4432](https://github.com/openova-io/openova/issues/4432) | catalog-seed permanence: 3 stale seed pins lagged their blueprint.yaml | 🟢 VERIFIED-PASS | audited clean — openclaw/stalwart-tenant/external-secrets-stores seed pins aligned |
+| [#4468](https://github.com/openova-io/openova/issues/4468) | bp-plane-isolation #4445 deadlock-guard missed apiserver-egress + gateway-ingress CNPs | 🟢 VERIFIED-PASS | audited clean — extended defer-if-absent covers the missed CNPs |
+
+### Merged-this-session, roll-gated — 🔴 UNVERIFIED-pending-keystone
+
+These fixes merged on current main but are inert on the pin-frozen permanent env. They flip to 🟢 only when the keystone prov rolls them on a fresh substrate and the surface is re-walked.
+
+| PR | Issue | Surface | State |
+|---|---|---|---|
+| [#4493](https://github.com/openova-io/openova/pull/4493) | [#4466](https://github.com/openova-io/openova/issues/4466) | janitor harden — log-only-until-proven + active-dep allowlist + protect-by-default | 🔴 UNVERIFIED-pending-keystone |
+| [#4492](https://github.com/openova-io/openova/pull/4492) | [#4477](https://github.com/openova-io/openova/issues/4477) | seed newapi admin-token into OpenBao (fresh-prov SSO seed) | 🔴 UNVERIFIED-pending-keystone |
+| [#4495](https://github.com/openova-io/openova/pull/4495) | [#4475](https://github.com/openova-io/openova/issues/4475) (via #4290) | org-controller renders gateway/apiserver CNP host-side for the vcluster tier | 🔴 UNVERIFIED-pending-keystone |
+| [#4494](https://github.com/openova-io/openova/pull/4494) + [#4496](https://github.com/openova-io/openova/pull/4496) | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity imagePullSecrets=ghcr-pull + catalog-seed source.version lockstep | 🔴 UNVERIFIED-pending-keystone (also G3 Anthropic-gated for the agentic run) |
+| [#4498](https://github.com/openova-io/openova/pull/4498) | [#3969](https://github.com/openova-io/openova/issues/3969) | application-controller §13 — Continuum placement lease-witness off targets[] | 🔴 UNVERIFIED-pending-keystone |
+| [#4500](https://github.com/openova-io/openova/pull/4500) | [#4499](https://github.com/openova-io/openova/issues/4499) | bp-plane-isolation: catalyst-system → openbao allowIngressFrom (root cause behind #4477/#4277 seed faults) | 🔴 UNVERIFIED-pending-keystone |
+
+### Gates on the remaining open work (recorded for the founder)
+
+- **G1 — keystone single-region prov** (FIRING, kom4dc, current main): #4488, #4477, #4466, #4431, #4486, #4499, #4293, #3969, #4475.
+- **G2 — Omantel EIP quota bump 10 → ≥16** (the single decisive founder lever; a 2-region prov needs 6 EIPs, quota=10/free=3): #4275, #4212, #4293.
+- **G3 — Anthropic credential**: #4277 (seed value), #4111 (agentic run).
+- **Destructive-on-throwaway**: #3379 cutover (deny-egress hold — runs on the keystone env, never the permanent one).
+
+**HARD CAPACITY FACT:** kom4dc EIP quota = 10, free = 3. A 2-region prov needs 6. The EIP quota bump 10 → ≥16 is the single founder lever that unblocks the most tickets at once.
