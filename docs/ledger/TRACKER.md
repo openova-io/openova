@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T18:15:03Z` |
+| Last refreshed | `2026-06-26T18:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 35 |
+| Open issues | 22 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 35 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 35 open items (clickable table)
+### All 22 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -208,26 +208,13 @@ flowchart LR
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
-| [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
 | [#4431](https://github.com/openova-io/openova/issues/4431) | Fresh multi-region HCS prov false-fails on VPC quota — orphan VPCs leak quota  | Other |
 | [#4432](https://github.com/openova-io/openova/issues/4432) | fix(catalog-seed): pre-fresh-prov permanence — 3 stale catalog-seed pins lag t | Other |
-| [#4436](https://github.com/openova-io/openova/issues/4436) | region-B keycloak/gitea/harbor CrashLoop: shared-pg-rw NXDOMAIN — secondary su | Other |
-| [#4437](https://github.com/openova-io/openova/issues/4437) | bp-sso-bridge reconciler caches stale KC_ADDR (secretKeyRef env) → never re-mi | Other |
-| [#4442](https://github.com/openova-io/openova/issues/4442) | bp-postgres singleton-operator-probe NP default-denies host shared-data consumer | Other |
-| [#4444](https://github.com/openova-io/openova/issues/4444) | bp-plane-isolation atomic Helm-install fails on late-created 'sandbox' ns → gi | Other |
-| [#4446](https://github.com/openova-io/openova/issues/4446) | Fresh prov: oidc-gate consumer client_secret not seeded into OpenBao (sso/sovere | Other |
-| [#4447](https://github.com/openova-io/openova/issues/4447) | gitea-flux-auth-sync hook exit-0's on its own RBAC race → *-git-auth secrets n | Other |
-| [#4448](https://github.com/openova-io/openova/issues/4448) | bp-plane-isolation: openbao default-deny omits sso-bridge ingress → bp-sso-bri | Other |
 | [#4450](https://github.com/openova-io/openova/issues/4450) | fix(handover-key): catalyst-api self-publishes its local signer pubkey over the  | Other |
-| [#4454](https://github.com/openova-io/openova/issues/4454) | P0: Janitor orphan-sweep reaps its own `ready` deployment ~2min after convergenc | Other |
-| [#4458](https://github.com/openova-io/openova/issues/4458) | bp-sso-bridge reconciler egress CNP omits openbao:8200 + keycloak → K8s-NP all | Other |
 | [#4459](https://github.com/openova-io/openova/issues/4459) | Org-CR deletion does not cascade — leaks per-Org console listener/Certificate/ | Other |
-| [#4460](https://github.com/openova-io/openova/issues/4460) | Fresh 2-region prov: shared-pg-mesh-rw global Service gated on cnpg-pair flip, b | Other |
 | [#4464](https://github.com/openova-io/openova/issues/4464) | deploy-bump whole-file snapshot clobbers concurrent per-controller image bumps � | Other |
 | [#4466](https://github.com/openova-io/openova/issues/4466) | Harden orphan-sweep janitor: protect-by-default + log-only-until-proven + active | Other |
-| [#4467](https://github.com/openova-io/openova/issues/4467) | fix(bp-cilium): set MTU=1370 for wireguard+vxlan datapath — cross-node pod TCP | Other |
 | [#4468](https://github.com/openova-io/openova/issues/4468) | bp-plane-isolation: #4445 deadlock-guard missed apiserver-egress + gateway-ingre | Other |
-| [#4471](https://github.com/openova-io/openova/issues/4471) | fix(org-controller): ClusterRole missing update/patch on organizations → tenan | Other |
 | [#4473](https://github.com/openova-io/openova/issues/4473) | Funnel plan selection does not propagate to the Organization CR — every funnel | Other |
 | [#4475](https://github.com/openova-io/openova/issues/4475) | Org vcluster-tier convergence: CiliumNetworkPolicy can't apply inside vanilla vc | Other |
 | [#4477](https://github.com/openova-io/openova/issues/4477) | SSO seeding faults on fresh prov: openbao external-group alias never binds (admi | Other |
@@ -242,6 +229,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T18:24 | [#4492](https://github.com/openova-io/openova/pull/4492) | #4477 | fix(catalyst): seed newapi admin-token into OpenBao so catal |
 | 2026-06-26T17:54 | [#4491](https://github.com/openova-io/openova/pull/4491) | #4002 | fix(crossplane): route provider-opentofu xpkg pull off the p |
 | 2026-06-26T17:48 | [#4490](https://github.com/openova-io/openova/pull/4490) | #4470 | fix(bp-plane-isolation): annotate smoke-render-mode=default- |
 | 2026-06-26T17:47 | [#4489](https://github.com/openova-io/openova/pull/4489) | #4415 | docs(uat): restore 9 §A/§F walker-PASS rows + re-baseline #3 |
@@ -271,7 +259,6 @@ flowchart LR
 | 2026-06-26T08:29 | [#4441](https://github.com/openova-io/openova/pull/4441) | #4279 | docs(ledger): reset UAT.md clean + expand with session-fix c |
 | 2026-06-26T08:20 | [#4440](https://github.com/openova-io/openova/pull/4440) | #4325 | fix(bp-sso-bridge #4437): re-read keycloak creds each tick — |
 | 2026-06-26T08:29 | [#4439](https://github.com/openova-io/openova/pull/4439) | #4436 | fix(catalyst-api): re-stamp secondary-region shared-pg WRITE |
-| 2026-06-26T08:12 | [#4435](https://github.com/openova-io/openova/pull/4435) | #4431 | fix(catalyst): reclaim leaked HCS VPC quota so fresh multi-r |
 
 ---
 
