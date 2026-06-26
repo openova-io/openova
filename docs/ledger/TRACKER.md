@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T03:45:03Z` |
+| Last refreshed | `2026-06-26T04:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 16 |
+| Open issues | 17 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 16 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 16 open items (clickable table)
+### All 17 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -216,6 +216,7 @@ flowchart LR
 | [#4421](https://github.com/openova-io/openova/issues/4421) | Per-Org app hosts resolve to a dead IP (49.12.16.160) — stale *.omani.homes wi | Other |
 | [#4422](https://github.com/openova-io/openova/issues/4422) | Funnel WordPress mysql Deployment is admission-blocked in per-Org ns (non-1:1 Li | Other |
 | [#4423](https://github.com/openova-io/openova/issues/4423) | ghcr-pull reflector MISSES fresh per-Org namespaces — reflection-auto-namespac | Other |
+| [#4428](https://github.com/openova-io/openova/issues/4428) | bp-plane-isolation default-deny strands kube-apiserver egress (10.96.0.1:443 i/o | Other |
 
 ---
 
@@ -223,12 +224,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T03:48 | [#4427](https://github.com/openova-io/openova/pull/4427) | #4423 | fix(cloud-init): reflect ghcr-pull into bare-slug per-Org na |
 | 2026-06-26T03:39 | [#4426](https://github.com/openova-io/openova/pull/4426) | #3376 | fix(provisioning): funnel cart WordPress emits a Cilium-Gate |
 | 2026-06-26T03:30 | [#4425](https://github.com/openova-io/openova/pull/4425) | #4403 | fix(provisioning/bp-kyverno-policies #4422): funnel cart DB  |
 | 2026-06-26T03:30 | [#4424](https://github.com/openova-io/openova/pull/4424) | #4421 | fix(provisioning): align funnel Org DNS pool with the apps-H |
 | 2026-06-26T02:30 | [#4420](https://github.com/openova-io/openova/pull/4420) | #4282 | fix(application-controller): roll vCluster-placed Applicatio |
 | 2026-06-26T02:27 | [#4419](https://github.com/openova-io/openova/pull/4419) | #4405 | fix(provisioning #4404): widen funnel day-2 install Gitea-ra |
 | 2026-06-26T01:57 | [#4418](https://github.com/openova-io/openova/pull/4418) | #4212 | fix(catalyst): spine apps ADOPT bootstrap HR + config→spec.p |
+| 2026-06-26T03:51 | [#4417](https://github.com/openova-io/openova/pull/4417) | #4415 | fix(catalog-seed #4415): drop resource-policy:keep so a merg |
 | 2026-06-26T01:25 | [#4414](https://github.com/openova-io/openova/pull/4414) | #4272 | fix(catalog-seed #4413): bp-openclaw 0.2.8 → 0.2.11 so #4272 |
 | 2026-06-26T00:49 | [#4412](https://github.com/openova-io/openova/pull/4412) | #4403 | fix(bp-postgres #4411): unwedge bp-postgres:0.2.6 publish —  |
 | 2026-06-26T00:34 | [#4410](https://github.com/openova-io/openova/pull/4410) | #4226 | fix(bp-external-secrets-stores #4409): flux-managed label on |
@@ -251,8 +254,6 @@ flowchart LR
 | 2026-06-25T19:00 | [#4386](https://github.com/openova-io/openova/pull/4386) | #4325 | fix(bp-plane-isolation): comprehensive de-vcluster dial-grap |
 | 2026-06-25T18:46 | [#4383](https://github.com/openova-io/openova/pull/4383) | #4377 | fix(bp-plane-isolation): add org-services to gitea allowIngr |
 | 2026-06-25T18:44 | [#4381](https://github.com/openova-io/openova/pull/4381) | #3969 | feat(application-controller #3969): fan-out HR render from s |
-| 2026-06-25T18:29 | [#4380](https://github.com/openova-io/openova/pull/4380) | #4325 | fix(cutover): plane-isolation carve-out opens catalyst→{gite |
-| 2026-06-25T18:28 | [#4379](https://github.com/openova-io/openova/pull/4379) | #4325 | fix(catalog #4375): per-Org blueprints land host-native post |
 
 ---
 
