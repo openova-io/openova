@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T12:45:03Z` |
+| Last refreshed | `2026-06-26T13:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T12:54 | [#4465](https://github.com/openova-io/openova/pull/4465) | #2584 | fix(#4464): deploy-bump per-line cherry-pick stops whole-fil |
 | 2026-06-26T12:28 | [#4463](https://github.com/openova-io/openova/pull/4463) | #4275 | fix(bp-postgres): decouple -mesh/-mesh-rw global Service ali |
 | 2026-06-26T12:02 | [#4462](https://github.com/openova-io/openova/pull/4462) | #4250 | fix(org-controller): cascade-delete per-Org tenant-networkin |
 | 2026-06-26T11:57 | [#4461](https://github.com/openova-io/openova/pull/4461) | #4448 | fix(bp-sso-bridge): CNP egress names openbao+keycloak+dns —  |
@@ -260,7 +261,6 @@ flowchart LR
 | 2026-06-26T01:25 | [#4414](https://github.com/openova-io/openova/pull/4414) | #4272 | fix(catalog-seed #4413): bp-openclaw 0.2.8 → 0.2.11 so #4272 |
 | 2026-06-26T00:49 | [#4412](https://github.com/openova-io/openova/pull/4412) | #4403 | fix(bp-postgres #4411): unwedge bp-postgres:0.2.6 publish —  |
 | 2026-06-26T00:34 | [#4410](https://github.com/openova-io/openova/pull/4410) | #4226 | fix(bp-external-secrets-stores #4409): flux-managed label on |
-| 2026-06-26T00:25 | [#4408](https://github.com/openova-io/openova/pull/4408) | #4272 | fix(bp-openclaw): controller trusts public LE root + cluster |
 
 ---
 
