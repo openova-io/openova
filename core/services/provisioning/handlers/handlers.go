@@ -89,6 +89,13 @@ type Handler struct {
 	// day2Cancels tracks in-flight day-2 job wait contexts so tenant.deleted
 	// can preempt them (issue #99). Zero value is ready to use.
 	day2Cancels day2CancelRegistry
+
+	// pendingInstalls holds day-2 cart installs whose step-0 commit could not
+	// land yet because the per-Org Gitea org/repo did not exist after the
+	// in-line retry budget (#4404). StartPendingInstallReconciler drains them
+	// once the org-controller finishes creating the repo, so a slow per-Org
+	// create never drops the purchased app. Zero value is ready to use.
+	pendingInstalls pendingInstallRegistry
 }
 
 // VerifyCommitTargetSafe re-runs the issue #944 cross-cluster pollution

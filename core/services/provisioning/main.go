@@ -349,6 +349,13 @@ func main() {
 	// provision — without this the UI sits on "INSTALLING" while the pods
 	// are happily running.
 	h.StartPodTruthReconciler(consumerCtx)
+	// Pending-install self-heal reconciler (#4404): re-attempts day-2 cart
+	// installs whose step-0 commit could not land because the funnel raced the
+	// org-controller's per-Org Gitea org/repo create and the in-line retry
+	// budget exhausted before the repo appeared. Drains the parked installs
+	// once the repo exists so a slow per-Org create never drops the purchased
+	// app. Reuses consumerCtx so the goroutine stops cleanly on shutdown.
+	h.StartPendingInstallReconciler(consumerCtx)
 
 	// Build the main mux.
 	mux := http.NewServeMux()
