@@ -390,6 +390,54 @@ func (h *Handler) cleanOrphanKubeconfigs(activeIDs map[string]struct{}) int {
 	return deleted
 }
 
+// buildActivePrefixes returns the set of 8-char deployment-ID prefixes
+// whose cloud infra (EIP / keypair / VPC) the orphan sweeps MUST NOT
+// reclaim. Shared by all three sweeps (EIPs / keypairs / VPCs).
+//
+// #4454 — FAIL-SAFE INVERSION. The earlier design was an ALLOWLIST that
+// protected only in-flight statuses (pending … phase1-watching, wiping)
+// and deliberately left ready/failed/wiped/adopted reclaimable. That
+// fails OPEN: the instant a fresh Sovereign flips to `ready` its prefix
+// dropped out of the protected set and its catalyst-<prefix>-* EIP /
+// keypair / VPC-peering / VPC were reaped as "orphans," cascading the
+// node deletion. On dep b9f9590b (omantel.biz) all 12 ECS nodes went
+// DELETED in a 1-second window ~2.5 min after convergence.
+//
+// We now PROTECT BY DEFAULT and exclude ONLY genuinely-wiped records.
+// A `wiped` record SHOULD have no cloud infra, so anything still bearing
+// its prefix is a true leak and stays sweep-eligible. EVERY other status
+// — pending … phase1-watching, ready, adopted, cutover-running,
+// cutover-complete, failed, AND any status added in the future —
+// protects its prefix. A future-added status therefore fails SAFE
+// (protected), not OPEN (reaped). `failed` is protected too, honouring
+// DEBUG-BEFORE-WIPE: never reap infra we may still need to forensically
+// read.
+func (h *Handler) buildActivePrefixes() map[string]struct{} {
+	activePrefixes := map[string]struct{}{}
+	h.deployments.Range(func(_, val any) bool {
+		dep, ok := val.(*Deployment)
+		if !ok || dep == nil {
+			return true
+		}
+		dep.mu.Lock()
+		st := dep.Status
+		id := dep.ID
+		dep.mu.Unlock()
+		switch st {
+		case "wiped":
+			// A wiped record SHOULD have no cloud infra; anything left
+			// is a genuine leak → eligible for the sweep. Do NOT protect.
+		default:
+			// ANY non-wiped record protects its prefix (fail-safe).
+			if len(id) >= 8 {
+				activePrefixes[id[:8]] = struct{}{}
+			}
+		}
+		return true
+	})
+	return activePrefixes
+}
+
 // cleanOrphanEIPsHuawei walks the per-deployment tfvars files on the
 // PVC to find a working set of huawei creds (any active deployment's
 // AK/SK/project_id/region), then calls huawei.Provider.SweepOrphanEIPs
@@ -462,34 +510,10 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	// G16 (Refs #2555): protect ONLY in-flight deployments. G15's first
-	// cut used activeIDs (every record on disk), which meant a FAILED
-	// deployment's EIPs were "skipped" forever because its record was
-	// still in the set. Result: hw43+hw44 failed deployments' EIPs
-	// piled up to project quota, starving the next prov.
-	// In-flight statuses (must protect): pending, provisioning,
-	// tofu-applying, flux-bootstrapping, phase1-watching, wiping.
-	// Terminal statuses (let janitor reclaim): ready (bound EIPs won't
-	// match orphan criteria anyway), failed, wiped, adopted.
-	activePrefixes := map[string]struct{}{}
-	h.deployments.Range(func(_, val any) bool {
-		dep, ok := val.(*Deployment)
-		if !ok || dep == nil {
-			return true
-		}
-		dep.mu.Lock()
-		st := dep.Status
-		id := dep.ID
-		dep.mu.Unlock()
-		switch st {
-		case "pending", "provisioning", "tofu-applying",
-			"flux-bootstrapping", "phase1-watching", "wiping":
-			if len(id) >= 8 {
-				activePrefixes[id[:8]] = struct{}{}
-			}
-		}
-		return true
-	})
+	// #4454: protect by DEFAULT (every non-wiped record), reclaim ONLY
+	// genuinely-wiped records' leaked infra. See buildActivePrefixes for
+	// the fail-safe-inversion rationale (the b9f9590b self-destruct).
+	activePrefixes := h.buildActivePrefixes()
 	deleted, err := hp.SweepOrphanEIPs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
@@ -510,11 +534,10 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string
 // `tofu.auto.tfvars.json` carrying huawei creds, then calls
 // `huawei.Provider.SweepOrphanKeypairs` for the project-wide sweep.
 //
-// Same in-flight protection scheme as cleanOrphanEIPsHuawei: only
-// statuses `pending` / `provisioning` / `tofu-applying` /
-// `flux-bootstrapping` / `phase1-watching` / `wiping` mark a
-// deployment's 8-char ID prefix as protected. Terminal statuses
-// (ready / failed / wiped / adopted) leave their keypairs reclaimable.
+// Same fail-safe protection scheme as cleanOrphanEIPsHuawei (#4454):
+// buildActivePrefixes protects EVERY non-`wiped` record's 8-char ID
+// prefix. Only a `wiped` record (which SHOULD have no cloud infra) leaves
+// its keypairs reclaimable.
 func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
 	if tofuWorkDir == "" {
 		return 0
@@ -567,25 +590,9 @@ func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[st
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	activePrefixes := map[string]struct{}{}
-	h.deployments.Range(func(_, val any) bool {
-		dep, ok := val.(*Deployment)
-		if !ok || dep == nil {
-			return true
-		}
-		dep.mu.Lock()
-		st := dep.Status
-		id := dep.ID
-		dep.mu.Unlock()
-		switch st {
-		case "pending", "provisioning", "tofu-applying",
-			"flux-bootstrapping", "phase1-watching", "wiping":
-			if len(id) >= 8 {
-				activePrefixes[id[:8]] = struct{}{}
-			}
-		}
-		return true
-	})
+	// #4454: protect by DEFAULT (every non-wiped record). See
+	// buildActivePrefixes for the fail-safe-inversion rationale.
+	activePrefixes := h.buildActivePrefixes()
 	deleted, err := hp.SweepOrphanKeypairs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
@@ -606,12 +613,10 @@ func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[st
 // "project at 5/5 VPCs". This sweep is the missing reclaim path: EIPs
 // and keypairs already had one, VPCs did not.
 //
-// Same in-flight protection scheme as its siblings: only statuses
-// pending / provisioning / tofu-applying / flux-bootstrapping /
-// phase1-watching / wiping mark a deployment's 8-char ID prefix as
-// protected. Terminal statuses (ready / failed / wiped / adopted) leave
-// their VPCs reclaimable. Bastion / non-catalyst VPCs are hard-protected
-// in SweepOrphanVPCs itself.
+// Same fail-safe protection scheme as its siblings (#4454):
+// buildActivePrefixes protects EVERY non-`wiped` record's 8-char ID
+// prefix; only a `wiped` record leaves its VPCs reclaimable. Bastion /
+// non-catalyst VPCs are hard-protected in SweepOrphanVPCs itself.
 func (h *Handler) cleanOrphanVPCsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
 	if tofuWorkDir == "" {
 		return 0
@@ -667,25 +672,9 @@ func (h *Handler) cleanOrphanVPCsHuawei(tofuWorkDir string, activeIDs map[string
 	// wider budget than the 2-minute sibling sweeps.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	activePrefixes := map[string]struct{}{}
-	h.deployments.Range(func(_, val any) bool {
-		dep, ok := val.(*Deployment)
-		if !ok || dep == nil {
-			return true
-		}
-		dep.mu.Lock()
-		st := dep.Status
-		id := dep.ID
-		dep.mu.Unlock()
-		switch st {
-		case "pending", "provisioning", "tofu-applying",
-			"flux-bootstrapping", "phase1-watching", "wiping":
-			if len(id) >= 8 {
-				activePrefixes[id[:8]] = struct{}{}
-			}
-		}
-		return true
-	})
+	// #4454: protect by DEFAULT (every non-wiped record). See
+	// buildActivePrefixes for the fail-safe-inversion rationale.
+	activePrefixes := h.buildActivePrefixes()
 	deleted, err := hp.SweepOrphanVPCs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
