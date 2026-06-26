@@ -1173,7 +1173,7 @@ spec:
       #   "organizations"`), producing NO tenant-networking finalizer, per-Org cert,
       #   console-https-<slug> listener, or pool DNS on a fresh prov. Additive RBAC
       #   widening. Lockstep w/ Chart.yaml. Refs #4471 #4462 #4290.
-      version: 1.4.897
+      version: 1.4.898
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
