@@ -1183,7 +1183,12 @@ spec:
       #   httproutes + certificates → teardownTenantNetworking 403'd → deleted Orgs
       #   stuck Terminating (delete added). Lockstep w/ Chart.yaml.
       #   Refs #4471 #4462 #4290 #4293.
-      version: 1.4.900
+      # 1.4.901 — #4482 (Refs #3642): annotate the catalyst-gitea-token Secret
+      #   for emberstack reflection into the `sandbox` host ns so bp-sandbox's
+      #   sandbox-controller can read CATALYST_GITEA_TOKEN (was CrashLoopBackOff
+      #   on every Sovereign → 0 Sandboxes → no openova-sandbox-mcp). Lockstep
+      #   w/ Chart.yaml + templates/catalyst-gitea-token-secret.yaml.
+      version: 1.4.901
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
