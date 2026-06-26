@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T05:30:03Z` |
+| Last refreshed | `2026-06-26T05:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 9 |
 | Open DoD gates | 0 / 41 |
@@ -216,6 +216,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T05:37 | [#4430](https://github.com/openova-io/openova/pull/4430) | #4018 | fix(bp-crossplane): crossplane-core OOMKilled at 2Gi → raise |
 | 2026-06-26T04:28 | [#4429](https://github.com/openova-io/openova/pull/4429) | #4360 | fix(bp-plane-isolation): admit kube-apiserver egress entity  |
 | 2026-06-26T03:48 | [#4427](https://github.com/openova-io/openova/pull/4427) | #4423 | fix(cloud-init): reflect ghcr-pull into bare-slug per-Org na |
 | 2026-06-26T03:39 | [#4426](https://github.com/openova-io/openova/pull/4426) | #3376 | fix(provisioning): funnel cart WordPress emits a Cilium-Gate |
@@ -245,7 +246,6 @@ flowchart LR
 | 2026-06-25T20:00 | [#4390](https://github.com/openova-io/openova/pull/4390) | #4322 | fix(bp-catalyst-platform #4389): keycloakHostBridge.keycloak |
 | 2026-06-25T19:18 | [#4387](https://github.com/openova-io/openova/pull/4387) | #4322 | fix(provisioning): funnel cart day-2 install commits to per- |
 | 2026-06-25T19:00 | [#4386](https://github.com/openova-io/openova/pull/4386) | #4325 | fix(bp-plane-isolation): comprehensive de-vcluster dial-grap |
-| 2026-06-25T18:46 | [#4383](https://github.com/openova-io/openova/pull/4383) | #4377 | fix(bp-plane-isolation): add org-services to gitea allowIngr |
 
 ---
 
