@@ -174,4 +174,32 @@ if ! grep -q 'serviceAccountName: bp-newapi-admin-seed' "$seed_job_doc"; then
 fi
 echo "[bp-newapi] Case 5: PASS"
 
+# ── Case 6 (#4477): admin-promote CronJob re-syncs a drifted provider secret ─
+# REGRESSION GUARD for the live token-exchange fault (91dc0591/omantel.biz
+# 2026-06-26): the one-shot seed upserts the provider client_secret ONCE; when
+# KC rotates the newapi-admin client secret the DB row goes stale and the
+# per-minute promote CronJob never re-synced it → newapi token-exchange sent the
+# old secret → KC `unauthorized_client` → "Failed to get token from OpenOva SSO".
+# The fix mounts the OIDC secret into the CronJob + adds resync_provider_secret
+# to promote.sh + grants the promote Role read on the OIDC secret.
+echo "[bp-newapi] Case 6 (#4477): admin-promote re-syncs the provider client_secret"
+# 6a — promote Role reads the OIDC secret (default name bp-newapi-oidc).
+if ! grep -q 'bp-newapi-oidc' "$role_doc"; then
+  echo "FAIL: Role/bp-newapi-admin-promote does not grant read on the OIDC secret — resync_provider_secret cannot read /oidc (#4477)"
+  cat "$role_doc"
+  exit 1
+fi
+# 6b — CronJob mounts the OIDC secret at /oidc.
+if ! grep -q 'mountPath: /oidc' "$cron_doc"; then
+  echo "FAIL: CronJob/bp-newapi-admin-promote does not mount the OIDC secret at /oidc (#4477)"
+  exit 1
+fi
+# 6c — the scripts ConfigMap's promote.sh calls resync_provider_secret, and the
+#       function is defined in common.sh.
+if ! grep -q 'resync_provider_secret' "$cm_doc"; then
+  echo "FAIL: scripts ConfigMap does not define/call resync_provider_secret (#4477)"
+  exit 1
+fi
+echo "[bp-newapi] Case 6: PASS"
+
 echo "[bp-newapi] All admin-promote RBAC render cases PASS"

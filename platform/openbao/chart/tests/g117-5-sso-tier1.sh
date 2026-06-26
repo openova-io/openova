@@ -72,4 +72,23 @@ if ! grep -q "OpenBao's OIDC" "${chart_dir}/values.yaml" \
 fi
 echo "  PASS"
 
+echo "[g117-5-sso-tier1] Case 5 (#4477): sso-configure reads the group canonical id from the group's OWN top-level id, NOT a (nonexistent-on-fresh-group) canonical_id field"
+# REGRESSION GUARD: map_admin_group used to set _gid from `group_field … canonical_id`.
+# A fresh external group has NO canonical_id in its body until an alias is bound,
+# so _gid was empty on tick-1 and the group-alias was never created → admin/ops
+# never bound → openbao UI 403. The corrected loop derives _gid from the group's
+# own top-level id via `exact_id … | tail -1`. Assert the fix is present AND the
+# broken pattern is gone.
+recon="${tmpdir}/default.yaml"
+if ! grep -q 'exact_id()' "${recon}"; then
+  echo "FAIL: exact_id helper missing from reconcile.sh — #4477 fix regressed" >&2; exit 1
+fi
+if ! grep -q '_gid="$(exact_id ' "${recon}"; then
+  echo "FAIL: _gid no longer derived via exact_id (group top-level id) — #4477 fix regressed" >&2; exit 1
+fi
+if grep -q '_gid="$(group_field "${_gjson}" canonical_id)"' "${recon}"; then
+  echo "FAIL: _gid still read from a canonical_id field — the #4477 chicken-and-egg bug" >&2; exit 1
+fi
+echo "  PASS"
+
 echo "[bp-openbao G117.5 Tier-1 SSO] All cases PASS"

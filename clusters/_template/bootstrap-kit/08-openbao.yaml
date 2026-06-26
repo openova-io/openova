@@ -139,7 +139,10 @@ spec:
       #   readiness EXEC probes + server.livenessProbe ENABLED (sealed-tolerant)
       #   so the StatefulSet + sso-configure Deployment clear the host-ns Kyverno
       #   probes-present Enforce policy (post-#4325). Refs #4347 #4325.
-      version: 1.2.56
+      # 1.2.57 — #4477: sso-configure external-group→policy bind fix
+      #   (map_admin_group read canonical id from a nonexistent field on fresh
+      #   external groups → sovereign-admins/-ops never bound → openbao UI 403).
+      version: 1.2.57
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
