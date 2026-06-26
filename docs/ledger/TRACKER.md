@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T16:00:04Z` |
+| Last refreshed | `2026-06-26T16:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 33 |
 | Open DoD gates | 0 / 41 |
@@ -240,7 +240,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T16:01 | [#4483](https://github.com/openova-io/openova/pull/4483) | #4325 | fix(bp-catalyst-platform #4482): reflect catalyst-gitea-toke |
 | 2026-06-26T15:50 | [#4481](https://github.com/openova-io/openova/pull/4481) | #4477 | fix(bp-openbao,bp-newapi): two fresh-prov SSO seeding faults |
+| 2026-06-26T16:12 | [#4480](https://github.com/openova-io/openova/pull/4480) | #4471 | fix(catalyst-api): console org-list/detail read from orgs.op |
 | 2026-06-26T15:27 | [#4478](https://github.com/openova-io/openova/pull/4478) | #4474 | fix(org-controller): CRD clientSecretRef value-struct trap + |
 | 2026-06-26T15:13 | [#4476](https://github.com/openova-io/openova/pull/4476) | #4293 | fix(provisioning): funnel plan selection propagates to the O |
 | 2026-06-26T15:05 | [#4472](https://github.com/openova-io/openova/pull/4472) | #4462 | fix(org-controller #4471): ClusterRole gains update+patch on |
@@ -268,8 +270,6 @@ flowchart LR
 | 2026-06-26T03:39 | [#4426](https://github.com/openova-io/openova/pull/4426) | #3376 | fix(provisioning): funnel cart WordPress emits a Cilium-Gate |
 | 2026-06-26T03:30 | [#4425](https://github.com/openova-io/openova/pull/4425) | #4403 | fix(provisioning/bp-kyverno-policies #4422): funnel cart DB  |
 | 2026-06-26T03:30 | [#4424](https://github.com/openova-io/openova/pull/4424) | #4421 | fix(provisioning): align funnel Org DNS pool with the apps-H |
-| 2026-06-26T02:30 | [#4420](https://github.com/openova-io/openova/pull/4420) | #4282 | fix(application-controller): roll vCluster-placed Applicatio |
-| 2026-06-26T02:27 | [#4419](https://github.com/openova-io/openova/pull/4419) | #4405 | fix(provisioning #4404): widen funnel day-2 install Gitea-ra |
 
 ---
 
