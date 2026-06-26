@@ -210,16 +210,34 @@ spec:
                           type: string
                         clientSecretRef:
                           type: object
-                          required: [name, key]
                           description: |
                             Reference to a SealedSecret that holds the OIDC
                             client secret. Plaintext NEVER on the CR.
+
+                            #4471: `required: [name, key]` and `key.default`
+                            were REMOVED. `identity.federationConfig` is an
+                            OPTIONAL block ("empty means use the Sovereign's
+                            own realm"), but the controller's Go types model it
+                            as a VALUE struct (orgapi.OrganizationIdentity,
+                            not a pointer) — `,omitempty` is a no-op on a
+                            struct, so on EVERY `client.Update` (e.g. the
+                            tenant-networking finalizer add) the apiserver
+                            receives `clientSecretRef: {}`. With `required`
+                            present + `key` defaulted-in, that empty object
+                            failed validation (`clientSecretRef.name: Required
+                            value`) and wedged ALL reconciles before any
+                            per-Org boundary was produced. Dropping the
+                            required-enforcement here lets an absent federation
+                            round-trip; a configured federation still needs
+                            both name+key, which the controller validates at
+                            readClientSecret() time (organization_controller.go
+                            ~L1118) and surfaces on the IdentityProviderConfigured
+                            condition.
                           properties:
                             name:
                               type: string
                             key:
                               type: string
-                              default: client-secret
                           x-kubernetes-preserve-unknown-fields: true
                         tenantId:
                           type: string

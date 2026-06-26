@@ -1173,7 +1173,17 @@ spec:
       #   "organizations"`), producing NO tenant-networking finalizer, per-Org cert,
       #   console-https-<slug> listener, or pool DNS on a fresh prov. Additive RBAC
       #   widening. Lockstep w/ Chart.yaml. Refs #4471 #4462 #4290.
-      version: 1.4.898
+      # 1.4.899 — #4471/#4462: two more org-controller reconcile faults (1.4.896's
+      #   `organizations` update/patch RBAC widening already landed via #4472).
+      #   (a) the CRD's clientSecretRef carried `required: [name, key]` + `key.default`,
+      #   but the controller models `spec.identity`/`clientSecretRef` as VALUE structs
+      #   so every client.Update serialized an empty `clientSecretRef: {}` → CRD
+      #   validation rejected ALL reconciles → no per-Org boundary (CRD relaxed,
+      #   absent-federation now round-trips). (b) the ClusterRole lacked `delete` on
+      #   httproutes + certificates → teardownTenantNetworking 403'd → deleted Orgs
+      #   stuck Terminating (delete added). Lockstep w/ Chart.yaml.
+      #   Refs #4471 #4462 #4290 #4293.
+      version: 1.4.899
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
