@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T14:30:03Z` |
+| Last refreshed | `2026-06-26T14:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -234,6 +234,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T14:42 | [#4469](https://github.com/openova-io/openova/pull/4469) | #4467 | fix(bp-cilium): pin MTU=1370 for wireguard+vxlan datapath —  |
 | 2026-06-26T12:54 | [#4465](https://github.com/openova-io/openova/pull/4465) | #2584 | fix(#4464): deploy-bump per-line cherry-pick stops whole-fil |
 | 2026-06-26T12:28 | [#4463](https://github.com/openova-io/openova/pull/4463) | #4275 | fix(bp-postgres): decouple -mesh/-mesh-rw global Service ali |
 | 2026-06-26T12:02 | [#4462](https://github.com/openova-io/openova/pull/4462) | #4250 | fix(org-controller): cascade-delete per-Org tenant-networkin |
@@ -263,7 +264,6 @@ flowchart LR
 | 2026-06-26T03:51 | [#4417](https://github.com/openova-io/openova/pull/4417) | #4415 | fix(catalog-seed #4415): drop resource-policy:keep so a merg |
 | 2026-06-26T01:25 | [#4414](https://github.com/openova-io/openova/pull/4414) | #4272 | fix(catalog-seed #4413): bp-openclaw 0.2.8 → 0.2.11 so #4272 |
 | 2026-06-26T00:49 | [#4412](https://github.com/openova-io/openova/pull/4412) | #4403 | fix(bp-postgres #4411): unwedge bp-postgres:0.2.6 publish —  |
-| 2026-06-26T00:34 | [#4410](https://github.com/openova-io/openova/pull/4410) | #4226 | fix(bp-external-secrets-stores #4409): flux-managed label on |
 
 ---
 
