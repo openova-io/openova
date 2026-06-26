@@ -312,10 +312,13 @@ func ContinuumNameFor(app string) string {
 
 // reconcileContinuumCR upserts the per-app Continuum CR for a DR-capable
 // Application, idempotently. Called from the fan-out persist block once
-// the per-cluster HelmReleases are written. Returns nil (no-op) when the
-// app is not a DR contract (buildContinuumPlan gate). Errors are surfaced
-// to the caller, which downgrades the Application to Degraded so the
-// reconcile retries — a missing DR contract must not silently pass.
+// the per-cluster HelmReleases are written. Returns ("", nil) (no-op) when
+// the app is not a DR contract (buildContinuumPlan gate); otherwise returns
+// the `<namespace>/<name>` of the produced Continuum CR so the caller can
+// write the `status.continuumRef` back-pointer (#4416 — the consumer-READ
+// that closes the #4212 round-trip). Errors are surfaced to the caller,
+// which downgrades the Application to Degraded so the reconcile retries — a
+// missing DR contract must not silently pass.
 func (r *Reconciler) reconcileContinuumCR(
 	ctx context.Context,
 	appName, namespace string,
@@ -323,7 +326,7 @@ func (r *Reconciler) reconcileContinuumCR(
 	variant *bpv1alpha1.TopologyVariant,
 	plan placement.Plan,
 	ownerLabels map[string]string,
-) error {
+) (string, error) {
 	appRef := namespace + "/" + appName
 	cp, ok := buildContinuumPlan(appRef, choice, variant, plan, ownerLabels)
 	if !ok {
@@ -331,11 +334,11 @@ func (r *Reconciler) reconcileContinuumCR(
 		// no switchover mechanism). If a stale CR exists from a PRIOR
 		// topology (operator downgraded active-hot-standby → singleton),
 		// remove it so the roster reflects reality.
-		return r.deleteContinuumCRIfExists(ctx, appName, namespace)
+		return "", r.deleteContinuumCRIfExists(ctx, appName, namespace)
 	}
 	cr := renderContinuumCR(appName, namespace, cp)
 	if err := r.upsertHostResource(ctx, ContinuumGVR, namespace, cr.GetName(), cr); err != nil {
-		return fmt.Errorf("upsert Continuum CR %s/%s: %w", namespace, cr.GetName(), err)
+		return "", fmt.Errorf("upsert Continuum CR %s/%s: %w", namespace, cr.GetName(), err)
 	}
 	r.Log.Info("upserted per-app Continuum CR",
 		"namespace", namespace, "name", cr.GetName(),
@@ -344,7 +347,7 @@ func (r *Reconciler) reconcileContinuumCR(
 		"primaryRegion", cp.PrimaryRegion,
 		"hotStandbyRegions", cp.StandbyRegions,
 	)
-	return nil
+	return namespace + "/" + cr.GetName(), nil
 }
 
 // deleteContinuumCRIfExists removes the per-app Continuum CR if present.

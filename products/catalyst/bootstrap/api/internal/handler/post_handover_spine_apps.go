@@ -496,21 +496,58 @@ func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions 
 			"version": sc.BlueprintVersion,
 		},
 		"regions": rgs,
+		// #4416 — ADOPT, never roll (Invariant #3). The spine HelmRelease is
+		// ALREADY installed + healthy by the bootstrap-kit (flux-system/bp-<chart>);
+		// stamping spec.bootstrap=true + spec.helmRelease routes the
+		// application-controller down its bootstrap-owned ADOPTION path
+		// (reconcileBootstrapOwned), which observes that existing HR's Ready
+		// condition for status and NEVER renders a fan-out HelmRelease.
+		//
+		// THE BUG THIS FIXES. The prior shape stamped only the
+		// `catalyst.openova.io/adopts-helmrelease` LABEL and left
+		// spec.bootstrap=false — but the controller's adoption guard
+		// (isBootstrapOwned) keys ONLY off spec.bootstrap, never the label. So
+		// the controller ran the full fan-out render and stamped DUPLICATE
+		// HelmReleases (spine-<chart>, spine-<chart>-mgmt-a/-b) carrying the
+		// producer's STALE catalog-seed chart pin (e.g. bp-harbor@1.2.26 vs the
+		// live healthy bootstrap bp-harbor@1.2.40). Those duplicate installs
+		// failed `context deadline exceeded`, wedging the spine app at
+		// Degraded/Provisioning and violating Invariant #3. The adoption path
+		// makes the spine app a pure status-mirror of the healthy bootstrap HR.
+		"bootstrap": true,
+		"helmRelease": map[string]interface{}{
+			"name":      sc.HRName,
+			"namespace": spineHRNamespace,
+		},
 	}
-	// #4402 — stamp the minimal spec.config the Blueprint configSchema requires
-	// (e.g. bp-keycloak's required `realmName`) so the Application passes
-	// validation and reaches the Continuum producer. Components with no required
-	// config carry a nil Config and stamp nothing.
+	// #4402/#4416 — stamp the minimal spec.parameters the Blueprint configSchema
+	// requires (e.g. bp-keycloak's required `realmName`) so the Application
+	// passes validation and reaches the Continuum producer. The controller
+	// validates spec.PARAMETERS (parseSpec reads `spec.parameters`; the CRD
+	// declares `spec.parameters`; the REST install path writes `spec.parameters`)
+	// — the prior `spec.config` key was never read, so spine-keycloak Failed
+	// validation `missing properties: 'realmName'` despite carrying the value
+	// under the wrong key. Components with no required config carry a nil Config
+	// and stamp nothing.
 	if len(sc.Config) > 0 {
-		cfg := make(map[string]interface{}, len(sc.Config))
+		params := make(map[string]interface{}, len(sc.Config))
 		for k, v := range sc.Config {
-			cfg[k] = v
+			params[k] = v
 		}
-		spec["config"] = cfg
+		spec["parameters"] = params
 	}
 	obj.Object["spec"] = spec
 	return obj
 }
+
+// spineHRNamespace — the namespace the bootstrap-spine HelmRelease CRs live in.
+// The bootstrap-kit installs every spine HR (bp-gitea/-harbor/-keycloak/-openbao)
+// as a Flux HelmRelease object in `flux-system` (the canonical bootstrap-kit
+// convention — the HR OBJECT is in flux-system even though it targets a
+// per-component release namespace). The adoption path (reconcileBootstrapOwned)
+// GETs the HelmRelease at spec.helmRelease.{name,namespace}; this is that
+// namespace.
+const spineHRNamespace = "flux-system"
 
 // spinePlacementMode picks the explicit placement mode to stamp on a spine
 // Application CR. On a single-region Sovereign the spine is a singleton; on

@@ -268,3 +268,136 @@ func TestReconcile_BootstrapOwnedDeletion_NoTeardown(t *testing.T) {
 		t.Errorf("finalizer should be released on bootstrap-owned deletion")
 	}
 }
+
+// makeBootstrapOwnedSpineApp mirrors the #4416 spine producer output: a
+// bootstrap-owned (adopt) Application that is ALSO a DR-capable multi-region
+// spine — spec.bootstrap=true + spec.helmRelease (adopt the healthy bootstrap
+// HR, no duplicate render) + an explicit DR posture (active-hot-standby) +
+// ≥2 regions (so the adoption path mints the per-app Continuum DR contract +
+// writes the status.continuumRef back-ref).
+func makeBootstrapOwnedSpineApp(namespace, name, bpName, bpVer, hrName string, regions []string) *unstructured.Unstructured {
+	rgs := make([]interface{}, len(regions))
+	for i, r := range regions {
+		rgs[i] = r
+	}
+	u := &unstructured.Unstructured{}
+	u.SetAPIVersion("apps.openova.io/v1")
+	u.SetKind("Application")
+	u.SetNamespace(namespace)
+	u.SetName(name)
+	u.SetGeneration(1)
+	u.SetLabels(map[string]string{
+		"catalyst.openova.io/spine":        "true",
+		"catalyst.openova.io/organization": "platform",
+	})
+	u.Object["spec"] = map[string]interface{}{
+		"bootstrap":       true,
+		"environmentRef":  "omantel-biz-cp",
+		"organizationRef": "omantel-biz",
+		"placement":       "active-hot-standby",
+		"regions":         rgs,
+		"blueprintRef": map[string]interface{}{
+			"name":    bpName,
+			"version": bpVer,
+		},
+		"helmRelease": map[string]interface{}{
+			"name":      hrName,
+			"namespace": "flux-system",
+		},
+	}
+	return u
+}
+
+// TestReconcile_BootstrapOwnedSpineAdoption_MintsContinuumAndBackRef is the
+// #4416 round-trip acceptance: a DR-capable multi-region spine app that ADOPTS
+// its healthy bootstrap HR must STILL mint its per-app Continuum DR contract
+// (the forward half of #4212) AND write the status.continuumRef back-pointer
+// (the consumer-READ that closes the round-trip) — WITHOUT rendering a
+// duplicate HelmRelease (Invariant #3). This is the regression the live
+// omantel.biz spine apps tripped: adoption was gated on spec.bootstrap (never
+// set), so the controller render-duplicated failing installs.
+func TestReconcile_BootstrapOwnedSpineAdoption_MintsContinuumAndBackRef(t *testing.T) {
+	// DR-capable Blueprint (topology block w/ active-hot-standby + switchover).
+	bp := makeBlueprintDRTopology("bp-gitea", "1.2.24", "mgmt", []string{"mgmt-A", "mgmt-B"})
+	env := makeMultiRegionEnv("omantel-biz-cp", "omantel-biz", "prod")
+	org := makeOrg("omantel-biz")
+	hr := makeSlotHR("flux-system", "bp-gitea", "True",
+		"Helm upgrade succeeded for release gitea/gitea.v24 with chart bp-gitea@1.2.46")
+	app := makeBootstrapOwnedSpineApp("catalyst", "spine-gitea", "bp-gitea", "1.2.24",
+		"bp-gitea", []string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"})
+
+	fg := newFakeGitea()
+	fg.orgsExist["omantel-biz"] = true
+	r := newReconciler(t, fg, app, env, org, bp, hr)
+
+	before := countHelmReleases(t, r)
+	reconcileFromCluster(t, r, "catalyst", "spine-gitea")
+	after := countHelmReleases(t, r)
+
+	// (1) ADOPT, never roll — no duplicate HelmRelease rendered.
+	if after != before {
+		t.Fatalf("ADOPTION VIOLATION: HelmRelease count changed %d -> %d — the spine adoption path rendered a duplicate install", before, after)
+	}
+	if fg.puts != 0 {
+		t.Errorf("expected 0 Gitea writes for an adopted spine app, got %d", fg.puts)
+	}
+
+	// (2) The per-app Continuum DR contract is minted (forward seam).
+	cr, err := r.Dynamic.Resource(ContinuumGVR).Namespace("catalyst").
+		Get(context.Background(), "dr-spine-gitea", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected per-app Continuum CR dr-spine-gitea in ns catalyst (the adoption path must mint the DR contract): %v", err)
+	}
+	appRef, _, _ := unstructured.NestedString(cr.Object, "spec", "applicationRef")
+	if appRef != "catalyst/spine-gitea" {
+		t.Errorf("Continuum applicationRef = %q, want catalyst/spine-gitea", appRef)
+	}
+	standby, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
+	if len(standby) != 1 || standby[0] != "hetzner-nbg-rtz-prod" {
+		t.Errorf("hotStandbyRegions = %v, want [hetzner-nbg-rtz-prod]", standby)
+	}
+
+	// (3) The back-ref closes the round-trip.
+	got := readApp(t, r, "catalyst", "spine-gitea")
+	ref, _, _ := unstructured.NestedString(got.Object, "status", "continuumRef")
+	if ref != "catalyst/dr-spine-gitea" {
+		t.Fatalf("status.continuumRef = %q, want catalyst/dr-spine-gitea (the #4212 round-trip back-pointer)", ref)
+	}
+	// Adoption phase still mirrors the healthy bootstrap HR (Ready).
+	phase, reason, msg := readPhaseAndReason(t, got)
+	if phase != PhaseReady {
+		t.Errorf("phase = %q, want Ready (adopted HR is Ready=True); msg=%q", phase, msg)
+	}
+	if reason != ReasonBootstrapAdopted {
+		t.Errorf("reason = %q, want %q", reason, ReasonBootstrapAdopted)
+	}
+}
+
+// TestReconcile_BootstrapOwnedNonDRSpine_NoContinuum proves a SINGLETON
+// bootstrap-owned app (shared-pg shape, placement=single-region) still mints
+// NO Continuum + writes NO back-ref after the #4416 change — the shared-pg /
+// substrate adoption path is unchanged (zero-extra-GET status-mirror).
+func TestReconcile_BootstrapOwnedNonDRSpine_NoContinuum(t *testing.T) {
+	bp := makeBlueprint("bp-postgres", "0.1.6", nil, []string{"single-region"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	hr := makeSlotHR("flux-system", "bp-postgres-shared", "True", "ok")
+	app := makeBootstrapOwnedApp("shared-data", "shared-pg", "bp-postgres-shared", "flux-system")
+	_ = unstructured.SetNestedField(app.Object, "acme-prod", "spec", "environmentRef")
+	_ = unstructured.SetNestedStringSlice(app.Object, []string{"hetzner-fsn-rtz-prod"}, "spec", "regions")
+
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp, hr)
+
+	reconcileFromCluster(t, r, "shared-data", "shared-pg")
+
+	if _, err := r.Dynamic.Resource(ContinuumGVR).Namespace("shared-data").
+		Get(context.Background(), "dr-shared-pg", metav1.GetOptions{}); err == nil {
+		t.Fatalf("a singleton bootstrap-owned app must NOT mint a Continuum CR")
+	}
+	got := readApp(t, r, "shared-data", "shared-pg")
+	if ref, _, _ := unstructured.NestedString(got.Object, "status", "continuumRef"); ref != "" {
+		t.Errorf("status.continuumRef = %q, want empty for a non-DR bootstrap app", ref)
+	}
+}
