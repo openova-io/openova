@@ -10,6 +10,11 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 )
@@ -196,5 +201,93 @@ func TestReconcileTenantDNS_PatchErrorSurfaces(t *testing.T) {
 	_, err := r.reconcileTenantDNS(context.Background(), orgWithTenantPublic("omani.works", "acme"))
 	if err == nil || !strings.Contains(err.Error(), "422") {
 		t.Fatalf("expected HTTP 422 surfaced as error, got %v", err)
+	}
+}
+
+// secretScheme registers core types (Secret) so the fake client can serve the
+// live pool-key read in the #4290/#4179 self-heal tests.
+func secretScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(s); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	return s
+}
+
+// TestReconcileTenantDNS_SelfHealsViaLiveSecretRead is the #4290/#4179 regression
+// lock: when the env-frozen pool key is EMPTY (the org-controller Pod started
+// before bp-reflector filled the bridged Secret) but the Secret now carries the
+// key, the reconciler must READ IT LIVE and write the per-Org A-records — instead
+// of staying have_key:false forever. This is the actual fresh-prov defect: the
+// CATALYST_POOL_POWERDNS_API_KEY secretKeyRef binds once at Pod start, so an
+// empty env never self-heals without this live read.
+func TestReconcileTenantDNS_SelfHealsViaLiveSecretRead(t *testing.T) {
+	t.Parallel()
+	var cap capturedPatch
+	srv := newPDNSStub(t, &cap)
+	defer srv.Close()
+
+	// The bridged Secret the reflector lands AFTER Pod start.
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pool-powerdns-api-credentials",
+			Namespace: "catalyst-system",
+		},
+		Data: map[string][]byte{"api-key": []byte("reflected-pool-key")},
+	}
+	cl := fake.NewClientBuilder().WithScheme(secretScheme(t)).WithObjects(sec).Build()
+
+	r := &Reconciler{
+		Client:              cl,
+		Log:                 logr.Discard(),
+		PoolPowerDNSURL:     srv.URL,
+		PoolPowerDNSAPIKey:  "", // env frozen EMPTY (pre-reflection Pod start)
+		TenantConsoleLBIPv4: "212.72.24.33",
+		// Secret name/namespace default to pool-powerdns-api-credentials /
+		// catalyst-system — match the fixture above without setting them.
+	}
+
+	changed, err := r.reconcileTenantDNS(context.Background(), orgWithTenantPublic("omani.works", "f4179done"))
+	if err != nil {
+		t.Fatalf("reconcileTenantDNS: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected changed=true — live Secret read should have supplied the key")
+	}
+	if cap.apiKey != "reflected-pool-key" {
+		t.Errorf("X-API-Key: got %q, want reflected-pool-key (proves the LIVE read was used, not the empty env)", cap.apiKey)
+	}
+	rrsets, _ := cap.body["rrsets"].([]any)
+	if len(rrsets) != 2 {
+		t.Fatalf("rrsets: got %d, want 2 (console + wildcard)", len(rrsets))
+	}
+}
+
+// TestReconcileTenantDNS_LoudFailWhenKeyMissing locks the loud-fail guard: when
+// the pool URL is configured (this Sovereign EXPECTS a central pool write) but
+// the key is absent from both env AND the live Secret, the reconciler must return
+// an ERROR so the controller requeues until the reflector lands the key — NOT a
+// silent no-op that leaves console.<slug>.<pool> NXDOMAIN forever.
+func TestReconcileTenantDNS_LoudFailWhenKeyMissing(t *testing.T) {
+	t.Parallel()
+	// Empty client (no bridged Secret yet) + configured pool URL + empty env key.
+	cl := fake.NewClientBuilder().WithScheme(secretScheme(t)).Build()
+	r := &Reconciler{
+		Client:              cl,
+		Log:                 logr.Discard(),
+		PoolPowerDNSURL:     "https://pdns.openova.io",
+		PoolPowerDNSAPIKey:  "", // env frozen empty
+		TenantConsoleLBIPv4: "212.72.24.33",
+	}
+	changed, err := r.reconcileTenantDNS(context.Background(), orgWithTenantPublic("omani.works", "f4179done"))
+	if err == nil {
+		t.Fatalf("expected a loud error (requeue) when pool URL set but key missing, got nil")
+	}
+	if changed {
+		t.Errorf("expected changed=false when no write happened")
+	}
+	if !strings.Contains(err.Error(), "pool API key is empty") {
+		t.Errorf("error should name the empty-key cause, got %q", err.Error())
 	}
 }
