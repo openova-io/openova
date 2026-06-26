@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.901 — #4482 (Refs #3642, 2026-06-26): unblock the Pillar-4 agentic
+# Sandbox+MCP journey. bp-sandbox's sandbox-controller CrashLoopBackOff'd on
+# every Sovereign — main.go calls mustEnv("CATALYST_GITEA_TOKEN") (hard
+# os.Exit(2) on empty) and sources the env from `catalyst-gitea-token` via an
+# `optional: true` secretKeyRef, but this template minted that Secret ONLY in
+# catalyst-system with NO reflector annotations, so it never reached the
+# `sandbox` host ns (split out by the #4325 de-vcluster). Empty env →
+# CrashLoop → 0 Sandboxes reconcile → no openova-sandbox-mcp process anywhere
+# (the bp-sandbox HR Ready=True masked the dead workload). Same de-vcluster
+# reflector-allowlist class as #4382/#4361/#4448. FIX: add emberstack
+# reflector annotations (reflection-allowed + reflection-auto, comma-free
+# `catalyst-system,sandbox` literals to dodge the comma-quantifier split trap)
+# to the catalyst-gitea-token Secret so it mirrors into `sandbox` and stays in
+# sync on PAT rotation. Live-proven on prov 91dc05917e44d1c1 (omantel.biz):
+# annotating the source reflected into `sandbox` within one reflector tick →
+# sandbox-controller 1/1 Running (0 restarts) → reconciled a Sandbox CR (12
+# files pushed to catalyst-tenant Gitea, status Ready=True/GitopsReconciled).
+# Additive-only (annotations on an existing Secret); no data/render change for
+# any other consumer; on contabo where gitea is host-side the gate is
+# unchanged. Bootstrap-kit slot-13 pin 1.4.900 → 1.4.901 lockstep.
 # 1.4.761 — #4061 (2026-06-22): stop a PERMANENT Sovereign from auto-firing the
 # self-sovereignty cutover the moment the mothership completes handover. The
 # child catalyst-api's ReceiveTofuArchive (handover.go) seals the
@@ -3290,7 +3310,7 @@ name: bp-catalyst-platform
 #   bump back to b23af68, shipping org-controller WITHOUT #4455 tenant-dns +
 #   #4462 delete-cascade on every fresh prov). 89993b2 is a descendant of b23af68
 #   so it retains #4393 Guaranteed-QoS. Lockstep w/ bootstrap-kit slot 13 pin.
-version: 1.4.900
+version: 1.4.901
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
