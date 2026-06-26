@@ -20,8 +20,8 @@ output "load_balancer_ip" {
 # that pre-dates #4053 ignores this output and PDM falls back to
 # load_balancer_ip for every record (byte-identical to pre-#4053 behaviour).
 output "console_load_balancer_ip" {
-  description = "Public IPv4 of the dedicated console load balancer (console./api.<fqdn> point here; #4053 gateway isolation)"
-  value       = hcloud_load_balancer.console.ipv4
+  description = "Public IPv4 of the dedicated console load balancer (console./api.<fqdn> point here; #4053 gateway isolation). EMPTY when console_isolation_enabled=false — the catalyst-api DNS-writer then collapses console/api/marketplace onto load_balancer_ip (sovereign_dns_records.go, test-covered)."
+  value       = length(hcloud_load_balancer.console) > 0 ? hcloud_load_balancer.console[0].ipv4 : ""
 }
 
 output "sovereign_fqdn" {

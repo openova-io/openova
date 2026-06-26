@@ -499,6 +499,14 @@ write_files:
             SOVEREIGN_DEPLOYMENT_ID: ${deployment_id}
             # #4236 console-ELB IPv4 → slot-13 sovereignConsoleLBIP (see that file).
             SOVEREIGN_CONSOLE_LB_IP: ${console_load_balancer_ipv4}
+            # #4053 console-isolation toggle (Refs #4431 #4212) → slot-13
+            # ingress.gateway.parentRef.name. When console_isolation_enabled is
+            # "true" (default) the console HTTPRoutes parent the DEDICATED
+            # cilium-gateway-console (poison-proof CEC isolation). When "false"
+            # (a 3-EIP single-region validation prov that drops the console ELB)
+            # they re-parent onto the SHARED cilium-gateway so the console still
+            # resolves at the primary LB IP (no #4070-shape 404-with-TLS-green).
+            SOVEREIGN_CONSOLE_GATEWAY: "${console_isolation_enabled == "true" ? "cilium-gateway-console" : "cilium-gateway"}"
             # #4236/#4179: primary LB IPv4 → slot-13 sovereignLBIP → ConfigMap lbIP
             # (was undeclared here → lbIP empty → org-controller pool-DNS skip).
             SOVEREIGN_LB_IP: ${load_balancer_ipv4}

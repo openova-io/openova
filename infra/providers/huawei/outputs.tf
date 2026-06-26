@@ -20,8 +20,8 @@ output "load_balancer_ip" {
 # consoleLoadBalancerIP. Empty-safe: a pre-#4053 consumer ignores it and PDM
 # falls back to load_balancer_ip for every record.
 output "console_load_balancer_ip" {
-  description = "Public EIP of the dedicated console ELB (console./api.<fqdn> point here; #4053 gateway isolation)."
-  value       = huaweicloud_vpc_eip.elb_console.publicip.0.ip_address
+  description = "Public EIP of the dedicated console ELB (console./api.<fqdn> point here; #4053 gateway isolation). EMPTY when console_isolation_enabled=false — the catalyst-api DNS-writer then collapses console/api/marketplace onto load_balancer_ip (sovereign_dns_records.go, test-covered)."
+  value       = length(huaweicloud_vpc_eip.elb_console) > 0 ? huaweicloud_vpc_eip.elb_console[0].publicip.0.ip_address : ""
 }
 
 output "sovereign_fqdn" {
