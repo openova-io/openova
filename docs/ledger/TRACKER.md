@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T17:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 33 |
+| Last refreshed | `2026-06-26T17:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Open issues | 35 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 33 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 35 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 33 open items (clickable table)
+### All 35 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -233,6 +233,8 @@ flowchart LR
 | [#4477](https://github.com/openova-io/openova/issues/4477) | SSO seeding faults on fresh prov: openbao external-group alias never binds (admi | Other |
 | [#4479](https://github.com/openova-io/openova/issues/4479) | console org-list/detail reads only local provision store, not orgs.openova.io CR | Other |
 | [#4482](https://github.com/openova-io/openova/issues/4482) | bp-sandbox: sandbox-controller CrashLoop — catalyst-gitea-token never reflecte | Other |
+| [#4486](https://github.com/openova-io/openova/issues/4486) | DR backbone self-fire: standby-absent on a converged primary must NOT latch the  | Other |
+| [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
 
 ---
 
@@ -248,6 +250,7 @@ flowchart LR
 | 2026-06-26T15:27 | [#4478](https://github.com/openova-io/openova/pull/4478) | #4474 | fix(org-controller): CRD clientSecretRef value-struct trap + |
 | 2026-06-26T15:13 | [#4476](https://github.com/openova-io/openova/pull/4476) | #4293 | fix(provisioning): funnel plan selection propagates to the O |
 | 2026-06-26T15:05 | [#4472](https://github.com/openova-io/openova/pull/4472) | #4462 | fix(org-controller #4471): ClusterRole gains update+patch on |
+| 2026-06-26T17:35 | [#4470](https://github.com/openova-io/openova/pull/4470) | #4445 | fix(bp-plane-isolation #4468): extend the #4445 defer-if-abs |
 | 2026-06-26T14:42 | [#4469](https://github.com/openova-io/openova/pull/4469) | #4467 | fix(bp-cilium): pin MTU=1370 for wireguard+vxlan datapath —  |
 | 2026-06-26T12:54 | [#4465](https://github.com/openova-io/openova/pull/4465) | #2584 | fix(#4464): deploy-bump per-line cherry-pick stops whole-fil |
 | 2026-06-26T12:28 | [#4463](https://github.com/openova-io/openova/pull/4463) | #4275 | fix(bp-postgres): decouple -mesh/-mesh-rw global Service ali |
@@ -269,7 +272,6 @@ flowchart LR
 | 2026-06-26T05:37 | [#4430](https://github.com/openova-io/openova/pull/4430) | #4018 | fix(bp-crossplane): crossplane-core OOMKilled at 2Gi → raise |
 | 2026-06-26T04:28 | [#4429](https://github.com/openova-io/openova/pull/4429) | #4360 | fix(bp-plane-isolation): admit kube-apiserver egress entity  |
 | 2026-06-26T03:48 | [#4427](https://github.com/openova-io/openova/pull/4427) | #4423 | fix(cloud-init): reflect ghcr-pull into bare-slug per-Org na |
-| 2026-06-26T03:39 | [#4426](https://github.com/openova-io/openova/pull/4426) | #3376 | fix(provisioning): funnel cart WordPress emits a Cilium-Gate |
 
 ---
 
