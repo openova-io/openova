@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T12:30:03Z` |
+| Last refreshed | `2026-06-26T12:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 23 |
+| Open issues | 24 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 23 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 23 open items (clickable table)
+### All 24 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -223,6 +223,7 @@ flowchart LR
 | [#4458](https://github.com/openova-io/openova/issues/4458) | bp-sso-bridge reconciler egress CNP omits openbao:8200 + keycloak → K8s-NP all | Other |
 | [#4459](https://github.com/openova-io/openova/issues/4459) | Org-CR deletion does not cascade — leaks per-Org console listener/Certificate/ | Other |
 | [#4460](https://github.com/openova-io/openova/issues/4460) | Fresh 2-region prov: shared-pg-mesh-rw global Service gated on cnpg-pair flip, b | Other |
+| [#4464](https://github.com/openova-io/openova/issues/4464) | deploy-bump whole-file snapshot clobbers concurrent per-controller image bumps � | Other |
 
 ---
 
@@ -235,6 +236,7 @@ flowchart LR
 | 2026-06-26T11:57 | [#4461](https://github.com/openova-io/openova/pull/4461) | #4448 | fix(bp-sso-bridge): CNP egress names openbao+keycloak+dns —  |
 | 2026-06-26T12:03 | [#4457](https://github.com/openova-io/openova/pull/4457) | #4454 | fix(catalyst-api): janitor orphan-sweep no longer reaps its  |
 | 2026-06-26T11:32 | [#4456](https://github.com/openova-io/openova/pull/4456) | #4452 | fix(bp-catalyst): provisioning-github-token-sync RBAC ordere |
+| 2026-06-26T12:32 | [#4455](https://github.com/openova-io/openova/pull/4455) | #4290 | fix(org-controller): self-heal tenant-dns pool-PowerDNS key  |
 | 2026-06-26T11:21 | [#4453](https://github.com/openova-io/openova/pull/4453) | #4114 | fix(catalyst-api #4450): preserve mothership-injected handov |
 | 2026-06-26T11:14 | [#4452](https://github.com/openova-io/openova/pull/4452) | #4447 | fix(bp-catalyst): gitea-flux-auth-sync RBAC ordered before t |
 | 2026-06-26T10:59 | [#4449](https://github.com/openova-io/openova/pull/4449) | #4325 | fix(bp-plane-isolation #4448): add sso-bridge to openbao all |
@@ -259,7 +261,6 @@ flowchart LR
 | 2026-06-26T00:49 | [#4412](https://github.com/openova-io/openova/pull/4412) | #4403 | fix(bp-postgres #4411): unwedge bp-postgres:0.2.6 publish —  |
 | 2026-06-26T00:34 | [#4410](https://github.com/openova-io/openova/pull/4410) | #4226 | fix(bp-external-secrets-stores #4409): flux-managed label on |
 | 2026-06-26T00:25 | [#4408](https://github.com/openova-io/openova/pull/4408) | #4272 | fix(bp-openclaw): controller trusts public LE root + cluster |
-| 2026-06-26T00:13 | [#4406](https://github.com/openova-io/openova/pull/4406) | #4212 | fix(catalyst): unwedge spine Application→Continuum round-tri |
 
 ---
 
