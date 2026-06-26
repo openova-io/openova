@@ -564,7 +564,7 @@ images:
   # (verified live on g8mail). 903eed4 is the image built from main AFTER
   # #4390 merged — it carries #4387 (per-Org <slug>/catalyst-tenant commit) for
   # the HR-app path too. Pin it so the cart HR apps land in the per-Org repo.
-  orgTag: "37162f7"
+  orgTag: "cca63b6"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
