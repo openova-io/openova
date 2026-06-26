@@ -3202,16 +3202,6 @@ name: bp-catalyst-platform
 #   versions are published OCI charts; the funnel door already resolves latest
 #   via version:"*", this aligns the catalog Blueprint-CR install path.
 #   Refs #4432 #4408 #4400 #4409 #4417.
-# 1.4.892 — #4290/#4179: org-controller tenant-dns pool-PowerDNS writer self-heal +
-#   loud-fail. The CATALYST_POOL_POWERDNS_API_KEY secretKeyRef binds ONCE at Pod
-#   start; on a fresh prov the org-controller Pod reliably starts before bp-reflector
-#   fills `catalyst-system/pool-powerdns-api-credentials`, so the env froze EMPTY and
-#   the per-Org pool A-record (console.<slug>.<pool>) was NEVER written → NXDOMAIN →
-#   the per-Org sign-in walk failed. Fix: (a) add POD_NAMESPACE (downward API) so the
-#   reconciler reads the bridged Secret LIVE each reconcile and self-heals zero-touch
-#   the moment reflection lands (no Pod roll); (b) loud-fail (requeue) instead of a
-#   silent skip when the pool URL is set but the key is absent. Chart-template change
-#   (organization-controller-deployment.yaml) → version bump. Refs #4290 #4179.
 # 1.4.886 — #4447: gitea-flux-auth-sync hook no longer exit-0's on its own RBAC
 #   race. The sole creator of the two Flux basic-auth Secrets
 #   (openova-catalog-sovereign-git-auth + openova-org-tenants-git-auth) had its
