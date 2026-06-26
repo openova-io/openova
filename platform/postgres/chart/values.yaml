@@ -175,6 +175,30 @@ topology:
     operatorNamespace: cnpg-system
     operatorStatusPort: 8000
     operatorMetricsPort: 9187
+    # sharedConsumers (#4442) — when true, the SINGLETON operator-probe
+    # NetworkPolicy ALSO opens 5432 to every in-cluster namespace
+    # (namespaceSelector:{}), restoring cross-namespace consumer reach.
+    #
+    # Why this is needed for the HOST shared-data instances (slots 16a/16c/
+    # 16d): the singleton operator-probe NP (networkpolicy-singleton-
+    # operator-probe.yaml, #4282/#4398) selects the Cluster's Pods with
+    # policyTypes:[Ingress], which makes them DEFAULT-DENY on every unlisted
+    # ingress — including consumer 5432. That template was written for the
+    # #4398 PER-ORG path, where the per-Org namespace carries an
+    # `allow-same-org` policy covering same-Org consumers. The HOST
+    # `shared-data` instances have NO allow-same-org pair and their consumers
+    # (keycloak, gitea, harbor, grafana, powerdns, newapi, catalyst-api …)
+    # live in OTHER namespaces, so the probe-only NP silently default-denies
+    # their 5432 → keycloak-0 → shared-pg-rw JDBC timeout, the whole SSO chain
+    # down (live regression on fresh prov b9f9590b, 2026-06-26). This is the
+    # SINGLETON analogue of the 0.2.1/#3577 active-hot-standby consumer-allow
+    # (networkpolicy.yaml lines 42-62) — the AHS path already carries it, the
+    # singleton path lost it when #4282 added the probe-only NP.
+    #
+    # Default false keeps the #4398 per-Org render byte-identical (per-Org
+    # consumers are same-Org, covered by allow-same-org — no broad open). The
+    # host shared-data slots set it true.
+    sharedConsumers: false
 
 # ── Bindings (the shareable part) ───────────────────────────────────────
 # Each entry binds ONE consumer to this instance. The chart renders a

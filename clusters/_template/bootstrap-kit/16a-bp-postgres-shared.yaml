@@ -143,7 +143,7 @@ spec:
       # (no fromHost mirror of a pod-mounted Secret → no vcluster-0.23.0
       # from-host/to-host deadlock, and no missing credential). Lockstep with
       # 16c/16d. Refs #3876 #3374 #3737.
-      version: 0.2.6
+      version: 0.2.7
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -218,6 +218,14 @@ spec:
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
+      # #4442 — HOST shared-data instance: the singleton operator-probe NP
+      # (networkpolicy-singleton-operator-probe.yaml) default-denies 5432 to
+      # cross-namespace consumers (keycloak/gitea/harbor in OTHER namespaces,
+      # no allow-same-org here). Open 5432 cluster-wide so the SHARED engine's
+      # consumers reach it — the singleton analogue of the 0.2.1/#3577
+      # active-hot-standby consumer-allow. Live regression on b9f9590b.
+      networkPolicy:
+        sharedConsumers: true
     # The three bindings — the reuse proof. Three isolated databases +
     # three roles on ONE Cluster; each reflected into its consumer's
     # namespace.

@@ -54,4 +54,24 @@ spec:
           protocol: TCP
         - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+    {{- if .Values.topology.networkPolicy.sharedConsumers }}
+    # SHARED-PG CONSUMERS (#4442): this is a HOST shared-data instance, whose
+    # consumers (keycloak, gitea, harbor, grafana, powerdns, newapi,
+    # catalyst-api …) live in MANY OTHER namespaces and dial `<instance>-rw`
+    # on 5432. Because the operator-probe rule above selects ALL Cluster Pods
+    # with policyTypes:[Ingress], it default-denies every unlisted ingress —
+    # including those cross-namespace consumer connections (keycloak-0 →
+    # shared-pg-rw JDBC timeout, the whole SSO chain down). Open 5432 to every
+    # in-cluster Pod to restore the reach the pre-#4282 no-NetworkPolicy
+    # singleton had. `namespaceSelector:{}` matches Pods in EVERY namespace
+    # (the established repo idiom — the active-hot-standby networkpolicy.yaml
+    # uses the same shape for the identical shared-consumer need). Data-tier
+    # engine: consumers only WRITE app SQL on 5432, so the broad allow is
+    # scoped to that single port; the operator carve-out above is intact.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- end }}
 {{- end }}
