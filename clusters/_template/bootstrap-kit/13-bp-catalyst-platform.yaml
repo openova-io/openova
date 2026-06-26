@@ -1138,7 +1138,13 @@ spec:
       #   Blueprint CRs so a merged seed version bump reaches the LIVE CR on the
       #   next helm upgrade (no kubectl patch); catalyst-api strips version/source
       #   from the Flux aggregator so Helm stays their sole owner.
-      version: 1.4.885
+      # 1.4.886 — #4447: gitea-flux-auth-sync hook RBAC ordered strictly before
+      #   the Job (weight 15 < 20) + fail-loud on PAT read-error instead of
+      #   exit-0-with-zero-Secrets — the two Flux *-git-auth Secrets now land
+      #   zero-touch so catalog-sovereign + org-tenants GitRepositories reach
+      #   Ready on a fresh prov (no manual secret-recreation). Lockstep w/
+      #   Chart.yaml + the new guard test. Refs #4447.
+      version: 1.4.886
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
