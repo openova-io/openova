@@ -1191,7 +1191,7 @@ spec:
       # 1.4.906 — #4477 secondary: doc-only — CATALYST_NEWAPI_ADMIN_TOKEN env
       #   comment cites the canonical `catalyst/newapi/admin-token` OpenBao path
       #   (written by catalyst-api's seedNewapiAdminToken seam).
-      version: 1.4.908
+      version: 1.4.909
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
