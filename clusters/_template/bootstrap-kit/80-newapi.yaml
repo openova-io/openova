@@ -301,7 +301,7 @@ spec:
       # 1.4.134 — #4477: admin-promote CronJob self-heals a stale OIDC provider
       #   client_secret (resync_provider_secret) so a KC client-secret rotation
       #   no longer wedges newapi token-exchange ("Failed to get token").
-      version: 1.4.134
+      version: 1.4.135
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
