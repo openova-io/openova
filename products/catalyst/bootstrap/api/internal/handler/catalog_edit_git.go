@@ -134,15 +134,60 @@ func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName st
 	if strings.TrimSpace(bpName) == "" || len(merged) == 0 {
 		return false, nil
 	}
+	// #4415 — the Flux aggregator file SSA-applies (force:true) to the LIVE
+	// Blueprint CR, so any field it carries becomes Flux-owned. Strip the
+	// chart-delivery fields spec.version + spec.source so they stay
+	// exclusively catalog-seed (Helm)-owned: a merged catalog-seed version
+	// bump then reaches the live CR zero-touch on the next `helm upgrade`,
+	// instead of being pinned forever at the value frozen when the operator
+	// last edited the card. The operator's curated card / visibility /
+	// topology stay in the file and remain Flux-owned + revert-immune.
+	fluxBytes := stripDeliveryFieldsForFluxAggregator(merged)
 	path := catalogSovereignAggPath(sovereignFQDN, bpName)
 	msg := fmt.Sprintf("catalog: reconcile %s into Blueprint CR via Flux (#3668)", bpName)
 	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignAggOrg, catalogSovereignAggRepo,
-		catalogSovereignAggBranch, path, merged, msg, catalogEditCommitAuthor())
+		catalogSovereignAggBranch, path, fluxBytes, msg, catalogEditCommitAuthor())
 	if err != nil {
 		return false, fmt.Errorf("put %s/%s@%s/%s: %w",
 			catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch, path, err)
 	}
 	return committed, nil
+}
+
+// stripDeliveryFieldsForFluxAggregator removes the chart-delivery fields
+// (spec.version + spec.source) from a Blueprint CR's YAML bytes before they
+// are committed to the Flux-reconciled catalog-sovereign aggregator tree
+// (#4415). Those fields are owned exclusively by catalog-seed (Helm) so a
+// seed version bump reaches the live CR with no human kubectl patch; the
+// Flux Kustomization applies this file with force:true SSA, which would
+// otherwise steal version/source ownership and pin them at the operator's
+// last-edit value, fighting every catalog-seed bump in a per-reconcile
+// ping-pong.
+//
+// The resulting partial CR is only ever consumed by kustomize-controller
+// SSA against the same-named CR catalog-seed already seeded WITH a version,
+// so the merged in-cluster object still satisfies the CRD's required
+// spec.version — SSA owns only the fields the applied config carries.
+//
+// Best-effort: on any decode/encode failure the input bytes are returned
+// unchanged so the reconcile (which already round-trips the per-Blueprint
+// UI read source) is never blocked by a strip.
+func stripDeliveryFieldsForFluxAggregator(merged []byte) []byte {
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(merged, &doc); err != nil || doc == nil {
+		return merged
+	}
+	spec, ok := doc["spec"].(map[string]interface{})
+	if !ok {
+		return merged
+	}
+	delete(spec, "version")
+	delete(spec, "source")
+	out, err := yamlv3.Marshal(doc)
+	if err != nil || len(out) == 0 {
+		return merged
+	}
+	return out
 }
 
 // catalogEditCommitAuthor / Email stamp the commit so a sovereign-admin
