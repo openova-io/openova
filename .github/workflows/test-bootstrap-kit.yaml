@@ -43,6 +43,23 @@ on:
       - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
   workflow_dispatch:
+  # #4409 — periodic pin-propagation safety-net. The slot-pin auto-bump
+  # runs in a SEPARATE async workflow (blueprint-release.yaml, TBD-A6)
+  # that the deploy-bot dispatches per chart bump. When that dispatch
+  # fails, leapfrogs a version, or the OCI publish fails, the slot pin is
+  # left permanently lagging (or pinned-at-a-never-published tag) and the
+  # push-mode audit that saw the transient drift already passed green
+  # (continue-on-error) and never re-runs — so the permanent drift rides
+  # silently until the NEXT bump of that chart happens to heal it.
+  # Concrete failure observed 2026-06-26: bp-catalyst-platform 1.4.867 +
+  # 1.4.861 advanced in Chart.yaml but were never published to ghcr while
+  # the slot pin leapfrogged past them. This hourly full-sweep +
+  # --check-ghcr run catches any such residual drift (lag OR
+  # pinned-but-unpublished) within the hour and fails LOUD (the scheduled
+  # event is excluded from the continue-on-error umbrella below — by then
+  # there is no auto-bump race to excuse the drift).
+  schedule:
+    - cron: '17 * * * *'
 
 jobs:
   dependency-graph-audit:
@@ -53,6 +70,10 @@ jobs:
     # every PR that touches a bootstrap-kit HR or the audit data files. Owned by
     # W2.K0; consumed by W2.K1-K4 PRs to validate slot 15-48 additions.
     runs-on: ubuntu-latest
+    # The hourly #4409 cron exists solely to re-run the pin-propagation
+    # safety-net (pin-sync-audit). The DAG/manifest audits below are
+    # change-driven and don't need an hourly cadence — skip them on schedule.
+    if: github.event_name != 'schedule'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -155,6 +176,11 @@ jobs:
     # The job summary surfaces the missing-tag list for any operator
     # who notices the warning.
     runs-on: ubuntu-latest
+    # push/dispatch are observational (they race the auto-bump hook, #4409
+    # comment in `on.schedule` above). The `schedule` event is NOT excused:
+    # by the time the hourly run fires there is no auto-bump race, so any
+    # residual drift (lagging slot pin or pinned-but-unpublished tag) is a
+    # genuine propagation failure and MUST fail the run loudly.
     continue-on-error: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     permissions:
       # `gh api /orgs/<org>/packages/container/<chart>/versions` needs
@@ -183,6 +209,10 @@ jobs:
             echo "Running --changed-only against base ${base}"
             bash scripts/check-bootstrap-kit-pin-sync.sh --changed-only --base "${base}"
           else
+            # push / workflow_dispatch / schedule all run the full sweep +
+            # --check-ghcr. On `schedule` (#4409) this is fail-loud — the
+            # job-level continue-on-error does NOT cover the schedule event,
+            # so residual propagation drift turns the hourly run red.
             echo "Running full sweep + --check-ghcr (event=${{ github.event_name }})"
             bash scripts/check-bootstrap-kit-pin-sync.sh --check-ghcr
           fi
@@ -191,6 +221,8 @@ jobs:
     # Static-only validation: blueprint.yaml + chart Chart.yaml + clusters/_template
     # parsing + dependency order check. Runs on every push.
     runs-on: ubuntu-latest
+    # Change-driven; not part of the #4409 hourly pin-propagation cron.
+    if: github.event_name != 'schedule'
     needs: dependency-graph-audit
     defaults:
       run:

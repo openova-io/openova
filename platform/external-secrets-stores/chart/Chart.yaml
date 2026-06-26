@@ -63,7 +63,14 @@ name: bp-external-secrets-stores
 #   to the host-native `openbao.openbao.svc.cluster.local:8200` (bp-openbao
 #   re-homed to host ns by #4325 — the mangled name is the only address now gone).
 #   Config-default-only. Refs #4388 #4325.
-version: 1.0.8
+# 1.0.9 — #4409: add `app.kubernetes.io/managed-by: flux` to the webhook-gate
+#   pre-install/pre-upgrade hook Job so the kyverno baseline `flux-managed`
+#   Enforce policy (matches kind Job) admits it. Without the label the hook was
+#   denied at admission, the HR upgrade rolled back to 1.0.7, and the
+#   bootstrap-kit Kustomization stalled on the Failed HR — freezing the roll of
+#   every newer bootstrap-kit pin. Same landmine as bp-cnpg #4226 / bp-openbao
+#   #3374. Refs #4409.
+version: 1.0.9
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao

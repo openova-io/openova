@@ -80,6 +80,17 @@ metadata:
     app.kubernetes.io/name: bp-external-secrets-stores
     app.kubernetes.io/instance: {{ .Release.Name }}
     catalyst.openova.io/component: webhook-gate
+    # #4409: this Helm pre-install/pre-upgrade hook Job is created by the
+    # helm-controller, not Flux directly, so the kyverno baseline
+    # `flux-managed` Enforce policy (workload-must-be-flux-managed, which
+    # matches kind Job) DENIES it without this label — the hook fails at
+    # admission, the HR upgrade rolls back, and the bootstrap-kit
+    # Kustomization health-gate stalls on the Failed HR (no kit-green, no
+    # roll). Same landmine already fixed for the sibling charts: bp-cnpg
+    # webhook-gate (#4226), bp-openbao init-job (#3374), bp-gitea/bp-harbor
+    # sso-configure hooks (#3296→#3297). The policy checks the Job's OWN
+    # metadata.labels, so the label belongs here (not the pod template).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-weight": "-10"
