@@ -26,6 +26,7 @@ package provisioner
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -219,5 +220,60 @@ func TestCloudInit_NoPerFQDNPathReferences(t *testing.T) {
 			continue
 		}
 		t.Errorf("line %d carries per-FQDN path `clusters/${sovereign_fqdn}` outside a comment — issue #218 regression:\n  %s", i+1, line)
+	}
+}
+
+// reflectorNamespacesRE matches an operative reflector reflection-{allowed,auto}-namespaces
+// annotation line and captures the quoted CSV value.
+var reflectorNamespacesRE = regexp.MustCompile(
+	`reflector\.v1\.k8s\.emberstack\.com/reflection-(?:allowed|auto)-namespaces:\s*"([^"]*)"`,
+)
+
+// commaQuantifierRE matches a regex bounded-repetition quantifier that contains a
+// literal comma, e.g. `{2,30}` or `{1,}`. The emberstack reflector parses a
+// reflection-*-namespaces annotation as a COMMA-SEPARATED list of regex entries,
+// so any `{m,n}` quantifier is split mid-pattern into two broken fragments.
+var commaQuantifierRE = regexp.MustCompile(`\{\d+,\d*\}`)
+
+// TestCloudInit_ReflectorNamespacesNoCommaQuantifier is the #4423 regression guard.
+//
+// #4332 added the signup slug validator `[a-z][a-z0-9-]{2,30}` verbatim to the
+// `ghcr-pull` reflector reflection-{allowed,auto}-namespaces annotations so the
+// pull secret would reflect into bare-slug per-Org namespaces (`oc272x9q` etc.,
+// renamed from `org-<uuid>` in #4293). But the reflector splits each annotation
+// value on commas BEFORE compiling each entry as a regex — so `{2,30}`'s comma
+// split the pattern into `[a-z][a-z0-9-]{2` + `30}`, neither of which matches any
+// slug. `ghcr-pull` therefore STILL never reflected → openclaw-controller (a
+// private ghcr image) stayed ImagePullBackOff on every fresh funnel Org, the last
+// blocker on #4272. The comma-FREE equivalent `[a-z][a-z0-9-]*` survives the
+// split and covers every slug `{2,30}` accepted.
+//
+// This guard fails if ANY reflector reflection-*-namespaces annotation re-
+// introduces a `{m,n}` comma quantifier, and asserts the comma-free slug pattern
+// stays present so the fix can't silently regress back to the broken form.
+func TestCloudInit_ReflectorNamespacesNoCommaQuantifier(t *testing.T) {
+	tpl := readCloudInit(t)
+
+	sawSlugPattern := false
+	for i, line := range strings.Split(tpl, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue // comment — explanatory references to the old broken form are fine
+		}
+		m := reflectorNamespacesRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		value := m[1]
+		if loc := commaQuantifierRE.FindString(value); loc != "" {
+			t.Errorf("line %d: reflector reflection-*-namespaces carries a comma-bearing quantifier %q — #4423 regression. The reflector comma-splits this annotation, breaking the regex mid-pattern. Use a comma-free form (e.g. `[a-z][a-z0-9-]*`):\n  %s", i+1, loc, trimmed)
+		}
+		if strings.Contains(value, "[a-z][a-z0-9-]*") {
+			sawSlugPattern = true
+		}
+	}
+
+	if !sawSlugPattern {
+		t.Errorf("expected the comma-free slug pattern `[a-z][a-z0-9-]*` in at least one reflector reflection-*-namespaces annotation so bare-slug per-Org namespaces (oc272x9q etc.) receive ghcr-pull — #4423 fix not in place")
 	}
 }
