@@ -67,6 +67,18 @@
 //     during a controlled debug session where the operator is mid-RCA
 //     on a failed deployment and doesn't want the record wiped out
 //     from under them).
+//   - CATALYST_JANITOR_DESTRUCTIVE: "true" arms the cloud-resource sweeps
+//     (EIPs/keypairs/VPCs/EVS) to ACTUALLY delete. Default FALSE → the
+//     sweeps run LOG-ONLY: each pass logs exactly what it WOULD reap
+//     (prefix, resource, reason) but deletes nothing. #4466 — makes
+//     "deletes prod infra" opt-in, not default. The b9f9590b node
+//     self-reap would have surfaced in this log-only window first.
+//   - CATALYST_JANITOR_ACTIVE_DEPLOYMENT_IDS: comma/space-separated
+//     deployment id(s) (or 8-char prefixes) hard-excluded from EVERY
+//     delete path, independent of status inference. #4466 belt-and-
+//     suspenders over the buildActivePrefixes denylist — set this to the
+//     live Sovereign's dep id so cleanup can never reach it even if status
+//     inference regresses.
 
 package handler
 
@@ -97,6 +109,40 @@ const (
 	defaultJanitorWipedMaxAge  = 1 * time.Hour
 )
 
+// janitorDestructive reports whether the cloud-resource sweeps (EIPs /
+// keypairs / VPCs / EVS) are permitted to ACTUALLY delete. #4466 makes
+// "deletes prod infra" opt-in: until CATALYST_JANITOR_DESTRUCTIVE=true is
+// explicitly set the sweeps run in LOG-ONLY mode — every pass logs exactly
+// the resource it WOULD reap (prefix, resource, reason) but deletes
+// nothing. The b9f9590b self-reap (all 12 ECS nodes deleted ~2.5 min after
+// convergence) would have surfaced in this log-only window before any node
+// died. Default FALSE — fail safe.
+func janitorDestructive() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("CATALYST_JANITOR_DESTRUCTIVE")), "true")
+}
+
+// janitorExtraProtectedPrefixes returns the explicit, status-independent
+// do-not-touch deployment-ID prefixes from CATALYST_JANITOR_ACTIVE_DEPLOYMENT_IDS
+// (comma/space-separated full IDs or 8-char prefixes). #4466 belt-and-
+// suspenders: even if status inference (buildActivePrefixes) ever regresses
+// again, the CURRENTLY-active deployment id(s) named here are hard-excluded
+// from every delete path. Operators set this to the live Sovereign's dep id
+// so cleanup automation can never reach it regardless of any status bug.
+func janitorExtraProtectedPrefixes() map[string]struct{} {
+	out := map[string]struct{}{}
+	raw := os.Getenv("CATALYST_JANITOR_ACTIVE_DEPLOYMENT_IDS")
+	if raw == "" {
+		return out
+	}
+	for _, f := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' }) {
+		f = strings.TrimSpace(f)
+		if len(f) >= 8 {
+			out[f[:8]] = struct{}{}
+		}
+	}
+	return out
+}
+
 // StartJanitor launches the periodic janitor in a background goroutine.
 // Returns immediately. Run from main.go after the handler + store are
 // wired. ctx cancellation stops the loop.
@@ -116,6 +162,9 @@ func (h *Handler) StartJanitor(ctx context.Context, tofuWorkDir string) {
 		"wipedMaxAgeSec", int(wipedMaxAge.Seconds()),
 		"kubeconfigsDir", h.kubeconfigsDir,
 		"tofuWorkDir", tofuWorkDir,
+		// #4466: cloud-resource sweeps are LOG-ONLY until this is true.
+		"cloudSweepDestructive", janitorDestructive(),
+		"explicitProtectedPrefixes", len(janitorExtraProtectedPrefixes()),
 	)
 
 	go func() {
@@ -243,8 +292,17 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	// bastion / non-catalyst VPCs hard-protected.
 	stats.OrphanVPCs = h.cleanOrphanVPCsHuawei(tofuWorkDir, activeIDs)
 
+	// Step 6: #4466 — standalone detached-EVS-orphan sweep. A node
+	// self-reap BEFORE a wipe strands CSI `pvc-*` volumes (283 on
+	// b9f9590b) as pure quota debt with no controller left to detach +
+	// delete them. EIPs/keypairs/VPCs each had a reclaim sweep; detached
+	// volumes did not. Only status=available, zero-attachment pvc-* volumes
+	// owned by no live dep are eligible (same protect-by-default guard).
+	stats.OrphanEVS = h.cleanOrphanEVSHuawei(tofuWorkDir, activeIDs)
+
 	h.log.Info("[JANITOR] pass complete",
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
+		"destructive", janitorDestructive(),
 		"reaped", stats.Reaped,
 		"reapErrors", stats.ReapErrors,
 		"orphanKubeconfigsDeleted", stats.OrphanKubeconfigs,
@@ -252,6 +310,7 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		"orphanEIPsDeleted", stats.OrphanEIPs,
 		"orphanKeypairsDeleted", stats.OrphanKeypairs,
 		"orphanVPCsDeleted", stats.OrphanVPCs,
+		"orphanEVSDeleted", stats.OrphanEVS,
 	)
 }
 
@@ -269,6 +328,7 @@ type janitorStats struct {
 	OrphanEIPs         int
 	OrphanKeypairs     int
 	OrphanVPCs         int
+	OrphanEVS          int
 }
 
 // reapDeployment is the cleanup primitive used by the janitor. It
@@ -435,7 +495,82 @@ func (h *Handler) buildActivePrefixes() map[string]struct{} {
 		}
 		return true
 	})
+	// #4466 belt-and-suspenders: merge the explicit, status-INDEPENDENT
+	// active-deployment do-not-touch allowlist. Even if the status-inference
+	// loop above ever regresses (the exact b9f9590b class of fault), the
+	// operator-named live deployment id(s) stay hard-protected.
+	for p := range janitorExtraProtectedPrefixes() {
+		activePrefixes[p] = struct{}{}
+	}
 	return activePrefixes
+}
+
+// huaweiSweepCreds is a discovered set of project-wide Huawei creds the
+// orphan sweeps run under. All catalyst-huawei deployments in one
+// mothership share the same HCS project, so any one set drives the
+// project-wide sweep.
+type huaweiSweepCreds struct {
+	AK        string
+	SK        string
+	ProjectID string
+	Region    string
+}
+
+// discoverHuaweiCreds finds a working set of Huawei creds for the
+// project-wide orphan sweep. It first walks the per-deployment tfvars on
+// the PVC (the historical source). #4466 cred-source fallback: when the
+// LAST wipe has deleted its own `tofu.auto.tfvars.json` (the only cred
+// source the tfvars-walk knows), the walk short-circuits to "no huawei
+// deployments" and the post-wipe orphan sweep never runs — leaving the
+// very orphans the wipe failed to delete (283 stranded EVS on b9f9590b).
+// So when the tfvars walk comes up empty we fall back to the
+// `huawei-operator-creds` Secret, projected into the catalyst-api Pod as
+// CATALYST_HUAWEI_ACCESS_KEY / _SECRET_KEY / _PROJECT_ID / _REGION — the
+// same env the provisioner reads. Returns ok=false only when BOTH sources
+// are empty (genuinely no Huawei on this mothership).
+func discoverHuaweiCreds(tofuWorkDir string) (huaweiSweepCreds, bool) {
+	var c huaweiSweepCreds
+	if tofuWorkDir != "" {
+		if entries, err := os.ReadDir(tofuWorkDir); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				data, err := os.ReadFile(filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json"))
+				if err != nil {
+					continue
+				}
+				var tv map[string]any
+				if err := json.Unmarshal(data, &tv); err != nil {
+					continue
+				}
+				akV, _ := tv["huawei_access_key"].(string)
+				skV, _ := tv["huawei_secret_key"].(string)
+				pidV, _ := tv["huawei_project_id"].(string)
+				regV, _ := tv["huawei_region"].(string)
+				if akV != "" && skV != "" && pidV != "" {
+					c.AK, c.SK, c.ProjectID, c.Region = akV, skV, pidV, regV
+					if c.Region == "" {
+						c.Region = "me-east-215"
+					}
+					return c, true
+				}
+			}
+		}
+	}
+	// Fallback: the huawei-operator-creds Secret env. This is what keeps a
+	// post-wipe sweep alive after the wipe deletes the dep's tfvars.
+	c.AK = os.Getenv("CATALYST_HUAWEI_ACCESS_KEY")
+	c.SK = os.Getenv("CATALYST_HUAWEI_SECRET_KEY")
+	c.ProjectID = os.Getenv("CATALYST_HUAWEI_PROJECT_ID")
+	c.Region = os.Getenv("CATALYST_HUAWEI_REGION")
+	if c.AK != "" && c.SK != "" && c.ProjectID != "" {
+		if c.Region == "" {
+			c.Region = "me-east-215"
+		}
+		return c, true
+	}
+	return huaweiSweepCreds{}, false
 }
 
 // cleanOrphanEIPsHuawei walks the per-deployment tfvars files on the
@@ -454,58 +589,13 @@ func (h *Handler) buildActivePrefixes() map[string]struct{} {
 // Returns the number of EIPs deleted. Returns 0 + logs on any error.
 // Safe to call even when no huawei deployment exists (no-op).
 func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	if tofuWorkDir == "" {
-		return 0
-	}
-	entries, err := os.ReadDir(tofuWorkDir)
-	if err != nil {
-		return 0
-	}
-	// Find the first deployment with valid huawei creds in its tfvars.
-	// All catalyst-huawei deployments in a single mothership share the
-	// same HCS project so any one set of creds works for the project-
-	// wide sweep.
-	var ak, sk, projectID, region string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		tfvarsPath := filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json")
-		data, err := os.ReadFile(tfvarsPath)
-		if err != nil {
-			continue
-		}
-		var tv map[string]any
-		if err := json.Unmarshal(data, &tv); err != nil {
-			continue
-		}
-		akV, _ := tv["huawei_access_key"].(string)
-		skV, _ := tv["huawei_secret_key"].(string)
-		pidV, _ := tv["huawei_project_id"].(string)
-		regV, _ := tv["huawei_region"].(string)
-		if akV != "" && skV != "" && pidV != "" {
-			ak = akV
-			sk = skV
-			projectID = pidV
-			region = regV
-			if region == "" {
-				region = "me-east-215"
-			}
-			break
-		}
-	}
-	if ak == "" {
+	creds, ok := discoverHuaweiCreds(tofuWorkDir)
+	if !ok {
 		// No huawei deployments on this mothership — nothing to sweep.
 		return 0
 	}
-	cp, perr := providers.Get("huawei")
-	if perr != nil || cp == nil {
-		h.log.Warn("[JANITOR] huawei provider not wired — skipping orphan-EIP sweep", "err", perr)
-		return 0
-	}
-	hp, ok := cp.(*huaweiprovider.Provider)
-	if !ok || hp == nil {
-		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping orphan-EIP sweep")
+	hp := h.huaweiProvider("orphan-EIP")
+	if hp == nil {
 		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -514,7 +604,7 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string
 	// genuinely-wiped records' leaked infra. See buildActivePrefixes for
 	// the fail-safe-inversion rationale (the b9f9590b self-destruct).
 	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanEIPs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
+	deleted, err := hp.SweepOrphanEIPs(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
 	if err != nil {
@@ -522,6 +612,23 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string
 		return deleted
 	}
 	return deleted
+}
+
+// huaweiProvider resolves the wired Huawei provider, logging + returning
+// nil when it is unavailable. Shared by every orphan sweep. `what`
+// labels the log line (e.g. "orphan-EVS").
+func (h *Handler) huaweiProvider(what string) *huaweiprovider.Provider {
+	cp, perr := providers.Get("huawei")
+	if perr != nil || cp == nil {
+		h.log.Warn("[JANITOR] huawei provider not wired — skipping "+what+" sweep", "err", perr)
+		return nil
+	}
+	hp, ok := cp.(*huaweiprovider.Provider)
+	if !ok || hp == nil {
+		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping " + what + " sweep")
+		return nil
+	}
+	return hp
 }
 
 // cleanOrphanKeypairsHuawei mirrors cleanOrphanEIPsHuawei but for SSH
@@ -539,53 +646,12 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string
 // prefix. Only a `wiped` record (which SHOULD have no cloud infra) leaves
 // its keypairs reclaimable.
 func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	if tofuWorkDir == "" {
+	creds, ok := discoverHuaweiCreds(tofuWorkDir)
+	if !ok {
 		return 0
 	}
-	entries, err := os.ReadDir(tofuWorkDir)
-	if err != nil {
-		return 0
-	}
-	var ak, sk, projectID, region string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		tfvarsPath := filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json")
-		data, err := os.ReadFile(tfvarsPath)
-		if err != nil {
-			continue
-		}
-		var tv map[string]any
-		if err := json.Unmarshal(data, &tv); err != nil {
-			continue
-		}
-		akV, _ := tv["huawei_access_key"].(string)
-		skV, _ := tv["huawei_secret_key"].(string)
-		pidV, _ := tv["huawei_project_id"].(string)
-		regV, _ := tv["huawei_region"].(string)
-		if akV != "" && skV != "" && pidV != "" {
-			ak = akV
-			sk = skV
-			projectID = pidV
-			region = regV
-			if region == "" {
-				region = "me-east-215"
-			}
-			break
-		}
-	}
-	if ak == "" {
-		return 0
-	}
-	cp, perr := providers.Get("huawei")
-	if perr != nil || cp == nil {
-		h.log.Warn("[JANITOR] huawei provider not wired — skipping orphan-keypair sweep", "err", perr)
-		return 0
-	}
-	hp, ok := cp.(*huaweiprovider.Provider)
-	if !ok || hp == nil {
-		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping orphan-keypair sweep")
+	hp := h.huaweiProvider("orphan-keypair")
+	if hp == nil {
 		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -593,7 +659,7 @@ func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[st
 	// #4454: protect by DEFAULT (every non-wiped record). See
 	// buildActivePrefixes for the fail-safe-inversion rationale.
 	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanKeypairs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
+	deleted, err := hp.SweepOrphanKeypairs(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
 	if err != nil {
@@ -618,53 +684,12 @@ func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[st
 // prefix; only a `wiped` record leaves its VPCs reclaimable. Bastion /
 // non-catalyst VPCs are hard-protected in SweepOrphanVPCs itself.
 func (h *Handler) cleanOrphanVPCsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	if tofuWorkDir == "" {
+	creds, ok := discoverHuaweiCreds(tofuWorkDir)
+	if !ok {
 		return 0
 	}
-	entries, err := os.ReadDir(tofuWorkDir)
-	if err != nil {
-		return 0
-	}
-	var ak, sk, projectID, region string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		tfvarsPath := filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json")
-		data, err := os.ReadFile(tfvarsPath)
-		if err != nil {
-			continue
-		}
-		var tv map[string]any
-		if err := json.Unmarshal(data, &tv); err != nil {
-			continue
-		}
-		akV, _ := tv["huawei_access_key"].(string)
-		skV, _ := tv["huawei_secret_key"].(string)
-		pidV, _ := tv["huawei_project_id"].(string)
-		regV, _ := tv["huawei_region"].(string)
-		if akV != "" && skV != "" && pidV != "" {
-			ak = akV
-			sk = skV
-			projectID = pidV
-			region = regV
-			if region == "" {
-				region = "me-east-215"
-			}
-			break
-		}
-	}
-	if ak == "" {
-		return 0
-	}
-	cp, perr := providers.Get("huawei")
-	if perr != nil || cp == nil {
-		h.log.Warn("[JANITOR] huawei provider not wired — skipping orphan-VPC sweep", "err", perr)
-		return 0
-	}
-	hp, ok := cp.(*huaweiprovider.Provider)
-	if !ok || hp == nil {
-		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping orphan-VPC sweep")
+	hp := h.huaweiProvider("orphan-VPC")
+	if hp == nil {
 		return 0
 	}
 	// VPC cascade teardown (peerings → floating-IPs → subnets → ports →
@@ -675,11 +700,41 @@ func (h *Handler) cleanOrphanVPCsHuawei(tofuWorkDir string, activeIDs map[string
 	// #4454: protect by DEFAULT (every non-wiped record). See
 	// buildActivePrefixes for the fail-safe-inversion rationale.
 	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanVPCs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
+	deleted, err := hp.SweepOrphanVPCs(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
 	if err != nil {
 		h.log.Warn("[JANITOR] orphan-VPC sweep error", "err", err.Error())
+		return deleted
+	}
+	return deleted
+}
+
+// cleanOrphanEVSHuawei is the detached-EVS-orphan sweep (#4466). A node
+// self-reap BEFORE a wipe strands CSI `pvc-*` volumes — 283 were stranded
+// on b9f9590b as pure quota debt because nothing was left to detach +
+// delete them. EIPs / keypairs / VPCs each already had a project-wide
+// reclaim sweep; detached volumes did not. Same protect-by-default guard
+// (buildActivePrefixes) + same log-only gate (janitorDestructive) as its
+// siblings. Only `status:available`, zero-attachment `pvc-*` volumes that
+// belong to no live dep are eligible.
+func (h *Handler) cleanOrphanEVSHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
+	creds, ok := discoverHuaweiCreds(tofuWorkDir)
+	if !ok {
+		return 0
+	}
+	hp := h.huaweiProvider("orphan-EVS")
+	if hp == nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	activePrefixes := h.buildActivePrefixes()
+	deleted, err := hp.SweepOrphanEVS(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
+		h.log.Info("[JANITOR] " + msg)
+	})
+	if err != nil {
+		h.log.Warn("[JANITOR] orphan-EVS sweep error", "err", err.Error())
 		return deleted
 	}
 	return deleted
