@@ -3221,7 +3221,7 @@ name: bp-catalyst-platform
 #   depth: #4286's secretRef.name floor guarantees name-set, NOT secret-exists).
 #   New guard chart/tests/gitea-flux-auth-sync-rbac-order.sh. Lockstep w/
 #   bootstrap-kit slot 13 pin. Refs #4447 #3780 #3765 #3781 #4286.
-version: 1.4.886
+version: 1.4.887
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
