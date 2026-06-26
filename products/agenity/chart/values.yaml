@@ -24,7 +24,23 @@ image:
   tag: ""                 # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
-imagePullSecrets: []
+# ── Private-registry pull secret (#4111) ──────────────────────────────────
+# The agenity image (`ghcr.io/openova-io/bp-agenity`) is a PRIVATE
+# ghcr.io/openova-io/* package, so both the seed-claude-creds init container
+# and the chepherd main container must pull it WITH credentials. The Sovereign
+# emberstack-reflector reflects a `ghcr-pull` dockerconfigjson Secret into
+# every per-Org `org-*` / pool namespace, but a reflected Secret is INERT
+# unless the Pod spec references it — without this default the StatefulSet
+# rendered `imagePullSecrets: []`, the Pod pulled anonymously, ghcr returned
+# 401, and the Pod wedged at Init:ImagePullBackOff on a fresh Org (live on the
+# omantel.biz demo Org `uatwalk91` namespace, 2026-06-27: pod
+# agenity-rtz-a-bp-agenity-0 0/1 Init:ImagePullBackOff while `ghcr-pull` WAS
+# reflected into the ns — the missing piece was the pod-spec reference).
+# Defaulting to `ghcr-pull` makes both containers reference the already-
+# reflected Secret so the private image pulls. An install into a Sovereign
+# that mirrors the image into a public/custom registry can override this list.
+imagePullSecrets:
+  - name: ghcr-pull
 
 # ── Solo-agent profile ────────────────────────────────────────────────────
 # chepherd boots with a single solo worker agent the User chats with. The

@@ -5952,8 +5952,8 @@ spec:
 # with the built-in solo agent (Claude Opus 4.7, token pre-configured), and
 # the agent creates more Applications in the User's Org via the RBAC-scoped
 # openova MCP. The north-star self-service journey (UAT rows 218-223).
-# Lockstep with products/agenity/chart/Chart.yaml version 0.5.12 + the
-# published chart ghcr.io/openova-io/bp-agenity:0.5.12 (appVersion 0.9.7 — the
+# Lockstep with products/agenity/chart/Chart.yaml version 0.5.13 + the
+# published chart ghcr.io/openova-io/bp-agenity:0.5.13 (appVersion 0.9.7 — the
 # image whose /app mounts the WORKSPACES dashboard rather than the archaic
 # single-column one, built from agenity#752, #4180). 0.5.10 (#4362, #4325
 # fallout) flips the topology singleton placement.tier `rtz` -> '' (host-native)
@@ -5980,7 +5980,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.5.12"
+  version: "0.5.13"
   visibility: listed
   card:
     title: "Agenity"
