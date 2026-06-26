@@ -3191,7 +3191,18 @@ name: bp-catalyst-platform
 #   alike; operator card/visibility/topology curation stays Flux-owned +
 #   revert-immune. Render-diff: only the 81 keep annotations removed, the CRs
 #   otherwise byte-identical. Refs #4415 #3668 #3702.
-version: 1.4.881
+# 1.4.882 — #4432: pre-fresh-prov permanence — bump 3 stale catalog-seed pins to
+#   their canonical platform/<name>/blueprint.yaml + Chart.yaml versions so a
+#   merged session fix reaches the live Blueprint CR zero-touch (now that #4417
+#   dropped resource-policy:keep, a stale seed pin actively delivers an OLD
+#   chart): bp-openclaw 0.2.11 -> 0.2.13 (#4408 controller TLS SystemCertPool +
+#   #4399 resolvable shared-realm issuer), bp-stalwart-tenant 0.1.10 -> 0.1.12
+#   (#4400 SnappyMail webmail SPA), bp-external-secrets-stores 1.0.6 -> 1.0.9
+#   (#4409 flux managed-by label on webhook-gate hook Job). All 3 target
+#   versions are published OCI charts; the funnel door already resolves latest
+#   via version:"*", this aligns the catalog Blueprint-CR install path.
+#   Refs #4432 #4408 #4400 #4409 #4417.
+version: 1.4.882
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
