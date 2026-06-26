@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T03:30:02Z` |
+| Last refreshed | `2026-06-26T03:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 16 |
 | Open DoD gates | 0 / 41 |
@@ -223,6 +223,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T03:39 | [#4426](https://github.com/openova-io/openova/pull/4426) | #3376 | fix(provisioning): funnel cart WordPress emits a Cilium-Gate |
+| 2026-06-26T03:30 | [#4425](https://github.com/openova-io/openova/pull/4425) | #4403 | fix(provisioning/bp-kyverno-policies #4422): funnel cart DB  |
+| 2026-06-26T03:30 | [#4424](https://github.com/openova-io/openova/pull/4424) | #4421 | fix(provisioning): align funnel Org DNS pool with the apps-H |
 | 2026-06-26T02:30 | [#4420](https://github.com/openova-io/openova/pull/4420) | #4282 | fix(application-controller): roll vCluster-placed Applicatio |
 | 2026-06-26T02:27 | [#4419](https://github.com/openova-io/openova/pull/4419) | #4405 | fix(provisioning #4404): widen funnel day-2 install Gitea-ra |
 | 2026-06-26T01:57 | [#4418](https://github.com/openova-io/openova/pull/4418) | #4212 | fix(catalyst): spine apps ADOPT bootstrap HR + config→spec.p |
@@ -250,9 +253,6 @@ flowchart LR
 | 2026-06-25T18:44 | [#4381](https://github.com/openova-io/openova/pull/4381) | #3969 | feat(application-controller #3969): fan-out HR render from s |
 | 2026-06-25T18:29 | [#4380](https://github.com/openova-io/openova/pull/4380) | #4325 | fix(cutover): plane-isolation carve-out opens catalyst→{gite |
 | 2026-06-25T18:28 | [#4379](https://github.com/openova-io/openova/pull/4379) | #4325 | fix(catalog #4375): per-Org blueprints land host-native post |
-| 2026-06-25T18:03 | [#4378](https://github.com/openova-io/openova/pull/4378) | #4372 | fix(catalyst): org-services NATS_URL → host nats-system + co |
-| 2026-06-25T17:55 | [#4377](https://github.com/openova-io/openova/pull/4377) | #4367 | fix(bp-gitea): gitdata-preservation guard image → harbor-pro |
-| 2026-06-25T18:25 | [#4376](https://github.com/openova-io/openova/pull/4376) | #4325 | fix(catalyst): org-services + catalyst-api NATS_URL default  |
 
 ---
 
