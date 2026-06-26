@@ -990,7 +990,7 @@ locals {
       # (default isolation); "false" → cilium-gateway (shared) so the console
       # resolves even when no dedicated console ELB exists.
       console_isolation_enabled = var.console_isolation_enabled
-      wildcard_cert_issuer     = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
+      wildcard_cert_issuer      = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
 
       ghcr_pull_username = local.ghcr_pull_username
       ghcr_pull_token    = var.ghcr_pull_token
@@ -1378,8 +1378,8 @@ locals {
   # a 3-EIP single-region validation prov. The member resources fan out per
   # node, so their count is the node count multiplied by the gate (0 → no
   # members when isolation is off).
-  console_isolation_on  = var.console_isolation_enabled == "true"
-  console_member_count  = local.console_isolation_on ? length(local.primary_lb_node_ips) : 0
+  console_isolation_on = var.console_isolation_enabled == "true"
+  console_member_count = local.console_isolation_on ? length(local.primary_lb_node_ips) : 0
 }
 
 resource "huaweicloud_elb_member" "https" {

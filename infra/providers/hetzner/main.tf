@@ -298,9 +298,9 @@ locals {
   # dedicated console LB stack is created; "false" drops it (console front
   # doors collapse onto hcloud_load_balancer.main). The console LB-target
   # resources fan out per node, so their counts multiply by the gate.
-  console_isolation_on             = var.console_isolation_enabled == "true"
-  console_cp_target_count          = local.console_isolation_on ? local.control_plane_count : 0
-  console_worker_target_count      = local.console_isolation_on ? var.worker_count : 0
+  console_isolation_on        = var.console_isolation_enabled == "true"
+  console_cp_target_count     = local.console_isolation_on ? local.control_plane_count : 0
+  console_worker_target_count = local.console_isolation_on ? var.worker_count : 0
 
   # Wildcard cert ClusterIssuer selector (Fix #176 — qa-loop iter-1 LE
   # PROD rate-limit unblock for clusters/_template/sovereign-tls/cilium-
@@ -873,23 +873,23 @@ locals {
     replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
       local.region_canonical_label[keys(local.secondary_regions)[0]]
     ) : ""
-    cluster_mesh_name        = var.cluster_mesh_name
-    cluster_mesh_id          = var.cluster_mesh_id
-    k3s_version              = var.k3s_version
-    k3s_token                = local.k3s_token
-    gitops_repo_url          = var.gitops_repo_url
-    gitops_branch            = var.gitops_branch
-    marketplace_enabled      = var.marketplace_enabled
+    cluster_mesh_name   = var.cluster_mesh_name
+    cluster_mesh_id     = var.cluster_mesh_id
+    k3s_version         = var.k3s_version
+    k3s_token           = local.k3s_token
+    gitops_repo_url     = var.gitops_repo_url
+    gitops_branch       = var.gitops_branch
+    marketplace_enabled = var.marketplace_enabled
     # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
     # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
     console_isolation_enabled = var.console_isolation_enabled
-    wildcard_cert_issuer     = local.wildcard_cert_issuer
-    bcp_topology             = var.bcp_topology
-    enable_hot_standby       = var.enable_hot_standby
-    enable_shared_pg         = var.enable_shared_pg
-    default_storage_class    = var.default_storage_class
-    sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-    continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
+    wildcard_cert_issuer      = local.wildcard_cert_issuer
+    bcp_topology              = var.bcp_topology
+    enable_hot_standby        = var.enable_hot_standby
+    enable_shared_pg          = var.enable_shared_pg
+    default_storage_class     = var.default_storage_class
+    sovereign_cnpg_instances  = length(var.regions) > 1 ? "2" : "1"
+    continuum_enabled         = length(var.regions) > 1 ? "true" : "false"
     parent_domains_yaml = coalesce(
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
@@ -1414,23 +1414,23 @@ locals {
       replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
         local.region_canonical_label[keys(local.secondary_regions)[0]]
       ) : ""
-      cluster_mesh_name        = local.secondary_region_cluster_mesh_name[k]
-      cluster_mesh_id          = local.secondary_region_cluster_mesh_id[k]
-      k3s_version              = var.k3s_version
-      k3s_token                = local.k3s_token
-      gitops_repo_url          = var.gitops_repo_url
-      gitops_branch            = var.gitops_branch
-      marketplace_enabled      = var.marketplace_enabled
+      cluster_mesh_name   = local.secondary_region_cluster_mesh_name[k]
+      cluster_mesh_id     = local.secondary_region_cluster_mesh_id[k]
+      k3s_version         = var.k3s_version
+      k3s_token           = local.k3s_token
+      gitops_repo_url     = var.gitops_repo_url
+      gitops_branch       = var.gitops_branch
+      marketplace_enabled = var.marketplace_enabled
       # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
       # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
       console_isolation_enabled = var.console_isolation_enabled
-      wildcard_cert_issuer     = local.wildcard_cert_issuer
-      bcp_topology             = var.bcp_topology
-      enable_hot_standby       = var.enable_hot_standby
-      enable_shared_pg         = var.enable_shared_pg
-      default_storage_class    = var.default_storage_class
-      sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-      continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
+      wildcard_cert_issuer      = local.wildcard_cert_issuer
+      bcp_topology              = var.bcp_topology
+      enable_hot_standby        = var.enable_hot_standby
+      enable_shared_pg          = var.enable_shared_pg
+      default_storage_class     = var.default_storage_class
+      sovereign_cnpg_instances  = length(var.regions) > 1 ? "2" : "1"
+      continuum_enabled         = length(var.regions) > 1 ? "true" : "false"
       parent_domains_yaml = coalesce(
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
