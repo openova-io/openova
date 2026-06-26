@@ -1153,7 +1153,12 @@ spec:
       #   lands zero-touch so the provisioning service clears Init:0/1 on a fresh
       #   prov and every Org can render its vcluster/apps. Guard test extended.
       #   Lockstep w/ Chart.yaml. Refs #4447.
-      version: 1.4.891
+      # 1.4.892 — #4290/#4179: org-controller tenant-dns pool-PowerDNS writer reads
+      #   the bridged Secret LIVE each reconcile (self-heals zero-touch the moment
+      #   bp-reflector lands the key) + loud-fails instead of silently skipping →
+      #   per-Org console.<slug>.<pool> A-record is written on a fresh prov (was
+      #   NXDOMAIN). Lockstep w/ Chart.yaml. Refs #4290 #4179.
+      version: 1.4.892
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

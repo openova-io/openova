@@ -156,6 +156,25 @@ func main() {
 	// Catalyst-Zero), never a wedge. Per Inviolable Principle #4, env-driven.
 	poolPowerDNSURL := envOr("CATALYST_POOL_POWERDNS_API_URL", "")
 	poolPowerDNSAPIKey := strings.TrimSpace(os.Getenv("CATALYST_POOL_POWERDNS_API_KEY"))
+	// #4290/#4179 SELF-HEAL — the env above is a `secretKeyRef ... optional:true`
+	// bound ONCE at Pod start; on a fresh prov the Pod almost always starts before
+	// bp-reflector fills the bridged Secret, so the env is frozen empty and the
+	// pool A-record write never fires (have_key:false forever). These two name the
+	// Secret so the reconciler can READ THE KEY LIVE each reconcile and self-heal
+	// the moment reflection lands — no Pod roll. Defaults match the #4218 chart
+	// PULL-stub (Secret `pool-powerdns-api-credentials` in the controller's own
+	// namespace). Per Inviolable Principle #4, both env-overridable.
+	poolPowerDNSSecretName := envOr("CATALYST_POOL_POWERDNS_SECRET_NAME", "pool-powerdns-api-credentials")
+	poolPowerDNSSecretNS := strings.TrimSpace(os.Getenv("CATALYST_POOL_POWERDNS_SECRET_NAMESPACE"))
+	if poolPowerDNSSecretNS == "" {
+		// Default to the controller's own namespace (where the #4218 bridge
+		// reflects the key). POD_NAMESPACE is injected via the downward API in
+		// the chart; fall back to catalyst-system to match targetNamespace.
+		poolPowerDNSSecretNS = strings.TrimSpace(os.Getenv("POD_NAMESPACE"))
+		if poolPowerDNSSecretNS == "" {
+			poolPowerDNSSecretNS = "catalyst-system"
+		}
+	}
 	// tenantConsoleLBIPv4 — the dedicated console-ELB EIP (#4053) the per-Org
 	// console host resolves to. tenantPrimaryLBIPv4 — the primary/shared LB IP
 	// fallback for a single-LB / pre-#4053 Sovereign. Both empty → the write is
@@ -217,41 +236,43 @@ func main() {
 	}
 
 	r := &controller.Reconciler{
-		Client:                    mgr.GetClient(),
-		Log:                       log.WithName("reconciler"),
-		Keycloak:                  controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
-		PerOrgRealmEnabled:        perOrgRealmEnabled,
-		GiteaClient:               giteaClient,
-		HostCluster:               hostCluster,
-		EnvRegionProvider:         envRegionProvider,
-		EnvRegionCode:             envRegionCode,
-		EnvRegionBuildingBlock:    envRegionBuildingBlock,
-		VClusterChartVersion:      chartVer,
-		VClusterHelmRepoName:      helmRepoName,
-		VClusterHelmRepoNamespace: helmRepoNs,
-		VClusterImageRegistry:     vclusterImageRegistry,
-		Branch:                    branch,
-		GiteaInClusterURL:         giteaInClusterURL,
-		FluxNamespace:             fluxNamespace,
-		FluxIntervalSeconds:       fluxIntervalSeconds,
-		FluxGiteaSecretRef:        fluxGiteaSecretRef,
-		FederationSecretNamespace: fedSecretNs,
-		UserAccessNamespace:       uaNs,
-		IacBootstrapGitea:         iacGitea,
-		IacBootstrapTokens:        iacTokens,
-		ConsoleGatewayName:        consoleGatewayName,
-		ConsoleGatewayNamespace:   consoleGatewayNs,
-		ConsoleTLSClusterIssuer:   consoleTLSIssuer,
-		ConsoleTLSCertNamespace:   consoleTLSCertNs,
-		ConsoleRouteNamespace:     consoleRouteNs,
-		ConsoleAPIService:         consoleAPISvc,
-		ConsoleUIService:          consoleUISvc,
-		ConsoleAPIPort:            consoleAPIPort,
-		ConsoleUIPort:             consoleUIPort,
-		PoolPowerDNSURL:           poolPowerDNSURL,
-		PoolPowerDNSAPIKey:        poolPowerDNSAPIKey,
-		TenantConsoleLBIPv4:       tenantConsoleLBIPv4,
-		TenantPrimaryLBIPv4:       tenantPrimaryLBIPv4,
+		Client:                      mgr.GetClient(),
+		Log:                         log.WithName("reconciler"),
+		Keycloak:                    controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
+		PerOrgRealmEnabled:          perOrgRealmEnabled,
+		GiteaClient:                 giteaClient,
+		HostCluster:                 hostCluster,
+		EnvRegionProvider:           envRegionProvider,
+		EnvRegionCode:               envRegionCode,
+		EnvRegionBuildingBlock:      envRegionBuildingBlock,
+		VClusterChartVersion:        chartVer,
+		VClusterHelmRepoName:        helmRepoName,
+		VClusterHelmRepoNamespace:   helmRepoNs,
+		VClusterImageRegistry:       vclusterImageRegistry,
+		Branch:                      branch,
+		GiteaInClusterURL:           giteaInClusterURL,
+		FluxNamespace:               fluxNamespace,
+		FluxIntervalSeconds:         fluxIntervalSeconds,
+		FluxGiteaSecretRef:          fluxGiteaSecretRef,
+		FederationSecretNamespace:   fedSecretNs,
+		UserAccessNamespace:         uaNs,
+		IacBootstrapGitea:           iacGitea,
+		IacBootstrapTokens:          iacTokens,
+		ConsoleGatewayName:          consoleGatewayName,
+		ConsoleGatewayNamespace:     consoleGatewayNs,
+		ConsoleTLSClusterIssuer:     consoleTLSIssuer,
+		ConsoleTLSCertNamespace:     consoleTLSCertNs,
+		ConsoleRouteNamespace:       consoleRouteNs,
+		ConsoleAPIService:           consoleAPISvc,
+		ConsoleUIService:            consoleUISvc,
+		ConsoleAPIPort:              consoleAPIPort,
+		ConsoleUIPort:               consoleUIPort,
+		PoolPowerDNSURL:             poolPowerDNSURL,
+		PoolPowerDNSAPIKey:          poolPowerDNSAPIKey,
+		PoolPowerDNSSecretName:      poolPowerDNSSecretName,
+		PoolPowerDNSSecretNamespace: poolPowerDNSSecretNS,
+		TenantConsoleLBIPv4:         tenantConsoleLBIPv4,
+		TenantPrimaryLBIPv4:         tenantPrimaryLBIPv4,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
@@ -261,14 +282,28 @@ func main() {
 	// #4236 — surface whether the per-Org pool-DNS writer is wired so an
 	// operator can tell at a glance whether fresh-signup console hosts will get
 	// their central-pdns A-record (the #4179 close gate). Logged once at startup.
-	if poolPowerDNSURL != "" && poolPowerDNSAPIKey != "" {
+	switch {
+	case poolPowerDNSURL != "" && poolPowerDNSAPIKey != "":
 		log.Info("tenant-dns: central pool-PowerDNS writer wired (console.<slug>.<pool> A-records target central pdns)",
 			"pool_url", poolPowerDNSURL,
 			"console_lb_ipv4", tenantConsoleLBIPv4,
 			"primary_lb_ipv4_fallback", tenantPrimaryLBIPv4)
-	} else {
+	case poolPowerDNSURL != "":
+		// #4290/#4179 — URL is set so this Sovereign DOES expect a central pool
+		// write, but the env key is empty (the secretKeyRef bound before
+		// bp-reflector filled the bridged Secret). This is NO LONGER a dead end:
+		// reconcileTenantDNS reads the key LIVE from the Secret each pass and
+		// self-heals the moment reflection lands. Log the live-read fallback so an
+		// operator knows the writer will activate without a Pod roll.
+		log.Info("tenant-dns: central pool-PowerDNS URL wired but env key empty — will resolve key via LIVE Secret read each reconcile (self-heals when reflector lands it; #4290/#4179)",
+			"pool_url", poolPowerDNSURL,
+			"secret", poolPowerDNSSecretName,
+			"secret_namespace", poolPowerDNSSecretNS,
+			"console_lb_ipv4", tenantConsoleLBIPv4,
+			"primary_lb_ipv4_fallback", tenantPrimaryLBIPv4)
+	default:
 		log.Info("tenant-dns: central pool-PowerDNS writer NOT wired — per-Org pool A-records will not be written (single-pdns / Catalyst-Zero)",
-			"have_url", poolPowerDNSURL != "", "have_key", poolPowerDNSAPIKey != "")
+			"have_url", false, "have_key", poolPowerDNSAPIKey != "")
 	}
 
 	// D35 consume-leg — subscribe to the two canonical Catalyst NATS

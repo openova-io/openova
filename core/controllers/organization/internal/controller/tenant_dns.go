@@ -66,6 +66,10 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 )
 
@@ -117,17 +121,44 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 	}
 
 	baseURL := strings.TrimSpace(r.PoolPowerDNSURL)
-	apiKey := strings.TrimSpace(r.PoolPowerDNSAPIKey)
-	if baseURL == "" || apiKey == "" {
-		// No central-pdns writer wired (CATALYST_POOL_POWERDNS_API_URL/_KEY
-		// unset, or the reflector hasn't filled the bridged secret yet). Skip
-		// loud so an operator sees the pool record won't be written; the
-		// next reconcile retries once the env/secret lands. NOT an error —
-		// matching the catalyst-api no-op DNS provisioner degrade path.
-		r.Log.Info("tenant-dns: skipped — central pool PowerDNS not wired",
-			"organization", org.Name,
-			"have_url", baseURL != "", "have_key", apiKey != "")
+	if baseURL == "" {
+		// No central-pdns endpoint configured at all (CATALYST_POOL_POWERDNS_API_URL
+		// unset) — a single-PowerDNS / Catalyst-Zero Sovereign where there is no
+		// separate central pool server. Genuine no-op, not a failure: the
+		// Sovereign-wide apex wildcard covers single-domain Orgs. Resolve the key
+		// only for the breadcrumb; no live read needed when there's no endpoint.
+		r.Log.Info("tenant-dns: skipped — no central pool PowerDNS URL configured (single-pdns / Catalyst-Zero)",
+			"organization", org.Name, "have_url", false,
+			"have_key", strings.TrimSpace(r.PoolPowerDNSAPIKey) != "")
 		return false, nil
+	}
+
+	// The endpoint IS configured. Resolve the central pool key — prefer the
+	// env-frozen value, but when it is empty fall back to a LIVE read of the
+	// bridged Secret (the #4290/#4179 self-heal for the reflector-fills-after-
+	// Pod-start race; see resolvePoolPowerDNSAPIKey).
+	apiKey := r.resolvePoolPowerDNSAPIKey(ctx)
+
+	if apiKey == "" {
+		// The endpoint IS configured (this Sovereign expects a central pool
+		// write) but the key is STILL empty after the live Secret read. This is
+		// the loud-fail guard the #4290 fix adds: previously this degraded to a
+		// silent `return false, nil` and the per-Org console host stayed NXDOMAIN
+		// forever with only an info-level breadcrumb. Now it is an ERROR so the
+		// controller REQUEUES and keeps retrying until bp-reflector lands the key
+		// in `<ns>/<secret>` (api-key) — instead of giving up after one pass with
+		// a frozen-empty env. Self-healing: the requeue picks up the key the
+		// moment reflection completes, no Pod roll, no operator touch.
+		err := fmt.Errorf("central pool PowerDNS URL is configured (%s) but the pool API key is empty — "+
+			"secret %q (key api-key) in namespace %q is unset or not yet reflected; per-Org pool A-record for %q will not resolve until it lands",
+			baseURL, r.poolPowerDNSSecretName(), r.poolPowerDNSSecretNamespace(), org.Name)
+		r.Log.Error(err, "tenant-dns: central pool PowerDNS key MISSING — requeueing until reflector fills it (console.<slug>.<pool> stays NXDOMAIN meanwhile)",
+			"organization", org.Name,
+			"pool_url", baseURL,
+			"have_url", true, "have_key", false,
+			"secret", r.poolPowerDNSSecretName(),
+			"secret_namespace", r.poolPowerDNSSecretNamespace())
+		return false, err
 	}
 
 	consoleIP := r.tenantConsoleLBIPv4()
@@ -229,6 +260,78 @@ func (r *Reconciler) tenantConsoleLBIPv4() string {
 		return v
 	}
 	return strings.TrimSpace(r.TenantPrimaryLBIPv4)
+}
+
+// poolPowerDNSSecretName / poolPowerDNSSecretNamespace name the bridged Secret
+// the central pool key lives in. Defaults match the chart's #4218 reflector
+// PULL-stub (pool-powerdns-credentials-host-bridge.yaml): Secret
+// `pool-powerdns-api-credentials` in the org-controller's own namespace
+// (catalyst-system). Both are env-overridable per Inviolable Principle #4.
+func (r *Reconciler) poolPowerDNSSecretName() string {
+	if v := strings.TrimSpace(r.PoolPowerDNSSecretName); v != "" {
+		return v
+	}
+	return "pool-powerdns-api-credentials"
+}
+
+func (r *Reconciler) poolPowerDNSSecretNamespace() string {
+	if v := strings.TrimSpace(r.PoolPowerDNSSecretNamespace); v != "" {
+		return v
+	}
+	return "catalyst-system"
+}
+
+// resolvePoolPowerDNSAPIKey returns the central pool PowerDNS API key, preferring
+// the env-frozen value (CATALYST_POOL_POWERDNS_API_KEY, bound once at Pod start)
+// and FALLING BACK to a live read of the bridged Secret's `api-key` key when the
+// env is empty.
+//
+// THE #4290/#4179 SELF-HEAL: the env var is a `secretKeyRef ... optional:true`
+// the kubelet resolves ONLY at Pod start. On a fresh prov the org-controller Pod
+// reliably starts before bp-reflector has copied
+// `cert-manager/powerdns-api-credentials` → `catalyst-system/pool-powerdns-api-credentials`
+// (the reflector itself depends on the sovereign-tls Kustomization seeding the
+// source first). With the env frozen empty and no checksum-annotation rolling the
+// Pod when the Secret later fills, the writer would log `have_key:false` and
+// silently skip the per-Org pool A-record FOREVER — leaving console.<slug>.<pool>
+// NXDOMAIN even after the key is sitting in the Secret. Reading the Secret live
+// each reconcile closes that race: the moment reflection completes, the very next
+// Org reconcile picks the key up and writes the record — zero-touch, no Pod roll.
+//
+// A read miss/error is non-fatal here (returns ""); the caller's loud-fail guard
+// decides whether an empty key is an error (pool URL configured) or a no-op
+// (single-pdns Sovereign with no pool URL).
+func (r *Reconciler) resolvePoolPowerDNSAPIKey(ctx context.Context) string {
+	if v := strings.TrimSpace(r.PoolPowerDNSAPIKey); v != "" {
+		return v
+	}
+	// Env was empty (Pod started pre-reflection, or the secretKeyRef bound an
+	// empty value). Read the bridged Secret live. When no runtime client is wired
+	// (unit tests that exercise the env-only path) there is nothing to read —
+	// return empty and let the caller's guard decide.
+	if r.Client == nil {
+		return ""
+	}
+	var sec corev1.Secret
+	key := client.ObjectKey{
+		Namespace: r.poolPowerDNSSecretNamespace(),
+		Name:      r.poolPowerDNSSecretName(),
+	}
+	if err := r.Get(ctx, key, &sec); err != nil {
+		if !apierrors.IsNotFound(err) {
+			r.Log.Error(err, "tenant-dns: live read of pool PowerDNS Secret failed",
+				"secret", key.Name, "namespace", key.Namespace)
+		}
+		// NotFound is the expected pre-reflection state — quiet; the caller's
+		// guard requeues so we retry once the Secret exists.
+		return ""
+	}
+	if v := strings.TrimSpace(string(sec.Data["api-key"])); v != "" {
+		r.Log.Info("tenant-dns: pool PowerDNS key resolved via LIVE Secret read (env was empty — reflector landed it post-start)",
+			"secret", key.Name, "namespace", key.Namespace)
+		return v
+	}
+	return ""
 }
 
 // patchPoolZone PATCHes the central PowerDNS pool zone with the supplied rrsets.

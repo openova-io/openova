@@ -286,6 +286,25 @@ type Reconciler struct {
 	PoolPowerDNSURL    string
 	PoolPowerDNSAPIKey string
 
+	// PoolPowerDNSSecretName / PoolPowerDNSSecretNamespace let the reconciler
+	// read the central pool key LIVE at reconcile time when the env-frozen
+	// PoolPowerDNSAPIKey is empty. This is the #4290/#4179 self-heal: the env
+	// var is a `secretKeyRef ... optional:true` that the kubelet binds ONCE at
+	// Pod start. On a fresh prov the org-controller Pod almost always starts
+	// BEFORE bp-reflector has filled `catalyst-system/pool-powerdns-api-credentials`
+	// from the source `cert-manager/powerdns-api-credentials` (the reflector
+	// depends on the sovereign-tls Kustomization seeding the source first, then a
+	// reconcile cycle). With the env frozen empty and NOTHING rolling the Pod when
+	// the secret later lands, the writer stays `have_key:false` PERMANENTLY — the
+	// exact defect this fixes. Reading the Secret live each reconcile makes the
+	// per-Org pool A-record write self-heal zero-touch the moment the key lands,
+	// with no Pod restart. Env: CATALYST_POOL_POWERDNS_SECRET_NAME (default
+	// `pool-powerdns-api-credentials`) read from the controller's own namespace
+	// (CATALYST_POOL_POWERDNS_SECRET_NAMESPACE / POD_NAMESPACE, default
+	// `catalyst-system`). The Secret's `api-key` key carries the value.
+	PoolPowerDNSSecretName      string
+	PoolPowerDNSSecretNamespace string
+
 	// PoolPowerDNSHTTPClient overrides the HTTP client used for the central-pdns
 	// PATCH (tests inject a client pointed at an httptest server). Nil → a 30s
 	// default client.

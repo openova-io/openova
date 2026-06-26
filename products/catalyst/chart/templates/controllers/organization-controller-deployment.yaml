@@ -73,6 +73,18 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # POD_NAMESPACE — the controller's own namespace, used as the default
+            # for the LIVE pool-PowerDNS Secret read (#4290/#4179 self-heal in
+            # tenant_dns.go resolvePoolPowerDNSAPIKey). The bridged
+            # `pool-powerdns-api-credentials` Secret is reflected into THIS
+            # namespace (catalyst-system) by the #4218 PULL-stub, so reading it
+            # here lets the per-Org pool A-record write self-heal the moment
+            # reflection lands — even though the CATALYST_POOL_POWERDNS_API_KEY
+            # secretKeyRef below was bound empty at Pod start (pre-reflection).
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: CATALYST_HOST_CLUSTER
               value: {{ .Values.global.sovereignFQDN | default "catalyst-zero" | quote }}
             - name: CATALYST_KC_ADDR
