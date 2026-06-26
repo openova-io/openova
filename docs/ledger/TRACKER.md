@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T08:15:02Z` |
+| Last refreshed | `2026-06-26T08:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T08:29 | [#4441](https://github.com/openova-io/openova/pull/4441) | #4279 | docs(ledger): reset UAT.md clean + expand with session-fix c |
+| 2026-06-26T08:20 | [#4440](https://github.com/openova-io/openova/pull/4440) | #4325 | fix(bp-sso-bridge #4437): re-read keycloak creds each tick — |
+| 2026-06-26T08:29 | [#4439](https://github.com/openova-io/openova/pull/4439) | #4436 | fix(catalyst-api): re-stamp secondary-region shared-pg WRITE |
 | 2026-06-26T08:12 | [#4435](https://github.com/openova-io/openova/pull/4435) | #4431 | fix(catalyst): reclaim leaked HCS VPC quota so fresh multi-r |
 | 2026-06-26T07:58 | [#4433](https://github.com/openova-io/openova/pull/4433) | #4417 | fix(catalog-seed #4432): bump 3 stale catalog-seed pins to b |
 | 2026-06-26T05:37 | [#4430](https://github.com/openova-io/openova/pull/4430) | #4018 | fix(bp-crossplane): crossplane-core OOMKilled at 2Gi → raise |
@@ -247,9 +250,6 @@ flowchart LR
 | 2026-06-25T21:11 | [#4396](https://github.com/openova-io/openova/pull/4396) | #4394 | fix(catalog-seed #4395): pin QoS-fixed funnel-Org charts (bp |
 | 2026-06-25T20:59 | [#4394](https://github.com/openova-io/openova/pull/4394) | #4307 | fix(bp-openclaw/bp-stalwart-tenant #4389/#4292): Guaranteed  |
 | 2026-06-25T20:59 | [#4393](https://github.com/openova-io/openova/pull/4393) | #4297 | fix(org-controller #4389/#4297): vcluster control-plane Guar |
-| 2026-06-25T20:59 | [#4392](https://github.com/openova-io/openova/pull/4392) | #4272 | fix(bp-catalyst-platform #4389): orgTag b3465e8 -> 903eed4 — |
-| 2026-06-25T20:17 | [#4391](https://github.com/openova-io/openova/pull/4391) | #4388 | fix(#4325 fallout): completeness sweep — repoint ALL remaini |
-| 2026-06-25T20:00 | [#4390](https://github.com/openova-io/openova/pull/4390) | #4322 | fix(bp-catalyst-platform #4389): keycloakHostBridge.keycloak |
 
 ---
 
