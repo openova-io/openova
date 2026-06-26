@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T10:30:04Z` |
+| Last refreshed | `2026-06-26T10:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 15 |
+| Open issues | 18 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 15 open items (clickable table)
+### All 18 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -215,6 +215,9 @@ flowchart LR
 | [#4437](https://github.com/openova-io/openova/issues/4437) | bp-sso-bridge reconciler caches stale KC_ADDR (secretKeyRef env) → never re-mi | Other |
 | [#4442](https://github.com/openova-io/openova/issues/4442) | bp-postgres singleton-operator-probe NP default-denies host shared-data consumer | Other |
 | [#4444](https://github.com/openova-io/openova/issues/4444) | bp-plane-isolation atomic Helm-install fails on late-created 'sandbox' ns → gi | Other |
+| [#4446](https://github.com/openova-io/openova/issues/4446) | Fresh prov: oidc-gate consumer client_secret not seeded into OpenBao (sso/sovere | Other |
+| [#4447](https://github.com/openova-io/openova/issues/4447) | gitea-flux-auth-sync hook exit-0's on its own RBAC race → *-git-auth secrets n | Other |
+| [#4448](https://github.com/openova-io/openova/issues/4448) | bp-plane-isolation: openbao default-deny omits sso-bridge ingress → bp-sso-bri | Other |
 
 ---
 
