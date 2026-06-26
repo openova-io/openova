@@ -127,11 +127,14 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 	if tier == "" {
 		tier = "org"
 	}
-	// Resolve the purchased plan UUID → catalog slug (s|m|l|xl|flexi) so the
-	// Organization CR carries the SINGLE truth-source for the resource cap the
-	// org-controller materializes (Workstream B, #4292). resolvePlanSlug
-	// defaults to "s" on any catalog miss, so an empty PlanID still yields a
-	// valid cap rather than running uncapped.
+	// Resolve the purchased plan identifier → canonical slug (s|m|l|xl|flexi) so
+	// the Organization CR carries the SINGLE truth-source for the resource cap
+	// the org-controller materializes (Workstream B, #4292). The funnel posts
+	// the slug directly and the BSS door posts a plan UUID; resolvePlanSlug
+	// handles BOTH (#4473) — a known slug short-circuits, a UUID is looked up in
+	// the catalog, and only a genuinely-unknown value falls back to a LOGGED "s"
+	// default. Before #4473 the funnel slug fell through to "s" unconditionally,
+	// downgrading every paid funnel Org to the S boundary.
 	planSlug := h.resolvePlanSlug(ctx, data.PlanID)
 	billingMode := strings.TrimSpace(data.BillingMode)
 	if billingMode == "" {
