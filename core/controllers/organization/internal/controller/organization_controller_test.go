@@ -28,6 +28,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -451,10 +452,10 @@ func sampleOrg() *orgapi.Organization {
 			UID:        "00000000-0000-0000-0000-000000000001",
 		},
 		Spec: orgapi.OrganizationSpec{
-			Slug:                   "acme",
-			DisplayName:            "ACME Corp",
-			Kind:                   "customer",
-			Tier:                   "org",
+			Slug:        "acme",
+			DisplayName: "ACME Corp",
+			Kind:        "customer",
+			Tier:        "org",
 			// #4292: a paid plan → the renderer emits the vCluster boundary plus
 			// the plan-templated ResourceQuota + LimitRange + apps-tree
 			// NetworkPolicy baseline (6 files total).
@@ -920,11 +921,10 @@ func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
 	}, &unstructured.UnstructuredList{})
 
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "acme"},
-	}); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	// Two passes: pass 1 adds the tenant-networking finalizer + requeues (this
+	// Org has a pool parentDomain, #4459), pass 2 does the up-path work that
+	// renders the per-Org console HTTPRoute.
+	reconcileTwice(t, r, "acme")
 
 	// #4186: the per-Org console route now lands in catalyst-system (where
 	// catalyst-api + catalyst-ui Services live) and is named after the host
@@ -1084,11 +1084,9 @@ func TestReconcile_TenantPublic_ParentDomainSet_BackendPending(t *testing.T) {
 
 	// MUST NOT error — the missing backendService is irrelevant to the
 	// console route (the console is catalyst-ui, not a product backend).
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "acme"},
-	}); err != nil {
-		t.Fatalf("reconcile must succeed while backendService is pending, got: %v", err)
-	}
+	// Two passes: pass 1 adds the tenant-networking finalizer + requeues
+	// (pool parentDomain set, #4459), pass 2 does the up-path + status write.
+	reconcileTwice(t, r, "acme")
 
 	// The Org's Ready condition MUST NOT be TenantRouteFailed.
 	got := orgapi.Organization{}
@@ -1468,4 +1466,235 @@ func keysOf(m map[string]map[string]any) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestTeardownTenantNetworking_CascadesAndIsSelective is the #4459 close-gate
+// (sibling of #4250): deleting an Organization CR MUST cascade-delete the
+// per-Org tenant-networking artifacts that live outside the Flux-pruned
+// `<slug>` namespace and carry no GC-followed ownerRef —
+//
+//  1. the `console-https-<slug>` / `console-http-<slug>` listener pair on the
+//     SHARED console Gateway (without removal these dead listeners ACCUMULATE),
+//  2. the per-Org wildcard Certificate (kube-system),
+//  3. the per-Org console HTTPRoute (catalyst-system),
+//  4. the central-PowerDNS pool A-records (off-cluster),
+//
+// while leaving the apex listener AND a SECOND Org's listeners byte-for-byte
+// intact (selectivity), and being idempotent on a repeated teardown.
+func TestTeardownTenantNetworking_CascadesAndIsSelective(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg() // slug "acme"
+	org.Spec.TenantPublic = orgapi.OrganizationTenantPublic{ParentDomain: "omani.homes"}
+
+	r, _, _ := makeReconciler(t, org)
+	scheme := r.Scheme()
+	// Register Certificate + Gateway + HTTPRoute GVKs (+ Lists) so the fake
+	// client can serialise the unstructured objects the teardown deletes.
+	for _, gvk := range []schema.GroupVersionKind{certificateGVK, gatewayGVK, httpRouteGVK} {
+		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
+		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+	}
+
+	// Stub the central PowerDNS so the DNS-DELETE is captured.
+	var cap capturedPatch
+	pdns := newPDNSStub(t, &cap)
+	defer pdns.Close()
+	r.PoolPowerDNSURL = pdns.URL
+	r.PoolPowerDNSAPIKey = "central-pool-key"
+	r.TenantConsoleLBIPv4 = "212.72.24.33"
+
+	ctx := context.Background()
+
+	// Seed the shared console Gateway carrying: the apex listener, THIS Org's
+	// two per-Org listeners, AND a SECOND Org's two listeners (the selectivity
+	// guard — they must survive acme's teardown).
+	gw := &unstructured.Unstructured{}
+	gw.SetGroupVersionKind(gatewayGVK)
+	gw.SetName("cilium-gateway-console")
+	gw.SetNamespace("kube-system")
+	gw.Object["spec"] = map[string]any{
+		"gatewayClassName": "cilium",
+		"listeners": []any{
+			map[string]any{"name": "console-https", "hostname": "*.omantel.biz", "port": int64(31443), "protocol": "HTTPS"},
+			map[string]any{"name": "console-https-acme", "hostname": "*.acme.omani.homes", "port": int64(31443), "protocol": "HTTPS"},
+			map[string]any{"name": "console-http-acme", "hostname": "*.acme.omani.homes", "port": int64(31080), "protocol": "HTTP"},
+			map[string]any{"name": "console-https-globex", "hostname": "*.globex.omani.homes", "port": int64(31443), "protocol": "HTTPS"},
+			map[string]any{"name": "console-http-globex", "hostname": "*.globex.omani.homes", "port": int64(31080), "protocol": "HTTP"},
+		},
+	}
+	if err := r.Create(ctx, gw); err != nil {
+		t.Fatalf("seed console Gateway: %v", err)
+	}
+
+	// Seed the per-Org wildcard Certificate (kube-system).
+	cert := &unstructured.Unstructured{}
+	cert.SetGroupVersionKind(certificateGVK)
+	cert.SetName("org-wildcard-tls-acme-omani-homes")
+	cert.SetNamespace("kube-system")
+	cert.Object["spec"] = map[string]any{"secretName": "org-wildcard-tls-acme-omani-homes"}
+	if err := r.Create(ctx, cert); err != nil {
+		t.Fatalf("seed Certificate: %v", err)
+	}
+
+	// Seed the per-Org console HTTPRoute (catalyst-system, NOT the <slug> ns).
+	route := &unstructured.Unstructured{}
+	route.SetGroupVersionKind(httpRouteGVK)
+	route.SetName("catalyst-ui-console-acme-omani-homes")
+	route.SetNamespace("catalyst-system")
+	route.Object["spec"] = map[string]any{"hostnames": []any{"console.acme.omani.homes"}}
+	if err := r.Create(ctx, route); err != nil {
+		t.Fatalf("seed HTTPRoute: %v", err)
+	}
+
+	// ── Teardown pass 1: cascades all four artifacts ────────────────────
+	if err := r.teardownTenantNetworking(ctx, org); err != nil {
+		t.Fatalf("teardownTenantNetworking pass 1: %v", err)
+	}
+
+	// 1. Gateway: acme's two listeners gone; apex + globex's two preserved.
+	gotGW := unstructured.Unstructured{}
+	gotGW.SetGroupVersionKind(gatewayGVK)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "cilium-gateway-console"}, &gotGW); err != nil {
+		t.Fatalf("get console Gateway: %v", err)
+	}
+	listeners, _, _ := unstructured.NestedSlice(gotGW.Object, "spec", "listeners")
+	got := map[string]bool{}
+	for _, l := range listeners {
+		got[l.(map[string]any)["name"].(string)] = true
+	}
+	if got["console-https-acme"] || got["console-http-acme"] {
+		t.Errorf("acme per-Org listeners NOT removed: %v", got)
+	}
+	for _, keep := range []string{"console-https", "console-https-globex", "console-http-globex"} {
+		if !got[keep] {
+			t.Errorf("listener %q was wrongly dropped — teardown must be selective: %v", keep, got)
+		}
+	}
+	if len(listeners) != 3 {
+		t.Errorf("listeners after teardown: got %d (%v), want 3 (apex + globex pair)", len(listeners), got)
+	}
+
+	// 2. Certificate deleted (cert-manager GCs the backing Secret with it).
+	gotCert := unstructured.Unstructured{}
+	gotCert.SetGroupVersionKind(certificateGVK)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "org-wildcard-tls-acme-omani-homes"}, &gotCert); !apierrors.IsNotFound(err) {
+		t.Errorf("Certificate should be deleted, get err = %v (want NotFound)", err)
+	}
+
+	// 3. HTTPRoute deleted.
+	gotRoute := unstructured.Unstructured{}
+	gotRoute.SetGroupVersionKind(httpRouteGVK)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "catalyst-system", Name: "catalyst-ui-console-acme-omani-homes"}, &gotRoute); !apierrors.IsNotFound(err) {
+		t.Errorf("HTTPRoute should be deleted, get err = %v (want NotFound)", err)
+	}
+
+	// 4. DNS: two rrsets PATCHed with changetype=DELETE on the pool zone.
+	if want := "/api/v1/servers/localhost/zones/omani.homes."; cap.path != want {
+		t.Errorf("PATCH path: got %q, want %q", cap.path, want)
+	}
+	rrsets, _ := cap.body["rrsets"].([]any)
+	if len(rrsets) != 2 {
+		t.Fatalf("DNS rrsets: got %d, want 2 (console + wildcard DELETE)", len(rrsets))
+	}
+	dnsNames := map[string]map[string]any{}
+	for _, rs := range rrsets {
+		m := rs.(map[string]any)
+		dnsNames[m["name"].(string)] = m
+	}
+	for _, wantName := range []string{"console.acme.omani.homes.", "*.acme.omani.homes."} {
+		m, ok := dnsNames[wantName]
+		if !ok {
+			t.Fatalf("missing DELETE rrset %q (have %v)", wantName, keysOf(dnsNames))
+		}
+		if m["changetype"] != "DELETE" {
+			t.Errorf("%s changetype: got %v, want DELETE", wantName, m["changetype"])
+		}
+	}
+
+	// ── Teardown pass 2: idempotent — every artifact already gone ────────
+	if err := r.teardownTenantNetworking(ctx, org); err != nil {
+		t.Fatalf("teardownTenantNetworking pass 2 (idempotent): %v", err)
+	}
+	gotGW2 := unstructured.Unstructured{}
+	gotGW2.SetGroupVersionKind(gatewayGVK)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "cilium-gateway-console"}, &gotGW2); err != nil {
+		t.Fatalf("get console Gateway pass 2: %v", err)
+	}
+	l2, _, _ := unstructured.NestedSlice(gotGW2.Object, "spec", "listeners")
+	if len(l2) != 3 {
+		t.Errorf("pass 2 listeners: got %d, want 3 (no further removal)", len(l2))
+	}
+}
+
+// TestTeardownTenantNetworking_NoopWhenNoParentDomain asserts the teardown is
+// a clean no-op for Orgs that never had a pool-parent public hostname (the
+// common case) — none of the up-path tenant-networking steps engaged, so the
+// teardown touches nothing.
+func TestTeardownTenantNetworking_NoopWhenNoParentDomain(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg() // TenantPublic zero-value: ParentDomain == ""
+	r, _, _ := makeReconciler(t, org)
+	if err := r.teardownTenantNetworking(context.Background(), org); err != nil {
+		t.Fatalf("teardownTenantNetworking no-op: %v", err)
+	}
+}
+
+// TestReconcile_DeleteCascadesTenantNetworking drives the FULL Reconcile
+// deletion path (not just the orchestrator) to prove the cascade is wired into
+// the finalizer flow: a steady-state Org with a pool parentDomain → mark for
+// deletion → Reconcile → the per-Org HTTPRoute is gone (representative of the
+// whole tenant-networking set the orchestrator reaps before the CR tombstones).
+func TestReconcile_DeleteCascadesTenantNetworking(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	org.Spec.TenantPublic = orgapi.OrganizationTenantPublic{ParentDomain: "omani.homes"}
+	r, _, _ := makeReconciler(t, org)
+	for _, gvk := range []schema.GroupVersionKind{certificateGVK, gatewayGVK, httpRouteGVK} {
+		r.Scheme().AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
+		r.Scheme().AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+	}
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "acme"}}
+
+	// Drive reconciles to steady state: the first pass adds the
+	// tenant-networking finalizer + requeues, the second does the up-path work
+	// that lands the per-Org console HTTPRoute.
+	for i := 0; i < 4; i++ {
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("up-path reconcile pass %d: %v", i+1, err)
+		}
+	}
+	routeKey := client.ObjectKey{Namespace: "catalyst-system", Name: "catalyst-ui-console-acme-omani-homes"}
+	probe := unstructured.Unstructured{}
+	probe.SetGroupVersionKind(httpRouteGVK)
+	if err := r.Get(ctx, routeKey, &probe); err != nil {
+		t.Fatalf("precondition: per-Org HTTPRoute should exist after up-path reconcile: %v", err)
+	}
+	// Precondition: the tenant-networking finalizer is present (it is what
+	// holds the CR through deletion so the cascade can run).
+	var steady orgapi.Organization
+	if err := r.Get(ctx, client.ObjectKey{Name: "acme"}, &steady); err != nil {
+		t.Fatalf("get steady: %v", err)
+	}
+	if !containsFinalizer(steady.Finalizers, TenantNetworkingFinalizer) {
+		t.Fatalf("precondition: tenant-networking finalizer should be present, got %v", steady.Finalizers)
+	}
+
+	// Mark for deletion + reconcile the deletion path (the cascade runs, then
+	// the finalizer is dropped + requeued).
+	if err := r.Delete(ctx, &steady); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("delete reconcile pass %d: %v", i+1, err)
+		}
+	}
+
+	// The per-Org HTTPRoute must be cascade-deleted by the deletion path.
+	gone := unstructured.Unstructured{}
+	gone.SetGroupVersionKind(httpRouteGVK)
+	if err := r.Get(ctx, routeKey, &gone); !apierrors.IsNotFound(err) {
+		t.Errorf("per-Org HTTPRoute should be cascade-deleted on Org delete, get err = %v (want NotFound)", err)
+	}
 }
