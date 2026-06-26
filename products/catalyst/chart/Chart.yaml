@@ -3174,7 +3174,7 @@ name: bp-catalyst-platform
 #   reverted it ~2min later, so the live chart still shipped the pre-#4393
 #   org-controller — every m-tier funnel Org stayed wedged at 'vcluster-0
 #   forbidden: ratio 20' (verified live on g10vc). Refs #4395 #4394 #4393 #4307 #4292 #4389.
-version: 1.4.872
+version: 1.4.873
 # 1.4.871 — #4413: catalog-seed bp-openclaw pin 0.2.8 -> 0.2.11 (lockstep w/ blueprint.yaml)
 #   so the #4272 egress CNP (#4401) + controller TLS-trust (#4408) actually reach
 #   fresh funnel Orgs — the catalog Blueprint was serving 0.2.8 (pre-fix) on omantel.biz.
