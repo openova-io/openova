@@ -3254,6 +3254,24 @@ name: bp-catalyst-platform
 #   preserved verbatim. The #4452 guard chart/tests/gitea-flux-auth-sync-rbac-
 #   order.sh is extended with parallel gate-3/gate-4 cases for this second job.
 #   Lockstep w/ bootstrap-kit slot 13 pin. Refs #4447 #3763 #3781.
+# 1.4.899 — #4471/#4462: two more org-controller reconcile faults (the 1.4.896
+#   `organizations` update/patch RBAC widening already landed via #4472). (a) CRD
+#   clientSecretRef value-struct trap: the controller models `spec.identity`
+#   (and its `clientSecretRef`) as VALUE structs, so `,omitempty` is a no-op and
+#   EVERY `client.Update` (e.g. the finalizer-add) serializes an empty
+#   `clientSecretRef: {}`; with the CRD's `required: [name, key]` + `key.default`
+#   present, that empty object failed validation (`clientSecretRef.name: Required
+#   value`) and wedged ALL reconciles before any per-Org boundary was produced.
+#   FIX: drop `required`/`key.default` from the CRD so an absent federation
+#   round-trips; a configured federation still needs name+key, validated by the
+#   controller at readClientSecret() time. (b) teardown RBAC gap: the
+#   organization-controller ClusterRole lacked `delete` on `httproutes`
+#   (gateway.networking.k8s.io) + `certificates` (cert-manager.io), so
+#   teardownTenantNetworking 403'd on Org deletion (`cannot delete resource
+#   "httproutes"/"certificates"`) — the tenant-networking finalizer never dropped
+#   and deleted Orgs hung Terminating forever. FIX: add `delete` (additive,
+#   existing verbs kept). Lockstep w/ bootstrap-kit slot 13 pin.
+#   Refs #4471 #4462 #4290 #4293.
 # 1.4.896 — #4471/#4462: organization-controller ClusterRole was missing update +
 #   patch on the MAIN `organizations` resource — it granted only get/list/watch
 #   there + update/patch on the /status + /finalizers SUBRESOURCES. The #4462
@@ -3272,7 +3290,7 @@ name: bp-catalyst-platform
 #   bump back to b23af68, shipping org-controller WITHOUT #4455 tenant-dns +
 #   #4462 delete-cascade on every fresh prov). 89993b2 is a descendant of b23af68
 #   so it retains #4393 Guaranteed-QoS. Lockstep w/ bootstrap-kit slot 13 pin.
-version: 1.4.898
+version: 1.4.899
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
