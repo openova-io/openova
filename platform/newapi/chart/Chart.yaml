@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.136 (#4477 secondary, 2026-06-27): the `catalyst-newapi-admin-token`
+# ExternalSecret's canonical OpenBao read-path moves from the
+# never-written `sovereign/<fqdn>/newapi/admin-token` to the cluster-shared
+# `catalyst/newapi/admin-token` — the path catalyst-api's new
+# seedNewapiAdminToken seam (products/catalyst/bootstrap/api/internal/
+# handler/sovereign_newapi_admin_token_seed.go) WRITES. Pre-fix nothing
+# wrote the sovereign-prefixed path, so on every fresh prov the
+# ExternalSecret stayed SecretSyncedError (live-observed on 91dc05917e44d1c1,
+# omantel.biz) and unified-rbac's admin-API per-user-key issuance 401'd. The
+# producer can only write under `secret/{data,metadata}/catalyst/*` (its
+# `catalyst-api-write` OpenBao role), so producer + read-path share the
+# `catalyst/` prefix in lock-step — identical resolution to the anthropic /
+# mcp-bearer seeds. The seam propagates NewAPI's bridge ADMIN_SECRET verbatim
+# (the value the sandbox-bridge validates), so the distributed token matches.
+# Chart change is doc/default-comment only; the functional fix lives in
+# catalyst-api + the bootstrap-kit overlay remoteRef.key. Lockstep:
+# blueprint.yaml spec.version + clusters/_template/bootstrap-kit/80-newapi.yaml
+# chart pin bumped to 1.4.136 in the same PR (Inviolable Principle #14).
+#
 # 1.4.126 (#4278, 2026-06-25): admin-promote CronJob no longer loops forever
 # on a missing ServiceAccount → bp-newapi HR can reach Ready on a fresh Org.
 #
@@ -909,7 +928,7 @@ name: bp-newapi
 #   drift, then hash-gated reload), mounts the OIDC secret, and its Role reads
 #   it. Live-verified on 91dc0591/omantel.biz: DB secret resynced, pod reloaded
 #   "Loaded 1 custom OAuth providers", KC authenticates the corrected secret.
-version: 1.4.135
+version: 1.4.136
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
