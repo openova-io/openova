@@ -40,6 +40,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
@@ -1395,5 +1396,49 @@ func TestReconcile_PhaseStaysProvisioningWhenHelmReleaseAbsent(t *testing.T) {
 	phase, _, _ := readPhaseAndReason(t, got)
 	if phase != PhaseProvisioning {
 		t.Errorf("phase = %q, want %q (HR-absent must roll up to Provisioning, not Ready or Degraded)", phase, PhaseProvisioning)
+	}
+}
+
+// TestObserveRegionHelmReleases_FanoutHRNames asserts the #4282 fix: when a
+// topology fan-out (placement.Clusters, e.g. a per-Org bp-postgres routed
+// host-side by #4398) names its per-cluster HR `<app>-<cluster>` (NOT the
+// bare `<app>`), the phase rollup observes the ACTUAL fan-out HR name and
+// returns Ready. Before the fix it GET-ed the bare `<app>` → NotFound →
+// Provisioning forever even though `pg-rtz-a` was Ready=True.
+func TestObserveRegionHelmReleases_FanoutHRNames(t *testing.T) {
+	// A Ready HR named `<app>-<cluster>` — the fan-out shape.
+	hr := &unstructured.Unstructured{}
+	hr.SetAPIVersion("helm.toolkit.fluxcd.io/v2")
+	hr.SetKind("HelmRelease")
+	hr.SetNamespace("w4282walk")
+	hr.SetName("w4282-pg-rtz-a")
+	hr.Object["status"] = map[string]interface{}{
+		"conditions": []interface{}{
+			map[string]interface{}{
+				"type": "Ready", "status": "True", "reason": "InstallSucceeded",
+				"message": "Helm install succeeded for release w4282walk/w4282-pg-rtz-a.v1 with chart bp-postgres@0.2.6",
+			},
+		},
+	}
+	fg := newFakeGitea()
+	r := newReconciler(t, fg, hr)
+
+	app := &unstructured.Unstructured{}
+	app.SetNamespace("w4282walk")
+	app.SetName("w4282-pg")
+	plan := placement.Plan{Regions: []placement.RegionPlan{{Name: "me-east-215-a", Role: "primary"}}}
+
+	// WITH the fan-out name → Ready (the fix).
+	phase, _, _ := r.observeRegionHelmReleases(context.Background(), app, plan, []string{"w4282-pg-rtz-a"})
+	if phase != PhaseReady {
+		t.Errorf("fan-out HR-name rollup: phase=%q, want %q (the per-cluster HR w4282-pg-rtz-a is Ready=True)", phase, PhaseReady)
+	}
+
+	// WITHOUT the fan-out names → falls back to the bare `<app>` which does
+	// NOT exist for a fan-out → Provisioning (the pre-fix wrong behavior,
+	// preserved for the single-HR host path which legitimately uses <app>).
+	phaseBare, _, _ := r.observeRegionHelmReleases(context.Background(), app, plan, nil)
+	if phaseBare != PhaseProvisioning {
+		t.Errorf("bare-name fallback with no <app> HR: phase=%q, want %q", phaseBare, PhaseProvisioning)
 	}
 }
