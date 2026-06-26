@@ -152,7 +152,16 @@ spec:
       # 0.2.19: reconciler configmap generic gate coverage (#3374).
       # 0.2.21: keycloak/openbao egress namespace default → mgmt (#3820 #3642).
       # 0.2.22: #3374 — app-registration ExternalSecrets no longer self-deleted by the orphan sweep each tick.
-      version: 0.2.22
+      # 0.2.23 (#4437): re-read the keycloak credentials Secret EACH TICK so a
+      #   reflected addr/secret change (the #4325 de-vcluster host correction;
+      #   a #4344 admin-pw regen) is picked up with ZERO pod roll. The boot
+      #   secretKeyRef env snapshot (KC_ADDR) never hot-reloads, so the long-
+      #   lived reconciler kept dialing the dead keycloak-x-...-mgmt-vcluster
+      #   host → no KC token → no sso/<app> seed → grafana(+all) 503. Also
+      #   re-homes the stale `mgmt` keycloak/openbao egress NetworkPolicy
+      #   namespaces back to host ns keycloak/openbao (post-#4325/#4347).
+      #   Refs #4437 #4347 #4325.
+      version: 0.2.23
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge

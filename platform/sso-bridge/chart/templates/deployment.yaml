@@ -77,6 +77,23 @@ spec:
                   key: addr
             - name: KC_REALM
               value: {{ .Values.keycloak.realm | quote }}
+            # 0.2.23 (#4437): the Secret NAMES + this Pod's namespace so the
+            # reconcile loop's refresh_kc_credentials() can re-read the LIVE
+            # Secret each tick. A secretKeyRef env (KC_ADDR/KC_SA_* below) is
+            # snapshotted at Pod start and NEVER hot-reloads when the
+            # reflected Secret content changes — the #4325 de-vcluster
+            # keycloak-addr correction left the long-lived reconciler curling
+            # the dead `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc` host
+            # forever, so NO `sso/<app>` bundle was seeded and grafana (et al)
+            # wedged at 503. These let the script re-read by NAME each tick.
+            - name: KC_CREDENTIALS_SECRET_NAME
+              value: {{ .Values.keycloak.credentialsSecretName | quote }}
+            - name: KC_MASTER_CREDENTIALS_SECRET_NAME
+              value: {{ .Values.keycloak.masterAdminCredentialsSecretName | quote }}
+            - name: RECONCILER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: KC_SA_CLIENT_ID
               valueFrom:
                 secretKeyRef:
