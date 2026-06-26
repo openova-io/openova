@@ -1165,7 +1165,15 @@ spec:
       #   delete-cascade (both already merged). 89993b2 descends from b23af68 → it
       #   keeps the #4393 Guaranteed-QoS vcluster fix too. Lockstep w/ Chart.yaml.
       #   Refs #4464 #4455 #4462 #4393.
-      version: 1.4.895
+      # 1.4.896 — #4471/#4462: org-controller ClusterRole gains update + patch on the
+      #   MAIN `organizations` resource. The #4462 delete-cascade added finalizer
+      #   add/remove via client.Update on the parent Org object, but the ClusterRole
+      #   granted update/patch only on /status + /finalizers SUBRESOURCES — so every
+      #   reconcile 403'd on the first finalizer-add (`cannot update resource
+      #   "organizations"`), producing NO tenant-networking finalizer, per-Org cert,
+      #   console-https-<slug> listener, or pool DNS on a fresh prov. Additive RBAC
+      #   widening. Lockstep w/ Chart.yaml. Refs #4471 #4462 #4290.
+      version: 1.4.896
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

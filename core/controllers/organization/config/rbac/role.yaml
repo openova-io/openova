@@ -23,9 +23,15 @@ metadata:
     app.kubernetes.io/component: controller
     app.kubernetes.io/managed-by: catalyst
 rules:
+  # #4471/#4462: the reconciler adds/removes finalizers via client.Update on
+  # the MAIN Organization object, which requires update/patch on the
+  # `organizations` resource — the `organizations/finalizers` subresource
+  # grant alone is NOT sufficient (client.Update writes the parent, not the
+  # /finalizers subresource). Without this every reconcile 403s on the first
+  # finalizer-add and no per-Org boundary is produced.
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations/status"]
     verbs: ["get", "update", "patch"]

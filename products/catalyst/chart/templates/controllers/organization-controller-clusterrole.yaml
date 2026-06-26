@@ -27,9 +27,20 @@ metadata:
   labels:
     {{- include "controllers.labels" (dict "name" "organization" "root" .) | nindent 4 }}
 rules:
+  # #4471/#4462: the controller adds + removes the tenant-networking,
+  # iac-bootstrap, and per-org-realm finalizers via client.Update on the
+  # MAIN Organization object (organization_controller.go ~L455/469/484 add,
+  # ~L399/413/431 remove). controller-runtime's client.Update writes the
+  # parent resource — k8s only routes to the `organizations/finalizers`
+  # subresource when the request explicitly targets `.../finalizers`, which
+  # it does not here. So `organizations/finalizers:update` is NOT sufficient;
+  # the controller needs `update` (and `patch` for any SSA path) on the
+  # `organizations` resource itself, otherwise EVERY reconcile bails on the
+  # first finalizer-add with `cannot update resource "organizations"` and no
+  # per-Org boundary is ever produced (#4462 delete-cascade regression).
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations/status"]
     verbs: ["get", "update", "patch"]
