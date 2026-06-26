@@ -3318,7 +3318,18 @@ name: bp-catalyst-platform
 #   bump back to b23af68, shipping org-controller WITHOUT #4455 tenant-dns +
 #   #4462 delete-cascade on every fresh prov). 89993b2 is a descendant of b23af68
 #   so it retains #4393 Guaranteed-QoS. Lockstep w/ bootstrap-kit slot 13 pin.
-version: 1.4.909
+# 1.4.910 — #4111: catalog-seed bp-agenity spec.source.version 0.5.12 -> 0.5.13
+#   lockstep follow-up to #4494. #4494 bumped the seed Blueprint's spec.version
+#   to 0.5.13 (the chart carrying imagePullSecrets:[ghcr-pull], #4111 image-pull
+#   fix) but LEFT spec.source.version at 0.5.12. Flux resolves the chart from
+#   source.version, so every Sovereign still pulled bp-agenity@0.5.12 (the OLD
+#   chart WITHOUT imagePullSecrets) -> the per-Org agenity pod stayed
+#   Init:ImagePullBackOff (private ghcr.io/openova-io/agenity image, 401
+#   anonymous). Now that #4417 dropped resource-policy:keep, a matched
+#   source.version reaches the LIVE Blueprint CR zero-touch. Chart 0.5.13 is a
+#   published OCI artifact. Bump bp-catalyst-platform chart + bootstrap-kit
+#   slot 13 pin in lockstep so Flux re-rolls the seed. Refs #4111 #4494 #4417.
+version: 1.4.910
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)

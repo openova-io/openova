@@ -6010,7 +6010,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.12
+    version: 0.5.13
   topology:
     supported:
       - singleton
