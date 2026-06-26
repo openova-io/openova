@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T02:15:02Z` |
+| Last refreshed | `2026-06-26T02:30:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 15 |
 | Open DoD gates | 0 / 41 |
@@ -222,6 +222,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T02:27 | [#4419](https://github.com/openova-io/openova/pull/4419) | #4405 | fix(provisioning #4404): widen funnel day-2 install Gitea-ra |
 | 2026-06-26T01:57 | [#4418](https://github.com/openova-io/openova/pull/4418) | #4212 | fix(catalyst): spine apps ADOPT bootstrap HR + config→spec.p |
 | 2026-06-26T01:25 | [#4414](https://github.com/openova-io/openova/pull/4414) | #4272 | fix(catalog-seed #4413): bp-openclaw 0.2.8 → 0.2.11 so #4272 |
 | 2026-06-26T00:49 | [#4412](https://github.com/openova-io/openova/pull/4412) | #4403 | fix(bp-postgres #4411): unwedge bp-postgres:0.2.6 publish —  |
@@ -251,7 +252,6 @@ flowchart LR
 | 2026-06-25T17:55 | [#4377](https://github.com/openova-io/openova/pull/4377) | #4367 | fix(bp-gitea): gitdata-preservation guard image → harbor-pro |
 | 2026-06-25T18:25 | [#4376](https://github.com/openova-io/openova/pull/4376) | #4325 | fix(catalyst): org-services + catalyst-api NATS_URL default  |
 | 2026-06-25T17:40 | [#4371](https://github.com/openova-io/openova/pull/4371) | #4272 | fix(funnel): make openclaw + stalwart deployable through the |
-| 2026-06-25T17:20 | [#4367](https://github.com/openova-io/openova/pull/4367) | #4354 | fix(bp-gitea): preserve git-data PVC on vcluster→host-ns re- |
 
 ---
 
