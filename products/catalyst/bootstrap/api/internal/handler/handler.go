@@ -389,6 +389,16 @@ type Handler struct {
 	// exercised without standing up a real cluster.
 	sovereignSMTPSeedClientFactory SovereignSMTPSeedClientFactory
 
+	// ── NewAPI admin-token OpenBao seed (issue #4477 secondary; ADR-0003) ───
+	// newapiAdminTokenSecretReader — test-only override for reading the
+	// bridge ADMIN_SECRET from the in-cluster
+	// `newapi-bp-newapi-token-signing-key` Secret. Production leaves this
+	// nil and seedNewapiAdminToken falls back to
+	// inClusterNewapiBridgeAdminSecret (rest.InClusterConfig). Tests inject
+	// a closure returning a fixed value (or NotFound) so the OpenBao-write
+	// path is exercised without a real apiserver.
+	newapiAdminTokenSecretReader NewapiAdminTokenSecretReader
+
 	// ── Multi-zone PowerDNS (issue #827, parent epic #825) ──────────────────
 	// powerdnsZoneClient — narrow client for runtime parent-zone creation.
 	// The bootstrap-kit's bp-powerdns Helm hook Job creates the operator's

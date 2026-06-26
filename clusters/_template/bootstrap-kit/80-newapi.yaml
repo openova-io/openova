@@ -301,7 +301,11 @@ spec:
       # 1.4.134 — #4477: admin-promote CronJob self-heals a stale OIDC provider
       #   client_secret (resync_provider_secret) so a KC client-secret rotation
       #   no longer wedges newapi token-exchange ("Failed to get token").
-      version: 1.4.135
+      # 1.4.136 — #4477 secondary: catalyst-newapi-admin-token ExternalSecret
+      #   remoteRef.key → catalyst/newapi/admin-token (the path catalyst-api's
+      #   seedNewapiAdminToken seam writes); fixes the SecretSyncedError that
+      #   left unified-rbac's admin-API calls 401'd on a fresh prov.
+      version: 1.4.136
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -330,7 +334,9 @@ spec:
   #   - credentials.existingSecret   = SESSION_SECRET + CRYPTO_SECRET
   #                                    (rotated via OpenBao)
   #   - catalystIntegration.externalSecret.remoteRef.key
-  #                                  = sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
+  #                                  = catalyst/newapi/admin-token
+  #     (cluster-shared; written by catalyst-api's seedNewapiAdminToken
+  #      seam under the writable `secret/catalyst/*` subtree — #4477)
   #   - defaultChannels.vllm.enabled = true (first-otech)
   #   - defaultChannels.vllm.endpoint
   #     + defaultChannels.vllm.attestation.owner
@@ -428,10 +434,20 @@ spec:
           kind: ClusterSecretStore
           name: vault-region1
         remoteRef:
-          # Canonical OpenBao path per docs/INVIOLABLE-PRINCIPLES.md #4.
-          # Under the `vault-region1` store's `secret/` mount the full
-          # path is `secret/sovereign/<fqdn>/newapi/admin-token`.
-          key: sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
+          # OpenBao path WRITTEN by catalyst-api's seedNewapiAdminToken seam
+          # (#4477). Under the `vault-region1` store's `secret/` mount the
+          # full path is `secret/catalyst/newapi/admin-token`. The
+          # `catalyst/` prefix is the ONLY sub-tree a Sovereign's
+          # catalyst-api can write (its `catalyst-api-write` OpenBao role is
+          # scoped to `secret/{data,metadata}/catalyst/*`; a write to
+          # `secret/sovereign/*` 403s), so the producer + read-path share
+          # this prefix in lock-step — identical pattern to the anthropic /
+          # mcp-bearer seeds. The seed propagates NewAPI's bridge
+          # ADMIN_SECRET verbatim so this token MATCHES what the
+          # sandbox-bridge validates. Cluster-shared (one path serves the
+          # whole Sovereign's unified-rbac), so ${SOVEREIGN_FQDN} is no
+          # longer in the path.
+          key: catalyst/newapi/admin-token
           property: ADMIN_API_TOKEN
     # Default channels — chart-side composition (channel #1 first).
     #

@@ -774,7 +774,8 @@ spec:
             # `catalyst-newapi-admin-token` Secret rendered by the
             # bp-newapi chart's ExternalSecret (key ADMIN_API_TOKEN,
             # source ClusterSecretStore `vault-region1`, OpenBao path
-            # `sovereign/<sovereign-fqdn>/newapi/admin-token`).
+            # `catalyst/newapi/admin-token` — written by catalyst-api's
+            # seedNewapiAdminToken seam, #4477).
             #
             # Same cross-namespace pattern as `sme-secrets` above: the
             # ExternalSecret lands the Secret in the `newapi` namespace

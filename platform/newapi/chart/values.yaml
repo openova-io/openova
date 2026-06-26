@@ -747,10 +747,13 @@ reseller:
 # the responsibility of the NewAPI admin API itself, not this chart.
 catalystIntegration:
   enabled: true
-  # ExternalSecret name carrying the admin API token NewAPI generates at
-  # bootstrap. Required key: ADMIN_API_TOKEN. The token is rotated by
-  # the operator on a schedule documented in
-  # docs/CATALYST-CLI-AGENT.md.
+  # ExternalSecret name carrying the admin API token. The token value is
+  # NewAPI's bridge ADMIN_SECRET (the bearer the sandbox-bridge validates),
+  # propagated into OpenBao by catalyst-api's seedNewapiAdminToken seam at
+  # provisioning time (#4477) and distributed back via this ExternalSecret.
+  # Required key: ADMIN_API_TOKEN. Rotation: re-running the seam (every Org
+  # reconcile) re-propagates the current bridge ADMIN_SECRET, so a manual
+  # rotation of the token-signing-key Secret self-heals on the next reconcile.
   existingSecret: "catalyst-newapi-admin-token"
   # Comma-separated list of namespaces emberstack/reflector mirrors the
   # rendered Secret into (TBD-V15 / #2021). Default `catalyst-system`
@@ -764,14 +767,18 @@ catalystIntegration:
   # controllers in other namespaces need the same bearer locally.
   reflectorNamespaces: "catalyst-system"
   # ExternalSecret render — gated, default true. Sources the admin token
-  # from the operator's OpenBao via a ClusterSecretStore (default
+  # from the Sovereign's OpenBao via a ClusterSecretStore (default
   # `vault-region1`, the bp-external-secrets-stores default). The remote
-  # path is operator-supplied; the canonical convention per
-  # docs/INVIOLABLE-PRINCIPLES.md #4 is
-  # `sovereign/<sovereign-fqdn>/newapi/admin-token` (under the store's
-  # `secret/` mount) with property `ADMIN_API_TOKEN`. The cluster overlay
-  # at `clusters/<sovereign>/bootstrap-kit/80-newapi.yaml` sets
-  # `externalSecret.remoteRef.key` per Sovereign.
+  # path is WRITTEN by catalyst-api's seedNewapiAdminToken seam (#4477):
+  # the canonical, cluster-shared path is `catalyst/newapi/admin-token`
+  # (under the store's `secret/` mount) with property `ADMIN_API_TOKEN`.
+  # The `catalyst/` prefix is the ONLY sub-tree a Sovereign's catalyst-api
+  # can write (its `catalyst-api-write` OpenBao role is scoped to
+  # `secret/{data,metadata}/catalyst/*`), so the producer + this read-path
+  # share the prefix in lock-step. The cluster overlay at
+  # `clusters/<sovereign>/bootstrap-kit/80-newapi.yaml` sets
+  # `externalSecret.remoteRef.key` (default template ships
+  # `catalyst/newapi/admin-token`).
   externalSecret:
     enabled: true
     refreshInterval: "1h"
@@ -786,9 +793,10 @@ catalystIntegration:
     # convention. Operator overlay supplies the per-Sovereign value.
     remoteRef:
       # `key` is the OpenBao path under the ClusterSecretStore's base
-      # path (`secret/` in the Catalyst default). Operator overlay
-      # supplies the per-Sovereign value, e.g.:
-      #   sovereign/omantel.omani.works/newapi/admin-token
+      # path (`secret/` in the Catalyst default). Written by catalyst-api's
+      # seedNewapiAdminToken seam (#4477); the cluster overlay ships the
+      # canonical cluster-shared value:
+      #   catalyst/newapi/admin-token
       key: ""
       # `property` is the JSON field inside the OpenBao secret holding
       # the bearer token used by the Catalyst signup hook (ADR-0003 §3.2).
