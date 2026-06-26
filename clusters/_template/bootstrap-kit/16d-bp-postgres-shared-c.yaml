@@ -75,7 +75,7 @@ spec:
       # the 4 vc-mgmt-homed deadlock apps; newapi keeps its `newapi/*` fromHost
       # wildcard per #3876), so this slot renders byte-identical to 0.2.2 on the
       # additive chart. Lockstep with 16a/16c. Refs #3876 #3374 #3737.
-      version: 0.2.6
+      version: 0.2.7
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -117,6 +117,11 @@ spec:
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
+      # #4442 — HOST shared-data instance: open 5432 to cross-namespace
+      # consumers (the singleton operator-probe NP otherwise default-denies
+      # them). See slot 16a for the full rationale.
+      networkPolicy:
+        sharedConsumers: true
     # The Organization-mesh bindings: three isolated databases, ONE role `org`
     # (chart 0.1.5 dedupes the role + password Secret across same-owner
     # bindings). Database names mirror orgPostgres.cluster.database +

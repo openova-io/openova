@@ -113,7 +113,17 @@ name: bp-postgres
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
 # 0.2.5 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 0.2.6
+# 0.2.7 (#4442): the SINGLETON operator-probe NetworkPolicy (#4282/#4398) selects the
+#   Cluster Pods with policyTypes:[Ingress] → DEFAULT-DENIES 5432 to cross-namespace
+#   consumers. That was written for the per-Org #4398 path (allow-same-org covers
+#   same-Org consumers) but ALSO renders for the HOST shared-data singletons
+#   (shared-pg/-b/-c) whose consumers (keycloak/gitea/harbor/grafana/powerdns/newapi)
+#   live in OTHER namespaces with NO allow-same-org → keycloak-0 → shared-pg-rw JDBC
+#   timeout, whole SSO chain wedged (live fresh-prov regression b9f9590b, 2026-06-26;
+#   the singleton analogue of the 0.2.1/#3577 active-hot-standby consumer-allow).
+#   Adds topology.networkPolicy.sharedConsumers (default false → per-Org byte-identical);
+#   slots 16a/16c/16d set it true → the probe NP also opens 5432 namespaceSelector:{}.
+version: 0.2.7
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
