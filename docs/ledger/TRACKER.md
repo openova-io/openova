@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T17:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-06-26T18:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 35 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -242,6 +242,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T17:54 | [#4491](https://github.com/openova-io/openova/pull/4491) | #4002 | fix(crossplane): route provider-opentofu xpkg pull off the p |
+| 2026-06-26T17:48 | [#4490](https://github.com/openova-io/openova/pull/4490) | #4470 | fix(bp-plane-isolation): annotate smoke-render-mode=default- |
+| 2026-06-26T17:47 | [#4489](https://github.com/openova-io/openova/pull/4489) | #4415 | docs(uat): restore 9 §A/§F walker-PASS rows + re-baseline #3 |
+| 2026-06-26T17:45 | [#4487](https://github.com/openova-io/openova/pull/4487) | #3375 | fix(catalyst-api): DR backbone self-fires for a converged pr |
 | 2026-06-26T17:12 | [#4485](https://github.com/openova-io/openova/pull/4485) | #4454 | docs: janitor self-reap post-mortem (VPC guard-chain) + sove |
 | 2026-06-26T17:07 | [#4484](https://github.com/openova-io/openova/pull/4484) | #4279 | docs(uat): live fresh-prov 91dc0591 walk results — 57✅/16❌/1 |
 | 2026-06-26T16:01 | [#4483](https://github.com/openova-io/openova/pull/4483) | #4325 | fix(bp-catalyst-platform #4482): reflect catalyst-gitea-toke |
@@ -268,10 +272,6 @@ flowchart LR
 | 2026-06-26T08:20 | [#4440](https://github.com/openova-io/openova/pull/4440) | #4325 | fix(bp-sso-bridge #4437): re-read keycloak creds each tick — |
 | 2026-06-26T08:29 | [#4439](https://github.com/openova-io/openova/pull/4439) | #4436 | fix(catalyst-api): re-stamp secondary-region shared-pg WRITE |
 | 2026-06-26T08:12 | [#4435](https://github.com/openova-io/openova/pull/4435) | #4431 | fix(catalyst): reclaim leaked HCS VPC quota so fresh multi-r |
-| 2026-06-26T07:58 | [#4433](https://github.com/openova-io/openova/pull/4433) | #4417 | fix(catalog-seed #4432): bump 3 stale catalog-seed pins to b |
-| 2026-06-26T05:37 | [#4430](https://github.com/openova-io/openova/pull/4430) | #4018 | fix(bp-crossplane): crossplane-core OOMKilled at 2Gi → raise |
-| 2026-06-26T04:28 | [#4429](https://github.com/openova-io/openova/pull/4429) | #4360 | fix(bp-plane-isolation): admit kube-apiserver egress entity  |
-| 2026-06-26T03:48 | [#4427](https://github.com/openova-io/openova/pull/4427) | #4423 | fix(cloud-init): reflect ghcr-pull into bare-slug per-Org na |
 
 ---
 
