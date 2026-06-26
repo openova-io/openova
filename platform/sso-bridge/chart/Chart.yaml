@@ -1,6 +1,26 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.23
+version: 0.2.24
+# 0.2.24 (#4458, 2026-06-26): EGRESS half of the #4448/#4449 sso-bridge↔openbao
+# netpol gap. THE CILIUM TRAP: the `sso-bridge-reconciler-apiserver`
+# CiliumNetworkPolicy attaches an egress rule to the reconciler endpoint, which
+# flips the endpoint to CNP-ENFORCED egress (Cilium default-deny) and renders
+# the sibling K8s `NetworkPolicy/bp-sso-bridge` egress allow-list (DNS, keycloak,
+# openbao) INERT — a plain K8s-NP `to openbao:8200` cannot override a CNP that
+# does not also name openbao (reserved-identity supersession, same class as
+# 0.2.7/#2861 ipBlock-excludes-kube-apiserver + openclaw #4401 JWKS-egress).
+# Pre-0.2.24 the CNP egress listed ONLY kube-apiserver, so the reconciler's
+# `openbao.openbao.svc:8200` + `keycloak.keycloak.svc:8080` dials were silently
+# policy-dropped at the Cilium datapath: `no OpenBao token` every tick, NO
+# `secret/sso/*` bundle written, grafana/hubble 503 + gitea 500 (their SSO secret
+# never seeded). §6's UAT walk caught the live failure; ade30ccb's #4449 note
+# ("sso-bridge's OWN egress NetworkPolicy already permits openbao:8200") was true
+# about the K8s-NP literal content but moot — the CNP supersedes it. Fix: the CNP
+# egress now ALSO names kube-dns (name-resolution must survive CNP enforcement),
+# keycloak, and openbao, keyed off the SAME `networkPolicy.*` namespace/port knobs
+# the K8s NetworkPolicy uses so the two stay in lockstep + overlay-tunable. New
+# chart test 4458-egress-cnp-openbao.sh guards the openbao egress entry. Refs
+# #4458 #4449 #4448 #4437 #4347 #4325.
 # 0.2.23 (#4437, 2026-06-26): re-read the keycloak credentials Secret EACH
 # TICK so a reflected `addr`/`client-secret` change is picked up without a
 # pod roll — the permanent fix for grafana (et al) 503 on omantel.biz.

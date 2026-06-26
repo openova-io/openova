@@ -15,6 +15,31 @@ CiliumNetworkPolicy toEntities is the canonical expression. Gated on
 the cilium.io/v2 Capabilities check (the #2988 idiom) so the chart
 still installs on CRD-less clusters (kind CI) where the K8s
 NetworkPolicy below is not enforced by an identity-aware agent anyway.
+
+0.2.24 (#4458 — the EGRESS half of the #4448/#4449 sso-bridge↔openbao
+netpol gap): THE CILIUM TRAP. The moment THIS CiliumNetworkPolicy
+attaches ANY egress rule to the reconciler endpoint, that endpoint's
+egress becomes CNP-ENFORCED (Cilium default-deny on the endpoint), and
+EVERY rule in the sibling K8s `NetworkPolicy/bp-sso-bridge` egress
+allow-list (DNS, keycloak, openbao) is rendered INERT — a plain
+K8s-NetworkPolicy `to openbao:8200` cannot override a CNP that does not
+name openbao (same reserved-identity supersession class as 0.2.7/#2861
+where ipBlock 0.0.0.0/0 excluded kube-apiserver, and openclaw #4401
+where a CNP egress had to add `toEntities:[world]` to un-block the JWKS
+fetch a K8s-NP ipBlock could no longer reach). So the pre-0.2.24 CNP —
+listing ONLY kube-apiserver — silently policy-DROPPED the reconciler's
+`openbao.openbao.svc:8200` + `keycloak.keycloak.svc:8080` dials at the
+Cilium datapath: every tick logged `no OpenBao token` / `mint Keycloak
+admin token` curl(28), NO `secret/sso/*` bundle was written, and
+grafana/hubble/gitea wedged at 503/500 with their SSO secret never
+seeded. This was the live failure §6's UAT walk caught; ade30ccb's
+#4449 note ("sso-bridge's OWN egress NetworkPolicy already permits
+openbao:8200") was true about the K8s-NP's literal content but moot —
+the CNP supersedes it. Fix: this CNP egress now ALSO names kube-dns
+(so name-resolution survives CNP enforcement), keycloak, and openbao,
+keyed off the SAME `.Values.networkPolicy.*` namespace/port knobs the
+K8s NetworkPolicy uses so the two stay in lockstep + overlay-tunable.
+Refs #4458 #4449 #4448 #4437 #4347 #4325.
 */ -}}
 {{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
 apiVersion: cilium.io/v2
@@ -31,6 +56,7 @@ spec:
     matchLabels:
       app.kubernetes.io/name: sso-bridge-reconciler
   egress:
+    # Kubernetes apiserver — list HRs cluster-wide, write ExternalSecret CRs.
     - toEntities:
         - kube-apiserver
       toPorts:
@@ -38,5 +64,43 @@ spec:
             - port: "6443"
               protocol: TCP
             - port: "443"
+              protocol: TCP
+    # Cluster DNS — once this CNP enforces egress, the K8s-NP kube-dns
+    # allow is inert too, so name-resolution MUST be re-stated here or the
+    # reconciler can no longer resolve keycloak/openbao Service names.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # Keycloak admin endpoint — mirrors the K8s-NP keycloak egress
+    # (Service port + Pod target port 8080; Cilium enforces on the Pod
+    # target port — the 0.2.6/#2744 finding). Namespace + port from the
+    # SAME networkPolicy.keycloak* knobs so a per-Sovereign overlay that
+    # re-homes keycloak (e.g. into a vCluster `mgmt` ns) re-points BOTH
+    # the K8s NP and this CNP in one place.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Values.networkPolicy.keycloakNamespace }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.networkPolicy.keycloakPort | quote }}
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+    # OpenBao admin endpoint — the gap §6 caught. Mirror of the K8s-NP
+    # openbao egress, keyed off networkPolicy.openbao* so it tracks any
+    # overlay relocation of openbao alongside the K8s NP.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Values.networkPolicy.openbaoNamespace }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.networkPolicy.openbaoPort | quote }}
               protocol: TCP
 {{- end }}
