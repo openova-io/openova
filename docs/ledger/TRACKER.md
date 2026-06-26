@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T15:45:03Z` |
+| Last refreshed | `2026-06-26T16:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 32 |
+| Open issues | 33 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 32 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 33 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 32 open items (clickable table)
+### All 33 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -232,6 +232,7 @@ flowchart LR
 | [#4475](https://github.com/openova-io/openova/issues/4475) | Org vcluster-tier convergence: CiliumNetworkPolicy can't apply inside vanilla vc | Other |
 | [#4477](https://github.com/openova-io/openova/issues/4477) | SSO seeding faults on fresh prov: openbao external-group alias never binds (admi | Other |
 | [#4479](https://github.com/openova-io/openova/issues/4479) | console org-list/detail reads only local provision store, not orgs.openova.io CR | Other |
+| [#4482](https://github.com/openova-io/openova/issues/4482) | bp-sandbox: sandbox-controller CrashLoop — catalyst-gitea-token never reflecte | Other |
 
 ---
 
@@ -239,6 +240,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T15:50 | [#4481](https://github.com/openova-io/openova/pull/4481) | #4477 | fix(bp-openbao,bp-newapi): two fresh-prov SSO seeding faults |
 | 2026-06-26T15:27 | [#4478](https://github.com/openova-io/openova/pull/4478) | #4474 | fix(org-controller): CRD clientSecretRef value-struct trap + |
 | 2026-06-26T15:13 | [#4476](https://github.com/openova-io/openova/pull/4476) | #4293 | fix(provisioning): funnel plan selection propagates to the O |
 | 2026-06-26T15:05 | [#4472](https://github.com/openova-io/openova/pull/4472) | #4462 | fix(org-controller #4471): ClusterRole gains update+patch on |
@@ -268,7 +270,6 @@ flowchart LR
 | 2026-06-26T03:30 | [#4424](https://github.com/openova-io/openova/pull/4424) | #4421 | fix(provisioning): align funnel Org DNS pool with the apps-H |
 | 2026-06-26T02:30 | [#4420](https://github.com/openova-io/openova/pull/4420) | #4282 | fix(application-controller): roll vCluster-placed Applicatio |
 | 2026-06-26T02:27 | [#4419](https://github.com/openova-io/openova/pull/4419) | #4405 | fix(provisioning #4404): widen funnel day-2 install Gitea-ra |
-| 2026-06-26T01:57 | [#4418](https://github.com/openova-io/openova/pull/4418) | #4212 | fix(catalyst): spine apps ADOPT bootstrap HR + config→spec.p |
 
 ---
 
