@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T07:45:02Z` |
+| Last refreshed | `2026-06-26T08:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 9 |
+| Open issues | 11 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 9 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 11 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 9 open items (clickable table)
+### All 11 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -209,6 +209,8 @@ flowchart LR
 | [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
+| [#4431](https://github.com/openova-io/openova/issues/4431) | Fresh multi-region HCS prov false-fails on VPC quota — orphan VPCs leak quota  | Other |
+| [#4432](https://github.com/openova-io/openova/issues/4432) | fix(catalog-seed): pre-fresh-prov permanence — 3 stale catalog-seed pins lag t | Other |
 
 ---
 
@@ -216,6 +218,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T07:58 | [#4433](https://github.com/openova-io/openova/pull/4433) | #4417 | fix(catalog-seed #4432): bump 3 stale catalog-seed pins to b |
 | 2026-06-26T05:37 | [#4430](https://github.com/openova-io/openova/pull/4430) | #4018 | fix(bp-crossplane): crossplane-core OOMKilled at 2Gi → raise |
 | 2026-06-26T04:28 | [#4429](https://github.com/openova-io/openova/pull/4429) | #4360 | fix(bp-plane-isolation): admit kube-apiserver egress entity  |
 | 2026-06-26T03:48 | [#4427](https://github.com/openova-io/openova/pull/4427) | #4423 | fix(cloud-init): reflect ghcr-pull into bare-slug per-Org na |
@@ -245,7 +248,6 @@ flowchart LR
 | 2026-06-25T20:17 | [#4391](https://github.com/openova-io/openova/pull/4391) | #4388 | fix(#4325 fallout): completeness sweep — repoint ALL remaini |
 | 2026-06-25T20:00 | [#4390](https://github.com/openova-io/openova/pull/4390) | #4322 | fix(bp-catalyst-platform #4389): keycloakHostBridge.keycloak |
 | 2026-06-25T19:18 | [#4387](https://github.com/openova-io/openova/pull/4387) | #4322 | fix(provisioning): funnel cart day-2 install commits to per- |
-| 2026-06-25T19:00 | [#4386](https://github.com/openova-io/openova/pull/4386) | #4325 | fix(bp-plane-isolation): comprehensive de-vcluster dial-grap |
 
 ---
 
