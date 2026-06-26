@@ -1144,7 +1144,7 @@ spec:
       #   zero-touch so catalog-sovereign + org-tenants GitRepositories reach
       #   Ready on a fresh prov (no manual secret-recreation). Lockstep w/
       #   Chart.yaml + the new guard test. Refs #4447.
-      version: 1.4.886
+      version: 1.4.887
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
