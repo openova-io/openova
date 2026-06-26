@@ -264,6 +264,93 @@ func TestReconcileTenantDNS_SelfHealsViaLiveSecretRead(t *testing.T) {
 	}
 }
 
+// TestReconcileTenantDNS_SelfHealsViaSourceSecretRead is the #4475 §2 regression
+// lock: when the env-frozen pool key is EMPTY and the bridged DESTINATION Secret
+// (`catalyst-system/pool-powerdns-api-credentials`) is STILL ABSENT (bp-reflector
+// never re-emitted after the late source-create), but the reflector SOURCE Secret
+// (`cert-manager/powerdns-api-credentials`) now carries the key, the reconciler
+// must FALL BACK to reading the SOURCE directly and write the per-Org A-records —
+// sidestepping the stuck reflector entirely. Without this, console.<slug>.<pool>
+// stays NXDOMAIN forever even though the central key is present in cert-manager.
+func TestReconcileTenantDNS_SelfHealsViaSourceSecretRead(t *testing.T) {
+	t.Parallel()
+	var cap capturedPatch
+	srv := newPDNSStub(t, &cap)
+	defer srv.Close()
+
+	// ONLY the reflector SOURCE exists (cert-manager). The bridged destination
+	// (catalyst-system/pool-powerdns-api-credentials) is deliberately absent —
+	// the reflector never re-emitted.
+	src := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "powerdns-api-credentials",
+			Namespace: "cert-manager",
+		},
+		Data: map[string][]byte{"api-key": []byte("source-pool-key")},
+	}
+	cl := fake.NewClientBuilder().WithScheme(secretScheme(t)).WithObjects(src).Build()
+
+	r := &Reconciler{
+		Client:              cl,
+		Log:                 logr.Discard(),
+		PoolPowerDNSURL:     srv.URL,
+		PoolPowerDNSAPIKey:  "", // env frozen EMPTY (pre-reflection Pod start)
+		TenantConsoleLBIPv4: "212.72.24.33",
+		// Destination + source secret name/namespace default to the #4218 chart
+		// PULL-stub values — match the fixture above without setting them.
+	}
+
+	changed, err := r.reconcileTenantDNS(context.Background(), orgWithTenantPublic("omani.works", "f4475done"))
+	if err != nil {
+		t.Fatalf("reconcileTenantDNS: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected changed=true — SOURCE Secret read should have supplied the key when the bridged destination was absent")
+	}
+	if cap.apiKey != "source-pool-key" {
+		t.Errorf("X-API-Key: got %q, want source-pool-key (proves the SOURCE-secret fallback was used, not the missing destination)", cap.apiKey)
+	}
+	rrsets, _ := cap.body["rrsets"].([]any)
+	if len(rrsets) != 2 {
+		t.Fatalf("rrsets: got %d, want 2 (console + wildcard)", len(rrsets))
+	}
+}
+
+// TestReconcileTenantDNS_PrefersDestinationOverSource locks the source ordering:
+// when BOTH the bridged destination AND the reflector source carry a key, the
+// reconciler must use the DESTINATION (the controller's own namespace, the
+// steady-state path) — the source read is a fallback only.
+func TestReconcileTenantDNS_PrefersDestinationOverSource(t *testing.T) {
+	t.Parallel()
+	var cap capturedPatch
+	srv := newPDNSStub(t, &cap)
+	defer srv.Close()
+
+	dst := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-powerdns-api-credentials", Namespace: "catalyst-system"},
+		Data:       map[string][]byte{"api-key": []byte("destination-key")},
+	}
+	src := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "powerdns-api-credentials", Namespace: "cert-manager"},
+		Data:       map[string][]byte{"api-key": []byte("source-key")},
+	}
+	cl := fake.NewClientBuilder().WithScheme(secretScheme(t)).WithObjects(dst, src).Build()
+
+	r := &Reconciler{
+		Client:              cl,
+		Log:                 logr.Discard(),
+		PoolPowerDNSURL:     srv.URL,
+		PoolPowerDNSAPIKey:  "",
+		TenantConsoleLBIPv4: "212.72.24.33",
+	}
+	if _, err := r.reconcileTenantDNS(context.Background(), orgWithTenantPublic("omani.works", "f4475pref")); err != nil {
+		t.Fatalf("reconcileTenantDNS: %v", err)
+	}
+	if cap.apiKey != "destination-key" {
+		t.Errorf("X-API-Key: got %q, want destination-key (the bridged destination must be preferred over the source)", cap.apiKey)
+	}
+}
+
 // TestReconcileTenantDNS_LoudFailWhenKeyMissing locks the loud-fail guard: when
 // the pool URL is configured (this Sovereign EXPECTS a central pool write) but
 // the key is absent from both env AND the live Secret, the reconciler must return

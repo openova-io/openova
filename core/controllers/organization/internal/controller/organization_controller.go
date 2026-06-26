@@ -305,6 +305,26 @@ type Reconciler struct {
 	PoolPowerDNSSecretName      string
 	PoolPowerDNSSecretNamespace string
 
+	// PoolPowerDNSSourceSecretName / PoolPowerDNSSourceSecretNamespace name the
+	// reflector SOURCE secret the bridged `pool-powerdns-api-credentials`
+	// destination is filled FROM (`cert-manager/powerdns-api-credentials`, the
+	// ${POWERDNS_API_KEY} central key bp-cert-manager-powerdns-webhook uses for
+	// DNS-01). #4475 §2 — the LAST-RESORT self-heal: bp-reflector only re-emits
+	// into the destination ON a reconcile cycle AFTER the source exists, and on a
+	// fresh prov the source is created LATE (cert-manager DNS-01 solver) — the
+	// reflector logged `Source could not be found` on its first pass and then
+	// never re-scanned the target after the source appeared, so the bridged
+	// DESTINATION stays empty and `console.<slug>.<pool>` stays NXDOMAIN even
+	// though the SOURCE key is sitting in cert-manager. Reading the SOURCE secret
+	// directly when the destination is empty sidesteps the reflector entirely:
+	// the moment cert-manager creates the source, the very next Org reconcile
+	// resolves the key and writes the A-records — zero-touch, no reflector re-emit
+	// and no Pod roll. Env: CATALYST_POOL_POWERDNS_SOURCE_SECRET_NAME (default
+	// `powerdns-api-credentials`) / CATALYST_POOL_POWERDNS_SOURCE_SECRET_NAMESPACE
+	// (default `cert-manager`). The Secret's `api-key` key carries the value.
+	PoolPowerDNSSourceSecretName      string
+	PoolPowerDNSSourceSecretNamespace string
+
 	// PoolPowerDNSHTTPClient overrides the HTTP client used for the central-pdns
 	// PATCH (tests inject a client pointed at an httptest server). Nil → a 30s
 	// default client.
@@ -556,17 +576,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// #4384 — the funnel/day-2 cart install commits the customer's
 		// purchased Applications into THIS repo's `vcluster/apps/` tree and
 		// read-modify-writes `vcluster/apps/kustomization.yaml` to enumerate
-		// them (alongside the NP/CNP boundary baseline). If the controller
+		// them (alongside the NP boundary baseline). If the controller
 		// kept overwriting that index with its baseline-only list on every
 		// reconcile, it would CLOBBER the funnel's app entries → Flux's
 		// `kustomize build ./vcluster/apps` would drop the customer's apps and
 		// the wordpress HelmRelease would never land. So the apps
 		// kustomization is SEED-ONLY here: the controller creates it once (so a
 		// fresh Org has a valid index before any cart install) and never
-		// overwrites it thereafter. The boundary docs it references
-		// (networkpolicy.yaml / ciliumnetworkpolicy.yaml) are still authored +
-		// kept current via their own PutFile entries above/below, and the
-		// funnel's merge always re-includes them, so the baseline stays live.
+		// overwrites it thereafter. The K8s NetworkPolicy doc it references
+		// (networkpolicy.yaml) is still authored + kept current via its own
+		// PutFile entry, and the funnel's merge always re-includes it, so the
+		// baseline stays live. (#4475 §1: the CNP no longer lives in apps/ — it
+		// moved to the host-applied `vcluster/host-apps/` tree, whose
+		// kustomization index the controller keeps current since the funnel does
+		// NOT merge into it.)
 		if path == "vcluster/apps/kustomization.yaml" {
 			if _, gerr := r.GiteaClient.GetFile(ctx, gOrg.Username, repoName, branch, path); gerr == nil {
 				// Already present (seeded earlier, possibly funnel-merged) —

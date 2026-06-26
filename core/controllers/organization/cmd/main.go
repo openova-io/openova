@@ -175,6 +175,18 @@ func main() {
 			poolPowerDNSSecretNS = "catalyst-system"
 		}
 	}
+	// #4475 §2 SELF-HEAL — the reflector SOURCE secret the bridged destination
+	// above is filled FROM. bp-reflector only re-emits into the destination on a
+	// reconcile cycle AFTER the source exists; on a fresh prov the source is
+	// created LATE (cert-manager DNS-01 solver) and the reflector can fail to
+	// re-scan after the late source-create, leaving the bridged destination empty
+	// INDEFINITELY. These two name the SOURCE so the reconciler can read the key
+	// DIRECTLY from it as a last-resort fallback — sidestepping a stuck reflector.
+	// Defaults match the #4218 chart PULL-stub source
+	// (`cert-manager/powerdns-api-credentials`). Per Inviolable Principle #4, both
+	// env-overridable.
+	poolPowerDNSSourceSecretName := envOr("CATALYST_POOL_POWERDNS_SOURCE_SECRET_NAME", "powerdns-api-credentials")
+	poolPowerDNSSourceSecretNS := envOr("CATALYST_POOL_POWERDNS_SOURCE_SECRET_NAMESPACE", "cert-manager")
 	// tenantConsoleLBIPv4 — the dedicated console-ELB EIP (#4053) the per-Org
 	// console host resolves to. tenantPrimaryLBIPv4 — the primary/shared LB IP
 	// fallback for a single-LB / pre-#4053 Sovereign. Both empty → the write is
@@ -236,43 +248,45 @@ func main() {
 	}
 
 	r := &controller.Reconciler{
-		Client:                      mgr.GetClient(),
-		Log:                         log.WithName("reconciler"),
-		Keycloak:                    controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
-		PerOrgRealmEnabled:          perOrgRealmEnabled,
-		GiteaClient:                 giteaClient,
-		HostCluster:                 hostCluster,
-		EnvRegionProvider:           envRegionProvider,
-		EnvRegionCode:               envRegionCode,
-		EnvRegionBuildingBlock:      envRegionBuildingBlock,
-		VClusterChartVersion:        chartVer,
-		VClusterHelmRepoName:        helmRepoName,
-		VClusterHelmRepoNamespace:   helmRepoNs,
-		VClusterImageRegistry:       vclusterImageRegistry,
-		Branch:                      branch,
-		GiteaInClusterURL:           giteaInClusterURL,
-		FluxNamespace:               fluxNamespace,
-		FluxIntervalSeconds:         fluxIntervalSeconds,
-		FluxGiteaSecretRef:          fluxGiteaSecretRef,
-		FederationSecretNamespace:   fedSecretNs,
-		UserAccessNamespace:         uaNs,
-		IacBootstrapGitea:           iacGitea,
-		IacBootstrapTokens:          iacTokens,
-		ConsoleGatewayName:          consoleGatewayName,
-		ConsoleGatewayNamespace:     consoleGatewayNs,
-		ConsoleTLSClusterIssuer:     consoleTLSIssuer,
-		ConsoleTLSCertNamespace:     consoleTLSCertNs,
-		ConsoleRouteNamespace:       consoleRouteNs,
-		ConsoleAPIService:           consoleAPISvc,
-		ConsoleUIService:            consoleUISvc,
-		ConsoleAPIPort:              consoleAPIPort,
-		ConsoleUIPort:               consoleUIPort,
-		PoolPowerDNSURL:             poolPowerDNSURL,
-		PoolPowerDNSAPIKey:          poolPowerDNSAPIKey,
-		PoolPowerDNSSecretName:      poolPowerDNSSecretName,
-		PoolPowerDNSSecretNamespace: poolPowerDNSSecretNS,
-		TenantConsoleLBIPv4:         tenantConsoleLBIPv4,
-		TenantPrimaryLBIPv4:         tenantPrimaryLBIPv4,
+		Client:                            mgr.GetClient(),
+		Log:                               log.WithName("reconciler"),
+		Keycloak:                          controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
+		PerOrgRealmEnabled:                perOrgRealmEnabled,
+		GiteaClient:                       giteaClient,
+		HostCluster:                       hostCluster,
+		EnvRegionProvider:                 envRegionProvider,
+		EnvRegionCode:                     envRegionCode,
+		EnvRegionBuildingBlock:            envRegionBuildingBlock,
+		VClusterChartVersion:              chartVer,
+		VClusterHelmRepoName:              helmRepoName,
+		VClusterHelmRepoNamespace:         helmRepoNs,
+		VClusterImageRegistry:             vclusterImageRegistry,
+		Branch:                            branch,
+		GiteaInClusterURL:                 giteaInClusterURL,
+		FluxNamespace:                     fluxNamespace,
+		FluxIntervalSeconds:               fluxIntervalSeconds,
+		FluxGiteaSecretRef:                fluxGiteaSecretRef,
+		FederationSecretNamespace:         fedSecretNs,
+		UserAccessNamespace:               uaNs,
+		IacBootstrapGitea:                 iacGitea,
+		IacBootstrapTokens:                iacTokens,
+		ConsoleGatewayName:                consoleGatewayName,
+		ConsoleGatewayNamespace:           consoleGatewayNs,
+		ConsoleTLSClusterIssuer:           consoleTLSIssuer,
+		ConsoleTLSCertNamespace:           consoleTLSCertNs,
+		ConsoleRouteNamespace:             consoleRouteNs,
+		ConsoleAPIService:                 consoleAPISvc,
+		ConsoleUIService:                  consoleUISvc,
+		ConsoleAPIPort:                    consoleAPIPort,
+		ConsoleUIPort:                     consoleUIPort,
+		PoolPowerDNSURL:                   poolPowerDNSURL,
+		PoolPowerDNSAPIKey:                poolPowerDNSAPIKey,
+		PoolPowerDNSSecretName:            poolPowerDNSSecretName,
+		PoolPowerDNSSecretNamespace:       poolPowerDNSSecretNS,
+		PoolPowerDNSSourceSecretName:      poolPowerDNSSourceSecretName,
+		PoolPowerDNSSourceSecretNamespace: poolPowerDNSSourceSecretNS,
+		TenantConsoleLBIPv4:               tenantConsoleLBIPv4,
+		TenantPrimaryLBIPv4:               tenantPrimaryLBIPv4,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")

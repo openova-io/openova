@@ -281,22 +281,57 @@ func (r *Reconciler) poolPowerDNSSecretNamespace() string {
 	return "catalyst-system"
 }
 
-// resolvePoolPowerDNSAPIKey returns the central pool PowerDNS API key, preferring
-// the env-frozen value (CATALYST_POOL_POWERDNS_API_KEY, bound once at Pod start)
-// and FALLING BACK to a live read of the bridged Secret's `api-key` key when the
-// env is empty.
+// poolPowerDNSSourceSecretName / poolPowerDNSSourceSecretNamespace name the
+// reflector SOURCE secret the bridged destination is filled from (#4475 §2).
+// Defaults match the chart's #4218 reflector PULL-stub source: Secret
+// `powerdns-api-credentials` in `cert-manager`. Both are env-overridable per
+// Inviolable Principle #4.
+func (r *Reconciler) poolPowerDNSSourceSecretName() string {
+	if v := strings.TrimSpace(r.PoolPowerDNSSourceSecretName); v != "" {
+		return v
+	}
+	return "powerdns-api-credentials"
+}
+
+func (r *Reconciler) poolPowerDNSSourceSecretNamespace() string {
+	if v := strings.TrimSpace(r.PoolPowerDNSSourceSecretNamespace); v != "" {
+		return v
+	}
+	return "cert-manager"
+}
+
+// resolvePoolPowerDNSAPIKey returns the central pool PowerDNS API key, resolving
+// it from the first of three sources that carries a non-empty value:
 //
-// THE #4290/#4179 SELF-HEAL: the env var is a `secretKeyRef ... optional:true`
-// the kubelet resolves ONLY at Pod start. On a fresh prov the org-controller Pod
-// reliably starts before bp-reflector has copied
-// `cert-manager/powerdns-api-credentials` → `catalyst-system/pool-powerdns-api-credentials`
-// (the reflector itself depends on the sovereign-tls Kustomization seeding the
-// source first). With the env frozen empty and no checksum-annotation rolling the
-// Pod when the Secret later fills, the writer would log `have_key:false` and
-// silently skip the per-Org pool A-record FOREVER — leaving console.<slug>.<pool>
-// NXDOMAIN even after the key is sitting in the Secret. Reading the Secret live
-// each reconcile closes that race: the moment reflection completes, the very next
-// Org reconcile picks the key up and writes the record — zero-touch, no Pod roll.
+//  1. the env-frozen value (CATALYST_POOL_POWERDNS_API_KEY, bound once at Pod
+//     start);
+//  2. a live read of the bridged DESTINATION Secret's `api-key` key
+//     (`catalyst-system/pool-powerdns-api-credentials`) — the #4290/#4179
+//     self-heal;
+//  3. a live read of the reflector SOURCE Secret's `api-key` key
+//     (`cert-manager/powerdns-api-credentials`) — the #4475 §2 self-heal.
+//
+// THE #4290/#4179 SELF-HEAL (source 2): the env var is a `secretKeyRef ...
+// optional:true` the kubelet resolves ONLY at Pod start. On a fresh prov the
+// org-controller Pod reliably starts before bp-reflector has copied
+// `cert-manager/powerdns-api-credentials` → `catalyst-system/pool-powerdns-api-credentials`.
+// With the env frozen empty and no checksum-annotation rolling the Pod when the
+// Secret later fills, the writer would log `have_key:false` and silently skip the
+// per-Org pool A-record FOREVER. Reading the bridged DESTINATION live each
+// reconcile closes that race once reflection completes.
+//
+// THE #4475 §2 SELF-HEAL (source 3): bp-reflector only re-emits into the
+// destination on a reconcile cycle AFTER the source exists. On a fresh prov the
+// SOURCE (`cert-manager/powerdns-api-credentials`) is created LATE (cert-manager's
+// DNS-01 solver) — the reflector logged `Source could not be found` on its first
+// pass and then never re-scanned the target after the source appeared, so the
+// bridged DESTINATION can stay empty INDEFINITELY even though the SOURCE key is
+// present. Reading the SOURCE Secret directly when the destination is still empty
+// sidesteps the reflector entirely: the moment cert-manager creates the source,
+// the very next Org reconcile resolves the key and writes the A-records —
+// zero-touch, no reflector re-emit and no Pod roll. Source 2 (the bridged
+// destination) stays preferred so steady-state reads hit the controller's own
+// namespace; the SOURCE read is a fallback only.
 //
 // A read miss/error is non-fatal here (returns ""); the caller's loud-fail guard
 // decides whether an empty key is an error (pool URL configured) or a no-op
@@ -312,23 +347,44 @@ func (r *Reconciler) resolvePoolPowerDNSAPIKey(ctx context.Context) string {
 	if r.Client == nil {
 		return ""
 	}
-	var sec corev1.Secret
-	key := client.ObjectKey{
-		Namespace: r.poolPowerDNSSecretNamespace(),
-		Name:      r.poolPowerDNSSecretName(),
+	// Source 2: the bridged DESTINATION (controller-own-namespace) — preferred.
+	if v := r.readPoolKeyFromSecret(ctx,
+		r.poolPowerDNSSecretNamespace(), r.poolPowerDNSSecretName(),
+		"reflector landed it post-start"); v != "" {
+		return v
 	}
+	// Source 3 (#4475 §2): the reflector SOURCE — last-resort fallback that
+	// sidesteps a stuck reflector that never re-emitted after a late source-create.
+	if v := r.readPoolKeyFromSecret(ctx,
+		r.poolPowerDNSSourceSecretNamespace(), r.poolPowerDNSSourceSecretName(),
+		"read directly from the reflector SOURCE — bridged destination still empty (reflector did not re-emit after late source-create)"); v != "" {
+		return v
+	}
+	return ""
+}
+
+// readPoolKeyFromSecret reads the `api-key` key of the named Secret and returns
+// its trimmed value, or "" on NotFound / read error / empty value. NotFound is
+// the expected pre-reflection / pre-source-create state, so it is quiet; a
+// non-NotFound error is logged. A successful read logs at Info with the supplied
+// reason so the resolution path (bridged destination vs reflector source) is
+// observable. Shared by the #4290/#4179 (destination) and #4475 §2 (source)
+// self-heal reads in resolvePoolPowerDNSAPIKey.
+func (r *Reconciler) readPoolKeyFromSecret(ctx context.Context, namespace, name, reason string) string {
+	var sec corev1.Secret
+	key := client.ObjectKey{Namespace: namespace, Name: name}
 	if err := r.Get(ctx, key, &sec); err != nil {
 		if !apierrors.IsNotFound(err) {
 			r.Log.Error(err, "tenant-dns: live read of pool PowerDNS Secret failed",
 				"secret", key.Name, "namespace", key.Namespace)
 		}
-		// NotFound is the expected pre-reflection state — quiet; the caller's
-		// guard requeues so we retry once the Secret exists.
+		// NotFound is the expected pre-reflection / pre-source state — quiet; the
+		// caller's guard requeues so we retry once the Secret exists.
 		return ""
 	}
 	if v := strings.TrimSpace(string(sec.Data["api-key"])); v != "" {
-		r.Log.Info("tenant-dns: pool PowerDNS key resolved via LIVE Secret read (env was empty — reflector landed it post-start)",
-			"secret", key.Name, "namespace", key.Namespace)
+		r.Log.Info("tenant-dns: pool PowerDNS key resolved via LIVE Secret read (env was empty)",
+			"secret", key.Name, "namespace", key.Namespace, "reason", reason)
 		return v
 	}
 	return ""
