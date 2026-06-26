@@ -215,7 +215,7 @@ spec:
       # 1.2.39 — #4347: harbor-sso-configure liveness/readiness EXEC probes so
       #   it clears the host-ns Kyverno probes-present Enforce policy (post-#4325).
       #   Refs #4347 #4325.
-      version: 1.2.39
+      version: 1.2.40
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
