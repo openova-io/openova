@@ -885,6 +885,19 @@ crossplaneProviderPivot:
   # diverge from that project name unless the proxyProjects list is
   # updated in lockstep.
   registryPath: "proxy-xpkg"
+  # #4488 — the SECOND upstream prefix to pivot. On Huawei a fresh prov
+  # ships provider-opentofu's `spec.package` already pointed at the
+  # MOTHERSHIP Harbor's proxy-xpkg (`harbor.openova.io/proxy-xpkg/...`),
+  # because the Crossplane xpkg fetcher bypasses the node containerd
+  # mirror and `xpkg.upbound.io` dials the poisoned kom4dc NAT EIP (see
+  # clusters/_template/infrastructure/base/provider-opentofu.yaml +
+  # infra/providers/_shared/cloudinit-control-plane.tftpl XPKG_REGISTRY).
+  # That `harbor.openova.io` host is a mothership tether Principle #11
+  # forbids post-cutover, so the live-patch ALSO rewrites this prefix to
+  # `harbor.<sov-fqdn>/${registryPath}`. Must equal mothershipHarborURL's
+  # host + "/" + registryPath. Hetzner Sovereigns ship the upstream host
+  # so this prefix simply never matches there (harmless).
+  mothershipProxyPrefix: "harbor.openova.io/proxy-xpkg"
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
 # that the Organization provisioning service uses for tenant repo materialisation.

@@ -956,6 +956,16 @@ write_files:
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            # #4488 — provider-opentofu package-pull host, cloud-conditional.
+            # The Crossplane xpkg fetcher (go-containerregistry, K8sFetcher)
+            # bypasses the node containerd registries.yaml mirror, so on
+            # Huawei (kom4dc) a raw `xpkg.upbound.io` package dials the
+            # poisoned NAT EIP and stalls → the adoption seam stays inert.
+            # Route Huawei through the mothership Harbor's TLS-valid
+            # proxy-xpkg pull-through (off the wait:false critical path);
+            # Hetzner keeps the direct upstream (clean NAT). See
+            # base/provider-opentofu.yaml for the full rationale.
+            XPKG_REGISTRY: "%{ if provider == "huawei" }harbor.openova.io/proxy-xpkg%{ else }xpkg.upbound.io%{ endif ~}"
 
 runcmd:
   - swapoff -a
