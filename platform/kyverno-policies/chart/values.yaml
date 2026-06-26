@@ -69,6 +69,13 @@ compliancePolicies:
   multiReplica:
     enabled: true
     action: Audit
+    # #4422: exempt deliberate single-replica stateful singletons (the per-Org
+    # funnel cart's mysql/postgres single-PVC DBs + redis cache) by the
+    # `openova.io/singleton-db: "true"` label the funnel generator stamps on the
+    # Deployment — they CANNOT run >=2 replicas (one RWO PVC, no replication
+    # wired) and span unbounded `org-<uuid>` namespaces the list can't enumerate.
+    # Operators flip false to re-subject all singletons to the drainability gate.
+    excludeSingletonDB: true
     excludeNamespaces: &complianceDefaultExcludes
       - kube-system
       - flux-system

@@ -51,13 +51,36 @@ spec:
                 {{- range $ns := .Values.compliancePolicies.multiReplica.excludeNamespaces }}
                 - {{ $ns }}
                 {{- end }}
+          {{- /*
+            #4422 (2026-06-26): per-Org funnel cart stateful DBs (mysql/postgres
+            single-PVC `strategy:Recreate`, redis cache) are LEGITIMATELY
+            single-replica — a 2nd replica sharing one RWO PVC corrupts data, and
+            MySQL primary-replica is not wired (the generator clamps replicas to
+            1). The policy header already names 'explicitly-singleton services
+            (databases ...)' as a valid exception, but the only mechanism was a
+            namespace list, which can't enumerate the unbounded `org-<uuid>` per-Org
+            namespaces. Exclude by the `openova.io/singleton-db: "true"` label the
+            funnel DB generator stamps on the Deployment — exempts singletons in
+            ANY namespace (current or future) while every other single-replica
+            Deployment stays subject to the gate. Mirrors the cnpg.io/cluster
+            label-exempt on the backup-configured policy (#3971). Operators can
+            disable via .Values.compliancePolicies.multiReplica.excludeSingletonDB.
+          */}}
+          {{- if .Values.compliancePolicies.multiReplica.excludeSingletonDB }}
+          - resources:
+              selector:
+                matchLabels:
+                  openova.io/singleton-db: "true"
+          {{- end }}
       validate:
         message: >-
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} declares
           fewer than 2 replicas. Drainability requires spec.replicas >= 2 so
           voluntary disruptions can keep at least one replica serving traffic.
-          Bump spec.replicas, or exempt this workload by adding its namespace
-          to .Values.compliancePolicies.multiReplica.excludeNamespaces.
+          Bump spec.replicas, exempt this workload by adding its namespace to
+          .Values.compliancePolicies.multiReplica.excludeNamespaces, or — for a
+          deliberate single-replica stateful singleton (database/cache) — label
+          it `openova.io/singleton-db: "true"`.
         pattern:
           spec:
             replicas: ">=2"

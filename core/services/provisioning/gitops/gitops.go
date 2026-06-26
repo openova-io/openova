@@ -965,6 +965,12 @@ kind: Deployment
 metadata:
   name: postgres
   namespace: %s
+  labels:
+    # #4422: the singleton-db carve-out the 'multi-replica-drainability' policy
+    # excludes on lives on the Deployment's OWN metadata.labels (Kyverno's
+    # resources.selector matches the resource's top-level labels). Mirrors the
+    # pod-template label below + the cnpg.io/cluster exempt on backup-configured.
+    openova.io/singleton-db: "true"
   annotations:
     openova.io/backups-enabled: "%t"
 spec:
@@ -978,6 +984,19 @@ spec:
     metadata:
       labels:
         app: postgres
+        # #4422: per-Org Kyverno 'multi-replica-drainability' (replicas-at-least-two)
+        # demands spec.replicas>=2, but this is a single-PVC stateful DB with
+        # strategy:Recreate and NO replication wired — a 2nd replica sharing one
+        # RWO PVC would corrupt data. Stamp the singleton-db carve-out label so
+        # the policy exempts it in ANY per-Org namespace (mirrors the cnpg.io/
+        # cluster label-exempt on backup-configured #3971). The policy doc itself
+        # lists 'explicitly-singleton services (databases ...)' as legitimate.
+        openova.io/singleton-db: "true"
+      annotations:
+        # #4422: Kyverno 'backup-configured' (pvc-must-be-velero-backed, enforce)
+        # blocks the PVC unless the owning Pod annotates its volume for Velero
+        # file-level backup. Annotate pgdata so the PVC admits AND is backed up.
+        velero.io/backup-volumes: pgdata
     spec:
       containers:
         - name: postgres
@@ -1009,11 +1028,15 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
+            # #4422: per-Org LimitRange (#4292) enforces maxLimitRequestRatio
+            # {cpu:1,memory:1} (Guaranteed QoS) — limits MUST equal requests or
+            # the pod is forbidden ('cpu max limit to request ratio is 1, but
+            # provided ratio is 10'). Render symmetric requests==limits.
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: 250m
               memory: 256Mi
           volumeMounts:
             - name: pgdata
@@ -1412,6 +1435,12 @@ kind: Deployment
 metadata:
   name: mysql
   namespace: %s
+  labels:
+    # #4422: the singleton-db carve-out the 'multi-replica-drainability' policy
+    # excludes on lives on the Deployment's OWN metadata.labels (Kyverno's
+    # resources.selector matches the resource's top-level labels). Mirrors the
+    # pod-template label below + the cnpg.io/cluster exempt on backup-configured.
+    openova.io/singleton-db: "true"
   annotations:
     openova.io/backups-enabled: "%t"
 spec:
@@ -1425,6 +1454,20 @@ spec:
     metadata:
       labels:
         app: mysql
+        # #4422: per-Org Kyverno 'multi-replica-drainability' (replicas-at-least-two)
+        # demands spec.replicas>=2, but this is a single-PVC stateful DB with
+        # strategy:Recreate and replicas explicitly clamped to 1 (primary-replica
+        # is not yet wired) — a 2nd replica sharing one RWO PVC would corrupt data.
+        # Stamp the singleton-db carve-out label so the policy exempts it in ANY
+        # per-Org namespace (mirrors the cnpg.io/cluster label-exempt on
+        # backup-configured #3971). The policy doc itself lists
+        # 'explicitly-singleton services (databases ...)' as legitimate.
+        openova.io/singleton-db: "true"
+      annotations:
+        # #4422: Kyverno 'backup-configured' (pvc-must-be-velero-backed, enforce)
+        # blocks the PVC unless the owning Pod annotates its volume for Velero
+        # file-level backup. Annotate mysqldata so the PVC admits AND is backed up.
+        velero.io/backup-volumes: mysqldata
     spec:
       containers:
         - name: mysql
@@ -1459,11 +1502,16 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
+            # #4422: per-Org LimitRange (#4292) enforces maxLimitRequestRatio
+            # {cpu:1,memory:1} (Guaranteed QoS) — limits MUST equal requests or
+            # the pod is forbidden ('cpu max limit to request ratio is 1, but
+            # provided ratio is 10'), which is why the funnel WordPress mysql
+            # Deployment created ZERO pods. Render symmetric requests==limits.
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: 250m
               memory: 256Mi
           volumeMounts:
             - name: mysqldata
@@ -1519,6 +1567,10 @@ kind: Deployment
 metadata:
   name: redis
   namespace: %s
+  labels:
+    # #4422: singleton-db carve-out on the Deployment's OWN metadata.labels so
+    # the 'multi-replica-drainability' policy's resources.selector excludes it.
+    openova.io/singleton-db: "true"
 spec:
   replicas: 1
   selector:
@@ -1528,6 +1580,11 @@ spec:
     metadata:
       labels:
         app: redis
+        # #4422: single-replica cache — exempt from 'multi-replica-drainability'
+        # (replicas-at-least-two) via the singleton carve-out label, same as the
+        # stateful DBs above (the policy doc lists singleton services as
+        # legitimate). No PVC, so no velero.io/backup-volumes annotation needed.
+        openova.io/singleton-db: "true"
     spec:
       containers:
         - name: redis
@@ -1556,11 +1613,13 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
+            # #4422: per-Org LimitRange (#4292) maxLimitRequestRatio 1 →
+            # symmetric requests==limits (Guaranteed QoS).
             requests:
-              cpu: 25m
-              memory: 64Mi
+              cpu: 100m
+              memory: 128Mi
             limits:
-              cpu: 200m
+              cpu: 100m
               memory: 128Mi
 ---
 apiVersion: v1
