@@ -393,9 +393,60 @@ func (h *Handler) resolveAppDependencies(ctx context.Context, appSlugs []string)
 	return deps
 }
 
-// resolvePlanSlug fetches the plan slug for a plan UUID from the catalog.
+// knownPlanSlugs is the canonical set of plan slugs the platform recognizes,
+// matching the boundary/QoS switches in gitops (BoundaryIsVcluster: ""/s/free
+// → host tier; m/l/xl/flexi → dedicated vcluster; qosResources: flexi vs the
+// rest). It is the single source of truth for "is this string already a slug?"
+// so resolvePlanSlug can short-circuit the catalog UUID lookup when the caller
+// (the marketplace funnel) already posts the slug directly.
+var knownPlanSlugs = map[string]struct{}{
+	"s":     {},
+	"m":     {},
+	"l":     {},
+	"xl":    {},
+	"flexi": {},
+	"free":  {},
+}
+
+// isKnownPlanSlug reports whether s is one of the canonical plan slugs
+// (case-insensitive, whitespace-trimmed) and, if so, returns its normalized
+// (lowercase) form.
+func isKnownPlanSlug(s string) (string, bool) {
+	norm := strings.ToLower(strings.TrimSpace(s))
+	if norm == "" {
+		return "", false
+	}
+	_, ok := knownPlanSlugs[norm]
+	return norm, ok
+}
+
+// resolvePlanSlug resolves the caller's plan identifier to a canonical plan
+// slug (s|m|l|xl|flexi). It accepts BOTH forms the two provisioning doors post:
+//
+//   - the marketplace FUNNEL door posts the plan SLUG directly ("m"/"l"/"xl"/…);
+//     that value is returned as-is (normalized) without a catalog round-trip.
+//   - the BSS door posts a plan UUID, which is looked up against /catalog/plans.
+//
+// Before #4473 this function treated EVERY input as a UUID, so a funnel-posted
+// slug matched no catalog row and silently fell through to the "s" default —
+// every funnel Org provisioned at the S boundary regardless of the chosen plan
+// (Pillar-1 billing/provisioning correctness fault, verified live on prov
+// 91dc05917e44d1c1: plan_id:"m" → Org CR spec.planSlug:"s"). The slug fast-path
+// closes that gap; the UUID lookup is preserved for the BSS door.
+//
+// When the input is neither a known slug nor a resolvable UUID, the historical
+// "s" default is returned — but now LOGGED, so a silent S-downgrade is never
+// invisible again.
 func (h *Handler) resolvePlanSlug(ctx context.Context, planID string) string {
+	// Fast-path: the funnel posts the slug directly. No catalog round-trip,
+	// no dependency on /catalog/plans being reachable at creation time.
+	if slug, ok := isKnownPlanSlug(planID); ok {
+		return slug
+	}
+
 	if h.CatalogURL == "" {
+		slog.Warn("resolvePlanSlug: no catalog URL and plan_id is not a known slug — defaulting to 's' (verify the Org is not being silently downgraded)",
+			"plan_id", planID)
 		return "s" // default
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -403,15 +454,18 @@ func (h *Handler) resolvePlanSlug(ctx context.Context, planID string) string {
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, h.CatalogURL+"/catalog/plans", nil)
 	if err != nil {
+		slog.Warn("resolvePlanSlug: catalog request build failed — defaulting to 's'", "plan_id", planID, "err", err)
 		return "s"
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		slog.Warn("resolvePlanSlug: catalog unreachable — defaulting to 's'", "plan_id", planID, "err", err)
 		return "s"
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, resp.Body)
+		slog.Warn("resolvePlanSlug: catalog returned non-200 — defaulting to 's'", "plan_id", planID, "status", resp.StatusCode)
 		return "s"
 	}
 	var plans []struct {
@@ -419,6 +473,7 @@ func (h *Handler) resolvePlanSlug(ctx context.Context, planID string) string {
 		Slug string `json:"slug"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&plans); err != nil {
+		slog.Warn("resolvePlanSlug: catalog decode failed — defaulting to 's'", "plan_id", planID, "err", err)
 		return "s"
 	}
 	for _, p := range plans {
@@ -426,6 +481,8 @@ func (h *Handler) resolvePlanSlug(ctx context.Context, planID string) string {
 			return p.Slug
 		}
 	}
+	slog.Warn("resolvePlanSlug: plan_id matched neither a known slug nor a catalog plan UUID — defaulting to 's' (an Org may be silently downgraded to the S boundary)",
+		"plan_id", planID)
 	return "s"
 }
 
@@ -496,6 +553,11 @@ func (h *Handler) resolveTenantPlanSlug(ctx context.Context, tenantSlug, planID 
 // self-consistent because it resolves once); the day-2 path uses this richer
 // signal via resolveTenantPlanSlug.
 func (h *Handler) lookupPlanSlug(ctx context.Context, planID string) (slug string, reachable bool) {
+	// #4473: the funnel posts the slug directly; a known slug is an
+	// authoritative answer with no catalog dependency.
+	if s, ok := isKnownPlanSlug(planID); ok {
+		return s, true
+	}
 	if h.CatalogURL == "" {
 		return "s", false
 	}
