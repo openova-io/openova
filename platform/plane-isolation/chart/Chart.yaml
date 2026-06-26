@@ -72,7 +72,27 @@ name: bp-plane-isolation
 #   dial graph is fully covered so a future de-vcluster/re-home can't silently
 #   drop an edge. Egress stays open (0.1.2 union) — only ingress edges added;
 #   default-deny posture intact. Refs #4325 #4382 #4361 #4380 #4383.
-version: 0.1.4
+# 0.1.5 (#4428 / Refs #4360 #4409 #4325): ADD a kube-apiserver-egress
+#   CiliumNetworkPolicy (toEntities:[kube-apiserver]) for EVERY component. The
+#   0.1.2 egress union (namespaceSelector:{} + ipBlock 0.0.0.0/0) covers
+#   in-cluster pod identities + Cilium `world`, but NEITHER matches the reserved
+#   `kube-apiserver` identity the apiserver ClusterIP VIP (10.96.0.1:443)
+#   resolves to under kube-proxy-replacement — so every pod that dials the
+#   kube-API in a default-denied namespace had its apiserver egress silently
+#   dropped. Live proof on omantel.biz region-a (kom4dc dep 4635277cae4ffed9,
+#   2026-06-26): the newapi CNPG instance-manager bootstrap initContainer hung
+#   `wait-for-get-cluster ... Get https://10.96.0.1:443/apis/postgresql.cnpg.io
+#   /v1/.../clusters/newapi-bp-newapi-newapi-pg: dial tcp 10.96.0.1:443: i/o
+#   timeout` → Postgres never started → `-rw` Service had no endpoints → the
+#   app CrashLooped → bp-newapi HR `Ready=False` Helm-rollback-context-deadline
+#   → the `bootstrap-kit` Kustomization (wait:true, gates on bp-newapi) stalled
+#   — the last blocker on #4409. Namespaces WITHOUT a plane-isolation
+#   default-deny (org-services/org-pg, shared-data/shared-pg) stayed healthy,
+#   isolating the cause to this chart's Egress policyType. A K8s NetworkPolicy
+#   cannot express reserved:kube-apiserver, so the allow lives in a
+#   CiliumNetworkPolicy — same reserved-entity class as the gateway `ingress`
+#   CNP this chart already ships, and the egress sibling of the #4360 fix.
+version: 0.1.5
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform

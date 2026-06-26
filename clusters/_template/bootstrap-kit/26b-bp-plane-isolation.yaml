@@ -81,7 +81,14 @@ spec:
       #   de-vcluster'd host namespaces opentelemetry/alloy/oidc-gate. A contract
       #   test (Case 30) now asserts the known dial graph is fully covered so a
       #   future de-vcluster/re-home can't silently drop an edge.
-      version: 0.1.4
+      # 0.1.5 (#4428 / Refs #4360 #4409): add a per-component kube-apiserver
+      #   egress CiliumNetworkPolicy (toEntities:[kube-apiserver]). The 0.1.2
+      #   egress union (namespaceSelector:{} + ipBlock 0.0.0.0/0) does not match
+      #   the reserved `kube-apiserver` identity the apiserver VIP 10.96.0.1:443
+      #   resolves to, so default-denied namespaces dropped all apiserver egress
+      #   → newapi CNPG instance-manager hung on `dial 10.96.0.1:443 i/o timeout`
+      #   → bp-newapi HR Failed → bootstrap-kit Kustomization stalled (#4409).
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-plane-isolation

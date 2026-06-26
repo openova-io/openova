@@ -1,0 +1,70 @@
+{{- /*
+Per-component kube-apiserver-egress CiliumNetworkPolicy (#4428).
+
+THE egress sibling of the gateway-ingress-cnp.yaml `ingress`-entity admit,
+for the reserved `kube-apiserver` identity.
+
+The companion default-deny NetworkPolicy is podSelector:{} Ingress+Egress
+whose egress allow-list is (a) namespaceSelector:{} → every in-cluster pod
+identity (the #4360 fix) and (b) ipBlock 0.0.0.0/0 → the Cilium `world`
+entity. NEITHER matches the Kubernetes API server: under Cilium with
+kube-proxy-replacement the apiserver ClusterIP VIP (10.96.0.1:443) resolves
+to the reserved `kube-apiserver` security identity, which is NOT a pod (so
+namespaceSelector:{} misses it) and is NOT `world` (so ipBlock 0.0.0.0/0
+misses it). Result: every pod in an isolated namespace that must dial the
+kube-API gets its apiserver egress silently dropped:
+
+  wait-for-get-cluster ... Get "https://10.96.0.1:443/apis/postgresql.cnpg.io
+  /v1/namespaces/<ns>/clusters/<cluster>": dial tcp 10.96.0.1:443: i/o timeout
+
+The CNPG instance manager's bootstrap initContainer GETs its Cluster CR
+through this VIP before starting Postgres, so it hangs forever → Postgres
+never starts → the `-rw` Service has no endpoints → the app CrashLoops
+(connection refused) → the HelmRelease waits, rolls back, and re-deadlocks
+"context deadline exceeded". Caught live on omantel.biz region-a (kom4dc dep
+4635277cae4ffed9, 2026-06-26): the newapi CNPG cluster (`newapi-bp-newapi-
+newapi-pg`) wedged in a stuck failover with both instance managers logging
+`apiServerReachable:false`, which kept bp-newapi `Ready=False` and stalled
+the `bootstrap-kit` Kustomization (it has `wait:true` and gates on
+bp-newapi) — the last blocker on #4409. Namespaces WITHOUT a plane-isolation
+default-deny (org-services/org-pg, shared-data/shared-pg) stayed healthy,
+isolating the cause to this chart's Egress policyType.
+
+A vanilla K8s NetworkPolicy cannot express reserved:kube-apiserver, so —
+exactly like the gateway `ingress` entity — the allow lives in a
+CiliumNetworkPolicy. Cilium computes the UNION of every policy selecting an
+endpoint, so this is purely additive to the default-deny: it grants
+kube-API reachability without weakening isolation (no `world`).
+
+Rendered for EVERY component (not just gatewayIngress ones): CNPG-backed
+components (newapi/keycloak/gitea/harbor/grafana), webhook servers
+(openbao/cert-manager consumers), and external-secrets reconcilers all dial
+the kube-API — and a pure-backend component still runs nothing that should
+be denied the apiserver. The reserved `kube-apiserver` entity is a single
+control-plane identity, so admitting it carries no cross-component blast
+radius.
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI).
+*/ -}}
+{{- if and .Values.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+{{- range .Values.components }}
+{{- $ns := .namespace }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ $ns }}-allow-apiserver-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-plane-isolation.labels" $ | nindent 4 }}
+    catalyst.openova.io/component: {{ $ns }}-apiserver-netpol
+spec:
+  # endpointSelector {} = every endpoint in this namespace, matching the
+  # default-deny policy's scope.
+  endpointSelector: {}
+  egress:
+    - toEntities:
+        - kube-apiserver
+{{- end }}
+{{- end -}}
