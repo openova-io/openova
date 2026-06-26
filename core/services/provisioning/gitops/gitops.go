@@ -233,7 +233,23 @@ type ManifestGenerator struct {
 // HelmRelease-shaped per-Org apps, falling back to parentDomainDefault when the
 // generator was constructed without a TENANT_PARENT_DOMAIN wiring.
 func (g *ManifestGenerator) parentDomain() string {
-	if pd := strings.TrimSpace(g.ParentDomain); pd != "" {
+	return ResolveParentDomain(g.ParentDomain)
+}
+
+// ResolveParentDomain is the SINGLE source of truth for the effective org-pool
+// parent zone the per-Org apps render under: the supplied TENANT_PARENT_DOMAIN
+// value when non-empty, else parentDomainDefault ("omani.homes"). It is exported
+// so the provisioning-service wiring (main.go) can resolve the SAME effective
+// value ONCE and hand it to BOTH the apps generator (this package) and the
+// tenant.created Organization-CR handler — guaranteeing the per-Org DNS-writer
+// pool (`Org.spec.tenantPublic.parentDomain`) can never diverge from the pool
+// the apps-HTTPRoute actually renders under (#4421). Without this, the generator
+// quietly defaulted to omani.homes while the handler saw an empty string, so a
+// Sovereign with no TENANT_PARENT_DOMAIN minted apps on omani.homes but wrote no
+// per-Org A-record there → the host fell through to a stale apex wildcard
+// (49.12.16.160).
+func ResolveParentDomain(parentDomain string) string {
+	if pd := strings.TrimSpace(parentDomain); pd != "" {
 		return pd
 	}
 	return parentDomainDefault

@@ -265,9 +265,14 @@ func main() {
 		SovereignFQDN:      sovereignFQDN,
 		GitBranch:          githubBranch,
 		TenantParentDomain: tenantParentDomain,
-		PerOrgGitops:       perOrgGitops,
-		PerOrgRepoName:     perOrgRepoName,
-		PerOrgBranch:       perOrgBranch,
+		// #4421: the EFFECTIVE apps pool — same gitops.ResolveParentDomain the
+		// generator uses (TENANT_PARENT_DOMAIN, defaulting to omani.homes).
+		// Resolved here so the Org-CR DNS-writer pool the tenant.created handler
+		// stamps always equals the pool the apps-HTTPRoute renders under.
+		AppsParentDomain: gitops.ResolveParentDomain(tenantParentDomain),
+		PerOrgGitops:     perOrgGitops,
+		PerOrgRepoName:   perOrgRepoName,
+		PerOrgBranch:     perOrgBranch,
 	}
 	slog.Info("tenant-public patch wired",
 		"tenant_parent_domain", tenantParentDomain,

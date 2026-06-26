@@ -57,6 +57,21 @@ type Handler struct {
 	// hardcoded — every Sovereign picks its own pool zone.
 	TenantParentDomain string
 
+	// AppsParentDomain is the EFFECTIVE org-pool parent zone the per-Org
+	// apps-HTTPRoute generator renders product hosts under (e.g.
+	// openclaw.<slug>.<this>). Unlike TenantParentDomain (empty = "feature
+	// disabled" for the day-2 patch), this is the RESOLVED value the apps
+	// generator actually uses — gitops.ResolveParentDomain(TENANT_PARENT_DOMAIN),
+	// which falls back to omani.homes when the env is unset. main.go resolves
+	// it ONCE and hands the SAME value to both the generator and this Handler,
+	// so the per-Org DNS-writer pool (Org.spec.tenantPublic.parentDomain) the
+	// createOrganizationCR handler stamps can never diverge from the pool the
+	// apps render under — the #4421 fix. Without it, a Sovereign with no
+	// TENANT_PARENT_DOMAIN minted apps on the omani.homes default but wrote the
+	// per-Org A-record under the customer's funnel pick (or none), so the app
+	// host fell through to a stale apex `*.omani.homes` wildcard → dead IP.
+	AppsParentDomain string
+
 	// PerOrgGitops enables the Sovereign per-Org commit target (#4384). When
 	// true, the day-2 cart install commits the customer's purchased
 	// Applications into the per-Org `<slug>/catalyst-tenant` repo's
