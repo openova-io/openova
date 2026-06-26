@@ -587,7 +587,12 @@ spec:
       # carve-out emits per-plane-ns allow-ingress NetworkPolicies (gitea/harbor/
       # openbao) instead of one dead `catalyst -> mgmt` policy — unwedges step-01/
       # 02/03/09 on a de-vclustered Sovereign whose planes are host namespaces.
-      version: 0.1.80
+      # 0.1.81 (#4488): step-11 crossplane-provider-pivot also pivots a Provider
+      # already on the mothership proxy-xpkg prefix (harbor.openova.io/proxy-xpkg)
+      # → harbor.<fqdn>/proxy-xpkg, so the Huawei fresh-prov provider-opentofu
+      # package (routed off the poisoned xpkg.upbound.io NAT) leaves no
+      # harbor.openova.io tether at cutover (Principle #11).
+      version: 0.1.81
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

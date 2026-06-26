@@ -27,7 +27,29 @@ spec:
   # unlike provider-terraform which is frozen at Terraform 1.5.7 / BSL).
   # Catalyst is an OpenTofu shop (required_version >= 1.6.0) so this is
   # the native fit. Pinned digest-pinnable tag.
-  package: xpkg.upbound.io/upbound/provider-opentofu:v1.1.3
+  #
+  # #4488 — the registry HOST is a Flux postBuild substitution var
+  # (set by the infrastructure-config Kustomization in cloud-init,
+  # cloud-conditional):
+  #   - Hetzner → `xpkg.upbound.io` (the upstream default — Hetzner's NAT
+  #     to xpkg is clean, the package pulls direct).
+  #   - Huawei  → `harbor.openova.io/proxy-xpkg` (the upstream pull-through
+  #     project on the mothership Harbor). On kom4dc the Crossplane xpkg
+  #     fetcher uses go-containerregistry DIRECTLY (it does NOT honour the
+  #     node containerd registries.yaml mirror — verified against the
+  #     crossplane v1.18 K8sFetcher), so the `xpkg.upbound.io` route in
+  #     registry_mirror_yaml_huawei is INERT for provider packages and the
+  #     fetcher would otherwise dial xpkg.upbound.io over the reputation-
+  #     blocklisted ("poisoned") kom4dc NAT EIP and stall → provider-
+  #     opentofu never reaches INSTALLED=True → no workspaces.tf.upbound.io
+  #     CRD → every CloudAdoption composite Ready=False (the #4002/#4018
+  #     adoption seam stays inert at runtime). proxy-xpkg is TLS-valid and
+  #     reachable over NAT; this install is `wait:false` / OFF the Phase-1
+  #     critical path, so its day-2 slowness is tolerable. Same host shape
+  #     the self-sovereign-cutover step-11 (#2034) pivots to post-handover
+  #     (harbor.<SOVEREIGN_FQDN>/proxy-xpkg/...). The `:=` default keeps a
+  #     raw `kustomize build` (CI / no-substitution) on the upstream coords.
+  package: ${XPKG_REGISTRY:=xpkg.upbound.io}/upbound/provider-opentofu:v1.1.3
   # Inherit the cluster's image-pull behaviour from the runtime config
   # below (so post-cutover the Sovereign's own Harbor can proxy it).
   runtimeConfigRef:

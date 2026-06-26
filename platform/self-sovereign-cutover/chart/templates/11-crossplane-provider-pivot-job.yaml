@@ -133,6 +133,12 @@ data:
             value: {{ .Values.crossplaneProviderPivot.upstreamHost | quote }}
           - name: REGISTRY_PATH
             value: {{ .Values.crossplaneProviderPivot.registryPath | quote }}
+          # #4488 — the mothership proxy-xpkg prefix a Huawei fresh prov
+          # already carries in provider-opentofu's spec.package. Pivoted to
+          # harbor.<fqdn>/proxy-xpkg too so no harbor.openova.io tether
+          # survives the cutover (Principle #11).
+          - name: MOTHERSHIP_PROXY_PREFIX
+            value: {{ .Values.crossplaneProviderPivot.mothershipProxyPrefix | quote }}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
@@ -192,10 +198,23 @@ data:
                 printf '%s\n' "${providers_tsv}" | while IFS="$(printf '\t')" read -r name pkg; do
                   if [ -z "${name}" ]; then continue; fi
 
+                  # #4488 — match EITHER the raw upstream host
+                  # (xpkg.upbound.io/..., Hetzner) OR the mothership
+                  # proxy-xpkg prefix (harbor.openova.io/proxy-xpkg/...,
+                  # the Huawei fresh-prov shape). Both rewrite to the
+                  # Sovereign-local target_prefix, preserving the path+tag
+                  # after the matched prefix.
+                  matched_prefix=""
                   case "${pkg}" in
-                    "${upstream_prefix}/"*)
-                      # Compute new spec.package by replacing host prefix.
-                      pkg_suffix="${pkg#${upstream_prefix}/}"
+                    "${upstream_prefix}/"*)              matched_prefix="${upstream_prefix}" ;;
+                    "${MOTHERSHIP_PROXY_PREFIX}/"*)      matched_prefix="${MOTHERSHIP_PROXY_PREFIX}" ;;
+                  esac
+
+                  case "${pkg}" in
+                    "${upstream_prefix}/"* | "${MOTHERSHIP_PROXY_PREFIX}/"*)
+                      # Compute new spec.package by replacing the matched
+                      # host(+path) prefix with the Sovereign-local one.
+                      pkg_suffix="${pkg#${matched_prefix}/}"
                       new_pkg="${target_prefix}/${pkg_suffix}"
                       echo "[crossplane-provider-pivot] PATCH ${name} ${pkg} -> ${new_pkg}"
                       # Merge-patch only spec.package — preserves every
@@ -213,7 +232,7 @@ data:
                       echo "[crossplane-provider-pivot] SKIP ${name} (already pivoted: ${pkg})"
                       ;;
                     *)
-                      echo "[crossplane-provider-pivot] SKIP ${name} (package host not ${upstream_prefix} or ${target_host}: ${pkg})"
+                      echo "[crossplane-provider-pivot] SKIP ${name} (package prefix not ${upstream_prefix}, ${MOTHERSHIP_PROXY_PREFIX}, or ${target_prefix}: ${pkg})"
                       ;;
                   esac
                 done

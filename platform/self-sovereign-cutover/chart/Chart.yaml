@@ -1004,7 +1004,19 @@ name: bp-self-sovereign-cutover
 # plane HRs/slots no-op without tripping the residual-tether FATAL. Chart-only +
 # additive; render byte-identical on a pre-#4325 Sovereign that sets mgmtNamespace.
 # Lockstep: 06a pin + blueprint.yaml bumped in step.
-version: 0.1.80
+# 0.1.81 (#4488): step-11 crossplane-provider-pivot now ALSO pivots a Provider
+# whose spec.package is already on the mothership proxy-xpkg prefix
+# (`harbor.openova.io/proxy-xpkg/...`) → `harbor.<sov-fqdn>/proxy-xpkg/...`.
+# A Huawei fresh prov ships provider-opentofu pointed at the mothership Harbor's
+# proxy-xpkg (the Crossplane xpkg fetcher bypasses the node containerd mirror and
+# `xpkg.upbound.io` dials the poisoned kom4dc NAT EIP — see
+# clusters/_template/infrastructure/base/provider-opentofu.yaml), so without this
+# the harbor.openova.io host literal would survive the cutover (Principle #11
+# violation). New value crossplaneProviderPivot.mothershipProxyPrefix +
+# MOTHERSHIP_PROXY_PREFIX env; Hetzner ships the upstream host so the new prefix
+# simply never matches there (render-additive, behaviour-identical on Hetzner).
+# Lockstep: 06a pin bumped in step.
+version: 0.1.81
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
