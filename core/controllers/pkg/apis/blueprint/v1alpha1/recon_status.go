@@ -34,6 +34,17 @@ type ObservedTarget struct {
 	// Degraded — the target's HR reported a hard failure (Ready=False with
 	// a terminal reason, or past its reconcile budget).
 	Degraded bool `json:"degraded,omitempty"`
+	// Armed — #3969 §13: this is a Hot standby in a DR-capable placement
+	// for which a Continuum lease-witness DR contract was minted, i.e. the
+	// standby is ARMED for promotion (a live replica governed by the
+	// continuum-controller's lease). This is the DESIRED-STATE arming
+	// signal (a DR contract exists) — distinct from the RUNTIME lease-held
+	// state (which region currently holds the write-lease), which the
+	// continuum-controller owns on the Continuum CR's status and which only
+	// the fresh-multi-region walk can prove. A Cold standby is never armed
+	// (rebuild-on-failover, runs no process); a singleton / active-active
+	// placement has no standby to arm.
+	Armed bool `json:"armed,omitempty"`
 }
 
 // PlacementStatus is the §7.4 status block: ONE status value, an optional

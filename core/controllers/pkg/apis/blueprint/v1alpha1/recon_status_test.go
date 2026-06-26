@@ -41,4 +41,20 @@ func TestDeriveReconStatus(t *testing.T) {
 			t.Fatalf("placement = %q, want Reconciling", s.Placement)
 		}
 	})
+
+	// §13 — the Armed attribute is orthogonal to the recon status: an armed
+	// Hot standby that is still reconciling stays Reconciling (Armed is a
+	// display attribute of the standby, never a second status value), and an
+	// armed-and-ready placement is Reconciled. Armed never fabricates a class.
+	t.Run("Armed is orthogonal to recon status", func(t *testing.T) {
+		armedReady := ObservedTarget{Region: "region-b", Role: DataRoleStandby, StandbyType: StandbyHot, Ready: true, Armed: true}
+		armedNotReady := ObservedTarget{Region: "region-b", Role: DataRoleStandby, StandbyType: StandbyHot, Ready: false, Armed: true}
+
+		if s := DeriveReconStatus([]ObservedTarget{primary, armedReady}); s.Placement != ReconStatusReconciled {
+			t.Errorf("armed+ready ⇒ Reconciled, got %q", s.Placement)
+		}
+		if s := DeriveReconStatus([]ObservedTarget{primary, armedNotReady}); s.Placement != ReconStatusReconciling {
+			t.Errorf("armed+not-ready ⇒ Reconciling, got %q", s.Placement)
+		}
+	})
 }

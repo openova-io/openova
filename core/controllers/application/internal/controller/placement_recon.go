@@ -189,10 +189,20 @@ func resolveBackingPlacement(
 // readyByRegion maps a region name → its observed readiness; a region
 // absent from the map (HR not yet present) is treated as not-ready
 // (Reconciling), never degraded.
+// The `drArmed` flag (#3969 §13) is true when the controller minted a
+// per-app Continuum lease-witness DR contract for this Application (a
+// non-empty continuumRef). When set, every Hot standby target is marked
+// Armed — the DESIRED-STATE arming signal (a DR contract exists, the standby
+// is governed for promotion). A Cold standby is never armed (rebuild-on-
+// failover); a Primary is never armed (it is the write target, not a
+// promotion candidate). The RUNTIME lease-held state stays on the Continuum
+// CR's status, owned by the continuum-controller — only the fresh-multi-
+// region walk proves which region holds the lease.
 func observedTargetsFromPlan(
 	plan placement.Plan,
 	targets []bpv1alpha1.PlacementTarget,
 	readyByRegion map[string]regionReadback,
+	drArmed bool,
 ) []bpv1alpha1.ObservedTarget {
 	// Index the desired targets by region for the richer role/standbyType.
 	byRegion := map[string]bpv1alpha1.PlacementTarget{}
@@ -217,6 +227,11 @@ func observedTargetsFromPlan(
 			} else {
 				ot.Role = bpv1alpha1.DataRolePrimary
 			}
+		}
+
+		// §13 — a Hot standby in a DR-armed placement is ARMED for promotion.
+		if drArmed && ot.Role == bpv1alpha1.DataRoleStandby && ot.StandbyType == bpv1alpha1.StandbyHot {
+			ot.Armed = true
 		}
 
 		if rb, ok := readyByRegion[rp.Name]; ok {
@@ -300,6 +315,12 @@ func reconStatusBlock(observed []bpv1alpha1.ObservedTarget) (status, reason stri
 		}
 		if t.Degraded {
 			row["degraded"] = true
+		}
+		if t.Armed {
+			// §13 — the Hot standby is armed for promotion (a Continuum
+			// lease-witness DR contract was minted). The Topology tab's
+			// standby card reads this to render "Hot · armed".
+			row["armed"] = true
 		}
 		targets = append(targets, row)
 	}

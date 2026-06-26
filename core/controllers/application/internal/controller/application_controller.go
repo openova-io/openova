@@ -816,7 +816,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			// gate already ran above (step 5.1); here we only map the
 			// targets onto the renderer's (choice, variant) inputs.
 			capability := blueprintPlacementCapability(bp)
-			choice, variant = placementVariantFromTargets(spec.PlacementTargets, capability)
+			// §13 — pass the Blueprint's declared topology so the synthetic
+			// variant can carry the right replication backend forward into the
+			// Continuum lease-witness arming (cnpg-pair vs stateless). bpTopo is
+			// nil for the pure-#3969 placement-only path → stateless Promoter.
+			choice, variant = placementVariantFromTargets(spec.PlacementTargets, capability, bpTopo)
 			r.Log.Info("placement targets resolved (desired-state fan-out)",
 				"app", app.GetName(),
 				"blueprint", spec.BlueprintName,
@@ -1527,8 +1531,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// PhaseDegraded/PhaseFailed ⇒ degraded; otherwise ⇒ reconciling). When
 	// desired-state targets are declared we carry their richer
 	// Primary|Standby role + Hot|Cold type onto the rollup, region-matched.
+	// §13 — a non-empty continuumRef means the per-app Continuum lease-witness
+	// DR contract was minted, so every Hot standby target is ARMED for
+	// promotion. This is the desired-state arming signal surfaced on
+	// status.targets[].armed; the runtime lease-held state stays on the
+	// Continuum CR (continuum-controller-owned) and only the fresh-multi-region
+	// walk proves which region currently holds it.
 	readyByRegion := readbackByRegion(plan, finalPhase)
-	observed := observedTargetsFromPlan(plan, effectiveTargets, readyByRegion)
+	observed := observedTargetsFromPlan(plan, effectiveTargets, readyByRegion, continuumRef != "")
 	su.PlacementRecon, su.PlacementReason, su.ObservedTargets = reconStatusBlock(observed)
 
 	// #4416 — write the Continuum back-pointer the producer minted above so

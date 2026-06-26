@@ -209,7 +209,7 @@ func TestObservedTargetsFromPlan_PrefersDesiredRoles(t *testing.T) {
 		{Region: "region-b", Cluster: "mgmt-B", Role: bpv1alpha1.DataRoleStandby, StandbyType: bpv1alpha1.StandbyHot},
 	}
 	ready := readbackByRegion(plan, PhaseReady)
-	obs := observedTargetsFromPlan(plan, targets, ready)
+	obs := observedTargetsFromPlan(plan, targets, ready, false)
 	if len(obs) != 2 {
 		t.Fatalf("observed len = %d, want 2", len(obs))
 	}
@@ -218,6 +218,53 @@ func TestObservedTargetsFromPlan_PrefersDesiredRoles(t *testing.T) {
 	}
 	if !obs[0].Ready || !obs[1].Ready {
 		t.Errorf("PhaseReady must mark every region ready, got %+v", obs)
+	}
+	// drArmed=false ⇒ no target armed (no Continuum DR contract minted).
+	for i, ot := range obs {
+		if ot.Armed {
+			t.Errorf("obs[%d].Armed = true with drArmed=false; want false", i)
+		}
+	}
+}
+
+// TestObservedTargetsFromPlan_ArmsHotStandbyWhenDRContract — §13: with a
+// minted Continuum DR contract (drArmed=true) the Hot standby target is
+// ARMED for promotion; the Primary and any Cold standby never are.
+func TestObservedTargetsFromPlan_ArmsHotStandbyWhenDRContract(t *testing.T) {
+	plan := placement.Plan{
+		PrimaryRegion: "region-a",
+		Regions: []placement.RegionPlan{
+			{Name: "region-a", Role: placement.RolePrimary},
+			{Name: "region-b", Role: placement.RoleStandby, Standby: true},
+			{Name: "region-c", Role: placement.RoleStandby, Standby: true},
+		},
+	}
+	targets := []bpv1alpha1.PlacementTarget{
+		{Region: "region-a", Cluster: "mgmt-A", Role: bpv1alpha1.DataRolePrimary},
+		{Region: "region-b", Cluster: "mgmt-B", Role: bpv1alpha1.DataRoleStandby, StandbyType: bpv1alpha1.StandbyHot},
+		{Region: "region-c", Cluster: "mgmt-C", Role: bpv1alpha1.DataRoleStandby, StandbyType: bpv1alpha1.StandbyCold},
+	}
+	obs := observedTargetsFromPlan(plan, targets, readbackByRegion(plan, PhaseReady), true)
+	if obs[0].Armed {
+		t.Errorf("Primary must never be Armed, got %+v", obs[0])
+	}
+	if !obs[1].Armed {
+		t.Errorf("Hot standby must be Armed when a DR contract is minted, got %+v", obs[1])
+	}
+	if obs[2].Armed {
+		t.Errorf("Cold standby must never be Armed (rebuild-on-failover), got %+v", obs[2])
+	}
+
+	// The wire row carries armed:true ONLY for the Hot standby.
+	_, _, rows := reconStatusBlock(obs)
+	if rows[0].(map[string]interface{})["armed"] != nil {
+		t.Errorf("Primary wire row must omit armed, got %+v", rows[0])
+	}
+	if rows[1].(map[string]interface{})["armed"] != true {
+		t.Errorf("Hot standby wire row must carry armed:true, got %+v", rows[1])
+	}
+	if rows[2].(map[string]interface{})["armed"] != nil {
+		t.Errorf("Cold standby wire row must omit armed, got %+v", rows[2])
 	}
 }
 
@@ -229,7 +276,7 @@ func TestObservedTargetsFromPlan_LegacyPlanWithoutTargets(t *testing.T) {
 		},
 	}
 	// No desired targets ⇒ map the legacy plan roles.
-	obs := observedTargetsFromPlan(plan, nil, readbackByRegion(plan, PhaseProvisioning))
+	obs := observedTargetsFromPlan(plan, nil, readbackByRegion(plan, PhaseProvisioning), false)
 	if obs[0].Role != bpv1alpha1.DataRolePrimary || obs[1].Role != bpv1alpha1.DataRoleStandby {
 		t.Errorf("legacy plan roles = %q/%q, want Primary/Standby", obs[0].Role, obs[1].Role)
 	}
