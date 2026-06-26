@@ -141,21 +141,67 @@ func getenvDefault(k, d string) string {
 	return d
 }
 
-// buildAPIClient returns an http.Client trusting the in-cluster CA for
-// api-server calls; falls back to the system pool when the CA file is
-// absent (off-cluster).
+// buildAPIClient returns an http.Client trusting BOTH the public system
+// root pool AND the in-cluster api-server CA. The same client is used for
+// two distinct TLS peers: the in-cluster api-server (signed by the cluster
+// CA at saCACertPath) and the PUBLIC OIDC issuer (auth.<sovereign-fqdn>,
+// signed by Let's Encrypt). Earlier this REPLACED the system pool with
+// only the cluster CA (`RootCAs = clusterPool`), which broke the OIDC
+// discovery/JWKS fetch with `x509: certificate signed by unknown
+// authority` because Go does not merge the system roots once RootCAs is
+// set (#4407). We now clone the system pool and APPEND the cluster CA so
+// both peers verify. Off-cluster (no CA file) the system pool stands
+// alone, exactly as before.
 func buildAPIClient() *http.Client {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	if ca, err := os.ReadFile(saCACertPath); err == nil {
-		pool := x509.NewCertPool()
-		if pool.AppendCertsFromPEM(ca) {
-			tlsCfg.RootCAs = pool
-		}
-	}
+	tlsCfg.RootCAs = buildRootPool()
 	return &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: &http.Transport{TLSClientConfig: tlsCfg},
 	}
+}
+
+// buildRootPool returns a cert pool that trusts the public system roots
+// (so the Let's-Encrypt-signed OIDC issuer verifies) with the in-cluster
+// api-server CA appended (so api-server calls verify too).
+//
+//	system roots present → cloned pool + cluster CA appended
+//	system roots absent   → fresh pool with just the cluster CA
+//	neither available     → nil, so crypto/tls falls back to its default
+//	                        (the host system roots) rather than trusting
+//	                        nothing
+func buildRootPool() *x509.CertPool {
+	var clusterCA []byte
+	if ca, err := os.ReadFile(saCACertPath); err == nil {
+		clusterCA = ca
+	}
+	return rootPoolFrom(clusterCA)
+}
+
+// rootPoolFrom builds the trust pool from the (optional) in-cluster CA
+// PEM, cloning the system root pool first so the public LE issuer stays
+// trusted. Split out from buildRootPool for testability (the CA PEM is
+// passed in rather than read from the const SA path).
+func rootPoolFrom(clusterCAPEM []byte) *x509.CertPool {
+	pool, err := x509.SystemCertPool()
+	haveSystem := err == nil && pool != nil
+	if !haveSystem {
+		// SystemCertPool can fail on a scratch image with no CA bundle.
+		// Start from an empty pool so we can still add the cluster CA.
+		pool = x509.NewCertPool()
+	}
+	haveClusterCA := false
+	if len(clusterCAPEM) > 0 {
+		// AppendCertsFromPEM is additive — the system roots already in the
+		// cloned pool are preserved, the cluster CA is added on top.
+		haveClusterCA = pool.AppendCertsFromPEM(clusterCAPEM)
+	}
+	if !haveSystem && !haveClusterCA {
+		// Nothing to seed the pool with — returning an empty pool would
+		// trust NO root. Return nil so crypto/tls uses the host default.
+		return nil
+	}
+	return pool
 }
 
 func main() {

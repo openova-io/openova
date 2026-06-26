@@ -6,8 +6,12 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -229,5 +233,149 @@ func TestHealthzAlwaysOK(t *testing.T) {
 	healthzHandler(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("healthz = %d, want 200", rec.Code)
+	}
+}
+
+// makeCA returns a self-signed CA cert (the stand-in for the in-cluster
+// api-server CA) plus a leaf cert signed by it (the stand-in for the
+// api-server's serving cert). The CA is returned PEM-encoded.
+func makeCA(t *testing.T) (caPEM []byte, leaf *x509.Certificate) {
+	t.Helper()
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen CA key: %v", err)
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-cluster-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatalf("parse CA cert: %v", err)
+	}
+	caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+
+	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen leaf key: %v", err)
+	}
+	leafTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "kubernetes.default.svc"},
+		DNSNames:     []string{"kubernetes.default.svc"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create leaf cert: %v", err)
+	}
+	leaf, err = x509.ParseCertificate(leafDER)
+	if err != nil {
+		t.Fatalf("parse leaf cert: %v", err)
+	}
+	return caPEM, leaf
+}
+
+// TestRootPoolTrustsBothPublicAndClusterCA is the #4407 regression guard:
+// the controller shares one http.Client for the in-cluster api-server
+// (cluster-CA-signed) and the PUBLIC OIDC issuer (Let's-Encrypt-signed).
+// The trust pool must verify a cert chaining to the appended cluster CA
+// AND must still carry the public system roots (the old code REPLACED the
+// system pool with only the cluster CA → public LE issuer failed with
+// `x509: certificate signed by unknown authority`).
+func TestRootPoolTrustsBothPublicAndClusterCA(t *testing.T) {
+	caPEM, clusterLeaf := makeCA(t)
+
+	// Baseline: how many roots does the system pool carry on its own?
+	sysPool, sysErr := x509.SystemCertPool()
+	systemRootCount := 0
+	if sysErr == nil && sysPool != nil {
+		systemRootCount = len(sysPool.Subjects())
+	}
+
+	pool := rootPoolFrom(caPEM)
+	if pool == nil {
+		t.Fatal("rootPoolFrom returned nil with a cluster CA supplied")
+	}
+
+	// (1) The appended in-cluster CA must verify its own leaf.
+	if _, err := clusterLeaf.Verify(x509.VerifyOptions{
+		Roots:       pool,
+		CurrentTime: time.Now(),
+		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}); err != nil {
+		t.Fatalf("cluster-CA-signed leaf must verify against the pool: %v", err)
+	}
+
+	// (2) The public system roots must be PRESERVED, not replaced. If the
+	// host carries system roots, the combined pool must be strictly larger
+	// than just the one cluster CA (proving the system roots survived the
+	// append). This is the exact property the old `RootCAs = clusterPool`
+	// code violated.
+	if systemRootCount > 0 {
+		clusterOnly := x509.NewCertPool()
+		if !clusterOnly.AppendCertsFromPEM(caPEM) {
+			t.Fatal("failed to build cluster-only reference pool")
+		}
+		if got, want := len(pool.Subjects()), len(clusterOnly.Subjects()); got <= want {
+			t.Fatalf("combined pool has %d subjects, want strictly more than the %d cluster-only subjects (system roots dropped)", got, want)
+		}
+		if len(pool.Subjects()) < systemRootCount {
+			t.Fatalf("combined pool (%d) lost system roots (had %d)", len(pool.Subjects()), systemRootCount)
+		}
+	} else {
+		t.Log("host has no system root pool; skipping public-root-preservation assertion")
+	}
+}
+
+// TestRootPoolWithoutClusterCAKeepsSystemRoots covers the off-cluster path
+// (no SA CA file): the pool must still be the system pool, so the public
+// OIDC issuer remains verifiable.
+func TestRootPoolWithoutClusterCAKeepsSystemRoots(t *testing.T) {
+	sysPool, sysErr := x509.SystemCertPool()
+	pool := rootPoolFrom(nil)
+	if sysErr == nil && sysPool != nil {
+		if pool == nil {
+			t.Fatal("rootPoolFrom(nil) returned nil despite available system roots")
+		}
+		if len(pool.Subjects()) < len(sysPool.Subjects()) {
+			t.Fatalf("off-cluster pool dropped system roots: got %d, want >= %d", len(pool.Subjects()), len(sysPool.Subjects()))
+		}
+	}
+}
+
+// TestBuildAPIClientTLSConfigured confirms the shared client is built with
+// a configured (non-empty) RootCAs / TLS-min-version, i.e. the OIDC
+// verifier it's handed in main() trusts a real root set.
+func TestBuildAPIClientTLSConfigured(t *testing.T) {
+	c := buildAPIClient()
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", c.Transport)
+	}
+	if tr.TLSClientConfig == nil {
+		t.Fatal("TLSClientConfig is nil")
+	}
+	if tr.TLSClientConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("MinVersion = %x, want TLS1.2", tr.TLSClientConfig.MinVersion)
+	}
+	// On any host with a CA bundle, RootCAs must be a populated pool (the
+	// system roots) — never nil-with-no-fallback-and-no-trust.
+	if sysPool, err := x509.SystemCertPool(); err == nil && sysPool != nil && len(sysPool.Subjects()) > 0 {
+		if tr.TLSClientConfig.RootCAs == nil {
+			t.Fatal("RootCAs is nil despite available system roots — public issuer would not verify")
+		}
 	}
 }
