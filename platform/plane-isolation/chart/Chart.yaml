@@ -134,7 +134,15 @@ name: bp-plane-isolation
 #   despite the changelog claiming the deadlock fixed. All three per-component
 #   templates now carry the identical lookup-guard so a deferred namespace lands on
 #   the next helm-controller reconcile once its consumer chart creates it.
-version: 0.1.8
+# 0.1.9 (#4468): annotate `catalyst.openova.io/smoke-render-mode: "default-off"` so
+#   the blueprint-release smoke-render gate stops wedging the OCI publish. With the
+#   0.1.8 lookup-guard on all three templates, a client-side default render (no live
+#   namespaces) emits ZERO resources by design → the gate's "suspiciously short
+#   render" check failed → helm push never ran → 0.1.7 + 0.1.8 had to be hand-
+#   published. The annotation tells the gate the short render is expected (full
+#   dial-graph covered by tests/e2e/bootstrap-kit renderUnconditional contract).
+#   No template/behaviour change — annotation + lockstep bump only.
+version: 0.1.9
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform
@@ -157,5 +165,20 @@ maintainers:
 #   Catalyst-authored CRs (NetworkPolicy + CiliumNetworkPolicy targeting
 #   the cilium.io CRDs installed by bp-cilium). No upstream Helm subchart.
 #   Same shape as bp-network-policies / bp-kyverno-policies / bp-continuum.
+#
+# - catalyst.openova.io/smoke-render-mode: "default-off"
+#   The blueprint-release smoke-render gate runs `helm template` with DEFAULT
+#   values (client-side, no `cilium.io/v2` API, `lookup` always empty). Under
+#   that path EVERY per-component template now defers — the default-deny
+#   NetworkPolicy + apiserver-egress + gateway-ingress CNPs all carry the
+#   #4445/#4468 namespace-present lookup-guard, so a client-side render with no
+#   live namespaces emits ZERO resources by design. That tripped the gate's
+#   "suspiciously short render" check on every version bump (the reason 0.1.7
+#   and 0.1.8 had to be hand-published). Marking smoke-render-mode=default-off
+#   tells the gate the short default render is expected; the full dial-graph is
+#   covered by the tests/e2e/bootstrap-kit contract render
+#   (`--set renderUnconditional=true --api-versions cilium.io/v2`). Same shape
+#   as bp-cilium-policies / bp-network-policies / bp-sandbox.
 annotations:
   catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/smoke-render-mode: "default-off"

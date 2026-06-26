@@ -117,7 +117,11 @@ spec:
       #   circular deadlock 0.1.7 was meant to break. Live-caught on fresh re-prov
       #   91dc05917e44d1c1 (kom4dc, 2026-06-26): published 0.1.7 HR install STILL FAILED.
       #   All three per-component templates now carry the identical lookup-guard.
-      version: 0.1.8
+      # 0.1.9 (#4468): annotate smoke-render-mode=default-off so the blueprint-release
+      #   OCI publish stops wedging — the all-template lookup-guard renders ZERO
+      #   resources client-side by design (the gate's short-render trip). Annotation-
+      #   only; no policy/behaviour change vs 0.1.8.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-plane-isolation

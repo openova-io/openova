@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.8  # lockstep with chart/Chart.yaml (#4468 — extend the #4445 defer-if-absent guard to apiserver-egress + gateway-ingress CNPs)
+  version: 0.1.9  # lockstep with chart/Chart.yaml (#4468 — smoke-render-mode=default-off so the OCI publish stops wedging on the empty client-side render)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |
