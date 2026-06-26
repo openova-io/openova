@@ -99,7 +99,13 @@ spec:
       # AppRegistration client — oauth2-proxy callback was 500ing on hw133
       # (aud=[realm-management account], never hubble-ui). Same fix class as
       # the bp-oidc-gate openova-flow audience-mapper (#3447).
-      version: 1.4.3
+      # 1.4.4 (#4467, Huawei kom4dc fresh prov): pin cilium.MTU=1370 so the
+      # VXLAN-tunnel + WireGuard-node-encryption combined overhead is
+      # subtracted from the pod-facing devices (cilium_vxlan/cilium_host/
+      # lxc*). Auto-MTU left them at 1500 → oversized frames DF-dropped at
+      # the 1420 WireGuard MTU → all cross-node pod TCP to large payloads
+      # timed out → Phase-1 convergence deadlock. See the MTU value above.
+      version: 1.4.4
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -133,6 +139,20 @@ spec:
       # The :=10.0.1.2 fallback preserves single-region (primary-only)
       # provisions where the substitute var would be empty/absent.
       k8sServiceHost: ${CILIUM_K8S_SERVICE_HOST:=10.0.1.2}
+      # 1.4.4 (#4467, Huawei kom4dc fresh prov): pin the datapath MTU to
+      # account for the COMBINED VXLAN-tunnel(+50) + WireGuard-node-
+      # encryption(+80) overhead. Cilium auto-MTU read eth0=1500 and
+      # programmed cilium_wg0=1420 but left cilium_vxlan/cilium_host/lxc*
+      # at 1500 → full-size pod frames overflow the WireGuard MTU and are
+      # silently DF-dropped → ALL cross-node pod TCP to non-trivial payloads
+      # times out (curl 28) → Phase-1 convergence deadlock (gitea-token-mint
+      # → gitea-http.gitea.svc:3000 cross-node). 1500−50−80 = 1370; a 1370B
+      # pod payload + 50B VXLAN = 1420 = the cilium_wg0 MTU exactly. The
+      # chart default (platform/cilium/chart/values.yaml `cilium.MTU: 1370`)
+      # already carries this; pinned here too so the load-bearing value is
+      # visible at the slot. Jumbo-frame / non-1500-eth0 Sovereigns override
+      # via ${CILIUM_MTU:=1370} in their per-Sovereign overlay (eth0−130).
+      MTU: ${CILIUM_MTU:=1370}
       # Phase-8a bug #15 (otech8 deployment 1bfc46347564467b 2026-05-01):
       # cilium-agent waits forever for the operator to register
       # ciliumenvoyconfigs + ciliumclusterwideenvoyconfigs CRDs.
