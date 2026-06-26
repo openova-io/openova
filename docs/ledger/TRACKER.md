@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T12:15:03Z` |
+| Last refreshed | `2026-06-26T12:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 23 |
 | Open DoD gates | 0 / 41 |
@@ -230,6 +230,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T12:28 | [#4463](https://github.com/openova-io/openova/pull/4463) | #4275 | fix(bp-postgres): decouple -mesh/-mesh-rw global Service ali |
 | 2026-06-26T12:02 | [#4462](https://github.com/openova-io/openova/pull/4462) | #4250 | fix(org-controller): cascade-delete per-Org tenant-networkin |
 | 2026-06-26T11:57 | [#4461](https://github.com/openova-io/openova/pull/4461) | #4448 | fix(bp-sso-bridge): CNP egress names openbao+keycloak+dns —  |
 | 2026-06-26T12:03 | [#4457](https://github.com/openova-io/openova/pull/4457) | #4454 | fix(catalyst-api): janitor orphan-sweep no longer reaps its  |
@@ -259,7 +260,6 @@ flowchart LR
 | 2026-06-26T00:34 | [#4410](https://github.com/openova-io/openova/pull/4410) | #4226 | fix(bp-external-secrets-stores #4409): flux-managed label on |
 | 2026-06-26T00:25 | [#4408](https://github.com/openova-io/openova/pull/4408) | #4272 | fix(bp-openclaw): controller trusts public LE root + cluster |
 | 2026-06-26T00:13 | [#4406](https://github.com/openova-io/openova/pull/4406) | #4212 | fix(catalyst): unwedge spine Application→Continuum round-tri |
-| 2026-06-26T00:07 | [#4405](https://github.com/openova-io/openova/pull/4405) | #3376 | fix(provisioning): retry day-2 app install while per-Org Git |
 
 ---
 
