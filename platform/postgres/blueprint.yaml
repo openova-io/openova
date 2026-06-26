@@ -6,7 +6,9 @@ metadata:
     catalyst.openova.io/section: pts-4-1-data-services
     catalyst.openova.io/companion: bp-cnpg
 spec:
-  version: 0.2.7
+  # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
+  # cnpg-pair flip (render on the multi-region signal; region-B NXDOMAIN fix).
+  version: 0.2.8
   card:
     title: PostgreSQL
     summary: |
