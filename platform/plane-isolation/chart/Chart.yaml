@@ -106,7 +106,21 @@ name: bp-plane-isolation
 #   sso-bridge SA (#2655, bound_service_account_namespaces=sso-bridge) → this
 #   was purely the missing network ingress edge — the same de-vcluster gap
 #   class as #4382 (org-services→gitea) and the #4360/#4361/#4380/#4383 sweep.
-version: 0.1.6
+# 0.1.7 (#4442 / Refs #4444 #4325 #4291): the per-component default-deny NetworkPolicy
+#   now DEFERS a component whose namespace does not yet exist (lookup-guard) instead
+#   of failing the whole atomic Helm release. On a fresh prov `sandbox` is created
+#   LATE (bp-sandbox, gated behind bp-catalyst-platform) while this chart installs
+#   EARLY → the "namespaces sandbox not found" atomic-fail meant NONE of the
+#   per-component policies applied → the gitea default-deny (which admits
+#   catalyst-system) never landed → catalyst-system → gitea blocked → gitea-token-mint
+#   CrashLooped → bp-catalyst-platform install hung → bp-sandbox never created
+#   `sandbox` → CIRCULAR DEADLOCK (live b9f9590b, 2026-06-26). Cilium unions every
+#   policy + helm-controller reconciles on interval, so a deferred namespace's policy
+#   lands on the NEXT reconcile once its consumer chart creates it. Per-component
+#   `ensureNamespacePresent: false` opts back into the old hard-require behavior;
+#   chart-level `renderUnconditional: true` forces all components to render regardless
+#   of lookup (the static dial-graph contract render / CI client-side template path).
+version: 0.1.7
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform

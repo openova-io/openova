@@ -98,7 +98,18 @@ spec:
       #   grafana 503 / hubble 503 / gitea 500. Same de-vcluster ingress-gap class
       #   as #4382 (org-services→gitea). Network-only: openbao auth-bootstrap
       #   already binds the sso-bridge SA (#2655). Live: kom4dc b9f9590b558262b6.
-      version: 0.1.6
+      # 0.1.7 (#4442 / Refs #4444 #4325): the per-component default-deny NetworkPolicy
+      #   now DEFERS a component whose namespace does not yet exist (lookup-guard)
+      #   instead of failing the whole atomic Helm release. On a fresh prov `sandbox`
+      #   is created LATE (bp-sandbox, gated behind bp-catalyst-platform) while this
+      #   chart installs EARLY → "namespaces sandbox not found" atomic-fail meant NONE
+      #   of the per-component policies applied → gitea default-deny never landed →
+      #   catalyst-system → gitea blocked → gitea-token-mint CrashLooped →
+      #   bp-catalyst-platform hung → bp-sandbox never created `sandbox` → CIRCULAR
+      #   DEADLOCK (live b9f9590b, 2026-06-26). Cilium unions every policy +
+      #   helm-controller reconciles on interval, so the deferred policy lands on the
+      #   NEXT reconcile once the namespace exists.
+      version: 0.1.7
       sourceRef:
         kind: HelmRepository
         name: bp-plane-isolation

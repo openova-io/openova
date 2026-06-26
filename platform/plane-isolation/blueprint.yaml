@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.6  # lockstep with chart/Chart.yaml (#4448 — add sso-bridge to openbao allowIngressFrom)
+  version: 0.1.7  # lockstep with chart/Chart.yaml (#4442 — defer per-component default-deny when its namespace is absent)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

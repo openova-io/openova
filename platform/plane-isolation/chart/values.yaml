@@ -11,6 +11,17 @@ enabled: true
 # kube-system.
 dnsNamespace: kube-system
 
+# #4442 deferral escape hatch. The per-component default-deny is normally
+# DEFERRED for a component whose namespace does not yet exist (a `lookup` guard
+# that breaks the fresh-prov circular deadlock — see Chart.yaml 0.1.7). But
+# `lookup` ALWAYS returns empty under a CLIENT-side render (`helm template`,
+# `--dry-run=client`, the #4325 dial-graph contract test), which would defer
+# EVERY component there. Set `renderUnconditional: true` to force every
+# component to render regardless of `lookup` — used by the static dial-graph
+# coverage render. MUST stay false on a live helm-controller install so the
+# deferral (and thus the deadlock fix) actually engages.
+renderUnconditional: false
+
 # ── Per-component policy set ───────────────────────────────────────────────
 # Each entry is ONE de-vclustered platform component's host namespace. The
 # generator renders, for each:

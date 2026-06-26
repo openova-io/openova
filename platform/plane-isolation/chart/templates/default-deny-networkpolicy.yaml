@@ -21,6 +21,45 @@ CiliumNetworkPolicy (Cilium unions every policy selecting an endpoint).
 {{- $dnsNamespace := .Values.dnsNamespace | default "kube-system" -}}
 {{- range .Values.components }}
 {{- $ns := .namespace }}
+{{- /*
+  #4442 deadlock fix — skip a component whose namespace does NOT yet exist.
+
+  The NetworkPolicy `namespace: <ns>` field requires <ns> to exist at apply
+  time; Helm install is ATOMIC, so a single missing namespace fails the whole
+  release → NONE of the per-component policies apply (incl. the gitea/keycloak/
+  harbor ones that unblock catalyst-system → the SSO chain). On a fresh prov
+  `sandbox` is created LATE (bp-sandbox, createNamespace:true, gated behind
+  bp-catalyst-platform) while bp-plane-isolation installs EARLY (after
+  bp-cilium/bp-network-policies) → atomic fail on "namespaces sandbox not
+  found" → gitea default-deny never lands → catalyst-system → gitea blocked →
+  gitea-token-mint CrashLoops → bp-catalyst-platform install hangs →
+  bp-sandbox never creates `sandbox` → CIRCULAR DEADLOCK (live b9f9590b,
+  2026-06-26).
+
+  Cilium evaluates the UNION of every policy selecting an endpoint, and
+  helm-controller reconciles on its interval, so skipping a not-yet-existent
+  namespace's policy at install + applying it on the NEXT reconcile (once the
+  consumer chart has created the namespace) converges WITHOUT the atomic-fail
+  deadlock. lookup runs against the LIVE cluster under helm-controller (not a
+  dry-run), so already-present namespaces (gitea/keycloak/harbor/… created by
+  their own HRs) are found + policied at install; only the genuinely-absent
+  ones defer. `ensureNamespacePresent: false` (per-component override) opts a
+  component out of the guard if an overlay needs the old hard-require behavior.
+*/ -}}
+{{- /* guardNamespace defaults TRUE; only an explicit `ensureNamespacePresent: false`
+       disables the defer-if-absent guard. Compared as a string to dodge the Sprig
+       `default` bool gotcha (default coerces a literal false back to true). */ -}}
+{{- $guardNamespace := not (eq (toString .ensureNamespacePresent) "false") }}
+{{- /* renderUnconditional (chart-level) forces EVERY component to render its
+       default-deny regardless of `lookup`. Needed because `lookup` ALWAYS returns
+       empty under a client-side render (`helm template`, `--dry-run=client`, and
+       the #4325 dial-graph contract test) — without this escape hatch the guard
+       would defer every component there and the static dial-graph coverage could
+       never be asserted. On a live helm-controller install this stays false, so
+       the lookup-guard does its job and the deadlock fix holds. */ -}}
+{{- if and $guardNamespace (not $.Values.renderUnconditional) (not (lookup "v1" "Namespace" "" $ns)) }}
+{{- /* namespace not present yet — defer this component's policy to a later reconcile */ -}}
+{{- else }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -93,5 +132,6 @@ spec:
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-{{- end }}
+{{- end }}{{/* end namespace-present guard */}}
+{{- end }}{{/* end range components */}}
 {{- end -}}

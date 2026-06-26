@@ -1059,7 +1059,17 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 
 	// Render with the cilium.io/v2 API present so the gateway-ingress CNP also
 	// renders (we assert its presence for gateway-fronted components).
-	cmd := exec.Command(helmBin, "template", "plane-isolation", ".", "--api-versions", "cilium.io/v2")
+	//
+	// renderUnconditional=true bypasses the #4442 lookup-guard: on a live
+	// helm-controller install the default-deny for a not-yet-created namespace
+	// is DEFERRED (breaks the fresh-prov circular deadlock — see chart 0.1.7),
+	// but `lookup` ALWAYS returns empty under this client-side `helm template`,
+	// so without the flag every component would defer and the static dial-graph
+	// coverage below could never be asserted. The flag forces every component to
+	// render so this test validates the allow-list CONTENT (the contract);
+	// the deferral mechanism is a live-delivery concern orthogonal to content.
+	cmd := exec.Command(helmBin, "template", "plane-isolation", ".",
+		"--api-versions", "cilium.io/v2", "--set", "renderUnconditional=true")
 	cmd.Dir = chartDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
