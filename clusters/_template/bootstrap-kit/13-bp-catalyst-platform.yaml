@@ -1188,7 +1188,7 @@ spec:
       #   sandbox-controller can read CATALYST_GITEA_TOKEN (was CrashLoopBackOff
       #   on every Sovereign → 0 Sandboxes → no openova-sandbox-mcp). Lockstep
       #   w/ Chart.yaml + templates/catalyst-gitea-token-secret.yaml.
-      version: 1.4.902
+      version: 1.4.903
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
