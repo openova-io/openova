@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T19:00:04Z` |
+| Last refreshed | `2026-06-26T19:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T19:02 | [#4495](https://github.com/openova-io/openova/pull/4495) | #4290 | fix(org-controller): render gateway/apiserver CNP host-side  |
 | 2026-06-26T18:50 | [#4494](https://github.com/openova-io/openova/pull/4494) | #4111 | fix(bp-agenity): default imagePullSecrets to ghcr-pull — kil |
 | 2026-06-26T18:43 | [#4493](https://github.com/openova-io/openova/pull/4493) | #4466 | fix(janitor): log-only-until-proven + active-dep allowlist + |
 | 2026-06-26T18:24 | [#4492](https://github.com/openova-io/openova/pull/4492) | #4477 | fix(catalyst): seed newapi admin-token into OpenBao so catal |
@@ -249,7 +250,6 @@ flowchart LR
 | 2026-06-26T10:59 | [#4449](https://github.com/openova-io/openova/pull/4449) | #4325 | fix(bp-plane-isolation #4448): add sso-bridge to openbao all |
 | 2026-06-26T11:57 | [#4445](https://github.com/openova-io/openova/pull/4445) | #4442 | fix(bp-plane-isolation #4444): defer per-component default-d |
 | 2026-06-26T11:51 | [#4443](https://github.com/openova-io/openova/pull/4443) | #4282 | fix(bp-postgres #4442): singleton operator-probe NP no longe |
-| 2026-06-26T08:29 | [#4441](https://github.com/openova-io/openova/pull/4441) | #4279 | docs(ledger): reset UAT.md clean + expand with session-fix c |
 
 ---
 
