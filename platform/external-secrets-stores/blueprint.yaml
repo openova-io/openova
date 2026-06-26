@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
-  version: 1.0.8 # lockstep with chart/Chart.yaml (#4388 clusterSecretStore.server → host-ns openbao, #4325 fallout)
+  version: 1.0.9 # lockstep with chart/Chart.yaml (#4409 webhook-gate hook Job flux-managed label)
   card:
     title: External Secrets — Stores
     summary: |
