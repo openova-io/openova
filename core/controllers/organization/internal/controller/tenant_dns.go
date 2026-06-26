@@ -171,6 +171,55 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 	return true, nil
 }
 
+// teardownTenantDNS removes the per-Org pool A-records the up-path wrote to
+// the central PowerDNS (`console.<slug>.<parentDomain>` +
+// `*.<slug>.<parentDomain>`) when the Organization is deleted — otherwise the
+// stale records survive the Org and a later re-prov of the same slug points
+// at a DEAD console-ELB IP (#4459). Uses PATCH changetype=DELETE, the
+// canonical PowerDNS rrset removal (it does NOT need the record content, so
+// no console-IP env is required for the delete). Returns (changed, err). No-op
+// (false, nil) when the Org had no pool parentDomain or the central-pdns
+// writer is unwired. Idempotent: deleting an already-absent rrset is a 2xx
+// no-op on PowerDNS.
+func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organization) (bool, error) {
+	tp := org.Spec.TenantPublic
+	parentDomain := strings.TrimSpace(tp.ParentDomain)
+	if parentDomain == "" {
+		return false, nil
+	}
+	subdomain := strings.TrimSpace(tp.Subdomain)
+	if subdomain == "" {
+		subdomain = org.Spec.Slug
+	}
+	baseURL := strings.TrimSpace(r.PoolPowerDNSURL)
+	apiKey := strings.TrimSpace(r.PoolPowerDNSAPIKey)
+	if baseURL == "" || apiKey == "" {
+		// No central-pdns writer wired — nothing this controller can delete.
+		r.Log.Info("tenant-dns teardown: skipped — central pool PowerDNS not wired",
+			"organization", org.Name)
+		return false, nil
+	}
+
+	rrsets := make([]poolDNSRRSet, 0, 2)
+	for _, prefix := range []string{"console", "*"} {
+		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentDomain)
+		rrsets = append(rrsets, poolDNSRRSet{
+			Name:       fqdn,
+			Type:       "A",
+			TTL:        poolDNSTTL,
+			ChangeType: "DELETE",
+		})
+	}
+	if err := r.patchPoolZone(ctx, baseURL, apiKey, parentDomain, rrsets); err != nil {
+		return false, fmt.Errorf("delete pool zone rrsets %q for %q: %w", parentDomain, subdomain, err)
+	}
+	r.Log.Info("tenant-dns teardown: deleted per-Org pool A-records",
+		"organization", org.Name,
+		"console_host", fmt.Sprintf("console.%s.%s", subdomain, parentDomain),
+		"zone", parentDomain)
+	return true, nil
+}
+
 // tenantConsoleLBIPv4 resolves the A-record target IP: the dedicated console-ELB
 // EIP (CATALYST_TENANT_CONSOLE_LB_IPV4) when set, else the primary/shared LB
 // (CATALYST_OTECH_INGRESS_IPV4) for single-LB / pre-#4053 Sovereigns. Empty when

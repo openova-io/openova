@@ -449,6 +449,118 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgCons
 	return true, nil
 }
 
+// teardownTenantConsoleTLS removes the per-Org console-TLS artifacts the
+// up-path (reconcileTenantConsoleTLS) appended/created: the two named
+// listeners on the SHARED console Gateway and the per-Org wildcard
+// Certificate. This is the deletion-direction counterpart — without it,
+// deleting an Organization CR leaves dead `console-https-<slug>` /
+// `console-http-<slug>` listeners ACCUMULATING on the shared Gateway and
+// an orphan Certificate (+ its TLS Secret) in the Gateway namespace, since
+// neither sits in the Flux-pruned `<slug>` namespace nor carries an
+// ownerRef the GC follows (#4459). No-op (false, nil) when the Org never
+// had a pool parentDomain. Best-effort + absent-as-success — a missing
+// artifact is success, not an error, so a repeated reconcile is idempotent.
+func (r *Reconciler) teardownTenantConsoleTLS(ctx context.Context, org *orgapi.Organization) (bool, error) {
+	parentDomain := strings.TrimSpace(org.Spec.TenantPublic.ParentDomain)
+	if parentDomain == "" {
+		return false, nil
+	}
+	subdomain := strings.TrimSpace(org.Spec.TenantPublic.Subdomain)
+	if subdomain == "" {
+		subdomain = org.Spec.Slug
+	}
+	if strings.TrimSpace(subdomain) == "" {
+		return false, nil
+	}
+	names := orgConsoleTLSNamesFor(subdomain, parentDomain)
+
+	listenerChanged, err := r.removeConsoleOrgListener(ctx, names)
+	if err != nil {
+		return false, fmt.Errorf("remove console listener for %q: %w", names.WildcardHost, err)
+	}
+	certChanged, err := r.deleteOrgWildcardCert(ctx, names)
+	if err != nil {
+		return listenerChanged, fmt.Errorf("delete org wildcard cert %q: %w", names.CertName, err)
+	}
+	return listenerChanged || certChanged, nil
+}
+
+// removeConsoleOrgListener strips the per-Org `console-https-<slug>` /
+// `console-http-<slug>` listeners off the shared console Gateway, leaving
+// every OTHER listener (the apex `*.<sovFQDN>` pair AND every other Org's
+// per-Org listeners) byte-for-byte intact — the exact inverse of
+// ensureConsoleOrgListener's strictly-additive append. Returns (changed,
+// err): changed=true iff at least one listener was actually removed.
+// No-op when the Gateway is absent (already gone) or carries neither
+// listener (idempotent on a re-run).
+func (r *Reconciler) removeConsoleOrgListener(ctx context.Context, names orgConsoleTLSNames) (bool, error) {
+	gwNS := r.consoleGatewayNamespace()
+	gwName := r.consoleGatewayName()
+
+	gw := unstructured.Unstructured{}
+	gw.SetGroupVersionKind(gatewayGVK)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: gwNS, Name: gwName}, &gw); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Gateway already gone — nothing to strip.
+			return false, nil
+		}
+		return false, fmt.Errorf("get Gateway %s/%s: %w", gwNS, gwName, err)
+	}
+
+	listeners, _, err := unstructured.NestedSlice(gw.Object, "spec", "listeners")
+	if err != nil {
+		return false, fmt.Errorf("read Gateway %s/%s listeners: %w", gwNS, gwName, err)
+	}
+
+	drop := map[string]bool{names.HTTPSName: true, names.HTTPName: true}
+	kept := make([]any, 0, len(listeners))
+	removed := false
+	for _, l := range listeners {
+		if m, ok := l.(map[string]any); ok {
+			if n, ok := m["name"].(string); ok && drop[n] {
+				removed = true
+				continue
+			}
+		}
+		kept = append(kept, l)
+	}
+	if !removed {
+		// Neither per-Org listener present — idempotent no-op.
+		return false, nil
+	}
+
+	if err := unstructured.SetNestedSlice(gw.Object, kept, "spec", "listeners"); err != nil {
+		return false, fmt.Errorf("set Gateway %s/%s listeners: %w", gwNS, gwName, err)
+	}
+	if err := r.Update(ctx, &gw); err != nil {
+		// A conflict means another writer touched the Gateway concurrently —
+		// surface it so the caller requeues and re-reads.
+		return false, fmt.Errorf("update Gateway %s/%s: %w", gwNS, gwName, err)
+	}
+	return true, nil
+}
+
+// deleteOrgWildcardCert removes the per-Org cert-manager Certificate the
+// up-path created. cert-manager garbage-collects the backing TLS Secret
+// once the Certificate is gone (the Secret carries an ownerRef to the
+// Certificate), so deleting the Certificate cascades the Secret. Returns
+// (changed, err): changed=true iff a Certificate was actually deleted.
+// Absent-as-success.
+func (r *Reconciler) deleteOrgWildcardCert(ctx context.Context, names orgConsoleTLSNames) (bool, error) {
+	ns := r.consoleTLSCertNamespace()
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(certificateGVK)
+	obj.SetNamespace(ns)
+	obj.SetName(names.CertName)
+	if err := r.Delete(ctx, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("delete Certificate %s/%s: %w", ns, names.CertName, err)
+	}
+	return true, nil
+}
+
 // specEqual is a shallow structural compare of two map[string]any specs.
 // Used to decide whether a Certificate Update is worth issuing. It walks
 // nested maps/slices recursively comparing scalar values; differing

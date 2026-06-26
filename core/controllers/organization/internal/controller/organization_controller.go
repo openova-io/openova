@@ -353,6 +353,38 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			log.Error(err, "per-org-flux teardown")
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
+		// Per-Org tenant-networking teardown (#4459). The console Gateway
+		// listener pair, the per-Org wildcard Certificate (+ its TLS Secret),
+		// the per-Org console HTTPRoute, and the central-PowerDNS pool
+		// A-records the up-path created all live OUTSIDE the Flux-pruned
+		// `<slug>` namespace (the listener is on the SHARED console Gateway in
+		// kube-system; the Certificate is in kube-system; the HTTPRoute is in
+		// catalyst-system; the DNS records are off-cluster) and carry NO
+		// ownerRef the GC follows — so without an explicit teardown they leak
+		// on every Org delete (dead listeners ACCUMULATE on the shared
+		// Gateway; a stale A-record points a re-prov at a dead console IP).
+		// Gated on the same engaged-feature signal as the up-path (a pool
+		// parentDomain), best-effort + absent-as-success, so a re-reconcile is
+		// idempotent. Run before dropping the finalizers so the CR still holds
+		// while we clean up.
+		if err := r.teardownTenantNetworking(ctx, &org); err != nil {
+			log.Error(err, "tenant-networking teardown")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		// Drop the tenant-networking finalizer once its cascade has run. This
+		// finalizer is what GUARANTEES the cascade fires (it holds the CR even
+		// when iac-bootstrap + per-Org-realm are unwired); removing it lets the
+		// CR proceed toward tombstone once its artifacts are gone.
+		if containsFinalizer(org.Finalizers, TenantNetworkingFinalizer) {
+			if removeTenantNetworkingFinalizer(&org) {
+				if uerr := r.Update(ctx, &org); uerr != nil {
+					return ctrl.Result{}, fmt.Errorf("remove tenant-networking finalizer: %w", uerr)
+				}
+				// Update changed resourceVersion; requeue so the next reconcile
+				// operates on the latest copy before touching the other finalizers.
+				return ctrl.Result{Requeue: true}, nil
+			}
+		}
 		if containsFinalizer(org.Finalizers, IacBootstrapFinalizer) {
 			if err := r.teardownIacBootstrap(ctx, &org); err != nil {
 				log.Error(err, "iac-bootstrap teardown")
@@ -417,6 +449,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if ensurePerOrgRealmFinalizer(&org) {
 			if err := r.Update(ctx, &org); err != nil {
 				return ctrl.Result{}, fmt.Errorf("add per-org-realm finalizer: %w", err)
+			}
+			return ctrl.Result{Requeue: true}, nil
+		}
+	}
+
+	// Add the tenant-networking finalizer on first observation when the Org
+	// engages the tenant-networking up-path (a pool parentDomain → console TLS
+	// + Gateway listener + HTTPRoute + pool DNS). This GUARANTEES the cascade
+	// teardown (#4459) fires on delete even when iac-bootstrap + per-Org-realm
+	// are unwired — those would otherwise be the only finalizers holding the CR
+	// long enough for the deletion branch to run. Same requeue-after-add pattern.
+	if orgEngagesTenantNetworking(&org) {
+		if ensureTenantNetworkingFinalizer(&org) {
+			if err := r.Update(ctx, &org); err != nil {
+				return ctrl.Result{}, fmt.Errorf("add tenant-networking finalizer: %w", err)
 			}
 			return ctrl.Result{Requeue: true}, nil
 		}

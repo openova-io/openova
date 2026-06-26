@@ -243,3 +243,48 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 	}
 	return true, nil
 }
+
+// tenantRouteNameNS computes the deterministic (namespace, name) of the
+// per-Org console HTTPRoute the up-path renders, so the teardown targets
+// exactly what reconcileTenantRoute created. Returns ok=false when the Org
+// has no pool parentDomain (the feature was never engaged → nothing to
+// remove). Kept in lockstep with the up-path derivation:
+//
+//	host = console.<subdomain>.<parentDomain>; name = catalyst-ui-<host-dashed>;
+//	ns   = consoleRouteNamespace (catalyst-system).
+func (r *Reconciler) tenantRouteNameNS(org *orgapi.Organization) (ns, name string, ok bool) {
+	parentDomain := strings.TrimSpace(org.Spec.TenantPublic.ParentDomain)
+	if parentDomain == "" {
+		return "", "", false
+	}
+	subdomain := strings.TrimSpace(org.Spec.TenantPublic.Subdomain)
+	if subdomain == "" {
+		subdomain = org.Spec.Slug
+	}
+	hostname := fmt.Sprintf("console.%s.%s", subdomain, parentDomain)
+	return r.consoleRouteNamespace(), "catalyst-ui-" + dnsDashed(hostname), true
+}
+
+// teardownTenantRoute deletes the per-Org console HTTPRoute on Org delete.
+// The route lands in catalyst-system (NOT the Org's `<slug>` namespace), so
+// neither the Flux `<slug>`-namespace prune nor a same-namespace ownerRef
+// reaps it — it leaks unless explicitly removed (#4459). Returns (changed,
+// err); changed=true iff a route was actually deleted. No-op when the Org
+// had no pool parentDomain. Absent-as-success → idempotent on a re-run.
+func (r *Reconciler) teardownTenantRoute(ctx context.Context, org *orgapi.Organization) (bool, error) {
+	ns, name, ok := r.tenantRouteNameNS(org)
+	if !ok {
+		return false, nil
+	}
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(httpRouteGVK)
+	obj.SetNamespace(ns)
+	obj.SetName(name)
+	if err := r.Delete(ctx, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("delete HTTPRoute %s/%s: %w", ns, name, err)
+	}
+	return true, nil
+}
