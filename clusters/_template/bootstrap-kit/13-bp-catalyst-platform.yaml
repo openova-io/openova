@@ -1197,7 +1197,7 @@ spec:
       #   but LEFT spec.source.version 0.5.12; Flux resolves from source.version
       #   so Sovereigns still pulled the OLD 0.5.12 chart -> per-Org agenity pod
       #   Init:ImagePullBackOff. Lockstep w/ Chart.yaml. Refs #4111 #4494 #4417.
-      version: 1.4.910
+      version: 1.4.911
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
