@@ -1158,7 +1158,14 @@ spec:
       #   bp-reflector lands the key) + loud-fails instead of silently skipping →
       #   per-Org console.<slug>.<pool> A-record is written on a fresh prov (was
       #   NXDOMAIN). Lockstep w/ Chart.yaml. Refs #4290 #4179.
-      version: 1.4.893
+      # 1.4.894 — #4464: re-pin organization-controller image b23af68 -> 89993b2.
+      #   The deploy-bump #2584 whole-file snapshot re-apply was clobbering the
+      #   per-controller bump back to b23af68 on every catalyst-build deploy run,
+      #   so a fresh prov shipped org-controller WITHOUT #4455 tenant-dns OR #4462
+      #   delete-cascade (both already merged). 89993b2 descends from b23af68 → it
+      #   keeps the #4393 Guaranteed-QoS vcluster fix too. Lockstep w/ Chart.yaml.
+      #   Refs #4464 #4455 #4462 #4393.
+      version: 1.4.894
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
