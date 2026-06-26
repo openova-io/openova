@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T17:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-06-26T17:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 33 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -240,6 +240,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T17:12 | [#4485](https://github.com/openova-io/openova/pull/4485) | #4454 | docs: janitor self-reap post-mortem (VPC guard-chain) + sove |
+| 2026-06-26T17:07 | [#4484](https://github.com/openova-io/openova/pull/4484) | #4279 | docs(uat): live fresh-prov 91dc0591 walk results — 57✅/16❌/1 |
 | 2026-06-26T16:01 | [#4483](https://github.com/openova-io/openova/pull/4483) | #4325 | fix(bp-catalyst-platform #4482): reflect catalyst-gitea-toke |
 | 2026-06-26T15:50 | [#4481](https://github.com/openova-io/openova/pull/4481) | #4477 | fix(bp-openbao,bp-newapi): two fresh-prov SSO seeding faults |
 | 2026-06-26T16:12 | [#4480](https://github.com/openova-io/openova/pull/4480) | #4471 | fix(catalyst-api): console org-list/detail read from orgs.op |
@@ -268,8 +270,6 @@ flowchart LR
 | 2026-06-26T04:28 | [#4429](https://github.com/openova-io/openova/pull/4429) | #4360 | fix(bp-plane-isolation): admit kube-apiserver egress entity  |
 | 2026-06-26T03:48 | [#4427](https://github.com/openova-io/openova/pull/4427) | #4423 | fix(cloud-init): reflect ghcr-pull into bare-slug per-Org na |
 | 2026-06-26T03:39 | [#4426](https://github.com/openova-io/openova/pull/4426) | #3376 | fix(provisioning): funnel cart WordPress emits a Cilium-Gate |
-| 2026-06-26T03:30 | [#4425](https://github.com/openova-io/openova/pull/4425) | #4403 | fix(provisioning/bp-kyverno-policies #4422): funnel cart DB  |
-| 2026-06-26T03:30 | [#4424](https://github.com/openova-io/openova/pull/4424) | #4421 | fix(provisioning): align funnel Org DNS pool with the apps-H |
 
 ---
 
