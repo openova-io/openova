@@ -494,49 +494,87 @@ func TestCommitCatalogAppEditToGit_ByteIdenticalIsDurable(t *testing.T) {
 
 // TestWriteCatalogEditToGit_MirrorsToFluxAggregator — #3668: the load-bearing
 // half PR #3702 deferred. On a Sovereign (SOVEREIGN_FQDN set), a console edit
-// ALSO writes the SAME merged CR bytes into the Flux-reconciled aggregator
-// tree `openova/openova @ catalog-sovereign : clusters/<fqdn>/catalog-
+// ALSO writes the merged CR into the Flux-reconciled aggregator tree
+// `openova/openova @ catalog-sovereign : clusters/<fqdn>/catalog-
 // sovereign/<bp>.yaml`, so the openova-catalog-sovereign Kustomization can
 // reconcile it into the LIVE in-cluster Blueprint CR. The per-Blueprint repo
-// write (the UI read source) is unchanged; this asserts the SECOND, Flux
-// source-of-truth write lands with byte-identical content.
+// write (the UI read source) carries the FULL merged CR; the Flux write
+// carries the same CURATION fields but — per #4415 — DROPS the chart-delivery
+// fields spec.version / spec.source so a catalog-seed version bump is never
+// pinned-over by Flux's force:true SSA.
 func TestWriteCatalogEditToGit_MirrorsToFluxAggregator(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
+	// A live CR carrying a real version + source — exactly what a seeded
+	// Blueprint has on a Sovereign. The first edit seeds the per-Blueprint
+	// file from it, so the curation fields AND version/source are present
+	// pre-strip, making the #4415 strip assertion meaningful.
+	h.SetCatalogClient(newFakeCatalog(sampleWordpressBlueprint()))
 
 	edit := catalogEdit{
-		Slug:    "alloy",
-		Name:    "Alloy (Edited)",
+		Slug:    "wordpress",
+		Name:    "WordPress (Edited)",
 		Tagline: "RECONCILE-PROOF",
 	}
 	if _, err := h.writeCatalogEditToGit(context.Background(), edit); err != nil {
 		t.Fatalf("writeCatalogEditToGit: %v", err)
 	}
 
-	// The per-Blueprint repo write (UI read source) still lands.
-	perBP := giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)
+	// The per-Blueprint repo write (UI read source) still lands WITH the full
+	// merged CR, including the chart-delivery fields the UI renders.
+	perBP := giteaKey(catalogSovereignOrg, "bp-wordpress", catalogEditGitBranch, catalogEditBlueprintPath)
 	perBPRaw, ok := fg.files[perBP]
 	if !ok {
 		t.Fatalf("per-Blueprint write missing at %s; keys=%v", perBP, fileKeys(fg))
 	}
+	var perBPDoc map[string]interface{}
+	if err := yamlv3.Unmarshal(perBPRaw, &perBPDoc); err != nil {
+		t.Fatalf("unmarshal per-Blueprint CR: %v", err)
+	}
+	perBPSpec, _ := perBPDoc["spec"].(map[string]interface{})
+	if perBPSpec == nil || asString(perBPSpec["version"]) != "1.2.3" {
+		t.Errorf("per-Blueprint UI read source must keep spec.version; got %v", perBPSpec["version"])
+	}
+	if _, ok := perBPSpec["manifests"].(map[string]interface{}); !ok {
+		t.Errorf("per-Blueprint UI read source must keep spec.manifests; spec=%v", perBPSpec)
+	}
 
 	// The Flux aggregator write lands on openova/openova @ catalog-sovereign.
-	aggPath := "clusters/t99.omani.works/catalog-sovereign/bp-alloy.yaml"
+	aggPath := "clusters/t99.omani.works/catalog-sovereign/bp-wordpress.yaml"
 	aggKey := giteaKey(catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch, aggPath)
 	aggRaw, ok := fg.files[aggKey]
 	if !ok {
 		t.Fatalf("Flux aggregator write missing at %s; keys=%v", aggKey, fileKeys(fg))
 	}
-	if string(aggRaw) != string(perBPRaw) {
-		t.Errorf("aggregator bytes must equal the per-Blueprint CR bytes (same merged CR drives render+reconcile)\nagg:\n%s\nperBP:\n%s", aggRaw, perBPRaw)
+	var aggDoc map[string]interface{}
+	if err := yamlv3.Unmarshal(aggRaw, &aggDoc); err != nil {
+		t.Fatalf("unmarshal aggregator CR: %v", err)
+	}
+	aggSpec, _ := aggDoc["spec"].(map[string]interface{})
+	if aggSpec == nil {
+		t.Fatalf("aggregator CR has no spec; doc=%v", aggDoc)
+	}
+	// #4415 — the Flux file must NOT carry the chart-delivery fields, so
+	// catalog-seed (Helm) stays the sole owner of spec.version + spec.source
+	// and a merged seed bump reaches the live CR zero-touch.
+	if _, leaked := aggSpec["version"]; leaked {
+		t.Errorf("aggregator (Flux SSA) CR must NOT carry spec.version (#4415); spec=%v", aggSpec)
+	}
+	if _, leaked := aggSpec["source"]; leaked {
+		t.Errorf("aggregator (Flux SSA) CR must NOT carry spec.source (#4415); spec=%v", aggSpec)
+	}
+	// The curation fields the operator legitimately owns DO survive into the
+	// Flux file (it is the field set Flux owns + must keep revert-immune).
+	if _, ok := aggSpec["manifests"].(map[string]interface{}); !ok {
+		t.Errorf("aggregator CR must keep non-delivery spec fields (e.g. manifests); spec=%v", aggSpec)
 	}
 	if !strings.Contains(string(aggRaw), "RECONCILE-PROOF") {
 		t.Errorf("aggregator CR must carry the edited summary; got:\n%s", aggRaw)
 	}
 	// The aggregator path is the one the Flux Kustomization sweeps.
-	if got := catalogSovereignAggPath("t99.omani.works", "bp-alloy"); got != aggPath {
+	if got := catalogSovereignAggPath("t99.omani.works", "bp-wordpress"); got != aggPath {
 		t.Errorf("catalogSovereignAggPath = %q, want %q", got, aggPath)
 	}
 }
@@ -591,6 +629,72 @@ func TestWriteCatalogSovereignAggregator_BestEffortGuards(t *testing.T) {
 	h.SetGiteaClient(fgErr)
 	if _, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); err == nil {
 		t.Errorf("erroring PutFile must return a non-nil err for the caller to log")
+	}
+}
+
+// TestStripDeliveryFieldsForFluxAggregator — #4415 unit. The Flux aggregator
+// file must drop the chart-delivery fields spec.version + spec.source (both
+// the top-level spec.source AND its nested source.version) so catalog-seed
+// (Helm) stays their sole owner and a seed version bump reaches the live CR
+// zero-touch. Every OTHER spec field (card, visibility, topology, manifests)
+// is preserved — those are the curation fields Flux legitimately owns.
+func TestStripDeliveryFieldsForFluxAggregator(t *testing.T) {
+	in := []byte(`apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-openclaw
+spec:
+  version: "0.2.11"
+  visibility: listed
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-openclaw
+    version: 0.2.11
+  manifests:
+    chart: bp-openclaw
+  card:
+    title: OpenClaw
+    summary: edited-by-operator
+`)
+	out := stripDeliveryFieldsForFluxAggregator(in)
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("unmarshal stripped: %v", err)
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil {
+		t.Fatalf("stripped CR lost its spec; doc=%v", doc)
+	}
+	if _, leaked := spec["version"]; leaked {
+		t.Errorf("spec.version must be stripped; spec=%v", spec)
+	}
+	if _, leaked := spec["source"]; leaked {
+		t.Errorf("spec.source must be stripped (incl. nested source.version); spec=%v", spec)
+	}
+	// Curation fields survive.
+	if asString(spec["visibility"]) != "listed" {
+		t.Errorf("spec.visibility must survive; got %v", spec["visibility"])
+	}
+	if _, ok := spec["manifests"].(map[string]interface{}); !ok {
+		t.Errorf("spec.manifests must survive; spec=%v", spec)
+	}
+	card, _ := spec["card"].(map[string]interface{})
+	if card == nil || card["summary"] != "edited-by-operator" {
+		t.Errorf("spec.card edit must survive; card=%v", card)
+	}
+	// metadata.name survives so the Kustomization keys the right CR.
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil || meta["name"] != "bp-openclaw" {
+		t.Errorf("metadata.name must survive; meta=%v", meta)
+	}
+
+	// Best-effort: un-parseable input is returned unchanged so a strip never
+	// blocks the reconcile.
+	garbage := []byte("\t::not yaml::\t")
+	if got := stripDeliveryFieldsForFluxAggregator(garbage); string(got) != string(garbage) {
+		t.Errorf("un-parseable input must be returned unchanged; got %q", got)
 	}
 }
 

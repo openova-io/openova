@@ -1134,7 +1134,11 @@ spec:
       #   Chart-only. Refs #4395 #4394 #4307 #4292.
       # 1.4.871 — #4413: catalog-seed bp-openclaw 0.2.8 -> 0.2.11 (lockstep) so the
       #   #4272 egress/TLS fixes reach fresh funnel Orgs.
-      version: 1.4.877
+      # 1.4.878 — #4415: drop helm.sh/resource-policy:keep on the 81 catalog-seed
+      #   Blueprint CRs so a merged seed version bump reaches the LIVE CR on the
+      #   next helm upgrade (no kubectl patch); catalyst-api strips version/source
+      #   from the Flux aggregator so Helm stays their sole owner.
+      version: 1.4.878
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
