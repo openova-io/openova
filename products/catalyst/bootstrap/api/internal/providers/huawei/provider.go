@@ -94,8 +94,15 @@ func VPCQuotaPreflight(ctx context.Context, accessKey, secretKey, projectID, reg
 // provisioner.VPCReclaimHook by init() (#4431). Same free-function
 // shape as VPCQuotaPreflight so the provisioner can reclaim leaked VPC
 // quota in-band without importing huawei. Delegates to SweepOrphanVPCs.
+//
+// This is the in-band, provision-time quota-reclaim path (NOT the
+// background janitor), so it passes destructive=true: a fresh prov that
+// hit the VPC cap genuinely needs the leaked orphans gone to make room.
+// The #4466 log-only gate is the background janitor's default; it does not
+// apply to this explicit on-demand reclaim. Protect-by-default
+// (activeDepIDPrefixes) still hard-protects every in-flight dep's VPC.
 func VPCReclaimPreflight(ctx context.Context, accessKey, secretKey, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
-	return New().SweepOrphanVPCs(ctx, accessKey, secretKey, projectID, region, activeDepIDPrefixes, progress)
+	return New().SweepOrphanVPCs(ctx, accessKey, secretKey, projectID, region, activeDepIDPrefixes, true, progress)
 }
 
 // Name returns the canonical provider name.
@@ -113,7 +120,12 @@ func regionFromCreds(creds providers.ProviderCreds) string {
 
 // endpointFor returns the per-service endpoint for one call.
 // Pattern: `https://<service>.<region>.kom4dc.nationalcloud.om`.
-func endpointFor(service, region string) string {
+//
+// It is a package var (not a plain func) ONLY so tests can point the HCS
+// service endpoints at a httptest server — production never reassigns it.
+// (#4466: the orphan-sweep log-only/destructive contract is asserted
+// end-to-end against a fake HCS by overriding this.)
+var endpointFor = func(service, region string) string {
 	return fmt.Sprintf("https://%s.%s.kom4dc.nationalcloud.om", service, region)
 }
 
@@ -1768,7 +1780,15 @@ func deleteEIP(ctx context.Context, client *http.Client, hw hwCreds, region, id 
 // Intended caller: the periodic janitor (handler/janitor.go). Idempotent
 // + safe to run during active provisioning: bound EIPs (port_id set)
 // AND active EIPs (status=ACTIVE/BOUND) are never touched.
-func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
+//
+// #4466 — LOG-ONLY GATE. `destructive` defaults FALSE (the janitor only
+// flips it true when CATALYST_JANITOR_DESTRUCTIVE=true). While false the
+// sweep LOGS exactly the EIP it WOULD reap (`would-reap (log-only)`) but
+// performs NO delete — so "deletes prod infra" is opt-in, not the default.
+// The b9f9590b self-reap would have been caught in this log-only window
+// before any node died. The return value is the count of would-reap (or
+// actually-reaped, when destructive) EIPs.
+func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, destructive bool, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -1825,6 +1845,13 @@ func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, regio
 				continue
 			}
 		}
+		if !destructive {
+			// #4466 log-only: count it so the operator sees the volume the
+			// destructive pass WOULD reclaim, but delete nothing.
+			progress(fmt.Sprintf("sweep orphan EIP %s (bw=%s): would-reap (log-only; set CATALYST_JANITOR_DESTRUCTIVE=true to act)", e.Address, e.BandwidthName))
+			deleted++
+			continue
+		}
 		if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
 			progress(fmt.Sprintf("sweep orphan EIP %s (bw=%s): DELETE failed: %v", e.Address, e.BandwidthName, err))
 			continue
@@ -1854,7 +1881,10 @@ func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, regio
 // of 8-char prefixes of in-flight deployment IDs (status one of
 // pending / provisioning / tofu-applying / flux-bootstrapping /
 // phase1-watching / wiping). Empty = no protection (post-wipe sweep).
-func (p *Provider) SweepOrphanKeypairs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
+//
+// #4466: `destructive` gates the real delete (default false → log-only
+// `would-reap`). See SweepOrphanEIPs for the rationale.
+func (p *Provider) SweepOrphanKeypairs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, destructive bool, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -1912,6 +1942,11 @@ func (p *Provider) SweepOrphanKeypairs(ctx context.Context, ak, sk, projectID, r
 				continue
 			}
 		}
+		if !destructive {
+			progress(fmt.Sprintf("sweep orphan keypair %s: would-reap (log-only; set CATALYST_JANITOR_DESTRUCTIVE=true to act)", name))
+			deleted++
+			continue
+		}
 		delURL := fmt.Sprintf("%s/%s", listURL, name)
 		_, dstatus, derr := doSignedRequest(client, hw, http.MethodDelete, delURL, nil)
 		if derr != nil {
@@ -1967,7 +2002,12 @@ func (p *Provider) SweepOrphanKeypairs(ctx context.Context, ak, sk, projectID, r
 // during active provisioning.
 //
 // Returns the count of VPCs deleted.
-func (p *Provider) SweepOrphanVPCs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
+//
+// #4466: `destructive` gates the cascade teardown (default false →
+// log-only `would-reap`). VPC reaping cascade-deleted the live dep's
+// peering/EIPs on b9f9590b, so the log-only window matters most here. See
+// SweepOrphanEIPs for the rationale.
+func (p *Provider) SweepOrphanVPCs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, destructive bool, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -1997,6 +2037,11 @@ func (p *Provider) SweepOrphanVPCs(ctx context.Context, ak, sk, projectID, regio
 			if v.Name != "" && strings.HasPrefix(v.Name, "catalyst-") {
 				progress(fmt.Sprintf("sweep orphan VPC %s: skipped (active deployment)", v.Name))
 			}
+			continue
+		}
+		if !destructive {
+			progress(fmt.Sprintf("sweep orphan VPC %s: would-reap (log-only; set CATALYST_JANITOR_DESTRUCTIVE=true to act)", v.Name))
+			deleted++
 			continue
 		}
 		// Delete any peering pinning this VPC before the cascade, else
@@ -2037,6 +2082,134 @@ func isReclaimableOrphanVPC(name string, activeDepIDPrefixes map[string]struct{}
 		}
 	}
 	return true
+}
+
+// hwEVSVolume is the subset of the EVS list response the orphan sweep
+// reads. `Attachments` carries the server bindings (empty when detached);
+// `Metadata` is the free-form map the CSI driver stamps (it carries the
+// owning cluster ID under keys like `cluster_id` / the PV's namespace).
+type hwEVSVolume struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Status      string            `json:"status"`
+	Attachments []map[string]any  `json:"attachments"`
+	Metadata    map[string]string `json:"metadata"`
+}
+
+// isReclaimableOrphanEVS is the pure match/protection predicate for the
+// detached-EVS-orphan sweep (#4466). Node self-reap BEFORE a wipe (the
+// b9f9590b incident) strands CSI `pvc-*` volumes — 283 were stranded as
+// pure quota debt because nothing detaches+deletes them once the node is
+// gone. The provider had EIP/keypair/VPC reclaim sweeps but no
+// detached-volume sweep; this closes the last quota-debt fault.
+//
+// A volume is reclaimable when ALL of:
+//   - name carries the CSI `pvc-` prefix (so we ONLY ever touch
+//     Kubernetes-provisioned PV volumes, never a bastion / operator-owned
+//     system disk),
+//   - it is genuinely detached: status=="available" AND zero attachments
+//     (an in-use / attaching / creating volume is NEVER swept — same
+//     protect-the-live-resource posture as the bound-EIP guard),
+//   - its owning-cluster metadata carries NONE of the in-flight
+//     deployment-ID 8-char prefixes (so a live cluster's PVCs are never
+//     reaped; protect-by-default — a volume whose metadata matches an
+//     active dep is protected even though it is momentarily detached).
+//
+// Bastion volumes never carry the `pvc-` prefix, so the prefix filter
+// alone hard-protects them; the explicit bastion substring guard is a
+// belt-and-suspenders second layer.
+func isReclaimableOrphanEVS(name, status string, attachmentCount int, metadata map[string]string, activeDepIDPrefixes map[string]struct{}) bool {
+	if name == "" {
+		return false
+	}
+	// Hard-protect anything that is not a CSI-provisioned PV, and any
+	// bastion-named volume (defence-in-depth — a `pvc-`-named volume can't
+	// be the bastion, but the check costs nothing).
+	if strings.Contains(name, "bastion") || !strings.HasPrefix(name, "pvc-") {
+		return false
+	}
+	// Only sweep genuinely-detached volumes. An attached / attaching /
+	// creating / deleting volume is live and must never be reaped.
+	if status != "available" || attachmentCount > 0 {
+		return false
+	}
+	// Protect-by-default: if the volume's owning-cluster metadata carries
+	// any in-flight deployment-ID prefix, it belongs to a live env (its
+	// node may merely be momentarily detached during a roll) — protect it.
+	for _, v := range metadata {
+		for prefix := range activeDepIDPrefixes {
+			if v != "" && strings.Contains(v, prefix) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// SweepOrphanEVS lists every EVS volume in the HCS project and reclaims
+// detached CSI `pvc-*` volumes that belong to no in-flight deployment
+// (#4466). It is the volume-tier sibling of SweepOrphanEIPs / Keypairs /
+// VPCs: the per-deployment Wipe tears down volumes via the cluster's CSI
+// controller, but a node self-reap BEFORE the wipe leaves the volumes
+// orphaned with no controller left to detach+delete them — 283 piled up
+// on b9f9590b as pure quota debt.
+//
+// Match + protection live in isReclaimableOrphanEVS (pure, unit-testable).
+// `destructive` gates the real delete (default false → log-only
+// `would-reap`), identical to the sibling sweeps. activeDepIDPrefixes is
+// the protect-by-default set of in-flight deployment-ID 8-char prefixes.
+// Returns the count of volumes reaped (or would-reap, in log-only mode).
+// Idempotent + safe to run during active provisioning.
+func (p *Provider) SweepOrphanEVS(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, destructive bool, progress func(msg string)) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	hw := hwCreds{AccessKey: ak, SecretKey: sk, ProjectID: projectID}
+	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
+
+	// EVS detail list — /v2/{project}/cloudvolumes/detail returns name,
+	// status, attachments and metadata in one call.
+	listURL := fmt.Sprintf("%s/v2/%s/cloudvolumes/detail", endpointFor("evs", region), projectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, listURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("list volumes: %w", err)
+	}
+	if status >= 400 {
+		return 0, fmt.Errorf("list volumes: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		Volumes []hwEVSVolume `json:"volumes"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return 0, fmt.Errorf("decode volumes: %w", err)
+	}
+	deleted := 0
+	for _, v := range decoded.Volumes {
+		if !isReclaimableOrphanEVS(v.Name, v.Status, len(v.Attachments), v.Metadata, activeDepIDPrefixes) {
+			if strings.HasPrefix(v.Name, "pvc-") {
+				progress(fmt.Sprintf("sweep orphan EVS %s (status=%s, attachments=%d): skipped (in-use or active deployment)", v.Name, v.Status, len(v.Attachments)))
+			}
+			continue
+		}
+		if !destructive {
+			progress(fmt.Sprintf("sweep orphan EVS %s (status=%s): would-reap (log-only; set CATALYST_JANITOR_DESTRUCTIVE=true to act)", v.Name, v.Status))
+			deleted++
+			continue
+		}
+		delURL := fmt.Sprintf("%s/v2/%s/cloudvolumes/%s", endpointFor("evs", region), projectID, v.ID)
+		_, dstatus, derr := doSignedRequest(client, hw, http.MethodDelete, delURL, nil)
+		if derr != nil {
+			progress(fmt.Sprintf("sweep orphan EVS %s: DELETE failed: %v", v.Name, derr))
+			continue
+		}
+		if dstatus >= 400 && dstatus != http.StatusNotFound {
+			progress(fmt.Sprintf("sweep orphan EVS %s: DELETE status %d", v.Name, dstatus))
+			continue
+		}
+		progress(fmt.Sprintf("sweep orphan EVS %s: deleted", v.Name))
+		deleted++
+	}
+	return deleted, nil
 }
 
 // deleteVPCPeeringsTouching removes every VPC peering whose requester or
