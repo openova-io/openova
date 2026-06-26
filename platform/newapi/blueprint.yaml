@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.136 # lockstep with chart/Chart.yaml (#4477 secondary: catalyst-newapi-admin-token ExternalSecret read-path → catalyst/newapi/admin-token, written by catalyst-api seedNewapiAdminToken)
+  version: 1.4.137 # lockstep with chart/Chart.yaml (#4477 secondary: catalyst-newapi-admin-token ExternalSecret read-path → catalyst/newapi/admin-token, written by catalyst-api seedNewapiAdminToken)
   card:
     title: NewAPI
     summary: |
