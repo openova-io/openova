@@ -120,6 +120,50 @@ cilium:
     type: wireguard
     nodeEncryption: true
 
+  # Pod/datapath MTU — explicitly pinned to account for the COMBINED
+  # VXLAN tunnel + WireGuard node-encryption overhead. DO NOT remove or set
+  # to 0 (auto) on this platform.
+  #
+  # The Catalyst datapath stacks two encapsulations on every cross-node
+  # pod packet:
+  #   1. routingMode=tunnel + tunnelProtocol=vxlan  → +50 bytes (VXLAN hdr).
+  #      Both are upstream defaults (this chart sets neither key), so the
+  #      datapath IS in VXLAN-tunnel mode unless an overlay overrides it.
+  #   2. encryption.type=wireguard + nodeEncryption=true (above) → ~80 bytes
+  #      (WireGuard transport overhead on cilium_wg0).
+  #
+  # Root-caused live on a Huawei me-east-215 (kom4dc) fresh prov (#4467):
+  # cilium's AUTO-MTU detection read eth0=1500 and correctly programmed
+  # cilium_wg0=1420 (eth0 − 80 WG), BUT left cilium_vxlan / cilium_host /
+  # pod lxc* veths at 1500 — it did NOT compound the VXLAN overhead onto
+  # the pod-facing devices when BOTH vxlan-tunnel AND wireguard were on.
+  # Net: a pod emitting a full 1500-byte frame produces a 1550-byte VXLAN
+  # packet that overflows the 1420 WireGuard MTU and is silently dropped
+  # (DF set). Small packets (health probes, HTTP request lines) pass; large
+  # ones (TCP data, HTTP response bodies, TLS handshakes) drop → ALL
+  # cross-node pod-to-pod TCP to non-trivial payloads times out
+  # (`curl: (28)`). Phase-1 convergence deadlocks (e.g. the
+  # catalyst-gitea-token-mint Job can't reach gitea-http.gitea.svc:3000 on
+  # another node → bp-catalyst-platform never finishes installing).
+  #
+  # Correct pod MTU = 1500 (eth0) − 50 (VXLAN) − 80 (WireGuard) = 1370.
+  # A 1370-byte pod payload + 50 VXLAN = 1420 = exactly the cilium_wg0 MTU.
+  # WireGuard node-encryption is ALWAYS-ON for every Catalyst Sovereign
+  # (the canonical east-west mTLS layer — see the encryption block above),
+  # so 1370 is a safe static default that never regresses a non-WG path.
+  #
+  # The upstream cilium chart's top-level `MTU` key renders cilium-config
+  # `mtu: "1370"`, which sets the device MTU for exactly cilium_net /
+  # cilium_host / cilium_vxlan / lxc (per the upstream values.yaml comment)
+  # — the very devices left mis-sized by the auto path. `MTU: 0` (upstream
+  # default) means auto-detect and reproduces the bug.
+  #
+  # Air-gapped / jumbo-frame (eth0 MTU != 1500) Sovereigns recompute as
+  # `<eth0-mtu> − 130` in their per-Sovereign overlay at clusters/<sov>/
+  # bootstrap-kit/01-cilium.yaml. Native-routing (non-vxlan) Sovereigns,
+  # if ever shipped, override to `<eth0-mtu> − 80` (WG-only) there too.
+  MTU: 1370
+
   # Hubble — network observability (L3/L4/L7 flows, DNS, drop, http metrics).
   #
   # DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles
