@@ -1144,7 +1144,16 @@ spec:
       #   zero-touch so catalog-sovereign + org-tenants GitRepositories reach
       #   Ready on a fresh prov (no manual secret-recreation). Lockstep w/
       #   Chart.yaml + the new guard test. Refs #4447.
-      version: 1.4.888
+      # 1.4.887 — deploy-bot auto-bump (image roll to 6f99289 + #2851 sweep).
+      # 1.4.888 — deploy-bot auto-bump (image roll to eea6e19 + #2851 sweep).
+      # 1.4.889 — #4447 (second instance #4452 missed): same hook RBAC-race /
+      #   silent-exit-0 fixed in the org-services provisioning-github-token-sync
+      #   Job (weight 15 < 20 + auth-can-i preflight + fail-loud on read-error +
+      #   post-apply verify-back). org-services/provisioning-github-token now
+      #   lands zero-touch so the provisioning service clears Init:0/1 on a fresh
+      #   prov and every Org can render its vcluster/apps. Guard test extended.
+      #   Lockstep w/ Chart.yaml. Refs #4447.
+      version: 1.4.889
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
