@@ -3174,23 +3174,6 @@ name: bp-catalyst-platform
 #   reverted it ~2min later, so the live chart still shipped the pre-#4393
 #   org-controller — every m-tier funnel Org stayed wedged at 'vcluster-0
 #   forbidden: ratio 20' (verified live on g10vc). Refs #4395 #4394 #4393 #4307 #4292 #4389.
-# 1.4.878 — #4415: catalog-seed Blueprint CRs no longer carry
-#   helm.sh/resource-policy:keep, so a merged catalog-seed version bump reaches
-#   the LIVE Blueprint CR on the next helm upgrade — no human kubectl patch. The
-#   keep annotation was added (#3668/#3710) only to stop a helm upgrade from
-#   clawing back a Flux-ADOPTED CR (post console edit/curate); but Flux already
-#   wins those fields via its force:true SSA, and keep also (wrongly) blocked
-#   helm UPDATES — freezing every never-edited CR at its first-seeded version
-#   (bp-postgres stuck 0.2.5, bp-openclaw 0.2.8 live until hand-patched). The
-#   catalog-seed always renders these CRs, so they are never pruned and keep
-#   protected nothing. The companion catalyst-api change strips the
-#   chart-delivery fields spec.version + spec.source from the Flux aggregator
-#   file (stripDeliveryFieldsForFluxAggregator) so an edited Blueprint's Flux
-#   SSA no longer steals/pins those fields — catalog-seed (Helm) stays their
-#   sole owner and version delivery is zero-touch for edited + un-edited CRs
-#   alike; operator card/visibility/topology curation stays Flux-owned +
-#   revert-immune. Render-diff: only the 81 keep annotations removed, the CRs
-#   otherwise byte-identical. Refs #4415 #3668 #3702.
 version: 1.4.878
 # 1.4.871 — #4413: catalog-seed bp-openclaw pin 0.2.8 -> 0.2.11 (lockstep w/ blueprint.yaml)
 #   so the #4272 egress CNP (#4401) + controller TLS-trust (#4408) actually reach
