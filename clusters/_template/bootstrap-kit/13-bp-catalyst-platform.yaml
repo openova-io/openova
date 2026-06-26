@@ -1138,7 +1138,7 @@ spec:
       #   Blueprint CRs so a merged seed version bump reaches the LIVE CR on the
       #   next helm upgrade (no kubectl patch); catalyst-api strips version/source
       #   from the Flux aggregator so Helm stays their sole owner.
-      version: 1.4.882
+      version: 1.4.883
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
