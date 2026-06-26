@@ -290,7 +290,15 @@ type: application
 # never converged → org-controller roll gated. Added crossplane-system to the
 # policy-scoped harborProxyPull.extraExcludeNamespaces (same shape as
 # powerdns/trivy-system/org-services). Values-only change. Refs #4349 #4212.
-version: 1.0.42
+# 1.0.43 (#4422, 2026-06-26): multi-replica-drainability now excludes Deployments
+# labeled `openova.io/singleton-db: "true"` in ANY namespace (new
+# multiReplica.excludeSingletonDB value, default true). The per-Org funnel cart's
+# single-PVC stateful DBs (mysql/postgres, strategy:Recreate, no replication
+# wired) + redis cache are deliberate singletons that span unbounded org-<uuid>
+# namespaces the excludeNamespaces list can't enumerate. Mirrors the cnpg.io/
+# cluster label-exempt on backup-configured (#3971). Template+values change.
+# Refs #4422 #3376.
+version: 1.0.43
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
