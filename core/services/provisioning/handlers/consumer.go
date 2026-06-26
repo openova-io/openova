@@ -182,6 +182,26 @@ func (h *Handler) runInstallJob(ctx context.Context, data appChangeData) error {
 	// race; any other error fails immediately as before.
 	h.markJobStep(ctx, job, 0, "running", "")
 	if err := h.commitInstallWithGiteaReadyRetry(ctx, data); err != nil {
+		// #4404 SELF-HEAL — if the in-line budget exhausted while the per-Org
+		// Gitea org/repo STILL did not exist (the transient race, just slower
+		// than the in-line window), do NOT fail the Job. Failing it would drop
+		// the purchased app forever: the failed attempt already claimed the
+		// shared idempotency Job, so the sibling transport's dispatch is
+		// suppressed as a duplicate and never retries. Park the install in the
+		// pending-install registry; StartPendingInstallReconciler re-attempts
+		// the commit on a cadence until the repo finally appears and the commit
+		// lands — zero-touch, robust to ANY per-Org creation latency, not just a
+		// bigger fixed budget. ctx-cancel (tenant deleted) is NOT a parkable
+		// race; fall through to fail. Permanent errors fail immediately as before.
+		if isGiteaNotReadyError(err) && ctx.Err() == nil {
+			h.markJobStep(ctx, job, 0, "running",
+				"per-Org Gitea repo not ready yet — awaiting org-controller (will retry automatically, #4404)")
+			h.pendingInstalls.Enqueue(data, job)
+			slog.Warn("day-2 install: in-line retry budget exhausted, parking for self-heal reconciler (#4404)",
+				"tenant", data.TenantSlug, "app_slug", data.AppSlug,
+				"idempotency_key", data.IdempotencyKey, "error", err.Error())
+			return nil
+		}
 		h.markJobStep(ctx, job, 0, "failed", err.Error())
 		h.finalizeJob(ctx, job, "failed", err.Error())
 		h.publishEvent(ctx, "provision.app_failed", data.TenantID, map[string]any{
@@ -195,52 +215,89 @@ func (h *Handler) runInstallJob(ctx context.Context, data appChangeData) error {
 	}
 	h.markJobStep(ctx, job, 0, "completed", "ok")
 
-	// Steps 1-2 ASYNC: pod-ready wait + terminal event publish. Detached from
-	// the consumer callback ctx so ack can happen immediately; registered in
-	// day2Cancels so handleTenantDeleted can preempt.
+	// Steps 1-2 ASYNC: pod-ready wait + terminal event publish.
+	h.launchInstallWaitTail(data, job)
+	return nil
+}
+
+// launchInstallWaitTail forks the async tail of an install (steps 1-2: pod-ready
+// wait + terminal event publish) after the step-0 commit has landed. Detached
+// from the caller ctx so the consumer ack can happen immediately; registered in
+// day2Cancels so handleTenantDeleted can preempt. Shared by the synchronous
+// runInstallJob path and the #4404 pending-install self-heal reconciler (which
+// commits a parked install long after the original dispatch, then needs the same
+// wait tail to drive the Job to a terminal state).
+func (h *Handler) launchInstallWaitTail(data appChangeData, job *store.Job) {
 	waitCtx, cancel := h.day2Cancels.Register(context.Background(), data.TenantSlug, job.ID)
 	go func() {
 		defer cancel()
 		defer h.day2Cancels.Unregister(data.TenantSlug, job.ID)
 		h.waitAndFinalizeInstall(waitCtx, data, job)
 	}()
-	return nil
 }
 
-// day2GiteaReadyRetryAttempts / day2GiteaReadyRetryDelay bound the #4404
-// commit retry. The per-Org Gitea org/repo is created by organization-controller
-// within a few seconds of the Org CR, so a short fixed backoff covers the race
-// without holding the consumer callback open for long. Kept small + var (not
-// const) so the test can drive it to zero.
+// #4404 — bound the in-line commit retry. The per-Org Gitea org/repo is created
+// by organization-controller asynchronously after the Org CR, and the funnel
+// cart dispatches the install the instant the CR exists. On a busy Sovereign the
+// org-controller's Gitea-Org-creation latency can run well past the old ~25s
+// budget (6 × 5s) — a live #4404 close-walk saw the repo still not-yet-queryable
+// past that window — so the in-line retry exhausted and the install was dropped.
+//
+// Widen the in-line budget to a multi-minute exponential backoff so the common
+// case (repo appears within a couple of minutes) commits without ever needing
+// the durable self-heal. The backoff starts at day2GiteaReadyRetryInitialDelay,
+// doubles each attempt up to day2GiteaReadyRetryMaxDelay, and stops once the
+// cumulative wait would exceed day2GiteaReadyRetryBudget. The slower tail (repo
+// takes even longer, or this pod restarts) is caught by the pending-install
+// self-heal reconciler, so no latency drops the install. Vars (not consts) so
+// tests can drive the delays to near-zero.
 var (
-	day2GiteaReadyRetryAttempts = 6
-	day2GiteaReadyRetryDelay    = 5 * time.Second
+	day2GiteaReadyRetryBudget       = 3 * time.Minute
+	day2GiteaReadyRetryInitialDelay = 3 * time.Second
+	day2GiteaReadyRetryMaxDelay     = 20 * time.Second
 )
 
 // commitInstallWithGiteaReadyRetry runs applyTenantChange(install) and retries
-// with bounded backoff while the only thing wrong is that the per-Org Gitea
-// org/repo does not exist yet (#4404 — the funnel cart races the
+// with bounded exponential backoff while the only thing wrong is that the
+// per-Org Gitea org/repo does not exist yet (#4404 — the funnel cart races the
 // organization-controller's repo create). On any non-transient error, or once
-// the attempts are exhausted, it returns the last error so the caller fails the
-// Job as before. ctx cancellation aborts the wait immediately.
+// the cumulative wait budget is exhausted, it returns the last error so the
+// caller can park the install for the self-heal reconciler (still-transient) or
+// fail the Job (permanent). ctx cancellation aborts the wait immediately.
 func (h *Handler) commitInstallWithGiteaReadyRetry(ctx context.Context, data appChangeData) error {
-	var err error
+	var (
+		err     error
+		elapsed time.Duration
+		delay   = day2GiteaReadyRetryInitialDelay
+	)
 	for attempt := 1; ; attempt++ {
 		err = h.applyTenantChange(ctx, data, "install")
 		if err == nil {
 			return nil
 		}
-		if !isGiteaNotReadyError(err) || attempt >= day2GiteaReadyRetryAttempts {
+		// A non-transient error fails immediately, as before. A transient
+		// Gitea-not-ready error retries until the cumulative wait budget is
+		// spent, then returns the last error (the caller parks it for the
+		// self-heal reconciler).
+		if !isGiteaNotReadyError(err) || elapsed+delay > day2GiteaReadyRetryBudget {
 			return err
 		}
 		slog.Warn("day-2 install: per-Org Gitea repo not ready yet — retrying commit (#4404)",
 			"tenant", data.TenantSlug, "app_slug", data.AppSlug,
-			"attempt", attempt, "max_attempts", day2GiteaReadyRetryAttempts,
+			"attempt", attempt, "elapsed", elapsed.String(),
+			"next_delay", delay.String(), "budget", day2GiteaReadyRetryBudget.String(),
 			"error", err.Error())
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(day2GiteaReadyRetryDelay):
+		case <-time.After(delay):
+		}
+		elapsed += delay
+		if delay < day2GiteaReadyRetryMaxDelay {
+			delay *= 2
+			if delay > day2GiteaReadyRetryMaxDelay {
+				delay = day2GiteaReadyRetryMaxDelay
+			}
 		}
 	}
 }
@@ -796,6 +853,13 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 	if n := h.day2Cancels.CancelAllFor(data.Slug); n > 0 {
 		slog.Info("teardown: preempted in-flight day-2 jobs",
 			"slug", data.Slug, "canceled", n)
+	}
+	// #4404 — drop any parked pending-install for this doomed Org so the
+	// self-heal reconciler stops re-attempting a commit against a repo that is
+	// being torn down.
+	if n := h.pendingInstalls.RemoveAllFor(data.Slug); n > 0 {
+		slog.Info("teardown: dropped parked pending installs",
+			"slug", data.Slug, "dropped", n)
 	}
 
 	if h.GitHubClient == nil || h.Generator == nil {

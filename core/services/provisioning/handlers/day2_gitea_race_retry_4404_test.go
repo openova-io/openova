@@ -82,9 +82,7 @@ func newHandlerForRaceTest(t *testing.T, apiURL string) *Handler {
 // recovers from the transient repo-not-ready race instead of dropping the app.
 func TestCommitInstall_RetriesWhileGiteaRepoNotReady_4404(t *testing.T) {
 	// Drop the backoff to near-zero so the test is fast.
-	origDelay := day2GiteaReadyRetryDelay
-	day2GiteaReadyRetryDelay = 1 * time.Millisecond
-	t.Cleanup(func() { day2GiteaReadyRetryDelay = origDelay })
+	withFastGiteaRetry(t)
 
 	// 404 twice (repo still being created), succeed on the third ref read.
 	srv, refReads := fakeGiteaWithDelayedRepo(t, 2)
@@ -107,13 +105,18 @@ func TestCommitInstall_RetriesWhileGiteaRepoNotReady_4404(t *testing.T) {
 // TestCommitInstall_ExhaustsRetriesThenFails_4404 proves a persistently-missing
 // repo still fails (so a genuinely broken Org doesn't hang forever).
 func TestCommitInstall_ExhaustsRetriesThenFails_4404(t *testing.T) {
-	origDelay := day2GiteaReadyRetryDelay
-	origAttempts := day2GiteaReadyRetryAttempts
-	day2GiteaReadyRetryDelay = 1 * time.Millisecond
-	day2GiteaReadyRetryAttempts = 3
+	// Tight, deterministic budget: two retry waits (3ms + 3ms) then the third
+	// would exceed the 5ms budget, so the loop exits after ~3 attempts.
+	origBudget := day2GiteaReadyRetryBudget
+	origInit := day2GiteaReadyRetryInitialDelay
+	origMax := day2GiteaReadyRetryMaxDelay
+	day2GiteaReadyRetryBudget = 5 * time.Millisecond
+	day2GiteaReadyRetryInitialDelay = 3 * time.Millisecond
+	day2GiteaReadyRetryMaxDelay = 3 * time.Millisecond
 	t.Cleanup(func() {
-		day2GiteaReadyRetryDelay = origDelay
-		day2GiteaReadyRetryAttempts = origAttempts
+		day2GiteaReadyRetryBudget = origBudget
+		day2GiteaReadyRetryInitialDelay = origInit
+		day2GiteaReadyRetryMaxDelay = origMax
 	})
 
 	// Never becomes ready.
@@ -139,8 +142,10 @@ func TestCommitInstall_ExhaustsRetriesThenFails_4404(t *testing.T) {
 	if got < 2 {
 		t.Errorf("expected the commit to be retried (>=2 ref reads), got %d", got)
 	}
-	if maxReads := int32(day2GiteaReadyRetryAttempts) * 4; got > maxReads {
-		t.Errorf("retry not bounded: %d ref reads exceeds cap %d for %d attempts", got, maxReads, day2GiteaReadyRetryAttempts)
+	// ~3 commit attempts at <=4 ref reads each is a generous upper bound that
+	// still proves the loop is bounded by the wait budget, not unbounded.
+	if maxReads := int32(12); got > maxReads {
+		t.Errorf("retry not bounded: %d ref reads exceeds cap %d", got, maxReads)
 	}
 }
 
@@ -163,6 +168,48 @@ func TestIsGiteaNotReadyError_4404(t *testing.T) {
 				t.Errorf("isGiteaNotReadyError(%q) = %v, want %v", c.err, got, c.want)
 			}
 		})
+	}
+}
+
+// withFastGiteaRetry shrinks the in-line commit-retry backoff to near-zero so a
+// test exercising the widened #4404 budget runs fast, and restores it after.
+func withFastGiteaRetry(t *testing.T) {
+	t.Helper()
+	origBudget := day2GiteaReadyRetryBudget
+	origInit := day2GiteaReadyRetryInitialDelay
+	origMax := day2GiteaReadyRetryMaxDelay
+	day2GiteaReadyRetryBudget = 500 * time.Millisecond
+	day2GiteaReadyRetryInitialDelay = 1 * time.Millisecond
+	day2GiteaReadyRetryMaxDelay = 1 * time.Millisecond
+	t.Cleanup(func() {
+		day2GiteaReadyRetryBudget = origBudget
+		day2GiteaReadyRetryInitialDelay = origInit
+		day2GiteaReadyRetryMaxDelay = origMax
+	})
+}
+
+// TestCommitInstall_WidenedBudgetSurvivesManyMisses_4404 proves the in-line
+// budget now comfortably exceeds the old 6-attempt (~25s) window — a per-Org
+// repo that takes well past the old budget to appear still commits in-line,
+// without ever needing the self-heal reconciler. The old fixed 6-attempt loop
+// would have given up at miss #6; here we 404 ten times and still recover.
+func TestCommitInstall_WidenedBudgetSurvivesManyMisses_4404(t *testing.T) {
+	withFastGiteaRetry(t)
+
+	srv, refReads := fakeGiteaWithDelayedRepo(t, 10) // far past the old 6-attempt cap
+	h := newHandlerForRaceTest(t, srv.URL)
+
+	err := h.commitInstallWithGiteaReadyRetry(context.Background(), appChangeData{
+		TenantSlug: "s3376walk",
+		AppSlug:    "wordpress",
+		Apps:       []string{"wordpress"},
+		PlanID:     "s",
+	})
+	if err != nil {
+		t.Fatalf("widened budget should recover after 10 race-404s, got: %v", err)
+	}
+	if got := atomic.LoadInt32(refReads); got < 11 {
+		t.Errorf("expected >=11 ref reads (10 misses + 1 success), got %d", got)
 	}
 }
 
