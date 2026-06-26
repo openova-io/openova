@@ -1158,7 +1158,7 @@ spec:
       #   bp-reflector lands the key) + loud-fails instead of silently skipping →
       #   per-Org console.<slug>.<pool> A-record is written on a fresh prov (was
       #   NXDOMAIN). Lockstep w/ Chart.yaml. Refs #4290 #4179.
-      version: 1.4.892
+      version: 1.4.893
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
