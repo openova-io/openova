@@ -60,9 +60,16 @@ rules:
   # through to the Sovereign-wide tenant-wildcard / connection-refused).
   # The Flux GitRepository + Kustomization grants below (per_org_flux.go)
   # were already present; the HTTPRoute grant was the missing peer.
+  #
+  # #4471/#4462: `delete` added — teardownTenantNetworking
+  # (tenant_networking_teardown.go:127) DELETEs the per-Org console
+  # HTTPRoute on Org deletion. Without it the tenant-networking finalizer
+  # teardown 403s (`cannot delete resource "httproutes"`), the finalizer
+  # never drops, and the Org CR is stuck Terminating forever (orphaning
+  # its console route + wildcard cert).
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # #4075: a customer Org that picks a free-subdomain hostname under a
   # pool parent zone (e.g. console.<slug>.omani.homes) needs a
   # `*.<parentDomain>` TLS listener appended to the dedicated console
@@ -77,9 +84,15 @@ rules:
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["gateways"]
     verbs: ["get", "list", "watch", "update", "patch"]
+  # #4471/#4462: `delete` added — teardownTenantNetworking
+  # (tenant_networking_teardown.go:122) DELETEs the per-Org wildcard
+  # Certificate (org-wildcard-tls-<slug>-<pool>) in kube-system on Org
+  # deletion. Without it the tenant-networking finalizer teardown 403s
+  # (`cannot delete resource "certificates"`), the finalizer never drops,
+  # and the Org CR is stuck Terminating forever.
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
