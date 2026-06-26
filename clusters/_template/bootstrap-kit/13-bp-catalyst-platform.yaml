@@ -1134,7 +1134,7 @@ spec:
       #   Chart-only. Refs #4395 #4394 #4307 #4292.
       # 1.4.871 — #4413: catalog-seed bp-openclaw 0.2.8 -> 0.2.11 (lockstep) so the
       #   #4272 egress/TLS fixes reach fresh funnel Orgs.
-      version: 1.4.875
+      version: 1.4.877
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
