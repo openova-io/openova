@@ -3244,7 +3244,7 @@ name: bp-catalyst-platform
 #   preserved verbatim. The #4452 guard chart/tests/gitea-flux-auth-sync-rbac-
 #   order.sh is extended with parallel gate-3/gate-4 cases for this second job.
 #   Lockstep w/ bootstrap-kit slot 13 pin. Refs #4447 #3763 #3781.
-version: 1.4.890
+version: 1.4.891
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
