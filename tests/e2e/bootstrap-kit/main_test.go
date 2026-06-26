@@ -1083,7 +1083,9 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 		} `yaml:"spec"`
 	}
 	ingressFrom := map[string]map[string]bool{} // targetNs -> set(sourceNs)
-	gatewayCNP := map[string]bool{}             // targetNs that have an ingress-entity CNP
+	gatewayCNP := map[string]bool{}             // targetNs that have a gateway-ingress (`ingress` entity) CNP
+	apiserverCNP := map[string]bool{}           // targetNs that have a kube-apiserver-egress CNP (#4428)
+	allComponentNs := map[string]bool{}         // every ns that has a default-deny NetworkPolicy
 
 	dec := yaml.NewDecoder(strings.NewReader(string(out)))
 	for {
@@ -1107,6 +1109,7 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 			if ingressFrom[ns] == nil {
 				ingressFrom[ns] = map[string]bool{}
 			}
+			allComponentNs[ns] = true
 			for _, rule := range d.Spec.Ingress {
 				for _, f := range rule.From {
 					if f.NamespaceSelector != nil {
@@ -1118,7 +1121,18 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 			}
 		case "CiliumNetworkPolicy":
 			meta, _ := raw["metadata"].(map[string]any)
-			if ns, _ := meta["namespace"].(string); ns != "" {
+			ns, _ := meta["namespace"].(string)
+			name, _ := meta["name"].(string)
+			if ns == "" {
+				continue
+			}
+			// Disambiguate the two CNP kinds this chart ships by name suffix:
+			// the gateway-ingress (`ingress` entity) CNP and the kube-apiserver
+			// egress CNP (#4428). Both select endpointSelector:{}.
+			switch {
+			case strings.HasSuffix(name, "-allow-apiserver-egress"):
+				apiserverCNP[ns] = true
+			case strings.HasSuffix(name, "-allow-gateway-ingress"):
 				gatewayCNP[ns] = true
 			}
 		}
@@ -1170,6 +1184,20 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 	for _, ns := range wantGatewayCNP {
 		if !gatewayCNP[ns] {
 			t.Errorf("bp-plane-isolation: gateway-fronted component %q is MISSING its allow-gateway-ingress CiliumNetworkPolicy — public route traffic (reserved `ingress` entity) will be dropped → 000/503. Set gatewayIngress: true on the %q entry", ns, ns)
+		}
+	}
+
+	// EVERY default-denied component MUST carry the kube-apiserver-egress CNP
+	// (#4428). The default-deny's egress union (namespaceSelector:{} for
+	// in-cluster pods + ipBlock 0.0.0.0/0 for `world`) does NOT match the
+	// reserved `kube-apiserver` identity the apiserver VIP 10.96.0.1:443
+	// resolves to under Cilium kube-proxy-replacement — so without this CNP
+	// every pod that dials the kube-API (CNPG instance-manager, webhooks, ESO
+	// reconcilers) has its apiserver egress silently dropped → `dial
+	// 10.96.0.1:443 i/o timeout` (the live bp-newapi/bootstrap-kit wedge, #4409).
+	for ns := range allComponentNs {
+		if !apiserverCNP[ns] {
+			t.Errorf("bp-plane-isolation: default-denied component %q is MISSING its allow-apiserver-egress CiliumNetworkPolicy — pods that dial the kube-API (e.g. the CNPG instance-manager) will time out on 10.96.0.1:443 → HR wedge (#4428 #4409). apiserver-egress-cnp.yaml renders for every component; this gap means a render regression", ns)
 		}
 	}
 }
