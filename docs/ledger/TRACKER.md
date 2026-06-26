@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T00:00:02Z` |
+| Last refreshed | `2026-06-26T00:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 14 |
+| Open issues | 13 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 14 open items (clickable table)
+### All 13 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -212,8 +212,7 @@ flowchart LR
 | [#4290](https://github.com/openova-io/openova/issues/4290) | Workstream A — Collapse the 3 Organization-provisioning doors to ONE (org-cont | Other |
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4354](https://github.com/openova-io/openova/issues/4354) | fix(bootstrap-kit #4325 fallout): vcluster→host-ns re-home of gitea must migra | Other |
-| [#4402](https://github.com/openova-io/openova/issues/4402) | Spine Application→Continuum round-trip inert on omantel.biz: #4334 producer st | Other |
-| [#4404](https://github.com/openova-io/openova/issues/4404) | Funnel day-2 app install lost when it races org-controller's Gitea org/repo crea | Other |
+| [#4407](https://github.com/openova-io/openova/issues/4407) | openclaw-controller OIDC verifier reuses the api-server-CA-pinned HTTP client � | Other |
 
 ---
 
@@ -221,6 +220,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T00:13 | [#4406](https://github.com/openova-io/openova/pull/4406) | #4212 | fix(catalyst): unwedge spine Application→Continuum round-tri |
+| 2026-06-26T00:07 | [#4405](https://github.com/openova-io/openova/pull/4405) | #3376 | fix(provisioning): retry day-2 app install while per-Org Git |
 | 2026-06-25T23:37 | [#4401](https://github.com/openova-io/openova/pull/4401) | #4272 | fix(bp-openclaw): public-HTTPS egress for the /readyz JWKS h |
 | 2026-06-25T22:50 | [#4400](https://github.com/openova-io/openova/pull/4400) | #4307 | fix(bp-stalwart-tenant): bundle SnappyMail webmail SPA so ma |
 | 2026-06-25T22:47 | [#4399](https://github.com/openova-io/openova/pull/4399) | #4272 | fix(provisioning,bp-openclaw): resolvable shared-realm OIDC  |
@@ -249,8 +250,6 @@ flowchart LR
 | 2026-06-25T17:07 | [#4363](https://github.com/openova-io/openova/pull/4363) | #4304 | fix(application-controller): typed-nil spec.parameters valid |
 | 2026-06-25T17:13 | [#4361](https://github.com/openova-io/openova/pull/4361) | #4272 | fix(bp-plane-isolation): default-deny egress 0.0.0.0/0 is Ci |
 | 2026-06-25T15:17 | [#4359](https://github.com/openova-io/openova/pull/4359) | #4358 | fix(bp-huawei-evs-csi): post-upgrade default-class hook Job  |
-| 2026-06-25T15:09 | [#4358](https://github.com/openova-io/openova/pull/4358) | #4356 | fix(bp-huawei-evs-csi): reclaim-reconcile hook Job carries m |
-| 2026-06-25T14:58 | [#4357](https://github.com/openova-io/openova/pull/4357) | #4340 | fix(bp-catalyst-platform): gitea repo-bootstrap hooks self-h |
 
 ---
 
