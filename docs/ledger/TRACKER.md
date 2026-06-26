@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-26T11:00:04Z` |
+| Last refreshed | `2026-06-26T11:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 18 |
+| Open issues | 19 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 18 open items (clickable table)
+### All 19 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,6 +218,7 @@ flowchart LR
 | [#4446](https://github.com/openova-io/openova/issues/4446) | Fresh prov: oidc-gate consumer client_secret not seeded into OpenBao (sso/sovere | Other |
 | [#4447](https://github.com/openova-io/openova/issues/4447) | gitea-flux-auth-sync hook exit-0's on its own RBAC race → *-git-auth secrets n | Other |
 | [#4448](https://github.com/openova-io/openova/issues/4448) | bp-plane-isolation: openbao default-deny omits sso-bridge ingress → bp-sso-bri | Other |
+| [#4450](https://github.com/openova-io/openova/issues/4450) | fix(handover-key): catalyst-api self-publishes its local signer pubkey over the  | Other |
 
 ---
 
@@ -225,6 +226,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-26T11:14 | [#4452](https://github.com/openova-io/openova/pull/4452) | #4447 | fix(bp-catalyst): gitea-flux-auth-sync RBAC ordered before t |
 | 2026-06-26T10:59 | [#4449](https://github.com/openova-io/openova/pull/4449) | #4325 | fix(bp-plane-isolation #4448): add sso-bridge to openbao all |
 | 2026-06-26T08:29 | [#4441](https://github.com/openova-io/openova/pull/4441) | #4279 | docs(ledger): reset UAT.md clean + expand with session-fix c |
 | 2026-06-26T08:20 | [#4440](https://github.com/openova-io/openova/pull/4440) | #4325 | fix(bp-sso-bridge #4437): re-read keycloak creds each tick — |
@@ -254,7 +256,6 @@ flowchart LR
 | 2026-06-25T22:15 | [#4398](https://github.com/openova-io/openova/pull/4398) | #4282 | fix(application-controller): route per-Org CNPG Blueprint Cl |
 | 2026-06-25T21:51 | [#4397](https://github.com/openova-io/openova/pull/4397) | #4307 | fix(bp-openclaw,bp-stalwart-tenant): self-gen per-Org OIDC c |
 | 2026-06-25T21:11 | [#4396](https://github.com/openova-io/openova/pull/4396) | #4394 | fix(catalog-seed #4395): pin QoS-fixed funnel-Org charts (bp |
-| 2026-06-25T20:59 | [#4394](https://github.com/openova-io/openova/pull/4394) | #4307 | fix(bp-openclaw/bp-stalwart-tenant #4389/#4292): Guaranteed  |
 
 ---
 
