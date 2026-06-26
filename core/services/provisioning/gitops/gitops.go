@@ -665,7 +665,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		// a no-op when registryMirror is empty or the image is already
 		// proxied / on a registry without a Harbor proxy project.
 		spec.Image = proxyImage(spec.Image, g.registryMirror())
-		vcFiles[fmt.Sprintf("app-%s.yaml", a)] = generateAppDeployment(appNS, slug, planSlug, a, spec, dbPassword)
+		vcFiles[fmt.Sprintf("app-%s.yaml", a)] = generateAppDeployment(appNS, slug, planSlug, a, spec, dbPassword, g.parentDomain())
 	}
 	vcFiles["kustomization.yaml"] = generateKustomization(appNS, vcFiles)
 
@@ -1672,7 +1672,7 @@ func qosResources(planSlug, reqCPU, reqMem string) (cpu string, mem string, guar
 	}
 }
 
-func generateAppDeployment(ns, slug, planSlug, appSlug string, spec AppSpec, dbPassword string) string {
+func generateAppDeployment(ns, slug, planSlug, appSlug string, spec AppSpec, dbPassword, parentDomain string) string {
 	// QoS split (#4292): fixed tiers (S/M/L/XL) render limits==requests →
 	// Guaranteed (also what the per-Org LimitRange maxLimitRequestRatio
 	// {cpu:1,memory:1} requires to admit the pod); Flexi keeps the historical
@@ -1850,6 +1850,28 @@ spec:
 %s`, appSlug, spec.Image, spec.InitCommand, envLines)
 	}
 
+	// Cilium-Gateway HTTP exposure for the Deployment-shaped app (#3376 — the
+	// funnel cart WordPress 404-without-route gap). A Sovereign runs the
+	// Cilium Gateway API, NOT
+	// traefik — the host generateHostIngress() networking.k8s.io/v1 Ingress is
+	// INERT (never reconciled; its per-host `<app>-tls` Certificate sits False
+	// forever, no HTTP-01 solver) and is dropped entirely by the de-vcluster'd
+	// per-Org apps tree (#4384 GeneratePerOrgAppsTree). Without a route the
+	// purchased app (e.g. WordPress) is healthy in-pod yet returns public 404.
+	// This HTTPRoute is co-located with the Deployment+Service in the SAME
+	// app-<x>.yaml doc so it lands wherever the app lands — INSIDE the Org
+	// vCluster for the paid tier (the #4297 keystone redirects the apps tree
+	// there via spec.kubeConfig), on the host `<slug>` ns for free/S — binding
+	// the actual Service, never an empty host shell. It attaches the per-Org
+	// host to the dedicated console Gateway whose `*.<pool>` wildcard TLS
+	// listener terminates TLS (so NO per-host Certificate is needed), mirroring
+	// generateOpenClawHR / generateStalwartHR / platform/keycloak httproute.yaml.
+	// The reserved-entity gateway→pod hop (fromEntities:[ingress]) is already
+	// admitted namespace-wide by the org-controller's ciliumNetworkPolicyTemplate
+	// (endpointSelector:{}, fromEntities:[ingress,host,remote-node]) force-included
+	// in every per-Org apps tree, so NO per-app CNP is emitted here.
+	httpRoute := generateAppHTTPRoute(ns, slug, appSlug, parentDomain)
+
 	return fmt.Sprintf(`%sapiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1917,7 +1939,7 @@ spec:
   ports:
     - port: 80
       targetPort: %d
-`, pvcManifest,
+%s`, pvcManifest,
 		appSlug, ns, appSlug, slug,
 		appSlug, appSlug, slug,
 		initContainers,
@@ -1927,7 +1949,66 @@ spec:
 		spec.CPUMilli, spec.RAMMI,
 		limCPU, limMem,
 		volumeMounts, volumes,
-		appSlug, ns, appSlug, spec.Port)
+		appSlug, ns, appSlug, spec.Port,
+		httpRoute)
+}
+
+// appsGatewayName / appsGatewayNamespace are the dedicated console Gateway the
+// per-Org Deployment-shaped apps attach to — the SAME Gateway the HelmRelease-
+// shaped per-Org apps use (generateOpenClawHR / generateStalwartHR parentRef).
+// Its `*.<pool>` wildcard TLS listener terminates TLS for every per-Org host, so
+// a Deployment-shaped app needs NO per-host Certificate. Never hardcoded inline
+// (Inviolable Principle #4) — surfaced as named constants so the route and the
+// HR overlays stay in lockstep.
+const (
+	appsGatewayName      = "cilium-gateway-console"
+	appsGatewayNamespace = "kube-system"
+)
+
+// generateAppHTTPRoute emits the Gateway-API HTTPRoute that routes a
+// Deployment-shaped per-Org app's public host (<app>.<slug>.<parentDomain> —
+// the SAME convention generateOpenClawHR uses for openclaw.<slug>.<parent>) to
+// its in-boundary Service on :80. It is co-located with the Deployment+Service
+// in app-<x>.yaml so it lands on whatever boundary the app lands on (the Org
+// vCluster for paid tiers, the host `<slug>` ns for free/S) and references the
+// PLAIN Service name (the same boundary), exactly as the chart-emitted openclaw
+// HTTPRoute references its own plain `<fullname>-controller` Service.
+//
+// parentDomain is the Sovereign's org-pool parent zone (g.parentDomain(), e.g.
+// "omani.homes"); it falls back to parentDomainDefault upstream so the host is
+// never a bare `<app>.<slug>.`. The route attaches to the dedicated console
+// Gateway (appsGatewayName/appsGatewayNamespace) whose wildcard TLS listener
+// terminates TLS — no per-host cert. The gateway→pod reserved-entity hop is
+// admitted by the org-controller's namespace-wide CNP, so no per-app CNP here.
+func generateAppHTTPRoute(ns, slug, appSlug, parentDomain string) string {
+	host := fmt.Sprintf("%s.%s.%s", appSlug, slug, parentDomain)
+	return fmt.Sprintf(`---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app-%s
+  namespace: %s
+  labels:
+    app: %s
+    openova.io/tenant: "%s"
+    catalyst.openova.io/component: per-org-app-route
+spec:
+  parentRefs:
+    - name: %s
+      namespace: %s
+  hostnames:
+    - %s
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: %s
+          port: 80
+`, appSlug, ns, appSlug, slug,
+		appsGatewayName, appsGatewayNamespace,
+		host, appSlug)
 }
 
 // generateProvisioningTenantRBAC emits a Role + RoleBinding that gives the
