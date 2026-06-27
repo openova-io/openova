@@ -21,7 +21,15 @@ The cutover runner needs cluster-scope reach because:
   - Step 06 patches HelmRepositories in `flux-system` namespace, AND
     (phase-0, #1184) merges harbor.<sov-fqdn> auth into the ghcr-pull
     Secret in `flux-system` so source-controller can pull from the
-    per-Sovereign Harbor mirror without manual kubectl patch.
+    per-Sovereign Harbor mirror without manual kubectl patch. It ALSO
+    (phase-0.5, #3379) READS the in-cluster Harbor wildcard TLS Secret in
+    `kube-system` and CREATES/patches a ca.crt-only Secret
+    (`cutover-harbor-ca`) in `flux-system`, then patches each pivoted
+    HelmRepository's spec.certSecretRef to it so source-controller TRUSTS
+    the LE-staging in-cluster registry (Flux OCI HRs have no
+    insecureSkipVerify — certSecretRef is the only trust mechanism). Both
+    the cross-namespace Secret read and the Secret create/patch are already
+    covered by the cluster-scoped secrets get/create/patch rules below.
   - Step 07 patches Deployment in `catalyst-platform` namespace.
   - Step 08 creates+deletes a CiliumNetworkPolicy cluster-wide, queries
     HelmRelease/Kustomization status across all namespaces, AND (#3526)

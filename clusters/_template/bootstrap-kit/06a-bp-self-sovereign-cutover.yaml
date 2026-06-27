@@ -637,7 +637,18 @@ spec:
       # via the bp-catalyst-platform chart 1.4.927) — kills the step-08 fresh-
       # pull FATAL on the two residual ghcr.io tethers.
       # 0.1.87 (#4581 Refs #3379): step-03 Phase-A2 chart mirror wraps each skopeo copy in an outer attempt loop (PREWARM_COPY_ATTEMPTS) — a transient in-cluster-Harbor DEST 504 (not caught by skopeo --retry-times) no longer FATAL-s the whole cutover on one chart (live: bp-alloy 504 on prov 00720a7a, chart_ok=61/62).
-      version: 0.1.87
+      # 0.1.88 (#3379): the LAST leg of the cutover cert-tail — source-controller
+      # OCI-pull TLS-trust. Step-06 reads the in-cluster Harbor wildcard CA
+      # (sovereign-wildcard-tls-<fqdn-dashed>, kube-system) into a ca.crt-only
+      # Secret cutover-harbor-ca (flux-system) and patches every pivoted
+      # HelmRepository's spec.certSecretRef to it (live HR patch + durable Gitea
+      # inject), so source-controller TRUSTS the LE-staging in-cluster registry
+      # instead of `tls: x509: certificate signed by unknown authority` on every
+      # pivoted pull (live wedge dep 00720a7a). Flux OCI HRs have no
+      # insecureSkipVerify — certSecretRef is the only trust mechanism (mirrors
+      # skopeo #4529 / helm #4557 / containerd step-04 / OBS #4573 F2). Fail-OPEN
+      # when the CA is unreadable. Lockstep w/ Chart.yaml + blueprint.yaml.
+      version: 0.1.88
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

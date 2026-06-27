@@ -1,5 +1,48 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.88 (#3379, the LAST leg of the cutover cert-tail — source-controller
+# OCI-pull TLS-trust, live wedge on dep 00720a7a, 2026-06-28): step-06 now
+# gives the Flux SOURCE-CONTROLLER a trust path to the in-cluster Harbor.
+#
+# THE WEDGE. Step-06 Phase-1 pivots every openova-io HelmRepository's spec.url
+# from oci://ghcr.io/openova-io to oci://registry.<sov-fqdn>/openova-io. The
+# source-controller then pulls those OCI charts from the in-cluster Harbor —
+# whose wildcard `*.<sov-fqdn>` cert is served by the bootstrap LE-STAGING
+# issuer on a fresh / qaTestEnabled prov. source-controller carries only the
+# public CA bundle, so EVERY pivoted pull fails `tls: x509: certificate signed
+# by unknown authority` → the pivot never reconciles → Phase-3a's strip-
+# readiness gate never converges → the cutover never reaches the 600s deny-
+# egress hold → cutoverComplete never set (live dep 00720a7a). This is the
+# SAME LE-staging-in-cluster-Harbor cert pattern already closed at every OTHER
+# layer that talks to the registry — skopeo (#4529 --dest-tls-verify=false),
+# the helm CLI (#4557 --insecure-skip-tls-verify), containerd (step-04
+# skip_verify), and the OBS blob-redirect (#4573 F2 disableRedirect) — but the
+# source-controller leg had NO trust path until now.
+#
+# THE FIX (per-leg certSecretRef, consistent with #4529/#4557/#4573). Unlike
+# skopeo / helm / containerd, the Flux OCI HelmRepository API has NO
+# insecureSkipVerify field for spec.type=oci — the ONLY trust mechanism
+# source-controller honors is `spec.certSecretRef` → a Secret whose `ca.crt`
+# verifies the registry cert. Step-06 gains:
+#   - Phase-0.5: read the in-cluster Harbor serving cert's CA from the wildcard
+#     TLS Secret `sovereign-wildcard-tls-<fqdn-dashed>` in kube-system (prefer
+#     `ca.crt`, fall back to `tls.crt`) and create a ca.crt-only Secret
+#     `cutover-harbor-ca` in flux-system (Opaque — never copies the private key).
+#   - Phase-1: patch each pivoted HelmRepository's spec.certSecretRef to it in
+#     the SAME merge-patch as the URL pivot (so a pivoted url never lands
+#     trust-less even for one reconcile tick); already-URL-pivoted HRs get the
+#     ref back-filled on re-run.
+#   - Phase-2: inject `certSecretRef:` into each pivoted HelmRepository YAML in
+#     the local-Gitea bootstrap-kit slots (same indent as `url:`), so the
+#     bootstrap-kit Kustomization reconcile keeps the trust ref instead of
+#     reverting it ~1 min later and re-x509-failing every pull.
+# Fail-OPEN: helmRepositoryTrust.enabled=false, or an unreadable wildcard
+# Secret/CA, pivots the URL WITHOUT a certSecretRef (prior behaviour for a
+# public-CA-trusted Harbor) rather than wedging the cutover on the trust seam.
+# It does NOT widen source-controller's trust for any external host (the CA
+# bundle verifies ONLY the cluster's own registry cert chain). RBAC already
+# covers the cross-namespace Secret read + create/patch (cluster-scoped secrets
+# get/create/patch). New values block: .Values.helmRepositoryTrust.
 # 0.1.86 (#4573 Refs #3379, the two GENUINE clean-fresh-prov cutover faults —
 # the ones a version-frozen cutover hits, separate from the F1/F3/F5 re-drive
 # contamination that only bites driving NEW chart/image versions onto an
@@ -1225,7 +1268,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.87
+version: 0.1.88
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -1144,4 +1144,56 @@ else
   echo "  SKIP (19-harbor.yaml not reachable from test cwd — chart consumed standalone)"
 fi
 
+echo "[cutover-contract] Case 35: step-06 wires a source-controller TLS-trust certSecretRef for the pivoted HelmRepositories (#3379, the last cert-tail leg)"
+# #3379: after step-06 pivots each openova-io HelmRepository to the in-cluster
+# Harbor (registry.<fqdn>), the Flux source-controller x509-fails the pull
+# because the LE-staging wildcard cert is not in its public CA bundle. Flux OCI
+# HelmRepository has NO insecureSkipVerify — the ONLY trust mechanism is
+# spec.certSecretRef -> a Secret whose ca.crt verifies the registry. Step-06
+# Phase-0.5 builds that Secret from the in-cluster Harbor wildcard cert and
+# Phase-1/Phase-2 wire each pivoted HR's certSecretRef to it. Assert the
+# rendered step-06 podSpec carries the trust env vars + the patch shape.
+STEP06_BLOCK=$(awk '/name: cutover-step-06-helmrepository-patches/,/^---$/' "$TMP/render.yaml")
+if [ -z "$STEP06_BLOCK" ]; then
+  # The ConfigMap name may render slightly differently across helm versions;
+  # fall back to the whole render so the substring asserts still fire.
+  STEP06_BLOCK=$(cat "$TMP/render.yaml")
+fi
+for tok in \
+  'HELMREPO_TRUST_ENABLED' \
+  'HELMREPO_TRUST_SRC_NAMESPACE' \
+  'HELMREPO_TRUST_SRC_NAME_PREFIX' \
+  'HELMREPO_TRUST_DEST_SECRET'; do
+  if ! printf '%s' "$STEP06_BLOCK" | grep -q "$tok"; then
+    echo "FAIL: step-06 podSpec missing trust env var ${tok} — source-controller has no certSecretRef trust path for the pivoted in-cluster-Harbor HelmRepositories (#3379)" >&2
+    exit 1
+  fi
+done
+# The pivot patch must carry certSecretRef alongside the url, and Phase-0.5 must
+# read the wildcard cert (ca.crt with tls.crt fallback) + create the dest Secret.
+if ! printf '%s' "$STEP06_BLOCK" | grep -q 'certSecretRef'; then
+  echo "FAIL: step-06 podSpec never sets spec.certSecretRef on the pivoted HelmRepositories — source-controller will x509 on the LE-staging in-cluster Harbor (#3379)" >&2
+  exit 1
+fi
+if ! printf '%s' "$STEP06_BLOCK" | grep -Eq 'ca\.crt'; then
+  echo "FAIL: step-06 podSpec never reads ca.crt from the in-cluster Harbor wildcard Secret — no trust bundle for the certSecretRef (#3379)" >&2
+  exit 1
+fi
+# Trust defaults must be present + sane in values.yaml (enabled true; the
+# wildcard-secret source in kube-system; the flux-system dest secret name).
+# cwd is $CHART_DIR (the script cd'd into it above), so values.yaml is local.
+if ! grep -Eq '^helmRepositoryTrust:' values.yaml; then
+  echo "FAIL: values.yaml has no helmRepositoryTrust block — the #3379 cert-tail fix is unconfigurable" >&2
+  exit 1
+fi
+# Extract the helmRepositoryTrust block (from its header to the next top-level
+# key) and assert enabled:true lives inside it — the block carries several
+# comment lines before `enabled:`, so a fixed -A window is too brittle.
+HRT_BLOCK=$(awk '/^helmRepositoryTrust:/{f=1; next} f&&/^[a-zA-Z]/{exit} f{print}' values.yaml)
+if ! printf '%s' "$HRT_BLOCK" | grep -Eq '^[[:space:]]+enabled:[[:space:]]*true'; then
+  echo "FAIL: helmRepositoryTrust.enabled is not true by default — fresh/qaTestEnabled provs serve an LE-staging in-cluster Harbor and need the trust path on by default (#3379)" >&2
+  exit 1
+fi
+echo "  PASS (step-06 builds a ca.crt trust Secret from the in-cluster Harbor wildcard cert + wires every pivoted HelmRepository's certSecretRef to it; helmRepositoryTrust.enabled defaults true)"
+
 echo "[cutover-contract] All gates green."
