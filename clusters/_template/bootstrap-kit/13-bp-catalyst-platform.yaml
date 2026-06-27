@@ -1200,7 +1200,7 @@ spec:
       # 1.4.919 — #4525: catalog reads configuredRegions from same-namespace
       #   org-services-config (not cross-namespace sovereign-fqdn) so
       #   GET /catalog/regions returns the Sovereign's real region set.
-      version: 1.4.924
+      version: 1.4.925
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
