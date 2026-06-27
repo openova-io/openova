@@ -124,7 +124,15 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
-version: 0.5.13
+# 0.5.14 (#4553, Pillar-4 North-Star walk on omantel.biz dep 91dc05917e44d1c1):
+# httpRoute.parentRef default catalyst-gateway/catalyst-system -> the REAL
+# Sovereign console gateway cilium-gateway-console/kube-system. There is NO
+# `catalyst-gateway` on a Catalyst Sovereign — the per-Org agenity host
+# (agenity.<slug>.<pool>) is a customer host on the console-ELB gateway (the
+# same gateway bp-wordpress-tenant + the org console route attach to, #4054).
+# The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
+# until the parentRef was hand-overridden. appVersion (image) unchanged.
+version: 0.5.14
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752

@@ -5980,7 +5980,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.5.13"
+  version: "0.5.14"
   visibility: listed
   card:
     title: "Agenity"
@@ -6010,7 +6010,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.13
+    version: 0.5.14
   topology:
     supported:
       - singleton
