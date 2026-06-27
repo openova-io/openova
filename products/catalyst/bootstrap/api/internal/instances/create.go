@@ -189,6 +189,13 @@ type ApplicationSeed struct {
 	// defaults; the controller derives). Passed through verbatim to
 	// the OBJECT form of `spec.placement` on the Application CR.
 	Placement *InstancePlacementRequest
+
+	// SovereignFQDN — the Sovereign's own FQDN (e.g. "omantel.biz"), stamped
+	// by the create-instance handler so the bp-agenity install gets
+	// spec.parameters.sovereignFqdn (#4556 Item 2). Empty on the
+	// mothership/Catalyst-Zero. Consumed by newApplicationCRFromSeed via
+	// defaultedParameters; ignored for non-agenity Blueprints.
+	SovereignFQDN string
 }
 
 // Build constructs the ApplicationSeed from a sanitised+validated

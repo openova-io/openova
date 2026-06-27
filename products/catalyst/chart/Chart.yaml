@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.936 — #4556 (agenity North-Star residual faults, items 1+2): (1) the
+#   application-controller no longer DUAL-RENDERS a topology/targets-driven
+#   Application — the fan-out `<app>-<cluster>` HR is now the sole install and
+#   the redundant per-region bare-`<app>` render+commit + host Flux bootstrap
+#   are suppressed when the fan-out owns the install, so a per-Org agenity stops
+#   consuming the Org plan quota twice (live `agenity` + `agenity-rtz-a`).
+#   (2) the catalyst-api Application-CR install path (POST /applications + the
+#   create-instance seed path) now stamps spec.parameters.sovereignFqdn for
+#   bp-agenity from the Sovereign's own FQDN, so the openova-MCP catalyst-api
+#   URL derives https://console.<sovereign-fqdn> instead of falling back to the
+#   mothership console.openova.io. Ships in the catalyst-api +
+#   application-controller images (deploy-bot bumps the pins on the next build).
 # 1.4.933 — #4553 (gate LimitRange fix): catalog-seed bp-agenity 0.5.15 ->
 #   0.5.16 — the oidc-gate companion's resources are now requests == limits so
 #   the gate pod is admissible under the per-Org plan-limits LimitRange (the
@@ -3364,7 +3376,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.935
+version: 1.4.936
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)

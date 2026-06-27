@@ -199,6 +199,67 @@ func TestReconcile_TargetsDriveFanout_SingletonSingleTarget(t *testing.T) {
 	}
 }
 
+// TestReconcile_SingletonFanout_OneHR_NoPerRegionGitRepository — #4556 Item 1.
+// A singleton target produces EXACTLY ONE HelmRelease total and NO per-region
+// GitRepository/Kustomization: the fan-out `<app>-<cluster>` HR is the SOLE
+// install, and the legacy per-region path (which would deliver a duplicate
+// bare `<app>` HR via a GitRepository + Kustomization, double-consuming the
+// Org plan quota — the live `agenity` + `agenity-rtz-a` fault) is suppressed.
+func TestReconcile_SingletonFanout_OneHR_NoPerRegionGitRepository(t *testing.T) {
+	bp := makeBlueprintNoTopology("bp-grafana", "1.0.6", "primary+standby")
+	env := makeMultiRegionEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeAppWithTargets("acme", "obs", "acme-prod", "bp-grafana", "1.0.6",
+		"singleton",
+		[]string{"hetzner-fsn-rtz-prod"},
+		[]map[string]interface{}{
+			{"region": "fsn", "cluster": "mgmt-A", "vcluster": "mgmt", "role": "Primary"},
+		},
+	)
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp)
+
+	reconcileFromCluster(t, r, "acme", "obs")
+
+	got := readApp(t, r, "acme", "obs")
+	if phase, reason, msg := readPhaseAndReason(t, got); phase == PhaseFailed {
+		t.Fatalf("unexpected Failed phase: reason=%q msg=%q", reason, msg)
+	}
+
+	// EXACTLY ONE HR across every host namespace — no duplicate bare `<app>`
+	// HR rendered by the (now-suppressed) per-region path.
+	total := 0
+	for _, ns := range []string{"mgmt", "dmz", "rtz", "acme"} {
+		hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
+			Namespace(ns).List(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			t.Fatalf("list HRs in %s: %v", ns, err)
+		}
+		total += len(hrList.Items)
+		for _, hr := range hrList.Items {
+			// The surviving HR is the fan-out `<app>-<cluster>` name, NOT the
+			// bare `<app>` the per-region path would have committed.
+			if hr.GetName() == "obs" {
+				t.Errorf("found the duplicate bare `<app>` HR %q in %s — the per-region path must be suppressed when the fan-out owns the install", hr.GetName(), ns)
+			}
+		}
+	}
+	if total != 1 {
+		t.Fatalf("want EXACTLY 1 HR for a singleton fan-out (one render path), got %d", total)
+	}
+
+	// The per-region delivery infra (GitRepository catalyst-app-{org}-{app})
+	// must NOT exist — bootstrapping it is what re-creates the duplicate HR
+	// every reconcile.
+	_, err := r.Dynamic.Resource(FluxGitRepositoryGVR).
+		Namespace("flux-system").
+		Get(context.Background(), "catalyst-app-acme-obs", metav1.GetOptions{})
+	if err == nil {
+		t.Fatalf("per-region GitRepository catalyst-app-acme-obs must NOT be bootstrapped for a fan-out-owned install (it delivers the duplicate HR)")
+	}
+}
+
 // TestReconcile_NoTargets_NoBlueprintTopology_NoFanout — the additive
 // invariant: with NO desired-state targets AND NO Blueprint topology, the
 // targets path is dormant and produces zero fan-out HRs (the legacy

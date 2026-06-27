@@ -1122,6 +1122,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	}
 	_ = perClusterFanout // status writer reads perClusterStatus; this var is the typed-shape audit trail
 
+	// #4556 Item 1 — when the topology fan-out produced HRs, those HRs ARE
+	// the install (exactly one for a singleton, N for an active-hot-standby
+	// cnpg-pair) and the reconciler already upserted them host-side above.
+	// The legacy per-region render+commit path below ALSO renders the same
+	// logical install under the bare `<app>` name and delivers it via a
+	// GitRepository + per-region Kustomization — so a topology/targets-driven
+	// Application was getting BOTH `<app>` AND `<app>-<cluster>` HelmReleases,
+	// double-consuming the Org plan quota (live: `agenity` + `agenity-rtz-a`
+	// both 1/1 on the agnstar Org). Honour the line-783 contract — "when the
+	// fan-out runs, the per-region path must NOT also own the install" — by
+	// suppressing the per-region render+commit + the host Flux bootstrap that
+	// delivers the duplicate. Status observation already targets the fan-out
+	// HRs via fanoutHRRefs (built from perClusterStatus), so nothing else
+	// changes. The predicate never touches the fan-out loop itself, so the
+	// cnpg-pair N>1 fan-out is unaffected; legacy / substrate / no-topology
+	// Applications (perClusterFanout empty) keep the per-region path as their
+	// SOLE install path, byte-identical to before.
+	fanoutOwnsInstall := len(perClusterFanout) > 0
+
 	// 7. Resolve placement → per-region work plan.
 	plan, err := placement.Resolve(spec.Placement, spec.Regions)
 	if err != nil {
@@ -1225,6 +1244,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	regionStatuses := make([]map[string]interface{}, 0, len(plan.Regions))
 	allCommitted := true
 	for _, rp := range plan.Regions {
+		// #4556 Item 1 — the fan-out already owns the install (its `<app>-<cluster>`
+		// HRs were upserted host-side above). Skip the redundant per-region
+		// render+commit of the bare `<app>` HR so the Org plan quota is not
+		// double-consumed. Keep the regionStatuses skeleton row so
+		// status.regions[] + mergeRegionReadiness stay populated for the UI.
+		if fanoutOwnsInstall {
+			regionStatuses = append(regionStatuses, map[string]interface{}{
+				"name":               rp.Name,
+				"role":               rp.Role,
+				"replicas":           int64(replicasFor(rp.Standby, spec.Parameters)),
+				"ready":              int64(0),
+				"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+			})
+			continue
+		}
 		merged := mergeMaps(bpManifestsValues, spec.Parameters)
 		out, err := render.Render(render.Inputs{
 			AppName: app.GetName(),
@@ -1327,13 +1361,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	//     resolves the kubeConfig.secretRef). The IN-vCluster install
 	//     target stays the Application's namespace (rendered HR's
 	//     spec.targetNamespace).
-	hostHRNamespace := app.GetNamespace()
-	if bpVCluster != "" {
-		hostHRNamespace = vcPlacement.HostNamespace
-	}
-	if err := r.ensureHostFluxBootstrap(ctx, app, envSpec, plan, hostHRNamespace); err != nil {
-		return r.markDegraded(ctx, app, ReasonGiteaError,
-			fmt.Sprintf("ensure host Flux bootstrap: %v", err))
+	//
+	//     #4556 Item 1 — SKIP this when the fan-out owns the install: the
+	//     GitRepository + per-region Kustomization here are what deliver the
+	//     duplicate bare `<app>` HR (the fan-out `<app>-<cluster>` HRs were
+	//     already upserted host-side above). Bootstrapping them would
+	//     re-create the second HR every reconcile and double-consume the Org
+	//     plan quota. Legacy / non-fan-out Applications still bootstrap their
+	//     SOLE per-region delivery here, unchanged.
+	if !fanoutOwnsInstall {
+		hostHRNamespace := app.GetNamespace()
+		if bpVCluster != "" {
+			hostHRNamespace = vcPlacement.HostNamespace
+		}
+		if err := r.ensureHostFluxBootstrap(ctx, app, envSpec, plan, hostHRNamespace); err != nil {
+			return r.markDegraded(ctx, app, ReasonGiteaError,
+				fmt.Sprintf("ensure host Flux bootstrap: %v", err))
+		}
 	}
 
 	// 10. Observe the downstream HelmRelease so the Application's

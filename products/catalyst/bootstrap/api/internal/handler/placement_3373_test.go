@@ -20,7 +20,7 @@ func TestNewApplicationUnstructured_StringForm_StoresCanonical(t *testing.T) {
 		// Legacy editor dialect on the wire …
 		Placement: applicationPlacement{Mode: "single-region", Regions: []string{"fsn"}},
 	}
-	obj := newApplicationUnstructured(req)
+	obj := newApplicationUnstructured(req, "")
 	pl, ok, err := unstructured.NestedString(obj.Object, "spec", "placement")
 	// One vocabulary (#3375 DoD-1): the CR STORES the canonical token —
 	// the legacy "single-region" is folded to "singleton" so every CR
@@ -44,7 +44,7 @@ func TestNewApplicationUnstructured_ObjectFormWhenVClusterSet(t *testing.T) {
 			Clusters: []string{"mgmt-A"},
 		},
 	}
-	obj := newApplicationUnstructured(req)
+	obj := newApplicationUnstructured(req, "")
 	vc, _, _ := unstructured.NestedString(obj.Object, "spec", "placement", "vcluster")
 	if vc != "rtz" {
 		t.Fatalf("spec.placement.vcluster = %q, want rtz", vc)
@@ -198,7 +198,7 @@ func TestNewApplicationUnstructured_DottedOrgSlugsNamespace(t *testing.T) {
 		EnvironmentRef:  "hw165.omani.works-prod",
 		Placement:       applicationPlacement{Mode: "singleton", Regions: []string{"fsn"}},
 	}
-	obj := newApplicationUnstructured(req)
+	obj := newApplicationUnstructured(req, "")
 	if ns := obj.GetNamespace(); ns != "hw165-omani-works" {
 		t.Fatalf("metadata.namespace = %q, want slugged hw165-omani-works", ns)
 	}

@@ -488,7 +488,18 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	obj := newApplicationUnstructured(body)
+	// #4556 Item 2 — resolve the Sovereign's own FQDN so the agenity install
+	// stamps spec.parameters.sovereignFqdn (the chart derives the openova-MCP
+	// catalyst-api URL from it; empty → console.openova.io, the mothership).
+	// Prefer the deployment record's FQDN; fall back to this catalyst-api's
+	// own SOVEREIGN_FQDN env. Empty on the mothership/Catalyst-Zero is fine —
+	// agenity-on-mothership is not a production path and the chart's
+	// fail-closed default then applies.
+	sovereignFQDN := strings.TrimSpace(dep.Request.SovereignFQDN)
+	if sovereignFQDN == "" {
+		sovereignFQDN = h.sovereignFQDN()
+	}
+	obj := newApplicationUnstructured(body, sovereignFQDN)
 	created, err := client.Resource(ApplicationGVR()).Namespace(appNS).Create(
 		r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
@@ -960,7 +971,7 @@ func isSovereignOperatorClaim(claims *auth.Claims) bool {
 // install request. Sets the spec to mirror the API surface exactly so a
 // downstream Get returns the same shape the caller posted (modulo
 // metadata + status).
-func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Unstructured {
+func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
@@ -1041,7 +1052,7 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 	// tree valid; the controller's admission webhook + this handler's
 	// validate.Parameters call have already gated explicit params against
 	// configSchema.
-	spec["parameters"] = defaultedParameters(req.BlueprintRef.Name, canonMode, req.Parameters)
+	spec["parameters"] = defaultedParameters(req.BlueprintRef.Name, canonMode, sovereignFQDN, req.Parameters)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }
