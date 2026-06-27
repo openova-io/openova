@@ -32,6 +32,8 @@
 package provisioner
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -74,16 +76,19 @@ func TestKustomizationTimeout_AllAtFiveMinutes(t *testing.T) {
 		}
 	}
 
-	// Expect exactly TWO operative timeout lines: bootstrap-kit +
-	// infrastructure-config (#4212). infrastructure-config is the Crossplane
-	// object-model layer — `wait: false` async-applier tier (provider
-	// package pull off the critical path) but carries a 5m timeout so a
-	// stuck install self-releases the revision lock on schedule.
-	// sovereign-tls + bootstrap-kit-crs carry no timeout (#3845/#3888).
-	// A higher count means a new health-gating Kustomization was added
-	// without updating this test — promote the new one into the spec by
+	// Expect exactly ONE operative timeout line in cloud-init: bootstrap-kit.
+	// #4521 moved the `infrastructure-config` Kustomization OUT of the inline
+	// cloud-init into a COMMITTED Flux Kustomization CR
+	// (clusters/_template/infrastructure/providers/{,hetzner}/
+	// infrastructure-config-kustomization.yaml) to keep it off the byte-capped
+	// cloud-init render — so its `timeout: 5m` now lives in those repo files,
+	// not here (asserted separately by configKustomizationTimeoutFiles below).
+	// The inline `infrastructure-providers` LAYER-1 Kustomization carries NO
+	// timeout (it is a wait:false self-retrying applier, like sovereign-tls +
+	// bootstrap-kit-crs). A higher count means a new health-gating Kustomization
+	// was inlined without updating this test — promote it into the spec by
 	// extending the wanted fixture; do not loosen the test.
-	const wantCount = 2
+	const wantCount = 1
 	if got := len(operativeTimeouts); got != wantCount {
 		t.Fatalf("expected exactly %d operative `timeout:` lines in cloud-init template (got %d): %v\n"+
 			"If a new health-gating Kustomization was added, extend this test to assert its timeout matches the others.",
@@ -197,9 +202,10 @@ func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 	// don't shadow it). The allowlist is name-scoped, not a blanket
 	// relaxation. As with the 30m guard, comments are fine.
 	allowWaitFalseFor := map[string]bool{
-		"bootstrap-kit-crs":     true, // #3804 / Refs #3642 — async CR applier
-		"sovereign-tls":         true, // #3845 / Refs #3888 — async wildcard-TLS applier
-		"infrastructure-config": true, // #4212 — Crossplane object-model layer (provider pull off the critical path)
+		"bootstrap-kit-crs":        true, // #3804 / Refs #3642 — async CR applier
+		"sovereign-tls":            true, // #3845 / Refs #3888 — async wildcard-TLS applier
+		"infrastructure-providers": true, // #4521 — Crossplane Provider-install LAYER 1 (package pull off the critical path)
+		"infrastructure-config":    true, // #4212 / #4521 — Crossplane object-model config LAYER 2 (dependsOn infrastructure-providers)
 	}
 	currentName := ""
 	prevNonComment := ""
@@ -220,5 +226,41 @@ func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 				i+1, currentName, line)
 		}
 		prevNonComment = trimmed
+	}
+}
+
+// TestKustomizationTimeout_CommittedInfrastructureConfig is the #4521 guard:
+// the `infrastructure-config` LAYER-2 Flux Kustomization was evicted OUT of the
+// byte-capped cloud-init into two COMMITTED Flux Kustomization CRs (the Huawei
+// cloud-agnostic variant + the Hetzner overlay variant). Their `timeout: 5m`
+// protection (issue #492 — release the revision lock at GitRepository-poll
+// cadence) must travel WITH them; this test asserts both committed CRs still
+// carry `timeout: 5m`, so the move did not silently drop the guard.
+func TestKustomizationTimeout_CommittedInfrastructureConfig(t *testing.T) {
+	// repoRoot resolves the same way modulePath() does (six dirs up from the
+	// provisioner package), then down into clusters/_template.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(cwd, "..", "..", "..", "..", "..", ".."))
+	files := []string{
+		filepath.Join(repoRoot, "clusters", "_template", "infrastructure", "providers", "infrastructure-config-kustomization.yaml"),
+		filepath.Join(repoRoot, "clusters", "_template", "infrastructure", "providers", "hetzner", "infrastructure-config-kustomization.yaml"),
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("#4521: committed infrastructure-config Kustomization CR missing (%s): %v", f, err)
+		}
+		body := string(raw)
+		if !strings.Contains(body, "timeout: 5m") {
+			t.Errorf("#4521: committed infrastructure-config CR %s must carry `timeout: 5m` (issue #492 revision-lock release); the timeout guard was dropped when LAYER 2 moved off cloud-init", f)
+		}
+		// LAYER-2 must dependsOn LAYER-1 (the #4521 ordering fix) so the
+		// ProviderConfig is dry-run only after the provider registers its CRD.
+		if !strings.Contains(body, "- name: infrastructure-providers") {
+			t.Errorf("#4521: committed infrastructure-config CR %s must `dependsOn: [infrastructure-providers]` (the atomic-dry-run ordering fix)", f)
+		}
 	}
 }

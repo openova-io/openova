@@ -69,22 +69,22 @@ locals {
     node_ip_cmd                       = "echo 10.0.1.2"
     node_external_ip_cmd              = "echo 203.0.113.10"
     node_external_ip_value            = "203.0.113.10"
-    k3s_extra_args       = ""
-    registry_mirror_yaml = "mirrors: {}"
-    catalyst_api_url     = "https://console.example.test"
-    ghcr_pull_auth_b64   = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q="
-    harbor_robot_token   = "render-test-harbor-token"
-    kubeconfig_bearer_token       = "render-test-bearer"
-    pdm_basic_auth_user           = "render-test"
-    pdm_basic_auth_pass           = "render-test-pass"
-    powerdns_api_key              = "render-test-pdns-key"
-    cloud_credentials_secret_yaml = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: cloud-credentials\n  namespace: flux-system\ndata: {}"
+    k3s_extra_args                    = ""
+    registry_mirror_yaml              = "mirrors: {}"
+    catalyst_api_url                  = "https://console.example.test"
+    ghcr_pull_auth_b64                = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q="
+    harbor_robot_token                = "render-test-harbor-token"
+    kubeconfig_bearer_token           = "render-test-bearer"
+    pdm_basic_auth_user               = "render-test"
+    pdm_basic_auth_pass               = "render-test-pass"
+    powerdns_api_key                  = "render-test-pdns-key"
+    cloud_credentials_secret_yaml     = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: cloud-credentials\n  namespace: flux-system\ndata: {}"
     # Provider-injected runcmd/file blocks: empty on this render branch (the
     # conditional if-not-empty guards short-circuit them), which is enough to
     # exercise the infrastructure-config + namespace-create + flux-bootstrap
     # sites this regression targets.
-    provider_prelude    = ""
-    kubeconfig_put_block = ""
+    provider_prelude         = ""
+    kubeconfig_put_block     = ""
     provider_id_cmd          = ""
     crossplane_provider_yaml = ""
   })
@@ -102,6 +102,47 @@ locals {
   # The namespace-create loop must NOT pass two NAMEs to a single
   # `create namespace` (#4513 — "exactly one NAME is required, got 2").
   multi_name_create = length(regexall("create namespace catalyst-system openbao", local.rendered_cloud_init)) > 0
+
+  # #4521 — the two-layer Crossplane bootstrap. The Provider CR and its
+  # CRD-CONSUMING ProviderConfig MUST be applied by SEPARATE Flux
+  # Kustomizations so Flux's atomic server-side dry-run cannot reject the
+  # ProviderConfig (`no matches for kind "ProviderConfig" in version
+  # "tf.upbound.io/v1beta1"`) and thereby block the Provider CR from ever
+  # applying.
+  #
+  # LAYER 1 (`infrastructure-providers`, the Provider-install) is the ONLY
+  # crossplane Flux Kustomization INLINED in cloud-init — it points at the
+  # providers/ tree (Provider package CRs only). LAYER 2
+  # (`infrastructure-config`, the ProviderConfig + CloudAdoption claims) is a
+  # COMMITTED Flux Kustomization CR in the providers/ tree (kept OFF the
+  # byte-capped cloud-init), asserted separately below against the repo file.
+  has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.rendered_cloud_init)) > 0
+
+  # The inline Provider-install layer must point at the providers/ tree (NOT
+  # the config tree) so it carries ONLY the Provider package CRs.
+  providers_path_correct = length(regexall("path: ./clusters/_template/infrastructure/providers", local.rendered_cloud_init)) > 0
+
+  # LAYER 2 must NOT be re-inlined into cloud-init (the #1981/#3884 byte-cap
+  # regression class): no operative `name: infrastructure-config` Kustomization
+  # line in the rendered cloud-init.
+  config_not_inlined = length(regexall("(?m)^[ ]+name: infrastructure-config$", local.rendered_cloud_init)) == 0
+
+  # The committed LAYER-2 Flux Kustomization CR (both cloud variants) must
+  # exist and `dependsOn: [infrastructure-providers]` — the ordering gate that
+  # breaks the #4521 deadlock. Read the repo files directly (not the render).
+  config_ks_base    = file("${path.module}/../../../../clusters/_template/infrastructure/providers/infrastructure-config-kustomization.yaml")
+  config_ks_hetzner = file("${path.module}/../../../../clusters/_template/infrastructure/providers/hetzner/infrastructure-config-kustomization.yaml")
+  config_depends_on_providers = (
+    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_base)) > 0 &&
+    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_hetzner)) > 0
+  )
+
+  # The two committed LAYER-2 CRs must point at the correct cloud config tree:
+  # base → ./clusters/_template/infrastructure ; hetzner → .../infrastructure/hetzner.
+  config_paths_correct = (
+    length(regexall("path: ./clusters/_template/infrastructure\n", local.config_ks_base)) > 0 &&
+    length(regexall("path: ./clusters/_template/infrastructure/hetzner\n", local.config_ks_hetzner)) > 0
+  )
 }
 
 output "rendered_cloud_init" {
@@ -123,4 +164,24 @@ output "multi_name_create" {
 
 output "rendered_bytes" {
   value = length(local.rendered_cloud_init)
+}
+
+output "has_providers_kustomization" {
+  value = local.has_providers_kustomization
+}
+
+output "providers_path_correct" {
+  value = local.providers_path_correct
+}
+
+output "config_not_inlined" {
+  value = local.config_not_inlined
+}
+
+output "config_depends_on_providers" {
+  value = local.config_depends_on_providers
+}
+
+output "config_paths_correct" {
+  value = local.config_paths_correct
 }

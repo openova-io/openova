@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# clusters/_template/infrastructure/providers — the Crossplane Provider-install
+# entrypoint for HUAWEI (and any non-Hetzner cloud) (#4521, Refs #4212 #4488).
+#
+# The `infrastructure-providers` Flux Kustomization (cloud-init) points its
+# cloud-conditional `path` HERE on Huawei (the cross-cloud provider-opentofu
+# only) and at ./hetzner on Hetzner (provider-opentofu + native provider-hcloud).
+#
+# This is the FIRST of the two-layer crossplane bootstrap. It installs the
+# Provider PACKAGE CR (./base) PLUS the COMMITTED LAYER-2 `infrastructure-
+# config` Flux Kustomization CR (infrastructure-config-kustomization.yaml) —
+# which `dependsOn`s the inline `infrastructure-providers` Kustomization and
+# carries the ProviderConfig + CloudAdoption claims (path
+# ./clusters/_template/infrastructure). Shipping LAYER 2 as a committed Flux
+# Kustomization CR (rather than a second inline cloud-init Kustomization) keeps
+# it OFF the byte-capped cloud-init render (#4521; the #1981/#3884 precedent).
+# The Hetzner overlay ships its own variant pointing at the hetzner config.
+resources:
+  - base
+  - infrastructure-config-kustomization.yaml

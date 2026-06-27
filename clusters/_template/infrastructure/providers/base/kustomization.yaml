@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# clusters/_template/infrastructure/providers/base — the CRD-INTRODUCING
+# Crossplane Provider layer (ADR-0011, Refs #4002 #4018 #4212 #4488 #4521).
+#
+# Installs ONLY the cross-cloud Provider PACKAGE (+ its DeploymentRuntimeConfig).
+# Installing provider-opentofu registers the `tf.upbound.io` CRDs
+# (ProviderConfig, Workspace) AND, via its compositions, lets the
+# `compose.openova.io` CloudAdoption claims reconcile.
+#
+# THIS LAYER MUST APPLY + GO HEALTHY BEFORE ../../base (the ProviderConfig +
+# CloudAdoption claims) is dry-run (#4521). Flux server-side dry-runs each
+# Kustomization atomically: when provider-opentofu's Provider CR and the
+# `tf.upbound.io/v1beta1` ProviderConfig that CONSUMES its CRD were batched in
+# ONE Kustomization, the ProviderConfig dry-run failed `no matches for kind
+# "ProviderConfig" in version "tf.upbound.io/v1beta1"` (the CRD did not exist
+# yet) → the WHOLE apply was rejected → the Provider CR itself never applied →
+# permanent ordering deadlock (the provider could never install, so its CRD
+# could never register). Splitting the Provider CR into its own Flux
+# Kustomization (`infrastructure-providers`, wait:true + a `Provider Healthy`
+# healthCheck) and gating ../../base behind it with `dependsOn` breaks the
+# cycle — the established bootstrap-kit → bootstrap-kit-crs idiom.
+resources:
+  - provider-opentofu.yaml

@@ -984,8 +984,9 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// `PENDING-GENERATION` placeholder). Observe-first → never
 		// re-provisions the running platform. Background goroutine +
 		// internal retry budget: the CloudAdoption CRD (bp-crossplane-
-		// claims slot 14) + provider-opentofu (infrastructure-config Flux
-		// Kustomization) may still be installing at first OutcomeReady, so
+		// claims slot 14) + provider-opentofu (infrastructure-providers Flux
+		// Kustomization, LAYER 1 of the #4521 two-layer crossplane bootstrap)
+		// may still be installing at first OutcomeReady, so
 		// this must NOT block the terminate path. Failures log + emit SSE
 		// warn but never fail the handover (adoption is a day-2
 		// observability surface). See post_handover_adoption_apply.go.

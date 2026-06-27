@@ -29,9 +29,10 @@
 //
 // Idempotent + retrying: the CloudAdoption CRD ships via bp-crossplane-
 // claims (bootstrap-kit slot 14) and the provider-opentofu via the
-// infrastructure-config Flux Kustomization — both may still be installing
-// when Phase-1 first goes Ready, so the apply retries until the CRD
-// registers (bounded). Re-running on an already-adopted Sovereign is a
+// infrastructure-providers Flux Kustomization (LAYER 1 of the two-layer
+// crossplane bootstrap, #4521) — both may still be installing when Phase-1
+// first goes Ready, so the apply retries until the CRD registers (bounded).
+// Re-running on an already-adopted Sovereign is a
 // no-op server-side-apply merge. Failures log + emit an SSE warn but never
 // fail the handover (adoption is a day-2 observability surface, not on the
 // bootstrap critical path).

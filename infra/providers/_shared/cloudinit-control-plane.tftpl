@@ -931,53 +931,103 @@ write_files:
             # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
             # tofu var validation rejects "" and "local-path".
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
+%{ if sovereign_region_role == "primary" ~}
       ---
-      # infrastructure-config Kustomization — the Crossplane object-model
-      # layer (#4212, un-gates #4002/#4018). UN-GATED to all clouds: the
-      # `path` is cloud-conditional — Huawei installs the cloud-agnostic
-      # base (provider-opentofu + the Observe-first CloudAdoption
-      # placeholder); Hetzner installs the ./hetzner overlay (= base +
-      # native provider-hcloud). Before #4212 the whole Kustomization was
-      # Hetzner-only, so on Huawei `kubectl get providers.pkg.crossplane.io`
-      # was empty. wait:false — the Crossplane provider PACKAGE pull is a
-      # day-2 surface that must NEVER gate Phase-1 (sacred-thin cloud-init).
+      # PRIMARY-REGION ONLY (#4521): the Crossplane adoption seam is a
+      # once-per-Sovereign primary-CP concern — the post-handover applier
+      # (handler/post_handover_adoption_apply.go) server-side-applies the
+      # CloudAdoption CRs ONCE against the primary cluster from the primary's
+      # tofu state, observing the Sovereign's cloud resources. Secondary-region
+      # CPs SUSPEND their HRs (SECONDARY_HR_SUSPEND) and never need their own
+      # provider install, so gating these two Kustomizations to the primary
+      # keeps the secondary cloud-init under the 32256B Hetzner cap (its
+      # headroom was already thin) AND avoids a duplicate provider package pull
+      # per region.
+      # infrastructure-providers Kustomization — LAYER 1 of the two-layer
+      # Crossplane bootstrap (#4521, Refs #4212 #4488, un-gates #4002/#4018).
+      # Installs ONLY the Provider PACKAGE CRs (provider-opentofu, + native
+      # provider-hcloud on Hetzner). Cloud-conditional `path`: Huawei →
+      # ./providers (base provider-opentofu only); Hetzner → ./providers/hetzner
+      # (base + native provider-hcloud).
+      #
+      # WHY THIS IS A SEPARATE KUSTOMIZATION (#4521): the Provider CR and the
+      # `tf.upbound.io/v1beta1` ProviderConfig that CONSUMES the CRD the
+      # Provider registers were previously batched in ONE Kustomization. Flux
+      # server-side dry-runs a Kustomization ATOMICALLY; the ProviderConfig
+      # dry-run failed `no matches for kind "ProviderConfig" in version
+      # "tf.upbound.io/v1beta1"` (the CRD does not exist until the provider
+      # installs) → the WHOLE apply was rejected → the Provider CR itself never
+      # applied → the provider never installed → its CRD never registered →
+      # permanent ordering deadlock (`infrastructure-config Ready=False`,
+      # `kubectl get providers.pkg.crossplane.io` empty). Splitting the
+      # Provider CR into THIS layer (whose only CRD is pkg.crossplane.io/v1,
+      # already landed by bp-crossplane at slot 04) lets it apply cleanly; the
+      # LAYER-2 `infrastructure-config` `dependsOn`s this + carries the
+      # CRD-CONSUMING ProviderConfig/CloudAdoption. The established
+      # bootstrap-kit → bootstrap-kit-crs CRD-then-CR idiom.
+      #
+      # wait:false — the Crossplane provider PACKAGE pull is a day-2 surface
+      # that must NEVER gate Phase-1 (sacred-thin cloud-init). retryInterval
+      # short so the Provider re-applies promptly after bp-crossplane lands
+      # pkg.crossplane.io (no dependsOn on bp-crossplane: it lives inside
+      # bootstrap-kit which this already depends on). ORDERING is the pure
+      # bootstrap-kit-crs idiom: layer-2 `dependsOn`s this (Provider CR applied)
+      # AND retries its own dry-run (retryInterval) until the provider finishes
+      # registering tf.upbound.io — no healthCheck needed (and kstatus has no
+      # reliable Ready signal for a crossplane Provider's Healthy/Installed
+      # conditions anyway).
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
-        name: infrastructure-config
+        name: infrastructure-providers
         namespace: flux-system
       spec:
         interval: 5m
-        # #4513: the endif directive below must NOT carry a trailing tilde — a
-        # tilde-close strips the following newline, collapsing `prune: true`
-        # onto this `path:` line ("yaml: mapping values are not allowed in this
-        # context") and wedging the infrastructure-config Kustomization.
-        path: ./clusters/_template/infrastructure%{ if provider == "hetzner" }/hetzner%{ endif }
+        # NO dependsOn (pure bootstrap-kit-crs idiom): the Provider CR's only
+        # CRD is pkg.crossplane.io/v1 (landed by bp-crossplane INSIDE
+        # bootstrap-kit). retryInterval short so the apply RETRIES until that
+        # CRD registers, then applies — without gating on the ~50 leaf-app HRs
+        # (a dependsOn on wait:true bootstrap-kit would needlessly delay it).
+        retryInterval: 1m
+        # #4513: the endif must NOT carry a trailing tilde (a tilde-close strips
+        # the following newline, jamming the next mapping key onto this line).
+        path: ./clusters/_template/infrastructure/providers%{ if provider == "hetzner" }/hetzner%{ endif }
         prune: true
         sourceRef:
           kind: GitRepository
           name: openova
-        dependsOn:
-          - name: bootstrap-kit
-          - name: sovereign-tls
         wait: false
-        timeout: 5m
+%{ if provider == "huawei" ~}
+        # #4488 — provider-opentofu package-pull host. The Crossplane xpkg
+        # fetcher (go-containerregistry, K8sFetcher) bypasses the node
+        # containerd registries.yaml mirror, so on Huawei (kom4dc) a raw
+        # `xpkg.upbound.io` package dials the poisoned NAT EIP and stalls → the
+        # adoption seam stays inert. Route Huawei through the mothership
+        # Harbor's TLS-valid proxy-xpkg pull-through (off the wait:false
+        # critical path). On Hetzner the substitution is OMITTED — Flux expands
+        # the manifest's XPKG_REGISTRY `:=` default to the clean upstream
+        # (xpkg.upbound.io; Hetzner's NAT to xpkg is clean), saving render
+        # bytes (the 32256B Hetzner cloud-init cap). See
+        # providers/base/provider-opentofu.yaml for the full rationale.
         postBuild:
           substitute:
-            SOVEREIGN_FQDN: ${sovereign_fqdn}
-            SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
-            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
-            MARKETPLACE_ENABLED: "${marketplace_enabled}"
-            # #4488 — provider-opentofu package-pull host, cloud-conditional.
-            # The Crossplane xpkg fetcher (go-containerregistry, K8sFetcher)
-            # bypasses the node containerd registries.yaml mirror, so on
-            # Huawei (kom4dc) a raw `xpkg.upbound.io` package dials the
-            # poisoned NAT EIP and stalls → the adoption seam stays inert.
-            # Route Huawei through the mothership Harbor's TLS-valid
-            # proxy-xpkg pull-through (off the wait:false critical path);
-            # Hetzner keeps the direct upstream (clean NAT). See
-            # base/provider-opentofu.yaml for the full rationale.
-            XPKG_REGISTRY: "%{ if provider == "huawei" }harbor.openova.io/proxy-xpkg%{ else }xpkg.upbound.io%{ endif ~}"
+            XPKG_REGISTRY: "harbor.openova.io/proxy-xpkg"
+%{ endif ~}
+      # NOTE (#4521): LAYER 2 — the CRD-CONSUMING `infrastructure-config` Flux
+      # Kustomization (ProviderConfig + the Observe-first CloudAdoption
+      # placeholder) is NOT inlined here. It ships as a COMMITTED Flux
+      # Kustomization CR in the providers tree
+      # (clusters/_template/infrastructure/providers/{,hetzner}/
+      # infrastructure-config-kustomization.yaml), applied by THIS
+      # `infrastructure-providers` Kustomization above and `dependsOn`ing it.
+      # That keeps the second Kustomization OFF the byte-capped cloud-init
+      # render (the #1981/#3884 "evict bloat out of cloud-init" precedent — a
+      # third inline Kustomization pushed the 3-region Hetzner render past the
+      # 32256B cap). The committed CR needs NO postBuild: the placeholder
+      # CloudAdoption's only token (SOVEREIGN_FQDN) is now a static
+      # `pending-generation` (it is a no-op overwritten by the post-handover
+      # generator), so it renders identically on every Sovereign.
+%{ endif ~}
 
 runcmd:
   - swapoff -a

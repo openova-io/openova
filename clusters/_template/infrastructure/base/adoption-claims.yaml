@@ -37,7 +37,14 @@ metadata:
   name: adoption-placeholder
   namespace: crossplane-system
   labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    # Static placeholder value (#4521): this CloudAdoption is a no-op
+    # (resourceId: PENDING-GENERATION) that the post-handover generator
+    # (internal/provisioner/adoption.go) OVERWRITES with the real per-resource
+    # claims carrying the real sovereign FQDN. Keeping the placeholder label
+    # static (no ${SOVEREIGN_FQDN} substitution) lets the config-layer Flux
+    # Kustomization apply with NO postBuild — which is what allows it to ship
+    # as a committed Flux Kustomization CR (off the byte-capped cloud-init).
+    catalyst.openova.io/sovereign: pending-generation
     catalyst.openova.io/adoption-seam: "true"
     catalyst.openova.io/placeholder: "true"
   annotations:
@@ -50,7 +57,7 @@ spec:
     cloud: huawei
     resourceKind: loadbalancer
     resourceId: PENDING-GENERATION
-    sovereignFQDN: ${SOVEREIGN_FQDN}
+    sovereignFQDN: PENDING-GENERATION
     manage: false
   providerConfigRef:
     name: default
