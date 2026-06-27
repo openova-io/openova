@@ -195,7 +195,30 @@ name: bp-openbao
 #   new `exact_id` helper extracts the group id (last exact "id") + alias id
 #   (first exact "id", only when a canonical_id is present). Live-verified on
 #   91dc0591/omantel.biz: both groups now bind sso-operator-admin on tick-1.
-version: 1.2.57
+# 1.2.58 — #4519 (Refs #3374 #4477): HARDEN the OIDC role's group resolution by
+#   EXPLICITLY requesting the `groups` scope (oidc_scopes=["groups"]). The whole
+#   sovereign-admins → sso-operator-admin uplift hinges on the `groups` claim
+#   reaching OpenBao at the callback; with no oidc_scopes the role's auth_url
+#   asks Keycloak for `scope=openid` ONLY, and the claim arrives PURELY because
+#   the sovereign realm currently keeps `groups` as a DEFAULT client scope on
+#   the `openbao` client. That is an implicit IdP-side dependency: move `groups`
+#   to optionalClientScopes (or point OpenBao at any other IdP) and the claim
+#   silently vanishes → the external-group match finds nothing → EVERY
+#   sovereign-admin lands in the UI with only the read-only baseline → 403 "Not
+#   authorized" on /v1/sys/internal/ui/mounts with NO error logged (login still
+#   succeeds). Requesting `groups` makes the role self-contained: OpenBao asks
+#   for the scope it depends on, so group resolution no longer rides the IdP's
+#   default-scope config. Keycloak honours an explicitly-requested client scope
+#   whether default or optional, so the current-realm render is behaviourally
+#   identical and this is a genuine robustness floor for any future realm/IdP.
+#   Live-verified on 91dc0591/omantel.biz 2026-06-27: with oidc_scopes=groups the
+#   auth_url requests `scope=openid+groups`; a fresh sovereign-admins OIDC login
+#   lands the operator on /ui/vault/secrets (Secrets Engines page, NOT the 403)
+#   with token policies [default, sso-operator-admin, sso-operator-read] and the
+#   entity joined the sovereign-admins external group (direct_group_ids). Only
+#   the sso-configure reconcile.sh ROLE_PAYLOAD changes (+ the chart bump that
+#   rolls the Deployment per the #3374 checksum); no other template moves.
+version: 1.2.58
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

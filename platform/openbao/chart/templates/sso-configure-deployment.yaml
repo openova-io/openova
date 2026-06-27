@@ -281,8 +281,27 @@ data:
       # token_policies is the SAFE baseline (read-only); the admin uplift is
       # delivered by the external identity-group alias on sovereign-admins /
       # sovereign-ops below — so the bound_claim widening does NOT over-grant.
+      #
+      # #4519 — oidc_scopes EXPLICITLY requests the `groups` scope. The whole
+      # admin uplift hinges on the `groups` claim reaching OpenBao at the OIDC
+      # callback: the external identity-group aliases below match its values to
+      # attach sso-operator-admin, and bound_claims.groups gate the login. With
+      # no oidc_scopes the role's auth_url asks Keycloak for `scope=openid` ONLY
+      # and the groups claim arrives ONLY because the sovereign realm currently
+      # keeps `groups` as a DEFAULT client scope on the `openbao` client. That
+      # is an implicit, IdP-side dependency: the instant an operator moves
+      # `groups` to optionalClientScopes (or points OpenBao at a different IdP),
+      # the claim silently disappears, the external-group match finds nothing,
+      # and EVERY sovereign-admin lands in the UI with only the read-only
+      # baseline → 403 "Not authorized" on /v1/sys/internal/ui/mounts with NO
+      # error anywhere (the login itself still succeeds). Requesting `groups`
+      # here makes the role self-contained: OpenBao asks for the scope it needs,
+      # so group resolution no longer depends on the IdP's default-scope config.
+      # Keycloak honours an explicitly-requested client scope whether it is
+      # default or optional, so this is byte-safe on the current realm and a
+      # genuine robustness floor on any future one. Refs #3374 #4477.
       BOUND_CLAIMS="$(printf '{"groups":["%s","%s","%s"]}' "${OIDC_ADMIN_GROUP}" "${OIDC_OPS_GROUP}" "${OIDC_VIEWER_GROUP}")"
-      ROLE_PAYLOAD="$(printf '{"user_claim":"preferred_username","groups_claim":"groups","bound_audiences":["%s"],"bound_claims":%s,"allowed_redirect_uris":%s,"token_policies":["sso-operator-read"],"role_type":"oidc"}' \
+      ROLE_PAYLOAD="$(printf '{"user_claim":"preferred_username","groups_claim":"groups","oidc_scopes":["groups"],"bound_audiences":["%s"],"bound_claims":%s,"allowed_redirect_uris":%s,"token_policies":["sso-operator-read"],"role_type":"oidc"}' \
         "${CLIENT_ID}" "${BOUND_CLAIMS}" "${AURIS_JSON}")"
       if bao_write auth/oidc/role/operator "${ROLE_PAYLOAD}"; then
         log "auth/oidc/role/operator written (groups=${OIDC_ADMIN_GROUP},${OIDC_OPS_GROUP},${OIDC_VIEWER_GROUP})"

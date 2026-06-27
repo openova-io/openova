@@ -142,7 +142,13 @@ spec:
       # 1.2.57 — #4477: sso-configure external-group→policy bind fix
       #   (map_admin_group read canonical id from a nonexistent field on fresh
       #   external groups → sovereign-admins/-ops never bound → openbao UI 403).
-      version: 1.2.57
+      # 1.2.58 — #4519: OIDC role oidc_scopes=["groups"] — explicitly request the
+      #   `groups` scope so external-group resolution (sovereign-admins →
+      #   sso-operator-admin) never depends on the IdP keeping `groups` a DEFAULT
+      #   client scope; otherwise a silent claim-drop re-opens the admin UI 403.
+      #   Live-verified on 91dc0591: fresh sovereign-admins login lands
+      #   /ui/vault/secrets with [default,sso-operator-admin,sso-operator-read].
+      version: 1.2.58
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
