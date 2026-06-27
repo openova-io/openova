@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T15:15:02Z` |
+| Last refreshed | `2026-06-27T15:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 14 |
+| Open issues | 15 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 14 open items (clickable table)
+### All 15 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -214,6 +214,7 @@ flowchart LR
 | [#4556](https://github.com/openova-io/openova/issues/4556) | AGENITY North-Star residual faults: (1) dual-render duplicate HR, (2) MCP URL -> | Other |
 | [#4557](https://github.com/openova-io/openova/issues/4557) | fix(bp-self-sovereign-cutover): helmrepository-patches Phase-3a helm registry lo | Other |
 | [#4563](https://github.com/openova-io/openova/issues/4563) | cutover step-08 fresh-pull FAILs on residual ghcr.io tethers: catalyst-ui + open | Other |
+| [#4564](https://github.com/openova-io/openova/issues/4564) | Returning-user redirect derives console host from marketplace domain, not the Or | Other |
 
 ---
 
@@ -223,6 +224,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-06-27T14:55 | [#4562](https://github.com/openova-io/openova/pull/4562) | #4 | docs(uat): agenity zero-click SSO no-paste workspace verifie |
 | 2026-06-27T14:47 | [#4560](https://github.com/openova-io/openova/pull/4560) | #4556 | fix(bp-oidc-gate #4556): spaTokenSeed — TRUE zero-click for  |
+| 2026-06-27T15:26 | [#4558](https://github.com/openova-io/openova/pull/4558) | #4557 | fix(bp-self-sovereign-cutover #4557): kill the cutover-tail  |
 | 2026-06-27T14:10 | [#4555](https://github.com/openova-io/openova/pull/4555) | #4054 | fix(bp-agenity): default httpRoute.parentRef to the real Sov |
 | 2026-06-27T13:37 | [#4554](https://github.com/openova-io/openova/pull/4554) | #3375 | feat(console): per-app Topology tab surfaces read-only DR st |
 | 2026-06-27T13:40 | [#4550](https://github.com/openova-io/openova/pull/4550) | #4549 | fix(marketplace): restore 'Build your cloud tenant' storefro |
@@ -250,7 +252,6 @@ flowchart LR
 | 2026-06-27T08:49 | [#4517](https://github.com/openova-io/openova/pull/4517) | #4275 | Refs #4275 #4212 — EIP quota-bump request + region-kill dril |
 | 2026-06-27T08:48 | [#4516](https://github.com/openova-io/openova/pull/4516) | #4482 | Refs #909 |
 | 2026-06-27T08:48 | [#4514](https://github.com/openova-io/openova/pull/4514) | #3646 | fix(jobs): Re-run on a completed batch Job deletes+recreates |
-| 2026-06-27T08:33 | [#4512](https://github.com/openova-io/openova/pull/4512) | Refs #909 |  |
 
 ---
 
