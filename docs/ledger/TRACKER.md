@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T23:30:06Z` |
+| Last refreshed | `2026-06-27T23:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 16 |
 | Open DoD gates | 0 / 41 |
@@ -223,6 +223,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T23:38 | [#4588](https://github.com/openova-io/openova/pull/4588) | #4586 | fix(bp-self-sovereign-cutover): contract-test SIGPIPE false- |
 | 2026-06-27T22:41 | [#4586](https://github.com/openova-io/openova/pull/4586) | #3379 | fix(bp-self-sovereign-cutover): step-06 source-controller TL |
 | 2026-06-27T22:11 | [#4585](https://github.com/openova-io/openova/pull/4585) | #909 | docs: EPIC completion matrix 2026-06-28 (185 ✅, 9 EPICs at 1 |
 | 2026-06-27T21:53 | [#4584](https://github.com/openova-io/openova/pull/4584) | #4579 | fix(bp-plane-isolation): admit kube-apiserver into the OTel- |
@@ -252,7 +253,6 @@ flowchart LR
 | 2026-06-27T11:42 | [#4544](https://github.com/openova-io/openova/pull/4544) | #4529 | fix(handover): postTofuArchive skips public-CA verify on the |
 | 2026-06-27T11:30 | [#4542](https://github.com/openova-io/openova/pull/4542) | #4491 | fix(harbor): create the missing proxy-xpkg proxy-cache proje |
 | 2026-06-27T11:04 | [#4540](https://github.com/openova-io/openova/pull/4540) | #4292 | fix(catalyst-api): derive Org isolation label from the #4292 |
-| 2026-06-27T10:56 | [#4538](https://github.com/openova-io/openova/pull/4538) | #4535 | fix(bp-catalyst-platform): catalog reads configuredRegions f |
 
 ---
 
