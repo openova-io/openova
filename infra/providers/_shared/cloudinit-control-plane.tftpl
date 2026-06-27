@@ -1170,18 +1170,21 @@ runcmd:
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s'
 
-  # ── Cilium CNI: helm install + retry/fail-fast (#4503; rationale below) ─
+  # ── Cilium CNI: helm upgrade --install + retry/fail-fast (#4503) ───────
+  # rt() retries each network step 5x/10s; `helm upgrade --install` is
+  # idempotent so a retry after a partial register actually recovers
+  # (`helm install` would die "cannot re-use a name"). set -e exits on any
+  # exhausted retry; a rollout-status failure writes the sentinel + exit 91
+  # so "no CNI" is its own loud fault, never a masqueraded Flux wedge.
   - |
     set -e
-    rt() { n=0; until "$@"; do n=$((n+1)); [ "$n" -ge 5 ] && return 1; sleep 10; done; }
-    rt sh -c 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash'
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    rt(){ for i in 1 2 3 4 5;do "$@"&&return;sleep 10;done;return 1;}
+    rt sh -c 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3|bash'
     rt helm repo add cilium https://helm.cilium.io/
     rt helm repo update
-    rt sh -c 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm install cilium cilium/cilium --version 1.16.5 --namespace kube-system -f /var/lib/catalyst/cilium-values.yaml'
-    if ! kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s; then
-      echo "[cilium] FATAL: CNI never rolled out (#4503)" >/var/lib/catalyst/cilium-bootstrap-FAILED
-      exit 91
-    fi
+    rt helm upgrade --install cilium cilium/cilium --version 1.16.5 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
+    kubectl -n kube-system rollout status ds/cilium --timeout=240s || { echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;exit 91;}
 %{ if provider == "huawei" ~}
   # #4503 root cause (Huawei-gated note; the byte budget is Hetzner-only): on
   # the IPv4-only kom4dc path a single transient failure of get-helm-3 /
@@ -1470,4 +1473,4 @@ runcmd:
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
 
-final_message: "Catalyst control-plane bootstrap complete after $UPTIME seconds — Flux is now reconciling clusters/_template/ for ${sovereign_fqdn} (provider=${provider})"
+final_message: "Catalyst CP bootstrap done; Flux reconciling ${sovereign_fqdn}"
