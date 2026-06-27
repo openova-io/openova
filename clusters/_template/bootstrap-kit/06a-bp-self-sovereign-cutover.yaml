@@ -602,7 +602,17 @@ spec:
       # the cluster network, not a public CA (same as registries.yaml v1's bastion
       # insecure_skip_verify). --src-tls-verify (external ghcr.io) stays true; the
       # step-08 deny-egress security gate is untouched.
-      version: 0.1.82
+      # 0.1.83 (#4527): step-04 registry-pivot v1 (cold-start) mirror now carries
+      # the robot$openova-bot harbor-robot-token auth in its `configs:` block (the
+      # same auth the bootstrap node pins) so PRIVATE ghcr.io/openova-io/* pulls
+      # through the ghcr.io → harbor.openova.io/proxy-ghcr redirect authenticate
+      # instead of 401-ing ANONYMOUSLY. Without it a fresh catalyst-api image roll
+      # (deploy-bot pin bump / pod reschedule) wedged ImagePullBackOff → api.<fqdn>
+      # 503 → tofu-archive seal blocked → cutover never armed (live keystone dep
+      # 25aadcfc). The token is a placeholder the pivot script substitutes in-pod
+      # from the flux-system/harbor-robot-token Secret. Huawei also auths the
+      # bastion endpoint host. No RBAC / step-count change.
+      version: 0.1.83
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
