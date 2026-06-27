@@ -183,6 +183,37 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function init() {
+      // #4546 (UAT row 3, Refs #3687): owner-redirect contract. An authed owner
+      // landing on the public redeem funnel must be bounced to their console —
+      // they must NEVER see the public funnel chrome ("Voucher not valid" / the
+      // signup CTA). The Layout's returning-user redirect script handles the
+      // actual bounce, but it runs asynchronously (it fetches /api/tenant/orgs
+      // before calling window.location.replace). If we paint the funnel here in
+      // the meantime, the owner sees the public chrome flash/stick — exactly the
+      // observed fault. So when a session token is present, suppress the funnel
+      // paint entirely: keep the neutral loading shim visible (it reads as a
+      // "redirecting…" state) and let the Layout redirect take over. Only the
+      // unauthenticated public flow falls through to the validate() funnel.
+      var hasToken = false;
+      try { hasToken = !!localStorage.getItem('org-token'); } catch (_) {}
+      if (hasToken) {
+        show('redeem-loading');
+        var loadingCopy = document.querySelector('#redeem-loading p');
+        if (loadingCopy) loadingCopy.textContent = 'Taking you to your dashboard…';
+        // Safety fall-through: the Layout redirect only fires for an authed
+        // user who actually has at least one live workspace. A signed-in user
+        // with NO workspace yet (e.g. a returning visitor mid-signup) is never
+        // bounced — so after a short grace window with no navigation, fall
+        // through to the public redeem flow so they can still redeem. The
+        // window.location.replace in the Layout redirect tears this timer down
+        // by unloading the page before it fires.
+        window.setTimeout(function () { runFunnel(); }, 2500);
+        return;
+      }
+      runFunnel();
+    }
+
+    function runFunnel() {
       const params = new URLSearchParams(window.location.search);
       const code = (params.get('code') || '').trim().toUpperCase();
       if (!code) {
