@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T08:00:06Z` |
+| Last refreshed | `2026-06-27T08:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T08:09 | [#4510](https://github.com/openova-io/openova/pull/4510) | #4509 | UAT: newapi SSO rows 37/114 PASS (resync live) + Hubble row  |
+| 2026-06-27T08:04 | [#4509](https://github.com/openova-io/openova/pull/4509) | #2744 | fix(bp-cilium): hubble-ui oauth2-proxy --api-route so flow-s |
+| 2026-06-27T08:00 | [#4508](https://github.com/openova-io/openova/pull/4508) | #4506 | docs(uat): Pillar-1 funnel+voucher consolidation — rows 72-9 |
 | 2026-06-27T07:53 | [#4506](https://github.com/openova-io/openova/pull/4506) | #4470 | Refs #909 |
 | 2026-06-27T07:56 | [#4504](https://github.com/openova-io/openova/pull/4504) | #4503 | fix(cloud-init): retry + fail-fast the Cilium CNI install —  |
 | 2026-06-26T20:51 | [#4502](https://github.com/openova-io/openova/pull/4502) | #4053 | feat(infra+catalyst): console-isolation toggle to fit a 3-EI |
@@ -247,9 +250,6 @@ flowchart LR
 | 2026-06-26T17:35 | [#4470](https://github.com/openova-io/openova/pull/4470) | #4445 | fix(bp-plane-isolation #4468): extend the #4445 defer-if-abs |
 | 2026-06-26T14:42 | [#4469](https://github.com/openova-io/openova/pull/4469) | #4467 | fix(bp-cilium): pin MTU=1370 for wireguard+vxlan datapath —  |
 | 2026-06-26T12:54 | [#4465](https://github.com/openova-io/openova/pull/4465) | #2584 | fix(#4464): deploy-bump per-line cherry-pick stops whole-fil |
-| 2026-06-26T12:28 | [#4463](https://github.com/openova-io/openova/pull/4463) | #4275 | fix(bp-postgres): decouple -mesh/-mesh-rw global Service ali |
-| 2026-06-26T12:02 | [#4462](https://github.com/openova-io/openova/pull/4462) | #4250 | fix(org-controller): cascade-delete per-Org tenant-networkin |
-| 2026-06-26T11:57 | [#4461](https://github.com/openova-io/openova/pull/4461) | #4448 | fix(bp-sso-bridge): CNP egress names openbao+keycloak+dns —  |
 
 ---
 
