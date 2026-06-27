@@ -79,7 +79,15 @@ spec:
       # initialised, hw167 UAT rows 3374-36/37/38). keycloakInternalURL below
       # points the backchannel (discovery-skip + redeem/jwks/userinfo) at the
       # in-cluster keycloak Service; the browser leg stays public.
-      version: 0.1.5
+      # 0.1.6 (#4556, 2026-06-27): spaTokenSeed — TRUE zero-click for a
+      # token-paste SPA. The agenity oidc-gate instance below does the FULL KC
+      # SSO, but the upstream agenity `/app/` SPA then demands a pasted
+      # localStorage bootstrap token even though the daemon runs authMode=none
+      # (open API). spaTokenSeed 302s the bare root, post-SSO, to
+      # `/app/?token=<sentinel>` so the SPA seeds the token and lands
+      # authenticated with NO paste (the durable path — the daemon's `oidc`
+      # authMode is a non-functional upstream scaffold, #128).
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate

@@ -90,7 +90,32 @@ name: bp-oidc-gate
 # exact frontchannel-public/backchannel-internal split keycloak-frontend-env.yaml
 # already establishes. Set empty to restore the pre-#3844 public-discovery
 # path (clusters where the public issuer DOES hairpin).
-version: 0.1.5
+# 0.1.6 (#4556, 2026-06-27): spaTokenSeed — TRUE zero-click for a token-paste
+# SPA. The agnstar North-Star walk (#4553, dep 91dc05917e44d1c1) proved the
+# agenity oidc-gate instance does the FULL Keycloak SSO, yet the User then
+# hit a "Welcome back / Paste the bootstrap token chepherd printed at startup"
+# screen — the upstream agenity-org/agenity `/app/` SPA
+# (web/src/components/ws/Dashboardws.svelte) gates purely on
+# localStorage['chepherd-token'] being present (`if (getToken()) ...; else
+# needLogin = true;`) and NEVER probes the daemon's auth mode, even though the
+# daemon runs CHEPHERD_AUTH_MODE=none (open API, authMiddleware a no-op). The
+# SPA DOES ingest a `?token=` URL param on mount (Dashboardws L1144-1152), and
+# because the daemon is unauthenticated any token value is accepted. New
+# per-instance `spaTokenSeed{dashboardPath,value,port}`: 302 the bare root
+# (Exact `/`), AFTER the gate's SSO, to `<dashboardPath>?token=<value>` so the
+# SPA seeds localStorage and lands authenticated with ZERO paste. value is a
+# sentinel (never verified — the daemon auth is off). Mutually exclusive with
+# rootRedirectPath (an app is EITHER native-OIDC needing a login redirect OR a
+# token-paste SPA needing a seed). Verified live on agnstar: Cilium
+# ReplaceFullPath carries the `?token=` query verbatim in the Location header
+# and oauth2-proxy preserves path+query through the KC round-trip. This is the
+# durable path because the upstream daemon's `oidc` authMode is a
+# non-functional scaffold (internal/auth/auth.go OIDCProvider.Validate returns
+# ErrNotSupported "oidc validation not yet wired, #128") — authMode=oidc would
+# leave the API open yet still demand a localStorage token. Default unset → no
+# rule (byte-identical to a login-less gated app). Slot 13c sets spaTokenSeed
+# on the agenity-agnstar instance.
+version: 0.1.6
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

@@ -305,7 +305,64 @@ spec:
   hostnames:
     - {{ $hostname | quote }}
   rules:
-{{- if $inst.rootRedirectPath }}
+{{- if hasKey $inst "spaTokenSeed" }}
+{{- /*
+#4556 — SPA bootstrap-token SEED (zero-click for a token-paste SPA).
+
+WHY THIS IS NEEDED for an app whose SPA gates on a CLIENT-SIDE token even
+when its daemon API is unauthenticated (agenity/chepherd: the daemon runs
+CHEPHERD_AUTH_MODE=none so authMiddleware is a no-op and every /api/v1/*
+request passes, but the `/app/` SPA — web/src/components/ws/Dashboardws.svelte
+in the upstream agenity-org/agenity build — shows "Welcome back / Paste the
+bootstrap token chepherd printed at startup" purely because
+`localStorage['chepherd-token']` is empty: its mount logic is
+`if (getToken()) startLiveLoop(); else needLogin = true;`, with NO probe of
+the daemon's auth mode). So even after the gate has done the FULL Keycloak
+SSO and the API is open, the User is stuck at a token-paste screen — the
+exact #4556 item-3 fault on the agnstar North-Star walk.
+
+The SPA ingests a `?token=` URL query param on mount (Dashboardws L1144-1152:
+`new URL(location.href).searchParams.get('token')` → localStorage → strip),
+and because the daemon is unauthenticated ANY non-empty token value is
+accepted. So the durable zero-click seam is: 302 the bare root to
+`<dashboardPath>?token=<value>` AFTER the gate's SSO. Cilium Gateway API
+ReplaceFullPath carries the query verbatim (verified live: Location =
+`https://<host>/app/?token=<value>`), and oauth2-proxy preserves the
+path+query through the KC round-trip in its `state` param, so the User lands
+on `/app/?token=<value>`, the SPA seeds localStorage, strips the param, and
+renders the workspace authenticated — NO paste.
+
+WHY NOT daemon CHEPHERD_AUTH_MODE=oidc: the upstream OIDCProvider.Validate
+(internal/auth/auth.go) is a non-functional scaffold that returns
+ErrNotSupported ("oidc validation not yet wired, #128"), AND rs.AuthToken is
+set ONLY in local mode (cmd/run.go) — so oidc mode would leave the API open
+yet still demand a localStorage token, and 401 if Validate is ever reached.
+The token-seed is the only path that works against the shipped upstream
+without forking the SPA.
+
+The `value` is a SENTINEL — it is never verified (auth is off on the daemon),
+it exists only to make the SPA's presence-check pass. Loop-safe exactly like
+rootRedirectPath: only the Exact bare root is redirected; /app/, /_astro/*,
+/api/*, /healthz, the WS all fall through to the catch-all backend untouched,
+and the post-seed SPA lives at /app/ which never revisits `/`. Mutually
+exclusive with rootRedirectPath (an app is EITHER native-OIDC needing a login
+redirect OR a token-paste SPA needing a seed). Default unset → no rule
+(byte-identical to a login-less gated app).
+*/}}
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            port: {{ $inst.spaTokenSeed.port | default 443 }}
+            statusCode: 302
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ printf "%s?token=%s" ($inst.spaTokenSeed.dashboardPath | default "/app/") ($inst.spaTokenSeed.value | default "sso") | quote }}
+{{- else if $inst.rootRedirectPath }}
 {{- /*
 #3374 Layer-A (powerdns-admin) — bare-root → app-native OIDC login path.
 
