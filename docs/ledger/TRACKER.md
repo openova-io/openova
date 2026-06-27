@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T22:45:06Z` |
+| Last refreshed | `2026-06-27T23:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 16 |
 | Open DoD gates | 0 / 41 |
@@ -207,7 +207,6 @@ flowchart LR
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
 | [#4541](https://github.com/openova-io/openova/issues/4541) | fix(harbor): create the missing proxy-xpkg/proxy-ecr proxy-cache projects on the | Other |
-| [#4551](https://github.com/openova-io/openova/issues/4551) | Topology tab surfaces NO DR state (standby region + live replication lag) for cr | Other |
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
 | [#4556](https://github.com/openova-io/openova/issues/4556) | AGENITY North-Star residual faults: (1) dual-render duplicate HR, (2) MCP URL -> | Other |
 | [#4557](https://github.com/openova-io/openova/issues/4557) | fix(bp-self-sovereign-cutover): helmrepository-patches Phase-3a helm registry lo | Other |
@@ -216,6 +215,7 @@ flowchart LR
 | [#4569](https://github.com/openova-io/openova/issues/4569) | Funnel TLD choice (omani.rest/.trade) is silently overridden to the single Sover | Other |
 | [#4573](https://github.com/openova-io/openova/issues/4573) | cutover post-pivot chart-upgrade path: source-controller + kubelet can't pull NE | Other |
 | [#4579](https://github.com/openova-io/openova/issues/4579) | bp-plane-isolation opentelemetry-default-deny OMITS the kube-apiserver webhook i | Other |
+| [#4587](https://github.com/openova-io/openova/issues/4587) | cutover step-06 Phase-3a: bp-catalyst-platform HR-pin vs Harbor-mirrored-version | Other |
 
 ---
 
