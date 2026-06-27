@@ -106,4 +106,22 @@ resources:
 #     # Login-less gated apps (openova-flow) leave this unset → only
 #     # /oauth2/callback registers (byte-identical to the pre-#3741 shape).
 #     appNativeCallbackPath: ""     # e.g. "/oidc/authorized"
+#     # spaTokenSeed (#4556): for an app whose SPA gates on a CLIENT-SIDE
+#     # bootstrap token EVEN when its daemon API is unauthenticated. The
+#     # agenity/chepherd `/app/` SPA shows "Paste the bootstrap token" purely
+#     # because localStorage['chepherd-token'] is empty — it never probes the
+#     # daemon's auth mode (which runs CHEPHERD_AUTH_MODE=none, so the API is
+#     # actually open). The SPA ingests a `?token=` URL param on mount, and
+#     # because the daemon is unauthenticated any value is accepted. Setting
+#     # this 302s the bare root (Exact `/`), AFTER the gate's full KC SSO, to
+#     # `<dashboardPath>?token=<value>` so the SPA seeds localStorage and lands
+#     # authenticated with NO paste. value is a SENTINEL (never verified — the
+#     # daemon auth is off; it only satisfies the SPA presence-check). Mutually
+#     # exclusive with rootRedirectPath. Default unset → no redirect rule. This
+#     # is the durable path because the upstream daemon's oidc authMode is a
+#     # non-functional scaffold (OIDCProvider.Validate → ErrNotSupported, #128).
+#     spaTokenSeed:
+#       dashboardPath: "/app/"      # the SPA route that ingests ?token=
+#       value: "sso"                # sentinel token (daemon auth is off)
+#       port: 443                   # external HTTPS port for the Location header
 instances: []
