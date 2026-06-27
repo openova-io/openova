@@ -362,6 +362,39 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     await expect(page.locator('#redeem-valid-code')).toContainText('OPENOVA-DEV-2026')
   })
 
+  test('05b authed owner on /redeem is NOT immediately shown the public funnel (owner-redirect contract, #4546 / UAT row 3)', async ({ page }) => {
+    // An authed owner landing on the public redeem funnel must never see the
+    // public funnel chrome ("Voucher not valid" / the signup CTA) while the
+    // Layout's returning-user redirect bounces them to their console. The redeem
+    // page must suppress its own funnel paint when a session token is present.
+    //
+    // We return [] for /tenant/orgs so the Layout cross-host redirect does NOT
+    // navigate away (keeping this test on-origin + deterministic) — the redeem
+    // guard's neutral "redirecting" shim is the surface under test. (A real
+    // owner WITH a live workspace is additionally bounced by the Layout; that
+    // cross-host nav is exercised by the live UAT walk, not this on-origin test.)
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
+      } catch (_) {}
+    })
+    await page.route('**/api/tenant/orgs', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    // If the funnel ever ran, this resolves it to a definite "not valid" panel,
+    // making a wrong "funnel painted" outcome assertable rather than racy.
+    await page.route('**/api/billing/vouchers/redeem-preview', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
+    )
+    await page.goto('/redeem?code=DEMO123')
+    // The guard keeps the neutral redirecting shim and suppresses the public
+    // funnel — assert in the grace window BEFORE the safety fall-through fires.
+    await expect(page.getByText(/Taking you to your dashboard/i)).toBeVisible({ timeout: 5_000 })
+    await expect(page.locator('#redeem-not-valid')).toBeHidden()
+    await expect(page.locator('#redeem-valid')).toBeHidden()
+  })
+
   test('06 signup email input + button (checkout sign-in surface)', async ({ page }) => {
     // CheckoutStep renders the sign-in form when no `org-token` exists.
     await page.goto('/checkout')
