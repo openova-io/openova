@@ -1164,18 +1164,22 @@ for tok in \
   'HELMREPO_TRUST_SRC_NAMESPACE' \
   'HELMREPO_TRUST_SRC_NAME_PREFIX' \
   'HELMREPO_TRUST_DEST_SECRET'; do
-  if ! printf '%s' "$STEP06_BLOCK" | grep -q "$tok"; then
+  # here-string (not `printf | grep -q`): under `set -o pipefail`, grep -q
+  # closes the pipe on first match → printf takes SIGPIPE (141) → pipefail
+  # propagates 141 → `if !` flips it into a FALSE FAIL. Flaky by timing on the
+  # large STEP06_BLOCK (1222 lines); a here-string has no pipe, so no SIGPIPE.
+  if ! grep -q "$tok" <<<"$STEP06_BLOCK"; then
     echo "FAIL: step-06 podSpec missing trust env var ${tok} — source-controller has no certSecretRef trust path for the pivoted in-cluster-Harbor HelmRepositories (#3379)" >&2
     exit 1
   fi
 done
 # The pivot patch must carry certSecretRef alongside the url, and Phase-0.5 must
 # read the wildcard cert (ca.crt with tls.crt fallback) + create the dest Secret.
-if ! printf '%s' "$STEP06_BLOCK" | grep -q 'certSecretRef'; then
+if ! grep -q 'certSecretRef' <<<"$STEP06_BLOCK"; then
   echo "FAIL: step-06 podSpec never sets spec.certSecretRef on the pivoted HelmRepositories — source-controller will x509 on the LE-staging in-cluster Harbor (#3379)" >&2
   exit 1
 fi
-if ! printf '%s' "$STEP06_BLOCK" | grep -Eq 'ca\.crt'; then
+if ! grep -Eq 'ca\.crt' <<<"$STEP06_BLOCK"; then
   echo "FAIL: step-06 podSpec never reads ca.crt from the in-cluster Harbor wildcard Secret — no trust bundle for the certSecretRef (#3379)" >&2
   exit 1
 fi
@@ -1190,7 +1194,7 @@ fi
 # key) and assert enabled:true lives inside it — the block carries several
 # comment lines before `enabled:`, so a fixed -A window is too brittle.
 HRT_BLOCK=$(awk '/^helmRepositoryTrust:/{f=1; next} f&&/^[a-zA-Z]/{exit} f{print}' values.yaml)
-if ! printf '%s' "$HRT_BLOCK" | grep -Eq '^[[:space:]]+enabled:[[:space:]]*true'; then
+if ! grep -Eq '^[[:space:]]+enabled:[[:space:]]*true' <<<"$HRT_BLOCK"; then
   echo "FAIL: helmRepositoryTrust.enabled is not true by default — fresh/qaTestEnabled provs serve an LE-staging in-cluster Harbor and need the trust path on by default (#3379)" >&2
   exit 1
 fi
