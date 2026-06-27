@@ -1203,7 +1203,12 @@ spec:
       # 1.4.928 — #4563: catalyst-ui image templated via global.imageRegistry
       #   so cutover step-07 pivots it to local Harbor (kills step-08 fresh-
       #   pull FATAL on the residual ghcr.io tether). Lockstep w/ Chart.yaml.
-      version: 1.4.930
+      # 1.4.931 — #4553/#4556: catalog-seed bp-agenity 0.5.14 -> 0.5.15 — the
+      #   chart now renders a bp-oidc-gate companion (durable zero-click SSO
+      #   gate + spaTokenSeed no-paste) in front of every per-Org agenity host
+      #   (oidcGate.enabled default true), replacing the agnstar walk's
+      #   hand-created live instance. Lockstep w/ Chart.yaml + products/agenity.
+      version: 1.4.931
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

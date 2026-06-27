@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.931 — #4553/#4556 (durable zero-click SSO gate): catalog-seed bp-agenity
+#   spec.version + source.version 0.5.14 -> 0.5.15 (lockstep with
+#   products/agenity/chart 0.5.15). The bp-agenity chart now renders a
+#   bp-oidc-gate COMPANION (oauth2-proxy + AppRegistration + ExternalSecret +
+#   HTTPRoute with the #4556 spaTokenSeed bare-root -> /app/?token=sso redirect)
+#   in front of every per-Org agenity host (oidcGate.enabled default true),
+#   replacing the agnstar walk's hand-created drift-disabled live instance — a
+#   fresh agenity Org / a re-prov now gets a chart-managed zero-click no-paste
+#   gate automatically. The org-gitops emitter (orgTenantBPAgenity) pins
+#   oidcGate.clientId=agenity-<slug>. Bootstrap-kit slot-13 pin bumps lockstep.
 # 1.4.928 — #4563 (Refs #3379, cutover step-08 fresh-pull, 2026-06-27):
 #   catalyst-ui Deployment image is now templated through
 #   global.imageRegistry (ui-deployment.yaml) exactly like catalyst-api —
@@ -3349,7 +3359,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.930
+version: 1.4.931
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)

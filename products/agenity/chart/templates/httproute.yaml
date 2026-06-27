@@ -1,4 +1,12 @@
-{{- if .Values.httpRoute.enabled }}
+{{- /*
+#4553 — when the oidc-gate companion is enabled (the default for a per-Org
+install) the gate (templates/oidc-gate.yaml) OWNS the agenity hostname and
+carries the bare-root → /app/?token=<sentinel> spaTokenSeed redirect. Two
+HTTPRoutes on one hostname is undefined routing, so suppress this route then.
+It renders ONLY for a non-gated test install (oidcGate.enabled=false), serving
+the host un-gated with the chart's own bare-root → /app/ redirect (pre-#4553).
+*/ -}}
+{{- if and .Values.httpRoute.enabled (not (include "agenity.gateEnabled" .)) }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
