@@ -314,6 +314,54 @@ func TestFinaliseHandover_NotFound(t *testing.T) {
 	}
 }
 
+// TestPostTofuArchive_DefaultClientToleratesUntrustedChildCert (#4543) is
+// the regression guard for the handover-submit TLS-verify fault: on a fresh
+// prov the child Sovereign's wildcard cert is LE-STAGING (untrusted by the
+// public CA bundle, the bootstrap default that dodges LE-prod rate limits).
+//
+// Before #4543, postTofuArchive's default http.Client (the production path,
+// used whenever no test client is injected via SetHandoverHTTPClient)
+// verified api.<fqdn> against the public CA bundle → x509 unknown-authority
+// → the archive POST failed → tofu-phase0-archive never sealed → the cutover
+// never armed. This test stands up an httptest.NewTLSServer (self-signed,
+// untrusted) and drives postTofuArchive with NO injected client, so the
+// PRODUCTION default client is exercised. It must reach the receiver and
+// return nil, proving the default client skips public-CA verification on the
+// mother→child internal hop.
+//
+// We point handoverTargetURL straight at the TLS server's URL (so the call
+// hits a real untrusted-cert endpoint) but deliberately leave
+// handoverHTTPClient nil. A regression (default client re-verifies against
+// the public bundle) makes httpc.Do fail with an x509 error and this fails.
+func TestPostTofuArchive_DefaultClientToleratesUntrustedChildCert(t *testing.T) {
+	recvr := &fakeReceiver{}
+	srv := httptest.NewTLSServer(recvr.handler())
+	defer srv.Close()
+
+	h := newTestHandler(t)
+	// Override the target URL so the call lands on the self-signed TLS
+	// server, but DO NOT call SetHandoverHTTPClient — that leaves
+	// handoverHTTPClient nil so postTofuArchive builds the production
+	// default client. If that default still verified against the public
+	// CA bundle (the pre-#4543 bug), this POST would x509-fail.
+	h.SetHandoverTargetURL(srv.URL)
+
+	err := h.postTofuArchive(context.Background(), "tenant-staging.omani.works", "dep-4543", map[string]string{
+		"terraform.tfstate": base64.StdEncoding.EncodeToString([]byte(`{"v":1}`)),
+	})
+	if err != nil {
+		t.Fatalf("postTofuArchive against an untrusted (LE-staging-class) child cert failed: %v — "+
+			"the production default client must skip public-CA verification on the mother→child "+
+			"handover-archive hop (#4543), else tofu-phase0-archive never seals and the cutover never arms", err)
+	}
+	if recvr.called != 1 {
+		t.Fatalf("receiver called %d times, want 1 (the archive POST never reached the child)", recvr.called)
+	}
+	if recvr.body.DeploymentID != "dep-4543" {
+		t.Errorf("body.deploymentId: %q", recvr.body.DeploymentID)
+	}
+}
+
 func TestReceiveTofuArchive_NoOpenBaoReturns503(t *testing.T) {
 	h := newTestHandler(t)
 	body, _ := json.Marshal(tofuArchiveRequest{

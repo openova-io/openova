@@ -69,6 +69,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -478,7 +479,24 @@ func (h *Handler) postTofuArchive(ctx context.Context, sovereignFQDN, deployment
 
 	httpc := h.handoverHTTPClient
 	if httpc == nil {
-		httpc = &http.Client{Timeout: 60 * time.Second}
+		// #4543: the child Sovereign's wildcard cert is LE-STAGING on a
+		// fresh prov (the bootstrap default that dodges LE-prod rate
+		// limits). A default http.Client verifies api.<fqdn> against the
+		// public CA bundle → x509 unknown-authority → the archive POST
+		// fails → tofu-phase0-archive never seals → the cutover never
+		// arms. This is a mother→child internal hop to the deterministic
+		// api.<fqdn> the mothership just provisioned (and already trusts
+		// via the kubeconfig + handover keys it holds), so skip public-CA
+		// verification here — the SAME rationale and pattern the async
+		// export paths already use (exportTofuArchiveToChild /
+		// exportDeploymentToChild). External TLS (ghcr, public endpoints)
+		// is untouched; this is narrowly the handover-archive submit.
+		httpc = &http.Client{
+			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // child's LE-staging cert; mother→child internal hop, same rationale as exportTofuArchiveToChild (#4543)
+			},
+		}
 	}
 	resp, err := httpc.Do(req)
 	if err != nil {
