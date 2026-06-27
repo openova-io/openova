@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T17:00:08Z` |
+| Last refreshed | `2026-06-27T17:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 17 |
+| Open issues | 18 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 17 open items (clickable table)
+### All 18 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -217,6 +217,7 @@ flowchart LR
 | [#4564](https://github.com/openova-io/openova/issues/4564) | Returning-user redirect derives console host from marketplace domain, not the Or | Other |
 | [#4567](https://github.com/openova-io/openova/issues/4567) | Funnel day-2 cart-install lists ciliumnetworkpolicy.yaml in vcluster/apps/kustom | Other |
 | [#4569](https://github.com/openova-io/openova/issues/4569) | Funnel TLD choice (omani.rest/.trade) is silently overridden to the single Sover | Other |
+| [#4573](https://github.com/openova-io/openova/issues/4573) | cutover post-pivot chart-upgrade path: source-controller + kubelet can't pull NE | Other |
 
 ---
 
@@ -224,6 +225,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T17:14 | [#4574](https://github.com/openova-io/openova/pull/4574) | #4553 | fix(bp-agenity): oidc-gate companion resources requests==lim |
 | 2026-06-27T16:56 | [#4572](https://github.com/openova-io/openova/pull/4572) | #4553 | fix(bp-agenity): chart-managed bp-oidc-gate companion for ev |
 | 2026-06-27T15:59 | [#4570](https://github.com/openova-io/openova/pull/4570) | #909 | docs(uat): funnel rows 85/91/92 verified ✅ (181 ✅ · 5 ☐) |
 | 2026-06-27T15:43 | [#4566](https://github.com/openova-io/openova/pull/4566) | #3379 | fix(#4563): pivot catalyst-ui + openova-flow-server off the  |
@@ -253,7 +255,6 @@ flowchart LR
 | 2026-06-27T09:09 | [#4526](https://github.com/openova-io/openova/pull/4526) | #4525 | fix(marketplace #4524): Review step shows the chosen BCP top |
 | 2026-06-27T09:03 | [#4523](https://github.com/openova-io/openova/pull/4523) | Refs #909 |  |
 | 2026-06-27T09:14 | [#4522](https://github.com/openova-io/openova/pull/4522) | #4519 | fix(bp-openbao): harden OIDC role group resolution — request |
-| 2026-06-27T08:56 | [#4520](https://github.com/openova-io/openova/pull/4520) | #4503 | fix(cloud-init #4513): split two-NAME create-namespace + dro |
 
 ---
 
