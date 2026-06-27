@@ -93,7 +93,13 @@ const { title, step = 0 } = Astro.props;
         var cached = null;
         try { cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null'); } catch (e) {}
         if (cached && cached.has && Date.now() - cached.ts < TTL_MS) {
-          redirect();
+          // #4564: pass the stamped slug on the cache fast-path too, so the
+          // per-tenant branch fires and `redirect()` prefers the stamped
+          // server console host (correct pool TLD) instead of the operator
+          // fallback `console.<sovFqdn>`.
+          var cachedSlug = '';
+          try { cachedSlug = localStorage.getItem('org-active-org-slug') || ''; } catch (_) {}
+          redirect(cachedSlug);
           return;
         }
         fetch('/api/tenant/orgs', { headers: { Authorization: 'Bearer ' + token } })
@@ -115,6 +121,25 @@ const { title, step = 0 } = Astro.props;
               var pick = (activeId && live.find(function (o) { return o.id === activeId; })) || live[0];
               if (pick && pick.slug) {
                 try { localStorage.setItem('org-active-org-slug', pick.slug); } catch (_) {}
+              }
+              // #4564: the picked org carries its SERVER-AUTHORITATIVE console
+              // host + pool TLD from /api/tenant/orgs (console_host /
+              // parent_domain). A funnel Org lives on the pool TLD
+              // (omani.homes / omani.rest / omani.trade), NOT the marketplace
+              // host domain — so deriving `console.<slug>.<marketplace-domain>`
+              // bounces a cleared-storage / cross-device returning user to a
+              // DEAD host (stale apex wildcard). Stamp the server host so
+              // `redirect()` (and future loads) land on the LIVE console.
+              if (pick) {
+                var srvHost = pick.console_host ||
+                  (pick.subdomain && pick.parent_domain
+                    ? 'console.' + pick.subdomain + '.' + pick.parent_domain
+                    : (pick.slug && pick.parent_domain
+                        ? 'console.' + pick.slug + '.' + pick.parent_domain
+                        : ''));
+                if (srvHost) {
+                  try { localStorage.setItem('org-active-console-host', String(srvHost).toLowerCase()); } catch (_) {}
+                }
               }
               redirect(pick && pick.slug ? String(pick.slug) : '');
             }
@@ -153,7 +178,22 @@ const { title, step = 0 } = Astro.props;
           if (sovFqdn) {
             var s = (slug || '').toLowerCase().trim();
             if (s) {
-              base = 'https://console.' + s + '.' + sovFqdn;
+              // #4564: a funnel Org lives on its chosen POOL TLD
+              // (omani.homes / omani.rest / omani.trade), which is NOT the
+              // marketplace host domain (sovFqdn). Deriving
+              // `console.<slug>.<sovFqdn>` lands on a DEAD apex-wildcard host.
+              // Prefer the SERVER-AUTHORITATIVE console host stamped above
+              // (org-active-console-host, #4176) — it carries the correct pool
+              // TLD. Guard: trust the stamp only if it names THIS slug, so a
+              // stale stamp from another Org can't misroute. Fall back to the
+              // sovFqdn derivation when no matching server host is known.
+              var srvConsoleHost = '';
+              try { srvConsoleHost = (localStorage.getItem('org-active-console-host') || '').trim().toLowerCase(); } catch (_) {}
+              if (srvConsoleHost && srvConsoleHost.indexOf('.' + s + '.') !== -1) {
+                base = 'https://' + srvConsoleHost;
+              } else {
+                base = 'https://console.' + s + '.' + sovFqdn;
+              }
               perTenant = true;
             } else {
               base = 'https://console.' + sovFqdn;
