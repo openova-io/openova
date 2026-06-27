@@ -513,14 +513,60 @@ data:
             # by this one-shot cutover prewarm.
             echo "[harbor-prewarm] Phase A2: mirror openova-io helm charts into local Harbor"
 
-            # Build the pivot-set lookup (one HR name per line, mounted RO).
+            # Build the pivot-set lookup. #4573 F4 (Refs #3379): the prior
+            # implementation seeded the pivot set ONLY from the static
+            # .Values.helmRepositories.names list (mounted at
+            # /chart-mirror/chart-mirror-names.txt). That list is hand-
+            # maintained and DRIFTED — it omitted ~22 openova-io
+            # HelmRepositories the bootstrap-kit slots actually reference
+            # (bp-cnpg-pair, bp-network-policies, bp-postgres, bp-newapi,
+            # bp-oidc-gate, bp-sso-bridge, bp-sandbox, bp-vllm, bp-plane-
+            # isolation, bp-continuum, bp-guacamole, bp-k8s-ws-proxy,
+            # bp-powerdns-admin, bp-opentelemetry-operator, bp-openova-flow-
+            # {server,emitter}, the hcloud/evs CSI charts, …). Phase A2 then
+            # SKIPPED those charts → they never landed in local Harbor → a
+            # post-strip HR source kick 404s `does not have an artifact`
+            # (live c39f0cd4455b7a46). The COMPLETENESS of the mirror set
+            # must NOT depend on a static list staying in sync with the
+            # slot tree.
+            #
+            # Fix: derive the pivot set DYNAMICALLY from the LIVE cluster —
+            # every Flux HelmRepository whose spec.url is the upstream
+            # openova-io OCI prefix (oci://ghcr.io/openova-io) is in the set,
+            # regardless of whether it is named in the static list. UNION
+            # that live set with the static names file (belt-and-suspenders:
+            # a HR named in the list but momentarily absent from the live
+            # API read is still covered). The union can only WIDEN the set —
+            # every chart is still skopeo-copied idempotently — never narrow
+            # it, a strict superset of the prior behaviour. This is the same
+            # "union live ∪ declared, never depend on a static snapshot"
+            # discipline the container-image enumeration (Phase A) already
+            # uses above.
             pivot_set_file=/tmp/.chart-pivot-set.txt
             : > "${pivot_set_file}"
+            # (a) static names from the mounted list (legacy contract).
             while IFS= read -r pl; do
               pn=$(printf '%s' "${pl}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
               [ -z "${pn}" ] && continue
               printf '%s\n' "${pn}" >> "${pivot_set_file}"
             done < /chart-mirror/chart-mirror-names.txt
+            # (b) live HelmRepositories whose url is the openova-io upstream
+            # OCI prefix — the complete, drift-proof set. UPSTREAM_PREFIX is
+            # `oci://ghcr.io/openova-io`; a HR url may be exactly that prefix
+            # or a `<prefix>/<name>`-suffixed form, so match on the prefix.
+            up_prefix_match=$(printf '%s' "${UPSTREAM_PREFIX}" | sed -e 's,/$,,')
+            live_openova_hrs=$(kubectl get helmrepositories.source.toolkit.fluxcd.io -A -o json 2>/dev/null | \
+              jq -r --arg p "${up_prefix_match}" \
+                '.items[] | select((.spec.url // "") | startswith($p)) | .metadata.name' 2>/dev/null | \
+              sort -u || true)
+            printf '%s\n' "${live_openova_hrs}" >> "${pivot_set_file}"
+            # Dedupe + drop blanks so the lookup is clean.
+            sort -u "${pivot_set_file}" -o "${pivot_set_file}"
+            sed -i '/^[[:space:]]*$/d' "${pivot_set_file}" 2>/dev/null || true
+            static_n=$(grep -c . /chart-mirror/chart-mirror-names.txt 2>/dev/null || echo 0)
+            live_n=$(printf '%s\n' "${live_openova_hrs}" | grep -c . || true)
+            union_n=$(grep -c . "${pivot_set_file}" || true)
+            echo "[harbor-prewarm] Phase A2 pivot set: static-names=${static_n} ∪ live-openova-io-HelmRepositories=${live_n} → ${union_n} unique sourceRef name(s) (#4573 F4: drift-proof)"
 
             in_pivot_set() {
               # $1 = HelmRepository name; 0 if present in the pivot set.
