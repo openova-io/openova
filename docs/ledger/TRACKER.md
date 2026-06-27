@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T11:30:04Z` |
+| Last refreshed | `2026-06-27T11:45:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 13 |
+| Open issues | 12 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 12 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 13 open items (clickable table)
+### All 12 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -206,7 +206,6 @@ flowchart LR
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — 2 seams still unwired (spine Application- | Other |
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
-| [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
 | [#4525](https://github.com/openova-io/openova/issues/4525) | FUNNEL/Pillar-2: BCP region picker must fetch the Sovereign's real regions (cata | Other |
 | [#4527](https://github.com/openova-io/openova/issues/4527) | fix(bp-self-sovereign-cutover): registry-pivot v1 (cold-start) mirror routes pri | Other |
 | [#4529](https://github.com/openova-io/openova/issues/4529) | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo copy uses --dest-tls-verif | Other |
@@ -220,6 +219,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T11:42 | [#4544](https://github.com/openova-io/openova/pull/4544) | #4529 | fix(handover): postTofuArchive skips public-CA verify on the |
+| 2026-06-27T11:30 | [#4542](https://github.com/openova-io/openova/pull/4542) | #4491 | fix(harbor): create the missing proxy-xpkg proxy-cache proje |
 | 2026-06-27T11:04 | [#4540](https://github.com/openova-io/openova/pull/4540) | #4292 | fix(catalyst-api): derive Org isolation label from the #4292 |
 | 2026-06-27T10:56 | [#4538](https://github.com/openova-io/openova/pull/4538) | #4535 | fix(bp-catalyst-platform): catalog reads configuredRegions f |
 | 2026-06-27T10:32 | [#4537](https://github.com/openova-io/openova/pull/4537) | #909 | UAT: reconcile ⚠️/❌ rows — flip rolled-fix (Hubble/row83/Ope |
@@ -248,8 +249,6 @@ flowchart LR
 | 2026-06-26T20:51 | [#4502](https://github.com/openova-io/openova/pull/4502) | #4053 | feat(infra+catalyst): console-isolation toggle to fit a 3-EI |
 | 2026-06-26T20:29 | [#4501](https://github.com/openova-io/openova/pull/4501) | #4486 | docs(ledger): session 2026-06-27 state — 22 closed (audited  |
 | 2026-06-26T20:15 | [#4500](https://github.com/openova-io/openova/pull/4500) | #4448 | fix(bp-plane-isolation #4499): add catalyst-system to openba |
-| 2026-06-26T19:41 | [#4498](https://github.com/openova-io/openova/pull/4498) | #3969 | feat(application-controller): #3969 §13 — arm the Continuum  |
-| 2026-06-26T19:31 | [#4497](https://github.com/openova-io/openova/pull/4497) | #4466 | docs(uat): UAT ledger consolidation — 22 closed + honest gat |
 
 ---
 
