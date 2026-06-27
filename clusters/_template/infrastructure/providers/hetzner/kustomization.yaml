@@ -15,6 +15,15 @@ kind: Kustomization
 #
 # `../base` is a SIBLING of this dir, so the reference is free of the kustomize
 # ancestor-cycle / security errors a `../`-to-parent reference would hit.
+#
+# Also ships the HETZNER LAYER-2 `infrastructure-config` Flux Kustomization CR
+# (infrastructure-config-kustomization.yaml, path
+# ./clusters/_template/infrastructure/hetzner) so the native
+# provider-config-hcloud ProviderConfig is applied AFTER provider-hcloud
+# installs (#4521). The cloud-agnostic ../base does NOT carry the LAYER-2 CR
+# (the Huawei variant lives one level up in providers/), so this overlay does
+# not inherit the wrong-path one.
 resources:
   - ../base
   - provider-hcloud.yaml
+  - infrastructure-config-kustomization.yaml

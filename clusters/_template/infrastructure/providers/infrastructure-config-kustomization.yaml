@@ -1,0 +1,53 @@
+# infrastructure-config Flux Kustomization — LAYER 2 of the two-layer
+# Crossplane bootstrap (#4521, Refs #4212 #4002 #4018). COMMITTED here (not
+# inlined in cloud-init) so the second Kustomization stays OFF the byte-capped
+# cloud-init render (the #1981/#3884 "evict bloat out of cloud-init"
+# precedent — a third inline Kustomization pushed the 3-region Hetzner render
+# past the 32256B user-data cap). Applied by the inline `infrastructure-
+# providers` Kustomization (LAYER 1), which reconciles the providers/ tree.
+#
+# This file is the HUAWEI / cloud-agnostic variant: it points at
+# ./clusters/_template/infrastructure (base config = the cross-cloud
+# provider-config-opentofu + the Observe-first CloudAdoption placeholder). The
+# Hetzner overlay ships its own providers/hetzner/infrastructure-config-
+# kustomization.yaml (path ./clusters/_template/infrastructure/hetzner) so it
+# also picks up the native provider-config-hcloud.
+#
+# WHY A SEPARATE KUSTOMIZATION (#4521): the Provider CR and the
+# `tf.upbound.io/v1beta1` ProviderConfig that CONSUMES the CRD the Provider
+# registers must NOT share one Flux Kustomization. Flux server-side dry-runs a
+# Kustomization ATOMICALLY; batching them failed the ProviderConfig dry-run
+# `no matches for kind "ProviderConfig" in version "tf.upbound.io/v1beta1"`
+# (the CRD does not exist until the provider installs) → the WHOLE apply was
+# rejected → the Provider CR itself never applied → the provider never
+# installed → permanent ordering deadlock (`kubectl get
+# providers.pkg.crossplane.io` empty on the live keystone prov 25aadcfc).
+# `dependsOn: [infrastructure-providers]` orders the Provider CR apply first;
+# the short retryInterval RETRIES this layer's dry-run until the provider
+# finishes registering tf.upbound.io (the bootstrap-kit-crs CRD-then-CR idiom).
+#
+# wait:false (sacred-thin: the adoption seam reconciles async, off Phase-1; the
+# provider PACKAGE pull is a day-2 surface that must never gate convergence).
+# 5m timeout so a stuck apply self-releases the revision lock on schedule
+# (issue #492). NO postBuild: the placeholder CloudAdoption's only token
+# (SOVEREIGN_FQDN) is now a static `pending-generation` (it is a no-op the
+# post-handover generator overwrites with the real-FQDN claims), so this
+# renders identically on every Sovereign with no substitution.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure-config
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 1m
+  path: ./clusters/_template/infrastructure
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: openova
+  dependsOn:
+    - name: infrastructure-providers
+    - name: sovereign-tls
+  wait: false
+  timeout: 5m

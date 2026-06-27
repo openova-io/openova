@@ -8,10 +8,15 @@ kind: Kustomization
 # cloud-conditional `path` HERE on Huawei (the cross-cloud provider-opentofu
 # only) and at ./hetzner on Hetzner (provider-opentofu + native provider-hcloud).
 #
-# This is the FIRST of the two-layer crossplane bootstrap. It installs only the
-# Provider PACKAGE CRs (no ProviderConfig, no claims). The SECOND layer
-# (`infrastructure-config` → ../../infrastructure[/hetzner]) `dependsOn`s this
-# one and carries the ProviderConfig + CloudAdoption claims, which can only be
-# dry-run AFTER the Provider here registers its CRDs (#4521).
+# This is the FIRST of the two-layer crossplane bootstrap. It installs the
+# Provider PACKAGE CR (./base) PLUS the COMMITTED LAYER-2 `infrastructure-
+# config` Flux Kustomization CR (infrastructure-config-kustomization.yaml) —
+# which `dependsOn`s the inline `infrastructure-providers` Kustomization and
+# carries the ProviderConfig + CloudAdoption claims (path
+# ./clusters/_template/infrastructure). Shipping LAYER 2 as a committed Flux
+# Kustomization CR (rather than a second inline cloud-init Kustomization) keeps
+# it OFF the byte-capped cloud-init render (#4521; the #1981/#3884 precedent).
+# The Hetzner overlay ships its own variant pointing at the hetzner config.
 resources:
   - base
+  - infrastructure-config-kustomization.yaml
