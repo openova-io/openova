@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T08:15:03Z` |
+| Last refreshed | `2026-06-27T08:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -211,8 +211,8 @@ flowchart LR
 | [#4475](https://github.com/openova-io/openova/issues/4475) | Org vcluster-tier convergence: CiliumNetworkPolicy can't apply inside vanilla vc | Other |
 | [#4486](https://github.com/openova-io/openova/issues/4486) | DR backbone self-fire: standby-absent on a converged primary must NOT latch the  | Other |
 | [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
-| [#4503](https://github.com/openova-io/openova/issues/4503) | Fresh prov wedges at 0 HelmReleases because cloud-init Cilium helm-install fails | Other |
 | [#4507](https://github.com/openova-io/openova/issues/4507) | Hubble UI flow-XHR bounces to Keycloak (302→login HTML) instead of 401 — flo | Other |
+| [#4511](https://github.com/openova-io/openova/issues/4511) | Jobs Re-run on a COMPLETED batch Job 502s 'spec.template field is immutable' — | Other |
 
 ---
 
