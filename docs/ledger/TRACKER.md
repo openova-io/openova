@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T10:45:07Z` |
+| Last refreshed | `2026-06-27T11:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 12 |
+| Open issues | 13 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 12 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 12 open items (clickable table)
+### All 13 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -212,6 +212,7 @@ flowchart LR
 | [#4525](https://github.com/openova-io/openova/issues/4525) | FUNNEL/Pillar-2: BCP region picker must fetch the Sovereign's real regions (cata | Other |
 | [#4527](https://github.com/openova-io/openova/issues/4527) | fix(bp-self-sovereign-cutover): registry-pivot v1 (cold-start) mirror routes pri | Other |
 | [#4529](https://github.com/openova-io/openova/issues/4529) | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo copy uses --dest-tls-verif | Other |
+| [#4539](https://github.com/openova-io/openova/issues/4539) | Org isolation label reports vcluster for S-plan Orgs that back a host namespace  | Other |
 
 ---
 
@@ -219,6 +220,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T10:56 | [#4538](https://github.com/openova-io/openova/pull/4538) | #4535 | fix(bp-catalyst-platform): catalog reads configuredRegions f |
 | 2026-06-27T10:32 | [#4537](https://github.com/openova-io/openova/pull/4537) | #909 | UAT: reconcile ⚠️/❌ rows — flip rolled-fix (Hubble/row83/Ope |
 | 2026-06-27T10:05 | [#4536](https://github.com/openova-io/openova/pull/4536) | #909 | Refs #909 |
 | 2026-06-27T10:02 | [#4535](https://github.com/openova-io/openova/pull/4535) | #4525 | feat(catalog): GET /catalog/regions — marketplace BCP picker |
@@ -248,7 +250,6 @@ flowchart LR
 | 2026-06-26T19:41 | [#4498](https://github.com/openova-io/openova/pull/4498) | #3969 | feat(application-controller): #3969 §13 — arm the Continuum  |
 | 2026-06-26T19:31 | [#4497](https://github.com/openova-io/openova/pull/4497) | #4466 | docs(uat): UAT ledger consolidation — 22 closed + honest gat |
 | 2026-06-26T19:17 | [#4496](https://github.com/openova-io/openova/pull/4496) | #4494 | fix(catalog-seed #4111): bp-agenity seed source.version 0.5. |
-| 2026-06-26T19:02 | [#4495](https://github.com/openova-io/openova/pull/4495) | #4290 | fix(org-controller): render gateway/apiserver CNP host-side  |
 
 ---
 
