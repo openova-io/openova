@@ -1,5 +1,63 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.84 (#4557 Refs #3379, keystone re-prov c39f0cd4455b7a46 wedged step-06 on
+# the helm-CLI x509 vs the LE-staging in-cluster Harbor, 2026-06-27): TWO
+# changes, both closing the recurring cutover-tail cert-verify pattern + the
+# hand-bridged gitea-admin-secret.
+#
+# (1) STEP-06 HELM-CLI IN-CLUSTER TLS-SKIP (the #4557 fault). Step-06
+# helmrepository-patches Phase-3a "prove the pivoted charts are pullable from
+# the local Harbor before stripping mothership auth" runs `helm registry login`
+# (template 06 L822) + `helm pull oci://registry.<sov-fqdn>/openova-io/<chart>`
+# (L876) against the cluster's OWN in-cluster Harbor (`registry.<sov-fqdn>` =
+# HARBOR_PUBLIC_URL → harbor_host). On a fresh prov that Harbor's wildcard
+# `*.<sov-fqdn>` cert is served by the BOOTSTRAP issuer
+# `letsencrypt-dns01-staging-powerdns` (LE-STAGING, untrusted by the public CA
+# bundle) and the helm binary in a Job Pod carries no node trust store — so
+# every probe raised `Head "https://registry.kv202251.omani.works/v2/.../
+# manifests/1.3.0": tls: failed to verify certificate: x509: certificate signed
+# by unknown authority`, the strip-readiness gate never converged, and at
+# stripReadinessSeconds the step FATAL'd → the cutover never reached step-07 /
+# the 600s deny-egress hold / cutoverComplete (live c39f0cd4455b7a46 on
+# registry.kv202251.omani.works). This is the SAME LE-staging cert site #4529
+# already handled for skopeo (`--dest-tls-verify=false`, step-03) and #4543 for
+# the catalyst-api Go client — the helm-CLI path was simply never given the
+# equivalent. FIX (chart-only, template 06): a new
+# `.Values.helmReadinessProbe.inClusterTLSVerify` (DEFAULT false) gates an
+# IN-CLUSTER-ONLY `--insecure-skip-tls-verify` on both helm calls (the step
+# makes NO external/ghcr helm call, so the flag only ever relaxes verify for
+# the cluster's own registry). The witnessed 600s deny-egress hold (step-08) is
+# the real security gate and is wholly untouched. Comprehensive audit of steps
+# 01-11 confirmed step-06 is the ONLY remaining script-level in-cluster-Harbor
+# HTTPS call: steps 07/10/11 use the internal Gitea over plain HTTP
+# (gitea-http.gitea.svc:3000) + the local apiserver (kubectl, in-cluster CA);
+# step-08's only curl is the deliberate `-k` mothership call-home probe (which
+# MUST be unreachable under the hold); step-03 skopeo already carries
+# --insecure-policy. No external/upstream verify is weakened anywhere.
+#
+# (2) DURABLE gitea-admin-secret HOST BRIDGE INTO THE CUTOVER NS (new template
+# 00-gitea-admin-secret-bridge.yaml). Every cutover step Job that needs the
+# Gitea admin credential (06/07/09/10/11) is stamped by catalyst-api into THIS
+# chart's release namespace (`catalyst`) and reads `gitea-admin-secret` via a
+# Kubernetes `secretKeyRef` — which resolves ONLY in the Pod's own namespace
+# (no cross-namespace form). bp-gitea creates `gitea-admin-secret` in the
+# `gitea` namespace (and the #3811 bp-catalyst-platform bridge re-publishes the
+# plain name THERE after #3642 moved gitea into the mgmt vCluster), so on a
+# fresh prov the secret is ABSENT from `catalyst` → the first referencing Job
+# fails `secret "gitea-admin-secret" not found`; prior walks hand-bridged a
+# `kubectl apply` copy. The new template Helm-`lookup`s the plain source secret
+# (`gitea/gitea-admin-secret` by default) and re-publishes a verbatim copy into
+# `.Release.Namespace` (source-wins each reconcile so a password rotation
+# propagates; `helm.sh/resource-policy: keep`; NO plaintext per #10) — the same
+# proven seam as bp-catalyst-platform's catalyst-gitea-admin-secret-bridge.yaml
+# (#3811). Gated by `.Values.giteaAdminSecretBridge.enabled` (default true). The
+# bridged resource is a Secret with component=gitea-admin-secret-bridge — it
+# carries NEITHER the ConfigMap kind NOR the cutover-step component label, so
+# catalyst-api's step discovery (listCutoverSteps selects step ConfigMaps by
+# label) + the contract test's step-count assertion are unaffected (still 11
+# steps / 10 job-mode). Live step-06→11 + the 600s egress hold +
+# cutoverComplete=true validation drives on c39f0cd4455b7a46.
+# Refs #4557 #3379.
 # 0.1.83 (#4527 Refs #3379 #3747 #2034, keystone dep 25aadcfc anonymous-ghcr-401
 # on the v1 cold-start mirror, 2026-06-27): the registry-pivot DaemonSet's v1
 # (cold-start, mothership-Harbor) registries.yaml redirected ghcr.io ->
@@ -1089,7 +1147,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.83
+version: 0.1.84
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

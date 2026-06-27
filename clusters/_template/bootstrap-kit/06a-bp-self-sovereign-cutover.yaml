@@ -612,7 +612,21 @@ spec:
       # 25aadcfc). The token is a placeholder the pivot script substitutes in-pod
       # from the flux-system/harbor-robot-token Secret. Huawei also auths the
       # bastion endpoint host. No RBAC / step-count change.
-      version: 0.1.83
+      # 0.1.84 (#4557 Refs #3379): closes the cutover-tail cert-verify pattern.
+      # (1) step-06 helmrepository-patches Phase-3a `helm registry login` +
+      # `helm pull oci://registry.<sov-fqdn>/...` now carry an IN-CLUSTER-ONLY
+      # `--insecure-skip-tls-verify` (gated by helmReadinessProbe.
+      # inClusterTLSVerify=false) so the probe no longer x509-fails on the
+      # LE-staging in-cluster Harbor wildcard → the strip-readiness gate
+      # converges → the cutover reaches step-07 / the 600s deny-egress hold /
+      # cutoverComplete (this is the same LE-staging cert #4529 handled for
+      # skopeo + #4543 for the Go client, in the helm-CLI tool). (2) new
+      # template 00-gitea-admin-secret-bridge.yaml Helm-lookup-and-mirrors the
+      # plain `gitea/gitea-admin-secret` into the cutover release namespace
+      # (`catalyst`) so the step Jobs' secretKeyRef resolves natively — no more
+      # hand-bridged `kubectl apply`. No step-count / job-mode change (the
+      # bridge is a Secret without the cutover-step label).
+      version: 0.1.84
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
