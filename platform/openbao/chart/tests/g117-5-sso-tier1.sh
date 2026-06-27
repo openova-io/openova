@@ -91,4 +91,19 @@ if grep -q '_gid="$(group_field "${_gjson}" canonical_id)"' "${recon}"; then
 fi
 echo "  PASS"
 
+echo "[g117-5-sso-tier1] Case 6 (#4519): the OIDC role payload EXPLICITLY requests the \`groups\` scope so external-group resolution never depends on the IdP keeping \`groups\` a default client scope"
+# REGRESSION GUARD: the sovereign-admins → sso-operator-admin uplift needs the
+# \`groups\` claim at the OIDC callback. Without oidc_scopes the auth_url asks
+# Keycloak for \`scope=openid\` only and the claim arrives PURELY because the
+# realm keeps \`groups\` a DEFAULT client scope — an implicit IdP dependency that,
+# if broken, re-opens the admin UI 403 silently. Assert the role payload pins
+# oidc_scopes=["groups"] alongside the groups_claim.
+if ! grep -q '"oidc_scopes":\["groups"\]' "${recon}"; then
+  echo "FAIL: OIDC role payload no longer requests oidc_scopes=[\"groups\"] — #4519 fix regressed (group resolution rides the IdP default-scope config)" >&2; exit 1
+fi
+if ! grep -q '"groups_claim":"groups"' "${recon}"; then
+  echo "FAIL: OIDC role groups_claim no longer 'groups' — external-group resolution broken" >&2; exit 1
+fi
+echo "  PASS"
+
 echo "[bp-openbao G117.5 Tier-1 SSO] All cases PASS"
