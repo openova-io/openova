@@ -41,13 +41,16 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/dynamic"
 
 	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -127,6 +130,18 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 // findCNPGPairForApp, which only resolves an app-labelled pair across
 // namespaces). Returns the input
 // unchanged on any miss — no fabrication.
+//
+// #4551 (Standby render-gate completion): findCNPGPairForApp requires BOTH
+// CNPG Cluster halves to be listable from the SAME (region-a) apiserver. In
+// the real 2-region topology the primary Cluster CR lives on the region-a
+// apiserver while the replica Cluster CR lives on the region-B apiserver, so
+// only the primary half is visible to sovereignDynamicClient → the pair
+// resolves to a lone primary → no Standby → `hasStandby:false` → the panel's
+// DR section never renders. The Continuum CR (chart-seeded OR derived) lives
+// in region-a and ALREADY carries the truth in spec.hotStandbyRegions. When
+// the cnpg-pair path can't surface a standby we read that region off the
+// Continuum CR and synthesize the Standby·Hot target — no cross-region
+// replica-half read required.
 func (h *Handler) augmentWithCNPGStandby(
 	r *http.Request,
 	urlID, name, ns string,
@@ -157,31 +172,163 @@ func (h *Handler) augmentWithCNPGStandby(
 			break
 		}
 	}
-	if st == nil {
+	// CNPG-pair path: only usable when BOTH halves were listable on this
+	// apiserver AND they pin two DISTINCT non-empty regions (the same
+	// invariant deriveLiveContinuumRecord enforces). When the replica half
+	// lives on the other region's apiserver, st is nil OR carries an empty
+	// ReplicaRegion — both fall through to the Continuum-CR path below.
+	if st != nil && st.PrimaryRegion != "" && st.ReplicaRegion != "" && st.PrimaryRegion != st.ReplicaRegion {
+		// Don't double-list a region the occupancy derivation already covers
+		// as the replica region (defensive — occupancy had no Standby, but
+		// the replica region could coincide with a stateless Primary
+		// occupancy).
+		for _, t := range targets {
+			if t.Role == bpv1.DataRoleStandby && t.Region == st.ReplicaRegion {
+				return targets
+			}
+		}
+		return append(targets, bpv1.PlacementTarget{
+			Region:      st.ReplicaRegion,
+			Cluster:     st.ReplicaClusterName,
+			VCluster:    "",
+			Role:        bpv1.DataRoleStandby,
+			StandbyType: bpv1.StandbyHot,
+		})
+	}
+
+	// Continuum-CR fallback (the #4551 render-gate fix). The cnpg-pair path
+	// could not surface a cross-region standby (replica Cluster half lives on
+	// the other region's apiserver). Read the standby region straight off the
+	// Continuum CR, which lives in region-a and carries it in
+	// spec.hotStandbyRegions.
+	return h.augmentWithContinuumStandby(r, client, name, ns, targets)
+}
+
+// augmentWithContinuumStandby synthesizes a Standby·Hot PlacementTarget from
+// the app's Continuum CR `spec.hotStandbyRegions`, when no Standby is yet
+// present. This is the #4551 fix: it does NOT require the cross-region
+// replica `Cluster` half (which sits on the standby region's apiserver and is
+// therefore NotFound from the region-a sovereignDynamicClient) — the
+// Continuum CR carries the standby region locally in region-a.
+//
+// The CR is matched on spec.applicationRef (label-free, the controller's own
+// association) OR the conventional `dr-<app>` name, tried for every
+// componentNameCandidate so a `bp-`-prefixed route id resolves to a bare
+// applicationRef. Returns targets unchanged when no Continuum CR (with a
+// distinct, non-empty standby region) exists — no fabrication.
+func (h *Handler) augmentWithContinuumStandby(
+	r *http.Request,
+	client dynamic.Interface,
+	name, ns string,
+	targets []bpv1.PlacementTarget,
+) []bpv1.PlacementTarget {
+	region := h.continuumStandbyRegion(r.Context(), client, name, ns, targets)
+	if region == "" {
 		return targets
 	}
-	// A genuine cross-region pair requires two DISTINCT non-empty regions —
-	// the same invariant deriveLiveContinuumRecord enforces before claiming
-	// DR. Anything less is not honest cross-region standby.
-	if st.PrimaryRegion == "" || st.ReplicaRegion == "" || st.PrimaryRegion == st.ReplicaRegion {
-		return targets
-	}
-	// Don't double-list a region the occupancy derivation already covers as
-	// the replica region (defensive — occupancy had no Standby, but the
-	// replica region could coincide with a stateless Primary occupancy).
+	// Don't double-list a region already represented as a Standby.
 	for _, t := range targets {
-		if t.Role == bpv1.DataRoleStandby && t.Region == st.ReplicaRegion {
+		if t.Role == bpv1.DataRoleStandby && t.Region == region {
 			return targets
 		}
 	}
-	targets = append(targets, bpv1.PlacementTarget{
-		Region:      st.ReplicaRegion,
-		Cluster:     st.ReplicaClusterName,
+	return append(targets, bpv1.PlacementTarget{
+		Region:      region,
+		Cluster:     "", // the standby Cluster half lives on the other region's apiserver; the region is the load-bearing field the panel renders
 		VCluster:    "",
 		Role:        bpv1.DataRoleStandby,
 		StandbyType: bpv1.StandbyHot,
 	})
-	return targets
+}
+
+// continuumStandbyRegion resolves the app's hot-standby region from its
+// Continuum CR. It lists Continuum CRs (cluster-wide when ns is empty,
+// chroot-friendly), matches by spec.applicationRef OR the `dr-<app>` name
+// convention against every componentNameCandidate, and returns the first
+// spec.hotStandbyRegions entry that is non-empty AND distinct from the app's
+// already-derived Primary region(s) — never claiming a same-region "standby".
+// Returns "" on any miss (no CR, empty list, no distinct standby).
+func (h *Handler) continuumStandbyRegion(
+	ctx context.Context,
+	client dynamic.Interface,
+	name, ns string,
+	targets []bpv1.PlacementTarget,
+) string {
+	cr := h.findContinuumCRForApp(ctx, client, name, ns)
+	if cr == nil {
+		return ""
+	}
+	standbys, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
+	if len(standbys) == 0 {
+		return ""
+	}
+	// The set of Primary regions the runtime derivation already surfaced —
+	// a "standby" that equals a live Primary region is not an honest
+	// cross-region standby (single-region prov, or label mismatch).
+	primaryRegions := map[string]struct{}{}
+	for _, t := range targets {
+		if t.Role == bpv1.DataRolePrimary && t.Region != "" {
+			primaryRegions[t.Region] = struct{}{}
+		}
+	}
+	for _, s := range standbys {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, isPrimary := primaryRegions[s]; isPrimary {
+			continue
+		}
+		return s
+	}
+	return ""
+}
+
+// findContinuumCRForApp locates the Continuum CR backing `name`. It lists CRs
+// (scoped to ns when known, else cluster-wide) and accepts a CR whose
+// spec.applicationRef equals — or whose name is `dr-<app>` for — any
+// componentNameCandidate (handling the `bp-`-prefixed Topology route id vs the
+// bare applicationRef). Returns nil on any miss; never errors out the panel.
+func (h *Handler) findContinuumCRForApp(
+	ctx context.Context,
+	client dynamic.Interface,
+	name, ns string,
+) *unstructured.Unstructured {
+	cands := componentNameCandidates(name)
+	if len(cands) == 0 {
+		return nil
+	}
+	candSet := map[string]struct{}{}
+	nameSet := map[string]struct{}{}
+	for _, c := range cands {
+		candSet[c] = struct{}{}
+		nameSet["dr-"+c] = struct{}{}
+	}
+
+	ri := client.Resource(ContinuumGVR())
+	var (
+		list *unstructured.UnstructuredList
+		err  error
+	)
+	if strings.TrimSpace(ns) != "" {
+		list, err = ri.Namespace(ns).List(ctx, metav1.ListOptions{})
+	} else {
+		list, err = ri.Namespace("").List(ctx, metav1.ListOptions{})
+	}
+	if err != nil || list == nil {
+		return nil
+	}
+	for i := range list.Items {
+		it := &list.Items[i]
+		appRef, _, _ := unstructured.NestedString(it.Object, "spec", "applicationRef")
+		if _, ok := candSet[appRef]; ok && appRef != "" {
+			return it
+		}
+		if _, ok := nameSet[it.GetName()]; ok {
+			return it
+		}
+	}
+	return nil
 }
 
 // clusterRegionMap builds the clusterID→cloudRegion map from the
