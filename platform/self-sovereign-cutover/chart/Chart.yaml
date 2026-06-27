@@ -1016,7 +1016,41 @@ name: bp-self-sovereign-cutover
 # MOTHERSHIP_PROXY_PREFIX env; Hetzner ships the upstream host so the new prefix
 # simply never matches there (render-additive, behaviour-identical on Hetzner).
 # Lockstep: 06a pin bumped in step.
-version: 0.1.81
+# 0.1.82 (#4529, Refs #3379): step-03 harbor-prewarm skopeo-copied the openova-io
+# container images + helm chart OCI artifacts INTO the in-cluster Harbor
+# (`registry.<sov-fqdn>` = HARBOR_PUBLIC_URL → HARBOR_HOST) with a HARDCODED
+# `--dest-tls-verify=true`. On a fresh prov that Harbor's wildcard `*.<sov-fqdn>`
+# cert is served by the BOOTSTRAP issuer `letsencrypt-dns01-staging-powerdns`
+# (LE-STAGING, untrusted by the public CA bundle), and a Job-Pod skopeo carries
+# no node trust store even with production LE — so `x509: certificate signed by
+# unknown authority` FAILED every push: `push_ok=0 push_fail=30` → step-03 FATAL
+# → the cutover never reached the 600s deny-egress hold → cutoverComplete never
+# set. Live on keystone prov 25aadcfc (registry.kv160729.omani.works), wedging
+# Pillar 5 at step 2/11 whenever LE-rate-limited onto the staging issuer.
+#
+# THE FIX (chart-only, template 03-harbor-prewarm-job.yaml + values.yaml): both
+# the Phase A (container image) and Phase A2 (helm chart OCI) skopeo copies now
+# drive `--dest-tls-verify` from a new env `PREWARM_DEST_TLS_VERIFY`
+# (.Values.prewarm.destTLSVerify, DEFAULT false). The copy DESTINATION is the
+# Sovereign's OWN in-cluster Harbor over the pod network — trust is the cluster
+# network, NOT a public CA — exactly the rationale the cold-start registries.yaml
+# v1 already uses `tls.insecure_skip_verify: true` for the bastion Harbor mirror
+# (04-registry-pivot-daemonset.yaml). `--src-tls-verify` STAYS `true`
+# unconditionally: the ghcr.io SOURCE is an external public-CA host that MUST be
+# authenticated. This does NOT weaken the cutover's security intent — that intent
+# is severing EXTERNAL tethers + pivoting to the LOCAL registry, and the witnessed
+# 600s deny-egress hold (step-08) remains the real security gate, entirely
+# untouched (step-08 unchanged; the egressDeny CCNP + call-home assertion stay
+# intact). Operators with a public-CA-trusted internal cert AND a skopeo trust
+# store may set prewarm.destTLSVerify=true via overlay.
+#
+# No step-count / RBAC / deadline change (still 11 steps). New contract Case 30
+# locks the wiring: no hardcoded --dest-tls-verify=true survives, both copies
+# drive it from the env (default false), src stays true, and an overlay can flip
+# it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
+# fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
+# the permanent env).
+version: 0.1.82
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

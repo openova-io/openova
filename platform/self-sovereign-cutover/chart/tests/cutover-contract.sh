@@ -952,4 +952,50 @@ if ! grep -q "name: bp-self-sovereign-cutover-allow-cutover-to-mgmt$" "$TMP/rend
 fi
 echo "  PASS (carve-out opens catalyst -> {gitea,harbor,openbao} host namespaces by default; legacy mgmtNamespace=mgmt still works; no dead mgmt policy by default)"
 
+echo "[cutover-contract] Case 30: Step-03 harbor-prewarm skopeo copies do NOT public-CA-verify the IN-CLUSTER Harbor DESTINATION (#4529, Refs #3379)"
+# keystone prov 25aadcfc: step-03 skopeo-copied openova-io images to the in-
+# cluster Harbor `registry.<sov-fqdn>` (HARBOR_PUBLIC_URL → HARBOR_HOST) with
+# --dest-tls-verify=true. That Harbor's wildcard cert is LE-STAGING (the
+# bootstrap default issuer, untrusted by the public CA bundle) on a fresh prov,
+# and a Job-Pod skopeo carries no node trust store even with production LE — so
+# x509 unknown-authority FAILED every push (push_ok=0 push_fail=30) → step-03
+# FATAL → the 600s deny-egress hold never ran → cutoverComplete never set. The
+# dest is the cluster's OWN registry; trust is the cluster network, not a public
+# CA. The default render MUST drive --dest-tls-verify from PREWARM_DEST_TLS_VERIFY
+# (default false) so neither copy public-CA-verifies the in-cluster destination.
+# A hardcoded `--dest-tls-verify=true` MUST NOT remain in the step.
+if grep -q -- '--dest-tls-verify=true' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 still hardcodes --dest-tls-verify=true on a skopeo copy to the in-cluster Harbor — x509 unknown-authority fails every push on an LE-STAGING-cert Sovereign (#4529)" >&2
+  exit 1
+fi
+# Both copy loops (Phase A images + Phase A2 charts) MUST drive dest-TLS from the env var.
+dest_var_copies=$(grep -c -- '--dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}"' "$TMP/render.yaml" || true)
+if [ "${dest_var_copies}" -lt 2 ]; then
+  echo "FAIL: Step-03 has < 2 skopeo copies driving --dest-tls-verify from PREWARM_DEST_TLS_VERIFY (found ${dest_var_copies}); a Phase A or A2 copy still public-CA-verifies the in-cluster dest (#4529)" >&2
+  exit 1
+fi
+# The env var MUST be projected from .Values.prewarm.destTLSVerify and DEFAULT false.
+if ! grep -q 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 does not project the PREWARM_DEST_TLS_VERIFY env (from .Values.prewarm.destTLSVerify) (#4529)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render.yaml" | grep -q 'value: "false"'; then
+  echo "FAIL: PREWARM_DEST_TLS_VERIFY does not default to \"false\" — the in-cluster Harbor copy would still public-CA-verify on a fresh prov (#4529)" >&2
+  exit 1
+fi
+# The SOURCE (external ghcr.io) verification MUST stay TRUE — never weakened.
+src_verify_copies=$(grep -c -- '--src-tls-verify=true' "$TMP/render.yaml" || true)
+if [ "${src_verify_copies}" -lt 2 ]; then
+  echo "FAIL: Step-03 weakened --src-tls-verify — the external ghcr.io SOURCE must stay public-CA-verified (found ${src_verify_copies}; expected >=2) (#4529)" >&2
+  exit 1
+fi
+# Operator overlay MUST be able to re-enable dest verification (true) when the
+# internal cert is public-CA-trusted.
+helm template smoke-desttls . --set 'prewarm.destTLSVerify=true' > "$TMP/render-desttls.yaml"
+if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render-desttls.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: prewarm.destTLSVerify=true overlay does not flip PREWARM_DEST_TLS_VERIFY to \"true\" — operators cannot opt into dest verification (#4529)" >&2
+  exit 1
+fi
+echo "  PASS (Step-03 drives in-cluster-Harbor dest-TLS from PREWARM_DEST_TLS_VERIFY, default false; src ghcr.io stays verified; overlay can re-enable dest verify)"
+
 echo "[cutover-contract] All gates green."

@@ -130,6 +130,19 @@ data:
           # infinite hang into a bounded, retryable failure.
           - name: PREWARM_SKOPEO_TIMEOUT
             value: {{ .Values.prewarm.skopeoCommandTimeout | default "1200s" | quote }}
+          # #4529 (Refs #3379): TLS-verify on the skopeo copy DESTINATION (the
+          # in-cluster Harbor `registry.<sov-fqdn>` = HARBOR_HOST). DEFAULT
+          # false — the copy target is the Sovereign's OWN registry over the
+          # cluster pod network whose wildcard cert is LE-STAGING/untrusted on a
+          # fresh prov (and a Job-Pod skopeo has no node trust store even with
+          # production LE), so verifying the dest against the public CA x509-fails
+          # every push (live keystone 25aadcfc: push_ok=0 push_fail=30 → step-03 FATAL →
+          # cutover never reaches the deny-egress hold). Trust here is the
+          # cluster network, not a public CA — same rationale as
+          # registries.yaml v1's insecure_skip_verify for the bastion mirror.
+          # The SRC (ghcr.io) verification is ALWAYS true (external public host).
+          - name: PREWARM_DEST_TLS_VERIFY
+            value: {{ .Values.prewarm.destTLSVerify | default false | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -371,12 +384,17 @@ data:
                 # #3944: `--command-timeout` is a skopeo GLOBAL flag (must
                 # precede the `copy` subcommand) — it bounds the whole copy so a
                 # silently-stalled connection can't hang the worker forever.
+                # #4529: --dest-tls-verify is PREWARM_DEST_TLS_VERIFY (default
+                # false) — the dest is the in-cluster Harbor over the pod
+                # network (LE-STAGING/untrusted cert on a fresh prov, no node
+                # trust store in a Job Pod). --src-tls-verify stays true (ghcr.io
+                # is an external public-CA host that MUST be authenticated).
                 if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
                   --insecure-policy \
                   --retry-times 5 \
                   --src-creds="${ghcr_user}:${ghcr_pat}" \
                   --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                  --dest-tls-verify=true \
+                  --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
                   --src-tls-verify=true \
                   "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
                   rc=0
@@ -550,12 +568,15 @@ data:
               cslug=$(printf '%s_%s' "${cchart}" "${cver}" | tr -c 'A-Za-z0-9._-' '_')
               # #3944: bound the chart-OCI copy too (skopeo GLOBAL flag before
               # the `copy` subcommand) so a stalled connection fails fast.
+              # #4529: same dest-TLS treatment as Phase A — the chart OCI dest
+              # is the in-cluster Harbor (PREWARM_DEST_TLS_VERIFY, default
+              # false); src stays verified (external ghcr.io).
               if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
                 --insecure-policy \
                 --retry-times 3 \
                 --src-creds="${ghcr_user}:${ghcr_pat}" \
                 --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                --dest-tls-verify=true \
+                --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
                 --src-tls-verify=true \
                 "${csrc}" "${cdst}" >"${chart_cpdir}/${cslug}.log" 2>&1; then
                 printf '%s:%s' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"

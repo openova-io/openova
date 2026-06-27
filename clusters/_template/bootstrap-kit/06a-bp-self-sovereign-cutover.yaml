@@ -592,7 +592,17 @@ spec:
       # → harbor.<fqdn>/proxy-xpkg, so the Huawei fresh-prov provider-opentofu
       # package (routed off the poisoned xpkg.upbound.io NAT) leaves no
       # harbor.openova.io tether at cutover (Principle #11).
-      version: 0.1.81
+      # 0.1.82 (#4529, Refs #3379): step-03 harbor-prewarm skopeo copies to the
+      # IN-CLUSTER Harbor (registry.<sov-fqdn>) now drive --dest-tls-verify from
+      # prewarm.destTLSVerify (DEFAULT false) instead of a hardcoded true. The
+      # in-cluster Harbor's wildcard cert is LE-STAGING on a fresh prov (and a
+      # Job-Pod skopeo has no node trust store even with prod LE) → the old true
+      # x509-failed every push (push_ok=0 push_fail=30 → step-03 FATAL → cutover
+      # never reached the 600s deny-egress hold; live keystone 25aadcfc). Trust is
+      # the cluster network, not a public CA (same as registries.yaml v1's bastion
+      # insecure_skip_verify). --src-tls-verify (external ghcr.io) stays true; the
+      # step-08 deny-egress security gate is untouched.
+      version: 0.1.82
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
