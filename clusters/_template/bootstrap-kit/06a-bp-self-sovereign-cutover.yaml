@@ -626,11 +626,17 @@ spec:
       # (`catalyst`) so the step Jobs' secretKeyRef resolves natively — no more
       # hand-bridged `kubectl apply`. No step-count / job-mode change (the
       # bridge is a Secret without the cutover-step label).
+      # 0.1.86 (#4573 Refs #3379): the two GENUINE clean-fresh-prov faults —
+      # F4 step-03 Phase A2 chart-mirror set now drift-proof (UNION static
+      # names ∪ live openova-io HelmRepositories, not the stale static list
+      # that omitted ~22 charts) + F2 harbor blob-redirect disabled in slot
+      # 19-harbor (no OBS 302 that x509s in-cluster TLS-pinned clients).
+      # Lockstep w/ Chart.yaml + blueprint.yaml.
       # 0.1.85 (#4563 Refs #3379): step-07 also pivots the bp-openova-flow-
       # server HR's global.imageRegistry to local Harbor (catalyst-ui pivots
       # via the bp-catalyst-platform chart 1.4.927) — kills the step-08 fresh-
-      # pull FATAL on the two residual ghcr.io tethers. Lockstep w/ Chart.yaml.
-      version: 0.1.85
+      # pull FATAL on the two residual ghcr.io tethers.
+      version: 0.1.86
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

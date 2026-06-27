@@ -1078,4 +1078,53 @@ if ! printf '%s\n' "$step07_block" | grep -q '56-bp-openova-flow-server.yaml'; t
 fi
 echo "  PASS (Step-07 pivots bp-openova-flow-server HR global.imageRegistry live + durably edits slot-56; catalyst-ui pivots via bp-catalyst-platform's templated ui-deployment.yaml)"
 
+echo "[cutover-contract] Case 33: Step-03 Phase A2 chart-mirror pivot set is DRIFT-PROOF — derived from LIVE openova-io HelmRepositories, not the static names list alone (#4573 F4, Refs #3379)"
+# #4573 F4: the prior Phase A2 seeded its pivot set ONLY from the static
+# .Values.helmRepositories.names list (mounted chart-mirror-names.txt). That
+# list had drifted and omitted ~22 openova-io HelmRepositories the bootstrap-
+# kit slots reference, so those charts were never skopeo-mirrored into local
+# Harbor and a post-strip HR source kick 404s `does not have an artifact`.
+# Phase A2 MUST union the static names with the LIVE HelmRepository set whose
+# spec.url is the openova-io upstream OCI prefix. Assert the dynamic-union
+# kubectl read + the startswith(UPSTREAM_PREFIX) selection are both present.
+prewarm_block="$(awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml")"
+[ -n "$prewarm_block" ] || prewarm_block="$(cat "$TMP/render.yaml")"
+if ! printf '%s\n' "$prewarm_block" | grep -q 'kubectl get helmrepositories.source.toolkit.fluxcd.io -A'; then
+  echo "FAIL: Step-03 Phase A2 does not read the LIVE HelmRepository set — the chart-mirror pivot set stays bound to the static names list and drifts (#4573 F4)" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$prewarm_block" | grep -q 'startswith($p)'; then
+  echo "FAIL: Step-03 Phase A2 does not select HelmRepositories by spec.url startswith(UPSTREAM_PREFIX) — the openova-io chart set is not derived live (#4573 F4)" >&2
+  exit 1
+fi
+# The static names list must ALSO now carry the formerly-missing openova-io HRs
+# so step-06 Phase-1 REPOINTS them (else step-08 count_offenders catches the
+# stragglers still on oci://ghcr.io/openova-io and FAILs the proof).
+for must in bp-postgres bp-newapi bp-sso-bridge bp-oidc-gate bp-sandbox bp-vllm bp-plane-isolation bp-cnpg-pair; do
+  if ! printf '%s\n' "$prewarm_block" | grep -q "${must}"; then
+    echo "FAIL: openova-io HelmRepository ${must} missing from the helmRepositories.names pivot set — step-06 never repoints it, step-08 count_offenders FAILs (#4573 F4)" >&2
+    exit 1
+  fi
+done
+echo "  PASS (Step-03 Phase A2 unions static names ∪ live openova-io HelmRepositories; the formerly-missing ~22 charts are now in the repoint+mirror set — drift-proof)"
+
+echo "[cutover-contract] Case 34: bootstrap-kit slot 19-harbor disables the blob-redirect on the s3 store so in-cluster TLS-pinned clients never x509 on the OBS host (#4573 F2, Refs #3379)"
+# #4573 F2: with the upstream-default redirect ENABLED, a registry blob GET 302s
+# to a presigned obs.<region>.<sov>.nationalcloud.om URL whose cert is a
+# DIFFERENT host from registry.<sov-fqdn>; containerd's host-scoped skip_verify
+# (#4557), skopeo's dest/src-tls-verify, and a HelmRepo certSecretRef all trust
+# ONLY the registry host -> x509 wedges the step-08 fresh-pull proof + any
+# in-cluster blob fetch under the deny-egress hold. The Sovereign overlay MUST
+# set harbor.persistence.imageChartStorage.disableRedirect: true.
+HARBOR_SLOT="${HARBOR_SLOT:-../../../clusters/_template/bootstrap-kit/19-harbor.yaml}"
+if [ -f "$HARBOR_SLOT" ]; then
+  if ! grep -Eq 'disableRedirect:[[:space:]]*true' "$HARBOR_SLOT"; then
+    echo "FAIL: 19-harbor.yaml does not set imageChartStorage.disableRedirect: true — blob GETs 302 to the OBS host and x509 the in-cluster TLS-pinned cutover clients (#4573 F2)" >&2
+    exit 1
+  fi
+  echo "  PASS (19-harbor.yaml sets imageChartStorage.disableRedirect: true — registry streams blobs directly from registry.<fqdn>, no OBS 302)"
+else
+  echo "  SKIP (19-harbor.yaml not reachable from test cwd: $HARBOR_SLOT)"
+fi
+
 echo "[cutover-contract] All gates green."

@@ -484,6 +484,38 @@ helmRepositories:
     - "bp-coraza"
     - "bp-cert-manager-powerdns-webhook"
     - "bp-cluster-autoscaler-hcloud"
+    # #4573 F4 (Refs #3379): the ~22 openova-io HelmRepositories the
+    # bootstrap-kit slots reference that this hand-maintained list had
+    # DRIFTED past. Step-06 Phase-1 must repoint EVERY openova-io HR's
+    # spec.url to local Harbor or step-08's count_offenders catches the
+    # stragglers still on oci://ghcr.io/openova-io and FAILs the proof;
+    # step-03 Phase A2 ALSO unions this list with the live HelmRepository
+    # set (drift-proof) so both the repoint and the chart-mirror are
+    # complete. Every name below was confirmed to carry
+    # `url: oci://ghcr.io/openova-io` in clusters/_template/bootstrap-kit/.
+    - "bp-cert-manager-issuers"
+    - "bp-cnpg-pair"
+    - "bp-continuum"
+    - "bp-guacamole"
+    - "bp-hcloud-ccm"
+    - "bp-hcloud-csi"
+    - "bp-huawei-evs-csi"
+    - "bp-k8s-ws-proxy"
+    - "bp-kyverno-policies"
+    - "bp-network-policies"
+    - "bp-newapi"
+    - "bp-oidc-gate"
+    - "bp-openova-flow-emitter"
+    - "bp-openova-flow-server"
+    - "bp-opentelemetry-operator"
+    - "bp-plane-isolation"
+    - "bp-postgres"
+    - "bp-powerdns-admin"
+    - "bp-sandbox"
+    - "bp-sso-bridge"
+    - "bp-vcluster-helmrepo"
+    - "bp-velero-hcs"
+    - "bp-vllm"
     # openova-catalog (TBD-C19, 2026-05-18) — the named Flux v1
     # HelmRepository the application-controller renders every
     # per-Application HelmRelease against (catalogSourceRef default).

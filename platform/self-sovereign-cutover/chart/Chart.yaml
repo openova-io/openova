@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.86 (#4573 Refs #3379, the two GENUINE clean-fresh-prov cutover faults —
+# the ones a version-frozen cutover hits, separate from the F1/F3/F5 re-drive
+# contamination that only bites driving NEW chart/image versions onto an
+# already-pivoted cluster, 2026-06-28): TWO changes.
+#   F4 (prewarm completeness) — step-03 Phase A2 (openova-io helm-chart mirror)
+#     previously seeded its pivot set ONLY from the static
+#     .Values.helmRepositories.names list, which had DRIFTED and omitted ~22
+#     openova-io HelmRepositories the bootstrap-kit slots reference (bp-cnpg-pair,
+#     bp-network-policies, bp-postgres, bp-newapi, bp-oidc-gate, bp-sso-bridge,
+#     bp-sandbox, bp-vllm, bp-plane-isolation, bp-continuum, bp-guacamole,
+#     bp-k8s-ws-proxy, bp-powerdns-admin, bp-opentelemetry-operator,
+#     bp-openova-flow-{server,emitter}, the hcloud/evs CSI charts, …). Those
+#     charts never reached local Harbor → a post-strip HR source kick 404s
+#     `does not have an artifact` (live c39f0cd4455b7a46). Phase A2 now derives
+#     the pivot set DYNAMICALLY: UNION the static names with EVERY live Flux
+#     HelmRepository whose spec.url is the openova-io upstream OCI prefix — a
+#     drift-proof, strict superset (same live∪declared discipline Phase A's
+#     image enumeration already uses).
+#   F2 (Harbor OBS-redirect TLS) — bootstrap-kit slot 19-harbor now sets
+#     harbor.persistence.imageChartStorage.disableRedirect=true on the s3 store
+#     so blob GETs stream DIRECTLY from registry.<sov-fqdn> instead of 302-ing to
+#     a presigned obs.<region>.<sov>.nationalcloud.om URL whose cert no in-cluster
+#     TLS-pinned client (containerd certs.d skip_verify / skopeo / a HelmRepo
+#     certSecretRef are all host-scoped to the registry host) trusts → x509 that
+#     wedges the step-08 fresh-pull proof + any in-cluster blob fetch under the
+#     deny-egress hold.
 # 0.1.85 (#4563 Refs #3379, keystone re-prov c39f0cd4455b7a46 reached step-08
 # with the 600s deny-egress hold PASSING but the fresh-pull-under-deny-egress
 # proof FATALing on two residual ghcr.io tethers, 2026-06-27): step-07 now ALSO
@@ -1199,7 +1225,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.85
+version: 0.1.86
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

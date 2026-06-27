@@ -375,6 +375,26 @@ spec:
           host: ${SOVEREIGN_HARBOR_PG_HOST:=harbor-pg-rw.harbor.svc.cluster.local}
       persistence:
         imageChartStorage:
+          # #4573 F2 (Refs #3379): serve registry blobs DIRECTLY from the
+          # in-cluster Harbor host — do NOT 302-redirect blob GETs to a
+          # presigned cloud Object Storage URL. With redirect ENABLED (the
+          # upstream default), a `GET /v2/<repo>/blobs/<digest>` returns a
+          # 302 to `https://obs.<region>.<sov>.nationalcloud.om/...` (Huawei
+          # OBS) / the S3 endpoint, whose cert is a DIFFERENT host from
+          # `registry.<sov-fqdn>`. Every in-cluster TLS-pinned client trusts
+          # ONLY the registry host: containerd's certs.d skip_verify (#4557)
+          # is host-scoped to `registry.<sov-fqdn>`, skopeo's `--dest/--src-
+          # tls-verify` targets the registry host, and a HelmRepository
+          # certSecretRef scopes trust to the registry host — NONE trust the
+          # OBS host → `tls: failed to verify certificate ... valid for
+          # *.obs... not registry.<fqdn>` (live c39f0cd4455b7a46, #4573 F2).
+          # That x509 wedges the step-08 fresh-pull proof (containerd blob
+          # GET) and any in-cluster blob fetch under the deny-egress hold.
+          # `disableRedirect: true` makes harbor-registry stream the blob
+          # bytes itself over the already-trusted registry host — the OBS
+          # backend is still the durable store (Harbor reads/writes it
+          # server-side); only the CLIENT-facing 302 is suppressed.
+          disableRedirect: true
           type: s3
           s3:
             existingSecret: harbor-objectstorage-credentials
