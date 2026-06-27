@@ -1157,32 +1157,42 @@ runcmd:
   # asserting/defaulting local-path is exactly the anti-pattern #3971 forbids.
 
 %{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
-  # ══════════════════════════════════════════════════════════════════════
   # KUBECONFIG PUT-BACK — STRUCTURAL INVARIANT (#3129): runs HERE, right
   # after apiserver /healthz and BEFORE gateway-api/cilium/flux. Nothing
-  # downstream can block it. The PUT block is provider-injected because the
-  # public-IP source + multi-region gating differ (hard dependency), but
-  # the ORDERING is identical and fixed for every cloud.
-  # ══════════════════════════════════════════════════════════════════════
+  # downstream can block it. The PUT block is provider-injected (the public-IP
+  # source + multi-region gating differ — a hard dependency), but the ORDERING
+  # is identical and fixed for every cloud.
   ${indent(2, kubeconfig_put_block)}
 %{ endif ~}
 
-  # ── gateway-api CRDs: ONE official bundle apply (lean Hetzner pattern) ─
-  # Flux's bp-gateway-api re-applies post-bootstrap; this single apply just
-  # unblocks the Cilium operator's gateway-controller at its OWN boot.
+  # ── gateway-api CRDs: ONE official bundle apply (Flux's bp-gateway-api
+  # re-applies post-bootstrap; this just unblocks the Cilium gateway-controller).
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s'
 
-  # ── Cilium CNI: single helm install from the structured values file ───
-  - 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash'
-  - 'helm repo add cilium https://helm.cilium.io/'
-  - 'helm repo update'
+  # ── Cilium CNI: helm install + retry/fail-fast (#4503; rationale below) ─
   - |
-    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm install cilium cilium/cilium \
-      --version 1.16.5 \
-      --namespace kube-system \
-      -f /var/lib/catalyst/cilium-values.yaml
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s'
+    set -e
+    rt() { n=0; until "$@"; do n=$((n+1)); [ "$n" -ge 5 ] && return 1; sleep 10; done; }
+    rt sh -c 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash'
+    rt helm repo add cilium https://helm.cilium.io/
+    rt helm repo update
+    rt sh -c 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm install cilium cilium/cilium --version 1.16.5 --namespace kube-system -f /var/lib/catalyst/cilium-values.yaml'
+    if ! kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s; then
+      echo "[cilium] FATAL: CNI never rolled out (#4503)" >/var/lib/catalyst/cilium-bootstrap-FAILED
+      exit 91
+    fi
+%{ if provider == "huawei" ~}
+  # #4503 root cause (Huawei-gated note; the byte budget is Hetzner-only): on
+  # the IPv4-only kom4dc path a single transient failure of get-helm-3 /
+  # helm.cilium.io / the chart pull used to be SILENT (cloud-init runcmd is
+  # non-fatal) → 0 Cilium objects → nodes NotReady ("cni plugin not
+  # initialized") forever → Flux controllers can't schedule → permanent
+  # deadlock whose only recorded symptom was the phase-1 watcher's generic
+  # "0 HelmReleases" (the WRONG layer; recurrence of #1934, hit on
+  # d692b5ed547596cf 2026-06-26). The retry+fail-fast block above makes "no
+  # CNI" its own loud fault instead of a masqueraded Flux/ghcr-blob wedge.
+%{ endif ~}
 %{ if provider == "huawei" ~}
   # ── In-cluster github→IPv4 for the Flux source-controller (#3714) ──────
   # The DEEPER half of the #3232/#3714 fix, restored after the #3721 revert
