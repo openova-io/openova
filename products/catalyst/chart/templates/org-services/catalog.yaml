@@ -51,16 +51,24 @@ spec:
             # #4525 — the Sovereign's configured regions (comma-separated)
             # so GET /catalog/regions returns the REAL region set the
             # marketplace BCP picker must offer (not hardcoded Hetzner
-            # names). Same source the fleet handler trusts — the
-            # `sovereign-fqdn` ConfigMap's `configuredRegions` key, written
-            # at provision time. optional=true so Sovereigns without the
-            # key (legacy / Catalyst-Zero) start cleanly with the env
-            # empty; /catalog/regions then returns [] and the frontend
-            # keeps its static fallback.
+            # names). Read from the SAME-NAMESPACE `org-services-config`
+            # ConfigMap (the central source of truth every org-services
+            # Deployment already mounts) — NOT the `sovereign-fqdn`
+            # ConfigMap, which lives in catalyst-system. A configMapKeyRef
+            # resolves only within the Pod's own namespace, so the
+            # cross-namespace `sovereign-fqdn` reference silently resolved
+            # to "" with optional=true → endpoint returned `[]` and the
+            # picker fell back to the hardcoded Hetzner list (the #4525
+            # fault). `org-services-config` carries `configuredRegions`
+            # from the SAME provision-time source (sovereign.configuredRegions
+            # / qaFixtures.configuredRegions). optional=true so legacy /
+            # Catalyst-Zero installs that pre-date the key start cleanly
+            # with the env empty; /catalog/regions then returns [] and the
+            # frontend keeps its static fallback.
             - name: CATALYST_CONFIGURED_REGIONS
               valueFrom:
                 configMapKeyRef:
-                  name: sovereign-fqdn
+                  name: org-services-config
                   key: configuredRegions
                   optional: true
           resources:
