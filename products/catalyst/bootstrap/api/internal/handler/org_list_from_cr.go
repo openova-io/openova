@@ -120,12 +120,16 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 	if billingMode == "" {
 		billingMode = "real"
 	}
-	// Isolation is derived (not a spec field) — mirror resolveOrgShape:
-	// internal → namespace, customer → vcluster.
-	isolation := "vcluster"
-	if kind == "internal" {
-		isolation = "namespace"
-	}
+	// planSlug drives the #4292 tier gate below — read it up front so the
+	// derived isolation label reflects the actual backing.
+	planSlug := strings.ToLower(getSpec("planSlug"))
+	// Isolation is derived (not a spec field) from the SAME #4292 tier gate the
+	// org-controller uses to author the backing (isolationForTier mirrors
+	// gitops.boundaryIsVcluster): internal → namespace; customer free/S →
+	// namespace (host-ns); customer M+/flexi → vcluster. Deriving from kind
+	// ALONE (the pre-#4539 behavior) mislabeled an S-plan Org "vcluster" while
+	// it correctly backs a host namespace (UAT rows 9-12, dep 91dc05917e44d1c1).
+	isolation := isolationForTier(kind, planSlug)
 
 	// tenantPublic.parentDomain carries the org-pool apex; subdomain
 	// defaults to the slug. Empty parent → single-domain back-compat
@@ -190,7 +194,7 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 		Tier:            tier,
 		BillingMode:     billingMode,
 		Isolation:       isolation,
-		PlanSlug:        strings.ToLower(getSpec("planSlug")),
+		PlanSlug:        planSlug,
 		CreatedAt:       obj.GetCreationTimestamp().Time,
 		UpdatedAt:       obj.GetCreationTimestamp().Time,
 	}
