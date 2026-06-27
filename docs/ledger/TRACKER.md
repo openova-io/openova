@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T09:15:03Z` |
+| Last refreshed | `2026-06-27T09:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 16 |
 | Open DoD gates | 0 / 41 |
@@ -211,11 +211,11 @@ flowchart LR
 | [#4511](https://github.com/openova-io/openova/issues/4511) | Jobs Re-run on a COMPLETED batch Job 502s 'spec.template field is immutable' — | Other |
 | [#4513](https://github.com/openova-io/openova/issues/4513) | Fresh prov wedges at 0 HelmReleases: cloud-init runcmd dies on `kubectl create n | Other |
 | [#4515](https://github.com/openova-io/openova/issues/4515) | Cilium parity test stale on main: #4504 switched cloud-init to `rt helm upgrade  | Other |
-| [#4519](https://github.com/openova-io/openova/issues/4519) | openbao: harden OIDC role group resolution — explicitly request `groups` scope | Other |
 | [#4521](https://github.com/openova-io/openova/issues/4521) | fix(crossplane): infrastructure-config Flux Kustomization batches Provider + Pro | Other |
 | [#4524](https://github.com/openova-io/openova/issues/4524) | FUNNEL/Pillar-2: Review step omits the chosen BCP topology + its +OMR 5.000 char | Other |
 | [#4525](https://github.com/openova-io/openova/issues/4525) | FUNNEL/Pillar-2: BCP region picker must fetch the Sovereign's real regions (cata | Other |
 | [#4527](https://github.com/openova-io/openova/issues/4527) | fix(bp-self-sovereign-cutover): registry-pivot v1 (cold-start) mirror routes pri | Other |
+| [#4529](https://github.com/openova-io/openova/issues/4529) | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo copy uses --dest-tls-verif | Other |
 
 ---
 
