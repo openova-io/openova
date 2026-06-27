@@ -1211,7 +1211,7 @@ spec:
       # 1.4.933 — #4553: catalog-seed bp-agenity 0.5.15 -> 0.5.16 — oidc-gate
       #   companion resources requests == limits so the gate pod is admissible
       #   under the per-Org plan-limits LimitRange. Lockstep w/ products/agenity.
-      version: 1.4.933
+      version: 1.4.934
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
