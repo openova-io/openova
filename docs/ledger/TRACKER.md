@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T19:30:05Z` |
+| Last refreshed | `2026-06-27T19:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 17 |
 | Open DoD gates | 0 / 41 |
@@ -224,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T19:35 | [#4580](https://github.com/openova-io/openova/pull/4580) | #4554 | fix(catalyst-api #4551): render the per-app Topology DR pane |
 | 2026-06-27T18:32 | [#4578](https://github.com/openova-io/openova/pull/4578) | #4556 | fix(catalyst): agenity one-HR-per-install + openova-MCP URL  |
 | 2026-06-27T18:12 | [#4577](https://github.com/openova-io/openova/pull/4577) | #4575 | fix(bp-self-sovereign-cutover): contract-test broken-pipe FA |
 | 2026-06-27T17:31 | [#4576](https://github.com/openova-io/openova/pull/4576) | #909 | docs(uat): #4553 Pillar-4 E2E — SSO + MCP RBAC verified (183 |
@@ -253,7 +254,6 @@ flowchart LR
 | 2026-06-27T09:53 | [#4534](https://github.com/openova-io/openova/pull/4534) | #4515 | docs(sessions): definitive final board-state audit (Refs #90 |
 | 2026-06-27T09:49 | [#4533](https://github.com/openova-io/openova/pull/4533) | #4502 | docs(sessions): 2026-06-27 convergence-hardening train — 7-f |
 | 2026-06-27T09:53 | [#4532](https://github.com/openova-io/openova/pull/4532) | #4527 | fix(bp-self-sovereign-cutover): registry-pivot v1 cold-start |
-| 2026-06-27T09:38 | [#4531](https://github.com/openova-io/openova/pull/4531) | #3379 | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo no lon |
 
 ---
 
