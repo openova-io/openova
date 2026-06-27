@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T16:45:03Z` |
+| Last refreshed | `2026-06-27T17:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 17 |
 | Open DoD gates | 0 / 41 |
@@ -224,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T16:56 | [#4572](https://github.com/openova-io/openova/pull/4572) | #4553 | fix(bp-agenity): chart-managed bp-oidc-gate companion for ev |
 | 2026-06-27T15:59 | [#4570](https://github.com/openova-io/openova/pull/4570) | #909 | docs(uat): funnel rows 85/91/92 verified ✅ (181 ✅ · 5 ☐) |
 | 2026-06-27T15:43 | [#4566](https://github.com/openova-io/openova/pull/4566) | #3379 | fix(#4563): pivot catalyst-ui + openova-flow-server off the  |
 | 2026-06-27T15:55 | [#4565](https://github.com/openova-io/openova/pull/4565) | #4421 | fix(marketplace #4564): returning-user redirect lands on the |
@@ -253,7 +254,6 @@ flowchart LR
 | 2026-06-27T09:03 | [#4523](https://github.com/openova-io/openova/pull/4523) | Refs #909 |  |
 | 2026-06-27T09:14 | [#4522](https://github.com/openova-io/openova/pull/4522) | #4519 | fix(bp-openbao): harden OIDC role group resolution — request |
 | 2026-06-27T08:56 | [#4520](https://github.com/openova-io/openova/pull/4520) | #4503 | fix(cloud-init #4513): split two-NAME create-namespace + dro |
-| 2026-06-27T08:50 | [#4518](https://github.com/openova-io/openova/pull/4518) | #4504 | fix(test): cilium parity test accepts `helm upgrade --instal |
 
 ---
 
