@@ -90,6 +90,18 @@ spec:
             - --set-xauthrequest=true
             - --reverse-proxy=true
             - --whitelist-domain={{ $hostname }}
+            # #4507 — The Hubble UI flow stream is a gRPC-Web/Connect
+            # server-streaming XHR to /api/v1/... A gRPC-Web client cannot
+            # follow a 302 to the Keycloak login HTML page, so when the
+            # oauth2-proxy session is missing/expired the default 302-to-login
+            # silently wedges the flow stream — flows never render (UAT row
+            # 39). --api-route makes oauth2-proxy return HTTP 401 (not 302)
+            # for these paths, so the SPA observes the auth failure cleanly
+            # and a top-level reload re-runs silent SSO. This still AUTHs the
+            # path (unlike --skip-auth-route) — no unauthenticated exposure.
+            {{- range $route := ($proxy.apiRoutes | default (list "^/api/")) }}
+            - --api-route={{ $route }}
+            {{- end }}
           env:
             # #3374: with ssoBridgeSync the client-secret comes from the
             # bp-sso-bridge-published ExternalSecret (the LIVE Keycloak

@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.5 (#4507, 2026-06-27): add oauth2-proxy --api-route=^/api/ to the
+# hubble-ui oauth2-proxy so the Hubble UI flow-stream XHR (a gRPC-Web/Connect
+# server-stream to /api/v1/...) gets a clean HTTP 401 on a missing/expired
+# session instead of a 302 to the Keycloak login HTML page. Root-caused live
+# on omantel.biz (dep 91dc05917e44d1c1, UAT row 39): a gRPC-Web client cannot
+# follow a cross-origin 302-to-login, so the default 302 silently wedges the
+# flow stream and flows never render. --api-route still AUTHs the path (unlike
+# --skip-auth-route) so there is no unauthenticated-exposure regression. New
+# values knob catalystOverlay.hubbleUI.oauth2Proxy.apiRoutes (default
+# ["^/api/"]). Lockstep: blueprint.yaml 1.4.5 + 01-cilium.yaml slot pin 1.4.5.
+# tests/g117-hubble-oauth2-proxy-enforcement.sh Case 5 asserts the flag.
 # 1.4.4 (#4467, 2026-06-26): pin cilium.MTU=1370 for the WireGuard+VXLAN
 # datapath. Root-caused live on a Huawei me-east-215 (kom4dc) fresh prov:
 # the chart runs routingMode=tunnel/tunnelProtocol=vxlan (upstream defaults
@@ -146,7 +157,7 @@ name: bp-cilium
 # the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
 # fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
 # mapper lands on the live hubble-ui client zero-touch.
-version: 1.4.4
+version: 1.4.5
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

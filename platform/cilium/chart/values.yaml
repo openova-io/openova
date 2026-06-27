@@ -416,6 +416,16 @@ catalystOverlay:
         enabled: true
         externalSecretStoreName: vault-region1
         refreshInterval: 1h
+      # #4507 — oauth2-proxy --api-route regexes. The Hubble UI flow stream
+      # is a gRPC-Web/Connect server-streaming XHR to /api/v1/...; a gRPC-Web
+      # client cannot follow a 302 to the Keycloak login HTML page, so a
+      # missing/expired session silently wedges the stream and flows never
+      # render (UAT row 39). Listing the /api prefix here makes oauth2-proxy
+      # return HTTP 401 (not 302-to-login) for these paths, so the SPA sees
+      # the auth failure cleanly. These paths are STILL authenticated (unlike
+      # skipAuthRoutes) — no unauthenticated-exposure regression.
+      apiRoutes:
+        - "^/api/"
       replicas: 1
       image:
         repository: quay.io/oauth2-proxy/oauth2-proxy

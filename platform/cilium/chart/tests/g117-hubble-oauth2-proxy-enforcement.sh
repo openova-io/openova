@@ -99,4 +99,27 @@ grep -q "kind: Deployment" <<<"$dep_byo" || { echo "FAIL: Deployment missing und
 grep -q "hubble-ui-oauth2-proxy-sso" <<<"$dep_byo" || { echo "FAIL: Deployment does not reference existingSecret" >&2; exit 1; }
 echo "  PASS (Secret suppressed; Deployment references existingSecret)"
 
+# ── Case 5: #4507 — /api XHR returns 401 not 302 (gRPC-Web flow stream) ────
+# The Hubble UI flow stream is a gRPC-Web/Connect server-streaming XHR to
+# /api/v1/...; a gRPC-Web client cannot follow a 302 to the Keycloak login
+# HTML page, so on a missing/expired session the default 302-to-login
+# silently wedges the stream and flows never render (UAT row 39). --api-route
+# makes oauth2-proxy return HTTP 401 for these paths. It still AUTHs the path
+# (unlike --skip-auth-route) — no unauthenticated-exposure regression.
+echo "[g117-hubble-oauth2-proxy] Case 5: --api-route=^/api/ on flow-stream path"
+grep -qF -- "--api-route=^/api/" <<<"$dep_oidc" || {
+  echo "FAIL: oauth2-proxy missing --api-route=^/api/ — flow XHR would 302-to-KC-login (flows never render, #4507)" >&2; exit 1
+}
+# Guard against a regression to --skip-auth-route on the API path (that would
+# expose the flow stream UNAUTHENTICATED).
+if grep -qF -- "--skip-auth-route=^/api/" <<<"$dep_oidc"; then
+  echo "FAIL: flow API path is on --skip-auth-route (unauthenticated exposure) — must be --api-route" >&2; exit 1
+fi
+# Custom apiRoutes override is honored.
+dep_custom="$(show hubble-ui-oauth2-proxy-deployment.yaml --set catalystOverlay.hubbleUI.auth=oidc --set 'catalystOverlay.hubbleUI.oauth2Proxy.apiRoutes={^/api/,^/v1/grpc/}')"
+grep -qF -- "--api-route=^/v1/grpc/" <<<"$dep_custom" || {
+  echo "FAIL: custom oauth2Proxy.apiRoutes not honored" >&2; exit 1
+}
+echo "  PASS (--api-route=^/api/ present; not skip-auth; override honored)"
+
 echo "[bp-cilium G117.5 #2744 hubble oauth2-proxy enforcement] All cases PASS"
