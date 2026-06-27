@@ -338,6 +338,35 @@ prewarm:
   # stepTimeouts.harborPrewarmSeconds (5400s) so at least 2-3 copies can run
   # serially within one Job's deadline even in the worst case.
   skopeoCommandTimeout: "1200s"
+  # #4529 (Refs #3379): TLS verification on the skopeo copy DESTINATION — the
+  # IN-CLUSTER Harbor reached as `registry.<sov-fqdn>` (HARBOR_PUBLIC_URL →
+  # HARBOR_HOST). DEFAULT false.
+  #
+  # WHY false is correct (NOT a security regression). Step-03 copies the
+  # openova-io container images + helm chart OCI artifacts INTO the Sovereign's
+  # OWN in-cluster Harbor over the cluster pod network. On a fresh prov that
+  # Harbor's wildcard `*.<sov-fqdn>` cert is served by the BOOTSTRAP issuer
+  # `letsencrypt-dns01-staging-powerdns` (LE-STAGING, untrusted by the public
+  # CA bundle) until production LE certs rotate in — and even with production
+  # LE certs a skopeo binary running in a Job Pod carries no node trust store,
+  # so `--dest-tls-verify=true` raises `x509: certificate signed by unknown
+  # authority` and EVERY push fails (`push_ok=0 push_fail=30` → step-03 FATAL →
+  # the cutover never reaches the 600s deny-egress hold → cutoverComplete never
+  # set; live keystone prov 25aadcfc on registry.kv160729.omani.works). The
+  # destination is the cluster's OWN registry — trust is established by the
+  # cluster network, NOT a public CA — exactly the same rationale the cold-start
+  # registries.yaml v1 uses `tls.insecure_skip_verify: true` for the bastion
+  # Harbor mirror (04-registry-pivot-daemonset.yaml). The cutover's SECURITY
+  # intent is severing EXTERNAL tethers + pivoting to the LOCAL registry; the
+  # witnessed 600s deny-egress hold (step-08) is the real security gate and is
+  # wholly untouched by this flag. SRC verification stays true unconditionally
+  # (the ghcr.io SOURCE is a public CA-signed external host that MUST be
+  # authenticated).
+  #
+  # Operators with a public-CA-trusted internal registry cert AND a skopeo
+  # trust store may set this true via overlay; default false is the correct
+  # fresh-prov behaviour.
+  destTLSVerify: false
   images:
     - "proxy-docker/library/redis:7"
     - "proxy-docker/library/postgres:16"
