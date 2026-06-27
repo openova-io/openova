@@ -236,13 +236,22 @@ func TestCiliumValuesParity_BootstrapHelmInstallReadsValuesFile(t *testing.T) {
 	tpl := readCloudInit(t)
 
 	// The helm install is in runcmd: as a multi-line block. The
-	// canonical form is:
-	//   helm install cilium cilium/cilium \
+	// canonical form is (post-#4504 retry-wrapper + idempotent install):
+	//   rt helm upgrade --install cilium cilium/cilium \
 	//     --version 1.16.5 \
 	//     --namespace kube-system \
 	//     -f /var/lib/catalyst/cilium-values.yaml
-	if !strings.Contains(tpl, "helm install cilium cilium/cilium") {
-		t.Fatalf("cloud-init must run `helm install cilium cilium/cilium` (this is the bootstrap exception; issue #491 didn't change that)")
+	//
+	// #4504 switched the bare `helm install` to a retried, idempotent
+	// `helm upgrade --install` so a transient get-helm/repo-update
+	// failure no longer leaves the node with no CNI. Both forms invoke
+	// the `cilium/cilium` chart; the contract this test guards is that
+	// the install reads the curated values FILE (`-f`), not a minimal
+	// `--set` list. Match on the chart invocation regardless of the
+	// install/upgrade verb.
+	if !strings.Contains(tpl, "helm install cilium cilium/cilium") &&
+		!strings.Contains(tpl, "helm upgrade --install cilium cilium/cilium") {
+		t.Fatalf("cloud-init must run `helm (install|upgrade --install) cilium cilium/cilium` (this is the bootstrap exception; issue #491 didn't change that, #4504 made it idempotent)")
 	}
 	if !strings.Contains(tpl, "-f /var/lib/catalyst/cilium-values.yaml") {
 		t.Errorf("bootstrap helm install must read values via `-f /var/lib/catalyst/cilium-values.yaml` (issue #491). Without this, the values file is never consumed and we regress to the pre-#491 minimal install which crash-loops cilium-agent.")
