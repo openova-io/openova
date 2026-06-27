@@ -164,12 +164,18 @@ func TestApplyTenantChangePerOrg_CommitsToPerOrgRepo_4384(t *testing.T) {
 		if f.Path == "vcluster/apps/kustomization.yaml" {
 			sawKust = true
 			dec, _ := base64.StdEncoding.DecodeString(f.Content)
-			// The merged kustomization preserves the org-controller NP/CNP
+			// The merged kustomization preserves the org-controller NP
 			// baseline AND lists the new app.
-			for _, want := range []string{"networkpolicy.yaml", "ciliumnetworkpolicy.yaml", "app-wordpress.yaml"} {
+			for _, want := range []string{"networkpolicy.yaml", "app-wordpress.yaml"} {
 				if !strings.Contains(string(dec), want) {
 					t.Errorf("merged kustomization missing %q:\n%s", want, dec)
 				}
+			}
+			// #4567: the CNP lives in vcluster/host-apps/, not apps/ — it must
+			// NOT be listed in the apps kustomization (else the kustomize build
+			// fails on the missing file and the purchased app never deploys).
+			if strings.Contains(string(dec), "ciliumnetworkpolicy.yaml") {
+				t.Errorf("apps kustomization wrongly lists ciliumnetworkpolicy.yaml (a host-apps/ file) — breaks the build:\n%s", dec)
 			}
 		}
 	}
