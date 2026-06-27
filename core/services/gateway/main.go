@@ -57,6 +57,10 @@ func main() {
 		{PathPrefix: "/api/catalog/bundles", Upstream: catalogURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/catalog/plans", Upstream: catalogURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/catalog/addons", Upstream: catalogURL, StripPrefix: "/api", Public: true},
+		// #4525 — the Sovereign's REAL configured regions, so the marketplace
+		// funnel BCP picker fetches a live region set instead of hardcoded
+		// Hetzner names. Public (the picker renders pre-auth, like plans/addons).
+		{PathPrefix: "/api/catalog/regions", Upstream: catalogURL, StripPrefix: "/api", Public: true},
 		// Catalog admin (requires auth).
 		{PathPrefix: "/api/catalog/admin/", Upstream: catalogURL, StripPrefix: "/api", Public: false},
 		// Organization directory + CRUD (#3383: canonical `/api/organizations`,

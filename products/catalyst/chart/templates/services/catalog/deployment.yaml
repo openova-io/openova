@@ -85,6 +85,19 @@ spec:
                   name: sovereign-fqdn
                   key: fqdn
                   optional: true
+            # #4525 — the Sovereign's configured regions (comma-separated)
+            # so GET /catalog/regions returns the REAL region set the
+            # marketplace BCP picker must offer. Same `sovereign-fqdn`
+            # ConfigMap key the fleet handler + api-deployment read.
+            # optional=true so a Sovereign without the key starts cleanly
+            # with the env empty (endpoint returns [], frontend keeps its
+            # static fallback).
+            - name: CATALYST_CONFIGURED_REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: configuredRegions
+                  optional: true
             {{- range $k, $v := .Values.services.catalog.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}

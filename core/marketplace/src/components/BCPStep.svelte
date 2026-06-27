@@ -27,26 +27,62 @@
   // and logs a Warn — symmetric with the operator-opt-in InvalidRegionPair
   // test in appconfigs_test.go.
   //
-  // Regions list — TODO follow-up: when the catalog service exposes
-  // GET /v1/catalog/regions returning the Sovereign's primary +
-  // secondary regions, swap REGIONS to a fetched list. For now the
-  // canonical t-N defaults are hardcoded; smaller blast radius than
-  // shipping a stub endpoint that would itself be theatre.
+  // Regions list — #4525: fetched from the catalog service's
+  // GET /api/catalog/regions (the Sovereign's REAL configured regions,
+  // sourced from CATALYST_CONFIGURED_REGIONS). The hardcoded list below
+  // is the loading/offline FALLBACK only — on a Huawei Sovereign running
+  // me-east-215-a/b the fetched set replaces it so the picker never
+  // offers a region the Sovereign cannot honor (which would route the
+  // customer's choice into the gitops InvalidRegionPair single-cluster
+  // fallback silently).
+  import { onMount } from 'svelte';
   import { readCart, setAppConfig } from '../lib/cart';
 
-  // Canonical Sovereign region keys — matches the values gitops
+  // Fallback Sovereign region keys — matches the values gitops
   // appconfigs_test.go::TestPostgres_AppConfigs_ActiveHotStandby_GenericApp
-  // exercises ("hz-fsn-rtz-prod" / "hz-hel-rtz-prod") + adds nbg as the
-  // third region the t-N fresh-prov topology bring up. If a Sovereign
-  // wants a different set, the catalog/regions endpoint is the right
-  // injection point (see TODO above). hz-fsn = Falkenstein, hz-hel =
-  // Helsinki, hz-nbg = Nuremberg — all Hetzner BBs the canonical
-  // multi-region prov uses.
-  const REGIONS: { key: string; label: string }[] = [
+  // exercises ("hz-fsn-rtz-prod" / "hz-hel-rtz-prod") + nbg as a third.
+  // These are ONLY used while the /api/catalog/regions fetch is in flight
+  // or when it fails (offline / older Sovereign without the endpoint).
+  // hz-fsn = Falkenstein, hz-hel = Helsinki, hz-nbg = Nuremberg.
+  const FALLBACK_REGIONS: { key: string; label: string }[] = [
     { key: 'hz-fsn-rtz-prod', label: 'Falkenstein (hz-fsn)' },
     { key: 'hz-hel-rtz-prod', label: 'Helsinki (hz-hel)' },
     { key: 'hz-nbg-rtz-prod', label: 'Nuremberg (hz-nbg)' },
   ];
+
+  // The live region list shown in the <select>s. Starts as the fallback
+  // so the form is fully populated on first paint; replaced on mount by
+  // the Sovereign's real regions when the fetch succeeds with a non-empty
+  // set. A failed fetch or empty response leaves the fallback in place.
+  let REGIONS = $state<{ key: string; label: string }[]>(FALLBACK_REGIONS);
+
+  onMount(async () => {
+    try {
+      const res = await fetch('/api/catalog/regions', {
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) return; // keep fallback
+      const data = (await res.json()) as { key?: string; label?: string }[];
+      if (!Array.isArray(data) || data.length === 0) return; // keep fallback
+      const fetched = data
+        .filter((r) => typeof r.key === 'string' && r.key !== '')
+        .map((r) => ({ key: r.key as string, label: (r.label as string) || (r.key as string) }));
+      if (fetched.length === 0) return; // keep fallback
+      REGIONS = fetched;
+      // Re-anchor the picks onto the fetched set so a stale cart default
+      // (e.g. a hardcoded hz-* key from a prior session) can't survive as
+      // a region the Sovereign can't honor. Only nudge when the current
+      // pick isn't in the fetched set.
+      const keys = new Set(fetched.map((r) => r.key));
+      if (!keys.has(primaryRegion)) primaryRegion = fetched[0].key;
+      if (!keys.has(replicaRegion)) {
+        replicaRegion = fetched[1]?.key ?? fetched[0].key;
+      }
+    } catch {
+      // Network error — keep the static fallback so the picker is never
+      // blocked. The region-pair "must differ" validation still applies.
+    }
+  });
 
   // Helper: pull the current postgres slot from cart.appConfigs and
   // apply defaults so the form is always populated even on first
