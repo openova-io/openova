@@ -2,24 +2,36 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # clusters/_template/infrastructure/base — the CLOUD-AGNOSTIC Crossplane
-# object-model layer (ADR-0011, Refs #4002 #4018 #4212).
+# object-model CONFIG layer (ADR-0011, Refs #4002 #4018 #4212 #4521).
 #
-# Installs ONLY resources that work on EVERY cloud:
-#   - provider-opentofu        — the cross-cloud OpenTofu→Crossplane adoption
-#                                seam (Workspace inline module does read-only
-#                                `data` lookups against Hetzner OR Huawei).
-#   - provider-config-opentofu — drives every CloudAdoption's Workspace;
-#                                cloud auth flows via the Workspace env[].
-#   - adoption-claims.yaml     — the Observe-first CloudAdoption placeholder;
-#                                the provisioner's post-handover applier
+# This is the SECOND of the two-layer crossplane bootstrap (#4521). The Provider
+# PACKAGE CRs live in ../providers/base (applied first by the
+# `infrastructure-providers` Flux Kustomization); THIS layer carries the
+# CRD-CONSUMING objects, applied only AFTER the provider registers its CRDs
+# (the `infrastructure-config` Flux Kustomization `dependsOn`s
+# `infrastructure-providers`):
+#   - provider-config-opentofu — kind ProviderConfig (tf.upbound.io/v1beta1, a
+#                                CRD registered by provider-opentofu); drives
+#                                every CloudAdoption's Workspace; cloud auth
+#                                flows via the Workspace env[].
+#   - adoption-claims.yaml     — the Observe-first CloudAdoption placeholder
+#                                (compose.openova.io); the provisioner's
+#                                post-handover applier
 #                                (handler/post_handover_adoption_apply.go)
 #                                server-side-applies the REAL resource ids.
 #
+# WHY THE SPLIT (#4521): batching the Provider CR and its `tf.upbound.io/v1beta1`
+# ProviderConfig in ONE Flux Kustomization deadlocked — Flux's atomic
+# server-side dry-run rejected the WHOLE apply with `no matches for kind
+# "ProviderConfig" in version "tf.upbound.io/v1beta1"` (the CRD does not exist
+# until the provider installs), so the Provider CR itself never applied → the
+# provider could never install → its CRD never registered → permanent ordering
+# deadlock. See ../providers/base/kustomization.yaml for the full rationale.
+#
 # Referenced by the top-level ../kustomization.yaml (Huawei path) AND by the
-# ../hetzner overlay (Hetzner path, which adds the native provider-hcloud).
+# ../hetzner overlay (Hetzner path, which adds the native provider-config-hcloud).
 # Sibling-dir layout so the hetzner overlay can `../base`-reference this
 # without the kustomize ancestor-cycle / security-boundary errors.
 resources:
-  - provider-opentofu.yaml
   - provider-config-opentofu.yaml
   - adoption-claims.yaml

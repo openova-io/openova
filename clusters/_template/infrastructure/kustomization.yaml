@@ -1,16 +1,26 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# clusters/_template/infrastructure — the Crossplane object-model layer
-# entrypoint for HUAWEI (and any non-Hetzner cloud) (#4212, un-gates
-# #4002/#4018). It pulls in the cloud-agnostic ./base — provider-opentofu +
-# provider-config-opentofu + the Observe-first CloudAdoption placeholder —
-# all of which work on every cloud.
+# clusters/_template/infrastructure — the Crossplane object-model CONFIG
+# entrypoint for HUAWEI (and any non-Hetzner cloud) (#4212 #4521, un-gates
+# #4002/#4018). It pulls in the cloud-agnostic ./base — provider-config-opentofu
+# + the Observe-first CloudAdoption placeholder — all of which work on every
+# cloud.
 #
-# The single `infrastructure-config` Flux Kustomization (cloud-init) points
-# its cloud-conditional `path` HERE on Huawei (base only) and at ./hetzner
-# on Hetzner (base + native provider-hcloud). Before #4212 the whole
-# Kustomization was hard-gated to Hetzner, so on Huawei Crossplane owned
+# TWO-LAYER crossplane bootstrap (#4521): the Provider PACKAGE CRs live in
+# ./providers (applied first by the `infrastructure-providers` Flux
+# Kustomization); the CRD-CONSUMING config (this tree) is applied by the
+# `infrastructure-config` Flux Kustomization which `dependsOn`s
+# `infrastructure-providers` so the provider CRDs exist before this layer is
+# dry-run. The single-Kustomization batching deadlocked Flux's atomic dry-run
+# (`no matches for kind "ProviderConfig" in version "tf.upbound.io/v1beta1"`) →
+# the Provider CR never applied → provider never installed → permanent
+# ordering deadlock.
+#
+# Both `infrastructure-providers` and `infrastructure-config` point their
+# cloud-conditional `path` HERE on Huawei (base only) and at the ./hetzner
+# sibling on Hetzner (base + native provider-(config-)hcloud). Before #4212 the
+# whole Kustomization was hard-gated to Hetzner, so on Huawei Crossplane owned
 # NOTHING and `kubectl get providers.pkg.crossplane.io` was empty (the
 # #4002/#4018 gap this un-gates).
 resources:

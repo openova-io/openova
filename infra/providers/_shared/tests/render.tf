@@ -102,6 +102,28 @@ locals {
   # The namespace-create loop must NOT pass two NAMEs to a single
   # `create namespace` (#4513 — "exactly one NAME is required, got 2").
   multi_name_create = length(regexall("create namespace catalyst-system openbao", local.rendered_cloud_init)) > 0
+
+  # #4521 — the two-layer Crossplane bootstrap. The Provider CR and its
+  # CRD-CONSUMING ProviderConfig MUST be applied by SEPARATE Flux
+  # Kustomizations so Flux's atomic server-side dry-run cannot reject the
+  # ProviderConfig (`no matches for kind "ProviderConfig" in version
+  # "tf.upbound.io/v1beta1"`) and thereby block the Provider CR from ever
+  # applying. Assert BOTH Kustomizations render.
+  has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.rendered_cloud_init)) > 0
+  has_config_kustomization    = length(regexall("(?m)^[ ]+name: infrastructure-config$", local.rendered_cloud_init)) > 0
+
+  # The Provider-install layer must point at the providers/ tree (NOT the
+  # config tree) so it carries ONLY the Provider package CRs.
+  providers_path_correct = length(regexall("path: ./clusters/_template/infrastructure/providers", local.rendered_cloud_init)) > 0
+
+  # The config layer must `dependsOn` the providers layer — the ordering gate
+  # that breaks the #4521 deadlock. (The bootstrap-kit dependency is inherited
+  # transitively via infrastructure-providers.)
+  config_depends_on_providers = length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.rendered_cloud_init)) > 0
+
+  # The providers layer must carry a targeted Provider healthCheck so the
+  # config layer's `dependsOn` only releases once the provider CRDs register.
+  providers_healthcheck = length(regexall("(?s)name: infrastructure-providers.*?healthChecks:.*?kind: Provider", local.rendered_cloud_init)) > 0
 }
 
 output "rendered_cloud_init" {
@@ -123,4 +145,24 @@ output "multi_name_create" {
 
 output "rendered_bytes" {
   value = length(local.rendered_cloud_init)
+}
+
+output "has_providers_kustomization" {
+  value = local.has_providers_kustomization
+}
+
+output "has_config_kustomization" {
+  value = local.has_config_kustomization
+}
+
+output "providers_path_correct" {
+  value = local.providers_path_correct
+}
+
+output "config_depends_on_providers" {
+  value = local.config_depends_on_providers
+}
+
+output "providers_healthcheck" {
+  value = local.providers_healthcheck
 }

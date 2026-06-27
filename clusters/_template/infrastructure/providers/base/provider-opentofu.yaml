@@ -12,9 +12,12 @@
 # (`*.me-east-215.kom4dc.nationalcloud.om`, insecure TLS) that the tofu
 # module already handles. See ADR-0011 §Decision for the full rationale.
 #
-# Installed AFTER bp-crossplane lands the apiextensions CRDs (slot 04),
-# by the `infrastructure` Flux Kustomization (clusters/<fqdn>/infrastructure).
-# Adoption claims (CloudAdoption) reference its ProviderConfig `default`.
+# Installed AFTER bp-crossplane lands the apiextensions CRDs (slot 04), by the
+# `infrastructure-providers` Flux Kustomization (LAYER 1 of the two-layer
+# crossplane bootstrap, #4521) — the SEPARATE Provider-install Kustomization
+# that must go Healthy BEFORE the ProviderConfig/CloudAdoption config layer
+# (`infrastructure-config`) is dry-run. Adoption claims (CloudAdoption) and the
+# ProviderConfig `default` they reference live in ../../base (LAYER 2).
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
@@ -29,7 +32,7 @@ spec:
   # the native fit. Pinned digest-pinnable tag.
   #
   # #4488 — the registry HOST is a Flux postBuild substitution var
-  # (set by the infrastructure-config Kustomization in cloud-init,
+  # (set by the infrastructure-providers Kustomization in cloud-init,
   # cloud-conditional):
   #   - Hetzner → `xpkg.upbound.io` (the upstream default — Hetzner's NAT
   #     to xpkg is clean, the package pulls direct).

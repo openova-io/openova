@@ -932,15 +932,91 @@ write_files:
             # tofu var validation rejects "" and "local-path".
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
       ---
-      # infrastructure-config Kustomization — the Crossplane object-model
-      # layer (#4212, un-gates #4002/#4018). UN-GATED to all clouds: the
-      # `path` is cloud-conditional — Huawei installs the cloud-agnostic
-      # base (provider-opentofu + the Observe-first CloudAdoption
-      # placeholder); Hetzner installs the ./hetzner overlay (= base +
-      # native provider-hcloud). Before #4212 the whole Kustomization was
-      # Hetzner-only, so on Huawei `kubectl get providers.pkg.crossplane.io`
-      # was empty. wait:false — the Crossplane provider PACKAGE pull is a
-      # day-2 surface that must NEVER gate Phase-1 (sacred-thin cloud-init).
+      # infrastructure-providers Kustomization — LAYER 1 of the two-layer
+      # Crossplane bootstrap (#4521, Refs #4212 #4488, un-gates #4002/#4018).
+      # Installs ONLY the Provider PACKAGE CRs (provider-opentofu, + native
+      # provider-hcloud on Hetzner). Cloud-conditional `path`: Huawei →
+      # ./providers (base provider-opentofu only); Hetzner → ./providers/hetzner
+      # (base + native provider-hcloud).
+      #
+      # WHY THIS IS A SEPARATE KUSTOMIZATION (#4521): the Provider CR and the
+      # `tf.upbound.io/v1beta1` ProviderConfig that CONSUMES the CRD the
+      # Provider registers were previously batched in ONE Kustomization. Flux
+      # server-side dry-runs a Kustomization ATOMICALLY; the ProviderConfig
+      # dry-run failed `no matches for kind "ProviderConfig" in version
+      # "tf.upbound.io/v1beta1"` (the CRD does not exist until the provider
+      # installs) → the WHOLE apply was rejected → the Provider CR itself never
+      # applied → the provider never installed → its CRD never registered →
+      # permanent ordering deadlock (`infrastructure-config Ready=False`,
+      # `kubectl get providers.pkg.crossplane.io` empty). Splitting the
+      # Provider CR into THIS layer (whose only CRD is pkg.crossplane.io/v1,
+      # already landed by bp-crossplane at slot 04) lets it apply cleanly; the
+      # LAYER-2 `infrastructure-config` `dependsOn`s this + carries the
+      # CRD-CONSUMING ProviderConfig/CloudAdoption. The established
+      # bootstrap-kit → bootstrap-kit-crs CRD-then-CR idiom.
+      #
+      # wait:false + a Provider healthCheck — the Crossplane provider PACKAGE
+      # pull is a day-2 surface that must NEVER gate Phase-1 (sacred-thin
+      # cloud-init). wait:false reports Ready on the targeted healthChecks
+      # below (not on every object), so layer-2's `dependsOn` only releases
+      # once provider-opentofu is Healthy (its CRDs registered). retryInterval
+      # short so the Provider re-applies promptly after bp-crossplane lands
+      # pkg.crossplane.io (no dependsOn on bp-crossplane: it lives inside
+      # bootstrap-kit which this already depends on).
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: infrastructure-providers
+        namespace: flux-system
+      spec:
+        interval: 5m
+        retryInterval: 1m
+        # #4513: the endif must NOT carry a trailing tilde (a tilde-close strips
+        # the following newline, jamming the next mapping key onto this line).
+        path: ./clusters/_template/infrastructure/providers%{ if provider == "hetzner" }/hetzner%{ endif }
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+        wait: false
+        timeout: 5m
+        # Targeted health gate: the Provider must be Healthy (CRDs registered)
+        # before layer-2's `dependsOn` releases. Evaluated because wait:false.
+        healthChecks:
+          - apiVersion: pkg.crossplane.io/v1
+            kind: Provider
+            name: provider-opentofu
+        postBuild:
+          substitute:
+            # #4488 — provider-opentofu package-pull host, cloud-conditional.
+            # The Crossplane xpkg fetcher (go-containerregistry, K8sFetcher)
+            # bypasses the node containerd registries.yaml mirror, so on
+            # Huawei (kom4dc) a raw `xpkg.upbound.io` package dials the
+            # poisoned NAT EIP and stalls → the adoption seam stays inert.
+            # Route Huawei through the mothership Harbor's TLS-valid
+            # proxy-xpkg pull-through (off the wait:false critical path);
+            # Hetzner keeps the direct upstream (clean NAT). See
+            # providers/base/provider-opentofu.yaml for the full rationale.
+            XPKG_REGISTRY: "%{ if provider == "huawei" }harbor.openova.io/proxy-xpkg%{ else }xpkg.upbound.io%{ endif ~}"
+      ---
+      # infrastructure-config Kustomization — LAYER 2 of the two-layer
+      # Crossplane bootstrap (#4521, Refs #4212, un-gates #4002/#4018).
+      # Carries the CRD-CONSUMING config: the ProviderConfig
+      # (tf.upbound.io/v1beta1 + hcloud.crossplane.io/v1beta1 on Hetzner) + the
+      # Observe-first CloudAdoption placeholder (compose.openova.io). Those CRDs
+      # are registered by LAYER-1's Providers, so this layer `dependsOn`s
+      # infrastructure-providers — whose Provider healthCheck (above) only
+      # releases once the CRDs exist, so this layer's dry-run never hits the
+      # #4521 `no matches for kind "ProviderConfig"` deadlock. Cloud-conditional
+      # `path`: Huawei → ./infrastructure (base config); Hetzner →
+      # ./infrastructure/hetzner (base config + native provider-config-hcloud).
+      #
+      # wait:false (sacred-thin: the adoption seam reconciles async, off
+      # Phase-1). retryInterval short so the ProviderConfig dry-run retries
+      # promptly the instant the LAYER-1 CRDs finish Establishing — belt-and-
+      # braces under the dependsOn (the bootstrap-kit-crs idiom).
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
@@ -948,6 +1024,7 @@ write_files:
         namespace: flux-system
       spec:
         interval: 5m
+        retryInterval: 1m
         # #4513: the endif directive below must NOT carry a trailing tilde — a
         # tilde-close strips the following newline, collapsing `prune: true`
         # onto this `path:` line ("yaml: mapping values are not allowed in this
@@ -958,7 +1035,7 @@ write_files:
           kind: GitRepository
           name: openova
         dependsOn:
-          - name: bootstrap-kit
+          - name: infrastructure-providers
           - name: sovereign-tls
         wait: false
         timeout: 5m
@@ -968,16 +1045,6 @@ write_files:
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
-            # #4488 — provider-opentofu package-pull host, cloud-conditional.
-            # The Crossplane xpkg fetcher (go-containerregistry, K8sFetcher)
-            # bypasses the node containerd registries.yaml mirror, so on
-            # Huawei (kom4dc) a raw `xpkg.upbound.io` package dials the
-            # poisoned NAT EIP and stalls → the adoption seam stays inert.
-            # Route Huawei through the mothership Harbor's TLS-valid
-            # proxy-xpkg pull-through (off the wait:false critical path);
-            # Hetzner keeps the direct upstream (clean NAT). See
-            # base/provider-opentofu.yaml for the full rationale.
-            XPKG_REGISTRY: "%{ if provider == "huawei" }harbor.openova.io/proxy-xpkg%{ else }xpkg.upbound.io%{ endif ~}"
 
 runcmd:
   - swapoff -a
