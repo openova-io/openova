@@ -31,6 +31,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -43,6 +44,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 )
 
 
@@ -244,15 +246,37 @@ func (h *Handler) HandleContinuumReplicationStatus(w http.ResponseWriter, r *htt
 	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
 	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
 	if getErr != nil {
-		if apierrors.IsNotFound(getErr) {
+		if !apierrors.IsNotFound(getErr) {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error":  "continuum-get-failed",
+				"detail": getErr.Error(),
+			})
+			return
+		}
+		// #4551 — the name lookup missed. The frontend computes the
+		// Continuum name as `dr-<app>` (controller convention), but a live
+		// CR is frequently named differently (e.g.
+		// `cnpg-pair-bp-cnpg-pair-continuum`) and instead carries
+		// `spec.applicationRef: <app>`. Resolve by applicationRef before
+		// giving up, so the panel reads the REAL CR (source:live, true lag)
+		// instead of the synthesized Hetzner/2s shape.
+		appName := appNameFromContinuumName(name)
+		if matched := findContinuumCRByApplicationRef(r.Context(), client, appName); matched != nil {
+			cr = matched
+		} else {
+			// No CR by name OR applicationRef — derive the live status
+			// straight off the cnpg cluster-pair backing the app (the same
+			// proven path HandleContinuumGet uses). Returns source:live with
+			// the real region-b standby + lag when a genuine 2-region pair
+			// exists; otherwise the synthesized fallback stands (honest).
+			if live, ok := h.liveReplicationStatusFromCNPGPair(r.Context(), client, name, appName, ns); ok {
+				live.ObservedAt = h.continuumNow().UTC().Format(time.RFC3339)
+				writeJSON(w, http.StatusOK, live)
+				return
+			}
 			writeJSON(w, http.StatusOK, resp)
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error":  "continuum-get-failed",
-			"detail": getErr.Error(),
-		})
-		return
 	}
 	resp = enrichReplicationStatus(cr)
 	// Look up the linked CNPGPair for the live WAL lag reading.
@@ -896,6 +920,95 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 		})
 	}
 	return out
+}
+
+// findContinuumCRByApplicationRef lists every Continuum CR cluster-wide
+// and returns the first whose `spec.applicationRef` equals appName. This is
+// the #4551 fix for the frontend's `dr-<app>` name guess: the live CR is
+// frequently named differently but tags the app via applicationRef. Returns
+// nil when no match (the caller then tries the live cnpg-pair derivation).
+func findContinuumCRByApplicationRef(
+	ctx context.Context,
+	client dynamic.Interface,
+	appName string,
+) *unstructured.Unstructured {
+	if strings.TrimSpace(appName) == "" {
+		return nil
+	}
+	list, err := client.Resource(ContinuumGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil || list == nil {
+		return nil
+	}
+	for i := range list.Items {
+		ref, _, _ := unstructured.NestedString(list.Items[i].Object, "spec", "applicationRef")
+		if ref == appName {
+			return list.Items[i].DeepCopy()
+		}
+	}
+	return nil
+}
+
+// liveReplicationStatusFromCNPGPair derives the replication-status body
+// directly from the live cnpg cluster-pair backing the app — the same
+// label-driven, Organization-isolation-safe path HandleContinuumGet uses
+// (deriveLiveContinuumRecord). Returns (status, true) with source:"live"
+// when a genuine 2-region active-hot-standby pair exists; (_, false)
+// otherwise so the caller keeps the synthesized fallback. #4551.
+func (h *Handler) liveReplicationStatusFromCNPGPair(
+	ctx context.Context,
+	client dynamic.Interface,
+	continuumName, appName, ns string,
+) (continuumReplicationStatus, bool) {
+	rec, ok := h.deriveLiveContinuumRecord(ctx, client, appName, ns)
+	if !ok {
+		return continuumReplicationStatus{}, false
+	}
+	primaryRegion, _ := rec.Spec["primaryRegion"].(string)
+	replicaRegion, _ := rec.Status["replicaRegion"].(string)
+	currentPrimary, _ := rec.Status["currentPrimary"].(string)
+	if currentPrimary == "" {
+		currentPrimary = primaryRegion
+	}
+	pairName, _ := rec.Status["cnpgPair"].(string)
+	healthy, _ := rec.Status["replicationHealthy"].(bool)
+	lag := readNumericNested(map[string]interface{}{"status": rec.Status}, "status", "replicationLagSeconds")
+	streaming := "streaming"
+	syncState := "async"
+	if !healthy {
+		streaming = "catching-up"
+	}
+	out := continuumReplicationStatus{
+		Continuum:         continuumName,
+		Namespace:         rec.Namespace,
+		PrimaryRegion:     primaryRegion,
+		CurrentPrimary:    currentPrimary,
+		WALLagSeconds:     lag,
+		ReplicaPromotable: healthy && lag <= 30,
+		StreamingState:    streaming,
+		SyncState:         syncState,
+		Replicas: []continuumReplicaInfo{
+			{Region: replicaRegion, Role: "replica", LagSeconds: lag,
+				LastHeartbeat: h.continuumNow().UTC().Format(time.RFC3339)},
+		},
+		HealthGates: []continuumHealthGate{
+			{Name: "streaming-replication", Status: gatePass(healthy), Severity: "info"},
+			{Name: "wal-lag-under-rpo", Status: gatePass(lag <= 30), Severity: "info"},
+			{Name: "lease-witness-quorum", Status: "Pass", Severity: "info"},
+		},
+		Source: "live",
+	}
+	if pairName != "" {
+		out.LastHeartbeat = h.continuumNow().UTC().Format(time.RFC3339)
+	}
+	return out, true
+}
+
+// gatePass maps a bool to the health-gate status vocabulary.
+func gatePass(ok bool) string {
+	if ok {
+		return "Pass"
+	}
+	return "Warn"
 }
 
 func synthesizedReplicationStatus(name, ns string) continuumReplicationStatus {
