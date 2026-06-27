@@ -21,9 +21,21 @@ const PerOrgAppsDir = "vcluster/apps"
 // preserve them in the apps kustomization (they enforce intra-Org isolation),
 // so MergePerOrgAppsKustomization keeps them in the resources list even though
 // the funnel does not own/regenerate them.
+//
+// #4567: ONLY `networkpolicy.yaml` lives in `vcluster/apps/`. The Cilium
+// `ciliumnetworkpolicy.yaml` lives in `vcluster/host-apps/` (NOT `apps/`) — the
+// #4292 split deliberately keeps the CNP out of the apps tree because a
+// `cilium.io/v2` doc in the kubeConfig-targeted `vcluster/apps` Kustomization
+// wedges the vcluster-tier reconcile (no Cilium CRD inside the vcluster). The
+// org-controller's own `vcluster/host-apps` Kustomization delivers the CNP.
+// Listing it here made the funnel emit a `vcluster/apps/kustomization.yaml`
+// that references a non-existent `vcluster/apps/ciliumnetworkpolicy.yaml` →
+// `kustomize build failed: …: no such file or directory` → the ENTIRE apps
+// Kustomization failed → the purchased app + its db dependency never deployed
+// (host-tier S/free funnel Orgs). The CNP must NOT be re-listed in the apps
+// tree by the funnel.
 var perOrgAppsBaselineDocs = []string{
 	"networkpolicy.yaml",
-	"ciliumnetworkpolicy.yaml",
 }
 
 // GeneratePerOrgAppsTree renders the customer's purchased Applications for a
@@ -107,8 +119,9 @@ func isHostHelmReleaseAppFile(path, hostPrefix string) bool {
 }
 
 // MergePerOrgAppsKustomization rebuilds the `vcluster/apps/kustomization.yaml`
-// resources list so it enumerates BOTH the org-controller boundary baseline
-// (networkpolicy.yaml + ciliumnetworkpolicy.yaml) AND the funnel's app docs.
+// resources list so it enumerates the org-controller boundary baseline
+// (networkpolicy.yaml — the ONLY baseline that lives in `vcluster/apps/`) AND
+// the funnel's app docs.
 //
 // `existing` is the current kustomization.yaml content read from the per-Org
 // repo (empty if absent). Any resource already listed there is preserved
@@ -116,7 +129,23 @@ func isHostHelmReleaseAppFile(path, hostPrefix string) bool {
 // are force-included, and the new appDocs are unioned in. The result is
 // deterministic (sorted) so a re-render is byte-stable and the PutFile/commit
 // short-circuits when nothing changed.
+//
+// #4567: `ciliumnetworkpolicy.yaml` is force-EXCLUDED here even if a prior
+// (buggy) commit listed it in `existing` — the CNP file only ever exists in
+// `vcluster/host-apps/`, so referencing it from the apps kustomization breaks
+// the kustomize build for the WHOLE apps tree (→ purchased app never deploys).
+// Stripping it on every merge self-heals an already-broken per-Org repo on the
+// next cart install / reconcile.
 func MergePerOrgAppsKustomization(existing string, appDocs []string) string {
+	// excludedFromAppsTree are docs that must NEVER appear in
+	// `vcluster/apps/kustomization.yaml` because their file does not live in
+	// `vcluster/apps/` (the org-controller authors them under
+	// `vcluster/host-apps/`). Listing one makes kustomize build fail with
+	// "no such file or directory" and wedges the entire apps Kustomization.
+	excludedFromAppsTree := map[string]struct{}{
+		"ciliumnetworkpolicy.yaml": {},
+	}
+
 	resources := map[string]struct{}{}
 	for _, d := range perOrgAppsBaselineDocs {
 		resources[d] = struct{}{}
@@ -130,10 +159,16 @@ func MergePerOrgAppsKustomization(existing string, appDocs []string) string {
 		if name == "" || name == "kustomization.yaml" {
 			continue
 		}
+		if _, bad := excludedFromAppsTree[name]; bad {
+			continue // #4567: drop a stale CNP entry from a prior bad commit
+		}
 		resources[name] = struct{}{}
 	}
 	for _, d := range appDocs {
 		if d == "kustomization.yaml" {
+			continue
+		}
+		if _, bad := excludedFromAppsTree[d]; bad {
 			continue
 		}
 		resources[d] = struct{}{}
