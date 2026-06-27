@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T12:45:05Z` |
+| Last refreshed | `2026-06-27T13:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 11 |
+| Open issues | 12 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 11 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 12 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 11 open items (clickable table)
+### All 12 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -211,6 +211,7 @@ flowchart LR
 | [#4539](https://github.com/openova-io/openova/issues/4539) | Org isolation label reports vcluster for S-plan Orgs that back a host namespace  | Other |
 | [#4541](https://github.com/openova-io/openova/issues/4541) | fix(harbor): mothership harbor.openova.io is MISSING the `proxy-xpkg` pull-throu | Other |
 | [#4543](https://github.com/openova-io/openova/issues/4543) | fix(handover): mothership `postTofuArchive` verifies the child Sovereign cert ag | Other |
+| [#4546](https://github.com/openova-io/openova/issues/4546) | fix(marketplace): authed owner on /redeem must not see the public funnel — own | Other |
 
 ---
 
