@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T13:30:05Z` |
+| Last refreshed | `2026-06-27T13:45:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 13 |
+| Open issues | 15 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 13 open items (clickable table)
+### All 15 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -213,6 +213,8 @@ flowchart LR
 | [#4546](https://github.com/openova-io/openova/issues/4546) | fix(marketplace): authed owner on /redeem must not see the public funnel — own | Other |
 | [#4549](https://github.com/openova-io/openova/issues/4549) | fix(marketplace): restore 'Build your cloud tenant' storefront heading — custo | Other |
 | [#4551](https://github.com/openova-io/openova/issues/4551) | Topology tab surfaces NO DR state (standby region + live replication lag) for cr | Other |
+| [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
+| [#4553](https://github.com/openova-io/openova/issues/4553) | AGENITY North-Star: zero-click SSO gate for per-Org agenity (oidc-gate instance) | Other |
 
 ---
 
@@ -220,6 +222,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T13:37 | [#4554](https://github.com/openova-io/openova/pull/4554) | #3375 | feat(console): per-app Topology tab surfaces read-only DR st |
+| 2026-06-27T13:40 | [#4550](https://github.com/openova-io/openova/pull/4550) | #4549 | fix(marketplace): restore 'Build your cloud tenant' storefro |
 | 2026-06-27T13:11 | [#4548](https://github.com/openova-io/openova/pull/4548) | #4547 | docs(uat): 3-agent live-walk batch — topology/recon/sso flip |
 | 2026-06-27T13:02 | [#4547](https://github.com/openova-io/openova/pull/4547) | #3687 | fix(marketplace): authed owner on /redeem must not see the p |
 | 2026-06-27T12:43 | [#4545](https://github.com/openova-io/openova/pull/4545) | #909 | docs: EPIC completion matrix + Importance×Effort backlog pri |
@@ -248,8 +252,6 @@ flowchart LR
 | 2026-06-27T08:09 | [#4510](https://github.com/openova-io/openova/pull/4510) | #4509 | UAT: newapi SSO rows 37/114 PASS (resync live) + Hubble row  |
 | 2026-06-27T08:04 | [#4509](https://github.com/openova-io/openova/pull/4509) | #2744 | fix(bp-cilium): hubble-ui oauth2-proxy --api-route so flow-s |
 | 2026-06-27T08:00 | [#4508](https://github.com/openova-io/openova/pull/4508) | #4506 | docs(uat): Pillar-1 funnel+voucher consolidation — rows 72-9 |
-| 2026-06-27T07:53 | [#4506](https://github.com/openova-io/openova/pull/4506) | #4470 | Refs #909 |
-| 2026-06-27T07:56 | [#4504](https://github.com/openova-io/openova/pull/4504) | #4503 | fix(cloud-init): retry + fail-fast the Cilium CNI install —  |
 
 ---
 
