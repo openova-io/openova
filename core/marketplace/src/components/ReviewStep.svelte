@@ -17,7 +17,44 @@
 
   const planCost = $derived(selectedPlan?.monthly_price ?? 0);
   const addonCost = $derived(selectedAddons.reduce((sum, a) => sum + a.monthly_price, 0));
-  const totalCost = $derived(planCost + addonCost);
+
+  // --- Pillar-2 BCP topology (#4524) ---------------------------------------
+  // The /bcp step persists the customer's database business-continuity choice
+  // to cart.appConfigs.postgres.{active_hot_standby, primary_region,
+  // replica_region} (BCPStep.svelte — the same snake_case keys the
+  // provisioning gitops generator consumes). This review surface MUST reflect
+  // both the chosen topology AND its price so the customer confirms checkout
+  // seeing what they picked. The checkout payload is unchanged — it already
+  // carries app_configs end-to-end.
+  //
+  // Active-hot-standby is +OMR 5.000 / mo. The price label is owned by
+  // BCPStep.svelte (the topology card shows "+OMR 5.000 / mo"); formatOMR
+  // takes baisa, so 5.000 OMR = 5000 baisa. Mirror the constant here rather
+  // than threading a price through the cart — the cart carries the booleans,
+  // not money, and the marketplace renders every OMR figure through formatOMR.
+  const HOT_STANDBY_MONTHLY_BAISA = 5000;
+
+  // Human labels for the canonical Sovereign region keys, mirroring
+  // BCPStep.svelte's REGIONS list. Falls back to the raw key so a region the
+  // customer's Sovereign exposes that isn't in this static map still renders
+  // (it just shows the key) rather than disappearing from the summary.
+  const REGION_LABELS: Record<string, string> = {
+    'hz-fsn-rtz-prod': 'Falkenstein (hz-fsn)',
+    'hz-hel-rtz-prod': 'Helsinki (hz-hel)',
+    'hz-nbg-rtz-prod': 'Nuremberg (hz-nbg)',
+  };
+  function regionLabel(key: unknown): string {
+    if (typeof key !== 'string' || key === '') return '—';
+    return REGION_LABELS[key] ?? key;
+  }
+
+  const pgConfig = $derived((cart.appConfigs ?? {}).postgres ?? {});
+  const hotStandby = $derived(Boolean(pgConfig.active_hot_standby));
+  const primaryRegion = $derived(regionLabel(pgConfig.primary_region));
+  const replicaRegion = $derived(regionLabel(pgConfig.replica_region));
+  const bcpCost = $derived(hotStandby ? HOT_STANDBY_MONTHLY_BAISA : 0);
+
+  const totalCost = $derived(planCost + addonCost + bcpCost);
 
   // --- Per-app resource estimates (MiB RAM, milli-CPU, GiB disk) ---
   const appRam: Record<string, number> = {
@@ -306,6 +343,37 @@
           {/if}
         </div>
 
+        <!-- Business continuity (Pillar-2 BCP topology) — #4524. Reflects the
+             choice made on /bcp so the customer confirms checkout seeing the
+             topology they picked + its price. -->
+        <section class="rv-section">
+          <div class="rv-head">
+            <h2>Business continuity</h2>
+            <a href="/bcp" class="rv-link">Edit</a>
+          </div>
+          <div class="bcp-summary {hotStandby ? 'bcp-hot' : ''}">
+            <div class="bcp-summary-head">
+              <strong>{hotStandby ? 'Active-hot-standby' : 'Single-region'}</strong>
+              <span class="bcp-summary-price {hotStandby ? '' : 'free'}">
+                {hotStandby ? `+${formatOMR(HOT_STANDBY_MONTHLY_BAISA)} / mo` : 'FREE'}
+              </span>
+            </div>
+            {#if hotStandby}
+              <div class="bcp-region-row">
+                <span class="bcp-region-label">Primary</span>
+                <span class="bcp-region-val">{primaryRegion}</span>
+              </div>
+              <div class="bcp-region-row">
+                <span class="bcp-region-label">Replica</span>
+                <span class="bcp-region-val">{replicaRegion}</span>
+              </div>
+              <p class="bcp-summary-note">Synchronous replica across two regions. RTO 30s, RPO 5s.</p>
+            {:else}
+              <p class="bcp-summary-note">One Postgres cluster in your primary region.</p>
+            {/if}
+          </div>
+        </section>
+
         <!-- Optional extras (sme2-style tile grid) -->
         <section class="rv-section">
           <div class="rv-head">
@@ -356,6 +424,12 @@
                 <span>+{formatOMR(addon.monthly_price)}</span>
               </div>
             {/each}
+            {#if hotStandby}
+              <div class="breakdown-row">
+                <span>Active-hot-standby</span>
+                <span>+{formatOMR(HOT_STANDBY_MONTHLY_BAISA)}</span>
+              </div>
+            {/if}
           </div>
           <div class="total-row">
             <span>Total</span>
@@ -584,6 +658,43 @@
   }
   .ws-row > span { color: var(--color-text-dim); }
   .ws-row strong { color: var(--color-text-strong); font-size: 0.78rem; }
+
+  /* Business-continuity summary (Pillar-2 BCP) — #4524 */
+  .bcp-summary {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 0.7rem 0.85rem;
+  }
+  .bcp-summary.bcp-hot {
+    border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+    background: color-mix(in srgb, var(--color-accent) 4%, var(--color-bg));
+  }
+  .bcp-summary-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  }
+  .bcp-summary-head strong { color: var(--color-text-strong); font-size: 0.88rem; }
+  .bcp-summary-price {
+    padding: 0.12rem 0.5rem; border-radius: 4px;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em;
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    color: var(--color-accent); white-space: nowrap;
+  }
+  .bcp-summary-price.free {
+    background: color-mix(in srgb, var(--color-success) 15%, transparent);
+    color: var(--color-success);
+  }
+  .bcp-region-row {
+    display: flex; justify-content: space-between; gap: 0.5rem;
+    padding: 0.25rem 0 0; font-size: 0.78rem;
+  }
+  .bcp-region-label { color: var(--color-text-dim); }
+  .bcp-region-val {
+    color: var(--color-text); font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+  }
+  .bcp-summary-note {
+    margin: 0.4rem 0 0; color: var(--color-text-dim); font-size: 0.72rem; line-height: 1.4;
+  }
 
   /* Add-ons grid — sme2 tile style */
   .addon-grid {
