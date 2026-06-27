@@ -24,7 +24,11 @@ name: bp-self-sovereign-cutover
 # the catalyst-api Go client — the helm-CLI path was simply never given the
 # equivalent. FIX (chart-only, template 06): a new
 # `.Values.helmReadinessProbe.inClusterTLSVerify` (DEFAULT false) gates an
-# IN-CLUSTER-ONLY `--insecure-skip-tls-verify` on both helm calls (the step
+# IN-CLUSTER-ONLY TLS skip on both helm calls — `--insecure` on `helm
+# registry login` and `--insecure-skip-tls-verify` on `helm pull` (the two
+# subcommands take DIFFERENT skip flags in helm v3.16.x; login does NOT know
+# --insecure-skip-tls-verify, so passing it errors unknown-flag → the login
+# no-ops → the pull then 401s "no basic auth credentials"). The step
 # makes NO external/ghcr helm call, so the flag only ever relaxes verify for
 # the cluster's own registry). The witnessed 600s deny-egress hold (step-08) is
 # the real security gate and is wholly untouched. Comprehensive audit of steps
