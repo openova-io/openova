@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T12:30:06Z` |
+| Last refreshed | `2026-06-27T12:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 11 |
 | Open DoD gates | 0 / 41 |
@@ -218,6 +218,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T12:43 | [#4545](https://github.com/openova-io/openova/pull/4545) | #909 | docs: EPIC completion matrix + Importance×Effort backlog pri |
 | 2026-06-27T11:42 | [#4544](https://github.com/openova-io/openova/pull/4544) | #4529 | fix(handover): postTofuArchive skips public-CA verify on the |
 | 2026-06-27T11:30 | [#4542](https://github.com/openova-io/openova/pull/4542) | #4491 | fix(harbor): create the missing proxy-xpkg proxy-cache proje |
 | 2026-06-27T11:04 | [#4540](https://github.com/openova-io/openova/pull/4540) | #4292 | fix(catalyst-api): derive Org isolation label from the #4292 |
@@ -247,7 +248,6 @@ flowchart LR
 | 2026-06-27T07:56 | [#4504](https://github.com/openova-io/openova/pull/4504) | #4503 | fix(cloud-init): retry + fail-fast the Cilium CNI install —  |
 | 2026-06-26T20:51 | [#4502](https://github.com/openova-io/openova/pull/4502) | #4053 | feat(infra+catalyst): console-isolation toggle to fit a 3-EI |
 | 2026-06-26T20:29 | [#4501](https://github.com/openova-io/openova/pull/4501) | #4486 | docs(ledger): session 2026-06-27 state — 22 closed (audited  |
-| 2026-06-26T20:15 | [#4500](https://github.com/openova-io/openova/pull/4500) | #4448 | fix(bp-plane-isolation #4499): add catalyst-system to openba |
 
 ---
 
