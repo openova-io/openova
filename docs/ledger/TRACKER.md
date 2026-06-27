@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T08:45:05Z` |
+| Last refreshed | `2026-06-27T09:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 14 |
+| Open issues | 15 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 14 open items (clickable table)
+### All 15 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -211,9 +211,10 @@ flowchart LR
 | [#4475](https://github.com/openova-io/openova/issues/4475) | Org vcluster-tier convergence: CiliumNetworkPolicy can't apply inside vanilla vc | Other |
 | [#4486](https://github.com/openova-io/openova/issues/4486) | DR backbone self-fire: standby-absent on a converged primary must NOT latch the  | Other |
 | [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
-| [#4507](https://github.com/openova-io/openova/issues/4507) | Hubble UI flow-XHR bounces to Keycloak (302→login HTML) instead of 401 — flo | Other |
 | [#4511](https://github.com/openova-io/openova/issues/4511) | Jobs Re-run on a COMPLETED batch Job 502s 'spec.template field is immutable' — | Other |
 | [#4513](https://github.com/openova-io/openova/issues/4513) | Fresh prov wedges at 0 HelmReleases: cloud-init runcmd dies on `kubectl create n | Other |
+| [#4515](https://github.com/openova-io/openova/issues/4515) | Cilium parity test stale on main: #4504 switched cloud-init to `rt helm upgrade  | Other |
+| [#4519](https://github.com/openova-io/openova/issues/4519) | openbao: harden OIDC role group resolution — explicitly request `groups` scope | Other |
 
 ---
 
@@ -221,6 +222,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T08:56 | [#4520](https://github.com/openova-io/openova/pull/4520) | #4503 | fix(cloud-init #4513): split two-NAME create-namespace + dro |
+| 2026-06-27T08:50 | [#4518](https://github.com/openova-io/openova/pull/4518) | #4504 | fix(test): cilium parity test accepts `helm upgrade --instal |
+| 2026-06-27T08:49 | [#4517](https://github.com/openova-io/openova/pull/4517) | #4275 | Refs #4275 #4212 — EIP quota-bump request + region-kill dril |
+| 2026-06-27T08:48 | [#4516](https://github.com/openova-io/openova/pull/4516) | #4482 | Refs #909 |
+| 2026-06-27T08:48 | [#4514](https://github.com/openova-io/openova/pull/4514) | #3646 | fix(jobs): Re-run on a completed batch Job deletes+recreates |
 | 2026-06-27T08:33 | [#4512](https://github.com/openova-io/openova/pull/4512) | Refs #909 |  |
 | 2026-06-27T08:09 | [#4510](https://github.com/openova-io/openova/pull/4510) | #4509 | UAT: newapi SSO rows 37/114 PASS (resync live) + Hubble row  |
 | 2026-06-27T08:04 | [#4509](https://github.com/openova-io/openova/pull/4509) | #2744 | fix(bp-cilium): hubble-ui oauth2-proxy --api-route so flow-s |
@@ -246,11 +252,6 @@ flowchart LR
 | 2026-06-26T16:01 | [#4483](https://github.com/openova-io/openova/pull/4483) | #4325 | fix(bp-catalyst-platform #4482): reflect catalyst-gitea-toke |
 | 2026-06-26T15:50 | [#4481](https://github.com/openova-io/openova/pull/4481) | #4477 | fix(bp-openbao,bp-newapi): two fresh-prov SSO seeding faults |
 | 2026-06-26T16:12 | [#4480](https://github.com/openova-io/openova/pull/4480) | #4471 | fix(catalyst-api): console org-list/detail read from orgs.op |
-| 2026-06-26T15:27 | [#4478](https://github.com/openova-io/openova/pull/4478) | #4474 | fix(org-controller): CRD clientSecretRef value-struct trap + |
-| 2026-06-26T15:13 | [#4476](https://github.com/openova-io/openova/pull/4476) | #4293 | fix(provisioning): funnel plan selection propagates to the O |
-| 2026-06-26T15:05 | [#4472](https://github.com/openova-io/openova/pull/4472) | #4462 | fix(org-controller #4471): ClusterRole gains update+patch on |
-| 2026-06-26T17:35 | [#4470](https://github.com/openova-io/openova/pull/4470) | #4445 | fix(bp-plane-isolation #4468): extend the #4445 defer-if-abs |
-| 2026-06-26T14:42 | [#4469](https://github.com/openova-io/openova/pull/4469) | #4467 | fix(bp-cilium): pin MTU=1370 for wireguard+vxlan datapath —  |
 
 ---
 
