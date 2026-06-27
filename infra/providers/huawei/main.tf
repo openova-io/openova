@@ -657,13 +657,18 @@ locals {
   # Route ghcr/quay/gcr/registry.k8s.io through the bastion :5000 with the SAME
   # proxy-* rewrites — zero NAT egress, exactly like harbor + docker.io already do.
   #
-  # xpkg.upbound.io / public.ecr.aws stay on https://harbor.openova.io: the
-  # bastion :5000 has NO proxy-xpkg / proxy-ecr projects (verified live: real
-  # manifest pull -> HTTP 404, vs proxy-gcr -> 200), so routing them to the
-  # bastion would 404. They are Crossplane-provider / ecr images that are NOT in
-  # the Phase-1 bootstrap critical path (Crossplane is idle on kom4dc — infra is
-  # 100% OpenTofu), so the external-harbor route for these two is harmless and
-  # strictly better than a 404. docker.io stays on the bastion :5002 cache.
+  # xpkg.upbound.io / public.ecr.aws stay on https://harbor.openova.io (NOT the
+  # bastion :5000 endpoint): the proxy-xpkg / proxy-ecr proxy-cache projects are
+  # served by the EXTERNAL Harbor front door, ensured by
+  # .github/workflows/ensure-bastion-harbor-proxy-projects.yaml (#4488). Historic
+  # note: these two projects did NOT exist on the bastion (manifest pull -> 404)
+  # while Crossplane was idle on kom4dc; #4263/#4491 made Crossplane NON-idle
+  # (provider-opentofu pulls xpkg.upbound.io/upbound/provider-opentofu through
+  # proxy-xpkg), so the project now MUST exist — hence the ensure workflow. The
+  # Crossplane xpkg fetcher (go-containerregistry K8sFetcher) bypasses THIS
+  # containerd mirror entirely and dials harbor.openova.io/proxy-xpkg directly,
+  # so this rewrite is belt-and-braces for node-level xpkg pulls. docker.io stays
+  # on the bastion :5002 cache.
   #
   # #4049 (2026-06-21) — every image Huawei→Huawei, INCLUDING PRIVATE catalyst.
   # The ghcr.io mirror now carries TWO ordered rewrite rules (k3s/containerd
