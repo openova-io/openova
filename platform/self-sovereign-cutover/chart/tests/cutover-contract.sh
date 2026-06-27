@@ -1087,13 +1087,18 @@ echo "[cutover-contract] Case 33: Step-03 Phase A2 chart-mirror pivot set is DRI
 # Phase A2 MUST union the static names with the LIVE HelmRepository set whose
 # spec.url is the openova-io upstream OCI prefix. Assert the dynamic-union
 # kubectl read + the startswith(UPSTREAM_PREFIX) selection are both present.
-prewarm_block="$(awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml")"
-[ -n "$prewarm_block" ] || prewarm_block="$(cat "$TMP/render.yaml")"
-if ! printf '%s\n' "$prewarm_block" | grep -q 'kubectl get helmrepositories.source.toolkit.fluxcd.io -A'; then
+# Write the prewarm block to a FILE and grep the file (NOT `printf … | grep -q`):
+# `grep -q` exits on first match and closes the pipe → `printf` gets SIGPIPE →
+# "write error: Broken pipe" → non-zero printf exit that trips the harness under
+# pipefail (the CI broken-pipe FAIL on run 28296519278). Greppping a file has no
+# upstream writer to SIGPIPE, so it is robust under set -euo pipefail.
+awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml" > "$TMP/prewarm_block.txt"
+[ -s "$TMP/prewarm_block.txt" ] || cp "$TMP/render.yaml" "$TMP/prewarm_block.txt"
+if ! grep -q 'kubectl get helmrepositories.source.toolkit.fluxcd.io -A' "$TMP/prewarm_block.txt"; then
   echo "FAIL: Step-03 Phase A2 does not read the LIVE HelmRepository set — the chart-mirror pivot set stays bound to the static names list and drifts (#4573 F4)" >&2
   exit 1
 fi
-if ! printf '%s\n' "$prewarm_block" | grep -q 'startswith($p)'; then
+if ! grep -q 'startswith($p)' "$TMP/prewarm_block.txt"; then
   echo "FAIL: Step-03 Phase A2 does not select HelmRepositories by spec.url startswith(UPSTREAM_PREFIX) — the openova-io chart set is not derived live (#4573 F4)" >&2
   exit 1
 fi
@@ -1101,7 +1106,7 @@ fi
 # so step-06 Phase-1 REPOINTS them (else step-08 count_offenders catches the
 # stragglers still on oci://ghcr.io/openova-io and FAILs the proof).
 for must in bp-postgres bp-newapi bp-sso-bridge bp-oidc-gate bp-sandbox bp-vllm bp-plane-isolation bp-cnpg-pair; do
-  if ! printf '%s\n' "$prewarm_block" | grep -q "${must}"; then
+  if ! grep -q "${must}" "$TMP/prewarm_block.txt"; then
     echo "FAIL: openova-io HelmRepository ${must} missing from the helmRepositories.names pivot set — step-06 never repoints it, step-08 count_offenders FAILs (#4573 F4)" >&2
     exit 1
   fi
@@ -1116,15 +1121,27 @@ echo "[cutover-contract] Case 34: bootstrap-kit slot 19-harbor disables the blob
 # ONLY the registry host -> x509 wedges the step-08 fresh-pull proof + any
 # in-cluster blob fetch under the deny-egress hold. The Sovereign overlay MUST
 # set harbor.persistence.imageChartStorage.disableRedirect: true.
-HARBOR_SLOT="${HARBOR_SLOT:-../../../clusters/_template/bootstrap-kit/19-harbor.yaml}"
-if [ -f "$HARBOR_SLOT" ]; then
+# Resolve 19-harbor.yaml robustly: the CI harness invokes this script from the
+# repo ROOT as `bash <script> <chart_dir>` ($1=platform/self-sovereign-cutover/
+# chart), so derive the slot path from $CHART_DIR (4 levels up to repo root)
+# AND try a cwd-relative fallback for a local `cd chart && bash tests/...` run.
+HARBOR_SLOT=""
+for cand in \
+  "${HARBOR_SLOT_OVERRIDE:-}" \
+  "${CHART_DIR}/../../../clusters/_template/bootstrap-kit/19-harbor.yaml" \
+  "clusters/_template/bootstrap-kit/19-harbor.yaml" \
+  "../../../clusters/_template/bootstrap-kit/19-harbor.yaml" \
+  "../../../../clusters/_template/bootstrap-kit/19-harbor.yaml"; do
+  [ -n "$cand" ] && [ -f "$cand" ] && { HARBOR_SLOT="$cand"; break; }
+done
+if [ -n "$HARBOR_SLOT" ]; then
   if ! grep -Eq 'disableRedirect:[[:space:]]*true' "$HARBOR_SLOT"; then
     echo "FAIL: 19-harbor.yaml does not set imageChartStorage.disableRedirect: true — blob GETs 302 to the OBS host and x509 the in-cluster TLS-pinned cutover clients (#4573 F2)" >&2
     exit 1
   fi
   echo "  PASS (19-harbor.yaml sets imageChartStorage.disableRedirect: true — registry streams blobs directly from registry.<fqdn>, no OBS 302)"
 else
-  echo "  SKIP (19-harbor.yaml not reachable from test cwd: $HARBOR_SLOT)"
+  echo "  SKIP (19-harbor.yaml not reachable from test cwd — chart consumed standalone)"
 fi
 
 echo "[cutover-contract] All gates green."
