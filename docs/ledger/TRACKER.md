@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T15:00:06Z` |
+| Last refreshed | `2026-06-27T15:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 13 |
+| Open issues | 14 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 13 open items (clickable table)
+### All 14 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -213,6 +213,7 @@ flowchart LR
 | [#4553](https://github.com/openova-io/openova/issues/4553) | AGENITY North-Star: zero-click SSO gate for per-Org agenity (oidc-gate instance) | Other |
 | [#4556](https://github.com/openova-io/openova/issues/4556) | AGENITY North-Star residual faults: (1) dual-render duplicate HR, (2) MCP URL -> | Other |
 | [#4557](https://github.com/openova-io/openova/issues/4557) | fix(bp-self-sovereign-cutover): helmrepository-patches Phase-3a helm registry lo | Other |
+| [#4563](https://github.com/openova-io/openova/issues/4563) | cutover step-08 fresh-pull FAILs on residual ghcr.io tethers: catalyst-ui + open | Other |
 
 ---
 
