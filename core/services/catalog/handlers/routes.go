@@ -15,6 +15,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /catalog/bundles/{slug}", h.GetBundle)
 	mux.HandleFunc("GET /catalog/plans", h.ListPlans)
 	mux.HandleFunc("GET /catalog/addons", h.ListAddOns)
+	// #4525 — the Sovereign's REAL configured regions (CATALYST_CONFIGURED_REGIONS)
+	// so the marketplace BCP picker never offers a region the Sovereign
+	// cannot honor. Public, read-only — same tier as /catalog/plans.
+	mux.HandleFunc("GET /catalog/regions", h.ListRegions)
 
 	// Admin — mutating operations (require superadmin JWT).
 	mux.HandleFunc("POST /catalog/admin/apps", h.CreateApp)

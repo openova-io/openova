@@ -48,6 +48,21 @@ spec:
                 configMapKeyRef:
                   name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
+            # #4525 — the Sovereign's configured regions (comma-separated)
+            # so GET /catalog/regions returns the REAL region set the
+            # marketplace BCP picker must offer (not hardcoded Hetzner
+            # names). Same source the fleet handler trusts — the
+            # `sovereign-fqdn` ConfigMap's `configuredRegions` key, written
+            # at provision time. optional=true so Sovereigns without the
+            # key (legacy / Catalyst-Zero) start cleanly with the env
+            # empty; /catalog/regions then returns [] and the frontend
+            # keeps its static fallback.
+            - name: CATALYST_CONFIGURED_REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: configuredRegions
+                  optional: true
           resources:
             requests:
               cpu: 25m
