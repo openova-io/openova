@@ -96,7 +96,92 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 	clusterRegion := h.clusterRegionMap(urlID)
 
 	targets := h.derivePlacementTargets(name, ns, primaryID, clusterRegion)
+
+	// #4551 — Standby discovery for cross-region CNPG-backed components.
+	//
+	// derivePlacementTargets keys on the component's OWN live Pods. For an
+	// app whose cross-region replica lives in a DIFFERENTLY-NAMED CNPG
+	// Cluster (e.g. `<app>-replica`) and/or a SEPARATE namespace, those
+	// replica Pods do not carry the app's identity labels, so the standby
+	// region never surfaced as a target → the Topology DR panel's
+	// `hasStandby` render gate was never satisfied (catalyst-platform,
+	// shared-pg, every HR-backed app showed `singleton` / single Primary).
+	//
+	// The DR data plane already knows the truth: findCNPGPairForApp
+	// resolves the cnpg cluster-pair backing the app (label-driven,
+	// Organization-isolation-safe) and reports the replica's region.
+	// Surface that as a Standby·Hot
+	// target so the panel renders honestly — but ONLY when the pair is a
+	// genuine 2-DISTINCT-region active-hot-standby (the same invariant
+	// deriveLiveContinuumRecord enforces). Purely additive: when no live
+	// pair exists, the runtime targets are returned unchanged.
+	targets = h.augmentWithCNPGStandby(r, urlID, name, ns, targets)
+
 	writeJSON(w, http.StatusOK, runtimePlacementResponse{Targets: targets, DerivedFromRuntime: true})
+}
+
+// augmentWithCNPGStandby appends a Standby·Hot target for the region-b
+// half of the live CNPG cluster-pair backing `name`, when the pod-occupancy
+// derivation did not already surface a Standby and a genuine 2-region pair
+// exists. Generic + Organization-isolation-safe (it reuses
+// findCNPGPairForApp, which only resolves an app-labelled pair across
+// namespaces). Returns the input
+// unchanged on any miss — no fabrication.
+func (h *Handler) augmentWithCNPGStandby(
+	r *http.Request,
+	urlID, name, ns string,
+	targets []bpv1.PlacementTarget,
+) []bpv1.PlacementTarget {
+	// Already has a Standby from pod occupancy — nothing to add.
+	for _, t := range targets {
+		if t.Role == bpv1.DataRoleStandby {
+			return targets
+		}
+	}
+	dep, ok := h.lookupDeploymentForInfra(urlID)
+	if !ok {
+		return targets
+	}
+	client, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		// No in-cluster client (pre-handover / CI) — leave runtime targets.
+		return targets
+	}
+	// The Topology route id for bootstrap-kit components is `bp-<chart>`;
+	// the cnpg-pair app label carries the bare identity. Try both forms so
+	// the pair resolves whether the FE passed `bp-shared-pg` or `shared-pg`.
+	var st *cnpgPairState
+	for _, cand := range componentNameCandidates(name) {
+		if s, ferr := h.findCNPGPairForApp(r.Context(), client, cand, ns); ferr == nil && s != nil {
+			st = s
+			break
+		}
+	}
+	if st == nil {
+		return targets
+	}
+	// A genuine cross-region pair requires two DISTINCT non-empty regions —
+	// the same invariant deriveLiveContinuumRecord enforces before claiming
+	// DR. Anything less is not honest cross-region standby.
+	if st.PrimaryRegion == "" || st.ReplicaRegion == "" || st.PrimaryRegion == st.ReplicaRegion {
+		return targets
+	}
+	// Don't double-list a region the occupancy derivation already covers as
+	// the replica region (defensive — occupancy had no Standby, but the
+	// replica region could coincide with a stateless Primary occupancy).
+	for _, t := range targets {
+		if t.Role == bpv1.DataRoleStandby && t.Region == st.ReplicaRegion {
+			return targets
+		}
+	}
+	targets = append(targets, bpv1.PlacementTarget{
+		Region:      st.ReplicaRegion,
+		Cluster:     st.ReplicaClusterName,
+		VCluster:    "",
+		Role:        bpv1.DataRoleStandby,
+		StandbyType: bpv1.StandbyHot,
+	})
+	return targets
 }
 
 // clusterRegionMap builds the clusterID→cloudRegion map from the
