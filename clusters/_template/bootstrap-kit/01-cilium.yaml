@@ -105,7 +105,12 @@ spec:
       # lxc*). Auto-MTU left them at 1500 → oversized frames DF-dropped at
       # the 1420 WireGuard MTU → all cross-node pod TCP to large payloads
       # timed out → Phase-1 convergence deadlock. See the MTU value above.
-      version: 1.4.4
+      # 1.4.5 (#4507, omantel.biz UAT row 39): add oauth2-proxy
+      # --api-route=^/api/ on the hubble-ui gate so the Hubble UI flow-stream
+      # XHR (gRPC-Web /api/v1/...) gets a 401 (not a 302-to-KC-login-HTML the
+      # gRPC-Web client can't follow) on a missing/expired session — fixes
+      # flows never rendering.
+      version: 1.4.5
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
