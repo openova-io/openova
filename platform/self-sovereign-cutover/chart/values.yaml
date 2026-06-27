@@ -147,11 +147,58 @@ gitea:
   # Shape of the admin secret created by bp-gitea's templates.
   # Keys: username, password, token (optional). Job uses BasicAuth
   # username:password against /api/v1 + git push.
+  #
+  # NOTE on namespace: the cutover step Jobs are stamped by catalyst-api into
+  # THIS chart's release namespace (`catalyst`) and read these credentials via
+  # a Kubernetes `secretKeyRef`, which resolves ONLY in the Pod's OWN
+  # namespace (the `namespace` field below is informational — secretKeyRef has
+  # no cross-namespace form). bp-gitea creates `gitea-admin-secret` in the
+  # `gitea` namespace. The `giteaAdminSecretBridge` block below re-publishes a
+  # plain copy into THIS release namespace at install time so the step Jobs'
+  # secretKeyRef resolves natively — no hand-bridge.
   adminSecretRef:
     name: "gitea-admin-secret"
     namespace: "gitea"
     usernameKey: "username"
     passwordKey: "password"
+
+# #4557 (Refs #3379 #3642 #3811): durable host bridge of `gitea-admin-secret`
+# into THIS chart's release namespace (`catalyst`).
+#
+# WHY THIS EXISTS. Every cutover step Job that needs the Gitea admin
+# credential (06-helmrepository-patches, 07-catalyst-api-env-patch,
+# 09-gitea-token-mint, 10-vcluster-registry-pivot, 11-mirror-resync) is
+# stamped by catalyst-api into the cutover release namespace (`catalyst`) and
+# reads `gitea-admin-secret` via a Kubernetes `secretKeyRef`. A secretKeyRef
+# resolves ONLY in the Pod's own namespace — there is no cross-namespace
+# form. bp-gitea creates `gitea-admin-secret` in the `gitea` namespace (and
+# the #3811 bp-catalyst-platform bridge also publishes a plain copy there
+# after #3642 moved gitea into the mgmt vCluster), so on a fresh prov the
+# secret is ABSENT from `catalyst` → the first step Job that references it
+# (or its stamping) fails `secret "gitea-admin-secret" not found`. Prior
+# walks hand-bridged a `kubectl apply` copy into `catalyst`; this block makes
+# that durable in the chart so the cutover is self-contained.
+#
+# Same Helm-lookup-and-mirror seam proven by bp-catalyst-platform's
+# catalyst-gitea-admin-secret-bridge.yaml (#3811),
+# provisioning-github-token.yaml (#3122) and valkey-cross-ns-secret.yaml
+# (#863). Source-wins on every reconcile so a Gitea admin-password rotation
+# propagates on the next Flux tick. Per docs/INVIOLABLE-PRINCIPLES.md #10 the
+# password bytes are read back via lookup from the live source Secret and
+# re-emitted base64 — they never appear in chart source or rendered manifests.
+giteaAdminSecretBridge:
+  # Default true. Flip false only where the cutover release namespace already
+  # carries a plain `gitea-admin-secret` by another mechanism.
+  enabled: true
+  # Source — where bp-gitea (or the #3811 bridge) publishes the plain
+  # `gitea-admin-secret`. Default `gitea` namespace.
+  sourceNamespace: "gitea"
+  sourceSecretName: "gitea-admin-secret"
+  # Destination secret name in THIS chart's release namespace. MUST match
+  # gitea.adminSecretRef.name so the step Jobs' secretKeyRef resolves.
+  destSecretName: "gitea-admin-secret"
+  usernameKey: "username"
+  passwordKey: "password"
 
 # GitRepository pivot credential — step 05 (flux-gitrepository-patch). #3536.
 #
@@ -783,6 +830,34 @@ helmReadinessProbe:
   # gate fast while remaining a genuine end-to-end pull. Operators may raise
   # this to probe more charts.
   sampleSize: 5
+  # #4557 (Refs #3379): TLS verification on the helm-CLI probe DESTINATION —
+  # the IN-CLUSTER Harbor reached as `registry.<sov-fqdn>` (HARBOR_PUBLIC_URL
+  # → harbor_host). DEFAULT false (skip verify for the in-cluster target).
+  #
+  # WHY false is correct (the same rationale as prewarm.destTLSVerify #4529).
+  # Step-06 Phase-3a proves the pivoted charts are pullable from the cluster's
+  # OWN in-cluster Harbor over the cluster pod network — `helm registry login`
+  # + `helm pull oci://registry.<sov-fqdn>/...`. On a fresh prov that Harbor's
+  # wildcard `*.<sov-fqdn>` cert is served by the BOOTSTRAP issuer
+  # `letsencrypt-dns01-staging-powerdns` (LE-STAGING, untrusted by the public
+  # CA bundle), and even with production LE certs the helm binary in a Job Pod
+  # carries no node trust store → every probe raises `x509: certificate signed
+  # by unknown authority` → the strip-readiness gate never converges → it
+  # FATALs at stripReadinessSeconds → the cutover never reaches the 600s
+  # deny-egress hold → cutoverComplete never set (live keystone re-prov
+  # c39f0cd4455b7a46 on registry.kv202251.omani.works, #4557). The destination
+  # is the cluster's OWN registry — trust is established by the cluster
+  # network, NOT a public CA — exactly the seam #4529 (skopeo
+  # --dest-tls-verify=false) and the cold-start registries.yaml v1
+  # (tls.insecure_skip_verify) already use. The witnessed 600s deny-egress
+  # hold (step-08) is the real security gate and is wholly untouched by this
+  # flag. This skip is IN-CLUSTER-ONLY: external ghcr/upstream calls keep
+  # verify (they are public-CA-signed hosts that MUST be authenticated).
+  #
+  # Operators with a public-CA-trusted internal registry cert AND a helm
+  # trust store may set this true via overlay; default false is the correct
+  # fresh-prov behaviour.
+  inClusterTLSVerify: false
 
 # Per-step Job-stamp tuning. Each value lands inside the corresponding
 # PodSpec ConfigMap; catalyst-api copies it onto the stamped Job.
