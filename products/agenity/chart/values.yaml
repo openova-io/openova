@@ -259,9 +259,21 @@ service:
 httpRoute:
   enabled: true
   hostnames: []         # default: discovered from the Org/Sovereign FQDN
+  # The per-Org agenity host (agenity.<slug>.<pool>) is a CUSTOMER host, so it
+  # lands on the Sovereign's CONSOLE gateway (cilium-gateway-console in
+  # kube-system) — the dedicated console-ELB EIP that owns every *.{<pool>}
+  # listener (#4054 console-isolation; the same gateway bp-wordpress-tenant /
+  # the org console route attach to). The cilium-ingress-networkpolicy.yaml
+  # CNP comment in this chart already names cilium-gateway-console as the
+  # attach point; this default now matches it. There is NO `catalyst-gateway`
+  # on a Catalyst Sovereign — the old default attached to a non-existent
+  # Gateway, so the route was Accepted=False/InvalidHTTPRoute and the host
+  # 404'd until the parentRef was hand-overridden (agnstar North-Star walk,
+  # #4553). Override per-install only for a non-isolated single-gateway test
+  # cluster.
   parentRef:
-    name: catalyst-gateway
-    namespace: catalyst-system
+    name: cilium-gateway-console
+    namespace: kube-system
   # Stamp Cache-Control: no-cache on the SPA HTML entry points (/app/, /,
   # index.html) so a browser ALWAYS revalidates the document and picks up
   # newly-rolled content-hashed assets. Without it the daemon sets no

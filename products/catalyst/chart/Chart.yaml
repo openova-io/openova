@@ -1,5 +1,12 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.925 — #4553 (Pillar-4 North-Star walk, 2026-06-27): catalog-seed
+#   bp-agenity spec.version + source.version 0.5.13 -> 0.5.14 (lockstep with
+#   products/agenity/chart 0.5.14) — the agenity httpRoute.parentRef default now
+#   targets the REAL Sovereign console gateway cilium-gateway-console/kube-system
+#   instead of the non-existent catalyst-gateway/catalyst-system, so a fresh
+#   Org's agenity host serves instead of 404'ing on InvalidHTTPRoute. Bootstrap-
+#   kit slot-13 pin bumps lockstep.
 # 1.4.906 — #4477 secondary (2026-06-27): doc-only — the CATALYST_NEWAPI_ADMIN_TOKEN
 # env comment in api-deployment{,-kustomize}.yaml now cites the canonical
 # OpenBao path `catalyst/newapi/admin-token` (written by catalyst-api's
