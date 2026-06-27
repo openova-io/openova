@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T10:30:05Z` |
+| Last refreshed | `2026-06-27T10:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 12 |
 | Open DoD gates | 0 / 41 |
@@ -219,6 +219,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T10:32 | [#4537](https://github.com/openova-io/openova/pull/4537) | #909 | UAT: reconcile ⚠️/❌ rows — flip rolled-fix (Hubble/row83/Ope |
 | 2026-06-27T10:05 | [#4536](https://github.com/openova-io/openova/pull/4536) | #909 | Refs #909 |
 | 2026-06-27T10:02 | [#4535](https://github.com/openova-io/openova/pull/4535) | #4525 | feat(catalog): GET /catalog/regions — marketplace BCP picker |
 | 2026-06-27T09:53 | [#4534](https://github.com/openova-io/openova/pull/4534) | #4515 | docs(sessions): definitive final board-state audit (Refs #90 |
@@ -226,6 +227,7 @@ flowchart LR
 | 2026-06-27T09:53 | [#4532](https://github.com/openova-io/openova/pull/4532) | #4527 | fix(bp-self-sovereign-cutover): registry-pivot v1 cold-start |
 | 2026-06-27T09:38 | [#4531](https://github.com/openova-io/openova/pull/4531) | #3379 | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo no lon |
 | 2026-06-27T09:31 | [#4530](https://github.com/openova-io/openova/pull/4530) | #4526 | Refs #909 |
+| 2026-06-27T10:34 | [#4528](https://github.com/openova-io/openova/pull/4528) | #4488 | fix(crossplane): split infrastructure-config into Provider-i |
 | 2026-06-27T09:09 | [#4526](https://github.com/openova-io/openova/pull/4526) | #4525 | fix(marketplace #4524): Review step shows the chosen BCP top |
 | 2026-06-27T09:03 | [#4523](https://github.com/openova-io/openova/pull/4523) | Refs #909 |  |
 | 2026-06-27T09:14 | [#4522](https://github.com/openova-io/openova/pull/4522) | #4519 | fix(bp-openbao): harden OIDC role group resolution — request |
@@ -247,8 +249,6 @@ flowchart LR
 | 2026-06-26T19:31 | [#4497](https://github.com/openova-io/openova/pull/4497) | #4466 | docs(uat): UAT ledger consolidation — 22 closed + honest gat |
 | 2026-06-26T19:17 | [#4496](https://github.com/openova-io/openova/pull/4496) | #4494 | fix(catalog-seed #4111): bp-agenity seed source.version 0.5. |
 | 2026-06-26T19:02 | [#4495](https://github.com/openova-io/openova/pull/4495) | #4290 | fix(org-controller): render gateway/apiserver CNP host-side  |
-| 2026-06-26T18:50 | [#4494](https://github.com/openova-io/openova/pull/4494) | #4111 | fix(bp-agenity): default imagePullSecrets to ghcr-pull — kil |
-| 2026-06-26T18:43 | [#4493](https://github.com/openova-io/openova/pull/4493) | #4466 | fix(janitor): log-only-until-proven + active-dep allowlist + |
 
 ---
 
