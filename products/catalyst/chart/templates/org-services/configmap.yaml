@@ -145,6 +145,30 @@ keys). No other CORS rule lives off these prefixes today.
 {{- $adminOrigin := printf "https://admin.%s" $platformZone -}}
 {{- $consoleOrigin := printf "https://console.%s" $platformZone -}}
 {{- $portalOrigin := printf "https://portal.%s" $platformZone -}}
+{{- /*
+#4525 — configuredRegions for the org-services catalog Deployment.
+
+The catalog pod's CATALYST_CONFIGURED_REGIONS env (catalog.yaml) reads
+this key so GET /catalog/regions returns the Sovereign's REAL configured
+region set (the marketplace BCP picker must offer these, not a hardcoded
+Hetzner list). The value is computed from the SAME provision-time source
+as the `sovereign-fqdn` ConfigMap (sovereign-fqdn-configmap.yaml) — the
+catalog pod lives in `org-services`, but `sovereign-fqdn` lives in
+`catalyst-system`, and a configMapKeyRef resolves only within the pod's
+own namespace; reading the cross-namespace key silently resolved to ""
+with optional=true → endpoint `[]`. Carrying the same value HERE (the
+ConfigMap the catalog pod already mounts same-namespace) closes that gap.
+
+Resolution order mirrors sovereign-fqdn-configmap.yaml exactly:
+  1. .Values.sovereign.configuredRegions (operator-set, canonical)
+  2. .Values.qaFixtures.configuredRegions WHEN qaFixtures.enabled
+  3. empty string — endpoint returns [] and the frontend keeps its
+     static fallback (Catalyst-Zero / legacy Sovereigns).
+*/ -}}
+{{- $cfgRegions := default (list) .Values.sovereign.configuredRegions -}}
+{{- if and (eq (len $cfgRegions) 0) (and .Values.qaFixtures .Values.qaFixtures.enabled) -}}
+{{-   $cfgRegions = default (list) .Values.qaFixtures.configuredRegions -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -221,4 +245,15 @@ data:
   # ---- checkout redirect targets --------------------------------------------
   CHECKOUT_SUCCESS_URL: {{ printf "%s/checkout/success" $marketplaceOrigin | quote }}
   CHECKOUT_CANCEL_URL: {{ printf "%s/checkout/cancel" $marketplaceOrigin | quote }}
+
+  # ---- BCP region picker (#4525) --------------------------------------------
+  # configuredRegions — comma-separated region set this Sovereign was
+  # provisioned with. Consumed by the catalog Deployment's
+  # CATALYST_CONFIGURED_REGIONS env (catalog.yaml) so GET /catalog/regions
+  # returns the REAL regions the marketplace BCP picker must offer. See the
+  # resolution-order comment above the data block — same source as the
+  # `sovereign-fqdn` ConfigMap, but emitted in THIS namespace so the
+  # catalog pod's same-namespace configMapKeyRef actually resolves it
+  # (the GET /catalog/regions endpoint then returns the real region set).
+  configuredRegions: {{ join "," $cfgRegions | quote }}
 {{- end }}
