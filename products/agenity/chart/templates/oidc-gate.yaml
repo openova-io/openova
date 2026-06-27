@@ -1,0 +1,341 @@
+{{- /*
+bp-agenity — zero-click SSO gate companion (#4553/#4556).
+
+Renders a bp-oidc-gate-shaped oauth2-proxy IN FRONT OF the per-Org agenity
+host so EVERY agenity install automatically gets the Sovereign zero-click SSO
+contract (fresh browser → bare URL → Keycloak sovereign realm, silent via
+catalyst-pin → signed in) AND the spaTokenSeed no-paste landing.
+
+WHY HERE (not a hand-created live instance): the agnstar North-Star walk
+(#4553) hand-created a drift-disabled `oidc-gate-agenity-agnstar` HelmRelease,
+so a fresh agenity Org / a re-prov got NO gate (the host served the dashboard
+UN-gated). Templating the gate AS PART OF the bp-agenity chart makes the gate
+arrive WITH the agenity install — chart-managed, drift-detected, zero hand-
+creation. The resource set is byte-equivalent to a bp-oidc-gate instances[]
+entry (#3374): cookie Secret + AppRegistration ConfigMap (bp-sso-bridge mints
+the KC client) + ExternalSecret (client secret from OpenBao) + oauth2-proxy
+Deployment (the WALKED hubble-ui arg set, #2744) + Service + HTTPRoute that
+OWNS the agenity hostname with the spaTokenSeed redirect + a CNP admitting the
+gateway entity to the gate pod.
+
+Renders only when `oidcGate.enabled` AND a hostname resolves (agenity.gateEnabled,
+fail-closed per Inviolable Principle #4). When it renders, the chart's own
+HTTPRoute (templates/httproute.yaml) is suppressed (two routes on one host is
+undefined routing — the gate owns the host).
+*/ -}}
+{{- if include "agenity.gateEnabled" . }}
+{{- $hostname := include "agenity.gateHostname" . }}
+{{- $cid := include "agenity.gateClientId" . }}
+{{- $gateName := printf "oidc-gate-%s" $cid }}
+{{- $g := .Values.oidcGate }}
+{{- $issuer := printf "https://auth.%s/realms/%s" .Values.sovereignFqdn $g.realm }}
+{{- /*
+The agenity Service the gate proxies to (same chart release, this namespace).
+Upstream host = <fullname>.<namespace>.svc.cluster.local:<service.port>.
+*/ -}}
+{{- $upstream := printf "http://%s.%s.svc.cluster.local:%v" (include "agenity.fullname" .) .Release.Namespace .Values.service.port }}
+{{- /*
+#3844 — backchannel-via-internal-Service. When keycloakInternalURL is set the
+gate SKIPS discovery against the public issuer EIP (unhairpinnable inside the
+cluster on Huawei/kom4dc → CrashLoop) and dials the in-cluster keycloak Service
+for redeem/jwks/userinfo, keeping the browser legs public.
+*/ -}}
+{{- $kcInternal := trimSuffix "/" ($g.keycloakInternalURL | default "") }}
+{{- $internalRealm := "" }}
+{{- if $kcInternal }}{{- $internalRealm = printf "%s/realms/%s" $kcInternal $g.realm }}{{- end }}
+---
+# ── cookie secret (gate-local; lookup-or-generate, survives uninstall) ──
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (printf "%s-cookie" $gateName) }}
+{{- $cookieSecret := "" }}
+{{- if $existing }}
+{{- $cookieSecret = index $existing.data "cookie-secret" | default "" | b64dec }}
+{{- end }}
+{{- if not $cookieSecret }}{{- $cookieSecret = randAlphaNum 32 }}{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ printf "%s-cookie" $gateName | quote }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: {{ $gateName | quote }}
+type: Opaque
+stringData:
+  cookie-secret: {{ $cookieSecret | quote }}
+---
+# ── AppRegistration — bp-sso-bridge mints/adopts the KC client ─────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-sso-registration" $gateName | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    sso.openova.io/app-registration: {{ $cid | quote }}
+data:
+  realm: {{ $g.realm | quote }}
+  client.json: |
+    {
+      "clientId": {{ $cid | quote }},
+      "name": {{ printf "Agenity SSO gate — %s" $cid | quote }},
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://{{ $hostname }}/oauth2/callback"
+      ],
+      "webOrigins": [
+        "https://{{ $hostname }}"
+      ],
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email", "groups"],
+      "protocolMappers": [
+        {
+          "name": {{ printf "audience-%s" $cid | quote }},
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": {{ $cid | quote }},
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ],
+      "attributes": {
+        "access.token.lifespan": "900"
+      }
+    }
+{{- if .Capabilities.APIVersions.Has "external-secrets.io/v1beta1" }}
+---
+# ── client secret — the LIVE KC value via bp-sso-bridge + OpenBao ──────
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: {{ printf "%s-oidc" $gateName | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    bp-sso-bridge.openova.io/consumer: bp-oidc-gate
+spec:
+  refreshInterval: {{ $g.refreshInterval | default "1h" }}
+  secretStoreRef:
+    name: {{ $g.externalSecretStoreName | default "vault-region1" }}
+    kind: ClusterSecretStore
+  target:
+    name: {{ printf "%s-oidc" $gateName | quote }}
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        client-secret: "{{ "{{ .client_secret }}" }}"
+  data:
+    - secretKey: client_secret
+      remoteRef:
+        key: {{ printf "sso/%s/%s" $g.realm $cid | quote }}
+        property: client_secret
+{{- end }}
+---
+# ── oauth2-proxy Deployment ────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $gateName | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: {{ $gateName | quote }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-oidc-gate
+      catalyst.openova.io/component: {{ $gateName | quote }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-oidc-gate
+        catalyst.openova.io/component: {{ $gateName | quote }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: oauth2-proxy
+          image: {{ printf "%s/%s:%s" $g.image.registryMirror $g.image.repository $g.image.tag | quote }}
+          imagePullPolicy: {{ $g.image.pullPolicy }}
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            # PUBLIC issuer — `iss`-claim validation (+ discovery when not
+            # skipped). KC_HOSTNAME is pinned public by bp-keycloak so tokens
+            # carry this `iss` even when the backchannel is dialed in-cluster.
+            - --oidc-issuer-url={{ $issuer }}
+            - --client-id={{ $cid }}
+            - --redirect-url=https://{{ $hostname }}/oauth2/callback
+            - --upstream={{ $upstream }}
+            - --email-domain=*
+            - --scope=openid profile email groups
+{{- if $internalRealm }}
+            # #3844 — skip discovery against the public EIP (unhairpinnable
+            # from inside the cluster on Huawei/kom4dc); dial the in-cluster
+            # keycloak Service for the backchannel legs.
+            - --skip-oidc-discovery=true
+            - --redeem-url={{ $internalRealm }}/protocol/openid-connect/token
+            - --oidc-jwks-url={{ $internalRealm }}/protocol/openid-connect/certs
+            - --profile-url={{ $internalRealm }}/protocol/openid-connect/userinfo
+{{- end }}
+            # Silent zero-click: the realm IDR defaultProvider plus the
+            # explicit kc_idp_hint cover both realm-config drift directions
+            # (G113 #2725 / G117.5 #2744).
+            - --login-url={{ $issuer }}/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin
+            - --cookie-secure=true
+            - --cookie-name=_oidc_gate_{{ $cid | replace "-" "_" }}
+            - --skip-provider-button=true
+            - --set-xauthrequest=true
+            - --reverse-proxy=true
+            - --whitelist-domain={{ $hostname }}
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-oidc" $gateName | quote }}
+                  key: client-secret
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-cookie" $gateName | quote }}
+                  key: cookie-secret
+          ports:
+            - name: http
+              containerPort: 4180
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+---
+# ── Service ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $gateName | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: {{ $gateName | quote }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: bp-oidc-gate
+    catalyst.openova.io/component: {{ $gateName | quote }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 4180
+      protocol: TCP
+---
+# ── HTTPRoute — the gate OWNS the agenity hostname ─────────────────────
+# The agenity chart's own HTTPRoute is suppressed when the gate renders
+# (templates/httproute.yaml `and …enabled (not gateEnabled)`); two routes on
+# one host is undefined routing. The spaTokenSeed redirect below replaces the
+# chart's bare-root → /app/ redirect (it ADDS the ?token=<sentinel> seed so the
+# SPA lands authenticated with NO paste).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $gateName | quote }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: {{ $gateName | quote }}
+spec:
+  parentRefs:
+    - name: {{ .Values.httpRoute.parentRef.name | quote }}
+      namespace: {{ .Values.httpRoute.parentRef.namespace | quote }}
+  hostnames:
+    - {{ $hostname | quote }}
+  rules:
+{{- /*
+#4556 — SPA bootstrap-token SEED. 302 ONLY the bare root (Exact `/`), AFTER the
+gate's full KC SSO, to `<dashboardPath>?token=<value>`. The agenity `/app/` SPA
+ingests the `?token=` URL param on mount, seeds localStorage, strips the param,
+and renders the workspace authenticated — NO paste. value is a SENTINEL (the
+daemon runs authMode=none, so it is never verified). Loop-safe: only the Exact
+bare root is redirected; /app/, /_astro/*, /api/*, /healthz, the WS all fall
+through to the catch-all backend untouched. The port is the EXTERNAL HTTPS port
+(443), never the Gateway listener NodePort (a NodePort in Location hangs behind
+a cloud ELB). VERIFIED live on agnstar (#4556).
+*/}}
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            port: {{ $g.spaTokenSeed.port | default 443 }}
+            statusCode: 302
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ printf "%s?token=%s" ($g.spaTokenSeed.dashboardPath | default "/app/") ($g.spaTokenSeed.value | default "sso") | quote }}
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ $gateName | quote }}
+          port: 80
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+---
+# ── CiliumNetworkPolicy — admit the Cilium Gateway Envoy to the gate pod ──
+# The gate's HTTPRoute attaches the agenity hostname to cilium-gateway-console;
+# the gateway traffic carries the reserved `ingress` ENTITY identity no K8s
+# NetworkPolicy can match, so without this CNP the gateway→gate hop is
+# default-denied and the browser sees envoy 503 (the #4180/#3785/#3374 class).
+# ADDITIVE (unions with any K8s NetworkPolicy); gated on the cilium.io/v2
+# Capabilities check so the chart still renders on a CRD-less kind cluster.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-gateway-ingress" $gateName | quote }}
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: {{ printf "%s-netpol" $gateName | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bp-oidc-gate
+      catalyst.openova.io/component: {{ $gateName }}
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+{{- end }}
+{{- end }}

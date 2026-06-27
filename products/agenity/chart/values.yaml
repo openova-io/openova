@@ -255,7 +255,89 @@ service:
   port: 8080            # Agenity web UI + dashboard WS + MCP HTTP
   metricsPort: 9090     # Prometheus scrape
 
+# ── Zero-click SSO gate (bp-oidc-gate companion, #4553/#4556) ─────────────
+# Every per-Org agenity install lands behind a bp-oidc-gate oauth2-proxy that
+# brings the agenity host under the Sovereign zero-click SSO contract (fresh
+# browser → bare URL → Keycloak sovereign realm, silent via catalyst-pin →
+# signed in) AND seeds the SPA bootstrap token so the User lands on the
+# workspace with NO paste prompt.
+#
+# WHY this lives in the bp-agenity chart (not a hand-created live instance):
+# the agnstar North-Star walk (#4553) hand-created a drift-disabled
+# `oidc-gate-agenity-agnstar` HelmRelease, so a fresh agenity Org or a re-prov
+# got NO gate (the host served the dashboard un-gated, anyone reaching it saw
+# it). Templating the gate AS PART OF the agenity install makes EVERY per-Org
+# agenity install automatically get its companion gate — chart-managed, drift
+# detected, zero hand-creation.
+#
+# The companion renders the SAME proven resource set as a bp-oidc-gate
+# instances[] entry (#3374): a gate-local cookie Secret, an AppRegistration
+# ConfigMap (bp-sso-bridge mints/adopts the KC client + publishes the live
+# secret to OpenBao sso/<realm>/<clientId>), an ExternalSecret pulling that
+# client secret, the oauth2-proxy Deployment (the WALKED hubble-ui arg set),
+# a Service, an HTTPRoute that OWNS the agenity hostname with the spaTokenSeed
+# bare-root redirect, and a CiliumNetworkPolicy admitting the gateway entity to
+# the gate pod. The gate's upstream is the agenity Service.
+#
+# When enabled, the agenity chart's OWN HTTPRoute (templates/httproute.yaml)
+# is SUPPRESSED — two HTTPRoutes on one hostname is undefined routing; the gate
+# owns the host and the spaTokenSeed redirect replaces the chart's bare-root →
+# /app/ redirect. The agenity pod stays reachable ONLY via the gate (its own
+# CNP still admits the gateway entity, but the gate proxies all traffic, so the
+# gate is the single ingress door).
+oidcGate:
+  # true (default) → render the oidc-gate companion in front of the agenity
+  # host and suppress the chart's own HTTPRoute. Set false for a non-SSO test
+  # install (the chart's own bare-root → /app/ HTTPRoute then serves the host
+  # un-gated, the pre-#4553 shape). Auto-no-ops on a clusterless render if
+  # neither hostnames nor sovereignFqdn is set (fail-closed, Inviolable #4).
+  enabled: true
+  # KC client id the gate registers (sovereign realm). Empty → derived
+  # `agenity-<orgSlug>` from the gate hostname's first label's parent, falling
+  # back to `agenity-gate`. The org-gitops emitter pins it explicitly to
+  # `agenity-<slug>` so each Org gets a distinct client (matches the live
+  # agnstar instance `agenity-agnstar`).
+  clientId: ""
+  # oauth2-proxy image (rendered <registryMirror>/<repository>:<tag>, matching
+  # the harbor-proxy-pull `*/proxy-*/*` glob — same as bp-oidc-gate).
+  image:
+    registryMirror: harbor.openova.io
+    repository: proxy-quay/oauth2-proxy/oauth2-proxy
+    tag: v7.6.0
+    pullPolicy: IfNotPresent
+  # Keycloak realm the gated client lives in (the Sovereign shared realm).
+  realm: sovereign
+  # In-cluster Keycloak base URL for the BACKCHANNEL OIDC legs (#3844): the
+  # gate SKIPS discovery against the public issuer EIP (unhairpinnable from
+  # inside the cluster on Huawei/kom4dc → CrashLoop) and dials the in-cluster
+  # keycloak Service for redeem/jwks/userinfo, keeping the browser-facing
+  # login/redirect URLs public. Empty → restore public-discovery behaviour.
+  keycloakInternalURL: "http://keycloak.keycloak.svc.cluster.local"
+  # ClusterSecretStore the gate's client-secret ExternalSecret resolves through.
+  externalSecretStoreName: vault-region1
+  refreshInterval: 1h
+  # The SPA bootstrap-token seed (#4556): 302 the bare root, AFTER the full KC
+  # SSO, to `<dashboardPath>?token=<value>` so the agenity `/app/` SPA seeds
+  # localStorage and lands authenticated with NO paste. value is a SENTINEL
+  # (the daemon runs authMode=none, so it is never verified — it only satisfies
+  # the SPA's localStorage presence-check). VERIFIED live on agnstar (#4556).
+  spaTokenSeed:
+    dashboardPath: /app/
+    value: sso
+    port: 443
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
 # ── HTTPRoute (Cilium Gateway) — the User reaches the Agenity console ──────
+# When oidcGate.enabled (the default), the bp-oidc-gate companion OWNS the
+# agenity hostname and this HTTPRoute is suppressed (two routes on one host is
+# undefined routing). It renders only for a non-gated test install
+# (oidcGate.enabled=false).
 httpRoute:
   enabled: true
   hostnames: []         # default: discovered from the Org/Sovereign FQDN

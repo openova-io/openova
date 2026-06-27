@@ -1674,8 +1674,22 @@ spec:
     # Per-Org identity zone — the openova-MCP derives
     # https://console.<sovereignFqdn> from this when catalystApiUrl is empty.
     sovereignFqdn: {{.Subdomain}}.{{.ParentDomain}}
-    # HTTPRoute exposure for the per-Org dashboard. Without a non-empty
-    # hostnames the chart's templates/httproute.yaml guard renders nothing.
+    # Zero-click SSO gate (#4553) — the bp-oidc-gate companion the chart
+    # renders IN FRONT OF this Org's agenity host, chart-managed (NOT a
+    # hand-created live instance). It owns {{.AgenityHost}}, runs the full
+    # Keycloak sovereign-realm SSO (silent via catalyst-pin), and seeds the
+    # SPA bootstrap token (spaTokenSeed -> /app/?token=sso) so the User lands
+    # on the workspace with NO paste. clientId is pinned per-Org so each Org
+    # registers a distinct KC client (matches the live agnstar
+    # agenity-agnstar). The chart derives the same agenity-<slug> from the
+    # hostname when clientId is empty; pinning it makes the contract explicit.
+    oidcGate:
+      enabled: true
+      clientId: agenity-{{.Subdomain}}
+    # HTTPRoute exposure for the per-Org dashboard. When oidcGate.enabled (the
+    # default), the gate OWNS {{.AgenityHost}} and the chart's own HTTPRoute is
+    # suppressed (two routes on one host is undefined routing); these
+    # hostnames + parentRef still drive the gate's HTTPRoute host + gateway.
     httpRoute:
       enabled: true
       hostnames:

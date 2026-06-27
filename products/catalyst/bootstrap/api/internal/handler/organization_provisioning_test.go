@@ -468,6 +468,41 @@ func TestRenderOrganizationOverlay_AgenityMCPBearerWiring(t *testing.T) {
 	}
 }
 
+// TestRenderOrganizationOverlay_AgenityOIDCGateWiring is the #4553/#4556
+// durable-gate guard. The bp-agenity overlay MUST enable the chart's
+// bp-oidc-gate companion (oidcGate.enabled) and pin the per-Org clientId to
+// agenity-<slug>, so EVERY per-Org agenity install gets a chart-managed
+// zero-click SSO gate + spaTokenSeed no-paste landing — NOT the agnstar walk's
+// hand-created drift-disabled live instance. Without this a fresh agenity Org
+// or a re-prov serves the dashboard un-gated.
+func TestRenderOrganizationOverlay_AgenityOIDCGateWiring(t *testing.T) {
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "t-acme",
+		Subdomain:       "acme",
+		DomainMode:      store.OrganizationDomainFreeSubdomain,
+		AdminEmail:      "admin@acme.test",
+		OTECHFQDN:       "otech.example",
+		ParentDomain:    "omani.homes",
+		TenantNamespace: "org-t-acme",
+	}
+	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body, ok := files["bp-agenity.yaml"]
+	if !ok {
+		t.Fatalf("bp-agenity.yaml missing")
+	}
+	for _, want := range []string{
+		"oidcGate:",
+		"clientId: agenity-acme",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("bp-agenity.yaml missing durable oidc-gate wiring %q\n---\n%s", want, body)
+		}
+	}
+}
+
 func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID:  "t-acme",

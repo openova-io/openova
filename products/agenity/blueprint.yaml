@@ -6,7 +6,12 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.5.14
+  # 0.5.15 (#4553/#4556): the chart now renders a bp-oidc-gate companion in
+  # front of every per-Org agenity host (oidcGate.enabled default true) — the
+  # durable zero-click SSO gate + spaTokenSeed no-paste landing, chart-managed
+  # rather than the agnstar walk's hand-created live instance. Lockstep with
+  # products/agenity/chart/Chart.yaml + the catalog-seed pin.
+  version: 0.5.15
   card:
     title: Agenity
     summary: |
