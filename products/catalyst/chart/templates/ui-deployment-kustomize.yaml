@@ -1,0 +1,70 @@
+# G61-followup #4563 (Refs #2612 #4563, 2026-06-27): Kustomize-mode
+# sibling of ui-deployment.yaml. Contabo-mkt applies this via raw
+# Kustomize (kustomize-controller does not render Helm templates). The
+# Helm sibling (ui-deployment.yaml) uses {{ .Values.global.imageRegistry }}
+# so Sovereign-Helm honours the post-cutover registry override.
+#
+# This file uses a literal `ghcr.io/...` image ref so Kustomize on
+# contabo applies it unchanged. CI auto-bumps the literal here AND the
+# values.yaml `images.catalystUi.tag` so contabo + Sovereigns roll to
+# the same SHA. Same Kustomize-vs-Helm split pattern as
+# api-deployment-kustomize.yaml (issue #2612).
+#
+# Kept out of the Helm-rendered bundle via .helmignore.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalyst-ui
+  labels:
+    app.kubernetes.io/name: catalyst-ui
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: catalyst-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: catalyst-ui
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466 — kyverno cilium-l7-mtls policy
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: catalyst-ui
+          # Literal image ref — required for the contabo-mkt Kustomize
+          # path (kustomize-controller doesn't render Helm templates).
+          # Auto-bumped by .github/workflows/catalyst-build.yaml's deploy
+          # step on every push to main, so contabo rolls to the latest
+          # catalyst-ui SHA. Sovereigns consume the Helm sibling.
+          image: "ghcr.io/openova-io/openova/catalyst-ui:7d35005"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1001
