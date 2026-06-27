@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T17:30:08Z` |
+| Last refreshed | `2026-06-27T17:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 17 |
 | Open DoD gates | 0 / 41 |
@@ -224,9 +224,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T17:31 | [#4576](https://github.com/openova-io/openova/pull/4576) | #909 | docs(uat): #4553 Pillar-4 E2E — SSO + MCP RBAC verified (183 |
 | 2026-06-27T17:28 | [#4575](https://github.com/openova-io/openova/pull/4575) | #4573 | fix(bp-self-sovereign-cutover): the two GENUINE clean-fresh- |
 | 2026-06-27T17:14 | [#4574](https://github.com/openova-io/openova/pull/4574) | #4553 | fix(bp-agenity): oidc-gate companion resources requests==lim |
 | 2026-06-27T16:56 | [#4572](https://github.com/openova-io/openova/pull/4572) | #4553 | fix(bp-agenity): chart-managed bp-oidc-gate companion for ev |
+| 2026-06-27T17:41 | [#4571](https://github.com/openova-io/openova/pull/4571) | #4567 | fix(provisioning): drop CNP from per-Org apps kustomization  |
 | 2026-06-27T15:59 | [#4570](https://github.com/openova-io/openova/pull/4570) | #909 | docs(uat): funnel rows 85/91/92 verified ✅ (181 ✅ · 5 ☐) |
 | 2026-06-27T15:43 | [#4566](https://github.com/openova-io/openova/pull/4566) | #3379 | fix(#4563): pivot catalyst-ui + openova-flow-server off the  |
 | 2026-06-27T15:55 | [#4565](https://github.com/openova-io/openova/pull/4565) | #4421 | fix(marketplace #4564): returning-user redirect lands on the |
@@ -252,8 +254,6 @@ flowchart LR
 | 2026-06-27T09:38 | [#4531](https://github.com/openova-io/openova/pull/4531) | #3379 | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo no lon |
 | 2026-06-27T09:31 | [#4530](https://github.com/openova-io/openova/pull/4530) | #4526 | Refs #909 |
 | 2026-06-27T10:34 | [#4528](https://github.com/openova-io/openova/pull/4528) | #4488 | fix(crossplane): split infrastructure-config into Provider-i |
-| 2026-06-27T09:09 | [#4526](https://github.com/openova-io/openova/pull/4526) | #4525 | fix(marketplace #4524): Review step shows the chosen BCP top |
-| 2026-06-27T09:03 | [#4523](https://github.com/openova-io/openova/pull/4523) | Refs #909 |  |
 
 ---
 
