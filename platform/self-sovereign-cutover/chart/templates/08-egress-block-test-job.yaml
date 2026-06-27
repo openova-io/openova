@@ -588,13 +588,29 @@ data:
                 # is the EXPECTED, PASSING outcome under deny-egress). A genuine
                 # 2xx/3xx/4xx/5xx means the TCP+TLS handshake SUCCEEDED → the
                 # host is reachable → LEAK.
-                code=$(curl -ksS -o /dev/null -w '%{http_code}' --max-time "${CALL_HOME_TIMEOUT}" "${url}" 2>/dev/null || echo "000")
-                if [ "${code}" = "000" ]; then
-                  echo "  OK — ${url} unreachable (curl exit/timeout, http_code=000) — denied as required"
-                else
-                  echo "  LEAK — ${url} RESPONDED http_code=${code} under deny-egress — mothership tether still reachable"
-                  leaked="${leaked} ${url}"
-                fi
+                #
+                # #4557: when curl FAILS to connect (the desired deny-egress
+                # outcome) `curl -w '%{http_code}'` ALREADY prints `000` to
+                # stdout AND exits non-zero — so the `|| echo "000"` fallback
+                # DOUBLE-appends → code="000000" (or "000" repeated per probe),
+                # and the old exact `[ "${code}" = "000" ]` test then mis-flagged
+                # a correctly-blocked host as a LEAK → the sovereignty proof
+                # failed on a PASSING egress block (live c39f0cd4455b7a46:
+                # http_code=000000 reported LEAK while every host was in fact
+                # black-holed). Drop the double-echo and treat ANY all-zeros /
+                # empty code (000, 000000, "") as unreachable; only a code with
+                # a non-zero digit is a real HTTP response = a genuine LEAK.
+                code=$(curl -ksS -o /dev/null -w '%{http_code}' --max-time "${CALL_HOME_TIMEOUT}" "${url}" 2>/dev/null)
+                case "${code}" in
+                  *[1-9]*)
+                    echo "  LEAK — ${url} RESPONDED http_code=${code} under deny-egress — mothership tether still reachable"
+                    leaked="${leaked} ${url}"
+                    ;;
+                  *)
+                    # "", "000", "000000" … — no successful handshake.
+                    echo "  OK — ${url} unreachable (curl exit/timeout, http_code=${code:-000}) — denied as required"
+                    ;;
+                esac
               done
               if [ -n "${leaked}" ]; then
                 echo "  FAIL — deny-egress is leaky; reachable mothership host(s):${leaked} (#3678)"

@@ -1,10 +1,24 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
 # 0.1.84 (#4557 Refs #3379, keystone re-prov c39f0cd4455b7a46 wedged step-06 on
-# the helm-CLI x509 vs the LE-staging in-cluster Harbor, 2026-06-27): THREE
-# changes, all closing the recurring cutover-tail cert-verify pattern at every
-# layer that talks to the in-cluster Harbor + the hand-bridged
-# gitea-admin-secret.
+# the helm-CLI x509 vs the LE-staging in-cluster Harbor, 2026-06-27): FOUR
+# changes — the recurring cutover-tail cert-verify pattern closed at every
+# layer that talks to the in-cluster Harbor (helm-CLI, containerd) + the
+# hand-bridged gitea-admin-secret + the step-08 call-home false-LEAK.
+#
+# (4) STEP-08 CALL-HOME FALSE-LEAK (surfaced live on c39f0cd4455b7a46 once the
+# cutover finally reached the 600s deny-egress hold). The #3678 call-home
+# assertion curls each mothership host under the egressDeny CCNP and requires
+# each to be UNREACHABLE. When curl fails to connect (the DESIRED outcome)
+# `curl -w '%{http_code}'` already prints `000` AND exits non-zero, so the old
+# `|| echo "000"` fallback DOUBLE-appended → code="000000", and the exact
+# `[ "${code}" = "000" ]` test mis-flagged a correctly-black-holed host as a
+# LEAK → "CALL-HOME assertion FAILED — sovereignty proof FAILED" on a PASSING
+# egress block (cutoverComplete stayed false even though every host was in fact
+# denied). FIX (template 08): drop the double-echo + treat ANY all-zeros/empty
+# code (000, 000000, "") as unreachable via a `case "${code}" in *[1-9]*)
+# LEAK ;; *) OK` test — only a code carrying a non-zero digit is a genuine HTTP
+# response = a real leak.
 #
 # (3) STEP-04 CONTAINERD-LAYER IN-CLUSTER TLS-SKIP (surfaced live driving the
 # cutover on c39f0cd4455b7a46 AFTER step-06 cleared). step-07 pivots
