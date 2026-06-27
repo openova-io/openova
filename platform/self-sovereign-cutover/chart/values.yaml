@@ -534,6 +534,60 @@ helmRepositories:
     # ghcr.io). Caught live on t22.omantel.biz 2026-05-18.
     - "openova-catalog"
 
+# ── HelmRepository TLS-trust for the in-cluster Harbor (Refs #3379) ──────
+#
+# THE LAST LEG OF THE CUTOVER CERT-TAIL. Step-06 Phase-1 pivots every
+# openova-io HelmRepository's spec.url from oci://ghcr.io/openova-io to
+# oci://registry.<sov-fqdn>/openova-io. The Flux SOURCE-CONTROLLER then
+# pulls those OCI charts from the in-cluster Harbor — whose wildcard
+# `*.<sov-fqdn>` cert is served by the BOOTSTRAP issuer
+# `letsencrypt-dns01-staging-powerdns` (LE-STAGING, untrusted by the public
+# CA bundle) on a fresh / qaTestEnabled prov. source-controller runs with
+# only the public CA bundle, so EVERY pivoted pull fails
+# `tls: x509: certificate signed by unknown authority` → the pivot never
+# reconciles → step-06 Phase-3a's strip-readiness gate never converges →
+# the cutover never reaches the 600s deny-egress hold → cutoverComplete
+# never set (live on dep 00720a7a).
+#
+# WHY certSecretRef (not a skip flag): unlike skopeo (#4529 --dest-tls-
+# verify=false), the helm CLI (#4557 --insecure-skip-tls-verify) and
+# containerd (step-04 skip_verify), the Flux OCI HelmRepository API has NO
+# `insecure`/`insecureSkipVerify` field for spec.type=oci — the ONLY trust
+# mechanism source-controller honors is `spec.certSecretRef` pointing at a
+# Secret whose `ca.crt` key holds the CA to verify the registry against
+# (host-scoped to registry.<sov-fqdn>, same scoping #4573 F2's
+# disableRedirect relies on). Step-06 extracts the in-cluster Harbor
+# serving cert's CA from the wildcard TLS Secret and patches every pivoted
+# HelmRepository's certSecretRef to it (live HR patch + durable Gitea edit),
+# so source-controller trusts the LE-staging registry over the cluster
+# network without trusting it publicly.
+#
+# This is a per-leg trust path consistent with the rest of the cert-tail;
+# it does NOT widen source-controller's trust for any external host (the
+# CA bundle here verifies ONLY the cluster's own registry cert chain).
+helmRepositoryTrust:
+  # Master switch. Default true — every fresh / qaTestEnabled prov serves
+  # the in-cluster Harbor on an LE-staging (or otherwise node-untrusted)
+  # wildcard, so source-controller needs the certSecretRef trust path. An
+  # operator whose in-cluster Harbor presents a public-CA-trusted cert AND
+  # whose source-controller already trusts it may set this false via
+  # overlay (then the pivoted HRs pull with the default public trust store).
+  enabled: true
+  # The cert-manager TLS Secret backing the in-cluster Harbor's wildcard
+  # serving cert. Lives in `kube-system` (clusters/_template/sovereign-tls/
+  # cilium-gateway-cert.yaml: secretName sovereign-wildcard-tls-<fqdn-
+  # dashed>). Step-06 reads its `ca.crt` (the issuing CA — LE-staging
+  # intermediate on a fresh prov) and, if absent, falls back to `tls.crt`
+  # (the served leaf+chain used as a self-trust bundle). The `<fqdn-dashed>`
+  # suffix is computed at runtime from sovereign.fqdn ('.'->'-').
+  sourceSecretNamespace: "kube-system"
+  sourceSecretNamePrefix: "sovereign-wildcard-tls-"
+  # Destination Secret created/updated by step-06 in the HelmRepository
+  # namespace (flux-system) carrying ONLY the `ca.crt` key. Every pivoted
+  # HelmRepository's spec.certSecretRef.name is patched to this. A
+  # source-controller-only object — never exposes the cert's private key.
+  destSecretName: "cutover-harbor-ca"
+
 # catalyst-api Deployment to patch in step 07 (catalyst-api-env-patch).
 # Sovereign-side namespace is `catalyst-system`, NOT `catalyst-platform`
 # — caught live on otech103 2026-05-04 (Step-7 'deployment catalyst-api

@@ -163,6 +163,22 @@ data:
           # cluster's own registry.
           - name: HELM_IN_CLUSTER_TLS_VERIFY
             value: {{ .Values.helmReadinessProbe.inClusterTLSVerify | default false | quote }}
+          # Refs #3379 — source-controller TLS-trust for the pivoted
+          # HelmRepositories. Phase-0.5 extracts the in-cluster Harbor
+          # serving cert's CA from the wildcard TLS Secret and creates a
+          # ca.crt-only Secret in HELMREPO_NAMESPACE; Phase-1 patches every
+          # pivoted HelmRepository's spec.certSecretRef to it so
+          # source-controller trusts the LE-staging in-cluster registry.
+          # Flux OCI HelmRepository has NO insecureSkipVerify — certSecretRef
+          # is the only mechanism (see .Values.helmRepositoryTrust).
+          - name: HELMREPO_TRUST_ENABLED
+            value: {{ .Values.helmRepositoryTrust.enabled | default false | quote }}
+          - name: HELMREPO_TRUST_SRC_NAMESPACE
+            value: {{ .Values.helmRepositoryTrust.sourceSecretNamespace | quote }}
+          - name: HELMREPO_TRUST_SRC_NAME_PREFIX
+            value: {{ .Values.helmRepositoryTrust.sourceSecretNamePrefix | quote }}
+          - name: HELMREPO_TRUST_DEST_SECRET
+            value: {{ .Values.helmRepositoryTrust.destSecretName | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -412,6 +428,69 @@ data:
               done || true
             fi
 
+            # ---- Phase 0.5: build the source-controller TLS-trust Secret (Refs #3379) ----
+            #
+            # THE LAST LEG OF THE CUTOVER CERT-TAIL. After Phase-1 pivots each
+            # HelmRepository URL to oci://${harbor_host}/openova-io, the Flux
+            # SOURCE-CONTROLLER pulls those OCI charts from the in-cluster
+            # Harbor — whose wildcard `*.${SOVEREIGN_FQDN}` cert is served by
+            # the bootstrap LE-STAGING issuer on a fresh / qaTestEnabled prov.
+            # source-controller carries only the public CA bundle → every
+            # pivoted pull fails `tls: x509: certificate signed by unknown
+            # authority` → the pivot never reconciles → Phase-3a's strip-
+            # readiness gate never converges → the cutover never reaches the
+            # 600s deny-egress hold → cutoverComplete never set (live dep
+            # 00720a7a). Flux OCI HelmRepository has NO insecureSkipVerify; the
+            # ONLY trust mechanism is spec.certSecretRef → a Secret whose
+            # `ca.crt` verifies the registry cert. This phase materialises that
+            # Secret in ${HELMREPO_NAMESPACE}; Phase-1 wires each pivoted HR's
+            # certSecretRef to it; Phase-2 makes both durable in Gitea.
+            #
+            # Fail-OPEN: if trust is disabled, or the wildcard Secret / CA
+            # cannot be read, we log and continue WITHOUT a certSecretRef
+            # (preserving the prior behaviour for a public-CA-trusted Harbor)
+            # rather than wedging the whole cutover on the trust seam.
+            trust_secret=""
+            case "${HELMREPO_TRUST_ENABLED:-false}" in
+              true|True|TRUE|1|yes)
+                # Wildcard TLS Secret name = <prefix><fqdn with '.'->'-'>.
+                fqdn_dashed=$(printf '%s' "${SOVEREIGN_FQDN}" | tr '.' '-')
+                wc_secret="${HELMREPO_TRUST_SRC_NAME_PREFIX}${fqdn_dashed}"
+                echo "[helmrepository-patches] Phase-0.5: building source-controller trust Secret from ${HELMREPO_TRUST_SRC_NAMESPACE}/${wc_secret}"
+                # Prefer the issuing CA (`ca.crt`); fall back to the served
+                # leaf+chain (`tls.crt`) used as a self-trust bundle when the
+                # issuer did not populate ca.crt. Read via `-o json | jq` to
+                # dodge the jsonpath dotted-key ambiguity (Fix #77 shape).
+                ca_b64=$(kubectl get secret "${wc_secret}" -n "${HELMREPO_TRUST_SRC_NAMESPACE}" -o json 2>/dev/null \
+                  | jq -r '.data["ca.crt"] // empty')
+                if [ -z "${ca_b64}" ]; then
+                  echo "[helmrepository-patches] Phase-0.5: ${wc_secret} has no ca.crt; falling back to tls.crt as the trust bundle"
+                  ca_b64=$(kubectl get secret "${wc_secret}" -n "${HELMREPO_TRUST_SRC_NAMESPACE}" -o json 2>/dev/null \
+                    | jq -r '.data["tls.crt"] // empty')
+                fi
+                if [ -z "${ca_b64}" ]; then
+                  echo "[helmrepository-patches] Phase-0.5 WARN: could not read ca.crt or tls.crt from ${HELMREPO_TRUST_SRC_NAMESPACE}/${wc_secret} — pivoting HelmRepository URLs WITHOUT a certSecretRef (source-controller will need a public-CA-trusted Harbor cert)"
+                else
+                  # Create/replace the ca.crt-only Secret in the HelmRepository
+                  # namespace. Opaque (not kubernetes.io/tls): source-controller
+                  # reads only the `ca.crt` key for certSecretRef; the private
+                  # key is deliberately NEVER copied. `kubectl apply` is
+                  # idempotent (re-runs converge; a CA rotation re-applies).
+                  trust_manifest=$(printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' \
+                    "${HELMREPO_TRUST_DEST_SECRET}" "${HELMREPO_NAMESPACE}" "${ca_b64}")
+                  if printf '%s' "${trust_manifest}" | kubectl apply -f - >/dev/null 2>&1; then
+                    trust_secret="${HELMREPO_TRUST_DEST_SECRET}"
+                    echo "[helmrepository-patches] Phase-0.5 OK: ${HELMREPO_NAMESPACE}/${HELMREPO_TRUST_DEST_SECRET} carries the in-cluster Harbor CA — pivoted HelmRepositories will reference it via certSecretRef"
+                  else
+                    echo "[helmrepository-patches] Phase-0.5 WARN: kubectl apply of ${HELMREPO_NAMESPACE}/${HELMREPO_TRUST_DEST_SECRET} failed — pivoting WITHOUT a certSecretRef"
+                  fi
+                fi
+                ;;
+              *)
+                echo "[helmrepository-patches] Phase-0.5 skip: helmRepositoryTrust.enabled=false — pivoting HelmRepository URLs WITHOUT a certSecretRef"
+                ;;
+            esac
+
             # ---- Phase 1: live K8s patches (immediate) ----
             ok=0
             skip=0
@@ -432,19 +511,59 @@ data:
 
               new_url=$(printf '%s' "${cur_url}" | sed -e "s,${UPSTREAM_PREFIX},${local_prefix},")
               if [ "${new_url}" = "${cur_url}" ]; then
+                # URL is already pivoted (or non-default). On a re-run the URL
+                # may already point at local Harbor while the certSecretRef is
+                # still absent — apply the trust ref so an already-pivoted HR
+                # is not left x509-failing source-controller (Refs #3379). Only
+                # acts when the URL is genuinely the local-Harbor host AND a
+                # trust secret was built AND the ref is not already present.
+                case "${cur_url}" in
+                  "${local_prefix}"|"${local_prefix}/"*)
+                    if [ -n "${trust_secret}" ]; then
+                      cur_ref=$(kubectl get helmrepository "${name}" \
+                        -n "${HELMREPO_NAMESPACE}" \
+                        -o jsonpath='{.spec.certSecretRef.name}' 2>/dev/null || echo "")
+                      if [ "${cur_ref}" != "${trust_secret}" ]; then
+                        ref_patch=$(printf '{"spec":{"certSecretRef":{"name":"%s"}}}' "${trust_secret}")
+                        if kubectl patch helmrepository "${name}" \
+                            -n "${HELMREPO_NAMESPACE}" \
+                            --type=merge --patch "${ref_patch}" >/dev/null 2>&1; then
+                          kubectl annotate --overwrite helmrepository "${name}" \
+                            -n "${HELMREPO_NAMESPACE}" \
+                            "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+                          echo "[helmrepository-patches] OK ${name} (already URL-pivoted; added certSecretRef=${trust_secret})"
+                          ok=$((ok+1))
+                          continue
+                        fi
+                      fi
+                    fi
+                    ;;
+                  *) : ;;
+                esac
                 echo "[helmrepository-patches] SKIP ${name} (already pivoted or non-default URL)"
                 skip=$((skip+1))
                 continue
               fi
 
-              patch=$(printf '{"spec":{"url":"%s"}}' "${new_url}")
+              # Wire the source-controller TLS-trust certSecretRef alongside
+              # the URL pivot (Refs #3379). Without it, source-controller
+              # x509-fails the very first pull against the LE-staging
+              # in-cluster Harbor. The certSecretRef is added in the SAME
+              # merge-patch so the URL never lands trust-less even for a
+              # reconcile tick. When trust_secret is empty (disabled or the CA
+              # was unreadable) we pivot the URL only — prior behaviour.
+              if [ -n "${trust_secret}" ]; then
+                patch=$(printf '{"spec":{"url":"%s","certSecretRef":{"name":"%s"}}}' "${new_url}" "${trust_secret}")
+              else
+                patch=$(printf '{"spec":{"url":"%s"}}' "${new_url}")
+              fi
               if kubectl patch helmrepository "${name}" \
                   -n "${HELMREPO_NAMESPACE}" \
                   --type=merge --patch "${patch}" >/dev/null; then
                 kubectl annotate --overwrite helmrepository "${name}" \
                   -n "${HELMREPO_NAMESPACE}" \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null
-                echo "[helmrepository-patches] OK ${name} -> ${new_url}"
+                echo "[helmrepository-patches] OK ${name} -> ${new_url}${trust_secret:+ (certSecretRef=${trust_secret})}"
                 ok=$((ok+1))
               else
                 echo "[helmrepository-patches] FAIL ${name}"
@@ -582,6 +701,64 @@ data:
               echo "[helmrepository-patches] edited ${f}"
             done
             echo "[helmrepository-patches] sed edited ${edited} files"
+
+            # Phase-2 trust durability (Refs #3379): inject `certSecretRef:`
+            # into every HelmRepository spec whose url was just pivoted to the
+            # local Harbor, at the SAME indent as the `url:` line, so the
+            # bootstrap-kit Kustomization reconcile keeps the source-controller
+            # trust ref instead of reverting Phase-1's live certSecretRef patch
+            # (~1 min later) and re-x509-failing every pivoted pull. Idempotent:
+            # if a certSecretRef referencing trust_secret already sits in the
+            # same HelmRepository spec we leave it; awk only injects when the
+            # pivoted url line has no matching certSecretRef immediately after.
+            # Only runs when a trust secret was actually built (Phase-0.5).
+            if [ -n "${trust_secret}" ]; then
+              trust_edited=0
+              for f in $(grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${target_dir}"/*.yaml 2>/dev/null || true); do
+                awk -v ref="${trust_secret}" -v lp="${local_prefix}" '
+                  # Match a pivoted `url:` line (local Harbor prefix). Capture
+                  # its leading whitespace so the injected block aligns with the
+                  # sibling keys (type/interval/url/secretRef) under spec:.
+                  {
+                    line=$0
+                    if (match(line, /^[[:space:]]*url:[[:space:]]*/)) {
+                      val=line; sub(/^[[:space:]]*url:[[:space:]]*/, "", val)
+                      # Only the local-Harbor url lines (this file may also
+                      # carry an unrelated url: e.g. a GitRepository) — gate on
+                      # the value starting with the local prefix.
+                      if (index(val, lp) == 1) {
+                        indent=line; sub(/url:.*/, "", indent)
+                        print line
+                        print indent "certSecretRef:"
+                        print indent "  name: " ref
+                        injected_here=1
+                        next
+                      }
+                    }
+                    # Drop a pre-existing certSecretRef block that immediately
+                    # follows our just-printed url (avoids a duplicate on
+                    # re-run). A line at the url indent starting `certSecretRef:`
+                    # right after an injection is the stale one.
+                    if (injected_here==1 && match(line, /^[[:space:]]*certSecretRef:[[:space:]]*$/)) {
+                      injected_here=2   # swallow this line + its `name:` child
+                      next
+                    }
+                    if (injected_here==2 && match(line, /^[[:space:]]*name:[[:space:]]*/)) {
+                      injected_here=0   # swallow the child name line
+                      next
+                    }
+                    injected_here=0
+                    print line
+                  }
+                ' "${f}" > "${f}.trust" && mv "${f}.trust" "${f}"
+                trust_edited=$((trust_edited+1))
+                echo "[helmrepository-patches] trust-injected certSecretRef -> ${f}"
+              done
+              if [ "${trust_edited}" -gt 0 ]; then
+                edited=$((edited+trust_edited))
+                echo "[helmrepository-patches] Phase-2 trust: injected certSecretRef=${trust_secret} into ${trust_edited} pivoted HelmRepository YAML(s)"
+              fi
+            fi
 
             # Phase-2.5 (TBD-C19, 2026-05-18): inject openova-catalog URL
             # override into 13-bp-catalyst-platform.yaml's
