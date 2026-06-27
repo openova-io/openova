@@ -1,9 +1,30 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
 # 0.1.84 (#4557 Refs #3379, keystone re-prov c39f0cd4455b7a46 wedged step-06 on
-# the helm-CLI x509 vs the LE-staging in-cluster Harbor, 2026-06-27): TWO
-# changes, both closing the recurring cutover-tail cert-verify pattern + the
-# hand-bridged gitea-admin-secret.
+# the helm-CLI x509 vs the LE-staging in-cluster Harbor, 2026-06-27): THREE
+# changes, all closing the recurring cutover-tail cert-verify pattern at every
+# layer that talks to the in-cluster Harbor + the hand-bridged
+# gitea-admin-secret.
+#
+# (3) STEP-04 CONTAINERD-LAYER IN-CLUSTER TLS-SKIP (surfaced live driving the
+# cutover on c39f0cd4455b7a46 AFTER step-06 cleared). step-07 pivots
+# catalyst-api's image to global.imageRegistry=registry.<sov-fqdn>; the rolled
+# pod then ImagePullBackOff'd `Head "https://registry.<sov-fqdn>/v2/.../
+# manifests/...": tls: failed to verify certificate: x509: certificate signed
+# by unknown authority` — the step-04 registry-pivot v2 hosts.toml redirected
+# the upstream mirrors to the in-cluster Harbor but wrote NEITHER a
+# `skip_verify = true` on those redirect host blocks NOR a DIRECT
+# `certs.d/registry.<sov-fqdn>/hosts.toml` (needed for the direct image
+# reference, not a mirror-rewritten upstream), and the registries.yaml v2 had
+# no `configs:` tls block. Same LE-staging cert as #4529/#4543/#4557-step-06,
+# one layer lower (containerd, not a script). FIX (template 04): write_hosts_toml
+# gains an in_cluster_skip arg (true only on the v2 in-cluster path; the
+# v1/rollback mothership path keeps verify) that (a) appends `skip_verify = true`
+# to each mirror redirect block and (b) writes a direct
+# `certs.d/<in-cluster-Harbor>/hosts.toml` with skip_verify; the registries.yaml
+# v2 gains a `configs: {<in-cluster-Harbor>: {tls: {insecure_skip_verify: true}}}`
+# so a genuine k3s restart regenerates certs.d WITH the skip (belt-and-
+# suspenders, same as the v1 bastion mirror).
 #
 # (1) STEP-06 HELM-CLI IN-CLUSTER TLS-SKIP (the #4557 fault). Step-06
 # helmrepository-patches Phase-3a "prove the pivoted charts are pullable from

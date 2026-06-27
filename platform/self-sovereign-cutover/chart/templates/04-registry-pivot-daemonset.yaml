@@ -266,23 +266,59 @@ data:
     # path (matching the registries.yaml `endpoint` rewrite) instead of
     # appending the image path to the host root. capabilities pull+resolve
     # is all a proxy-cache mirror needs. Written atomically per file.
+    # #4557 (Refs #3379): when the mirror host is the cluster's OWN in-cluster
+    # Harbor (registry.<sov-fqdn>), its wildcard cert is served by the BOOTSTRAP
+    # issuer letsencrypt-dns01-staging-powerdns (LE-STAGING, untrusted) on a
+    # fresh prov, so containerd's pull HEAD x509-fails ("certificate signed by
+    # unknown authority") on BOTH the mirror-redirect entries AND any DIRECT
+    # `registry.<sov-fqdn>/...` reference. Step-07 pivots catalyst-api's image
+    # to global.imageRegistry=registry.<sov-fqdn>, so the rolled pod
+    # ImagePullBackOff'd at the containerd layer (live c39f0cd4455b7a46). Gate a
+    # `skip_verify = true` on the in-cluster-Harbor host hosts.toml exactly like
+    # the cold-start v1 mirror does for the bastion endpoint (registries.yaml v1
+    # tls.insecure_skip_verify). The MOTHERSHIP host (v1/rollback path) keeps
+    # verify — only the local LE-staging registry is skipped. Same #4557
+    # cutover-tail pattern as the step-06 helm-CLI flags, one layer lower
+    # (containerd, not a script). in_cluster_skip ($2) is "true" only on the v2
+    # (in-cluster Harbor) path.
     write_hosts_toml() {
       mirror_host="$1"   # bare host[:port], no scheme
+      in_cluster_skip="${2:-false}"
       mkdir -p "${certs_d}"
       printf '%s\n' "${upstream_mirrors}" | while read -r up proj; do
         [ -z "${up}" ] && continue
         d="${certs_d}/${up}"
         mkdir -p "${d}"
         {
-          echo "# managed by bp-self-sovereign-cutover registry-pivot (#3647) — DO NOT EDIT"
+          echo "# managed by bp-self-sovereign-cutover registry-pivot (#3647 #4557) — DO NOT EDIT"
           echo "server = \"https://${up}\""
           echo ""
           echo "[host.\"https://${mirror_host}/v2/${proj}\"]"
           echo "  capabilities = [\"pull\", \"resolve\"]"
           echo "  override_path = true"
+          [ "${in_cluster_skip}" = "true" ] && echo "  skip_verify = true"
         } > "${d}/hosts.toml.new"
         mv "${d}/hosts.toml.new" "${d}/hosts.toml"
       done
+      # #4557: a DIRECT host hosts.toml for the in-cluster Harbor itself so a
+      # `registry.<sov-fqdn>/openova-io/...` reference (NOT a mirror-rewritten
+      # upstream — e.g. the step-07 catalyst-api image pin) also skips the
+      # LE-staging cert. Only on the v2 (in-cluster) path; the mothership
+      # rollback path never writes a skip_verify direct host.
+      if [ "${in_cluster_skip}" = "true" ]; then
+        hd="${certs_d}/${mirror_host}"
+        mkdir -p "${hd}"
+        {
+          echo "# managed by bp-self-sovereign-cutover registry-pivot (#4557) — DO NOT EDIT"
+          echo "server = \"https://${mirror_host}/v2\""
+          echo ""
+          echo "[host.\"https://${mirror_host}/v2\"]"
+          echo "  capabilities = [\"pull\", \"resolve\"]"
+          echo "  skip_verify = true"
+        } > "${hd}/hosts.toml.new"
+        mv "${hd}/hosts.toml.new" "${hd}/hosts.toml"
+        echo "[registry-pivot]   wrote direct ${mirror_host}/hosts.toml (skip_verify) on ${NODE_NAME}"
+      fi
       echo "[registry-pivot]   wrote certs.d hosts.toml for $(printf '%s\n' "${upstream_mirrors}" | grep -c .) upstreams -> ${mirror_host} on ${NODE_NAME}"
     }
 
@@ -297,7 +333,8 @@ data:
           echo "[registry-pivot]   wrote v2 to ${target} on ${NODE_NAME}"
           # #3647: mirror the pivot into the live containerd host-dir so a
           # pod rolled AFTER cutover pulls from local Harbor, not ghcr.io.
-          write_hosts_toml "${harbor_host}"
+          # #4557: in-cluster Harbor is LE-staging → skip_verify=true (2nd arg).
+          write_hosts_toml "${harbor_host}" "true"
           # #3671: ack this node's v2 swap so step-04 can count acks.
           write_node_ack v2
           ;;
@@ -478,4 +515,21 @@ data:
       public.ecr.aws:
         endpoint:
           - "https://__HARBOR_PUBLIC_URL__/v2/proxy-ecr"
+    # #4557 (Refs #3379): the in-cluster Harbor (registry.<sov-fqdn>) serves an
+    # LE-STAGING (untrusted) wildcard on a fresh prov. Without this `configs:`
+    # tls skip, a genuine k3s restart regenerates certs.d/<host>/hosts.toml from
+    # THIS file WITHOUT skip_verify → every mirror-redirect AND direct
+    # `registry.<sov-fqdn>/...` pull x509-fails ("certificate signed by unknown
+    # authority"). The pivot script's write_hosts_toml ALSO writes skip_verify
+    # live (containerd re-reads certs.d per-pull, no restart needed), but
+    # carrying it in registries.yaml keeps the node correct across a future
+    # restart — the same belt-and-suspenders as the v1 mirror. Trust is the
+    # cluster network, not a public CA (identical rationale to the v1 bastion
+    # mirror's tls.insecure_skip_verify above + step-03/step-06 in-cluster
+    # skips). EXTERNAL upstreams are reached via the mirror redirect, never
+    # directly, so this skip only ever relaxes the cluster's own registry.
+    configs:
+      "__HARBOR_PUBLIC_URL__":
+        tls:
+          insecure_skip_verify: true
 {{- end }}
