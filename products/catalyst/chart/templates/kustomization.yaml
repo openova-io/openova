@@ -7,7 +7,11 @@ resources:
   # dangles a non-existent class. Cluster-scoped; the namespace: catalyst
   # transformer above is a no-op on it.
   - api-priorityclass-kustomize.yaml
-  - ui-deployment.yaml
+  # #4563: ui-deployment-kustomize.yaml (literal image) is the Kustomize-
+  # mode sibling. ui-deployment.yaml is now the Helm-templated sibling
+  # ({{ .Values.global.imageRegistry }}) which kustomize-controller can't
+  # render — mirrors the api-deployment-kustomize.yaml split.
+  - ui-deployment-kustomize.yaml
   - ui-service.yaml
   - api-deployment-kustomize.yaml
   - api-deployments-pvc.yaml

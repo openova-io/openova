@@ -45,3 +45,7 @@ templates/api-deployment-kustomize.yaml
 # for the contabo-mkt raw-Kustomize path). Helm renders only the templated
 # api-priorityclass.yaml; Kustomize renders only this literal one.
 templates/api-priorityclass-kustomize.yaml
+# #4563: Kustomize-mode sibling of ui-deployment.yaml (literal catalyst-ui
+# image ref for the contabo-mkt raw-Kustomize path). Helm renders only the
+# templated ui-deployment.yaml; Kustomize renders only this literal one.
+templates/ui-deployment-kustomize.yaml

@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.85 (#4563 Refs #3379, keystone re-prov c39f0cd4455b7a46 reached step-08
+# with the 600s deny-egress hold PASSING but the fresh-pull-under-deny-egress
+# proof FATALing on two residual ghcr.io tethers, 2026-06-27): step-07 now ALSO
+# pivots the bp-openova-flow-server HR's global.imageRegistry (live HR-patch +
+# durable Gitea edit of slot-56), mirroring the bp-catalyst-platform pivot —
+# openova-flow-server is a SEPARATE HR that step-07 previously left on its
+# literal ghcr.io image, so under the deny-egress hold its anonymous-token
+# fetch was blocked → 401 ImagePullBackOff → step-08 FATAL. catalyst-ui's pivot
+# is handled by the bp-catalyst-platform chart (ui-deployment.yaml templated
+# via global.imageRegistry, 1.4.927). Slot 06a also sets egressTest.
+# localRegistryHostSubstr='registry.' (the real Sovereign Harbor host is
+# registry.<fqdn>, not harbor.<fqdn>) so the #3695 proof classifies pivoted
+# workloads as local on the first scan instead of needlessly bouncing them.
 # 0.1.84 (#4557 Refs #3379, keystone re-prov c39f0cd4455b7a46 wedged step-06 on
 # the helm-CLI x509 vs the LE-staging in-cluster Harbor, 2026-06-27): FOUR
 # changes — the recurring cutover-tail cert-verify pattern closed at every
@@ -1186,7 +1199,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.84
+version: 0.1.85
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

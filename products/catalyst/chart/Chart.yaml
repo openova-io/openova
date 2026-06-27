@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.928 — #4563 (Refs #3379, cutover step-08 fresh-pull, 2026-06-27):
+#   catalyst-ui Deployment image is now templated through
+#   global.imageRegistry (ui-deployment.yaml) exactly like catalyst-api —
+#   so the cutover step-07 HR patch pivots catalyst-ui to the local Harbor
+#   and the 600s deny-egress fresh-pull proof stops FATALing on the
+#   residual ghcr.io tether. Literal Kustomize sibling ui-deployment-
+#   kustomize.yaml (contabo-mkt path) added + .helmignore + kustomization
+#   + deploy-bot sed updated in lockstep.
 # 1.4.925 — #4553 (Pillar-4 North-Star walk, 2026-06-27): catalog-seed
 #   bp-agenity spec.version + source.version 0.5.13 -> 0.5.14 (lockstep with
 #   products/agenity/chart 0.5.14) — the agenity httpRoute.parentRef default now
@@ -3341,7 +3349,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.927
+version: 1.4.928
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)

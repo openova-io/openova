@@ -40,11 +40,40 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Image-tag fail-fast — INVIOLABLE-PRINCIPLES #4a.
+
+#4563 (Refs #3379): honour `global.imageRegistry`. The repository is the
+full ghcr.io path (ghcr.io/openova-io/openova/openova-flow-server). When
+the post-cutover registry pivot sets global.imageRegistry =
+registry.<sovereign-fqdn>, swap ONLY the leading registry host so the
+image resolves to registry.<fqdn>/openova-io/openova/openova-flow-server
+— the path the cutover step-03 harbor-prewarm natively pushes the image
+to. Without the override the literal ghcr.io ref is unreachable under the
+600s deny-egress hold (anonymous-token fetch blocked → 401 ImagePullBackOff)
+and the step-08 fresh-pull proof FATALs. Mirrors the catalyst chart's
+api-deployment.yaml / ui-deployment.yaml `global.imageRegistry` wrapper.
 */}}
 {{- define "bp-openova-flow-server.image" -}}
 {{- $tag := .Values.flowServer.image.tag -}}
 {{- if not $tag -}}
 {{- fail "bp-openova-flow-server: .Values.flowServer.image.tag is empty — SHA-pinned image required (CI populates this)" -}}
 {{- end -}}
-{{- printf "%s:%s" .Values.flowServer.image.repository $tag -}}
+{{- $repo := .Values.flowServer.image.repository -}}
+{{- $registry := "" -}}
+{{- if .Values.global -}}
+{{- $registry = .Values.global.imageRegistry | default "" -}}
+{{- end -}}
+{{- if $registry -}}
+{{/* Strip the leading registry host (first path segment, e.g. ghcr.io)
+     and re-prefix with the pivot registry. Splits on "/" and drops the
+     first segment; the remainder is rejoined with "/". A repository with
+     no "/" (bare image name) is kept whole under the new registry. */}}
+{{- $parts := splitList "/" $repo -}}
+{{- $rest := $repo -}}
+{{- if gt (len $parts) 1 -}}
+{{- $rest = rest $parts | join "/" -}}
+{{- end -}}
+{{- printf "%s/%s:%s" (trimSuffix "/" $registry) $rest $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
 {{- end -}}

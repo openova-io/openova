@@ -608,9 +608,15 @@ jobs:
           # green. Caught live hw86 walk 2026-05-31: catalyst-api stuck at
           # fd378e3 while ui rolled to 8a6536c. Now sed both files.
           API_KUST_TPL="products/catalyst/chart/templates/api-deployment-kustomize.yaml"
-          UI_TPL="products/catalyst/chart/templates/ui-deployment.yaml"
+          # #4563: catalyst-ui got the same dual-file split as catalyst-api —
+          # ui-deployment.yaml is now Helm-templated ({{ .Values.global.
+          # imageRegistry }}, no sed-matchable literal) and the contabo-mkt
+          # Kustomize path consumes ui-deployment-kustomize.yaml (literal).
+          # Sed the kustomize sibling so contabo rolls; Sovereigns roll via
+          # the values.yaml catalystUi.tag awk-bump above.
+          UI_KUST_TPL="products/catalyst/chart/templates/ui-deployment-kustomize.yaml"
           sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-api:)[^\"]*\"|\1${SHA_SHORT}\"|" "${API_TPL}" "${API_KUST_TPL}"
-          sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-ui:)[^\"]*\"|\1${SHA_SHORT}\"|"  "${UI_TPL}"
+          sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-ui:)[^\"]*\"|\1${SHA_SHORT}\"|"  "${UI_KUST_TPL}"
           # qa-loop iter-3 Fix #18 — also bump the CATALYST_BUILD_SHA env
           # literal in the api-deployment so /api/v1/version returns the
           # SHA the Pod is actually running. Without this, the env stays
@@ -622,7 +628,7 @@ jobs:
           # + newline + `              value:`.
           sed -i -E "/name: CATALYST_BUILD_SHA/{n;s|(value: )\"[a-f0-9]+\"|\1\"${SHA_SHORT}\"|;}" "${API_TPL}"
           echo "templates after update:"
-          grep -E "image: \".*catalyst-(api|ui):" "${API_TPL}" "${UI_TPL}"
+          grep -E "image: \".*catalyst-(api|ui):" "${API_KUST_TPL}" "${UI_KUST_TPL}"
           grep -A1 "CATALYST_BUILD_SHA" "${API_TPL}" | head -2
 
           # Wave 5.48 (#2272) — bump bp-catalyst-platform Chart.yaml patch
@@ -772,8 +778,9 @@ jobs:
           done
           echo "#2851 sweep: bumped ${bumped}/5 controller pin(s) to latest GHCR."
 
-      # values.yaml + the two literal-image templates (api-deployment,
-      # ui-deployment) are bumped together so:
+      # values.yaml + the literal-image Kustomize-sibling templates
+      # (api-deployment-kustomize, ui-deployment-kustomize) are bumped
+      # together so:
       #   - Sovereigns get the new SHA via the next OCI chart publish
       #     (blueprint-release fires below).
       #   - contabo's Kustomize-path Flux reconciles the bumped literal
@@ -797,6 +804,7 @@ jobs:
             products/catalyst/chart/templates/api-deployment.yaml
             products/catalyst/chart/templates/api-deployment-kustomize.yaml
             products/catalyst/chart/templates/ui-deployment.yaml
+            products/catalyst/chart/templates/ui-deployment-kustomize.yaml
             products/catalyst/chart/Chart.yaml
           commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }} (+ #2851 controller sweep)"
 

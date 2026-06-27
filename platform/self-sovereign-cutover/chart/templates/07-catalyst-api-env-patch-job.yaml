@@ -14,6 +14,14 @@ pre-G61 catalyst-api Deployment image was hardcoded ghcr.io which
 the policy correctly denied after Kyverno bootstrapMode->Enforce
 flip).
 
+#4563 (Refs #3379): catalyst-ui's image is now templated through
+global.imageRegistry (ui-deployment.yaml), so the bp-catalyst-platform
+HR patch above pivots it automatically. openova-flow-server is a
+SEPARATE HR (slot 56) whose chart helper also honours
+global.imageRegistry — this step now patches that HR too (live +
+durable Gitea edit) so both residual ghcr.io tethers pivot to the
+local Harbor before the step-08 fresh-pull-under-deny-egress proof.
+
 Phase 2 (pre-G61): kubectl set env CATALYST_GITOPS_REPO_URL pointing
 catalyst-api at the local Gitea mirror. Triggers another rolling
 restart (likely already in-flight from Phase 1's HR upgrade, but
@@ -201,6 +209,72 @@ data:
               fi
               sleep 2
             done
+
+            # ---- #4563 (Refs #3379): pivot bp-openova-flow-server ----
+            # openova-flow-server is a SEPARATE HelmRelease (slot 56)
+            # whose chart helper honours global.imageRegistry the same
+            # way bp-catalyst-platform does, but step-07 above only
+            # patches the catalyst-platform HR. Without this block the
+            # flow-server Deployment keeps its literal ghcr.io image →
+            # under the 600s deny-egress hold the anonymous-token fetch
+            # to ghcr.io is blocked → 401 ImagePullBackOff → step-08
+            # fresh-pull proof FATALs. Mirror the catalyst-platform
+            # live-HR-patch + durable-Gitea-edit pattern above so the
+            # pivot survives Flux reconciles.
+            FLOW_HR_NAME="bp-openova-flow-server"
+            FLOW_HR_NAMESPACE="flux-system"
+            if kubectl get hr "${FLOW_HR_NAME}" -n "${FLOW_HR_NAMESPACE}" >/dev/null 2>&1; then
+              echo "[catalyst-api-env-patch] #4563 HR patch ${FLOW_HR_NAMESPACE}/${FLOW_HR_NAME} spec.values.global.imageRegistry=${REGISTRY}"
+              FLOW_PATCH=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
+              kubectl patch hr "${FLOW_HR_NAME}" \
+                -n "${FLOW_HR_NAMESPACE}" \
+                --type=merge \
+                -p "${FLOW_PATCH}" || echo "[catalyst-api-env-patch] #4563 flow-server HR patch failed (non-fatal; will retry on next cutover)"
+
+              # Durable Gitea edit on the slot-56 source-of-truth so Flux
+              # Kustomization doesn't revert the live patch (same #2613 rule).
+              cd /tmp
+              rm -rf flowrepo
+              flow_push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+              if git clone --depth 1 --branch main "${flow_push_url}" flowrepo >/dev/null 2>&1; then
+                cd flowrepo
+                git config user.email "self-sovereign-cutover@${HARBOR_HOST}"
+                git config user.name  "self-sovereign-cutover (#4563 flow-server imageRegistry patch)"
+                flow_target="clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml"
+                if [ -f "${flow_target}" ]; then
+                  # Match `imageRegistry: ''` at 6-space indent under the
+                  # global: block. Replace with the harbor host. Idempotent.
+                  if sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${REGISTRY}'|" "${flow_target}" 2>/dev/null; then
+                    if ! git diff --quiet "${flow_target}"; then
+                      git add "${flow_target}"
+                      git commit -m "cutover #4563: pivot bp-openova-flow-server global.imageRegistry to local Harbor (${REGISTRY})" >/dev/null
+                      if git push origin main >/dev/null 2>&1; then
+                        echo "[catalyst-api-env-patch] #4563 OK: Gitea-edit pushed ${flow_target} global.imageRegistry='${REGISTRY}'"
+                      else
+                        echo "[catalyst-api-env-patch] #4563 WARN: git push failed (live HR-patch non-durable; next reconcile may revert)" >&2
+                      fi
+                    else
+                      echo "[catalyst-api-env-patch] #4563 SKIP: ${flow_target} already has imageRegistry=${REGISTRY} (idempotent re-run)"
+                    fi
+                  else
+                    echo "[catalyst-api-env-patch] #4563 WARN: sed match failed on ${flow_target}; flow-server pivot durability not guaranteed" >&2
+                  fi
+                else
+                  echo "[catalyst-api-env-patch] #4563 SKIP: ${flow_target} not present in local mirror"
+                fi
+                cd /tmp
+                rm -rf flowrepo
+              else
+                echo "[catalyst-api-env-patch] #4563 WARN: git clone of local Gitea failed; flow-server pivot durability not guaranteed" >&2
+              fi
+
+              kubectl annotate hr "${FLOW_HR_NAME}" \
+                -n "${FLOW_HR_NAMESPACE}" \
+                "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
+                --overwrite || true
+            else
+              echo "[catalyst-api-env-patch] #4563 SKIP: HR ${FLOW_HR_NAMESPACE}/${FLOW_HR_NAME} not present (flow-server not installed on this Sovereign)"
+            fi
 
             # G61 Phase 2 (was Step 07 pre-G61): set env on the
             # catalyst-api Deployment so it routes GitOps queries to

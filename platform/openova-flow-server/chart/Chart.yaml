@@ -6,7 +6,12 @@ name: bp-openova-flow-server
 annotations:
   catalyst.openova.io/no-upstream: "true"
 # 0.2.4 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 0.2.4
+# 0.2.5 (#4563 Refs #3379): image helper honours global.imageRegistry — the
+#   post-cutover registry pivot (step-07 patches this HR too) swaps the ghcr.io
+#   prefix for registry.<sov-fqdn> so openova-flow-server pulls from the local
+#   Harbor under the 600s deny-egress hold instead of 401'ing → step-08 fresh-
+#   pull proof PASSes. No-op when global.imageRegistry is unset (pre-cutover).
+version: 0.2.5
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the openova-flow-server — the

@@ -20,12 +20,25 @@ spec:
         - name: ghcr-pull
       containers:
         - name: catalyst-ui
-          # Literal image ref — required for the contabo-mkt Kustomize
-          # path (kustomize-controller doesn't render Helm templates).
-          # Auto-bumped by .github/workflows/catalyst-build.yaml's deploy
-          # step on every push to main, so Sovereigns AND contabo both
-          # roll to the latest catalyst-ui SHA.
-          image: "ghcr.io/openova-io/openova/catalyst-ui:7d35005"
+          # G61-followup #4563 (2026-06-27): templated image ref so
+          # Sovereign-Helm honours `global.imageRegistry` override.
+          # Post-cutover step-07 patches HelmRelease.spec.values.global.
+          # imageRegistry = registry.<sovereign-fqdn> on bp-catalyst-
+          # platform → this catalyst-ui Pod restarts pulling through the
+          # local Harbor (image natively pushed there by cutover step-03
+          # harbor-prewarm). Pre-#4563 the literal `ghcr.io/...` ref did
+          # NOT honour the pivot, so under the 600s deny-egress hold the
+          # ghcr.io ref's anonymous-token fetch was blocked → 401
+          # ImagePullBackOff → step-08 fresh-pull proof FATALed.
+          # Mirrors api-deployment.yaml L219.
+          #
+          # Contabo-mkt Kustomize path consumes ui-deployment-kustomize.
+          # yaml (literal ghcr.io ref, .helmignore'd from the Sovereign
+          # bundle) because kustomize-controller can't render Helm
+          # templates. CI auto-bumps both the literal in the kustomize
+          # file AND the values.yaml `images.catalystUi.tag` so contabo
+          # and Sovereigns roll together.
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/catalyst-ui:{{ .Values.images.catalystUi.tag }}"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

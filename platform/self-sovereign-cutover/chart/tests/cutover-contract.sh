@@ -1054,4 +1054,28 @@ if ! printf '%s\n' "$bastion_stanza" | grep -q 'insecure_skip_verify: true'; the
 fi
 echo "  PASS (v1 cold-start mirror carries robot\$openova-bot harbor-robot-token auth for harbor.openova.io [+ the bastion host on Huawei]; pivot script substitutes the placeholder from the in-cluster Secret)"
 
+echo "[cutover-contract] Case 32: Step-07 ALSO pivots the bp-openova-flow-server HR global.imageRegistry to local Harbor (#4563, Refs #3379)"
+# openova-flow-server is a SEPARATE HelmRelease (slot 56) whose chart honours
+# global.imageRegistry. Step-07 historically patched ONLY bp-catalyst-platform,
+# so openova-flow-server (and catalyst-ui, before its chart was templated) kept
+# the literal ghcr.io image — under the 600s deny-egress hold the anonymous-
+# token fetch to ghcr.io is blocked -> 401 ImagePullBackOff -> step-08 fresh-
+# pull proof FATALs. Step-07 MUST now patch the flow-server HR too (live HR
+# patch + durable Gitea edit) so the residual tether pivots to local Harbor.
+step07_block="$(awk '/cutover-step-07-catalyst-api-env-patch/{c=1} c{print} c&&/cutover-order: "8"/{exit}' "$TMP/render.yaml")"
+[ -n "$step07_block" ] || step07_block="$(cat "$TMP/render.yaml")"
+if ! printf '%s\n' "$step07_block" | grep -q 'FLOW_HR_NAME="bp-openova-flow-server"'; then
+  echo "FAIL: Step-07 does not define FLOW_HR_NAME=bp-openova-flow-server — the flow-server HR is never pivoted, its ghcr.io image 401s under deny-egress and step-08 fresh-pull FATALs (#4563)" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$step07_block" | grep -q 'kubectl patch hr "${FLOW_HR_NAME}"'; then
+  echo "FAIL: Step-07 does not kubectl-patch the flow-server HR spec.values.global.imageRegistry (#4563)" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$step07_block" | grep -q '56-bp-openova-flow-server.yaml'; then
+  echo "FAIL: Step-07 does not durably edit the slot-56 source-of-truth in local Gitea — the live HR patch is reverted on the next Flux reconcile (#4563)" >&2
+  exit 1
+fi
+echo "  PASS (Step-07 pivots bp-openova-flow-server HR global.imageRegistry live + durably edits slot-56; catalyst-ui pivots via bp-catalyst-platform's templated ui-deployment.yaml)"
+
 echo "[cutover-contract] All gates green."

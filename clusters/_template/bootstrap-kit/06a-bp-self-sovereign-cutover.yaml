@@ -626,7 +626,11 @@ spec:
       # (`catalyst`) so the step Jobs' secretKeyRef resolves natively — no more
       # hand-bridged `kubectl apply`. No step-count / job-mode change (the
       # bridge is a Secret without the cutover-step label).
-      version: 0.1.84
+      # 0.1.85 (#4563 Refs #3379): step-07 also pivots the bp-openova-flow-
+      # server HR's global.imageRegistry to local Harbor (catalyst-ui pivots
+      # via the bp-catalyst-platform chart 1.4.927) — kills the step-08 fresh-
+      # pull FATAL on the two residual ghcr.io tethers. Lockstep w/ Chart.yaml.
+      version: 0.1.85
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -727,6 +731,17 @@ spec:
     # a tether the preceding steps 01-07 already pivoted off.
     egressTest:
       enforceCIDRBlock: true
+      # #4563 (Refs #3379): the Sovereign-local registry host is
+      # `registry.${SOVEREIGN_FQDN}` (bp-harbor's HTTPRoute, see
+      # 19-harbor.yaml + harborPublicURL above), NOT `harbor.<fqdn>`.
+      # The step-08 #3695 fresh-pull proof classifies a workload as
+      # "already local" when its image host contains this substring —
+      # with the chart default `harbor.` the post-pivot catalyst-ui /
+      # openova-flow-server images (registry.<fqdn>/openova-io/...) were
+      # mis-classified as external and needlessly bounced. Override to
+      # `registry.` so pivoted workloads are correctly recognised as
+      # local and the proof PASSes on the first scan.
+      localRegistryHostSubstr: "registry."
     # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io,
     # substituted from cloudinit's flux-system/bastion-mirror Secret
     # (Huawei provider only; Hetzner leaves the var empty → chart skips

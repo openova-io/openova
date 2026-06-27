@@ -71,7 +71,11 @@ spec:
   chart:
     spec:
       chart: bp-openova-flow-server
-      version: 0.2.4
+      # 0.2.5 (#4563 Refs #3379): image helper honours global.imageRegistry so
+      # cutover step-07 pivots openova-flow-server to local Harbor (kills the
+      # step-08 fresh-pull FATAL on the residual ghcr.io tether). Lockstep w/
+      # Chart.yaml + the global.imageRegistry:'' seam added to values above.
+      version: 0.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-openova-flow-server
@@ -97,6 +101,18 @@ spec:
   # with the concrete sovereign FQDN before the HR bytes land in the
   # cluster.
   values:
+    # #4563 (Refs #3379): imageRegistry override seam — same pattern as
+    # slot 13 bp-catalyst-platform. Empty literal default at Phase 1
+    # (pre-cutover) → the chart helper's `{{ if .Values.global.imageRegistry }}`
+    # falls back to the literal ghcr.io repository. Cutover Step 07 patches
+    # this HR's spec.values.global.imageRegistry live AND durably edits this
+    # file in local Gitea, replacing the empty string with the local Harbor
+    # host so openova-flow-server pulls registry.<sov-fqdn>/openova-io/openova/
+    # openova-flow-server under the deny-egress hold (image native-pushed by
+    # cutover step-03). Without it the literal ghcr.io ref 401s under
+    # deny-egress → step-08 fresh-pull FATALs.
+    global:
+      imageRegistry: ''
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     postgres:
       cluster:
