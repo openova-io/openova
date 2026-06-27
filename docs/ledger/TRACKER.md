@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T07:45:03Z` |
+| Last refreshed | `2026-06-27T08:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -212,7 +212,7 @@ flowchart LR
 | [#4486](https://github.com/openova-io/openova/issues/4486) | DR backbone self-fire: standby-absent on a converged primary must NOT latch the  | Other |
 | [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
 | [#4503](https://github.com/openova-io/openova/issues/4503) | Fresh prov wedges at 0 HelmReleases because cloud-init Cilium helm-install fails | Other |
-| [#4505](https://github.com/openova-io/openova/issues/4505) | fix(mothership): console.openova.io/ 302→/nova/→503 — root redirect points | Other |
+| [#4507](https://github.com/openova-io/openova/issues/4507) | Hubble UI flow-XHR bounces to Keycloak (302→login HTML) instead of 401 — flo | Other |
 
 ---
 
@@ -220,6 +220,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T07:53 | [#4506](https://github.com/openova-io/openova/pull/4506) | #4470 | Refs #909 |
+| 2026-06-27T07:56 | [#4504](https://github.com/openova-io/openova/pull/4504) | #4503 | fix(cloud-init): retry + fail-fast the Cilium CNI install —  |
 | 2026-06-26T20:51 | [#4502](https://github.com/openova-io/openova/pull/4502) | #4053 | feat(infra+catalyst): console-isolation toggle to fit a 3-EI |
 | 2026-06-26T20:29 | [#4501](https://github.com/openova-io/openova/pull/4501) | #4486 | docs(ledger): session 2026-06-27 state — 22 closed (audited  |
 | 2026-06-26T20:15 | [#4500](https://github.com/openova-io/openova/pull/4500) | #4448 | fix(bp-plane-isolation #4499): add catalyst-system to openba |
@@ -248,8 +250,6 @@ flowchart LR
 | 2026-06-26T12:28 | [#4463](https://github.com/openova-io/openova/pull/4463) | #4275 | fix(bp-postgres): decouple -mesh/-mesh-rw global Service ali |
 | 2026-06-26T12:02 | [#4462](https://github.com/openova-io/openova/pull/4462) | #4250 | fix(org-controller): cascade-delete per-Org tenant-networkin |
 | 2026-06-26T11:57 | [#4461](https://github.com/openova-io/openova/pull/4461) | #4448 | fix(bp-sso-bridge): CNP egress names openbao+keycloak+dns —  |
-| 2026-06-26T12:03 | [#4457](https://github.com/openova-io/openova/pull/4457) | #4454 | fix(catalyst-api): janitor orphan-sweep no longer reaps its  |
-| 2026-06-26T11:32 | [#4456](https://github.com/openova-io/openova/pull/4456) | #4452 | fix(bp-catalyst): provisioning-github-token-sync RBAC ordere |
 
 ---
 
