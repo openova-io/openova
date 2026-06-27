@@ -998,4 +998,60 @@ if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render-desttls.yaml" | grep 
 fi
 echo "  PASS (Step-03 drives in-cluster-Harbor dest-TLS from PREWARM_DEST_TLS_VERIFY, default false; src ghcr.io stays verified; overlay can re-enable dest verify)"
 
+echo "[cutover-contract] Case 31: registry-pivot v1 (cold-start) mirror carries harbor-robot-token auth so PRIVATE ghcr pulls through harbor.openova.io/proxy-ghcr authenticate, NOT anonymously 401 (#4527)"
+# The v1 cold-start mirror redirects ghcr.io -> harbor.openova.io/v2/proxy-ghcr.
+# The pod's imagePullSecrets:[ghcr-pull] authenticates ghcr.io (the ORIGINAL
+# host), NOT the rewritten harbor.openova.io mirror host. Without a configs:
+# auth entry for the mirror host the pull is ANONYMOUS -> harbor proxy-ghcr 401
+# -> a fresh catalyst-api roll wedges ImagePullBackOff + api.<fqdn> 503 before
+# cutover runs (live keystone dep 25aadcfc). The v1 registries.yaml MUST carry
+# the SAME robot$openova-bot harbor-robot-token auth the bootstrap node pins in
+# infra/providers/{hetzner,huawei}/main.tf, with the token as a placeholder the
+# pivot script substitutes from the in-cluster Secret.
+# (a) Default (Hetzner) render: v1 mirror MUST have configs.harbor.openova.io.auth
+#     with the robot user + the __HARBOR_ROBOT_TOKEN__ placeholder.
+v1_block="$(awk '/registries.yaml.v1: \|/{c=1;next} c&&/registries.yaml.v2: \|/{c=0} c' "$TMP/render.yaml")"
+if ! printf '%s\n' "$v1_block" | grep -q '"harbor.openova.io":'; then
+  echo "FAIL: v1 cold-start mirror has no configs entry for harbor.openova.io — private ghcr pulls through the proxy-ghcr mirror are anonymous -> 401 (#4527)" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$v1_block" | grep -q 'username: "robot\$openova-bot"'; then
+  echo "FAIL: v1 cold-start mirror configs entry has no robot\$openova-bot auth username (#4527)" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$v1_block" | grep -q 'password: "__HARBOR_ROBOT_TOKEN__"'; then
+  echo "FAIL: v1 cold-start mirror auth password is not the __HARBOR_ROBOT_TOKEN__ placeholder the pivot script substitutes (#4527)" >&2
+  exit 1
+fi
+# (b) The pivot script MUST read the harbor-robot-token Secret + substitute the
+#     placeholder when writing v1 (so the placeholder never reaches the node raw).
+if ! grep -q 'secrets/harbor-robot-token' "$TMP/render.yaml"; then
+  echo "FAIL: pivot script does not read the flux-system/harbor-robot-token Secret — the v1 __HARBOR_ROBOT_TOKEN__ placeholder is never substituted (#4527)" >&2
+  exit 1
+fi
+if ! grep -q 'gsub(/__HARBOR_ROBOT_TOKEN__/' "$TMP/render.yaml"; then
+  echo "FAIL: pivot script does not substitute __HARBOR_ROBOT_TOKEN__ into the v1 mirror at write time (#4527)" >&2
+  exit 1
+fi
+# (c) Huawei render (bastion mirror endpoint): the BASTION host MUST ALSO carry
+#     the robot auth + insecure_skip_verify (it is the actual pull host after the
+#     harbor.openova.io -> bastion redirect; an auth-less bastion = anonymous 401).
+helm template smoke-huawei . --set 'upstream.harborProxyMirrorEndpoint=http://212.72.24.20:5000' > "$TMP/render-huawei.yaml"
+v1_huawei="$(awk '/registries.yaml.v1: \|/{c=1;next} c&&/registries.yaml.v2: \|/{c=0} c' "$TMP/render-huawei.yaml")"
+if ! printf '%s\n' "$v1_huawei" | grep -q '"212.72.24.20:5000":'; then
+  echo "FAIL: Huawei v1 mirror has no configs entry for the bastion endpoint 212.72.24.20:5000 (#4527)" >&2
+  exit 1
+fi
+# The bastion stanza must carry BOTH the robot auth AND insecure_skip_verify.
+bastion_stanza="$(printf '%s\n' "$v1_huawei" | awk '/"212.72.24.20:5000":/{c=1} c{print} c&&/insecure_skip_verify/{exit}')"
+if ! printf '%s\n' "$bastion_stanza" | grep -q 'username: "robot\$openova-bot"'; then
+  echo "FAIL: Huawei v1 bastion configs entry has no robot\$openova-bot auth — private ghcr pulls through the bastion cache are anonymous -> 401 (#4527)" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$bastion_stanza" | grep -q 'insecure_skip_verify: true'; then
+  echo "FAIL: Huawei v1 bastion configs entry lost insecure_skip_verify (http bastion needs it) (#4527)" >&2
+  exit 1
+fi
+echo "  PASS (v1 cold-start mirror carries robot\$openova-bot harbor-robot-token auth for harbor.openova.io [+ the bastion host on Huawei]; pivot script substitutes the placeholder from the in-cluster Secret)"
+
 echo "[cutover-contract] All gates green."

@@ -194,6 +194,29 @@ data:
     src_v1=/etc/registry-pivot/registries.yaml.v1
     src_v2=/etc/registry-pivot/registries.yaml.v2
 
+    # #4527 — fetch the harbor-robot-token Secret so the v1 (cold-start) mirror
+    # can authenticate the harbor.openova.io / bastion pull-through cache for
+    # PRIVATE ghcr.io/openova-io/* blobs. Without this the v1 registries.yaml's
+    # ghcr.io → harbor.openova.io/v2/proxy-ghcr redirect pulls ANONYMOUSLY → 401
+    # → a fresh catalyst-api roll wedges ImagePullBackOff before cutover runs.
+    # The runner SA already carries cluster-wide `secrets get` (rbac.yaml). The
+    # Secret is seeded by cloud-init (flux-system/harbor-robot-token, key
+    # `token`) and reflected; we read it from flux-system (the source ns). The
+    # value substitutes the __HARBOR_ROBOT_TOKEN__ placeholder in registries.
+    # yaml.v1 (mirrors the v2 __HARBOR_PUBLIC_URL__ substitution below). Best-
+    # effort + refreshed each sweep so a slow Secret reflect / token rotation is
+    # picked up; on a (rare) read miss the placeholder is left as-is and the
+    # next sweep retries — the v1 mirror only regresses to the prior anonymous
+    # behaviour, never worse.
+    harbor_robot_secret_url="${api}/api/v1/namespaces/flux-system/secrets/harbor-robot-token"
+    read_harbor_robot_token() {
+      curl -fsS --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+        "${harbor_robot_secret_url}" 2>/dev/null \
+        | jq -r '.data.token // empty' 2>/dev/null \
+        | base64 -d 2>/dev/null \
+        || true
+    }
+
     # #3671: write this node's per-node ack into the status ConfigMap so
     # catalyst-api's step-04 daemonset-wait can assert acks ==
     # DesiredNumberScheduled — proving EVERY node actually swapped to the
@@ -279,7 +302,23 @@ data:
           write_node_ack v2
           ;;
         v1|rollback|*)
-          cp "${src_v1}" "${target}.new"
+          # #4527 — substitute the harbor robot token into the v1 mirror's
+          # `configs:` auth so the cold-start harbor.openova.io / bastion
+          # pull-through authenticates PRIVATE ghcr.io/openova-io/* blobs
+          # (else anonymous → 401 → fresh catalyst-api roll wedges before
+          # cutover). awk (not sed) so a token with /+=. metacharacters is
+          # injected literally with zero escaping. If the Secret read misses
+          # the placeholder is left intact (next sweep retries) — never worse
+          # than the prior anonymous v1.
+          harbor_robot_token=$(read_harbor_robot_token)
+          if [ -n "${harbor_robot_token}" ]; then
+            awk -v tok="${harbor_robot_token}" \
+              '{ gsub(/__HARBOR_ROBOT_TOKEN__/, tok); print }' \
+              "${src_v1}" > "${target}.new"
+          else
+            echo "[registry-pivot]   WARN harbor-robot-token unavailable; v1 mirror auth left as placeholder (will retry next sweep)"
+            cp "${src_v1}" "${target}.new"
+          fi
           mv "${target}.new" "${target}"
           chmod 600 "${target}"
           echo "[registry-pivot]   wrote v1 to ${target} on ${NODE_NAME}"
@@ -299,8 +338,27 @@ data:
         || echo "v1")
       desired=${desired:-v1}
 
-      if [ "${desired}" != "${last_state}" ]; then
-        echo "[registry-pivot] state change ${last_state:-<none>} -> ${desired} on ${NODE_NAME}"
+      # #4527 — re-apply v1/rollback if the on-host registries.yaml still
+      # carries the unsubstituted __HARBOR_ROBOT_TOKEN__ placeholder. The
+      # state-change guard below fires apply_state only ONCE per state; if the
+      # harbor-robot-token Secret had not yet reflected on that first sweep the
+      # auth would stay a placeholder forever. This makes the loop retry the
+      # token injection on a later sweep (once the Secret is readable) WITHOUT
+      # re-applying on every tick after it succeeds. Only the v1/rollback file
+      # carries the placeholder; v2 has none, so this never fires under v2.
+      needs_auth_retry=0
+      if [ "${desired}" != "v2" ] \
+        && [ "${desired}" = "${last_state}" ] \
+        && grep -q '__HARBOR_ROBOT_TOKEN__' "${target}" 2>/dev/null; then
+        needs_auth_retry=1
+      fi
+
+      if [ "${desired}" != "${last_state}" ] || [ "${needs_auth_retry}" = "1" ]; then
+        if [ "${needs_auth_retry}" = "1" ]; then
+          echo "[registry-pivot] re-applying ${desired} to inject harbor-robot-token auth (placeholder still present) on ${NODE_NAME}"
+        else
+          echo "[registry-pivot] state change ${last_state:-<none>} -> ${desired} on ${NODE_NAME}"
+        fi
         apply_state "${desired}"
         last_state="${desired}"
         # Mark Pod ready after the first successful sync.
@@ -327,6 +385,26 @@ data:
   # for ghcr.io / quay.io / etc. (which gets rewritten to
   # harbor.openova.io/v2/proxy-X) flows through bastion instead of
   # hitting Contabo NAT directly. Hetzner Sovereigns leave it empty.
+  #
+  # #4527 — PRIVATE-ghcr AUTH on the cold-start mirror. The ghcr.io →
+  # harbor.openova.io/v2/proxy-ghcr redirect (and, on Huawei, the further
+  # harbor.openova.io → bastion redirect) means containerd resolves a
+  # PRIVATE `ghcr.io/openova-io/*` blob against the MIRROR host, not ghcr.io.
+  # The pod's `imagePullSecrets: [ghcr-pull]` authenticates `ghcr.io` (the
+  # ORIGINAL registry) — NOT the rewritten mirror host. Without a `configs:`
+  # auth entry for the mirror host the pull is ANONYMOUS → harbor proxy-ghcr
+  # returns 401 → a fresh catalyst-api roll (deploy-bot pin bump, pod
+  # reschedule, new microservice) wedges ImagePullBackOff and api.<fqdn> 503s
+  # before cutover even runs (root-caused live on keystone dep 25aadcfc).
+  # The fix carries the SAME `robot$openova-bot` harbor-robot-token auth the
+  # BOOTSTRAP node already pins in /etc/rancher/k3s/registries.yaml
+  # (infra/providers/{hetzner,huawei}/main.tf `configs.harbor.openova.io.auth`).
+  # The token is a Secret, so `__HARBOR_ROBOT_TOKEN__` is a placeholder the
+  # pivot script substitutes in-pod from the in-cluster harbor-robot-token
+  # Secret (exactly like __HARBOR_PUBLIC_URL__ in v2). The mothership host
+  # `harbor.openova.io` ALWAYS gets the auth (it is the direct mirror on
+  # Hetzner and the upstream of the bastion redirect on Huawei); the bastion
+  # endpoint host ALSO gets the auth + insecure_skip_verify when set (Huawei).
   registries.yaml.v1: |
     mirrors:
       ghcr.io:
@@ -355,12 +433,26 @@ data:
         endpoint:
           - "{{ .Values.upstream.harborProxyMirrorEndpoint }}"
       {{- end }}
-    {{- if .Values.upstream.harborProxyMirrorEndpoint }}
     configs:
+      # #4527 — harbor-robot-token auth for the mothership Harbor host the
+      # ghcr.io (and the other 6 upstreams) mirror redirects resolve against.
+      # __HARBOR_ROBOT_TOKEN__ is substituted in-pod by the pivot script.
+      "{{ regexReplaceAll "^https?://" .Values.upstream.mothershipHarborURL "" }}":
+        auth:
+          username: "robot$openova-bot"
+          password: "__HARBOR_ROBOT_TOKEN__"
+      {{- if .Values.upstream.harborProxyMirrorEndpoint }}
+      # #4527 — Huawei bastion endpoint: the actual pull host after the
+      # harbor.openova.io → bastion redirect. Needs the SAME robot auth (the
+      # bastion registry:2 cache authenticates the private proxy-ghcr blobs)
+      # AND insecure_skip_verify (it is http, no TLS).
       "{{ regexReplaceAll "^https?://" .Values.upstream.harborProxyMirrorEndpoint "" }}":
+        auth:
+          username: "robot$openova-bot"
+          password: "__HARBOR_ROBOT_TOKEN__"
         tls:
           insecure_skip_verify: true
-    {{- end }}
+      {{- end }}
   # Hot-state registries.yaml v2 — independent. __HARBOR_PUBLIC_URL__
   # placeholder is replaced in-pod by the pivot script.
   registries.yaml.v2: |

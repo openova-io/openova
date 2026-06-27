@@ -1,5 +1,44 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.83 (#4527 Refs #3379 #3747 #2034, keystone dep 25aadcfc anonymous-ghcr-401
+# on the v1 cold-start mirror, 2026-06-27): the registry-pivot DaemonSet's v1
+# (cold-start, mothership-Harbor) registries.yaml redirected ghcr.io ->
+# harbor.openova.io/v2/proxy-ghcr (and, on Huawei, the further harbor.openova.io
+# -> bastion redirect) but carried NO `configs:` auth for the mirror host. A
+# pod's `imagePullSecrets:[ghcr-pull]` authenticates the ORIGINAL registry
+# (ghcr.io) — NOT the rewritten mirror host — so every PRIVATE
+# `ghcr.io/openova-io/*` pull through the v1 mirror was ANONYMOUS and harbor
+# proxy-ghcr returned 401. Dormant-harmless while every needed image was already
+# node-cached (the bootstrap image was), but the moment a FRESH pull was required
+# (deploy-bot pin bump, pod reschedule, new microservice) it wedged
+# ImagePullBackOff. Live on keystone dep 25aadcfc: a deploy-bot catalyst-api
+# image bump rolled mid-walk -> the new pod 401'd -> catalyst-api Service had no
+# ready endpoints -> api.<fqdn> 503 -> the mother->child tofu-archive handover
+# export (#3747) kept hitting the 503 backend -> tofu-phase0-archive never sealed
+# -> cutover never armed (HTTP 425). It self-healed via retry on 25aadcfc but is a
+# genuine fault that delays/risks convergence + the cutover registry-pivot.
+#
+# THE FIX (chart-only, template 04-registry-pivot-daemonset.yaml): the v1
+# registries.yaml now carries a `configs:` block with the SAME `robot$openova-bot`
+# harbor-robot-token auth the BOOTSTRAP node already pins in
+# /etc/rancher/k3s/registries.yaml (infra/providers/{hetzner,huawei}/main.tf
+# `configs.harbor.openova.io.auth`). The mothership host `harbor.openova.io` ALWAYS
+# gets the auth (the direct mirror on Hetzner; the upstream of the bastion redirect
+# on Huawei); the bastion endpoint host ALSO gets the auth + insecure_skip_verify
+# when set (Huawei). The token is a Secret, so `__HARBOR_ROBOT_TOKEN__` is a
+# placeholder the pivot.sh script substitutes IN-POD from the in-cluster
+# flux-system/harbor-robot-token Secret (key `token`) — the same idiom as v2's
+# `__HARBOR_PUBLIC_URL__` substitution. The runner SA already carries cluster-wide
+# `secrets get` (rbac.yaml), so NO RBAC change. awk (not sed) injects the token so
+# a /+=. metacharacter password needs zero escaping; a Secret-reflect-lag read miss
+# leaves the placeholder + the loop retries the injection on a later sweep (a
+# placeholder-still-present re-apply guard) — never worse than the prior anonymous
+# v1. No step-count / mode / label change (the DaemonSet is step-04 daemonset-wait,
+# untouched); contract test stays green + new Case 31 locks the v1 auth (Hetzner
+# harbor.openova.io + Huawei bastion) + the pivot-script substitution. pivot.sh
+# stays dash/busybox-ash/shellcheck clean. Live anonymous-401-free proof on the v1
+# cold-start mirror DEFERRED to the next fresh prov (roll-gated). Refs #4527 #3379
+# #3747 #2034.
 # 0.1.76 (#3821 Refs #3379 #3642, hw165 cutover wedged step-01 by mgmt-vCluster
 # isolation netpol, 2026-06-19): the Pillar-5 cutover wedged at step 1/11
 # (gitea-mirror) on live hw165. `self-sovereign-cutover-status` showed
@@ -1050,7 +1089,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.82
+version: 0.1.83
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
