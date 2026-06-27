@@ -203,3 +203,98 @@ func TestAugmentWithCNPGStandby_NoPairLeavesSingleton(t *testing.T) {
 		t.Errorf("role: got %q want Primary", out[0].Role)
 	}
 }
+
+// Continuum-CR fallback — the #4551 render-gate completion. The
+// REAL 2-region topology splits the CNPG halves across two apiservers: the
+// primary Cluster CR lives on the region-a apiserver, the replica Cluster CR
+// on the region-B apiserver. The region-a sovereignDynamicClient therefore
+// lists ONLY the primary half → findCNPGPairForApp returns no usable pair →
+// the cnpg-pair path can't surface a Standby. The Continuum CR (in region-a)
+// carries the standby region in spec.hotStandbyRegions; augmentWithCNPGStandby
+// must read it and synthesize the Standby·Hot target so hasStandby is true.
+//
+// Fixture: ONLY the primary cnpg Cluster half is seeded (the replica half is
+// deliberately absent — it lives on the unreachable region-B apiserver) plus
+// the Continuum CR carrying hotStandbyRegions. This reproduces dep
+// 91dc05917e44d1c1, where `kubectl get cluster cnpg-pair-...-replica` was
+// NotFound on region-a.
+func TestAugmentWithCNPGStandby_ContinuumFallback_AddsStandbyWhenReplicaHalfUnlistable(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// Only the PRIMARY cnpg Cluster half is reachable (region-a apiserver);
+	// the replica half is absent (lives on the region-B apiserver). The
+	// Continuum CR — readable in region-a — carries the standby region.
+	primary, _ := newCNPGPairFixture("cnpg-pair-bp-cnpg-pair", "catalyst-system", "hw-me-east-215-a-rtz-prod", "hw-me-east-215-b-rtz-prod")
+	cr := newContinuumUnstructured(
+		"cnpg-pair-bp-cnpg-pair-continuum", "catalyst-system",
+		"catalyst-platform", "hw-me-east-215-a-rtz-prod",
+		[]string{"hw-me-east-215-b-rtz-prod"})
+	factory, _ := fakeContinuumDynamicFactory(primary, cr)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-augment-continuum")
+
+	// Pod occupancy surfaced ONLY the Primary (region-a). The FE sends the
+	// bp-prefixed route id; the Continuum applicationRef is the bare form.
+	in := []bpv1.PlacementTarget{
+		{Region: "hw-me-east-215-a-rtz-prod", Cluster: dep.ID, Role: bpv1.DataRolePrimary},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	out := h.augmentWithCNPGStandby(req, dep.ID, "bp-catalyst-platform", "catalyst-system", in)
+
+	var standby *bpv1.PlacementTarget
+	for i := range out {
+		if out[i].Role == bpv1.DataRoleStandby {
+			standby = &out[i]
+		}
+	}
+	if standby == nil {
+		t.Fatalf("Continuum fallback: no Standby target added (hasStandby would be false → DR panel never renders); got %+v", out)
+	}
+	if standby.Region != "hw-me-east-215-b-rtz-prod" {
+		t.Errorf("standby.Region: got %q want hw-me-east-215-b-rtz-prod (off Continuum spec.hotStandbyRegions)", standby.Region)
+	}
+	if standby.StandbyType != bpv1.StandbyHot {
+		t.Errorf("standby.StandbyType: got %q want Hot", standby.StandbyType)
+	}
+}
+
+// A singleton app whose Continuum CR (if any) names NO distinct standby — or
+// has no Continuum CR at all — must NOT gain a phantom Standby. Here there is
+// no Continuum CR and no cnpg pair: the input is returned unchanged.
+func TestAugmentWithCNPGStandby_ContinuumFallback_SingletonNoStandby(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakeContinuumDynamicFactory() // no Continuum CR, no cnpg clusters
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-augment-continuum-none")
+
+	in := []bpv1.PlacementTarget{
+		{Region: "hw-me-east-215-a-rtz-prod", Cluster: dep.ID, Role: bpv1.DataRolePrimary},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	out := h.augmentWithCNPGStandby(req, dep.ID, "bp-grafana", "mgmt", in)
+	if len(out) != 1 || out[0].Role != bpv1.DataRolePrimary {
+		t.Fatalf("singleton: expected unchanged single Primary, got %+v", out)
+	}
+}
+
+// A Continuum CR whose only hotStandbyRegion EQUALS a live Primary region must
+// NOT produce a same-region "standby" — that is dishonest (single-region prov
+// or a label echo). continuumStandbyRegion filters it out.
+func TestAugmentWithCNPGStandby_ContinuumFallback_SameRegionNotStandby(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	cr := newContinuumUnstructured(
+		"dr-solo", "catalyst-system", "solo",
+		"hw-me-east-215-a-rtz-prod",
+		[]string{"hw-me-east-215-a-rtz-prod"}) // same as the Primary region
+	factory, _ := fakeContinuumDynamicFactory(cr)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-augment-continuum-sameregion")
+
+	in := []bpv1.PlacementTarget{
+		{Region: "hw-me-east-215-a-rtz-prod", Cluster: dep.ID, Role: bpv1.DataRolePrimary},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	out := h.augmentWithCNPGStandby(req, dep.ID, "solo", "catalyst-system", in)
+	if len(out) != 1 {
+		t.Fatalf("same-region standby must be suppressed; got %+v", out)
+	}
+}
