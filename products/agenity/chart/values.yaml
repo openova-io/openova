@@ -325,12 +325,21 @@ oidcGate:
     dashboardPath: /app/
     value: sso
     port: 443
+  # requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
+  # install. The per-Org namespace carries the plan `plan-limits` LimitRange
+  # with maxLimitRequestRatio cpu:1/memory:1 (the Sovereign sells Guaranteed
+  # quota), so a Burstable gate spec (e.g. cpu 10m->100m = 10:1) is REJECTED at
+  # pod admission: `max limit to request ratio per Container is 1, but provided
+  # ratio is N` → the gate Deployment's ReplicaSet FailedCreate and the gate
+  # never serves (live on the agnstar Org 2026-06-27, same trap the agenity
+  # StatefulSet hit in #4362). 1:1 keeps the oauth2-proxy admissible and is
+  # plenty for a single-Org auth proxy.
   resources:
     requests:
-      cpu: 10m
-      memory: 32Mi
+      cpu: 50m
+      memory: 64Mi
     limits:
-      cpu: 100m
+      cpu: 50m
       memory: 64Mi
 
 # ── HTTPRoute (Cilium Gateway) — the User reaches the Agenity console ──────

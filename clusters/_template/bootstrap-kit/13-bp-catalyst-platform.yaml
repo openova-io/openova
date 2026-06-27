@@ -1208,7 +1208,10 @@ spec:
       #   gate + spaTokenSeed no-paste) in front of every per-Org agenity host
       #   (oidcGate.enabled default true), replacing the agnstar walk's
       #   hand-created live instance. Lockstep w/ Chart.yaml + products/agenity.
-      version: 1.4.932
+      # 1.4.933 — #4553: catalog-seed bp-agenity 0.5.15 -> 0.5.16 — oidc-gate
+      #   companion resources requests == limits so the gate pod is admissible
+      #   under the per-Org plan-limits LimitRange. Lockstep w/ products/agenity.
+      version: 1.4.933
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
