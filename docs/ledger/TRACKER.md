@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T14:45:05Z` |
+| Last refreshed | `2026-06-27T15:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T14:55 | [#4562](https://github.com/openova-io/openova/pull/4562) | #4 | docs(uat): agenity zero-click SSO no-paste workspace verifie |
+| 2026-06-27T14:47 | [#4560](https://github.com/openova-io/openova/pull/4560) | #4556 | fix(bp-oidc-gate #4556): spaTokenSeed — TRUE zero-click for  |
 | 2026-06-27T14:10 | [#4555](https://github.com/openova-io/openova/pull/4555) | #4054 | fix(bp-agenity): default httpRoute.parentRef to the real Sov |
 | 2026-06-27T13:37 | [#4554](https://github.com/openova-io/openova/pull/4554) | #3375 | feat(console): per-app Topology tab surfaces read-only DR st |
 | 2026-06-27T13:40 | [#4550](https://github.com/openova-io/openova/pull/4550) | #4549 | fix(marketplace): restore 'Build your cloud tenant' storefro |
@@ -248,8 +250,6 @@ flowchart LR
 | 2026-06-27T08:48 | [#4516](https://github.com/openova-io/openova/pull/4516) | #4482 | Refs #909 |
 | 2026-06-27T08:48 | [#4514](https://github.com/openova-io/openova/pull/4514) | #3646 | fix(jobs): Re-run on a completed batch Job deletes+recreates |
 | 2026-06-27T08:33 | [#4512](https://github.com/openova-io/openova/pull/4512) | Refs #909 |  |
-| 2026-06-27T08:09 | [#4510](https://github.com/openova-io/openova/pull/4510) | #4509 | UAT: newapi SSO rows 37/114 PASS (resync live) + Hubble row  |
-| 2026-06-27T08:04 | [#4509](https://github.com/openova-io/openova/pull/4509) | #2744 | fix(bp-cilium): hubble-ui oauth2-proxy --api-route so flow-s |
 
 ---
 
