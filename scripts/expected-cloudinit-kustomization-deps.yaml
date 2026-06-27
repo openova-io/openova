@@ -5,9 +5,12 @@
 # WHY THIS FILE EXISTS (#3380 row D — sovereign-tls dependsOn drift guard):
 # the bootstrap-kit dependency-graph audit (scripts/check-bootstrap-deps.sh)
 # only covers the HelmRelease documents inside clusters/_template/
-# bootstrap-kit/. The THREE top-level Flux Kustomizations created directly
-# by cloud-init — `bootstrap-kit`, `sovereign-tls`, `infrastructure-config`
-# — had ZERO drift protection. The hazard is PROVEN TWICE: `sovereign-tls`
+# bootstrap-kit/. The top-level Flux Kustomizations created directly by
+# cloud-init — `bootstrap-kit`, `sovereign-tls`, `bootstrap-kit-crs`, and the
+# #4521 LAYER-1 `infrastructure-providers` — had ZERO drift protection. (The
+# #4521 LAYER-2 `infrastructure-config` is NOT inlined in cloud-init — it
+# ships as a committed Flux Kustomization CR, so it is not covered by this
+# .tftpl-scanning guard.) The hazard is PROVEN TWICE: `sovereign-tls`
 # used to dependsOn the whole `bootstrap-kit` Kustomization, so (1) when
 # shared-PG stalled on hw130 the wildcard-TLS cert path was serialized behind
 # it and ALL TLS was delayed ~75 min, and (2) on hw167 a leaf app
@@ -64,15 +67,22 @@ kustomizations:
     # deadlocks circularly (app→DB CR→bootstrap-kit Ready→app; caught live hw162).
     # Provider-agnostic (NOT optional).
     depends_on: []
-  - name: infrastructure-config
-    # #4212 — UN-GATED to all clouds (was Hetzner-only). Installs the
-    # Crossplane object-model layer on EVERY provider via a cloud-conditional
-    # `path`: Huawei → clusters/_template/infrastructure (cloud-agnostic base
-    # = provider-opentofu + the Observe-first CloudAdoption placeholder);
-    # Hetzner → .../infrastructure/hetzner (base + native provider-hcloud).
-    # One Kustomization, ONE name, on both clouds — so Crossplane finally
-    # OBSERVES the OpenTofu infra on Huawei too (#4002/#4018). Always present
-    # now — not optional. The dependsOn set is identical on both clouds.
-    depends_on:
-      - bootstrap-kit
-      - sovereign-tls
+  - name: infrastructure-providers
+    # #4521 — LAYER 1 of the two-layer Crossplane bootstrap. The ONLY crossplane
+    # Flux Kustomization INLINED in cloud-init: it installs the Provider PACKAGE
+    # CRs (provider-opentofu + native provider-hcloud on Hetzner) via a
+    # cloud-conditional `path` (Huawei → .../infrastructure/providers ; Hetzner →
+    # .../providers/hetzner). NO dependsOn (depends_on: []): the Provider CR's
+    # only CRD is pkg.crossplane.io/v1 (landed by bp-crossplane INSIDE
+    # bootstrap-kit), so it reconciles in parallel + retries (retryInterval)
+    # until that CRD registers — the bootstrap-kit-crs idiom. Gated to the
+    # PRIMARY region (`sovereign_region_role == "primary"`): the adoption seam
+    # is a once-per-Sovereign primary-CP concern, so it is ABSENT on
+    # secondary-region cloud-init (optional: true). LAYER 2 (`infrastructure-
+    # config`, the ProviderConfig + CloudAdoption claims) is NOT inlined here —
+    # it ships as a COMMITTED Flux Kustomization CR in the providers/ tree
+    # (clusters/_template/infrastructure/providers/{,hetzner}/
+    # infrastructure-config-kustomization.yaml), applied by THIS Kustomization
+    # and dependsOn-ing it — kept OFF the byte-capped cloud-init (#1981/#3884).
+    optional: true
+    depends_on: []
