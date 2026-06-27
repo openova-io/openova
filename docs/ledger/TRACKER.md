@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T18:30:05Z` |
+| Last refreshed | `2026-06-27T18:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 18 |
+| Open issues | 17 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 18 open items (clickable table)
+### All 17 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -207,7 +207,6 @@ flowchart LR
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
 | [#4541](https://github.com/openova-io/openova/issues/4541) | fix(harbor): create the missing proxy-xpkg/proxy-ecr proxy-cache projects on the | Other |
-| [#4546](https://github.com/openova-io/openova/issues/4546) | fix(marketplace): authed owner on /redeem must not see the public funnel — own | Other |
 | [#4551](https://github.com/openova-io/openova/issues/4551) | Topology tab surfaces NO DR state (standby region + live replication lag) for cr | Other |
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
 | [#4556](https://github.com/openova-io/openova/issues/4556) | AGENITY North-Star residual faults: (1) dual-render duplicate HR, (2) MCP URL -> | Other |
@@ -225,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T18:32 | [#4578](https://github.com/openova-io/openova/pull/4578) | #4556 | fix(catalyst): agenity one-HR-per-install + openova-MCP URL  |
 | 2026-06-27T18:12 | [#4577](https://github.com/openova-io/openova/pull/4577) | #4575 | fix(bp-self-sovereign-cutover): contract-test broken-pipe FA |
 | 2026-06-27T17:31 | [#4576](https://github.com/openova-io/openova/pull/4576) | #909 | docs(uat): #4553 Pillar-4 E2E — SSO + MCP RBAC verified (183 |
 | 2026-06-27T17:28 | [#4575](https://github.com/openova-io/openova/pull/4575) | #4573 | fix(bp-self-sovereign-cutover): the two GENUINE clean-fresh- |
@@ -254,7 +254,6 @@ flowchart LR
 | 2026-06-27T09:49 | [#4533](https://github.com/openova-io/openova/pull/4533) | #4502 | docs(sessions): 2026-06-27 convergence-hardening train — 7-f |
 | 2026-06-27T09:53 | [#4532](https://github.com/openova-io/openova/pull/4532) | #4527 | fix(bp-self-sovereign-cutover): registry-pivot v1 cold-start |
 | 2026-06-27T09:38 | [#4531](https://github.com/openova-io/openova/pull/4531) | #3379 | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo no lon |
-| 2026-06-27T09:31 | [#4530](https://github.com/openova-io/openova/pull/4530) | #4526 | Refs #909 |
 
 ---
 
