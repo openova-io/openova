@@ -3376,7 +3376,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.936
+version: 1.4.937
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
