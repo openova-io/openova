@@ -10,23 +10,23 @@
 //
 // The architecture (per docs/SOVEREIGN-PROVISIONING.md §3) is:
 //
-//   OpenTofu provisions Phase 0 → cloud-init starts k3s → cloud-init
-//   bootstraps Flux → Flux reconciles clusters/<sovereign-fqdn>/ from this
-//   monorepo → that subtree contains a Kustomization tree that installs the
-//   11-component bootstrap kit in dependency order.
+//	OpenTofu provisions Phase 0 → cloud-init starts k3s → cloud-init
+//	bootstraps Flux → Flux reconciles clusters/<sovereign-fqdn>/ from this
+//	monorepo → that subtree contains a Kustomization tree that installs the
+//	11-component bootstrap kit in dependency order.
 //
 // The "right Kustomizations" assertion is therefore:
-//   1. clusters/_template/ exists and renders to valid Flux Kustomization
-//      manifests after SOVEREIGN_FQDN_PLACEHOLDER substitution
-//   2. The dependency graph encoded by `dependsOn` matches the canonical
-//      11-phase order: cilium → cert-manager → flux → crossplane →
-//      sealed-secrets → spire → nats-jetstream → openbao → keycloak →
-//      gitea → bp-catalyst-platform
-//   3. Each referenced platform/<x>/blueprint.yaml + chart/Chart.yaml
-//      actually exists at the path the Kustomization claims
-//   4. On a kind cluster (CI): Flux CRDs install, the GitRepository points
-//      at the local checkout, and the Kustomization objects are accepted
-//      by the API server (their OpenAPI schema is satisfied)
+//  1. clusters/_template/ exists and renders to valid Flux Kustomization
+//     manifests after SOVEREIGN_FQDN_PLACEHOLDER substitution
+//  2. The dependency graph encoded by `dependsOn` matches the canonical
+//     11-phase order: cilium → cert-manager → flux → crossplane →
+//     sealed-secrets → spire → nats-jetstream → openbao → keycloak →
+//     gitea → bp-catalyst-platform
+//  3. Each referenced platform/<x>/blueprint.yaml + chart/Chart.yaml
+//     actually exists at the path the Kustomization claims
+//  4. On a kind cluster (CI): Flux CRDs install, the GitRepository points
+//     at the local checkout, and the Kustomization objects are accepted
+//     by the API server (their OpenAPI schema is satisfied)
 //
 // Note: the test deliberately does NOT wait for the kit to fully install
 // upstream charts — that is what #141 (real Hetzner end-to-end) covers.
@@ -424,22 +424,22 @@ func TestBootstrapKit_TemplateClusterParses(t *testing.T) {
 //
 // This test asserts the platform-plane invariants that must hold post-#4291:
 //
-//   1. NO bootstrap-kit HelmRelease carries a `kubeConfig.secretRef` pointing
-//      at a plane-vCluster mirror Secret (vc-mgmt / vc-rtz / vc-dmz) — that was
-//      the #3642 "vCluster pivot" render mechanism, now retired for platform
-//      planes. (Per-Org vClusters are NOT in clusters/_template/bootstrap-kit/;
-//      they are emitted per-Organization by the org-controller.)
-//   2. NO HelmRelease carries the stale `catalyst.openova.io/vcluster` label.
-//   3. The plane-vCluster runtime slots (54 bp-dmz-vcluster, 58 bp-mgmt-vcluster,
-//      59 bp-rtz-vcluster) and slot 00 (vcluster-host-namespaces) are RETIRED.
-//   4. The newapi render-split companion slot 80a (bp-newapi-host-seams) is
-//      RETIRED and its #4321/#4305/#4278 fixes are preserved in slot 80, which
-//      now renders host-native `placement.role: all` with `cnpg.enabled: true`
-//      (the app HR itself renders the CNPG Cluster + DSN-sync + admin-promote
-//      + AppRegistration + ExternalSecrets natively in host ns `newapi`).
-//   5. bp-plane-isolation (slot 26b) — the per-component default-deny
-//      micro-segmentation that replaces the coarse whole-plane vCluster
-//      boundary — IS present.
+//  1. NO bootstrap-kit HelmRelease carries a `kubeConfig.secretRef` pointing
+//     at a plane-vCluster mirror Secret (vc-mgmt / vc-rtz / vc-dmz) — that was
+//     the #3642 "vCluster pivot" render mechanism, now retired for platform
+//     planes. (Per-Org vClusters are NOT in clusters/_template/bootstrap-kit/;
+//     they are emitted per-Organization by the org-controller.)
+//  2. NO HelmRelease carries the stale `catalyst.openova.io/vcluster` label.
+//  3. The plane-vCluster runtime slots (54 bp-dmz-vcluster, 58 bp-mgmt-vcluster,
+//     59 bp-rtz-vcluster) and slot 00 (vcluster-host-namespaces) are RETIRED.
+//  4. The newapi render-split companion slot 80a (bp-newapi-host-seams) is
+//     RETIRED and its #4321/#4305/#4278 fixes are preserved in slot 80, which
+//     now renders host-native `placement.role: all` with `cnpg.enabled: true`
+//     (the app HR itself renders the CNPG Cluster + DSN-sync + admin-promote
+//     + AppRegistration + ExternalSecrets natively in host ns `newapi`).
+//  5. bp-plane-isolation (slot 26b) — the per-component default-deny
+//     micro-segmentation that replaces the coarse whole-plane vCluster
+//     boundary — IS present.
 func TestBootstrapKit_PlatformPlanesAreHostNative(t *testing.T) {
 	root := repoRoot(t)
 	kitDir := filepath.Join(root, "clusters", "_template", "bootstrap-kit")
@@ -1092,10 +1092,12 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 			} `yaml:"ingress"`
 		} `yaml:"spec"`
 	}
-	ingressFrom := map[string]map[string]bool{} // targetNs -> set(sourceNs)
-	gatewayCNP := map[string]bool{}             // targetNs that have a gateway-ingress (`ingress` entity) CNP
-	apiserverCNP := map[string]bool{}           // targetNs that have a kube-apiserver-egress CNP (#4428)
-	allComponentNs := map[string]bool{}         // every ns that has a default-deny NetworkPolicy
+	ingressFrom := map[string]map[string]bool{}     // targetNs -> set(sourceNs)
+	gatewayCNP := map[string]bool{}                 // targetNs that have a gateway-ingress (`ingress` entity) CNP
+	apiserverCNP := map[string]bool{}               // targetNs that have a kube-apiserver-egress CNP (#4428)
+	apiserverWebhookCNP := map[string]bool{}        // targetNs that have a kube-apiserver-WEBHOOK-ingress CNP (#4579)
+	webhookCNPPorts := map[string]map[string]bool{} // targetNs -> set(port string) admitted on the webhook-ingress CNP (#4579)
+	allComponentNs := map[string]bool{}             // every ns that has a default-deny NetworkPolicy
 
 	dec := yaml.NewDecoder(strings.NewReader(string(out)))
 	for {
@@ -1136,10 +1138,39 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 			if ns == "" {
 				continue
 			}
-			// Disambiguate the two CNP kinds this chart ships by name suffix:
-			// the gateway-ingress (`ingress` entity) CNP and the kube-apiserver
-			// egress CNP (#4428). Both select endpointSelector:{}.
+			// Disambiguate the CNP kinds this chart ships by name suffix:
+			// the gateway-ingress (`ingress` entity) CNP, the kube-apiserver
+			// egress CNP (#4428), and the kube-apiserver WEBHOOK-ingress CNP
+			// (#4579 — admits the apiserver INTO a component's webhook port).
+			// The webhook-ingress case is checked FIRST because its suffix
+			// (...-webhook-ingress) is the most specific.
 			switch {
+			case strings.HasSuffix(name, "-allow-apiserver-webhook-ingress"):
+				apiserverWebhookCNP[ns] = true
+				// Capture the admitted webhook port(s) so the test can assert
+				// the OTel-operator :9443 admit is present (not just any port).
+				if webhookCNPPorts[ns] == nil {
+					webhookCNPPorts[ns] = map[string]bool{}
+				}
+				spec, _ := raw["spec"].(map[string]any)
+				ingress, _ := spec["ingress"].([]any)
+				for _, ri := range ingress {
+					rule, _ := ri.(map[string]any)
+					toPorts, _ := rule["toPorts"].([]any)
+					for _, tpi := range toPorts {
+						tp, _ := tpi.(map[string]any)
+						ports, _ := tp["ports"].([]any)
+						for _, pi := range ports {
+							p, _ := pi.(map[string]any)
+							switch v := p["port"].(type) {
+							case string:
+								webhookCNPPorts[ns][v] = true
+							case int:
+								webhookCNPPorts[ns][fmt.Sprintf("%d", v)] = true
+							}
+						}
+					}
+				}
 			case strings.HasSuffix(name, "-allow-apiserver-egress"):
 				apiserverCNP[ns] = true
 			case strings.HasSuffix(name, "-allow-gateway-ingress"):
@@ -1217,6 +1248,32 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 	for ns := range allComponentNs {
 		if !apiserverCNP[ns] {
 			t.Errorf("bp-plane-isolation: default-denied component %q is MISSING its allow-apiserver-egress CiliumNetworkPolicy — pods that dial the kube-API (e.g. the CNPG instance-manager) will time out on 10.96.0.1:443 → HR wedge (#4428 #4409). apiserver-egress-cnp.yaml renders for every component; this gap means a render regression", ns)
+		}
+	}
+
+	// A component that runs an admission/conversion webhook the kube-apiserver
+	// calls BACK into MUST carry the kube-apiserver-WEBHOOK-ingress CNP (#4579)
+	// on the webhook port. The default-deny's INGRESS allow-list is purely
+	// namespaceSelector — but the apiserver is host-network → reserved
+	// `kube-apiserver` identity → no namespaceSelector can admit it → the
+	// apiserver→webhook call is silently dropped → the operator post-install
+	// hook `context deadline exceeded` → the HR Stalls (MissingRollbackTarget)
+	// → the all-terminal handover gate can't fire. Today only
+	// bp-opentelemetry-operator needs it (`minstrumentation.kb.io` on :9443,
+	// Service opentelemetry-operator-webhook:443 → pod :9443). Live-proven dep
+	// 00720a7a9c72364d (kom4dc, 2026-06-27). This edge fails WITHOUT the
+	// apiserverWebhookPorts: [9443] value on the opentelemetry entry and PASSES
+	// with it — the same guard class that caught #4448/#4499/#4428.
+	wantWebhookCNP := map[string]string{
+		"opentelemetry": "9443",
+	}
+	for ns, port := range wantWebhookCNP {
+		if !apiserverWebhookCNP[ns] {
+			t.Errorf("bp-plane-isolation: webhook component %q is MISSING its allow-apiserver-webhook-ingress CiliumNetworkPolicy — the kube-apiserver→webhook call (reserved `kube-apiserver` identity, no namespaceSelector can admit it) will be DROPPED → the operator post-install hook `context deadline exceeded` → HR Stalls → handover gate can't fire (#4579). Set apiserverWebhookPorts: [%s] on the %q entry in platform/plane-isolation/chart/values.yaml", ns, port, ns)
+			continue
+		}
+		if !webhookCNPPorts[ns][port] {
+			t.Errorf("bp-plane-isolation: %q allow-apiserver-webhook-ingress CiliumNetworkPolicy does NOT admit the apiserver on port %s — the webhook server listens there; the call will be DROPPED (#4579). Ensure apiserverWebhookPorts on the %q entry contains %s", ns, port, ns, port)
 		}
 	}
 }

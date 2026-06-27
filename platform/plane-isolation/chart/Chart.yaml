@@ -154,7 +154,29 @@ name: bp-plane-isolation
 #   network-only de-vcluster ingress-gap class as #4448 (sso-bridge→openbao) and
 #   #4382 (org-services→gitea). The auth path is already wired (catalyst-api's
 #   k8s-auth role bound); this was purely the missing network ingress edge.
-version: 0.1.10
+# 0.1.11 (#4579 / Refs #3379 #4401 #4428): ADD a kube-apiserver-webhook-INGRESS
+#   CiliumNetworkPolicy (fromEntities:[kube-apiserver,host,remote-node] on the
+#   declared port) for a component that runs an admission/conversion webhook the
+#   kube-apiserver calls BACK into. The apiserver-egress CNP (0.1.5/#4428)
+#   admitted the apiserver as an egress TARGET (pod to VIP); this is its INGRESS
+#   mirror (apiserver to pod webhook). The opentelemetry default-deny INGRESS
+#   allow-list is namespace-based (alloy + catalyst-system) — but the apiserver
+#   is HOST-NETWORK, so it carries the reserved `kube-apiserver` identity that no
+#   namespaceSelector can match. So the apiserver call into the
+#   bp-opentelemetry-operator `minstrumentation.kb.io` mutating webhook (Service
+#   opentelemetry-operator-webhook:443 to pod :9443) was Cilium-dropped — the
+#   operator post-install hook (apply default Instrumentation CR, routed through
+#   that webhook) logged `context deadline exceeded`, the bp-opentelemetry-
+#   operator HR Stalled (MissingRollbackTarget), and on a fresh prov the
+#   all-terminal handover gate could not fire (stalled at 59/62 HRs). Live-proven
+#   on dep 00720a7a9c72364d (kom4dc, 2026-06-27). A K8s NetworkPolicy cannot
+#   express reserved:kube-apiserver, so the allow lives in a CiliumNetworkPolicy
+#   — same reserved-entity class as the gateway `ingress` CNP (#4401 added the
+#   analogous fromEntities pattern) and the apiserver-egress CNP. Additive
+#   (admits ONLY the apiserver on :9443, scoped to the operator pods);
+#   default-deny posture intact. New per-component `apiserverWebhookPorts` +
+#   `apiserverWebhookSelector` values; only the opentelemetry entry sets them.
+version: 0.1.11
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform

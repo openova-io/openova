@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.10  # lockstep with chart/Chart.yaml (#4499 — add catalyst-system to openbao allowIngressFrom)
+  version: 0.1.11  # lockstep with chart/Chart.yaml (#4579 — apiserver-webhook-ingress CNP for the OTel-operator :9443 webhook)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |
@@ -45,6 +45,16 @@ spec:
             allowIngressFrom:
               type: array
               items:
+                type: string
+            apiserverWebhookPorts:
+              type: array
+              description: TCP port(s) an admission/conversion webhook server listens on that the kube-apiserver calls back into. Renders a CiliumNetworkPolicy admitting the reserved kube-apiserver identity on these ports (#4579). Omit for components with no apiserver-called webhook.
+              items:
+                type: integer
+            apiserverWebhookSelector:
+              type: object
+              description: Optional matchLabels narrowing the apiserver-webhook-ingress CNP to just the webhook pods (default — every pod in the namespace on the named ports).
+              additionalProperties:
                 type: string
   placementSchema:
     modes: [single-region, active-active]

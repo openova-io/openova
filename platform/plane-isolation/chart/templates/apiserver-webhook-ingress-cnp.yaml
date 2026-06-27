@@ -1,0 +1,92 @@
+{{- /*
+Per-component kube-apiserver-webhook-INGRESS CiliumNetworkPolicy (#4579).
+
+THE ingress mirror of apiserver-egress-cnp.yaml (#4428). That template admits
+the apiserver as an EGRESS target (a default-denied pod dialing the kube-API
+VIP 10.96.0.1:443). THIS template admits the apiserver as an INGRESS SOURCE —
+the reverse direction, for components that run an admission/conversion webhook
+the kube-apiserver itself calls back into.
+
+The companion default-deny NetworkPolicy is podSelector:{} Ingress whose
+allow-list is PURELY namespaceSelector rules (same-ns + flux-system + the
+explicit allowIngressFrom). The kube-apiserver is HOST-NETWORK, so it carries
+the reserved `kube-apiserver` security identity — which is NOT a pod (so a
+namespaceSelector can NEVER match it) and NOT `world`. Result: an apiserver→
+pod:<webhookPort> admission-webhook call is silently dropped → the webhook
+server is unreachable → every API write the webhook intercepts times out.
+
+Live proof (bp-opentelemetry-operator, kom4dc dep 00720a7a9c72364d, 2026-06-27):
+the operator's `minstrumentation.kb.io` MUTATING webhook is backed by Service
+`opentelemetry-operator-webhook.opentelemetry.svc:443` → pod port :9443. The
+operator's post-install Helm hook applies the default Instrumentation CR, which
+the apiserver routes through that webhook. With the `opentelemetry` default-deny
+in force the apiserver→operator:9443 call is dropped → the hook logs `context
+deadline exceeded` → the bp-opentelemetry-operator HelmRelease Stalls
+(MissingRollbackTarget) → on a fresh prov the all-terminal handover gate can't
+fire (stalls at 59/62 HRs).
+
+A vanilla K8s NetworkPolicy cannot express reserved:kube-apiserver, so — exactly
+like the gateway `ingress` entity (gateway-ingress-cnp.yaml) and the apiserver
+egress (apiserver-egress-cnp.yaml) — the allow lives in a CiliumNetworkPolicy.
+Cilium computes the UNION of every policy selecting an endpoint, so this is
+purely ADDITIVE to the default-deny: it admits ONLY the kube-apiserver (plus
+host / remote-node, since the apiserver runs in the host netns and may sit on a
+peer node) on ONLY the declared webhook port(s) — no `world`, no broad ingress.
+
+Rendered ONLY for a component that declares `apiserverWebhookPorts` (the set of
+TCP ports its admission/conversion webhook server listens on). Pure-backend and
+public-route components that run no apiserver-called webhook get NO extra admit.
+An optional per-component `apiserverWebhookSelector` (matchLabels) narrows the
+endpointSelector to just the webhook pods (mirrors the proven live recovery
+`app.kubernetes.io/name: opentelemetry-operator`); absent, it defaults to
+endpointSelector:{} (every pod in the namespace, matching the default-deny
+scope — still tight because only the named port(s) are admitted).
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI), and carries the #4456
+defer-if-absent namespace guard so the atomic Helm install can't fail on a
+not-yet-created namespace (parity with the other three per-component templates).
+*/ -}}
+{{- if and .Values.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+{{- range .Values.components }}
+{{- if .apiserverWebhookPorts }}
+{{- $ns := .namespace }}
+{{- $guardNamespace := not (eq (toString .ensureNamespacePresent) "false") }}
+{{- if and $guardNamespace (not $.Values.renderUnconditional) (not (lookup "v1" "Namespace" "" $ns)) }}
+{{- /* namespace not present yet — defer this component's CNP to a later reconcile */ -}}
+{{- else }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ $ns }}-allow-apiserver-webhook-ingress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-plane-isolation.labels" $ | nindent 4 }}
+    catalyst.openova.io/component: {{ $ns }}-apiserver-webhook-netpol
+spec:
+  # endpointSelector narrows to the webhook pods when apiserverWebhookSelector is
+  # set (proven live recovery scoped to app.kubernetes.io/name); otherwise {} =
+  # every endpoint in this namespace, matching the default-deny policy's scope.
+  endpointSelector:
+    {{- if .apiserverWebhookSelector }}
+    matchLabels:
+      {{- toYaml .apiserverWebhookSelector | nindent 6 }}
+    {{- else }}
+    {}
+    {{- end }}
+  ingress:
+    - fromEntities:
+        - kube-apiserver
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+        {{- range .apiserverWebhookPorts }}
+            - port: {{ . | quote }}
+              protocol: TCP
+        {{- end }}
+{{- end }}{{/* end namespace-present guard */}}
+{{- end }}{{/* end apiserverWebhookPorts guard */}}
+{{- end }}
+{{- end -}}

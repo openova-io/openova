@@ -33,7 +33,15 @@ renderUnconditional: false
 #   * the gateway-ingress CiliumNetworkPolicy fromEntities:[ingress,host,
 #     remote-node] when `gatewayIngress: true` (every component fronted by a
 #     public HTTPRoute needs it; pure-backend components like loki/mimir/tempo/
-#     valkey/seaweedfs/vllm/nats/sandbox/coraza do NOT face the gateway).
+#     valkey/seaweedfs/vllm/nats/sandbox/coraza do NOT face the gateway), and
+#   * the kube-apiserver-webhook-ingress CiliumNetworkPolicy fromEntities:
+#     [kube-apiserver,host,remote-node] on the declared TCP port(s) when
+#     `apiserverWebhookPorts: [<port>...]` is set — for a component that runs an
+#     admission/conversion webhook the kube-apiserver calls back into (the
+#     reserved `kube-apiserver` identity is host-network → no namespaceSelector
+#     can admit it). Optional `apiserverWebhookSelector` (matchLabels) narrows
+#     the policy to just the webhook pods. Only bp-opentelemetry-operator needs
+#     it today (`minstrumentation.kb.io` on :9443, #4579).
 #
 # allowIngressFrom is the EXPLICIT cross-component call graph, derived from the
 # whole-plane bp-{mgmt,rtz,dmz}-vcluster allow-lists + each chart's own NP. It
@@ -159,8 +167,24 @@ components:
       - grafana                    # grafana queries tempo
       - alloy                      # alloy ships traces
       - opentelemetry              # otel collector ships traces
-  - namespace: opentelemetry       # OTLP collector (no public route)
+  - namespace: opentelemetry       # OTLP collector + OTel operator (no public route)
     gatewayIngress: false
+    # The bp-opentelemetry-operator admission webhook (`minstrumentation.kb.io`,
+    # Service opentelemetry-operator-webhook:443 → pod :9443) is called BACK by
+    # the kube-apiserver when the operator's post-install hook applies the
+    # default Instrumentation CR. The apiserver is host-network → reserved
+    # `kube-apiserver` identity → no namespaceSelector in the default-deny can
+    # admit it → the webhook call is dropped → the hook `context deadline
+    # exceeded` → the HR Stalls (MissingRollbackTarget) → the all-terminal
+    # handover gate can't fire on a fresh prov (stalls at 59/62 HRs). Renders a
+    # companion CiliumNetworkPolicy (apiserver-webhook-ingress-cnp.yaml) that
+    # admits ONLY the apiserver on :9443 — same reserved-entity class as the
+    # gateway `ingress` CNP + the apiserver-egress CNP, additive to the
+    # default-deny. Scoped to the operator pods via apiserverWebhookSelector
+    # (the proven live recovery on kom4dc 00720a7a9c72364d, Refs #4579 #4401).
+    apiserverWebhookPorts: [9443]
+    apiserverWebhookSelector:
+      app.kubernetes.io/name: opentelemetry-operator
     allowIngressFrom:
       - alloy                      # alloy forwards OTLP logs/metrics/traces to the collector
                                    # (slot 21-alloy → opentelemetry-collector:4317). The otel
