@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T14:00:02Z` |
+| Last refreshed | `2026-06-27T14:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 14 |
+| Open issues | 13 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 14 open items (clickable table)
+### All 13 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -206,14 +206,13 @@ flowchart LR
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — DR/spine half LIVE-Healthy (spine Applica | Other |
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
-| [#4527](https://github.com/openova-io/openova/issues/4527) | fix(bp-self-sovereign-cutover): registry-pivot v1 cold-start mirror routes priva | Other |
-| [#4529](https://github.com/openova-io/openova/issues/4529) | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo public-CA-verifies the in- | Other |
 | [#4541](https://github.com/openova-io/openova/issues/4541) | fix(harbor): create the missing proxy-xpkg/proxy-ecr proxy-cache projects on the | Other |
-| [#4543](https://github.com/openova-io/openova/issues/4543) | fix(handover): mothership postTofuArchive verifies the child cert against the pu | Other |
 | [#4546](https://github.com/openova-io/openova/issues/4546) | fix(marketplace): authed owner on /redeem must not see the public funnel — own | Other |
 | [#4551](https://github.com/openova-io/openova/issues/4551) | Topology tab surfaces NO DR state (standby region + live replication lag) for cr | Other |
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
 | [#4553](https://github.com/openova-io/openova/issues/4553) | AGENITY North-Star: zero-click SSO gate for per-Org agenity (oidc-gate instance) | Other |
+| [#4556](https://github.com/openova-io/openova/issues/4556) | AGENITY North-Star residual faults: (1) dual-render duplicate HR, (2) MCP URL -> | Other |
+| [#4557](https://github.com/openova-io/openova/issues/4557) | fix(bp-self-sovereign-cutover): helmrepository-patches Phase-3a helm registry lo | Other |
 
 ---
 
@@ -221,6 +220,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T14:10 | [#4555](https://github.com/openova-io/openova/pull/4555) | #4054 | fix(bp-agenity): default httpRoute.parentRef to the real Sov |
 | 2026-06-27T13:37 | [#4554](https://github.com/openova-io/openova/pull/4554) | #3375 | feat(console): per-app Topology tab surfaces read-only DR st |
 | 2026-06-27T13:40 | [#4550](https://github.com/openova-io/openova/pull/4550) | #4549 | fix(marketplace): restore 'Build your cloud tenant' storefro |
 | 2026-06-27T13:11 | [#4548](https://github.com/openova-io/openova/pull/4548) | #4547 | docs(uat): 3-agent live-walk batch — topology/recon/sso flip |
@@ -250,7 +250,6 @@ flowchart LR
 | 2026-06-27T08:33 | [#4512](https://github.com/openova-io/openova/pull/4512) | Refs #909 |  |
 | 2026-06-27T08:09 | [#4510](https://github.com/openova-io/openova/pull/4510) | #4509 | UAT: newapi SSO rows 37/114 PASS (resync live) + Hubble row  |
 | 2026-06-27T08:04 | [#4509](https://github.com/openova-io/openova/pull/4509) | #2744 | fix(bp-cilium): hubble-ui oauth2-proxy --api-route so flow-s |
-| 2026-06-27T08:00 | [#4508](https://github.com/openova-io/openova/pull/4508) | #4506 | docs(uat): Pillar-1 funnel+voucher consolidation — rows 72-9 |
 
 ---
 
