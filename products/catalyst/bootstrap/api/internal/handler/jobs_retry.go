@@ -382,21 +382,24 @@ func cronJobOwnerName(job *unstructured.Unstructured) string {
 // re-applying or patching it in place returns `Job spec.template field is
 // immutable` (the live-walk 502). Recreating is the only honest re-run.
 //
-// The fresh Job strips every server-managed + immutable field so the apiserver
-// (and the Job controller) regenerate them cleanly:
+// The fresh Job is built from the old spec with every server-managed +
+// immutable field stripped so the apiserver (and the Job controller)
+// regenerate them cleanly:
 //   - spec.selector + spec.template.metadata.labels[batch.kubernetes.io/*] /
 //     [controller-uid] / [job-name] — the controller-owned label selector the
 //     batch controller stamps; reusing it collides with the new Job's
 //     generated identity.
-//   - spec.completionTime / spec.startTime are not template fields; the whole
-//     status block is dropped.
-//   - metadata.{resourceVersion,uid,creationTimestamp,generation,
-//     ownerReferences,managedFields} + the terminal status — all rebuilt by
-//     the apiserver on create.
+//   - The old object's status + metadata.{resourceVersion,uid,
+//     creationTimestamp,generation,ownerReferences,managedFields} are simply
+//     never copied onto the new object — only spec + a clean metadata
+//     (name/namespace/labels/annotations) are carried, so the apiserver
+//     rebuilds the rest on create.
 //
-// The new Job keeps the same name (the old one is deleted first with
-// propagationPolicy=Background so its Pods are GC'd) so the leaf identity in
-// the jobs canvas stays stable across the re-run.
+// The new Job is named "<name>-rerun-<unix>" (not the old name) so the create
+// can't race the still-terminating old object, and the old one is deleted
+// first with propagationPolicy=Background so its Pods are GC'd. The leaf's
+// AppID identity in the jobs canvas is unchanged — a re-run surfaces as a new
+// Execution on the same row, not a new leaf.
 func recreateStandaloneJob(ctx context.Context, dyn dynamic.Interface, ns string, old *unstructured.Unstructured, now time.Time) error {
 	name := old.GetName()
 
