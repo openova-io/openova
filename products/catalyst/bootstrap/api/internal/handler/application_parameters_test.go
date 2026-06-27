@@ -63,7 +63,7 @@ func bpPostgresConfigSchema() map[string]interface{} {
 // ── defaultedParameters unit table ──────────────────────────────────────
 
 func TestDefaultedParameters_PostgresNoValues_SeedsSingletonMode(t *testing.T) {
-	got := defaultedParameters("bp-postgres", "singleton", nil)
+	got := defaultedParameters("bp-postgres", "singleton", "", nil)
 	if got == nil {
 		t.Fatal("defaultedParameters returned nil — must always be a non-null object")
 	}
@@ -78,7 +78,7 @@ func TestDefaultedParameters_PostgresNoValues_SeedsSingletonMode(t *testing.T) {
 
 func TestDefaultedParameters_PostgresActiveHotStandby(t *testing.T) {
 	for _, topo := range []string{"active-hot-standby", "active-hotstandby", "active-active", "active-passive"} {
-		got := defaultedParameters("postgres", topo, nil)
+		got := defaultedParameters("postgres", topo, "", nil)
 		tm := got["topology"].(map[string]interface{})["mode"]
 		if tm != "active-hot-standby" {
 			t.Fatalf("topology %q → topology.mode = %v, want active-hot-standby", topo, tm)
@@ -87,7 +87,7 @@ func TestDefaultedParameters_PostgresActiveHotStandby(t *testing.T) {
 }
 
 func TestDefaultedParameters_NonPostgresNoValues_EmptyObjectNotNil(t *testing.T) {
-	got := defaultedParameters("bp-grafana", "singleton", nil)
+	got := defaultedParameters("bp-grafana", "singleton", "", nil)
 	if got == nil {
 		t.Fatal("non-postgres parameters returned nil — must be at least an empty object")
 	}
@@ -101,12 +101,89 @@ func TestDefaultedParameters_ExplicitValuesPreservedVerbatim(t *testing.T) {
 		"topology":  map[string]interface{}{"mode": "active-hot-standby"},
 		"databases": []interface{}{map[string]interface{}{"name": "wp", "owner": "wp"}},
 	}
-	got := defaultedParameters("bp-postgres", "singleton", explicit)
+	got := defaultedParameters("bp-postgres", "singleton", "", explicit)
 	if got["topology"].(map[string]interface{})["mode"] != "active-hot-standby" {
 		t.Fatalf("explicit topology.mode must be preserved (not overwritten by chosen topology), got %#v", got)
 	}
 	if _, ok := got["databases"]; !ok {
 		t.Fatalf("explicit databases must be preserved, got %#v", got)
+	}
+}
+
+// ── #4556 Item 2: bp-agenity stamps sovereignFqdn so the openova-MCP URL
+//    derives https://console.<sovereign-fqdn>, NOT the mothership
+//    console.openova.io. ───────────────────────────────────────────────────
+
+func TestDefaultedParameters_AgenityNoValues_StampsSovereignFqdn(t *testing.T) {
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", nil)
+	if got["sovereignFqdn"] != "omantel.biz" {
+		t.Fatalf("agenity parameters must stamp sovereignFqdn=omantel.biz, got %#v", got)
+	}
+}
+
+func TestDefaultedParameters_AgenityWithExplicitValues_StampsSovereignFqdn(t *testing.T) {
+	explicit := map[string]interface{}{
+		"agent": map[string]interface{}{"model": "claude-opus-4-8"},
+	}
+	got := defaultedParameters("agenity", "singleton", "t99.omani.works", explicit)
+	if got["sovereignFqdn"] != "t99.omani.works" {
+		t.Fatalf("agenity sovereignFqdn must be stamped even with explicit params, got %#v", got)
+	}
+	if _, ok := got["agent"]; !ok {
+		t.Fatalf("explicit agent params must be preserved alongside the stamped sovereignFqdn, got %#v", got)
+	}
+}
+
+func TestDefaultedParameters_AgenityExplicitSovereignFqdnWins(t *testing.T) {
+	explicit := map[string]interface{}{"sovereignFqdn": "pinned.example"}
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", explicit)
+	if got["sovereignFqdn"] != "pinned.example" {
+		t.Fatalf("a caller-pinned sovereignFqdn must NOT be overwritten, got %#v", got)
+	}
+}
+
+func TestDefaultedParameters_AgenityEmptyFQDN_NoStamp(t *testing.T) {
+	// Mothership / Catalyst-Zero: empty FQDN → leave sovereignFqdn unset so
+	// the chart's fail-closed default applies (no bogus console host).
+	got := defaultedParameters("bp-agenity", "singleton", "", nil)
+	if _, ok := got["sovereignFqdn"]; ok {
+		t.Fatalf("empty FQDN must NOT stamp sovereignFqdn, got %#v", got)
+	}
+}
+
+func TestNewApplicationUnstructured_Agenity_StampsSovereignFqdn(t *testing.T) {
+	req := applicationInstallRequest{
+		BlueprintRef:    applicationBlueprintRef{Name: "bp-agenity", Version: "0.5.16"},
+		Name:            "agenity",
+		OrganizationRef: "agnstar.omani.homes",
+		EnvironmentRef:  "agnstar-prod",
+		Placement:       applicationPlacement{Mode: "singleton", Regions: []string{"primary"}},
+	}
+	obj := newApplicationUnstructured(req, "omantel.biz")
+	params, found, _ := unstructured.NestedMap(obj.Object, "spec", "parameters")
+	if !found || params == nil {
+		t.Fatalf("spec.parameters absent/nil for agenity install")
+	}
+	if params["sovereignFqdn"] != "omantel.biz" {
+		t.Fatalf("agenity Application CR must carry spec.parameters.sovereignFqdn=omantel.biz (else the openova-MCP URL falls back to the mothership console.openova.io), got %#v", params)
+	}
+}
+
+func TestNewApplicationCRFromSeed_Agenity_StampsSovereignFqdn(t *testing.T) {
+	seed := instances.ApplicationSeed{
+		Name:          "agenity",
+		Namespace:     "agnstar.omani.homes",
+		Blueprint:     "bp-agenity",
+		Topology:      "singleton",
+		SovereignFQDN: "omantel.biz",
+	}
+	obj := newApplicationCRFromSeed(seed)
+	params, found, _ := unstructured.NestedMap(obj.Object, "spec", "parameters")
+	if !found || params == nil {
+		t.Fatalf("spec.parameters absent/nil for agenity seed")
+	}
+	if params["sovereignFqdn"] != "omantel.biz" {
+		t.Fatalf("agenity seed CR must carry spec.parameters.sovereignFqdn=omantel.biz, got %#v", params)
 	}
 }
 
@@ -182,7 +259,7 @@ func TestNewApplicationUnstructured_PostgresNoParams_ValidatesConfigSchema(t *te
 		EnvironmentRef:  "omantel-biz-prod",
 		Placement:       applicationPlacement{Mode: "singleton", Regions: []string{"primary"}},
 	}
-	obj := newApplicationUnstructured(req)
+	obj := newApplicationUnstructured(req, "")
 	params, found, _ := unstructured.NestedMap(obj.Object, "spec", "parameters")
 	if !found || params == nil {
 		t.Fatalf("spec.parameters absent/nil — newApplicationUnstructured must always stamp a non-null object")

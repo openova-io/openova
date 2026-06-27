@@ -855,6 +855,11 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// #4556 Item 2 — stamp the Sovereign's own FQDN so a bp-agenity instance
+	// created via this path gets spec.parameters.sovereignFqdn (the chart
+	// derives the openova-MCP catalyst-api URL from it; empty → the mothership
+	// console.openova.io). No-op for non-agenity Blueprints.
+	seed.SovereignFQDN = h.sovereignFQDN()
 
 	// #3598 (EPIC #3597) — ensure the Org/Environment namespace exists
 	// BEFORE creating any Application CR. Without this the create races the
@@ -2189,7 +2194,7 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// reconciled (phase=Failed). Now seed.Values (when present) is used
 	// verbatim; otherwise we emit at least `{}` plus a configSchema-valid
 	// topology.mode for bp-postgres.
-	spec["parameters"] = defaultedParameters(seed.Blueprint, seed.Topology, seed.Values)
+	spec["parameters"] = defaultedParameters(seed.Blueprint, seed.Topology, seed.SovereignFQDN, seed.Values)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }
