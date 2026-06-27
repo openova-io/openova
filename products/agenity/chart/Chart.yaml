@@ -124,6 +124,16 @@ type: application
 # `ingress` entity that no K8s NetworkPolicy can admit — without the CNP every
 # external hit to agenity.<slug>.<pool> returned envoy 503 "upstream connect
 # error". appVersion (dashboard image) stays 0.9.6 — image bytes unchanged.
+# 0.5.16 (#4553, gate LimitRange fix): the oidc-gate companion's default
+# resources are now requests == limits (Guaranteed QoS, 1:1 ratio). The per-Org
+# namespace's plan `plan-limits` LimitRange (maxLimitRequestRatio cpu:1/mem:1 —
+# the Sovereign sells Guaranteed quota) REJECTED the prior Burstable gate spec
+# (cpu 10m->100m = 10:1) at pod admission: `max limit to request ratio per
+# Container is 1, but provided ratio is 10` → the gate Deployment's ReplicaSet
+# FailedCreate, no gate pod, no SSO (live root-cause on the agnstar Org
+# 2026-06-27 — the exact trap the agenity StatefulSet hit in #4362). cpu 50m /
+# mem 64Mi 1:1 keeps the oauth2-proxy admissible. Values-only; appVersion
+# (image) UNCHANGED.
 # 0.5.15 (#4553/#4556, durable zero-click SSO gate): render a bp-oidc-gate
 # COMPANION (templates/oidc-gate.yaml) in front of EVERY per-Org agenity host,
 # gated behind oidcGate.enabled (default true). The agnstar North-Star walk
@@ -149,7 +159,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.15
+version: 0.5.16
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752
