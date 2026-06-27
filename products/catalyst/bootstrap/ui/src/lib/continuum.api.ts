@@ -148,10 +148,66 @@ export interface ContinuumFleetResponse {
   total: number
 }
 
+/**
+ * ContinuumReplicaInfo — one per-region replica row of the replication
+ * status. Mirrors the catalyst-api `continuumReplicaInfo` shape
+ * (continuum_dr_extras.go). The fields are best-effort: a synthesized
+ * fallback shape (source !== "live") may leave some empty.
+ */
+export interface ContinuumReplicaInfo {
+  region?: string
+  cluster?: string
+  role?: string // "primary" | "replica"
+  state?: string // streaming/connection state
+  lagSeconds?: number
+  lagBytes?: number
+}
+
+/**
+ * ContinuumReplicationStatus — body of
+ * GET /api/v1/sovereigns/{id}/continuum/{name}/replication-status
+ * (continuum_dr_extras.go::HandleContinuumReplicationStatus).
+ *
+ * This is the LIVE DR telemetry the per-app Topology tab renders for a
+ * cross-region (cnpg-pair / Continuum-backed) component: the current
+ * primary, the WAL replication lag in seconds, and the streaming/sync
+ * state. `source` is the honesty flag — "live" means it was read off the
+ * real Continuum + CNPGPair CR status; "synthesized" means the in-cluster
+ * client was bootstrapping or the CRs were missing and the backend
+ * returned a realistic-but-not-live shape. The UI MUST surface this so a
+ * fallback is never passed off as live.
+ */
+export interface ContinuumReplicationStatus {
+  continuum: string
+  namespace: string
+  primaryRegion: string
+  currentPrimary: string
+  walLagSeconds: number
+  walLagBytes?: number
+  replicaPromotable?: boolean
+  streamingState?: string
+  syncState?: string
+  lastHeartbeat?: string
+  replicas?: ContinuumReplicaInfo[]
+  observedAt?: string
+  source: string // "live" | "synthesized"
+}
+
 /* ── Endpoint helpers ────────────────────────────────────────────── */
 
 function continuumsBase(sovereignId: string): string {
   return `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/continuums`
+}
+
+/**
+ * continuumSingularBase — the SINGULAR `/continuum/` path the EPIC-6
+ * iter-6 target-state endpoints live under (replication-status,
+ * switchover/history, settings). Distinct from continuumsBase (plural
+ * `/continuums/`, the older CRUD surface) — both are live for
+ * back-compat; the replication-status route is singular only.
+ */
+function continuumSingularBase(sovereignId: string): string {
+  return `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/continuum`
 }
 
 function auditBase(sovereignId: string): string {
@@ -172,6 +228,30 @@ export async function getContinuum(
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) {
     throw new Error(`continuum get: HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * getContinuumReplicationStatus — fetch the live DR replication telemetry
+ * for a Continuum CR (GET .../continuum/{name}/replication-status). The
+ * per-app Topology tab calls this for cross-region components (continuum
+ * name = `dr-<app>`) to render the standby region + live WAL lag. A 404
+ * (no DR pair for this app) throws so the caller can render the calm
+ * singleton/no-DR state — NOT a fabricated lag.
+ */
+export async function getContinuumReplicationStatus(
+  sovereignId: string,
+  name: string,
+  opts: { namespace?: string } = {},
+): Promise<ContinuumReplicationStatus> {
+  const params = new URLSearchParams()
+  if (opts.namespace) params.set('namespace', opts.namespace)
+  const qs = params.toString()
+  const url = `${continuumSingularBase(sovereignId)}/${encodeURIComponent(name)}/replication-status${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    throw new Error(`continuum replication-status: HTTP ${res.status}`)
   }
   return res.json()
 }
