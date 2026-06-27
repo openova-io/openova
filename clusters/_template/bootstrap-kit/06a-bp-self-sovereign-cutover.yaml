@@ -636,7 +636,8 @@ spec:
       # server HR's global.imageRegistry to local Harbor (catalyst-ui pivots
       # via the bp-catalyst-platform chart 1.4.927) — kills the step-08 fresh-
       # pull FATAL on the two residual ghcr.io tethers.
-      version: 0.1.86
+      # 0.1.87 (#4581 Refs #3379): step-03 Phase-A2 chart mirror wraps each skopeo copy in an outer attempt loop (PREWARM_COPY_ATTEMPTS) — a transient in-cluster-Harbor DEST 504 (not caught by skopeo --retry-times) no longer FATAL-s the whole cutover on one chart (live: bp-alloy 504 on prov 00720a7a, chart_ok=61/62).
+      version: 0.1.87
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

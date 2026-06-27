@@ -617,19 +617,41 @@ data:
               # #4529: same dest-TLS treatment as Phase A — the chart OCI dest
               # is the in-cluster Harbor (PREWARM_DEST_TLS_VERIFY, default
               # false); src stays verified (external ghcr.io).
-              if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-                --insecure-policy \
-                --retry-times 3 \
-                --src-creds="${ghcr_user}:${ghcr_pat}" \
-                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
-                --src-tls-verify=true \
-                "${csrc}" "${cdst}" >"${chart_cpdir}/${cslug}.log" 2>&1; then
-                printf '%s:%s' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"
-              else
+              #
+              # #4581 (Refs #3379): wrap the chart copy in an OUTER attempt loop
+              # with backoff. skopeo's `--retry-times` only re-tries SOURCE-pull
+              # errors; a TRANSIENT in-cluster-Harbor DEST 504 on blob-upload
+              # initiation (Harbor capacity/OBS flap) is NOT retried by it and
+              # FATAL-ed the whole step on ONE chart. Live evidence: prov
+              # 00720a7a, `bp-alloy:1.0.2` → "initiating layer upload ... 504
+              # Gateway Timeout" with chart_ok=61/62, so step-06 aborted the
+              # cutover over a single transient blip. The outer loop (same shape
+              # as the Phase-B PREWARM_COPY_ATTEMPTS image path) turns a
+              # transient dest 504 into a bounded retry instead of a cutover-
+              # killing FATAL.
+              cattempt=0
+              cmax="${PREWARM_COPY_ATTEMPTS:-4}"
+              while : ; do
+                cattempt=$((cattempt+1))
+                if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+                  --insecure-policy \
+                  --retry-times 3 \
+                  --src-creds="${ghcr_user}:${ghcr_pat}" \
+                  --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                  --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
+                  --src-tls-verify=true \
+                  "${csrc}" "${cdst}" >"${chart_cpdir}/${cslug}.log" 2>&1; then
+                  printf '%s:%s' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"
+                  return 0
+                fi
                 crc=$?
-                printf '%s:%s exit=%s' "${cchart}" "${cver}" "${crc}" >"${chart_cpdir}/${cslug}.fail"
-              fi
+                if [ "${cattempt}" -ge "${cmax}" ]; then
+                  printf '%s:%s exit=%s attempts=%s' "${cchart}" "${cver}" "${crc}" "${cattempt}" >"${chart_cpdir}/${cslug}.fail"
+                  return 0
+                fi
+                echo "[harbor-prewarm] chart ${cchart}:${cver} copy attempt ${cattempt}/${cmax} failed (rc=${crc}, transient e.g. 504) — retrying in $((cattempt*5))s" >>"${chart_cpdir}/${cslug}.log"
+                sleep "$((cattempt*5))"
+              done
             }
 
             chart_pids=""
