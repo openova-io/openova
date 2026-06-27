@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T21:45:02Z` |
+| Last refreshed | `2026-06-27T22:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 16 |
 | Open DoD gates | 0 / 41 |
@@ -223,6 +223,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T21:53 | [#4584](https://github.com/openova-io/openova/pull/4584) | #4579 | fix(bp-plane-isolation): admit kube-apiserver into the OTel- |
 | 2026-06-27T21:22 | [#4583](https://github.com/openova-io/openova/pull/4583) | #4551 | fix(catalyst-api): Topology DR panel renders standby region  |
 | 2026-06-27T20:23 | [#4582](https://github.com/openova-io/openova/pull/4582) | #4546 | docs(uat): rows 3 + 58 ✅ live-verified (185 ✅) |
 | 2026-06-27T21:23 | [#4581](https://github.com/openova-io/openova/pull/4581) | #3379 | fix(cutover): harbor-prewarm Phase-A2 chart mirror retries t |
@@ -252,7 +253,6 @@ flowchart LR
 | 2026-06-27T10:56 | [#4538](https://github.com/openova-io/openova/pull/4538) | #4535 | fix(bp-catalyst-platform): catalog reads configuredRegions f |
 | 2026-06-27T10:32 | [#4537](https://github.com/openova-io/openova/pull/4537) | #909 | UAT: reconcile ⚠️/❌ rows — flip rolled-fix (Hubble/row83/Ope |
 | 2026-06-27T10:05 | [#4536](https://github.com/openova-io/openova/pull/4536) | #909 | Refs #909 |
-| 2026-06-27T10:02 | [#4535](https://github.com/openova-io/openova/pull/4535) | #4525 | feat(catalog): GET /catalog/regions — marketplace BCP picker |
 
 ---
 
