@@ -29,6 +29,11 @@ import {
   getCatalogItem,
   type CatalogItem,
 } from '@/lib/catalog.api'
+import {
+  getContinuumReplicationStatus,
+  lagBucket,
+  type LagBucket,
+} from '@/lib/continuum.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { PlacementEditor, type OwnedDependencyInfo } from '@/widgets/topology/PlacementEditor'
 import {
@@ -203,6 +208,68 @@ export function TopologyTab({
   }, [app, runtimeTargets])
 
   const pattern = useMemo(() => derivePattern(targets), [targets])
+
+  // ── DR / replication telemetry (#3375 rows 51/52/56) ──────────────
+  //
+  // A component is DR-capable (has a cross-region replica) when its
+  // placement carries at least one Standby target alongside a Primary —
+  // i.e. it is NOT a singleton. For those, the live DR telemetry lives on
+  // the per-app Continuum CR (`dr-<app>` by the application-controller's
+  // convention, core/controllers/application/.../continuum.go
+  // ContinuumNameFor) and is surfaced by catalyst-api's
+  // /continuum/{name}/replication-status. We render it READ-ONLY: standby
+  // region(s) + the live WAL replication lag in seconds. Honestly hidden
+  // for singletons (no DR block against a phantom region — row 58).
+  const hasStandby = useMemo(
+    () => targets.some((t) => t.role === 'Standby'),
+    [targets],
+  )
+  const continuumName = useMemo(() => `dr-${applicationName}`, [applicationName])
+
+  // Only poll the DR endpoint for genuinely multi-region apps. A 404 (no
+  // Continuum CR for this app) does NOT retry and leaves drStatus
+  // undefined → the section renders the calm "no cross-region replica"
+  // note rather than a fabricated lag.
+  const drQ = useQuery({
+    queryKey: ['continuum-replication-status', sovereignId, continuumName, namespace, refreshTick],
+    queryFn: () => getContinuumReplicationStatus(sovereignId, continuumName, { namespace }),
+    enabled: !disableNetwork && hasStandby && !!sovereignId && !!applicationName,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+  const drStatus = drQ.data
+
+  // The primary + standby regions for the DR cards. Prefer the live
+  // replication-status (authoritative current primary after a switchover);
+  // fall back to the placement targets when the endpoint is unavailable.
+  const drPrimaryRegion = useMemo(
+    () =>
+      drStatus?.currentPrimary ||
+      drStatus?.primaryRegion ||
+      targets.find((t) => t.role === 'Primary')?.region ||
+      '',
+    [drStatus, targets],
+  )
+  const drStandbyRegions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          targets
+            .filter((t) => t.role === 'Standby' && t.region && t.region !== drPrimaryRegion)
+            .map((t) => t.region),
+        ),
+      ),
+    [targets, drPrimaryRegion],
+  )
+
+  // Live WAL replication lag in seconds (row 56). Undefined when the DR
+  // endpoint hasn't resolved yet — rendered as "—" with a "measuring…"
+  // hint, NEVER a hardcoded zero passed off as a real reading.
+  const lagSeconds: number | null = useMemo(
+    () => (typeof drStatus?.walLagSeconds === 'number' ? drStatus.walLagSeconds : null),
+    [drStatus],
+  )
+  const lagColor: LagBucket = useMemo(() => lagBucket(lagSeconds), [lagSeconds])
 
   // Owned dependencies that cascade — read from spec.placement.ownedDependencies
   // when present (override state); the names also come from the blueprint's
@@ -392,6 +459,151 @@ export function TopologyTab({
           />
         )}
       </section>
+
+      {/* ── DR / replication (#3375 rows 51/52/56/57) ────────────────────
+          READ-ONLY cross-region DR telemetry. Rendered ONLY for apps whose
+          placement carries a Standby target (a live cross-region replica);
+          honestly absent for singletons so we never arm a DR block against
+          a phantom region (row 58). */}
+      {hasStandby ? (
+        <section
+          className="mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4"
+          data-testid="topology-tab-dr-panel"
+        >
+          <div className="mb-3 flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-[var(--color-text-strong)]">
+              Disaster recovery
+            </h3>
+            {drStatus ? (
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  drStatus.source === 'live'
+                    ? 'bg-green-500/10 text-green-400'
+                    : 'bg-yellow-500/10 text-yellow-400'
+                }`}
+                data-testid="topology-tab-dr-source"
+                title={
+                  drStatus.source === 'live'
+                    ? 'Read live off the Continuum + CNPGPair CR status.'
+                    : 'Fallback shape — the in-cluster client was bootstrapping or the DR CRs were not found. Not a live reading.'
+                }
+              >
+                {drStatus.source === 'live' ? '● live' : '○ not live'}
+              </span>
+            ) : null}
+          </div>
+
+          {drQ.isError ? (
+            // The replication-status endpoint 404s when no Continuum CR
+            // backs this app — a calm "no DR pair yet" note, NOT an error.
+            <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-dr-none">
+              No cross-region replica reporting yet for this component.
+            </p>
+          ) : (
+            <>
+              <div
+                className="flex flex-wrap items-stretch gap-2"
+                data-testid="topology-tab-dr-regions"
+              >
+                <div
+                  className="min-w-[11rem] rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2"
+                  data-testid="topology-tab-dr-primary"
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                    Primary region
+                  </div>
+                  <div className="mt-0.5 font-mono text-xs font-semibold text-green-400">
+                    {drPrimaryRegion || '—'}
+                  </div>
+                  <div className="text-[10px] text-[var(--color-text-dim)]">serves writes</div>
+                </div>
+                {drStandbyRegions.length > 0 ? (
+                  drStandbyRegions.map((region) => (
+                    <div
+                      key={region}
+                      className="min-w-[11rem] rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2"
+                      data-testid={`topology-tab-dr-standby-${region}`}
+                    >
+                      <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                        Standby region
+                      </div>
+                      <div className="mt-0.5 font-mono text-xs font-semibold text-yellow-400">
+                        {region}
+                      </div>
+                      <div className="text-[10px] text-[var(--color-text-dim)]">
+                        {drStatus?.streamingState
+                          ? drStatus.streamingState
+                          : 'hot replica (follows WAL)'}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div
+                    className="min-w-[11rem] rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2"
+                    data-testid="topology-tab-dr-standby"
+                  >
+                    <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                      Standby region
+                    </div>
+                    <div className="mt-0.5 font-mono text-xs font-semibold text-yellow-400">
+                      {drStatus?.replicas?.find((rep) => rep.role !== 'primary')?.region || '—'}
+                    </div>
+                    <div className="text-[10px] text-[var(--color-text-dim)]">
+                      {drStatus?.streamingState || 'hot replica (follows WAL)'}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Live replication lag in seconds (row 56) — never a hardcoded —. */}
+              <div className="mt-3 flex items-center gap-2 text-xs" data-testid="topology-tab-dr-lag">
+                <span className="text-[var(--color-text-dim)]">Replication lag</span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-semibold tabular-nums ${
+                    lagColor === 'green'
+                      ? 'bg-green-500/10 text-green-400'
+                      : lagColor === 'yellow'
+                        ? 'bg-yellow-500/10 text-yellow-400'
+                        : lagColor === 'red'
+                          ? 'bg-red-500/10 text-red-400'
+                          : 'bg-[var(--color-bg)] text-[var(--color-text-dim)]'
+                  }`}
+                  data-testid="topology-tab-dr-lag-value"
+                >
+                  {lagSeconds == null ? '—' : `${lagSeconds.toFixed(1)} s`}
+                </span>
+                {lagSeconds == null && drQ.isLoading ? (
+                  <span className="text-[10px] text-[var(--color-text-dim)]">measuring…</span>
+                ) : null}
+                {drStatus?.syncState ? (
+                  <span className="text-[10px] text-[var(--color-text-dim)]">
+                    · {drStatus.syncState}
+                  </span>
+                ) : null}
+              </div>
+
+              {/* Destructive Switchover is DEFERRED (#4552 — needs careful
+                  safety UX: confirm + RPO/health preflight). Surfaced as a
+                  disabled affordance so the surface is discoverable without
+                  arming a one-click region flip. */}
+              <div className="mt-4 flex items-center gap-2" data-testid="topology-tab-dr-switchover">
+                <button
+                  type="button"
+                  className="cursor-not-allowed rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-dim)] opacity-60"
+                  disabled
+                  aria-disabled="true"
+                  title="Manual switchover ships next — it needs a confirm + preflight safety flow (Refs #4552)."
+                >
+                  Switch over…
+                </button>
+                <span className="text-[10px] text-[var(--color-text-dim)]">
+                  manual switchover ships next (Refs #4552)
+                </span>
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
 
       {/* ── Panel 2: Status ──────────────────────────────────────────── */}
       <section

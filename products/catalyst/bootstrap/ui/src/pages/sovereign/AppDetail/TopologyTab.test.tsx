@@ -19,12 +19,24 @@ const getApplicationStatus = vi.fn()
 const getCatalogItem = vi.fn()
 const getApplicationPlacement = vi.fn()
 const getHierarchicalInfrastructure = vi.fn()
+const getContinuumReplicationStatus = vi.fn()
 
 vi.mock('@/lib/catalog.api', () => ({
   getApplicationStatus: (...a: unknown[]) => getApplicationStatus(...a),
   getCatalogItem: (...a: unknown[]) => getCatalogItem(...a),
   getApplicationPlacement: (...a: unknown[]) => getApplicationPlacement(...a),
 }))
+
+// The DR section (#3375 rows 51/52/56/57) reads live replication telemetry
+// off the Continuum CR via this client. Re-export the real lagBucket so the
+// component's bucket→colour mapping is exercised, not stubbed.
+vi.mock('@/lib/continuum.api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/continuum.api')>()
+  return {
+    ...actual,
+    getContinuumReplicationStatus: (...a: unknown[]) => getContinuumReplicationStatus(...a),
+  }
+})
 
 vi.mock('@/lib/infrastructure.types', () => ({
   getHierarchicalInfrastructure: (...a: unknown[]) => getHierarchicalInfrastructure(...a),
@@ -48,6 +60,10 @@ beforeEach(() => {
   // so the legacy spec/status projection still drives the existing asserts.
   // Tests that exercise the runtime path override this per-case.
   getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: true })
+  // DR replication-status default: 404 (no Continuum CR backs this app), so
+  // the DR section renders the calm "no cross-region replica" note unless a
+  // case overrides it. Mirrors the endpoint's real not-found behaviour.
+  getContinuumReplicationStatus.mockRejectedValue(new Error('continuum replication-status: HTTP 404'))
 })
 
 afterEach(() => {
@@ -290,5 +306,115 @@ describe('TopologyTab — #3982 runtime-derived placement', () => {
       expect(screen.getByTestId('topology-tab-target-card-1')).toBeTruthy()
     })
     expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('active-hot-standby')
+  })
+})
+
+describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', () => {
+  const standbyPlacement = {
+    targets: [
+      { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+      { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+    ],
+    derivedFromRuntime: true,
+  }
+
+  it('renders the standby region + LIVE replication lag in seconds for a cross-region app (rows 51/52/56)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({
+      name: 'shared-pg',
+      namespace: 'shared-data',
+      spec: {},
+      status: { placement: 'Reconciled' },
+    })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 1.7,
+      streamingState: 'streaming',
+      syncState: 'async',
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    // The continuum name is derived as dr-<app>.
+    await waitFor(() => {
+      expect(getContinuumReplicationStatus).toHaveBeenCalledWith('dep-z', 'dr-shared-pg', { namespace: 'shared-data' })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    // Primary + standby region cards.
+    expect(screen.getByTestId('topology-tab-dr-primary').textContent).toContain('me-east-215-a')
+    expect(screen.getByTestId('topology-tab-dr-standby-me-east-215-b').textContent).toContain('me-east-215-b')
+    // LIVE lag in seconds — not a hardcoded dash.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('1.7 s')
+    })
+    // Honest "live" source badge.
+    expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
+  })
+
+  it('Switchover affordance is present but DISABLED (deferred, row 57)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0.4,
+      source: 'live',
+    })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-switchover')).toBeTruthy()
+    })
+    const btn = screen.getByTestId('topology-tab-dr-switchover').querySelector('button')
+    expect(btn).toBeTruthy()
+    expect(btn?.disabled).toBe(true)
+  })
+
+  it('a SINGLETON app shows NO DR panel + NO Switchover (honestly hidden, row 58)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    const initialApp = {
+      name: 'grafana',
+      namespace: 'grafana',
+      spec: { placement: { targets: [{ region: 'region-a', cluster: 'mgmt-A', vcluster: 'mgmt', role: 'Primary' }] } },
+      status: { placement: 'Reconciled' },
+    }
+    render(
+      withProviders(
+        <TopologyTab sovereignId="test-sov" applicationName="grafana" initialApp={initialApp as never} disableNetwork />,
+      ),
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('singleton')
+    })
+    expect(screen.queryByTestId('topology-tab-dr-panel')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()
+    // The DR endpoint is never polled for a singleton.
+    expect(getContinuumReplicationStatus).not.toHaveBeenCalled()
+  })
+
+  it('a cross-region app with NO Continuum CR (404) shows the calm no-replica note, never a fabricated lag', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'sso-bridge', namespace: 'sso-bridge', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    // Default beforeEach mock = 404.
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="sso-bridge" namespace="sso-bridge" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-none')).toBeTruthy()
+    })
+    // No live lag value rendered (the section short-circuits on error).
+    expect(screen.queryByTestId('topology-tab-dr-lag-value')).toBeNull()
   })
 })
