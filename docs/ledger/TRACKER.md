@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T08:30:03Z` |
+| Last refreshed | `2026-06-27T08:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 13 |
+| Open issues | 14 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 13 open items (clickable table)
+### All 14 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -213,6 +213,7 @@ flowchart LR
 | [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
 | [#4507](https://github.com/openova-io/openova/issues/4507) | Hubble UI flow-XHR bounces to Keycloak (302→login HTML) instead of 401 — flo | Other |
 | [#4511](https://github.com/openova-io/openova/issues/4511) | Jobs Re-run on a COMPLETED batch Job 502s 'spec.template field is immutable' — | Other |
+| [#4513](https://github.com/openova-io/openova/issues/4513) | Fresh prov wedges at 0 HelmReleases: cloud-init runcmd dies on `kubectl create n | Other |
 
 ---
 
@@ -220,6 +221,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T08:33 | [#4512](https://github.com/openova-io/openova/pull/4512) | Refs #909 |  |
 | 2026-06-27T08:09 | [#4510](https://github.com/openova-io/openova/pull/4510) | #4509 | UAT: newapi SSO rows 37/114 PASS (resync live) + Hubble row  |
 | 2026-06-27T08:04 | [#4509](https://github.com/openova-io/openova/pull/4509) | #2744 | fix(bp-cilium): hubble-ui oauth2-proxy --api-route so flow-s |
 | 2026-06-27T08:00 | [#4508](https://github.com/openova-io/openova/pull/4508) | #4506 | docs(uat): Pillar-1 funnel+voucher consolidation — rows 72-9 |
@@ -249,7 +251,6 @@ flowchart LR
 | 2026-06-26T15:05 | [#4472](https://github.com/openova-io/openova/pull/4472) | #4462 | fix(org-controller #4471): ClusterRole gains update+patch on |
 | 2026-06-26T17:35 | [#4470](https://github.com/openova-io/openova/pull/4470) | #4445 | fix(bp-plane-isolation #4468): extend the #4445 defer-if-abs |
 | 2026-06-26T14:42 | [#4469](https://github.com/openova-io/openova/pull/4469) | #4467 | fix(bp-cilium): pin MTU=1370 for wireguard+vxlan datapath —  |
-| 2026-06-26T12:54 | [#4465](https://github.com/openova-io/openova/pull/4465) | #2584 | fix(#4464): deploy-bump per-line cherry-pick stops whole-fil |
 
 ---
 
