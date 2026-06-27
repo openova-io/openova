@@ -279,22 +279,64 @@ type orgShape struct {
 	PlanSlug string
 }
 
+// allTiersVcluster mirrors the controller-side single switch (issue #4292
+// boundaryIsVcluster in core/controllers/organization/internal/gitops/
+// manifests.go): set it true to put EVERY tier (incl. free/S) on a dedicated
+// vCluster. It is duplicated here the same way gitops.BoundaryIsVcluster
+// duplicates the controller gate — the two MUST flip together so the displayed
+// `isolation` label never diverges from the actual backing.
+const allTiersVcluster = false
+
+// isolationForTier returns the Org's actual boundary primitive ("namespace"
+// for a host-ns Org, "vcluster" for a dedicated Org-vCluster), derived from the
+// SAME #4292 TIER GATE the org-controller uses to author the backing. Keeping
+// this in lockstep with that gate is what makes the displayed `isolation` value
+// ACCURATE rather than a static kind-derived guess:
+//
+//   - internal kind → always "namespace" (a department shares the host ns; no
+//     dedicated vCluster regardless of plan).
+//   - customer kind → the plan tier gate decides: free/S (or empty) share the
+//     host `<slug>` namespace → "namespace"; m/l/xl/flexi get a dedicated
+//     Org-vCluster → "vcluster".
+//
+// Before this fix the label was hardcoded customer→vcluster, so an S-plan Org
+// that correctly backs a host namespace was mislabeled "vcluster" (UAT rows
+// 9-12, dep 91dc05917e44d1c1). The BACKING was always right — only the label
+// ignored the tier.
+func isolationForTier(kind, planSlug string) string {
+	if strings.ToLower(strings.TrimSpace(kind)) == "internal" {
+		return "namespace"
+	}
+	if allTiersVcluster {
+		return "vcluster"
+	}
+	switch strings.ToLower(strings.TrimSpace(planSlug)) {
+	case "", "s", "free":
+		return "namespace"
+	default:
+		return "vcluster"
+	}
+}
+
 // resolveOrgShape applies the §2.1/§2.3 model: kind defaults to
-// "customer" (the marketplace door); kind-derived billingMode +
-// isolation defaults (internal → showback + namespace; customer → real +
-// vcluster) fill in when the advanced override didn't send them; tier
-// defaults to "org". Unknown enum values fall back to the kind default
-// so a malformed body can never stamp a nonsense shape.
+// "customer" (the marketplace door); billingMode defaults from kind
+// (internal → showback; customer → real); isolation is DERIVED from the
+// #4292 tier gate (isolationForTier) so the displayed boundary matches the
+// actual backing — free/S → namespace, M+ → vcluster — not a static
+// kind-only guess; tier defaults to "org". Unknown enum values fall back to
+// the derived default so a malformed body can never stamp a nonsense shape.
+// An explicit valid isolation in the request still overrides (the advanced
+// operator view).
 func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 	kind := strings.ToLower(strings.TrimSpace(req.Kind))
 	if kind != "internal" && kind != "customer" {
 		kind = "customer"
 	}
 
-	// kind-derived defaults (§2.3).
-	defBilling, defIsolation := "real", "vcluster"
+	// kind-derived billing default (§2.3).
+	defBilling := "real"
 	if kind == "internal" {
-		defBilling, defIsolation = "showback", "namespace"
+		defBilling = "showback"
 	}
 
 	billing := strings.ToLower(strings.TrimSpace(req.BillingMode))
@@ -304,11 +346,21 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 		billing = defBilling
 	}
 
+	planSlug := strings.ToLower(strings.TrimSpace(req.PlanSlug))
+	switch planSlug {
+	case "s", "m", "l", "xl", "flexi":
+	default:
+		planSlug = "s"
+	}
+
+	// Isolation is DERIVED from the #4292 tier gate (host-ns for free/S,
+	// vcluster for M+; internal is always host-ns) so the label reflects the
+	// real backing. An explicit valid request override still wins.
 	isolation := strings.ToLower(strings.TrimSpace(req.Isolation))
 	switch isolation {
 	case "namespace", "vcluster":
 	default:
-		isolation = defIsolation
+		isolation = isolationForTier(kind, planSlug)
 	}
 
 	tier := strings.ToLower(strings.TrimSpace(req.Tier))
@@ -316,13 +368,6 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 	case "org", "corporate":
 	default:
 		tier = "org"
-	}
-
-	planSlug := strings.ToLower(strings.TrimSpace(req.PlanSlug))
-	switch planSlug {
-	case "s", "m", "l", "xl", "flexi":
-	default:
-		planSlug = "s"
 	}
 
 	return orgShape{Kind: kind, Tier: tier, BillingMode: billing, Isolation: isolation, PlanSlug: planSlug}
@@ -647,16 +692,16 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 
 	orgTenantID := uuid.New().String()
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:  orgTenantID,
-		State:           store.STSPending,
-		Subdomain:       subdomain,
-		DomainMode:      store.OrganizationDomainMode(mode),
-		BYODomain:       byo,
-		ParentDomain:    parent,
-		AdminEmail:      email,
-		CompanyName:     strings.TrimSpace(body.CompanyName),
-		OTECHFQDN:       otech,
-		VClusterName:    "vc-" + subdomain,
+		OrganizationID: orgTenantID,
+		State:          store.STSPending,
+		Subdomain:      subdomain,
+		DomainMode:     store.OrganizationDomainMode(mode),
+		BYODomain:      byo,
+		ParentDomain:   parent,
+		AdminEmail:     email,
+		CompanyName:    strings.TrimSpace(body.CompanyName),
+		OTECHFQDN:      otech,
+		VClusterName:   "vc-" + subdomain,
 		// Workstream A (#4290 / EPIC #4293) — the per-Organization host
 		// namespace is the org-controller-owned `<slug>`, NOT a stray
 		// `org-<uuid>`. The org-controller (core/controllers/organization/
