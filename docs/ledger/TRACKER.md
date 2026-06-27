@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T10:00:05Z` |
+| Last refreshed | `2026-06-27T10:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T10:05 | [#4536](https://github.com/openova-io/openova/pull/4536) | #909 | Refs #909 |
+| 2026-06-27T10:02 | [#4535](https://github.com/openova-io/openova/pull/4535) | #4525 | feat(catalog): GET /catalog/regions — marketplace BCP picker |
 | 2026-06-27T09:53 | [#4534](https://github.com/openova-io/openova/pull/4534) | #4515 | docs(sessions): definitive final board-state audit (Refs #90 |
 | 2026-06-27T09:49 | [#4533](https://github.com/openova-io/openova/pull/4533) | #4502 | docs(sessions): 2026-06-27 convergence-hardening train — 7-f |
 | 2026-06-27T09:53 | [#4532](https://github.com/openova-io/openova/pull/4532) | #4527 | fix(bp-self-sovereign-cutover): registry-pivot v1 cold-start |
@@ -248,8 +250,6 @@ flowchart LR
 | 2026-06-26T19:02 | [#4495](https://github.com/openova-io/openova/pull/4495) | #4290 | fix(org-controller): render gateway/apiserver CNP host-side  |
 | 2026-06-26T18:50 | [#4494](https://github.com/openova-io/openova/pull/4494) | #4111 | fix(bp-agenity): default imagePullSecrets to ghcr-pull — kil |
 | 2026-06-26T18:43 | [#4493](https://github.com/openova-io/openova/pull/4493) | #4466 | fix(janitor): log-only-until-proven + active-dep allowlist + |
-| 2026-06-26T18:24 | [#4492](https://github.com/openova-io/openova/pull/4492) | #4477 | fix(catalyst): seed newapi admin-token into OpenBao so catal |
-| 2026-06-26T17:54 | [#4491](https://github.com/openova-io/openova/pull/4491) | #4002 | fix(crossplane): route provider-opentofu xpkg pull off the p |
 
 ---
 
