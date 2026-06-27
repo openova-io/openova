@@ -948,7 +948,11 @@ write_files:
         namespace: flux-system
       spec:
         interval: 5m
-        path: ./clusters/_template/infrastructure%{ if provider == "hetzner" }/hetzner%{ endif ~}
+        # #4513: the endif directive below must NOT carry a trailing tilde — a
+        # tilde-close strips the following newline, collapsing `prune: true`
+        # onto this `path:` line ("yaml: mapping values are not allowed in this
+        # context") and wedging the infrastructure-config Kustomization.
+        path: ./clusters/_template/infrastructure%{ if provider == "hetzner" }/hetzner%{ endif }
         prune: true
         sourceRef:
           kind: GitRepository
@@ -1425,21 +1429,23 @@ runcmd:
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
   #
-  # #3804 (Refs #3642) — create the three CRD-independent bootstrap namespaces
-  # (cert-manager, catalyst-system, openbao) in ONE idempotent apply FIRST so
-  # the namespaced secrets below land in an existing namespace. `kubectl create
-  # namespace` takes N positional names and emits N `---`-joined docs, so this
-  # is byte-identical in effect to three separate creates. The secret applies
-  # are then folded into a single multi-`-f` `kubectl apply` (each file is an
-  # independent Secret manifest; apply order among them is irrelevant), which
-  # drops ~6 repetitions of the `kubectl --kubeconfig=…` long-form and keeps the
-  # rendered cloud-init under Hetzner's 32256B cap. handover-jwt→catalyst-system
-  # and recovery-seed→openbao resolve here. (powerdns-api-credentials no longer
-  # needs the `cert-manager` ns created here — #3888 evicted it to the Flux
-  # sovereign-tls Kustomization, which lands it in `cert-manager` after
-  # bp-cert-manager.)
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace catalyst-system openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml -f /var/lib/catalyst/harbor-robot-token-secret.yaml -f /var/lib/catalyst/pdm-basicauth-secret.yaml -f /var/lib/catalyst/handover-jwt-public-secret.yaml -f /var/lib/catalyst/object-storage-secret.yaml -f /var/lib/catalyst/cloud-credentials-secret.yaml'
+  # #3804 (Refs #3642) — create the CRD-independent bootstrap namespaces
+  # (catalyst-system, openbao) idempotently FIRST so the namespaced secrets
+  # below land in an existing namespace. #4513: `kubectl create namespace`
+  # accepts EXACTLY ONE positional name ("error: exactly one NAME is required,
+  # got 2") — the prior two-name `create namespace catalyst-system openbao`
+  # died on this FIRST runcmd item, and because cloud-init halts runcmd on a
+  # non-zero exit the WHOLE remainder (bootstrap secrets, openbao seed,
+  # flux-bootstrap apply, cloud-init-complete marker) never ran → permanent
+  # 0-HR fresh-prov wedge. Loop one `create namespace` per name through the
+  # idempotent dry-run|apply idiom. handover-jwt→catalyst-system and
+  # recovery-seed→openbao resolve here. The secret applies below run from
+  # `cd /var/lib/catalyst` so the 6 `-f` paths drop their dir prefix, keeping
+  # the render under Hetzner's 32256B cap. (powerdns-api-credentials no longer
+  # needs `cert-manager` created here — #3888 evicted it to the Flux
+  # sovereign-tls Kustomization.)
+  - 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done'
+  - 'cd /var/lib/catalyst; kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml'
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.
@@ -1463,8 +1469,12 @@ runcmd:
 %{ endif ~}
 
   # Hand the cluster to Flux. From here it pulls clusters/_template/ and
-  # installs bp-cilium, bp-cert-manager, …, bp-catalyst-platform.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml'
+  # installs bp-cilium, bp-cert-manager, …, bp-catalyst-platform. #4513: this
+  # is THE critical handoff — a silent failure here leaves the cluster at
+  # 0 GitRepository/0 HR forever with no recorded symptom. Fail-fast with a
+  # sentinel (mirrors the #4503 cilium block) so an apply failure is its OWN
+  # loud fault, not a masqueraded "0 HelmReleases" phase-1-watcher timeout.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml || { touch /var/lib/catalyst/flux-bootstrap-FAILED; exit 92; }'
 %{ if crossplane_provider_yaml != "" ~}
   - 'nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &'
 %{ endif ~}
