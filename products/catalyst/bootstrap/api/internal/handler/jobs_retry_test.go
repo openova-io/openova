@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,7 +83,7 @@ func installRetryHarness(t *testing.T, ownerEmail, jobName, status string, dynSe
 }
 
 func trimRetryPrefix(jobName string) string {
-	for _, p := range []string{jobs.JobNamePrefix, jobs.CronJobPrefix, jobs.ReconcileJobPrefix} {
+	for _, p := range []string{jobs.JobNamePrefix, jobs.CronJobPrefix, jobs.ReconcileJobPrefix, jobs.TaskJobPrefix} {
 		if len(jobName) > len(p) && jobName[:len(p)] == p {
 			return jobName[len(p):]
 		}
@@ -231,6 +232,189 @@ func TestRetryJob_NotRetryable_409(t *testing.T) {
 		&auth.Claims{Email: "owner@t99.omani.works", Tier: "operator"}))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("want 409 for a succeeded row, got %d; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// completedStandaloneJob builds an unstructured batch/v1 Job in `ns` that
+// looks like a finished, controller-owned standalone Job: it carries the
+// controller-generated spec.selector + the batch.kubernetes.io/* +
+// controller-uid pod-template labels + a terminal status — exactly the shape
+// whose spec.template the apiserver rejects as immutable on re-apply.
+func completedStandaloneJob(ns, name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "batch/v1",
+		"kind":       "Job",
+		"metadata": map[string]any{
+			"name":            name,
+			"namespace":       ns,
+			"uid":             "old-uid-123",
+			"resourceVersion": "4242",
+			"labels": map[string]any{
+				"app":                                "buckets",
+				"batch.kubernetes.io/job-name":       name,
+				"batch.kubernetes.io/controller-uid": "old-uid-123",
+				"controller-uid":                     "old-uid-123",
+				"job-name":                           name,
+			},
+		},
+		"spec": map[string]any{
+			"selector": map[string]any{
+				"matchLabels": map[string]any{
+					"batch.kubernetes.io/controller-uid": "old-uid-123",
+				},
+			},
+			"template": map[string]any{
+				"metadata": map[string]any{
+					"labels": map[string]any{
+						"app":                                "buckets",
+						"batch.kubernetes.io/job-name":       name,
+						"batch.kubernetes.io/controller-uid": "old-uid-123",
+						"controller-uid":                     "old-uid-123",
+						"job-name":                           name,
+					},
+				},
+				"spec": map[string]any{
+					"restartPolicy": "Never",
+					"containers":    []any{map[string]any{"name": "make", "image": "minio/mc"}},
+				},
+			},
+		},
+		"status": map[string]any{
+			"succeeded": int64(1),
+		},
+	}}
+}
+
+// DoD: retrying a COMPLETED standalone batch Job DELETES the old Job and
+// CREATES a fresh one (no `spec.template field is immutable` 502), with the
+// controller-managed selector + pod-template labels stripped.
+func TestRetryJob_Task_CompletedJob_DeleteAndRecreate(t *testing.T) {
+	const ns, name = "mimir", "mimir-make-minio-buckets"
+	old := completedStandaloneJob(ns, name)
+
+	r, h, depID := installRetryHarness(t, "owner@t99.omani.works",
+		"task-"+name, jobs.StatusFailed, old)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, retryReq(depID, "task-"+name,
+		&auth.Claims{Email: "owner@t99.omani.works", Tier: "operator"}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200 (delete+recreate), got %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	dyn, _ := h.dynamicFactory("")
+	// The old Job is gone.
+	if _, err := dyn.Resource(helmwatch.JobGVR).Namespace(ns).Get(context.Background(), name, metav1.GetOptions{}); err == nil {
+		t.Fatalf("old completed Job %s/%s should have been deleted", ns, name)
+	}
+	// Exactly one fresh Job exists, named <name>-rerun-<unix>.
+	list, err := dyn.Resource(helmwatch.JobGVR).Namespace(ns).List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("want exactly 1 recreated Job, got %d", len(list.Items))
+	}
+	fresh := list.Items[0]
+	if got := fresh.GetName(); !strings.HasPrefix(got, name+"-rerun-") {
+		t.Fatalf("recreated Job name %q lacks the <name>-rerun- prefix", got)
+	}
+
+	// spec.selector is stripped (the controller regenerates it).
+	if _, found, _ := unstructured.NestedMap(fresh.Object, "spec", "selector"); found {
+		t.Error("recreated Job must NOT carry the old spec.selector")
+	}
+	// Controller-owned pod-template labels are stripped; the app label stays.
+	tmplLabels, _, _ := unstructured.NestedStringMap(fresh.Object, "spec", "template", "metadata", "labels")
+	for _, k := range []string{"controller-uid", "job-name", "batch.kubernetes.io/job-name", "batch.kubernetes.io/controller-uid"} {
+		if _, bad := tmplLabels[k]; bad {
+			t.Errorf("recreated pod-template still carries controller-owned label %q", k)
+		}
+	}
+	if tmplLabels["app"] != "buckets" {
+		t.Errorf("recreated pod-template dropped the user label app=buckets; got %v", tmplLabels)
+	}
+	// Server-managed metadata is NOT carried over.
+	if fresh.GetUID() == "old-uid-123" || fresh.GetResourceVersion() == "4242" {
+		t.Errorf("recreated Job carried server-managed uid/resourceVersion")
+	}
+	// The container spec.template survived the recreate.
+	containers, found, _ := unstructured.NestedSlice(fresh.Object, "spec", "template", "spec", "containers")
+	if !found || len(containers) != 1 {
+		t.Fatalf("recreated Job lost its pod-template containers: %v", fresh.Object["spec"])
+	}
+	// A rerun-of provenance label points back to the original.
+	if got, _, _ := unstructured.NestedString(fresh.Object, "metadata", "labels", "catalyst.openova.io/rerun-of"); got != name {
+		t.Errorf("recreated Job missing rerun-of=%s label; got %q", name, got)
+	}
+}
+
+// A task leaf whose Job is OWNED by a CronJob re-drives through the CronJob
+// ("Run now"), never a standalone recreate (which would orphan it).
+func TestRetryJob_Task_CronJobOwned_RunsViaCronJob(t *testing.T) {
+	const ns, cron = "openbao", "openbao-snapshot-save"
+	const jobName = cron + "-28000000"
+
+	ownedJob := completedStandaloneJob(ns, jobName)
+	ownedJob.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion: "batch/v1", Kind: "CronJob", Name: cron, UID: "cj-uid",
+	}})
+	cj := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "batch/v1",
+		"kind":       "CronJob",
+		"metadata":   map[string]any{"name": cron, "namespace": ns},
+		"spec": map[string]any{
+			"schedule": "*/10 * * * *",
+			"jobTemplate": map[string]any{
+				"spec": map[string]any{
+					"template": map[string]any{
+						"spec": map[string]any{
+							"restartPolicy": "Never",
+							"containers":    []any{map[string]any{"name": "snap", "image": "busybox"}},
+						},
+					},
+				},
+			},
+		},
+	}}
+
+	r, h, depID := installRetryHarness(t, "owner@t99.omani.works",
+		"task-"+jobName, jobs.StatusFailed, ownedJob, cj)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, retryReq(depID, "task-"+jobName,
+		&auth.Claims{Email: "owner@t99.omani.works", Tier: "operator"}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200 (run-via-cronjob), got %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	dyn, _ := h.dynamicFactory("")
+	// The CronJob-owned Job is NOT deleted (we re-drove via the CronJob).
+	if _, err := dyn.Resource(helmwatch.JobGVR).Namespace(ns).Get(context.Background(), jobName, metav1.GetOptions{}); err != nil {
+		t.Errorf("CronJob-owned Job should be left intact, got delete: %v", err)
+	}
+	// A one-off Job materialised from the CronJob's jobTemplate.
+	list, _ := dyn.Resource(helmwatch.JobGVR).Namespace(ns).List(context.Background(), metav1.ListOptions{})
+	manual := false
+	for _, it := range list.Items {
+		if v, _, _ := unstructured.NestedString(it.Object, "metadata", "labels", "catalyst.openova.io/from-cronjob"); v == cron {
+			manual = true
+		}
+	}
+	if !manual {
+		t.Fatal("no one-off Job created from the owning CronJob")
+	}
+}
+
+// RBAC: a viewer retrying a task leaf is still 403 — the operator-tier gate is
+// preserved for the delete+recreate path.
+func TestRetryJob_Task_Forbidden_Viewer(t *testing.T) {
+	t.Setenv("OPERATOR_EMAIL", "")
+	old := completedStandaloneJob("mimir", "syft-sbom")
+	r, _, depID := installRetryHarness(t, "" /* legacy: no owner */, "task-syft-sbom", jobs.StatusFailed, old)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, retryReq(depID, "task-syft-sbom",
+		&auth.Claims{Email: "viewer@t99.omani.works", Tier: "viewer"}))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("want 403 for viewer on a task retry, got %d; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
