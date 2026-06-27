@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T17:15:05Z` |
+| Last refreshed | `2026-06-27T17:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 18 |
+| Open issues | 17 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 18 open items (clickable table)
+### All 17 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -210,7 +210,6 @@ flowchart LR
 | [#4546](https://github.com/openova-io/openova/issues/4546) | fix(marketplace): authed owner on /redeem must not see the public funnel — own | Other |
 | [#4551](https://github.com/openova-io/openova/issues/4551) | Topology tab surfaces NO DR state (standby region + live replication lag) for cr | Other |
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
-| [#4553](https://github.com/openova-io/openova/issues/4553) | AGENITY North-Star: zero-click SSO gate for per-Org agenity (oidc-gate instance) | Other |
 | [#4556](https://github.com/openova-io/openova/issues/4556) | AGENITY North-Star residual faults: (1) dual-render duplicate HR, (2) MCP URL -> | Other |
 | [#4557](https://github.com/openova-io/openova/issues/4557) | fix(bp-self-sovereign-cutover): helmrepository-patches Phase-3a helm registry lo | Other |
 | [#4563](https://github.com/openova-io/openova/issues/4563) | cutover step-08 fresh-pull FAILs on residual ghcr.io tethers: catalyst-ui + open | Other |
@@ -225,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T17:28 | [#4575](https://github.com/openova-io/openova/pull/4575) | #4573 | fix(bp-self-sovereign-cutover): the two GENUINE clean-fresh- |
 | 2026-06-27T17:14 | [#4574](https://github.com/openova-io/openova/pull/4574) | #4553 | fix(bp-agenity): oidc-gate companion resources requests==lim |
 | 2026-06-27T16:56 | [#4572](https://github.com/openova-io/openova/pull/4572) | #4553 | fix(bp-agenity): chart-managed bp-oidc-gate companion for ev |
 | 2026-06-27T15:59 | [#4570](https://github.com/openova-io/openova/pull/4570) | #909 | docs(uat): funnel rows 85/91/92 verified ✅ (181 ✅ · 5 ☐) |
@@ -254,7 +254,6 @@ flowchart LR
 | 2026-06-27T10:34 | [#4528](https://github.com/openova-io/openova/pull/4528) | #4488 | fix(crossplane): split infrastructure-config into Provider-i |
 | 2026-06-27T09:09 | [#4526](https://github.com/openova-io/openova/pull/4526) | #4525 | fix(marketplace #4524): Review step shows the chosen BCP top |
 | 2026-06-27T09:03 | [#4523](https://github.com/openova-io/openova/pull/4523) | Refs #909 |  |
-| 2026-06-27T09:14 | [#4522](https://github.com/openova-io/openova/pull/4522) | #4519 | fix(bp-openbao): harden OIDC role group resolution — request |
 
 ---
 
