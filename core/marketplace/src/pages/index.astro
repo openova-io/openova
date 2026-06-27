@@ -1,7 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 ---
-<Layout title="Build Your Organization">
+<Layout title="Build Your Tenant">
   <div class="flex flex-col items-center gap-8 py-16 text-center">
     <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-accent)]">
       <svg viewBox="0 0 28 28" class="h-10 w-10" fill="none">
@@ -11,7 +11,7 @@ import Layout from '../layouts/Layout.astro';
       </svg>
     </div>
     <h1 class="text-4xl font-bold text-[var(--color-text-strong)]">
-      Build your cloud Organization<br/>in under 5 minutes
+      Build your cloud tenant<br/>in under 5 minutes
     </h1>
     <p class="max-w-lg text-lg text-[var(--color-text-dim)]">
       Choose a plan, pick your apps, set up your domain, and launch.
@@ -29,7 +29,7 @@ import Layout from '../layouts/Layout.astro';
     <div class="mt-8 grid max-w-3xl grid-cols-2 gap-4 text-left sm:grid-cols-4">
       {[
         { icon: '∞', label: 'Unlimited apps' },
-        { icon: '🔒', label: 'Isolated Organization' },
+        { icon: '🔒', label: 'Isolated tenant' },
         { icon: '🌐', label: 'Free subdomains' },
         { icon: '⚡', label: 'One-click deploy' },
       ].map(f => (
