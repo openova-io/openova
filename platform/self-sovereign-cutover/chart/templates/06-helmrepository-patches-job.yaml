@@ -151,6 +151,18 @@ data:
           # fast while still proving Harbor serves charts + auth works.
           - name: HELM_PROBE_SAMPLE_SIZE
             value: {{ .Values.helmReadinessProbe.sampleSize | quote }}
+          # #4557 (Refs #3379): TLS-verify on the Phase-3a helm-CLI probe
+          # DESTINATION (the in-cluster Harbor `registry.<sov-fqdn>` =
+          # harbor_host). DEFAULT false — the in-cluster Harbor serves an
+          # LE-STAGING (untrusted) wildcard on a fresh prov + the helm binary
+          # in a Job Pod has no node trust store. See
+          # .Values.helmReadinessProbe.inClusterTLSVerify. When false, both
+          # `helm registry login` and `helm pull` (in-cluster target) carry
+          # `--insecure-skip-tls-verify`; external ghcr/upstream calls are
+          # NOT made by this step, so verify is only ever skipped for the
+          # cluster's own registry.
+          - name: HELM_IN_CLUSTER_TLS_VERIFY
+            value: {{ .Values.helmReadinessProbe.inClusterTLSVerify | default false | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -770,6 +782,33 @@ data:
             export HELM_REGISTRY_CONFIG=/tmp/helm-home/config/registry.json
             mkdir -p "${HELM_CACHE_HOME}" "${HELM_CONFIG_HOME}" "${HELM_DATA_HOME}" /tmp/helm-pull
 
+            # #4557: the Phase-3a probe targets the cluster's OWN in-cluster
+            # Harbor (registry.<sov-fqdn> = harbor_host), whose wildcard cert
+            # is LE-STAGING (untrusted) on a fresh prov + the helm binary in a
+            # Job Pod carries no node trust store → both `helm registry login`
+            # and `helm pull` x509-fail without a skip. HELM_IN_CLUSTER_TLS_VERIFY
+            # (default "false") gates a deliberate, documented IN-CLUSTER-ONLY
+            # skip — this step makes NO external (ghcr/upstream) helm call, so
+            # the flag only ever relaxes verify for the local registry. Same
+            # seam as step-03 skopeo --dest-tls-verify=false (#4529).
+            #
+            # NOTE the two helm subcommands take DIFFERENT skip flags (verified
+            # against helm v3.16.x): `helm registry login` accepts `--insecure`
+            # ("allow connections to TLS registry without certs"); `helm pull`
+            # accepts `--insecure-skip-tls-verify` ("skip tls certificate
+            # checks for the chart download") — `helm registry login` does NOT
+            # know `--insecure-skip-tls-verify` (it errors unknown-flag, the
+            # login silently no-ops, and the subsequent pull then 401s "no
+            # basic auth credentials"). So gate two distinct flag vars.
+            HELM_LOGIN_INSECURE_FLAG=""
+            HELM_PULL_INSECURE_FLAG=""
+            case "${HELM_IN_CLUSTER_TLS_VERIFY:-false}" in
+              true|True|TRUE|1|yes) : ;;
+              *) HELM_LOGIN_INSECURE_FLAG="--insecure"
+                 HELM_PULL_INSECURE_FLAG="--insecure-skip-tls-verify" ;;
+            esac
+            echo "[helmrepository-patches] Phase-3a: in-cluster Harbor TLS-verify=${HELM_IN_CLUSTER_TLS_VERIFY:-false} (login flag: '${HELM_LOGIN_INSECURE_FLAG:-<none>}'; pull flag: '${HELM_PULL_INSECURE_FLAG:-<none>}')"
+
             if ! command -v helm >/dev/null 2>&1; then
               echo "[helmrepository-patches] FATAL: helm not found on PATH — cannot prove local-Harbor pullability (alpine/k8s is expected to ship helm 3.x)" >&2
               exit 1
@@ -819,7 +858,7 @@ data:
             sample_total=$(grep -c . "${sample_file}" || true)
             echo "[helmrepository-patches] Phase-3a: ${probe_total} pivoted chart(s) on ${harbor_host}; probing a sample of ${sample_total}"
 
-            helm registry login "${harbor_host}" \
+            helm registry login "${harbor_host}" ${HELM_LOGIN_INSECURE_FLAG} \
               -u "${HARBOR_USERNAME:-admin}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
               && echo "[helmrepository-patches] Phase-3a: helm registry login ${harbor_host} OK" \
               || echo "[helmrepository-patches] Phase-3a WARN: helm registry login ${harbor_host} returned non-zero (will retry inside the pull loop)"
@@ -873,7 +912,7 @@ data:
               pull_fail_names=""
               while IFS="$(printf '\t')" read -r p_chart p_ver; do
                 [ -z "${p_chart}" ] && continue
-                if helm pull "oci://${harbor_host}/openova-io/${p_chart}" \
+                if helm pull "oci://${harbor_host}/openova-io/${p_chart}" ${HELM_PULL_INSECURE_FLAG} \
                      --version "${p_ver}" -d /tmp/helm-pull >/tmp/.helm-pull.log 2>&1; then
                   pull_ok=$((pull_ok+1))
                 else
