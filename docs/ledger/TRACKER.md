@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-27T09:30:08Z` |
+| Last refreshed | `2026-06-27T09:45:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 16 |
+| Open issues | 14 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 16 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 16 open items (clickable table)
+### All 14 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -208,11 +208,9 @@ flowchart LR
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: auto-seed the per-Org openbao anthropic/token at Org-create so t | Other |
 | [#4293](https://github.com/openova-io/openova/issues/4293) | EPIC: One vcluster = one Organization, nothing else — collapse the 3 provision | Other |
 | [#4488](https://github.com/openova-io/openova/issues/4488) | fix(crossplane): provider-opentofu never INSTALLED on Huawei — xpkg.upbound.io | Other |
-| [#4511](https://github.com/openova-io/openova/issues/4511) | Jobs Re-run on a COMPLETED batch Job 502s 'spec.template field is immutable' — | Other |
 | [#4513](https://github.com/openova-io/openova/issues/4513) | Fresh prov wedges at 0 HelmReleases: cloud-init runcmd dies on `kubectl create n | Other |
 | [#4515](https://github.com/openova-io/openova/issues/4515) | Cilium parity test stale on main: #4504 switched cloud-init to `rt helm upgrade  | Other |
 | [#4521](https://github.com/openova-io/openova/issues/4521) | fix(crossplane): infrastructure-config Flux Kustomization batches Provider + Pro | Other |
-| [#4524](https://github.com/openova-io/openova/issues/4524) | FUNNEL/Pillar-2: Review step omits the chosen BCP topology + its +OMR 5.000 char | Other |
 | [#4525](https://github.com/openova-io/openova/issues/4525) | FUNNEL/Pillar-2: BCP region picker must fetch the Sovereign's real regions (cata | Other |
 | [#4527](https://github.com/openova-io/openova/issues/4527) | fix(bp-self-sovereign-cutover): registry-pivot v1 (cold-start) mirror routes pri | Other |
 | [#4529](https://github.com/openova-io/openova/issues/4529) | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo copy uses --dest-tls-verif | Other |
@@ -223,6 +221,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-27T09:38 | [#4531](https://github.com/openova-io/openova/pull/4531) | #3379 | fix(bp-self-sovereign-cutover): harbor-prewarm skopeo no lon |
+| 2026-06-27T09:31 | [#4530](https://github.com/openova-io/openova/pull/4530) | #4526 | Refs #909 |
 | 2026-06-27T09:09 | [#4526](https://github.com/openova-io/openova/pull/4526) | #4525 | fix(marketplace #4524): Review step shows the chosen BCP top |
 | 2026-06-27T09:03 | [#4523](https://github.com/openova-io/openova/pull/4523) | Refs #909 |  |
 | 2026-06-27T09:14 | [#4522](https://github.com/openova-io/openova/pull/4522) | #4519 | fix(bp-openbao): harden OIDC role group resolution — request |
@@ -251,8 +251,6 @@ flowchart LR
 | 2026-06-26T17:48 | [#4490](https://github.com/openova-io/openova/pull/4490) | #4470 | fix(bp-plane-isolation): annotate smoke-render-mode=default- |
 | 2026-06-26T17:47 | [#4489](https://github.com/openova-io/openova/pull/4489) | #4415 | docs(uat): restore 9 §A/§F walker-PASS rows + re-baseline #3 |
 | 2026-06-26T17:45 | [#4487](https://github.com/openova-io/openova/pull/4487) | #3375 | fix(catalyst-api): DR backbone self-fires for a converged pr |
-| 2026-06-26T17:12 | [#4485](https://github.com/openova-io/openova/pull/4485) | #4454 | docs: janitor self-reap post-mortem (VPC guard-chain) + sove |
-| 2026-06-26T17:07 | [#4484](https://github.com/openova-io/openova/pull/4484) | #4279 | docs(uat): live fresh-prov 91dc0591 walk results — 57✅/16❌/1 |
 
 ---
 
