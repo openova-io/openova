@@ -648,7 +648,7 @@ spec:
       # insecureSkipVerify — certSecretRef is the only trust mechanism (mirrors
       # skopeo #4529 / helm #4557 / containerd step-04 / OBS #4573 F2). Fail-OPEN
       # when the CA is unreadable. Lockstep w/ Chart.yaml + blueprint.yaml.
-      version: 0.1.89
+      version: 0.1.90
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

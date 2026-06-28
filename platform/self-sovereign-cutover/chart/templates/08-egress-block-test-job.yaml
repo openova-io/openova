@@ -79,6 +79,16 @@ data:
             value: {{ eq (toString .Values.egressTest.defaultDenyEgress) "true" | quote }}
           - name: ALLOW_CIDRS
             value: {{ .Values.egressTest.allowIntraClusterCIDRs | default (list "10.42.0.0/16" "10.43.0.0/16" "10.96.0.0/12") | join " " | quote }}
+          # #4596 — IaaS PROVIDER control-plane API CIDR allow-list. The deny-egress
+          # hold must black-hole the MOTHERSHIP but NOT the cloud the Sovereign runs
+          # ON: the CSI driver needs the provider API (Huawei ECS/EVS, Hetzner API)
+          # to attach volumes for any pod that (re)schedules DURING the hold (the
+          # catalyst-api-env-patch restart). Empty by default (no-op on providers
+          # whose CSI/control-plane is reachable via the cluster/host paths);
+          # cloud-init sets it per region (Huawei kom4dc: "212.72.2.0/24" — the API
+          # /24, which EXCLUDES the bastion .24.x + the GitHub/mothership ranges).
+          - name: PROVIDER_API_CIDRS
+            value: {{ .Values.egressTest.allowProviderCIDRs | default (list) | join " " | quote }}
           # #3678 — active call-home assertion knobs. During the hold, curl
           # each CALL_HOME_HOSTS entry FROM this pod (under the policy); any
           # that connects fails the proof.
@@ -301,6 +311,22 @@ data:
                   # services incl. apiserver ClusterIP, node ranges).
                   echo "    - toCIDR:"
                   for cidr in ${ALLOW_CIDRS}; do
+                    echo "        - ${cidr}"
+                  done
+                  # #4596 — allow the IaaS PROVIDER control-plane API (Huawei
+                  # ECS/EVS, Hetzner API, …) so the CSI driver can attach volumes
+                  # for any pod that (re)schedules DURING the hold — notably the
+                  # catalyst-api-env-patch restart that runs just before this step.
+                  # The hold must black-hole the MOTHERSHIP (github.com / ghcr.io /
+                  # harbor.openova.io), NOT the underlying IaaS the Sovereign runs
+                  # ON. Denying the cloud CSI API wedged the cutover engine's own
+                  # catalyst-api (live on 5150f96: FailedAttachVolume x5000 →
+                  # ContainerCreating → engine down → cutoverComplete never set).
+                  # These are the provider API ranges ONLY; the mothership + bastion
+                  # live in DIFFERENT ranges and stay denied. Provider sets them via
+                  # .Values.egressTest.allowProviderCIDRs (cloud-init populates per
+                  # region, e.g. Huawei kom4dc "212.72.2.0/24").
+                  for cidr in ${PROVIDER_API_CIDRS}; do
                     echo "        - ${cidr}"
                   done
                   # Allow control-plane + DNS + node entities so the apiserver
