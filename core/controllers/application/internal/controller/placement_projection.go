@@ -38,12 +38,41 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openova-io/openova/core/controllers/internal/placement"
+)
+
+// platformBootstrapOwnedHostRegion is the placeholder region literal every
+// bootstrap-owned Application CR carries in spec.regions
+// (`platform/<x>/chart/templates/application-cr.yaml`). It is NOT a real
+// host-cluster region — it exists only to satisfy the pre-#3370 CRD's
+// region-pattern requirement (4 letter-only dash tokens) for OLD-CRD
+// compatibility. A CNPG-backed / shared-data bootstrap app (shared-pg) carries
+// EXACTLY this single placeholder, so its resolved placement plan has no real
+// primary/standby regions — the live DR truth must come from the governing
+// Continuum, not from this literal. (#4605 follow-up.)
+const platformBootstrapOwnedHostRegion = "platform-bootstrap-owned-host"
+
+// clusterNameProviders / clusterNameBuildingBlocks / clusterNameEnvTypes are
+// the closed token sets a host-cluster name (`{prov}-{reg}-{bb}-{env_type}`,
+// docs/ARCHITECTURE.md §4 Naming) is built from. normalizeRegion uses the
+// `-{bb}-{env_type}` TAIL + a leading {prov} segment to recognise a FULL
+// cluster name (e.g. hw-me-east-215-a-rtz-prod, hz-fsn-rtz-prod) and strip it
+// to the bare region — WITHOUT mis-firing on an already-bare region label
+// (me-east-215-a), which carries no provider prefix and no bb token. Anchoring
+// on the known token sets (rather than raw segment count) is what disambiguates
+// the two 4-segment shapes me-east-215-a (region) and hz-fsn-rtz-prod
+// (cluster). Mirrors the openova.io/{building-block,environment-type} label
+// vocabulary.
+var (
+	clusterNameProviders      = map[string]bool{"hw": true, "hz": true, "aws": true, "gcp": true, "azure": true}
+	clusterNameBuildingBlocks = map[string]bool{"rtz": true, "dmz": true, "mgt": true, "mgmt": true}
+	clusterNameEnvTypes       = map[string]bool{"prod": true, "stg": true, "staging": true, "dev": true, "uat": true}
 )
 
 // placementProjectionForPlan resolves the DR placement projection for an
@@ -74,8 +103,20 @@ type continuumDRStatus struct {
 	// LeaseHolder is the region currently holding the DR lease — i.e. the
 	// live primary. Authoritative over the static plan primary, which is
 	// only the *configured* (regions[0]) primary and goes stale the moment
-	// the continuum-controller flips the lease on failover.
+	// the continuum-controller flips the lease on failover. Always a
+	// NORMALIZED region label (a cnpg-pair Continuum stamps the full cluster
+	// name `hw-me-east-215-a-rtz-prod`; continuumDRStatusFromCR folds it to
+	// the bare region `me-east-215-a` so the projection is consistent with
+	// the per-app `dr-<app>` Continuums, which already carry bare regions).
 	LeaseHolder string
+
+	// StandbyRegions are the NORMALIZED standby region labels read from the
+	// Continuum spec.hotStandbyRegions. Used to populate
+	// status.placement.standbyRegions when the static placement plan has no
+	// REAL standby regions to offer — i.e. a CNPG-backed bootstrap app whose
+	// spec.regions is the `platform-bootstrap-owned-host` placeholder, so the
+	// resolved plan carries no second region. (#4605 follow-up.)
+	StandbyRegions []string
 
 	// ReplicationLagSeconds mirrors the Continuum status field. -1 means
 	// "the Continuum reported no lag value" (omit from the projection).
@@ -122,7 +163,20 @@ func continuumDRStatusFromCR(cr *unstructured.Unstructured) *continuumDRStatus {
 		return nil
 	}
 	out := &continuumDRStatus{ReplicationLagSeconds: -1}
-	out.LeaseHolder, _, _ = unstructured.NestedString(cr.Object, "status", "leaseHolder")
+	rawHolder, _, _ := unstructured.NestedString(cr.Object, "status", "leaseHolder")
+	out.LeaseHolder = normalizeRegion(rawHolder)
+	// spec.hotStandbyRegions is the configured standby roster. Normalize each
+	// (the cnpg-pair Continuum stamps full cluster names) so a CNPG-backed app
+	// whose static plan has no real standby can still surface its standby
+	// region(s). Distinct from the live leaseHolder, which is what the standby
+	// roster is computed AGAINST in buildPlacementProjection.
+	if standbys, found, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions"); found {
+		for _, s := range standbys {
+			if n := normalizeRegion(s); n != "" {
+				out.StandbyRegions = append(out.StandbyRegions, n)
+			}
+		}
+	}
 	if lag, found, _ := unstructured.NestedInt64(cr.Object, "status", "replicationLagSeconds"); found {
 		out.ReplicationLagSeconds = lag
 		out.HasLag = true
@@ -169,23 +223,55 @@ func buildPlacementProjection(plan placement.Plan, cs *continuumDRStatus) map[st
 		return nil
 	}
 
-	// Effective primary: the live lease holder wins over the configured
-	// plan primary so the projection tracks failover, not just config.
+	// Whether the static plan carries REAL host-cluster regions. A CNPG-backed
+	// bootstrap app (shared-pg) resolves its plan from the placeholder literal
+	// `platform-bootstrap-owned-host`, so plan.Regions holds no real region —
+	// the live DR truth (primary + standby roster) must come entirely from the
+	// governing Continuum. A spine app carries real spec.regions, so its plan
+	// IS the source of truth (the Continuum only overrides the primary on a
+	// failover flip).
+	planHasRealRegions := false
+	for _, rp := range plan.Regions {
+		if rp.Name != platformBootstrapOwnedHostRegion {
+			planHasRealRegions = true
+			break
+		}
+	}
+
+	// Effective primary: the live lease holder (normalized) wins over the
+	// configured plan primary so the projection tracks failover, not just
+	// config. For a placeholder-region plan it is the ONLY primary signal.
 	primary := plan.PrimaryRegion
 	if cs != nil && cs.LeaseHolder != "" {
 		primary = cs.LeaseHolder
 	}
 
-	// Standbys: every plan region except the effective primary, in plan
-	// (priority) order. Recomputing against the EFFECTIVE primary (not the
-	// static plan.PrimaryRegion) means a failed-over deployment lists the
-	// old primary as a standby and the new primary is excluded.
-	standbys := make([]interface{}, 0, len(plan.Regions))
-	for _, rp := range plan.Regions {
-		if rp.Name == primary {
+	// Standbys: every standby region except the effective primary, in priority
+	// order. Recomputing against the EFFECTIVE primary (not the static plan
+	// primary) means a failed-over deployment lists the OLD primary as a
+	// standby and the new primary is excluded.
+	//
+	// Source of the standby roster:
+	//   - a plan WITH real regions ⇒ the plan regions (the spine path; the
+	//     Continuum only flips which one is primary, never the membership).
+	//   - a plan WITHOUT real regions (placeholder) ⇒ the Continuum's
+	//     hotStandbyRegions (the CNPG-backed shared-data path). Without this a
+	//     CNPG-backed app would project an EMPTY standbyRegions even though the
+	//     Continuum knows the standby region (the #4605 follow-up gap).
+	standbyNames := make([]string, 0, len(plan.Regions))
+	if planHasRealRegions {
+		for _, rp := range plan.Regions {
+			standbyNames = append(standbyNames, rp.Name)
+		}
+	} else if cs != nil {
+		standbyNames = append(standbyNames, cs.StandbyRegions...)
+	}
+	standbys := make([]interface{}, 0, len(standbyNames))
+	for _, name := range standbyNames {
+		if name == primary || name == "" {
 			continue
 		}
-		standbys = append(standbys, rp.Name)
+		standbys = append(standbys, name)
 	}
 
 	proj := map[string]interface{}{
@@ -221,6 +307,78 @@ func mergePlacementProjection(base, projection map[string]interface{}) map[strin
 		base[k] = v
 	}
 	return base
+}
+
+// normalizeRegion folds a host-cluster name (`{prov}-{reg}-{bb}-{env_type}`,
+// e.g. hw-me-east-215-a-rtz-prod, hz-fsn-rtz-prod) down to its bare region
+// label (me-east-215-a, fsn) so the placement projection speaks ONE region
+// vocabulary regardless of which Continuum produced the value (the cnpg-pair
+// Continuum stamps full cluster names; the per-app `dr-<app>` Continuums stamp
+// bare regions). It is IDEMPOTENT: a value that is already a bare region is
+// returned unchanged.
+//
+// Detection anchors on the CLOSED token sets, NOT raw segment count — that is
+// what disambiguates the two 4-segment shapes me-east-215-a (region:
+// non-provider first segment, non-env last segment) and hz-fsn-rtz-prod
+// (cluster: provider `hz` first, building-block `rtz` second-last, env `prod`
+// last). A value is a full cluster name iff:
+//   - it has ≥4 dash segments, AND
+//   - the first segment is a known provider, AND
+//   - the second-to-last segment is a known building-block, AND
+//   - the last segment is a known env_type.
+//
+// When all hold, strip the leading provider + the trailing {bb}-{env_type},
+// leaving the region. Otherwise the value is returned verbatim (a bare region,
+// the `platform-bootstrap-owned-host` placeholder, or anything unexpected) —
+// deliberately conservative so an unrecognised value is surfaced visibly rather
+// than silently mangled.
+func normalizeRegion(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	parts := strings.Split(s, "-")
+	if len(parts) < 4 {
+		return s
+	}
+	prov := parts[0]
+	bb := parts[len(parts)-2]
+	env := parts[len(parts)-1]
+	if !clusterNameProviders[prov] || !clusterNameBuildingBlocks[bb] || !clusterNameEnvTypes[env] {
+		return s
+	}
+	region := strings.Join(parts[1:len(parts)-2], "-")
+	if region == "" {
+		return s
+	}
+	return region
+}
+
+// resolvePlatformScopeContinuumStatus reads the SINGLE platform-scope
+// Continuum (label `openova.io/scope=platform`) — the cnpg-pair DR contract
+// that governs the shared CNPG data plane backing the shared-data bootstrap
+// apps (shared-pg). It is the fallback the bootstrap projection uses when a
+// CNPG-backed app has NEITHER a back-referenced continuumRef NOR a per-app
+// `dr-<app>` CR: those apps are governed by the cnpg-pair Continuum, not a
+// per-app one. Returns (nil, nil) when no platform-scope Continuum exists (a
+// single-region or non-CNPG Sovereign) — the caller then keeps the static
+// projection. A genuine list error is returned so the caller can degrade
+// gracefully rather than fail the reconcile. (#4605 follow-up.)
+func (r *Reconciler) resolvePlatformScopeContinuumStatus(ctx context.Context) (*continuumDRStatus, error) {
+	list, err := r.Dynamic.Resource(ContinuumGVR).Namespace("").List(ctx, metav1.ListOptions{
+		LabelSelector: "openova.io/scope=platform",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if list == nil || len(list.Items) == 0 {
+		return nil, nil
+	}
+	// Exactly one platform-scope Continuum is expected (the cnpg-pair). If a
+	// future Sovereign carries more, the first deterministically-ordered one
+	// is the shared data plane's contract — the List is name-ordered.
+	cr := list.Items[0]
+	return continuumDRStatusFromCR(&cr), nil
 }
 
 // splitNamespacedName splits a `<namespace>/<name>` ref. Returns ok=false for
