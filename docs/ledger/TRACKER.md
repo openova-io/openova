@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T08:15:06Z` |
+| Last refreshed | `2026-06-28T08:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 14 |
+| Open issues | 15 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 14 open items (clickable table)
+### All 15 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -214,6 +214,7 @@ flowchart LR
 | [#4600](https://github.com/openova-io/openova/issues/4600) | fix(crossplane): remove artificial bastion-Harbor (harbor.openova.io/proxy-xpkg) | Other |
 | [#4601](https://github.com/openova-io/openova/issues/4601) | Application status.placement DR projection — surface primary↔standby split f | Other |
 | [#4604](https://github.com/openova-io/openova/issues/4604) | bp-agenity: durable external-HTTPS egress CNP + standalone-claude openova MCP di | Other |
+| [#4610](https://github.com/openova-io/openova/issues/4610) | create_application 401: install-path agenity CR never wires the per-Org openova- | Other |
 
 ---
 
@@ -221,6 +222,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T08:21 | [#4609](https://github.com/openova-io/openova/pull/4609) | #4605 | fix(application-controller): resolve status.placement for CN |
 | 2026-06-28T07:58 | [#4608](https://github.com/openova-io/openova/pull/4608) | #4592 | fix(bp-catalyst-platform): rip out broken #4592 gitea-admin- |
 | 2026-06-28T07:52 | [#4607](https://github.com/openova-io/openova/pull/4607) | #3988 | docs(uat): North Star MCP leg proven live (whoami RBAC + 6 t |
 | 2026-06-28T07:45 | [#4606](https://github.com/openova-io/openova/pull/4606) | #4401 | fix(bp-agenity): durable external-HTTPS egress CNP + standal |
@@ -250,7 +252,6 @@ flowchart LR
 | 2026-06-27T17:14 | [#4574](https://github.com/openova-io/openova/pull/4574) | #4553 | fix(bp-agenity): oidc-gate companion resources requests==lim |
 | 2026-06-27T16:56 | [#4572](https://github.com/openova-io/openova/pull/4572) | #4553 | fix(bp-agenity): chart-managed bp-oidc-gate companion for ev |
 | 2026-06-27T17:41 | [#4571](https://github.com/openova-io/openova/pull/4571) | #4567 | fix(provisioning): drop CNP from per-Org apps kustomization  |
-| 2026-06-27T15:59 | [#4570](https://github.com/openova-io/openova/pull/4570) | #909 | docs(uat): funnel rows 85/91/92 verified ✅ (181 ✅ · 5 ☐) |
 
 ---
 
