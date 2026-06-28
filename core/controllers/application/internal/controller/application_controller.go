@@ -1537,6 +1537,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		su.Placement["clusters"] = clusters
 	}
 
+	// #4601 — fold the EFFECTIVE per-region DR placement projection onto the
+	// #3373 status.placement object so the per-app Topology DR strip can
+	// render the primary↔standby split (UAT rows 51/52/55/56/57). The
+	// resolved plan already carries the static primary + standbys; when this
+	// app minted a per-app Continuum (continuumRef non-empty) we read its
+	// live status to override the primary with the lease holder + surface
+	// replicationLagSeconds/leaseHeld. The DR keys are ADDITIVE — they never
+	// overwrite the {vcluster,source,regions,clusters} keys above. Read-only:
+	// this REPORTS placement, it never changes which region is primary.
+	if dr := r.placementProjectionForPlan(ctx, plan, continuumRef); dr != nil {
+		su.Placement = mergePlacementProjection(su.Placement, dr)
+	}
+
 	// #3969 §8a/§8b/§8e — run the owned-dependency cascade + the shared-dep
 	// recommendation closure for this Application's declared backing
 	// services. Owned (private) instances follow the consumer's resolved
@@ -2474,6 +2487,19 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 			fmt.Sprintf("adopted spine Continuum DR contract: %v", cerr))
 	}
 
+	// #4601 — project the EFFECTIVE per-region DR placement onto
+	// status.placement so the per-app Topology DR strip can render the
+	// primary↔standby split for this adopted spine app. The bootstrap-owned
+	// path NEVER wrote status.placement before, so every DR spine app
+	// (spine-gitea/harbor/keycloak/openbao) had an empty status.placement
+	// despite a live Continuum lease. We resolve the static plan from the
+	// app's own spec, then override the primary with the live Continuum
+	// leaseHolder + surface lag/leaseHeld. A non-DR bootstrap app (singleton
+	// shared-pg, single-region, no Continuum) projects the static singleton
+	// plan (primary + empty standbys) with no lag/leaseHeld. Read-only — this
+	// never changes which region is primary, only REPORTS it.
+	placementProjection := r.bootstrapPlacementProjection(ctx, app, continuumRef)
+
 	// Churn guard: a status write bumps resourceVersion → MODIFIED
 	// watch event → another reconcile. The normal path's Gitea
 	// byte-equality short-circuit naturally dampens that loop; this
@@ -2481,9 +2507,13 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 	// nothing meaningful changed (proven hot-looping at ~600ms/CR on
 	// the envtest adoption walk without this). The continuumRef is part
 	// of the changed-set: an adoption that just minted its Continuum must
-	// write the back-ref even when the HR phase is unchanged.
+	// write the back-ref even when the HR phase is unchanged. The
+	// placement projection is part of the changed-set too: a freshly-flipped
+	// lease (primary moved region) must re-write status.placement even when
+	// the adopted HR's phase is unchanged.
 	if bootstrapStatusUnchanged(app, phase, message, ready) &&
-		bootstrapContinuumRefUnchanged(app, continuumRef) {
+		bootstrapContinuumRefUnchanged(app, continuumRef) &&
+		bootstrapPlacementUnchanged(app, placementProjection) {
 		return nil
 	}
 
@@ -2501,7 +2531,63 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 		Ready:            ready,
 		LastReconciledAt: now,
 		ContinuumRef:     continuumRef,
+		Placement:        placementProjection,
 	})
+}
+
+// bootstrapPlacementProjection resolves the effective per-region DR placement
+// projection for an adopted (bootstrap-owned) Application and folds in the
+// live Continuum status (#4601). The adoption path is status-only — it never
+// resolves a fan-out render — so we resolve the placement plan directly from
+// the Application's own spec.placement + spec.regions (the same inputs
+// reconcileBootstrapContinuum uses), then read the per-app Continuum CR named
+// by continuumRef (falling back to the deterministic `dr-<app>` name) to
+// override the primary with the live leaseHolder + surface
+// replicationLagSeconds/leaseHeld.
+//
+// Returns nil (status.placement untouched) only when the spec has no
+// resolvable placement plan (no regions / unparseable spec) — never an error,
+// because a placement PROJECTION must never fail an adoption reconcile (the
+// HR observation is the load-bearing signal).
+func (r *Reconciler) bootstrapPlacementProjection(
+	ctx context.Context,
+	app *unstructured.Unstructured,
+	continuumRef string,
+) map[string]interface{} {
+	spec, err := parseSpec(app)
+	if err != nil {
+		return nil
+	}
+	if spec.Placement == "" || len(spec.Regions) == 0 {
+		return nil
+	}
+	plan, perr := placement.Resolve(spec.Placement, spec.Regions)
+	if perr != nil {
+		// Unresolvable placement (e.g. singleton with >1 region) — do not
+		// fabricate a projection; leave status.placement untouched.
+		r.Log.Warn("bootstrap-owned: placement resolve failed; no status.placement projection",
+			"app", app.GetName(), "placement", spec.Placement, "err", perr)
+		return nil
+	}
+	// Read the live Continuum status (if a CR exists for this app). Prefer the
+	// back-ref the producer just minted; when that is empty (e.g. the Blueprint
+	// is not yet in the catalog so reconcileBootstrapContinuum deferred the
+	// mint, but a CR from a prior reconcile already exists) fall back to the
+	// deterministic `dr-<app>` name in the app's namespace so the live lease
+	// still drives the projection. A read error degrades to the static-plan
+	// projection rather than failing the reconcile — the static plan still
+	// gives the UI a primary/standby split.
+	ref := continuumRef
+	if ref == "" {
+		ref = app.GetNamespace() + "/" + ContinuumNameFor(app.GetName())
+	}
+	cs, cerr := r.readContinuumDRStatus(ctx, ref)
+	if cerr != nil {
+		r.Log.Warn("bootstrap-owned: Continuum status read failed; static placement projection",
+			"app", app.GetName(), "continuumRef", ref, "err", cerr)
+		cs = nil
+	}
+	return buildPlacementProjection(plan, cs)
 }
 
 // reconcileBootstrapContinuum mints the per-app Continuum DR contract for a
@@ -2611,6 +2697,65 @@ func bootstrapContinuumRefUnchanged(app *unstructured.Unstructured, continuumRef
 	}
 	cur, _, _ := unstructured.NestedString(app.Object, "status", "continuumRef")
 	return cur == continuumRef
+}
+
+// bootstrapPlacementUnchanged reports whether the Application's current
+// status.placement already carries the DR projection keys (#4601) the next
+// reconcile would write. Part of the adoption-path churn guard: a freshly
+// flipped lease (primaryRegion moved) must re-write status.placement even
+// when the adopted HR phase is unchanged, but a steady-state reconcile must
+// NOT churn. A nil projection (no resolvable plan) is treated as "unchanged"
+// so it never forces an extra write on the non-DR adoption path.
+//
+// We compare only the DR-projection keys (mode / primaryRegion /
+// standbyRegions / replicationLagSeconds / leaseHeld), not the whole
+// status.placement object — the #3373 {vcluster,source,regions,clusters}
+// keys are not written on the bootstrap path, so comparing them would always
+// report "changed".
+func bootstrapPlacementUnchanged(app *unstructured.Unstructured, projection map[string]interface{}) bool {
+	if projection == nil {
+		return true
+	}
+	cur, _, _ := unstructured.NestedMap(app.Object, "status", "placement")
+	if cur == nil {
+		return false
+	}
+	for _, k := range []string{"mode", "primaryRegion", "standbyRegions", "replicationLagSeconds", "leaseHeld"} {
+		want, wantSet := projection[k]
+		got, gotSet := cur[k]
+		if wantSet != gotSet {
+			return false
+		}
+		if !wantSet {
+			continue
+		}
+		if !placementValueEqual(want, got) {
+			return false
+		}
+	}
+	return true
+}
+
+// placementValueEqual compares two status.placement values for churn-guard
+// equality, normalising the slice case (the projection writes
+// []interface{} for standbyRegions; the re-fetched status carries the same
+// shape, but a defensive element-wise compare keeps the guard robust to
+// client round-trip typing).
+func placementValueEqual(want, got interface{}) bool {
+	ws, wOK := want.([]interface{})
+	gs, gOK := got.([]interface{})
+	if wOK || gOK {
+		if !wOK || !gOK || len(ws) != len(gs) {
+			return false
+		}
+		for i := range ws {
+			if fmt.Sprintf("%v", ws[i]) != fmt.Sprintf("%v", gs[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return fmt.Sprintf("%v", want) == fmt.Sprintf("%v", got)
 }
 
 // bootstrapStatusUnchanged reports whether the Application's current

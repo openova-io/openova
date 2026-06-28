@@ -430,6 +430,15 @@ spec:
                     resolved + rendered (instance > Blueprint default >
                     legacy seams). The console reflects this — it mirrors
                     the Git-committed truth, never fights it.
+
+                    #4601 — additionally carries the EFFECTIVE per-region DR
+                    split ({mode, primaryRegion, standbyRegions,
+                    replicationLagSeconds, leaseHeld}) so the per-app Topology
+                    DR strip can render primary↔standby. The primary is the
+                    LIVE Continuum leaseHolder when a per-app Continuum exists
+                    (so the projection tracks failover, not just config),
+                    else the configured plan primary (regions[0]). Read-only /
+                    observational — REPORTS placement, never changes it.
                   properties:
                     vcluster:
                       type: string
@@ -448,4 +457,37 @@ spec:
                       type: array
                       items:
                         type: string
+                    # #4601 — DR projection (additive; folded onto the #3373
+                    # object). Present for every app with a resolvable plan.
+                    mode:
+                      type: string
+                      description: |
+                        Resolved canonical placement mode (singleton |
+                        active-active | active-hot-standby | active-passive).
+                    primaryRegion:
+                      type: string
+                      description: |
+                        Effective primary region — the LIVE Continuum
+                        leaseHolder when a per-app Continuum exists, else the
+                        configured plan primary (regions[0]). Empty for
+                        active-active (no primary concept).
+                    standbyRegions:
+                      type: array
+                      description: |
+                        Every plan region except the effective primary, in
+                        plan (priority) order. After a failover the OLD
+                        primary appears here.
+                      items:
+                        type: string
+                    replicationLagSeconds:
+                      type: integer
+                      format: int64
+                      description: |
+                        Replication lag from the per-app Continuum status
+                        (omitted when no Continuum reported one).
+                    leaseHeld:
+                      type: boolean
+                      description: |
+                        The per-app Continuum's LeaseHeld condition (omitted
+                        when no Continuum exists).
               x-kubernetes-preserve-unknown-fields: true

@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.943 — #4601 (Refs #3986 #3375): the application-controller now projects
+#   the EFFECTIVE per-region DR placement onto Application.status.placement
+#   ({mode, primaryRegion, standbyRegions, replicationLagSeconds, leaseHeld})
+#   so the per-app Topology DR strip (UAT 51/52/55/56/57) can render the
+#   primary↔standby split for HelmRelease-backed apps. The primary is the LIVE
+#   Continuum leaseHolder when a per-app Continuum exists (tracks failover),
+#   else the configured plan primary (regions[0]). Wired into BOTH the
+#   bootstrap-owned adoption path (every DR spine app: spine-gitea/harbor/
+#   keycloak/openbao — which previously wrote NO status.placement) and the
+#   normal fan-out path. Read-only / observational — REPORTS placement, never
+#   changes it. CRD application.yaml status.placement gains the documented DR
+#   sub-fields (additive; the object already preserves-unknown-fields). Ships
+#   in the application-controller image (deploy-bot bumps the pin on next build).
 # 1.4.936 — #4556 (agenity North-Star residual faults, items 1+2): (1) the
 #   application-controller no longer DUAL-RENDERS a topology/targets-driven
 #   Application — the fan-out `<app>-<cluster>` HR is now the sole install and

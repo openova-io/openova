@@ -1211,11 +1211,17 @@ spec:
       # 1.4.933 — #4553: catalog-seed bp-agenity 0.5.15 -> 0.5.16 — oidc-gate
       #   companion resources requests == limits so the gate pod is admissible
       #   under the per-Org plan-limits LimitRange. Lockstep w/ products/agenity.
+      # 1.4.943 — #4601 (Refs #3986 #3375): application-controller projects the
+      #   effective per-region DR placement (mode/primaryRegion/standbyRegions/
+      #   replicationLagSeconds/leaseHeld, primary = live Continuum leaseHolder)
+      #   onto Application.status.placement so the per-app Topology DR strip can
+      #   render primary↔standby for the bootstrap-owned DR spine apps. CRD
+      #   status.placement gains the DR sub-fields. Lockstep w/ Chart.yaml.
       # 1.4.936 — #4556: kill the agenity dual-render duplicate HR (quota) +
       #   stamp spec.parameters.sovereignFqdn so the openova-MCP URL points at
       #   this Sovereign, not the mothership. catalyst-api + application-controller
       #   image fixes (deploy-bot pins on next build). Lockstep w/ Chart.yaml.
-      version: 1.4.941
+      version: 1.4.943
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
