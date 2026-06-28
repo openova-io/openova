@@ -24,6 +24,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -624,6 +625,15 @@ func New(log *slog.Logger) *Handler {
 		pdm:              pdm.New(pdmURL),
 		kubeconfigsDir:   kubeconfigsDir,
 	}
+
+	// #4614: arm the in-band VPC-quota reclaim (provisioner pre-flight) with
+	// the SAME live-deployment allowlist the background janitor uses. Without
+	// this the reclaim's protect-set holds only the firing prov's own prefix
+	// and treats every OTHER live Sovereign's VPC as a reclaimable orphan —
+	// the path that cascade-deleted production omantel.biz on 2026-06-28.
+	// buildActivePrefixes reads h.deployments at call (reclaim) time, so
+	// binding the method here — before restore — is safe.
+	provisioner.ActiveDepPrefixesHook = h.buildActivePrefixes
 
 	st, err := store.New(dir)
 	if err != nil {
