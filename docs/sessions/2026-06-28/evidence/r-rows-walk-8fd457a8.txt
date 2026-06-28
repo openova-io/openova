@@ -27,3 +27,8 @@
 ## Convergence snapshot
   nodes: region-a 6 Ready, region-b cp+2workers Ready (k3s v1.31.4+k3s1)
   HRs: region-a 61/64, region-b 57/64 (not-ready: hcloud-ccm + cluster-autoscaler-hcloud = N/A on Huawei; self-sovereign-cutover dormant by design; velero/continuum/sandbox settling)
+
+## R19/R21/R22 — 14:21:32
+  R19 sandbox-controller-* Running r=0 (no CrashLoop; #4482 gitea-token bridge)
+  R22 cnpg-cloudnative-pg operator Running (apiserver reachable, no x509); gateway-ingress hop works (SSO apps 302/200)
+  R21 Blueprint CRs carry seeded versions: bp-agenity 0.5.18, bp-openclaw 0.2.13 (no resource-policy:keep stale; #4417 delivered)
