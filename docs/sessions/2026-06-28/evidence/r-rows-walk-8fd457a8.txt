@@ -1,0 +1,29 @@
+# R-rows live walk — dep 8fd457a86fdc27a5 (omantel.biz) — 2026-06-28
+# Fresh post-#4614 2-region prov on clean kom4dc; converged ready 13:57 (44 min, reclaim_hits=0 throughout).
+
+## R1 — janitor orphan-sweep does NOT reap the active ready prov (#4454)
+  convergence watch poll 1→22: reclaim_hits=0 every pass; #4614 in-band reclaim guard delivered (catalyst-api image 68ccd19)
+
+## R2 — Cilium VXLAN+WireGuard MTU=1370 BOTH regions (#4467)
+  region-a  cilium-config mtu = 1370
+  region-b  cilium-config mtu = 1370
+
+## R6 — bp-postgres NetworkPolicy admits consumers (#4442)
+  shared-pg / shared-pg-b healthy 3/3; harbor/gitea/keycloak pods Running (connected to their CNPG DBs)
+
+## R12 — shared-pg -mesh-rw + CNPG cross-region streaming BOTH regions (#4460)
+  region-a shared-pg: "Cluster in healthy state" instances=3 ready=3
+  region-a CNPG primaries: shared-pg(3), shared-pg-b(3), cnpg-pair-primary(3), newapi-pg, pdns-pg, org-pg, guacamole-pg, openova-flow-pg
+  region-b replicas live: shared-pg-replica, shared-pg-b-replica, shared-pg-c-replica, cnpg-pair-replica
+
+## R13 — region-b keycloak/gitea/harbor steady-state, no CrashLoop (#4436)
+  region-b: keycloak-0 Running r=0 | gitea Running r=0 | harbor-core Running r=2(startup, stable) | harbor-{nginx,portal,registry,redis} Running
+  region-a: keycloak-0 Running | gitea Running | harbor-core Running
+
+## Gate rows — surface reachability
+  https://console.omantel.biz      -> HTTP 200
+  https://marketplace.omantel.biz  -> HTTP 200
+
+## Convergence snapshot
+  nodes: region-a 6 Ready, region-b cp+2workers Ready (k3s v1.31.4+k3s1)
+  HRs: region-a 61/64, region-b 57/64 (not-ready: hcloud-ccm + cluster-autoscaler-hcloud = N/A on Huawei; self-sovereign-cutover dormant by design; velero/continuum/sandbox settling)
