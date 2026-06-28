@@ -32,6 +32,35 @@ name: bp-self-sovereign-cutover
 # behaviour) and the loop retries the ClusterIP resolution on a later sweep
 # (new needs_node_endpoint_retry guard, mirroring the #4527 auth-retry). New
 # values block: .Values.registryPivot.inClusterHarbor.
+#
+# 0.1.91 (#4632 Refs #3379, the auto-trigger 425-NO-RETRY race that means the
+# cutover NEVER auto-fires post-handover — verified live on dep 8fd457a8,
+# 2026-06-29): the post-install/post-upgrade auto-trigger hook Job
+# (10-auto-trigger-job.yaml, hook-delete-policy hook-succeeded) waits for
+# catalyst-api /healthz=200 then POSTs ONCE to /api/v1/internal/cutover/trigger.
+# On a FRESH prov it fires at slot-06a install time — BEFORE bp-catalyst-platform
+# reaches Ready and the handover post-install hook seals
+# secret/catalyst/tofu-phase0-archive — so the POST returns HTTP 425 ("handover
+# not complete"). The old 425 handler did a single `exit 0` and GAVE UP; because
+# the hook is then deleted, NOTHING ever re-POSTed the trigger → the cutover
+# never auto-fired (the case's own comment falsely claimed "the cutover
+# auto-fires when the same trigger is re-POSTed" — nothing re-POSTed it). Live
+# proof on 8fd457a8: handover seal written 13:56:41 but the lone POST 425'd at
+# 13:54:48 (~2 min too early) → cutover stuck progressPercent=0,
+# cutoverStartedAt="". FIX (chart-only, template 10): wrap the single POST +
+# `case "${code}"` block in a `while : ; do … done` loop — 200 breaks (success),
+# 409 breaks (already-running), 424 exits 1 (no-steps), 401|403 exits 0 (RBAC),
+# 425 retries every 15s until handover seals or autoHandoverWaitSeconds elapses
+# (then graceful exit 0; operator CTA still works), and transient 000/502 retry
+# in the same budget. New values trigger.autoHandoverWaitSeconds (default 1500)
+# + trigger.autoTimeoutSeconds default raised 1740 → 2100 (35m) so the Job
+# activeDeadlineSeconds covers the /healthz wait + the 425-retry window; the 06a
+# slot HR install/upgrade timeout raised 30m → 40m in lockstep so the hook
+# unblocks before Helm gives up. NO step-count / job-mode / RBAC change (the
+# auto-trigger Job is not a cutover step). The registry-half-pivot guard (hw93
+# 2026-06-04) is preserved — the engine still only starts once the archive is
+# sealed; the Job just keeps asking until it is. Lockstep w/ blueprint.yaml +
+# 06a slot pin + catalog seed.
 # 0.1.88 (#3379, the LAST leg of the cutover cert-tail — source-controller
 # OCI-pull TLS-trust, live wedge on dep 00720a7a, 2026-06-28): step-06 now
 # gives the Flux SOURCE-CONTROLLER a trust path to the in-cluster Harbor.
