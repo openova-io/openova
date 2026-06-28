@@ -1,0 +1,3 @@
+# Pillar-4 North Star walk — fresh re-prov 8fd457a8 (omantel.biz) — 2026-06-28
+PROVEN: Org nstar (org-controller reconciled: kc group/gitea/nstar-prod env Ready/vcluster) + agenity 0.5.18 SINGLETON Running 1/1 + Anthropic OAuth seeded via generate-root → claude -p = NORTHSTAR-OK (SSO, no token paste).
+BLOCKED (#4624): MCP create_application — openova-mcp tools/list=[] (pubkey-not-reflected [fixed live, JWK→PEM] + OPENOVA_MCP_BEARER not seeded, bearer_fallback=false). Agent stayed honest.
