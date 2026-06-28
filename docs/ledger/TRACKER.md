@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T14:45:03Z` |
+| Last refreshed | `2026-06-28T15:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 14 |
+| Open issues | 15 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 14 open items (clickable table)
+### All 15 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -212,8 +212,9 @@ flowchart LR
 | [#4592](https://github.com/openova-io/openova/issues/4592) | gitea-admin-secret host bridge Helm-lookup races the vcluster-syncer mirror on f | Other |
 | [#4600](https://github.com/openova-io/openova/issues/4600) | fix(crossplane): remove artificial bastion-Harbor (harbor.openova.io/proxy-xpkg) | Other |
 | [#4604](https://github.com/openova-io/openova/issues/4604) | bp-agenity: durable external-HTTPS egress CNP + standalone-claude openova MCP di | Other |
-| [#4614](https://github.com/openova-io/openova/issues/4614) | 🛑 P0: tofu-init VPC-quota-reclaim path lacks active-deployment allowlist →  | Other |
 | [#4620](https://github.com/openova-io/openova/issues/4620) | fix(crossplane): provider-opentofu package keeps literal ${XPKG_REGISTRY:=xpkg.u | Other |
+| [#4623](https://github.com/openova-io/openova/issues/4623) | Fresh-prov convergence residuals on 8fd457a8: loki-sc-rules CrashLoop (probe mis | Other |
+| [#4624](https://github.com/openova-io/openova/issues/4624) | fix(agenity): MCP create_application unwired on a fresh Org — RS256 pubkey not | Other |
 
 ---
 
@@ -221,6 +222,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T14:59 | [#4626](https://github.com/openova-io/openova/pull/4626) | #909 | docs(uat): operator-console authed walk — RBAC setup OK, hea |
+| 2026-06-28T14:56 | [#4625](https://github.com/openova-io/openova/pull/4625) | #4624 | walk(uat): Pillar-4 North Star agentic run PROVEN on 8fd457a |
 | 2026-06-28T14:21 | [#4622](https://github.com/openova-io/openova/pull/4622) | #909 | walk(uat): R19/R21/R22 ✅ live on 8fd457a8 |
 | 2026-06-28T14:17 | [#4621](https://github.com/openova-io/openova/pull/4621) | #4620 | walk(uat): G5 ✅ + G1 ⛔ (crossplane bug #4620) live on 8fd457 |
 | 2026-06-28T14:11 | [#4619](https://github.com/openova-io/openova/pull/4619) | #909 | walk(uat): R3-R9 SSO rows ✅ live on 8fd457a8 |
@@ -249,8 +252,6 @@ flowchart LR
 | 2026-06-27T23:38 | [#4588](https://github.com/openova-io/openova/pull/4588) | #4586 | fix(bp-self-sovereign-cutover): contract-test SIGPIPE false- |
 | 2026-06-27T22:41 | [#4586](https://github.com/openova-io/openova/pull/4586) | #3379 | fix(bp-self-sovereign-cutover): step-06 source-controller TL |
 | 2026-06-27T22:11 | [#4585](https://github.com/openova-io/openova/pull/4585) | #909 | docs: EPIC completion matrix 2026-06-28 (185 ✅, 9 EPICs at 1 |
-| 2026-06-27T21:53 | [#4584](https://github.com/openova-io/openova/pull/4584) | #4579 | fix(bp-plane-isolation): admit kube-apiserver into the OTel- |
-| 2026-06-27T21:22 | [#4583](https://github.com/openova-io/openova/pull/4583) | #4551 | fix(catalyst-api): Topology DR panel renders standby region  |
 
 ---
 
