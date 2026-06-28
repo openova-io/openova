@@ -1027,6 +1027,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			// #3375 DoD-3 — same owner labels on the per-app Continuum CR.
 			continuumOwnerLabels = fanoutOwnerLabels(envSpec, app)
 
+			// #4589 — the topology fan-out path must carry the SAME merged
+			// values as the non-fanout per-region path below
+			// (mergeMaps(bpManifestsValues, spec.Parameters)): the Blueprint's
+			// manifests.values overlaid with the per-Org spec.Parameters.
+			// Without this, singleton/active fan-out HRs render with chart
+			// defaults ONLY — httpRoute.hostnames + sovereignFqdn drop, the
+			// bp-oidc-gate companion fails closed, and zero-click SSO never
+			// lands on a fresh Org. (agnstar only appeared to work because its
+			// stale pre-#4556 non-fanout HR still carried these values; a fresh
+			// Org exposed the gap — see #4589 / deeper cause of #4556 item-1.)
+			// bpManifestsValues is declared later (non-fanout scope), so the
+			// fan-out path reads it from the Blueprint object directly here.
+			fanoutManifestsValues, _, _ := unstructured.NestedMap(bp.Object, "spec", "manifests", "values")
+
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
 				AppName:        app.GetName(),
 				AppNamespace:   app.GetNamespace(),
@@ -1050,6 +1064,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				DependsOnFor:        fanoutDependsOnFor,
 				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
 				OwnerLabels:         fanoutOwnerLabels(envSpec, app),
+				// #4589 — per-Org params (httpRoute.hostnames, sovereignFqdn,
+				// oidcGate, …) merged OVER the Blueprint manifests.values,
+				// mirroring the non-fanout path so the fan-out HR is
+				// parameter-complete and the SSO gate renders.
+				Values: mergeMaps(fanoutManifestsValues, spec.Parameters),
 			})
 			if ferr != nil {
 				// Render-error path — surface as Degraded so the
