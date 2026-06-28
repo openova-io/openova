@@ -648,7 +648,7 @@ spec:
       # insecureSkipVerify — certSecretRef is the only trust mechanism (mirrors
       # skopeo #4529 / helm #4557 / containerd step-04 / OBS #4573 F2). Fail-OPEN
       # when the CA is unreadable. Lockstep w/ Chart.yaml + blueprint.yaml.
-      # 0.1.91 (#4637): the KUBELET-HAIRPIN leg. step-04 (registry-pivot) now
+      # 0.1.92 (#4637): the KUBELET-HAIRPIN leg. step-04 (registry-pivot) now
       # resolves harbor-core's node-routable ClusterIP and points the v2
       # containerd mirror endpoints at http://<clusterip>:<port> instead of
       # https://registry.<sov-fqdn> (which the node resolver pins to the PUBLIC
@@ -659,7 +659,7 @@ spec:
       # New values block .Values.registryPivot.inClusterHarbor (defaults
       # harbor-core/harbor/:80 match this Sovereign's bp-harbor layout — no
       # overlay needed). Lockstep w/ Chart.yaml + blueprint.yaml.
-      version: 0.1.91
+      version: 0.1.92
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
