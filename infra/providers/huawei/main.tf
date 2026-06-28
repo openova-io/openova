@@ -657,18 +657,20 @@ locals {
   # Route ghcr/quay/gcr/registry.k8s.io through the bastion :5000 with the SAME
   # proxy-* rewrites — zero NAT egress, exactly like harbor + docker.io already do.
   #
-  # xpkg.upbound.io / public.ecr.aws stay on https://harbor.openova.io (NOT the
-  # bastion :5000 endpoint): the proxy-xpkg / proxy-ecr proxy-cache projects are
-  # served by the EXTERNAL Harbor front door, ensured by
-  # .github/workflows/ensure-bastion-harbor-proxy-projects.yaml (#4488). Historic
-  # note: these two projects did NOT exist on the bastion (manifest pull -> 404)
-  # while Crossplane was idle on kom4dc; #4263/#4491 made Crossplane NON-idle
-  # (provider-opentofu pulls xpkg.upbound.io/upbound/provider-opentofu through
-  # proxy-xpkg), so the project now MUST exist — hence the ensure workflow. The
-  # Crossplane xpkg fetcher (go-containerregistry K8sFetcher) bypasses THIS
-  # containerd mirror entirely and dials harbor.openova.io/proxy-xpkg directly,
-  # so this rewrite is belt-and-braces for node-level xpkg pulls. docker.io stays
-  # on the bastion :5002 cache.
+  # #4600 — xpkg.upbound.io is NO LONGER mirrored through the bastion Harbor.
+  # The Crossplane provider-opentofu package pulls DIRECTLY from xpkg.upbound.io
+  # (the #4002/#4018 adoption seam). The former rewrite to
+  # `harbor.openova.io/proxy-xpkg` (#4488/#4491/#4542) was an ARTIFICIAL bastion
+  # tether: (a) the Crossplane xpkg fetcher (go-containerregistry K8sFetcher)
+  # bypasses THIS containerd mirror entirely, so the rewrite was always inert
+  # for the actual provider-package pull; and (b) the bastion `proxy-xpkg`
+  # proxy-cache project never existed → `401 project proxy-xpkg not found` →
+  # provider-opentofu Installed=False. Live-proven 2026-06-28: xpkg.upbound.io
+  # answers (HTTP 401 anon-challenge) in 0.43s direct from the Huawei Sovereign,
+  # so the "poisoned NAT" premise that justified the tether is false. public.ecr.aws
+  # stays on https://harbor.openova.io (its proxy-ecr project is out of scope
+  # here and unrelated to the Crossplane adoption seam). docker.io stays on the
+  # bastion :5002 cache.
   #
   # #4049 (2026-06-21) — every image Huawei→Huawei, INCLUDING PRIVATE catalyst.
   # The ghcr.io mirror now carries TWO ordered rewrite rules (k3s/containerd
@@ -746,11 +748,13 @@ locals {
           # cache (verified still routes correctly).
           "^openova-io/openova/(.*)": "openova-io/openova/$1"
           "^(openova-io/(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^/]).*|(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^-]|openova-[^i]|openova-i[^o]).*)": "proxy-ghcr/$0"
-      "xpkg.upbound.io":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-xpkg/$1"
+      # #4600 — xpkg.upbound.io is NOT mirrored through the bastion Harbor.
+      # The Crossplane provider-opentofu package pulls DIRECTLY from
+      # xpkg.upbound.io (live-proven reachable sub-second from the Huawei
+      # Sovereign — see clusters/_template/.../base/provider-opentofu.yaml).
+      # The Crossplane xpkg fetcher bypasses this containerd mirror anyway, so
+      # the former `harbor.openova.io/proxy-xpkg` rewrite was both inert for
+      # the fetcher AND an artificial bastion tether for node-level pulls.
       "public.ecr.aws":
         endpoint:
           - "https://harbor.openova.io"

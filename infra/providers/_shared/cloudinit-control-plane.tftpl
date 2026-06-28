@@ -997,22 +997,18 @@ write_files:
           kind: GitRepository
           name: openova
         wait: false
-%{ if provider == "huawei" ~}
-        # #4488 — provider-opentofu package-pull host. The Crossplane xpkg
-        # fetcher (go-containerregistry, K8sFetcher) bypasses the node
-        # containerd registries.yaml mirror, so on Huawei (kom4dc) a raw
-        # `xpkg.upbound.io` package dials the poisoned NAT EIP and stalls → the
-        # adoption seam stays inert. Route Huawei through the mothership
-        # Harbor's TLS-valid proxy-xpkg pull-through (off the wait:false
-        # critical path). On Hetzner the substitution is OMITTED — Flux expands
-        # the manifest's XPKG_REGISTRY `:=` default to the clean upstream
-        # (xpkg.upbound.io; Hetzner's NAT to xpkg is clean), saving render
-        # bytes (the 32256B Hetzner cloud-init cap). See
-        # providers/base/provider-opentofu.yaml for the full rationale.
-        postBuild:
-          substitute:
-            XPKG_REGISTRY: "harbor.openova.io/proxy-xpkg"
-%{ endif ~}
+        # #4600 — NO XPKG_REGISTRY postBuild substitution on ANY cloud.
+        # provider-opentofu pulls DIRECTLY from xpkg.upbound.io (the manifest's
+        # XPKG_REGISTRY := xpkg.upbound.io default) on Hetzner AND Huawei.
+        # The former Huawei-only `harbor.openova.io/proxy-xpkg` substitution
+        # (#4488/#4491/#4542) was an ARTIFICIAL bastion-Harbor tether whose
+        # `proxy-xpkg` project never existed → 401 → provider-opentofu
+        # Installed=False → adoption seam inert. Its "poisoned NAT" premise is
+        # FALSE: xpkg.upbound.io answers HTTP 401 (the anon-auth challenge) in
+        # 0.43s direct from the live Huawei Sovereign, and crossplane-system
+        # has no egress NetworkPolicy. Cutover step-11 already pivots the raw
+        # `xpkg.upbound.io/...` spec.package to `harbor.<fqdn>/proxy-xpkg`
+        # post-handover, so Principle #11 sovereignty is unaffected.
       # NOTE (#4521): LAYER 2 — the CRD-CONSUMING `infrastructure-config` Flux
       # Kustomization (ProviderConfig + the Observe-first CloudAdoption
       # placeholder) is NOT inlined here. It ships as a COMMITTED Flux

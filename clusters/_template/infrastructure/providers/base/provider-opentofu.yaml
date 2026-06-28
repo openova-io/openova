@@ -31,27 +31,39 @@ spec:
   # Catalyst is an OpenTofu shop (required_version >= 1.6.0) so this is
   # the native fit. Pinned digest-pinnable tag.
   #
-  # #4488 — the registry HOST is a Flux postBuild substitution var
-  # (set by the infrastructure-providers Kustomization in cloud-init,
-  # cloud-conditional):
-  #   - Hetzner → `xpkg.upbound.io` (the upstream default — Hetzner's NAT
-  #     to xpkg is clean, the package pulls direct).
-  #   - Huawei  → `harbor.openova.io/proxy-xpkg` (the upstream pull-through
-  #     project on the mothership Harbor). On kom4dc the Crossplane xpkg
-  #     fetcher uses go-containerregistry DIRECTLY (it does NOT honour the
-  #     node containerd registries.yaml mirror — verified against the
-  #     crossplane v1.18 K8sFetcher), so the `xpkg.upbound.io` route in
-  #     registry_mirror_yaml_huawei is INERT for provider packages and the
-  #     fetcher would otherwise dial xpkg.upbound.io over the reputation-
-  #     blocklisted ("poisoned") kom4dc NAT EIP and stall → provider-
-  #     opentofu never reaches INSTALLED=True → no workspaces.tf.upbound.io
-  #     CRD → every CloudAdoption composite Ready=False (the #4002/#4018
-  #     adoption seam stays inert at runtime). proxy-xpkg is TLS-valid and
-  #     reachable over NAT; this install is `wait:false` / OFF the Phase-1
-  #     critical path, so its day-2 slowness is tolerable. Same host shape
-  #     the self-sovereign-cutover step-11 (#2034) pivots to post-handover
-  #     (harbor.<SOVEREIGN_FQDN>/proxy-xpkg/...). The `:=` default keeps a
-  #     raw `kustomize build` (CI / no-substitution) on the upstream coords.
+  # #4600 — the package pulls DIRECTLY from xpkg.upbound.io on EVERY cloud
+  # (Hetzner AND Huawei). XPKG_REGISTRY carries no postBuild substitution
+  # anywhere, so Flux expands the `:=` default to the clean upstream coords.
+  #
+  # The former Huawei-only `harbor.openova.io/proxy-xpkg` substitution
+  # (#4488/#4491/#4542) was an ARTIFICIAL dependency on the BASTION Harbor:
+  # it routed the Crossplane package pull through `harbor.openova.io`, whose
+  # `proxy-xpkg` proxy-cache project never existed → the package manager got
+  # `401 project proxy-xpkg not found` → provider-opentofu stayed
+  # INSTALLED=False → no workspaces.tf.upbound.io CRD → every CloudAdoption
+  # Ready=False (the #4002/#4018 adoption seam inert). The "fix" (#4541 / PR
+  # #4542) was to create that project on the bastion Harbor — gated on a
+  # founder-only BASTION_HARBOR_ADMIN_TOKEN. The founder confirmed the whole
+  # bastion tether is artificial.
+  #
+  # Its stated justification — a reputation-blocklisted ("poisoned") kom4dc
+  # NAT EIP that allegedly stalls a direct xpkg.upbound.io pull — is FALSE.
+  # Live-tested 2026-06-28 from the running Huawei Sovereign
+  # (91dc0591 / omantel.biz / me-east-215): a pod in crossplane-system's
+  # network context reaches `https://xpkg.upbound.io/v2/upbound/
+  # provider-opentofu/manifests/v1.1.3` with HTTP 401 (the EXPECTED
+  # anonymous-auth challenge — full TCP+TLS+HTTP path works) in 0.43s, NOT a
+  # timeout, and crossplane-system carries no egress NetworkPolicy
+  # (unrestricted egress). The Crossplane xpkg fetcher (go-containerregistry
+  # K8sFetcher) does bypass the node containerd registries.yaml mirror, but
+  # that no longer matters: it dials xpkg.upbound.io directly and succeeds.
+  #
+  # The self-sovereign-cutover step-11 (#2034) pivots this raw
+  # `xpkg.upbound.io/...` spec.package to `harbor.<SOVEREIGN_FQDN>/proxy-xpkg`
+  # post-handover (the pivot job already matches the upstream-host shape — it
+  # is the Hetzner shape it has always handled), so Principle #11 sovereignty
+  # is unaffected. The `:=` default keeps a raw `kustomize build`
+  # (CI / no-substitution) on the upstream coords.
   package: ${XPKG_REGISTRY:=xpkg.upbound.io}/upbound/provider-opentofu:v1.1.3
   # Inherit the cluster's image-pull behaviour from the runtime config
   # below (so post-cutover the Sovereign's own Harbor can proxy it).
