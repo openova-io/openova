@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T14:15:03Z` |
+| Last refreshed | `2026-06-28T14:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 13 |
+| Open issues | 14 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 13 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 13 open items (clickable table)
+### All 14 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -213,6 +213,7 @@ flowchart LR
 | [#4600](https://github.com/openova-io/openova/issues/4600) | fix(crossplane): remove artificial bastion-Harbor (harbor.openova.io/proxy-xpkg) | Other |
 | [#4604](https://github.com/openova-io/openova/issues/4604) | bp-agenity: durable external-HTTPS egress CNP + standalone-claude openova MCP di | Other |
 | [#4614](https://github.com/openova-io/openova/issues/4614) | 🛑 P0: tofu-init VPC-quota-reclaim path lacks active-deployment allowlist →  | Other |
+| [#4620](https://github.com/openova-io/openova/issues/4620) | fix(crossplane): provider-opentofu package keeps literal ${XPKG_REGISTRY:=xpkg.u | Other |
 
 ---
 
@@ -220,6 +221,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T14:21 | [#4622](https://github.com/openova-io/openova/pull/4622) | #909 | walk(uat): R19/R21/R22 ✅ live on 8fd457a8 |
+| 2026-06-28T14:17 | [#4621](https://github.com/openova-io/openova/pull/4621) | #4620 | walk(uat): G5 ✅ + G1 ⛔ (crossplane bug #4620) live on 8fd457 |
 | 2026-06-28T14:11 | [#4619](https://github.com/openova-io/openova/pull/4619) | #909 | walk(uat): R3-R9 SSO rows ✅ live on 8fd457a8 |
 | 2026-06-28T14:08 | [#4618](https://github.com/openova-io/openova/pull/4618) | #4614 | walk(uat): R1/R2/R6/R12/R13 ✅ live on re-prov 8fd457a8 |
 | 2026-06-28T13:16 | [#4617](https://github.com/openova-io/openova/pull/4617) | #3132 | chore(uat): reset walk-evidence on omantel.biz re-prov (dep  |
@@ -248,8 +251,6 @@ flowchart LR
 | 2026-06-27T22:11 | [#4585](https://github.com/openova-io/openova/pull/4585) | #909 | docs: EPIC completion matrix 2026-06-28 (185 ✅, 9 EPICs at 1 |
 | 2026-06-27T21:53 | [#4584](https://github.com/openova-io/openova/pull/4584) | #4579 | fix(bp-plane-isolation): admit kube-apiserver into the OTel- |
 | 2026-06-27T21:22 | [#4583](https://github.com/openova-io/openova/pull/4583) | #4551 | fix(catalyst-api): Topology DR panel renders standby region  |
-| 2026-06-27T20:23 | [#4582](https://github.com/openova-io/openova/pull/4582) | #4546 | docs(uat): rows 3 + 58 ✅ live-verified (185 ✅) |
-| 2026-06-27T21:23 | [#4581](https://github.com/openova-io/openova/pull/4581) | #3379 | fix(cutover): harbor-prewarm Phase-A2 chart mirror retries t |
 
 ---
 
