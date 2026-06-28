@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T09:00:04Z` |
+| Last refreshed | `2026-06-28T09:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 15 |
+| Open issues | 12 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 15 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 12 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 15 open items (clickable table)
+### All 12 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -210,11 +210,8 @@ flowchart LR
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
 | [#4569](https://github.com/openova-io/openova/issues/4569) | Funnel TLD choice (omani.rest/.trade) is silently overridden to the single Sover | Other |
 | [#4592](https://github.com/openova-io/openova/issues/4592) | gitea-admin-secret host bridge Helm-lookup races the vcluster-syncer mirror on f | Other |
-| [#4596](https://github.com/openova-io/openova/issues/4596) | Cutover egress-block-test hold black-holes the Huawei ECS/CSI control-plane API  | Other |
 | [#4600](https://github.com/openova-io/openova/issues/4600) | fix(crossplane): remove artificial bastion-Harbor (harbor.openova.io/proxy-xpkg) | Other |
-| [#4601](https://github.com/openova-io/openova/issues/4601) | Application status.placement DR projection — surface primary↔standby split f | Other |
 | [#4604](https://github.com/openova-io/openova/issues/4604) | bp-agenity: durable external-HTTPS egress CNP + standalone-claude openova MCP di | Other |
-| [#4610](https://github.com/openova-io/openova/issues/4610) | create_application 401: install-path agenity CR never wires the per-Org openova- | Other |
 
 ---
 
@@ -223,6 +220,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-06-28T08:59 | [#4613](https://github.com/openova-io/openova/pull/4613) | #4612 | docs(uat): North Star FULLY proven — create_application → 20 |
+| 2026-06-28T09:09 | [#4612](https://github.com/openova-io/openova/pull/4612) | #4556 | fix(catalyst-api): install-door agenity CR wires the per-Org |
 | 2026-06-28T08:32 | [#4611](https://github.com/openova-io/openova/pull/4611) | #4609 | docs(uat): rows 51-57 ✅ — shared-pg Topology DR placement li |
 | 2026-06-28T08:21 | [#4609](https://github.com/openova-io/openova/pull/4609) | #4605 | fix(application-controller): resolve status.placement for CN |
 | 2026-06-28T07:58 | [#4608](https://github.com/openova-io/openova/pull/4608) | #4592 | fix(bp-catalyst-platform): rip out broken #4592 gitea-admin- |
@@ -251,7 +249,6 @@ flowchart LR
 | 2026-06-27T18:12 | [#4577](https://github.com/openova-io/openova/pull/4577) | #4575 | fix(bp-self-sovereign-cutover): contract-test broken-pipe FA |
 | 2026-06-27T17:31 | [#4576](https://github.com/openova-io/openova/pull/4576) | #909 | docs(uat): #4553 Pillar-4 E2E — SSO + MCP RBAC verified (183 |
 | 2026-06-27T17:28 | [#4575](https://github.com/openova-io/openova/pull/4575) | #4573 | fix(bp-self-sovereign-cutover): the two GENUINE clean-fresh- |
-| 2026-06-27T17:14 | [#4574](https://github.com/openova-io/openova/pull/4574) | #4553 | fix(bp-agenity): oidc-gate companion resources requests==lim |
 
 ---
 
