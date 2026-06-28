@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T01:15:04Z` |
+| Last refreshed | `2026-06-28T01:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 16 |
+| Open issues | 17 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 16 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 17 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 16 open items (clickable table)
+### All 17 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -216,6 +216,7 @@ flowchart LR
 | [#4573](https://github.com/openova-io/openova/issues/4573) | cutover post-pivot chart-upgrade path: source-controller + kubelet can't pull NE | Other |
 | [#4579](https://github.com/openova-io/openova/issues/4579) | bp-plane-isolation opentelemetry-default-deny OMITS the kube-apiserver webhook i | Other |
 | [#4587](https://github.com/openova-io/openova/issues/4587) | cutover step-06 Phase-3a: bp-catalyst-platform HR-pin vs Harbor-mirrored-version | Other |
+| [#4589](https://github.com/openova-io/openova/issues/4589) | application-controller singleton fan-out drops spec.parameters → agenity #4553 | Other |
 
 ---
 
