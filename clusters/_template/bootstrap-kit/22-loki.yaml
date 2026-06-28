@@ -114,7 +114,10 @@ spec:
       # 1.0.2 — #4347: loki livenessProbe + sidecar exec probes + harbor-proxy
       #   images so it clears the host-ns Kyverno probes-present + harbor-proxy-pull
       #   Enforce policies (post-#4325). Refs #4347 #4325.
-      version: 1.0.2
+      # 1.0.3 — #4623a: DISABLE the loki-sc-rules sidecar (no loki_rule objects
+      #   ship + its /proc/1/cmdline EXEC probe CrashLoops on upstream image
+      #   entrypoint drift). Drops the container entirely. Refs #4623.
+      version: 1.0.3
       sourceRef:
         kind: HelmRepository
         name: bp-loki

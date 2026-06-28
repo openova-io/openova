@@ -97,10 +97,35 @@ loki:
   # de-vcluster migration it installs into the native host namespace and the
   # StatefulSet admission is DENIED. Modest request for the light k8s watcher.
   sidecar:
+    # #4623a — DISABLE the loki-sc-rules sidecar on a solo Sovereign. The
+    # sidecar (kiwigrid/k8s-sidecar) exists only to ingest Loki ruler
+    # ConfigMaps/Secrets labelled `loki_rule` into the StatefulSet. This
+    # Sovereign ships ZERO such rule objects (no alerting/recording rules in
+    # the catalog), so the sidecar watches an empty set forever — pure dead
+    # weight in the SingleBinary pod.
+    #
+    # It is ALSO a recurring CrashLoop hazard: its only health signal is an
+    # EXEC probe that greps `/proc/1/cmdline` for `python`/`sidecar` (#4347).
+    # That couples the probe to the upstream image's PID-1 entrypoint string,
+    # which the mutable `kiwigrid/k8s-sidecar:2.5.0` tag is free to change on
+    # any rebuild — when it does, the probe fails, the container CrashLoops,
+    # and (because it shares the SingleBinary pod) it can disrupt the Loki
+    # StatefulSet's readiness even though Loki itself is healthy.
+    #
+    # Disabling the sidecar removes the container entirely: no probe to fail,
+    # nothing for the host-ns Kyverno `probes-present` / `resource-requests`
+    # Enforce policies to reject, and no functional loss (no rules to load).
+    # Per-Sovereign overlays that DO ship Loki rules re-enable this with
+    # `loki.sidecar.rules.enabled: true` AND should switch the probes below to
+    # the image's built-in `/healthz` HTTP endpoint (HEALTH_PORT, default 8080)
+    # rather than the brittle /proc/1/cmdline grep.
+    rules:
+      enabled: false
     # #4347 — proxy the kiwigrid/k8s-sidecar image through the Sovereign-local
     # Harbor so the host-ns `harbor-proxy-pull` Enforce policy admits it
     # (`docker.io/kiwigrid/k8s-sidecar` matches no allowed glob). Mirror the
-    # grafana sidecar's proxy-dockerhub convention.
+    # grafana sidecar's proxy-dockerhub convention. (Retained so overlays that
+    # re-enable the sidecar still pull through Harbor.)
     image:
       registry: harbor.openova.io
       repository: proxy-dockerhub/kiwigrid/k8s-sidecar
@@ -111,28 +136,38 @@ loki:
       limits:
         cpu: 50m
         memory: 64Mi
-    # #4347 — the loki-sc-rules sidecar (kiwigrid/k8s-sidecar) had NO probes →
-    # the host-ns Kyverno `probes-present` Enforce policy denies the StatefulSet.
-    # The sidecar serves no HTTP health port, so both probes are EXEC checks
-    # confirming PID 1 is still the python sidecar process (a crashed/replaced
-    # PID 1 fails the grep). /proc/1/cmdline is null-separated; grep -q matches
-    # the `python` / `sidecar` substring on the python-slim base image.
+    # #4623a — Probes for when an overlay re-enables `sidecar.rules.enabled`.
+    # These satisfy the host-ns Kyverno `probes-present` Enforce policy
+    # (#4347) WITHOUT the brittle /proc/1/cmdline grep the chart used before.
+    # kiwigrid/k8s-sidecar 2.5.0 ships a built-in health HTTP server at
+    # `/healthz` on HEALTH_PORT (default 8080): 200 once the initial config
+    # sync is done + the k8s watch is alive, 503 before first sync / on lost
+    # k8s contact / dead watcher. This contract is stable across image
+    # rebuilds, unlike the PID-1 entrypoint string.
+    #
+    # `/healthz` returns 503 until first sync, so a startupProbe gates initial
+    # readiness (generous failureThreshold tolerates slow first list/watch),
+    # liveness uses a high failureThreshold so a transient k8s-contact blip
+    # doesn't needlessly restart the watcher.
+    startupProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 30
     livenessProbe:
-      exec:
-        command:
-          - /bin/sh
-          - -c
-          - 'grep -aq -e python -e sidecar /proc/1/cmdline'
+      httpGet:
+        path: /healthz
+        port: 8080
       initialDelaySeconds: 15
       periodSeconds: 30
       timeoutSeconds: 5
-      failureThreshold: 3
+      failureThreshold: 6
     readinessProbe:
-      exec:
-        command:
-          - /bin/sh
-          - -c
-          - 'grep -aq -e python -e sidecar /proc/1/cmdline'
+      httpGet:
+        path: /healthz
+        port: 8080
       initialDelaySeconds: 5
       periodSeconds: 15
       timeoutSeconds: 5
