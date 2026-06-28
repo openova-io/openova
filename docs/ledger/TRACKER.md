@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T08:45:04Z` |
+| Last refreshed | `2026-06-28T09:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 15 |
 | Open DoD gates | 0 / 41 |
@@ -222,6 +222,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T08:59 | [#4613](https://github.com/openova-io/openova/pull/4613) | #4612 | docs(uat): North Star FULLY proven — create_application → 20 |
 | 2026-06-28T08:32 | [#4611](https://github.com/openova-io/openova/pull/4611) | #4609 | docs(uat): rows 51-57 ✅ — shared-pg Topology DR placement li |
 | 2026-06-28T08:21 | [#4609](https://github.com/openova-io/openova/pull/4609) | #4605 | fix(application-controller): resolve status.placement for CN |
 | 2026-06-28T07:58 | [#4608](https://github.com/openova-io/openova/pull/4608) | #4592 | fix(bp-catalyst-platform): rip out broken #4592 gitea-admin- |
@@ -251,7 +252,6 @@ flowchart LR
 | 2026-06-27T17:31 | [#4576](https://github.com/openova-io/openova/pull/4576) | #909 | docs(uat): #4553 Pillar-4 E2E — SSO + MCP RBAC verified (183 |
 | 2026-06-27T17:28 | [#4575](https://github.com/openova-io/openova/pull/4575) | #4573 | fix(bp-self-sovereign-cutover): the two GENUINE clean-fresh- |
 | 2026-06-27T17:14 | [#4574](https://github.com/openova-io/openova/pull/4574) | #4553 | fix(bp-agenity): oidc-gate companion resources requests==lim |
-| 2026-06-27T16:56 | [#4572](https://github.com/openova-io/openova/pull/4572) | #4553 | fix(bp-agenity): chart-managed bp-oidc-gate companion for ev |
 
 ---
 
