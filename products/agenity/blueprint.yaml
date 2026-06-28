@@ -11,11 +11,10 @@ spec:
   # per-Org plan-limits LimitRange (cpu:1/mem:1 ratio) — the prior Burstable
   # spec was rejected, no gate pod, no SSO (live on agnstar). Lockstep with
   # products/agenity/chart/Chart.yaml + the catalog-seed pin.
-  # 0.5.15 (#4553/#4556): the chart now renders a bp-oidc-gate companion in
-  # front of every per-Org agenity host (oidcGate.enabled default true) — the
-  # durable zero-click SSO gate + spaTokenSeed no-paste landing, chart-managed
-  # rather than the agnstar walk's hand-created live instance.
-  version: 0.5.16
+  # 0.5.17 (#4604): chart adds a default-on external-HTTPS egress CNP +
+  # seeds the openova MCP into ~/.claude.json for a standalone claude (durable
+  # Pillar-4 North-Star wiring). Lockstep with products/agenity/chart.
+  version: 0.5.17
   card:
     title: Agenity
     summary: |
