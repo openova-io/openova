@@ -2194,7 +2194,7 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// reconciled (phase=Failed). Now seed.Values (when present) is used
 	// verbatim; otherwise we emit at least `{}` plus a configSchema-valid
 	// topology.mode for bp-postgres.
-	spec["parameters"] = defaultedParameters(seed.Blueprint, seed.Topology, seed.SovereignFQDN, seed.Values)
+	spec["parameters"] = defaultedParameters(seed.Blueprint, seed.Topology, seed.SovereignFQDN, seed.Namespace, seed.Values)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }
