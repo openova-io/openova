@@ -648,19 +648,34 @@ spec:
       # insecureSkipVerify — certSecretRef is the only trust mechanism (mirrors
       # skopeo #4529 / helm #4557 / containerd step-04 / OBS #4573 F2). Fail-OPEN
       # when the CA is unreadable. Lockstep w/ Chart.yaml + blueprint.yaml.
-      version: 0.1.90
+      # 0.1.91 (#4632 Refs #3379): the auto-trigger 425-NO-RETRY race — the
+      # post-install hook Job POSTed /internal/cutover/trigger ONCE, got HTTP 425
+      # (handover not yet sealed at slot-06a install time), did `exit 0` and was
+      # then deleted (hook-succeeded) → nothing ever re-POSTed → the cutover
+      # NEVER auto-fired post-handover (live dep 8fd457a8: seal 13:56:41 vs lone
+      # POST 13:54:48). FIX (template 10): retry the POST every 15s on 425 (and
+      # transient 000/502) until a non-425 result or autoHandoverWaitSeconds
+      # (1500s). New trigger.autoHandoverWaitSeconds; autoTimeoutSeconds 1740→2100;
+      # HR install/upgrade timeout 30m→40m (above) so the hook unblocks in time.
+      version: 0.1.91
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
         namespace: flux-system
   install:
+    # #4632 (chart 0.1.91): raised 30m → 40m so the auto-trigger Job's
+    # activeDeadlineSeconds (2100s / 35m — /healthz wait + the new 425
+    # handover-retry window) stays comfortably below the HR
+    # install/upgrade timeout and the post-install hook unblocks before
+    # Helm gives up. disableWait keeps the chart itself dormant; this
+    # timeout governs the hook Job's completion window.
     disableWait: true
-    timeout: 30m
+    timeout: 40m
     remediation:
       retries: -1
   upgrade:
     disableWait: true
-    timeout: 30m
+    timeout: 40m
     remediation:
       retries: 3
   # Per-Sovereign overrides — the chart's values.yaml carries
