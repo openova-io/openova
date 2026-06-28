@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T03:00:02Z` |
+| Last refreshed | `2026-06-28T03:15:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 16 |
 | Open DoD gates | 0 / 41 |
@@ -223,6 +223,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T03:13 | [#4591](https://github.com/openova-io/openova/pull/4591) | #4590 | chore(catalyst): bump bp-catalyst-platform 1.4.940 to delive |
 | 2026-06-28T01:43 | [#4590](https://github.com/openova-io/openova/pull/4590) | #4556 | fix(application-controller): singleton fan-out carries per-O |
 | 2026-06-27T23:38 | [#4588](https://github.com/openova-io/openova/pull/4588) | #4586 | fix(bp-self-sovereign-cutover): contract-test SIGPIPE false- |
 | 2026-06-27T22:41 | [#4586](https://github.com/openova-io/openova/pull/4586) | #3379 | fix(bp-self-sovereign-cutover): step-06 source-controller TL |
@@ -252,7 +253,6 @@ flowchart LR
 | 2026-06-27T13:02 | [#4547](https://github.com/openova-io/openova/pull/4547) | #3687 | fix(marketplace): authed owner on /redeem must not see the p |
 | 2026-06-27T12:43 | [#4545](https://github.com/openova-io/openova/pull/4545) | #909 | docs: EPIC completion matrix + Importance×Effort backlog pri |
 | 2026-06-27T11:42 | [#4544](https://github.com/openova-io/openova/pull/4544) | #4529 | fix(handover): postTofuArchive skips public-CA verify on the |
-| 2026-06-27T11:30 | [#4542](https://github.com/openova-io/openova/pull/4542) | #4491 | fix(harbor): create the missing proxy-xpkg proxy-cache proje |
 
 ---
 
