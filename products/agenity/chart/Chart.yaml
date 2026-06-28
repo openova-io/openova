@@ -179,7 +179,14 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.17
+version: 0.5.18
+# 0.5.18 (#4610): OPENOVA_MCP_TENANT_HOST — the openova MCP now forwards the
+# Org console host (console.<slug>.<pool>) as X-Tenant-Host on the org-scoped
+# install path, so create_application resolves the caller's OWN Org instead of
+# 404ing `tenant-not-registered` against the Sovereign api-URL host. Derived
+# from the agenity gate host (agenity.<slug>.<pool> → console.<slug>.<pool>) or
+# pinned via openovaMCP.tenantHost. Wired in BOTH the CHEPHERD_EXTRA_MCP_JSON
+# (spawned agents) and as a container env (standalone claude inherits it).
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752

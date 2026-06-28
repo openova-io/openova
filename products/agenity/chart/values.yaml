@@ -133,6 +133,21 @@ openovaMCP:
   # from the Sovereign FQDN. Override for a host-namespace (non-vCluster)
   # install where the in-cluster Service name resolves.
   catalystApiUrl: ""
+  # tenantHost — the Organization console host (console.<slug>.<pool>) the
+  # MCP forwards as X-Tenant-Host on the org-scoped install path
+  # (POST /api/v1/org/applications, #4116) so the catalyst-api resolves the
+  # caller's OWN Org namespace from the tenant registry. CRITICAL (#4610): the
+  # catalyst-api base URL (catalystApiUrl) is the SOVEREIGN host
+  # (console.<sovereign-fqdn>, e.g. console.omantel.biz) — the Cilium Gateway
+  # routes /api/v1/* there — but that host is NOT a registered TENANT, so if
+  # the MCP defaults X-Tenant-Host to the api-URL host the org-scoped install
+  # 404s `tenant-not-registered`. This value pins the Org console host
+  # instead. Empty → the chart derives it from httpRoute.hostnames[0] (the
+  # agenity.<slug>.<pool> host) by swapping the leading `agenity` label for
+  # `console`; a non-empty value wins. Falls back to OPENOVA_MCP_TENANT_HOST
+  # unset (the MCP then derives from the api-URL host) only when no Org host
+  # is resolvable.
+  tenantHost: ""
   # Pins the MCP to the Organization context so even a wider token cannot
   # widen the surface beyond the User's Org (defense in depth).
   context: organization

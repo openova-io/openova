@@ -268,16 +268,31 @@ spec:
             # natively (verified: `openova-mcp` logs `bearer_fallback=true` and
             # reads OPENOVA_MCP_* from its environment). Only the non-secret,
             # MCP-specific knobs are pinned in the JSON.
+            {{- $tenantHost := include "agenity.mcpTenantHost" . }}
             - name: CHEPHERD_EXTRA_MCP_JSON
               value: |-
                 {"mcpServers":{"openova":{
                   "command":{{ .Values.openovaMCP.binaryPath | quote }},
                   "env":{
                     "OPENOVA_MCP_CATALYST_API_URL":{{ $apiURL | quote }},
+                    {{- if $tenantHost }}
+                    "OPENOVA_MCP_TENANT_HOST":{{ $tenantHost | quote }},
+                    {{- end }}
                     "OPENOVA_MCP_CONTEXT":{{ .Values.openovaMCP.context | quote }},
                     "OPENOVA_MCP_VERIFY":{{ .Values.openovaMCP.verify | quote }}
                   }
                 }}}
+            {{- if $tenantHost }}
+            # OPENOVA_MCP_TENANT_HOST (#4610) — the Org console host the MCP
+            # forwards as X-Tenant-Host on the org-scoped install path. Set as a
+            # container env so a STANDALONE claude (whose ~/.claude.json carries
+            # only the non-secret MCP knobs) ALSO gets it via the same env
+            # inheritance the bearer/pubkey use. The api-URL host is the
+            # SOVEREIGN host and is NOT a registered tenant, so without this the
+            # org-scoped create 404s `tenant-not-registered`.
+            - name: OPENOVA_MCP_TENANT_HOST
+              value: {{ $tenantHost | quote }}
+            {{- end }}
             {{- if .Values.openovaMCP.bearerSecret.name }}
             # Interim per-call bearer (#4111) — an admin-tier, Org-pinned,
             # handover-RS256-signed session JWT the MCP forwards to the

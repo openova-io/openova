@@ -50,6 +50,32 @@ guard so both agree on the host.
 {{- end -}}
 
 {{- /*
+agenity.mcpTenantHost — the Organization console host (console.<slug>.<pool>)
+the openova MCP forwards as X-Tenant-Host on the org-scoped install path
+(#4116). The catalyst-api base URL is the SOVEREIGN host (console.<sov-fqdn>)
+which is NOT a registered tenant, so X-Tenant-Host MUST be the Org host or the
+install 404s `tenant-not-registered` (#4610). Resolution:
+  1. explicit openovaMCP.tenantHost wins;
+  2. else derive from the agenity gate host (agenity.<slug>.<pool>): swap the
+     leading `agenity` label for `console` → console.<slug>.<pool>;
+  3. else empty (the MCP falls back to deriving from the api-URL host).
+*/ -}}
+{{- define "agenity.mcpTenantHost" -}}
+{{- if .Values.openovaMCP.tenantHost -}}
+{{- .Values.openovaMCP.tenantHost -}}
+{{- else -}}
+{{- $host := include "agenity.gateHostname" . -}}
+{{- if $host -}}
+{{- $rest := "" -}}
+{{- if contains "." $host -}}
+{{- $rest = (regexReplaceAll "^[^.]+\\." $host "") -}}
+{{- printf "console.%s" $rest -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
 agenity.gateEnabled — "true" only when the SSO gate is requested AND a hostname
 resolves (no host → fail-closed, the gate would render nothing useful). Drives
 BOTH templates/oidc-gate.yaml (render the gate) AND templates/httproute.yaml
