@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T12:30:09Z` |
+| Last refreshed | `2026-06-28T12:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T12:36 | [#4616](https://github.com/openova-io/openova/pull/4616) | #4454 | fix(provisioner): VPC-quota reclaim protects ALL live deploy |
 | 2026-06-28T12:12 | [#4615](https://github.com/openova-io/openova/pull/4615) | #4614 | docs(epic-matrix): EOD update — North Star complete, founder |
 | 2026-06-28T08:59 | [#4613](https://github.com/openova-io/openova/pull/4613) | #4612 | docs(uat): North Star FULLY proven — create_application → 20 |
 | 2026-06-28T09:09 | [#4612](https://github.com/openova-io/openova/pull/4612) | #4556 | fix(catalyst-api): install-door agenity CR wires the per-Org |
@@ -249,7 +250,6 @@ flowchart LR
 | 2026-06-27T19:35 | [#4580](https://github.com/openova-io/openova/pull/4580) | #4554 | fix(catalyst-api #4551): render the per-app Topology DR pane |
 | 2026-06-27T18:32 | [#4578](https://github.com/openova-io/openova/pull/4578) | #4556 | fix(catalyst): agenity one-HR-per-install + openova-MCP URL  |
 | 2026-06-27T18:12 | [#4577](https://github.com/openova-io/openova/pull/4577) | #4575 | fix(bp-self-sovereign-cutover): contract-test broken-pipe FA |
-| 2026-06-27T17:31 | [#4576](https://github.com/openova-io/openova/pull/4576) | #909 | docs(uat): #4553 Pillar-4 E2E — SSO + MCP RBAC verified (183 |
 
 ---
 
