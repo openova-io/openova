@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T16:00:07Z` |
+| Last refreshed | `2026-06-28T16:15:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 15 |
 | Open DoD gates | 0 / 41 |
@@ -222,6 +222,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T16:11 | [#4630](https://github.com/openova-io/openova/pull/4630) | #4623 | docs(4623b): diagnose pdns-admin.<fqdn> HTTP 000 — code is c |
+| 2026-06-28T16:11 | [#4629](https://github.com/openova-io/openova/pull/4629) | #4623 | fix(bp-loki): disable loki-sc-rules sidecar — kill CrashLoop |
+| 2026-06-28T16:04 | [#4628](https://github.com/openova-io/openova/pull/4628) | #4624 | fix(bp-agenity): self-wire OPENOVA_MCP_BEARER + RS256-pubkey |
 | 2026-06-28T15:47 | [#4627](https://github.com/openova-io/openova/pull/4627) | #4600 | fix(prov): re-add infrastructure-providers postBuild → resol |
 | 2026-06-28T14:59 | [#4626](https://github.com/openova-io/openova/pull/4626) | #909 | docs(uat): operator-console authed walk — RBAC setup OK, hea |
 | 2026-06-28T14:56 | [#4625](https://github.com/openova-io/openova/pull/4625) | #4624 | walk(uat): Pillar-4 North Star agentic run PROVEN on 8fd457a |
@@ -249,9 +252,6 @@ flowchart LR
 | 2026-06-28T05:28 | [#4594](https://github.com/openova-io/openova/pull/4594) | #4586 | docs(cutover): first clean cutover clears cert-tail live (51 |
 | 2026-06-28T04:45 | [#4593](https://github.com/openova-io/openova/pull/4593) | #3811 | fix(catalyst): gitea-admin-secret bridge wait-and-create Job |
 | 2026-06-28T03:13 | [#4591](https://github.com/openova-io/openova/pull/4591) | #4590 | chore(catalyst): bump bp-catalyst-platform 1.4.940 to delive |
-| 2026-06-28T01:43 | [#4590](https://github.com/openova-io/openova/pull/4590) | #4556 | fix(application-controller): singleton fan-out carries per-O |
-| 2026-06-27T23:38 | [#4588](https://github.com/openova-io/openova/pull/4588) | #4586 | fix(bp-self-sovereign-cutover): contract-test SIGPIPE false- |
-| 2026-06-27T22:41 | [#4586](https://github.com/openova-io/openova/pull/4586) | #3379 | fix(bp-self-sovereign-cutover): step-06 source-controller TL |
 
 ---
 
