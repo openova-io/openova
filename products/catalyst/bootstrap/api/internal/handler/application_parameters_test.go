@@ -153,7 +153,7 @@ func TestDefaultedParameters_AgenityEmptyFQDN_NoStamp(t *testing.T) {
 
 func TestNewApplicationUnstructured_Agenity_StampsSovereignFqdn(t *testing.T) {
 	req := applicationInstallRequest{
-		BlueprintRef:    applicationBlueprintRef{Name: "bp-agenity", Version: "0.5.16"},
+		BlueprintRef:    applicationBlueprintRef{Name: "bp-agenity", Version: "0.5.17"},
 		Name:            "agenity",
 		OrganizationRef: "agnstar.omani.homes",
 		EnvironmentRef:  "agnstar-prod",

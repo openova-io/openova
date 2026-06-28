@@ -1,0 +1,80 @@
+{{- /*
+#4604 (Pillar-4 North Star): the agenity solo agent (claude-code) MUST reach
+api.anthropic.com over external HTTPS to answer chat AND the openova-mcp child
+MUST reach the public Sovereign console (https://console.<fqdn>) to drive
+create_application — BOTH are off-cluster :443 hops to an external EIP that no
+Pod/namespace/ipBlock K8s selector can name. On a Cilium Sovereign the canonical
+expression is a CiliumNetworkPolicy `toEntities: [world]` egress carve-out
+(mirrors openclaw #4401 + the cilium-ingress-networkpolicy.yaml `fromEntities`
+idiom in this same chart).
+
+WHY THIS IS DURABLE (not a live-patch): the North-Star walk on nstar2 (dep
+91dc05917e44d1c1) only made the chat reachable after a HAND-APPLIED CNP
+`agenity-allow-external-https-egress` (toEntities:[world]:443). That live patch
+is gone on the next reconcile / a fresh Org / a re-prov, so the agent silently
+loses Anthropic + catalyst-api reachability. Templating it here makes EVERY
+per-Org agenity install get external-HTTPS egress by construction.
+
+🛑 DNS IS LOAD-BEARING: a CiliumNetworkPolicy that specifies ANY egress rule
+flips the selected endpoint to default-deny egress for everything else — so
+without an explicit DNS allow the agent can no longer resolve
+api.anthropic.com / console.<fqdn> and every outbound call NXDOMAINs. We allow
+:53 UDP+TCP to the cluster's kube-dns (the `kube-system` namespace + the
+`kube-dns` k8s service entity) so name resolution keeps working under the new
+default-deny posture. We additionally allow egress to the in-cluster entities
+(cluster/host/remote-node) so the dashboard's own in-cluster legs (apiserver
+when the local spawner is NOT forced, metrics, the chepherd MCP HTTP listener)
+are not collaterally denied.
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI), and on
+networkPolicy.egress.allowExternalHttps so a non-Cilium overlay (or an
+air-gapped Sovereign that mirrors Anthropic + console behind an in-cluster
+proxy) can opt out.
+*/ -}}
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.egress.allowExternalHttps (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "agenity.fullname" . }}-external-egress
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: agenity-egress-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "agenity.selectorLabels" . | nindent 6 }}
+  egress:
+    # ── External HTTPS — api.anthropic.com (the solo agent's model calls) +
+    # the public Sovereign console https://console.<fqdn> the openova-mcp
+    # child forwards create_application to (#4604). No Pod/ipBlock selector
+    # can name an external EIP, so `toEntities: [world]` :443 is the canonical
+    # carve-out. `cluster`/`host`/`remote-node` keep in-cluster legs alive
+    # under the new default-deny egress posture this rule introduces.
+    - toEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "{{ .Values.networkPolicy.egress.httpsPort }}"
+              protocol: TCP
+    # ── DNS — LOAD-BEARING (see header). Resolving api.anthropic.com /
+    # console.<fqdn> requires kube-dns reachability; the egress rule above
+    # would otherwise default-deny :53. Allow UDP+TCP :53 to the cluster
+    # kube-dns (kube-system) so name resolution survives the default-deny flip.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+{{- end }}
