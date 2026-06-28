@@ -199,6 +199,59 @@ func TestReconcile_TargetsDriveFanout_SingletonSingleTarget(t *testing.T) {
 	}
 }
 
+// TestReconcile_SingletonFanout_CarriesParameters_4589 — regression for #4589.
+// The singleton/active topology fan-out path must pass the Application's
+// per-Org spec.parameters THROUGH into the rendered HelmRelease spec.values
+// (merged over the Blueprint manifests.values), exactly as the non-fanout
+// per-region path does (mergeMaps(bpManifestsValues, spec.Parameters)). Before
+// the fix the FanoutInputs literal omitted Values:, so the fan-out HR rendered
+// with chart DEFAULTS only — per-Org httpRoute.hostnames + sovereignFqdn
+// dropped and the bp-oidc-gate SSO companion failed closed on a fresh Org (the
+// deeper cause under #4556 item-1; agnstar only worked off its stale HR).
+func TestReconcile_SingletonFanout_CarriesParameters_4589(t *testing.T) {
+	bp := makeBlueprintNoTopology("bp-agenity", "0.5.16", "primary+standby")
+	env := makeMultiRegionEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "agenity", "acme-prod", "bp-agenity", "0.5.16",
+		"single-region", []string{"hetzner-fsn-rtz-prod"},
+		map[string]interface{}{
+			"sovereignFqdn": "t99.omani.works",
+			"marker4589":    "present",
+		})
+	// Overlay the #3969 targets placement (singleton) — the fan-out driver.
+	spec := app.Object["spec"].(map[string]interface{})
+	spec["placement"] = map[string]interface{}{
+		"mode": "singleton",
+		"targets": []interface{}{
+			map[string]interface{}{"region": "fsn", "cluster": "mgmt-A", "vcluster": "mgmt", "role": "Primary"},
+		},
+	}
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp)
+
+	reconcileFromCluster(t, r, "acme", "agenity")
+
+	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
+		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list HRs in mgmt: %v", err)
+	}
+	if got := len(hrList.Items); got != 1 {
+		t.Fatalf("want 1 singleton fan-out HR, got %d", got)
+	}
+	vals, found, _ := unstructured.NestedMap(hrList.Items[0].Object, "spec", "values")
+	if !found {
+		t.Fatalf("#4589: fan-out HR has NO spec.values — per-Org parameters dropped entirely")
+	}
+	if vals["marker4589"] != "present" {
+		t.Errorf("#4589: fan-out HR spec.values missing per-Org parameter marker4589; got %v", vals)
+	}
+	if vals["sovereignFqdn"] != "t99.omani.works" {
+		t.Errorf("#4589: fan-out HR spec.values missing sovereignFqdn; got %v", vals)
+	}
+}
+
 // TestReconcile_SingletonFanout_OneHR_NoPerRegionGitRepository — #4556 Item 1.
 // A singleton target produces EXACTLY ONE HelmRelease total and NO per-region
 // GitRepository/Kustomization: the fan-out `<app>-<cluster>` HR is the SOLE
