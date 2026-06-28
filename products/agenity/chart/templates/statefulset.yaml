@@ -293,15 +293,20 @@ spec:
             - name: OPENOVA_MCP_TENANT_HOST
               value: {{ $tenantHost | quote }}
             {{- end }}
-            {{- if .Values.openovaMCP.bearerSecret.name }}
+            {{- $mcpBearerSecretName := include "agenity.mcpBearerSecretName" . }}
+            {{- if $mcpBearerSecretName }}
             # Interim per-call bearer (#4111) — an admin-tier, Org-pinned,
             # handover-RS256-signed session JWT the MCP forwards to the
             # catalyst-api. Production seam is the chat UI per-call _auth.token.
+            # #4624: the Secret is SELF-WIRED via agenity.mcpBearerSecretName —
+            # an explicit bearerSecret.name wins, else the projection follows the
+            # materialised mcpBearer ExternalSecret, so the bearer is never
+            # materialised-but-unread (the fresh-Org tools/list-empty gap).
             - name: OPENOVA_MCP_BEARER
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.openovaMCP.bearerSecret.name }}
-                  key: {{ .Values.openovaMCP.bearerSecret.key }}
+                  name: {{ $mcpBearerSecretName }}
+                  key: {{ include "agenity.mcpBearerSecretKey" . }}
             {{- end }}
             {{- if eq .Values.openovaMCP.verify "rs256" }}
             # The RS256 public key the MCP verifies caller bearers against,
@@ -325,11 +330,17 @@ spec:
             # Helm-seed a placeholder value here — an empty PEM would pin a bad
             # key forever under the reflector empty-seed trap; absent-and-optional
             # is the correct state until the real pubkey is reflected in.
+            # #4624: SELF-WIRED via agenity.mcpPubkeySecretName — when the
+            # per-Org mcpBearer ExternalSecret is enabled and rs256PubkeySecret
+            # is still the chart-default host Secret (catalyst-handover-jwt, a
+            # JWK that is absent in the per-Org ns), the projection follows the
+            # PKIX PEM the producer seeds ALONGSIDE the bearer in the SAME
+            # materialised Secret — sidestepping the JWK-vs-PEM mismatch.
             - name: OPENOVA_MCP_RS256_PUBKEY_PEM
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.openovaMCP.rs256PubkeySecret.name }}
-                  key: {{ .Values.openovaMCP.rs256PubkeySecret.key }}
+                  name: {{ include "agenity.mcpPubkeySecretName" . }}
+                  key: {{ include "agenity.mcpPubkeySecretKey" . }}
                   optional: true
             {{- end }}
             {{- end }}
