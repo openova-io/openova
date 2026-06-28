@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T07:30:06Z` |
+| Last refreshed | `2026-06-28T07:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 14 |
 | Open DoD gates | 0 / 41 |
@@ -221,6 +221,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T07:45 | [#4606](https://github.com/openova-io/openova/pull/4606) | #4401 | fix(bp-agenity): durable external-HTTPS egress CNP + standal |
 | 2026-06-28T07:28 | [#4605](https://github.com/openova-io/openova/pull/4605) | #932 | feat(application-controller): project status.placement DR pr |
 | 2026-06-28T07:19 | [#4603](https://github.com/openova-io/openova/pull/4603) | #4401 | docs(uat): G8 ✅ — North Star agentic chat works end-to-end ( |
 | 2026-06-28T07:17 | [#4602](https://github.com/openova-io/openova/pull/4602) | #4002 | fix(crossplane): remove artificial bastion-Harbor (harbor.op |
@@ -250,7 +251,6 @@ flowchart LR
 | 2026-06-27T15:59 | [#4570](https://github.com/openova-io/openova/pull/4570) | #909 | docs(uat): funnel rows 85/91/92 verified ✅ (181 ✅ · 5 ☐) |
 | 2026-06-27T15:43 | [#4566](https://github.com/openova-io/openova/pull/4566) | #3379 | fix(#4563): pivot catalyst-ui + openova-flow-server off the  |
 | 2026-06-27T15:55 | [#4565](https://github.com/openova-io/openova/pull/4565) | #4421 | fix(marketplace #4564): returning-user redirect lands on the |
-| 2026-06-27T14:55 | [#4562](https://github.com/openova-io/openova/pull/4562) | #4 | docs(uat): agenity zero-click SSO no-paste workspace verifie |
 
 ---
 
