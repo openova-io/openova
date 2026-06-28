@@ -859,7 +859,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-loki
-    version: 1.0.0
+    version: 1.0.3
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/loki/blueprint.yaml. active-passive via S3 bucket replication.
   # No user-facing endpoint (Loki is queried via Grafana datasource); sso
@@ -5980,10 +5980,11 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  # 0.5.17 (#4604): chart adds a default-on external-HTTPS egress CNP +
-  # seeds the openova MCP into ~/.claude.json for a standalone claude (durable
-  # Pillar-4 North-Star wiring). Lockstep with products/agenity/chart.
-  version: "0.5.18"
+  # 0.5.19 (#4624): chart self-wires the OPENOVA_MCP_BEARER + RS256-pubkey
+  # projection from the enabled per-Org mcpBearer ExternalSecret (no door has to
+  # hand-couple bearerSecret.name) so a fresh Org's agenity MCP tools/list
+  # surfaces create_application. Lockstep with products/agenity/chart.
+  version: "0.5.19"
   visibility: listed
   card:
     title: "Agenity"
@@ -6013,7 +6014,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.18
+    version: 0.5.19
   topology:
     supported:
       - singleton

@@ -106,3 +106,63 @@ agenity-gate
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{- /*
+agenity.mcpBearerSecretName / agenity.mcpBearerSecretKey (#4624) — the effective
+Secret the StatefulSet projects OPENOVA_MCP_BEARER from. SELF-WIRING so the
+projection ALWAYS follows the materialised bearer Secret, never a hand-coupled
+field a door might forget:
+  1. an explicit openovaMCP.bearerSecret.name wins (the org-gitops emitter
+     orgTenantBPAgenity + the install-door stamp both set it to the materialised
+     `agenity-mcp-bearer` Secret — unchanged behaviour);
+  2. else, when the per-Org mcpBearer ExternalSecret is enabled, derive from the
+     Secret that ExternalSecret materialises (openovaMCP.mcpBearer.secretName /
+     .bearerKey) — so a door that flips `mcpBearer.externalSecret.enabled` on
+     WITHOUT also hand-setting bearerSecret.name still projects the bearer (the
+     materialised Secret is the single source of truth);
+  3. else empty (no projection — the pre-#4624 fail-closed default).
+Without (2) the materialised agenity-mcp-bearer Secret sat unread → no
+OPENOVA_MCP_BEARER → MCP tools/list empty → create_application unavailable.
+*/ -}}
+{{- define "agenity.mcpBearerSecretName" -}}
+{{- if .Values.openovaMCP.bearerSecret.name -}}
+{{- .Values.openovaMCP.bearerSecret.name -}}
+{{- else if .Values.openovaMCP.mcpBearer.externalSecret.enabled -}}
+{{- .Values.openovaMCP.mcpBearer.secretName -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "agenity.mcpBearerSecretKey" -}}
+{{- if .Values.openovaMCP.bearerSecret.name -}}
+{{- .Values.openovaMCP.bearerSecret.key -}}
+{{- else -}}
+{{- .Values.openovaMCP.mcpBearer.bearerKey -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+agenity.mcpPubkeySecretName / agenity.mcpPubkeySecretKey (#4624) — the effective
+Secret the StatefulSet projects OPENOVA_MCP_RS256_PUBKEY_PEM from. When the
+per-Org mcpBearer ExternalSecret is enabled AND rs256PubkeySecret still points at
+the chart-default host Secret (`catalyst-handover-jwt`, which holds a JWK in the
+host catalyst-system ns and is ABSENT in the per-Org ns — the exact JWK-vs-PEM
+cross-namespace mismatch the seed producer documents), self-wire to the PKIX PEM
+that the producer seeds ALONGSIDE the bearer in the same materialised
+`agenity-mcp-bearer` Secret (mcpBearer.secretName / .pubkeyKey). An explicit
+rs256PubkeySecret override (name != the chart default) always wins.
+*/ -}}
+{{- define "agenity.mcpPubkeySecretName" -}}
+{{- if and .Values.openovaMCP.mcpBearer.externalSecret.enabled (eq .Values.openovaMCP.rs256PubkeySecret.name "catalyst-handover-jwt") -}}
+{{- .Values.openovaMCP.mcpBearer.secretName -}}
+{{- else -}}
+{{- .Values.openovaMCP.rs256PubkeySecret.name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "agenity.mcpPubkeySecretKey" -}}
+{{- if and .Values.openovaMCP.mcpBearer.externalSecret.enabled (eq .Values.openovaMCP.rs256PubkeySecret.name "catalyst-handover-jwt") -}}
+{{- .Values.openovaMCP.mcpBearer.pubkeyKey -}}
+{{- else -}}
+{{- .Values.openovaMCP.rs256PubkeySecret.key -}}
+{{- end -}}
+{{- end -}}
