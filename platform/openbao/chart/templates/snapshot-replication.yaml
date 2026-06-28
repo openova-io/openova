@@ -59,7 +59,13 @@ objects). The primary vs secondary CronJob is selected by
 {{- if $registry }}{{- $repo = printf "%s/%s" $registry $repo -}}{{- end -}}
 {{- $tag := $img.tag | default "2.17.0" -}}
 {{- $pullPolicy := $img.pullPolicy | default "IfNotPresent" -}}
-{{- $baoAddr := $sr.baoAddress | default (printf "http://%s-openbao.%s.svc.cluster.local:8200" .Release.Name .Release.Namespace) -}}
+{{- /* #4623 — the live OpenBao Service is `openbao` (fullnameOverride), NOT
+       `<release>-openbao`. The old `%s-openbao` default resolved to
+       `openbao-openbao.<ns>.svc` → NXDOMAIN → snapshot `bao login` "Could not
+       resolve host" → no client_token → the backup CronJob never runs (the exact
+       bug sso-configure-deployment.yaml already documents at its $baoAddrSSO).
+       Match the real Service so the default works without a baoAddress override. */}}
+{{- $baoAddr := $sr.baoAddress | default (printf "http://openbao.%s.svc.cluster.local:8200" .Release.Namespace) -}}
 {{- $schedule := $sr.schedule | default "*/10 * * * *" -}}
 {{- $deadline := $sr.activeDeadlineSeconds | default 600 -}}
 {{- $backoff := $sr.backoffLimit | default 3 -}}

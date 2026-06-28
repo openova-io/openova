@@ -148,7 +148,7 @@ spec:
       #   client scope; otherwise a silent claim-drop re-opens the admin UI 403.
       #   Live-verified on 91dc0591: fresh sovereign-admins login lands
       #   /ui/vault/secrets with [default,sso-operator-admin,sso-operator-read].
-      version: 1.2.58
+      version: 1.2.59
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
