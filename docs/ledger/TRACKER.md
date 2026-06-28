@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T16:15:07Z` |
+| Last refreshed | `2026-06-28T16:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 15 |
 | Open DoD gates | 0 / 41 |
@@ -222,6 +222,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T16:20 | [#4631](https://github.com/openova-io/openova/pull/4631) | #4623 | fix(bp-openbao): snapshot BAO_ADDR -> real openbao Service ( |
 | 2026-06-28T16:11 | [#4630](https://github.com/openova-io/openova/pull/4630) | #4623 | docs(4623b): diagnose pdns-admin.<fqdn> HTTP 000 — code is c |
 | 2026-06-28T16:11 | [#4629](https://github.com/openova-io/openova/pull/4629) | #4623 | fix(bp-loki): disable loki-sc-rules sidecar — kill CrashLoop |
 | 2026-06-28T16:04 | [#4628](https://github.com/openova-io/openova/pull/4628) | #4624 | fix(bp-agenity): self-wire OPENOVA_MCP_BEARER + RS256-pubkey |
@@ -251,7 +252,6 @@ flowchart LR
 | 2026-06-28T05:45 | [#4595](https://github.com/openova-io/openova/pull/4595) | #4563 | docs(cutover): egress hold green — sovereignty proof succeed |
 | 2026-06-28T05:28 | [#4594](https://github.com/openova-io/openova/pull/4594) | #4586 | docs(cutover): first clean cutover clears cert-tail live (51 |
 | 2026-06-28T04:45 | [#4593](https://github.com/openova-io/openova/pull/4593) | #3811 | fix(catalyst): gitea-admin-secret bridge wait-and-create Job |
-| 2026-06-28T03:13 | [#4591](https://github.com/openova-io/openova/pull/4591) | #4590 | chore(catalyst): bump bp-catalyst-platform 1.4.940 to delive |
 
 ---
 
