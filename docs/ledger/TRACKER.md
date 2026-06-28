@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T06:30:04Z` |
+| Last refreshed | `2026-06-28T06:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 14 |
+| Open issues | 11 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 14 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 11 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 14 open items (clickable table)
+### All 11 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -208,10 +208,7 @@ flowchart LR
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
 | [#4541](https://github.com/openova-io/openova/issues/4541) | fix(harbor): create the missing proxy-xpkg/proxy-ecr proxy-cache projects on the | Other |
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
-| [#4557](https://github.com/openova-io/openova/issues/4557) | fix(bp-self-sovereign-cutover): helmrepository-patches Phase-3a helm registry lo | Other |
-| [#4563](https://github.com/openova-io/openova/issues/4563) | cutover step-08 fresh-pull FAILs on residual ghcr.io tethers: catalyst-ui + open | Other |
 | [#4569](https://github.com/openova-io/openova/issues/4569) | Funnel TLD choice (omani.rest/.trade) is silently overridden to the single Sover | Other |
-| [#4573](https://github.com/openova-io/openova/issues/4573) | cutover post-pivot chart-upgrade path: source-controller + kubelet can't pull NE | Other |
 | [#4592](https://github.com/openova-io/openova/issues/4592) | gitea-admin-secret host bridge Helm-lookup races the vcluster-syncer mirror on f | Other |
 | [#4596](https://github.com/openova-io/openova/issues/4596) | Cutover egress-block-test hold black-holes the Huawei ECS/CSI control-plane API  | Other |
 
@@ -221,6 +218,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T06:34 | [#4598](https://github.com/openova-io/openova/pull/4598) | #3379 | docs(uat): row 166 ✅ — Pillar-5 cutoverComplete proven (11/1 |
+| 2026-06-28T06:34 | [#4597](https://github.com/openova-io/openova/pull/4597) | #4596 | fix(cutover): egress hold allows IaaS provider API — CSI att |
 | 2026-06-28T05:45 | [#4595](https://github.com/openova-io/openova/pull/4595) | #4563 | docs(cutover): egress hold green — sovereignty proof succeed |
 | 2026-06-28T05:28 | [#4594](https://github.com/openova-io/openova/pull/4594) | #4586 | docs(cutover): first clean cutover clears cert-tail live (51 |
 | 2026-06-28T04:45 | [#4593](https://github.com/openova-io/openova/pull/4593) | #3811 | fix(catalyst): gitea-admin-secret bridge wait-and-create Job |
@@ -249,8 +248,6 @@ flowchart LR
 | 2026-06-27T15:26 | [#4558](https://github.com/openova-io/openova/pull/4558) | #4557 | fix(bp-self-sovereign-cutover #4557): kill the cutover-tail  |
 | 2026-06-27T14:10 | [#4555](https://github.com/openova-io/openova/pull/4555) | #4054 | fix(bp-agenity): default httpRoute.parentRef to the real Sov |
 | 2026-06-27T13:37 | [#4554](https://github.com/openova-io/openova/pull/4554) | #3375 | feat(console): per-app Topology tab surfaces read-only DR st |
-| 2026-06-27T13:40 | [#4550](https://github.com/openova-io/openova/pull/4550) | #4549 | fix(marketplace): restore 'Build your cloud tenant' storefro |
-| 2026-06-27T13:11 | [#4548](https://github.com/openova-io/openova/pull/4548) | #4547 | docs(uat): 3-agent live-walk batch — topology/recon/sso flip |
 
 ---
 
