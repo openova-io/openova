@@ -31,9 +31,11 @@ spec:
   # Catalyst is an OpenTofu shop (required_version >= 1.6.0) so this is
   # the native fit. Pinned digest-pinnable tag.
   #
-  # #4600 — the package pulls DIRECTLY from xpkg.upbound.io on EVERY cloud
-  # (Hetzner AND Huawei). XPKG_REGISTRY carries no postBuild substitution
-  # anywhere, so Flux expands the `:=` default to the clean upstream coords.
+  # #4600/#4620 — the package pulls DIRECTLY from xpkg.upbound.io on EVERY
+  # cloud (Hetzner AND Huawei), HARDCODED on the package line below. There is
+  # no postBuild anywhere to resolve a VAR:=default placeholder, so the host
+  # MUST be a literal — a placeholder would ship un-substituted (the #4620 bug
+  # that left provider-opentofu Installed=False on the live 8fd457a8 prov).
   #
   # The former Huawei-only `harbor.openova.io/proxy-xpkg` substitution
   # (#4488/#4491/#4542) was an ARTIFICIAL dependency on the BASTION Harbor:
@@ -62,9 +64,13 @@ spec:
   # `xpkg.upbound.io/...` spec.package to `harbor.<SOVEREIGN_FQDN>/proxy-xpkg`
   # post-handover (the pivot job already matches the upstream-host shape — it
   # is the Hetzner shape it has always handled), so Principle #11 sovereignty
-  # is unaffected. The `:=` default keeps a raw `kustomize build`
-  # (CI / no-substitution) on the upstream coords.
-  package: ${XPKG_REGISTRY:=xpkg.upbound.io}/upbound/provider-opentofu:v1.1.3
+  # is unaffected. #4620 — the host is HARDCODED to xpkg.upbound.io rather
+  # than an XPKG_REGISTRY:=xpkg.upbound.io placeholder: Flux only resolves a
+  # VAR:=default placeholder when a Kustomization postBuild exists, and the
+  # inline infrastructure-providers Kustomization has NONE — so the raw
+  # placeholder shipped verbatim and provider-opentofu stayed Installed=False
+  # on the live 8fd457a8 prov. step-11 pivots this literal host post-handover.
+  package: xpkg.upbound.io/upbound/provider-opentofu:v1.1.3
   # Inherit the cluster's image-pull behaviour from the runtime config
   # below (so post-cutover the Sovereign's own Harbor can proxy it).
   runtimeConfigRef:
