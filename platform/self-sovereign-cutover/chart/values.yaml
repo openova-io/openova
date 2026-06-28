@@ -642,6 +642,41 @@ images:
 # that case catalyst-api stamps the DaemonSet on demand at trigger time.
 registryPivot:
   enabled: true
+  # #4637 — node-reachable in-cluster Harbor Service for the v2 containerd
+  # mirror endpoint. THE KUBELET-HAIRPIN FIX.
+  #
+  # registries.yaml v2 (+ the regenerated certs.d/<host>/hosts.toml) mirrors
+  # every upstream AND the direct `registry.<sov-fqdn>` host through
+  # __HARBOR_PUBLIC_URL__ = registry.<sov-fqdn>. The NODE resolver pins that
+  # name to the cluster's PUBLIC gateway EIP (infra/providers/*/cloudinit-
+  # worker.tftpl `/etc/hosts` block). On a cloud whose nodes cannot hairpin to
+  # their own cluster's public EIP (Huawei kom4dc) the KUBELET's post-pivot
+  # catalyst-api image pull (step-07 catalyst-api-env-patch) ErrImagePulls
+  # `dial tcp <EIP>:443: i/o timeout` and the cutover wedges at 54%. The pod-
+  # network path works only because PODS resolve via CoreDNS → harbor-core
+  # ClusterIP; the kubelet uses the node resolver, not CoreDNS.
+  #
+  # A Service ClusterIP IS node-routable (kube-proxy/cilium program it on the
+  # host network), so the pivot DaemonSet resolves harbor-core's ClusterIP at
+  # runtime (via the in-cluster K8s API — needs services get/list, added to
+  # rbac.yaml) and points the containerd `[host]` mirror endpoints at
+  # http://<clusterip>:<port> instead of https://registry.<sov-fqdn>. The
+  # certs.d dir name + `server` stay the PUBLIC host (containerd keys the
+  # host-config off the image-ref host) — only the resolved endpoint is the
+  # in-cluster ClusterIP. harbor-core serves PLAIN HTTP on its ClusterIP
+  # (platform/harbor expose.type=clusterIP, expose.tls.enabled=false; TLS
+  # terminates at the Gateway), so the endpoint is http and carries no cert to
+  # verify. On a resolve miss the script falls back to the public host (prior
+  # #4557 behaviour) and retries the resolution on the next sweep.
+  inClusterHarbor:
+    # bp-harbor exposes the core registry Service as `harbor-core` in the
+    # `harbor` namespace (Catalyst standard, issue #387). Matches
+    # sovereign.harborInternalURL host.
+    serviceName: "harbor-core"
+    serviceNamespace: "harbor"
+    # harbor-core's ClusterIP plain-HTTP registry port (upstream Harbor core
+    # backendPort 80 when expose.tls.enabled=false).
+    servicePort: "80"
 
 # CiliumNetworkPolicy for step 08 (egress-block-test). Operator
 # overrides duration via overlay if 10 min isn't enough.

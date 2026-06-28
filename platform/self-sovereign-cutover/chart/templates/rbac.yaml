@@ -111,6 +111,9 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]   # #4637: registry-pivot DaemonSet resolves the harbor-core Service ClusterIP (node-reachable) for the v2 containerd mirror endpoint instead of the un-hairpinnable public gateway EIP
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["gateways"]   # step 06 Phase -1 (#1871, chart 0.1.32): wait for cilium-gateway Programmed=True before URL rewrite
     verbs: ["get", "list", "watch"]

@@ -81,6 +81,20 @@ spec:
           env:
             - name: HARBOR_PUBLIC_URL
               value: {{ .Values.sovereign.harborPublicURL | quote }}
+            # #4637 — node-reachable in-cluster Harbor coordinates. The kubelet
+            # (node network) resolves registry.<sov-fqdn> → the cluster's PUBLIC
+            # gateway EIP (the cloudinit /etc/hosts pin) and on hairpin-incapable
+            # clouds (Huawei kom4dc) i/o-timeouts dialing its own public EIP. The
+            # pivot script resolves the harbor-core Service ClusterIP at runtime
+            # (node-routable via kube-proxy/cilium) and writes the direct
+            # registry.<sov-fqdn> hosts.toml endpoint at http://<clusterip>:<port>
+            # so the kubelet's post-pivot catalyst-api image pull stays in-cluster.
+            - name: HARBOR_SERVICE_NAME
+              value: {{ .Values.registryPivot.inClusterHarbor.serviceName | quote }}
+            - name: HARBOR_SERVICE_NAMESPACE
+              value: {{ .Values.registryPivot.inClusterHarbor.serviceNamespace | quote }}
+            - name: HARBOR_SERVICE_PORT
+              value: {{ .Values.registryPivot.inClusterHarbor.servicePort | quote }}
             - name: STATUS_CONFIGMAP_NAME
               value: {{ .Values.status.configMapName | quote }}
             - name: STATUS_CONFIGMAP_NAMESPACE
@@ -217,6 +231,34 @@ data:
         || true
     }
 
+    # #4637 — resolve the harbor-core Service ClusterIP from the in-cluster K8s
+    # API. THE KUBELET-HAIRPIN FIX. registries.yaml v2 mirrors every upstream
+    # (and the direct registry.<sov-fqdn> host) through __HARBOR_PUBLIC_URL__ =
+    # registry.<sov-fqdn>, which the NODE resolver pins to the cluster's PUBLIC
+    # gateway EIP (infra/providers/*/cloudinit-worker.tftpl /etc/hosts pin). On
+    # a hairpin-incapable cloud (Huawei kom4dc) the kubelet cannot dial its own
+    # cluster's public EIP → step-07's catalyst-api image pull ErrImagePulls
+    # `dial tcp <EIP>:443: i/o timeout` and the cutover wedges at 54%
+    # (catalyst-api-env-patch). The pod-network path works only because pods use
+    # CoreDNS → harbor-core ClusterIP; the kubelet uses the node resolver, not
+    # CoreDNS, so it never sees the ClusterIP unless we hand it one. A Service
+    # ClusterIP IS node-routable (kube-proxy/cilium program it on the host net),
+    # so resolving it here and pointing the direct registry.<sov-fqdn> hosts.toml
+    # at http://<clusterip>:<port> keeps the kubelet pull in-cluster — never the
+    # un-hairpinnable public EIP. harbor-core serves PLAIN HTTP on its ClusterIP
+    # (platform/harbor expose.type=clusterIP, expose.tls.enabled=false; TLS
+    # terminates at the Gateway, NOT the Service), so the endpoint is http:// and
+    # carries NO cert to verify (trust is the cluster network — same rationale as
+    # the #4557 skip_verify). Best-effort: on a read miss the caller falls back to
+    # the public-host endpoint (prior behaviour) and the next sweep retries.
+    harbor_svc_url="${api}/api/v1/namespaces/${HARBOR_SERVICE_NAMESPACE}/services/${HARBOR_SERVICE_NAME}"
+    read_harbor_clusterip() {
+      curl -fsS --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+        "${harbor_svc_url}" 2>/dev/null \
+        | jq -r '.spec.clusterIP // empty' 2>/dev/null \
+        || true
+    }
+
     # #3671: write this node's per-node ack into the status ConfigMap so
     # catalyst-api's step-04 daemonset-wait can assert acks ==
     # DesiredNumberScheduled — proving EVERY node actually swapped to the
@@ -281,19 +323,41 @@ data:
     # cutover-tail pattern as the step-06 helm-CLI flags, one layer lower
     # (containerd, not a script). in_cluster_skip ($2) is "true" only on the v2
     # (in-cluster Harbor) path.
+    #
+    # #4637 — node_endpoint ($3) is a NODE-REACHABLE scheme://host[:port] for the
+    # in-cluster Harbor (e.g. http://10.96.9.166:80, the harbor-core ClusterIP).
+    # When set (v2 path, ClusterIP resolved) the mirror-redirect entries AND the
+    # direct registry.<sov-fqdn> host entry point the containerd `[host]` block at
+    # THIS endpoint instead of https://<mirror_host>, so the kubelet's pull is
+    # routed to the node-routable ClusterIP rather than the un-hairpinnable public
+    # gateway EIP. The certs.d `server`/dir name stays the PUBLIC host so a pull of
+    # `registry.<sov-fqdn>/...` (the step-07 catalyst-api image pin) and the
+    # upstream-host dirs still MATCH containerd's host lookup — only the resolved
+    # endpoint is the in-cluster ClusterIP. Empty = fall back to the public host
+    # (prior #4557 behaviour). A ClusterIP endpoint is plain http with no cert, so
+    # skip_verify is moot there but harmless.
     write_hosts_toml() {
-      mirror_host="$1"   # bare host[:port], no scheme
+      mirror_host="$1"   # bare host[:port], no scheme — the PUBLIC registry host
       in_cluster_skip="${2:-false}"
+      node_endpoint="${3:-}"   # #4637: node-reachable scheme://host[:port], or empty
+      # Endpoint the containerd [host] block dials. node_endpoint wins (#4637);
+      # else the historical https://<public-host> (kept for the rollback path and
+      # the fallback when the ClusterIP could not be resolved).
+      if [ -n "${node_endpoint}" ]; then
+        ep_base="${node_endpoint%/}"
+      else
+        ep_base="https://${mirror_host}"
+      fi
       mkdir -p "${certs_d}"
       printf '%s\n' "${upstream_mirrors}" | while read -r up proj; do
         [ -z "${up}" ] && continue
         d="${certs_d}/${up}"
         mkdir -p "${d}"
         {
-          echo "# managed by bp-self-sovereign-cutover registry-pivot (#3647 #4557) — DO NOT EDIT"
+          echo "# managed by bp-self-sovereign-cutover registry-pivot (#3647 #4557 #4637) — DO NOT EDIT"
           echo "server = \"https://${up}\""
           echo ""
-          echo "[host.\"https://${mirror_host}/v2/${proj}\"]"
+          echo "[host.\"${ep_base}/v2/${proj}\"]"
           echo "  capabilities = [\"pull\", \"resolve\"]"
           echo "  override_path = true"
           [ "${in_cluster_skip}" = "true" ] && echo "  skip_verify = true"
@@ -305,21 +369,25 @@ data:
       # upstream — e.g. the step-07 catalyst-api image pin) also skips the
       # LE-staging cert. Only on the v2 (in-cluster) path; the mothership
       # rollback path never writes a skip_verify direct host.
+      # #4637: the dir name + `server` stay the PUBLIC registry host (containerd
+      # keys the host-config dir off the image-ref host = registry.<sov-fqdn>),
+      # but the [host] ENDPOINT is the node-reachable ClusterIP so the kubelet
+      # never dials the public gateway EIP.
       if [ "${in_cluster_skip}" = "true" ]; then
         hd="${certs_d}/${mirror_host}"
         mkdir -p "${hd}"
         {
-          echo "# managed by bp-self-sovereign-cutover registry-pivot (#4557) — DO NOT EDIT"
+          echo "# managed by bp-self-sovereign-cutover registry-pivot (#4557 #4637) — DO NOT EDIT"
           echo "server = \"https://${mirror_host}/v2\""
           echo ""
-          echo "[host.\"https://${mirror_host}/v2\"]"
+          echo "[host.\"${ep_base}/v2\"]"
           echo "  capabilities = [\"pull\", \"resolve\"]"
           echo "  skip_verify = true"
         } > "${hd}/hosts.toml.new"
         mv "${hd}/hosts.toml.new" "${hd}/hosts.toml"
-        echo "[registry-pivot]   wrote direct ${mirror_host}/hosts.toml (skip_verify) on ${NODE_NAME}"
+        echo "[registry-pivot]   wrote direct ${mirror_host}/hosts.toml -> ${ep_base} (skip_verify) on ${NODE_NAME}"
       fi
-      echo "[registry-pivot]   wrote certs.d hosts.toml for $(printf '%s\n' "${upstream_mirrors}" | grep -c .) upstreams -> ${mirror_host} on ${NODE_NAME}"
+      echo "[registry-pivot]   wrote certs.d hosts.toml for $(printf '%s\n' "${upstream_mirrors}" | grep -c .) upstreams -> ${ep_base} on ${NODE_NAME}"
     }
 
     apply_state() {
@@ -334,7 +402,23 @@ data:
           # #3647: mirror the pivot into the live containerd host-dir so a
           # pod rolled AFTER cutover pulls from local Harbor, not ghcr.io.
           # #4557: in-cluster Harbor is LE-staging → skip_verify=true (2nd arg).
-          write_hosts_toml "${harbor_host}" "true"
+          # #4637: resolve the harbor-core Service ClusterIP (node-routable via
+          # kube-proxy/cilium) and route the containerd [host] endpoints at it so
+          # the kubelet pull NEVER dials the un-hairpinnable public gateway EIP
+          # that registry.<sov-fqdn> resolves to on the node. harbor-core serves
+          # plain HTTP on its ClusterIP (expose.type=clusterIP, tls disabled) →
+          # the endpoint is http://<clusterip>:<port>. On a resolve miss the 3rd
+          # arg is empty and write_hosts_toml falls back to the public host (prior
+          # behaviour) — never worse than before, and the next sweep retries.
+          harbor_clusterip=$(read_harbor_clusterip)
+          node_endpoint=""
+          if [ -n "${harbor_clusterip}" ] && [ "${harbor_clusterip}" != "None" ]; then
+            node_endpoint="http://${harbor_clusterip}:${HARBOR_SERVICE_PORT}"
+            echo "[registry-pivot]   harbor-core ClusterIP ${harbor_clusterip}:${HARBOR_SERVICE_PORT} -> node-reachable mirror endpoint ${node_endpoint} on ${NODE_NAME}"
+          else
+            echo "[registry-pivot]   WARN harbor-core ClusterIP unresolved; v2 mirror falls back to public host ${harbor_host} (kubelet may hairpin-fail on no-hairpin clouds) on ${NODE_NAME}"
+          fi
+          write_hosts_toml "${harbor_host}" "true" "${node_endpoint}"
           # #3671: ack this node's v2 swap so step-04 can count acks.
           write_node_ack v2
           ;;
@@ -390,9 +474,30 @@ data:
         needs_auth_retry=1
       fi
 
-      if [ "${desired}" != "${last_state}" ] || [ "${needs_auth_retry}" = "1" ]; then
+      # #4637 — re-apply v2 if the direct in-cluster Harbor hosts.toml still
+      # points its [host] endpoint at the PUBLIC registry host (https://<host>)
+      # instead of a node-reachable ClusterIP. apply_state fires only ONCE per
+      # state, so if the harbor-core Service was not yet resolvable (or its
+      # ClusterIP not yet assigned) on the first v2 sweep, the mirror would stay
+      # on the un-hairpinnable public-EIP endpoint forever and step-07's pull
+      # would keep i/o-timing-out. This retries the ClusterIP resolution on a
+      # later sweep (once the Service is readable) WITHOUT re-applying every tick
+      # after it converges. Only meaningful under v2; the direct host dir is
+      # certs_d/<public-host>, written only on the v2 path.
+      needs_node_endpoint_retry=0
+      if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ]; then
+        v2_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
+        v2_direct_toml="${certs_d}/${v2_host}/hosts.toml"
+        if grep -q "\[host.\"https://${v2_host}/v2\"\]" "${v2_direct_toml}" 2>/dev/null; then
+          needs_node_endpoint_retry=1
+        fi
+      fi
+
+      if [ "${desired}" != "${last_state}" ] || [ "${needs_auth_retry}" = "1" ] || [ "${needs_node_endpoint_retry}" = "1" ]; then
         if [ "${needs_auth_retry}" = "1" ]; then
           echo "[registry-pivot] re-applying ${desired} to inject harbor-robot-token auth (placeholder still present) on ${NODE_NAME}"
+        elif [ "${needs_node_endpoint_retry}" = "1" ]; then
+          echo "[registry-pivot] re-applying ${desired} to resolve node-reachable harbor ClusterIP (direct hosts.toml still on public host) on ${NODE_NAME}"
         else
           echo "[registry-pivot] state change ${last_state:-<none>} -> ${desired} on ${NODE_NAME}"
         fi
