@@ -63,7 +63,7 @@ func bpPostgresConfigSchema() map[string]interface{} {
 // ── defaultedParameters unit table ──────────────────────────────────────
 
 func TestDefaultedParameters_PostgresNoValues_SeedsSingletonMode(t *testing.T) {
-	got := defaultedParameters("bp-postgres", "singleton", "", nil)
+	got := defaultedParameters("bp-postgres", "singleton", "", "", nil)
 	if got == nil {
 		t.Fatal("defaultedParameters returned nil — must always be a non-null object")
 	}
@@ -78,7 +78,7 @@ func TestDefaultedParameters_PostgresNoValues_SeedsSingletonMode(t *testing.T) {
 
 func TestDefaultedParameters_PostgresActiveHotStandby(t *testing.T) {
 	for _, topo := range []string{"active-hot-standby", "active-hotstandby", "active-active", "active-passive"} {
-		got := defaultedParameters("postgres", topo, "", nil)
+		got := defaultedParameters("postgres", topo, "", "", nil)
 		tm := got["topology"].(map[string]interface{})["mode"]
 		if tm != "active-hot-standby" {
 			t.Fatalf("topology %q → topology.mode = %v, want active-hot-standby", topo, tm)
@@ -87,7 +87,7 @@ func TestDefaultedParameters_PostgresActiveHotStandby(t *testing.T) {
 }
 
 func TestDefaultedParameters_NonPostgresNoValues_EmptyObjectNotNil(t *testing.T) {
-	got := defaultedParameters("bp-grafana", "singleton", "", nil)
+	got := defaultedParameters("bp-grafana", "singleton", "", "", nil)
 	if got == nil {
 		t.Fatal("non-postgres parameters returned nil — must be at least an empty object")
 	}
@@ -101,7 +101,7 @@ func TestDefaultedParameters_ExplicitValuesPreservedVerbatim(t *testing.T) {
 		"topology":  map[string]interface{}{"mode": "active-hot-standby"},
 		"databases": []interface{}{map[string]interface{}{"name": "wp", "owner": "wp"}},
 	}
-	got := defaultedParameters("bp-postgres", "singleton", "", explicit)
+	got := defaultedParameters("bp-postgres", "singleton", "", "", explicit)
 	if got["topology"].(map[string]interface{})["mode"] != "active-hot-standby" {
 		t.Fatalf("explicit topology.mode must be preserved (not overwritten by chosen topology), got %#v", got)
 	}
@@ -115,7 +115,7 @@ func TestDefaultedParameters_ExplicitValuesPreservedVerbatim(t *testing.T) {
 //    console.openova.io. ───────────────────────────────────────────────────
 
 func TestDefaultedParameters_AgenityNoValues_StampsSovereignFqdn(t *testing.T) {
-	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", nil)
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "nstar2", nil)
 	if got["sovereignFqdn"] != "omantel.biz" {
 		t.Fatalf("agenity parameters must stamp sovereignFqdn=omantel.biz, got %#v", got)
 	}
@@ -125,7 +125,7 @@ func TestDefaultedParameters_AgenityWithExplicitValues_StampsSovereignFqdn(t *te
 	explicit := map[string]interface{}{
 		"agent": map[string]interface{}{"model": "claude-opus-4-8"},
 	}
-	got := defaultedParameters("agenity", "singleton", "t99.omani.works", explicit)
+	got := defaultedParameters("agenity", "singleton", "t99.omani.works", "t99org.omani.homes", explicit)
 	if got["sovereignFqdn"] != "t99.omani.works" {
 		t.Fatalf("agenity sovereignFqdn must be stamped even with explicit params, got %#v", got)
 	}
@@ -136,7 +136,7 @@ func TestDefaultedParameters_AgenityWithExplicitValues_StampsSovereignFqdn(t *te
 
 func TestDefaultedParameters_AgenityExplicitSovereignFqdnWins(t *testing.T) {
 	explicit := map[string]interface{}{"sovereignFqdn": "pinned.example"}
-	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", explicit)
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "nstar2", explicit)
 	if got["sovereignFqdn"] != "pinned.example" {
 		t.Fatalf("a caller-pinned sovereignFqdn must NOT be overwritten, got %#v", got)
 	}
@@ -145,9 +145,95 @@ func TestDefaultedParameters_AgenityExplicitSovereignFqdnWins(t *testing.T) {
 func TestDefaultedParameters_AgenityEmptyFQDN_NoStamp(t *testing.T) {
 	// Mothership / Catalyst-Zero: empty FQDN → leave sovereignFqdn unset so
 	// the chart's fail-closed default applies (no bogus console host).
-	got := defaultedParameters("bp-agenity", "singleton", "", nil)
+	got := defaultedParameters("bp-agenity", "singleton", "", "", nil)
 	if _, ok := got["sovereignFqdn"]; ok {
 		t.Fatalf("empty FQDN must NOT stamp sovereignFqdn, got %#v", got)
+	}
+}
+
+// ── #4610: bp-agenity stamps the openova-MCP bearer ExternalSecret wiring so
+//    the install-door agenity gets OPENOVA_MCP_BEARER from the per-Org OpenBao
+//    path (LOCAL-signer-signed bearer the Sovereign's catalyst-api accepts),
+//    NOT the chart's `enabled:false` default that delivers nothing → 401. ───
+
+// assertAgenityMCPBearerWiring fails unless params carries the full openovaMCP
+// mcpBearer wiring the chart needs to project OPENOVA_MCP_BEARER +
+// OPENOVA_MCP_RS256_PUBKEY_PEM from secret/catalyst/agenity/<slug>/mcp-bearer.
+func assertAgenityMCPBearerWiring(t *testing.T, params map[string]interface{}, wantSlug string) {
+	t.Helper()
+	mcp, ok := params["openovaMCP"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("agenity parameters missing openovaMCP block: %#v", params)
+	}
+	bs, ok := mcp["bearerSecret"].(map[string]interface{})
+	if !ok || bs["name"] != agenityMCPBearerSecretName || bs["key"] != "bearer" {
+		t.Fatalf("openovaMCP.bearerSecret must point at %q/bearer, got %#v", agenityMCPBearerSecretName, mcp["bearerSecret"])
+	}
+	pk, ok := mcp["rs256PubkeySecret"].(map[string]interface{})
+	if !ok || pk["name"] != agenityMCPBearerSecretName || pk["key"] != "pubkeyPem" {
+		t.Fatalf("openovaMCP.rs256PubkeySecret must point at %q/pubkeyPem (the SEEDED local-signer pubkey, NOT the host catalyst-handover-jwt mothership key), got %#v", agenityMCPBearerSecretName, mcp["rs256PubkeySecret"])
+	}
+	mb, ok := mcp["mcpBearer"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("openovaMCP.mcpBearer missing: %#v", mcp)
+	}
+	es, ok := mb["externalSecret"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("openovaMCP.mcpBearer.externalSecret missing: %#v", mb)
+	}
+	if es["enabled"] != true {
+		t.Fatalf("openovaMCP.mcpBearer.externalSecret.enabled must be true (the chart default is false → bearer undelivered → 401), got %#v", es["enabled"])
+	}
+	wantKey := "catalyst/agenity/" + wantSlug + "/mcp-bearer"
+	if es["remoteKey"] != wantKey {
+		t.Fatalf("openovaMCP.mcpBearer.externalSecret.remoteKey = %v, want %q (must match the producer's mcpBearerSecretPath)", es["remoteKey"], wantKey)
+	}
+	if es["remoteBearerProperty"] != "bearer" || es["remotePubkeyProperty"] != "pubkeyPem" {
+		t.Fatalf("openovaMCP.mcpBearer.externalSecret property names must be bearer/pubkeyPem, got %#v", es)
+	}
+}
+
+func TestDefaultedParameters_AgenityNoValues_StampsMCPBearerWiring(t *testing.T) {
+	// FQDN-form org ref must collapse to the leading DNS label for the path.
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "nstar2.omani.homes", nil)
+	assertAgenityMCPBearerWiring(t, got, "nstar2")
+}
+
+func TestDefaultedParameters_AgenityEmptyOrgSlug_NoMCPBearerStamp(t *testing.T) {
+	// No Org slug ⇒ we cannot scope the per-Org OpenBao path; skip the stamp
+	// (a path with an empty/cross-Org slug would defeat seedMCPBearer's
+	// own-Org guarantee). sovereignFqdn still stamps independently.
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "", nil)
+	if _, ok := got["openovaMCP"]; ok {
+		t.Fatalf("empty org slug must NOT stamp openovaMCP wiring, got %#v", got)
+	}
+	if got["sovereignFqdn"] != "omantel.biz" {
+		t.Fatalf("sovereignFqdn must still stamp independently of the mcpBearer slug, got %#v", got)
+	}
+}
+
+func TestDefaultedParameters_NonAgenity_NoMCPBearerStamp(t *testing.T) {
+	got := defaultedParameters("bp-postgres", "singleton", "omantel.biz", "nstar2", nil)
+	if _, ok := got["openovaMCP"]; ok {
+		t.Fatalf("non-agenity Blueprint must NOT get openovaMCP wiring, got %#v", got)
+	}
+}
+
+func TestDefaultedParameters_AgenityExplicitMCPBearerWins(t *testing.T) {
+	explicit := map[string]interface{}{
+		"openovaMCP": map[string]interface{}{
+			"bearerSecret": map[string]interface{}{"name": "pinned-secret", "key": "bearer"},
+		},
+	}
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "nstar2", explicit)
+	mcp := got["openovaMCP"].(map[string]interface{})
+	bs := mcp["bearerSecret"].(map[string]interface{})
+	if bs["name"] != "pinned-secret" {
+		t.Fatalf("a caller-pinned openovaMCP.bearerSecret must NOT be overwritten, got %#v", bs)
+	}
+	// The additive merge still wires the missing keys (rs256PubkeySecret, mcpBearer).
+	if _, ok := mcp["mcpBearer"]; !ok {
+		t.Fatalf("additive merge must still wire the absent mcpBearer key, got %#v", mcp)
 	}
 }
 
@@ -167,6 +253,8 @@ func TestNewApplicationUnstructured_Agenity_StampsSovereignFqdn(t *testing.T) {
 	if params["sovereignFqdn"] != "omantel.biz" {
 		t.Fatalf("agenity Application CR must carry spec.parameters.sovereignFqdn=omantel.biz (else the openova-MCP URL falls back to the mothership console.openova.io), got %#v", params)
 	}
+	// #4610 — the install-door CR must ALSO wire the per-Org MCP bearer.
+	assertAgenityMCPBearerWiring(t, params, "agnstar")
 }
 
 func TestNewApplicationCRFromSeed_Agenity_StampsSovereignFqdn(t *testing.T) {
@@ -185,6 +273,8 @@ func TestNewApplicationCRFromSeed_Agenity_StampsSovereignFqdn(t *testing.T) {
 	if params["sovereignFqdn"] != "omantel.biz" {
 		t.Fatalf("agenity seed CR must carry spec.parameters.sovereignFqdn=omantel.biz, got %#v", params)
 	}
+	// #4610 — the create-instance seed door must ALSO wire the per-Org MCP bearer.
+	assertAgenityMCPBearerWiring(t, params, "agnstar")
 }
 
 // ── configSchema round-trip: producers emit validating parameters ───────

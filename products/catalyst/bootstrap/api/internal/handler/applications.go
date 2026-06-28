@@ -1052,7 +1052,7 @@ func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN str
 	// tree valid; the controller's admission webhook + this handler's
 	// validate.Parameters call have already gated explicit params against
 	// configSchema.
-	spec["parameters"] = defaultedParameters(req.BlueprintRef.Name, canonMode, sovereignFQDN, req.Parameters)
+	spec["parameters"] = defaultedParameters(req.BlueprintRef.Name, canonMode, sovereignFQDN, req.OrganizationRef, req.Parameters)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }
