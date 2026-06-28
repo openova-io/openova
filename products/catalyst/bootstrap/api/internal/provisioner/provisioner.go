@@ -92,6 +92,37 @@ type vpcReclaimFunc func(ctx context.Context, accessKey, secretKey, projectID, r
 // huawei adapter's init() sets it (→ SweepOrphanVPCs).
 var VPCReclaimHook vpcReclaimFunc
 
+// ActiveDepPrefixesHook returns the do-not-touch allowlist of 8-char
+// deployment-ID prefixes for EVERY live (non-`wiped`) deployment. nil by
+// default — the handler registers it (→ Handler.buildActivePrefixes, the
+// #4454 fail-safe). The in-band VPC-quota reclaim (#4614) consults it so
+// the reclaim can never reap a live Sovereign's VPC that merely shares
+// the project — the production-delete fault of 2026-06-28, where the
+// reclaim's protect-set held only THIS prov's own prefix and so treated
+// the live omantel.biz VPC as a reclaimable orphan.
+var ActiveDepPrefixesHook func() map[string]struct{}
+
+// reclaimProtectSet builds the do-not-touch allowlist for the in-band
+// VPC-quota reclaim (#4614): EVERY live (non-`wiped`) deployment's 8-char
+// prefix from ActiveDepPrefixesHook (the handler's #4454 fail-safe), plus
+// this prov's own (not-yet-created) deployment prefix. SweepOrphanVPCs
+// reaps any catalyst-* VPC NOT in this set, so a missing live prefix here
+// means a live Sovereign's VPC gets deleted — the production-delete fault.
+// nil hook (no handler wired, e.g. CI) degrades to protecting only the
+// firing prov, the pre-#4614 behaviour.
+func reclaimProtectSet(deploymentID string) map[string]struct{} {
+	protect := map[string]struct{}{}
+	if ActiveDepPrefixesHook != nil {
+		for p := range ActiveDepPrefixesHook() {
+			protect[p] = struct{}{}
+		}
+	}
+	if len(deploymentID) >= 8 {
+		protect[deploymentID[:8]] = struct{}{}
+	}
+	return protect
+}
+
 // ParentDomain is one entry in Request.ParentDomains — a registered
 // parent zone the Sovereign-side PowerDNS becomes authoritative for
 // after NS-flip lands at the registrar.
@@ -1917,14 +1948,13 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		} else {
 			emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota: used %d / %d, requesting %d", used, limit, needed))
 			if used+needed > limit && VPCReclaimHook != nil {
-				// Protect this prov's own (not-yet-created) VPCs + any
-				// in-flight sibling prov by passing this DeploymentID's
-				// 8-char prefix — the reclaim only touches terminal-state
-				// catalyst-* orphans.
-				protect := map[string]struct{}{}
-				if len(req.DeploymentID) >= 8 {
-					protect[req.DeploymentID[:8]] = struct{}{}
-				}
+				// #4614: protect EVERY live deployment, not just THIS
+				// prov's own prefix. SweepOrphanVPCs reaps any catalyst-*
+				// VPC whose 8-char prefix is NOT in `protect`; seeding it
+				// with only this prov's prefix made the reclaim treat a
+				// live production Sovereign sharing the project as an
+				// orphan and DELETE its VPC (the 2026-06-28 incident).
+				protect := reclaimProtectSet(req.DeploymentID)
 				emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota over budget (%d/%d, need %d) — reclaiming orphaned catalyst VPCs before failing", used, limit, needed))
 				reclaimed, rerr := VPCReclaimHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region, protect, func(msg string) {
 					emit("tofu-init", "info", "vpc-reclaim: "+msg)
