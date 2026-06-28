@@ -30,3 +30,14 @@ harbor.openova.io black-holed. cutoverComplete is set only if it stays green.
 ## Disposition
 UAT rows 165/166 (and #4573/#4563/#4557) flip on `cutoverComplete=true` — NOT filled
 here (no false-pass mid-hold). This doc captures the cert-tail clearance proof.
+
+## UPDATE — step-08 egress hold is PASSING (sovereignty proof succeeding)
+During the 600s deny-egress NetworkPolicy hold (github.com / ghcr.io /
+harbor.openova.io black-holed), the cluster is **fully green**:
+`kubectl get hr -A` shows **all 60+ HelmReleases Ready=True** — bp-cilium@1.4.5,
+bp-catalyst-platform@1.4.940, bp-keycloak, bp-cnpg, bp-harbor, bp-gitea, … — every
+one reconciling from `oci://registry.kv030704.omani.works` (the local Harbor), zero
+from ghcr. The Sovereign runs entirely on its own Gitea+Harbor with the mothership
+black-holed. `cutoverComplete=true` sets when the hold timer elapses with the cluster
+still green — i.e. Pillar-5 is proving live, first clean run. #4563 (no residual ghcr
+tether) is demonstrated: fresh reconciles succeed from local Harbor under egress block.
