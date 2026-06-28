@@ -25,7 +25,17 @@ type: application
 #   (probes-present Enforce); (b) proxy both images (grafana/loki +
 #   kiwigrid/k8s-sidecar) through harbor.openova.io (harbor-proxy-pull Enforce).
 #   Adds tests/kyverno-probes-present.sh. Refs #4347 #4325.
-version: 1.0.2
+# 1.0.3 (#4623a): DISABLE the loki-sc-rules sidecar (loki.sidecar.rules.enabled
+#   = false). This Sovereign ships ZERO loki_rule ConfigMaps/Secrets, so the
+#   sidecar watched an empty set forever AND was a recurring CrashLoop hazard —
+#   its EXEC liveness/readiness probe grepped /proc/1/cmdline for python/sidecar,
+#   coupling the probe to the upstream image's PID-1 entrypoint which the mutable
+#   kiwigrid/k8s-sidecar:2.5.0 tag can change on any rebuild. Disabling drops the
+#   container entirely (nothing for probes-present/resource-requests Enforce to
+#   reject, no functional loss). Probes retained but switched to the image's
+#   built-in /healthz HTTP endpoint for overlays that re-enable the sidecar.
+#   Refs #4623.
+version: 1.0.3
 appVersion: "3.6.7"
 keywords: [catalyst, blueprint, loki, observability, logs]
 maintainers:

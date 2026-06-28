@@ -859,7 +859,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-loki
-    version: 1.0.0
+    version: 1.0.3
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/loki/blueprint.yaml. active-passive via S3 bucket replication.
   # No user-facing endpoint (Loki is queried via Grafana datasource); sso
