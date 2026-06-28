@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T06:45:05Z` |
+| Last refreshed | `2026-06-28T07:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 11 |
 | Open DoD gates | 0 / 41 |
@@ -218,6 +218,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T06:45 | [#4599](https://github.com/openova-io/openova/pull/4599) | #3379 | docs(uat): G11 ✅ — sovereignty cutover gate PROVEN on 5150f9 |
 | 2026-06-28T06:34 | [#4598](https://github.com/openova-io/openova/pull/4598) | #3379 | docs(uat): row 166 ✅ — Pillar-5 cutoverComplete proven (11/1 |
 | 2026-06-28T06:34 | [#4597](https://github.com/openova-io/openova/pull/4597) | #4596 | fix(cutover): egress hold allows IaaS provider API — CSI att |
 | 2026-06-28T05:45 | [#4595](https://github.com/openova-io/openova/pull/4595) | #4563 | docs(cutover): egress hold green — sovereignty proof succeed |
@@ -247,7 +248,6 @@ flowchart LR
 | 2026-06-27T14:47 | [#4560](https://github.com/openova-io/openova/pull/4560) | #4556 | fix(bp-oidc-gate #4556): spaTokenSeed — TRUE zero-click for  |
 | 2026-06-27T15:26 | [#4558](https://github.com/openova-io/openova/pull/4558) | #4557 | fix(bp-self-sovereign-cutover #4557): kill the cutover-tail  |
 | 2026-06-27T14:10 | [#4555](https://github.com/openova-io/openova/pull/4555) | #4054 | fix(bp-agenity): default httpRoute.parentRef to the real Sov |
-| 2026-06-27T13:37 | [#4554](https://github.com/openova-io/openova/pull/4554) | #3375 | feat(console): per-app Topology tab surfaces read-only DR st |
 
 ---
 
