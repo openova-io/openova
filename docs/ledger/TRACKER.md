@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T07:45:05Z` |
+| Last refreshed | `2026-06-28T08:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 14 |
 | Open DoD gates | 0 / 41 |
@@ -221,6 +221,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T07:58 | [#4608](https://github.com/openova-io/openova/pull/4608) | #4592 | fix(bp-catalyst-platform): rip out broken #4592 gitea-admin- |
+| 2026-06-28T07:52 | [#4607](https://github.com/openova-io/openova/pull/4607) | #3988 | docs(uat): North Star MCP leg proven live (whoami RBAC + 6 t |
 | 2026-06-28T07:45 | [#4606](https://github.com/openova-io/openova/pull/4606) | #4401 | fix(bp-agenity): durable external-HTTPS egress CNP + standal |
 | 2026-06-28T07:28 | [#4605](https://github.com/openova-io/openova/pull/4605) | #932 | feat(application-controller): project status.placement DR pr |
 | 2026-06-28T07:19 | [#4603](https://github.com/openova-io/openova/pull/4603) | #4401 | docs(uat): G8 ✅ — North Star agentic chat works end-to-end ( |
@@ -249,8 +251,6 @@ flowchart LR
 | 2026-06-27T16:56 | [#4572](https://github.com/openova-io/openova/pull/4572) | #4553 | fix(bp-agenity): chart-managed bp-oidc-gate companion for ev |
 | 2026-06-27T17:41 | [#4571](https://github.com/openova-io/openova/pull/4571) | #4567 | fix(provisioning): drop CNP from per-Org apps kustomization  |
 | 2026-06-27T15:59 | [#4570](https://github.com/openova-io/openova/pull/4570) | #909 | docs(uat): funnel rows 85/91/92 verified ✅ (181 ✅ · 5 ☐) |
-| 2026-06-27T15:43 | [#4566](https://github.com/openova-io/openova/pull/4566) | #3379 | fix(#4563): pivot catalyst-ui + openova-flow-server off the  |
-| 2026-06-27T15:55 | [#4565](https://github.com/openova-io/openova/pull/4565) | #4421 | fix(marketplace #4564): returning-user redirect lands on the |
 
 ---
 
