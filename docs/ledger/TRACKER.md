@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-28T14:00:05Z` |
+| Last refreshed | `2026-06-28T14:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 13 |
 | Open DoD gates | 0 / 41 |
@@ -220,6 +220,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-28T14:11 | [#4619](https://github.com/openova-io/openova/pull/4619) | #909 | walk(uat): R3-R9 SSO rows ✅ live on 8fd457a8 |
+| 2026-06-28T14:08 | [#4618](https://github.com/openova-io/openova/pull/4618) | #4614 | walk(uat): R1/R2/R6/R12/R13 ✅ live on re-prov 8fd457a8 |
 | 2026-06-28T13:16 | [#4617](https://github.com/openova-io/openova/pull/4617) | #3132 | chore(uat): reset walk-evidence on omantel.biz re-prov (dep  |
 | 2026-06-28T12:36 | [#4616](https://github.com/openova-io/openova/pull/4616) | #4454 | fix(provisioner): VPC-quota reclaim protects ALL live deploy |
 | 2026-06-28T12:12 | [#4615](https://github.com/openova-io/openova/pull/4615) | #4614 | docs(epic-matrix): EOD update — North Star complete, founder |
@@ -248,8 +250,6 @@ flowchart LR
 | 2026-06-27T21:22 | [#4583](https://github.com/openova-io/openova/pull/4583) | #4551 | fix(catalyst-api): Topology DR panel renders standby region  |
 | 2026-06-27T20:23 | [#4582](https://github.com/openova-io/openova/pull/4582) | #4546 | docs(uat): rows 3 + 58 ✅ live-verified (185 ✅) |
 | 2026-06-27T21:23 | [#4581](https://github.com/openova-io/openova/pull/4581) | #3379 | fix(cutover): harbor-prewarm Phase-A2 chart mirror retries t |
-| 2026-06-27T19:35 | [#4580](https://github.com/openova-io/openova/pull/4580) | #4554 | fix(catalyst-api #4551): render the per-app Topology DR pane |
-| 2026-06-27T18:32 | [#4578](https://github.com/openova-io/openova/pull/4578) | #4556 | fix(catalyst): agenity one-HR-per-install + openova-MCP URL  |
 
 ---
 
