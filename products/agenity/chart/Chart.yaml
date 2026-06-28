@@ -8,6 +8,26 @@ description: |
   (RBAC-scoped to the User's rights) to create more Applications in the
   User's own Organization — the north-star self-service journey.
 type: application
+# 0.5.16 -> 0.5.17 (#4604, Pillar-4 North Star — durable egress + standalone-
+# claude MCP discovery): two ADDITIVE chart changes, both proven gaps on the
+# nstar2 North-Star walk (dep 91dc05917e44d1c1, pod agenity-rtz-a-bp-agenity-0).
+# (1) templates/cilium-egress-networkpolicy.yaml — a default-on
+# CiliumNetworkPolicy granting the agenity pod external-HTTPS egress
+# (toEntities:[world]:443 + DNS preserved) so the solo agent reaches
+# api.anthropic.com and the openova-mcp child reaches https://console.<fqdn> to
+# drive create_application. The walk only made the chat reachable after a
+# HAND-APPLIED stopgap CNP (agenity-allow-external-https-egress); templating it
+# makes EVERY per-Org install / re-prov get egress by construction (mirrors
+# openclaw #4401). Gated on networkPolicy.egress.allowExternalHttps +
+# cilium.io/v2 Capabilities (kind CI still renders). (2) the seed-claude-creds
+# init container now seeds the `openova` mcpServers entry into the pod's
+# ~/.claude.json so a STANDALONE claude (`claude -p …`, the verifier path)
+# discovers the openova MCP — chepherd's CHEPHERD_EXTRA_MCP_JSON seam only
+# reaches chepherd-SPAWNED agents' per-session .mcp.json, while a bare claude
+# reads ~/.claude.json (mcpServers:[] live → "no MCP tools"). The bearer +
+# RS256 pubkey stay OUT of the JSON (the openova-mcp child inherits them from
+# the container env, same contract as CHEPHERD_EXTRA_MCP_JSON). Template +
+# values change; appVersion (image) UNCHANGED.
 # 0.5.12 -> 0.5.13 (#4111): default `imagePullSecrets` to `[{name: ghcr-pull}]`
 # so EVERY image-pulling Pod (the seed-claude-creds init container AND the
 # chepherd main container) references the reflected ghcr-pull dockerconfigjson
@@ -159,7 +179,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.16
+version: 0.5.17
 # Bumped appVersion 0.9.6 -> 0.9.7 (#4180): 0.9.7 is the FIRST image whose
 # /app/ mounts the WORKSPACES dashboard (Dashboardws bundle) rather than the
 # archaic single-column Dashboard.svelte. It is built from agenity#752

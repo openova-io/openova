@@ -128,7 +128,34 @@ spec:
               # with it the REPL boots to the prompt and stays alive to receive
               # the operator's chat message. The projects map marks the chepherd
               # agent/session working dirs trusted so no per-cwd dialog fires.
+              #
+              # ── openova MCP at USER level (#4604) ────────────────────────────
+              # chepherd's CHEPHERD_EXTRA_MCP_JSON seam (main container, below)
+              # merges the `openova` MCP server into each chepherd-SPAWNED
+              # agent's per-session .mcp.json. But a claude invoked STANDALONE in
+              # the pod (`claude -p "…"`, the North-Star verifier path) reads
+              # ~/.claude.json's `mcpServers` + a project ./.mcp.json — NEITHER
+              # of which carries the openova entry, so a bare claude reports "no
+              # MCP tools" (verified live on nstar2: ~/.claude.json mcpServers:[]
+              # + no .mcp.json). Seeding the `openova` mcpServers entry HERE, into
+              # the same ~/.claude.json the onboarding stub already writes, makes
+              # EVERY claude in the pod (spawned OR standalone) discover the
+              # openova MCP with zero per-session config. The bearer + RS256
+              # pubkey are deliberately OMITTED: the openova-mcp child is launched
+              # by claude inside the chepherd container and INHERITS
+              # OPENOVA_MCP_BEARER / OPENOVA_MCP_RS256_PUBKEY_PEM from the
+              # container env (set on the main container) — the same
+              # env-inheritance contract CHEPHERD_EXTRA_MCP_JSON relies on. Only
+              # the non-secret knobs (catalyst-api URL, context pin, verify mode)
+              # are pinned. Path + knobs mirror openovaMCP.* so the two discovery
+              # seams agree.
+              {{- if .Values.openovaMCP.enabled }}
+              {{- $apiURL := .Values.openovaMCP.catalystApiUrl }}
+              {{- if not $apiURL }}{{ $apiURL = printf "https://console.%s" (.Values.sovereignFqdn | default "openova.io") }}{{- end }}
+              printf '%s' '{"hasCompletedOnboarding":true,"bypassPermissionsModeAccepted":true,"autoPermissionsNotificationCount":99,"mcpServers":{"openova":{"command":{{ .Values.openovaMCP.binaryPath | quote }},"env":{"OPENOVA_MCP_CATALYST_API_URL":{{ $apiURL | quote }},"OPENOVA_MCP_CONTEXT":{{ .Values.openovaMCP.context | quote }},"OPENOVA_MCP_VERIFY":{{ .Values.openovaMCP.verify | quote }}}}},"projects":{"/var/chepherd/repo":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true},"/home/chepherd":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' > /claudehome/.claude.json
+              {{- else }}
               printf '%s' '{"hasCompletedOnboarding":true,"bypassPermissionsModeAccepted":true,"autoPermissionsNotificationCount":99,"projects":{"/var/chepherd/repo":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true},"/home/chepherd":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' > /claudehome/.claude.json
+              {{- end }}
               chmod 644 /claudehome/.claude.json
           securityContext:
             runAsUser: 1000

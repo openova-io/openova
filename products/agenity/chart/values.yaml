@@ -407,6 +407,22 @@ networkPolicy:
     # reserved `ingress` entity (the Cilium Gateway Envoy) to service.port.
     # Disable only on a non-Cilium overlay that fronts agenity differently.
     allowGatewayEntity: true
+  # ── External-HTTPS egress (#4604) ────────────────────────────────────────
+  # The solo agent (claude-code) calls api.anthropic.com and the openova-mcp
+  # child forwards create_application to the public Sovereign console — both
+  # off-cluster :443 hops to an external EIP no K8s selector can name. On a
+  # Cilium Sovereign that needs a CiliumNetworkPolicy `toEntities:[world]:443`
+  # egress carve-out (templates/cilium-egress-networkpolicy.yaml). DEFAULT-ON
+  # for the agentic app: without it a fresh Org / re-prov silently loses
+  # Anthropic + catalyst-api reachability (the nstar2 North-Star walk only
+  # worked after a hand-applied stopgap CNP — this makes it chart-durable).
+  egress:
+    # allowExternalHttps → emit the egress CNP (world:443 + DNS preserved).
+    # Disable only on an air-gapped Sovereign that mirrors Anthropic + the
+    # console behind an in-cluster proxy the agent reaches without world egress.
+    allowExternalHttps: true
+    # External HTTPS port for both the Anthropic + console hops (443).
+    httpsPort: 443
 
 # ── Persistence — chepherd runtime state + per-agent repo/cache ───────────
 # CSI-backed PVCs. storageClass empty = the cluster's default CSI class.

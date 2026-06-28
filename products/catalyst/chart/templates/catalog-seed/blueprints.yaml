@@ -5980,10 +5980,10 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  # 0.5.15 (#4553/#4556): chart renders a bp-oidc-gate companion in front of
-  # every per-Org agenity host (durable zero-click SSO gate + spaTokenSeed
-  # no-paste landing, chart-managed). Lockstep with products/agenity/chart.
-  version: "0.5.16"
+  # 0.5.17 (#4604): chart adds a default-on external-HTTPS egress CNP +
+  # seeds the openova MCP into ~/.claude.json for a standalone claude (durable
+  # Pillar-4 North-Star wiring). Lockstep with products/agenity/chart.
+  version: "0.5.17"
   visibility: listed
   card:
     title: "Agenity"
@@ -6013,7 +6013,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.16
+    version: 0.5.17
   topology:
     supported:
       - singleton
