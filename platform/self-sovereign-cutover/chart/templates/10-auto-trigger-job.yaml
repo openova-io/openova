@@ -109,7 +109,7 @@ metadata:
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: {{ .Values.trigger.autoJobTTLSeconds | default 86400 }}
-  activeDeadlineSeconds: {{ .Values.trigger.autoTimeoutSeconds | default 600 }}
+  activeDeadlineSeconds: {{ .Values.trigger.autoTimeoutSeconds | default 2100 }}
   template:
     metadata:
       labels:
@@ -130,6 +130,8 @@ spec:
               value: {{ .Values.trigger.autoDelaySeconds | default 0 | quote }}
             - name: WAIT_TIMEOUT_SECONDS
               value: {{ .Values.trigger.autoWaitForAPISeconds | default 300 | quote }}
+            - name: HANDOVER_WAIT_SECONDS
+              value: {{ .Values.trigger.autoHandoverWaitSeconds | default 1500 | quote }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -208,71 +210,104 @@ spec:
               fi
 
               # 4. POST /api/v1/internal/cutover/trigger with the SA
-              #    token. catalyst-api validates the token via
-              #    TokenReview and runs the same engine path as
-              #    /sovereign/cutover/start.
+              #    token, RETRYING on the handover-completion gate. catalyst-
+              #    api validates the token via TokenReview and runs the same
+              #    engine path as /sovereign/cutover/start.
               #
               #    Idempotency contract:
               #    - cutoverComplete=true → 200 with the existing snapshot
               #    - cutover already running on this Pod → 409 (benign)
               #    - no steps found → 424 (chart not installed; impossible here)
               #    - success → 200 with the freshly-seeded snapshot
+              #    - handover not yet sealed → 425 (FailedDependency)
               #    - SA token rejected by apiserver → 502 (transient)
               #    - SA mismatch → 403 (chart RBAC misconfig)
-              echo "[auto-trigger] POSTing ${trigger_url}"
-              # Read the token at request time (not as an env var) so
-              # rotation during a long deadline still authenticates.
-              code=$(curl -s -o /tmp/trigger.json -w "%{http_code}" \
-                -X POST --connect-timeout 10 --max-time 60 \
-                -H "Authorization: Bearer $(cat ${sa_token_file})" \
-                -H "Content-Type: application/json" \
-                -d '{}' \
-                "${trigger_url}" 2>/dev/null || echo "000")
+              #
+              # THE 425-NO-RETRY RACE (#4632, verified live on dep 8fd457a8).
+              # This hook is a `post-install,post-upgrade` Job with
+              # hook-delete-policy `hook-succeeded`. On a FRESH prov it fires
+              # at slot-06a install time — BEFORE bp-catalyst-platform reaches
+              # Ready and the handover post-install hook seals
+              # secret/catalyst/tofu-phase0-archive — so catalyst-api correctly
+              # refuses with HTTP 425 ("handover not complete"). The previous
+              # 425 handler did a single `exit 0` and GAVE UP; the hook was then
+              # deleted, so NOTHING ever re-POSTed the trigger and the cutover
+              # NEVER auto-fired. Live proof: 8fd457a8's handover seal was
+              # written at 13:56:41 but the lone POST 425'd at 13:54:48 (~2 min
+              # too early) → cutover stuck progressPercent=0, cutoverStartedAt="".
+              # FIX: poll on 425 (and transient 000/502) until a non-425 result
+              # or a bounded handover-wait deadline. The retry runs INSIDE the
+              # Job's own lifetime, so the trigger is re-POSTed the moment the
+              # gate opens — no operator CTA click required (founder rule #933).
+              hdeadline=$(( $(date +%s) + HANDOVER_WAIT_SECONDS ))
+              echo "[auto-trigger] POSTing ${trigger_url} (will retry on HTTP 425 until handover seals, up to ${HANDOVER_WAIT_SECONDS}s)"
+              while : ; do
+                # Read the token at request time (not as an env var) so
+                # rotation during a long deadline still authenticates.
+                code=$(curl -s -o /tmp/trigger.json -w "%{http_code}" \
+                  -X POST --connect-timeout 10 --max-time 60 \
+                  -H "Authorization: Bearer $(cat ${sa_token_file})" \
+                  -H "Content-Type: application/json" \
+                  -d '{}' \
+                  "${trigger_url}" 2>/dev/null || echo "000")
 
-              case "${code}" in
-                200)
-                  echo "[auto-trigger] cutover started successfully"
-                  cat /tmp/trigger.json 2>/dev/null || true
-                  ;;
-                409)
-                  echo "[auto-trigger] cutover already in progress on the catalyst-api Pod — no-op"
-                  ;;
-                424)
-                  echo "[auto-trigger] catalyst-api reports no step ConfigMaps — chart install ordering bug"
-                  cat /tmp/trigger.json 2>/dev/null || true
-                  exit 1
-                  ;;
-                401|403)
-                  echo "[auto-trigger] catalyst-api rejected our SA token (HTTP ${code}); chart RBAC may be misconfigured"
-                  cat /tmp/trigger.json 2>/dev/null || true
-                  # Exit 0 — operator-actionable, not a chart-install
-                  # failure. CTA still works via the operator session.
-                  exit 0
-                  ;;
-                425)
-                  # Handover-completion gate (catalyst-api
-                  # cutover_internal.go). On a FRESH prov this hook fires
-                  # at bootstrap — long before handover — and catalyst-api
-                  # correctly refuses to start the cutover engine until the
-                  # tofu-phase0-archive is sealed at handover. This is the
-                  # EXPECTED, BENIGN path on every fresh prov: it prevents
-                  # the registry half-pivot that used to wedge bootstrap-kit
-                  # (hw93 2026-06-04). The cutover auto-fires post-handover
-                  # when the same trigger is re-POSTed and the gate is open.
-                  echo "[auto-trigger] cutover deferred: this Sovereign has not been handed over yet (HTTP 425). EXPECTED pre-handover — no engine started; the cutover auto-fires once handover seals the tofu archive."
-                  cat /tmp/trigger.json 2>/dev/null || true
-                  exit 0
-                  ;;
-                *)
-                  echo "[auto-trigger] unexpected status ${code}"
-                  cat /tmp/trigger.json 2>/dev/null || true
-                  # Do NOT fail the hook — the operator can still fire
-                  # the cutover manually via the CTA. Exit 0 so the
-                  # chart install completes and Flux marks the
-                  # HelmRelease Ready.
-                  exit 0
-                  ;;
-              esac
+                case "${code}" in
+                  200)
+                    echo "[auto-trigger] cutover started successfully"
+                    cat /tmp/trigger.json 2>/dev/null || true
+                    break
+                    ;;
+                  409)
+                    echo "[auto-trigger] cutover already in progress on the catalyst-api Pod — no-op"
+                    break
+                    ;;
+                  424)
+                    echo "[auto-trigger] catalyst-api reports no step ConfigMaps — chart install ordering bug"
+                    cat /tmp/trigger.json 2>/dev/null || true
+                    exit 1
+                    ;;
+                  401|403)
+                    echo "[auto-trigger] catalyst-api rejected our SA token (HTTP ${code}); chart RBAC may be misconfigured"
+                    cat /tmp/trigger.json 2>/dev/null || true
+                    # Exit 0 — operator-actionable, not a chart-install
+                    # failure. CTA still works via the operator session.
+                    exit 0
+                    ;;
+                  425)
+                    # Handover-completion gate (catalyst-api
+                    # cutover_internal.go). On a FRESH prov this hook fires
+                    # at bootstrap — long before handover — and catalyst-api
+                    # correctly refuses to start the cutover engine until the
+                    # tofu-phase0-archive is sealed at handover. RETRY until the
+                    # gate opens (#4632) instead of giving up: a single exit 0
+                    # here means nothing ever re-POSTs and the cutover never
+                    # auto-fires (the registry half-pivot guard from hw93
+                    # 2026-06-04 stays intact — the engine only starts once the
+                    # archive is sealed, we just keep asking until it is).
+                    if [ "$(date +%s)" -ge "${hdeadline}" ]; then
+                      echo "[auto-trigger] cutover still deferred after ${HANDOVER_WAIT_SECONDS}s handover wait (HTTP 425) — exiting 0; operator can fire manually via CTA once handover completes."
+                      cat /tmp/trigger.json 2>/dev/null || true
+                      exit 0
+                    fi
+                    echo "[auto-trigger] cutover deferred: this Sovereign has not been handed over yet (HTTP 425). Retrying in 15s until handover seals the tofu archive."
+                    sleep 15
+                    ;;
+                  *)
+                    # Transient (000 connect failure, 502 TokenReview blip,
+                    # etc.). Retry within the same handover-wait budget rather
+                    # than giving up on a momentary hiccup, then exit 0 so a
+                    # genuinely-sick API never fails the chart install.
+                    echo "[auto-trigger] transient/unexpected status ${code}"
+                    cat /tmp/trigger.json 2>/dev/null || true
+                    if [ "$(date +%s)" -ge "${hdeadline}" ]; then
+                      echo "[auto-trigger] gave up after ${HANDOVER_WAIT_SECONDS}s of transient failures — exiting 0; operator can fire manually via CTA."
+                      exit 0
+                    fi
+                    echo "[auto-trigger] retrying in 15s"
+                    sleep 15
+                    ;;
+                esac
+              done
 
               echo "[auto-trigger] complete"
           resources:
