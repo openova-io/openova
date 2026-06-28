@@ -2587,7 +2587,58 @@ func (r *Reconciler) bootstrapPlacementProjection(
 			"app", app.GetName(), "continuumRef", ref, "err", cerr)
 		cs = nil
 	}
+
+	// #4605 follow-up — CNPG-backed / non-spine fallback. A shared-data
+	// bootstrap app (shared-pg / shared-pg-b / shared-pg-c) carries NO
+	// back-referenced continuumRef and has NO per-app `dr-<app>` CR: its DR is
+	// governed by the platform-scope cnpg-pair Continuum, not a per-app one.
+	// AND its spec.regions is the `platform-bootstrap-owned-host` placeholder,
+	// so the static plan has no real primary/standby to project. When we found
+	// no per-app Continuum, the plan has no real regions, AND the app declares a
+	// DR posture (active-hot-standby / active-passive), resolve the
+	// platform-scope cnpg-pair Continuum so the live region-a→region-b
+	// WAL-streaming truth (normalized leaseHolder + hotStandbyRegions + lag +
+	// LeaseHeld) drives the projection.
+	//
+	// The DR-mode gate is load-bearing: a SINGLETON shared bootstrap app
+	// (harbor / openbao / newapi on a single-region data plane) must NOT inherit
+	// the cnpg-pair's hot-standby region split — it is a single-cluster app, not
+	// a DR contract. Singletons keep their static (placeholder) projection here;
+	// correcting the singleton placeholder is out of scope for this DR fix.
+	if cs == nil && !planHasRealRegions(plan) && isDRPlacementMode(plan.Mode) {
+		pcs, perr := r.resolvePlatformScopeContinuumStatus(ctx)
+		if perr != nil {
+			r.Log.Warn("bootstrap-owned: platform-scope Continuum read failed; static placement projection",
+				"app", app.GetName(), "err", perr)
+		} else if pcs != nil {
+			cs = pcs
+		}
+	}
+
 	return buildPlacementProjection(plan, cs)
+}
+
+// isDRPlacementMode reports whether the resolved placement mode is one of the
+// two single-primary DR postures (active-hot-standby / active-passive) that
+// have a primary↔standby flip a Continuum drives. A singleton / active-active
+// mode is NOT a DR contract — it must not resolve a cnpg-pair Continuum's
+// region split. (#4605 follow-up.)
+func isDRPlacementMode(mode string) bool {
+	return mode == placement.ModeActiveHotStandby || mode == placement.ModeActivePassive
+}
+
+// planHasRealRegions reports whether the resolved placement plan carries any
+// host-cluster region other than the `platform-bootstrap-owned-host`
+// placeholder literal (#4605 follow-up). A bootstrap app whose spec.regions is
+// only the placeholder resolves to a plan with no real region — its DR truth
+// must come from the governing Continuum, not the placeholder plan.
+func planHasRealRegions(plan placement.Plan) bool {
+	for _, rp := range plan.Regions {
+		if rp.Name != platformBootstrapOwnedHostRegion {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileBootstrapContinuum mints the per-app Continuum DR contract for a

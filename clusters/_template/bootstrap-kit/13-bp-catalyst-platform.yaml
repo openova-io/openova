@@ -1217,11 +1217,22 @@ spec:
       #   onto Application.status.placement so the per-app Topology DR strip can
       #   render primary↔standby for the bootstrap-owned DR spine apps. CRD
       #   status.placement gains the DR sub-fields. Lockstep w/ Chart.yaml.
+      # 1.4.948 — #4605 follow-up (Refs #3375 #3986 #4601): fix the
+      #   status.placement DR projection for CNPG-backed / non-spine bootstrap
+      #   apps. shared-pg/-b/-c are active-hot-standby but carry the
+      #   `platform-bootstrap-owned-host` placeholder + no continuumRef + no
+      #   per-app dr-<app> CR — governed by the platform-scope cnpg-pair
+      #   Continuum. The projection now falls back to it (DR-mode only),
+      #   normalizes the full cluster-name leaseHolder/hotStandbyRegions
+      #   (hw-me-east-215-a-rtz-prod -> me-east-215-a), and derives standbys from
+      #   it. Singleton shared apps keep the static projection. Spine unchanged.
+      #   application-controller image fix (deploy-bot pins on next build).
+      #   Lockstep w/ Chart.yaml.
       # 1.4.936 — #4556: kill the agenity dual-render duplicate HR (quota) +
       #   stamp spec.parameters.sovereignFqdn so the openova-MCP URL points at
       #   this Sovereign, not the mothership. catalyst-api + application-controller
       #   image fixes (deploy-bot pins on next build). Lockstep w/ Chart.yaml.
-      version: 1.4.947
+      version: 1.4.948
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

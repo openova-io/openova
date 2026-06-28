@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.948 — #4605 follow-up (Refs #3375 #3986 #4601): fix the
+#   status.placement DR projection for CNPG-backed / non-spine bootstrap apps.
+#   shared-pg/-b/-c (ns shared-data) are active-hot-standby but carry the
+#   `platform-bootstrap-owned-host` placeholder in spec.regions, NO continuumRef,
+#   and NO per-app `dr-<app>` CR — their DR is governed by the platform-scope
+#   cnpg-pair Continuum (cnpg/cnpg-pair-bp-cnpg-pair-continuum). The projection
+#   now (a) falls back to that platform-scope Continuum when a DR-mode bootstrap
+#   app has no per-app one + only placeholder regions, (b) normalizes the
+#   cnpg-pair full cluster-name leaseHolder/hotStandbyRegions
+#   (hw-me-east-215-a-rtz-prod -> me-east-215-a), and (c) derives standbyRegions
+#   from the Continuum when the static plan has no real regions. Singleton shared
+#   apps (harbor/openbao/newapi) keep their static projection (DR-mode gate).
+#   Spine apps unchanged. Read-only / observational. Ships in the
+#   application-controller image (deploy-bot bumps the pin on next build).
 # 1.4.943 — #4601 (Refs #3986 #3375): the application-controller now projects
 #   the EFFECTIVE per-region DR placement onto Application.status.placement
 #   ({mode, primaryRegion, standbyRegions, replicationLagSeconds, leaseHeld})
@@ -3389,7 +3403,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.947
+version: 1.4.948
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
 #   platform/crossplane chart + blueprint.yaml + bootstrap-kit slot 04). crossplane-core
 #   was still OOMKilled (CrashLoopBackOff, 55 restarts, exit 137, killed ~90s after start)
