@@ -997,18 +997,21 @@ write_files:
           kind: GitRepository
           name: openova
         wait: false
-        # #4600 — NO XPKG_REGISTRY postBuild substitution on ANY cloud.
-        # provider-opentofu pulls DIRECTLY from xpkg.upbound.io (the manifest's
-        # XPKG_REGISTRY := xpkg.upbound.io default) on Hetzner AND Huawei.
-        # The former Huawei-only `harbor.openova.io/proxy-xpkg` substitution
-        # (#4488/#4491/#4542) was an ARTIFICIAL bastion-Harbor tether whose
-        # `proxy-xpkg` project never existed → 401 → provider-opentofu
-        # Installed=False → adoption seam inert. Its "poisoned NAT" premise is
-        # FALSE: xpkg.upbound.io answers HTTP 401 (the anon-auth challenge) in
-        # 0.43s direct from the live Huawei Sovereign, and crossplane-system
-        # has no egress NetworkPolicy. Cutover step-11 already pivots the raw
-        # `xpkg.upbound.io/...` spec.package to `harbor.<fqdn>/proxy-xpkg`
-        # post-handover, so Principle #11 sovereignty is unaffected.
+        # #4620 — provider-opentofu pulls from xpkg.upbound.io via the manifest's
+        # `${XPKG_REGISTRY:=xpkg.upbound.io}` default. A postBuild MUST be present
+        # for Flux to RESOLVE that `:=` default: #4600 deleted the ENTIRE postBuild
+        # assuming the bare default would apply, but Flux only runs `${VAR:=default}`
+        # resolution when spec.postBuild exists — with none, the literal
+        # `${XPKG_REGISTRY:=...}` shipped verbatim → provider-opentofu Installed=False
+        # → crossplane adoption inert (live on the 8fd457a8 re-prov). Re-add the
+        # postBuild (the SOVEREIGN_FQDN key keeps the substitution engine ON without
+        # re-introducing the artificial bastion-Harbor tether #4488/#4491/#4542 whose
+        # `harbor.openova.io/proxy-xpkg` project never existed → 401). Cutover step-11
+        # still pivots the RESOLVED `xpkg.upbound.io/...` spec.package to
+        # `harbor.<fqdn>/proxy-xpkg` post-handover, so Principle #11 is unaffected.
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
       # NOTE (#4521): LAYER 2 — the CRD-CONSUMING `infrastructure-config` Flux
       # Kustomization (ProviderConfig + the Observe-first CloudAdoption
       # placeholder) is NOT inlined here. It ships as a COMMITTED Flux
