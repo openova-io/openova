@@ -233,3 +233,16 @@ Real Sovereign topology can be **6 isolated clusters** (2 regions ×
   (mgmt keeps the full Harbor with scanning/replication; dmz/rtz get a minimal
   local registry, e.g. `registry:2`/Zot, fronted by Dragonfly)? Isolation is
   identical either way — pure footprint trade-off.
+- **Cross-plane image-access model (the key decision):**
+  - **(A) Self-contained per plane** *(recommended — §8a):* each cluster has its
+    own registry + Dragonfly, self-seeds from ghcr. No cross-plane traffic. Best
+    isolation + DR; heaviest footprint.
+  - **(B) Shared Harbor via the EXTERNAL endpoint** (`registry.<fqdn>` → gateway):
+    dmz/rtz pull mgmt's Harbor over the public gateway path. Lighter (one Harbor).
+    **But it reintroduces the kom4dc hairpin** (the very bug this proposal removes),
+    widens dmz→mgmt exposure, and couples DR to one endpoint. Viable only on
+    hairpin-capable clouds.
+  - **(C) Shared Harbor via ClusterMesh global svc** — **REJECTED** (§8a): breaches
+    plane isolation / blast radius.
+  - **Recommendation: (A).** (B) is the lighter option but defeats the cloud-agnostic
+    goal on kom4dc. Operator picks.
