@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-29T19:00:03Z` |
+| Last refreshed | `2026-06-29T19:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 22 |
 | Open DoD gates | 0 / 41 |
@@ -229,6 +229,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-29T19:05 | [#4653](https://github.com/openova-io/openova/pull/4653) | #4649 | fix(bp-self-sovereign-cutover): close the dfdaemon→Harbor le |
+| 2026-06-29T19:14 | [#4651](https://github.com/openova-io/openova/pull/4651) | #4650 | fix(kyverno-policies): exempt dragonfly registry-layer ns fr |
+| 2026-06-29T19:05 | [#4648](https://github.com/openova-io/openova/pull/4648) | #4642 | fix(infra): thread QA_FIXTURES_ENABLED into the cloud-init s |
+| 2026-06-29T19:05 | [#4647](https://github.com/openova-io/openova/pull/4647) | #4604 | docs(dod): retire dead Sandbox surface → Agenity + bp-openov |
+| 2026-06-29T19:05 | [#4643](https://github.com/openova-io/openova/pull/4643) | #4640 | docs(adr): ADR-0012 — Dragonfly P2P registry + cloud-agnosti |
 | 2026-06-29T12:19 | [#4642](https://github.com/openova-io/openova/pull/4642) | #4061 | feat(catalyst): qaFixtures provs auto-fire cutover on handov |
 | 2026-06-29T11:48 | [#4641](https://github.com/openova-io/openova/pull/4641) | #4640 | fix(self-sovereign-cutover): rewrite registry-pivot to the D |
 | 2026-06-29T09:08 | [#4640](https://github.com/openova-io/openova/pull/4640) | #4639 | feat(bp-dragonfly): per-cluster P2P image distribution layer |
@@ -254,11 +259,6 @@ flowchart LR
 | 2026-06-28T08:32 | [#4611](https://github.com/openova-io/openova/pull/4611) | #4609 | docs(uat): rows 51-57 ✅ — shared-pg Topology DR placement li |
 | 2026-06-28T08:21 | [#4609](https://github.com/openova-io/openova/pull/4609) | #4605 | fix(application-controller): resolve status.placement for CN |
 | 2026-06-28T07:58 | [#4608](https://github.com/openova-io/openova/pull/4608) | #4592 | fix(bp-catalyst-platform): rip out broken #4592 gitea-admin- |
-| 2026-06-28T07:52 | [#4607](https://github.com/openova-io/openova/pull/4607) | #3988 | docs(uat): North Star MCP leg proven live (whoami RBAC + 6 t |
-| 2026-06-28T07:45 | [#4606](https://github.com/openova-io/openova/pull/4606) | #4401 | fix(bp-agenity): durable external-HTTPS egress CNP + standal |
-| 2026-06-28T07:28 | [#4605](https://github.com/openova-io/openova/pull/4605) | #932 | feat(application-controller): project status.placement DR pr |
-| 2026-06-28T07:19 | [#4603](https://github.com/openova-io/openova/pull/4603) | #4401 | docs(uat): G8 ✅ — North Star agentic chat works end-to-end ( |
-| 2026-06-28T07:17 | [#4602](https://github.com/openova-io/openova/pull/4602) | #4002 | fix(crossplane): remove artificial bastion-Harbor (harbor.op |
 
 ---
 
