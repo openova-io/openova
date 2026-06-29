@@ -698,7 +698,11 @@ spec:
       # transient 000/502) until a non-425 result or autoHandoverWaitSeconds
       # (1500s). New trigger.autoHandoverWaitSeconds; autoTimeoutSeconds 1740→2100;
       # HR install/upgrade timeout 30m→40m (above) so the hook unblocks in time.
-      version: 0.1.93
+      # 0.1.94 (#4652 Refs #4641): registry-pivot also rewrites coredns-custom
+      # (registry.<fqdn> -> gateway ClusterIP, no fallthrough) + materialises the
+      # dragonfly-harbor-ca Secret + sets dfdaemon registryMirror.cert — the last
+      # dfdaemon->Harbor leg. Pairs with bp-dragonfly >= 0.1.1 (optional cert mount).
+      version: 0.1.94
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
