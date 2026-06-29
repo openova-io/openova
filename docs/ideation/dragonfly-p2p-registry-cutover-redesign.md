@@ -153,7 +153,34 @@ node-network surgery. That is the whole simplification.
 3. Rewrite the cutover registry step to the upstream-flip; one prov proves
    cutover→`cutoverComplete` on **kom4dc** (the cloud that breaks today).
 
-## 8. Open questions for the founder
+## 8. Multi-cluster topology (per-region DR)
+
+A Sovereign can be multi-cluster (e.g. region-a primary + region-b DR). The
+upstream target must be **cluster-local**, never a shared/external name:
+
+```
+  ┌──────── CLUSTER region-a ────────┐   ┌──────── CLUSTER region-b ────────┐
+  │ Harbor-a (harbor-core.harbor.svc)│   │ Harbor-b (harbor-core.harbor.svc)│
+  │   ▲ dfdaemon upstream = LOCAL    │   │   ▲ dfdaemon upstream = LOCAL    │
+  │ Dragonfly mesh-a                 │   │ Dragonfly mesh-b                 │
+  └──────────────────────────────────┘   └──────────────────────────────────┘
+     each cluster self-sufficient · region-b survives region-a loss
+```
+
+- **Use `harbor-core.harbor.svc` (cluster-local), NOT `registry.<fqdn>` (external).**
+  The svc name is the same string in every cluster but always resolves to *that
+  cluster's own* Harbor → zero cross-cluster coupling.
+- **Why not the external name:** `region-b → registry.<fqdn> → WAN/gateway →
+  region-a Harbor` makes region-b depend on region-a — **breaks the region-kill
+  DR test** and reintroduces the gateway/hairpin/TLS mess over the WAN.
+- Each cluster runs its **own** Harbor + Dragonfly mesh, **independently seeded**
+  (region-b's warm-up fills Harbor-b). Cross-cluster P2P (region-b borrowing
+  blobs from region-a peers when both are up) is an **optimization only — never
+  a hard dependency**.
+- Implication: `bp-harbor` + `bp-dragonfly` install **per cluster** (both
+  regions), not primary-only.
+
+## 9. Open questions for the founder
 
 - **Cross-cluster dedup:** the bastion gave one shared cache across *all*
   Sovereigns. Per-cluster Dragonfly hits ghcr once-per-blob *per cluster*
