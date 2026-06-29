@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-29T19:30:06Z` |
+| Last refreshed | `2026-06-29T19:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 22 |
 | Open DoD gates | 0 / 41 |
@@ -229,6 +229,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-29T19:41 | [#4654](https://github.com/openova-io/openova/pull/4654) | #4653 | fix(cutover-contract): kill SIGPIPE false-fail wedging the b |
 | 2026-06-29T19:05 | [#4653](https://github.com/openova-io/openova/pull/4653) | #4649 | fix(bp-self-sovereign-cutover): close the dfdaemon→Harbor le |
 | 2026-06-29T19:14 | [#4651](https://github.com/openova-io/openova/pull/4651) | #4650 | fix(kyverno-policies): exempt dragonfly registry-layer ns fr |
 | 2026-06-29T19:05 | [#4648](https://github.com/openova-io/openova/pull/4648) | #4642 | fix(infra): thread QA_FIXTURES_ENABLED into the cloud-init s |
@@ -258,7 +259,6 @@ flowchart LR
 | 2026-06-28T09:09 | [#4612](https://github.com/openova-io/openova/pull/4612) | #4556 | fix(catalyst-api): install-door agenity CR wires the per-Org |
 | 2026-06-28T08:32 | [#4611](https://github.com/openova-io/openova/pull/4611) | #4609 | docs(uat): rows 51-57 ✅ — shared-pg Topology DR placement li |
 | 2026-06-28T08:21 | [#4609](https://github.com/openova-io/openova/pull/4609) | #4605 | fix(application-controller): resolve status.placement for CN |
-| 2026-06-28T07:58 | [#4608](https://github.com/openova-io/openova/pull/4608) | #4592 | fix(bp-catalyst-platform): rip out broken #4592 gitea-admin- |
 
 ---
 
