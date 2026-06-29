@@ -37,6 +37,16 @@ can't start → no handover → no cutover. Root cause is **infra**, not the cut
    catalyst-api PVCs (`catalyst-api-cache`, `-deployments`) stuck Pending. Needs diagnosis
    (service routing? kube-proxy/Cilium L4? a second packet-size threshold?).
 
+## 🔴 UPDATE — #4656 is SYSTEMATIC + P0 (the single hard gate)
+A second clean fresh prov (`4f8d845d`, complete train) converged to `ready` then hit the
+EXACT same wall: EVS provisioner `i/o timeout` to the apiserver → catalyst-api PVCs Pending →
+`VolumeBinding context deadline exceeded` → catalyst-api Pending → no handover → no cutover.
+**So #4656 is NOT intermittent — it recurs on every kom4dc prov and blocks every Sovereign
+catalyst-api.** It is THE gate for `cutoverComplete` (and any catalyst-api workload on kom4dc).
+The MTU is unsatisfiable by a single value (1370→wg0 1290 drops; 1500→pod 1500 drops worse) —
+needs an empirical Cilium fix (per-device route-MTU, or native-routing-under-WG to kill the
+double VXLAN+WG encap), value-tested on a prov. Full analysis on #4656.
+
 ## ▶️ NEXT (fresh, daylight — NOT 5am live surgery on a thrashed env)
 1. **#4656**: determine the correct bp-cilium MTU empirically (spin a prov, try candidate
    values, verify `cilium_wg0 >= pod_route_mtu + VXLAN` AND pod cross-node TCP + a large
