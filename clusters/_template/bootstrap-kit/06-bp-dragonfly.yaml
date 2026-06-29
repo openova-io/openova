@@ -85,7 +85,12 @@ spec:
       # 127.0.0.1:4001; upstream registry = ghcr (ghcr-pull auth). Every
       # workload + initContainer carries non-zero resources.requests for the
       # host-ns Kyverno resource-requests Enforce policy.
-      version: 0.1.0
+      # 0.1.1 (#4649): Kyverno readOnlyRootFilesystem compliance — emptyDir
+      # extraVolumes for every dfdaemon-writable path + OTel annotation in the
+      # chart; the securityContext is injected by the postRenderers below
+      # (upstream chart has no securityContext knob). Lockstep with the slot's
+      # postRenderers block at the bottom of this file.
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-dragonfly
@@ -138,3 +143,84 @@ spec:
               # (harbor-core.harbor.svc) in a single line — a separate, later-
               # validated step (platform/self-sovereign-cutover/), NOT here.
               addr: ${SOVEREIGN_DRAGONFLY_UPSTREAM_REGISTRY:=https://ghcr.io}
+  # ── Kyverno readOnlyRootFilesystem compliance (#4649) ─────────────────────
+  # The cluster `runasnonroot-readonlyrootfs` ClusterPolicy (Enforce on a
+  # cutover-stage prov) DENIES any container without
+  # securityContext.readOnlyRootFilesystem=true. On kom4dc fbf043d2 it blocked
+  # the dfdaemon DaemonSet (DESIRED=4 CURRENT=0) → no node containerd mirror at
+  # 127.0.0.1:4001 → the cutover's catalyst-api re-pull `connection refused` →
+  # ImagePullBackOff → cutover wedged at step-07 (sibling of #4637).
+  #
+  # The upstream dragonflyoss/dragonfly 1.7.0 chart exposes NO securityContext
+  # value knob for any component, so the field is injected here via the
+  # canonical Catalyst Flux postRenderers Kustomize patch (cf. 03-flux.yaml).
+  # Targets use the release-name-INDEPENDENT `component` label, NOT the
+  # release-prefixed object name. The emptyDir mounts for every path the
+  # read-only root then requires are baked into the chart values.yaml (#4649).
+  #
+  # The bundled mysql + redis bitnami subcharts already set
+  # readOnlyRootFilesystem=true themselves — they are NOT patched here.
+  #
+  # SCOPE: only readOnlyRootFilesystem (the live-enforced rule) + drop-ALL caps
+  # + no-privilege-escalation are applied — uniformly to all 4 dragonflyoss
+  # containers. The policy's runAsNonRoot rule defaults to Audit (anyPattern:
+  # Pod-level OR every-container) and was NOT in the live denial; the
+  # dragonflyoss images run as root (User:'' in the image config) and the
+  # dfdaemon `client` STRUCTURALLY needs root (hostNetwork/hostPID/hostIPC +
+  # the /var/run/dragonfly hostPath socket dir). Forcing runAsUser on the
+  # currently-running manager/scheduler/seed risks a crashloop that cannot be
+  # live-verified from here, so it is intentionally NOT applied. If a Sovereign
+  # flips the runAsNonRoot rule to Enforce, exclude the `dragonfly` namespace
+  # (same tier as the host-ns control planes already excluded) rather than
+  # re-image the upstream binaries.
+  postRenderers:
+    - kustomize:
+        patches:
+          # dfdaemon (client DaemonSet) — the live-denied workload.
+          - target:
+              kind: DaemonSet
+              labelSelector: component=client
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/securityContext
+                value:
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]
+          # manager (Deployment)
+          - target:
+              kind: Deployment
+              labelSelector: component=manager
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/securityContext
+                value:
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]
+          # scheduler (StatefulSet)
+          - target:
+              kind: StatefulSet
+              labelSelector: component=scheduler
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/securityContext
+                value:
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]
+          # seed-client (StatefulSet)
+          - target:
+              kind: StatefulSet
+              labelSelector: component=seed-client
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/securityContext
+                value:
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]

@@ -69,6 +69,41 @@ dragonfly:
         limits:
           cpu: 500m
           memory: 512Mi
+    # ── Kyverno readOnlyRootFilesystem compliance (#4649) ──────────────────
+    # The cluster `runasnonroot-readonlyrootfs` Enforce ClusterPolicy DENIES
+    # any container without securityContext.readOnlyRootFilesystem=true. The
+    # upstream chart exposes NO securityContext knob, so the bootstrap-kit
+    # slot injects it via Flux postRenderers — but readOnlyRootFilesystem=true
+    # makes `/` read-only, so EVERY path the manager writes must be a mounted
+    # volume. The upstream default already mounts `logs`→/var/log/dragonfly/
+    # manager; add a writable work/cache home (workHome/cacheDir default to a
+    # path under the binary home) plus /tmp. The OTel annotation satisfies the
+    # `workload-must-be-otel-instrumented` Audit finding (manager is Go).
+    podAnnotations:
+      instrumentation.opentelemetry.io/inject-go: "true"
+    extraVolumes:
+      - name: logs
+        emptyDir: {}
+      - name: work
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+    extraVolumeMounts:
+      - name: logs
+        mountPath: /var/log/dragonfly/manager
+      - name: work
+        mountPath: /var/lib/dragonfly
+      - name: tmp
+        mountPath: /tmp
+    # Pin every writable dir under a MOUNTED path. Upstream leaves these empty
+    # ⇒ the binary defaults to $HOME/.dragonfly (/root/.dragonfly, read-only
+    # once readOnlyRootFilesystem=true). Explicit paths land on the `work`
+    # (/var/lib/dragonfly) + `logs` emptyDirs above.
+    config:
+      server:
+        workHome: /var/lib/dragonfly
+        logDir: /var/log/dragonfly/manager
+        cacheDir: /var/lib/dragonfly/cache
 
   # ── Scheduler (decides which peer serves which piece) ──────────────────
   scheduler:
@@ -89,6 +124,29 @@ dragonfly:
         limits:
           cpu: 500m
           memory: 512Mi
+    # ── Kyverno readOnlyRootFilesystem compliance (#4649) — see manager note ─
+    podAnnotations:
+      instrumentation.opentelemetry.io/inject-go: "true"
+    extraVolumes:
+      - name: logs
+        emptyDir: {}
+      - name: work
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+    extraVolumeMounts:
+      - name: logs
+        mountPath: /var/log/dragonfly/scheduler
+      - name: work
+        mountPath: /var/lib/dragonfly
+      - name: tmp
+        mountPath: /tmp
+    config:
+      server:
+        workHome: /var/lib/dragonfly
+        logDir: /var/log/dragonfly/scheduler
+        cacheDir: /var/lib/dragonfly/cache
+        dataDir: /var/lib/dragonfly/data
 
   # ── Seed Peer (seedClient) — does the per-cluster upstream fetch ───────
   # 1-2 seed nodes fetch each blob from ghcr ONCE, then the dfdaemon mesh
@@ -121,6 +179,31 @@ dragonfly:
       # Per #3971 a classless PVC is FORBIDDEN; the per-Sovereign overlay sets
       # SOVEREIGN_DRAGONFLY_SEED_STORAGE_CLASS to the provider's durable class.
       storageClass: ""
+    # ── Kyverno readOnlyRootFilesystem compliance (#4649) ──────────────────
+    # The seed peer is a dfdaemon (Rust). Its data dir /var/lib/dragonfly is
+    # the persistence PVC (already mounted) and its log dir /var/log/dragonfly/
+    # dfdaemon/ is the upstream `logs` emptyDir (re-declared below since setting
+    # extraVolumes OVERRIDES the upstream default). What the upstream seed-client
+    # StatefulSet does NOT mount — but the dfdaemon writes — is the unix-socket
+    # dir /var/run/dragonfly (download.server.socketPath) — on a read-only root
+    # the socket create would EACCES. Mount it (emptyDir; seed is NOT
+    # hostNetwork) plus /tmp. OTel annotation = Go/Rust dfdaemon (Audit finding).
+    podAnnotations:
+      instrumentation.opentelemetry.io/inject-go: "true"
+    extraVolumes:
+      - name: logs
+        emptyDir: {}
+      - name: socket-dir
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+    extraVolumeMounts:
+      - name: logs
+        mountPath: /var/log/dragonfly/dfdaemon/
+      - name: socket-dir
+        mountPath: /var/run/dragonfly
+      - name: tmp
+        mountPath: /tmp
     config:
       seedPeer:
         enable: true
@@ -154,6 +237,39 @@ dragonfly:
         limits:
           cpu: "1"
           memory: 1Gi
+    # ── Kyverno readOnlyRootFilesystem compliance (#4649) — the live denial ─
+    # The cluster `runasnonroot-readonlyrootfs` Enforce policy DENIED this
+    # DaemonSet (DESIRED=4 CURRENT=0) on kom4dc fbf043d2; zero dfdaemon pods →
+    # the cutover's catalyst-api re-pull hits `dial tcp 127.0.0.1:4001:
+    # connection refused` → ImagePullBackOff → cutover wedges at step-07. The
+    # securityContext (readOnlyRootFilesystem:true) is injected by the slot's
+    # Flux postRenderers (the upstream chart has no securityContext knob). With
+    # `/` read-only, every dfdaemon-writable path must be a mounted volume:
+    #   - /var/lib/dragonfly/          (storage.dir)  → `storage` emptyDir
+    #   - /var/log/dragonfly/dfdaemon/ (log dir)      → `logs` emptyDir
+    #   - /var/run/dragonfly           (socketPath)   → `socket-dir` hostPath
+    #                                     (template-managed; left as upstream)
+    #   - /tmp                                          → `tmp` emptyDir (added)
+    # Setting extraVolumes OVERRIDES the upstream `storage`+`logs` default, so
+    # both are re-declared here alongside the new `tmp`. The dfdaemon keeps
+    # running as root (hostNetwork/hostPID/hostIPC + the hostPath socket dir
+    # require it) — runAsNonRoot is NOT forced on it.
+    podAnnotations:
+      instrumentation.opentelemetry.io/inject-go: "true"
+    extraVolumes:
+      - name: storage
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+    extraVolumeMounts:
+      - name: storage
+        mountPath: /var/lib/dragonfly/
+      - name: logs
+        mountPath: /var/log/dragonfly/dfdaemon/
+      - name: tmp
+        mountPath: /tmp
     config:
       # ── dfdaemon proxy = the node's containerd registry mirror ──────────
       # containerd on every node is configured (by dfinit below — or by

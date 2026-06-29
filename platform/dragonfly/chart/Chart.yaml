@@ -40,7 +40,15 @@ keywords: [catalyst, blueprint, dragonfly, p2p, registry, oci, image, distributi
 # scheduler + seedClient replicas 1, bundled mysql + redis enabled, every
 # workload + initContainer carries non-zero resources.requests so the
 # cluster Kyverno `resource-requests` Enforce policy admits it.
-version: 0.1.0
+# 0.1.1 (#4649): Kyverno `runasnonroot-readonlyrootfs` compliance. The
+# upstream chart has NO securityContext knob, so readOnlyRootFilesystem=true
+# is injected on all 4 dragonflyoss workloads via the bootstrap-kit slot's
+# Flux postRenderers; this chart adds the emptyDir extraVolumes/Mounts for
+# every dfdaemon-writable path (/var/lib/dragonfly, log dir, /var/run/
+# dragonfly socket, /tmp) so the read-only root does not crashloop, plus the
+# OTel inject-go annotation. Fixes the dfdaemon DaemonSet DESIRED=4 CURRENT=0
+# denial that wedged the self-sovereign cutover at the catalyst-api re-pull.
+version: 0.1.1
 appVersion: "2.5.0"
 maintainers:
   - name: OpenOva Catalyst

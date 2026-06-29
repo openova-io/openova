@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.1.0  # lockstep with chart/Chart.yaml (#4639 initial bp-dragonfly)
+  version: 0.1.1  # lockstep with chart/Chart.yaml (#4649 Kyverno readonlyrootfs compliance)
   card:
     title: Dragonfly
     family: foundation
