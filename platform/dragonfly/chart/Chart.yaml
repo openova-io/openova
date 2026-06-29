@@ -1,0 +1,58 @@
+apiVersion: v2
+name: bp-dragonfly
+description: |
+  Catalyst Blueprint umbrella chart for Dragonfly. Depends on the upstream
+  `dragonfly` chart (dragonflyoss/helm-charts) as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `dragonfly:` key in values.yaml.
+
+  Dragonfly is the per-cluster P2P container-image distribution layer
+  (design: docs/ideation/dragonfly-p2p-registry-cutover-redesign.md). It
+  deploys Manager + Scheduler + Seed Peer (seedClient) + a per-node
+  `dfdaemon` (the upstream `client` DaemonSet). Each node's containerd is
+  pointed at its LOCAL dfdaemon proxy; dfdaemon fetches each blob from the
+  upstream registry ONCE per cluster and distributes it peer-to-peer over
+  the LAN. The node IS the cache.
+
+  This replaces (a) the centralized bastion proxy-cache
+  (harbor.openova.io — SPOF, anon-401s, hw159 ImagePullBackOff) and
+  (b) the per-cloud hairpin registry-pivot that wedges the self-sovereign
+  cutover on no-hairpin clouds (kom4dc/Huawei). The node→127.0.0.1
+  dfdaemon path is identical on every cloud (zero per-cloud branches).
+
+  Pre-cutover the upstream registry is ghcr.io (authenticated via the
+  `ghcr-pull` Secret). Post-cutover a one-line dfdaemon upstream flip
+  points it at the cluster-LOCAL Harbor (harbor-core.harbor.svc) — that
+  pivot is a SEPARATE, later-validated step (platform/self-sovereign-
+  cutover/) and is NOT wired here.
+
+  Design = self-contained PER CLUSTER (operator decision (A), §8a of the
+  design doc): each cluster runs its OWN Dragonfly mesh and self-seeds
+  from ghcr through its own additively-allow-listed egress. There is NO
+  cross-plane / cross-region image path — blast radius is one cluster.
+  Per-plane / per-region deployment is a bootstrap-kit slot concern, not
+  chart internals.
+type: application
+keywords: [catalyst, blueprint, dragonfly, p2p, registry, oci, image, distribution]
+# 0.1.0 (#4639): initial bp-dragonfly. Wraps upstream dragonfly 1.7.0
+# (appVersion 2.5.0 / client v1.4.0). Single-cluster defaults: manager +
+# scheduler + seedClient replicas 1, bundled mysql + redis enabled, every
+# workload + initContainer carries non-zero resources.requests so the
+# cluster Kyverno `resource-requests` Enforce policy admits it.
+version: 0.1.0
+appVersion: "2.5.0"
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to dragonflyoss/dragonfly 1.7.0 (appVersion 2.5.0) — current
+# stable on 2026-06-29. Per docs/PRINCIPLES.md #4 (never hardcode) the
+# version is operator-bumpable via PR + Blueprint release. The upstream
+# chart bundles its own mysql + redis subcharts inside the tgz, so
+# `helm dependency build` of THIS umbrella pulls them transitively (no
+# extra repo wiring needed).
+dependencies:
+  - name: dragonfly
+    version: "1.7.0"
+    repository: "https://dragonflyoss.github.io/helm-charts/"

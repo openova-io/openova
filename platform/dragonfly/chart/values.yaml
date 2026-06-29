@@ -1,0 +1,258 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as
+# a Helm subchart via Chart.yaml `dependencies:`. Catalyst-curated values
+# under the `dragonfly:` key flow into the upstream subchart unchanged.
+#
+# Per docs/PRINCIPLES.md #4 (never hardcode), every operationally-meaningful
+# value is configurable; cluster overlays in clusters/<sovereign>/ may
+# override any of these without rebuilding the Blueprint OCI artifact.
+#
+# Design: docs/ideation/dragonfly-p2p-registry-cutover-redesign.md
+#   - Manager + Scheduler + Seed Peer (seedClient) + per-node dfdaemon
+#     (upstream `client` DaemonSet).
+#   - containerd on every node is pointed at the LOCAL dfdaemon proxy; the
+#     dfdaemon fetches each blob from the upstream registry ONCE per cluster
+#     and distributes it P2P over the LAN.
+#   - Pre-cutover upstream = ghcr.io (component images pull via ghcr-pull).
+#     Post-cutover a one-line `registryMirror.addr` flip points it at the
+#     cluster-LOCAL Harbor — NOT wired here (separate cutover step).
+#   - Self-contained PER CLUSTER (operator decision (A)): no cross-plane /
+#     cross-region image path.
+
+catalystBlueprint:
+  upstream:
+    chart: dragonfly
+    version: "1.7.0"
+    repo: "https://dragonflyoss.github.io/helm-charts/"
+
+# ─── Upstream chart values (subchart key: dragonfly) ──────────────────────
+dragonfly:
+  # ── Global image-pull auth ─────────────────────────────────────────────
+  # The Dragonfly component images (manager/scheduler/client/dfinit) live on
+  # docker.io upstream. On a Catalyst Sovereign every Dragonfly image is
+  # mirrored under ghcr.io/openova-io and pulled with the `ghcr-pull` Secret
+  # (cloud-init seeds it in every namespace via the reflector). global.*
+  # cascades to every sub-component's pod spec.
+  #
+  # NOTE on the chicken-and-egg (design §3): on a fresh prov dfdaemon itself
+  # must be pulled BEFORE it can serve P2P. The design pre-bakes dfdaemon +
+  # Cilium into the node image (k3s airgap tar) — that cloud-init wiring is a
+  # SEPARATE change (#4639 explicitly defers it). For v1 the dfdaemon image
+  # pulls itself from ghcr via ghcr-pull on first install; everything ELSE
+  # comes up through dfdaemon once it is serving.
+  global:
+    imageRegistry: ""
+    imagePullSecrets:
+      - name: ghcr-pull
+
+  # ── Manager (control plane: scheduler registry + Org/SeedPeer DB) ───────
+  # Single-cluster default: 1 replica (HA overlay bumps to 3). The bundled
+  # mysql + redis subcharts back it (see mysql: / redis: below). EVERY
+  # workload + initContainer carries non-zero resources.requests because the
+  # cluster Kyverno `resource-requests` Enforce ClusterPolicy DENIES any pod
+  # with a zero/absent request — the upstream chart defaults requests to '0'.
+  manager:
+    enable: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    # initContainer waits for mysql/redis readiness.
+    initContainer:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+  # ── Scheduler (decides which peer serves which piece) ──────────────────
+  scheduler:
+    enable: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    initContainer:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+  # ── Seed Peer (seedClient) — does the per-cluster upstream fetch ───────
+  # 1-2 seed nodes fetch each blob from ghcr ONCE, then the dfdaemon mesh
+  # distributes it P2P. Single-cluster default: 1 replica. Persistence is a
+  # small per-seed cache (default 100Gi upstream → trimmed to a modest
+  # bootstrap default; the per-Sovereign overlay sizes it and names a
+  # durable cloud StorageClass — local-path is FORBIDDEN per #3971).
+  seedClient:
+    enable: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    initContainer:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    persistence:
+      enable: true
+      size: 20Gi
+      # Empty ⇒ cluster-default durable cloud CSI (hcloud-volumes / evs-ssd).
+      # Per #3971 a classless PVC is FORBIDDEN; the per-Sovereign overlay sets
+      # SOVEREIGN_DRAGONFLY_SEED_STORAGE_CLASS to the provider's durable class.
+      storageClass: ""
+    config:
+      seedPeer:
+        enable: true
+      # The seed peer's own proxy carries the SAME ghcr upstream default as
+      # the per-node dfdaemon so a seed-side miss back-to-sources to ghcr.
+      proxy:
+        registryMirror:
+          # Pre-cutover upstream registry. Post-cutover the cutover step
+          # flips this to the cluster-local Harbor (harbor-core.harbor.svc).
+          addr: https://ghcr.io
+
+  # ── dfdaemon (per-node peer; upstream `client` DaemonSet) ──────────────
+  # hostNetwork/hostPID/hostIPC are upstream defaults (the proxy must be
+  # reachable on the node's 127.0.0.1 and the dfinit must edit the host
+  # containerd config). Requests are modest; the per-node proxy is mostly
+  # network + disk bound.
+  client:
+    enable: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    initContainer:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+    config:
+      # ── dfdaemon proxy = the node's containerd registry mirror ──────────
+      # containerd on every node is configured (by dfinit below — or by
+      # cloud-init in the airgap-bundle change) to mirror EVERY registry
+      # through this local proxy. dfdaemon then fetches each blob once per
+      # cluster and serves the rest P2P.
+      #
+      # PORT NOTE: the design doc names `127.0.0.1:65001` — that is the
+      # Dragonfly 1.x `dfget` HTTP-proxy port. The modern client (2.x /
+      # appVersion 2.5.0, the version this Blueprint wraps) listens on
+      # 127.0.0.1:4001. The containerd mirror endpoint dfinit writes is
+      # http://127.0.0.1:4001 accordingly. Operators who must keep the
+      # legacy 65001 endpoint override proxy.server.port + the dfinit
+      # proxy.addr in lockstep.
+      proxy:
+        server:
+          port: 4001
+        registryMirror:
+          # Pre-cutover upstream registry = ghcr. The proxy starts a
+          # registry-mirror service the node's containerd points at; on a
+          # cache miss dfdaemon back-to-sources to this addr (once per blob
+          # per cluster), then P2P-distributes. Post-cutover the cutover
+          # step flips this single line to harbor-core.harbor.svc.
+          addr: https://ghcr.io
+
+    # ── dfinit — write the host containerd registry-mirror config ──────────
+    # dfinit edits the node's /etc/containerd/config.toml hosts.d so every
+    # registry namespace mirrors through the local dfdaemon proxy
+    # (http://127.0.0.1:4001). `proxyAllRegistries: true` installs a
+    # catch-all _default/hosts.toml so ANY registry (incl. ghcr.io and
+    # docker.io) is proxied; the explicit `registries` list pins ghcr.io +
+    # docker.io with pull/resolve.
+    #
+    # DEFAULT OFF: in the v1 design (#4639) the node image / cloud-init owns
+    # the containerd-mirror wiring (the airgap-bundle change), so dfinit is
+    # disabled by default to avoid two writers fighting over config.toml and
+    # to keep `restartContainerRuntime` (which bounces containerd) out of the
+    # default path. A per-Sovereign overlay that is NOT pre-baking the mirror
+    # into the node image flips `dfinit.enable: true` to let Dragonfly itself
+    # install the containerd mirror at install time.
+    dfinit:
+      enable: false
+      restartContainerRuntime: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      config:
+        proxy:
+          # Must match client.config.proxy.server.port above.
+          addr: http://127.0.0.1:4001
+        containerRuntime:
+          containerd:
+            configPath: /etc/containerd/config.toml
+            proxyAllRegistries: true
+            registries:
+              - hostNamespace: ghcr.io
+                serverAddr: https://ghcr.io
+                capabilities: ['pull', 'resolve']
+                skipVerify: true
+              - hostNamespace: docker.io
+                serverAddr: https://index.docker.io
+                capabilities: ['pull', 'resolve']
+                skipVerify: true
+
+  # ── Injector (mutating webhook that injects a dfget initContainer) ─────
+  # OFF: Catalyst uses the containerd-mirror path (every node's containerd →
+  # local dfdaemon), NOT pod mutation. Keeping the injector off also avoids a
+  # cert-manager-backed webhook in the image path (one fewer bootstrap dep).
+  injector:
+    enable: false
+
+  # ── Bundled MySQL (manager metadata DB) ────────────────────────────────
+  # Single-cluster default: the chart's bundled bitnami mysql subchart backs
+  # the manager. A production overlay may point the manager at an external
+  # CNPG/MySQL via dragonfly.externalMysql + dragonfly.mysql.enable=false.
+  # The bitnami subchart already sets its own resources; nothing to add here.
+  mysql:
+    enable: true
+    primary:
+      persistence:
+        size: 8Gi
+
+  # ── Bundled Redis (manager cache / scheduler coordination) ─────────────
+  redis:
+    enable: true
+    master:
+      persistence:
+        size: 8Gi
+
+# ─── Catalyst overlay values (reserved) ───────────────────────────────────
+# Reserved for Catalyst-side overlays added once bp-dragonfly is consumed in
+# clusters/_template/ (per-component NetworkPolicy / CNP allow-list for the
+# additive egress to ghcr; ExternalSecret projecting any future registry
+# credential; the post-cutover registryMirror.addr flip seam). v1 keeps this
+# empty so `helm template` renders cleanly with no extra CRDs.
+dragonflyOverlay:
+  networkPolicy:
+    enabled: false

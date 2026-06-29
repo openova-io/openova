@@ -1,0 +1,140 @@
+# bp-dragonfly — Catalyst bootstrap-kit Blueprint, slot 06.
+#
+# Per-cluster P2P container-image distribution. A per-node dfdaemon serves
+# every node's containerd registry-mirror (127.0.0.1:4001); each blob is
+# fetched from the upstream registry ONCE per cluster (ghcr.io pre-cutover)
+# and then distributed peer-to-peer over the LAN. Replaces the centralized
+# bastion proxy-cache + the per-cloud hairpin registry-pivot (#4639).
+#
+# Wrapper chart: platform/dragonfly/chart/ (umbrella over the upstream
+# dragonflyoss/dragonfly chart, Catalyst-curated values under the
+# `dragonfly:` key).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# SLOT ORDER (design §6.1: "a bootstrap-kit slot, early order"). Sorted EARLY
+# — right after bp-cilium [CNI, slot 01] + bp-flux [GitOps, slot 03] +
+# crossplane/reflector, and BEFORE the image-heavy components (nats 07,
+# openbao 08, keycloak 09, gitea 10, harbor 19). Flux respects the dependsOn
+# edge below for actual install order; the numeric prefix only sets the
+# kustomization list position. Once dfdaemon is serving, every later HR's
+# image pull can flow node→127.0.0.1 dfdaemon→ghcr (once-per-blob)→P2P.
+#
+# SELF-CONTAINED PER CLUSTER (operator decision (A), design §8a): this slot
+# installs on EVERY cluster (every region, every plane) and each cluster runs
+# its OWN mesh + self-seeds from ghcr. No cross-plane/cross-region image path.
+#
+# CHICKEN-AND-EGG NOTE: on a fresh prov dfdaemon itself must be pulled before
+# it can serve P2P. The design pre-bakes dfdaemon + Cilium into the node image
+# (k3s airgap tar) + sets the containerd 127.0.0.1:4001 mirror at boot — that
+# cloud-init wiring is a SEPARATE change (#4639 defers it). For v1 dfdaemon
+# pulls itself from ghcr via ghcr-pull on first install; everything ELSE comes
+# up through dfdaemon. The post-handover registry-pivot (ghcr → local Harbor)
+# is ALSO a separate, later-validated cutover step — NOT wired here.
+
+---
+# Host namespace for the Dragonfly mesh. Flux applies Namespace kinds before
+# namespaced resources, so declaring it here guarantees it exists in the first
+# pass (mirrors the gitea/harbor/newapi slot convention — an absent namespace
+# fails the namespaced-resource dry-run and wedges the whole bootstrap-kit
+# reconcile).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dragonfly
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-dragonfly
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-dragonfly
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  labels:
+    catalyst.openova.io/slot: "06"
+spec:
+  # interval 1m so install remediation retries fire within ~5min total
+  # (mirrors the slot-19 harbor cadence). Dragonfly's manager waits on its
+  # bundled mysql + redis init, which can legitimately take a few minutes on
+  # cold k3s — the explicit timeout below covers that.
+  interval: 1m
+  releaseName: dragonfly
+  targetNamespace: dragonfly
+  dependsOn:
+    # CNI must be Ready: dfdaemon is hostNetwork and the per-cluster P2P mesh
+    # rides the pod network. bp-cilium (slot 01) provides both.
+    - name: bp-cilium
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-dragonfly
+      # 0.1.0 (#4639): initial bp-dragonfly. Wraps upstream dragonfly 1.7.0
+      # (appVersion 2.5.0 / client v1.4.0). Manager + Scheduler + Seed Peer +
+      # per-node dfdaemon DaemonSet; dfdaemon proxy = node containerd mirror at
+      # 127.0.0.1:4001; upstream registry = ghcr (ghcr-pull auth). Every
+      # workload + initContainer carries non-zero resources.requests for the
+      # host-ns Kyverno resource-requests Enforce policy.
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-dragonfly
+        namespace: flux-system
+  # Event-driven install per docs/PRINCIPLES.md #3. timeout 15m — the manager's
+  # bundled mysql + redis init + the scheduler/seed wait-for chains legitimately
+  # need >5m on cold k3s (same canonical-seam pattern as harbor slot 19).
+  install:
+    createNamespace: true
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 5
+      remediateLastFailure: true
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 5
+      remediateLastFailure: true
+  values:
+    dragonfly:
+      # G87 #2634 idiom: single-region default 1, multi-region bump via the
+      # cloud-init substitute. Dragonfly's mesh is self-contained per cluster
+      # so this is per-cluster replica sizing, not cross-region replication.
+      manager:
+        replicas: ${SOVEREIGN_DRAGONFLY_MANAGER_REPLICAS:=1}
+      scheduler:
+        replicas: ${SOVEREIGN_DRAGONFLY_SCHEDULER_REPLICAS:=1}
+      seedClient:
+        replicas: ${SOVEREIGN_DRAGONFLY_SEED_REPLICAS:=1}
+        persistence:
+          # #3971 — name the per-provider durable CSI class explicitly so the
+          # seed cache PVC is NEVER created classless (an unset class freezes to
+          # "" before a default StorageClass exists, permanently stranding it
+          # Pending). Sourced from cloud-init per-provider env (hcloud-volumes
+          # on Hetzner, evs-ssd on Huawei); empty default preserves the legacy
+          # omit-when-empty CI `helm template` path.
+          storageClass: ${SOVEREIGN_DRAGONFLY_SEED_STORAGE_CLASS:=}
+        config:
+          proxy:
+            registryMirror:
+              addr: ${SOVEREIGN_DRAGONFLY_UPSTREAM_REGISTRY:=https://ghcr.io}
+      client:
+        config:
+          proxy:
+            registryMirror:
+              # Pre-cutover upstream registry. The post-handover self-sovereign
+              # cutover flips this to the cluster-LOCAL Harbor
+              # (harbor-core.harbor.svc) in a single line — a separate, later-
+              # validated step (platform/self-sovereign-cutover/), NOT here.
+              addr: ${SOVEREIGN_DRAGONFLY_UPSTREAM_REGISTRY:=https://ghcr.io}

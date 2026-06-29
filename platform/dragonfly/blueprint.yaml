@@ -1,0 +1,139 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: dragonfly
+  labels:
+    catalyst.openova.io/section: pts-3-5-storage-and-data
+    catalyst.openova.io/tier: catalyst-cp
+spec:
+  version: 0.1.0  # lockstep with chart/Chart.yaml (#4639 initial bp-dragonfly)
+  card:
+    title: Dragonfly
+    family: foundation
+    description: >-
+      Per-cluster P2P container-image distribution. A per-node dfdaemon serves
+      every node's containerd registry-mirror; each image blob is fetched from
+      the upstream registry ONCE per cluster (ghcr.io pre-cutover, the local
+      Harbor post-cutover) and then distributed peer-to-peer over the LAN — the
+      node IS the cache. Replaces the centralized bastion proxy-cache (SPOF,
+      anon-401s) and the per-cloud hairpin registry-pivot that wedges the
+      self-sovereign cutover on no-hairpin clouds. Deploys Manager + Scheduler +
+      Seed Peer + a per-node dfdaemon DaemonSet. Self-contained per cluster — no
+      cross-plane/cross-region image path.
+    docs: https://d7y.io/docs/
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      upstreamRegistry:
+        type: string
+        default: "https://ghcr.io"
+        description: >-
+          Upstream registry the seed peer + dfdaemon back-to-source on a cache
+          miss. Pre-cutover this is ghcr.io (authenticated via the ghcr-pull
+          Secret). The self-sovereign cutover flips it to the cluster-local
+          Harbor (harbor-core.harbor.svc) in a single line — that pivot is a
+          SEPARATE, later-validated step and is not driven from this card.
+      proxyPort:
+        type: integer
+        default: 4001
+        minimum: 1
+        maximum: 65535
+        description: >-
+          Node-local dfdaemon HTTP proxy port that containerd mirrors through
+          (127.0.0.1:<proxyPort>). 4001 is the modern Dragonfly 2.x client
+          port; the legacy 1.x dfget port was 65001.
+      seedReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 5
+        description: Seed-peer replicas. 1 for a single-cluster default; bump alongside an HA overlay.
+      managerReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 3
+      schedulerReplicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 3
+      seedStorageSize:
+        type: string
+        default: "20Gi"
+        description: Per-seed-peer cache PVC size. Bound to a durable cloud StorageClass (local-path FORBIDDEN, #3971).
+
+  placementSchema:
+    # bp-dragonfly is a per-CLUSTER singleton mesh with NO cross-cluster shared
+    # state — each cluster (every region, every plane) runs its own independent
+    # Dragonfly + self-seeds from ghcr (design §8/§8a). There is no replication
+    # or switchover primitive, so the only honest topology is `singleton`
+    # (replicated per cluster by the bootstrap-kit, not by a DR mechanism). A
+    # DR variant (active-hot-standby/active-passive) would require a
+    # replication+switchover declaration the mesh simply does not have.
+    modes: [singleton]
+    default: singleton
+    defaultOnMultiRegion: singleton
+    minRegions: 1
+    maxRegions: 2
+
+  # ── Class-level placement: HOST. dfdaemon is a per-node DaemonSet on the
+  # host kubelet's containerd — it CANNOT live in a vCluster. The whole mesh
+  # (manager/scheduler/seed/dfdaemon) is a host-substrate registry-distribution
+  # layer, sibling to the CNI. Self-contained PER CLUSTER (#4639 design §8a).
+  defaultPlacement:
+    vcluster: host
+  allowedPlacements: [host]
+
+  manifests:
+    chart: ./chart
+  depends:
+    # CNI must exist first — dfdaemon is hostNetwork + the proxy serves the
+    # node's containerd; the per-cluster P2P mesh rides the pod network.
+    - blueprint: bp-cilium
+      version: ^1
+  upgrades:
+    from: []
+
+  # ── Topology ─────────────────────────────────────────────────────────────
+  # Per the design §8/§8a: bp-dragonfly installs PER CLUSTER (every region,
+  # every plane), each cluster fully independent + self-seeded from ghcr. There
+  # is NO cross-cluster image dependency — cross-cluster P2P is an optimization
+  # only, never a hard dependency, and the mesh is stateless beyond each seed's
+  # regenerable local cache. So the ONLY honest topology is `singleton` (the
+  # bootstrap-kit replicates this same singleton mesh per cluster). A DR variant
+  # (active-hot-standby/active-passive) is intentionally NOT declared: it would
+  # require a replication+switchover primitive the mesh does not have — a
+  # region-B cluster survives a region-A loss because it runs its OWN mesh and
+  # re-seeds from upstream, NOT because state is replicated from region-A.
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── Endpoints ──────────────────────────────────────────────────────────
+  # Dragonfly has no operator-facing public endpoint by default. The Manager
+  # ships a console (port 8080) but it is an internal control surface, not a
+  # per-Sovereign published host — kept ClusterIP-only. No HTTPRoute in v1.
+  endpoints: []
+
+  # ── SSO ──────────────────────────────────────────────────────────────────
+  # No SSO surface in v1 — there is no published operator console endpoint.
+  # If the Manager console is later exposed it opts into bp-sso-bridge like
+  # harbor/grafana; not in scope for #4639.
+
+  # ── Multi-instance ─────────────────────────────────────────────────────
+  # ONE Dragonfly mesh per cluster (the per-node dfdaemon DaemonSet is
+  # cluster-singleton by construction).
+  multiInstance:
+    enabled: false
