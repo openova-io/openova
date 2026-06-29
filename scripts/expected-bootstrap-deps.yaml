@@ -86,6 +86,20 @@ slots:
     # Used by bp-gitea + bp-harbor to propagate CNPG-generated pg-app Secrets.
     depends_on: [bp-cert-manager]
     wave: present
+  - slot: 6
+    name: bp-dragonfly
+    # bp-dragonfly (#4639) — per-cluster P2P container-image distribution
+    # (Manager + Scheduler + Seed Peer + per-node dfdaemon DaemonSet). dfdaemon
+    # serves each node's containerd registry-mirror at 127.0.0.1:4001; each blob
+    # is fetched from ghcr ONCE per cluster then distributed P2P over the LAN.
+    # Replaces the centralized bastion proxy-cache + per-cloud hairpin registry-
+    # pivot. Ordered EARLY (after CNI + flux, before the image-heavy components)
+    # so later HRs' pulls flow through the mesh. dependsOn bp-cilium — dfdaemon
+    # is hostNetwork and the P2P mesh rides the pod network (CNI must be Ready).
+    # Self-contained per cluster — no cross-plane/cross-region image path. The
+    # post-cutover registry-pivot (ghcr → local Harbor) is a SEPARATE later step.
+    depends_on: [bp-cilium]
+    wave: present
   - slot: 7
     name: bp-nats-jetstream
     # G92.2 #2661 (2026-06-01): MGMT vCluster placement. HR carries

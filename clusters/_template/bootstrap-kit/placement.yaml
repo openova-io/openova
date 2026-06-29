@@ -82,6 +82,8 @@ spec:
        namespace: kube-system, justification: "HOST-MINIMUM §4 — secret decryption substrate"}
     - {file: 05a-reflector.yaml, hr: bp-reflector, vcluster: host, target: host,
        namespace: reflector, justification: "HOST-MINIMUM §4 — canonical cross-namespace Secret mirror"}
+    - {file: 06-bp-dragonfly.yaml, hr: bp-dragonfly, vcluster: host, target: host,
+       namespace: dragonfly, justification: "HOST-MINIMUM §4 — per-node dfdaemon DaemonSet serves the host kubelet's containerd registry-mirror (127.0.0.1:4001); the P2P image-distribution substrate is a CNI sibling and cannot live in a vCluster (#4639)"}
     - {file: 06a-bp-self-sovereign-cutover.yaml, hr: bp-self-sovereign-cutover, vcluster: host, target: host,
        namespace: catalyst, justification: "HOST-MINIMUM §4 — host-credential surgery by design (8-tether pivot, ADR-0002)"}
     - {file: 11-powerdns.yaml, hr: bp-powerdns, vcluster: host, target: host,

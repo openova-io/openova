@@ -27,6 +27,18 @@ resources:
   - 04-crossplane.yaml
   - 05-sealed-secrets.yaml
   - 05a-reflector.yaml
+  # bp-dragonfly (slot 06, #4639) — per-cluster P2P container-image
+  # distribution (Manager + Scheduler + Seed Peer + per-node dfdaemon
+  # DaemonSet). dfdaemon serves each node's containerd registry-mirror at
+  # 127.0.0.1:4001; each blob is fetched from ghcr ONCE per cluster then
+  # distributed P2P over the LAN. Replaces the centralized bastion proxy-cache
+  # + the per-cloud hairpin registry-pivot. Ordered EARLY (after CNI/flux,
+  # before the image-heavy components) so later HRs' pulls flow through the
+  # mesh. Self-contained per cluster — no cross-plane image path. dependsOn
+  # bp-cilium (CNI). MUST be registered here or Flux never creates the HR (the
+  # #3191 forgotten-slot wedge class). The post-cutover registry-pivot
+  # (ghcr → local Harbor) is a SEPARATE later step.
+  - 06-bp-dragonfly.yaml
   - 07-nats-jetstream.yaml
   - 08-openbao.yaml
   - 09-keycloak.yaml
