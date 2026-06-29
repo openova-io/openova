@@ -40,9 +40,12 @@ The cutover runner needs cluster-scope reach because:
     under the deny-egress hold and watches its replacement reach Running
     to prove a FRESH image pull resolves through local Harbor — needs
     pods {delete} + replicasets {get,list} (pod→Deployment ownership map).
-  - Registry-pivot DaemonSet writes to /etc/rancher/k3s/registries.yaml
-    on the host filesystem (hostPath, no K8s API needed beyond status
-    update on the cutover-status ConfigMap).
+  - Registry-pivot DaemonSet (step 04, #4639 Dragonfly rewrite) writes the
+    containerd `_default/hosts.toml` catch-all on the host filesystem
+    (hostPath → the node-local dfdaemon proxy), patches the bp-dragonfly
+    dfdaemon ConfigMap upstream + DaemonSet/StatefulSet hostAliases, reads
+    the cilium-gateway Service ClusterIP, and writes per-node acks +
+    the cluster-wide flip guard on the cutover-status ConfigMap.
 
 We use ClusterRole + ClusterRoleBinding because the namespaces touched
 are heterogeneous and cluster-scoped resources (CiliumNetworkPolicy)
@@ -112,7 +115,7 @@ rules:
     resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["services"]   # #4637: registry-pivot DaemonSet resolves the harbor-core Service ClusterIP (node-reachable) for the v2 containerd mirror endpoint instead of the un-hairpinnable public gateway EIP
+    resources: ["services"]   # #4639 (Refs #4637): registry-pivot DaemonSet resolves the cilium-gateway Service ClusterIP (node-routable, serves registry.<fqdn> wildcard TLS + token realm) for the dfdaemon hostAlias instead of the un-hairpinnable public gateway EIP
     verbs: ["get", "list", "watch"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["gateways"]   # step 06 Phase -1 (#1871, chart 0.1.32): wait for cilium-gateway Programmed=True before URL rewrite
@@ -141,7 +144,7 @@ rules:
     verbs: ["update", "patch"]   # step 07 sets env on catalyst-api deployment
   - apiGroups: ["apps"]
     resources: ["daemonsets", "statefulsets"]
-    verbs: ["update", "patch"]   # step 08 (#3695) rolls EVERY external-registry workload under deny-egress to prove fresh-pullability — kubectl rollout restart patches the workload's pod template
+    verbs: ["update", "patch"]   # step 08 (#3695) rolls EVERY external-registry workload under deny-egress to prove fresh-pullability — kubectl rollout restart patches the workload's pod template; AND step 04 (#4639) patches the bp-dragonfly dfdaemon DaemonSet + seed-peer StatefulSet hostAliases (registry.<fqdn> -> cilium-gateway ClusterIP) + restartedAt for the Dragonfly upstream flip
   - apiGroups: ["source.toolkit.fluxcd.io"]
     resources: ["gitrepositories", "helmrepositories"]
     verbs: ["update", "patch"]   # steps 05 + 06

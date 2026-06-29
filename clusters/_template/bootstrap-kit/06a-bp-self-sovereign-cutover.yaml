@@ -86,6 +86,14 @@ spec:
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-harbor
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    # #4639: the cutover registry-pivot (step-04) flips the bp-dragonfly dfdaemon
+    # mesh's upstream from ghcr to the local Harbor + adds the registry.<fqdn> ->
+    # cilium-gateway hostAlias. The dfdaemon DaemonSet + seed-peer + their
+    # ConfigMaps must exist before step-04 can patch them, so the cutover HR
+    # depends on bp-dragonfly (slot 06) being Ready. The chart itself is dormant,
+    # so an early apply is benign — this edge only orders the post-handover flip.
+    - name: bp-dragonfly
+      namespace: flux-system
     # NB on issue #1871 (TBD-A24 cutover↔gateway circular deadlock):
     # PR #1875 initially added `- name: sovereign-tls` to this list.
     # That fix was UNRESOLVABLE in Flux: HelmRelease.dependsOn can
@@ -648,6 +656,30 @@ spec:
       # insecureSkipVerify — certSecretRef is the only trust mechanism (mirrors
       # skopeo #4529 / helm #4557 / containerd step-04 / OBS #4573 F2). Fail-OPEN
       # when the CA is unreadable. Lockstep w/ Chart.yaml + blueprint.yaml.
+      # 0.1.93 (#4639 Refs #4637): the GENERIC registry-pivot — Dragonfly P2P
+      # replaces the hand-rolled per-cloud hairpin hack. step-04 (registry-pivot)
+      # no longer writes /etc/rancher/k3s/registries.yaml + per-upstream certs.d
+      # hosts.toml through the in-cluster Harbor's PUBLIC host. bp-dragonfly
+      # (slot 06) runs a per-node dfdaemon proxy at 127.0.0.1:4001 that every
+      # node's containerd mirrors through. On registriesYamlActive=v2 the step-04
+      # DaemonSet (1) writes the containerd `_default/hosts.toml` catch-all -> the
+      # node-local dfdaemon; (2) flips the dfdaemon (+ seed) registryMirror.addr
+      # ghcr -> the local Harbor (https://registry.<fqdn>:30443); (3) adds a
+      # `registry.<fqdn> -> cilium-gateway ClusterIP` hostAlias to the dfdaemon
+      # pod template (the #4637 token-realm hairpin kill — dfdaemon is hostNetwork
+      # so it inherits the node's public-EIP pin AND must reach the token realm).
+      # The node->127.0.0.1 dfdaemon path is IDENTICAL on Huawei + Hetzner — zero
+      # per-cloud `if` branches. LIVE-PROVEN on kom4dc omantel.biz (the cloud that
+      # breaks the legacy hairpin): public-host fetch i/o-timed-out (curl 28)
+      # while the gateway-ClusterIP resolve returned the registry 401 + 200 from
+      # /service/token. step-04 stays mode=daemonset-wait / 11 steps / per-node
+      # acks unchanged. New values block .Values.registryPivot.dragonfly (defaults
+      # match the bp-dragonfly releaseName `dragonfly` + cilium-gateway/30443
+      # layout — no overlay needed). The legacy registries.yaml v1/v2 mirror +
+      # the #4527/#4557/#4637-ClusterIP machinery is removed. Adds a dependsOn
+      # edge on bp-dragonfly (the dfdaemon mesh must be up before the flip).
+      # Lockstep w/ Chart.yaml + blueprint.yaml.
+      #
       # 0.1.92 (#4637): the KUBELET-HAIRPIN leg. step-04 (registry-pivot) now
       # resolves harbor-core's node-routable ClusterIP and points the v2
       # containerd mirror endpoints at http://<clusterip>:<port> instead of
@@ -655,10 +687,7 @@ spec:
       # gateway EIP). On a no-hairpin cloud (kom4dc) the kubelet could not dial
       # its own cluster's public EIP, so step-07 (catalyst-api-env-patch)
       # ErrImagePull'd `dial tcp <EIP>:443: i/o timeout` and the cutover wedged
-      # at 54% (live f7464ffc). Fail-OPEN to the public host on a resolve miss.
-      # New values block .Values.registryPivot.inClusterHarbor (defaults
-      # harbor-core/harbor/:80 match this Sovereign's bp-harbor layout — no
-      # overlay needed). Lockstep w/ Chart.yaml + blueprint.yaml.
+      # at 54% (live f7464ffc). Superseded by 0.1.93's Dragonfly rewrite.
       #
       # 0.1.91 (#4632 Refs #3379): the auto-trigger 425-NO-RETRY race — the
       # post-install hook Job POSTed /internal/cutover/trigger ONCE, got HTTP 425
@@ -669,7 +698,7 @@ spec:
       # transient 000/502) until a non-425 result or autoHandoverWaitSeconds
       # (1500s). New trigger.autoHandoverWaitSeconds; autoTimeoutSeconds 1740→2100;
       # HR install/upgrade timeout 30m→40m (above) so the hook unblocks in time.
-      version: 0.1.92
+      version: 0.1.93
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
