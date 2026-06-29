@@ -633,50 +633,77 @@ images:
     repository: "harbor.openova.io/proxy-dockerhub/library/alpine"
     tag: "3.20"
 
-# registry-pivot DaemonSet — runs from chart install to converge
-# /etc/rancher/k3s/registries.yaml on every node. The DaemonSet starts
-# DORMANT (writes the v1 cold-start file) and only flips to v2 when
-# catalyst-api updates the cutover-status ConfigMap key
-# `registriesYamlActive` to "v2" — see template 04-registry-pivot-daemonset.yaml.
-# Operators can disable the always-on DaemonSet shape via overlay; in
-# that case catalyst-api stamps the DaemonSet on demand at trigger time.
+# registry-pivot DaemonSet — runs from chart install to converge each node's
+# containerd registry mirror onto the local Dragonfly dfdaemon (#4639). The
+# DaemonSet starts DORMANT and only acts when catalyst-api updates the
+# cutover-status ConfigMap key `registriesYamlActive` to "v2" — see template
+# 04-registry-pivot-daemonset.yaml. Operators can disable the always-on
+# DaemonSet shape via overlay; in that case catalyst-api stamps the DaemonSet
+# on demand at trigger time.
 registryPivot:
   enabled: true
-  # #4637 — node-reachable in-cluster Harbor Service for the v2 containerd
-  # mirror endpoint. THE KUBELET-HAIRPIN FIX.
+  # #4639 (Refs #4637) — Dragonfly P2P registry-pivot. THE GENERIC HAIRPIN KILL.
   #
-  # registries.yaml v2 (+ the regenerated certs.d/<host>/hosts.toml) mirrors
-  # every upstream AND the direct `registry.<sov-fqdn>` host through
-  # __HARBOR_PUBLIC_URL__ = registry.<sov-fqdn>. The NODE resolver pins that
-  # name to the cluster's PUBLIC gateway EIP (infra/providers/*/cloudinit-
-  # worker.tftpl `/etc/hosts` block). On a cloud whose nodes cannot hairpin to
-  # their own cluster's public EIP (Huawei kom4dc) the KUBELET's post-pivot
-  # catalyst-api image pull (step-07 catalyst-api-env-patch) ErrImagePulls
-  # `dial tcp <EIP>:443: i/o timeout` and the cutover wedges at 54%. The pod-
-  # network path works only because PODS resolve via CoreDNS → harbor-core
-  # ClusterIP; the kubelet uses the node resolver, not CoreDNS.
-  #
-  # A Service ClusterIP IS node-routable (kube-proxy/cilium program it on the
-  # host network), so the pivot DaemonSet resolves harbor-core's ClusterIP at
-  # runtime (via the in-cluster K8s API — needs services get/list, added to
-  # rbac.yaml) and points the containerd `[host]` mirror endpoints at
-  # http://<clusterip>:<port> instead of https://registry.<sov-fqdn>. The
-  # certs.d dir name + `server` stay the PUBLIC host (containerd keys the
-  # host-config off the image-ref host) — only the resolved endpoint is the
-  # in-cluster ClusterIP. harbor-core serves PLAIN HTTP on its ClusterIP
-  # (platform/harbor expose.type=clusterIP, expose.tls.enabled=false; TLS
-  # terminates at the Gateway), so the endpoint is http and carries no cert to
-  # verify. On a resolve miss the script falls back to the public host (prior
-  # #4557 behaviour) and retries the resolution on the next sweep.
-  inClusterHarbor:
-    # bp-harbor exposes the core registry Service as `harbor-core` in the
-    # `harbor` namespace (Catalyst standard, issue #387). Matches
-    # sovereign.harborInternalURL host.
-    serviceName: "harbor-core"
-    serviceNamespace: "harbor"
-    # harbor-core's ClusterIP plain-HTTP registry port (upstream Harbor core
-    # backendPort 80 when expose.tls.enabled=false).
-    servicePort: "80"
+  # Every node's containerd already mirrors through the node-LOCAL dfdaemon
+  # proxy on 127.0.0.1:<proxyPort> (bp-dragonfly, slot 06). The cutover does
+  # three generic moves (no per-cloud branches):
+  #   1. write the containerd `_default/hosts.toml` catch-all → the dfdaemon
+  #      proxy (effective on the running node, containerd re-reads per pull);
+  #   2. flip the dfdaemon (+ seed-peer) `proxy.registryMirror.addr` from
+  #      https://ghcr.io → the cluster-LOCAL Harbor public host on the gateway
+  #      HTTPS port;
+  #   3. add a `registry.<fqdn> → cilium-gateway ClusterIP` hostAlias to the
+  #      dfdaemon (+ seed) pod template so the hostNetwork dfdaemon resolves the
+  #      Harbor host (AND its token realm) to the node-routable Cilium-gateway
+  #      ClusterIP instead of the un-hairpinnable public EIP the node /etc/hosts
+  #      pins it to. PROVEN live on kom4dc omantel.biz (the cloud that breaks
+  #      the legacy hairpin): the public-host fetch i/o-times-out while the
+  #      gateway-ClusterIP resolve returns the registry 401 + a 200 from
+  #      /service/token.
+  # The node→127.0.0.1 dfdaemon path is identical on Huawei + Hetzner, so the
+  # per-cloud `/etc/hosts`/`30443`/DNAT surgery the old step carried is gone.
+  dragonfly:
+    # The dfdaemon proxy port every node's containerd mirrors through. Matches
+    # bp-dragonfly client.config.proxy.server.port (127.0.0.1:4001 on the 2.x
+    # client this Sovereign runs).
+    proxyPort: "4001"
+    # The bp-dragonfly mesh namespace + the per-node dfdaemon DaemonSet, the
+    # seed-peer StatefulSet, and their config ConfigMaps the cutover patches
+    # for the upstream flip + hostAlias. These are the upstream dragonfly chart
+    # resource names (releaseName `dragonfly`). Seed names empty-string-safe:
+    # a Sovereign without a seed peer leaves them blank and the cutover skips
+    # the seed patch.
+    namespace: "dragonfly"
+    clientDaemonSet: "dragonfly-client"
+    clientConfigMap: "dragonfly-client"
+    seedStatefulSet: "dragonfly-seed-client"
+    seedConfigMap: "dragonfly-seed-client"
+    # The node-routable Cilium gateway Service whose ClusterIP serves
+    # registry.<fqdn> (wildcard `*.<fqdn>` TLS + the Harbor token realm). Cilium
+    # creates `cilium-gateway-<gateway-name>` for the `cilium-gateway` Gateway
+    # in kube-system; its ClusterIP is programmed on the host net (kube-proxy/
+    # cilium), so it is reachable from the hostNetwork dfdaemon. The hostAlias
+    # maps registry.<fqdn> → this ClusterIP.
+    gatewayServiceName: "cilium-gateway-cilium-gateway"
+    gatewayServiceNamespace: "kube-system"
+    # The Cilium gateway HTTPS listener port — the canonical Catalyst gateway
+    # NodePort (infra/providers/_shared/cloudinit-control-plane.tftpl
+    # SOVEREIGN_GATEWAY_HTTPS_PORT, Hetzner LB 443→30443, Huawei NodePort
+    # 30443). The local-Harbor upstream is https://registry.<fqdn>:<this> so
+    # the realm Harbor reflects carries the SAME port — the token-realm
+    # follow-up stays on the node-routable gateway endpoint.
+    gatewayHTTPSPort: "30443"
+    # Bounce dfdaemon (+ seed) after the upstream flip so it reloads the new
+    # registryMirror.addr. DEFAULT false: the hostAlias patch (move 3) ALREADY
+    # re-rolls the dfdaemon (+ seed) pods — adding hostAliases mutates the pod
+    # template, which the DaemonSet/StatefulSet controller rolls on its own — so
+    # the addr-only ConfigMap change is picked up by that same roll without a
+    # second, redundant restartedAt bump. Keeping the explicit restart OFF also
+    # avoids re-rolling the seed-peer twice (a StatefulSet whose upstream
+    # securityContext may need a per-Sovereign Kyverno exemption — a bp-dragonfly
+    # chart concern, not the cutover's). Operators who pin the dfdaemon config
+    # via an immutable ConfigMap (no auto-reload) can flip this true via overlay.
+    restartOnFlip: false
 
 # CiliumNetworkPolicy for step 08 (egress-block-test). Operator
 # overrides duration via overlay if 10 min isn't enough.

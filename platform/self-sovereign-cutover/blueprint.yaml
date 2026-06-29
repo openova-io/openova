@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.1.92
+  version: 0.1.93
   card:
     title: self-sovereignty-cutover
     summary: |
@@ -26,6 +26,11 @@ spec:
   depends:
     - blueprint: bp-gitea
     - blueprint: bp-harbor
+    # #4639: step-04 (registry-pivot, the Dragonfly rewrite) flips the
+    # bp-dragonfly dfdaemon mesh upstream ghcr -> local Harbor + adds the
+    # registry.<fqdn> -> cilium-gateway hostAlias, so the dfdaemon mesh must
+    # be present before the post-handover cutover runs.
+    - blueprint: bp-dragonfly
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:

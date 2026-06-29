@@ -1,5 +1,42 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.93 (#4639 Refs #4637, the GENERIC registry-pivot — Dragonfly P2P replaces
+# the hand-rolled per-cloud hairpin hack): step-04 (registry-pivot) no longer
+# writes /etc/rancher/k3s/registries.yaml + per-upstream certs.d hosts.toml
+# through the in-cluster Harbor's PUBLIC host (which the node /etc/hosts pins to
+# the un-hairpinnable public gateway EIP). bp-dragonfly (slot 06) now runs a
+# per-node dfdaemon proxy at 127.0.0.1:4001 that every node's containerd already
+# mirrors through. The cutover is now THREE generic moves the step-04 DaemonSet
+# performs on registriesYamlActive=v2 (no per-cloud `if Hetzner/Huawei` branch):
+#   1. write the containerd `_default/hosts.toml` catch-all -> the node-local
+#      dfdaemon proxy (effective on the running node, re-read per pull);
+#   2. flip the dfdaemon (+ seed-peer) proxy.registryMirror.addr from
+#      https://ghcr.io -> the cluster-LOCAL Harbor (https://registry.<fqdn>:30443,
+#      the canonical gateway HTTPS port) — the design's "one-line upstream flip";
+#   3. add a `registry.<fqdn> -> cilium-gateway ClusterIP` hostAlias to the
+#      dfdaemon (+ seed) pod template. THE #4637 ROOT KILL: dfdaemon is
+#      hostNetwork, so without the alias its Harbor pull AND the token-realm
+#      follow-up (`Www-Authenticate: Bearer realm="https://registry.<fqdn>:30443/
+#      service/token"`) both hairpin to the public EIP. The alias resolves the
+#      Harbor host to the node-routable Cilium-gateway ClusterIP (kube-proxy/
+#      cilium program it on the host net) — the gateway terminates the wildcard
+#      `*.<fqdn>` TLS and routes registry.<fqdn> to Harbor, token realm included.
+# Moves 2+3 are cluster-wide (one ConfigMap / one DaemonSet template), performed
+# ONCE by whichever node converges first (status guard dragonflyUpstream=local);
+# every node still independently performs move 1 + writes its per-node ack.
+# LIVE-PROVEN on the kom4dc omantel.biz env (the cloud that breaks the legacy
+# hairpin): from a hostNetwork context `curl https://registry.<fqdn>/v2/`
+# i/o-timed-out (curl 28) while the same fetch with the host resolved to the
+# cilium-gateway ClusterIP returned the registry 401 challenge AND a 200 from
+# `/service/token`. step-04 stays mode=daemonset-wait / 11 steps / per-node acks
+# unchanged. New values block .Values.registryPivot.dragonfly (defaults match
+# the bp-dragonfly releaseName `dragonfly` + the canonical cilium-gateway /
+# 30443 layout — no overlay needed). The legacy registries.yaml v1/v2 mirror +
+# the #4527 harbor-robot-token / #4557 / #4637-ClusterIP machinery is removed
+# (the cold-start ghcr upstream is now bp-dragonfly's concern, not the cutover).
+# RBAC unchanged (services get + daemonsets/statefulsets + configmaps patch were
+# already granted). Contract Case 31 rewritten to the Dragonfly invariants.
+# Lockstep w/ blueprint.yaml + 06a slot pin + catalog seed.
 # 0.1.92 (#4637, the KUBELET-HAIRPIN leg of the cutover — registry-pivot v2
 # mirror now points at a NODE-REACHABLE in-cluster Harbor, live wedge on
 # f7464ffc / omantel.biz kom4dc, 2026-06-29): step-04 (registry-pivot) no
@@ -1329,7 +1366,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.92
+version: 0.1.93
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

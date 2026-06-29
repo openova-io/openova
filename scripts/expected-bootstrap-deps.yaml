@@ -366,7 +366,14 @@ slots:
     # parked Stalled, handover never fired). The cross-kind ordering
     # is now enforced upstream by the cloud-init / Kustomization
     # graph rather than by an entry in this list.
-    depends_on: [bp-gitea, bp-harbor]
+    #
+    # #4639: + bp-dragonfly. The cutover registry-pivot (step-04, the
+    # Dragonfly rewrite) flips the bp-dragonfly dfdaemon mesh's upstream
+    # ghcr -> local Harbor + adds the registry.<fqdn> -> cilium-gateway
+    # hostAlias. The dfdaemon DaemonSet + seed-peer + their ConfigMaps
+    # (slot 06) must exist before step-04 can patch them, so the cutover
+    # HR depends on bp-dragonfly being Ready.
+    depends_on: [bp-gitea, bp-harbor, bp-dragonfly]
     wave: W2.K1
 
   # ---- Tier 6: observability (W2.K2, slots 19c, 20-26) ---------------------

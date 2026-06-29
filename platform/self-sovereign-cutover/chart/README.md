@@ -33,7 +33,7 @@ through `harbor.openova.io`) and becomes hard-independent only after the
 | 01 | `cutover-step-01-gitea-mirror` ConfigMap | pre-pivot | `git clone --mirror` upstream → `git push --mirror` to local Gitea |
 | 02 | `cutover-step-02-harbor-projects` ConfigMap | pre-pivot | Create 7 proxy_cache projects in local Harbor |
 | 03 | `cutover-step-03-harbor-prewarm` ConfigMap | pre-pivot | HEAD-pull every image referenced by bootstrap-kit through proxy-cache |
-| 04 | `registry-pivot` DaemonSet | pre-pivot | Always-on per-node reconcile loop for `/etc/rancher/k3s/registries.yaml` (v1 ↔ v2) |
+| 04 | `registry-pivot` DaemonSet | pre-pivot | Always-on per-node reconcile loop (Dragonfly, #4639): on `registriesYamlActive=v2` it writes the containerd `_default/hosts.toml` catch-all → the node-local dfdaemon proxy, flips the `bp-dragonfly` dfdaemon upstream ghcr → local Harbor, and adds a `registry.<fqdn>` → cilium-gateway ClusterIP hostAlias (the #4637 hairpin kill) |
 | 05 | `cutover-step-05-flux-gitrepository-patch` ConfigMap | post-pivot | Patch `flux-system/openova` GitRepository.url → local Gitea |
 | 06 | `cutover-step-06-helmrepository-patches` ConfigMap | post-pivot | Patch every OCI HelmRepository → `oci://harbor.<sov-fqdn>/openova-io` |
 | 07 | `cutover-step-07-catalyst-api-env-patch` ConfigMap | post-pivot | `kubectl set env deploy/catalyst-api CATALYST_GITOPS_REPO_URL=...` |
@@ -41,9 +41,10 @@ through `harbor.openova.io`) and becomes hard-independent only after the
 | 09 | `self-sovereign-cutover-status` ConfigMap | mutable state | Per-step state machine read+written by every step + the UI |
 
 The phase column controls image routing: `pre`-phase steps must use
-upstream-public images because they run BEFORE registries.yaml v2 takes
-effect on the node containerd. `post`-phase steps may pull through local
-Harbor when `.Values.global.imageRegistry` is set in the overlay.
+upstream-public images because they run BEFORE step-04 pivots the node
+containerd onto the local Dragonfly dfdaemon (whose upstream then flips to
+the local Harbor). `post`-phase steps may pull through local Harbor when
+`.Values.global.imageRegistry` is set in the overlay.
 
 ## Values
 
@@ -52,7 +53,7 @@ See [`values.yaml`](./values.yaml). The required overlay-supplied keys are:
 | Key | Purpose |
 |---|---|
 | `sovereign.fqdn` | The Sovereign's base FQDN (e.g. `otech.omani.works`). Drives every public URL in this chart. |
-| `sovereign.harborPublicURL` | `https://registry.<sovereign.fqdn>`. The bp-harbor HTTPRoute publishes at `registry.<sov>`, NOT `harbor.<sov>` — see `clusters/_template/bootstrap-kit/19-harbor.yaml` `gateway.host`. Routed to by registries.yaml v2 + step 06. |
+| `sovereign.harborPublicURL` | `https://registry.<sovereign.fqdn>`. The bp-harbor HTTPRoute publishes at `registry.<sov>`, NOT `harbor.<sov>` — see `clusters/_template/bootstrap-kit/19-harbor.yaml` `gateway.host`. The step-04 Dragonfly upstream flip + step 06 repoint to this host. |
 | `sovereign.giteaPublicURL` | `https://gitea.<sovereign.fqdn>`. Informational; jobs reach Gitea via the in-cluster Service URL. |
 
 Per `docs/PRINCIPLES.md` #4 (never hardcode), the chart ships
@@ -64,9 +65,10 @@ overlay is non-functional by design.
 
 The HelmRelease that installs this chart is at
 `clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml`.
-It depends on `bp-gitea` and `bp-harbor` (so the local Gitea + Harbor
-exist before the chart's step ConfigMaps reference them at trigger time)
-and uses `disableWait: true` because the chart is dormant (no Pods to
+It depends on `bp-gitea`, `bp-harbor`, and `bp-dragonfly` (the local Gitea +
+Harbor + the per-node dfdaemon mesh must exist before the chart's step
+ConfigMaps + step-04's Dragonfly upstream flip reference them at trigger
+time) and uses `disableWait: true` because the chart is dormant (no Pods to
 wait on except the registry-pivot DaemonSet, which is event-driven on
 the status ConfigMap).
 
