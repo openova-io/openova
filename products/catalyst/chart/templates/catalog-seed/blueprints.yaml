@@ -152,8 +152,15 @@ spec:
             type: string
             description: "Admin email (must match Keycloak realm email claim)."
 ---
+{{- if not $.Values.qaFixtures.enabled }}
 # bp-wordpress — production alias for the bare `wordpress` / `bp-wordpress`
 # slug (2026-06-19, #3870 / #3376). The customer-facing marketplace funnel
+# NOTE (2026-06-30, #4655): gated `not qaFixtures.enabled` — on a qaTestEnabled
+# prov the templates/qa-fixtures/blueprint-bp-wordpress.yaml fixture ALSO seeds a
+# `bp-wordpress` Blueprint, so rendering this alias too registers the id twice →
+# Helm post-render "may not add resource with an already registered id:
+# Blueprint/bp-wordpress" → bp-catalyst-platform install fails → fresh qa provs
+# wedge at ~59/65 HRs. Production (qaFixtures off) still gets this alias.
 # (core/marketplace AppsStep.svelte) sells WordPress under `slug: wordpress`,
 # and operator docs + the qa-loop matrix POST `"blueprint":"bp-wordpress"`.
 # The console resolves both via the catalog-client bare→`bp-` prefix retry
@@ -271,6 +278,7 @@ spec:
           email:
             type: string
             description: "Admin email (must match Keycloak realm email claim)."
+{{- end }}
 ---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
