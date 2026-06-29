@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.94 (#4652 Refs #4641 #4637, the LAST registry-pivot leg — dfdaemon ->
+# Harbor): step-04 (registry-pivot) now ALSO closes the two coupled faults that
+# wedged step-07 on kom4dc. (DNS) The pod hostAlias is insufficient for the Rust
+# dfdaemon resolver — getent returns the public EIP first → hairpin → timeout
+# (#4649); the pivot now rewrites the kube-system `coredns-custom` ConfigMap with
+# a `registry.<fqdn> -> cilium-gateway ClusterIP` `*.server` block (NO
+# fallthrough, the proven github-ipv4 mechanism) and execs `grep` in the Running
+# CoreDNS pod to confirm the CM-volume sync BEFORE trusting the override (the
+# patch-then-restart race was the failed live attempt; the k3s `reload` plugin
+# then auto-picks up the synced file — no restart). (x509) The dfdaemon does real
+# TLS verification against the LE-staging in-cluster Harbor → x509 fail; the pivot
+# reads the kube-system wildcard TLS Secret (tls.crt fallback, the #3379 finding)
+# into a `dragonfly`-namespace Opaque `dragonfly-harbor-ca` Secret that bp-
+# dragonfly 0.1.1 mounts OPTIONALLY at /etc/dragonfly-ca, and sets
+# `proxy.registryMirror.cert: /etc/dragonfly-ca/tls.crt` in the SAME dfdaemon
+# ConfigMap patch that flips registryMirror.addr. New registryPivot.dragonfly
+# .coredns.* + .harborCA.* values; SOVEREIGN_FQDN + COREDNS_*/HARBOR_CA_* env on
+# the DaemonSet; RBAC adds secrets{delete} + pods/exec{create,get}. Requires
+# bp-dragonfly >= 0.1.1 (the optional cert mount).
+#
 # 0.1.93 (#4639 Refs #4637, the GENERIC registry-pivot — Dragonfly P2P replaces
 # the hand-rolled per-cloud hairpin hack): step-04 (registry-pivot) no longer
 # writes /etc/rancher/k3s/registries.yaml + per-upstream certs.d hosts.toml
@@ -1366,7 +1386,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.93
+version: 0.1.94
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

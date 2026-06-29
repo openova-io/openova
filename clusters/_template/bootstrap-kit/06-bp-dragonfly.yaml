@@ -79,13 +79,17 @@ spec:
   chart:
     spec:
       chart: bp-dragonfly
+      # 0.1.1 (#4652 Refs #4641): mount an OPTIONAL dragonfly-harbor-ca Secret
+      # at /etc/dragonfly-ca on the dfdaemon + seed so the self-sovereign
+      # cutover can set proxy.registryMirror.cert (the registry trust anchor
+      # for the LE-staging in-cluster Harbor the cutover flips the upstream to).
       # 0.1.0 (#4639): initial bp-dragonfly. Wraps upstream dragonfly 1.7.0
       # (appVersion 2.5.0 / client v1.4.0). Manager + Scheduler + Seed Peer +
       # per-node dfdaemon DaemonSet; dfdaemon proxy = node containerd mirror at
       # 127.0.0.1:4001; upstream registry = ghcr (ghcr-pull auth). Every
       # workload + initContainer carries non-zero resources.requests for the
       # host-ns Kyverno resource-requests Enforce policy.
-      version: 0.1.0
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-dragonfly

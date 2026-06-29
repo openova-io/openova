@@ -146,6 +146,50 @@ spec:
               value: {{ .Values.registryPivot.dragonfly.gatewayHTTPSPort | quote }}
             - name: DF_RESTART_ON_FLIP
               value: {{ .Values.registryPivot.dragonfly.restartOnFlip | quote }}
+            # The Sovereign FQDN — the CoreDNS override server block keys on
+            # registry.<fqdn> and the wildcard-TLS Secret name is
+            # <prefix><fqdn-dashed>. Sourced from the chart's sovereign.fqdn
+            # (cloud-init substitutes ${SOVEREIGN_FQDN} via the 06a overlay).
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.sovereign.fqdn | quote }}
+            # ── #4652 CoreDNS-to-ClusterIP override (the DNS fix) ──────────────
+            # The hostAlias is insufficient for the Rust dfdaemon resolver: it
+            # returns the public EIP first → hairpin → timeout. We rewrite
+            # CoreDNS so registry.<fqdn> resolves cluster-internally to the
+            # cilium-gateway ClusterIP ONLY (no fallthrough → the EIP is never
+            # returned). Proven github-ipv4 `coredns-custom` `*.server` mechanism.
+            - name: COREDNS_OVERRIDE_ENABLED
+              value: {{ .Values.registryPivot.dragonfly.coredns.enabled | quote }}
+            - name: COREDNS_CM_NAME
+              value: {{ .Values.registryPivot.dragonfly.coredns.configMapName | quote }}
+            - name: COREDNS_CM_NAMESPACE
+              value: {{ .Values.registryPivot.dragonfly.coredns.configMapNamespace | quote }}
+            - name: COREDNS_SERVER_KEY
+              value: {{ .Values.registryPivot.dragonfly.coredns.serverKey | quote }}
+            - name: COREDNS_DEPLOYMENT
+              value: {{ .Values.registryPivot.dragonfly.coredns.deploymentName | quote }}
+            - name: COREDNS_DEPLOYMENT_NAMESPACE
+              value: {{ .Values.registryPivot.dragonfly.coredns.deploymentNamespace | quote }}
+            - name: COREDNS_SYNC_TIMEOUT_SECONDS
+              value: {{ .Values.registryPivot.dragonfly.coredns.syncTimeoutSeconds | quote }}
+            # ── #4652 dfdaemon registryMirror.cert (the x509 fix) ─────────────
+            # Read the in-cluster Harbor wildcard TLS Secret, create a dragonfly-
+            # namespace Opaque Secret carrying tls.crt (bp-dragonfly 0.1.1 mounts
+            # it OPTIONALLY at HARBOR_CA_MOUNT_PATH), and set
+            # proxy.registryMirror.cert = <mount>/<file> in the dfdaemon ConfigMap
+            # patch that flips registryMirror.addr. Same tls.crt-fallback as #3379.
+            - name: HARBOR_CA_ENABLED
+              value: {{ .Values.registryPivot.dragonfly.harborCA.enabled | quote }}
+            - name: HARBOR_CA_SRC_NAMESPACE
+              value: {{ .Values.registryPivot.dragonfly.harborCA.sourceNamespace | quote }}
+            - name: HARBOR_CA_SRC_NAME_PREFIX
+              value: {{ .Values.registryPivot.dragonfly.harborCA.sourceNamePrefix | quote }}
+            - name: HARBOR_CA_DEST_SECRET
+              value: {{ .Values.registryPivot.dragonfly.harborCA.destSecretName | quote }}
+            - name: HARBOR_CA_MOUNT_PATH
+              value: {{ .Values.registryPivot.dragonfly.harborCA.certMountPath | quote }}
+            - name: HARBOR_CA_FILE_NAME
+              value: {{ .Values.registryPivot.dragonfly.harborCA.certFileName | quote }}
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -274,6 +318,18 @@ data:
     harbor_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
     local_upstream="https://${harbor_host}:${GATEWAY_HTTPS_PORT}"
 
+    # #4652 — the PEM path bp-dragonfly (0.1.1) mounts the Harbor wildcard cert
+    # at on the dfdaemon (+ seed); set as proxy.registryMirror.cert so the Rust
+    # resolver trusts the LE-staging in-cluster Harbor on the back-to-source
+    # pull. Empty when HARBOR_CA_ENABLED is off → addr-only flip (no cert line).
+    local_cert_path="${HARBOR_CA_MOUNT_PATH}/${HARBOR_CA_FILE_NAME}"
+    # The wildcard TLS Secret name = <prefix><fqdn with '.'->'-'> (mirrors the
+    # #3379 helmRepositoryTrust source-secret derivation). The registry-pivot
+    # reads it from HARBOR_CA_SRC_NAMESPACE and materialises HARBOR_CA_DEST_SECRET
+    # (carrying tls.crt) in the dragonfly namespace for the optional mount.
+    fqdn_dashed=$(printf '%s' "${SOVEREIGN_FQDN}" | tr '.' '-')
+    wildcard_secret="${HARBOR_CA_SRC_NAME_PREFIX}${fqdn_dashed}"
+
     # Write (v2) or remove (v1) the containerd `_default/hosts.toml` catch-all
     # that mirrors every registry namespace through the node-local dfdaemon
     # proxy. `_default` is the containerd wildcard host-config dir — it applies
@@ -310,46 +366,240 @@ data:
         || true
     }
 
+    # #4652 (the x509 fix) — materialise the in-cluster Harbor trust anchor in
+    # the dragonfly namespace. Reads the wildcard TLS Secret from
+    # HARBOR_CA_SRC_NAMESPACE (kube-system) and creates/updates an Opaque Secret
+    # HARBOR_CA_DEST_SECRET in DF_NAMESPACE carrying `tls.crt`. bp-dragonfly
+    # (0.1.1) mounts that Secret OPTIONALLY at HARBOR_CA_MOUNT_PATH, so once it
+    # exists the dfdaemon (+ seed) carry the PEM the registryMirror.cert line
+    # points at. Same tls.crt-fallback as #3379 (the wildcard Secret carries
+    # tls.crt+tls.key, NO ca.crt → tls.crt is the real trust bundle). Opaque
+    # (NOT kubernetes.io/tls): only tls.crt is copied; the private key is NEVER
+    # carried into dragonfly. Returns 0 when the dest Secret carries the cert.
+    src_secret_url="${api}/api/v1/namespaces/${HARBOR_CA_SRC_NAMESPACE}/secrets/${wildcard_secret}"
+    dst_secret_url="${api}/api/v1/namespaces/${DF_NAMESPACE}/secrets/${HARBOR_CA_DEST_SECRET}"
+    harbor_ca_to_dragonfly_ns() {
+      case "${HARBOR_CA_ENABLED}" in
+        true|True|TRUE|1|yes) : ;;
+        *) return 0 ;;
+      esac
+      # Prefer the issuing CA (ca.crt); fall back to the served leaf+chain
+      # (tls.crt) — the wildcard Secret typically has NO ca.crt, so tls.crt is
+      # the path that actually fires (the #3379 finding). base64 (.data.*) is
+      # copied verbatim into the dest Secret's .data so no re-encode is needed.
+      ca_b64=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${src_secret_url}" 2>/dev/null \
+        | jq -r '.data["ca.crt"] // .data["tls.crt"] // empty' 2>/dev/null || true)
+      if [ -z "${ca_b64}" ]; then
+        echo "[registry-pivot]   WARN ${HARBOR_CA_SRC_NAMESPACE}/${wildcard_secret} has no ca.crt/tls.crt; deferring dfdaemon cert (registryMirror.cert will be skipped this sweep)"
+        return 1
+      fi
+      # PUT the cert under the `tls.crt` key (the file bp-dragonfly mounts is
+      # <path>/tls.crt). Idempotent create-or-update: read the dest, if its
+      # tls.crt already matches we skip; else apply via server-side apply
+      # (kubectl-less: a strategic create falls back to a merge-patch on 409).
+      cur_b64=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${dst_secret_url}" 2>/dev/null \
+        | jq -r '.data["tls.crt"] // empty' 2>/dev/null || true)
+      if [ "${cur_b64}" = "${ca_b64}" ]; then
+        echo "[registry-pivot]   ${DF_NAMESPACE}/${HARBOR_CA_DEST_SECRET} already carries the Harbor cert"
+        return 0
+      fi
+      body=$(jq -cn --arg n "${HARBOR_CA_DEST_SECRET}" --arg ns "${DF_NAMESPACE}" --arg c "${ca_b64}" \
+        '{apiVersion:"v1",kind:"Secret",metadata:{name:$n,namespace:$ns,labels:{"app.kubernetes.io/managed-by":"self-sovereign-cutover","bp.openova.io/cutover-step":"registry-pivot"}},type:"Opaque",data:{"tls.crt":$c}}')
+      create_url="${api}/api/v1/namespaces/${DF_NAMESPACE}/secrets"
+      if curl -fsS ${CT} -X POST --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+          -H "Content-Type: application/json" --data "${body}" "${create_url}" >/dev/null 2>&1; then
+        echo "[registry-pivot]   created ${DF_NAMESPACE}/${HARBOR_CA_DEST_SECRET} (Harbor trust anchor for dfdaemon)"
+        return 0
+      fi
+      # Already exists → merge-patch the data in place.
+      patch=$(jq -cn --arg c "${ca_b64}" '{data:{"tls.crt":$c}}')
+      if curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+          -H "Content-Type: application/merge-patch+json" --data "${patch}" "${dst_secret_url}" >/dev/null 2>&1; then
+        echo "[registry-pivot]   updated ${DF_NAMESPACE}/${HARBOR_CA_DEST_SECRET} (Harbor trust anchor for dfdaemon)"
+        return 0
+      fi
+      echo "[registry-pivot]   WARN failed to create/patch ${DF_NAMESPACE}/${HARBOR_CA_DEST_SECRET} (will retry next sweep)"
+      return 1
+    }
+    harbor_ca_remove_from_dragonfly_ns() {
+      curl -fsS ${CT} -X DELETE --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${dst_secret_url}" >/dev/null 2>&1 || true
+    }
+
+    # #4652 (the DNS fix) — rewrite CoreDNS so registry.<fqdn> resolves cluster-
+    # internally to the cilium-gateway ClusterIP ONLY. The pod hostAlias is
+    # INSUFFICIENT for the Rust dfdaemon resolver (getent returns the public EIP
+    # first → hairpin → timeout, #4649). We patch the k3s `coredns-custom`
+    # ConfigMap with a SEPARATE `*.server` block (the proven github-ipv4
+    # mechanism) carrying a `hosts` plugin with NO `fallthrough` (so the EIP is
+    # NOT also returned). CRITICAL sequencing (the #4652 failed live attempt
+    # patched then immediately restarted CoreDNS → the new pod mounted the STALE
+    # CM → the override was absent): patch the CM, then POLL the projected
+    # coredns-custom volume on the RUNNING CoreDNS pod until our server-block key
+    # appears in the mounted /etc/coredns/custom dir (kubelet CM-volume sync lag
+    # ~60s), and rely on the k3s CoreDNS `reload` plugin to auto-pick it up — NO
+    # rollout restart (which would re-trigger the stale-mount race). One-shot per
+    # apply via the corednsOverride status guard.
+    coredns_url="${api}/api/v1/namespaces/${COREDNS_CM_NAMESPACE}/configmaps/${COREDNS_CM_NAME}"
+    coredns_override() {
+      gwip="$1"
+      case "${COREDNS_OVERRIDE_ENABLED}" in
+        true|True|TRUE|1|yes) : ;;
+        *) return 0 ;;
+      esac
+      [ -z "${gwip}" ] && { echo "[registry-pivot]   WARN gateway ClusterIP empty; deferring CoreDNS override"; return 1; }
+      # The server block: `registry.<fqdn> { hosts { <gwip> registry.<fqdn> } }`.
+      # NO fallthrough (else CoreDNS also forwards to PowerDNS → the EIP).
+      block=$(printf '%s {\n    hosts {\n        %s %s\n    }\n}\n' "${harbor_host}" "${gwip}" "${harbor_host}")
+      # Merge our key into the (possibly pre-existing, github-ipv4-bearing)
+      # coredns-custom CM. A merge-patch+json adds/replaces ONLY our key and
+      # preserves the github-ipv4.server key. If the CM does not exist yet
+      # (no Huawei github-ipv4 step ran) the PATCH 404s → fall back to a create.
+      patch=$(jq -cn --arg k "${COREDNS_SERVER_KEY}" --arg v "${block}" '{data:{($k):$v}}')
+      if curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+          -H "Content-Type: application/merge-patch+json" --data "${patch}" "${coredns_url}" >/dev/null 2>&1; then
+        echo "[registry-pivot]   patched ${COREDNS_CM_NAMESPACE}/${COREDNS_CM_NAME} ${COREDNS_SERVER_KEY} -> ${harbor_host} ${gwip}"
+      else
+        body=$(jq -cn --arg n "${COREDNS_CM_NAME}" --arg ns "${COREDNS_CM_NAMESPACE}" --arg k "${COREDNS_SERVER_KEY}" --arg v "${block}" \
+          '{apiVersion:"v1",kind:"ConfigMap",metadata:{name:$n,namespace:$ns,labels:{"app.kubernetes.io/managed-by":"self-sovereign-cutover","bp.openova.io/cutover-step":"registry-pivot"}},data:{($k):$v}}')
+        cdns_create="${api}/api/v1/namespaces/${COREDNS_CM_NAMESPACE}/configmaps"
+        if curl -fsS ${CT} -X POST --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+            -H "Content-Type: application/json" --data "${body}" "${cdns_create}" >/dev/null 2>&1; then
+          echo "[registry-pivot]   created ${COREDNS_CM_NAMESPACE}/${COREDNS_CM_NAME} with ${COREDNS_SERVER_KEY}"
+        else
+          echo "[registry-pivot]   WARN failed to patch/create ${COREDNS_CM_NAME} (will retry next sweep)"
+          return 1
+        fi
+      fi
+      # Poll the projected coredns-custom volume on a RUNNING CoreDNS pod until
+      # our key materialises in /etc/coredns/custom, proving the kubelet CM-volume
+      # sync completed BEFORE we trust the override (no restart → no stale-mount
+      # race). The k3s CoreDNS `reload` plugin then auto-reloads from the synced
+      # file. Bounded by COREDNS_SYNC_TIMEOUT_SECONDS; a timeout is non-fatal
+      # (logged; next sweep re-polls) so a slow sync never wedges the pivot.
+      pod=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+        "${api}/api/v1/namespaces/${COREDNS_DEPLOYMENT_NAMESPACE}/pods?labelSelector=k8s-app%3Dkube-dns" 2>/dev/null \
+        | jq -r '.items[] | select(.status.phase=="Running") | .metadata.name' 2>/dev/null | head -n1 || true)
+      [ -z "${pod}" ] && pod=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+        "${api}/api/v1/namespaces/${COREDNS_DEPLOYMENT_NAMESPACE}/pods?labelSelector=app.kubernetes.io%2Fname%3Dcoredns" 2>/dev/null \
+        | jq -r '.items[] | select(.status.phase=="Running") | .metadata.name' 2>/dev/null | head -n1 || true)
+      if [ -z "${pod}" ]; then
+        echo "[registry-pivot]   WARN no Running CoreDNS pod found to confirm coredns-custom sync; trusting reload-plugin pickup on ${NODE_NAME}"
+        return 0
+      fi
+      # The k3s CoreDNS Corefile `import`s /etc/coredns/custom/*.server; the
+      # coredns-custom CM is projected there. exec a grep for our gwip in the
+      # mounted server file (the apiserver pod-exec subresource over the SA
+      # token). Bounded poll.
+      exec_base="${api}/api/v1/namespaces/${COREDNS_DEPLOYMENT_NAMESPACE}/pods/${pod}/exec"
+      deadline=$(( $(date +%s) + COREDNS_SYNC_TIMEOUT_SECONDS ))
+      while [ "$(date +%s)" -lt "${deadline}" ]; do
+        # grep -q the gwip inside the synced custom file. If exec is unavailable
+        # (no ws upgrade in this minimal client) the call fails → we fall back to
+        # a fixed grace sleep below. command=grep -r <gwip> /etc/coredns/custom
+        if curl -fsS ${CT} -G --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+            --data-urlencode "command=grep" \
+            --data-urlencode "command=-rl" \
+            --data-urlencode "command=${gwip}" \
+            --data-urlencode "command=/etc/coredns/custom" \
+            --data-urlencode "container=coredns" \
+            --data-urlencode "stdout=true" --data-urlencode "stderr=true" \
+            "${exec_base}" 2>/dev/null | grep -q "/etc/coredns/custom"; then
+          echo "[registry-pivot]   coredns-custom ${COREDNS_SERVER_KEY} synced on pod ${pod}; reload plugin will pick it up"
+          return 0
+        fi
+        sleep 5
+      done
+      # Sync poll inconclusive (exec subresource may not be reachable from this
+      # minimal curl client). Fall back to the kubelet sync-period grace window
+      # so the reload plugin still picks up the file; non-fatal either way.
+      echo "[registry-pivot]   coredns-custom sync poll inconclusive after ${COREDNS_SYNC_TIMEOUT_SECONDS}s; relying on reload-plugin pickup (grace) on ${NODE_NAME}"
+      return 0
+    }
+    coredns_override_remove() {
+      # Rollback: drop ONLY our server key (preserve github-ipv4.server). A
+      # JSON-merge null deletes the key.
+      patch=$(jq -cn --arg k "${COREDNS_SERVER_KEY}" '{data:{($k):null}}')
+      curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/merge-patch+json" --data "${patch}" "${coredns_url}" >/dev/null 2>&1 || true
+    }
+
     # Patch a dfdaemon-family ConfigMap's dfdaemon.yaml registryMirror.addr to
-    # ${1}. The config is a single YAML string under data."dfdaemon.yaml"; we
-    # read it, rewrite ONLY the registryMirror.addr line, and merge-patch it
-    # back. Idempotent. SCOPING IS LOAD-BEARING: the dfdaemon.yaml carries
-    # MULTIPLE `addr:` keys — `manager.addr: http://dragonfly-manager…:65003`
-    # (the gRPC control-plane the dfdaemon health-checks at boot) AND
+    # ${2}, and (when ${3} is non-empty) ensure a sibling registryMirror.cert:
+    # ${3} (the PEM trust anchor for the LE-staging in-cluster Harbor, #4652).
+    # The config is a single YAML string under data."dfdaemon.yaml"; we read it,
+    # rewrite ONLY the registryMirror addr/cert lines, and merge-patch it back.
+    # Idempotent. SCOPING IS LOAD-BEARING: the dfdaemon.yaml carries MULTIPLE
+    # `addr:` keys — `manager.addr: http://dragonfly-manager…:65003` (the gRPC
+    # control-plane the dfdaemon health-checks at boot) AND
     # `proxy.registryMirror.addr` (the registry upstream we flip). A blanket
     # `sed s/addr: …/` would ALSO rewrite the manager addr → dfdaemon
     # ConnectError on startup → CrashLoopBackOff (caught live on the kom4dc
-    # seed-client). So the awk rewrites the `addr:` ONLY while inside a
+    # seed-client). So the awk rewrites addr/cert ONLY while inside a
     # `registryMirror:` block (set the in-block flag on a line ending in
     # `registryMirror:`; clear it when indentation returns to <= the
-    # registryMirror key's indent). want_addr is passed via -v (no shell
-    # interpolation into the awk program → metacharacter-safe).
+    # registryMirror key's indent). The `cert:` line is emitted at the SAME
+    # indent as `addr` (a sibling under registryMirror) — updated in place if it
+    # already exists in-block, else inserted right after the addr line; cleared
+    # on rollback (want_cert empty). want_addr / want_cert are passed via -v (no
+    # shell interpolation into the awk program → metacharacter-safe).
     patch_df_configmap_addr() {
-      cm_name="$1"; want_addr="$2"
+      cm_name="$1"; want_addr="$2"; want_cert="${3:-}"
       url="${api}/api/v1/namespaces/${DF_NAMESPACE}/configmaps/${cm_name}"
       cur=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${url}" 2>/dev/null \
         | jq -r '.data["dfdaemon.yaml"] // empty' 2>/dev/null || true)
       [ -z "${cur}" ] && { echo "[registry-pivot]   WARN ${cm_name} dfdaemon.yaml unreadable; deferring upstream flip"; return 1; }
-      new=$(printf '%s' "${cur}" | awk -v want="${want_addr}" '
+      new=$(printf '%s' "${cur}" | awk -v want="${want_addr}" -v cert="${want_cert}" '
         # compute leading-space count of a line
         function indent(s,   n){ n=0; while (substr(s,n+1,1)==" ") n++; return n }
         {
           if ($0 ~ /registryMirror:[[:space:]]*$/) { inblk=1; blkind=indent($0); print; next }
           if (inblk) {
             ci=indent($0)
-            # a non-blank line at indent <= the registryMirror key ends the block
-            if ($0 ~ /[^[:space:]]/ && ci <= blkind) inblk=0
+            # a non-blank line at indent <= the registryMirror key ends the
+            # block. Before leaving, if we owe a cert line and never saw one,
+            # emit it now at the addr indent we recorded (insert before the line
+            # that closes the block).
+            if ($0 ~ /[^[:space:]]/ && ci <= blkind) {
+              if (cert != "" && !cert_done && addrind != "") {
+                printf "%*scert: %s\n", addrind, "", cert
+                cert_done=1
+              }
+              inblk=0
+            }
+          }
+          # In-block existing cert line: update it in place (want set) or drop it
+          # (rollback, want_cert empty) — do NOT print the stale/cleared line.
+          if (inblk && $0 ~ /^[[:space:]]*cert:[[:space:]]*/) {
+            if (cert != "" && !cert_done) {
+              printf "%*scert: %s\n", indent($0), "", cert
+              cert_done=1
+            }
+            next
           }
           if (inblk && $0 ~ /^[[:space:]]*addr:[[:space:]]*https?:\/\//) {
+            addrind=indent($0)
             sub(/addr:[[:space:]]*https?:\/\/[^[:space:]]+/, "addr: " want)
+            print
+            # Insert the cert sibling right after addr if not already emitted.
+            if (cert != "" && !cert_done) {
+              printf "%*scert: %s\n", addrind, "", cert
+              cert_done=1
+            }
+            next
           }
           print
+        }
+        END {
+          # Block ran to EOF still open and we owe a cert line (registryMirror
+          # was the last block in the doc): emit it at the recorded addr indent.
+          if (inblk && cert != "" && !cert_done && addrind != "")
+            printf "%*scert: %s\n", addrind, "", cert
         }')
-      [ "${new}" = "${cur}" ] && { echo "[registry-pivot]   ${cm_name} upstream already ${want_addr}"; return 0; }
+      [ "${new}" = "${cur}" ] && { echo "[registry-pivot]   ${cm_name} upstream already ${want_addr}${want_cert:+ (cert ${want_cert})}"; return 0; }
       patch=$(jq -cn --arg v "${new}" '{data: {"dfdaemon.yaml": $v}}')
       if curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
         -H "Content-Type: application/merge-patch+json" --data "${patch}" "${url}" >/dev/null 2>&1; then
-        echo "[registry-pivot]   flipped ${cm_name} dfdaemon upstream -> ${want_addr}"
+        echo "[registry-pivot]   flipped ${cm_name} dfdaemon upstream -> ${want_addr}${want_cert:+ (cert ${want_cert})}"
         return 0
       fi
       echo "[registry-pivot]   WARN failed to patch ${cm_name} upstream (will retry next sweep)"
@@ -422,29 +672,46 @@ data:
       fi
       echo "[registry-pivot]   cilium-gateway ClusterIP ${gwip} -> hostAlias ${harbor_host} on ${NODE_NAME}"
       ok=0
-      patch_df_configmap_addr "${DF_CLIENT_CONFIGMAP}" "${local_upstream}" || ok=1
-      [ -n "${DF_SEED_CONFIGMAP}" ] && { patch_df_configmap_addr "${DF_SEED_CONFIGMAP}" "${local_upstream}" || ok=1; }
+      # #4652 (DNS fix): rewrite CoreDNS registry.<fqdn> -> gateway ClusterIP
+      # ONLY (no fallthrough), with the patch-then-sync sequencing. Best-effort:
+      # a miss leaves the guard unset → retried next sweep.
+      coredns_override "${gwip}" || ok=1
+      # #4652 (x509 fix): materialise the Harbor trust anchor in the dragonfly
+      # namespace; ONLY then set registryMirror.cert (so we never point the
+      # dfdaemon at a non-existent PEM). If the CA cannot be materialised this
+      # sweep, flip addr-only and defer the cert to a later sweep.
+      cert_arg=""
+      if harbor_ca_to_dragonfly_ns; then
+        cert_arg="${local_cert_path}"
+      else
+        ok=1
+      fi
+      patch_df_configmap_addr "${DF_CLIENT_CONFIGMAP}" "${local_upstream}" "${cert_arg}" || ok=1
+      [ -n "${DF_SEED_CONFIGMAP}" ] && { patch_df_configmap_addr "${DF_SEED_CONFIGMAP}" "${local_upstream}" "${cert_arg}" || ok=1; }
       patch_workload_hostalias daemonsets "${DF_CLIENT_DAEMONSET}" "${gwip}" || ok=1
       [ -n "${DF_SEED_STATEFULSET}" ] && { patch_workload_hostalias statefulsets "${DF_SEED_STATEFULSET}" "${gwip}" || ok=1; }
       restart_workload daemonsets "${DF_CLIENT_DAEMONSET}"
       [ -n "${DF_SEED_STATEFULSET}" ] && restart_workload statefulsets "${DF_SEED_STATEFULSET}"
       if [ "${ok}" = "0" ]; then
         cm_patch_status dragonflyUpstream local
-        echo "[registry-pivot]   dfdaemon flipped to LOCAL Harbor ${local_upstream} (cluster-wide guard set)"
+        echo "[registry-pivot]   dfdaemon flipped to LOCAL Harbor ${local_upstream} + CoreDNS + cert (cluster-wide guard set)"
         return 0
       fi
       echo "[registry-pivot]   dfdaemon flip incomplete; guard NOT set, will retry next sweep on ${NODE_NAME}"
       return 1
     }
     df_revert_to_ghcr() {
-      patch_df_configmap_addr "${DF_CLIENT_CONFIGMAP}" "https://ghcr.io" || true
+      # Rollback clears the cert (empty 3rd arg) along with the addr.
+      patch_df_configmap_addr "${DF_CLIENT_CONFIGMAP}" "https://ghcr.io" "" || true
       if [ -n "${DF_SEED_CONFIGMAP}" ]; then
-        patch_df_configmap_addr "${DF_SEED_CONFIGMAP}" "https://ghcr.io" || true
+        patch_df_configmap_addr "${DF_SEED_CONFIGMAP}" "https://ghcr.io" "" || true
       fi
       patch_workload_hostalias daemonsets "${DF_CLIENT_DAEMONSET}" "" || true
       if [ -n "${DF_SEED_STATEFULSET}" ]; then
         patch_workload_hostalias statefulsets "${DF_SEED_STATEFULSET}" "" || true
       fi
+      coredns_override_remove
+      harbor_ca_remove_from_dragonfly_ns
       cm_patch_status dragonflyUpstream ghcr
     }
 

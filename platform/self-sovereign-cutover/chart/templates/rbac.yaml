@@ -45,7 +45,16 @@ The cutover runner needs cluster-scope reach because:
     (hostPath → the node-local dfdaemon proxy), patches the bp-dragonfly
     dfdaemon ConfigMap upstream + DaemonSet/StatefulSet hostAliases, reads
     the cilium-gateway Service ClusterIP, and writes per-node acks +
-    the cluster-wide flip guard on the cutover-status ConfigMap.
+    the cluster-wide flip guard on the cutover-status ConfigMap. The #4652
+    finisher ADDS two coupled moves: (a) it patches/creates the kube-system
+    `coredns-custom` ConfigMap with a `registry.<fqdn> -> gateway ClusterIP`
+    `*.server` block (no fallthrough) and EXECs `grep` in the Running CoreDNS
+    pod to confirm the CM-volume sync before trusting the override; (b) it
+    READS the in-cluster Harbor wildcard TLS Secret in `kube-system` and
+    CREATES/patches/deletes an Opaque `dragonfly-harbor-ca` Secret (tls.crt)
+    in the `dragonfly` namespace so bp-dragonfly mounts it for the dfdaemon
+    `registryMirror.cert` trust anchor. The ConfigMap create/patch, Secret
+    read/create/patch/delete, and pods/exec verbs below cover these.
 
 We use ClusterRole + ClusterRoleBinding because the namespaces touched
 are heterogeneous and cluster-scoped resources (CiliumNetworkPolicy)
@@ -77,6 +86,9 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]   # catalyst-api stamps Jobs in this namespace from step ConfigMaps
     verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]   # #4652 (Refs #4641): registry-pivot DaemonSet execs `grep` in the Running CoreDNS pod to confirm the coredns-custom CM-volume sync completed BEFORE trusting the registry.<fqdn>->ClusterIP override (the patch-then-sync sequencing — restart races the stale mount)
+    verbs: ["create", "get"]
 
   # ───────────────────────────────────────────────────────────────
   # READ verbs — namespace-spanning per the step inventory above.
@@ -139,6 +151,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["delete"]   # step 08 (#3647) force-deletes ONE openova-io-imaged Pod under deny-egress to prove a fresh image pull resolves through local Harbor (the ReplicaSet recreates it; only a single Pod is bounced)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["delete"]   # #4652 (Refs #4641): registry-pivot rollback (v1) deletes the dragonfly-namespace dragonfly-harbor-ca Secret it created for the dfdaemon registryMirror.cert trust anchor (best-effort, paired with the addr/cert revert)
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["update", "patch"]   # step 07 sets env on catalyst-api deployment

@@ -121,6 +121,19 @@ dragonfly:
       # Per #3971 a classless PVC is FORBIDDEN; the per-Sovereign overlay sets
       # SOVEREIGN_DRAGONFLY_SEED_STORAGE_CLASS to the provider's durable class.
       storageClass: ""
+    # The seed peer ALSO back-to-sources to the local Harbor post-cutover, so
+    # it carries the SAME optional Harbor-CA mount as the per-node dfdaemon
+    # (#4652). Optional secret ⇒ harmless pre-cutover empty mount; the cutover
+    # creates the Secret + sets the seed's registryMirror.cert in lockstep.
+    extraVolumes:
+      - name: harbor-ca
+        secret:
+          secretName: dragonfly-harbor-ca
+          optional: true
+    extraVolumeMounts:
+      - name: harbor-ca
+        mountPath: /etc/dragonfly-ca
+        readOnly: true
     config:
       seedPeer:
         enable: true
@@ -154,6 +167,33 @@ dragonfly:
         limits:
           cpu: "1"
           memory: 1Gi
+    # ── Post-cutover Harbor CA trust (#4652 Refs #4641) ────────────────────
+    # The self-sovereign cutover flips the dfdaemon upstream from ghcr.io to
+    # the cluster-LOCAL Harbor (registry.<fqdn>), which on a fresh prov serves
+    # an LE-STAGING wildcard the dfdaemon's Rust resolver does NOT trust → the
+    # back-to-source pull x509-fails. The dragonfly-client `proxy.registryMirror`
+    # supports a `cert:` PEM path as the registry trust anchor; the cutover sets
+    # `registryMirror.cert: /etc/dragonfly-ca/tls.crt` in the dfdaemon ConfigMap
+    # patch (same step that flips `registryMirror.addr`). The cutover's
+    # registry-pivot DaemonSet READS the in-cluster Harbor wildcard TLS Secret
+    # (`kube-system/sovereign-wildcard-tls-<fqdn-dashed>`) and CREATES a
+    # `dragonfly`-namespace Opaque Secret carrying `tls.crt` (the same
+    # tls.crt-fallback the #3379 cert-tail step-06 uses for flux-system). bp-
+    # dragonfly mounts that Secret here UNCONDITIONALLY with `optional: true`,
+    # so the dfdaemon pod starts cleanly PRE-cutover (Secret absent → empty
+    # mount, harmless) and the cert is present the moment the cutover creates
+    # the Secret + re-rolls the pod (the hostAlias patch already re-rolls it).
+    # A patch-only cutover step cannot add a pod volume, so the mount lives
+    # HERE; the cutover owns the Secret content + the `registryMirror.cert` line.
+    extraVolumes:
+      - name: harbor-ca
+        secret:
+          secretName: dragonfly-harbor-ca
+          optional: true
+    extraVolumeMounts:
+      - name: harbor-ca
+        mountPath: /etc/dragonfly-ca
+        readOnly: true
     config:
       # ── dfdaemon proxy = the node's containerd registry mirror ──────────
       # containerd on every node is configured (by dfinit below — or by

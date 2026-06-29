@@ -35,12 +35,21 @@ description: |
   chart internals.
 type: application
 keywords: [catalyst, blueprint, dragonfly, p2p, registry, oci, image, distribution]
+# 0.1.1 (#4652 Refs #4641 #4637): mount an OPTIONAL `dragonfly-harbor-ca`
+# Secret at /etc/dragonfly-ca on the dfdaemon (client) + seed via
+# extraVolumes/extraVolumeMounts so the self-sovereign cutover can set
+# proxy.registryMirror.cert (the registry trust anchor for the LE-staging
+# in-cluster Harbor post-flip). optional:true ⇒ harmless empty mount pre-
+# cutover; the cutover creates the Secret + sets registryMirror.cert in
+# lockstep. The cutover (a patch-only step) cannot add a pod volume, so the
+# mount lives in this chart.
+#
 # 0.1.0 (#4639): initial bp-dragonfly. Wraps upstream dragonfly 1.7.0
 # (appVersion 2.5.0 / client v1.4.0). Single-cluster defaults: manager +
 # scheduler + seedClient replicas 1, bundled mysql + redis enabled, every
 # workload + initContainer carries non-zero resources.requests so the
 # cluster Kyverno `resource-requests` Enforce policy admits it.
-version: 0.1.0
+version: 0.1.1
 appVersion: "2.5.0"
 maintainers:
   - name: OpenOva Catalyst
