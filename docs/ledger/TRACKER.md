@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-29T09:00:07Z` |
+| Last refreshed | `2026-06-29T09:15:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-29T09:08 | [#4640](https://github.com/openova-io/openova/pull/4640) | #4639 | feat(bp-dragonfly): per-cluster P2P image distribution layer |
 | 2026-06-29T00:10 | [#4638](https://github.com/openova-io/openova/pull/4638) | #3232 | fix(bp-self-sovereign-cutover): registry-pivot v2 mirror at  |
 | 2026-06-28T16:46 | [#4634](https://github.com/openova-io/openova/pull/4634) | #4627 | fix(prov): hardcode provider-opentofu host; revert #4620 clo |
 | 2026-06-28T16:46 | [#4633](https://github.com/openova-io/openova/pull/4633) | #4632 | fix(bp-self-sovereign-cutover): auto-trigger retries on HTTP |
@@ -256,7 +257,6 @@ flowchart LR
 | 2026-06-28T07:17 | [#4602](https://github.com/openova-io/openova/pull/4602) | #4002 | fix(crossplane): remove artificial bastion-Harbor (harbor.op |
 | 2026-06-28T06:45 | [#4599](https://github.com/openova-io/openova/pull/4599) | #3379 | docs(uat): G11 ✅ — sovereignty cutover gate PROVEN on 5150f9 |
 | 2026-06-28T06:34 | [#4598](https://github.com/openova-io/openova/pull/4598) | #3379 | docs(uat): row 166 ✅ — Pillar-5 cutoverComplete proven (11/1 |
-| 2026-06-28T06:34 | [#4597](https://github.com/openova-io/openova/pull/4597) | #4596 | fix(cutover): egress hold allows IaaS provider API — CSI att |
 
 ---
 
