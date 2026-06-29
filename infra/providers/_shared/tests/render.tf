@@ -40,6 +40,7 @@ locals {
     gitops_repo_url                   = "https://github.com/openova-io/openova"
     gitops_branch                     = "main"
     marketplace_enabled               = "true"
+    qa_fixtures_enabled               = "true"
     console_isolation_enabled         = "true"
     wildcard_cert_issuer              = "wildcard-issuer"
     bcp_topology                      = "single-region"

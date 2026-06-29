@@ -993,6 +993,7 @@ locals {
       sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       marketplace_enabled      = var.marketplace_enabled
+      qa_fixtures_enabled      = var.qa_fixtures_enabled
       # #4053 console-isolation toggle (Refs #4431 #4212). Threads into the
       # shared template's SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13
       # ingress.gateway.parentRef.name. "true" → cilium-gateway-console

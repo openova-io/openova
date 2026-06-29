@@ -563,3 +563,18 @@ variable "cluster_mesh_id" {
     error_message = "cluster_mesh_id must be 0 (auto-allocate) or 1-255 (peer id)."
   }
 }
+
+# qa_fixtures_enabled — ported from the Hetzner provider (was MISSING on Huawei,
+# the root cause of the kom4dc cutover never auto-firing: catalyst-api passes
+# this tfvar from QATestEnabled, but without a declaration + a templatefile pass
+# + the QA_FIXTURES_ENABLED substitute key, slot-13's `qaFixtures.enabled`
+# (and thus CATALYST_FIRE_CUTOVER_ON_HANDOVER) always rendered false). Refs #4061.
+variable "qa_fixtures_enabled" {
+  type        = string
+  description = "When 'true', the Sovereign provisions with the bp-catalyst-platform qaFixtures stack rendered (qa-loop matrix consumers) AND auto-fires the self-sovereign cutover on handover. Default 'false' for customer Sovereigns. Set 'true' only on QA Sovereigns."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.qa_fixtures_enabled)
+    error_message = "qa_fixtures_enabled must be the string 'true' or 'false'."
+  }
+}

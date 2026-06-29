@@ -880,6 +880,7 @@ locals {
     gitops_repo_url     = var.gitops_repo_url
     gitops_branch       = var.gitops_branch
     marketplace_enabled = var.marketplace_enabled
+    qa_fixtures_enabled = var.qa_fixtures_enabled
     # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
     # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
     console_isolation_enabled = var.console_isolation_enabled
@@ -1421,6 +1422,7 @@ locals {
       gitops_repo_url     = var.gitops_repo_url
       gitops_branch       = var.gitops_branch
       marketplace_enabled = var.marketplace_enabled
+      qa_fixtures_enabled = var.qa_fixtures_enabled
       # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
       # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
       console_isolation_enabled = var.console_isolation_enabled
