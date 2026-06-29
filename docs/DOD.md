@@ -18,9 +18,14 @@
 > Supersedes the legacy split 5-PILLAR-DOD + DOMAINS-CANON +
 > SOVEREIGN-MULTI-REGION-DOD + PERSONAS-AND-JOURNEYS —
 > consolidated here per the lean-doc strategy (PR #2076 / PR #2084).
-> SPIRE-issued SVIDs for Sandbox MCP auth are deferred per PR #2056; the
-> Phase 2 mechanism therefore currently relies on the interim sandbox-pty-server
-> stdio attachment — see §1 Pillar 4 below.
+> Pillar 4 is delivered through the per-Org **Agenity** workspace
+> (`products/agenity/`) plus the **`bp-openova-mcp`** server
+> (`products/openova-mcp/`); the legacy Sandbox concept + menu are **dead** and
+> **removed** (founder, 2026-06-30). MCP auth is the per-Org `agenity-mcp-bearer`
+> — an Org-scoped RS256 session bearer minted into OpenBao at
+> `secret/catalyst/agenity/<slug>/mcp-bearer`, SSO/RBAC-scoped to the
+> Organization — not the old sandbox-pty-server stdio trust boundary. See
+> §1 Pillar 4 below.
 
 ---
 
@@ -104,31 +109,40 @@ are tertiary operator-debugger surfaces and must never displace pillar work.
 | **1** | **Marketplace + voucher onboarding** | Anonymous visitor reaches the operator-branded marketplace → picks the canonical Postgres-backed bundle → completes signup (email + 6-digit PIN magic-link) → Organization CR created. |
 | **2** | **Multi-region BCP topology choice at signup** | Wizard exposes region / topology choice during signup; customer picks N regions; system provisions across all N in one pass. Not a Day-2 upgrade. |
 | **3** | **Two independent CNPG clusters with ReplicaCluster sync + region-kill failover** | One CNPG cluster per region; synchronous `ReplicaCluster` replication over Cilium ClusterMesh on the DMZ WireGuard-over-public-IPs data plane; region-kill test passes with zero transactions lost. |
-| **4** | **Sandbox + auto-mounted MCP plugin with full org knowledge** | Sandbox launches the chosen agent CLI; **`openova-sandbox-mcp` auto-mounts at session start** with every org resource (apps, vClusters, conn-strings via OpenBao, Gitea repos, IAM, region health). User pastes zero credentials. Agent answers prompts with full org context and mutates resources via MCP tool calls. |
+| **4** | **Per-Org Agenity workspace + SSO/RBAC-scoped OpenOva MCP with full org knowledge** | The customer launches their per-Org **Agenity** workspace (the Sandbox concept + menu are **removed/replaced**). The chepherd-based solo agent (Claude Opus, OAuth-authenticated from its init-seeded `~/.claude/.credentials.json`) attaches the **`bp-openova-mcp`** server (`dependsOn bp-agenity`) via the per-Org `agenity-mcp-bearer` (SSO/RBAC-scoped, minted into OpenBao). The agent sees every org resource (apps, vClusters, conn-strings via OpenBao, Gitea repos, IAM, region health), pastes zero credentials, answers prompts with full org context, and mutates resources via MCP tool calls (e.g. `create_application`). |
 | **5** | **Sovereign independence post-cutover** | After `bp-self-sovereign-cutover` runs, zero egress to `harbor.openova.io`, `ghcr.io/openova-io`, or `github.com/openova-io` — proved by a 10-minute deny-egress NetworkPolicy hold (Principle #11). |
 
-### Pillar 4 — `openova-sandbox-mcp` auto-mount mechanism
+### Pillar 4 — Per-Org Agenity workspace + `bp-openova-mcp`
 
-When a Sandbox session attaches, the `sandbox-pty-server` (per
-`products/sandbox/pty-server/`) writes the chosen agent's `mcp.json` config to
-every canonical agent-config path (claude-code, qwen-code, opencode, aider,
-cline) and starts the MCP server as a stdio subprocess of the agent process.
-The server exposes 49 handlers grouped under namespaces such as
-`sandbox.db.*`, `sandbox.auth.*`, `marketplace.app.*`, `sandbox.git.*`,
-`sandbox.iam.*`, etc. (full registry in
-`products/sandbox/mcp-server/internal/tools/registry.go`).
+> **Terminology correction (founder, 2026-06-30):** the **Sandbox** concept is
+> **dead — replaced entirely by Agenity.** The Sandbox menu/surface is to be
+> **removed**. Any "Sandbox" mention elsewhere in this doc is historical /
+> superseded; the live Pillar-4 surface is the per-Org **Agenity** workspace and
+> `openova-sandbox-mcp` → **`bp-openova-mcp`**.
 
-Authentication is currently the stdio child-process trust boundary (the agent
-process is the tenant's session and the MCP server inherits its identity).
-SPIFFE / SPIRE-issued SVIDs as the long-term auth substrate are **deferred**
-per PR #2056; when SVIDs land, the agent's caller-identity will become the
-tenant Organization's workload identity, never a long-lived API key, and the
-agent will never see credentials.
+The customer installs the per-Org **Agenity** workspace (`products/agenity/`,
+a single-region singleton Application Blueprint) into their Organization. The
+StatefulSet boots the chepherd runtime headless and the chepherd-based **solo
+agent** runs Claude **Opus** with `CHEPHERD_DEFAULT_MODEL` +
+`CHEPHERD_EXTRA_MCP_JSON` (which carries the `openova` MCP-server stanza),
+authenticating from its init-seeded `~/.claude/.credentials.json` (OAuth mode —
+the operator's own OAuth credential, seeded from OpenBao). The
+**`bp-openova-mcp`** server (`products/openova-mcp/`, `dependsOn bp-agenity`)
+exposes the org-knowledge + mutation tool surface; it is a thin facade that
+forwards the per-Org `agenity-mcp-bearer` to the live catalyst-api, so the
+endpoint's own authz is the final word. That bearer is an Org-scoped RS256
+session JWT minted into OpenBao at `secret/catalyst/agenity/<slug>/mcp-bearer`
+(SSO/RBAC-scoped to that Organization), projected into the pod as
+`OPENOVA_MCP_BEARER`. The agent sees every org resource (apps, vClusters,
+conn-strings via OpenBao, Gitea repos, IAM, region health) and pastes zero
+credentials.
 
 Per Principle #1 (the waterfall is the contract) and Principle #2 (never
 compromise from quality), Pillar 4 is **not** "ship a stub MCP server now and
-wire real tools later." A Sandbox session that boots without the full 49 tools
-is Pillar 4 unshipped, regardless of how good the chrome looks.
+wire real tools later." An Agenity workspace that boots without the full
+OpenOva-MCP tool surface (read tools plus the `create_application` write path)
+working end-to-end is Pillar 4 unshipped, regardless of how good the chrome
+looks.
 
 ### Pillar 5 — `bp-self-sovereign-cutover` and the 8-tether pivot
 
@@ -184,19 +198,19 @@ Support System), **NOT in any `admin.<sovereign-fqdn>` subdomain**. The legacy
 | 1b | Customer redeems → checkout → picks the Postgres-backed bundle | Org provisions across the 2 chosen regions with **2 independent CNPG clusters** (ReplicaCluster sync over ClusterMesh on the WG-public-IP DMZ data plane) |
 | 1c | Org URL after signup | `https://console.<orgslug>.omani.homes` (default pool TLD; pool also has `omani.rest` and `omani.trade` per `core/services/parent-domain/sovereign_parent_domains.go`) |
 
-### Phase 2 — Customer launches Sandbox; agent provisions an additional app via MCP
+### Phase 2 — Customer launches Agenity; agent provisions an additional app via MCP
 
 **This is the most important test.** It exercises Pillar 4 end-to-end and
 proves that an agent acting on behalf of the tenant can mutate the
-Organization's resources entirely through the auto-mounted MCP plugin —
-without the user typing any credential.
+Organization's resources entirely through the OpenOva MCP — without the user
+typing any credential.
 
 | Step | Action | Outcome |
 |---|---|---|
 | 2a | Tenant logs in at `console.<orgslug>.omani.homes` | Dashboard renders |
-| 2b | Opens **Sandbox** | Sandbox session launches with agent set to **`qwen-code`** (NOT claude-code — `qwen-code` routes through newapi → Sovereign-hosted Qwen, **zero Anthropic cost leak**) |
-| 2c | `openova-sandbox-mcp` auto-mounts at session start | 49 MCP tools available with zero user-typed config (full handler set per `products/sandbox/mcp-server/internal/tools/registry.go`) |
-| 2d | Customer prompts qwen-code to provision an **additional application** in their Organization | Agent uses MCP tools (`sandbox.db.provision`, `sandbox.auth.provisionRealm`, `marketplace.app.install`, etc.) — new app CNPG cluster + namespace + HelmRelease + Gitea repo materialise |
+| 2b | Opens **Agenity** | The Agenity workspace launches its chepherd-based solo agent on Claude **Opus** (OAuth-authenticated from the init-seeded `~/.claude/.credentials.json` — the operator's own OAuth credential, so **no Anthropic cost leak**) |
+| 2c | The `openova` MCP server attaches | The `bp-openova-mcp` tool surface is available with zero user-typed config — RBAC-scoped to exactly what that User can do in the console (the tool set the agent sees == the User's console surface) |
+| 2d | Customer prompts the agent to provision an **additional application** in their Organization | Agent calls the OpenOva MCP provision/auth/install tools (the write path is `create_application`, which forwards the per-Org bearer to the catalyst-api `POST /api/v1/sovereigns/{id}/applications` install seam) — new app CNPG cluster + namespace + HelmRelease + Gitea repo materialise |
 | 2e | New app reachable | At `<newapp>.<orgslug>.omani.homes` |
 
 ### Orthogonal — D31 region-kill BCP failover
@@ -212,7 +226,7 @@ procedure.
 | Pillar 1 — Marketplace + signup | Phase 0 (all), Phase 1 step 1a (voucher email), Phase 1 step 1b (redeem + checkout), Phase 1 step 1c (post-signup landing) |
 | Pillar 2 — Multi-region BCP at signup | Phase 1 step 1b (wizard region-selection step) |
 | Pillar 3 — 2 CNPG clusters + region-kill failover | Phase 1 step 1b (provisioning the 2 clusters), orthogonal D31 (the kill test) |
-| Pillar 4 — Sandbox + auto-mounted MCP | Phase 2 steps 2a–2e |
+| Pillar 4 — Agenity + OpenOva MCP | Phase 2 steps 2a–2e |
 | Pillar 5 — Sovereign independence | Implicit in all of the above; verified separately by the `bp-self-sovereign-cutover` 10-minute deny-egress hold (see §7 + Principle #11) |
 
 ### What "shipped" means
@@ -292,10 +306,10 @@ OPERATOR experience, not just backend convergence.
 | **D29** | **Voucher-based organization (tenant) provisioning is zero-touch.** Recipient opens the voucher email → clicks redeem link → PIN-login as the test recipient (e.g. `hatice.yildiz@openova.io`) → lands on an organization-creation wizard → completes the form → a new `Organization` / Tenant CR is created → tenant namespace + RBAC + bootstrap apps converge → recipient is auto-redirected to their tenant home page. NO operator intervention beyond the voucher email. | Playwright MCP |
 | **D30** | **Free-subdomain selection from operator-curated pool.** Organization wizard step MUST present a subdomain picker populated from the configured pool: `omani.homes`, `omani.rest`, `omani.trade` (singular — see §4 below), and any others the operator has provisioned. Tenant chooses a free subdomain (e.g. `acme.omani.homes`) → cert provisions → tenant landing page resolves on the chosen FQDN with publicly-trusted TLS. The pool MUST come from a Sovereign-side CR / config (not hardcoded). | Playwright MCP + dig + curl |
 | **D31** | **Tenant application with CNPG active-hot-standby replication.** Inside the new tenant, user picks a CNPG-backed app from the marketplace (e.g. Ghost or WordPress) → selects "active hot-standby" → app installs with a CNPG `Cluster` that replicates across the Sovereign's regions (primary + at least one replica). `kubectl get cluster.postgresql.cnpg.io -A` in the tenant context shows `instances` distributed across regions (region label / topology spread). Failover test: cordoning the primary region brings the replica to primary, app remains reachable on its FQDN within the documented RTO (≤ 30 s). Full counter-test continuity procedure in §6. | Playwright MCP + kubectl + curl |
-| **D32** | **Sandbox CRD installable on the Sovereign.** `kubectl get crd sandboxes.sandbox.openova.io` returns the CRD; the controller Pod (`sandbox-controller` in `catalyst-system`) is Ready and processes a no-op `Sandbox` CR within 30 s (status transitions `Pending → Reconciling → Ready`). `helm template` of the Sovereign chart with sandbox enabled emits the controller Deployment + RBAC + Service. **The Sandbox plane is part of every Sovereign by default — operator does not opt in.** | kubectl + helm template |
-| **D33** | **Sandbox agent catalogue picker functional.** Sovereign Console `/console/sandbox` lists at minimum the six agents specified in `products/sandbox/docs/architecture.md` — Claude Code, Cursor (cloud), Qwen Code, Aider, OpenCode, plus the Sovereign-native shell. Picking an agent opens a session host page; the BYOS settings page lets the operator paste an Anthropic OAuth client_id (per `products/sandbox/docs/claude-code-byos.md`). A picked session establishes a WebSocket to the pty-server and renders xterm.js with a live PTY prompt. | Playwright MCP |
+| **D32** | **Agenity workspace installable per Org.** A User installs **`bp-agenity`** (`products/agenity/`) from the catalog into their Organization; its StatefulSet (`chepherd run --headless`), Service, and `agenity.<org>.<fqdn>` HTTPRoute materialise and the pod becomes Ready (`/healthz` 200) within the documented window. `kubectl -n <org>-prod get statefulset,svc,httproute,externalsecret -l catalyst.openova.io/blueprint=bp-agenity` shows all present; the Agenity console loads at `agenity.<org>.<sovereign-fqdn>` behind the Org's Keycloak SSO. Agenity is a single-region per-Org singleton (no Sandbox CRD, no `sandbox-controller` — both are removed). | kubectl + Playwright MCP |
+| **D33** | **Agenity workspace opens and the OpenOva MCP attaches.** Opening the Agenity console spawns the chepherd-based solo agent on Claude **Opus** (the pod env carries `CHEPHERD_DEFAULT_MODEL=claude-opus-*` + `CHEPHERD_EXTRA_MCP_JSON` with the `openova` server stanza; OAuth auth from the init-seeded `~/.claude/.credentials.json`). The spawned agent's `.mcp.json` lists **both** the `chepherd` runtime MCP and the **`openova`** (`bp-openova-mcp`) server; the OpenOva MCP is reachable using the per-Org `agenity-mcp-bearer` projected as `OPENOVA_MCP_BEARER` (minted into OpenBao at `secret/catalyst/agenity/<slug>/mcp-bearer`). `whoami` over the MCP resolves the Org-scoped identity; the tool set is RBAC-filtered to the User's console surface. | Playwright MCP + kubectl |
 | **D34** | **newapi Sovereign-side LLM gateway routes to a backend model.** `https://newapi.<fqdn>/v1/chat/completions` accepts an HS256 org-scoped JWT (issued by `core/services/auth`), authenticates the request, and proxies to a configured backend. The reference backend for this gate is a **partner-hosted Qwen** wired via the operator-supplied `newapi-channel-qwen-partner` Secret (see `docs/RUNBOOKS.md` §Operator-setup). A round-trip `curl` with a valid JWT returns a non-empty `choices[0].message.content` within 30 s. **No Anthropic / OpenAI cloud calls leave the Sovereign by default** — BYOS is opt-in per-user. | curl + kubectl |
-| **D35** | **NATS broker round-trips `catalyst.tenant.created` + `catalyst.order.placed` end-to-end.** SME tenant + billing dispatchers PUBLISH to NATS JetStream (subjects `catalyst.tenant.created`, `catalyst.tenant.updated`, `catalyst.order.placed`, `catalyst.invoice.paid` observed via `nats sub 'catalyst.>'`). Organization controller + Sandbox controller CONSUME (consume legs ship per #1862; round-trip wire test per the contract added in `56e04ac8a`). Round-trip test: issue a voucher → redeem it → measure latency from billing-service publish to Org controller reconcile-start ≤ 2 s. **Convergence is NOT declared until both legs are wired** — polling-the-API workaround does not satisfy this gate. | NATS CLI + kubectl logs |
+| **D35** | **NATS broker round-trips `catalyst.tenant.created` + `catalyst.order.placed` end-to-end.** SME tenant + billing dispatchers PUBLISH to NATS JetStream (subjects `catalyst.tenant.created`, `catalyst.tenant.updated`, `catalyst.order.placed`, `catalyst.invoice.paid` observed via `nats sub 'catalyst.>'`). The Organization controller CONSUMES both subjects (the D35 consume-leg subscribes to `catalyst.tenant.created` + `catalyst.order.placed` in `core/controllers/organization/cmd/main.go`; round-trip wire test per the contract added in `56e04ac8a`). Round-trip test: issue a voucher → redeem it → measure latency from billing-service publish to Org controller reconcile-start ≤ 2 s. **Convergence is NOT declared until both legs are wired** — polling-the-API workaround does not satisfy this gate. | NATS CLI + kubectl logs |
 
 > **DoD grows.** Every iteration of test-writer / test-executor finds more
 > operator-visible bugs. Append the gate, ship the fix, re-validate. The list
@@ -542,7 +556,7 @@ Day 1 — 14:08 — Ahmed is selling.
 JetStream. **His mental model**: "I have a Sovereign account. I bought a
 bundle. It works."
 
-### 5.6 Tenant journey — login → Sandbox → qwen-code → new app (Phase 2)
+### 5.6 Tenant journey — login → Agenity → OpenOva MCP → new app (Phase 2)
 
 This is the deterministic Phase 2 walkthrough from §2 expressed as a journey
 narrative. Same tenant Organization (Ahmed's muscatpharmacy, or any tenant
@@ -551,10 +565,10 @@ created in §5.5).
 | Step | Surface | Action |
 |---|---|---|
 | T0 | `console.<orgslug>.omani.homes` | Tenant PIN-logs-in. Dashboard renders (Pillar 1 + Pillar 2 already shipped). |
-| T1 | Tenant Console → Sandbox | Sandbox session launches with agent set to `qwen-code` by default (routes via newapi to Sovereign-hosted Qwen — zero Anthropic cost leak). |
-| T2 | Sandbox session | `openova-sandbox-mcp` auto-mounts: 49 MCP tools available (`sandbox.db.*`, `sandbox.auth.*`, `marketplace.app.*`, `sandbox.git.*`, `sandbox.iam.*`). User pastes zero credentials. |
-| T3 | qwen-code prompt | Tenant prompts: *"install a notes app backed by Postgres in my Org, public on `notes.<orgslug>.omani.homes`."* |
-| T4 | Agent action | qwen-code calls `marketplace.app.install` + `sandbox.db.provision` + `sandbox.auth.provisionRealm` via the MCP plugin. New app's CNPG cluster + namespace + HelmRelease + Gitea repo materialise. |
+| T1 | Tenant Console → Agenity | The User installs / opens the per-Org **Agenity** workspace; its chepherd-based solo agent runs Claude **Opus**, OAuth-authenticated from the init-seeded `~/.claude/.credentials.json` (the operator's own OAuth credential — no Anthropic cost leak). |
+| T2 | Agenity workspace | The `openova` (`bp-openova-mcp`) MCP server attaches with zero user-typed config, reachable via the per-Org `agenity-mcp-bearer` (`OPENOVA_MCP_BEARER`). Its tool set is RBAC-scoped to the User's console surface. User pastes zero credentials. |
+| T3 | Agent prompt | Tenant prompts: *"install a notes app backed by Postgres in my Org, public on `notes.<orgslug>.omani.homes`."* |
+| T4 | Agent action | The agent calls the OpenOva MCP `create_application` tool (Org-pinned, tier-admin-gated), which forwards the per-Org bearer to the catalyst-api install seam. The new app's CNPG cluster + namespace + HelmRelease + Gitea repo materialise. |
 | T5 | New app | Reachable at `https://notes.<orgslug>.omani.homes` with publicly-trusted TLS. |
 
 The tenant **never** typed a kubeconfig, never opened Git, never copied a DB
@@ -618,7 +632,7 @@ tooling is Git + IDE.
        creates the vcluster and bootstraps Flux pointing at the develop
        branch of every Application repo in the analytics Org. No new repos
        are created (Application repos exist already, indexed by branch).
-       Ready in 60s. Layla now has a new sandbox.
+       Ready in 60s. Layla now has a new throwaway dev Environment.
 
 16:00  Business asks for the customer's existing Backstage portal to show
        Catalyst-managed services. Layla integrates: Backstage queries
