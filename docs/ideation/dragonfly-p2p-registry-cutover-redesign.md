@@ -180,6 +180,44 @@ upstream target must be **cluster-local**, never a shared/external name:
 - Implication: `bp-harbor` + `bp-dragonfly` install **per cluster** (both
   regions), not primary-only.
 
+## 8a. Plane-isolation topology (mgmt holds Harbor; dmz/rtz are separate clusters)
+
+Real Sovereign topology can be **6 clusters** (2 regions × {mgmt, dmz, rtz}).
+Harbor lives in **mgmt**; dmz/rtz are separate consumer clusters. A plain
+cluster-local svc fails for dmz/rtz (Harbor isn't there). The reach is the
+**private ClusterMesh**, NOT the public external name:
+
+```
+  ════════ REGION A ════════              ════════ REGION B ════════
+  ┌─ mgmt-a ───────────┐                  ┌─ mgmt-b ───────────┐
+  │ Harbor-a (registry)│ ◀ cross-region ─▶│ Harbor-b (registry)│
+  │ Dragonfly seed     │   = DR replicate │ Dragonfly seed     │
+  └───────▲────────────┘                  └───────▲────────────┘
+          │ regional ClusterMesh GLOBAL svc (private WireGuard)
+    ┌─────┴────┐ ┌────────┐                 ┌─────┴────┐ ┌────────┐
+    │  dmz-a   │ │  rtz-a │                  │  dmz-b   │ │  rtz-b │
+    │ df→mgmt-a│ │df→mgmt-a│                 │ df→mgmt-b│ │df→mgmt-b│
+    │  + P2P   │ │  + P2P  │                 │  + P2P   │ │  + P2P  │
+    └──────────┘ └─────────┘                 └──────────┘ └─────────┘
+```
+
+**`dfdaemon` upstream rule (never the public external name):**
+- **mgmt cluster (hosts Harbor):** local `harbor-core.harbor.svc`.
+- **dmz / rtz clusters:** the Cilium ClusterMesh **global** service for
+  `harbor-core` (`service.cilium.io/global`) with **local/regional affinity** so
+  dmz-a → **mgmt-a**'s Harbor. Transport = the **private WireGuard mesh** the
+  clusters already share → no public EIP, no hairpin, no gateway, no `:30443`,
+  just one private mesh hop.
+
+**DR:** Harbor is **per-region** (Harbor-a, Harbor-b), replicated cross-region.
+dmz/rtz pull from **their own region's** mgmt Harbor. **Cross-region is
+replication only — never a hard pull dependency**, so region-a loss leaves
+region-b fully self-sufficient (region-kill DR holds).
+
+**Why Dragonfly matters more here:** without it, every dmz/rtz node pulls every
+image across the mesh from mgmt → heavy cross-cluster traffic. With it, each
+consumer cluster fetches each blob **once** across the mesh, then P2P locally.
+
 ## 9. Open questions for the founder
 
 - **Cross-cluster dedup:** the bastion gave one shared cache across *all*
