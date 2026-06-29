@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-29T11:45:02Z` |
+| Last refreshed | `2026-06-29T12:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-29T11:48 | [#4641](https://github.com/openova-io/openova/pull/4641) | #4640 | fix(self-sovereign-cutover): rewrite registry-pivot to the D |
 | 2026-06-29T09:08 | [#4640](https://github.com/openova-io/openova/pull/4640) | #4639 | feat(bp-dragonfly): per-cluster P2P image distribution layer |
 | 2026-06-29T00:10 | [#4638](https://github.com/openova-io/openova/pull/4638) | #3232 | fix(bp-self-sovereign-cutover): registry-pivot v2 mirror at  |
 | 2026-06-28T16:46 | [#4634](https://github.com/openova-io/openova/pull/4634) | #4627 | fix(prov): hardcode provider-opentofu host; revert #4620 clo |
@@ -256,7 +257,6 @@ flowchart LR
 | 2026-06-28T07:19 | [#4603](https://github.com/openova-io/openova/pull/4603) | #4401 | docs(uat): G8 ✅ — North Star agentic chat works end-to-end ( |
 | 2026-06-28T07:17 | [#4602](https://github.com/openova-io/openova/pull/4602) | #4002 | fix(crossplane): remove artificial bastion-Harbor (harbor.op |
 | 2026-06-28T06:45 | [#4599](https://github.com/openova-io/openova/pull/4599) | #3379 | docs(uat): G11 ✅ — sovereignty cutover gate PROVEN on 5150f9 |
-| 2026-06-28T06:34 | [#4598](https://github.com/openova-io/openova/pull/4598) | #3379 | docs(uat): row 166 ✅ — Pillar-5 cutoverComplete proven (11/1 |
 
 ---
 
