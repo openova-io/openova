@@ -1012,29 +1012,29 @@ echo "[cutover-contract] Case 31: step-04 registry-pivot uses the Dragonfly path
 #   (d) the legacy registries.yaml / k3s registries.yaml machinery is GONE.
 pivot_block="$(awk '/name: registry-pivot-script/{c=1} c{print} c&&/^---/{if(seen)exit; seen=1}' "$TMP/render.yaml")"
 # (a) containerd _default catch-all -> the node-local dfdaemon proxy.
-if ! printf '%s\n' "$pivot_block" | grep -q '127.0.0.1:'; then
+if ! grep -q '127.0.0.1:' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not point containerd at the node-local dfdaemon proxy (127.0.0.1) — the #4639 generic mirror (#4639)" >&2
   exit 1
 fi
-if ! printf '%s\n' "$pivot_block" | grep -q '_default/hosts.toml'; then
+if ! grep -q '_default/hosts.toml' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not write the containerd _default/hosts.toml catch-all that mirrors every registry namespace through dfdaemon (#4639)" >&2
   exit 1
 fi
 # (b) dfdaemon upstream flip to the local Harbor on the gateway HTTPS port.
-if ! printf '%s\n' "$pivot_block" | grep -q 'registryMirror'; then
+if ! grep -q 'registryMirror' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not flip the dfdaemon registryMirror upstream to the local Harbor (#4639)" >&2
   exit 1
 fi
-if ! printf '%s\n' "$pivot_block" | grep -q 'GATEWAY_HTTPS_PORT'; then
+if ! grep -q 'GATEWAY_HTTPS_PORT' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not target the gateway HTTPS port for the local-Harbor upstream (so the token realm stays node-routable) (#4639)" >&2
   exit 1
 fi
 # (c) the registry.<fqdn> -> cilium-gateway ClusterIP hostAlias (the #4637 kill).
-if ! printf '%s\n' "$pivot_block" | grep -q 'hostAliases'; then
+if ! grep -q 'hostAliases' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not patch a registry.<fqdn> -> cilium-gateway ClusterIP hostAlias onto the dfdaemon pod template (the #4637 token-realm hairpin kill) (#4639)" >&2
   exit 1
 fi
-if ! printf '%s\n' "$pivot_block" | grep -q 'GATEWAY_SERVICE_NAME'; then
+if ! grep -q 'GATEWAY_SERVICE_NAME' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not resolve the cilium-gateway Service ClusterIP for the hostAlias (#4639)" >&2
   exit 1
 fi
@@ -1049,7 +1049,7 @@ if grep -qF -e 'registries.yaml.v1:' -e 'registries.yaml.v2:' \
   exit 1
 fi
 # step-04 MUST stay daemonset-wait with the per-node ack convention intact.
-if ! printf '%s\n' "$pivot_block" | grep -q 'node.${NODE_NAME}.registriesYaml'; then
+if ! grep -q 'node.${NODE_NAME}.registriesYaml' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script no longer writes the per-node node.<NODE>.registriesYaml ack the daemonset-wait counts (#3671)" >&2
   exit 1
 fi
