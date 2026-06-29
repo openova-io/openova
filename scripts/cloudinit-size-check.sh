@@ -127,6 +127,7 @@ fixture_cp_common() {
     enable_unattended_upgrades        = true
     enable_fail2ban                   = true
     marketplace_enabled               = "false"
+    qa_fixtures_enabled               = "false"
     console_isolation_enabled         = "true"
     continuum_enabled                 = "false"
     bcp_topology                      = "single-region"

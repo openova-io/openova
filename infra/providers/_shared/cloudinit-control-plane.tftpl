@@ -553,6 +553,7 @@ write_files:
             # per-provider templates.
             SOVEREIGN_REGION_KEY: ${sovereign_region_key}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            QA_FIXTURES_ENABLED: "${qa_fixtures_enabled}"
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
             # PARENT_DOMAINS_FILTER (#3376) — the external-dns domainFilters
             # list (bootstrap-kit slot 12, clusters/_template/bootstrap-kit/
@@ -844,6 +845,7 @@ write_files:
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             SOVEREIGN_LB_IP: ${load_balancer_ipv4}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            QA_FIXTURES_ENABLED: "${qa_fixtures_enabled}"
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
             WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
             SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
