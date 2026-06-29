@@ -648,6 +648,18 @@ spec:
       # insecureSkipVerify — certSecretRef is the only trust mechanism (mirrors
       # skopeo #4529 / helm #4557 / containerd step-04 / OBS #4573 F2). Fail-OPEN
       # when the CA is unreadable. Lockstep w/ Chart.yaml + blueprint.yaml.
+      # 0.1.92 (#4637): the KUBELET-HAIRPIN leg. step-04 (registry-pivot) now
+      # resolves harbor-core's node-routable ClusterIP and points the v2
+      # containerd mirror endpoints at http://<clusterip>:<port> instead of
+      # https://registry.<sov-fqdn> (which the node resolver pins to the PUBLIC
+      # gateway EIP). On a no-hairpin cloud (kom4dc) the kubelet could not dial
+      # its own cluster's public EIP, so step-07 (catalyst-api-env-patch)
+      # ErrImagePull'd `dial tcp <EIP>:443: i/o timeout` and the cutover wedged
+      # at 54% (live f7464ffc). Fail-OPEN to the public host on a resolve miss.
+      # New values block .Values.registryPivot.inClusterHarbor (defaults
+      # harbor-core/harbor/:80 match this Sovereign's bp-harbor layout — no
+      # overlay needed). Lockstep w/ Chart.yaml + blueprint.yaml.
+      #
       # 0.1.91 (#4632 Refs #3379): the auto-trigger 425-NO-RETRY race — the
       # post-install hook Job POSTed /internal/cutover/trigger ONCE, got HTTP 425
       # (handover not yet sealed at slot-06a install time), did `exit 0` and was
@@ -657,7 +669,7 @@ spec:
       # transient 000/502) until a non-425 result or autoHandoverWaitSeconds
       # (1500s). New trigger.autoHandoverWaitSeconds; autoTimeoutSeconds 1740→2100;
       # HR install/upgrade timeout 30m→40m (above) so the hook unblocks in time.
-      version: 0.1.91
+      version: 0.1.92
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

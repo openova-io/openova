@@ -1,5 +1,38 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.92 (#4637, the KUBELET-HAIRPIN leg of the cutover — registry-pivot v2
+# mirror now points at a NODE-REACHABLE in-cluster Harbor, live wedge on
+# f7464ffc / omantel.biz kom4dc, 2026-06-29): step-04 (registry-pivot) no
+# longer routes the kubelet's post-pivot image pull to the public gateway EIP.
+#
+# THE WEDGE. step-07 (catalyst-api-env-patch, 7/11, 54%) restarts catalyst-api
+# with the pivoted image `registry.<sov-fqdn>/openova-io/openova/catalyst-api:
+# <tag>`. registries.yaml v2 (+ the certs.d/<host>/hosts.toml the pivot
+# regenerates) mirrors every upstream AND the direct registry.<sov-fqdn> host
+# through __HARBOR_PUBLIC_URL__ = registry.<sov-fqdn>. The NODE resolver pins
+# that name to the cluster's PUBLIC gateway EIP (cloudinit-worker.tftpl
+# /etc/hosts). On a no-hairpin cloud (Huawei kom4dc) the KUBELET cannot dial
+# its own cluster's public EIP → the new pod ErrImagePulls
+# `dial tcp <EIP>:443: i/o timeout` → the cutover wedges at 54%. The image IS
+# in local Harbor (harbor-prewarm pushed it from a POD via harbor-core
+# ClusterIP); only the kubelet/node path lacked a node-reachable mirror.
+#
+# THE FIX (mirror at a node-routable ClusterIP, same class as the #3232 ghcr
+# host-pin one layer up). A Service ClusterIP IS node-routable (kube-proxy/
+# cilium program it on the host net). step-04's pivot DaemonSet now resolves
+# harbor-core's ClusterIP at runtime (in-cluster K8s API — new services
+# get/list RBAC) and writes the containerd `[host]` mirror endpoints (both the
+# 7 upstream-mirror redirects AND the direct registry.<sov-fqdn> host) at
+# http://<clusterip>:<port> instead of https://registry.<sov-fqdn>. The certs.d
+# dir name + `server` stay the PUBLIC host (containerd keys the host-config off
+# the image-ref host) — only the resolved endpoint is the in-cluster ClusterIP.
+# harbor-core serves plain HTTP on its ClusterIP (expose.type=clusterIP, tls
+# disabled; TLS terminates at the Gateway), so the endpoint carries no cert.
+# Fail-OPEN: a resolve miss falls back to the public host (prior #4557
+# behaviour) and the loop retries the ClusterIP resolution on a later sweep
+# (new needs_node_endpoint_retry guard, mirroring the #4527 auth-retry). New
+# values block: .Values.registryPivot.inClusterHarbor.
+#
 # 0.1.91 (#4632 Refs #3379, the auto-trigger 425-NO-RETRY race that means the
 # cutover NEVER auto-fires post-handover — verified live on dep 8fd457a8,
 # 2026-06-29): the post-install/post-upgrade auto-trigger hook Job
@@ -1296,7 +1329,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.91
+version: 0.1.92
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
