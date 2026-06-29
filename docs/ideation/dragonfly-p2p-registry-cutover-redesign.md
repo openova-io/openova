@@ -180,43 +180,41 @@ upstream target must be **cluster-local**, never a shared/external name:
 - Implication: `bp-harbor` + `bp-dragonfly` install **per cluster** (both
   regions), not primary-only.
 
-## 8a. Plane-isolation topology (mgmt holds Harbor; dmz/rtz are separate clusters)
+## 8a. Plane-isolation topology — each plane SELF-CONTAINED (no cross-plane mesh)
 
-Real Sovereign topology can be **6 clusters** (2 regions × {mgmt, dmz, rtz}).
-Harbor lives in **mgmt**; dmz/rtz are separate consumer clusters. A plain
-cluster-local svc fails for dmz/rtz (Harbor isn't there). The reach is the
-**private ClusterMesh**, NOT the public external name:
+Real Sovereign topology can be **6 isolated clusters** (2 regions ×
+{mgmt, dmz, rtz}).
+
+> ⚠️ **Rejected approach (would breach isolation):** an earlier draft proposed a
+> Cilium ClusterMesh *global service* so dmz/rtz pull from mgmt's Harbor. This is
+> **WRONG**: (1) ClusterMesh is **region-scoped, same-plane** per ADR-0001 §9
+> (the canonical *inter-region* mechanism), **not** a cross-plane primitive;
+> (2) `bp-plane-isolation` enforces a **hard default-deny between planes**
+> (purely-additive allow-list, no `world`). Meshing `dmz → mgmt` punches a hole
+> in that isolation → a DMZ compromise could reach mgmt → **blast-radius
+> increase.** Do not do this.
+
+**Correct design — zero cross-plane image path:**
 
 ```
-  ════════ REGION A ════════              ════════ REGION B ════════
-  ┌─ mgmt-a ───────────┐                  ┌─ mgmt-b ───────────┐
-  │ Harbor-a (registry)│ ◀ cross-region ─▶│ Harbor-b (registry)│
-  │ Dragonfly seed     │   = DR replicate │ Dragonfly seed     │
-  └───────▲────────────┘                  └───────▲────────────┘
-          │ regional ClusterMesh GLOBAL svc (private WireGuard)
-    ┌─────┴────┐ ┌────────┐                 ┌─────┴────┐ ┌────────┐
-    │  dmz-a   │ │  rtz-a │                  │  dmz-b   │ │  rtz-b │
-    │ df→mgmt-a│ │df→mgmt-a│                 │ df→mgmt-b│ │df→mgmt-b│
-    │  + P2P   │ │  + P2P  │                 │  + P2P   │ │  + P2P  │
-    └──────────┘ └─────────┘                 └──────────┘ └─────────┘
+  REGION A                                  REGION B
+  mgmt-a [own registry + Dragonfly]         mgmt-b [own registry + Dragonfly]
+  dmz-a  [own registry + Dragonfly]         dmz-b  [own registry + Dragonfly]
+  rtz-a  [own registry + Dragonfly]         rtz-b  [own registry + Dragonfly]
+
+  ✗ NO mesh between planes (mgmt ↛ dmz ↛ rtz) — default-deny holds; blast radius = 1 cluster
+  ✓ region mesh (mgmt-a↔mgmt-b, SAME plane) stays for stateful DR per ADR-0001 — untouched
 ```
 
-**`dfdaemon` upstream rule (never the public external name):**
-- **mgmt cluster (hosts Harbor):** local `harbor-core.harbor.svc`.
-- **dmz / rtz clusters:** the Cilium ClusterMesh **global** service for
-  `harbor-core` (`service.cilium.io/global`) with **local/regional affinity** so
-  dmz-a → **mgmt-a**'s Harbor. Transport = the **private WireGuard mesh** the
-  clusters already share → no public EIP, no hairpin, no gateway, no `:30443`,
-  just one private mesh hop.
-
-**DR:** Harbor is **per-region** (Harbor-a, Harbor-b), replicated cross-region.
-dmz/rtz pull from **their own region's** mgmt Harbor. **Cross-region is
-replication only — never a hard pull dependency**, so region-a loss leaves
-region-b fully self-sufficient (region-kill DR holds).
-
-**Why Dragonfly matters more here:** without it, every dmz/rtz node pulls every
-image across the mesh from mgmt → heavy cross-cluster traffic. With it, each
-consumer cluster fetches each blob **once** across the mesh, then P2P locally.
+- Each of the 6 clusters runs its **own** registry + **own** Dragonfly mesh,
+  fully independent. `dfdaemon` upstream = **that cluster's local registry svc**.
+- Each cluster **seeds itself from ghcr** through its **own
+  additively-allow-listed egress** (pre-cutover) — **never from another plane**.
+  Post-cutover, each cluster's egress is blocked and it runs on its own registry.
+- **No cross-plane connectivity for images, ever** → a DMZ compromise cannot
+  traverse to mgmt via the image path. Blast radius = one cluster.
+- Images need **no mesh at all** (cross-plane *or* cross-region). The region mesh
+  (mgmt-a↔mgmt-b) exists only for stateful DR (CNPG-pair) and is orthogonal.
 
 ## 9. Open questions for the founder
 
@@ -229,3 +227,9 @@ consumer cluster fetches each blob **once** across the mesh, then P2P locally.
 - **Scope/sequence:** ship this as the cutover fix now, or land it as the
   generic registry layer first (also fixes the bastion outages independent of
   cutover)?
+- **Per-plane registry footprint (from §8a):** isolation requires each of the 6
+  clusters to be self-contained for images. Full Harbor per plane (heavy: core +
+  db + redis + jobservice + portal ×6) vs a **lighter per-plane registry**
+  (mgmt keeps the full Harbor with scanning/replication; dmz/rtz get a minimal
+  local registry, e.g. `registry:2`/Zot, fronted by Dragonfly)? Isolation is
+  identical either way — pure footprint trade-off.
