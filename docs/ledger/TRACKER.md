@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-29T00:00:04Z` |
+| Last refreshed | `2026-06-29T00:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 19 |
 | Open DoD gates | 0 / 41 |
@@ -226,6 +226,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-29T00:10 | [#4638](https://github.com/openova-io/openova/pull/4638) | #3232 | fix(bp-self-sovereign-cutover): registry-pivot v2 mirror at  |
 | 2026-06-28T16:46 | [#4634](https://github.com/openova-io/openova/pull/4634) | #4627 | fix(prov): hardcode provider-opentofu host; revert #4620 clo |
 | 2026-06-28T16:46 | [#4633](https://github.com/openova-io/openova/pull/4633) | #4632 | fix(bp-self-sovereign-cutover): auto-trigger retries on HTTP |
 | 2026-06-28T16:20 | [#4631](https://github.com/openova-io/openova/pull/4631) | #4623 | fix(bp-openbao): snapshot BAO_ADDR -> real openbao Service ( |
@@ -255,7 +256,6 @@ flowchart LR
 | 2026-06-28T06:45 | [#4599](https://github.com/openova-io/openova/pull/4599) | #3379 | docs(uat): G11 ✅ — sovereignty cutover gate PROVEN on 5150f9 |
 | 2026-06-28T06:34 | [#4598](https://github.com/openova-io/openova/pull/4598) | #3379 | docs(uat): row 166 ✅ — Pillar-5 cutoverComplete proven (11/1 |
 | 2026-06-28T06:34 | [#4597](https://github.com/openova-io/openova/pull/4597) | #4596 | fix(cutover): egress hold allows IaaS provider API — CSI att |
-| 2026-06-28T05:45 | [#4595](https://github.com/openova-io/openova/pull/4595) | #4563 | docs(cutover): egress hold green — sovereignty proof succeed |
 
 ---
 
