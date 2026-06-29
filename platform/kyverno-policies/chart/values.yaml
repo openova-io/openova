@@ -81,6 +81,19 @@ compliancePolicies:
       - flux-system
       - cilium
       - cilium-gateway
+      # dragonfly (#4640/#4637, 2026-06-30): bp-dragonfly is the P2P
+      # registry-distribution layer — the per-node dfdaemon is containerd's
+      # 127.0.0.1 mirror, peer to cilium as core image-path plumbing. Its
+      # workloads run upstream third-party images (docker.io/dragonflyoss/* +
+      # a docker.io/busybox init) that, by construction, CANNOT be required to
+      # pull through the very registry they bootstrap (harbor-proxy-pull) and
+      # carry the upstream chart's `:latest` busybox init (image-tag-pinned).
+      # Post-cutover both Enforce policies denied the recycled dragonfly-client
+      # DaemonSet → DS to 0 → node mirror dead → cutover wedged at step-07.
+      # Same trust tier + same treatment as cilium/cert-manager/kyverno: exempt
+      # from the compliance set via this shared anchor. (probes-present +
+      # resource-requests are satisfied by the bp-dragonfly chart regardless.)
+      - dragonfly
       - cert-manager
       - openova-system
       - catalyst
@@ -299,6 +312,10 @@ compliancePolicies:
       # is already exempt via complianceDefaultExcludes); exempt it here for
       # the image-source glob only. It stays subject to every OTHER policy.
       - crossplane-system
+      # NOTE: `dragonfly` is NOT listed here — it is in the shared
+      # complianceDefaultExcludes anchor (top of this file), which this policy's
+      # excludeNamespaces references, so it is already covered for the
+      # image-source glob AND every other compliance policy (see the anchor).
 
   imageTagPinned:
     enabled: true
