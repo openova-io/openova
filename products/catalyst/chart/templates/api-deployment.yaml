@@ -1041,7 +1041,12 @@ spec:
             # Catalyst-Zero / the mothership, which is the handover SENDER, never
             # a cutover subject — fireCutoverOnHandover never runs there.
             - name: CATALYST_FIRE_CUTOVER_ON_HANDOVER
-              value: '{{ if .Values.global.sovereignFQDN }}{{ .Values.catalystApi.fireCutoverOnHandover | default false }}{{ end }}'
+              # #4061 keeps PERMANENT customer Sovereigns operator-gated (explicit
+              # BSS "Achieve True Sovereignty" CTA). A qa/test prov (qaFixtures.enabled,
+              # e.g. omantel.biz with qaTestEnabled=true) drives the FULL unattended
+              # zero-touch walk — handover auto-fires the cutover. Customer provs
+              # (qaFixtures.enabled=false, fireCutoverOnHandover=false) stay gated.
+              value: '{{ if .Values.global.sovereignFQDN }}{{ if or .Values.catalystApi.fireCutoverOnHandover .Values.qaFixtures.enabled }}true{{ else }}false{{ end }}{{ end }}'
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When
