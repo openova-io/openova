@@ -994,6 +994,12 @@ locals {
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       marketplace_enabled      = var.marketplace_enabled
       qa_fixtures_enabled      = var.qa_fixtures_enabled
+      # North Star — decouple cutover auto-fire from qaTestEnabled. → shared
+      # template's FIRE_CUTOVER_ON_HANDOVER substitute → slot-13
+      # catalystApi.fireCutoverOnHandover (ORed with qaFixtures.enabled by the
+      # chart, #4648). INDEPENDENT of qa_fixtures_enabled so a PROD-cert
+      # Sovereign auto-fires the cutover on handover too.
+      fire_cutover_on_handover = var.fire_cutover_on_handover
       # #4053 console-isolation toggle (Refs #4431 #4212). Threads into the
       # shared template's SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13
       # ingress.gateway.parentRef.name. "true" → cilium-gateway-console

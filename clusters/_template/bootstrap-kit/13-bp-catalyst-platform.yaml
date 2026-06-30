@@ -1525,6 +1525,25 @@ spec:
     # bp-cert-manager-powerdns-webhook 1.1.0+) as an overridable default.
     wildcardCert:
       useStaging: ${WILDCARD_CERT_USE_STAGING:-false}
+    # ─── Self-Sovereignty cutover auto-fire (North Star — decouple from QA) ──
+    # fireCutoverOnHandover — when true, the Sovereign's child catalyst-api
+    # auto-fires the 8-step self-sovereignty cutover engine the instant
+    # handover seals the tofu-phase0-archive (CATALYST_FIRE_CUTOVER_ON_HANDOVER,
+    # #4061). Default-OFF (production posture — the cutover is a DELIBERATE
+    # BSS-menu "Achieve True Sovereignty" action). Flipped to true via the
+    # FIRE_CUTOVER_ON_HANDOVER envsubst substitute, which the cloud-init
+    # control-plane template sources from the catalyst-api Request's
+    # fireCutoverOnHandover field (tofu var fire_cutover_on_handover) —
+    # INDEPENDENT of QA_FIXTURES_ENABLED / qaTestEnabled.
+    #
+    # The chart's api-deployment.yaml ORs this with qaFixtures.enabled
+    # (#4648), so the final CATALYST_FIRE_CUTOVER_ON_HANDOVER env is TRUE when
+    # EITHER a qaTestEnabled prov (LE-STAGING certs, preserves the existing QA
+    # zero-touch walk) OR a PROD-cert prov (qaTestEnabled=false +
+    # fireCutoverOnHandover=true) requests it. This is the North Star seam: a
+    # browser-trusted Sovereign reaches cutoverComplete with ZERO manual steps.
+    catalystApi:
+      fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}
     # ─── Sovereign-side region seeding (DoD D5) ─────────────────────
     # regionsJson — JSON-array literal of the canonical multi-region
     # RegionSpec[] this Sovereign was provisioned with. Threaded

@@ -109,6 +109,7 @@ fixture_common() {
     enable_fail2ban                   = true
     marketplace_enabled               = "false"
     qa_fixtures_enabled               = "false"
+    fire_cutover_on_handover          = "false"
     console_isolation_enabled         = "true"
     continuum_enabled                 = "false"
     bcp_topology                      = "single-region"
