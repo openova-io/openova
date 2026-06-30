@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-30T05:15:03Z` |
+| Last refreshed | `2026-06-30T05:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 23 |
 | Open DoD gates | 0 / 41 |
@@ -230,6 +230,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-30T05:28 | [#4658](https://github.com/openova-io/openova/pull/4658) | #4658 | fix(qa-fixtures): declare resources.requests on qa-cnpg-back |
 | 2026-06-30T04:55 | [#4657](https://github.com/openova-io/openova/pull/4657) | #4648 | fix(qa-fixtures): default-deny CCNP exempt huawei-evs-csi +  |
 | 2026-06-29T20:48 | [#4655](https://github.com/openova-io/openova/pull/4655) | #3870 | fix(catalog-seed): gate bp-wordpress alias off on qaFixtures |
 | 2026-06-29T19:41 | [#4654](https://github.com/openova-io/openova/pull/4654) | #4653 | fix(cutover-contract): kill SIGPIPE false-fail wedging the b |
@@ -259,7 +260,6 @@ flowchart LR
 | 2026-06-28T12:36 | [#4616](https://github.com/openova-io/openova/pull/4616) | #4454 | fix(provisioner): VPC-quota reclaim protects ALL live deploy |
 | 2026-06-28T12:12 | [#4615](https://github.com/openova-io/openova/pull/4615) | #4614 | docs(epic-matrix): EOD update — North Star complete, founder |
 | 2026-06-28T08:59 | [#4613](https://github.com/openova-io/openova/pull/4613) | #4612 | docs(uat): North Star FULLY proven — create_application → 20 |
-| 2026-06-28T09:09 | [#4612](https://github.com/openova-io/openova/pull/4612) | #4556 | fix(catalyst-api): install-door agenity CR wires the per-Org |
 
 ---
 
