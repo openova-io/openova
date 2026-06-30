@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-30T08:00:04Z` |
+| Last refreshed | `2026-06-30T08:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-30T08:10 | [#4661](https://github.com/openova-io/openova/pull/4661) | #4660 | fix(cutover): gitea-admin-secret bridge materializes at runt |
 | 2026-06-30T07:10 | [#4659](https://github.com/openova-io/openova/pull/4659) | #4658 | fix(qa-fixtures): resources.requests on the remaining qa Job |
 | 2026-06-30T05:28 | [#4658](https://github.com/openova-io/openova/pull/4658) | #4658 | fix(qa-fixtures): declare resources.requests on qa-cnpg-back |
 | 2026-06-30T04:55 | [#4657](https://github.com/openova-io/openova/pull/4657) | #4648 | fix(qa-fixtures): default-deny CCNP exempt huawei-evs-csi +  |
@@ -260,7 +261,6 @@ flowchart LR
 | 2026-06-28T14:08 | [#4618](https://github.com/openova-io/openova/pull/4618) | #4614 | walk(uat): R1/R2/R6/R12/R13 ✅ live on re-prov 8fd457a8 |
 | 2026-06-28T13:16 | [#4617](https://github.com/openova-io/openova/pull/4617) | #3132 | chore(uat): reset walk-evidence on omantel.biz re-prov (dep  |
 | 2026-06-28T12:36 | [#4616](https://github.com/openova-io/openova/pull/4616) | #4454 | fix(provisioner): VPC-quota reclaim protects ALL live deploy |
-| 2026-06-28T12:12 | [#4615](https://github.com/openova-io/openova/pull/4615) | #4614 | docs(epic-matrix): EOD update — North Star complete, founder |
 
 ---
 
