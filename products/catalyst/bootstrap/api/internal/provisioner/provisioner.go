@@ -678,6 +678,35 @@ type Request struct {
 	// blocked. This field is the canonical seam.
 	QATestEnabled bool `json:"qaTestEnabled"`
 
+	// FireCutoverOnHandover — the North Star toggle that auto-fires the
+	// self-sovereign cutover engine the moment handover seals the
+	// tofu-phase0-archive, INDEPENDENT of QATestEnabled. Default false
+	// (omitted = false) — #4061 keeps the cutover an operator-gated BSS
+	// action for customer Sovereigns that set neither flag.
+	//
+	// The coupling this DECOUPLES: before this field, the only way to
+	// auto-fire the cutover on handover was QATestEnabled=true, which ALSO
+	// renders the qaFixtures stack + LE-STAGING wildcard certs (browser-
+	// unusable console). A PROD-cert prov (QATestEnabled=false) could never
+	// auto-cutover. The North Star needs BOTH prod-certs AND auto-cutover, so
+	// this is the independent seam: set FireCutoverOnHandover=true with
+	// QATestEnabled=false to drive a browser-trusted Sovereign to
+	// cutoverComplete with ZERO manual steps.
+	//
+	// Threading mirrors qa_fixtures_enabled EXACTLY: this Request field →
+	// writeTfvars `fire_cutover_on_handover` tofu var (string "true"/"false")
+	// → the cloud-init control-plane template's FIRE_CUTOVER_ON_HANDOVER
+	// substitute → bootstrap-kit slot-13 catalyst-api env
+	// CATALYST_FIRE_CUTOVER_ON_HANDOVER. The final env value is the OR of
+	// qa_fixtures_enabled and fire_cutover_on_handover (the qa path is
+	// preserved). infra/providers/{hetzner,huawei}/variables.tf declare the
+	// matching `variable "fire_cutover_on_handover"` with `["true","false"]`
+	// validation so a typo fails at `tofu plan`. The chart's
+	// api-deployment.yaml already ORs `.Values.catalystApi.fireCutoverOnHandover`
+	// with `.Values.qaFixtures.enabled` (#4648) — this closes the wire→tfvars
+	// →cloud-init half that #4648 left coupled to qaTestEnabled.
+	FireCutoverOnHandover bool `json:"fireCutoverOnHandover"`
+
 	// QAFixturesNamespace — explicit override for the qa-fixtures
 	// namespace name. Empty (default) → derived from SovereignFQDN's
 	// first label as "qa-<label>" at writeTfvars() time. Operator may
@@ -2701,6 +2730,22 @@ func writeTfvars(deployDir string, req Request) error {
 		// (default) → no fixture artifacts.
 		"qa_fixtures_enabled":     map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
 		"qa_test_session_enabled": map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
+
+		// Self-Sovereignty cutover auto-fire toggle (North Star — decouple
+		// cutover auto-fire from qaTestEnabled). INDEPENDENT of qa_fixtures_
+		// enabled. The final CATALYST_FIRE_CUTOVER_ON_HANDOVER env on the
+		// Sovereign catalyst-api is the OR of qa_fixtures_enabled (preserve
+		// existing QA behaviour — a qaTestEnabled prov still auto-cutovers)
+		// and this flag, so a PROD-cert Sovereign (qaTestEnabled=false +
+		// fireCutoverOnHandover=true) reaches cutoverComplete with ZERO manual
+		// steps. The OR is rendered in the cloud-init control-plane template's
+		// FIRE_CUTOVER_ON_HANDOVER substitute (slot-13 catalyst-api env).
+		// Default false (#4061 — customer Sovereigns that set neither flag keep
+		// the cutover an operator-gated BSS action). Stringified for the same
+		// envsubst-passthrough reason as qa_fixtures_enabled;
+		// infra/providers/{hetzner,huawei}/variables.tf carry the matching
+		// `["true","false"]` validation so a typo fails at `tofu plan`.
+		"fire_cutover_on_handover": map[bool]string{true: "true", false: "false"}[req.FireCutoverOnHandover],
 
 		// Wildcard cert staging-LE selector (Fix #123 — qa-loop iter-1 LE
 		// rate-limit unblock). When QATestEnabled=true the per-Sovereign

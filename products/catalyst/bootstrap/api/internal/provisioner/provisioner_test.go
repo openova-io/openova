@@ -598,6 +598,13 @@ func TestWriteTfvars_QAFixtures_DefaultDisabled(t *testing.T) {
 	if v, _ := parsed["qa_test_session_enabled"].(string); v != "false" {
 		t.Fatalf("qa_test_session_enabled MUST default 'false' on customer Sovereigns, got %q", v)
 	}
+	// North Star — fire_cutover_on_handover MUST default 'false' so a
+	// zero-touch customer Sovereign that sets neither flag keeps the cutover
+	// an operator-gated BSS action (#4061). The decoupling from qaTestEnabled
+	// does NOT change this default-off invariant.
+	if v, _ := parsed["fire_cutover_on_handover"].(string); v != "false" {
+		t.Fatalf("fire_cutover_on_handover MUST default 'false' on customer Sovereigns (operator-gated cutover, #4061), got %q", v)
+	}
 	// Fix #123 — wildcard_cert_use_staging MUST default 'false' so a
 	// customer Sovereign issues real-trusted production LE certs (not
 	// Fake-LE-Intermediate-X1 staging certs that browsers reject).
@@ -679,7 +686,68 @@ func TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg(t *testing.T) {
 			if v, _ := parsed["qa_organization"].(string); v != tc.wantOrgName {
 				t.Errorf("qa_organization: got %q want %q (derived from FQDN first label)", v, tc.wantOrgName)
 			}
+			// North Star decoupling — fire_cutover_on_handover stays 'false'
+			// here even though QATestEnabled=true. The QA path's auto-cutover
+			// comes from the chart ORing qaFixtures.enabled into
+			// CATALYST_FIRE_CUTOVER_ON_HANDOVER (#4648), NOT from this
+			// independent flag. The flag is the ONLY thing QATestEnabled does
+			// NOT set, which is exactly what lets a PROD-cert prov auto-cutover.
+			if v, _ := parsed["fire_cutover_on_handover"].(string); v != "false" {
+				t.Errorf("fire_cutover_on_handover: got %q want \"false\" (QATestEnabled MUST NOT set this independent flag; the QA auto-cutover rides qaFixtures.enabled via the chart OR)", v)
+			}
 		})
+	}
+}
+
+// TestWriteTfvars_FireCutoverOnHandover_DecoupledFromQA is the North Star
+// invariant: a PROD-cert Sovereign (QATestEnabled=false) that opts into
+// FireCutoverOnHandover=true emits fire_cutover_on_handover="true" while
+// qa_fixtures_enabled / qa_test_session_enabled / wildcard_cert_use_staging all
+// stay "false". This is the decoupling that lets a browser-trusted Sovereign
+// (real production LE certs, NO qaFixtures scaffolding) ALSO auto-fire the
+// self-sovereign cutover on handover and reach cutoverComplete with ZERO manual
+// steps. Before this seam the only way to auto-cutover was QATestEnabled=true,
+// which forced LE-STAGING certs (browser-unusable) + the qaFixtures stack.
+func TestWriteTfvars_FireCutoverOnHandover_DecoupledFromQA(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-cutover-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:         "prod-sovereign.omani.works",
+		OrgName:               "Prod",
+		OrgEmail:              "ops@omani.works",
+		HetznerToken:          "tok",
+		HetznerProjectID:      "p1",
+		Region:                "fsn1",
+		WorkerCount:           2,
+		QATestEnabled:         false, // PROD-cert Sovereign — NO qaFixtures, NO staging certs.
+		FireCutoverOnHandover: true,  // ...but DO auto-fire the cutover on handover.
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// The independent flag is TRUE.
+	if v, _ := parsed["fire_cutover_on_handover"].(string); v != "true" {
+		t.Fatalf("fire_cutover_on_handover: got %q want \"true\" (North Star — PROD-cert Sovereign opts into auto-cutover)", v)
+	}
+	// ...while EVERY qaTestEnabled-coupled var stays false. This is the proof
+	// the cutover auto-fire is DECOUPLED from QA: a browser-trusted Sovereign
+	// (production certs, no QA scaffolding) still drives the zero-touch walk.
+	for _, key := range []string{"qa_fixtures_enabled", "qa_test_session_enabled", "wildcard_cert_use_staging"} {
+		if v, _ := parsed[key].(string); v != "false" {
+			t.Errorf("%s: got %q want \"false\" (cutover auto-fire MUST NOT drag in QA fixtures or staging certs — that is the whole point of the decoupling)", key, v)
+		}
 	}
 }
 

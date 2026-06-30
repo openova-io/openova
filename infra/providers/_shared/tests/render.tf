@@ -41,6 +41,7 @@ locals {
     gitops_branch                     = "main"
     marketplace_enabled               = "true"
     qa_fixtures_enabled               = "true"
+    fire_cutover_on_handover          = "true"
     console_isolation_enabled         = "true"
     wildcard_cert_issuer              = "wildcard-issuer"
     bcp_topology                      = "single-region"

@@ -554,6 +554,17 @@ write_files:
             SOVEREIGN_REGION_KEY: ${sovereign_region_key}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
             QA_FIXTURES_ENABLED: "${qa_fixtures_enabled}"
+            # FIRE_CUTOVER_ON_HANDOVER (North Star — decouple cutover auto-fire
+            # from qaTestEnabled) — bootstrap-kit slot-13 reads this into
+            # catalystApi.fireCutoverOnHandover, which the chart ORs with
+            # qaFixtures.enabled (#4648) to set CATALYST_FIRE_CUTOVER_ON_HANDOVER
+            # on the child catalyst-api. INDEPENDENT of QA_FIXTURES_ENABLED so a
+            # PROD-cert Sovereign (qa_fixtures_enabled=false) can ALSO auto-fire
+            # the cutover on handover and reach cutoverComplete with ZERO manual
+            # steps. Sourced from var.fire_cutover_on_handover (catalyst-api
+            # Request.FireCutoverOnHandover). Default "false" (#4061 — customer
+            # Sovereigns that set neither flag stay operator-gated).
+            FIRE_CUTOVER_ON_HANDOVER: "${fire_cutover_on_handover}"
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
             # PARENT_DOMAINS_FILTER (#3376) — the external-dns domainFilters
             # list (bootstrap-kit slot 12, clusters/_template/bootstrap-kit/

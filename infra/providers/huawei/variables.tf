@@ -578,3 +578,23 @@ variable "qa_fixtures_enabled" {
     error_message = "qa_fixtures_enabled must be the string 'true' or 'false'."
   }
 }
+
+# fire_cutover_on_handover — North Star: decouple the self-sovereign cutover
+# auto-fire from qa_fixtures_enabled/qaTestEnabled. catalyst-api passes this
+# tfvar from Request.FireCutoverOnHandover; it threads through the shared
+# cloud-init template's FIRE_CUTOVER_ON_HANDOVER substitute → bootstrap-kit
+# slot-13's catalystApi.fireCutoverOnHandover, which the chart ORs with
+# qaFixtures.enabled (#4648) to set CATALYST_FIRE_CUTOVER_ON_HANDOVER. INDEPENDENT
+# of qa_fixtures_enabled so a PROD-cert Sovereign (qa_fixtures_enabled='false')
+# can ALSO auto-fire the cutover on handover and reach cutoverComplete with ZERO
+# manual steps. Default 'false' (#4061 — customer Sovereigns that set neither
+# flag keep the cutover an operator-gated BSS action).
+variable "fire_cutover_on_handover" {
+  type        = string
+  description = "When 'true', the Sovereign's catalyst-api auto-fires the self-sovereign cutover the instant handover seals the tofu-phase0-archive — INDEPENDENT of qa_fixtures_enabled, so a PROD-cert Sovereign reaches cutoverComplete with zero manual steps (North Star). Default 'false' (operator-gated BSS action, #4061)."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.fire_cutover_on_handover)
+    error_message = "fire_cutover_on_handover must be the string 'true' or 'false'."
+  }
+}
