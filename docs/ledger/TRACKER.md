@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-30T23:00:05Z` |
+| Last refreshed | `2026-06-30T23:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -234,6 +234,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-30T23:14 | [#4673](https://github.com/openova-io/openova/pull/4673) | #4635 | fix(cutover): level-triggered reconciler must re-run a faile |
+| 2026-06-30T23:15 | [#4672](https://github.com/openova-io/openova/pull/4672) | #4111 | docs(glossary): define Agenity + bp-openova-mcp + ban user-f |
+| 2026-06-30T23:15 | [#4671](https://github.com/openova-io/openova/pull/4671) | #4614 | fix(wipe): sweep unbound/nameless orphan EIPs project-wide — |
 | 2026-06-30T21:12 | [#4669](https://github.com/openova-io/openova/pull/4669) | #4635 | feat(cutover): level-triggered sovereignty-cutover reconcile |
 | 2026-06-30T19:21 | [#4668](https://github.com/openova-io/openova/pull/4668) | #4637 | fix(bp-self-sovereign-cutover): step-04 gates the v2 node-ac |
 | 2026-06-30T15:10 | [#4667](https://github.com/openova-io/openova/pull/4667) | #3379 | fix(bp-self-sovereign-cutover): step-06 Phase-3a pivots Helm |
@@ -261,9 +264,6 @@ flowchart LR
 | 2026-06-28T16:11 | [#4629](https://github.com/openova-io/openova/pull/4629) | #4623 | fix(bp-loki): disable loki-sc-rules sidecar — kill CrashLoop |
 | 2026-06-28T16:04 | [#4628](https://github.com/openova-io/openova/pull/4628) | #4624 | fix(bp-agenity): self-wire OPENOVA_MCP_BEARER + RS256-pubkey |
 | 2026-06-28T15:47 | [#4627](https://github.com/openova-io/openova/pull/4627) | #4600 | fix(prov): re-add infrastructure-providers postBuild → resol |
-| 2026-06-28T14:59 | [#4626](https://github.com/openova-io/openova/pull/4626) | #909 | docs(uat): operator-console authed walk — RBAC setup OK, hea |
-| 2026-06-28T14:56 | [#4625](https://github.com/openova-io/openova/pull/4625) | #4624 | walk(uat): Pillar-4 North Star agentic run PROVEN on 8fd457a |
-| 2026-06-28T14:21 | [#4622](https://github.com/openova-io/openova/pull/4622) | #909 | walk(uat): R19/R21/R22 ✅ live on 8fd457a8 |
 
 ---
 
