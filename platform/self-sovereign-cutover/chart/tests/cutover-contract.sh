@@ -373,12 +373,31 @@ fi
 #     Ready read could never become True → the strip was FATAL-refused every
 #     run and the cutover wedged at step-06 (hw146; also the hw144 0/0 shape,
 #     #3588). Guard against a regression back to the status-Ready read.
-if ! grep -Eq 'helm pull "oci://\$\{harbor_host\}/openova-io/' "$TMP/render.yaml"; then
-  echo "FAIL: Step-06 Phase-3a does not prove pullability via 'helm pull oci://\${harbor_host}/openova-io/<chart>' — the strip readiness gate is not a real authenticated pull (Refs #3627)" >&2
+if ! grep -Eq 'helm pull "oci://\$\{harbor_endpoint\}/openova-io/' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-3a does not prove pullability via 'helm pull oci://\${harbor_endpoint}/openova-io/<chart>' — the strip readiness gate is not a real authenticated pull against the gateway HTTPS endpoint (Refs #3627 #4666)" >&2
   exit 1
 fi
 if ! grep -q 'helm registry login' "$TMP/render.yaml"; then
   echo "FAIL: Step-06 Phase-3a does not 'helm registry login' the local Harbor before the pull probe (Refs #3627)" >&2
+  exit 1
+fi
+# #4666: the pivoted HelmRepository url + the Phase-3a probe MUST target the
+# in-cluster gateway HTTPS ENDPOINT (host[:port]). Post-#4652 CoreDNS resolves
+# registry.<fqdn> to the cilium-gateway ClusterIP, which listens on the high
+# NodePort (30443) — a bare-host (implicit :443) OCI pull connect-times-out for
+# both the Flux source-controller AND the Phase-3a probe (the hw201 wedge). The
+# step builds harbor_endpoint = harbor_host[:GATEWAY_HTTPS_PORT] and uses it for
+# the local_prefix (URL pivot), the login, and the pull. Guard the wiring.
+if ! grep -q 'GATEWAY_HTTPS_PORT' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 does not carry GATEWAY_HTTPS_PORT — the pivoted HelmRepository url + Phase-3a probe would target the implicit :443 and connect-timeout against the cilium-gateway ClusterIP (the hw201 wedge, Refs #4666)" >&2
+  exit 1
+fi
+if ! grep -Eq 'harbor_endpoint="\$\{harbor_host\}:\$\{GATEWAY_HTTPS_PORT\}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 does not derive harbor_endpoint=host:GATEWAY_HTTPS_PORT — the local-Harbor pull endpoint must carry the gateway HTTPS port (Refs #4666)" >&2
+  exit 1
+fi
+if ! grep -Eq 'helm registry login "\$\{harbor_endpoint\}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-3a 'helm registry login' must target harbor_endpoint (host:port) — docker/OCI auth is keyed on the exact host[:port], so a bare-host login leaves the host:port pull unauthenticated (Refs #4666)" >&2
   exit 1
 fi
 # The probe MUST run from a writable helm home (the Pod is
