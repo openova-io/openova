@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-30T22:15:03Z` |
+| Last refreshed | `2026-06-30T22:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 27 |
+| Open issues | 26 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 27 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 26 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 27 open items (clickable table)
+### All 26 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -225,7 +225,6 @@ flowchart LR
 | [#4656](https://github.com/openova-io/openova/issues/4656) | bp-cilium: VXLAN-over-WireGuard MTU stacking — cilium_wg0 (1290) < pod+VXLAN ( | Other |
 | [#4660](https://github.com/openova-io/openova/issues/4660) | bp-self-sovereign-cutover: gitea-admin-secret Helm-lookup bridge renders nil at  | Other |
 | [#4662](https://github.com/openova-io/openova/issues/4662) | Decouple cutover auto-fire (fireCutoverOnHandover) from qaTestEnabled — prod-c | Other |
-| [#4664](https://github.com/openova-io/openova/issues/4664) | fix(cutover): registry-pivot v2 mirror tests assert stale upstream_mirrors= cont | Other |
 | [#4666](https://github.com/openova-io/openova/issues/4666) | self-sovereign-cutover step-06 Phase-3a wedges at pct=45: pivoted HelmRepository | Other |
 
 ---
