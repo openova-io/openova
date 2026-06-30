@@ -702,7 +702,20 @@ spec:
       # (registry.<fqdn> -> gateway ClusterIP, no fallthrough) + materialises the
       # dragonfly-harbor-ca Secret + sets dfdaemon registryMirror.cert — the last
       # dfdaemon->Harbor leg. Pairs with bp-dragonfly >= 0.1.1 (optional cert mount).
-      version: 0.1.94
+      # 0.1.95 (#4660 Refs #4557 #3811): the gitea-admin-secret bridge now
+      # materialises at RUNTIME (new regular Job 00-gitea-admin-secret-bridge-job
+      # .yaml) instead of only at Helm RENDER time. The render-time lookup bridge
+      # (00-gitea-admin-secret-bridge.yaml) returns nil on a fresh prov because
+      # slot 06a renders BEFORE bp-gitea (slot ~14) exists, so the bridge Secret
+      # was never emitted and step-06 (helmrepository-patches) / step-09
+      # (gitea-token-mint) hit CreateContainerConfigError "secret gitea-admin-
+      # secret not found" → the cutover wedged at step-06 (live prov 17c2e8b2).
+      # The new Job polls (30 min default budget, values-overridable) for the
+      # source secret to appear and copies it into the `catalyst` release ns —
+      # event-driven, not render-time-bound. NOT a Helm hook (converges async
+      # behind disableWait:true). No step-count change; the Job carries
+      # component=gitea-admin-secret-bridge, not the cutover-step label.
+      version: 0.1.95
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
