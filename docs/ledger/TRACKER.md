@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-30T14:30:04Z` |
+| Last refreshed | `2026-06-30T14:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 25 |
+| Open issues | 26 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 26 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 25 open items (clickable table)
+### All 26 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -225,6 +225,7 @@ flowchart LR
 | [#4656](https://github.com/openova-io/openova/issues/4656) | bp-cilium: VXLAN-over-WireGuard MTU stacking — cilium_wg0 (1290) < pod+VXLAN ( | Other |
 | [#4660](https://github.com/openova-io/openova/issues/4660) | bp-self-sovereign-cutover: gitea-admin-secret Helm-lookup bridge renders nil at  | Other |
 | [#4662](https://github.com/openova-io/openova/issues/4662) | Decouple cutover auto-fire (fireCutoverOnHandover) from qaTestEnabled — prod-c | Other |
+| [#4664](https://github.com/openova-io/openova/issues/4664) | fix(cutover): registry-pivot v2 mirror tests assert stale upstream_mirrors= cont | Other |
 
 ---
 
@@ -232,6 +233,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-30T14:31 | [#4663](https://github.com/openova-io/openova/pull/4663) | #4648 | feat(catalyst): decouple cutover auto-fire (fireCutoverOnHan |
 | 2026-06-30T08:10 | [#4661](https://github.com/openova-io/openova/pull/4661) | #4660 | fix(cutover): gitea-admin-secret bridge materializes at runt |
 | 2026-06-30T07:10 | [#4659](https://github.com/openova-io/openova/pull/4659) | #4658 | fix(qa-fixtures): resources.requests on the remaining qa Job |
 | 2026-06-30T05:28 | [#4658](https://github.com/openova-io/openova/pull/4658) | #4658 | fix(qa-fixtures): declare resources.requests on qa-cnpg-back |
@@ -261,7 +263,6 @@ flowchart LR
 | 2026-06-28T14:11 | [#4619](https://github.com/openova-io/openova/pull/4619) | #909 | walk(uat): R3-R9 SSO rows ✅ live on 8fd457a8 |
 | 2026-06-28T14:08 | [#4618](https://github.com/openova-io/openova/pull/4618) | #4614 | walk(uat): R1/R2/R6/R12/R13 ✅ live on re-prov 8fd457a8 |
 | 2026-06-28T13:16 | [#4617](https://github.com/openova-io/openova/pull/4617) | #3132 | chore(uat): reset walk-evidence on omantel.biz re-prov (dep  |
-| 2026-06-28T12:36 | [#4616](https://github.com/openova-io/openova/pull/4616) | #4454 | fix(provisioner): VPC-quota reclaim protects ALL live deploy |
 
 ---
 
