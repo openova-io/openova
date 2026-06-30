@@ -194,6 +194,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # #4637 follow-up: the dfdaemon-serving probe must reach the NODE's
+            # dfdaemon, but this pod is NOT hostNetwork — so its 127.0.0.1 is the
+            # pod loopback, never the node's :DF_PROXY_PORT. The dfdaemon binds
+            # 0.0.0.0:DF_PROXY_PORT (hostNetwork), so HOST_IP:DF_PROXY_PORT is
+            # reachable from this pod. (containerd still pulls via 127.0.0.1 in
+            # the NODE netns — that is correct and unchanged.)
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
           # readinessProbe: the script touches /tmp/ready after its first
           # successful reconcile pass. catalyst-api's daemonset-wait
           # then sees numberReady=desired and proceeds.
@@ -354,7 +364,7 @@ data:
       # EXPLICIT per-host certs.d/<registry-host>/hosts.toml DOES honor the http
       # scheme, so write one for the pivoted in-cluster Harbor host. Confirmed:
       # writing this + restarting catalyst-api → image pulled, pod Running.
-      if [ -n "${harbor_host}" ]; then
+      if [ -n "${harbor_host:-}" ]; then
         mkdir -p "${certs_d}/${harbor_host}"
         {
           echo "# managed by bp-self-sovereign-cutover registry-pivot (#4637) — DO NOT EDIT"
@@ -375,7 +385,7 @@ data:
     }
     remove_default_mirror() {
       rm -f "${certs_d}/_default/hosts.toml" 2>/dev/null || true
-      [ -n "${harbor_host}" ] && rm -f "${certs_d}/${harbor_host}/hosts.toml" 2>/dev/null || true
+      [ -n "${harbor_host:-}" ] && rm -f "${certs_d}/${harbor_host}/hosts.toml" 2>/dev/null || true
       echo "[registry-pivot]   removed _default + ${harbor_host} hosts.toml (rollback) on ${NODE_NAME}"
     }
 
@@ -769,8 +779,15 @@ data:
       # REAL HTTP response is a 3-digit code whose leading digit is 1-5 (200, or
       # a 401/403/404 registry challenge — ANY proves the listener is up, no body
       # parse needed); `000` / empty / anything else = not serving → defer.
+      # Probe the NODE's dfdaemon via HOST_IP, not 127.0.0.1 (#4637 follow-up):
+      # this pod is NOT hostNetwork, so its loopback never reaches the node's
+      # hostNetwork dfdaemon — a 127.0.0.1 probe ALWAYS reads 000 and defers
+      # forever, wedging step-04. The dfdaemon binds 0.0.0.0:${DF_PROXY_PORT} so
+      # HOST_IP is reachable. (containerd still pulls via 127.0.0.1 in the NODE
+      # netns — correct + unchanged.) Fall back to 127.0.0.1 if HOST_IP is unset.
+      probe_host="${HOST_IP:-127.0.0.1}"
       code=$(curl -s -o /dev/null -w '%{http_code}' ${CT} \
-        "http://127.0.0.1:${DF_PROXY_PORT}/v2/" 2>/dev/null || true)
+        "http://${probe_host}:${DF_PROXY_PORT}/v2/" 2>/dev/null || true)
       case "${code}" in
         [1-5][0-9][0-9]) return 0 ;;  # a genuine HTTP status — dfdaemon serves
         *) return 1 ;;                # 000 / empty / malformed — proxy not up
