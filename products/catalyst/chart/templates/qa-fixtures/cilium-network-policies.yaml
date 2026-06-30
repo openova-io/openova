@@ -31,7 +31,17 @@
   auto-trigger Job stuck 20m on "catalyst-api not ready HTTP 000000" (DNS+egress denied).
   newapi — bp-newapi ships an Application namespace whose pods need DNS/apiserver.
 */ -}}
-{{- $excludedNamespaces := list "kube-system" "cilium" "flux-system" "catalyst-system" "catalyst" "newapi" "kyverno" "openbao" "keycloak" "gitea" "powerdns" "external-dns" "external-secrets-system" "cert-manager" "harbor" "grafana" "loki" "mimir" "tempo" "alloy" "opentelemetry" "trivy-system" "syft-grype" "sigstore-system" "falco" "vpa" "cluster-autoscaler" "cnpg-system" "valkey" "nats-system" "velero" "guacamole" "coraza" "crossplane-system" }}
+{{- /*
+  #4657 (2026-06-30): huawei-evs-csi + dragonfly + org-services were MISSING — on a
+  qaTestEnabled prov this default-deny denied the EVS CSI provisioner egress to the
+  apiserver → catalyst-api PVCs never bind → catalyst-api Pending → handover/cutover
+  never fire (the exact wedge on cutover-validation provs; NOT a Cilium MTU bug — this
+  policy only exists on qaFixtures provs, which is why production never hit it). Storage
+  CSI drivers + the Dragonfly registry layer + the org-services provisioning plane are
+  platform infra that legitimately need apiserver/DNS egress. (hcloud-csi / other-provider
+  CSI namespaces belong here too if a provider runs its CSI in a dedicated ns.)
+*/ -}}
+{{- $excludedNamespaces := list "kube-system" "cilium" "flux-system" "catalyst-system" "catalyst" "newapi" "kyverno" "openbao" "keycloak" "gitea" "powerdns" "external-dns" "external-secrets-system" "cert-manager" "harbor" "grafana" "loki" "mimir" "tempo" "alloy" "opentelemetry" "trivy-system" "syft-grype" "sigstore-system" "falco" "vpa" "cluster-autoscaler" "cnpg-system" "valkey" "nats-system" "velero" "guacamole" "coraza" "crossplane-system" "huawei-evs-csi" "dragonfly" "org-services" }}
 {{- $qaNs := .Values.qaFixtures.namespace | default "qa-omantel" }}
 {{- if .Values.qaFixtures.networkPolicies.enabled | default true }}
 ---
