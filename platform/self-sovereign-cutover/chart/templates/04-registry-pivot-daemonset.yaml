@@ -358,6 +358,13 @@ data:
         mkdir -p "${certs_d}/${harbor_host}"
         {
           echo "# managed by bp-self-sovereign-cutover registry-pivot (#4637) — DO NOT EDIT"
+          # The `server` line is LOAD-BEARING: without it containerd's host-dir
+          # falls back to the origin scheme (https) for the dfdaemon hop and
+          # TLS-handshakes the plain-HTTP :4001 proxy → EOF. The proven
+          # harbor.openova.io / 212.72.24.20:5000 certs.d entries on this same node
+          # ALL pair `server = "https://<host>/v2"` with an `[host."http://..."]`
+          # mirror — mirror that exact shape so the http dfdaemon hop is honored.
+          echo "server = \"https://${harbor_host}\""
           echo "[host.\"${df_proxy}\"]"
           echo "  capabilities = [\"pull\", \"resolve\"]"
           echo "  skip_verify = true"
