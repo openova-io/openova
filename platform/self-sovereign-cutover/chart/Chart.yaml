@@ -1,5 +1,40 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.96 (#4666 Refs #3379 #4652, the step-06 Phase-3a LOCAL-HARBOR-PULL wedge —
+# the pivoted HelmRepository url + the pull probe targeted the implicit :443):
+# Post-#4652 the cutover rewrites CoreDNS so registry.<sov-fqdn> resolves cluster-
+# INTERNALLY to the cilium-gateway Service ClusterIP. But cilium-envoy cannot bind
+# privileged ports (cilium-agent gates the bind), so the gateway's HTTPS listener
+# is the high NodePort 30443 — the public 443->30443 translation is the EXTERNAL
+# Hetzner LB / Huawei NodePort, INVISIBLE to in-cluster clients. So step-06
+# Phase-1 pivoted every HelmRepository url to oci://registry.<fqdn>/openova-io
+# (bare host -> implicit :443) and Phase-3a probed `helm pull oci://registry.
+# <fqdn>/...` — both resolve to the gateway ClusterIP but connect to :443 on which
+# NOTHING listens -> `dial tcp <gw-clusterip>:443: connect: connection timed out`.
+# The Flux SOURCE-CONTROLLER hit the IDENTICAL timeout for every pivoted chart
+# (`failed to login to OCI registry: Get "https://registry.<fqdn>/v2/": ...
+# Client.Timeout`), so the pivot never reconciled, Phase-3a's strip-readiness gate
+# never converged, and the cutover wedged at step-06 failedStep=helmrepository-
+# patches pct=45 forever — on a PROD-cert env, so NOT the #3379/#4557 TLS leg
+# (cert trust was fine; x509-fail=0). Live root-cause on hw201 (dep
+# 413ef5f88eb63b2b, kom4dc): the step-03 prewarm pushed all 63 charts OK and a
+# `helm pull oci://registry.hw201.omani.works:30443/openova-io/bp-cilium`
+# SUCCEEDED while the same pull to the bare host (:443) timed out.
+# THE FIX: step-06 builds harbor_endpoint = harbor_host[:GATEWAY_HTTPS_PORT]
+# (30443, mirroring registryPivot.dragonfly.gatewayHTTPSPort which the
+# containerd/dfdaemon path already used) and uses it for (1) the Phase-1 url pivot
+# (local_prefix = oci://host:30443/openova-io — so source-controller lands on the
+# listening port and the durable Gitea YAML carries the port), (2) the Phase-3a
+# `helm registry login` + `helm pull` probe, and (3) the Phase-0 ghcr-pull auth
+# entry. (3) is load-bearing: docker/OCI auth is keyed on the EXACT host[:port]
+# string (proven live — auth under bare host -> pull from host:30443 401s `no
+# basic auth credentials`; auth under host:30443 -> pull OK), so Phase-0 now
+# writes the local-Harbor auth under BOTH the endpoint AND the bare host, and the
+# Phase-3b strip guard protects both. New value sovereign.gatewayHTTPSPort (default
+# "30443"; "" = legacy host-only pivot). New GATEWAY_HTTPS_PORT env on step-06.
+# Contract test Case asserts harbor_endpoint=host:GATEWAY_HTTPS_PORT + the
+# login/pull target it. NO step-count / job-mode change. Lockstep w/ 06a slot pin.
+# Refs #4666 #3379 #4652.
 # 0.1.95 (#4660 Refs #4557 #3811 #3379, the gitea-admin-secret bridge is
 # render-time-fragile and wedges the cutover at step-06): the companion
 # 00-gitea-admin-secret-bridge.yaml Helm-`lookup`s `gitea/gitea-admin-secret`
@@ -1425,7 +1460,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.95
+version: 0.1.96
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

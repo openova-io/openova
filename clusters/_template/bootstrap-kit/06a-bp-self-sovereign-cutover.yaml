@@ -715,7 +715,7 @@ spec:
       # event-driven, not render-time-bound. NOT a Helm hook (converges async
       # behind disableWait:true). No step-count change; the Job carries
       # component=gitea-admin-secret-bridge, not the cutover-step label.
-      version: 0.1.95
+      version: 0.1.96
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -763,6 +763,18 @@ spec:
       # never Ready → bootstrap-kit Ks stuck (chicken-and-egg). See
       # t20 debug matrix.
       harborPublicURL: https://registry.${SOVEREIGN_FQDN}
+      # #4666 (Refs #3379 #4652) — the in-cluster cilium-gateway HTTPS NodePort.
+      # Post-#4652 CoreDNS resolves registry.${SOVEREIGN_FQDN} cluster-internally
+      # to the cilium-gateway Service ClusterIP, which listens on 30443 (cilium-
+      # envoy can't bind 443; the public 443->30443 translation is the EXTERNAL
+      # LB / NodePort, invisible in-cluster). Step-06 appends `:30443` to the
+      # pivoted HelmRepository host so BOTH the Flux source-controller pull AND
+      # the Phase-3a `helm pull` probe land on the LISTENING port — without it
+      # the bare-host (:443) pull connect-timed-out and the cutover wedged at
+      # step-06 pct=45 forever (live hw201, dep 413ef5f88eb63b2b). Matches the
+      # registryPivot.dragonfly.gatewayHTTPSPort the containerd/dfdaemon path
+      # already used.
+      gatewayHTTPSPort: "30443"
       giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
       giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}
       # G... (#2989, 2026-06-04): Step 07 (catalyst-api-env-patch, Phase 3

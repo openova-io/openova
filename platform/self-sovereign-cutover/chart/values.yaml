@@ -46,6 +46,38 @@ sovereign:
   # ↓ overlay required for real cutover (uses ${SOVEREIGN_FQDN}).
   #    MUST be `registry.<sov-fqdn>` to match the bp-harbor HTTPRoute.
   harborPublicURL: "https://registry.example.local"
+  # ── #4666 (Refs #3379 #4652) — the in-cluster gateway HTTPS port ──────────
+  # THE STEP-06 PHASE-3a LOCAL-HARBOR-PULL WEDGE FIX. Post-#4652 CoreDNS
+  # resolves `registry.<sov-fqdn>` cluster-INTERNALLY to the cilium-gateway
+  # Service ClusterIP (a `coredns-custom` registry-local.server block with NO
+  # fallthrough — the public EIP is never returned in-cluster). But cilium-envoy
+  # CANNOT bind privileged ports (cilium-agent gates the bind), so the gateway's
+  # HTTPS listener is the high NodePort 30443, NOT 443 (see
+  # clusters/_template/sovereign-tls/cilium-gateway.yaml — the public 443→30443
+  # translation is done by the EXTERNAL Hetzner LB / Huawei NodePort, which is
+  # invisible to in-cluster clients). So an in-cluster OCI pull of
+  # `oci://registry.<fqdn>/openova-io/...` resolves to the gateway ClusterIP but
+  # connects to the implicit `:443` — on which NOTHING listens → `connect:
+  # connection timed out`. This is EXACTLY what the Flux SOURCE-CONTROLLER hits
+  # for every pivoted HelmRepository AND what step-06 Phase-3a's `helm pull`
+  # probe hits (live evidence hw201 / dep 413ef5f88eb63b2b: the prewarm pushed
+  # all 63 charts OK, but `Head "https://registry.hw201.omani.works/v2/openova-
+  # io/bp-cilium/manifests/1.4.5": dial tcp 10.96.2.39:443: connect: connection
+  # timed out` on the probe, and source-controller `failed to login to OCI
+  # registry: Get "https://registry.hw201.omani.works/v2/": ... Client.Timeout`
+  # on every chart — while the SAME pull to `registry.hw201.omani.works:30443`
+  # succeeds). The dfdaemon/containerd path (step-04) already dials the local
+  # Harbor on this port (registryPivot.dragonfly.gatewayHTTPSPort); the
+  # source-controller / Flux OCI path did NOT carry the port until this fix.
+  #
+  # Step-06 appends `:<gatewayHTTPSPort>` to the pivoted HelmRepository host so
+  # both the live URL pivot (source-controller pulls) and the Phase-3a probe
+  # (`helm registry login` + `helm pull`) target the LISTENING port. Set to ""
+  # to pivot host-only (legacy behaviour) on a Sovereign whose in-cluster
+  # `registry.<fqdn>` genuinely answers on 443 (e.g. an operator who fronted the
+  # gateway with an in-cluster :443 Service/LB). Default 30443 = the canonical
+  # Catalyst gateway HTTPS NodePort (matches registryPivot.dragonfly.gatewayHTTPSPort).
+  gatewayHTTPSPort: "30443"
   giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   # ↓ overlay supplies https://gitea.${SOVEREIGN_FQDN} (informational; jobs use internal URL).
   giteaPublicURL: "https://gitea.example.local"
