@@ -2,7 +2,7 @@
 
 > **Pillar 1 (Marketplace + voucher onboarding) fully live-walked 2026-06-27 — funnel + plan catalog + voucher issuance/redeem E2E.**
 
-> **Pillar 4 (Sandbox + auto-mounted openova-sandbox-mcp) materially live-walked 2026-06-27 — controller + Sandbox-CR-provision + MCP auto-mount + RBAC Org-scope verified; agentic chat-run gated on Anthropic credential.**
+> **Pillar 4 (Agenity workspace + auto-mounted bp-openova-mcp) materially live-walked 2026-06-27 — controller + per-Org provision + MCP auto-mount + RBAC Org-scope verified; agentic chat-run gated on Anthropic credential.** *(Terminology per DOD.md §Pillar 4 + GLOSSARY: the user-facing product is **Agenity** / **bp-openova-mcp**; the legacy "Sandbox" concept + menu are dead/removed — founder 2026-06-30. Internal `sandbox-controller`/`Sandbox` CR plumbing Agenity is built on stays internal.)*
 
 > **Authed operator-console walk 2026-06-27 (throwaway-mailbox PIN session) — 10 interactive-UI rows verified; 2 product faults exposed (rows 33, 176).**
 
