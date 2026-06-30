@@ -364,7 +364,7 @@ data:
       # EXPLICIT per-host certs.d/<registry-host>/hosts.toml DOES honor the http
       # scheme, so write one for the pivoted in-cluster Harbor host. Confirmed:
       # writing this + restarting catalyst-api → image pulled, pod Running.
-      if [ -n "${harbor_host}" ]; then
+      if [ -n "${harbor_host:-}" ]; then
         mkdir -p "${certs_d}/${harbor_host}"
         {
           echo "# managed by bp-self-sovereign-cutover registry-pivot (#4637) — DO NOT EDIT"
@@ -385,7 +385,7 @@ data:
     }
     remove_default_mirror() {
       rm -f "${certs_d}/_default/hosts.toml" 2>/dev/null || true
-      [ -n "${harbor_host}" ] && rm -f "${certs_d}/${harbor_host}/hosts.toml" 2>/dev/null || true
+      [ -n "${harbor_host:-}" ] && rm -f "${certs_d}/${harbor_host}/hosts.toml" 2>/dev/null || true
       echo "[registry-pivot]   removed _default + ${harbor_host} hosts.toml (rollback) on ${NODE_NAME}"
     }
 
