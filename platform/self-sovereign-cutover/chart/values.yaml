@@ -199,6 +199,50 @@ giteaAdminSecretBridge:
   destSecretName: "gitea-admin-secret"
   usernameKey: "username"
   passwordKey: "password"
+  # #4660 — RUNTIME materialisation Job (the durable fix for the render-time
+  # fragility of the Helm-lookup bridge above).
+  #
+  # WHY. The lookup-and-mirror Secret above reads the source at HELM RENDER
+  # time. But this chart installs DORMANT at bootstrap-kit slot 06a, which
+  # renders BEFORE bp-gitea (slot ~14) exists → the lookup returns nil → the
+  # bridge Secret is never emitted into the release namespace. Once the cutover
+  # HR reaches Ready (no drift) helm-controller does NOT re-render, so the
+  # render-time bridge stays absent indefinitely and the first cutover step Job
+  # that references `gitea-admin-secret` (06-helmrepository-patches /
+  # 09-gitea-token-mint, secretKeyRef in the Pod's OWN namespace) fails
+  # `CreateContainerConfigError: secret "gitea-admin-secret" not found` → the
+  # cutover wedges at step-06 (live on prov 17c2e8b2).
+  #
+  # THE FIX. A regular (non-hook) Job ships with the chart and runs at install.
+  # It WAITS at RUNTIME (poll loop) for the source `gitea/gitea-admin-secret`
+  # to exist, then copies it into the release namespace as `destSecretName`.
+  # Runtime copy is EVENT-DRIVEN (it watches the source appear) rather than
+  # render-time-bound, so a late-arriving secret is materialised regardless of
+  # when bp-gitea converges relative to slot 06a. The lookup Secret above is
+  # kept as the no-cost fast path for re-installs/upgrades where gitea already
+  # exists; this Job is the guarantee of eventual materialisation.
+  #
+  # The Job is scoped by a dedicated ServiceAccount + a same-namespace Role
+  # (create/get/patch the destination Secret) + a `gitea`-namespace Role
+  # scoped via resourceNames to read ONLY `gitea-admin-secret` — it cannot read
+  # any other Secret on the cluster. Per docs/INVIOLABLE-PRINCIPLES.md #10 the
+  # admin-password bytes are streamed kubectl→kubectl in-pod and never echoed.
+  runtimeJob:
+    # Flip false to ship ONLY the render-time lookup Secret (e.g. an env where
+    # gitea is guaranteed up before slot 06a renders). Default true.
+    enabled: true
+    # Poll budget — total wait = pollIntervalSeconds * pollMaxAttempts. Defaults
+    # 30s * 60 = 1800s (30 min), comfortably inside the HR install/upgrade 40m
+    # timeout and long enough to span the slot-06a → bp-gitea (slot ~14) gap on
+    # a cold fresh prov. Both values-overridable (Principle #4: no hardcoding).
+    pollIntervalSeconds: 30
+    pollMaxAttempts: 60
+    # Job-level activeDeadlineSeconds — must exceed pollIntervalSeconds *
+    # pollMaxAttempts plus a copy-and-verify margin. Default 2000s (~33 min).
+    activeDeadlineSeconds: 2000
+    # ttlSecondsAfterFinished — keep the completed Job around for operator
+    # forensics for a day by default, then auto-GC.
+    ttlSecondsAfterFinished: 86400
 
 # GitRepository pivot credential — step 05 (flux-gitrepository-patch). #3536.
 #

@@ -1,5 +1,44 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.95 (#4660 Refs #4557 #3811 #3379, the gitea-admin-secret bridge is
+# render-time-fragile and wedges the cutover at step-06): the companion
+# 00-gitea-admin-secret-bridge.yaml Helm-`lookup`s `gitea/gitea-admin-secret`
+# at RENDER time and re-emits it into the cutover release namespace (`catalyst`)
+# so the step Jobs' `secretKeyRef` (06-helmrepository-patches /
+# 09-gitea-token-mint, resolvable ONLY in the Pod's own namespace) finds it.
+# But bp-self-sovereign-cutover installs DORMANT at bootstrap-kit slot 06a,
+# which renders BEFORE bp-gitea (slot ~14) exists → the lookup returns nil →
+# the bridge Secret is NEVER emitted. Once the cutover HR reaches Ready (no
+# drift) helm-controller does NOT re-render, so the bridge stays absent
+# indefinitely and step-06/09 fail `CreateContainerConfigError: secret
+# "gitea-admin-secret" not found` → the cutover wedges at step-06 (failedStep
+# pct=45, live on prov 17c2e8b2 / kom4dc).
+#
+# THE FIX (new template 00-gitea-admin-secret-bridge-job.yaml): a REGULAR
+# (non-hook) Job ships with the chart and runs at install. It WAITS at RUNTIME
+# (poll loop, 30s × 60 = 30 min default budget, values-overridable) for the
+# source `gitea/gitea-admin-secret` to exist, then copies it into the release
+# namespace as `destSecretName`. Runtime copy is EVENT-DRIVEN, not render-time-
+# bound, so a late-arriving secret is materialised regardless of when bp-gitea
+# converges relative to slot 06a. NOT a Helm hook (a 30-min hook poll would
+# block the HR install/upgrade; this Job converges asynchronously behind the
+# 06a HR's disableWait:true, like the dormant registry-pivot DaemonSet). The
+# render-time lookup Secret is KEPT as the zero-cost fast path. Scoped by a
+# dedicated SA + a same-ns Role (create + name-scoped get/patch on the dest
+# Secret) + a `gitea`-ns Role granting get scoped via resourceNames to ONLY
+# `gitea-admin-secret` (cannot read any other cluster Secret). Container carries
+# resources.requests cpu 25m/mem 32Mi (the resource-requests Enforce policy),
+# pulls images.kubectl (alpine/k8s) via the harbor-proxy path (the harbor-proxy-
+# pull + image-tag-pinned Enforce policies), and streams the password bytes
+# kubectl→jq→kubectl in-pod, never echoed (#10). New values block
+# .Values.giteaAdminSecretBridge.runtimeJob.{enabled,pollIntervalSeconds,
+# pollMaxAttempts,activeDeadlineSeconds,ttlSecondsAfterFinished}. NO step-count
+# / job-mode / cutover-step-label change — the Job carries
+# catalyst.openova.io/component=gitea-admin-secret-bridge, so catalyst-api step
+# discovery + the contract test's exact-step-count assertion (11 steps / 10
+# job-mode) are unaffected. RBAC of the cutover-runner SA is untouched (the
+# bridge Job uses its OWN narrowly-scoped SA). Lockstep w/ blueprint.yaml +
+# 06a slot pin. Refs #4660 #4557 #3811 #3379.
 # 0.1.94 (#4652 Refs #4641 #4637, the LAST registry-pivot leg — dfdaemon ->
 # Harbor): step-04 (registry-pivot) now ALSO closes the two coupled faults that
 # wedged step-07 on kom4dc. (DNS) The pod hostAlias is insufficient for the Rust
@@ -1386,7 +1425,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.94
+version: 0.1.95
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
