@@ -525,12 +525,33 @@ func verifyZeroOrphans(ctx context.Context, client *http.Client, hw hwCreds, reg
 		}
 	}
 
-	// EIP residuals.
+	// EIP residuals — name-prefix-matched (catalyst-<stem>- bandwidth name).
+	eipSeen := map[string]bool{}
 	if eips, err := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, ""); err == nil {
 		for _, e := range eips {
 			if strings.HasPrefix(e.Address, "bastion") {
 				continue
 			}
+			if eipSeen[e.Address] {
+				continue
+			}
+			eipSeen[e.Address] = true
+			out.ResidualOrphans["floating_ips"] = append(out.ResidualOrphans["floating_ips"], e.Address)
+		}
+	}
+	// #4636 — UNBOUND / nameless EIP residuals. The name-prefix scan above
+	// is blind to an EIP that has no catalyst-<stem>- bandwidth name (the
+	// live 212.72.24.36 leak on the 8fd457a8 wipe). Sweep the WHOLE project
+	// for NON-bastion UNBOUND (port_id == "") EIPs and record any survivor
+	// so the G103 zero-orphans verdict FAILS instead of falsely passing.
+	// The bastion EIP is BOUND (port_id set) + literal-IP/name guarded, so
+	// it is never flagged.
+	if orphanEIPs, err := listUnboundOrphanEIPs(ctx, client, hw, region); err == nil {
+		for _, e := range orphanEIPs {
+			if eipSeen[e.Address] {
+				continue
+			}
+			eipSeen[e.Address] = true
 			out.ResidualOrphans["floating_ips"] = append(out.ResidualOrphans["floating_ips"], e.Address)
 		}
 	}
@@ -992,6 +1013,27 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	stillStuck, _ := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
 	for _, e := range stillStuck {
 		out.Errors = append(out.Errors, fmt.Sprintf("EIP %s survived %d wipe passes (still in HCS — quota will be hit on next prov)", e.Address, eipPasses))
+	}
+
+	// #4636 — UNBOUND / nameless EIP sweep. The name-prefix purge above
+	// only sees EIPs whose bandwidth_name carries the catalyst-<stem>-
+	// prefix. An UNBOUND, DOWN EIP with no name match (live: 212.72.24.36
+	// on the 8fd457a8 wipe) is invisible to it AND to verifyZeroOrphans,
+	// so it leaks per wipe → publicIp quota exhaustion (#4614 reap class).
+	// Release every NON-bastion UNBOUND (port_id == "") EIP project-wide;
+	// listUnboundOrphanEIPs never returns a bound or bastion EIP, so this
+	// can only release genuine leftovers.
+	if orphanEIPs, oerr := listUnboundOrphanEIPs(ctx, client, hw, region); oerr != nil {
+		out.Errors = append(out.Errors, "list unbound orphan EIPs (#4636): "+oerr.Error())
+	} else {
+		for _, e := range orphanEIPs {
+			if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
+				out.Errors = append(out.Errors, fmt.Sprintf("delete unbound orphan EIP %s (#4636): %s", e.Address, err))
+				continue
+			}
+			out.ProviderPurge["floating_ips"] = append(out.ProviderPurge["floating_ips"], e.Address)
+			progress(fmt.Sprintf("#4636: released unbound orphan EIP %s (no port_id, no name match)", e.Address))
+		}
 	}
 
 	// 5. SG — by-name (covers tags-disabled case).
