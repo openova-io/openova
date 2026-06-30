@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-30T15:00:03Z` |
+| Last refreshed | `2026-06-30T15:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -234,6 +234,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-30T15:10 | [#4667](https://github.com/openova-io/openova/pull/4667) | #3379 | fix(bp-self-sovereign-cutover): step-06 Phase-3a pivots Helm |
+| 2026-06-30T15:02 | [#4665](https://github.com/openova-io/openova/pull/4665) | #4664 | fix(cutover): registry-pivot v2 mirror tests assert stale up |
 | 2026-06-30T14:31 | [#4663](https://github.com/openova-io/openova/pull/4663) | #4648 | feat(catalyst): decouple cutover auto-fire (fireCutoverOnHan |
 | 2026-06-30T08:10 | [#4661](https://github.com/openova-io/openova/pull/4661) | #4660 | fix(cutover): gitea-admin-secret bridge materializes at runt |
 | 2026-06-30T07:10 | [#4659](https://github.com/openova-io/openova/pull/4659) | #4658 | fix(qa-fixtures): resources.requests on the remaining qa Job |
@@ -262,8 +264,6 @@ flowchart LR
 | 2026-06-28T14:21 | [#4622](https://github.com/openova-io/openova/pull/4622) | #909 | walk(uat): R19/R21/R22 ✅ live on 8fd457a8 |
 | 2026-06-28T14:17 | [#4621](https://github.com/openova-io/openova/pull/4621) | #4620 | walk(uat): G5 ✅ + G1 ⛔ (crossplane bug #4620) live on 8fd457 |
 | 2026-06-28T14:11 | [#4619](https://github.com/openova-io/openova/pull/4619) | #909 | walk(uat): R3-R9 SSO rows ✅ live on 8fd457a8 |
-| 2026-06-28T14:08 | [#4618](https://github.com/openova-io/openova/pull/4618) | #4614 | walk(uat): R1/R2/R6/R12/R13 ✅ live on re-prov 8fd457a8 |
-| 2026-06-28T13:16 | [#4617](https://github.com/openova-io/openova/pull/4617) | #3132 | chore(uat): reset walk-evidence on omantel.biz re-prov (dep  |
 
 ---
 
