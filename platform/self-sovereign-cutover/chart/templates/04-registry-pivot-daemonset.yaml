@@ -346,10 +346,30 @@ data:
       } > "${certs_d}/_default/hosts.toml.new"
       mv "${certs_d}/_default/hosts.toml.new" "${certs_d}/_default/hosts.toml"
       echo "[registry-pivot]   wrote _default/hosts.toml -> ${df_proxy} (dfdaemon) on ${NODE_NAME}"
+      # #4637 (live-PROVEN on hw202): containerd's `_default` FALLBACK does NOT
+      # honor the http:// scheme of the [host] key — for an https-origin registry
+      # (registry.<fqdn>, :443) it dials `https://127.0.0.1:4001` and the dfdaemon,
+      # which serves PLAIN HTTP at :4001, EOFs the TLS handshake → step-07
+      # catalyst-api image pull ImagePullBackOff → cutover wedges at 54%. An
+      # EXPLICIT per-host certs.d/<registry-host>/hosts.toml DOES honor the http
+      # scheme, so write one for the pivoted in-cluster Harbor host. Confirmed:
+      # writing this + restarting catalyst-api → image pulled, pod Running.
+      if [ -n "${harbor_host}" ]; then
+        mkdir -p "${certs_d}/${harbor_host}"
+        {
+          echo "# managed by bp-self-sovereign-cutover registry-pivot (#4637) — DO NOT EDIT"
+          echo "[host.\"${df_proxy}\"]"
+          echo "  capabilities = [\"pull\", \"resolve\"]"
+          echo "  skip_verify = true"
+        } > "${certs_d}/${harbor_host}/hosts.toml.new"
+        mv "${certs_d}/${harbor_host}/hosts.toml.new" "${certs_d}/${harbor_host}/hosts.toml"
+        echo "[registry-pivot]   wrote ${harbor_host}/hosts.toml -> ${df_proxy} (explicit http, #4637) on ${NODE_NAME}"
+      fi
     }
     remove_default_mirror() {
       rm -f "${certs_d}/_default/hosts.toml" 2>/dev/null || true
-      echo "[registry-pivot]   removed _default/hosts.toml (rollback) on ${NODE_NAME}"
+      [ -n "${harbor_host}" ] && rm -f "${certs_d}/${harbor_host}/hosts.toml" 2>/dev/null || true
+      echo "[registry-pivot]   removed _default + ${harbor_host} hosts.toml (rollback) on ${NODE_NAME}"
     }
 
     # Resolve the cilium-gateway Service ClusterIP — node-routable (kube-proxy/
