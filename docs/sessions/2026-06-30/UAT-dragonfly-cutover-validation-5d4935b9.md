@@ -49,3 +49,26 @@ Dragonfly cutover fixes were NOT implicated (dfdaemon 6/6, Kyverno anchor workin
 ## Result
 _Filled on completion: the cutover %, the final `cutoverComplete` value, and the per-step results.
 If a layer wedges, the exact `failedStep` + evidence (this is real acceptance data, not a claim)._
+
+---
+## ✅ ZERO-TOUCH WALK on the #4657-fixed train — prov `17c2e8b2987cf671` (the real proof)
+
+After #4657 (+ #4658/#4659) merged, a fresh kom4dc qaTestEnabled prov was fired on the
+fixed train. **Every gate auto-fired with zero manual touch** — proving the fix is
+deterministic:
+
+| Gate | Evidence | Result |
+|---|---|---|
+| Convergence | catalyst-api **Running**, PVCs **Bound**, `default-deny` CCNP auto-exempts `huawei-evs-csi` | ✅ (the #4657 fix held — no Pending, no hand-patch) |
+| `ready` | mothership dep status=ready | ✅ |
+| Handover (auto) | catalyst-api log: `openbao tofu archive sealed` → `POST /handover/tofu-archive 200` → `handover seal: cutover engine fired outcome=0`. The `425 → retry → seal` is the healthy #4632 flow. | ✅ auto, zero-touch |
+| Cutover step-01 gitea-mirror | step.gitea-mirror.result=success | ✅ |
+| Cutover step-02 harbor-projects | step.harbor-projects.result=success | ✅ |
+| Cutover step-03 harbor-prewarm | actively pushing ~29 images → registry.omantel.biz (running) | 🔄 |
+| step-04 registry-pivot (Dragonfly) | pending | ⏭️ |
+| step-07 catalyst-api-env-patch (the historical wedge) | pending | ⏭️ |
+| 600s deny-egress hold → `cutoverComplete` | pending | ⏭️ |
+
+This walk supersedes the wrong MTU diagnosis (#4656, closed). The real root cause was the
+qa-fixtures `default-deny` policy missing `huawei-evs-csi` (#4657) — **only on qaTestEnabled
+provs, which is why production never hit it and the cutover-validation always did.**
