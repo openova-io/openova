@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.97 (#4637 Refs #4636 #3379 #4649, the step-07 catalyst-api-env-patch re-pull
+# GATE — registry-pivot must not green the daemonset-wait while its mirror is dead):
+# Post-#4639/#4641 the step-04 registry-pivot points every node's containerd at the
+# node-LOCAL dfdaemon proxy (http://127.0.0.1:4001) via the _default/hosts.toml
+# catch-all (which DOES cover registry.<fqdn> — nothing writes a competing per-host
+# certs.d dir; the dfdaemon's single registryMirror.addr is the one-upstream flip
+# per ADR-0012 §4). The remaining step-07 wedge is NOT a missing per-host mirror: it
+# is that the per-node v2 ack was written UNCONDITIONALLY, even when the dfdaemon
+# DaemonSet (dragonfly-client) has 0 Ready pods on the node (the live #4649 Kyverno
+# readOnlyRootFilesystem DENY: DESIRED=N CURRENT=0). With the mirror endpoint dead,
+# catalyst-api's daemonset-wait greened prematurely → step-07's catalyst-api HR image
+# roll pulled registry.<fqdn>/.../catalyst-api through 127.0.0.1:4001 → `connect:
+# connection refused` → ImagePullBackOff → cutover wedged at 54%. FIX: gate the v2
+# node-ack on a node-local `GET http://127.0.0.1:4001/v2/` serving probe (ANY HTTP
+# status proves the listener is up; connection-refused/timeout = not serving →
+# DEFER the ack). A new v2-ack-retry guard re-probes/re-acks each 15s sweep even
+# after the cluster-wide upstream flip is `local`, so a node whose dfdaemon comes up
+# late still confirms. This makes the step-07 re-pull bulletproof: the wait cannot
+# green until every node's mirror is genuinely live (complements bp-dragonfly 0.1.1
+# #4649/#4650, which removes the root Kyverno DENY). No step-count/RBAC/deadline
+# change (still 11 steps); the registries.yaml v2 / per-node-ack contract is intact.
 # 0.1.96 (#4666 Refs #3379 #4652, the step-06 Phase-3a LOCAL-HARBOR-PULL wedge —
 # the pivoted HelmRepository url + the pull probe targeted the implicit :443):
 # Post-#4652 the cutover rewrites CoreDNS so registry.<sov-fqdn> resolves cluster-
@@ -1460,7 +1481,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.96
+version: 0.1.97
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -715,6 +715,41 @@ data:
       cm_patch_status dragonflyUpstream ghcr
     }
 
+    # #4637 — the step-07 catalyst-api re-pull GATE. The _default/hosts.toml
+    # catch-all points this node's containerd at the node-local dfdaemon proxy
+    # http://127.0.0.1:${DF_PROXY_PORT}; the dfdaemon is what actually serves
+    # the registry.<fqdn>/openova-io/openova/catalyst-api blob (back-to-source
+    # to its flipped registryMirror.addr). But the dfdaemon DaemonSet
+    # (dragonfly-client) is a SEPARATE workload — if it has 0 Ready pods on this
+    # node (the live #4649 Kyverno-readOnlyRootFilesystem DENY → DESIRED=N
+    # CURRENT=0), the mirror endpoint is dead and a containerd pull through it
+    # gets `dial tcp 127.0.0.1:${DF_PROXY_PORT}: connect: connection refused`.
+    # Writing the v2 node-ack while the proxy is dead lets catalyst-api's
+    # daemonset-wait green PREMATURELY → step-07 fires the catalyst-api HR
+    # image roll → ImagePullBackOff → cutover wedges at 54% (the exact #4637
+    # leg). So probe the LOCAL dfdaemon's registry endpoint BEFORE acking v2:
+    # a reachable proxy answers /v2/ with an HTTP status (200 or a 401/403/404
+    # registry challenge — ANY HTTP response proves the listener is up, no body
+    # parse needed). A connection-refused/timeout returns no status → not yet
+    # serving → defer the ack so the daemonset-wait keeps blocking until the
+    # node mirror is genuinely live (idempotent; retried each 15s sweep).
+    dfdaemon_serving() {
+      # curl's -w '%{http_code}' prints the response status, or `000` when the
+      # connection failed (refused/timeout) — and on a dead port curl ALSO exits
+      # non-zero, so do NOT chain `|| echo 000` (that would append a SECOND 000 →
+      # `000000`, which is not the literal `000` we test for → a false "serving"
+      # verdict). `|| true` keeps `set -u`-safe without corrupting the code. A
+      # REAL HTTP response is a 3-digit code whose leading digit is 1-5 (200, or
+      # a 401/403/404 registry challenge — ANY proves the listener is up, no body
+      # parse needed); `000` / empty / anything else = not serving → defer.
+      code=$(curl -s -o /dev/null -w '%{http_code}' ${CT} \
+        "http://127.0.0.1:${DF_PROXY_PORT}/v2/" 2>/dev/null || true)
+      case "${code}" in
+        [1-5][0-9][0-9]) return 0 ;;  # a genuine HTTP status — dfdaemon serves
+        *) return 1 ;;                # 000 / empty / malformed — proxy not up
+      esac
+    }
+
     # #3671: per-node ack the daemonset-wait counts (proves EVERY node swapped
     # its containerd to the dfdaemon mirror, not merely that the DS Pods are
     # Ready). Key node.<NODE>.registriesYaml. Best-effort; retried each sweep.
@@ -736,7 +771,16 @@ data:
           write_default_mirror
           # Cluster-wide (guarded): flip the dfdaemon upstream + hostAlias.
           df_flip_to_local || true
-          write_node_ack v2
+          # #4637 — ack v2 ONLY once the node-local dfdaemon is actually
+          # serving its registry endpoint. Acking while 127.0.0.1:${DF_PROXY_PORT}
+          # is dead would green the daemonset-wait → step-07 catalyst-api pull
+          # `connection refused`. Defer (no ack) so the wait keeps blocking; the
+          # reconcile loop re-probes every sweep (see the v2-ack retry guard).
+          if dfdaemon_serving; then
+            write_node_ack v2
+          else
+            echo "[registry-pivot]   WARN node-local dfdaemon http://127.0.0.1:${DF_PROXY_PORT}/v2/ not serving yet on ${NODE_NAME}; DEFERRING v2 ack (step-07 must not pull into a dead mirror) — retry next sweep"
+          fi
           ;;
         v1|rollback|*)
           remove_default_mirror
@@ -764,8 +808,26 @@ data:
         [ "${cur_up}" != "local" ] && needs_flip_retry=1
       fi
 
-      if [ "${desired}" != "${last_state}" ] || [ "${needs_flip_retry}" = "1" ]; then
-        if [ "${needs_flip_retry}" = "1" ]; then
+      # #4637 — re-apply v2 if THIS node's v2 ack is still missing (its local
+      # dfdaemon was not serving on the first sweep — the live #4649 condition).
+      # The cluster-wide flip (needs_flip_retry) may already be `local`, so that
+      # guard would NOT re-fire apply_state; without this a node whose dfdaemon
+      # came up late never re-probes/re-acks → its node.<NODE>.registriesYaml
+      # stays absent → catalyst-api's per-node-ack wait never reaches
+      # acks==desired → the cutover stalls at step-04 instead of greening once
+      # the mirror is live. Cheap (one CM GET) and self-limiting (stops the
+      # instant the ack lands).
+      needs_ack_retry=0
+      if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ] && [ "${needs_flip_retry}" = "0" ]; then
+        my_ack=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \
+          | jq -r --arg k "node.${NODE_NAME}.registriesYaml" '.data[$k] // empty' 2>/dev/null || true)
+        [ "${my_ack}" != "v2" ] && needs_ack_retry=1
+      fi
+
+      if [ "${desired}" != "${last_state}" ] || [ "${needs_flip_retry}" = "1" ] || [ "${needs_ack_retry}" = "1" ]; then
+        if [ "${needs_ack_retry}" = "1" ]; then
+          echo "[registry-pivot] re-applying ${desired} to complete THIS node's v2 ack (dfdaemon mirror not confirmed serving yet) on ${NODE_NAME}"
+        elif [ "${needs_flip_retry}" = "1" ]; then
           echo "[registry-pivot] re-applying ${desired} to complete the dfdaemon upstream flip (guard not yet local) on ${NODE_NAME}"
         else
           echo "[registry-pivot] state change ${last_state:-<none>} -> ${desired} on ${NODE_NAME}"
