@@ -1,39 +1,55 @@
-// #4637 — registry-pivot KUBELET-HAIRPIN regression test.
+// #4637 / #4664 — registry-pivot KUBELET-HAIRPIN regression test.
 //
 // THE BUG (live wedge f7464ffc / omantel.biz, kom4dc). The self-sovereignty
 // cutover wedges at step-07 (catalyst-api-env-patch, 7/11, 54%). That step
 // restarts catalyst-api with the registry-pivoted image
 // `registry.<sov-fqdn>/openova-io/openova/catalyst-api:<tag>`. The new pod
-// ErrImagePulls `dial tcp <public-EIP>:443: i/o timeout` because the v2
-// containerd mirror (registries.yaml v2 + the certs.d/<host>/hosts.toml the
-// step-04 pivot DaemonSet regenerates) routed the kubelet's pull at
-// `https://registry.<sov-fqdn>` — which the NODE resolver pins to the cluster's
-// PUBLIC gateway EIP (cloudinit-worker.tftpl /etc/hosts). On a no-hairpin cloud
-// the kubelet cannot dial its own cluster's public EIP. The image IS in local
-// Harbor; only the kubelet/node path lacked a node-reachable mirror endpoint.
+// ErrImagePulls `dial tcp <public-EIP>:443: i/o timeout` because the pivot
+// routed the kubelet's pull at `https://registry.<sov-fqdn>` — which the NODE
+// resolver pins to the cluster's PUBLIC gateway EIP (cloudinit-worker.tftpl
+// /etc/hosts). On a no-hairpin cloud the kubelet cannot dial its own cluster's
+// public EIP. The image IS in local Harbor; only the kubelet/node path lacked a
+// node-reachable mirror endpoint.
 //
-// THE FIX (chart 0.1.91). The pivot DaemonSet now resolves harbor-core's
-// node-routable ClusterIP and points the containerd `[host]` mirror endpoints
-// (the 7 upstream-mirror redirects AND the direct registry.<sov-fqdn> host) at
-// `http://<clusterip>:<port>` instead of `https://registry.<sov-fqdn>`.
+// THE FIX — two layers, both NODE-REACHABLE, never the public hairpin EIP:
 //
-// What this test proves — against the REAL chart shell code (the
-// `write_hosts_toml` function is sliced out of
+//   #4638 (chart 0.1.91, the ORIGINAL fix): the pivot DaemonSet resolved
+//   harbor-core's node-routable ClusterIP and pointed the containerd `[host]`
+//   mirror endpoints at `http://<clusterip>:<port>` instead of
+//   `https://registry.<sov-fqdn>` — via a `write_hosts_toml` /
+//   `upstream_mirrors=` shell mechanism.
+//
+//   #4641/#4653 (the DRAGONFLY REWRITE, chart 0.1.94 — the contract THIS test
+//   now asserts): containerd no longer mirrors per-host at a Harbor ClusterIP.
+//   Every node's containerd mirrors EVERY registry namespace through the
+//   node-LOCAL dfdaemon proxy on `http://127.0.0.1:<DF_PROXY_PORT>` via a
+//   `_default/hosts.toml` catch-all (`write_default_mirror`). That loopback
+//   endpoint is THE most node-reachable address possible — it can never hairpin
+//   to the public EIP. dfdaemon's OWN upstream fetch is then pointed at the
+//   in-cluster Harbor via the node-routable cilium-gateway **ClusterIP**
+//   (hostAlias + CoreDNS override in `df_flip_to_local`), and when that
+//   ClusterIP cannot be resolved the flip DEFERS / falls back rather than ever
+//   pointing dfdaemon at the un-hairpinnable public EIP.
+//
+// The #4638 `upstream_mirrors=` / `write_hosts_toml()` slice no longer exists in
+// the chart (the Dragonfly rewrite replaced it). This test was rewritten in
+// #4664 to assert the NEW mechanism, preserving the #4638 anti-hairpin INTENT.
+//
+// What this test proves — against the REAL chart shell code (functions are
+// sliced verbatim out of
 // platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
 // and executed in /bin/sh), NOT a hand-copied duplicate:
 //
-//  1. v2 path with a node-reachable ClusterIP endpoint → the direct
-//     registry.<sov-fqdn> hosts.toml AND every upstream-mirror hosts.toml
-//     point their containerd `[host]` block at the http://<clusterip>:<port>
-//     ClusterIP — NEVER at the public registry host.
-//  2. The certs.d dir name + `server` line keep the PUBLIC host (containerd
-//     keys the host-config dir off the image-ref host), so a pull of
-//     `registry.<sov-fqdn>/...` still MATCHES — only the resolved endpoint is
-//     the in-cluster ClusterIP.
-//  3. Fail-open: with NO node endpoint resolved (3rd arg empty — the
-//     pre-#4637 / resolve-miss behaviour) the endpoints fall back to the
-//     public host, so the change never regresses a cluster where the
-//     ClusterIP could not be read.
+//  1. The containerd pivot (`write_default_mirror`) points the `_default`
+//     catch-all `[host]` block at the NODE-LOCAL dfdaemon loopback proxy
+//     `http://127.0.0.1:<DF_PROXY_PORT>` — NEVER at the public registry host.
+//     This is the step-07 catalyst-api image-pull path that hairpinned in #4637.
+//  2. Fail-open: the cluster-wide dfdaemon upstream flip (`df_flip_to_local`)
+//     resolves the node-routable in-cluster cilium-gateway ClusterIP and only
+//     proceeds when it is reachable; with NO ClusterIP resolved it DEFERS
+//     (returns non-zero, never patches the dfdaemon upstream / hostAlias at the
+//     public host) so a cluster where the ClusterIP could not be read never
+//     regresses to the un-hairpinnable EIP.
 package handler
 
 import (
@@ -69,125 +85,157 @@ func repoRootForPivotTest(t *testing.T) string {
 	return ""
 }
 
-// extractPivotShellFns slices the `upstream_mirrors=` assignment and the
-// `write_hosts_toml()` function body verbatim out of the chart template so the
-// test exercises the REAL chart code, not a copy. The Helm `{{ }}` directives
-// in the rest of the script (v1/rollback path) are NOT in this slice, so the
-// extracted fragment runs in a plain shell with no template rendering.
-func extractPivotShellFns(t *testing.T, chartScript string) string {
+// pivotChartScript reads the chart template that carries the registry-pivot
+// shell script (the `data.pivot.sh` ConfigMap block).
+func pivotChartScript(t *testing.T) string {
 	t.Helper()
-
-	// upstream_mirrors="..." (multi-line, ends at the closing quote line).
-	umRe := regexp.MustCompile(`(?s)upstream_mirrors="[^"]*"`)
-	um := umRe.FindString(chartScript)
-	if um == "" {
-		t.Fatal("could not locate upstream_mirrors= assignment in chart pivot script")
+	root := repoRootForPivotTest(t)
+	chartPath := filepath.Join(root, "platform", "self-sovereign-cutover", "chart",
+		"templates", "04-registry-pivot-daemonset.yaml")
+	raw, err := os.ReadFile(chartPath)
+	if err != nil {
+		t.Fatalf("read chart template: %v", err)
 	}
+	return string(raw)
+}
 
-	// write_hosts_toml() { ... } — from the function header to the matching
-	// closing brace at column 4 (`    }`), the indent used in the chart's
-	// data: | block.
-	startIdx := strings.Index(chartScript, "    write_hosts_toml() {")
+// sliceShellFn extracts a `    <name>() { ... }` shell function VERBATIM from
+// the chart template — from the function header to the matching closing brace at
+// column 4 (`    }`), the indent used in the chart's `data: |` block. Slicing the
+// real chart code (vs a hand-copied duplicate) is what makes this a regression
+// test of the SHIPPED script, not of a stale mirror of it. The Helm `{{ }}`
+// directives live in the YAML envelope OUTSIDE these function bodies, so each
+// sliced fragment runs in a plain shell with no template rendering.
+func sliceShellFn(t *testing.T, chartScript, name string) string {
+	t.Helper()
+	header := "    " + name + "() {"
+	startIdx := strings.Index(chartScript, header)
 	if startIdx < 0 {
-		t.Fatal("could not locate write_hosts_toml() definition in chart pivot script")
+		t.Fatalf("could not locate %s() definition in chart pivot script", name)
 	}
 	rest := chartScript[startIdx:]
 	endRe := regexp.MustCompile(`(?m)^    \}$`)
 	loc := endRe.FindStringIndex(rest)
 	if loc == nil {
-		t.Fatal("could not locate end of write_hosts_toml() function")
+		t.Fatalf("could not locate end of %s() function", name)
 	}
-	fn := rest[:loc[1]]
-
-	return um + "\n" + fn + "\n"
+	return rest[:loc[1]] + "\n"
 }
 
 func TestRegistryPivotV2MirrorUsesNodeReachableClusterIP(t *testing.T) {
-	root := repoRootForPivotTest(t)
-	chartPath := filepath.Join(root, "platform", "self-sovereign-cutover", "chart",
-		"templates", "04-registry-pivot-daemonset.yaml")
-	raw, err := os.ReadFile(chartPath)
-	if err != nil {
-		t.Fatalf("read chart template: %v", err)
-	}
-	chart := string(raw)
+	chart := pivotChartScript(t)
 
-	fns := extractPivotShellFns(t, chart)
+	// The REAL containerd-pivot function from the chart. It writes the
+	// `_default/hosts.toml` catch-all that routes the node's containerd pulls
+	// (the step-07 catalyst-api image pin pull included) through the mirror.
+	writeDefaultMirror := sliceShellFn(t, chart, "write_default_mirror")
 
-	const (
-		publicHost = "registry.omantel.biz" // resolves to the un-hairpinnable PUBLIC gateway EIP on the node
-		clusterIP  = "10.96.9.166"
-		port       = "80"
-	)
-	nodeEndpoint := "http://" + clusterIP + ":" + port
+	const proxyPort = "4001" // matches registryPivot.dragonfly.proxyPort in values.yaml
+	// The public host the node resolver pins to the un-hairpinnable PUBLIC
+	// gateway EIP — the endpoint the #4637 wedge dialed. It must NEVER appear in
+	// the generated containerd mirror.
+	const publicHost = "registry.omantel.biz"
+	nodeLocalProxy := "http://127.0.0.1:" + proxyPort
 
 	certsD := t.TempDir()
 
-	// Harness: set NODE_NAME + certs_d, source the extracted chart functions,
-	// then drive the v2 path exactly as apply_state does — with the
-	// node-reachable ClusterIP endpoint as the 3rd arg.
-	script := `set -eu
-NODE_NAME=test-node
+	// Harness: set the env the function reads (certs_d, df_proxy, NODE_NAME),
+	// source the extracted chart function, then drive it exactly as apply_state
+	// does on the v2 path.
+	script := `set -u
 certs_d="` + certsD + `"
-` + fns + `
-write_hosts_toml "` + publicHost + `" "true" "` + nodeEndpoint + `"
+DF_PROXY_PORT="` + proxyPort + `"
+NODE_NAME=test-node
+df_proxy="http://127.0.0.1:${DF_PROXY_PORT}"
+` + writeDefaultMirror + `
+write_default_mirror
 `
 	runShell(t, script)
 
-	// (1) direct registry.<fqdn> hosts.toml — the step-07 catalyst-api image
-	//     pin pull path — must dial the ClusterIP, never the public host.
-	directToml := readToml(t, filepath.Join(certsD, publicHost, "hosts.toml"))
-	if !strings.Contains(directToml, "[host.\""+nodeEndpoint+"/v2\"]") {
-		t.Errorf("direct hosts.toml [host] must point at node-reachable ClusterIP %s; got:\n%s", nodeEndpoint, directToml)
+	// The `_default` catch-all hosts.toml is what containerd consults for ANY
+	// registry namespace with no explicit certs.d/<host> dir — so it governs the
+	// step-07 `registry.<fqdn>/...openova/catalyst-api` pull. Its `[host]` block
+	// MUST point at the node-LOCAL dfdaemon loopback proxy, never the public EIP.
+	defaultToml := readToml(t, filepath.Join(certsD, "_default", "hosts.toml"))
+	if !strings.Contains(defaultToml, "[host.\""+nodeLocalProxy+"\"]") {
+		t.Errorf("containerd _default/hosts.toml [host] must point at the node-local dfdaemon proxy %s; got:\n%s", nodeLocalProxy, defaultToml)
 	}
-	if strings.Contains(directToml, "[host.\"https://"+publicHost) {
-		t.Errorf("direct hosts.toml [host] still points at the PUBLIC host https://%s (the un-hairpinnable EIP) — #4637 regression:\n%s", publicHost, directToml)
+	// #4637 regression guard: the public hairpin host must appear NOWHERE in the
+	// generated mirror (no https://registry.<fqdn> endpoint the kubelet would
+	// then dial via the un-hairpinnable public EIP).
+	if strings.Contains(defaultToml, publicHost) {
+		t.Errorf("containerd _default/hosts.toml references the PUBLIC host %s (the un-hairpinnable EIP) — #4637 regression:\n%s", publicHost, defaultToml)
 	}
-	// containerd keys the host-config dir off the image-ref host, so `server`
-	// MUST stay the public host even though the endpoint is the ClusterIP.
-	if !strings.Contains(directToml, "server = \"https://"+publicHost+"/v2\"") {
-		t.Errorf("direct hosts.toml `server` must remain the public host (containerd host-dir key); got:\n%s", directToml)
-	}
-
-	// (2) every upstream mirror redirect must also go via the ClusterIP.
-	upstreamToml := readToml(t, filepath.Join(certsD, "ghcr.io", "hosts.toml"))
-	if !strings.Contains(upstreamToml, "[host.\""+nodeEndpoint+"/v2/proxy-ghcr\"]") {
-		t.Errorf("ghcr.io upstream mirror must redirect via node-reachable ClusterIP %s; got:\n%s", nodeEndpoint, upstreamToml)
-	}
-	if strings.Contains(upstreamToml, "https://"+publicHost) {
-		t.Errorf("ghcr.io upstream mirror still redirects through the PUBLIC host https://%s — #4637 regression:\n%s", publicHost, upstreamToml)
+	if strings.Contains(defaultToml, "https://") {
+		t.Errorf("containerd _default/hosts.toml routes via an https:// endpoint (must be the plain-HTTP loopback dfdaemon proxy):\n%s", defaultToml)
 	}
 }
 
 func TestRegistryPivotV2MirrorFallsBackToPublicHostWhenClusterIPUnresolved(t *testing.T) {
-	root := repoRootForPivotTest(t)
-	chartPath := filepath.Join(root, "platform", "self-sovereign-cutover", "chart",
-		"templates", "04-registry-pivot-daemonset.yaml")
-	raw, err := os.ReadFile(chartPath)
-	if err != nil {
-		t.Fatalf("read chart template: %v", err)
-	}
-	fns := extractPivotShellFns(t, string(raw))
+	chart := pivotChartScript(t)
+
+	// The REAL cluster-wide upstream-flip function from the chart. We slice it
+	// plus its `read_gateway_clusterip` dependency, then in the harness OVERRIDE
+	// read_gateway_clusterip to simulate a resolve MISS (empty ClusterIP) and
+	// stub the mutating helpers as TRIPWIRES that fail the test if reached. The
+	// real df_flip_to_local gate logic must DEFER (return non-zero) without ever
+	// patching the dfdaemon upstream/hostAlias at the public host.
+	dfFlip := sliceShellFn(t, chart, "df_flip_to_local")
 
 	const publicHost = "registry.omantel.biz"
-	certsD := t.TempDir()
 
-	// 3rd arg EMPTY — the resolve-miss / pre-#4637 behaviour. Endpoints must
-	// fall back to the public host so the change is never worse than before.
-	script := `set -eu
+	script := `set -u
 NODE_NAME=test-node
-certs_d="` + certsD + `"
-` + fns + `
-write_hosts_toml "` + publicHost + `" "true" ""
-`
-	runShell(t, script)
+harbor_host="` + publicHost + `"
+local_upstream="https://${harbor_host}:30443"
+CT="--max-time 20"
+api="https://kubernetes.default.svc"
+token=stub
+cacert=/dev/null
+cm_url="${api}/stub"
+DF_CLIENT_CONFIGMAP="dragonfly-client-config"
+DF_SEED_CONFIGMAP="dragonfly-seed-config"
+DF_CLIENT_DAEMONSET="dragonfly-client"
+DF_SEED_STATEFULSET="dragonfly-seed-client"
+DF_RESTART_ON_FLIP="false"
 
-	directToml := readToml(t, filepath.Join(certsD, publicHost, "hosts.toml"))
-	if !strings.Contains(directToml, "[host.\"https://"+publicHost+"/v2\"]") {
-		t.Errorf("with no node endpoint the direct hosts.toml must fall back to the public host https://%s; got:\n%s", publicHost, directToml)
+# The cluster-state reads df_flip_to_local makes, stubbed for an UNCONVERGED,
+# UNRESOLVABLE-ClusterIP cluster:
+#  - guard not yet set (dragonflyUpstream != local) so the flip is attempted;
+#  - read_gateway_clusterip returns EMPTY (the resolve-miss / pre-#4637 case).
+curl() { printf ''; }   # the guard read inside df_flip_to_local -> empty -> != local
+read_gateway_clusterip() { printf ''; }
+
+# TRIPWIRES: if the flip proceeds past the unresolved-ClusterIP gate it would
+# call one of these against the public host — which is exactly the #4637
+# regression. Any call fails the harness (non-zero exit propagated by the
+# RESULT check below is not enough; these abort loudly).
+coredns_override() { echo "TRIPWIRE coredns_override reached"; exit 90; }
+harbor_ca_to_dragonfly_ns() { echo "TRIPWIRE harbor_ca_to_dragonfly_ns reached"; exit 91; }
+patch_df_configmap_addr() { echo "TRIPWIRE patch_df_configmap_addr reached with addr=$2"; exit 92; }
+patch_workload_hostalias() { echo "TRIPWIRE patch_workload_hostalias reached"; exit 93; }
+restart_workload() { echo "TRIPWIRE restart_workload reached"; exit 94; }
+cm_patch_status() { echo "TRIPWIRE cm_patch_status reached ($1=$2)"; exit 95; }
+
+` + dfFlip + `
+
+if df_flip_to_local; then
+  echo "RESULT_FLIP=converged"
+else
+  echo "RESULT_FLIP=deferred"
+fi
+`
+	out := runShellOutput(t, script)
+	if !strings.Contains(out, "RESULT_FLIP=deferred") {
+		t.Errorf("with the in-cluster gateway ClusterIP unresolved, df_flip_to_local must DEFER (never point dfdaemon at the public host); harness output:\n%s", out)
+	}
+	if !strings.Contains(out, "cilium-gateway ClusterIP unresolved") {
+		t.Errorf("df_flip_to_local must log the ClusterIP-unresolved defer; harness output:\n%s", out)
 	}
 }
 
+// runShell runs the harness and FAILS the test on any non-zero exit (a tripwire
+// firing, an unset var, a syntax error in the sliced chart code).
 func runShell(t *testing.T, script string) {
 	t.Helper()
 	cmd := exec.Command("/bin/sh", "-c", script)
@@ -195,6 +243,17 @@ func runShell(t *testing.T, script string) {
 	if err != nil {
 		t.Fatalf("pivot shell harness failed: %v\noutput:\n%s", err, out)
 	}
+}
+
+// runShellOutput runs the harness and returns combined output. Used when the
+// test inspects a RESULT_* line rather than asserting overall exit==0 (here a
+// non-zero exit is itself a failure signal via a fired tripwire, surfaced in the
+// returned text).
+func runShellOutput(t *testing.T, script string) string {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", script)
+	out, _ := cmd.CombinedOutput()
+	return string(out)
 }
 
 func readToml(t *testing.T, path string) string {
