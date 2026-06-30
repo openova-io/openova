@@ -451,6 +451,20 @@ type cutoverSpawnResult struct {
 // RequireSession) and source="handover" (ReceiveTofuArchive, where the
 // tofu-phase0-archive is sealed BY DEFINITION at the call site) are
 // deliberate post-handover actions and skip the gate.
+// cutoverSourceRetriesFailedStep reports whether a cutover spawned from this
+// source should RE-RUN a genuinely-failed step (the runCutover operatorRetry
+// flag). The one-shot edge triggers fail closed; the deliberate/level-triggered
+// drivers retry until the durable cutover-complete seal exists:
+//   - "internal" (Helm post-install hook) / "handover" (seal-fire) — FIRE-ONCE,
+//     unattended → fail closed (false).
+//   - "operator" (BSS CTA) — re-runs on the operator's deliberate click (true).
+//   - "reconcile" (#4635 level-triggered reconciler) — the no-give-up mechanism;
+//     MUST re-run a failed step every pass, else a cutover wedged at a failed
+//     step stays wedged forever and the reconciler is inert (true).
+func cutoverSourceRetriesFailedStep(source string) bool {
+	return source == "operator" || source == "reconcile"
+}
+
 func (h *Handler) spawnCutoverEngine(ctx context.Context, deps *cutoverDeps, source string) (cutoverSpawnResult, error) {
 	status, err := readCutoverStatus(ctx, deps)
 	if err != nil {
@@ -566,13 +580,21 @@ func (h *Handler) spawnCutoverEngine(ctx context.Context, deps *cutoverDeps, sou
 	// client disconnect doesn't cancel a multi-step cutover. The
 	// cutoverStepTimeout on each step bounds the overall runtime.
 	//
-	// operatorRetry=false (#3379): the in-cluster auto-trigger
-	// (source="internal") and the handover-seal path (source="handover") are
-	// unattended — a GENUINE prior step failure must fail-closed, not
-	// auto-loop. Only the operator-session CTA (HandleCutoverStart) sets
-	// operatorRetry=true to re-run a genuinely-failed step. Transient
-	// (DeadlineExceeded) failures still re-run via jobFailedTransiently.
-	go h.runCutover(context.Background(), deps, steps, false)
+	// operatorRetry semantics (#3379 + #4635):
+	//   - source="internal" (the one-shot Helm post-install hook) and
+	//     source="handover" (the one-shot seal-fire) are UNATTENDED, FIRE-ONCE
+	//     edges — a GENUINE prior step failure must fail-closed, not auto-loop,
+	//     so they keep operatorRetry=false.
+	//   - source="operator" (the BSS CTA, HandleCutoverStart) re-runs a
+	//     genuinely-failed step on the operator's deliberate click.
+	//   - source="reconcile" (#4635, the LEVEL-triggered reconciler) IS the
+	//     no-give-up mechanism: it must RE-RUN a genuinely-failed step every
+	//     pass until the durable cutover-complete seal exists — otherwise a
+	//     cutover wedged at a failed step (e.g. a stale Failed step Job carried
+	//     over on resume) stays wedged forever and the reconciler is inert. So
+	//     it retries like the operator CTA.
+	// Transient (DeadlineExceeded) failures always re-run via jobFailedTransiently.
+	go h.runCutover(context.Background(), deps, steps, cutoverSourceRetriesFailedStep(source))
 
 	freshStatus, _ := readCutoverStatus(ctx, deps)
 	stepNames := make([]string, 0, len(steps))

@@ -104,3 +104,22 @@ func TestRunCutoverReconcilePass_FailsClosedOnSealReadError(t *testing.T) {
 		t.Fatalf("fires=%d, want 0 (no seal ⇒ never fire)", fires)
 	}
 }
+
+// TestCutoverSourceRetriesFailedStep guards the #4635 gap: the level-triggered
+// reconciler (source="reconcile") MUST re-run a genuinely-failed step (else a
+// cutover wedged at a failed step stays wedged and the reconciler is inert),
+// while the one-shot edge triggers fail closed.
+func TestCutoverSourceRetriesFailedStep(t *testing.T) {
+	cases := map[string]bool{
+		"internal":  false, // one-shot Helm hook — fail closed
+		"handover":  false, // one-shot seal-fire — fail closed
+		"operator":  true,  // BSS CTA — deliberate retry
+		"reconcile": true,  // #4635 level-triggered — no-give-up retry
+		"":          false, // unknown — fail closed
+	}
+	for source, want := range cases {
+		if got := cutoverSourceRetriesFailedStep(source); got != want {
+			t.Errorf("cutoverSourceRetriesFailedStep(%q) = %v, want %v", source, got, want)
+		}
+	}
+}
