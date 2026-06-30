@@ -522,6 +522,15 @@ func main() {
 	tofuWorkDir := env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu")
 	h.StartJanitor(context.Background(), tofuWorkDir)
 
+	// #4635 — level-triggered sovereignty-cutover reconciler. Edge-triggered
+	// fires (the cutover Helm hook + the handover-seal path) are fire-once; if
+	// one loses its timing race or the engine wedges, nothing re-fires it and
+	// the Sovereign sits sealed-but-uncut. This reconciler idempotently keeps
+	// the engine running while the handover seal exists and the durable
+	// cutover-complete seal does not — no give-up deadline. Dormant on
+	// operator-gated Sovereigns (fireCutoverOnHandover=false, #4061).
+	h.StartCutoverReconciler(context.Background())
+
 	// Issue #1753 (slice G3b) — bp-mimir (slot 23) query-frontend URL
 	// for the Pod metrics sparkline. Per docs/INVIOLABLE-PRINCIPLES.md
 	// #4 the URL is env-overridable; empty disables the mimir path and
