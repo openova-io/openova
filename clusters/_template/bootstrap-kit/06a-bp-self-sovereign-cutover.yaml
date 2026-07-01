@@ -664,19 +664,19 @@ spec:
       # node's containerd mirrors through. On registriesYamlActive=v2 the step-04
       # DaemonSet (1) writes the containerd `_default/hosts.toml` catch-all -> the
       # node-local dfdaemon; (2) flips the dfdaemon (+ seed) registryMirror.addr
-      # ghcr -> the local Harbor (https://registry.<fqdn>:30443); (3) adds a
-      # `registry.<fqdn> -> cilium-gateway ClusterIP` hostAlias to the dfdaemon
-      # pod template (the #4637 token-realm hairpin kill — dfdaemon is hostNetwork
-      # so it inherits the node's public-EIP pin AND must reach the token realm).
-      # The node->127.0.0.1 dfdaemon path is IDENTICAL on Huawei + Hetzner — zero
-      # per-cloud `if` branches. LIVE-PROVEN on kom4dc omantel.biz (the cloud that
-      # breaks the legacy hairpin): public-host fetch i/o-timed-out (curl 28)
-      # while the gateway-ClusterIP resolve returned the registry 401 + 200 from
-      # /service/token. step-04 stays mode=daemonset-wait / 11 steps / per-node
-      # acks unchanged. New values block .Values.registryPivot.dragonfly (defaults
-      # match the bp-dragonfly releaseName `dragonfly` + cilium-gateway/30443
-      # layout — no overlay needed). The legacy registries.yaml v1/v2 mirror +
-      # the #4527/#4557/#4637-ClusterIP machinery is removed. Adds a dependsOn
+      # ghcr -> the local Harbor via its bare EXTERNAL host on :443 through the
+      # Gateway LoadBalancer (https://registry.<fqdn>, no port append; #4682).
+      # There is NO hostAlias->cilium-gateway-ClusterIP hairpin and NO :30443
+      # append any more — with hostNetwork OFF the gateway serves :443 directly on
+      # its LoadBalancer Service, and in a segregated DMZ/RTZ topology the external
+      # host is the ONLY routable path (an in-cluster ClusterIP does not cross
+      # clusters). The node->127.0.0.1 dfdaemon path is IDENTICAL on Huawei +
+      # Hetzner — zero per-cloud `if` branches. step-04 stays mode=daemonset-wait /
+      # 11 steps / per-node acks unchanged. Values block
+      # .Values.registryPivot.dragonfly (defaults match the bp-dragonfly
+      # releaseName `dragonfly`; no gatewayHTTPSPort/hostAlias/CoreDNS overlay
+      # needed). The legacy registries.yaml v1/v2 mirror + the
+      # #4527/#4557/#4637-ClusterIP hairpin machinery is removed. Adds a dependsOn
       # edge on bp-dragonfly (the dfdaemon mesh must be up before the flip).
       # Lockstep w/ Chart.yaml + blueprint.yaml.
       #
@@ -767,18 +767,15 @@ spec:
       # never Ready → bootstrap-kit Ks stuck (chicken-and-egg). See
       # t20 debug matrix.
       harborPublicURL: https://registry.${SOVEREIGN_FQDN}
-      # #4666 (Refs #3379 #4652) — the in-cluster cilium-gateway HTTPS NodePort.
-      # Post-#4652 CoreDNS resolves registry.${SOVEREIGN_FQDN} cluster-internally
-      # to the cilium-gateway Service ClusterIP, which listens on 30443 (cilium-
-      # envoy can't bind 443; the public 443->30443 translation is the EXTERNAL
-      # LB / NodePort, invisible in-cluster). Step-06 appends `:30443` to the
-      # pivoted HelmRepository host so BOTH the Flux source-controller pull AND
-      # the Phase-3a `helm pull` probe land on the LISTENING port — without it
-      # the bare-host (:443) pull connect-timed-out and the cutover wedged at
-      # step-06 pct=45 forever (live hw201, dep 413ef5f88eb63b2b). Matches the
-      # registryPivot.dragonfly.gatewayHTTPSPort the containerd/dfdaemon path
-      # already used.
-      gatewayHTTPSPort: "30443"
+      # #4682 — the registry is now reached via the bare external host on :443
+      # through the Gateway-API LoadBalancer Service (cilium-gateway serves :443
+      # directly; hostNetwork is OFF, the :30443 NodePort / privileged-bind
+      # workaround is GONE). Step-06 pivots every HelmRepository to
+      # `oci://registry.${SOVEREIGN_FQDN}/openova-io` (implicit :443, no port
+      # append) and both the Flux source-controller pull AND the Phase-3a
+      # `helm pull` probe reach it via the external LB host. The former
+      # `gatewayHTTPSPort: "30443"` overlay key is removed — no cutover template
+      # reads it anymore.
       giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
       giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}
       # G... (#2989, 2026-06-04): Step 07 (catalyst-api-env-patch, Phase 3

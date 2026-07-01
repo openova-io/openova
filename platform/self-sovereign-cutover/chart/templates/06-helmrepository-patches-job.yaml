@@ -76,17 +76,6 @@ data:
             value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
-          # #4666 (Refs #3379 #4652): the in-cluster cilium-gateway HTTPS
-          # listener port. Post-#4652 CoreDNS resolves registry.<fqdn> to the
-          # gateway ClusterIP, which listens on this NodePort (30443) — NOT 443
-          # (cilium-envoy can't bind privileged ports; the public 443→30443
-          # translation is the EXTERNAL LB, invisible in-cluster). Step-06
-          # appends `:<this>` to the pivoted HelmRepository host so BOTH the
-          # source-controller pull (live URL) AND the Phase-3a probe target the
-          # listening port. Empty = legacy host-only pivot (registry.<fqdn> must
-          # genuinely answer on 443 in-cluster). See sovereign.gatewayHTTPSPort.
-          - name: GATEWAY_HTTPS_PORT
-            value: {{ .Values.sovereign.gatewayHTTPSPort | default "" | quote }}
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
           - name: GITEA_INTERNAL_URL
@@ -202,29 +191,20 @@ data:
             set -eu
             harbor_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
 
-            # #4666 (Refs #3379 #4652) — the in-cluster pull ENDPOINT carries the
-            # gateway HTTPS port. CoreDNS (post-#4652) resolves registry.<fqdn>
-            # to the cilium-gateway ClusterIP, which listens on the high NodePort
-            # (GATEWAY_HTTPS_PORT, 30443) because cilium-envoy can't bind 443 —
-            # the public 443→30443 translation is the EXTERNAL LB and is INVISIBLE
-            # in-cluster. So a HelmRepository url of oci://registry.<fqdn>/...
-            # resolves to the gateway ClusterIP but connects to the implicit :443
-            # (nothing listening) → connect timeout for BOTH the Flux source-
-            # controller pull AND the Phase-3a probe (live wedge hw201). Pivoting
-            # to oci://registry.<fqdn>:30443/... lands the pull on the listening
-            # port. `harbor_host` stays the bare host (used by `helm registry
-            # login` + the Phase-3b strip-host comparison — the docker-config auth
-            # key + the gateway TLS SNI are host-only, NO port). `harbor_endpoint`
-            # = host[:port] is what every OCI URL (pivot + probe) uses. Empty
-            # GATEWAY_HTTPS_PORT → endpoint == host (legacy host-only behaviour).
-            if [ -n "${GATEWAY_HTTPS_PORT:-}" ]; then
-              harbor_endpoint="${harbor_host}:${GATEWAY_HTTPS_PORT}"
-            else
-              harbor_endpoint="${harbor_host}"
-            fi
+            # #4682 — the registry is reached ONLY via its EXTERNAL routable host
+            # `registry.<fqdn>` on the standard HTTPS port :443, through the
+            # Cilium Gateway `Service type=LoadBalancer`. hostNetwork is OFF so
+            # the gateway serves plain :443 (no NodePort, no high-port append, no
+            # CoreDNS ClusterIP rewrite). The pivoted HelmRepository url is the
+            # bare host `oci://registry.<fqdn>/openova-io` — the same host every
+            # node resolves via public DNS, and the port source-controller + the
+            # Phase-3a probe implicitly use is :443. `harbor_endpoint` is kept as
+            # an alias of the bare host so downstream references (auth key, probe,
+            # strip-host guard) stay uniform.
+            harbor_endpoint="${harbor_host}"
             local_prefix="oci://${harbor_endpoint}/openova-io"
 
-            echo "[helmrepository-patches] upstream=${UPSTREAM_PREFIX} -> local=${local_prefix} (harbor_host=${harbor_host}, endpoint=${harbor_endpoint})"
+            echo "[helmrepository-patches] upstream=${UPSTREAM_PREFIX} -> local=${local_prefix} (harbor_host=${harbor_host})"
 
             # ---- Phase -1: wait for Cilium Gateway Programmed=True (issue #1871) ----
             #
@@ -407,45 +387,38 @@ data:
             # the idempotency check here is the simple "is the Harbor auth
             # already present" test; the strip's own idempotency lives in
             # Phase 3.
-            # #4666 (Refs #3379 #4652): the auth entry MUST be keyed on the
-            # HOST:PORT endpoint the pivoted HelmRepository urls carry
-            # (registry.<fqdn>:30443), NOT the bare host. Docker/OCI auth lookup
-            # is EXACT host[:port] string match — a pull from
-            # oci://registry.<fqdn>:30443/... finds NO credential under a bare-
-            # host `registry.<fqdn>` key and 401s `no basic auth credentials`
-            # (PROVEN live hw201: auth keyed on bare host → pull from host:30443
-            # FAILS; auth keyed on host:30443 → pull OK). source-controller reads
-            # THIS ghcr-pull dockerconfigjson for the pivoted pull, so the
-            # endpoint key is load-bearing. We write BOTH keys: the endpoint
-            # (host:port — the one source-controller + the Phase-3a probe use)
-            # AND the bare host (harmless belt-and-suspenders / legacy host-only
-            # consumers; identical when GATEWAY_HTTPS_PORT is empty).
-            already=$(printf '%s' "${existing_json}" | jq -r --arg h "${harbor_endpoint}" \
+            # #4682: the auth entry is keyed on the bare external host
+            # `registry.<fqdn>` — the SAME host the pivoted HelmRepository urls
+            # carry (oci://registry.<fqdn>/openova-io, implicit :443 via the
+            # Gateway LoadBalancer). Docker/OCI auth lookup is an EXACT host[:port]
+            # string match; since every pivoted url now uses the bare host, a
+            # single bare-host key is exactly what source-controller + the
+            # Phase-3a probe look up (no high-port endpoint key — that NodePort
+            # workaround is gone). source-controller reads THIS ghcr-pull
+            # dockerconfigjson for the pivoted pull.
+            already=$(printf '%s' "${existing_json}" | jq -r --arg h "${harbor_host}" \
               '.auths[$h].auth // empty')
             harbor_auth=$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 -w0)
 
             if [ -n "${already}" ] && [ "${already}" = "${harbor_auth}" ]; then
-              echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_endpoint} (strip deferred to Phase 3)"
+              echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_host} (strip deferred to Phase 3)"
             else
-              # Single jq pass: ADD harbor.<sov-fqdn> auth under BOTH the endpoint
-              # (host:port) and the bare host. This is the PURELY ADDITIVE half of
-              # the old combined pipeline — the destructive `del(.auths[...])`
-              # arms were moved to Phase 3 (see the strip-before-pivot fix).
-              # Adding Harbor auth early is the precondition that lets Phase-1's
-              # pivoted HelmRepositories pull from local Harbor; it leaves the
-              # ghcr.io fallback intact so a wedge before Phase 3 is recoverable.
+              # Single jq pass: ADD registry.<fqdn> auth under the bare host key.
+              # This is the PURELY ADDITIVE half of the old combined pipeline —
+              # the destructive `del(.auths[...])` arms were moved to Phase 3 (see
+              # the strip-before-pivot fix). Adding Harbor auth early is the
+              # precondition that lets Phase-1's pivoted HelmRepositories pull from
+              # local Harbor; it leaves the ghcr.io fallback intact so a wedge
+              # before Phase 3 is recoverable.
               #
               # `--arg` ALWAYS treats its value as a string (no shell
               # interpolation), so the Harbor password is never re-parsed
-              # by the shell. When harbor_endpoint==harbor_host (no port) the two
-              # assignments collapse to one key (idempotent).
+              # by the shell.
               new_json=$(printf '%s' "${existing_json}" | jq \
-                --arg ep "${harbor_endpoint}" \
                 --arg h "${harbor_host}" \
                 --arg user "${HARBOR_USERNAME}" \
                 --arg auth "${harbor_auth}" \
-                '.auths[$ep] = {"username":$user,"auth":$auth}
-                 | .auths[$h]  = {"username":$user,"auth":$auth}')
+                '.auths[$h] = {"username":$user,"auth":$auth}')
               new_b64=$(printf '%s' "${new_json}" | base64 -w0)
               # Merge-patch the data field. Quoting note: ${GHCR_PULL_SECRET_KEY}
               # is `.dockerconfigjson` which is a literal key (the leading
@@ -455,7 +428,7 @@ data:
               if kubectl patch secret "${GHCR_PULL_SECRET_NAME}" \
                   -n "${GHCR_PULL_SECRET_NAMESPACE}" \
                   --type=merge --patch "${patch_payload}" >/dev/null; then
-                echo "[helmrepository-patches] Phase-0 OK: added ${harbor_endpoint}${harbor_endpoint:+ + }${harbor_host} auth to ${GHCR_PULL_SECRET_NAMESPACE}/${GHCR_PULL_SECRET_NAME} (ghcr.io fallback retained until Phase 3)"
+                echo "[helmrepository-patches] Phase-0 OK: added ${harbor_host} auth to ${GHCR_PULL_SECRET_NAMESPACE}/${GHCR_PULL_SECRET_NAME} (ghcr.io fallback retained until Phase 3)"
               else
                 echo "[helmrepository-patches] FATAL: kubectl patch ${GHCR_PULL_SECRET_NAME} failed" >&2
                 exit 1
@@ -1082,13 +1055,11 @@ data:
             sample_total=$(grep -c . "${sample_file}" || true)
             echo "[helmrepository-patches] Phase-3a: ${probe_total} pivoted chart(s) on ${harbor_endpoint}; probing a sample of ${sample_total}"
 
-            # #4666: login to the gateway HTTPS ENDPOINT (host:30443), the same
-            # host:port the pivoted OCI urls carry — `helm registry login` keys
-            # its stored auth on the registry host[:port] string, so logging in
-            # to the bare host while pulling from host:30443 leaves the pull
-            # UNAUTHENTICATED (it then 401s "no basic auth credentials"). On a
-            # host-only pivot (GATEWAY_HTTPS_PORT empty) harbor_endpoint==host so
-            # this is unchanged.
+            # #4682: login to the bare external host `registry.<fqdn>` (:443 via
+            # the Gateway LoadBalancer), the same host the pivoted OCI urls carry
+            # — `helm registry login` keys its stored auth on the registry host
+            # string, so the login host must match the pull host exactly or the
+            # pull is UNAUTHENTICATED (401 "no basic auth credentials").
             helm registry login "${harbor_endpoint}" ${HELM_LOGIN_INSECURE_FLAG} \
               -u "${HARBOR_USERNAME:-admin}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
               && echo "[helmrepository-patches] Phase-3a: helm registry login ${harbor_endpoint} OK" \
@@ -1143,11 +1114,9 @@ data:
               pull_fail_names=""
               while IFS="$(printf '\t')" read -r p_chart p_ver; do
                 [ -z "${p_chart}" ] && continue
-                # #4666: pull from the gateway HTTPS ENDPOINT (host:30443) — the
-                # in-cluster CoreDNS resolves registry.<fqdn> to the gateway
-                # ClusterIP whose listener is 30443, so a bare-host (implicit
-                # :443) pull connect-times-out (the hw201 wedge). harbor_endpoint
-                # == host on a host-only pivot.
+                # #4682: pull from the bare external host `registry.<fqdn>` on
+                # :443 (the Gateway LoadBalancer) — the same host source-controller
+                # uses for the live pivoted pull.
                 if helm pull "oci://${harbor_endpoint}/openova-io/${p_chart}" ${HELM_PULL_INSECURE_FLAG} \
                      --version "${p_ver}" -d /tmp/helm-pull >/tmp/.helm-pull.log 2>&1; then
                   pull_ok=$((pull_ok+1))
@@ -1194,11 +1163,11 @@ data:
               rem="${rem#*,}"
               strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
               [ -z "${strip_host}" ] && continue
-              # #4666: protect BOTH the bare host AND the host:port endpoint —
-              # Phase-0 now writes the local-Harbor auth under both keys, so an
-              # overlay that erroneously lists either must never strip it.
+              # #4682: never strip the local Harbor external host — Phase-0 writes
+              # the local-Harbor auth under this bare-host key, so an overlay that
+              # erroneously lists it must never remove it.
               if [ "${strip_host}" = "${harbor_host}" ] || [ "${strip_host}" = "${harbor_endpoint}" ]; then
-                echo "[helmrepository-patches] Phase-3b WARN: refusing to strip ${strip_host} (matches local harbor host/endpoint); check .Values.harbor.mothershipAuthsToStrip overlay"
+                echo "[helmrepository-patches] Phase-3b WARN: refusing to strip ${strip_host} (matches local harbor host); check .Values.harbor.mothershipAuthsToStrip overlay"
                 continue
               fi
               present=$(printf '%s' "${strip_json}" | jq -r --arg h "${strip_host}" '.auths | has($h)')
@@ -1222,7 +1191,7 @@ data:
               rem="${rem#*,}"
               strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
               [ -z "${strip_host}" ] && continue
-              # #4666: never strip the local Harbor host OR its host:port endpoint.
+              # #4682: never strip the local Harbor external host.
               if [ "${strip_host}" = "${harbor_host}" ] || [ "${strip_host}" = "${harbor_endpoint}" ]; then
                 continue
               fi

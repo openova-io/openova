@@ -101,36 +101,20 @@ rules:
     # this Role grants the minimum needed for the live Secret name.
     resourceNames: ["sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}"]
     verbs: ["get", "watch", "list"]
+  # Read rollout status so the Job can wait for new envoy pods to come up
+  # before exiting. `kubectl rollout status` does NOT just GET — it
+  # uses client-go informerwatcher to LIST+WATCH the DaemonSet resource.
+  # Without list+watch verbs the informer fails with "forbidden: cannot
+  # list resource ..." and the Job stalls at the rollout-status check
+  # until activeDeadlineSeconds. (#4682: with hostNetwork OFF there is no
+  # longer a cilium-operator restart step — the CEC no longer needs a
+  # `0.0.0.0:30443` hostNetwork bind, so the operator Deployment patch
+  # rule is dropped; only the cilium-envoy DaemonSet is bumped for the
+  # SDS cert re-subscribe.)
   - apiGroups: ["apps"]
     resources: ["daemonsets"]
     resourceNames: ["cilium-envoy"]
     verbs: ["get", "patch", "list", "watch"]
-  # ALSO patch the cilium-operator Deployment. Reason: on a fresh
-  # Sovereign, cilium-operator's first CEC reconciliation produces a
-  # CiliumEnvoyConfig WITHOUT the hostNetwork bind `additionalAddresses.
-  # socketAddress: 0.0.0.0:30443` — even though `gateway-api-hostnetwork-
-  # enabled=true` and `gateway-api-hostnetwork-nodelabelselector=kubernetes.io/os=linux`
-  # are correctly set in cilium-config. After an operator pod-restart
-  # the next CEC reconcile DOES populate the bind, and cilium-envoy
-  # binds host:30443 cleanly. Without this restart, Hetzner LB targets
-  # stay `unhealthy` on 30080/30443 forever and console.<sov-fqdn>
-  # never serves. Caught live on prov 492c81e2 (omantel.biz, 2026-05-15)
-  # plus every prior multi-region prov where operators were doing the
-  # restart manually. This rule lets the Job fix it without operator
-  # intervention.
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    resourceNames: ["cilium-operator"]
-    verbs: ["get", "patch", "list", "watch"]
-  # Read rollout status so the Job can wait for new pods to come up
-  # before exiting. `kubectl rollout status` does NOT just GET — it
-  # uses client-go informerwatcher to LIST+WATCH the
-  # Deployment/DaemonSet resource. Without list+watch verbs the
-  # informer fails with "forbidden: cannot list resource ..." and the
-  # Job stalls at the rollout-status check until activeDeadlineSeconds.
-  # Caught on prov t110.omani.works (fe09897a1b6b3c1d, 2026-05-15):
-  # tls-restart Job stuck Running 10m+ on the cilium-operator rollout
-  # check, never restarted cilium-envoy, console.<fqdn> never served.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -264,26 +248,19 @@ spec:
                 sleep 10
               done
 
-              # Step 1 — restart cilium-operator FIRST so it regenerates the
-              # CiliumEnvoyConfig with the hostNetwork bind
-              # `additionalAddresses.socketAddress: 0.0.0.0:30443`. On a
-              # fresh Sovereign, the FIRST CEC reconcile (driven by
-              # Gateway create) misses this bind even though the
-              # configmap keys gateway-api-hostnetwork-{enabled,
-              # nodelabelselector} are correct. An operator pod-restart
-              # forces a fresh CEC render that includes the bind. Without
-              # this, cilium-envoy is restarted in step 2 but binds only
-              # 127.0.0.1:* control sockets — host:30443 stays empty,
-              # Hetzner LB targets stay unhealthy, console returns 000.
-              echo "[tls-restart] bumping deploy/cilium-operator to regenerate CEC with hostNetwork bind"
-              kubectl rollout restart -n "$${DS_NS}" deploy/cilium-operator
-              echo "[tls-restart] waiting for deploy/cilium-operator rollout"
-              kubectl rollout status -n "$${DS_NS}" deploy/cilium-operator --timeout=3m
-
-              # Step 2 — restart cilium-envoy so it picks up (a) the
-              # freshly-regenerated CEC with the hostNetwork bind, AND
-              # (b) the now-existing sovereign-wildcard-tls SDS Secret.
-              echo "[tls-restart] bumping ds/$${DS_NAME} in $${DS_NS} to force envoy SDS re-subscribe + CEC reload"
+              # Restart cilium-envoy so it re-subscribes to the now-existing
+              # sovereign-wildcard-tls SDS Secret. This is the ONLY step
+              # (#4682): with hostNetwork OFF the gateway is served by a
+              # cilium-provisioned `type=LoadBalancer` Service on the
+              # standard :443/:80, so there is no `0.0.0.0:30443`
+              # hostNetwork bind to force into the CEC and no cilium-operator
+              # restart is needed. What DOES still need this Job is the
+              # upstream cilium-envoy SDS hot-reload gap (see header): envoy
+              # subscribed to the SDS Secret before cert-manager issued it,
+              # hit its initial-fetch timeout, and does not re-subscribe once
+              # the Secret materialises — the listener stays down until the
+              # envoy process restarts.
+              echo "[tls-restart] bumping ds/$${DS_NAME} in $${DS_NS} to force envoy SDS re-subscribe"
               kubectl rollout restart -n "$${DS_NS}" "ds/$${DS_NAME}"
 
               # Block until the new pods are Ready. `kubectl rollout
@@ -294,4 +271,4 @@ spec:
               echo "[tls-restart] waiting for ds/$${DS_NAME} rollout"
               kubectl rollout status -n "$${DS_NS}" "ds/$${DS_NAME}" --timeout=5m
 
-              echo "[tls-restart] complete — cilium-operator regenerated hostNetwork CEC + cilium-envoy serves SDS Secret $${SECRET_NAME}"
+              echo "[tls-restart] complete — cilium-envoy re-subscribed to SDS Secret $${SECRET_NAME} on the :443 LoadBalancer gateway"

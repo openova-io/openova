@@ -215,42 +215,27 @@ cilium:
       # Forcing "true" ensures GatewayClass/cilium is always created.
       # Permanent fix for the cilium-gateway race (issue #503).
       create: "true"
-    # hostNetwork mode — bind gateway listeners directly to the host's
-    # 80/443 ports (instead of Service-of-type-LoadBalancer with random
-    # nodePort allocation). Required for the Hetzner Cloud Load Balancer
-    # forwarding chain: HCLB listens on public 80/443 and forwards via
-    # the private network to the CP node's 80/443 (NOT to a random
-    # nodePort). With nodePort mode, Cilium's BPF L7LB Proxy Port doesn't
-    # match what cilium-envoy actually binds, breaking TLS termination
-    # entirely (cilium service list shows the redirect, but envoy isn't
-    # listening on the proxy port). Caught live on otech45 — TCP connects
-    # but TLS handshake never completes.
+    # hostNetwork mode OFF (#4682). The gateway is served the STANDARD
+    # Gateway-API + Cilium way: the GatewayClass `cilium` controller
+    # auto-creates a `cilium-gateway-<name>` Service of type=LoadBalancer,
+    # envoy binds its normal UNPRIVILEGED proxy port inside the pod, and
+    # the LoadBalancer Service owns the public :443/:80 contract. The LB
+    # ExternalIP is materialised by hcloud-ccm (Hetzner) or a
+    # CiliumLoadBalancerIPPool (Huawei, no-CCM — see gateway-lb-ipam-pool.yaml).
+    #
+    # Why hostNetwork MUST stay off: with hostNetwork ON, cilium-agent's
+    # BPF socket-LB program intercepts envoy's bind() on privileged ports
+    # and REJECTS it regardless of privileged:true / NET_BIND_SERVICE
+    # (live-verified otech45-47). That intercept is the sole reason the
+    # old design fell back to the NodePort-range :30443 host bind — a
+    # workaround that ARCHITECTURE.md §854 forbids ("LoadBalancer type
+    # Service — never NodePort"). With hostNetwork OFF envoy never does a
+    # host bind, so the intercept never fires and :443 is served cleanly
+    # through the LoadBalancer Service, identically inside and outside the
+    # cluster (which is required for the segregated DMZ/RTZ multi-cluster
+    # topology, where in-cluster ClusterIPs do not route across clusters).
     hostNetwork:
-      enabled: true
-      # nodes.matchLabels MUST be non-empty for Cilium hostNetwork
-      # mode to activate. An empty selector becomes the configmap key
-      # `gateway-api-hostnetwork-nodelabelselector =` (empty value),
-      # which Cilium docs explicitly call out as DISABLED state:
-      # https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/host-network/
-      # Without this, the Gateway listener config has empty bind
-      # address, eBPF never programs a redirect for the gateway
-      # NodePorts, and incoming traffic on 30443/30080 never reaches
-      # envoy. Hetzner LB health checks against those NodePorts
-      # report `unhealthy` indefinitely.
-      #
-      # Caught live on prov #76 (2026-05-14): TLS handshake initiates
-      # at the Hetzner LB, then SSL_ERROR_SYSCALL because no backend
-      # answers — envoy is running with the listener config but not
-      # bound to a socket because hostNetwork mode is silently OFF.
-      #
-      # Match labels are conservative — `kubernetes.io/os: linux` is
-      # universally present on every k3s node we ship, so the gateway
-      # listener is exposed on every node in single- and multi-CP
-      # Sovereign topologies. Operators that want gateway-only-on-
-      # primary-region can tighten this in their per-cluster overlay.
-      nodes:
-        matchLabels:
-          kubernetes.io/os: linux
+      enabled: false
 
   # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
   envoy:

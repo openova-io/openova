@@ -28,14 +28,18 @@
 # "no Gateway → no envoy listener → console unreachable" window on every Helm
 # upgrade. The sovereign-tls Kustomization dependsOn bootstrap-kit Ready.
 #
-# Host ports 31443 / 31080 (NOT 30443 / 30080): the shared gateway already binds
-# 30443 / 30080 in hostNetwork mode. Each Gateway's listeners bind distinct host
-# ports so both coexist on the same node set without a bind() collision. A
-# DEDICATED cloud LoadBalancer (infra/providers/{hetzner,huawei}/main.tf —
-# `console` LB) forwards public 443 → node:31443 and 80 → node:31080. The
-# console A-records (console./api.<fqdn>) point at THAT LB IP, while the wildcard
-# `*.<fqdn>` keeps pointing at the shared gateway's LB (DNS split owned by
-# core/pool-domain-manager — see its consoleLoadBalancerIP plumbing).
+# Serves :443 / :80 via its OWN Service type=LoadBalancer (#4682): hostNetwork is
+# OFF, so cilium-envoy never does a privileged host bind and the BPF socket-LB
+# intercept never fires. Cilium auto-creates the
+# `cilium-gateway-cilium-gateway-console` Service; hcloud-ccm (Hetzner) or a
+# CiliumLoadBalancerIPPool (Huawei, no-CCM) gives it its own ExternalIP, distinct
+# from the shared gateway's — so the two coexist with no bind() collision and no
+# high NodePort. A DEDICATED cloud LoadBalancer (infra/providers/{hetzner,huawei}/
+# main.tf — `console` LB) L4-passthrough-forwards public 443 → console gateway
+# Service :443 and 80 → :80. The console A-records (console./api.<fqdn>) point at
+# THAT LB IP, while the wildcard `*.<fqdn>` keeps pointing at the shared gateway's
+# LB (DNS split owned by core/pool-domain-manager — see its consoleLoadBalancerIP
+# plumbing).
 #
 # Listeners: rendered by bp-catalyst-platform's templates/sovereign-tls-vars-cm.
 # yaml into ConfigMap flux-system/sovereign-tls-vars key CONSOLE_LISTENERS_YAML
@@ -61,7 +65,7 @@ spec:
   # Cilium 1.16+ forwards spec.infrastructure.annotations onto the
   # `cilium-gateway-cilium-gateway-console` Service, where hcloud-CCM
   # (bp-hcloud-ccm) provisions a Hetzner LB. health-check pinned to the console
-  # gateway's HTTPS host port (31443). Capped at 8 entries (CRD maxProperties) —
+  # gateway Service's HTTPS port (443; #4682). Capped at 8 entries (CRD maxProperties) —
   # same set as the shared gateway minus the timing knobs (TBD-A36 #1896). The
   # tofu-provisioned console LB (infra/providers/hetzner/main.tf) is the primary
   # public path; this Service-level LB is the cluster-side mirror so operators
@@ -75,10 +79,10 @@ spec:
       load-balancer.hetzner.cloud/use-private-ip: "false"
       load-balancer.hetzner.cloud/disable-private-ingress: "true"
       load-balancer.hetzner.cloud/health-check-protocol: "tcp"
-      load-balancer.hetzner.cloud/health-check-port: "31443"
+      load-balancer.hetzner.cloud/health-check-port: "443"
       load-balancer.hetzner.cloud/health-check-retries: "3"
-  # ports 31443/31080 (not 443/80, not 30443/30080) — see header. cilium-envoy
-  # binds high host ports because cilium-agent's BPF socket-LB blocks privileged
-  # binds; the console LB does the public 443→31443 / 80→31080 translation, so
-  # browsers still hit `https://console.<fqdn>/`.
+  # listeners bind :443 / :80 (#4682) — the console gateway serves standard ports
+  # via its own Service type=LoadBalancer (hostNetwork off, no NodePort). The
+  # console LB is a straight L4 passthrough 443→443 / 80→80, so browsers hit
+  # `https://console.<fqdn>/` directly.
   listeners: ${CONSOLE_LISTENERS_YAML}

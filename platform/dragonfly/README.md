@@ -65,8 +65,10 @@ curated values flow into the subchart under the `dragonfly:` key in
   Dragonfly **component images** themselves pull from ghcr via the `ghcr-pull`
   Secret (`global.imagePullSecrets`).
 - **Post-cutover:** the self-sovereign cutover flips `registryMirror.addr` to
-  the cluster-local Harbor (`harbor-core.harbor.svc`) — a **single line**, no
-  node surgery. That pivot lives in `platform/self-sovereign-cutover/` and is a
+  the cluster-local Harbor via its **external host** `https://registry.<fqdn>`
+  (:443 through the Cilium Gateway `Service type=LoadBalancer`, #4682) — a
+  **single line**, no node surgery, no in-cluster ClusterIP / NodePort / CoreDNS
+  rewrite. That pivot lives in `platform/self-sovereign-cutover/` and is a
   **separate, later-validated step** (NOT wired here).
 
 ### Who writes the containerd config?

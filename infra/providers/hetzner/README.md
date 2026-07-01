@@ -18,7 +18,7 @@ This module is the implementation of [`docs/SOVEREIGN-PROVISIONING.md`](../../do
 | `hcloud_server.worker[*]` (primary) | `worker_count` nodes (default **2** — issue #733 multi-node Sovereign). Set to 0 explicitly for solo dev/POC. |
 | `hcloud_server.secondary_control_plane[*]` | One per secondary region, single-CP. Attaches to its own region's `hcloud_network.region[<key>]`. |
 | `hcloud_server.secondary_worker[*]` | Per-region worker fleet, sized by `regions[i].workerCount`. |
-| `hcloud_load_balancer.main` (`lb11`) | Public IPv4 in the primary region; forwards 80→30080, 443→30443, 53→30053 (Cilium Gateway NodePorts). |
+| `hcloud_load_balancer.main` (`lb11`) | Public IPv4 in the primary region; forwards 80→80, 443→443 (to the Cilium Gateway Service type=LoadBalancer — hostNetwork off, no NodePort; #4682) and 53→30053 (powerdns NodePort). |
 | `hcloud_load_balancer.secondary[*]` | One `lb11` per secondary region. PowerDNS lua-records aggregate every LB IP behind the Sovereign FQDN with `ifurlup` health probes. |
 
 After Phase 0, the cluster's Flux pulls `clusters/<sovereign_fqdn>/` from the public OpenOva monorepo and installs the 11-component bootstrap kit (Cilium → cert-manager → Crossplane → ESO → SPIRE → NATS → OpenBao → Keycloak → Gitea → catalyst-platform). Hetzner adoption by Crossplane happens once `provider-hcloud` is up.
@@ -324,7 +324,7 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | `--cluster-init` | Initialise embedded etcd. Required for Phase-1 hand-off to add additional control-plane nodes (`ha_enabled=true`) without re-bootstrapping. |
 | `--flannel-backend=none` | k3s ships with flannel; we replace the CNI with Cilium (gateway API, eBPF, mTLS via wireguard). Setting `none` keeps k3s from racing flannel against Cilium during boot. |
 | `--disable=traefik` | k3s ships with Traefik; we use **Cilium Gateway API** (already part of the Cilium install). Catalyst's Gateway/HTTPRoute manifests assume Gateway API, not Traefik IngressRoute. |
-| `--disable=servicelb` | k3s ships with klipper-lb; we use the Hetzner load balancer for ingress (`hcloud_load_balancer.main`) and PowerDNS lua-records (`ifurlup`) for cross-region failover. klipper-lb would steal the NodePort 80/443 binding. |
+| `--disable=servicelb` | k3s ships with klipper-lb; we use the Hetzner load balancer for ingress (`hcloud_load_balancer.main`) and PowerDNS lua-records (`ifurlup`) for cross-region failover. klipper-lb would otherwise race hcloud-ccm to materialise the Cilium Gateway's `type=LoadBalancer` Service (:443/:80; #4682). |
 | `--disable=local-storage` | k3s ships local-path-provisioner; we use **hcloud-csi** (provisioned by Crossplane after Phase 1) so PVCs survive node deletion and can be migrated across regions via Velero. |
 | `--disable-network-policy` | k3s ships kube-router NetworkPolicy; **Cilium** handles NetworkPolicy. Two NetworkPolicy controllers fight each other. |
 | `--cluster-cidr=10.42+i.0/16` | Pod CIDR — non-overlapping across ClusterMesh peers (DoD gate D11). Index `i` is the region's position in `local.all_region_keys` (0 = primary). Allocated by `local.region_cluster_cidr` in `main.tf`. |

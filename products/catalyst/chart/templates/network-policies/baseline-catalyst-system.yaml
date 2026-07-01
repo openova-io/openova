@@ -113,7 +113,7 @@ spec:
   ingress:
     # 1. Allow ingress from cilium-gateway in kube-system. Every public
     #    Console / API / Admin / Marketplace request enters via the
-    #    Cilium Gateway listener (port 30443) in kube-system and is
+    #    Cilium Gateway listener (port 443) in kube-system and is
     #    forwarded to a Service in catalyst-system via HTTPRoute. The
     #    selector matches the gateway endpoint labelled by Cilium with
     #    `reserved.ingress: ""`. Without this allow, all public traffic

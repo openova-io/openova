@@ -143,7 +143,7 @@ spec:
   #     showed `type=ClusterIP` with no Hetzner LB attached → public TLS
   #     to console.t28.omani.works:443 reset at the handshake. Even with
   #     the tofu-provisioned `hcloud_load_balancer.main` (infra/hetzner/
-  #     main.tf:955) carrying 443→30443 service-port, operators inspecting
+  #     main.tf) carrying the 443→gateway-Service:443 member, operators inspecting
   #     `kubectl get svc -n kube-system cilium-gateway-cilium-gateway`
   #     saw a non-LoadBalancer Service and concluded the LB chain was
   #     broken. Without these annotations, hcloud-CCM has no signal to
@@ -161,15 +161,15 @@ spec:
   # (inter-region link = PUBLIC IPs ALWAYS) AND the empirical lesson from
   # PR #1538: the Hetzner per-region LB has no private-network attachment
   # by default so CCM rejects `use private ip: missing network id`. The
-  # firewall already opens 30000-32767/tcp (infra/hetzner/main.tf:233) so
-  # the public-IP LB health checks pass against node:30443.
+  # firewall already opens 443/tcp + 80/tcp (infra/hetzner/main.tf) so the
+  # public-IP LB health checks pass against the gateway Service :443.
   #
-  # health-check pinned to TCP:30443 — without this annotation, hcloud-CCM
-  # defaults the health check to the Service's nodePort (which Cilium
-  # allocates randomly when hostNetwork=true). Pinning to 30443 (the
-  # actual host-bound cilium-envoy HTTPS listener) ensures the CCM LB
-  # marks targets healthy AS SOON AS envoy is listening — without this,
-  # the LB stayed `unhealthy` indefinitely on prov #76 (2026-05-14).
+  # health-check pinned to TCP:443 — this is the standard HTTPS listener
+  # served by the cilium-provisioned `type=LoadBalancer` gateway Service
+  # (hostNetwork is OFF; #4682). hcloud-CCM materialises a Hetzner LB for
+  # that Service and forwards public 443→gateway-Service:443; pinning the
+  # health check to :443 marks targets healthy as soon as envoy is
+  # listening on the Service port.
   #
   # TBD-A36 (#1896) — Gateway-API CRD annotations cap = 8 entries
   # -------------------------------------------------------------
@@ -205,23 +205,22 @@ spec:
       load-balancer.hetzner.cloud/use-private-ip: "false"
       load-balancer.hetzner.cloud/disable-private-ingress: "true"
       load-balancer.hetzner.cloud/health-check-protocol: "tcp"
-      load-balancer.hetzner.cloud/health-check-port: "30443"
+      load-balancer.hetzner.cloud/health-check-port: "443"
       load-balancer.hetzner.cloud/health-check-retries: "3"
-  # NOTE: ports 30080/30443 (not 80/443) — even with hostNetwork=true,
-  # cilium-envoy refuses to bind privileged ports because cilium-agent
-  # gates that bind through its `envoy-keep-cap-netbindservice` flag and
-  # the resulting bind() syscall is intercepted by the agent's BPF
-  # socket-LB program. Setting privileged: true on the cilium-envoy
-  # DaemonSet + adding NET_BIND_SERVICE + flipping the configmap flag
-  # all failed to lift the bind() rejection (verified live on otech45,
-  # otech46, otech47).
+  # NOTE: listeners serve the standard 80/443 (#4682) — hostNetwork is OFF,
+  # so cilium-envoy never does a host bind and the cilium-agent BPF
+  # socket-LB privileged-bind intercept (which forced the old 30080/30443
+  # NodePort workaround, verified live on otech45/46/47) never fires. The
+  # `:443`/`:80` sockets are owned by the cilium-provisioned gateway
+  # Service (`type=LoadBalancer`, auto-created as
+  # cilium-gateway-cilium-gateway in kube-system); Cilium maps LB :443 →
+  # envoy's internal proxy port. hcloud-CCM (Hetzner) provisions the public
+  # Hetzner LB for that Service (443→gateway-Service:443, 80→…:80); on the
+  # no-CCM Huawei path a CiliumLoadBalancerIPPool hands the Service its
+  # ExternalIP. Browsers hit the canonical `https://console.<fqdn>/` and
+  # the standard :443 is served end-to-end — no NodePort, no host DNAT.
   #
-  # High-port (>1024) bind succeeds without NET_BIND_SERVICE. The
-  # Hetzner LB does the public-facing port translation: HCLB listens on
-  # 80→forwards to CP node:30080; HCLB listens on 443→forwards to CP
-  # node:30443. Browsers hit the canonical URL (`https://console.<fqdn>/`)
-  # so port 30443 is never visible externally.
-  #
-  # See infra/hetzner/main.tf hcloud_load_balancer_service.{http,https}
-  # destination_port settings — they MUST match these listener ports.
+  # The listener port literals are rendered by bp-catalyst-platform's
+  # templates/sovereign-tls-vars-cm.yaml (PARENT_DOMAINS_LISTENERS_YAML)
+  # at 443/80; keep the infra/hetzner/main.tf LB member ports in lockstep.
   listeners: ${PARENT_DOMAINS_LISTENERS_YAML}

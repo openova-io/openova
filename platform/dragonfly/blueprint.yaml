@@ -32,8 +32,9 @@ spec:
           Upstream registry the seed peer + dfdaemon back-to-source on a cache
           miss. Pre-cutover this is ghcr.io (authenticated via the ghcr-pull
           Secret). The self-sovereign cutover flips it to the cluster-local
-          Harbor (harbor-core.harbor.svc) in a single line — that pivot is a
-          SEPARATE, later-validated step and is not driven from this card.
+          Harbor via its external host https://registry.<fqdn> (:443 through the
+          Cilium Gateway/LB, #4682) in a single line — that pivot is a SEPARATE,
+          later-validated step and is not driven from this card.
       proxyPort:
         type: integer
         default: 4001

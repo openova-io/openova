@@ -142,7 +142,8 @@ dragonfly:
       proxy:
         registryMirror:
           # Pre-cutover upstream registry. Post-cutover the cutover step
-          # flips this to the cluster-local Harbor (harbor-core.harbor.svc).
+          # flips this to the cluster-local Harbor via its EXTERNAL host
+          # https://registry.<fqdn> (:443 through the Cilium Gateway/LB, #4682).
           addr: https://ghcr.io
 
   # ── dfdaemon (per-node peer; upstream `client` DaemonSet) ──────────────
@@ -216,7 +217,9 @@ dragonfly:
           # registry-mirror service the node's containerd points at; on a
           # cache miss dfdaemon back-to-sources to this addr (once per blob
           # per cluster), then P2P-distributes. Post-cutover the cutover
-          # step flips this single line to harbor-core.harbor.svc.
+          # step flips this single line to the cluster-local Harbor via its
+          # EXTERNAL host https://registry.<fqdn> (:443 through the Cilium
+          # Gateway/LB, #4682).
           addr: https://ghcr.io
 
     # ── dfinit — write the host containerd registry-mirror config ──────────
