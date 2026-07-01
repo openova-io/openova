@@ -1,5 +1,6 @@
 {{/*
-G99 (Refs #2648) — Cilium LoadBalancer IPAM pool for clustermesh-apiserver.
+G99 (Refs #2648) — Cilium LoadBalancer IPAM pool, shared by the
+clustermesh-apiserver Service AND the Sovereign Gateway Service (#4686).
 
 ROOT CAUSE this template fixes:
   HCS (Huawei Cloud) provider has no cloud CCM. Services with
@@ -10,12 +11,25 @@ ROOT CAUSE this template fixes:
   NEVER NodePort"). Hetzner Sovereigns are unaffected — hcloud-ccm
   allocates a real LB per peer region.
 
+  #4686 extends the SAME root cause to the Sovereign Gateway: with
+  gatewayAPI.hostNetwork.enabled=false (#4682) Cilium provisions the
+  gateway as a `Service type=LoadBalancer` (cilium-gateway-<name> in
+  kube-system) serving :443/:80 — which likewise stays Pending on the
+  no-CCM Huawei path. Rather than a SECOND pool (two pools cannot carry
+  overlapping CIDRs, and both Services must land on the ONE CP-node EIP),
+  the gateway SHARES this pool: it carries the same shared selector label
+  (spec.infrastructure.labels in sovereign-tls/cilium-gateway.yaml) and
+  the same `lbipam.cilium.io/sharing-key` annotation as the clustermesh
+  Service, so Cilium co-locates both on one ExternalIP (non-overlapping
+  ports :2379 vs :443/:80). No ELB, no NodePort — §854 compliant.
+
 CANONICAL FIX:
   Cilium itself can act as a LoadBalancer controller via the
   CiliumLoadBalancerIPPool CR (GA in Cilium 1.16+). When enabled,
-  Cilium watches Services type=LoadBalancer and assigns an ExternalIP
-  from this pool, with no cloud CCM dependency. For inter-region
-  clustermesh-apiserver peering on HCS, the pool = the local CP node's
+  Cilium watches Services type=LoadBalancer whose labels match the
+  serviceSelector below and assigns an ExternalIP from this pool, with
+  no cloud CCM dependency. For inter-region clustermesh-apiserver peering
+  AND the Sovereign gateway on HCS, the pool = the local CP node's
   public IPv4 (already provisioned by tofu; reachable by the remote
   peer over the public WG-encrypted path).
 
@@ -44,6 +58,9 @@ VERIFICATION (post-fresh-prov on HCS multi-region):
 apiVersion: cilium.io/v2alpha1
 kind: CiliumLoadBalancerIPPool
 metadata:
+  # Named clustermesh-apiserver for continuity, but this pool now also
+  # backs the Sovereign Gateway Service via the shared selector label
+  # below (#4686). Both Services co-locate on the one CP-node EIP.
   name: clustermesh-apiserver
   labels:
     app.kubernetes.io/name: bp-cilium
@@ -59,10 +76,38 @@ spec:
     - cidr: {{ . | quote }}
     {{- end }}
   serviceSelector:
+    # #4686 — ONE pool, TWO Services, ONE selector.
+    #
+    # Per the Cilium LB-IPAM contract (v1.16.5 docs, "LoadBalancer IP
+    # Sharing"): *"The service selector of the IP Pool still applies —
+    # requested IPs will not be allocated or assigned if the services don't
+    # match the pool's selector."* The `lbipam.cilium.io/sharing-key`
+    # annotation alone does NOT exempt a Service from pool selection: BOTH
+    # the clustermesh-apiserver Service (:2379) and the Sovereign Gateway
+    # Service (:443/:80) must INDEPENDENTLY match THIS selector to draw an
+    # IP from the CP-node-EIP pool; the matching sharing-key then co-locates
+    # them on that single ExternalIP (ports don't overlap → same IP).
+    #
+    # Why the selector is `k8s-app: clustermesh-apiserver` (not a neutral
+    # `catalyst.openova.io/lb-ipam` label): the upstream cilium subchart is
+    # pinned to 1.16.5, whose clustermesh-apiserver Service template
+    # HARDCODES metadata.labels and exposes NO values knob to add a custom
+    # label (`clustermesh.apiserver.service.labels` does not exist; the
+    # `commonLabels`→that-Service injection only lands in cilium 1.17+). So
+    # `k8s-app: clustermesh-apiserver` is the only label we can rely on for
+    # the clustermesh Service on 1.16.5.
+    #
+    # The Sovereign Gateway Service is therefore given this SAME
+    # `k8s-app: clustermesh-apiserver` label via spec.infrastructure.labels
+    # (Cilium 1.16+ propagates infrastructure.labels onto the generated
+    # cilium-gateway-<name> Service). It additionally carries a descriptive
+    # `catalyst.openova.io/lb-ipam: sovereign-shared` marker for operator
+    # observability. Both Services thus match this single, upstream-clean
+    # selector and share the one EIP. (A second pool for the gateway is not
+    # an option — two pools cannot carry overlapping CIDRs. When the
+    # subchart is bumped to 1.17+, migrate BOTH Services to the neutral
+    # `catalyst.openova.io/lb-ipam` label via commonLabels + this selector.)
     matchLabels:
-      # Match the upstream Cilium chart's clustermesh-apiserver Service.
-      # Verified against cilium/cilium-chart helm template — Service is
-      # labeled k8s-app=clustermesh-apiserver in kube-system namespace.
       k8s-app: clustermesh-apiserver
 {{- end }}
 {{- end }}

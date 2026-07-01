@@ -800,14 +800,21 @@ write_files:
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
-            # #4682 — the Cilium Gateway is now a Service type=LoadBalancer on
+            # #4686 — the Cilium Gateway is a Service type=LoadBalancer on
             # :443/:80 (hostNetwork off, no NodePort). On the CCM-less Huawei
-            # provider the gateway-lb-ipam-pool.yaml CiliumLoadBalancerIPPool
-            # gives that Service its ExternalIP. Seeded with THIS region's CP
-            # public IPv4/32 (same source as the clustermesh pool). Left UNSET
-            # on Hetzner, where hcloud-ccm materialises the Service LB instead.
-            CILIUM_GATEWAY_LB_IPAM_ENABLED: "true"
-            CILIUM_GATEWAY_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
+            # provider the gateway Service SHARES the clustermesh CP-node EIP
+            # via a Cilium LB-IPAM sharing-key (clustermesh :2379, gateway
+            # :443/:80 — non-overlapping ports on the ONE ExternalIP). The
+            # separate gateway-lb-ipam-pool.yaml is DELETED — the shared
+            # clustermesh-lb-ipam-pool (CILIUM_LB_IPAM_* above) now backs both
+            # Services, selected by the borrowed `k8s-app: clustermesh-apiserver`
+            # label. This value must be a fixed NON-EMPTY string, IDENTICAL on
+            # the gateway Service (clusters/_template/sovereign-tls/cilium-
+            # gateway.yaml) and the clustermesh Service (01-cilium.yaml) — both
+            # reference the CILIUM_GATEWAY_SHARING_KEY Flux substitute. Left
+            # UNSET (empty) on Hetzner, where hcloud-ccm materialises a real
+            # Service LB and the sharing-key is ignored.
+            CILIUM_GATEWAY_SHARING_KEY: "sovereign-gw-cm"
             SOVEREIGN_GATEWAY_HTTPS_PORT: "443"
             SOVEREIGN_GATEWAY_HTTP_PORT: "80"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"

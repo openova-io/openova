@@ -110,7 +110,13 @@ spec:
       # XHR (gRPC-Web /api/v1/...) gets a 401 (not a 302-to-KC-login-HTML the
       # gRPC-Web client can't follow) on a missing/expired session — fixes
       # flows never rendering.
-      version: 1.4.5
+      # 1.4.6 (#4686): Sovereign Gateway Service shares the clustermesh
+      # CP-node EIP via Cilium LB-IPAM sharing-key — no ELB, no NodePort on
+      # the no-CCM Huawei path. The clustermesh-lb-ipam-pool now backs both
+      # the clustermesh (:2379) and gateway (:443/:80) Services; the
+      # CILIUM_GATEWAY_SHARING_KEY substitute (default empty) is set on the
+      # clustermesh Service annotations below + the gateway (sovereign-tls).
+      version: 1.4.6
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -357,6 +363,20 @@ spec:
               # (48d8fe77...): primary + nbg1 both reported external_ip
               # 167.233.14.208 (nbg1 LB), sin stayed <pending>.
               load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-clustermesh"
+              # #4686 — Cilium LB-IPAM sharing-key. On the no-CCM Huawei path
+              # the clustermesh-apiserver Service (:2379) and the Sovereign
+              # Gateway Service (:443/:80) SHARE the one CP-node EIP. Both
+              # Services must carry the SAME sharing-key value so Cilium
+              # co-locates them on a single ExternalIP (ports don't overlap).
+              # The clustermesh Service is selected by the shared
+              # clustermesh-lb-ipam-pool via its upstream-hardcoded
+              # `k8s-app: clustermesh-apiserver` label (the 1.16.5 subchart
+              # exposes no `.service.labels` knob, so we do NOT try to add a
+              # custom label here — the gateway borrows k8s-app instead, see
+              # clusters/_template/sovereign-tls/cilium-gateway.yaml).
+              # Empty default → Hetzner (hcloud-ccm owns the LB; sharing-key
+              # ignored when empty). Huawei cloud-init sets the shared key.
+              lbipam.cilium.io/sharing-key: "${CILIUM_GATEWAY_SHARING_KEY:=}"
 
     # ── Catalyst overlay templates (chart/templates/) ────────────────────
     # qa-loop iter-16 Fix #70: Hubble UI HTTPRoute now defaults ON for

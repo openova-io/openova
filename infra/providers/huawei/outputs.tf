@@ -9,8 +9,8 @@ output "control_plane_ip" {
 }
 
 output "load_balancer_ip" {
-  description = "Public EIP of the Wave 5.98 (#2447, #4682) Huawei ELB. The wildcard + app DNS A-records point HERE. ELB does 443→443 + 80→80 TCP passthrough to the cilium Gateway Service type=LoadBalancer (:443/:80, hostNetwork off, no NodePort; a CiliumLoadBalancerIPPool gives the Service its ExternalIP on the CCM-less Huawei provider)."
-  value       = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
+  description = "Public EIP the wildcard + app DNS A-records point at. #4686 — on the CCM-less Huawei provider the Sovereign Gateway Service (type=LoadBalancer, :443/:80, hostNetwork off, no NodePort) now serves DIRECTLY on the primary-region CP-node public EIP via a Cilium LB-IPAM sharing-key (shared with the clustermesh Service :2379 on the SAME EIP — non-overlapping ports). The dedicated gateway ELB (elb_primary) is REMOVED — no ELB, no NodePort, no port-translation. This is therefore the SAME value as control_plane_ip above."
+  value       = length(var.regions) > 0 ? huaweicloud_vpc_eip.cp[var.regions[0].code].publicip.0.ip_address : ""
 }
 
 # #4053 — public EIP of the dedicated CONSOLE ELB. console./api.<fqdn> point
