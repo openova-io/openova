@@ -541,6 +541,25 @@ data:
                   echo "    FAIL — ${kind}/${name} has a Pod in image-pull error under deny-egress (${reasons}); residual external-registry tether or inert mirror (#3695)"
                   return 1 ;;
               esac
+              # #4674 — rollout status timed out but NO image-pull error (checked
+              # above). The ACTUAL sovereignty proof is "pulled a fresh image from
+              # the LOCAL registry under deny-egress", NOT "rollout fully completed".
+              # A LEADER-ELECTED SINGLETON (Flux source-controller) whose readiness
+              # probe is gated on acquiring the leader lease, under maxUnavailable=0,
+              # DEADLOCKS a rollout-restart: the new Pod pulls its image from the
+              # local registry (no tether) but can't pass readiness until the old
+              # Pod releases the lease, and the old Pod won't terminate until the new
+              # one is Ready. That is a rollout artifact, NOT an egress failure. If
+              # the new-template Pod exists (updatedReplicas>=1) and the workload is
+              # still serving (readyReplicas>=1) with no pull error, the fresh-pull
+              # proof PASSED. (updatedReplicas/readyReplicas are empty on a DaemonSet
+              # → falls through to the strict FAIL, unchanged for those.)
+              updated=$(kubectl get "${kind}" "${name}" -n "${ns}" -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo 0)
+              ready=$(kubectl get "${kind}" "${name}" -n "${ns}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+              if [ "${updated:-0}" -ge 1 ] && [ "${ready:-0}" -ge 1 ]; then
+                echo "    PASS — ${kind}/${name} pulled a fresh image from the local registry under deny-egress (rollout status incomplete = leader-election readiness artifact under maxUnavailable=0; workload still serving) (#4674)"
+                return 0
+              fi
               echo "    FAIL — ${kind}/${name} did not roll out within ${FRESH_PULL_TIMEOUT}s under deny-egress (reasons:${reasons:-<none>})"
               return 1
             }

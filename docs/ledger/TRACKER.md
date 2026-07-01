@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-30T22:15:03Z` |
+| Last refreshed | `2026-07-01T12:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 27 |
+| Open issues | 32 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 27 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 32 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 27 open items (clickable table)
+### All 32 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -225,8 +225,13 @@ flowchart LR
 | [#4656](https://github.com/openova-io/openova/issues/4656) | bp-cilium: VXLAN-over-WireGuard MTU stacking — cilium_wg0 (1290) < pod+VXLAN ( | Other |
 | [#4660](https://github.com/openova-io/openova/issues/4660) | bp-self-sovereign-cutover: gitea-admin-secret Helm-lookup bridge renders nil at  | Other |
 | [#4662](https://github.com/openova-io/openova/issues/4662) | Decouple cutover auto-fire (fireCutoverOnHandover) from qaTestEnabled — prod-c | Other |
-| [#4664](https://github.com/openova-io/openova/issues/4664) | fix(cutover): registry-pivot v2 mirror tests assert stale upstream_mirrors= cont | Other |
 | [#4666](https://github.com/openova-io/openova/issues/4666) | self-sovereign-cutover step-06 Phase-3a wedges at pct=45: pivoted HelmRepository | Other |
+| [#4674](https://github.com/openova-io/openova/issues/4674) | cutover step-04 all-nodes-ack gate is fragile: ONE flaky-back-to-source dfdaemon | Other |
+| [#4675](https://github.com/openova-io/openova/issues/4675) | P0 prevention: pre-flight gate trusted the false-empty deployments API → fired | Other |
+| [#4677](https://github.com/openova-io/openova/issues/4677) | ROOT CAUSE: wipe=tofu-destroy leaks ALL runtime CSI EVS volumes (315 orphan / ~5 | Other |
+| [#4682](https://github.com/openova-io/openova/issues/4682) | Sovereign Cilium Gateway serves :30443 NodePort-range + ClusterIP, not :443 Load | Other |
+| [#4683](https://github.com/openova-io/openova/issues/4683) | Operator console /sovereign/deployments is owner-scoped by session email — a s | Other |
+| [#4685](https://github.com/openova-io/openova/issues/4685) | CI: Controller-image-tag freshness guard is a false-red on EVERY PR — GITHUB_T | Other |
 
 ---
 
@@ -234,6 +239,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-01T08:16 | [#4681](https://github.com/openova-io/openova/pull/4681) | #3695 | fix(cutover): step-08 egress-test tolerates leader-elected s |
+| 2026-07-01T07:11 | [#4680](https://github.com/openova-io/openova/pull/4680) | #4466 | fix(janitor): automatic ghost-record GC — no more stale read |
+| 2026-07-01T05:45 | [#4679](https://github.com/openova-io/openova/pull/4679) | #4635 | fix(cutover): step-04 ack-gate tolerates bounded laggard nod |
+| 2026-07-01T05:27 | [#4678](https://github.com/openova-io/openova/pull/4678) | #4677 | fix(wipe): drain-before-destroy — stop leaking CSI volumes + |
+| 2026-07-01T05:27 | [#4676](https://github.com/openova-io/openova/pull/4676) | #4675 | fix(preflight): ground-truth no-foreign-Sovereign gate — pre |
+| 2026-06-30T23:14 | [#4673](https://github.com/openova-io/openova/pull/4673) | #4635 | fix(cutover): level-triggered reconciler must re-run a faile |
+| 2026-06-30T23:15 | [#4672](https://github.com/openova-io/openova/pull/4672) | #4111 | docs(glossary): define Agenity + bp-openova-mcp + ban user-f |
+| 2026-06-30T23:15 | [#4671](https://github.com/openova-io/openova/pull/4671) | #4614 | fix(wipe): sweep unbound/nameless orphan EIPs project-wide — |
 | 2026-06-30T21:12 | [#4669](https://github.com/openova-io/openova/pull/4669) | #4635 | feat(cutover): level-triggered sovereignty-cutover reconcile |
 | 2026-06-30T19:21 | [#4668](https://github.com/openova-io/openova/pull/4668) | #4637 | fix(bp-self-sovereign-cutover): step-04 gates the v2 node-ac |
 | 2026-06-30T15:10 | [#4667](https://github.com/openova-io/openova/pull/4667) | #3379 | fix(bp-self-sovereign-cutover): step-06 Phase-3a pivots Helm |
@@ -256,14 +269,6 @@ flowchart LR
 | 2026-06-29T00:10 | [#4638](https://github.com/openova-io/openova/pull/4638) | #3232 | fix(bp-self-sovereign-cutover): registry-pivot v2 mirror at  |
 | 2026-06-28T16:46 | [#4634](https://github.com/openova-io/openova/pull/4634) | #4627 | fix(prov): hardcode provider-opentofu host; revert #4620 clo |
 | 2026-06-28T16:46 | [#4633](https://github.com/openova-io/openova/pull/4633) | #4632 | fix(bp-self-sovereign-cutover): auto-trigger retries on HTTP |
-| 2026-06-28T16:20 | [#4631](https://github.com/openova-io/openova/pull/4631) | #4623 | fix(bp-openbao): snapshot BAO_ADDR -> real openbao Service ( |
-| 2026-06-28T16:11 | [#4630](https://github.com/openova-io/openova/pull/4630) | #4623 | docs(4623b): diagnose pdns-admin.<fqdn> HTTP 000 — code is c |
-| 2026-06-28T16:11 | [#4629](https://github.com/openova-io/openova/pull/4629) | #4623 | fix(bp-loki): disable loki-sc-rules sidecar — kill CrashLoop |
-| 2026-06-28T16:04 | [#4628](https://github.com/openova-io/openova/pull/4628) | #4624 | fix(bp-agenity): self-wire OPENOVA_MCP_BEARER + RS256-pubkey |
-| 2026-06-28T15:47 | [#4627](https://github.com/openova-io/openova/pull/4627) | #4600 | fix(prov): re-add infrastructure-providers postBuild → resol |
-| 2026-06-28T14:59 | [#4626](https://github.com/openova-io/openova/pull/4626) | #909 | docs(uat): operator-console authed walk — RBAC setup OK, hea |
-| 2026-06-28T14:56 | [#4625](https://github.com/openova-io/openova/pull/4625) | #4624 | walk(uat): Pillar-4 North Star agentic run PROVEN on 8fd457a |
-| 2026-06-28T14:21 | [#4622](https://github.com/openova-io/openova/pull/4622) | #909 | walk(uat): R19/R21/R22 ✅ live on 8fd457a8 |
 
 ---
 
