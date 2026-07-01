@@ -210,11 +210,19 @@ spec:
       # CP-node EIP via Cilium LB-IPAM (different ports :443/:80 vs :2379), serving
       # DIRECTLY as a type=LoadBalancer with NO ELB and NO NodePort (§854). Cilium
       # propagates this annotation onto the generated cilium-gateway-<name> Service.
-      # Empty default → Hetzner (hcloud-ccm provisions the real LB; sharing-key
-      # irrelevant, empty is ignored). Huawei cloud-init sets it to the shared key.
+      # #4689 P0 — the default MUST be NON-EMPTY. An empty `:=` default renders the
+      # annotation value to YAML *null*, which the Gateway CRD REJECTS
+      # (`spec.infrastructure.annotations.lbipam.cilium.io/sharing-key ... must be of
+      # type string: "null"`) → the sovereign-tls Kustomization dry-run FAILS → the
+      # gateway never applies → console never serves (broke EVERY fresh prov post-#4687).
+      # The sovereign-tls Kustomization's substituteFrom (sovereign-tls-vars CM) does NOT
+      # provide CILIUM_GATEWAY_SHARING_KEY, so this default is what actually renders — it
+      # MUST equal the clustermesh Service's key (cloud-init CILIUM_GATEWAY_SHARING_KEY,
+      # slot-01) so both co-locate on the CP-node EIP. Harmless on Hetzner (no LB-IPAM
+      # pool → inert; hcloud-ccm gives the ExternalIP).
       # health-check-retries dropped (hcloud default is 3 — no-op) to stay within the
       # Gateway-API CRD 8-annotation cap (#1896).
-      lbipam.cilium.io/sharing-key: "${CILIUM_GATEWAY_SHARING_KEY:=}"
+      lbipam.cilium.io/sharing-key: "${CILIUM_GATEWAY_SHARING_KEY:=sovereign-gw-cm}"
     # #4686 — shared LB-IPAM selector labels. Cilium 1.16+ propagates
     # spec.infrastructure.labels onto the generated cilium-gateway-<name>
     # Service.
