@@ -47,6 +47,34 @@ print(len([e for e in eips if e.get("public_ip_address")!=bastion and not e.get(
 PY
 )
   [ "${orph:-x}" = "0" ] && pass "3. EIP headroom: 0 orphaned EIPs (only bastion)" || bad "3. ${orph} orphaned/unbound EIP(s) — delete them first (exclude bastion ${BASTION_EIP})"
+
+  # 3b. GROUND-TRUTH no-foreign-Sovereign gate (#4675 — the omantel.biz-loss root cause).
+  #     Check #2 above trusts GET /deployments, which returns a FALSE 0 when the
+  #     catalyst-api store hasn't reloaded after a recycle → the gate cleared a fire
+  #     into a project still hosting a LIVE Sovereign → the tofu-init VPC-quota-reclaim
+  #     (#4614) reaped it. The authoritative signal is the live cloud inventory: query
+  #     Huawei ECS in the target project and FAIL if ANY node's name prefix is NOT this
+  #     FQDN and NOT bastion-*. A foreign live Sovereign in the project = DO NOT FIRE.
+  stem=$(printf '%s' "$FQDN" | tr '.' '-')
+  foreign=$(python3 - "$HW_TFVARS" "$stem" <<'PY' 2>/dev/null
+import sys,json,hashlib,hmac,datetime,urllib.request,ssl
+t=json.load(open(sys.argv[1])); stem=sys.argv[2]
+ak=t.get('huawei_access_key') or t.get('access_key') or t.get('huawei_ak'); sk=t.get('huawei_secret_key') or t.get('secret_key') or t.get('huawei_sk')
+proj=t.get('huawei_project_id') or t.get('project_id'); region=t.get('huawei_region') or 'me-east-215'
+host=f"ecs.{region}.kom4dc.nationalcloud.om"; uri=f"/v1/{proj}/cloudservers/detail"
+now=datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ'); ch=f"host:{host}\nx-sdk-date:{now}\n"; sh="host;x-sdk-date"
+cr=f"GET\n{uri}/\n\n{ch}\n{sh}\n"+hashlib.sha256(b'').hexdigest(); sts=f"SDK-HMAC-SHA256\n{now}\n"+hashlib.sha256(cr.encode()).hexdigest()
+sig=hmac.new(sk.encode(),sts.encode(),hashlib.sha256).hexdigest()
+ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+req=urllib.request.Request(f"https://{host}{uri}",headers={"X-Sdk-Date":now,"Authorization":f"SDK-HMAC-SHA256 Access={ak}, SignedHeaders={sh}, Signature={sig}","host":host})
+servers=json.load(urllib.request.urlopen(req,timeout=25,context=ctx)).get("servers",[])
+# foreign = any ECS not part of THIS prov's stem and not the bastion
+foreign=[s.get('name','') for s in servers if stem not in s.get('name','') and not s.get('name','').startswith('bastion')]
+print("\n".join(foreign) if foreign else "0")
+PY
+)
+  if [ "${foreign:-x}" = "0" ]; then pass "3b. no foreign Sovereign in project (live Huawei ECS ground-truth)"
+  else bad "3b. FOREIGN live ECS in target project (a live Sovereign shares it — firing WILL risk #4614 VPC-reclaim): $(printf '%s' "$foreign" | tr '\n' ' ' | cut -c1-160)"; fi
 else bad "3. HW_TFVARS unset — cannot verify EIP headroom"; fi
 
 # 4. mothership catalyst-api rollout settled
