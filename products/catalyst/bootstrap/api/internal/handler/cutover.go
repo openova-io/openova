@@ -106,6 +106,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"sort"
@@ -1173,11 +1174,57 @@ func waitForRegistryPivotNodeAcks(ctx context.Context, deps *cutoverDeps, dsName
 			return false, nil
 		}
 		acks := countRegistryPivotV2Acks(status)
-		if acks >= desired {
+		// #4674 — tolerate a bounded number of laggard nodes. A single node
+		// whose dfdaemon is persistently dead (stale resolver cache) never
+		// writes its v2 ack, and the strict acks==desired gate would wedge the
+		// WHOLE cutover on that one node for the full timeout. With a tolerance
+		// of T, the gate proceeds once (desired-acks) <= T; the #4635
+		// level-triggered reconciler keeps re-running the cutover so a laggard
+		// that recovers still converges. Default T=0 preserves the strict
+		// all-nodes invariant; raise via CATALYST_CUTOVER_ACK_TOLERANCE only for
+		// clouds with flaky per-node dfdaemons (kom4dc). Un-acked nodes are
+		// logged so the operator/reconciler can see exactly which node lagged.
+		if desired-acks <= cutoverAckTolerance() {
+			if acks < desired {
+				slog.Warn("cutover: proceeding past registry-pivot ack-gate with laggard node(s) within tolerance",
+					"acked", acks, "desired", desired,
+					"tolerance", cutoverAckTolerance(),
+					"unackedNodes", strings.Join(unackedRegistryPivotNodes(status), ","),
+				)
+			}
 			return true, nil
 		}
 		return false, nil
 	})
+}
+
+// envCutoverAckTolerance is the number of registry-pivot nodes allowed to miss
+// their v2 ack before the step-04 gate still proceeds (#4674). Default 0 =
+// strict all-nodes invariant.
+const envCutoverAckTolerance = "CATALYST_CUTOVER_ACK_TOLERANCE"
+
+// cutoverAckTolerance reads the laggard-node tolerance for the step-04 ack
+// gate. Non-negative; malformed / negative → 0 (strict).
+func cutoverAckTolerance() int {
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(envCutoverAckTolerance))); err == nil && v > 0 {
+		return v
+	}
+	return 0
+}
+
+// unackedRegistryPivotNodes returns the node names present as ack keys whose
+// value is NOT "v2" (still v1 / unset) — for operator-visible diagnostics when
+// the gate proceeds within tolerance.
+func unackedRegistryPivotNodes(status map[string]string) []string {
+	var out []string
+	for k, v := range status {
+		if strings.HasPrefix(k, registryPivotNodeAckPrefix) &&
+			strings.HasSuffix(k, registryPivotNodeAckSuffix) && v != "v2" {
+			node := strings.TrimSuffix(strings.TrimPrefix(k, registryPivotNodeAckPrefix), registryPivotNodeAckSuffix)
+			out = append(out, node)
+		}
+	}
+	return out
 }
 
 // countRegistryPivotV2Acks counts the per-node ack keys in the status map
