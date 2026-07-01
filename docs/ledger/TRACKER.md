@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-01T12:45:03Z` |
+| Last refreshed | `2026-07-01T13:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 32 |
 | Open DoD gates | 0 / 41 |
@@ -239,6 +239,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-01T12:59 | [#4684](https://github.com/openova-io/openova/pull/4684) | #4053 | fix(gateway): Sovereign gateway = :443 LoadBalancer + regist |
 | 2026-07-01T08:16 | [#4681](https://github.com/openova-io/openova/pull/4681) | #3695 | fix(cutover): step-08 egress-test tolerates leader-elected s |
 | 2026-07-01T07:11 | [#4680](https://github.com/openova-io/openova/pull/4680) | #4466 | fix(janitor): automatic ghost-record GC — no more stale read |
 | 2026-07-01T05:45 | [#4679](https://github.com/openova-io/openova/pull/4679) | #4635 | fix(cutover): step-04 ack-gate tolerates bounded laggard nod |
@@ -268,7 +269,6 @@ flowchart LR
 | 2026-06-29T09:08 | [#4640](https://github.com/openova-io/openova/pull/4640) | #4639 | feat(bp-dragonfly): per-cluster P2P image distribution layer |
 | 2026-06-29T00:10 | [#4638](https://github.com/openova-io/openova/pull/4638) | #3232 | fix(bp-self-sovereign-cutover): registry-pivot v2 mirror at  |
 | 2026-06-28T16:46 | [#4634](https://github.com/openova-io/openova/pull/4634) | #4627 | fix(prov): hardcode provider-opentofu host; revert #4620 clo |
-| 2026-06-28T16:46 | [#4633](https://github.com/openova-io/openova/pull/4633) | #4632 | fix(bp-self-sovereign-cutover): auto-trigger retries on HTTP |
 
 ---
 
