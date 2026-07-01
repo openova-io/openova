@@ -252,6 +252,13 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		}
 	}
 
+	// Step 1b (#4677) — ghost-record GC. A record stuck in a live-claimed
+	// status ("ready") whose apiserver is persistently unreachable is a ghost
+	// left by a decommission that bypassed the full wipe (the omantel.biz ghost
+	// the console kept rendering). Log-only by default; reaps only under the
+	// destructive gate. Never touches an in-flight / terminal / reachable dep.
+	stats.GhostRecords = h.cleanGhostRecords(tofuWorkDir)
+
 	// Step 2: walk on-disk dirs for orphans (files whose ID has no
 	// matching in-memory deployment AND no matching on-disk record).
 	activeIDs := h.activeIDSet()
@@ -324,6 +331,7 @@ type janitorStats struct {
 	Reaped             int
 	ReapErrors         int
 	OrphanKubeconfigs  int
+	GhostRecords       int
 	OrphanTofuWorkdirs int
 	OrphanEIPs         int
 	OrphanKeypairs     int
