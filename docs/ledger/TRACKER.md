@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-01T05:15:02Z` |
+| Last refreshed | `2026-07-01T05:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-01T05:27 | [#4678](https://github.com/openova-io/openova/pull/4678) | #4677 | fix(wipe): drain-before-destroy — stop leaking CSI volumes + |
+| 2026-07-01T05:27 | [#4676](https://github.com/openova-io/openova/pull/4676) | #4675 | fix(preflight): ground-truth no-foreign-Sovereign gate — pre |
 | 2026-06-30T23:14 | [#4673](https://github.com/openova-io/openova/pull/4673) | #4635 | fix(cutover): level-triggered reconciler must re-run a faile |
 | 2026-06-30T23:15 | [#4672](https://github.com/openova-io/openova/pull/4672) | #4111 | docs(glossary): define Agenity + bp-openova-mcp + ban user-f |
 | 2026-06-30T23:15 | [#4671](https://github.com/openova-io/openova/pull/4671) | #4614 | fix(wipe): sweep unbound/nameless orphan EIPs project-wide — |
@@ -264,8 +266,6 @@ flowchart LR
 | 2026-06-28T16:20 | [#4631](https://github.com/openova-io/openova/pull/4631) | #4623 | fix(bp-openbao): snapshot BAO_ADDR -> real openbao Service ( |
 | 2026-06-28T16:11 | [#4630](https://github.com/openova-io/openova/pull/4630) | #4623 | docs(4623b): diagnose pdns-admin.<fqdn> HTTP 000 — code is c |
 | 2026-06-28T16:11 | [#4629](https://github.com/openova-io/openova/pull/4629) | #4623 | fix(bp-loki): disable loki-sc-rules sidecar — kill CrashLoop |
-| 2026-06-28T16:04 | [#4628](https://github.com/openova-io/openova/pull/4628) | #4624 | fix(bp-agenity): self-wire OPENOVA_MCP_BEARER + RS256-pubkey |
-| 2026-06-28T15:47 | [#4627](https://github.com/openova-io/openova/pull/4627) | #4600 | fix(prov): re-add infrastructure-providers postBuild → resol |
 
 ---
 
