@@ -715,11 +715,11 @@ spec:
       # event-driven, not render-time-bound. NOT a Helm hook (converges async
       # behind disableWait:true). No step-count change; the Job carries
       # component=gitea-admin-secret-bridge, not the cutover-step label.
-      # 0.1.98 (#4637): step-04 registry-pivot gates its per-node v2 ack on a
+      # 0.1.99 (#4637): step-04 registry-pivot gates its per-node v2 ack on a
       # node-local `GET http://127.0.0.1:4001/v2/` serving probe so catalyst-api's
       # daemonset-wait cannot green (→ step-07 catalyst-api re-pull) while the
       # dfdaemon mirror has 0 Ready pods (#4649 condition → connection-refused).
-      version: 0.1.98
+      version: 0.1.99
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
