@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-01T23:30:04Z` |
+| Last refreshed | `2026-07-01T23:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 34 |
+| Open issues | 35 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 34 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 35 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 34 open items (clickable table)
+### All 35 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -234,6 +234,7 @@ flowchart LR
 | [#4685](https://github.com/openova-io/openova/issues/4685) | CI: Controller-image-tag freshness guard is a false-red on EVERY PR — GITHUB_T | Other |
 | [#4686](https://github.com/openova-io/openova/issues/4686) | #4682 Wave-D3 gap: gateway CiliumLoadBalancerIPPool not wired on Huawei — gate | Other |
 | [#4688](https://github.com/openova-io/openova/issues/4688) | cutover steps 02/03 still reach Harbor via internal svc name (harbor-core.harbor | Other |
+| [#4692](https://github.com/openova-io/openova/issues/4692) | fix(cloud-init): kom4dc cilium-bootstrap DNS-wedge — /etc/hosts pin-loop resol | Other |
 
 ---
 
