@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-01T07:00:04Z` |
+| Last refreshed | `2026-07-01T07:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-01T07:11 | [#4680](https://github.com/openova-io/openova/pull/4680) | #4466 | fix(janitor): automatic ghost-record GC — no more stale read |
 | 2026-07-01T05:45 | [#4679](https://github.com/openova-io/openova/pull/4679) | #4635 | fix(cutover): step-04 ack-gate tolerates bounded laggard nod |
 | 2026-07-01T05:27 | [#4678](https://github.com/openova-io/openova/pull/4678) | #4677 | fix(wipe): drain-before-destroy — stop leaking CSI volumes + |
 | 2026-07-01T05:27 | [#4676](https://github.com/openova-io/openova/pull/4676) | #4675 | fix(preflight): ground-truth no-foreign-Sovereign gate — pre |
@@ -265,7 +266,6 @@ flowchart LR
 | 2026-06-28T16:46 | [#4634](https://github.com/openova-io/openova/pull/4634) | #4627 | fix(prov): hardcode provider-opentofu host; revert #4620 clo |
 | 2026-06-28T16:46 | [#4633](https://github.com/openova-io/openova/pull/4633) | #4632 | fix(bp-self-sovereign-cutover): auto-trigger retries on HTTP |
 | 2026-06-28T16:20 | [#4631](https://github.com/openova-io/openova/pull/4631) | #4623 | fix(bp-openbao): snapshot BAO_ADDR -> real openbao Service ( |
-| 2026-06-28T16:11 | [#4630](https://github.com/openova-io/openova/pull/4630) | #4623 | docs(4623b): diagnose pdns-admin.<fqdn> HTTP 000 — code is c |
 
 ---
 
