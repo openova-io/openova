@@ -111,6 +111,10 @@ func (h *Handler) runConvergedLateRescue(dep *Deployment) {
 	// converged-late path too (idempotent server-side-apply; adopt-not-roll).
 	// See post_handover_spine_apps.go.
 	go h.runPostHandoverSpineApplications(dep)
+	// #4690 / #4686 — reconcile the Huawei gateway ELB members to the live
+	// gateway-Service nodePort on the converged-late path too (idempotent; no-op
+	// on Hetzner / when already reconciled). See post_handover_gateway_elb.go.
+	go h.runPostHandoverGatewayELB(dep)
 }
 
 // censusHelmReleases counts Ready=True vs total HelmReleases on the
