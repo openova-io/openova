@@ -33,6 +33,15 @@ data:
         env:
           - name: HARBOR_INTERNAL_URL
             value: {{ .Values.sovereign.harborInternalURL | quote }}
+          # #4688 — reach the local Harbor via its EXTERNAL host registry.<fqdn>
+          # (NOT the internal svc name harbor-core.harbor.svc) so cutover steps work
+          # under DMZ/RTZ multi-cluster segregation, where an in-cluster ClusterIP
+          # does not route across clusters. In-cluster-reachable via the gateway
+          # hairpin (verified 401 from a harbor pod on hw208). The `-k` on the curls
+          # below tolerates the local Harbor's LE-STAGING wildcard on qaTest provs
+          # (in-cluster access to the LOCAL Harbor's own cert; not MITM-exposed).
+          - name: HARBOR_PUBLIC_URL
+            value: {{ .Values.sovereign.harborPublicURL | quote }}
           - name: HARBOR_USERNAME
             valueFrom:
               secretKeyRef:
@@ -58,7 +67,7 @@ data:
           - |
             set -eu
             : "${HARBOR_USERNAME:=admin}"
-            base="${HARBOR_INTERNAL_URL}/api/v2.0"
+            base="${HARBOR_PUBLIC_URL}/api/v2.0"  # #4688 external host, not harbor-core.harbor.svc
 
             # 1. Decode GHCR creds (used by proxy-ghcr registry, authMode=credential).
             if [ -n "${GHCR_DOCKERCONFIG:-}" ]; then
@@ -92,7 +101,7 @@ data:
                 reg_payload="${reg_payload},\"credential\":{\"type\":\"basic\",\"access_key\":\"${ghcr_user}\",\"access_secret\":\"${ghcr_pass}\"}"
               fi
               reg_payload="${reg_payload}}"
-              code=$(curl -s -o /tmp/reg.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
+              code=$(curl -sk -o /tmp/reg.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
                 -H "Content-Type: application/json" \
                 "${base}/registries" --data "${reg_payload}")
               case "${code}" in
@@ -100,14 +109,14 @@ data:
                 *)       echo "[harbor-projects]   registry ${name}-upstream FAILED (${code})"; cat /tmp/reg.out; exit 1 ;;
               esac
 
-              reg_id=$(curl -s -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" "${base}/registries?name=${name}-upstream" | tr ',' '\n' | grep -o '"id":[0-9]*' | head -1 | awk -F: '{print $2}')
+              reg_id=$(curl -sk -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" "${base}/registries?name=${name}-upstream" | tr ',' '\n' | grep -o '"id":[0-9]*' | head -1 | awk -F: '{print $2}')
               if [ -z "${reg_id}" ]; then
                 echo "[harbor-projects]   could not resolve registry id for ${name}-upstream"
                 exit 1
               fi
 
               proj_payload="{\"project_name\":\"${name}\",\"public\":true,\"registry_id\":${reg_id},\"metadata\":{\"public\":\"true\"}}"
-              code=$(curl -s -o /tmp/proj.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
+              code=$(curl -sk -o /tmp/proj.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
                 -H "Content-Type: application/json" \
                 "${base}/projects" --data "${proj_payload}")
               case "${code}" in
@@ -130,7 +139,7 @@ data:
             for push_proj in {{ join " " .Values.harbor.pushProjects }}; do
               echo "[harbor-projects] ensuring push-mode project ${push_proj}"
               proj_payload="{\"project_name\":\"${push_proj}\",\"public\":false,\"metadata\":{\"public\":\"false\"}}"
-              code=$(curl -s -o /tmp/proj.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
+              code=$(curl -sk -o /tmp/proj.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
                 -H "Content-Type: application/json" \
                 "${base}/projects" --data "${proj_payload}")
               case "${code}" in

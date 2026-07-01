@@ -704,7 +704,7 @@ data:
 
             # ─── Phase B (legacy): HEAD against proxy-cache for non-openova-io ─
             echo "[harbor-prewarm] Phase B: HEAD against proxy-cache for upstream images"
-            base="${HARBOR_INTERNAL_URL}/v2"
+            base="${HARBOR_PUBLIC_URL}/v2"  # #4688 external host, not harbor-core.harbor.svc
             ok=0
             fail=0
             while IFS= read -r line; do
@@ -712,7 +712,7 @@ data:
               [ -z "${ref}" ] && continue
               path=${ref%:*}
               tag=${ref##*:}
-              code=$(curl -s -o /dev/null -w "%{http_code}" \
+              code=$(curl -sk -o /dev/null -w "%{http_code}" \
                 -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                 -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
                 -I "${base}/${path}/manifests/${tag}")
