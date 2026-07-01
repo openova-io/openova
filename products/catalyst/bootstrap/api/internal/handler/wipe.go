@@ -542,6 +542,22 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 			report.TofuDestroyed = true
 		}
 	} else {
+		// #4677 — DRAIN-BEFORE-DESTROY. Before tofu destroy tears down the nodes,
+		// delete the cluster's LoadBalancer Services + PVCs so the in-cluster
+		// CCM/CSI controllers release their cloud resources (LBs, EIPs, EVS
+		// volumes). Without this, `tofu destroy` orphans every CSI `pvc-<uuid>`
+		// volume (they are not in tofu state) — the ~5.8TB-leak root cause.
+		// Best-effort: an unreachable (already-dead) cluster no-ops and the wipe
+		// proceeds; the post-destroy cloud-GC backstops by detached-status.
+		if h.kubeconfigsDir != "" {
+			if kcRaw, rerr := os.ReadFile(filepath.Join(h.kubeconfigsDir, id+".yaml")); rerr == nil {
+				emit("wipe", "info", "drain-before-destroy: releasing CSI volumes + LoadBalancers before tofu destroy (#4677)")
+				_ = drainClusterCloudResources(tofuCtx, kcRaw, func(msg string) {
+					emit("wipe", "info", msg)
+				})
+			}
+		}
+
 		credsRaw := buildWipeCredsRaw(providerName, body, dep.Request)
 		wipeSpec := providers.WipeSpec{
 			DeploymentID:  dep.ID,
