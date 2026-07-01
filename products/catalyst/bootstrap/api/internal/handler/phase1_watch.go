@@ -1004,6 +1004,18 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// warn but never fail the handover (spine enrollment is a day-2
 		// object-model surface). See post_handover_spine_apps.go.
 		go h.runPostHandoverSpineApplications(dep)
+
+		// #4690 / #4686: on the CCM-less Huawei provider, discover the Sovereign
+		// gateway LoadBalancer Service's live auto-allocated nodePort and
+		// reconcile the Huawei gateway ELB's pool members to it (public :443/:80
+		// → node:<nodePort>). Without this the restored gateway ELB members stay
+		// at the tofu placeholder port and the wildcard *.<fqdn> front door never
+		// serves. Background goroutine + internal retry budget: the gateway
+		// Service may still be settling at first OutcomeReady, so this must NOT
+		// block the terminate path. No-op on Hetzner (hcloud-ccm programs
+		// node:443 directly). Failures log + emit SSE warn but never fail the
+		// handover. See post_handover_gateway_elb.go.
+		go h.runPostHandoverGatewayELB(dep)
 	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
 		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
 		// recoverable classification ("components observed, none

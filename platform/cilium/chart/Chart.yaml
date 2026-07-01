@@ -1,23 +1,35 @@
 apiVersion: v2
 name: bp-cilium
-# 1.4.6 (#4686, 2026-07-01): the Sovereign Gateway Service shares the
-# clustermesh CP-node EIP via Cilium LB-IPAM `sharing-key` — no ELB, no
-# NodePort on the no-CCM Huawei path (§854 / PRINCIPLES §2/§4). The
-# clustermesh-lb-ipam-pool.yaml pool now backs BOTH the clustermesh-apiserver
-# Service (:2379) and the gateway Service (:443/:80): the gateway carries the
-# pool's `k8s-app: clustermesh-apiserver` selector label + the same
-# `lbipam.cilium.io/sharing-key` via spec.infrastructure.labels/annotations
-# (clusters/_template/sovereign-tls/cilium-gateway.yaml), and both Services
-# co-locate on the ONE ExternalIP (non-overlapping ports). The dead #4684
-# separate gateway-lb-ipam-pool.yaml is DELETED (two pools cannot carry
-# overlapping CIDRs; the gateway draws from the ONE clustermesh pool via the
-# sharing-key). New substitute CILIUM_GATEWAY_SHARING_KEY wired into the
-# slot-01 clustermesh Service annotations (default empty → Hetzner no-op;
-# Huawei cloud-init sets the shared key — the separate infra PR). NOTE: the
-# upstream cilium subchart is pinned 1.16.5, whose clustermesh-apiserver
-# Service HARDCODES its labels with NO `.service.labels`/`commonLabels` knob,
-# so the neutral `catalyst.openova.io/lb-ipam` label can't be added to it —
-# the gateway borrows the upstream-stable `k8s-app` label instead. Lockstep:
+# 1.4.7 (#4690 / #4686 foundation-fix, 2026-07-02): REVERT the 1.4.6 "option-B"
+# (gateway VIP sharing the clustermesh CP-node EIP via a Cilium LB-IPAM
+# `sharing-key`). That EIP is a Huawei 1:1 NAT — externally UNREACHABLE
+# (verified live on hw208) — so serving the gateway ExternalIP there never made
+# a public front door. This restores the correct shape:
+#   1. gateway-lb-ipam-pool.yaml is RESTORED (a DEDICATED CiliumLoadBalancerIPPool
+#      `sovereign-gateway` selecting the gateway Service by its Cilium-auto-applied
+#      `io.cilium.gateway/owning-gateway: cilium-gateway` label). This is now
+#      properly WIRED (the #4686 gap): slot-01 HR values map cilium.gateway.lbIpam
+#      from CILIUM_GATEWAY_LB_IPAM_{ENABLED,CIDRS} — #4682 shipped the template +
+#      substitutes but never wired the values, so the pool never rendered.
+#   2. clustermesh-lb-ipam-pool.yaml reverts to its clustermesh-ONLY selector; the
+#      `lbipam.cilium.io/sharing-key` annotation is dropped from the clustermesh
+#      Service and the borrowed `k8s-app`/`spec.infrastructure.labels` from the
+#      gateway Service. The two Services no longer share an EIP.
+#   3. The gateway keeps the #4682 type=LoadBalancer shape. Its PUBLIC front door
+#      is the RESTORED Huawei ELB (infra/providers/huawei/main.tf `elb_primary`,
+#      its OWN routable EIP), whose pool members target the gateway Service's
+#      auto-allocated nodePort (Cilium 1.16.5 has no durable nodePort pin →
+#      catalyst-api discovers it post-convergence + reconciles the ELB members;
+#      bootstrap/api post_handover_gateway_elb.go). Hetzner is unaffected —
+#      hcloud-ccm materialises the Service LB (no pool, no ELB).
+# Lockstep: blueprint.yaml 1.4.7 + 01-cilium.yaml slot pin 1.4.7 + catalog-seed 1.4.7.
+# 1.4.6 (#4686, 2026-07-01) [SUPERSEDED by 1.4.7]: the Sovereign Gateway Service
+# shared the clustermesh CP-node EIP via Cilium LB-IPAM `sharing-key` — no ELB,
+# no NodePort on the no-CCM Huawei path. The clustermesh-lb-ipam-pool.yaml pool
+# backed BOTH the clustermesh-apiserver Service (:2379) and the gateway Service
+# (:443/:80) via a shared `k8s-app: clustermesh-apiserver` selector +
+# `lbipam.cilium.io/sharing-key`. Reverted because the CP-node EIP is a Huawei
+# 1:1 NAT (externally unreachable) — see 1.4.7 above. Lockstep was:
 # blueprint.yaml 1.4.6 + 01-cilium.yaml slot pin 1.4.6 + catalog-seed 1.4.6.
 # 1.4.5 (#4507, 2026-06-27): add oauth2-proxy --api-route=^/api/ to the
 # hubble-ui oauth2-proxy so the Hubble UI flow-stream XHR (a gRPC-Web/Connect
@@ -176,7 +188,7 @@ name: bp-cilium
 # the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
 # fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
 # mapper lands on the live hubble-ui client zero-touch.
-version: 1.4.6
+version: 1.4.7
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

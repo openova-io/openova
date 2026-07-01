@@ -239,12 +239,17 @@ resource "huaweicloud_vpc_subnet" "region" {
 #   - TCP 6443 — k3s apiserver from 0/0 (fail-closed by k8s RBAC,
 #                not by firewall — same shape Hetzner module ships)
 #   - UDP 51820 — Cilium WireGuard inter-region (DMZ-WG)
-#   - TCP 32379 — Cilium clustermesh-apiserver NodePort (mTLS LB +
-#                DMZ-WG bootstrapping). Narrowed from the former
-#                30000-32767 range (#4682): the Cilium Gateway is now a
-#                Service type=LoadBalancer on the standard :443/:80
-#                (no gateway NodePort), so clustermesh is the only
-#                NodePort that must transit the public path here.
+#   - TCP 30000-32767 — k8s NodePort range. Covers BOTH the Cilium
+#                clustermesh-apiserver NodePort (mTLS LB, cross-region)
+#                AND the Sovereign Gateway LoadBalancer Service's
+#                auto-allocated nodePort, which the RESTORED gateway ELB
+#                (elb_primary) forwards public :443/:80 → node:<nodePort>
+#                to (#4690 / #4686 foundation-fix). #4682 had narrowed this
+#                to just :32379 on the (false) premise that the gateway
+#                would serve on node:443 directly — but node:443 does NOT
+#                route on a no-CCM Huawei node (only node:<nodePort> does,
+#                verified hw208), so the full range is restored. Same shape
+#                Hetzner ships (firewall opens 30000-32767, PR #1538).
 #   - TCP 22  — only when ssh_allowed_cidrs is non-empty
 #   - ICMP    — for path-MTU + ping diagnostics
 #
@@ -312,10 +317,17 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_nodeport" {
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
-  port_range_min    = 32379
-  port_range_max    = 32379
-  remote_ip_prefix  = "0.0.0.0/0"
-  description       = "Cilium clustermesh-apiserver NodePort (mTLS LB, cross-region traffic)"
+  # #4690 / #4686 foundation-fix: restore the full k8s NodePort range.
+  # Covers the clustermesh-apiserver NodePort (:32379, cross-region mTLS LB)
+  # AND the Sovereign Gateway LoadBalancer Service's auto-allocated nodePort
+  # (30000-32767), which the restored gateway ELB (elb_primary) forwards
+  # public :443/:80 → node:<nodePort> to. #4682 narrowed this to :32379 only;
+  # that broke the no-CCM Huawei gateway path (node:443 doesn't route without
+  # a CCM — verified hw208). Byte-identical to the Hetzner firewall shape.
+  port_range_min   = 30000
+  port_range_max   = 32767
+  remote_ip_prefix = "0.0.0.0/0"
+  description      = "k8s NodePort range (clustermesh-apiserver mTLS LB + Sovereign Gateway ELB→nodePort front door)"
 }
 
 resource "huaweicloud_networking_secgroup_rule" "ingress_icmp" {
@@ -806,13 +818,15 @@ locals {
   #      only be PUSHED. Backgrounded EARLY so it keeps uploading even if a
   #      later step aborts cloud-init — the founder's capture-before-wipe guard.
   #
-  # NOTE (#4682/#4686): the former iptables DNAT (443→30443 / 80→30080) is
-  # GONE, and so is the gateway ELB. The Cilium Gateway is served as a Service
-  # type=LoadBalancer on the standard :443/:80 (hostNetwork off, no NodePort),
-  # and on the CCM-less Huawei provider it shares the primary-region CP-node
-  # public EIP with the clustermesh Service (:2379) via a Cilium LB-IPAM
-  # sharing-key (CILIUM_GATEWAY_SHARING_KEY) off the shared clustermesh pool.
-  # Public :443/:80 reach the CP EIP directly — no ELB, no host-level REDIRECT.
+  # NOTE (#4682 / #4690): the former iptables DNAT (443→30443 / 80→30080) is
+  # GONE. The Cilium Gateway is served as a Service type=LoadBalancer on the
+  # standard :443/:80 (hostNetwork off, no NodePort). On the CCM-less Huawei
+  # provider the RESTORED gateway ELB (elb_primary, its OWN routable EIP)
+  # forwards public :443/:80 → node:<gateway-Service-nodePort>; a dedicated
+  # CiliumLoadBalancerIPPool assigns the Service its ExternalIP so Cilium
+  # programs the datapath + allocates the nodePort. NO host-level REDIRECT, NO
+  # :30443. (The #4687/#4689 sharing-key option-B that co-located the gateway
+  # VIP on this CP-node EIP is removed — that EIP is a 1:1 NAT, unreachable.)
   # Plain POSIX (`nohup sh -c`, not bash; dash -n clean — no $(( )) here).
   provider_prelude_huawei = <<-EOT
     - |
@@ -1032,16 +1046,16 @@ locals {
       pdm_basic_auth_user        = var.pdm_basic_auth_user
       pdm_basic_auth_pass        = var.pdm_basic_auth_pass
       harbor_robot_token         = var.harbor_robot_token
-      # SOVEREIGN_LB_IP / SOVEREIGN_CONTROL_PLANE_IP → the PRIMARY-region CP-node
-      # public EIP. #4686 — the Sovereign Gateway Service now serves :443/:80
-      # DIRECTLY on this CP EIP via a Cilium LB-IPAM sharing-key (shared with the
-      # clustermesh Service :2379 on the SAME EIP — non-overlapping ports), so the
-      # dedicated gateway ELB (elb_primary) is REMOVED and the wildcard *.<fqdn>
-      # A-record points HERE (the CP EIP), not at a separate ELB EIP. On Huawei
-      # this EIP IS known at tofu-apply time (unlike Hetzner, where the raw CP node
-      # IP resolves only at runtime → node_external_ip_value is empty there and the
-      # cloud-init render still uses the hcloud LB IP the Hetzner module passes).
-      load_balancer_ipv4 = huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address
+      # SOVEREIGN_LB_IP / SOVEREIGN_CONTROL_PLANE_IP → the RESTORED gateway ELB's
+      # OWN routable EIP (#4690 / #4686 foundation-fix). The wildcard *.<fqdn>
+      # A-record (and thus console.<fqdn> when console_isolation is off) points at
+      # THIS ELB EIP — NOT the CP-node EIP, which is a Huawei 1:1 NAT and
+      # externally unreachable (the #4687 option-B pointed it at the CP EIP; that
+      # never produced a public front door, verified hw208). The ELB EIP is the
+      # canonical operator-facing entry point (Settings-page controlPlaneIP). Both
+      # the ELB EIP (here) and the per-region CP EIP (node_external_ip_value, used
+      # for LB-IPAM/control-plane) are known at tofu-apply time on Huawei.
+      load_balancer_ipv4 = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
       # #4236 — the dedicated console ELB EIP (#4053 isolation). Threads through
       # cloud-init → bootstrap-kit slot 13 → sovereign-fqdn ConfigMap `consoleLBIP`
       # → organization-controller so the per-Org pool-DNS `console.<slug>.<pool>`
@@ -1284,35 +1298,114 @@ resource "huaweicloud_obs_bucket" "main" {
   # tags disabled per Wave 5.4 — HCS tag-API divergence
 }
 
-# ── #4686 — the dedicated GATEWAY ELB (elb_primary) is REMOVED ────────────
-# Previously (Wave 5.98 #2447 / #4682) a public Huawei ELB v3 did TCP
-# passthrough public :443→member:443 / :80→member:80 to the Cilium Gateway
-# Service, and the wildcard *.<fqdn> A-record pointed at that ELB's EIP.
+# ── #4690 / #4686 foundation-fix — the dedicated GATEWAY ELB (elb_primary) ──
+# is RESTORED (it was removed in #4687/252d20ddb by the broken "option-B").
 #
-# Per #4686 the Sovereign Gateway Service (type=LoadBalancer, :443/:80,
-# hostNetwork off, no NodePort) now serves DIRECTLY on the primary-region
-# CP-node public EIP via a Cilium LB-IPAM sharing-key — it co-locates with
-# the clustermesh-apiserver Service (:2379) on the SAME single CP EIP
-# (non-overlapping ports), assigned by the shared clustermesh
-# CiliumLoadBalancerIPPool (chart half edbf4a300 / PR #4687). So there is
-# NO gateway ELB, NO NodePort, NO port translation on Huawei any more —
-# the wildcard *.<fqdn> A-record points at the CP EIP (load_balancer_ip
-# output + load_balancer_ipv4 cloud-init render var, both now the CP EIP),
-# and the :443/:80 security-group ingress rules (ingress_443 / ingress_80,
-# already 0.0.0.0/0) open the datapath. Phase-1 mothership-side handover
-# writes the A record via PowerDNS to this CP EIP.
+# Why option-B was wrong: #4687 folded the Sovereign Gateway Service's
+# ExternalIP onto the primary CP-node's OWN public EIP (co-located with the
+# clustermesh Service via a Cilium LB-IPAM sharing-key). But that EIP is a
+# Huawei 1:1 NAT — externally UNREACHABLE (verified live on hw208) — so the
+# gateway never had a public front door. (The clustermesh path was unaffected
+# because clustermesh peers reach the CP EIP over the WG-encrypted node path,
+# not through the NAT.)
 #
-# NOTE: the dedicated CONSOLE ELB (elb_console, #4053) is DELIBERATELY
-# KEPT below — the chart half wired ONLY the shared gateway to the
-# CP-EIP sharing-key, NOT the separate cilium-gateway-console Gateway, so
-# the console still needs its own public front door on the no-CCM Huawei
-# path. Folding the console onto the CP EIP is a follow-up (it would need
-# its own sharing-key/pool wiring first — see cilium-gateway-console.yaml).
+# Correct shape (this file): a dedicated public Huawei ELB v3 with its OWN
+# routable EIP does TCP passthrough public :443 → member:<gw-nodePort-https>
+# and :80 → member:<gw-nodePort-http>. The gateway keeps the #4682
+# type=LoadBalancer shape (hostNetwork off); Cilium's kube-proxy replacement
+# programs the Service's auto-allocated nodePort on every node, and
+# ELB→node:<nodePort> is the path that actually routes on a no-CCM Huawei node
+# (node:443 does NOT — only the nodePort does; verified hw208 `nc
+# 127.0.0.1:<nodePort>` OPEN, TLS serves). This is the identical cloud-LB →
+# Service-nodePort pattern hcloud-ccm runs on Hetzner; the Service TYPE stays
+# LoadBalancer (NOT type=NodePort — §854 is honored) and there is NO :30443
+# host-port / iptables-DNAT / hostNetwork.
+#
+# nodePort is auto-allocated by Cilium and unknown at Phase-0 apply time, so
+# the members start at the placeholder var.gateway_service_nodeport_{https,http}
+# and are reconciled to the live per-port nodePort post-convergence by
+# catalyst-api (bootstrap/api post_handover_gateway_elb.go), reading the live
+# Service via client-go and PUT/POST-ing the ELB pool members via the existing
+# AK/SK client. The wildcard *.<fqdn> A-record points at THIS ELB's EIP
+# (load_balancer_ip output + load_balancer_ipv4 cloud-init render var).
+#
+# The dedicated CONSOLE ELB (elb_console, #4053) below is unchanged.
 
-# Primary-region node private IPs — still consumed by the CONSOLE ELB
-# members below (elb_console). The cilium Gateway LoadBalancer Service is
-# reachable on :443/:80 on every node (kube-proxy-free Cilium socket-LB),
-# so every node is a valid member.
+resource "huaweicloud_vpc_eip" "elb_primary" {
+  publicip {
+    type = "5_bgp"
+  }
+  bandwidth {
+    share_type  = "PER"
+    name        = "${local.name_prefix}-elb-primary-bw"
+    size        = 300
+    charge_mode = "traffic"
+  }
+}
+
+resource "huaweicloud_elb_loadbalancer" "primary" {
+  name              = "${local.name_prefix}-elb-primary"
+  vpc_id            = huaweicloud_vpc.region[local.region_keys[0]].id
+  ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  ipv4_eip_id       = huaweicloud_vpc_eip.elb_primary.id
+  availability_zone = [var.huawei_az]
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4690 gateway ELB, public 443/80 → gateway LoadBalancer Service nodePort (type=LoadBalancer, #4682)"
+
+  # Immutable-field churn guards (same as the console ELB): the huaweicloud
+  # provider sends null/empty for l4_flavor_id/l7_flavor_id/vpc_id/ipv4_eip_id
+  # on subsequent plans (HCS auto-pins them at create; the provider's update
+  # path doesn't round-trip them) and HCS rejects the PUT (ELB.8959). They are
+  # immutable post-create; ignore them.
+  lifecycle {
+    ignore_changes = [
+      l4_flavor_id,
+      l7_flavor_id,
+      vpc_id,
+      ipv4_eip_id,
+    ]
+  }
+}
+
+resource "huaweicloud_elb_pool" "https" {
+  name            = "${local.name_prefix}-elb-pool-https"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  description     = "cilium-gateway LoadBalancer Service targets on the auto-allocated :443 nodePort"
+}
+
+resource "huaweicloud_elb_pool" "http" {
+  name            = "${local.name_prefix}-elb-pool-http"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  description     = "cilium-gateway LoadBalancer Service targets on the auto-allocated :80 nodePort"
+}
+
+resource "huaweicloud_elb_listener" "https" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  name            = "${local.name_prefix}-elb-listener-https"
+  protocol        = "TCP"
+  protocol_port   = 443
+  default_pool_id = huaweicloud_elb_pool.https.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — cilium-envoy terminates TLS behind the gateway Service nodePort"
+}
+
+resource "huaweicloud_elb_listener" "http" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  name            = "${local.name_prefix}-elb-listener-http"
+  protocol        = "TCP"
+  protocol_port   = 80
+  default_pool_id = huaweicloud_elb_pool.http.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — ACME HTTP-01 + .well-known + HTTP→HTTPS redirect at the gateway"
+}
+
+# Primary-region node private IPs — consumed by BOTH the gateway ELB
+# (elb_primary) members here and the CONSOLE ELB (elb_console) members below.
+# The cilium Gateway LoadBalancer Service's nodePort is reachable on every node
+# (kube-proxy-free Cilium socket-LB), so every node is a valid member.
 locals {
   # CPs are `count`-based — index by tofu's list-indexed array.
   # Workers are `for_each`-based on local.worker_map (key=<region>-<index>).
@@ -1336,6 +1429,69 @@ locals {
   console_member_count = local.console_isolation_on ? length(local.primary_lb_node_ips) : 0
 }
 
+# Gateway ELB members: primary-region nodes (CPs + workers). The cilium Gateway
+# LoadBalancer Service's nodePort is served on every node (kube-proxy-free
+# Cilium socket-LB), so every node is a valid member. protocol_port is the
+# PLACEHOLDER gateway nodePort at Phase-0 apply (var default 31443/31080);
+# catalyst-api reconciles it to the live per-port nodePort post-convergence
+# (post_handover_gateway_elb.go). The listeners stay at public 443/80.
+resource "huaweicloud_elb_member" "https" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.https.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = var.gateway_service_nodeport_https
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+
+  # catalyst-api (post_handover_gateway_elb.go) rewrites the member port to the
+  # live gateway-Service nodePort post-convergence via the Huawei ELB API
+  # (member DELETE+POST). Ignore protocol_port drift so a later `tofu apply`
+  # (e.g. an idempotent re-prov) does not clobber the reconciled port back to
+  # the placeholder. address/subnet_id remain tofu-owned.
+  lifecycle {
+    ignore_changes = [protocol_port]
+  }
+}
+
+resource "huaweicloud_elb_member" "http" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.http.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = var.gateway_service_nodeport_http
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+
+  lifecycle {
+    ignore_changes = [protocol_port]
+  }
+}
+
+resource "huaweicloud_elb_monitor" "https" {
+  pool_id     = huaweicloud_elb_pool.https.id
+  protocol    = "TCP"
+  port        = var.gateway_service_nodeport_https
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+
+  # Same reconcile-drift guard as the members: catalyst-api repoints the
+  # health-check port to the live nodePort alongside the members.
+  lifecycle {
+    ignore_changes = [port]
+  }
+}
+
+resource "huaweicloud_elb_monitor" "http" {
+  pool_id     = huaweicloud_elb_pool.http.id
+  protocol    = "TCP"
+  port        = var.gateway_service_nodeport_http
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+
+  lifecycle {
+    ignore_changes = [port]
+  }
+}
+
 # ── #4053 — Dedicated CONSOLE ELB (poison-proof gateway isolation) ───────────
 #
 # Cilium Gateway API compiles every HTTPRoute + backend of a Gateway into ONE
@@ -1348,18 +1504,23 @@ locals {
 # backends only.
 #
 # This ELB does TCP passthrough (public :443/:80 → console gateway Service
-# :443/:80). Because the ELB TCP listener is dumb L4 passthrough (no SNI —
+# nodePort). Because the ELB TCP listener is dumb L4 passthrough (no SNI —
 # Huawei SNI requires terminating TLS at the ELB, which would break the
 # in-cluster per-prov cert model), the console needs its OWN public EIP:
 # console./api.<fqdn> A-records point at THIS ELB's EIP, while the wildcard
-# *.<fqdn> now points at the primary-region CP-node EIP (#4686 — the shared
-# gateway serves there directly; the former gateway ELB elb_primary is
-# removed). DNS split is owned by core/pool-domain-manager
-# (consoleLoadBalancerIP) + the catalyst-api handover. #4686 KEEPS this
-# console ELB: the chart half wired only the SHARED gateway to the CP-EIP
-# sharing-key, not this dedicated cilium-gateway-console — folding the
-# console onto the CP EIP is a follow-up (needs its own pool/sharing-key).
-# Byte-identical design to the Hetzner console LB (infra/providers/hetzner).
+# *.<fqdn> points at the RESTORED gateway ELB EIP (elb_primary, #4690).
+# DNS split is owned by core/pool-domain-manager (consoleLoadBalancerIP) +
+# the catalyst-api handover. Byte-identical design to the Hetzner console LB
+# (infra/providers/hetzner).
+#
+# NOTE (#4690): the console ELB members below still target the console gateway
+# Service on :443/:80 — that is the SAME no-CCM-Huawei bug the gateway ELB just
+# fixed (ELB→node:443 does not route without a CCM), so console isolation
+# (console_isolation_enabled=true) currently needs the same nodePort-reconcile
+# treatment. Out of scope for this gateway foundation-fix; tracked as a
+# same-class follow-up. The common single-region validation path runs
+# console_isolation_enabled=false (console collapses onto the gateway ELB via
+# the pool-domain-manager DNS fallback), which is unaffected.
 
 resource "huaweicloud_vpc_eip" "elb_console" {
   count = local.console_isolation_on ? 1 : 0

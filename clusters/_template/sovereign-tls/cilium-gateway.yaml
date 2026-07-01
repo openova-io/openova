@@ -206,45 +206,24 @@ spec:
       load-balancer.hetzner.cloud/disable-private-ingress: "true"
       load-balancer.hetzner.cloud/health-check-protocol: "tcp"
       load-balancer.hetzner.cloud/health-check-port: "443"
-      # #4686 — on the no-CCM Huawei path the gateway Service shares the clustermesh
-      # CP-node EIP via Cilium LB-IPAM (different ports :443/:80 vs :2379), serving
-      # DIRECTLY as a type=LoadBalancer with NO ELB and NO NodePort (§854). Cilium
-      # propagates this annotation onto the generated cilium-gateway-<name> Service.
-      # #4689 P0 — the default MUST be NON-EMPTY. An empty `:=` default renders the
-      # annotation value to YAML *null*, which the Gateway CRD REJECTS
-      # (`spec.infrastructure.annotations.lbipam.cilium.io/sharing-key ... must be of
-      # type string: "null"`) → the sovereign-tls Kustomization dry-run FAILS → the
-      # gateway never applies → console never serves (broke EVERY fresh prov post-#4687).
-      # The sovereign-tls Kustomization's substituteFrom (sovereign-tls-vars CM) does NOT
-      # provide CILIUM_GATEWAY_SHARING_KEY, so this default is what actually renders — it
-      # MUST equal the clustermesh Service's key (cloud-init CILIUM_GATEWAY_SHARING_KEY,
-      # slot-01) so both co-locate on the CP-node EIP. Harmless on Hetzner (no LB-IPAM
-      # pool → inert; hcloud-ccm gives the ExternalIP).
-      # health-check-retries dropped (hcloud default is 3 — no-op) to stay within the
-      # Gateway-API CRD 8-annotation cap (#1896).
-      lbipam.cilium.io/sharing-key: "${CILIUM_GATEWAY_SHARING_KEY:=sovereign-gw-cm}"
-    # #4686 — shared LB-IPAM selector labels. Cilium 1.16+ propagates
-    # spec.infrastructure.labels onto the generated cilium-gateway-<name>
-    # Service.
-    #
-    # `k8s-app: clustermesh-apiserver` is the LOAD-BEARING selector: the
-    # bp-cilium clustermesh-lb-ipam-pool.yaml pool selects on exactly this
-    # label. The upstream cilium 1.16.5 clustermesh-apiserver Service
-    # hardcodes it and exposes no knob to add a custom label, so the gateway
-    # borrows the SAME label to be selected by the SAME single pool (two
-    # pools would clash on overlapping CIDRs). Both Services then carry the
-    # matching `lbipam.cilium.io/sharing-key` annotation above and co-locate
-    # on the ONE CP-node EIP — gateway :443/:80, clustermesh :2379, one
-    # ExternalIP. On Hetzner both labels are inert (hcloud-ccm owns the LB;
-    # the pool is not rendered because lbIpam.enabled=false).
-    #
-    # `catalyst.openova.io/lb-ipam: sovereign-shared` is a descriptive
-    # marker for operator observability (grep the shared-IP Service set) and
-    # the intended selector once the subchart reaches cilium 1.17+ (which
-    # lets the clustermesh Service carry the neutral label via commonLabels).
-    labels:
-      k8s-app: "clustermesh-apiserver"
-      catalyst.openova.io/lb-ipam: "sovereign-shared"
+      load-balancer.hetzner.cloud/health-check-retries: "3"
+  # NOTE (#4690 — gateway ELB→nodePort foundation): the #4687/#4689 "option-B"
+  # (a `lbipam.cilium.io/sharing-key` on this Service + a borrowed
+  # `k8s-app: clustermesh-apiserver` label to co-locate the gateway VIP on the
+  # CP-node's OWN EIP) is REMOVED. That EIP is a Huawei 1:1 NAT (externally
+  # UNREACHABLE — verified live on hw208), so serving the gateway ExternalIP
+  # there never produced a public front door. The gateway keeps the standard
+  # #4682 shape: hostNetwork OFF → Cilium provisions `cilium-gateway-<name>`
+  # (kube-system) as a Service type=LoadBalancer on :443/:80. On Huawei
+  # (no CCM) the dedicated `gateway-lb-ipam-pool.yaml` CiliumLoadBalancerIPPool
+  # assigns that Service an ExternalIP (selected by the Cilium-auto-applied
+  # `io.cilium.gateway/owning-gateway: cilium-gateway` label — NO manual
+  # `spec.infrastructure.labels` needed), and a RESTORED Huawei ELB
+  # (infra/providers/huawei/main.tf `elb_primary`, its OWN routable EIP)
+  # forwards public :443/:80 → node:<gateway-Service-nodePort>. The nodePort
+  # is discovered + reconciled onto the ELB members post-convergence by
+  # catalyst-api (bootstrap/api post_handover_gateway_elb.go). On Hetzner
+  # hcloud-ccm materialises the Service LB directly (no ELB, no pool).
   # NOTE: listeners serve the standard 80/443 (#4682) — hostNetwork is OFF,
   # so cilium-envoy never does a host bind and the cilium-agent BPF
   # socket-LB privileged-bind intercept (which forced the old 30080/30443
