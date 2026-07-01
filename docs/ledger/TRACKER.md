@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-01T22:30:02Z` |
+| Last refreshed | `2026-07-01T22:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 34 |
 | Open DoD gates | 0 / 41 |
@@ -242,6 +242,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-07-01T20:42 | [#4691](https://github.com/openova-io/openova/pull/4691) | #4686 | fix(gateway+huawei): restore the Sovereign gateway ELB → nod |
+| 2026-07-01T22:39 | [#4690](https://github.com/openova-io/openova/pull/4690) | #4682 | fix(cutover): steps 02/03 reach Harbor via external host reg |
 | 2026-07-01T17:44 | [#4689](https://github.com/openova-io/openova/pull/4689) | #4687 | P0: gateway sharing-key empty default renders YAML null → Ga |
 | 2026-07-01T16:25 | [#4687](https://github.com/openova-io/openova/pull/4687) | #4686 | fix(cilium): gateway shares clustermesh node-EIP via LB-IPAM |
 | 2026-07-01T12:59 | [#4684](https://github.com/openova-io/openova/pull/4684) | #4053 | fix(gateway): Sovereign gateway = :443 LoadBalancer + regist |
@@ -270,7 +271,6 @@ flowchart LR
 | 2026-06-29T19:05 | [#4647](https://github.com/openova-io/openova/pull/4647) | #4604 | docs(dod): retire dead Sandbox surface → Agenity + bp-openov |
 | 2026-06-29T19:05 | [#4643](https://github.com/openova-io/openova/pull/4643) | #4640 | docs(adr): ADR-0012 — Dragonfly P2P registry + cloud-agnosti |
 | 2026-06-29T12:19 | [#4642](https://github.com/openova-io/openova/pull/4642) | #4061 | feat(catalyst): qaFixtures provs auto-fire cutover on handov |
-| 2026-06-29T11:48 | [#4641](https://github.com/openova-io/openova/pull/4641) | #4640 | fix(self-sovereign-cutover): rewrite registry-pivot to the D |
 
 ---
 
