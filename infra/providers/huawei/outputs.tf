@@ -9,13 +9,13 @@ output "control_plane_ip" {
 }
 
 output "load_balancer_ip" {
-  description = "Public EIP the wildcard + app DNS A-records point at. #4686 — on the CCM-less Huawei provider the Sovereign Gateway Service (type=LoadBalancer, :443/:80, hostNetwork off, no NodePort) now serves DIRECTLY on the primary-region CP-node public EIP via a Cilium LB-IPAM sharing-key (shared with the clustermesh Service :2379 on the SAME EIP — non-overlapping ports). The dedicated gateway ELB (elb_primary) is REMOVED — no ELB, no NodePort, no port-translation. This is therefore the SAME value as control_plane_ip above."
-  value       = length(var.regions) > 0 ? huaweicloud_vpc_eip.cp[var.regions[0].code].publicip.0.ip_address : ""
+  description = "Public EIP the wildcard *.<fqdn> + app DNS A-records point at. #4690 / #4686 foundation-fix — this is the RESTORED gateway ELB's OWN routable EIP (huaweicloud_vpc_eip.elb_primary). The ELB forwards public :443/:80 → the gateway LoadBalancer Service's auto-allocated nodePort (the Service TYPE stays LoadBalancer, #4682). It is DISTINCT from control_plane_ip above (the CP-node EIP, a Huawei 1:1 NAT that is externally unreachable — the #4687 option-B wrongly pointed DNS there, verified hw208). catalyst-api reconciles the ELB members to the live nodePort post-convergence (post_handover_gateway_elb.go)."
+  value       = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
 }
 
 # #4053 — public EIP of the dedicated CONSOLE ELB. console./api.<fqdn> point
-# HERE (443→443 to the isolated cilium-gateway-console LoadBalancer Service; #4682);
-# the wildcard *.<fqdn> keeps pointing at load_balancer_ip above (the shared cilium-gateway).
+# HERE (to the isolated cilium-gateway-console LoadBalancer Service; #4682);
+# the wildcard *.<fqdn> points at load_balancer_ip above (the RESTORED gateway ELB, #4690).
 # catalyst-api threads this to pool-domain-manager /commit as
 # consoleLoadBalancerIP. Empty-safe: a pre-#4053 consumer ignores it and PDM
 # falls back to load_balancer_ip for every record.

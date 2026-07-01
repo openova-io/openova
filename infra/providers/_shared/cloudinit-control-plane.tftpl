@@ -800,21 +800,31 @@ write_files:
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
-            # #4686 — the Cilium Gateway is a Service type=LoadBalancer on
-            # :443/:80 (hostNetwork off, no NodePort). On the CCM-less Huawei
-            # provider the gateway Service SHARES the clustermesh CP-node EIP
-            # via a Cilium LB-IPAM sharing-key (clustermesh :2379, gateway
-            # :443/:80 — non-overlapping ports on the ONE ExternalIP). The
-            # separate gateway-lb-ipam-pool.yaml is DELETED — the shared
-            # clustermesh-lb-ipam-pool (CILIUM_LB_IPAM_* above) now backs both
-            # Services, selected by the borrowed `k8s-app: clustermesh-apiserver`
-            # label. This value must be a fixed NON-EMPTY string, IDENTICAL on
-            # the gateway Service (clusters/_template/sovereign-tls/cilium-
-            # gateway.yaml) and the clustermesh Service (01-cilium.yaml) — both
-            # reference the CILIUM_GATEWAY_SHARING_KEY Flux substitute. Left
-            # UNSET (empty) on Hetzner, where hcloud-ccm materialises a real
-            # Service LB and the sharing-key is ignored.
-            CILIUM_GATEWAY_SHARING_KEY: "sovereign-gw-cm"
+            # #4690 (gateway ELB→nodePort foundation) — the Cilium Gateway is a
+            # Service type=LoadBalancer on :443/:80 (hostNetwork off, no NodePort;
+            # #4682). On the CCM-less Huawei provider a DEDICATED
+            # CiliumLoadBalancerIPPool (gateway-lb-ipam-pool.yaml, gated on
+            # cilium.gateway.lbIpam.enabled) hands that Service an ExternalIP so
+            # Cilium programs the datapath + allocates the Service's nodePort.
+            #
+            # This restores the pre-#4687 wiring and REPLACES the #4687/#4689
+            # "option-B" (CILIUM_GATEWAY_SHARING_KEY co-locating the gateway VIP
+            # on the clustermesh CP-node EIP). That EIP is a Huawei 1:1 NAT —
+            # externally UNREACHABLE (verified live on hw208) — so it never made
+            # a public front door. The PUBLIC front door is the restored Huawei
+            # ELB (infra/providers/huawei/main.tf `elb_primary`, its OWN routable
+            # EIP), which forwards public :443/:80 → node:<gateway-Service-nodePort>.
+            #
+            # The ExternalIP this pool assigns is therefore a DATAPATH MARKER, not
+            # the public address: the CP-node public IPv4/32 (same source as the
+            # clustermesh pool) is a convenient unique-per-region value. The
+            # gateway's real public reachability is the ELB→nodePort path; the
+            # nodePort is discovered + reconciled onto the ELB members
+            # post-convergence by catalyst-api (bootstrap/api
+            # post_handover_gateway_elb.go). Left UNSET on Hetzner, where
+            # hcloud-ccm materialises the Service LB directly.
+            CILIUM_GATEWAY_LB_IPAM_ENABLED: "true"
+            CILIUM_GATEWAY_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
             SOVEREIGN_GATEWAY_HTTPS_PORT: "443"
             SOVEREIGN_GATEWAY_HTTP_PORT: "80"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"

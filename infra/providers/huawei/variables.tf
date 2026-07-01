@@ -601,3 +601,45 @@ variable "fire_cutover_on_handover" {
     error_message = "fire_cutover_on_handover must be the string 'true' or 'false'."
   }
 }
+
+# ── #4690 / #4686 foundation-fix — Sovereign Gateway ELB member nodePorts ────
+#
+# The restored gateway ELB (huaweicloud_elb_*.primary in main.tf) forwards
+# public :443/:80 → node:<gateway-Service-nodePort>. The gateway Service is
+# `cilium-gateway-cilium-gateway` (type=LoadBalancer, kube-system, #4682); its
+# per-port nodePort is AUTO-ALLOCATED by Cilium in the 30000-32767 range and is
+# NOT known at tofu-apply time (tofu runs at Phase-0, before the cluster — and
+# thus the Service — exists). Cilium 1.16.5 exposes NO durable pin for the
+# gateway Service's nodePort (the Gateway CRD `spec.infrastructure` has no
+# nodePort field; the `gatewayAPI` chart values have no nodePort/service knob;
+# a Kustomize/SSA patch on the operator-owned Service is contended). So these
+# two vars carry only a PLACEHOLDER port for the initial apply; catalyst-api
+# DISCOVERS the real per-port nodePort post-convergence (reading the live
+# Service via client-go) and reconciles the ELB pool members to it (Huawei ELB
+# member DELETE+POST via the existing AK/SK client — see
+# products/catalyst/bootstrap/api/internal/handler/post_handover_gateway_elb.go).
+# This mirrors exactly what hcloud-ccm does on Hetzner (it reads the Service and
+# programs the LB), just done explicitly because Huawei has no CCM.
+#
+# Placeholders are valid in-range ports distinct from the clustermesh :32379.
+# They MUST NOT be 30443/30080 (that is the FORBIDDEN legacy hostNetwork
+# host-port pair, not a real gateway nodePort).
+variable "gateway_service_nodeport_https" {
+  type        = number
+  description = "Placeholder nodePort for the gateway ELB HTTPS pool member at Phase-0 apply. catalyst-api reconciles this to the gateway LoadBalancer Service's real auto-allocated :443 nodePort post-convergence (post_handover_gateway_elb.go). Not a durable pin — the Service TYPE stays LoadBalancer, never NodePort."
+  default     = 31443
+  validation {
+    condition     = var.gateway_service_nodeport_https >= 30000 && var.gateway_service_nodeport_https <= 32767
+    error_message = "gateway_service_nodeport_https must be in the k8s NodePort range 30000-32767."
+  }
+}
+
+variable "gateway_service_nodeport_http" {
+  type        = number
+  description = "Placeholder nodePort for the gateway ELB HTTP pool member at Phase-0 apply. catalyst-api reconciles this to the gateway LoadBalancer Service's real auto-allocated :80 nodePort post-convergence (post_handover_gateway_elb.go). Not a durable pin — the Service TYPE stays LoadBalancer, never NodePort."
+  default     = 31080
+  validation {
+    condition     = var.gateway_service_nodeport_http >= 30000 && var.gateway_service_nodeport_http <= 32767
+    error_message = "gateway_service_nodeport_http must be in the k8s NodePort range 30000-32767."
+  }
+}
