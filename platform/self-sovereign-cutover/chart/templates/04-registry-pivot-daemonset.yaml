@@ -10,17 +10,19 @@ ConfigMap, then treats that as step success. The DaemonSet is shipped
 HERE by the chart so it is already running by the time catalyst-api
 stamps the wait.
 
-WHAT CHANGED (#4639) — Dragonfly, not the hand-rolled hairpin hack
+WHAT CHANGED (#4639 / #4682) — Dragonfly, registry via external host on :443
 ──────────────────────────────────────────────────────────────────
 The legacy step-04 wrote /etc/rancher/k3s/registries.yaml + regenerated
 the containerd certs.d/<host>/hosts.toml mirror dir to redirect the 7
 canonical upstreams through the in-cluster Harbor's PUBLIC host
-(registry.<fqdn>). That host DNS-resolves on the NODE to the cluster's
-PUBLIC gateway EIP (the cloudinit /etc/hosts pin). On a cloud whose nodes
-cannot hairpin to their own public EIP (Huawei kom4dc) the kubelet pull
-i/o-timed-out and the cutover wedged at step-07 (#4637). Every prior
-workaround (the ClusterIP rewrite, the `30443`/DNAT surgery, per-cloud
-`if Hetzner/Huawei` branches) was a symptom of that one bad assumption.
+(registry.<fqdn>). Interim workarounds (the ClusterIP rewrite, the
+`30443`/DNAT surgery, the hostAlias→gateway-ClusterIP hairpin, per-cloud
+`if Hetzner/Huawei` branches) all stemmed from the gateway being unable to
+serve :443. #4682 turns hostNetwork OFF and serves the Cilium Gateway as a
+`Service type=LoadBalancer` on the standard :443, so `registry.<fqdn>`
+answers on its EXTERNAL routable host — the same address every node already
+resolves via public DNS — with no ClusterIP, no NodePort, no CoreDNS
+rewrite, no hairpin.
 
 Dragonfly (`bp-dragonfly`, slot 06) removes the assumption. Every node's
 containerd already mirrors through the LOCAL dfdaemon proxy on
@@ -28,7 +30,7 @@ containerd already mirrors through the LOCAL dfdaemon proxy on
 documented containerd mirror — the node→127.0.0.1 path is IDENTICAL on
 every cloud, zero per-cloud branches). dfdaemon fetches each blob from
 its configured upstream ONCE per cluster and serves the rest P2P. So the
-cutover is now THREE generic moves, all of which this DaemonSet performs
+cutover is now TWO generic moves, both of which this DaemonSet performs
 on the live node when it sees registriesYamlActive=v2:
 
   1. CONTAINERD → dfdaemon. Write a containerd certs.d `_default/hosts.toml`
@@ -43,37 +45,22 @@ on the live node when it sees registriesYamlActive=v2:
 
   2. dfdaemon UPSTREAM FLIP. Patch the `{{ .Values.registryPivot.dragonfly.clientConfigMap }}`
      ConfigMap (and the seed-peer's) `proxy.registryMirror.addr` from
-     `https://ghcr.io` → the cluster-LOCAL Harbor public host
-     (`https://registry.<fqdn>:{{ .Values.registryPivot.dragonfly.gatewayHTTPSPort }}`).
+     `https://ghcr.io` → the cluster-LOCAL Harbor EXTERNAL host
+     (`https://registry.<fqdn>`, implicit :443 via the Gateway LoadBalancer).
      This is the design's "one-line upstream flip": post-cutover dfdaemon
-     back-to-sources to the LOCAL Harbor, never ghcr.
+     back-to-sources to the LOCAL Harbor, never ghcr. #4682 removed the old
+     move-3 hostAlias→cilium-gateway-ClusterIP hairpin and the CoreDNS
+     registry-local.server rewrite — the dfdaemon reaches the registry over
+     its external :443 host, so no in-cluster DNS surgery is needed.
 
-  3. HOSTALIAS (the #4637 root kill). dfdaemon is hostNetwork, so it
-     inherits the node's `registry.<fqdn> → public-EIP` pin and would
-     hairpin on the upstream fetch — AND on the token-realm follow-up
-     (Harbor answers `Www-Authenticate: Bearer realm="https://registry.
-     <fqdn>:{{ .Values.registryPivot.dragonfly.gatewayHTTPSPort }}/service/token"`,
-     which the client must also reach). Adding a Kubernetes `hostAliases`
-     entry `registry.<fqdn> → <cilium-gateway ClusterIP>` to the dfdaemon
-     (+ seed) pod template makes BOTH the `/v2/` fetch and the token-realm
-     fetch resolve to the cluster's node-routable Cilium-gateway ClusterIP
-     (kube-proxy/cilium program it on the host net) instead of the public
-     EIP. The gateway terminates the wildcard `*.<fqdn>` TLS and routes
-     `registry.<fqdn>` to Harbor — token realm included — so the whole
-     registry handshake stays in-cluster. PROVEN live on the kom4dc
-     `omantel.biz` env: from a hostNetwork context the public-host fetch
-     i/o-timed-out (curl 28) while the same fetch with `registry.<fqdn>`
-     resolved to the gateway ClusterIP returned the registry 401 challenge
-     + a 200 from `/service/token`.
-
-Moves 2 + 3 are CLUSTER-wide (one ConfigMap / one DaemonSet template), so
-the DaemonSet performs them ONCE, guarded by a status flag, on whichever
-node converges first; every node still independently performs move 1 on
-its own containerd and writes its own per-node ack.
+Move 2 is CLUSTER-wide (one ConfigMap), so the DaemonSet performs it ONCE,
+guarded by a status flag, on whichever node converges first; every node
+still independently performs move 1 on its own containerd and writes its
+own per-node ack.
 
 ROLLBACK (v1): remove the `_default/hosts.toml` catch-all (restore the
 node's pre-cutover containerd behaviour) and revert the dfdaemon upstream
-+ hostAlias to ghcr. Idempotent across restarts.
+to ghcr. Idempotent across restarts.
 
 Image phase: pre.
 */ -}}
@@ -122,7 +109,7 @@ spec:
               value: {{ .Values.registryPivot.dragonfly.proxyPort | quote }}
             # The bp-dragonfly mesh namespace + the per-node dfdaemon
             # DaemonSet + seed-peer + their config ConfigMaps the upstream
-            # flip + hostAlias patch target.
+            # flip patch targets.
             - name: DF_NAMESPACE
               value: {{ .Values.registryPivot.dragonfly.namespace | quote }}
             - name: DF_CLIENT_DAEMONSET
@@ -133,45 +120,13 @@ spec:
               value: {{ .Values.registryPivot.dragonfly.seedStatefulSet | quote }}
             - name: DF_SEED_CONFIGMAP
               value: {{ .Values.registryPivot.dragonfly.seedConfigMap | quote }}
-            # The node-routable Cilium gateway Service whose ClusterIP serves
-            # registry.<fqdn> (wildcard TLS + token realm). The hostAlias maps
-            # registry.<fqdn> → this ClusterIP so dfdaemon's hostNetwork pull
-            # never hairpins to the public EIP. The gateway HTTPS listener port
-            # is the canonical Catalyst NodePort (SOVEREIGN_GATEWAY_HTTPS_PORT).
-            - name: GATEWAY_SERVICE_NAME
-              value: {{ .Values.registryPivot.dragonfly.gatewayServiceName | quote }}
-            - name: GATEWAY_SERVICE_NAMESPACE
-              value: {{ .Values.registryPivot.dragonfly.gatewayServiceNamespace | quote }}
-            - name: GATEWAY_HTTPS_PORT
-              value: {{ .Values.registryPivot.dragonfly.gatewayHTTPSPort | quote }}
             - name: DF_RESTART_ON_FLIP
               value: {{ .Values.registryPivot.dragonfly.restartOnFlip | quote }}
-            # The Sovereign FQDN — the CoreDNS override server block keys on
-            # registry.<fqdn> and the wildcard-TLS Secret name is
+            # The Sovereign FQDN — the wildcard-TLS Secret name is
             # <prefix><fqdn-dashed>. Sourced from the chart's sovereign.fqdn
             # (cloud-init substitutes ${SOVEREIGN_FQDN} via the 06a overlay).
             - name: SOVEREIGN_FQDN
               value: {{ .Values.sovereign.fqdn | quote }}
-            # ── #4652 CoreDNS-to-ClusterIP override (the DNS fix) ──────────────
-            # The hostAlias is insufficient for the Rust dfdaemon resolver: it
-            # returns the public EIP first → hairpin → timeout. We rewrite
-            # CoreDNS so registry.<fqdn> resolves cluster-internally to the
-            # cilium-gateway ClusterIP ONLY (no fallthrough → the EIP is never
-            # returned). Proven github-ipv4 `coredns-custom` `*.server` mechanism.
-            - name: COREDNS_OVERRIDE_ENABLED
-              value: {{ .Values.registryPivot.dragonfly.coredns.enabled | quote }}
-            - name: COREDNS_CM_NAME
-              value: {{ .Values.registryPivot.dragonfly.coredns.configMapName | quote }}
-            - name: COREDNS_CM_NAMESPACE
-              value: {{ .Values.registryPivot.dragonfly.coredns.configMapNamespace | quote }}
-            - name: COREDNS_SERVER_KEY
-              value: {{ .Values.registryPivot.dragonfly.coredns.serverKey | quote }}
-            - name: COREDNS_DEPLOYMENT
-              value: {{ .Values.registryPivot.dragonfly.coredns.deploymentName | quote }}
-            - name: COREDNS_DEPLOYMENT_NAMESPACE
-              value: {{ .Values.registryPivot.dragonfly.coredns.deploymentNamespace | quote }}
-            - name: COREDNS_SYNC_TIMEOUT_SECONDS
-              value: {{ .Values.registryPivot.dragonfly.coredns.syncTimeoutSeconds | quote }}
             # ── #4652 dfdaemon registryMirror.cert (the x509 fix) ─────────────
             # Read the in-cluster Harbor wildcard TLS Secret, create a dragonfly-
             # namespace Opaque Secret carrying tls.crt (bp-dragonfly 0.1.1 mounts
@@ -281,10 +236,10 @@ data:
     #            mirrors EVERY registry namespace through the node-local
     #            dfdaemon proxy http://127.0.0.1:${DF_PROXY_PORT};
     #        (b) ONCE (cluster-wide, guarded): flip the dfdaemon (+ seed)
-    #            registryMirror.addr ghcr → the local Harbor, add a
-    #            registry.<fqdn> → cilium-gateway ClusterIP hostAlias, and
-    #            bounce dfdaemon so it reloads.
-    #   v1/rollback → remove the catch-all + revert the dfdaemon upstream/alias.
+    #            registryMirror.addr ghcr → the local Harbor external host
+    #            https://registry.<fqdn> (:443 via the Gateway LoadBalancer), set
+    #            the registryMirror.cert trust anchor, and bounce dfdaemon.
+    #   v1/rollback → remove the catch-all + revert the dfdaemon upstream.
     #
     # NB on `set -u` (NOT `set -eu`): this is a long-running best-effort
     # RECONCILE LOOP — every apiserver call is already individually guarded
@@ -320,13 +275,13 @@ data:
     # ── helpers ────────────────────────────────────────────────────────────
 
     # The dfdaemon upstream the cutover flips TO: the cluster-LOCAL Harbor's
-    # public host, on the canonical gateway HTTPS port. dfdaemon resolves this
-    # host via the hostAlias we add (→ cilium-gateway ClusterIP), so the
-    # `:PORT` here MUST match the realm Harbor reflects (EXT_ENDPOINT host +
-    # the port the request carries) — keeping the token-realm follow-up on the
-    # same node-routable endpoint.
+    # EXTERNAL routable host on the standard HTTPS port :443 (#4682). The Cilium
+    # Gateway serves `registry.<fqdn>` via a `Service type=LoadBalancer` on :443,
+    # so the dfdaemon dials the host directly over public DNS — no ClusterIP
+    # hostAlias, no NodePort, no CoreDNS rewrite. The token-realm follow-up
+    # Harbor reflects carries the same bare host, so it stays on :443 too.
     harbor_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
-    local_upstream="https://${harbor_host}:${GATEWAY_HTTPS_PORT}"
+    local_upstream="https://${harbor_host}"
 
     # #4652 — the PEM path bp-dragonfly (0.1.1) mounts the Harbor wildcard cert
     # at on the dfdaemon (+ seed); set as proxy.registryMirror.cert so the Rust
@@ -389,20 +344,6 @@ data:
       echo "[registry-pivot]   removed _default + ${harbor_host} hosts.toml (rollback) on ${NODE_NAME}"
     }
 
-    # Resolve the cilium-gateway Service ClusterIP — node-routable (kube-proxy/
-    # cilium program it on the host net), serves registry.<fqdn> (wildcard TLS
-    # + token realm). The hostAlias maps registry.<fqdn> → this IP so dfdaemon's
-    # hostNetwork pull never hairpins to the public EIP. Best-effort: empty on a
-    # read miss → the flip is deferred to a later sweep (re-fires while the
-    # alias is still missing), never wedging on a transient API miss.
-    gw_svc_url="${api}/api/v1/namespaces/${GATEWAY_SERVICE_NAMESPACE}/services/${GATEWAY_SERVICE_NAME}"
-    read_gateway_clusterip() {
-      curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-        "${gw_svc_url}" 2>/dev/null \
-        | jq -r '.spec.clusterIP // empty' 2>/dev/null \
-        || true
-    }
-
     # #4652 (the x509 fix) — materialise the in-cluster Harbor trust anchor in
     # the dragonfly namespace. Reads the wildcard TLS Secret from
     # HARBOR_CA_SRC_NAMESPACE (kube-system) and creates/updates an Opaque Secret
@@ -460,104 +401,6 @@ data:
     }
     harbor_ca_remove_from_dragonfly_ns() {
       curl -fsS ${CT} -X DELETE --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${dst_secret_url}" >/dev/null 2>&1 || true
-    }
-
-    # #4652 (the DNS fix) — rewrite CoreDNS so registry.<fqdn> resolves cluster-
-    # internally to the cilium-gateway ClusterIP ONLY. The pod hostAlias is
-    # INSUFFICIENT for the Rust dfdaemon resolver (getent returns the public EIP
-    # first → hairpin → timeout, #4649). We patch the k3s `coredns-custom`
-    # ConfigMap with a SEPARATE `*.server` block (the proven github-ipv4
-    # mechanism) carrying a `hosts` plugin with NO `fallthrough` (so the EIP is
-    # NOT also returned). CRITICAL sequencing (the #4652 failed live attempt
-    # patched then immediately restarted CoreDNS → the new pod mounted the STALE
-    # CM → the override was absent): patch the CM, then POLL the projected
-    # coredns-custom volume on the RUNNING CoreDNS pod until our server-block key
-    # appears in the mounted /etc/coredns/custom dir (kubelet CM-volume sync lag
-    # ~60s), and rely on the k3s CoreDNS `reload` plugin to auto-pick it up — NO
-    # rollout restart (which would re-trigger the stale-mount race). One-shot per
-    # apply via the corednsOverride status guard.
-    coredns_url="${api}/api/v1/namespaces/${COREDNS_CM_NAMESPACE}/configmaps/${COREDNS_CM_NAME}"
-    coredns_override() {
-      gwip="$1"
-      case "${COREDNS_OVERRIDE_ENABLED}" in
-        true|True|TRUE|1|yes) : ;;
-        *) return 0 ;;
-      esac
-      [ -z "${gwip}" ] && { echo "[registry-pivot]   WARN gateway ClusterIP empty; deferring CoreDNS override"; return 1; }
-      # The server block: `registry.<fqdn> { hosts { <gwip> registry.<fqdn> } }`.
-      # NO fallthrough (else CoreDNS also forwards to PowerDNS → the EIP).
-      block=$(printf '%s {\n    hosts {\n        %s %s\n    }\n}\n' "${harbor_host}" "${gwip}" "${harbor_host}")
-      # Merge our key into the (possibly pre-existing, github-ipv4-bearing)
-      # coredns-custom CM. A merge-patch+json adds/replaces ONLY our key and
-      # preserves the github-ipv4.server key. If the CM does not exist yet
-      # (no Huawei github-ipv4 step ran) the PATCH 404s → fall back to a create.
-      patch=$(jq -cn --arg k "${COREDNS_SERVER_KEY}" --arg v "${block}" '{data:{($k):$v}}')
-      if curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-          -H "Content-Type: application/merge-patch+json" --data "${patch}" "${coredns_url}" >/dev/null 2>&1; then
-        echo "[registry-pivot]   patched ${COREDNS_CM_NAMESPACE}/${COREDNS_CM_NAME} ${COREDNS_SERVER_KEY} -> ${harbor_host} ${gwip}"
-      else
-        body=$(jq -cn --arg n "${COREDNS_CM_NAME}" --arg ns "${COREDNS_CM_NAMESPACE}" --arg k "${COREDNS_SERVER_KEY}" --arg v "${block}" \
-          '{apiVersion:"v1",kind:"ConfigMap",metadata:{name:$n,namespace:$ns,labels:{"app.kubernetes.io/managed-by":"self-sovereign-cutover","bp.openova.io/cutover-step":"registry-pivot"}},data:{($k):$v}}')
-        cdns_create="${api}/api/v1/namespaces/${COREDNS_CM_NAMESPACE}/configmaps"
-        if curl -fsS ${CT} -X POST --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-            -H "Content-Type: application/json" --data "${body}" "${cdns_create}" >/dev/null 2>&1; then
-          echo "[registry-pivot]   created ${COREDNS_CM_NAMESPACE}/${COREDNS_CM_NAME} with ${COREDNS_SERVER_KEY}"
-        else
-          echo "[registry-pivot]   WARN failed to patch/create ${COREDNS_CM_NAME} (will retry next sweep)"
-          return 1
-        fi
-      fi
-      # Poll the projected coredns-custom volume on a RUNNING CoreDNS pod until
-      # our key materialises in /etc/coredns/custom, proving the kubelet CM-volume
-      # sync completed BEFORE we trust the override (no restart → no stale-mount
-      # race). The k3s CoreDNS `reload` plugin then auto-reloads from the synced
-      # file. Bounded by COREDNS_SYNC_TIMEOUT_SECONDS; a timeout is non-fatal
-      # (logged; next sweep re-polls) so a slow sync never wedges the pivot.
-      pod=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-        "${api}/api/v1/namespaces/${COREDNS_DEPLOYMENT_NAMESPACE}/pods?labelSelector=k8s-app%3Dkube-dns" 2>/dev/null \
-        | jq -r '.items[] | select(.status.phase=="Running") | .metadata.name' 2>/dev/null | head -n1 || true)
-      [ -z "${pod}" ] && pod=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-        "${api}/api/v1/namespaces/${COREDNS_DEPLOYMENT_NAMESPACE}/pods?labelSelector=app.kubernetes.io%2Fname%3Dcoredns" 2>/dev/null \
-        | jq -r '.items[] | select(.status.phase=="Running") | .metadata.name' 2>/dev/null | head -n1 || true)
-      if [ -z "${pod}" ]; then
-        echo "[registry-pivot]   WARN no Running CoreDNS pod found to confirm coredns-custom sync; trusting reload-plugin pickup on ${NODE_NAME}"
-        return 0
-      fi
-      # The k3s CoreDNS Corefile `import`s /etc/coredns/custom/*.server; the
-      # coredns-custom CM is projected there. exec a grep for our gwip in the
-      # mounted server file (the apiserver pod-exec subresource over the SA
-      # token). Bounded poll.
-      exec_base="${api}/api/v1/namespaces/${COREDNS_DEPLOYMENT_NAMESPACE}/pods/${pod}/exec"
-      deadline=$(( $(date +%s) + COREDNS_SYNC_TIMEOUT_SECONDS ))
-      while [ "$(date +%s)" -lt "${deadline}" ]; do
-        # grep -q the gwip inside the synced custom file. If exec is unavailable
-        # (no ws upgrade in this minimal client) the call fails → we fall back to
-        # a fixed grace sleep below. command=grep -r <gwip> /etc/coredns/custom
-        if curl -fsS ${CT} -G --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-            --data-urlencode "command=grep" \
-            --data-urlencode "command=-rl" \
-            --data-urlencode "command=${gwip}" \
-            --data-urlencode "command=/etc/coredns/custom" \
-            --data-urlencode "container=coredns" \
-            --data-urlencode "stdout=true" --data-urlencode "stderr=true" \
-            "${exec_base}" 2>/dev/null | grep -q "/etc/coredns/custom"; then
-          echo "[registry-pivot]   coredns-custom ${COREDNS_SERVER_KEY} synced on pod ${pod}; reload plugin will pick it up"
-          return 0
-        fi
-        sleep 5
-      done
-      # Sync poll inconclusive (exec subresource may not be reachable from this
-      # minimal curl client). Fall back to the kubelet sync-period grace window
-      # so the reload plugin still picks up the file; non-fatal either way.
-      echo "[registry-pivot]   coredns-custom sync poll inconclusive after ${COREDNS_SYNC_TIMEOUT_SECONDS}s; relying on reload-plugin pickup (grace) on ${NODE_NAME}"
-      return 0
-    }
-    coredns_override_remove() {
-      # Rollback: drop ONLY our server key (preserve github-ipv4.server). A
-      # JSON-merge null deletes the key.
-      patch=$(jq -cn --arg k "${COREDNS_SERVER_KEY}" '{data:{($k):null}}')
-      curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-        -H "Content-Type: application/merge-patch+json" --data "${patch}" "${coredns_url}" >/dev/null 2>&1 || true
     }
 
     # Patch a dfdaemon-family ConfigMap's dfdaemon.yaml registryMirror.addr to
@@ -643,35 +486,10 @@ data:
       return 1
     }
 
-    # Set (v2) / clear (v1) the registry.<fqdn> → gateway-ClusterIP hostAlias on
-    # a dfdaemon-family workload (DaemonSet or StatefulSet) pod template. Adding
-    # hostAliases switches the hostNetwork pod from the node's bind-mounted
-    # /etc/hosts (which carries the public-EIP pin) to a kubelet-managed hosts
-    # file that ALSO contains our alias → the gateway ClusterIP entry wins the
-    # connection (proven live: curl picks the routable address). A strategic-
-    # merge patch on spec.template.spec.hostAliases re-rolls the pods.
-    patch_workload_hostalias() {
-      kind="$1"; name="$2"; gwip="$3"   # kind ∈ daemonsets|statefulsets
-      url="${api}/apis/apps/v1/namespaces/${DF_NAMESPACE}/${kind}/${name}"
-      if [ -n "${gwip}" ]; then
-        patch=$(jq -cn --arg ip "${gwip}" --arg h "${harbor_host}" \
-          '{spec:{template:{spec:{hostAliases:[{ip:$ip,hostnames:[$h]}]}}}}')
-      else
-        patch='{"spec":{"template":{"spec":{"hostAliases":[]}}}}'
-      fi
-      if curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
-        -H "Content-Type: application/strategic-merge-patch+json" --data "${patch}" "${url}" >/dev/null 2>&1; then
-        echo "[registry-pivot]   patched ${kind}/${name} hostAliases (${harbor_host} -> ${gwip:-<cleared>})"
-        return 0
-      fi
-      echo "[registry-pivot]   WARN failed to patch ${kind}/${name} hostAliases (will retry next sweep)"
-      return 1
-    }
-
-    # Roll dfdaemon (+ seed) so they reload the flipped upstream. A hostAlias
-    # patch already re-rolls them; this is the explicit nudge for the addr-only
-    # change and is gated by DF_RESTART_ON_FLIP. Uses the restartedAt annotation
-    # (kubectl rollout restart equivalent) via a strategic-merge patch.
+    # Roll dfdaemon (+ seed) so they reload the flipped upstream. This is the
+    # explicit nudge for the addr-only ConfigMap change and is gated by
+    # DF_RESTART_ON_FLIP. Uses the restartedAt annotation (kubectl rollout
+    # restart equivalent) via a strategic-merge patch.
     restart_workload() {
       kind="$1"; name="$2"
       [ "${DF_RESTART_ON_FLIP}" = "true" ] || return 0
@@ -685,11 +503,11 @@ data:
         || echo "[registry-pivot]   WARN failed to roll ${kind}/${name}"
     }
 
-    # The cluster-wide dfdaemon flip (upstream + hostAlias) — performed ONCE.
+    # The cluster-wide dfdaemon upstream flip — performed ONCE.
     # The status key dragonflyUpstream=local is the cluster-scope guard: the
     # first node to converge sets it; the rest skip. Returns 0 only when the
-    # full flip (both ConfigMaps + both hostAliases) succeeded so the guard is
-    # set; a partial failure leaves the guard unset → a later sweep retries.
+    # full flip (both ConfigMaps) succeeded so the guard is set; a partial
+    # failure leaves the guard unset → a later sweep retries.
     cm_patch_status() {
       key="$1"; val="$2"
       p=$(jq -cn --arg k "${key}" --arg v "${val}" '{data: {($k): $v}}')
@@ -702,17 +520,8 @@ data:
       if [ "${already}" = "local" ]; then
         return 0
       fi
-      gwip=$(read_gateway_clusterip)
-      if [ -z "${gwip}" ] || [ "${gwip}" = "None" ]; then
-        echo "[registry-pivot]   WARN cilium-gateway ClusterIP unresolved; deferring dfdaemon flip on ${NODE_NAME}"
-        return 1
-      fi
-      echo "[registry-pivot]   cilium-gateway ClusterIP ${gwip} -> hostAlias ${harbor_host} on ${NODE_NAME}"
+      echo "[registry-pivot]   flipping dfdaemon upstream -> ${local_upstream} (external host, :443) on ${NODE_NAME}"
       ok=0
-      # #4652 (DNS fix): rewrite CoreDNS registry.<fqdn> -> gateway ClusterIP
-      # ONLY (no fallthrough), with the patch-then-sync sequencing. Best-effort:
-      # a miss leaves the guard unset → retried next sweep.
-      coredns_override "${gwip}" || ok=1
       # #4652 (x509 fix): materialise the Harbor trust anchor in the dragonfly
       # namespace; ONLY then set registryMirror.cert (so we never point the
       # dfdaemon at a non-existent PEM). If the CA cannot be materialised this
@@ -725,13 +534,11 @@ data:
       fi
       patch_df_configmap_addr "${DF_CLIENT_CONFIGMAP}" "${local_upstream}" "${cert_arg}" || ok=1
       [ -n "${DF_SEED_CONFIGMAP}" ] && { patch_df_configmap_addr "${DF_SEED_CONFIGMAP}" "${local_upstream}" "${cert_arg}" || ok=1; }
-      patch_workload_hostalias daemonsets "${DF_CLIENT_DAEMONSET}" "${gwip}" || ok=1
-      [ -n "${DF_SEED_STATEFULSET}" ] && { patch_workload_hostalias statefulsets "${DF_SEED_STATEFULSET}" "${gwip}" || ok=1; }
       restart_workload daemonsets "${DF_CLIENT_DAEMONSET}"
       [ -n "${DF_SEED_STATEFULSET}" ] && restart_workload statefulsets "${DF_SEED_STATEFULSET}"
       if [ "${ok}" = "0" ]; then
         cm_patch_status dragonflyUpstream local
-        echo "[registry-pivot]   dfdaemon flipped to LOCAL Harbor ${local_upstream} + CoreDNS + cert (cluster-wide guard set)"
+        echo "[registry-pivot]   dfdaemon flipped to LOCAL Harbor ${local_upstream} + cert (cluster-wide guard set)"
         return 0
       fi
       echo "[registry-pivot]   dfdaemon flip incomplete; guard NOT set, will retry next sweep on ${NODE_NAME}"
@@ -743,11 +550,6 @@ data:
       if [ -n "${DF_SEED_CONFIGMAP}" ]; then
         patch_df_configmap_addr "${DF_SEED_CONFIGMAP}" "https://ghcr.io" "" || true
       fi
-      patch_workload_hostalias daemonsets "${DF_CLIENT_DAEMONSET}" "" || true
-      if [ -n "${DF_SEED_STATEFULSET}" ]; then
-        patch_workload_hostalias statefulsets "${DF_SEED_STATEFULSET}" "" || true
-      fi
-      coredns_override_remove
       harbor_ca_remove_from_dragonfly_ns
       cm_patch_status dragonflyUpstream ghcr
     }
@@ -813,7 +615,7 @@ data:
         v2)
           # Per-node: point this node's containerd at the local dfdaemon.
           write_default_mirror
-          # Cluster-wide (guarded): flip the dfdaemon upstream + hostAlias.
+          # Cluster-wide (guarded): flip the dfdaemon upstream to the local Harbor.
           df_flip_to_local || true
           # #4637 — ack v2 ONLY once the node-local dfdaemon is actually
           # serving its registry endpoint. Acking while 127.0.0.1:${DF_PROXY_PORT}
@@ -842,9 +644,10 @@ data:
 
       # #4639 — re-apply v2 if the cluster-wide dfdaemon flip has not yet been
       # confirmed (guard dragonflyUpstream != local). apply_state fires only
-      # ONCE per state, so if the cilium-gateway Service was not yet resolvable
-      # on the first v2 sweep the flip would be skipped forever. This retries
-      # the flip on a later sweep WITHOUT re-applying every tick once converged.
+      # ONCE per state, so if the upstream flip (e.g. the Harbor CA anchor or a
+      # ConfigMap patch) missed on the first v2 sweep it would be skipped
+      # forever. This retries the flip on a later sweep WITHOUT re-applying every
+      # tick once converged.
       needs_flip_retry=0
       if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ]; then
         cur_up=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \

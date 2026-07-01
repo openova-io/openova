@@ -202,12 +202,30 @@ resource "hcloud_firewall" "main" {
     port       = "53"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
+  # powerdns NodePort (30053) — the dns LB service forwards public
+  # :53 → node:30053, so the LB→node hop needs this port reachable.
+  # Formerly covered by the 30000-32767 NodePort range that #4682
+  # narrowed to clustermesh 32379; broken out here explicitly.
+  rule {
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "30053"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "powerdns NodePort — dns LB service :53 → node:30053"
+  }
+  rule {
+    direction   = "in"
+    protocol    = "udp"
+    port        = "30053"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "powerdns NodePort — dns LB service :53 → node:30053 (UDP)"
+  }
 
-  # Kubernetes NodePort range (30000-32767) — required so:
+  # Cilium clustermesh-apiserver NodePort (32379) — required so:
   #
   # 1. Hetzner LB → backend health checks can probe the NodePort the
   #    clustermesh-apiserver Service binds (each region's LB probes
-  #    `<node-public-ip>:<NodePort>`; without this rule the probe is
+  #    `<node-public-ip>:32379`; without this rule the probe is
   #    dropped → LB marks target unhealthy → external clustermesh
   #    clients see "unexpected eof while reading" at TLS handshake →
   #    cilium-dbg status reports `0/N remote clusters ready`).
@@ -218,6 +236,13 @@ resource "hcloud_firewall" "main" {
   #    private /24 per region; the LB->backend hop must transit the
   #    public path. The cross-region case is by design public per
   #    DoD A2 (inter-region link = WireGuard over public IPs ALWAYS).
+  #
+  # Narrowed from the former 30000-32767 range (#4682): the Cilium
+  # Gateway now serves :80/:443 as a LoadBalancer Service on the
+  # standard ports (hostNetwork OFF, no gateway NodePort), so the only
+  # NodePorts that must transit the public LB→node hop are this
+  # clustermesh-apiserver port and the powerdns :53 NodePort (30053,
+  # opened via the dedicated :53 rules above + the dns LB service).
   #
   # Security: clustermesh-apiserver requires mTLS — peer agents present
   # a client cert signed by the peer cluster's cilium-ca. Anonymous
@@ -233,9 +258,9 @@ resource "hcloud_firewall" "main" {
   rule {
     direction   = "in"
     protocol    = "tcp"
-    port        = "30000-32767"
+    port        = "32379"
     source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "Kubernetes NodePort range — clustermesh-apiserver LB health + cross-region traffic (mTLS-protected)"
+    description = "Cilium clustermesh-apiserver NodePort — LB health + cross-region traffic (mTLS-protected)"
   }
 
   # Cilium WireGuard inter-region node encryption (DMZ-WG). Per DoD A2
@@ -317,8 +342,8 @@ locals {
 
   # ── Cilium Gateway listeners per parent zone (issue #831, parent #827) ───
   # The Sovereign supports N parent zones (primary + 0..N org-pool). For
-  # each zone the Cilium Gateway must declare a listener pair (HTTPS:30443
-  # + HTTP:30080) hostnamed `*.<zone>` so cilium-envoy programs the SDS
+  # each zone the Cilium Gateway must declare a listener pair (HTTPS:443
+  # + HTTP:80) hostnamed `*.<zone>` so cilium-envoy programs the SDS
   # subscription against the per-zone cert. Without these listeners,
   # tenant URLs under non-primary parent zones (e.g. wp-foo.omani.homes)
   # hit the envoy default fallback cert and TLS-mismatch.
@@ -342,10 +367,10 @@ locals {
   # Render the Gateway listeners block as a YAML inline-flow array (JSON-
   # compatible syntax — `[{key: val, ...}, {...}]`). Each parent zone
   # produces two entries:
-  #   - HTTPS listener on port 30443 hostnamed `*.<zone>` with certificateRefs
+  #   - HTTPS listener on port 443 hostnamed `*.<zone>` with certificateRefs
   #     targeting `sovereign-wildcard-tls-<sanitised-zone>` (the chart's
   #     sovereign-wildcard-certs.yaml writes a Secret of that exact name).
-  #   - HTTP  listener on port 30080 hostnamed `*.<zone>` for /.well-known/
+  #   - HTTP  listener on port 80 hostnamed `*.<zone>` for /.well-known/
   #     and ACME HTTP-01 challenge paths.
   #
   # Listener-NAMING contract (t20 critical fix #3):
@@ -1046,7 +1071,7 @@ resource "hcloud_server" "worker" {
   depends_on = [hcloud_server.control_plane]
 }
 
-# ── Load balancer: lb11, 80/443 → control plane NodePorts 31080/31443 ─────
+# ── Load balancer: lb11, 80/443 → cilium Gateway LoadBalancer Service :80/:443 ─
 
 resource "hcloud_load_balancer" "main" {
   name               = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-lb"
@@ -1114,29 +1139,24 @@ resource "hcloud_load_balancer_service" "http" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"
   listen_port      = 80
-  # destination_port=30080 — Cilium Gateway listens on a high port
-  # (clusters/_template/sovereign-tls/cilium-gateway.yaml) because even
-  # with hostNetwork=true + privileged=true + NET_BIND_SERVICE +
-  # envoy-keep-cap-netbindservice=true, cilium-envoy still gets
-  # "Permission denied" binding 0.0.0.0:80 on the host. The bind is
-  # intercepted by cilium-agent's BPF socket-LB program in a way that
-  # is not resolvable via container caps. High ports work without
-  # privileged binding (verified on otech47 after iterating through
-  # the privileged-bind chain). Hetzner LB translates the public 80→
-  # node:30080 so the operator-facing URL stays `http://console.<fqdn>/`.
-  destination_port = 30080
+  # destination_port=80 — the Cilium Gateway is now served as a
+  # Service type=LoadBalancer on the standard :80/:443 (hostNetwork
+  # OFF, no NodePort). hcloud-ccm materialises the gateway Service LB;
+  # this tofu-declared LB service forwards public 80→node:80 as a
+  # transitional belt-and-suspenders that keeps the DNS A-record LB IP
+  # stable. Operator-facing URL is `http://console.<fqdn>/`.
+  destination_port = 80
 }
 
 resource "hcloud_load_balancer_service" "https" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"
   listen_port      = 443
-  # destination_port=30443 — see http service comment above. The
-  # cilium-gateway HTTPS listener binds 30443 (not 443) because
-  # privileged-port bind through cilium-agent's BPF intercept fails
-  # regardless of capability configuration. HCLB does the listener-side
-  # port translation so external users still hit `https://console.<fqdn>/`.
-  destination_port = 30443
+  # destination_port=443 — see http service comment above. The Cilium
+  # Gateway HTTPS listener is served on standard :443 via the
+  # LoadBalancer Service; HCLB forwards public 443→node:443 so external
+  # users hit `https://console.<fqdn>/`.
+  destination_port = 443
 }
 
 resource "hcloud_load_balancer_service" "dns" {
@@ -1165,23 +1185,24 @@ resource "hcloud_load_balancer_service" "dns" {
 # CiliumEnvoyConfig committed atomically; a single unresolvable app backend
 # fails the whole CEC and 404s the entire gateway (cilium#35728, unfixed on the
 # pinned 1.16.5). The console is therefore isolated onto its OWN Cilium Gateway
-# (`cilium-gateway-console`, host ports 31443/31080 — see
+# (`cilium-gateway-console` — its own Service type=LoadBalancer on the
+# standard :443/:80, hostNetwork off, no NodePort/host-port; see
 # clusters/_template/sovereign-tls/cilium-gateway-console.yaml), carrying ONLY
 # the stable catalyst-ui + catalyst-api backends.
 #
 # Both `hcloud_load_balancer` (lb11) and the Huawei ELB do TCP PASSTHROUGH on
 # 443 (TLS terminates at cilium-envoy, NOT the LB), so neither can route by SNI
-# / Host header — a single LB IP + single public 443 can reach exactly ONE host
-# port, hence ONE gateway. Isolating the console onto a second gateway on a
-# second host port therefore requires a SECOND public LB IP. The console
-# A-records (console./api.<fqdn>) point at THIS LB → node:31443; the wildcard
+# / Host header — a single LB IP + single public 443 can reach exactly ONE
+# gateway Service. Isolating the console onto a second Gateway (with its own
+# LoadBalancer Service IP) therefore requires a SECOND public LB IP. The console
+# A-records (console./api.<fqdn>) point at THIS LB → node:443; the wildcard
 # `*.<fqdn>` (every volatile app/tenant host) keeps pointing at the shared
-# `hcloud_load_balancer.main` → node:30443. DNS split is owned by
+# `hcloud_load_balancer.main` → node:443. DNS split is owned by
 # core/pool-domain-manager (consoleLoadBalancerIP) + the catalyst-api handover.
 #
 # This is the only design that (a) keeps the console always reachable on the
 # canonical https://console.<fqdn>/ :443 URL, (b) is byte-identical across
-# Hetzner + Huawei (both just do dumb TCP 443→port), and (c) needs no Cilium
+# Hetzner + Huawei (both just do dumb TCP 443→443), and (c) needs no Cilium
 # upgrade — the pinned 1.16.5 does NOT reconcile a TLSRoute-passthrough SNI
 # front gateway (TLSRoute is a startup CRD presence-check only on 1.16.x), which
 # rules out the single-IP front-gateway alternative.
@@ -1211,9 +1232,9 @@ resource "hcloud_load_balancer_network" "console" {
   depends_on = [hcloud_network_subnet.region]
 }
 
-# Console LB targets — same node set as the shared LB. cilium-envoy runs as a
-# DaemonSet on every node and binds BOTH 30443 (shared) and 31443 (console), so
-# every node is a valid target for the console LB too.
+# Console LB targets — same node set as the shared LB. The shared and console
+# gateways each own a separate Service type=LoadBalancer on :443/:80 (hostNetwork
+# off), so every node is a valid target for the console LB too.
 resource "hcloud_load_balancer_target" "console_control_plane" {
   count            = local.console_cp_target_count
   type             = "server"
@@ -1242,8 +1263,11 @@ resource "hcloud_load_balancer_service" "console_http" {
   load_balancer_id = hcloud_load_balancer.console[0].id
   protocol         = "tcp"
   listen_port      = 80
-  # 31080 — the console gateway's HTTP host-port (cilium-gateway-console.yaml).
-  destination_port = 31080
+  # :80 → node:80 — the console gateway is now its own Service
+  # type=LoadBalancer on the standard ports (hostNetwork off, no
+  # NodePort/host-port; #4682). This tofu-declared LB service is the
+  # transitional belt-and-suspenders keeping the console LB IP stable.
+  destination_port = 80
 }
 
 resource "hcloud_load_balancer_service" "console_https" {
@@ -1251,9 +1275,9 @@ resource "hcloud_load_balancer_service" "console_https" {
   load_balancer_id = hcloud_load_balancer.console[0].id
   protocol         = "tcp"
   listen_port      = 443
-  # 31443 — the console gateway's HTTPS host-port. TLS terminates at the
+  # :443 → node:443 — see console_http above. TLS terminates at the
   # console gateway's cilium-envoy (per-prov wildcard cert), NOT here.
-  destination_port = 31443
+  destination_port = 443
 }
 
 # ── DNS: deliberately NOT a tofu concern ──────────────────────────────────
@@ -1717,7 +1741,9 @@ resource "hcloud_load_balancer_service" "secondary_http" {
   load_balancer_id = hcloud_load_balancer.secondary[each.key].id
   protocol         = "tcp"
   listen_port      = 80
-  destination_port = 30080
+  # :80 → node:80 — Cilium Gateway served as LoadBalancer Service on
+  # standard ports (hostNetwork off, no NodePort). Same per secondary region.
+  destination_port = 80
 }
 
 resource "hcloud_load_balancer_service" "secondary_https" {
@@ -1726,7 +1752,9 @@ resource "hcloud_load_balancer_service" "secondary_https" {
   load_balancer_id = hcloud_load_balancer.secondary[each.key].id
   protocol         = "tcp"
   listen_port      = 443
-  destination_port = 30443
+  # :443 → node:443 — Cilium Gateway served as LoadBalancer Service on
+  # standard ports (hostNetwork off, no NodePort). Same per secondary region.
+  destination_port = 443
 }
 
 resource "hcloud_load_balancer_service" "secondary_dns" {

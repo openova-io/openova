@@ -23,8 +23,9 @@ description: |
 
   Pre-cutover the upstream registry is ghcr.io (authenticated via the
   `ghcr-pull` Secret). Post-cutover a one-line dfdaemon upstream flip
-  points it at the cluster-LOCAL Harbor (harbor-core.harbor.svc) — that
-  pivot is a SEPARATE, later-validated step (platform/self-sovereign-
+  points it at the cluster-LOCAL Harbor via its external host
+  https://registry.<fqdn> (:443 through the Cilium Gateway/LB, #4682) —
+  that pivot is a SEPARATE, later-validated step (platform/self-sovereign-
   cutover/) and is NOT wired here.
 
   Design = self-contained PER CLUSTER (operator decision (A), §8a of the

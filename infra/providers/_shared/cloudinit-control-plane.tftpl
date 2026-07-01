@@ -738,10 +738,12 @@ write_files:
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
 %{ endif ~}
 %{ if provider == "huawei" ~}
-            # Huawei: no cloud CCM. Cilium LB-IPAM assigns the clustermesh
-            # ExternalIP from this region's CP EIP/32. The tofu HCS ELB maps
-            # public 443→30443 + 80→30080 to cilium-envoy NodePorts, so the
-            # Gateway listener ports are overridden here. bastion mirror +
+            # Huawei: no cloud CCM. Cilium LB-IPAM assigns the ExternalIP
+            # from this region's CP EIP/32 to both the clustermesh Service
+            # and the cilium-provisioned gateway `type=LoadBalancer` Service
+            # (#4682, hostNetwork OFF). The tofu HCS ELB L4-passthrough-maps
+            # public 443→gateway-Service:443 + 80→…:80, so the Gateway
+            # listeners serve the standard :443/:80. bastion mirror +
             # PDNS-host overrides + per-region HR suspension also flow here.
             HCLOUD_HR_SUSPEND: "true"
             HUAWEI_HR_SUSPEND: "false"
@@ -798,8 +800,16 @@ write_files:
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
-            SOVEREIGN_GATEWAY_HTTPS_PORT: "30443"
-            SOVEREIGN_GATEWAY_HTTP_PORT: "30080"
+            # #4682 — the Cilium Gateway is now a Service type=LoadBalancer on
+            # :443/:80 (hostNetwork off, no NodePort). On the CCM-less Huawei
+            # provider the gateway-lb-ipam-pool.yaml CiliumLoadBalancerIPPool
+            # gives that Service its ExternalIP. Seeded with THIS region's CP
+            # public IPv4/32 (same source as the clustermesh pool). Left UNSET
+            # on Hetzner, where hcloud-ccm materialises the Service LB instead.
+            CILIUM_GATEWAY_LB_IPAM_ENABLED: "true"
+            CILIUM_GATEWAY_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
+            SOVEREIGN_GATEWAY_HTTPS_PORT: "443"
+            SOVEREIGN_GATEWAY_HTTP_PORT: "80"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
             PDNS_API_HOST: "${pdns_api_host}"
 %{ endif ~}

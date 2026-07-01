@@ -45,39 +45,19 @@ sovereign:
   harborInternalURL: "http://harbor-core.harbor.svc.cluster.local"
   # ↓ overlay required for real cutover (uses ${SOVEREIGN_FQDN}).
   #    MUST be `registry.<sov-fqdn>` to match the bp-harbor HTTPRoute.
-  harborPublicURL: "https://registry.example.local"
-  # ── #4666 (Refs #3379 #4652) — the in-cluster gateway HTTPS port ──────────
-  # THE STEP-06 PHASE-3a LOCAL-HARBOR-PULL WEDGE FIX. Post-#4652 CoreDNS
-  # resolves `registry.<sov-fqdn>` cluster-INTERNALLY to the cilium-gateway
-  # Service ClusterIP (a `coredns-custom` registry-local.server block with NO
-  # fallthrough — the public EIP is never returned in-cluster). But cilium-envoy
-  # CANNOT bind privileged ports (cilium-agent gates the bind), so the gateway's
-  # HTTPS listener is the high NodePort 30443, NOT 443 (see
-  # clusters/_template/sovereign-tls/cilium-gateway.yaml — the public 443→30443
-  # translation is done by the EXTERNAL Hetzner LB / Huawei NodePort, which is
-  # invisible to in-cluster clients). So an in-cluster OCI pull of
-  # `oci://registry.<fqdn>/openova-io/...` resolves to the gateway ClusterIP but
-  # connects to the implicit `:443` — on which NOTHING listens → `connect:
-  # connection timed out`. This is EXACTLY what the Flux SOURCE-CONTROLLER hits
-  # for every pivoted HelmRepository AND what step-06 Phase-3a's `helm pull`
-  # probe hits (live evidence hw201 / dep 413ef5f88eb63b2b: the prewarm pushed
-  # all 63 charts OK, but `Head "https://registry.hw201.omani.works/v2/openova-
-  # io/bp-cilium/manifests/1.4.5": dial tcp 10.96.2.39:443: connect: connection
-  # timed out` on the probe, and source-controller `failed to login to OCI
-  # registry: Get "https://registry.hw201.omani.works/v2/": ... Client.Timeout`
-  # on every chart — while the SAME pull to `registry.hw201.omani.works:30443`
-  # succeeds). The dfdaemon/containerd path (step-04) already dials the local
-  # Harbor on this port (registryPivot.dragonfly.gatewayHTTPSPort); the
-  # source-controller / Flux OCI path did NOT carry the port until this fix.
   #
-  # Step-06 appends `:<gatewayHTTPSPort>` to the pivoted HelmRepository host so
-  # both the live URL pivot (source-controller pulls) and the Phase-3a probe
-  # (`helm registry login` + `helm pull`) target the LISTENING port. Set to ""
-  # to pivot host-only (legacy behaviour) on a Sovereign whose in-cluster
-  # `registry.<fqdn>` genuinely answers on 443 (e.g. an operator who fronted the
-  # gateway with an in-cluster :443 Service/LB). Default 30443 = the canonical
-  # Catalyst gateway HTTPS NodePort (matches registryPivot.dragonfly.gatewayHTTPSPort).
-  gatewayHTTPSPort: "30443"
+  # #4682 — the registry is reached ONLY via the external host
+  # `registry.<sov-fqdn>` on the standard HTTPS port :443, through the Cilium
+  # Gateway API `Service type=LoadBalancer` (hcloud-ccm gives it an ExternalIP
+  # on Hetzner; a CiliumLoadBalancerIPPool does on CCM-less Huawei). The gateway
+  # listener is now plain :443 (hostNetwork is OFF, so cilium-envoy never does a
+  # privileged host bind and the old high-NodePort :30443 workaround is gone).
+  # No in-cluster ClusterIP rewrite, no coredns-custom registry-local.server
+  # block, no :30443 append — in a segregated DMZ/RTZ multi-cluster topology an
+  # in-cluster ClusterIP does not route across clusters, so the external routable
+  # host on :443 is the only correct target for both source-controller and the
+  # step-06 Phase-3a probe.
+  harborPublicURL: "https://registry.example.local"
   giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   # ↓ overlay supplies https://gitea.${SOVEREIGN_FQDN} (informational; jobs use internal URL).
   giteaPublicURL: "https://gitea.example.local"
@@ -722,22 +702,18 @@ registryPivot:
   #
   # Every node's containerd already mirrors through the node-LOCAL dfdaemon
   # proxy on 127.0.0.1:<proxyPort> (bp-dragonfly, slot 06). The cutover does
-  # three generic moves (no per-cloud branches):
+  # two generic moves (no per-cloud branches):
   #   1. write the containerd `_default/hosts.toml` catch-all → the dfdaemon
   #      proxy (effective on the running node, containerd re-reads per pull);
   #   2. flip the dfdaemon (+ seed-peer) `proxy.registryMirror.addr` from
-  #      https://ghcr.io → the cluster-LOCAL Harbor public host on the gateway
-  #      HTTPS port;
-  #   3. add a `registry.<fqdn> → cilium-gateway ClusterIP` hostAlias to the
-  #      dfdaemon (+ seed) pod template so the hostNetwork dfdaemon resolves the
-  #      Harbor host (AND its token realm) to the node-routable Cilium-gateway
-  #      ClusterIP instead of the un-hairpinnable public EIP the node /etc/hosts
-  #      pins it to. PROVEN live on kom4dc omantel.biz (the cloud that breaks
-  #      the legacy hairpin): the public-host fetch i/o-times-out while the
-  #      gateway-ClusterIP resolve returns the registry 401 + a 200 from
-  #      /service/token.
-  # The node→127.0.0.1 dfdaemon path is identical on Huawei + Hetzner, so the
-  # per-cloud `/etc/hosts`/`30443`/DNAT surgery the old step carried is gone.
+  #      https://ghcr.io → the cluster-LOCAL Harbor external host
+  #      https://registry.<fqdn> (implicit :443, via the Gateway LoadBalancer).
+  # #4682: the registry is reached over its external routable host
+  #      https://registry.<fqdn> on :443 (the Cilium Gateway `Service
+  #      type=LoadBalancer` ExternalIP), so the old hostAlias→cilium-gateway
+  #      ClusterIP hairpin (move 3), the coredns-custom registry-local.server
+  #      rewrite, and the per-cloud `/etc/hosts`/`30443`/DNAT surgery are all
+  #      gone. The node→127.0.0.1 dfdaemon path is identical on Huawei + Hetzner.
   dragonfly:
     # The dfdaemon proxy port every node's containerd mirrors through. Matches
     # bp-dragonfly client.config.proxy.server.port (127.0.0.1:4001 on the 2.x
@@ -754,63 +730,20 @@ registryPivot:
     clientConfigMap: "dragonfly-client"
     seedStatefulSet: "dragonfly-seed-client"
     seedConfigMap: "dragonfly-seed-client"
-    # The node-routable Cilium gateway Service whose ClusterIP serves
-    # registry.<fqdn> (wildcard `*.<fqdn>` TLS + the Harbor token realm). Cilium
-    # creates `cilium-gateway-<gateway-name>` for the `cilium-gateway` Gateway
-    # in kube-system; its ClusterIP is programmed on the host net (kube-proxy/
-    # cilium), so it is reachable from the hostNetwork dfdaemon. The hostAlias
-    # maps registry.<fqdn> → this ClusterIP.
-    gatewayServiceName: "cilium-gateway-cilium-gateway"
-    gatewayServiceNamespace: "kube-system"
-    # The Cilium gateway HTTPS listener port — the canonical Catalyst gateway
-    # NodePort (infra/providers/_shared/cloudinit-control-plane.tftpl
-    # SOVEREIGN_GATEWAY_HTTPS_PORT, Hetzner LB 443→30443, Huawei NodePort
-    # 30443). The local-Harbor upstream is https://registry.<fqdn>:<this> so
-    # the realm Harbor reflects carries the SAME port — the token-realm
-    # follow-up stays on the node-routable gateway endpoint.
-    gatewayHTTPSPort: "30443"
     # Bounce dfdaemon (+ seed) after the upstream flip so it reloads the new
-    # registryMirror.addr. DEFAULT false: the hostAlias patch (move 3) ALREADY
-    # re-rolls the dfdaemon (+ seed) pods — adding hostAliases mutates the pod
-    # template, which the DaemonSet/StatefulSet controller rolls on its own — so
-    # the addr-only ConfigMap change is picked up by that same roll without a
-    # second, redundant restartedAt bump. Keeping the explicit restart OFF also
-    # avoids re-rolling the seed-peer twice (a StatefulSet whose upstream
-    # securityContext may need a per-Sovereign Kyverno exemption — a bp-dragonfly
-    # chart concern, not the cutover's). Operators who pin the dfdaemon config
-    # via an immutable ConfigMap (no auto-reload) can flip this true via overlay.
+    # registryMirror.addr. DEFAULT false: the addr-only ConfigMap change is
+    # picked up by the next dfdaemon/seed roll. Operators who pin the dfdaemon
+    # config via an immutable ConfigMap (no auto-reload) can flip this true via
+    # overlay to force a restartedAt bump.
+    #
+    # #4682: the old hostAlias→cilium-gateway-ClusterIP machinery
+    # (gatewayServiceName/gatewayServiceNamespace), the :30443 gateway-HTTPS-port
+    # append (gatewayHTTPSPort), and the coredns registry-local.server rewrite
+    # are all removed. The dfdaemon dials the registry over its EXTERNAL routable
+    # host https://registry.<fqdn> on :443 (the Cilium Gateway `Service
+    # type=LoadBalancer` ExternalIP) — no in-cluster ClusterIP, no NodePort, no
+    # CoreDNS override.
     restartOnFlip: false
-
-    # ── #4652 (Refs #4641) — CoreDNS-to-ClusterIP + dfdaemon cert trust ────
-    # The hostAlias (move 3) is INSUFFICIENT for the Rust dfdaemon's resolver:
-    # `getent hosts registry.<fqdn>` returns the public EIP FIRST (the node
-    # /etc/hosts pin) then the alias ClusterIP, and the dfdaemon dials the EIP
-    # first → kom4dc hairpin → 22-28s timeout (#4649). So the cutover ALSO
-    # rewrites CoreDNS to resolve registry.<fqdn> to the gateway ClusterIP ONLY.
-    coredns:
-      # Enable the coredns-custom registry-local.server override (the proven
-      # github-ipv4 mechanism: a SEPARATE `*.server` block, hosts plugin, NO
-      # fallthrough so the EIP is never also returned). Default on.
-      enabled: true
-      # The kube-system coredns-custom ConfigMap k3s `import`s into CoreDNS.
-      configMapName: "coredns-custom"
-      configMapNamespace: "kube-system"
-      # The data key for our server block. `.server` (NOT `.override`): k3s
-      # merges `*.override` into the default `.:53` block which already carries
-      # a `hosts /etc/coredns/NodeHosts` plugin — two hosts plugins per block is
-      # illegal CoreDNS (crash-loop). A dedicated `*.server` file is a separate
-      # server block scoped ONLY to registry.<fqdn>, so it never collides.
-      serverKey: "registry-local.server"
-      # CoreDNS Deployment to poll the projected coredns-custom volume on. After
-      # patching the CM we WAIT for the kubelet CM-volume sync (~60s lag) to land
-      # the new key in the mounted /etc/coredns/custom dir on the running CoreDNS
-      # pod BEFORE relying on the `reload` plugin — patch-then-restart races the
-      # stale mount (the #4652 failed live attempt). Once the file syncs, the
-      # k3s CoreDNS `reload` plugin auto-picks it up (no restart needed).
-      deploymentName: "coredns"
-      deploymentNamespace: "kube-system"
-      # Bounded poll for the synced mount before declaring the override active.
-      syncTimeoutSeconds: "120"
 
     # ── #4652 cert trust: dfdaemon registryMirror.cert ─────────────────────
     # Post-flip the dfdaemon back-to-sources to the LE-staging in-cluster Harbor

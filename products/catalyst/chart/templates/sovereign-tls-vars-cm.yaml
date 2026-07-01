@@ -101,7 +101,7 @@ parses it as the materialised listener list.
 {{- end }}
 {{-   $httpsListener := dict
         "name" $httpsName
-        "port" 30443
+        "port" 443
         "protocol" "HTTPS"
         "hostname" (printf "*.%s" $z.name)
         "tls" (dict
@@ -112,7 +112,7 @@ parses it as the materialised listener list.
       }}
 {{-   $httpListener := dict
         "name" $httpName
-        "port" 30080
+        "port" 80
         "protocol" "HTTP"
         "hostname" (printf "*.%s" $z.name)
         "allowedRoutes" (dict "namespaces" (dict "from" "All"))
@@ -133,7 +133,7 @@ parses it as the materialised listener list.
 {{- if not $fqdnInZones }}
 {{-   $listeners = append $listeners (dict
         "name" (printf "https-%s" $fqdnDashed)
-        "port" 30443
+        "port" 443
         "protocol" "HTTPS"
         "hostname" (printf "*.%s" $fqdn)
         "tls" (dict
@@ -144,7 +144,7 @@ parses it as the materialised listener list.
       ) }}
 {{-   $listeners = append $listeners (dict
         "name" (printf "http-%s" $fqdnDashed)
-        "port" 30080
+        "port" 80
         "protocol" "HTTP"
         "hostname" (printf "*.%s" $fqdn)
         "allowedRoutes" (dict "namespaces" (dict "from" "All"))
@@ -170,9 +170,13 @@ parses it as the materialised listener list.
        catalyst-api) survives. This second key renders the console gateway's
        listener set: the SAME per-prov wildcard cert (`*.<fqdn>` matches the
        2-label-deep console.<fqdn> / api.<fqdn> operator endpoints), but on the
-       console gateway's OWN host ports (consoleGateway.httpsPort /
-       .httpPort, default 31443 / 31080 — distinct from the shared gateway's
-       30443 / 30080 so both bind in hostNetwork mode without collision).
+       console gateway's OWN LoadBalancer Service (consoleGateway.httpsPort /
+       .httpPort, default 443 / 80; #4682). The shared gateway serves the
+       standard :443 / :80 on its own cilium-provisioned LoadBalancer Service
+       (hostNetwork is OFF; no host bind, no NodePort); the console gateway is
+       a SEPARATE Gateway → SEPARATE CiliumEnvoyConfig → SEPARATE LoadBalancer
+       Service, so its distinct listener ports never collide with the shared
+       gateway even though both terminate public :443 at their own LB front.
 
        Why a single `*.<fqdn>` listener pair (not the full per-zone fan-out):
        the console + api hostnames always live under the Sovereign FQDN apex,
@@ -185,8 +189,8 @@ parses it as the materialised listener list.
        substituteFrom the shared gateway uses for PARENT_DOMAINS_LISTENERS_YAML.
 */ -}}
 {{- $consoleCfg := default dict .Values.consoleGateway }}
-{{- $consoleHttpsPort := default 31443 $consoleCfg.httpsPort }}
-{{- $consoleHttpPort := default 31080 $consoleCfg.httpPort }}
+{{- $consoleHttpsPort := default 443 $consoleCfg.httpsPort }}
+{{- $consoleHttpPort := default 80 $consoleCfg.httpPort }}
 {{- $consoleListeners := list }}
 {{- $consoleListeners = append $consoleListeners (dict
       "name" "console-https"

@@ -92,7 +92,8 @@ spec:
 # even though the HTTPRoutes are Programmed, the Gateway is Accepted,
 # and the backend services are healthy in-cluster. Caught live on
 # prov #80 (omantel.biz, 2026-05-14): TLS handshake OK with the
-# correct cert, envoy reachable on :30443, but every request 403'd.
+# correct cert, envoy reachable on the gateway listener (:443 post-#4682;
+# historically :30443 before hostNetwork was turned off), but every request 403'd.
 # Confirmed via `cilium-dbg endpoint get 3282 -o json` showing
 # `l4.ingress: []` and `allowed-ingress-identities: [1]` only.
 #

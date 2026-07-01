@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.99 (#4682 Refs #3379 #4666 #4652 #4639, the registry-external-host + gateway
+# :443-LoadBalancer cutover: KILL every :30443 NodePort append + the CoreDNS
+# registry-local.server rewrite + the dfdaemon hostAlias→cilium-gateway-ClusterIP
+# hairpin). The governing architecture (PRINCIPLES §2/§3/§4, ARCHITECTURE §854 —
+# LoadBalancer never NodePort) turns hostNetwork OFF and serves the Cilium Gateway
+# API as a `Service type=LoadBalancer` on the standard :443 (hcloud-ccm gives it an
+# ExternalIP on Hetzner; a CiliumLoadBalancerIPPool does on CCM-less Huawei). So the
+# in-cluster Harbor `registry.<sov-fqdn>` answers on its EXTERNAL routable host on
+# :443 — the same address every node resolves via public DNS — and the old workaround
+# stack (cilium-envoy can't bind :443 → high NodePort :30443 → in-cluster CoreDNS
+# rewrite of registry.<fqdn>→gateway ClusterIP → dfdaemon hostAlias to that ClusterIP)
+# is entirely removed. This is also the ONLY correct multi-cluster path: in a
+# segregated DMZ/RTZ topology an in-cluster ClusterIP does not route across clusters,
+# so the external :443 host is the sole reachable registry endpoint. CHANGES:
+# (C1 values) removed sovereign.gatewayHTTPSPort + registryPivot.dragonfly.
+# {gatewayHTTPSPort,gatewayServiceName,gatewayServiceNamespace,coredns.*}; harborInternalURL
+# + harborPublicURL unchanged. (C2 step-04) dfdaemon registryMirror.addr flips to the
+# bare external host https://registry.<fqdn> (implicit :443); removed the
+# GATEWAY_HTTPS_PORT env, the read_gateway_clusterip / coredns_override(_remove) /
+# patch_workload_hostalias helpers + all call sites; KEPT write_default_mirror
+# (containerd→node-local dfdaemon) + the harborCA registryMirror.cert trust. (C3 step-06)
+# harbor_endpoint is the bare host; removed GATEWAY_HTTPS_PORT env + the :30443 append;
+# Phase-0 ghcr-pull auth is keyed on the single bare host; local_prefix =
+# oci://registry.<fqdn>/openova-io. (C4) contract Case 17b + Case 31 INVERTED to assert
+# NO :30443, endpoint == bare registry.<fqdn>, dfdaemon upstream == https://registry.<fqdn>
+# (no port), and NO hostAlias/GATEWAY_SERVICE_NAME/GATEWAY_HTTPS_PORT/CoreDNS-rewrite.
+# NO step-count / job-mode / RBAC change (still 11 steps). Lockstep w/ 06a slot pin +
+# catalog seed. Refs #4682.
 # 0.1.97 (#4637 Refs #4636 #3379 #4649, the step-07 catalyst-api-env-patch re-pull
 # GATE — registry-pivot must not green the daemonset-wait while its mirror is dead):
 # Post-#4639/#4641 the step-04 registry-pivot points every node's containerd at the
@@ -1481,7 +1509,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.99
+version: 0.1.100
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

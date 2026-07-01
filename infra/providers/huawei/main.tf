@@ -239,8 +239,12 @@ resource "huaweicloud_vpc_subnet" "region" {
 #   - TCP 6443 — k3s apiserver from 0/0 (fail-closed by k8s RBAC,
 #                not by firewall — same shape Hetzner module ships)
 #   - UDP 51820 — Cilium WireGuard inter-region (DMZ-WG)
-#   - TCP 30000-32767 — k8s NodePort range (clustermesh-apiserver +
-#                DMZ-WG bootstrapping)
+#   - TCP 32379 — Cilium clustermesh-apiserver NodePort (mTLS LB +
+#                DMZ-WG bootstrapping). Narrowed from the former
+#                30000-32767 range (#4682): the Cilium Gateway is now a
+#                Service type=LoadBalancer on the standard :443/:80
+#                (no gateway NodePort), so clustermesh is the only
+#                NodePort that must transit the public path here.
 #   - TCP 22  — only when ssh_allowed_cidrs is non-empty
 #   - ICMP    — for path-MTU + ping diagnostics
 #
@@ -308,10 +312,10 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_nodeport" {
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
-  port_range_min    = 30000
-  port_range_max    = 32767
+  port_range_min    = 32379
+  port_range_max    = 32379
   remote_ip_prefix  = "0.0.0.0/0"
-  description       = "k8s NodePort range (clustermesh-apiserver mTLS LB, cross-region traffic)"
+  description       = "Cilium clustermesh-apiserver NodePort (mTLS LB, cross-region traffic)"
 }
 
 resource "huaweicloud_networking_secgroup_rule" "ingress_icmp" {
@@ -796,20 +800,20 @@ locals {
   EOT
 
   # provider prelude — Huawei. Runs BEFORE k3s (runcmd 0-indent items; the
-  # shared template re-indents via indent(2,…)). Two hard dependencies:
-  #  (1) iptables DNAT 443→30443 + 80→30080: Cilium Gateway on host-network
-  #      binds envoy to high NodePorts; the tofu HCS ELB targets those, so the
-  #      CP must REDIRECT privileged ports (Wave 5.96 #TBD-W5.96).
-  #  (2) #3132 console-less log self-upload: kom4dc CPs have NO ECS console-
+  # shared template re-indents via indent(2,…)). One hard dependency:
+  #  (1) #3132 console-less log self-upload: kom4dc CPs have NO ECS console-
   #      output API + no reachable sshd, so /var/log/cloud-init-output.log can
   #      only be PUSHED. Backgrounded EARLY so it keeps uploading even if a
   #      later step aborts cloud-init — the founder's capture-before-wipe guard.
+  #
+  # NOTE (#4682): the former iptables DNAT (443→30443 / 80→30080) is GONE.
+  # The Cilium Gateway is now served as a Service type=LoadBalancer on the
+  # standard :443/:80 (hostNetwork off, no NodePort); a CiliumLoadBalancerIPPool
+  # (CILIUM_GATEWAY_LB_IPAM_*) gives the Service an ExternalIP on the CCM-less
+  # Huawei provider, and the HCS ELB forwards public :443→member:443 / :80→:80
+  # directly. No host-level port REDIRECT is required.
   # Plain POSIX (`nohup sh -c`, not bash; dash -n clean — no $(( )) here).
   provider_prelude_huawei = <<-EOT
-    - ["bash", "-c", "iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 30443 || true"]
-    - ["bash", "-c", "iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 30080 || true"]
-    - ["bash", "-c", "iptables -t nat -A OUTPUT -p tcp -d 127.0.0.0/8 -j RETURN || true"]
-    - ["bash", "-c", "mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"]
     - |
       if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ -n "${var.catalyst_api_url}" ]; then
         nohup sh -c '
@@ -1272,15 +1276,14 @@ resource "huaweicloud_obs_bucket" "main" {
   # tags disabled per Wave 5.4 — HCS tag-API divergence
 }
 
-# ── Wave 5.98 (#2447) — Huawei ELB v3: public 443→30443 + 80→30080 ──────
-# Public ELB that terminates 80/443 from the operator-facing FQDN and
-# forwards to cilium-envoy on the host NodePorts (30080/30443) on the
-# primary-region CP1. The Cilium Gateway-API hostnetwork mode binds
-# cilium-envoy to high ports because cilium-agent's BPF socket-LB
-# program rejects privileged-port bind() syscalls (verified on otech45-47
-# Hetzner port — see clusters/_template/sovereign-tls/cilium-gateway.yaml
-# line ~217 comment). Hetzner provider solves this with hcloud_load_
-# balancer_service 443→30443; this is the Huawei-port equivalent.
+# ── Wave 5.98 (#2447, #4682) — Huawei ELB v3: public 443→443 + 80→80 ──────
+# Public ELB that passes through 80/443 from the operator-facing FQDN to
+# the Cilium Gateway. Per #4682 the Gateway is now a Service
+# type=LoadBalancer on the standard :443/:80 (hostNetwork OFF, no
+# NodePort); a CiliumLoadBalancerIPPool (CILIUM_GATEWAY_LB_IPAM_*, seeded
+# with the per-region CP public IPv4/32) gives the Service its ExternalIP
+# on the CCM-less Huawei provider, and the ELB forwards public :443→
+# member:443 / :80→member:80 directly. No host NodePort / port REDIRECT.
 #
 # Sovereign FQDN A-record points at this ELB's EIP (NOT the CP EIP).
 # Phase 1 mothership-side handover writes the A record via PowerDNS.
@@ -1303,7 +1306,7 @@ resource "huaweicloud_elb_loadbalancer" "primary" {
   ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
   ipv4_eip_id       = huaweicloud_vpc_eip.elb_primary.id
   availability_zone = [var.huawei_az]
-  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — Wave 5.98 Cilium-Gateway-API 443→30443 + 80→30080 routing"
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — Wave 5.98 Cilium-Gateway-API 443→443 + 80→80 passthrough"
 
   # Wave 5.128 (hw30 fix-forward 2026-05-27): ignore_changes on flavor IDs.
   # The huaweicloud provider sends `l4_flavor_id: null` + `l7_flavor_id: null`
@@ -1340,7 +1343,7 @@ resource "huaweicloud_elb_pool" "https" {
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
   loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
-  description     = "cilium-envoy targets on port 30443"
+  description     = "cilium Gateway LoadBalancer Service targets on port 443"
 }
 
 resource "huaweicloud_elb_pool" "http" {
@@ -1348,7 +1351,7 @@ resource "huaweicloud_elb_pool" "http" {
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
   loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
-  description     = "cilium-envoy targets on port 30080"
+  description     = "cilium Gateway LoadBalancer Service targets on port 80"
 }
 
 resource "huaweicloud_elb_listener" "https" {
@@ -1358,7 +1361,7 @@ resource "huaweicloud_elb_listener" "https" {
   protocol_port   = 443
   default_pool_id = huaweicloud_elb_pool.https.id
   idle_timeout    = 60
-  description     = "TCP passthrough — cilium-envoy terminates TLS at 30443"
+  description     = "TCP passthrough — cilium-envoy terminates TLS at :443"
 }
 
 resource "huaweicloud_elb_listener" "http" {
@@ -1371,9 +1374,10 @@ resource "huaweicloud_elb_listener" "http" {
   description     = "TCP passthrough — ACME HTTP-01 + .well-known"
 }
 
-# Pool members: primary-region nodes (CPs + workers). Cilium-envoy DS runs
-# on every node, so every node serves 30443/30080. local.primary_lb_node_ips
-# collects the private IPs.
+# Pool members: primary-region nodes (CPs + workers). The cilium Gateway
+# LoadBalancer Service is reachable on :443/:80 on every node (kube-proxy-
+# free Cilium socket-LB), so every node is a valid member on :443/:80.
+# local.primary_lb_node_ips collects the private IPs.
 
 locals {
   # CPs are `count`-based — index by tofu's list-indexed array.
@@ -1402,13 +1406,10 @@ resource "huaweicloud_elb_member" "https" {
   count   = length(local.primary_lb_node_ips)
   pool_id = huaweicloud_elb_pool.https.id
   address = local.primary_lb_node_ips[count.index]
-  # Wave 5.124 (Refs hw29 fix-forward 2026-05-27): revert Wave 5.122.
-  # Cilium gateway-api `hostnetwork-enabled=true` binds envoy to whatever
-  # ports the Gateway spec declares — NOT the canonical web ports.
-  # bp-catalyst-platform's Gateway listeners are 30443 (HTTPS) + 30080
-  # (HTTP) per sovereign-tls-vars-cm.yaml. ELB does public 443→30443 and
-  # 80→30080 NAT — listeners stay at 443/80, members target 30443/30080.
-  protocol_port = 30443
+  # #4682: the Cilium Gateway is now a Service type=LoadBalancer serving
+  # the standard :443/:80 (hostNetwork off, no NodePort). Listeners stay
+  # at 443/80 and members target :443 directly — no NAT, no host port.
+  protocol_port = 443
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
@@ -1416,14 +1417,14 @@ resource "huaweicloud_elb_member" "http" {
   count         = length(local.primary_lb_node_ips)
   pool_id       = huaweicloud_elb_pool.http.id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = 30080 # Wave 5.124 (hw29 fix-forward) — Gateway listener
+  protocol_port = 80 # #4682 — cilium Gateway LoadBalancer Service :80
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
 resource "huaweicloud_elb_monitor" "https" {
   pool_id     = huaweicloud_elb_pool.https.id
   protocol    = "TCP"
-  port        = 30443 # Wave 5.124 (hw29 fix-forward) — Gateway listener
+  port        = 443 # #4682 — cilium Gateway LoadBalancer Service :443
   interval    = 10
   timeout     = 5
   max_retries = 3
@@ -1432,7 +1433,7 @@ resource "huaweicloud_elb_monitor" "https" {
 resource "huaweicloud_elb_monitor" "http" {
   pool_id     = huaweicloud_elb_pool.http.id
   protocol    = "TCP"
-  port        = 30080 # Wave 5.124 (hw29 fix-forward) — Gateway listener
+  port        = 80 # #4682 — cilium Gateway LoadBalancer Service :80
   interval    = 10
   timeout     = 5
   max_retries = 3
@@ -1444,12 +1445,13 @@ resource "huaweicloud_elb_monitor" "http" {
 # CiliumEnvoyConfig committed atomically; one unresolvable app backend fails the
 # whole CEC and 404s the entire gateway (cilium#35728, unfixed on pinned 1.16.5;
 # hit live on hw182). The console is isolated onto its OWN Cilium Gateway
-# (`cilium-gateway-console`, host ports 31443/31080 —
+# (`cilium-gateway-console` — its own Service type=LoadBalancer on :443/:80,
+# hostNetwork off, no NodePort/host-port; #4682 —
 # clusters/_template/sovereign-tls/cilium-gateway-console.yaml) with stable
 # backends only.
 #
 # This ELB does the SAME TCP-passthrough trick as the primary ELB above but
-# targets the console gateway's host ports (31443/31080). Because the ELB TCP
+# fronts the console gateway's own LoadBalancer Service (:443/:80). Because the ELB TCP
 # listener is dumb L4 passthrough (no SNI — Huawei SNI requires terminating TLS
 # at the ELB, which would break the in-cluster per-prov cert model), the console
 # needs its OWN public EIP: console./api.<fqdn> A-records point at THIS ELB's
@@ -1477,7 +1479,7 @@ resource "huaweicloud_elb_loadbalancer" "console" {
   ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
   ipv4_eip_id       = huaweicloud_vpc_eip.elb_console[0].id
   availability_zone = [var.huawei_az]
-  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→31443 + 80→31080 routing"
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→443 + 80→80 passthrough (#4682)"
 
   # Same immutable-field churn guards as elb_primary (see its lifecycle block):
   # the provider sends null/empty for these on subsequent plans and HCS rejects
@@ -1498,7 +1500,7 @@ resource "huaweicloud_elb_pool" "console_https" {
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
   loadbalancer_id = huaweicloud_elb_loadbalancer.console[0].id
-  description     = "cilium-gateway-console targets on port 31443"
+  description     = "cilium-gateway-console LoadBalancer Service targets on port 443"
 }
 
 resource "huaweicloud_elb_pool" "console_http" {
@@ -1507,7 +1509,7 @@ resource "huaweicloud_elb_pool" "console_http" {
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
   loadbalancer_id = huaweicloud_elb_loadbalancer.console[0].id
-  description     = "cilium-gateway-console targets on port 31080"
+  description     = "cilium-gateway-console LoadBalancer Service targets on port 80"
 }
 
 resource "huaweicloud_elb_listener" "console_https" {
@@ -1518,7 +1520,7 @@ resource "huaweicloud_elb_listener" "console_https" {
   protocol_port   = 443
   default_pool_id = huaweicloud_elb_pool.console_https[0].id
   idle_timeout    = 60
-  description     = "TCP passthrough — cilium-gateway-console terminates TLS at 31443"
+  description     = "TCP passthrough — cilium-gateway-console terminates TLS at :443"
 }
 
 resource "huaweicloud_elb_listener" "console_http" {
@@ -1533,13 +1535,13 @@ resource "huaweicloud_elb_listener" "console_http" {
 }
 
 # Console ELB members: the SAME primary-region nodes as the primary ELB.
-# cilium-envoy runs on every node and binds BOTH 30443 (shared) and 31443
-# (console), so every node is a valid console-ELB target on 31443/31080.
+# The console gateway owns its own Service type=LoadBalancer on :443/:80
+# (hostNetwork off, no NodePort; #4682), reachable on every node.
 resource "huaweicloud_elb_member" "console_https" {
   count         = local.console_member_count
   pool_id       = huaweicloud_elb_pool.console_https[0].id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = 31443
+  protocol_port = 443
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
@@ -1547,7 +1549,7 @@ resource "huaweicloud_elb_member" "console_http" {
   count         = local.console_member_count
   pool_id       = huaweicloud_elb_pool.console_http[0].id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = 31080
+  protocol_port = 80
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
@@ -1555,7 +1557,7 @@ resource "huaweicloud_elb_monitor" "console_https" {
   count       = local.console_isolation_on ? 1 : 0
   pool_id     = huaweicloud_elb_pool.console_https[0].id
   protocol    = "TCP"
-  port        = 31443
+  port        = 443
   interval    = 10
   timeout     = 5
   max_retries = 3
@@ -1565,7 +1567,7 @@ resource "huaweicloud_elb_monitor" "console_http" {
   count       = local.console_isolation_on ? 1 : 0
   pool_id     = huaweicloud_elb_pool.console_http[0].id
   protocol    = "TCP"
-  port        = 31080
+  port        = 80
   interval    = 10
   timeout     = 5
   max_retries = 3

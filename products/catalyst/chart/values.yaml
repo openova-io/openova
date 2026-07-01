@@ -1344,21 +1344,23 @@ catalystApi:
 # catalyst-ui + catalyst-api HTTPRoutes — stable ClusterIP backends that always
 # resolve — so its CEC can never be poisoned by an app on the SHARED gateway.
 #
-# The console gateway binds its own host ports in Cilium hostNetwork mode
-# (distinct from the shared gateway's 30443/30080 so both coexist on every
-# node). A dedicated cloud LoadBalancer forwards public 443/80 → these host
-# ports; the console A-records (console./api.<fqdn>) point at THAT LB, while the
-# wildcard `*.<fqdn>` (every volatile app/tenant host) keeps pointing at the
-# shared gateway's LB. See clusters/_template/sovereign-tls/cilium-gateway-
-# console.yaml, infra/providers/{hetzner,huawei}/main.tf (console LB), and
+# The console gateway serves :443/:80 on its OWN Service type=LoadBalancer
+# (#4682; hostNetwork is OFF, no host bind, no NodePort). Cilium auto-provisions
+# a distinct LoadBalancer Service for this Gateway, so it never collides with the
+# shared gateway's LB. A dedicated cloud LoadBalancer L4-passthrough-forwards
+# public 443/80 → the console gateway Service :443/:80; the console A-records
+# (console./api.<fqdn>) point at THAT LB, while the wildcard `*.<fqdn>` (every
+# volatile app/tenant host) keeps pointing at the shared gateway's LB. See
+# clusters/_template/sovereign-tls/cilium-gateway-console.yaml,
+# infra/providers/{hetzner,huawei}/main.tf (console LB), and
 # core/pool-domain-manager (console-LB-IP DNS split).
 consoleGateway:
-  # Host ports the console gateway's cilium-envoy listeners bind (hostNetwork).
-  # MUST differ from the shared gateway's 30443/30080 so both gateways bind on
-  # the same node set without a port collision. The console LB forwards public
-  # 443→httpsPort and 80→httpPort. Operator-overridable for unusual topologies.
-  httpsPort: 31443
-  httpPort: 31080
+  # Ports the console gateway's listeners bind. Standard :443/:80 (#4682) — the
+  # console gateway has its OWN LoadBalancer Service, distinct from the shared
+  # gateway's, so both serve :443 without a bind collision. Operator-overridable
+  # for unusual topologies.
+  httpsPort: 443
+  httpPort: 80
 
 # ─── Sovereign HTTPRoute (Cilium Gateway API, issue #387) ─────────────────
 # Renders templates/httproute.yaml when `ingress.gateway.enabled=true`

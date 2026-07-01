@@ -1372,8 +1372,9 @@ name: bp-catalyst-platform
 #   backend to render. Pre-#1650 every Org had zero-value
 #   TenantPublic → reconciler short-circuited at empty-ParentDomain
 #   guard.
-# - #1640 Cilium Gateway renders one listener pair (HTTPS:30443 +
-#   HTTP:30080) per parent zone (sovereign-tls Kustomization).
+# - #1640 Cilium Gateway renders one listener pair (HTTPS:443 +
+#   HTTP:80 post-#4682; :30443/:30080 before hostNetwork was turned
+#   off) per parent zone (sovereign-tls Kustomization).
 #   Tenants under non-primary parent zones (e.g. wp-foo.omani.homes
 #   when omani.homes is the Org pool) no longer TLS-handshake-
 #   mismatch on the wildcard cert.

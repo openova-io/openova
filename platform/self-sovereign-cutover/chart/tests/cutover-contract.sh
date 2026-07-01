@@ -374,30 +374,37 @@ fi
 #     run and the cutover wedged at step-06 (hw146; also the hw144 0/0 shape,
 #     #3588). Guard against a regression back to the status-Ready read.
 if ! grep -Eq 'helm pull "oci://\$\{harbor_endpoint\}/openova-io/' "$TMP/render.yaml"; then
-  echo "FAIL: Step-06 Phase-3a does not prove pullability via 'helm pull oci://\${harbor_endpoint}/openova-io/<chart>' — the strip readiness gate is not a real authenticated pull against the gateway HTTPS endpoint (Refs #3627 #4666)" >&2
+  echo "FAIL: Step-06 Phase-3a does not prove pullability via 'helm pull oci://\${harbor_endpoint}/openova-io/<chart>' — the strip readiness gate is not a real authenticated pull against the external registry host (Refs #3627 #4682)" >&2
   exit 1
 fi
 if ! grep -q 'helm registry login' "$TMP/render.yaml"; then
   echo "FAIL: Step-06 Phase-3a does not 'helm registry login' the local Harbor before the pull probe (Refs #3627)" >&2
   exit 1
 fi
-# #4666: the pivoted HelmRepository url + the Phase-3a probe MUST target the
-# in-cluster gateway HTTPS ENDPOINT (host[:port]). Post-#4652 CoreDNS resolves
-# registry.<fqdn> to the cilium-gateway ClusterIP, which listens on the high
-# NodePort (30443) — a bare-host (implicit :443) OCI pull connect-times-out for
-# both the Flux source-controller AND the Phase-3a probe (the hw201 wedge). The
-# step builds harbor_endpoint = harbor_host[:GATEWAY_HTTPS_PORT] and uses it for
-# the local_prefix (URL pivot), the login, and the pull. Guard the wiring.
-if ! grep -q 'GATEWAY_HTTPS_PORT' "$TMP/render.yaml"; then
-  echo "FAIL: Step-06 does not carry GATEWAY_HTTPS_PORT — the pivoted HelmRepository url + Phase-3a probe would target the implicit :443 and connect-timeout against the cilium-gateway ClusterIP (the hw201 wedge, Refs #4666)" >&2
+# #4682: the registry is reached ONLY via its EXTERNAL routable host
+# registry.<fqdn> on :443 (the Cilium Gateway `Service type=LoadBalancer`).
+# The pivoted HelmRepository url + the Phase-3a probe MUST target the BARE host
+# — NO :30443 append, NO GATEWAY_HTTPS_PORT env (that NodePort workaround is
+# gone). harbor_endpoint is the bare harbor_host. Guard against a regression
+# that re-introduces the port.
+if grep -q 'GATEWAY_HTTPS_PORT' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 still carries GATEWAY_HTTPS_PORT — the registry must be reached via the bare external host on :443, NOT a :30443 NodePort append (Refs #4682)" >&2
   exit 1
 fi
-if ! grep -Eq 'harbor_endpoint="\$\{harbor_host\}:\$\{GATEWAY_HTTPS_PORT\}"' "$TMP/render.yaml"; then
-  echo "FAIL: Step-06 does not derive harbor_endpoint=host:GATEWAY_HTTPS_PORT — the local-Harbor pull endpoint must carry the gateway HTTPS port (Refs #4666)" >&2
+if grep -Eq 'harbor_endpoint="\$\{harbor_host\}:\$\{GATEWAY_HTTPS_PORT\}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 still derives harbor_endpoint=host:GATEWAY_HTTPS_PORT — the registry endpoint must be the bare external host (implicit :443 via the Gateway LoadBalancer), no port append (Refs #4682)" >&2
+  exit 1
+fi
+if ! grep -Eq 'harbor_endpoint="\$\{harbor_host\}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 does not set harbor_endpoint to the bare \${harbor_host} — the registry must be reached via its external host on :443 (Refs #4682)" >&2
+  exit 1
+fi
+if grep -Eq 'oci://registry\.[^/]*:30443' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 still pivots/probes an oci://registry.<fqdn>:30443 URL — the :30443 NodePort workaround must be gone (Refs #4682)" >&2
   exit 1
 fi
 if ! grep -Eq 'helm registry login "\$\{harbor_endpoint\}"' "$TMP/render.yaml"; then
-  echo "FAIL: Step-06 Phase-3a 'helm registry login' must target harbor_endpoint (host:port) — docker/OCI auth is keyed on the exact host[:port], so a bare-host login leaves the host:port pull unauthenticated (Refs #4666)" >&2
+  echo "FAIL: Step-06 Phase-3a 'helm registry login' must target harbor_endpoint (the bare external host) — the login host must match the pull host (Refs #4682)" >&2
   exit 1
 fi
 # The probe MUST run from a writable helm home (the Pod is
@@ -1017,17 +1024,20 @@ if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render-desttls.yaml" | grep 
 fi
 echo "  PASS (Step-03 drives in-cluster-Harbor dest-TLS from PREWARM_DEST_TLS_VERIFY, default false; src ghcr.io stays verified; overlay can re-enable dest verify)"
 
-echo "[cutover-contract] Case 31: step-04 registry-pivot uses the Dragonfly path — node containerd mirrors through the LOCAL dfdaemon, dfdaemon upstream flips to the local Harbor, and a registry.<fqdn> -> cilium-gateway hostAlias kills the kubelet/dfdaemon hairpin (#4639, Refs #4637)"
+echo "[cutover-contract] Case 31: step-04 registry-pivot uses the Dragonfly path — node containerd mirrors through the LOCAL dfdaemon, and dfdaemon upstream flips to the local Harbor EXTERNAL host on :443 (#4639 / #4682, Refs #4637)"
 # The Dragonfly rewrite REPLACES the per-cloud registries.yaml / hosts.toml /
-# 30443/DNAT hairpin surgery with three generic moves. The contract:
+# 30443/DNAT hairpin surgery with two generic moves. #4682 removed the old
+# move-3 hostAlias→cilium-gateway-ClusterIP hairpin, the :30443 gateway-HTTPS
+# port append, and the CoreDNS registry-local.server rewrite — the dfdaemon
+# reaches the registry over its external routable host on :443 (the Gateway
+# `Service type=LoadBalancer`). The contract:
 #   (a) the pivot writes the containerd `_default/hosts.toml` catch-all pointing
 #       at the node-local dfdaemon proxy (http://127.0.0.1:<proxyPort>) — NOT the
-#       public registry host (which the node /etc/hosts pins to the un-hairpinnable
-#       public EIP);
+#       public registry host directly;
 #   (b) the pivot flips the dfdaemon (+ seed) registryMirror.addr to the local
-#       Harbor on the gateway HTTPS port;
-#   (c) the pivot adds a registry.<fqdn> -> cilium-gateway ClusterIP hostAlias to
-#       the dfdaemon (+ seed) pod template (the #4637 token-realm hairpin kill);
+#       Harbor EXTERNAL host https://registry.<fqdn> (implicit :443, NO port);
+#   (c) NO hostAlias / GATEWAY_SERVICE_NAME / GATEWAY_HTTPS_PORT / CoreDNS-rewrite
+#       machinery remains (the #4682 external-host kill);
 #   (d) the legacy registries.yaml / k3s registries.yaml machinery is GONE.
 pivot_block="$(awk '/name: registry-pivot-script/{c=1} c{print} c&&/^---/{if(seen)exit; seen=1}' "$TMP/render.yaml")"
 # (a) containerd _default catch-all -> the node-local dfdaemon proxy.
@@ -1039,22 +1049,31 @@ if ! grep -q '_default/hosts.toml' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not write the containerd _default/hosts.toml catch-all that mirrors every registry namespace through dfdaemon (#4639)" >&2
   exit 1
 fi
-# (b) dfdaemon upstream flip to the local Harbor on the gateway HTTPS port.
+# (b) dfdaemon upstream flip to the local Harbor EXTERNAL host on :443 (no port).
 if ! grep -q 'registryMirror' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script does not flip the dfdaemon registryMirror upstream to the local Harbor (#4639)" >&2
   exit 1
 fi
-if ! grep -q 'GATEWAY_HTTPS_PORT' <<<"$pivot_block"; then
-  echo "FAIL: step-04 pivot script does not target the gateway HTTPS port for the local-Harbor upstream (so the token realm stays node-routable) (#4639)" >&2
+if ! grep -Eq 'local_upstream="https://\$\{harbor_host\}"' <<<"$pivot_block"; then
+  echo "FAIL: step-04 pivot script does not set the dfdaemon upstream to the bare external host https://\${harbor_host} (:443 via the Gateway LoadBalancer, no :30443 append) (#4682)" >&2
   exit 1
 fi
-# (c) the registry.<fqdn> -> cilium-gateway ClusterIP hostAlias (the #4637 kill).
-if ! grep -q 'hostAliases' <<<"$pivot_block"; then
-  echo "FAIL: step-04 pivot script does not patch a registry.<fqdn> -> cilium-gateway ClusterIP hostAlias onto the dfdaemon pod template (the #4637 token-realm hairpin kill) (#4639)" >&2
+# (c) #4682: the hostAlias→ClusterIP hairpin, the gateway-HTTPS-port append, and
+#     the CoreDNS registry-local.server rewrite MUST all be GONE.
+if grep -q 'GATEWAY_HTTPS_PORT' <<<"$pivot_block"; then
+  echo "FAIL: step-04 pivot script still carries GATEWAY_HTTPS_PORT — the dfdaemon must reach the registry via the bare external host on :443, not a :30443 append (#4682)" >&2
   exit 1
 fi
-if ! grep -q 'GATEWAY_SERVICE_NAME' <<<"$pivot_block"; then
-  echo "FAIL: step-04 pivot script does not resolve the cilium-gateway Service ClusterIP for the hostAlias (#4639)" >&2
+if grep -q 'hostAliases' <<<"$pivot_block"; then
+  echo "FAIL: step-04 pivot script still patches a registry.<fqdn> hostAlias onto the dfdaemon pod template — the external-host :443 path needs no ClusterIP hairpin (#4682)" >&2
+  exit 1
+fi
+if grep -q 'GATEWAY_SERVICE_NAME' <<<"$pivot_block"; then
+  echo "FAIL: step-04 pivot script still resolves the cilium-gateway Service ClusterIP — the external-host :443 path needs no ClusterIP resolution (#4682)" >&2
+  exit 1
+fi
+if grep -Eq 'registry-local\.server|coredns_override' <<<"$pivot_block"; then
+  echo "FAIL: step-04 pivot script still carries the CoreDNS registry-local.server rewrite — the external-host :443 path needs no in-cluster DNS override (#4682)" >&2
   exit 1
 fi
 # (d) the legacy k3s registries.yaml / per-upstream mirror machinery is GONE.
@@ -1072,7 +1091,7 @@ if ! grep -q 'node.${NODE_NAME}.registriesYaml' <<<"$pivot_block"; then
   echo "FAIL: step-04 pivot script no longer writes the per-node node.<NODE>.registriesYaml ack the daemonset-wait counts (#3671)" >&2
   exit 1
 fi
-echo "  PASS (step-04 is the Dragonfly path: containerd -> node-local dfdaemon, dfdaemon upstream -> local Harbor, registry.<fqdn> -> cilium-gateway hostAlias; legacy registries.yaml hairpin machinery removed; per-node acks preserved)"
+echo "  PASS (step-04 is the Dragonfly path: containerd -> node-local dfdaemon, dfdaemon upstream -> local Harbor external host on :443; no hostAlias/GATEWAY_SERVICE_NAME/GATEWAY_HTTPS_PORT/CoreDNS-rewrite; legacy registries.yaml hairpin machinery removed; per-node acks preserved)"
 
 echo "[cutover-contract] Case 32: Step-07 ALSO pivots the bp-openova-flow-server HR global.imageRegistry to local Harbor (#4563, Refs #3379)"
 # openova-flow-server is a SEPARATE HelmRelease (slot 56) whose chart honours
