@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.6 (#4686, 2026-07-01): the Sovereign Gateway Service shares the
+# clustermesh CP-node EIP via Cilium LB-IPAM `sharing-key` — no ELB, no
+# NodePort on the no-CCM Huawei path (§854 / PRINCIPLES §2/§4). The
+# clustermesh-lb-ipam-pool.yaml pool now backs BOTH the clustermesh-apiserver
+# Service (:2379) and the gateway Service (:443/:80): the gateway carries the
+# pool's `k8s-app: clustermesh-apiserver` selector label + the same
+# `lbipam.cilium.io/sharing-key` via spec.infrastructure.labels/annotations
+# (clusters/_template/sovereign-tls/cilium-gateway.yaml), and both Services
+# co-locate on the ONE ExternalIP (non-overlapping ports). The dead #4684
+# separate gateway-lb-ipam-pool.yaml is DELETED (two pools cannot carry
+# overlapping CIDRs; the gateway draws from the ONE clustermesh pool via the
+# sharing-key). New substitute CILIUM_GATEWAY_SHARING_KEY wired into the
+# slot-01 clustermesh Service annotations (default empty → Hetzner no-op;
+# Huawei cloud-init sets the shared key — the separate infra PR). NOTE: the
+# upstream cilium subchart is pinned 1.16.5, whose clustermesh-apiserver
+# Service HARDCODES its labels with NO `.service.labels`/`commonLabels` knob,
+# so the neutral `catalyst.openova.io/lb-ipam` label can't be added to it —
+# the gateway borrows the upstream-stable `k8s-app` label instead. Lockstep:
+# blueprint.yaml 1.4.6 + 01-cilium.yaml slot pin 1.4.6 + catalog-seed 1.4.6.
 # 1.4.5 (#4507, 2026-06-27): add oauth2-proxy --api-route=^/api/ to the
 # hubble-ui oauth2-proxy so the Hubble UI flow-stream XHR (a gRPC-Web/Connect
 # server-stream to /api/v1/...) gets a clean HTTP 401 on a missing/expired
@@ -157,7 +176,7 @@ name: bp-cilium
 # the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
 # fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
 # mapper lands on the live hubble-ui client zero-touch.
-version: 1.4.5
+version: 1.4.6
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
