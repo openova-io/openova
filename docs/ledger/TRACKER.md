@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-02T02:15:03Z` |
+| Last refreshed | `2026-07-02T02:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 35 |
 | Open DoD gates | 0 / 41 |
@@ -242,6 +242,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-02T02:17 | [#4694](https://github.com/openova-io/openova/pull/4694) | #4686 | docs(uat): G11 — correct stale '#4686 BLOCKED' row (resolved |
 | 2026-07-02T01:20 | [#4693](https://github.com/openova-io/openova/pull/4693) | #4685 | fix(ci): controller-image-tag freshness — UNVERIFIABLE GHCR  |
 | 2026-07-01T20:42 | [#4691](https://github.com/openova-io/openova/pull/4691) | #4686 | fix(gateway+huawei): restore the Sovereign gateway ELB → nod |
 | 2026-07-01T22:39 | [#4690](https://github.com/openova-io/openova/pull/4690) | #4682 | fix(cutover): steps 02/03 reach Harbor via external host reg |
@@ -271,7 +272,6 @@ flowchart LR
 | 2026-06-29T19:14 | [#4651](https://github.com/openova-io/openova/pull/4651) | #4650 | fix(kyverno-policies): exempt dragonfly registry-layer ns fr |
 | 2026-06-29T19:05 | [#4648](https://github.com/openova-io/openova/pull/4648) | #4642 | fix(infra): thread QA_FIXTURES_ENABLED into the cloud-init s |
 | 2026-06-29T19:05 | [#4647](https://github.com/openova-io/openova/pull/4647) | #4604 | docs(dod): retire dead Sandbox surface → Agenity + bp-openov |
-| 2026-06-29T19:05 | [#4643](https://github.com/openova-io/openova/pull/4643) | #4640 | docs(adr): ADR-0012 — Dragonfly P2P registry + cloud-agnosti |
 
 ---
 
