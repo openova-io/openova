@@ -80,6 +80,7 @@ fi
 
 fail=0
 checked=0
+unverifiable=0
 
 for key in "${!CTRL_PKG[@]}"; do
   pkg="${CTRL_PKG[$key]}"
@@ -125,8 +126,17 @@ for key in "${!CTRL_PKG[@]}"; do
   # Both fixed: correct path + honest UNVERIFIABLE wording.
   pkg_path="openova%2F${pkg}"
   if ! versions_json=$(gh api "/orgs/${GHCR_ORG}/packages/container/${pkg_path}/versions" --paginate 2>/dev/null); then
-    echo "::error::GHCR API query UNVERIFIABLE for openova/${pkg} (404/auth/network — NOT a staleness verdict). Check the package path + token read:packages access."
-    fail=$((fail + 1))
+    # #4685: an UNVERIFIABLE query (404/auth/network) is NOT a staleness
+    # verdict — the ephemeral GITHUB_TOKEN cannot read the org-private
+    # `*-controller` packages unless they are linked to this repo (or a
+    # read:packages PAT is supplied). Counting it as `fail` false-red'd
+    # EVERY PR. Treat it as an honest, non-fatal WARNING instead: it is
+    # counted as `checked` (so the "0/5 checked" undercount goes away) and
+    # tracked separately in `unverifiable`; the gate still fails hard on a
+    # genuine staleness verdict (a SUCCESSFUL query showing a lagging pin).
+    echo "::warning::GHCR API query UNVERIFIABLE for openova/${pkg} (404/auth/network — NOT a staleness verdict). The ephemeral GITHUB_TOKEN cannot read org-private *-controller packages unless linked to this repo or given a read:packages PAT. Skipping the freshness check for this pin."
+    unverifiable=$((unverifiable + 1))
+    checked=$((checked + 1))
     continue
   fi
 
@@ -186,7 +196,10 @@ for key in "${!CTRL_PKG[@]}"; do
 done
 
 echo
-echo "Checked ${checked}/${#CTRL_PKG[@]} controller pin(s); ${fail} stale."
+echo "Checked ${checked}/${#CTRL_PKG[@]} controller pin(s); ${fail} stale; ${unverifiable} unverifiable (auth/404 — NOT counted as failures, #4685)."
+if [ "${unverifiable}" -gt 0 ]; then
+  echo "::warning::${unverifiable} controller pin(s) could NOT be verified against GHCR (org-private *-controller packages are unreadable by the ephemeral GITHUB_TOKEN). Staleness enforcement is DEGRADED for those pins until they are linked to this repo (or a read:packages PAT is wired). This is NOT a merge blocker (#4685)."
+fi
 
 if [ "${fail}" -gt 0 ]; then
   echo
