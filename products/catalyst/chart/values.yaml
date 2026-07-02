@@ -860,7 +860,10 @@ controllers:
       # loops the env-controller.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "8c532a7"
+      # 0c717f6 (2026-07-02, #4685) — freshness sweep: 8c532a7 had drifted 311
+      # commits behind latest GHCR (0c717f6), surfaced the moment #4685 un-masked
+      # the blanket false-red. Image published + main-reachable (verified).
+      tag: "0c717f6"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
