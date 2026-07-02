@@ -234,8 +234,20 @@ cilium:
     # through the LoadBalancer Service, identically inside and outside the
     # cluster (which is required for the segregated DMZ/RTZ multi-cluster
     # topology, where in-cluster ClusterIPs do not route across clusters).
+    #
+    # #4706 — RE-ENABLED with the cilium 1.16.5 → 1.19.3 bump. The bind
+    # rejection above was a 1.16.x gateway-api-hostNetwork bug (cilium-envoy
+    # NACK'd "cannot bind 0.0.0.0:80"); 1.19 graduated hostNetwork out of beta
+    # and fixes it, so envoy now binds node:443/:80 directly. This is the
+    # §854-CLEAN gateway path on no-CCM Huawei: the LoadBalancer VIP can't
+    # route through Huawei's 1:1-NAT'd EIP, and nodePorts are forbidden — so a
+    # direct host bind is the only compliant option. The Huawei ELB then
+    # targets node-IP:443/:80 (a hostPort, NOT a nodePort). Companion: the
+    # gateway-elb reconciler retargets :443/:80 instead of the Service
+    # nodePort. MUST be validated on a fresh prov (incl. 2-region cross-cluster
+    # reachability) before it is trusted — see #4706.
     hostNetwork:
-      enabled: false
+      enabled: true
 
   # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
   envoy:

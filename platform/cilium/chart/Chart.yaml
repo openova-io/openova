@@ -188,7 +188,7 @@ name: bp-cilium
 # the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
 # fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
 # mapper lands on the live hubble-ui client zero-touch.
-version: 1.4.7
+version: 1.4.8
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
@@ -226,5 +226,5 @@ dependencies:
     # constraint with the locked version eliminates the lie. Bumping to a
     # newer Cilium minor is a separate slice that needs real upgrade
     # testing on a live data-plane cluster.
-    version: "1.16.5"
+    version: "1.19.3"
     repository: "https://helm.cilium.io"
