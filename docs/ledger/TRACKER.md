@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-02T22:30:03Z` |
+| Last refreshed | `2026-07-02T22:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -248,6 +248,7 @@ flowchart LR
 | 2026-07-02T21:58 | [#4711](https://github.com/openova-io/openova/pull/4711) | #3 | fix(gateway): Hetzner LB annotations provider-scoped — no ve |
 | 2026-07-02T21:41 | [#4710](https://github.com/openova-io/openova/pull/4710) | fix(bp-agenity): move the dashboard image off the chart OCI  |  |
 | 2026-07-02T21:11 | [#4709](https://github.com/openova-io/openova/pull/4709) | #4684 | fix(test): un-red main — registry-pivot flip test asserted t |
+| 2026-07-02T22:42 | [#4708](https://github.com/openova-io/openova/pull/4708) | #4706 | fix(bp-cilium): 1.19.3 + gatewayAPI hostNetwork — §854-clean |
 | 2026-07-02T21:41 | [#4707](https://github.com/openova-io/openova/pull/4707) | #4706 | fix(catalyst-api): gate "ready" on external console reachabi |
 | 2026-07-02T15:14 | [#4702](https://github.com/openova-io/openova/pull/4702) | #3241 | fix(provisioner): trim cluster.name trailing/collapsed dash  |
 | 2026-07-02T06:14 | [#4699](https://github.com/openova-io/openova/pull/4699) | #3971 | docs(session): live Sovereign signup-wizard walk — pillar-1  |
@@ -274,7 +275,6 @@ flowchart LR
 | 2026-06-30T15:10 | [#4667](https://github.com/openova-io/openova/pull/4667) | #3379 | fix(bp-self-sovereign-cutover): step-06 Phase-3a pivots Helm |
 | 2026-06-30T15:02 | [#4665](https://github.com/openova-io/openova/pull/4665) | #4664 | fix(cutover): registry-pivot v2 mirror tests assert stale up |
 | 2026-06-30T14:31 | [#4663](https://github.com/openova-io/openova/pull/4663) | #4648 | feat(catalyst): decouple cutover auto-fire (fireCutoverOnHan |
-| 2026-06-30T08:10 | [#4661](https://github.com/openova-io/openova/pull/4661) | #4660 | fix(cutover): gitea-admin-secret bridge materializes at runt |
 
 ---
 
