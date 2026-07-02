@@ -877,6 +877,59 @@ write_files:
           kind: GitRepository
           name: openova
         wait: false
+%{ if provider == "hetzner" ~}
+        # #4706 point-3 — HETZNER-ONLY hcloud-ccm LB annotations for the two
+        # Gateways. Moved OUT of the shared sovereign-tls base
+        # (clusters/_template/sovereign-tls/cilium-gateway*.yaml) so a Huawei
+        # Sovereign never renders Hetzner vendor annotations (its front door
+        # is the gateway ELB → node:443/:80 hostNetwork path). Kustomize
+        # patches apply BEFORE postBuild substitution, so the $${...} vars
+        # below substitute normally cluster-side. 8-annotation cap per
+        # TBD-A36 (#1896) — do NOT add a 9th.
+        patches:
+          - target:
+              kind: Gateway
+              name: cilium-gateway
+              namespace: kube-system
+            patch: |
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: cilium-gateway
+                namespace: kube-system
+              spec:
+                infrastructure:
+                  annotations:
+                    load-balancer.hetzner.cloud/name: "$${SOVEREIGN_FQDN_SLUG:=catalyst}-$${SOVEREIGN_REGION_KEY:=primary}-gateway"
+                    load-balancer.hetzner.cloud/location: "$${HCLOUD_LB_LOCATION}"
+                    load-balancer.hetzner.cloud/type: "lb11"
+                    load-balancer.hetzner.cloud/use-private-ip: "false"
+                    load-balancer.hetzner.cloud/disable-private-ingress: "true"
+                    load-balancer.hetzner.cloud/health-check-protocol: "tcp"
+                    load-balancer.hetzner.cloud/health-check-port: "443"
+                    load-balancer.hetzner.cloud/health-check-retries: "3"
+          - target:
+              kind: Gateway
+              name: cilium-gateway-console
+              namespace: kube-system
+            patch: |
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: cilium-gateway-console
+                namespace: kube-system
+              spec:
+                infrastructure:
+                  annotations:
+                    load-balancer.hetzner.cloud/name: "$${SOVEREIGN_FQDN_SLUG:=catalyst}-$${SOVEREIGN_REGION_KEY:=primary}-console-gateway"
+                    load-balancer.hetzner.cloud/location: "$${HCLOUD_LB_LOCATION}"
+                    load-balancer.hetzner.cloud/type: "lb11"
+                    load-balancer.hetzner.cloud/use-private-ip: "false"
+                    load-balancer.hetzner.cloud/disable-private-ingress: "true"
+                    load-balancer.hetzner.cloud/health-check-protocol: "tcp"
+                    load-balancer.hetzner.cloud/health-check-port: "443"
+                    load-balancer.hetzner.cloud/health-check-retries: "3"
+%{ endif ~}
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
