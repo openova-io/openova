@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-02T21:30:06Z` |
+| Last refreshed | `2026-07-02T21:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -245,7 +245,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-02T21:41 | [#4710](https://github.com/openova-io/openova/pull/4710) | fix(bp-agenity): move the dashboard image off the chart OCI  |  |
 | 2026-07-02T21:11 | [#4709](https://github.com/openova-io/openova/pull/4709) | #4684 | fix(test): un-red main — registry-pivot flip test asserted t |
+| 2026-07-02T21:41 | [#4707](https://github.com/openova-io/openova/pull/4707) | #4706 | fix(catalyst-api): gate "ready" on external console reachabi |
 | 2026-07-02T15:14 | [#4702](https://github.com/openova-io/openova/pull/4702) | #3241 | fix(provisioner): trim cluster.name trailing/collapsed dash  |
 | 2026-07-02T06:14 | [#4699](https://github.com/openova-io/openova/pull/4699) | #3971 | docs(session): live Sovereign signup-wizard walk — pillar-1  |
 | 2026-07-02T05:40 | [#4698](https://github.com/openova-io/openova/pull/4698) | #4697 | docs(uat): G11 — record live console-login walk (#4696→#4697 |
@@ -273,8 +275,6 @@ flowchart LR
 | 2026-06-30T14:31 | [#4663](https://github.com/openova-io/openova/pull/4663) | #4648 | feat(catalyst): decouple cutover auto-fire (fireCutoverOnHan |
 | 2026-06-30T08:10 | [#4661](https://github.com/openova-io/openova/pull/4661) | #4660 | fix(cutover): gitea-admin-secret bridge materializes at runt |
 | 2026-06-30T07:10 | [#4659](https://github.com/openova-io/openova/pull/4659) | #4658 | fix(qa-fixtures): resources.requests on the remaining qa Job |
-| 2026-06-30T05:28 | [#4658](https://github.com/openova-io/openova/pull/4658) | #4658 | fix(qa-fixtures): declare resources.requests on qa-cnpg-back |
-| 2026-06-30T04:55 | [#4657](https://github.com/openova-io/openova/pull/4657) | #4648 | fix(qa-fixtures): default-deny CCNP exempt huawei-evs-csi +  |
 
 ---
 
