@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-02T04:00:04Z` |
+| Last refreshed | `2026-07-02T04:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 36 |
 | Open DoD gates | 0 / 41 |
@@ -243,6 +243,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-02T04:05 | [#4697](https://github.com/openova-io/openova/pull/4697) | #4696 | fix(catalyst): SMTP host mail.openova.io → in-cluster stalwa |
 | 2026-07-02T02:54 | [#4695](https://github.com/openova-io/openova/pull/4695) | #4692 | fix(cloud-init): retry the /etc/hosts pin resolve — kom4dc c |
 | 2026-07-02T02:17 | [#4694](https://github.com/openova-io/openova/pull/4694) | #4686 | docs(uat): G11 — correct stale '#4686 BLOCKED' row (resolved |
 | 2026-07-02T01:20 | [#4693](https://github.com/openova-io/openova/pull/4693) | #4685 | fix(ci): controller-image-tag freshness — UNVERIFIABLE GHCR  |
@@ -272,7 +273,6 @@ flowchart LR
 | 2026-06-29T19:41 | [#4654](https://github.com/openova-io/openova/pull/4654) | #4653 | fix(cutover-contract): kill SIGPIPE false-fail wedging the b |
 | 2026-06-29T19:05 | [#4653](https://github.com/openova-io/openova/pull/4653) | #4649 | fix(bp-self-sovereign-cutover): close the dfdaemon→Harbor le |
 | 2026-06-29T19:14 | [#4651](https://github.com/openova-io/openova/pull/4651) | #4650 | fix(kyverno-policies): exempt dragonfly registry-layer ns fr |
-| 2026-06-29T19:05 | [#4648](https://github.com/openova-io/openova/pull/4648) | #4642 | fix(infra): thread QA_FIXTURES_ENABLED into the cloud-init s |
 
 ---
 
