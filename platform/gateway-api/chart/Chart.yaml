@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-gateway-api
-version: 1.1.0
+version: 1.3.0
 description: |
   Catalyst Blueprint installing the upstream Kubernetes Gateway API
   CustomResourceDefinitions (Standard channel — gatewayclasses, gateways,
@@ -43,13 +43,17 @@ maintainers:
 # the Blueprint version metadata + a single annotation that the templates
 # read via .Chart.Annotations).
 #
-# Version v1.1.0 (NOT v1.2.0): Gateway API v1.2.0 changed
-# status.supportedFeatures from string[] to object[]; Cilium 1.16.5
-# still writes the old string format. The v1.2.0 CRD rejects the
-# status patch with "must be of type object: string", leaving
-# GatewayClass/cilium permanently Unknown/Pending. v1.1.0 retains the
-# string schema. Bump in lock-step with Cilium when 1.17+ (which
-# writes the v1.2.0 object format) is adopted. See issue #503.
+# Version v1.3.0 (#4706, 2026-07-03) — LOCKSTEP with cilium 1.19.3
+# (bp-cilium 1.4.8). Gateway API v1.2+ changed status.supportedFeatures
+# from string[] to object[]; cilium 1.17+ writes the object format. With
+# the old v1.1.0 CRDs installed, cilium 1.19.3's GatewayClass status
+# update is REJECTED ("supportedFeatures in body must be of type string:
+# object") and every Gateway stays Programmed=False / AddressNotAssigned
+# — no gateway, console 000. LIVE-PROVEN on hw217: applying the v1.3.0
+# experimental bundle un-wedged the GatewayClass immediately.
+# (History: v1.1.0 was itself pinned for the mirror-image reason — cilium
+# 1.16.5 wrote the old string format that v1.2.0 CRDs rejected, #503.
+# These two charts MUST move together.)
 #
 # experimental-install.yaml (NOT standard-install.yaml): Cilium 1.16.x
 # checks for tlsroutes.gateway.networking.k8s.io at operator startup.
@@ -58,4 +62,4 @@ maintainers:
 # includes TLSRoute, TCPRoute, UDPRoute, BackendLBPolicy, BackendTLSPolicy.
 annotations:
   catalyst.openova.io/no-upstream: "true"
-  catalyst.openova.io/upstream-gateway-api-version: "v1.1.0"
+  catalyst.openova.io/upstream-gateway-api-version: "v1.3.0"

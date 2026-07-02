@@ -256,6 +256,23 @@ func TestCiliumValuesParity_GatewayHostNetworkLockstep(t *testing.T) {
 		t.Errorf("bootstrap cilium-values.yaml must carry the huawei-conditional gatewayAPI hostNetwork block (#4706) — without it the bootstrap install serves no host bind and the gateway ELB (node:443/:80) has nothing to forward to")
 	}
 
+	// (1b) the envoy NET_BIND_SERVICE cap pair — without BOTH knobs envoy
+	// cannot bind the privileged host ports ("cannot bind '0.0.0.0:80':
+	// Permission denied", live-proven hw217): the cap in the container list
+	// AND keepCapNetBindService (cilium-envoy-starter drops ambient caps at
+	// exec otherwise).
+	for _, tok := range []string{"NET_BIND_SERVICE", "keepCapNetBindService: true"} {
+		if !strings.Contains(bootstrapBlock, tok) {
+			t.Errorf("bootstrap cilium-values.yaml must carry %q (#4706) — without it envoy cannot bind node:443/:80 and the gateway ELB has nothing to forward to", tok)
+		}
+	}
+	chart := readChartValues(t)
+	for _, tok := range []string{"NET_BIND_SERVICE", "keepCapNetBindService: true"} {
+		if !strings.Contains(chart, tok) {
+			t.Errorf("platform/cilium/chart/values.yaml must carry %q (#4706) — the slot-01 HR upgrade would strip the envoy bind capability mid-bootstrap", tok)
+		}
+	}
+
 	// (2) slot-01 HR wiring.
 	if !strings.Contains(overlay, "CILIUM_GATEWAY_HOSTNETWORK_ENABLED") {
 		t.Errorf("clusters/_template/bootstrap-kit/01-cilium.yaml must wire gatewayAPI.hostNetwork.enabled from CILIUM_GATEWAY_HOSTNETWORK_ENABLED (#4706)")

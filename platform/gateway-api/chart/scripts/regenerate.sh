@@ -36,7 +36,7 @@ if [ -z "$upstream_ver" ]; then
   exit 1
 fi
 
-url="https://github.com/kubernetes-sigs/gateway-api/releases/download/${upstream_ver}/standard-install.yaml"
+url="https://github.com/kubernetes-sigs/gateway-api/releases/download/${upstream_ver}/experimental-install.yaml"
 echo "Pulling $url"
 tmp=$(mktemp)
 curl -sLf "$url" -o "$tmp"
@@ -48,17 +48,14 @@ src_path, out_dir = sys.argv[1], sys.argv[2]
 src = open(src_path).read()
 docs = re.split(r'\n---\n', src)
 
-fname_map = {
-    'gatewayclasses':  'gatewayclasses.yaml',
-    'gateways':        'gateways.yaml',
-    'grpcroutes':      'grpcroutes.yaml',
-    'httproutes':      'httproutes.yaml',
-    'referencegrants': 'referencegrants.yaml',
-}
+# Dynamic per-CRD file naming: every CRD in the experimental bundle lands
+# as <plural>.yaml. The EXPERIMENTAL channel is REQUIRED (not standard):
+# cilium checks for tlsroutes.gateway.networking.k8s.io at operator
+# startup and disables its gateway controller when absent.
 
 header = '''{{/*
   Vendored from kubernetes-sigs/gateway-api {{ index .Chart.Annotations "catalyst.openova.io/upstream-gateway-api-version" }}
-  standard-install.yaml. Do NOT hand-edit annotations / spec — re-vendor
+  experimental-install.yaml. Do NOT hand-edit annotations / spec — re-vendor
   via the script in tests/regenerate.sh when bumping the upstream version
   (also bump catalyst.openova.io/upstream-gateway-api-version in Chart.yaml).
 
@@ -78,14 +75,12 @@ for d in docs:
         continue
     name = m.group(1)
     suffix = name.split('.', 1)[0]
-    if suffix not in fname_map:
-        sys.exit(f"unexpected CRD {name}")
     out = re.sub(
         r'^(  annotations:\n)',
         r'\1    helm.sh/resource-policy: keep\n',
         d, count=1, flags=re.MULTILINE,
     ).strip() + '\n'
-    target = f"{out_dir}/{fname_map[suffix]}"
+    target = f"{out_dir}/{suffix}.yaml"
     with open(target, 'w') as f:
         f.write(header)
         f.write(out)

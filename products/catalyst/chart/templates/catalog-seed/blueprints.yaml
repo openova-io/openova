@@ -4260,7 +4260,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.0"
+  version: "1.3.0"
   visibility: unlisted
   card:
     title: "Gateway API"
@@ -4277,7 +4277,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-gateway-api
-    version: "1.1.0"
+    version: "1.3.0"
   topology:
     supported:
       - singleton

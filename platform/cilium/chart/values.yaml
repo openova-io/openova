@@ -257,6 +257,23 @@ cilium:
   # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
   envoy:
     enabled: true
+    # #4706 — REQUIRED for the gateway-api hostNetwork host bind on
+    # privileged ports (node:443/:80). Two knobs, both live-proven on hw217:
+    #   1. NET_BIND_SERVICE must be ADDED to the envoy container caps (the
+    #      list REPLACES the chart default [NET_ADMIN, SYS_ADMIN] — keep
+    #      those two or the datapath breaks);
+    #   2. keepCapNetBindService=true — cilium-envoy-starter DROPS ambient
+    #      caps at exec unless told to keep NET_BIND_SERVICE; without it the
+    #      container cap alone still yields "cannot bind '0.0.0.0:80':
+    #      Permission denied" (observed live).
+    # Inert on Hetzner (hostNetwork off → no privileged host bind attempted).
+    securityContext:
+      capabilities:
+        envoy:
+          - NET_ADMIN
+          - SYS_ADMIN
+          - NET_BIND_SERVICE
+        keepCapNetBindService: true
 
   # L2 LoadBalancer announcements (alternative to MetalLB for bare-metal)
   l2announcements:
