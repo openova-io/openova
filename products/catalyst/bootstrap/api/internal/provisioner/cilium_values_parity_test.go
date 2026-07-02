@@ -260,12 +260,13 @@ func TestCiliumValuesParity_GatewayHostNetworkLockstep(t *testing.T) {
 	// cannot bind the privileged host ports ("cannot bind '0.0.0.0:80':
 	// Permission denied", live-proven hw217): the cap in the container list
 	// AND keepCapNetBindService (cilium-envoy-starter drops ambient caps at
-	// exec otherwise).
-	for _, tok := range []string{"NET_BIND_SERVICE", "keepCapNetBindService: true"} {
-		if !strings.Contains(bootstrapBlock, tok) {
-			t.Errorf("bootstrap cilium-values.yaml must carry %q (#4706) — without it envoy cannot bind node:443/:80 and the gateway ELB has nothing to forward to", tok)
-		}
-	}
+	// exec otherwise). DELIBERATELY asserted on the CHART values ONLY, not
+	// the bootstrap heredoc: gateway listeners exist only after Flux applies
+	// the Gateway CR (sovereign-tls, post-bootstrap), and slot-01's bp-cilium
+	// HR upgrade delivers the caps before any bind attempt — so carrying
+	// them in cloud-init buys nothing and costs bytes against Hetzner's
+	// 32 KiB user_data cap (#966: the 3-region CP render sits within ~30 B
+	// of it). This is NOT the #491 drift class (nothing crashes pre-Gateway).
 	chart := readChartValues(t)
 	for _, tok := range []string{"NET_BIND_SERVICE", "keepCapNetBindService: true"} {
 		if !strings.Contains(chart, tok) {
