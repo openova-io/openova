@@ -1182,7 +1182,21 @@ runcmd:
      python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
     }
     for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com registry.${sovereign_fqdn}%{ endif ~}; do
-     a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
+     # #4692: retry the resolve. r4() runs once per host, but on a first-boot
+     # VPC where external DNS egress (1.1.1.1 / 8.8.8.8) or the local resolver
+     # is not yet ready, that single attempt leaves the host UNPINNED and the
+     # later helm-repo-add of https://helm.cilium.io/ then fails with no
+     # /etc/hosts fallback, so CNI never installs, the node stays NotReady, and
+     # 0 HRs reconcile (the #3829 kom4dc wedge that killed hw209/hw210/hw211).
+     # Bounded 5x3s max per host; additive — worst case is the prior single-shot
+     # no-pin behaviour, never a boot hang. Once pinned, /etc/hosts serves the
+     # resolve durably regardless of later live-DNS flakiness.
+     a=""
+     for attempt in 1 2 3 4 5; do
+      a=$(r4 "$h"); [ -n "$a" ] && break
+      [ "$attempt" = 5 ] || sleep 3
+     done
+     [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
 %{ if provider == "huawei" ~}
      [ -n "$a" ] && echo "$a $h" >>/var/lib/catalyst/github-ipv4-hosts
 %{ endif ~}
