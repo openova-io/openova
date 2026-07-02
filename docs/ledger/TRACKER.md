@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-02T21:00:06Z` |
+| Last refreshed | `2026-07-02T21:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -245,6 +245,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-02T21:11 | [#4709](https://github.com/openova-io/openova/pull/4709) | #4684 | fix(test): un-red main — registry-pivot flip test asserted t |
 | 2026-07-02T15:14 | [#4702](https://github.com/openova-io/openova/pull/4702) | #3241 | fix(provisioner): trim cluster.name trailing/collapsed dash  |
 | 2026-07-02T06:14 | [#4699](https://github.com/openova-io/openova/pull/4699) | #3971 | docs(session): live Sovereign signup-wizard walk — pillar-1  |
 | 2026-07-02T05:40 | [#4698](https://github.com/openova-io/openova/pull/4698) | #4697 | docs(uat): G11 — record live console-login walk (#4696→#4697 |
@@ -274,7 +275,6 @@ flowchart LR
 | 2026-06-30T07:10 | [#4659](https://github.com/openova-io/openova/pull/4659) | #4658 | fix(qa-fixtures): resources.requests on the remaining qa Job |
 | 2026-06-30T05:28 | [#4658](https://github.com/openova-io/openova/pull/4658) | #4658 | fix(qa-fixtures): declare resources.requests on qa-cnpg-back |
 | 2026-06-30T04:55 | [#4657](https://github.com/openova-io/openova/pull/4657) | #4648 | fix(qa-fixtures): default-deny CCNP exempt huawei-evs-csi +  |
-| 2026-06-29T20:48 | [#4655](https://github.com/openova-io/openova/pull/4655) | #3870 | fix(catalog-seed): gate bp-wordpress alias off on qaFixtures |
 
 ---
 
