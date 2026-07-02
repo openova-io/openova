@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-agenity
+# 0.5.20 (#4706-family, 2026-07-03): image repo moved ghcr.io/openova-io/
+# bp-agenity → ghcr.io/openova-io/agenity. The dashboard image (tag =
+# appVersion 0.9.7) squatted the bp-agenity CHART OCI repo, so any
+# HelmRelease resolving `version: "*"` picked the IMAGE manifest (0.9.7 >
+# 0.5.x) and failed with "manifest does not contain minimum number of
+# descriptors (2)" — live-caught on hw217 Org northstar. Chart repos carry
+# ONLY charts. Lockstep: blueprint.yaml 0.5.20 + catalog-seed 0.5.20 +
+# agenity-build.yaml IMAGE. The squatting tags (0.9.7/latest on bp-agenity)
+# are deleted from ghcr after this lands.
 description: |
   Agenity — multi-agent runtime + dashboard, packaged as an installable
   OpenOva Application Blueprint. A User installs Agenity into their own
@@ -179,7 +188,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.19
+version: 0.5.20
 # 0.5.19 (#4624): the StatefulSet SELF-WIRES the OPENOVA_MCP_BEARER + RS256
 # verify-pubkey projection from the enabled per-Org mcpBearer ExternalSecret
 # (agenity.mcpBearerSecretName / agenity.mcpPubkeySecretName helpers) — an

@@ -5992,7 +5992,7 @@ spec:
   # projection from the enabled per-Org mcpBearer ExternalSecret (no door has to
   # hand-couple bearerSecret.name) so a fresh Org's agenity MCP tools/list
   # surfaces create_application. Lockstep with products/agenity/chart.
-  version: "0.5.19"
+  version: "0.5.20"
   visibility: listed
   card:
     title: "Agenity"
@@ -6022,7 +6022,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.19
+    version: 0.5.20
   topology:
     supported:
       - singleton
