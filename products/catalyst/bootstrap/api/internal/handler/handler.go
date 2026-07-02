@@ -124,6 +124,14 @@ type Handler struct {
 	phase1MinBootstrapKitHRs int
 	phase1FirstSeenTimeout   time.Duration
 
+	// consoleProbe is the external console-reachability gate applied before
+	// markPhase1Done flips a converged deployment to "ready" (#4706). NIL =
+	// gate OFF (the pre-#4706 behaviour): production turns it on by calling
+	// EnableConsoleReachabilityGate() at startup; unit tests leave it nil so
+	// they never touch the network, and set a stub here directly when they
+	// want to assert the gate (reachable → ready, down → failed).
+	consoleProbe func(fqdn string) error
+
 	// phase1LatePollTimeout / phase1LatePollInterval — test-only
 	// overrides for the eventual-consistency late-poll window
 	// (issue #910). Zero means "fall back to env var →
