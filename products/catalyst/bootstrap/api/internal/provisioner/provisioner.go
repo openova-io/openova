@@ -3826,7 +3826,20 @@ func stripDigitRuns(s string) string {
 			b.WriteByte(s[i])
 		}
 	}
-	return b.String()
+	// A digit run at a segment boundary ("me-east-215" → "me-east-", or the
+	// interior run in "me-east-215-b" → "me-east--b") leaves a trailing "-"
+	// or a "--" once the digits are gone. Cilium's cluster.name validator
+	// (validate.yaml) rejects BOTH ("must start and end with an alphanumeric
+	// character") → the CNI install fails → nodes NotReady → 0 HRs (the
+	// hw209-215 kom4dc wedge, live-diagnosed on 38e4191f). Collapse repeated
+	// dashes + trim leading/trailing so the derived name is always a valid
+	// cilium cluster.name. MUST stay byte-identical to the tofu counterpart
+	// (huawei/main.tf:906/915) per the #3241 lockstep contract.
+	out := b.String()
+	for strings.Contains(out, "--") {
+		out = strings.ReplaceAll(out, "--", "-")
+	}
+	return strings.Trim(out, "-")
 }
 
 // deriveClusterMeshID returns the canonical Cilium ClusterMesh peer ID

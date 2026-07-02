@@ -903,7 +903,7 @@ locals {
   # and id = primary + 1 + secondary-index. Auto-derive when var is empty.
   primary_cluster_mesh_name_effective = (
     var.cluster_mesh_name != "" ? var.cluster_mesh_name :
-    "${split(".", var.sovereign_fqdn)[0]}-${replace(local.region_keys[0], "/[0-9]+/", "")}"
+    "${split(".", var.sovereign_fqdn)[0]}-${trim(replace(replace(local.region_keys[0], "/[0-9]+/", ""), "/-+/", "-"), "-")}"
   )
   primary_cluster_mesh_id_effective = (
     var.cluster_mesh_id > 0 ? var.cluster_mesh_id : 1
@@ -912,7 +912,7 @@ locals {
     for idx, r in var.regions :
     r.code => (
       idx == 0 ? local.primary_cluster_mesh_name_effective :
-      "${split(".", var.sovereign_fqdn)[0]}-${replace(r.code, "/[0-9]+/", "")}"
+      "${split(".", var.sovereign_fqdn)[0]}-${trim(replace(replace(r.code, "/[0-9]+/", ""), "/-+/", "-"), "-")}"
     )
   }
   cluster_mesh_id_by_region = {
