@@ -1052,21 +1052,15 @@ func (r *Request) Validate() error {
 		}
 		r.BcpTopology = explicit
 	} else {
-		// #4706 (hw217 lesson, founder 2026-07-03: "the fundamental
-		// requirement of 2 region mimicking agreement") — the BCP
-		// agreement default is MULTI-REGION. An absent bcpTopology + a
-		// single region used to silently derive "single-region" and sail
-		// through, which is exactly how an absent-minded 1-region prov
-		// (hw217) got accepted. A single-region prov is now a DELIBERATE
-		// act: the payload must say bcpTopology="single-region" in so
-		// many words (the quota-constrained validation shape); an absent
-		// topology with <2 regions is a 400.
-		if len(r.Regions) < 2 {
-			return fmt.Errorf(
-				"deployment has %d region(s) and no explicit bcpTopology — the BCP agreement default is multi-region (>=2 regions, Pillar 2). Add a second region, or set bcpTopology=%q explicitly for a deliberate single-region validation prov",
-				len(r.Regions), BcpTopologySingleRegion,
-			)
-		}
+		// NOTE (#4706): the multi-region POST floor ("no implicit
+		// single-region provs") lives in the HANDLER admission path
+		// (CreateDeployment, deployments.go), NOT here — Validate() is
+		// ALSO the on-restart legacy-record migration path (the store
+		// rehydrates pre-floor single-region records through it, see
+		// TestLegacyRecord_NoParentDomainsKey_LoadsCleanly), and a
+		// policy floor here would brick existing deployments on the
+		// next catalyst-api roll. Rehydrated legacy records keep the
+		// historical auto-derivation.
 		r.BcpTopology = deriveBcpTopology(*r)
 	}
 	// Mirror invariant: an EXPLICIT single-region declaration with >=2

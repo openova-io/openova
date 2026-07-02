@@ -179,24 +179,20 @@ func TestValidate_AutoDerivesOnMultiRegionEmpty(t *testing.T) {
 }
 
 func TestValidate_AutoDerivesOnSingleRegionEmpty(t *testing.T) {
-	// CONTRACT INVERTED by #4706 (founder 2026-07-03: "the fundamental
-	// requirement of 2 region mimicking agreement"): empty topology +
-	// 1 region used to silently auto-derive "single-region" — that
-	// silent derivation is exactly how the absent-minded 1-region hw217
-	// prov got accepted. It is now a Validate-time REJECTION; a
-	// single-region prov must declare bcpTopology="single-region"
-	// explicitly.
+	// #4706 NOTE: Validate() keeps the historical auto-derivation because
+	// it is ALSO the store's legacy-record rehydration path. The
+	// multi-region POST floor lives at HANDLER admission
+	// (TestCreateDeployment_RejectsImplicitSingleRegion).
 	req := baseValidateRequest(t)
 	req.BcpTopology = ""
 	req.Regions = []RegionSpec{
 		{Provider: "hetzner", CloudRegion: "fsn1", ControlPlaneSize: "cpx32"},
 	}
-	err := req.Validate()
-	if err == nil {
-		t.Fatalf("Validate(): empty topology + 1 region must now be REJECTED (BCP default = multi-region, #4706)")
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate(): %v", err)
 	}
-	if !strings.Contains(err.Error(), "multi-region") {
-		t.Fatalf("rejection must explain the multi-region BCP default, got: %v", err)
+	if req.BcpTopology != BcpTopologySingleRegion {
+		t.Fatalf("Validate(): empty topology + 1 region should auto-derive single-region, got %q", req.BcpTopology)
 	}
 }
 
@@ -309,24 +305,6 @@ func tfvarsRequest(t *testing.T) Request {
 	t.Helper()
 	r := baseValidateRequest(t)
 	return *r
-}
-
-// TestValidate_RejectsImplicitSingleRegion (#4706, founder 2026-07-03: "the
-// fundamental requirement of 2 region mimicking agreement") — the BCP
-// agreement default is MULTI-REGION. A request with <2 regions and NO
-// explicit bcpTopology must 400 at Validate time; silently deriving
-// "single-region" is exactly how the absent-minded 1-region hw217 prov got
-// accepted.
-func TestValidate_RejectsImplicitSingleRegion(t *testing.T) {
-	req := validBaseWithSecrets()
-	req.BcpTopology = ""
-	err := req.Validate()
-	if err == nil {
-		t.Fatalf("a 1-region request with no explicit bcpTopology must be rejected (BCP default = multi-region)")
-	}
-	if !strings.Contains(err.Error(), "multi-region") {
-		t.Fatalf("rejection must explain the multi-region BCP default, got: %v", err)
-	}
 }
 
 // TestValidate_AllowsExplicitSingleRegion — the deliberate opt-out: saying

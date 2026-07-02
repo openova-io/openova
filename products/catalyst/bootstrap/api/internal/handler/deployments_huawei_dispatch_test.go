@@ -230,6 +230,7 @@ func TestCreateDeployment_Huawei_MissingAccessKey_Rejected(t *testing.T) {
 		"sovereignSubdomain":     "hcs",
 		"region":                 "me-east-215",
 		"orgName":                "Example",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected at admission
 		"orgEmail":               "ops@example.om",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "me-east-215",
@@ -266,6 +267,7 @@ func TestCreateDeployment_Huawei_UnknownProviderRejected(t *testing.T) {
 		"sovereignDomainMode":    "byo",
 		"region":                 "me-east-215",
 		"orgName":                "Example",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected at admission
 		"orgEmail":               "ops@example.om",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
