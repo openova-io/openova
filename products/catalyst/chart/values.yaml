@@ -89,7 +89,13 @@ sovereign:
   # `catalyst-system/sovereign-smtp-credentials` Secret seam (issue
   # #883, agent A5).
   smtp:
-    host: mail.openova.io
+    # #4696: in-cluster Stalwart Service (matches the catalyst-api
+    # CATALYST_SMTP_HOST code default in auth.go). mail.openova.io resolves via
+    # FLAKY upstream DNS ("server misbehaving") and intermittently 502s the PIN
+    # send (operator console PIN-login "could not deliver code"); the in-cluster
+    # svc resolves reliably with no external hairpin. Per-Sovereign overlays may
+    # still repoint via the sovereign-smtp-credentials Secret (source-wins).
+    host: stalwart-web.stalwart.svc.cluster.local
     port: "587"
     from: noreply@openova.io
   # ── Anthropic credential for the per-Org agentic agent (#4277) ──
@@ -1855,7 +1861,7 @@ orgSecrets:
     # these fallbacks. Until A5 ships full host/port/from coverage
     # the chart-level fallback keeps gate 2 (PIN delivery) working.
     # Issue #934 follow-up.
-    host: "mail.openova.io"
+    host: "stalwart-web.stalwart.svc.cluster.local"   # #4696: reliable in-cluster Stalwart svc (matches auth.go default); not flaky-DNS mail.openova.io
     port: "587"
     from: "noreply@openova.io"
     user: "noreply@openova.io"                # SMTP submission username (often == from)
