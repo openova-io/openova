@@ -53,6 +53,8 @@ func writeTfvarsSharedPG(t *testing.T, req Request) map[string]any {
 // 1. The fire-body opt-in flips the substitution var to "true".
 func TestWriteTfvars_EnableSharedPostgres_OptInResolvesTrue(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	req.EnableSharedPostgres = true
 
 	out := writeTfvarsSharedPG(t, req)
@@ -65,6 +67,8 @@ func TestWriteTfvars_EnableSharedPostgres_OptInResolvesTrue(t *testing.T) {
 // 2. Absent (the default) keeps the gate OFF — safe-by-default preserved.
 func TestWriteTfvars_EnableSharedPostgres_DefaultResolvesFalse(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	// EnableSharedPostgres left at its zero value (false) — this is now the
 	// EXPLICIT opt-out shape (an operator who sets `"enableSharedPostgres":
 	// false` in the body for the byte-identical dedicated-cluster path).

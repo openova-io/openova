@@ -43,6 +43,9 @@ func jsonMarshal(v any) (string, error) {
 // provisioner-layer tests don't depend on handler-layer logic.
 func validBase() Request {
 	return Request{
+		// #4706 — deliberate single-region validation shape (the BCP
+		// default is multi-region; implicit 1-region is rejected).
+		BcpTopology:            BcpTopologySingleRegion,
 		OrgName:                "ACME",
 		OrgEmail:               "ops@acme.io",
 		SovereignFQDN:          "acme.openova.io",
@@ -92,6 +95,9 @@ func TestValidate_NonEmptyRegions_MirrorsIndex0ToSingularFields(t *testing.T) {
 		{Provider: "hetzner", CloudRegion: "fsn1", ControlPlaneSize: "cx42", WorkerSize: "cx32", WorkerCount: 2},
 		{Provider: "aws", CloudRegion: "eu-west-1", ControlPlaneSize: "m6i.xlarge", WorkerSize: "m6i.xlarge", WorkerCount: 0},
 	}
+	// validBase() declares single-region (#4706); this test is 2-region —
+	// clear it so Validate auto-derives active-hotstandby.
+	r.BcpTopology = ""
 
 	if err := r.Validate(); err != nil {
 		t.Fatalf("valid Regions should pass: %v", err)

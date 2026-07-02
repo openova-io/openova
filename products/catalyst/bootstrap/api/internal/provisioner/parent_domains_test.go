@@ -40,6 +40,9 @@ import (
 // Validate() also requires.
 func validBaseWithSecrets() Request {
 	return Request{
+		// #4706 — deliberate single-region validation shape (the BCP
+		// default is multi-region; implicit 1-region is rejected).
+		BcpTopology:            BcpTopologySingleRegion,
 		OrgName:                "ACME",
 		OrgEmail:               "ops@acme.io",
 		SovereignFQDN:          "acme.openova.io",

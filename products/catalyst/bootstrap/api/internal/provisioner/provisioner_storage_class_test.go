@@ -42,6 +42,8 @@ func huaweiTfvarsRequest(t *testing.T) Request {
 //    default — never empty, never local-path.
 func TestWriteTfvars_StorageClass_HetznerDefault(t *testing.T) {
 	req := tfvarsRequest(t) // Hetzner base; StorageClass left empty.
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 
 	out := writeTfvarsSharedPG(t, req)
 
@@ -54,6 +56,8 @@ func TestWriteTfvars_StorageClass_HetznerDefault(t *testing.T) {
 //    default (evs-ssd) — the bp-huawei-evs-csi slot-55b default class.
 func TestWriteTfvars_StorageClass_HuaweiDefault(t *testing.T) {
 	req := huaweiTfvarsRequest(t) // StorageClass left empty.
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 
 	out := writeTfvarsSharedPG(t, req)
 
@@ -66,6 +70,8 @@ func TestWriteTfvars_StorageClass_HuaweiDefault(t *testing.T) {
 //    chosen by the user" requirement). Surrounding whitespace is trimmed.
 func TestWriteTfvars_StorageClass_ExplicitHonored(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	req.StorageClass = "  hcloud-volumes-xfs  " // operator chose a non-default class.
 
 	out := writeTfvarsSharedPG(t, req)
@@ -80,6 +86,8 @@ func TestWriteTfvars_StorageClass_ExplicitHonored(t *testing.T) {
 //    derivation), so a Regions-only payload still surfaces a class to tofu.
 func TestWriteTfvars_StorageClass_PerRegionFoldsToUmbrella(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	req.StorageClass = "" // umbrella empty.
 	req.Regions = []RegionSpec{
 		{
@@ -102,6 +110,8 @@ func TestWriteTfvars_StorageClass_PerRegionFoldsToUmbrella(t *testing.T) {
 //    shape sets the class at the top level).
 func TestWriteTfvars_StorageClass_UmbrellaWinsOverRegion(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	req.StorageClass = "hcloud-volumes" // umbrella set.
 	req.Regions = []RegionSpec{
 		{

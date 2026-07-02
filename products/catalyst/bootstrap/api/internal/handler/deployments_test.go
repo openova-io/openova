@@ -47,6 +47,7 @@ func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Omantel",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@omantel.om",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -95,6 +96,7 @@ func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Omantel",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@omantel.om",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -128,6 +130,7 @@ func TestCreateDeployment_BYODoesNotReserve(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Acme",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@acme.io",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -174,6 +177,7 @@ func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Acme",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@acme.io",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -251,6 +255,7 @@ func TestCreateDeployment_MarketplaceEnabledDefaultsTrue(t *testing.T) {
 				"hetznerProjectID":       "proj",
 				"region":                 "fsn1",
 				"orgName":                "Acme",
+				"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 				"orgEmail":               "ops@acme.io",
 				"sshPublicKey":           "ssh-ed25519 AAAA test",
 				"objectStorageRegion":    "fsn1",
@@ -325,6 +330,7 @@ func TestCreateDeployment_EnableSharedPostgresDefaultsTrue(t *testing.T) {
 				"hetznerProjectID":       "proj",
 				"region":                 "fsn1",
 				"orgName":                "Acme",
+				"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 				"orgEmail":               "ops@acme.io",
 				"sshPublicKey":           "ssh-ed25519 AAAA test",
 				"objectStorageRegion":    "fsn1",
@@ -434,6 +440,7 @@ func TestCreateDeployment_AcceptsMatchingOrgEmail(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Omantel",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "Me@Example.com", // mixed-case match
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",

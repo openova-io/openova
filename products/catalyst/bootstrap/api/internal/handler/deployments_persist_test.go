@@ -82,6 +82,7 @@ func TestPersistence_CreateDeploymentWritesRowImmediately(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"orgName":                "Acme",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@acme.io",
 		"sovereignFQDN":          "k8s.acme.io",
 		"sovereignDomainMode":    "byo",
@@ -333,6 +334,7 @@ func TestPersistence_OnDiskJSONIsRedacted(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"orgName":                "Omantel",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@omantel.om",
 		"sovereignFQDN":          "omantel.omani.works",
 		"sovereignDomainMode":    "pool",
@@ -482,6 +484,7 @@ func TestPersistence_DockerStyleRoundTrip(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"orgName":                "RestartTest",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@example.io",
 		"sovereignFQDN":          "k8s.example.io",
 		"sovereignDomainMode":    "byo",
