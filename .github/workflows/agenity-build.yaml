@@ -22,7 +22,13 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/openova-io/bp-agenity
+  # #4706-family (chart-repo collision): the image moved OFF the chart's OCI
+  # repo. Pushing the dashboard image to ghcr.io/openova-io/bp-agenity (tag =
+  # appVersion 0.9.7) squatted the bp-agenity CHART repo — any HelmRelease
+  # resolving `version: "*"` picked the IMAGE manifest (highest semver) and
+  # died with "manifest does not contain minimum number of descriptors".
+  # Chart repos carry ONLY charts; images live at their own plain name.
+  IMAGE: ghcr.io/openova-io/agenity
   # Pin the PUBLIC agenity (chepherd daemon) SOURCE ref the Containerfile
   # builds from. Never floating main: pinned to a COMMIT SHA on agenity main.
   # Pinned to the agenity-org/agenity#752 merge COMMIT (main HEAD as of

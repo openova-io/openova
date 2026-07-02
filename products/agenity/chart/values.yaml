@@ -20,12 +20,12 @@ sovereignFqdn: ""
 
 # ── Agenity runtime image (upstream chepherd daemon + openova-mcp) ─────────
 image:
-  repository: ghcr.io/openova-io/bp-agenity
+  repository: ghcr.io/openova-io/agenity
   tag: ""                 # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
 # ── Private-registry pull secret (#4111) ──────────────────────────────────
-# The agenity image (`ghcr.io/openova-io/bp-agenity`) is a PRIVATE
+# The agenity image (`ghcr.io/openova-io/agenity`) is a PRIVATE
 # ghcr.io/openova-io/* package, so both the seed-claude-creds init container
 # and the chepherd main container must pull it WITH credentials. The Sovereign
 # emberstack-reflector reflects a `ghcr-pull` dockerconfigjson Secret into
