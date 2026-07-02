@@ -239,16 +239,14 @@ resource "huaweicloud_vpc_subnet" "region" {
 #   - TCP 6443 — k3s apiserver from 0/0 (fail-closed by k8s RBAC,
 #                not by firewall — same shape Hetzner module ships)
 #   - UDP 51820 — Cilium WireGuard inter-region (DMZ-WG)
-#   - TCP 30000-32767 — k8s NodePort range. Covers BOTH the Cilium
-#                clustermesh-apiserver NodePort (mTLS LB, cross-region)
-#                AND the Sovereign Gateway LoadBalancer Service's
-#                auto-allocated nodePort, which the RESTORED gateway ELB
-#                (elb_primary) forwards public :443/:80 → node:<nodePort>
-#                to (#4690 / #4686 foundation-fix). #4682 had narrowed this
-#                to just :32379 on the (false) premise that the gateway
-#                would serve on node:443 directly — but node:443 does NOT
-#                route on a no-CCM Huawei node (only node:<nodePort> does,
-#                verified hw208), so the full range is restored. Same shape
+#   - TCP 30000-32767 — k8s NodePort range. Retained for the Cilium
+#                clustermesh-apiserver NodePort (mTLS LB, cross-region).
+#                NOTE (#4706): the Sovereign Gateway NO LONGER uses this
+#                range — with cilium 1.19.3's gateway-api hostNetwork mode,
+#                cilium-envoy binds node:443/:80 directly and the gateway
+#                ELB (elb_primary) targets those host ports (covered by the
+#                TCP 443/80 rules above). The 1.16.5-era ELB→node:<nodePort>
+#                forwarding (#4690/#4691) is retired. Same range shape
 #                Hetzner ships (firewall opens 30000-32767, PR #1538).
 #   - TCP 22  — only when ssh_allowed_cidrs is non-empty
 #   - ICMP    — for path-MTU + ping diagnostics
@@ -1309,25 +1307,20 @@ resource "huaweicloud_obs_bucket" "main" {
 # because clustermesh peers reach the CP EIP over the WG-encrypted node path,
 # not through the NAT.)
 #
-# Correct shape (this file): a dedicated public Huawei ELB v3 with its OWN
-# routable EIP does TCP passthrough public :443 → member:<gw-nodePort-https>
-# and :80 → member:<gw-nodePort-http>. The gateway keeps the #4682
-# type=LoadBalancer shape (hostNetwork off); Cilium's kube-proxy replacement
-# programs the Service's auto-allocated nodePort on every node, and
-# ELB→node:<nodePort> is the path that actually routes on a no-CCM Huawei node
-# (node:443 does NOT — only the nodePort does; verified hw208 `nc
-# 127.0.0.1:<nodePort>` OPEN, TLS serves). This is the identical cloud-LB →
-# Service-nodePort pattern hcloud-ccm runs on Hetzner; the Service TYPE stays
-# LoadBalancer (NOT type=NodePort — §854 is honored) and there is NO :30443
-# host-port / iptables-DNAT / hostNetwork.
+# Correct shape (this file, #4706 final form): a dedicated public Huawei ELB
+# v3 with its OWN routable EIP does TCP passthrough public :443/:80 →
+# member node:443/:80. With cilium 1.19.3's gateway-api hostNetwork mode
+# (bp-cilium 1.4.8; the 1.16.x host-bind bug that forced the interim
+# ELB→node:<nodePort> shape of #4690/#4691 is fixed), cilium-envoy — a
+# hostNetwork DaemonSet — binds node:443/:80 DIRECTLY on every node. The
+# member ports are durable and known at Phase-0 apply, so the front door is
+# correct from first apply: no placeholder, no post-convergence nodePort
+# discovery, no nodePort anywhere (§854 honored literally).
 #
-# nodePort is auto-allocated by Cilium and unknown at Phase-0 apply time, so
-# the members start at the placeholder var.gateway_service_nodeport_{https,http}
-# and are reconciled to the live per-port nodePort post-convergence by
-# catalyst-api (bootstrap/api post_handover_gateway_elb.go), reading the live
-# Service via client-go and PUT/POST-ing the ELB pool members via the existing
-# AK/SK client. The wildcard *.<fqdn> A-record points at THIS ELB's EIP
-# (load_balancer_ip output + load_balancer_ipv4 cloud-init render var).
+# catalyst-api (bootstrap/api post_handover_gateway_elb.go) only heals
+# member-SET drift (node churn) at these same ports. The wildcard *.<fqdn>
+# A-record points at THIS ELB's EIP (load_balancer_ip output +
+# load_balancer_ipv4 cloud-init render var).
 #
 # The dedicated CONSOLE ELB (elb_console, #4053) below is unchanged.
 
@@ -1404,8 +1397,8 @@ resource "huaweicloud_elb_listener" "http" {
 
 # Primary-region node private IPs — consumed by BOTH the gateway ELB
 # (elb_primary) members here and the CONSOLE ELB (elb_console) members below.
-# The cilium Gateway LoadBalancer Service's nodePort is reachable on every node
-# (kube-proxy-free Cilium socket-LB), so every node is a valid member.
+# cilium-envoy (hostNetwork DaemonSet, gateway-api hostNetwork mode #4706)
+# binds node:443/:80 on every node, so every node is a valid member.
 locals {
   # CPs are `count`-based — index by tofu's list-indexed array.
   # Workers are `for_each`-based on local.worker_map (key=<region>-<index>).
@@ -1429,67 +1422,45 @@ locals {
   console_member_count = local.console_isolation_on ? length(local.primary_lb_node_ips) : 0
 }
 
-# Gateway ELB members: primary-region nodes (CPs + workers). The cilium Gateway
-# LoadBalancer Service's nodePort is served on every node (kube-proxy-free
-# Cilium socket-LB), so every node is a valid member. protocol_port is the
-# PLACEHOLDER gateway nodePort at Phase-0 apply (var default 31443/31080);
-# catalyst-api reconciles it to the live per-port nodePort post-convergence
-# (post_handover_gateway_elb.go). The listeners stay at public 443/80.
+# Gateway ELB members: primary-region nodes (CPs + workers). With cilium
+# 1.19.3's gateway-api hostNetwork mode (#4706), cilium-envoy (a hostNetwork
+# DaemonSet) binds node:443/:80 on EVERY node, so every node is a valid member
+# at the DURABLE host ports — correct from Phase-0 apply, no placeholder, no
+# post-convergence nodePort discovery, no nodePort anywhere (§854).
+# catalyst-api (post_handover_gateway_elb.go) only heals member-SET drift
+# (node churn from the autoscaler) at these same ports.
 resource "huaweicloud_elb_member" "https" {
   count         = length(local.primary_lb_node_ips)
   pool_id       = huaweicloud_elb_pool.https.id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = var.gateway_service_nodeport_https
+  protocol_port = var.gateway_member_port_https
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
-
-  # catalyst-api (post_handover_gateway_elb.go) rewrites the member port to the
-  # live gateway-Service nodePort post-convergence via the Huawei ELB API
-  # (member DELETE+POST). Ignore protocol_port drift so a later `tofu apply`
-  # (e.g. an idempotent re-prov) does not clobber the reconciled port back to
-  # the placeholder. address/subnet_id remain tofu-owned.
-  lifecycle {
-    ignore_changes = [protocol_port]
-  }
 }
 
 resource "huaweicloud_elb_member" "http" {
   count         = length(local.primary_lb_node_ips)
   pool_id       = huaweicloud_elb_pool.http.id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = var.gateway_service_nodeport_http
+  protocol_port = var.gateway_member_port_http
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
-
-  lifecycle {
-    ignore_changes = [protocol_port]
-  }
 }
 
 resource "huaweicloud_elb_monitor" "https" {
   pool_id     = huaweicloud_elb_pool.https.id
   protocol    = "TCP"
-  port        = var.gateway_service_nodeport_https
+  port        = var.gateway_member_port_https
   interval    = 10
   timeout     = 5
   max_retries = 3
-
-  # Same reconcile-drift guard as the members: catalyst-api repoints the
-  # health-check port to the live nodePort alongside the members.
-  lifecycle {
-    ignore_changes = [port]
-  }
 }
 
 resource "huaweicloud_elb_monitor" "http" {
   pool_id     = huaweicloud_elb_pool.http.id
   protocol    = "TCP"
-  port        = var.gateway_service_nodeport_http
+  port        = var.gateway_member_port_http
   interval    = 10
   timeout     = 5
   max_retries = 3
-
-  lifecycle {
-    ignore_changes = [port]
-  }
 }
 
 # ── #4053 — Dedicated CONSOLE ELB (poison-proof gateway isolation) ───────────

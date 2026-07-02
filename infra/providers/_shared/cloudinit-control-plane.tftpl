@@ -416,6 +416,18 @@ write_files:
           # render time (cilium-gateway-race #503). "auto" skips creation
           # when the gateway.networking.k8s.io CRDs are not yet present.
           create: "true"
+%{ if provider == "huawei" ~}
+        # #4706 — no-CCM Huawei: gateway-api hostNetwork ON. cilium 1.19.3
+        # fixed the 1.16.x host-bind bug, so cilium-envoy (hostNetwork
+        # DaemonSet) binds node:443/:80 directly and the gateway ELB
+        # (elb_primary) targets node:443/:80 — the only §854-clean front
+        # door here (the LB VIP dies at the 1:1-NAT'd EIP; nodePorts are
+        # forbidden). Must match slot-01's CILIUM_GATEWAY_HOSTNETWORK_ENABLED
+        # substitute below so the bootstrap install and the bp-cilium HR
+        # upgrade agree (cilium_values_parity_test.go class of drift).
+        hostNetwork:
+          enabled: true
+%{ endif ~}
       envoy:
         enabled: true
       # envoyConfig.enabled (issue #491): without it the chart skips the
@@ -825,6 +837,11 @@ write_files:
             # hcloud-ccm materialises the Service LB directly.
             CILIUM_GATEWAY_LB_IPAM_ENABLED: "true"
             CILIUM_GATEWAY_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
+            # #4706 — gateway-api hostNetwork ON (cilium 1.19.3): envoy binds
+            # node:443/:80 directly; the gateway ELB targets those durable
+            # ports. Keep in lockstep with the cilium-values.yaml hostNetwork
+            # block above (bootstrap install) — drift here = the #491 class.
+            CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"
             SOVEREIGN_GATEWAY_HTTPS_PORT: "443"
             SOVEREIGN_GATEWAY_HTTP_PORT: "80"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
@@ -1287,7 +1304,7 @@ runcmd:
     rt sh -c 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3|bash'
     rt helm repo add cilium https://helm.cilium.io/
     rt helm repo update
-    rt helm upgrade --install cilium cilium/cilium --version 1.16.5 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
+    rt helm upgrade --install cilium cilium/cilium --version 1.19.3 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
     kubectl -n kube-system rollout status ds/cilium --timeout=240s || { echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;exit 91;}
 %{ if provider == "huawei" ~}
   # #4503 root cause (Huawei-gated note; the byte budget is Hetzner-only): on

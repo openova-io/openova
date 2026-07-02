@@ -402,6 +402,23 @@ spec:
           cidrs:
             - ${CILIUM_GATEWAY_LB_IPAM_CIDRS:=0.0.0.0/32}
 
+      # ── #4706 — gateway-api hostNetwork, PER-PROVIDER ──────────────────
+      # cilium 1.19.3 (bp-cilium 1.4.8) fixed the 1.16.x hostNetwork bind
+      # bug, so cilium-envoy (already a hostNetwork DaemonSet) binds
+      # node:443/:80 directly.
+      #   Huawei (no-CCM): cloud-init sets CILIUM_GATEWAY_HOSTNETWORK_
+      #     ENABLED="true" — the ONLY §854-clean front door there (the LB
+      #     VIP dies at the 1:1-NAT'd EIP, nodePorts are forbidden). The
+      #     gateway ELB (infra/providers/huawei/main.tf elb_primary)
+      #     targets node:443/:80 — durable ports known at tofu time, so
+      #     members are correct from Phase-0 apply.
+      #   Hetzner: unset → false — the hcloud-ccm-materialised
+      #     LoadBalancer Service stays the front door (hostNetwork ON would
+      #     drop the CCM LB and break it).
+      gatewayAPI:
+        hostNetwork:
+          enabled: ${CILIUM_GATEWAY_HOSTNETWORK_ENABLED:=false}
+
     # ── Catalyst overlay templates (chart/templates/) ────────────────────
     # qa-loop iter-16 Fix #70: Hubble UI HTTPRoute now defaults ON for
     # every Sovereign. The chart auto-derives hostname `hubble.${SOVEREIGN_FQDN}`

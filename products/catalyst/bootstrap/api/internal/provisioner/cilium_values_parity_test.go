@@ -226,6 +226,87 @@ func TestCiliumValuesParity_BootstrapMatchesOverlayKeys(t *testing.T) {
 	}
 }
 
+// TestCiliumValuesParity_GatewayHostNetworkLockstep (#4706) locks the
+// three-way gateway-api hostNetwork agreement:
+//   1. the cloud-init cilium-values.yaml block carries a huawei-conditional
+//      `hostNetwork:` + `enabled: true` (bootstrap install binds node:443/:80),
+//   2. the bootstrap-kit slot-01 HR wires
+//      `${CILIUM_GATEWAY_HOSTNETWORK_ENABLED...}` (the HR upgrade agrees),
+//   3. cloud-init's flux-bootstrap substitutes set
+//      CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true" on huawei.
+// Drift between (1) and (2)+(3) is the #491 class: the bootstrap install and
+// the slot-01 upgrade disagree mid-Phase-1 and the gateway flaps between a
+// host bind and a Service-only shape. The ELB targets node:443/:80, so a
+// regression here = console 000 (the hw217 shape).
+func TestCiliumValuesParity_GatewayHostNetworkLockstep(t *testing.T) {
+	tpl := readCloudInit(t)
+	overlay := readBootstrapKitOverlay(t)
+
+	// (1) bootstrap cilium-values block: hostNetwork enabled inside the
+	// huawei conditional.
+	startMarker := "- path: /var/lib/catalyst/cilium-values.yaml"
+	endMarker := "- path: /var/lib/catalyst/flux-bootstrap.yaml"
+	si := strings.Index(tpl, startMarker)
+	ei := strings.Index(tpl, endMarker)
+	if si < 0 || ei < 0 || ei <= si {
+		t.Fatalf("could not locate cilium-values.yaml block in cloud-init template (start=%d, end=%d)", si, ei)
+	}
+	bootstrapBlock := tpl[si:ei]
+	if !strings.Contains(bootstrapBlock, "hostNetwork:") {
+		t.Errorf("bootstrap cilium-values.yaml must carry the huawei-conditional gatewayAPI hostNetwork block (#4706) — without it the bootstrap install serves no host bind and the gateway ELB (node:443/:80) has nothing to forward to")
+	}
+
+	// (2) slot-01 HR wiring.
+	if !strings.Contains(overlay, "CILIUM_GATEWAY_HOSTNETWORK_ENABLED") {
+		t.Errorf("clusters/_template/bootstrap-kit/01-cilium.yaml must wire gatewayAPI.hostNetwork.enabled from CILIUM_GATEWAY_HOSTNETWORK_ENABLED (#4706)")
+	}
+
+	// (3) huawei substitute set to "true".
+	if !strings.Contains(tpl, `CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"`) {
+		t.Errorf(`cloud-init flux-bootstrap substitutes must set CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true" on huawei (#4706)`)
+	}
+}
+
+// TestCiliumValuesParity_BootstrapHelmVersionMatchesChartPin (#4706) locks the
+// bootstrap `helm upgrade --install cilium --version X` against the bp-cilium
+// Chart.yaml dependency pin. If they drift, every fresh prov does an
+// unsupported multi-minor in-place CNI upgrade mid-Phase-1 (cloud-init
+// installs one cilium, the slot-01 HR immediately upgrades to another) — the
+// exact trap the 1.16.5→1.19.3 bump would have created without this guard.
+func TestCiliumValuesParity_BootstrapHelmVersionMatchesChartPin(t *testing.T) {
+	tpl := readCloudInit(t)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(cwd, "..", "..", "..", "..", "..", ".."))
+	raw, err := os.ReadFile(filepath.Join(repoRoot, "platform", "cilium", "chart", "Chart.yaml"))
+	if err != nil {
+		t.Fatalf("read Chart.yaml: %v", err)
+	}
+	chartYAML := string(raw)
+
+	// Extract the dependency pin: the `version: "X.Y.Z"` line inside the
+	// dependencies block (the only double-quoted version in the file).
+	var pin string
+	for _, line := range strings.Split(chartYAML, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, `version: "`) {
+			pin = strings.Trim(strings.TrimPrefix(trimmed, "version:"), ` "`)
+			break
+		}
+	}
+	if pin == "" {
+		t.Fatalf("could not extract the cilium dependency version pin from platform/cilium/chart/Chart.yaml")
+	}
+
+	want := "helm upgrade --install cilium cilium/cilium --version " + pin
+	if !strings.Contains(tpl, want) {
+		t.Errorf("cloud-init bootstrap install must pin the SAME cilium version as the bp-cilium chart dependency (%q). Drift = an unsupported in-place multi-minor CNI upgrade mid-Phase-1 on every fresh prov (#4706).", pin)
+	}
+}
+
 // TestCiliumValuesParity_BootstrapHelmInstallReadsValuesFile verifies
 // the bootstrap helm install command in cloud-init reads the values
 // file via `-f /var/lib/catalyst/cilium-values.yaml` rather than relying
