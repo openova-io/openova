@@ -3408,7 +3408,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.983
+version: 1.4.984
 # 1.4.980 — #4696: SMTP host default mail.openova.io -> stalwart-web.stalwart.svc.cluster.local
 #           (in-cluster svc, matches auth.go code default) — kill flaky-upstream-DNS PIN-delivery 502s.
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
