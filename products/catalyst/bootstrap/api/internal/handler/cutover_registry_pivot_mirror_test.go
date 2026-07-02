@@ -13,23 +13,23 @@
 //
 // THE FIX — two layers, both NODE-REACHABLE, never the public hairpin EIP:
 //
-//   #4638 (chart 0.1.91, the ORIGINAL fix): the pivot DaemonSet resolved
-//   harbor-core's node-routable ClusterIP and pointed the containerd `[host]`
-//   mirror endpoints at `http://<clusterip>:<port>` instead of
-//   `https://registry.<sov-fqdn>` — via a `write_hosts_toml` /
-//   `upstream_mirrors=` shell mechanism.
+//	#4638 (chart 0.1.91, the ORIGINAL fix): the pivot DaemonSet resolved
+//	harbor-core's node-routable ClusterIP and pointed the containerd `[host]`
+//	mirror endpoints at `http://<clusterip>:<port>` instead of
+//	`https://registry.<sov-fqdn>` — via a `write_hosts_toml` /
+//	`upstream_mirrors=` shell mechanism.
 //
-//   #4641/#4653 (the DRAGONFLY REWRITE, chart 0.1.94 — the contract THIS test
-//   now asserts): containerd no longer mirrors per-host at a Harbor ClusterIP.
-//   Every node's containerd mirrors EVERY registry namespace through the
-//   node-LOCAL dfdaemon proxy on `http://127.0.0.1:<DF_PROXY_PORT>` via a
-//   `_default/hosts.toml` catch-all (`write_default_mirror`). That loopback
-//   endpoint is THE most node-reachable address possible — it can never hairpin
-//   to the public EIP. dfdaemon's OWN upstream fetch is then pointed at the
-//   in-cluster Harbor via the node-routable cilium-gateway **ClusterIP**
-//   (hostAlias + CoreDNS override in `df_flip_to_local`), and when that
-//   ClusterIP cannot be resolved the flip DEFERS / falls back rather than ever
-//   pointing dfdaemon at the un-hairpinnable public EIP.
+//	#4641/#4653 (the DRAGONFLY REWRITE, chart 0.1.94 — the contract THIS test
+//	now asserts): containerd no longer mirrors per-host at a Harbor ClusterIP.
+//	Every node's containerd mirrors EVERY registry namespace through the
+//	node-LOCAL dfdaemon proxy on `http://127.0.0.1:<DF_PROXY_PORT>` via a
+//	`_default/hosts.toml` catch-all (`write_default_mirror`). That loopback
+//	endpoint is THE most node-reachable address possible — it can never hairpin
+//	to the public EIP. dfdaemon's OWN upstream fetch is then pointed at the
+//	in-cluster Harbor via the node-routable cilium-gateway **ClusterIP**
+//	(hostAlias + CoreDNS override in `df_flip_to_local`), and when that
+//	ClusterIP cannot be resolved the flip DEFERS / falls back rather than ever
+//	pointing dfdaemon at the un-hairpinnable public EIP.
 //
 // The #4638 `upstream_mirrors=` / `write_hosts_toml()` slice no longer exists in
 // the chart (the Dragonfly rewrite replaced it). This test was rewritten in
@@ -171,23 +171,59 @@ write_default_mirror
 	}
 }
 
-func TestRegistryPivotV2MirrorFallsBackToPublicHostWhenClusterIPUnresolved(t *testing.T) {
+// TestRegistryPivotV2FlipUpstreamIsExternalHost443_NeverNodePort asserts the
+// CURRENT #4682/#4684 dfdaemon-upstream contract: the flip target is the
+// cluster-local Harbor's EXTERNAL routable host on the standard :443 (the
+// Cilium Gateway serves registry.<fqdn> on :443) — with NO port suffix, and
+// NEVER a NodePort-range port (:30443 was the retired workaround; nodePorts
+// are forbidden, §854). The old contract this replaces (defer on unresolved
+// gateway ClusterIP) died in #4684: read_gateway_clusterip no longer exists
+// in the chart, so the pre-#4684 test sliced a dependency that was never
+// consulted and tripwired on the flip proceeding — leaving main CI red.
+func TestRegistryPivotV2FlipUpstreamIsExternalHost443_NeverNodePort(t *testing.T) {
 	chart := pivotChartScript(t)
 
-	// The REAL cluster-wide upstream-flip function from the chart. We slice it
-	// plus its `read_gateway_clusterip` dependency, then in the harness OVERRIDE
-	// read_gateway_clusterip to simulate a resolve MISS (empty ClusterIP) and
-	// stub the mutating helpers as TRIPWIRES that fail the test if reached. The
-	// real df_flip_to_local gate logic must DEFER (return non-zero) without ever
-	// patching the dfdaemon upstream/hostAlias at the public host.
-	dfFlip := sliceShellFn(t, chart, "df_flip_to_local")
+	// The derivation must exist verbatim in the chart: bare host, no port.
+	if !strings.Contains(chart, `local_upstream="https://${harbor_host}"`) {
+		t.Fatalf("chart must derive local_upstream as https://<harbor_host> with NO port suffix (#4682/#4684 external-host-:443 contract)")
+	}
+	if strings.Contains(chart, ":30443") {
+		t.Fatalf("chart references :30443 — the retired NodePort workaround must not reappear (§854)")
+	}
 
-	const publicHost = "registry.omantel.biz"
+	// Run the REAL derivation lines against a scheme+slash-decorated
+	// HARBOR_PUBLIC_URL and assert the normalised, portless upstream.
+	script := `set -u
+HARBOR_PUBLIC_URL="https://registry.omani.works/"
+harbor_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
+local_upstream="https://${harbor_host}"
+echo "RESULT_UPSTREAM=${local_upstream}"
+`
+	out := runShellOutput(t, script)
+	if !strings.Contains(out, "RESULT_UPSTREAM=https://registry.omani.works") {
+		t.Errorf("local_upstream derivation broken; harness output:\n%s", out)
+	}
+	if strings.Contains(out, ":30443") || regexp.MustCompile(`:3[0-2][0-9]{3}`).MatchString(out) {
+		t.Errorf("dfdaemon upstream carries a NodePort-range port — forbidden (§854); harness output:\n%s", out)
+	}
+}
+
+// TestRegistryPivotV2FlipDefersGuardWhenHarborCAUnmaterialised asserts the
+// LIVE defer semantics of df_flip_to_local (#4652): when the Harbor trust
+// anchor cannot be materialised in the dragonfly namespace this sweep, the
+// flip goes ADDR-ONLY (empty cert arg — never a path to a non-existent PEM)
+// and the cluster-wide dragonflyUpstream=local guard is NOT set, so the next
+// sweep retries the cert leg. Setting the guard on an incomplete flip would
+// permanently strand the dfdaemon without the CA (x509 on every
+// back-to-source pull).
+func TestRegistryPivotV2FlipDefersGuardWhenHarborCAUnmaterialised(t *testing.T) {
+	chart := pivotChartScript(t)
+	dfFlip := sliceShellFn(t, chart, "df_flip_to_local")
 
 	script := `set -u
 NODE_NAME=test-node
-harbor_host="` + publicHost + `"
-local_upstream="https://${harbor_host}:30443"
+local_upstream="https://registry.omani.works"
+local_cert_path="/etc/certs/ca.crt"
 CT="--max-time 20"
 api="https://kubernetes.default.svc"
 token=stub
@@ -197,24 +233,13 @@ DF_CLIENT_CONFIGMAP="dragonfly-client-config"
 DF_SEED_CONFIGMAP="dragonfly-seed-config"
 DF_CLIENT_DAEMONSET="dragonfly-client"
 DF_SEED_STATEFULSET="dragonfly-seed-client"
-DF_RESTART_ON_FLIP="false"
 
-# The cluster-state reads df_flip_to_local makes, stubbed for an UNCONVERGED,
-# UNRESOLVABLE-ClusterIP cluster:
-#  - guard not yet set (dragonflyUpstream != local) so the flip is attempted;
-#  - read_gateway_clusterip returns EMPTY (the resolve-miss / pre-#4637 case).
-curl() { printf ''; }   # the guard read inside df_flip_to_local -> empty -> != local
-read_gateway_clusterip() { printf ''; }
-
-# TRIPWIRES: if the flip proceeds past the unresolved-ClusterIP gate it would
-# call one of these against the public host — which is exactly the #4637
-# regression. Any call fails the harness (non-zero exit propagated by the
-# RESULT check below is not enough; these abort loudly).
-coredns_override() { echo "TRIPWIRE coredns_override reached"; exit 90; }
-harbor_ca_to_dragonfly_ns() { echo "TRIPWIRE harbor_ca_to_dragonfly_ns reached"; exit 91; }
-patch_df_configmap_addr() { echo "TRIPWIRE patch_df_configmap_addr reached with addr=$2"; exit 92; }
-patch_workload_hostalias() { echo "TRIPWIRE patch_workload_hostalias reached"; exit 93; }
-restart_workload() { echo "TRIPWIRE restart_workload reached"; exit 94; }
+curl() { printf ''; }   # guard read -> empty -> != local -> flip attempted
+harbor_ca_to_dragonfly_ns() { return 1; }   # CA NOT materialisable this sweep
+patch_df_configmap_addr() { echo "PATCHED cm=$1 addr=$2 cert=$3"; return 0; }
+restart_workload() { echo "RESTARTED $1/$2"; return 0; }
+# TRIPWIRE: setting the guard on an incomplete (cert-less) flip strands the
+# dfdaemon without the CA forever.
 cm_patch_status() { echo "TRIPWIRE cm_patch_status reached ($1=$2)"; exit 95; }
 
 ` + dfFlip + `
@@ -227,10 +252,16 @@ fi
 `
 	out := runShellOutput(t, script)
 	if !strings.Contains(out, "RESULT_FLIP=deferred") {
-		t.Errorf("with the in-cluster gateway ClusterIP unresolved, df_flip_to_local must DEFER (never point dfdaemon at the public host); harness output:\n%s", out)
+		t.Errorf("with the Harbor CA unmaterialisable, df_flip_to_local must return non-zero (guard deferred, retried next sweep); harness output:\n%s", out)
 	}
-	if !strings.Contains(out, "cilium-gateway ClusterIP unresolved") {
-		t.Errorf("df_flip_to_local must log the ClusterIP-unresolved defer; harness output:\n%s", out)
+	if strings.Contains(out, "TRIPWIRE cm_patch_status") {
+		t.Errorf("df_flip_to_local set the dragonflyUpstream=local guard on an INCOMPLETE (cert-less) flip; harness output:\n%s", out)
+	}
+	if !strings.Contains(out, "addr=https://registry.omani.works cert=") {
+		t.Errorf("flip must be addr-only (empty cert) when the CA is unmaterialisable; harness output:\n%s", out)
+	}
+	if !strings.Contains(out, "guard NOT set, will retry next sweep") {
+		t.Errorf("df_flip_to_local must log the defer; harness output:\n%s", out)
 	}
 }
 
