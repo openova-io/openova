@@ -20,8 +20,13 @@ func TestDeriveSecondaryClusterMeshName_MatchesTofuDigitStripping(t *testing.T) 
 		cloudRegion string
 		want        string
 	}{
-		// kom4dc shape — interior digit run (the live hw128 bug).
-		{"me-east-215-b", "hw128-me-east--b"},
+		// kom4dc shape — interior digit run: strip → "me-east--b", then
+		// collapse "--"→"-" so cilium's cluster.name validator accepts it.
+		{"me-east-215-b", "hw128-me-east-b"},
+		// Region with no AZ suffix — strip leaves a TRAILING dash that MUST
+		// be trimmed (the exact hw209-215 wedge: "me-east-215" → "me-east-"
+		// → cilium "must start/end alphanumeric" → CNI never installs).
+		{"me-east-215", "hw128-me-east"},
 		// Hetzner shapes — trailing run only; behaviour unchanged.
 		{"hel1", "hw128-hel"},
 		{"fsn1", "hw128-fsn"},
