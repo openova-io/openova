@@ -871,7 +871,11 @@ write_files:
         # sovereign-tls-vars CM, so retry FAST to issue the wildcard promptly
         # after — not at the 5m interval.
         retryInterval: 1m
-        path: ./clusters/_template/sovereign-tls
+        # #4706 point-3 — hetzner gets the -hetzner overlay (base + the
+        # hcloud-ccm LB annotation patches, git-side so cloud-init stays
+        # under the 32 KiB user_data cap); huawei gets the bare base with
+        # ZERO hetzner vendor annotations.
+        path: ./clusters/_template/sovereign-tls%{ if provider == "hetzner" }-hetzner%{ endif }
         prune: true
         sourceRef:
           kind: GitRepository

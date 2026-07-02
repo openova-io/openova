@@ -197,16 +197,13 @@ spec:
   # before merge (Principle #15 — IaC evaluator over text grep). DO NOT
   # add a 9th annotation here without first checking the CRD limit and
   # re-running the server-side dry-run.
-  infrastructure:
-    annotations:
-      load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-gateway"
-      load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
-      load-balancer.hetzner.cloud/type: "lb11"
-      load-balancer.hetzner.cloud/use-private-ip: "false"
-      load-balancer.hetzner.cloud/disable-private-ingress: "true"
-      load-balancer.hetzner.cloud/health-check-protocol: "tcp"
-      load-balancer.hetzner.cloud/health-check-port: "443"
-      load-balancer.hetzner.cloud/health-check-retries: "3"
+  # #4706 point-3 — the hcloud-ccm LB annotations that used to live here
+  # (spec.infrastructure.annotations, the 8-entry set documented above) are
+  # HETZNER-ONLY and are now applied via a provider-conditional kustomize
+  # patch on the sovereign-tls Kustomization (infra/providers/_shared/
+  # cloudinit-control-plane.tftpl, `%{ if provider == "hetzner" }` block).
+  # A Huawei Sovereign renders NO Hetzner vendor annotations (vendor-leak);
+  # its front door is the gateway ELB → node:443/:80 hostNetwork path.
   # NOTE (#4690 — gateway ELB→nodePort foundation): the #4687/#4689 "option-B"
   # (a `lbipam.cilium.io/sharing-key` on this Service + a borrowed
   # `k8s-app: clustermesh-apiserver` label to co-locate the gateway VIP on the

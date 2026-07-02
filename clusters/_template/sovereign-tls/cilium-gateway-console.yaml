@@ -71,16 +71,9 @@ spec:
   # public path; this Service-level LB is the cluster-side mirror so operators
   # inspecting `kubectl get svc -n kube-system` see a LoadBalancer, not a
   # bare ClusterIP (the t28 A98 confusion — see cilium-gateway.yaml header).
-  infrastructure:
-    annotations:
-      load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-console-gateway"
-      load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
-      load-balancer.hetzner.cloud/type: "lb11"
-      load-balancer.hetzner.cloud/use-private-ip: "false"
-      load-balancer.hetzner.cloud/disable-private-ingress: "true"
-      load-balancer.hetzner.cloud/health-check-protocol: "tcp"
-      load-balancer.hetzner.cloud/health-check-port: "443"
-      load-balancer.hetzner.cloud/health-check-retries: "3"
+  # #4706 point-3 — the hcloud-ccm LB annotations moved to the
+  # hetzner-conditional kustomize patch on the sovereign-tls Kustomization
+  # (cloudinit-control-plane.tftpl). See cilium-gateway.yaml for rationale.
   # listeners bind :443 / :80 (#4682) — the console gateway serves standard ports
   # via its own Service type=LoadBalancer (hostNetwork off, no NodePort). The
   # console LB is a straight L4 passthrough 443→443 / 80→80, so browsers hit

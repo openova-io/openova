@@ -1,0 +1,65 @@
+# sovereign-tls-hetzner — the HETZNER overlay of sovereign-tls (#4706 point-3).
+#
+# The 8 load-balancer.hetzner.cloud/* annotations used to be hardcoded in the
+# SHARED Gateway bases (../sovereign-tls/cilium-gateway*.yaml), so every
+# Huawei Sovereign rendered Hetzner vendor annotations (vendor-leak). They now
+# live here, applied ONLY when cloud-init points the sovereign-tls Flux
+# Kustomization at this overlay (`path: .../sovereign-tls-hetzner`, gated on
+# `%{ if provider == "hetzner" }` in cloudinit-control-plane.tftpl). Huawei
+# points at the bare base and renders ZERO hetzner annotations; its front
+# door is the gateway ELB → node:443/:80 hostNetwork path.
+#
+# This lives in GIT (fetched by Flux), NOT in cloud-init — the tftpl carries
+# only a 9-byte path suffix, keeping the rendered user_data under Hetzner's
+# 32 KiB cap (the inline-patches first cut blew it: 33886 > 32256).
+#
+# The ${...} vars are Flux postBuild substitutions (kustomize patches apply
+# BEFORE postBuild, so they substitute cluster-side exactly as before).
+# 8-annotation cap per TBD-A36 (#1896) — do NOT add a 9th.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../sovereign-tls
+patches:
+  - target:
+      kind: Gateway
+      name: cilium-gateway
+      namespace: kube-system
+    patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: Gateway
+      metadata:
+        name: cilium-gateway
+        namespace: kube-system
+      spec:
+        infrastructure:
+          annotations:
+            load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-gateway"
+            load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
+            load-balancer.hetzner.cloud/type: "lb11"
+            load-balancer.hetzner.cloud/use-private-ip: "false"
+            load-balancer.hetzner.cloud/disable-private-ingress: "true"
+            load-balancer.hetzner.cloud/health-check-protocol: "tcp"
+            load-balancer.hetzner.cloud/health-check-port: "443"
+            load-balancer.hetzner.cloud/health-check-retries: "3"
+  - target:
+      kind: Gateway
+      name: cilium-gateway-console
+      namespace: kube-system
+    patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: Gateway
+      metadata:
+        name: cilium-gateway-console
+        namespace: kube-system
+      spec:
+        infrastructure:
+          annotations:
+            load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-console-gateway"
+            load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
+            load-balancer.hetzner.cloud/type: "lb11"
+            load-balancer.hetzner.cloud/use-private-ip: "false"
+            load-balancer.hetzner.cloud/disable-private-ingress: "true"
+            load-balancer.hetzner.cloud/health-check-protocol: "tcp"
+            load-balancer.hetzner.cloud/health-check-port: "443"
+            load-balancer.hetzner.cloud/health-check-retries: "3"
