@@ -29,8 +29,10 @@ package handler
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -608,8 +610,89 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 // "flux-not-reconciling" tells the operator to inspect the
 // bootstrap-kit Kustomization on the new cluster instead of
 // retrying provisioning.
+// consoleProbeBudget / consoleProbeInterval bound the external console-
+// reachability gate (#4706). A converged Sovereign whose gateway is not yet
+// serving (LB/ELB just being wired) may need a few seconds; a Sovereign whose
+// gateway is genuinely broken (e.g. an unwired Huawei ELB) never comes up and
+// must be classified failed rather than left probing forever. The budget is
+// deliberately short — Phase-1 convergence already took the long path, and the
+// gateway is either up within seconds of it or structurally broken.
+const (
+	consoleProbeBudget   = 90 * time.Second
+	consoleProbeInterval = 10 * time.Second
+)
+
+// defaultConsoleReachable is the production external-reachability probe for
+// #4706: it repeatedly GETs https://console.<fqdn>/ until it gets any HTTP
+// response with status < 500 (the gateway + console app are serving) or the
+// budget expires. It returns nil on reachable, a descriptive error otherwise.
+//
+// TLS verification is skipped on purpose — this proves the gateway ANSWERS
+// (TCP + TLS + HTTP), not that the cert chains to a public root (a fresh
+// Sovereign may still be on an LE-staging/in-cluster wildcard). A 4xx counts
+// as reachable (the gateway routed to a backend that replied); only a 5xx or a
+// transport error (connection refused / timeout / NXDOMAIN) counts as down —
+// which is exactly the console-000 symptom we must stop mislabelling "ready".
+func defaultConsoleReachable(fqdn string) error {
+	fqdn = strings.TrimSpace(fqdn)
+	if fqdn == "" {
+		return fmt.Errorf("empty sovereign FQDN — cannot probe console reachability")
+	}
+	target := "https://console." + fqdn + "/"
+	client := &http.Client{
+		Timeout:   8 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // reachability, not trust
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), consoleProbeBudget)
+	defer cancel()
+	var last error
+	for {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		resp, err := client.Do(req)
+		if err == nil {
+			code := resp.StatusCode
+			resp.Body.Close()
+			if code < 500 {
+				return nil
+			}
+			last = fmt.Errorf("%s returned HTTP %d", target, code)
+		} else {
+			last = err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("console %s not externally reachable within %s: %v", target, consoleProbeBudget, last)
+		case <-time.After(consoleProbeInterval):
+		}
+	}
+}
+
+// EnableConsoleReachabilityGate wires the production external console-
+// reachability probe (#4706). Once called, markPhase1Done refuses to flip a
+// converged deployment to "ready" until https://console.<fqdn>/ actually
+// answers — closing the false-green where the mothership claimed "ready" while
+// the console was TCP-dead (hw217). Call once from main; unit tests leave the
+// gate off and inject a stub via h.consoleProbe when they need to exercise it.
+func (h *Handler) EnableConsoleReachabilityGate() {
+	h.consoleProbe = defaultConsoleReachable
+}
+
 func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string, outcome string) {
 	now := time.Now().UTC()
+
+	// #4706 — external console-reachability gate. "ready" must mean the
+	// operator can actually open the console, not merely that Flux
+	// converged in-cluster. We probe BEFORE taking dep.mu so a slow or
+	// failing probe never blocks State() readers holding the same lock.
+	// dep.Request is immutable after creation, so reading SovereignFQDN
+	// lock-free is safe. The gate is OFF unless h.consoleProbe is wired:
+	// production calls EnableConsoleReachabilityGate() at startup; unit
+	// tests leave it nil (so they never touch the network) and set a stub
+	// directly when they want to exercise it.
+	var consoleReachErr error
+	if outcome == helmwatch.OutcomeReady && h.consoleProbe != nil {
+		consoleReachErr = h.consoleProbe(dep.Request.SovereignFQDN)
+	}
 
 	dep.mu.Lock()
 	if dep.Result == nil {
@@ -720,6 +803,15 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		dep.Status = "failed"
 		dep.Error = fmt.Sprintf("Phase 1 watch timed out before convergence: %d component(s) observed, none hard-failed, but not all reached installed within the watch budget. The Sovereign's Flux keeps retrying cluster-side; re-attach the watch (retry) to re-evaluate. The deployment is NOT ready until every component is installed.", len(finalStates))
 	case outcome == helmwatch.OutcomeReady:
+		if consoleReachErr != nil {
+			// #4706 — Flux converged (every HelmRelease installed) but the
+			// operator-facing console is NOT externally reachable. A "ready"
+			// pill here redirects the operator to a dead URL — the exact
+			// false-green the readiness gate must refuse. Classify honestly.
+			dep.Status = "failed"
+			dep.Error = fmt.Sprintf("Phase 1 converged (all HelmReleases installed) but the console is NOT externally reachable: %v. The Sovereign's internals are up, but its gateway is not serving the public console URL, so the operator cannot use it — this is NOT ready. Investigate the gateway / load-balancer wiring (#4706) then retry.", consoleReachErr)
+			break
+		}
 		dep.Status = "ready"
 	default:
 		// Issue #3018 hardening: "ready" is granted ONLY by an

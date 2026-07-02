@@ -111,6 +111,12 @@ func main() {
 
 	h := handler.New(log)
 
+	// #4706 — turn on the external console-reachability gate: markPhase1Done
+	// will not flip a converged deployment to "ready" until its console URL
+	// actually answers, so the operator is never redirected to a TCP-dead
+	// console under a false-green "ready" pill.
+	h.EnableConsoleReachabilityGate()
+
 	// OpenBao client — wired whenever CATALYST_OPENBAO_ADDR is set.
 	//
 	// #3374: the client serves TWO consumers with different credential

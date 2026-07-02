@@ -92,6 +92,24 @@ Test provs and tenant Organizations use the domains listed in
 The legacy `admin.<sovereign-fqdn>` subdomain for voucher operations is dead —
 voucher and billing operations live in the operator console's **BSS menu**.
 
+### 🛑 NodePorts are ABSOLUTELY FORBIDDEN — always, including for testing/debugging/proof
+
+Founder, 2026-07-03 (verbatim): *"YOU CAN NEVER EVER USE NODEPORT EVEN FOR TESTING
+PURPOSE!!! ... FUCK THE NODEPORTS!!!"*
+
+**Never create or rely on a NodePort — not in a chart, not live, not for a one-off
+test or root-cause proof.** Forbidden: `Service type=NodePort`; targeting the
+auto-allocated nodePorts of a `type=LoadBalancer` Svc; an ELB/LB pool member
+pointing at `node-IP:nodePort`; any "just to test" nodePort wiring. **If a fix
+appears to need a nodePort, it is the wrong fix — find the no-nodePort path first.**
+
+The gateway is served **DIRECT** (§854): cilium LB-IPAM VIP / shared-EIP
+(`lbipam.cilium.io/sharing-key`), OR Local-ETP + **hostPort** on the hostNetwork
+`cilium-envoy` pods (podIP == node IP → envoy listens on `node:443/:80` directly),
+with any Huawei ELB targeting `node-IP:443/:80` — never a nodePort. The #4691
+ELB→nodePort fallback is itself a §854 violation (removal tracked in #4706). See
+memory `feedback_nodeports_absolutely_forbidden.md`.
+
 ### Anti-theater discipline during PR review
 
 Per [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) §Anti-pattern-catalog, defensive-coding
