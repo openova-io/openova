@@ -602,44 +602,39 @@ variable "fire_cutover_on_handover" {
   }
 }
 
-# ── #4690 / #4686 foundation-fix — Sovereign Gateway ELB member nodePorts ────
+# ── #4706 — Sovereign Gateway ELB member host ports (cilium 1.19.3) ──────────
 #
-# The restored gateway ELB (huaweicloud_elb_*.primary in main.tf) forwards
-# public :443/:80 → node:<gateway-Service-nodePort>. The gateway Service is
-# `cilium-gateway-cilium-gateway` (type=LoadBalancer, kube-system, #4682); its
-# per-port nodePort is AUTO-ALLOCATED by Cilium in the 30000-32767 range and is
-# NOT known at tofu-apply time (tofu runs at Phase-0, before the cluster — and
-# thus the Service — exists). Cilium 1.16.5 exposes NO durable pin for the
-# gateway Service's nodePort (the Gateway CRD `spec.infrastructure` has no
-# nodePort field; the `gatewayAPI` chart values have no nodePort/service knob;
-# a Kustomize/SSA patch on the operator-owned Service is contended). So these
-# two vars carry only a PLACEHOLDER port for the initial apply; catalyst-api
-# DISCOVERS the real per-port nodePort post-convergence (reading the live
-# Service via client-go) and reconciles the ELB pool members to it (Huawei ELB
-# member DELETE+POST via the existing AK/SK client — see
-# products/catalyst/bootstrap/api/internal/handler/post_handover_gateway_elb.go).
-# This mirrors exactly what hcloud-ccm does on Hetzner (it reads the Service and
-# programs the LB), just done explicitly because Huawei has no CCM.
+# The gateway ELB (huaweicloud_elb_*.primary in main.tf) forwards public
+# :443/:80 → node:443/:80. With cilium 1.19.3's gateway-api hostNetwork mode
+# (bp-cilium 1.4.8, gatewayAPI.hostNetwork.enabled=true on huawei — see
+# cloudinit-control-plane.tftpl), cilium-envoy (a hostNetwork DaemonSet) binds
+# node:443/:80 DIRECTLY on every node. The member port is therefore DURABLE
+# and known at tofu-apply time — no placeholder, no post-convergence nodePort
+# discovery, no nodePort anywhere (§854).
 #
-# Placeholders are valid in-range ports distinct from the clustermesh :32379.
-# They MUST NOT be 30443/30080 (that is the FORBIDDEN legacy hostNetwork
-# host-port pair, not a real gateway nodePort).
-variable "gateway_service_nodeport_https" {
+# History: pre-1.19 (cilium 1.16.5) the gateway was a type=LoadBalancer
+# Service whose auto-allocated nodePort was unknown at Phase-0, so these vars
+# were 31443/31080 placeholders that catalyst-api repointed post-convergence
+# (#4690/#4691). 1.16.x's hostNetwork bind bug (envoy NACK'd privileged host
+# binds) is fixed in 1.19, which removes the nodePort from the path entirely.
+# catalyst-api's post_handover_gateway_elb.go now only heals member-set drift
+# (node churn), always at these same ports.
+variable "gateway_member_port_https" {
   type        = number
-  description = "Placeholder nodePort for the gateway ELB HTTPS pool member at Phase-0 apply. catalyst-api reconciles this to the gateway LoadBalancer Service's real auto-allocated :443 nodePort post-convergence (post_handover_gateway_elb.go). Not a durable pin — the Service TYPE stays LoadBalancer, never NodePort."
-  default     = 31443
+  description = "Gateway ELB HTTPS pool member port — the host port cilium-envoy binds on every node via gateway-api hostNetwork (cilium 1.19.3). Durable; matches the Gateway listener port."
+  default     = 443
   validation {
-    condition     = var.gateway_service_nodeport_https >= 30000 && var.gateway_service_nodeport_https <= 32767
-    error_message = "gateway_service_nodeport_https must be in the k8s NodePort range 30000-32767."
+    condition     = var.gateway_member_port_https >= 1 && var.gateway_member_port_https <= 32767 && !(var.gateway_member_port_https >= 30000)
+    error_message = "gateway_member_port_https must be a host port below the k8s NodePort range (30000-32767) — nodePorts are forbidden (§854)."
   }
 }
 
-variable "gateway_service_nodeport_http" {
+variable "gateway_member_port_http" {
   type        = number
-  description = "Placeholder nodePort for the gateway ELB HTTP pool member at Phase-0 apply. catalyst-api reconciles this to the gateway LoadBalancer Service's real auto-allocated :80 nodePort post-convergence (post_handover_gateway_elb.go). Not a durable pin — the Service TYPE stays LoadBalancer, never NodePort."
-  default     = 31080
+  description = "Gateway ELB HTTP pool member port — the host port cilium-envoy binds on every node via gateway-api hostNetwork (cilium 1.19.3). Durable; matches the Gateway listener port."
+  default     = 80
   validation {
-    condition     = var.gateway_service_nodeport_http >= 30000 && var.gateway_service_nodeport_http <= 32767
-    error_message = "gateway_service_nodeport_http must be in the k8s NodePort range 30000-32767."
+    condition     = var.gateway_member_port_http >= 1 && var.gateway_member_port_http <= 32767 && !(var.gateway_member_port_http >= 30000)
+    error_message = "gateway_member_port_http must be a host port below the k8s NodePort range (30000-32767) — nodePorts are forbidden (§854)."
   }
 }

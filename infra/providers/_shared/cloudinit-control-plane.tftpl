@@ -416,10 +416,15 @@ write_files:
           # render time (cilium-gateway-race #503). "auto" skips creation
           # when the gateway.networking.k8s.io CRDs are not yet present.
           create: "true"
+%{ if provider == "huawei" ~}
+        # #4706 no-CCM Huawei: envoy binds node:443/:80; ELB targets them.
+        # Lockstep w/ CILIUM_GATEWAY_HOSTNETWORK_ENABLED (parity test).
+        hostNetwork:
+          enabled: true
+%{ endif ~}
       envoy:
         enabled: true
-      # envoyConfig.enabled (issue #491): without it the chart skips the
-      # CiliumEnvoyConfig CRD registrations and cilium-agent waits forever.
+
       envoyConfig:
         enabled: true
       l7Proxy: true
@@ -825,6 +830,8 @@ write_files:
             # hcloud-ccm materialises the Service LB directly.
             CILIUM_GATEWAY_LB_IPAM_ENABLED: "true"
             CILIUM_GATEWAY_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
+            # #4706 — lockstep w/ the cilium-values hostNetwork block above.
+            CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"
             SOVEREIGN_GATEWAY_HTTPS_PORT: "443"
             SOVEREIGN_GATEWAY_HTTP_PORT: "80"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
@@ -1291,7 +1298,7 @@ runcmd:
     rt sh -c 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3|bash'
     rt helm repo add cilium https://helm.cilium.io/
     rt helm repo update
-    rt helm upgrade --install cilium cilium/cilium --version 1.16.5 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
+    rt helm upgrade --install cilium cilium/cilium --version 1.19.3 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
     kubectl -n kube-system rollout status ds/cilium --timeout=240s || { echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;exit 91;}
 %{ if provider == "huawei" ~}
   # #4503 root cause (Huawei-gated note; the byte budget is Hetzner-only): on

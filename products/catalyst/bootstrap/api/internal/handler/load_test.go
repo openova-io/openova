@@ -82,6 +82,7 @@ func newLoadTestServer(t *testing.T) (*httptest.Server, *Handler) {
 func validRequest(idx int) map[string]any {
 	return map[string]any{
 		"orgName":                fmt.Sprintf("Load Test Org %d", idx),
+		"bcpTopology":            "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               fmt.Sprintf("load+%d@openova.io", idx),
 		"sovereignFQDN":          fmt.Sprintf("loadtest-%d.openova.io", idx),
 		"sovereignDomainMode":    "byo",
@@ -366,7 +367,9 @@ func TestLoad_RejectsInvalidInputUnderConcurrency(t *testing.T) {
 func TestLoad_DeploymentValidationContractKeepsLoadTestFromHangingForever(t *testing.T) {
 	body := validRequest(0)
 	r := provisioner.Request{
-		OrgName:                body["orgName"].(string),
+		OrgName:     body["orgName"].(string),
+		BcpTopology: body["bcpTopology"].(string), // #4706 — explicit single-region
+
 		OrgEmail:               body["orgEmail"].(string),
 		SovereignFQDN:          body["sovereignFQDN"].(string),
 		SovereignDomainMode:    body["sovereignDomainMode"].(string),

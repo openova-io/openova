@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.8 (#4706, 2026-07-03): cilium 1.16.5 → 1.19.3 + gateway-api hostNetwork
+# per-provider — the PERMANENT §854-clean no-nodePort gateway on no-CCM Huawei.
+# 1.16.5 blocked BOTH clean paths: the LB VIP dies at Huawei's 1:1-NAT'd EIP
+# (hw208) and 1.16.x's gateway-api hostNetwork bind bug NACK'd envoy's
+# privileged host bind (otech45-47) — forcing the interim ELB→node:<nodePort>
+# shape (#4690/#4691), whose port-discovery reconciler failed on hw217
+# (memberless pools → console 000). 1.19 graduated hostNetwork out of beta:
+# cilium-envoy (hostNetwork DaemonSet) binds node:443/:80 DIRECTLY, the tofu
+# ELB members target those DURABLE ports from Phase-0 apply, and catalyst-api
+# only heals member-set drift (node churn). hostNetwork default stays FALSE
+# (Hetzner front door = hcloud-ccm LB Service); huawei flips it via the new
+# CILIUM_GATEWAY_HOSTNETWORK_ENABLED substitute. Guards: parity tests lock the
+# 3-way hostNetwork agreement + the bootstrap-helm-vs-chart version pin
+# (drift = unsupported in-place multi-minor CNI upgrade mid-Phase-1).
+# Lockstep: blueprint.yaml 1.4.8 + 01-cilium.yaml slot pin 1.4.8 + catalog-seed
+# 1.4.8 + cloudinit-control-plane.tftpl (helm --version 1.19.3 + hostNetwork
+# block + substitute) + infra/providers/huawei (member/monitor ports 443/80).
 # 1.4.7 (#4690 / #4686 foundation-fix, 2026-07-02): REVERT the 1.4.6 "option-B"
 # (gateway VIP sharing the clustermesh CP-node EIP via a Cilium LB-IPAM
 # `sharing-key`). That EIP is a Huawei 1:1 NAT — externally UNREACHABLE
@@ -188,7 +205,7 @@ name: bp-cilium
 # the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
 # fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
 # mapper lands on the live hubble-ui client zero-touch.
-version: 1.4.7
+version: 1.4.8
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
@@ -226,5 +243,5 @@ dependencies:
     # constraint with the locked version eliminates the lie. Bumping to a
     # newer Cilium minor is a separate slice that needs real upgrade
     # testing on a live data-plane cluster.
-    version: "1.16.5"
+    version: "1.19.3"
     repository: "https://helm.cilium.io"

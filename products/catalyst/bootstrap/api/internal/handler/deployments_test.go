@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,7 @@ func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Omantel",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@omantel.om",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -95,6 +97,7 @@ func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Omantel",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@omantel.om",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -128,6 +131,7 @@ func TestCreateDeployment_BYODoesNotReserve(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Acme",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@acme.io",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -174,6 +178,7 @@ func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Acme",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "ops@acme.io",
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -251,6 +256,7 @@ func TestCreateDeployment_MarketplaceEnabledDefaultsTrue(t *testing.T) {
 				"hetznerProjectID":       "proj",
 				"region":                 "fsn1",
 				"orgName":                "Acme",
+				"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 				"orgEmail":               "ops@acme.io",
 				"sshPublicKey":           "ssh-ed25519 AAAA test",
 				"objectStorageRegion":    "fsn1",
@@ -325,6 +331,7 @@ func TestCreateDeployment_EnableSharedPostgresDefaultsTrue(t *testing.T) {
 				"hetznerProjectID":       "proj",
 				"region":                 "fsn1",
 				"orgName":                "Acme",
+				"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 				"orgEmail":               "ops@acme.io",
 				"sshPublicKey":           "ssh-ed25519 AAAA test",
 				"objectStorageRegion":    "fsn1",
@@ -434,6 +441,7 @@ func TestCreateDeployment_AcceptsMatchingOrgEmail(t *testing.T) {
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",
 		"orgName":                "Omantel",
+		"bcpTopology": "single-region", // #4706 — implicit 1-region is rejected
 		"orgEmail":               "Me@Example.com", // mixed-case match
 		"sshPublicKey":           "ssh-ed25519 AAAA test",
 		"objectStorageRegion":    "fsn1",
@@ -565,5 +573,30 @@ func TestListDeployments_OwnerQueryParam(t *testing.T) {
 	}
 	if len(resp.Deployments) != 0 {
 		t.Fatalf("got %d deployments, want 0 (cross-tenant ?owner must never leak)", len(resp.Deployments))
+	}
+}
+
+// TestCreateDeployment_RejectsImplicitSingleRegion (#4706, founder
+// 2026-07-03: "the fundamental requirement of 2 region mimicking
+// agreement") — a POST with <2 regions and NO explicit bcpTopology is a
+// 400 at admission. The floor lives HERE (not in Request.Validate) because
+// Validate doubles as the store's legacy-record rehydration path.
+func TestCreateDeployment_RejectsImplicitSingleRegion(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	body := map[string]any{
+		"orgName":       "Implicit SR",
+		"orgEmail":      "ops@implicit.test",
+		"sovereignFQDN": "implicit.omani.works",
+		"region":        "fsn1",
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments", bytes.NewReader(b))
+	w := httptest.NewRecorder()
+	h.CreateDeployment(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("implicit single-region POST must 400 at admission, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "multi-region") {
+		t.Fatalf("rejection must explain the multi-region BCP default, got: %s", w.Body.String())
 	}
 }

@@ -179,6 +179,10 @@ func TestValidate_AutoDerivesOnMultiRegionEmpty(t *testing.T) {
 }
 
 func TestValidate_AutoDerivesOnSingleRegionEmpty(t *testing.T) {
+	// #4706 NOTE: Validate() keeps the historical auto-derivation because
+	// it is ALSO the store's legacy-record rehydration path. The
+	// multi-region POST floor lives at HANDLER admission
+	// (TestCreateDeployment_RejectsImplicitSingleRegion).
 	req := baseValidateRequest(t)
 	req.BcpTopology = ""
 	req.Regions = []RegionSpec{
@@ -239,7 +243,9 @@ func TestWriteTfvars_EmitsSingleRegionForLegacyPath(t *testing.T) {
 	req := tfvarsRequest(t)
 	// Legacy single-region payload (no Regions[] supplied) — exercises
 	// the back-compat path the wizard used pre-multi-region work.
+	// #4706 — legacy payloads must ALSO declare single-region explicitly.
 	req.Regions = nil
+	req.BcpTopology = BcpTopologySingleRegion
 	if err := req.Validate(); err != nil {
 		t.Fatalf("Validate(): %v", err)
 	}
@@ -299,4 +305,30 @@ func tfvarsRequest(t *testing.T) Request {
 	t.Helper()
 	r := baseValidateRequest(t)
 	return *r
+}
+
+// TestValidate_AllowsExplicitSingleRegion — the deliberate opt-out: saying
+// bcpTopology="single-region" in so many words keeps the quota-constrained
+// validation shape available.
+func TestValidate_AllowsExplicitSingleRegion(t *testing.T) {
+	req := validBaseWithSecrets()
+	req.BcpTopology = BcpTopologySingleRegion
+	if err := req.Validate(); err != nil {
+		t.Fatalf("an EXPLICIT single-region declaration must validate, got: %v", err)
+	}
+}
+
+// TestValidate_RejectsContradictorySingleRegion — an explicit single-region
+// declaration with >=2 regions is contradictory; reject rather than guess.
+func TestValidate_RejectsContradictorySingleRegion(t *testing.T) {
+	req := validBaseWithSecrets()
+	req.Regions = []RegionSpec{
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+		{Provider: "hetzner", CloudRegion: "nbg1"},
+	}
+	req.BcpTopology = BcpTopologySingleRegion
+	err := req.Validate()
+	if err == nil {
+		t.Fatalf("bcpTopology=single-region with >=2 regions must be rejected as contradictory")
+	}
 }

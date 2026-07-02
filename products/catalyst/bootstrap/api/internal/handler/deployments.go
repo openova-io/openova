@@ -1303,6 +1303,23 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// #4706 (founder 2026-07-03: "the fundamental requirement of 2 region
+	// mimicking agreement") — the BCP agreement default is MULTI-REGION.
+	// A POST with <2 regions and no explicit bcpTopology is rejected at
+	// ADMISSION: a single-region prov must be a DELIBERATE act (the payload
+	// says bcpTopology="single-region" in so many words — the
+	// quota-constrained validation shape). This floor deliberately lives
+	// HERE and not in Request.Validate(): Validate doubles as the store's
+	// legacy-record rehydration/migration path, where pre-floor
+	// single-region records must keep loading.
+	if strings.TrimSpace(req.BcpTopology) == "" && len(req.Regions) < 2 {
+		http.Error(w,
+			fmt.Sprintf("deployment has %d region(s) and no explicit bcpTopology — the BCP agreement default is multi-region (>=2 regions, Pillar 2). Add a second region, or set bcpTopology=%q explicitly for a deliberate single-region validation prov",
+				len(req.Regions), provisioner.BcpTopologySingleRegion),
+			http.StatusBadRequest)
+		return
+	}
+
 	if err := req.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

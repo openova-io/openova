@@ -62,15 +62,16 @@ if [ ! -s "$render_file" ]; then
   exit 1
 fi
 
-# (2) exactly 10 CRDs (experimental channel — includes TLSRoute/TCPRoute/UDPRoute/
-# BackendLBPolicy/BackendTLSPolicy required for Cilium 1.16.x gateway controller).
+# (2) exactly 11 CRDs (v1.3.0 experimental channel — includes TLSRoute/TCPRoute/
+# UDPRoute/BackendTLSPolicy required for the Cilium gateway controller, plus the
+# x-k8s XBackendTrafficPolicy/XListenerSet that replaced BackendLBPolicy in v1.3).
 crd_count="$(grep -c '^kind: CustomResourceDefinition$' "$render_file" || true)"
-if [ "$crd_count" -ne 10 ]; then
-  echo "::error::expected exactly 10 CRDs (experimental channel), got $crd_count"
+if [ "$crd_count" -ne 11 ]; then
+  echo "::error::expected exactly 11 CRDs (v1.3.0 experimental channel), got $crd_count"
   grep -A 3 '^kind: CustomResourceDefinition$' "$render_file" | head -60
   exit 1
 fi
-echo "  ✓ 10 CRDs rendered (experimental channel)"
+echo "  ✓ 11 CRDs rendered (experimental channel)"
 
 # (3) each CRD has helm.sh/resource-policy: keep
 for name in \
@@ -78,8 +79,9 @@ for name in \
     gateways.gateway.networking.k8s.io \
     grpcroutes.gateway.networking.k8s.io \
     httproutes.gateway.networking.k8s.io \
-    backendlbpolicies.gateway.networking.k8s.io \
     backendtlspolicies.gateway.networking.k8s.io \
+    xbackendtrafficpolicies.gateway.networking.x-k8s.io \
+    xlistenersets.gateway.networking.x-k8s.io \
     tcproutes.gateway.networking.k8s.io \
     tlsroutes.gateway.networking.k8s.io \
     udproutes.gateway.networking.k8s.io \
@@ -92,11 +94,11 @@ for name in \
 done
 
 keep_count="$(grep -c '^    helm.sh/resource-policy: keep$' "$render_file" || true)"
-if [ "$keep_count" -ne 10 ]; then
-  echo "::error::expected 10 helm.sh/resource-policy: keep annotations, got $keep_count"
+if [ "$keep_count" -ne 11 ]; then
+  echo "::error::expected 11 helm.sh/resource-policy: keep annotations, got $keep_count"
   exit 1
 fi
-echo "  ✓ all 10 CRDs annotated helm.sh/resource-policy: keep"
+echo "  ✓ all 11 CRDs annotated helm.sh/resource-policy: keep"
 
 # (4) bundle-version annotation matches Chart.yaml pin
 bundle_ver_lines="$(grep '^    gateway.networking.k8s.io/bundle-version:' "$render_file" || true)"

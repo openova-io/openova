@@ -22,6 +22,8 @@ func boolPtr(b bool) *bool { return &b }
 // 1. Omitted (nil pointer) → default TRUE — production posture preserved.
 func TestWriteTfvars_ConsoleIsolation_DefaultResolvesTrue(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	// ConsoleIsolationEnabled left nil (the omit-from-POST default).
 
 	out := writeTfvarsSharedPG(t, req)
@@ -34,6 +36,8 @@ func TestWriteTfvars_ConsoleIsolation_DefaultResolvesTrue(t *testing.T) {
 // 2. Explicit true → TRUE.
 func TestWriteTfvars_ConsoleIsolation_ExplicitTrueResolvesTrue(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	req.ConsoleIsolationEnabled = boolPtr(true)
 
 	out := writeTfvarsSharedPG(t, req)
@@ -47,6 +51,8 @@ func TestWriteTfvars_ConsoleIsolation_ExplicitTrueResolvesTrue(t *testing.T) {
 //    console re-parents onto the shared cilium-gateway).
 func TestWriteTfvars_ConsoleIsolation_ExplicitFalseResolvesFalse(t *testing.T) {
 	req := tfvarsRequest(t)
+	// #4706 — deliberate single-region shape (implicit 1-region is rejected).
+	req.BcpTopology = BcpTopologySingleRegion
 	req.ConsoleIsolationEnabled = boolPtr(false)
 
 	out := writeTfvarsSharedPG(t, req)

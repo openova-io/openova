@@ -234,12 +234,46 @@ cilium:
     # through the LoadBalancer Service, identically inside and outside the
     # cluster (which is required for the segregated DMZ/RTZ multi-cluster
     # topology, where in-cluster ClusterIPs do not route across clusters).
+    #
+    # #4706 — PER-PROVIDER with the cilium 1.16.5 → 1.19.3 bump. The bind
+    # rejection above was a 1.16.x gateway-api-hostNetwork bug (cilium-envoy
+    # NACK'd "cannot bind 0.0.0.0:80"); 1.19 graduated hostNetwork out of
+    # beta and fixes it, so envoy CAN bind node:443/:80 directly. On the
+    # no-CCM Huawei provider this is the ONLY §854-clean gateway path: the
+    # LoadBalancer VIP can't route through Huawei's 1:1-NAT'd EIP (hw208)
+    # and nodePorts are forbidden — so the Huawei ELB targets
+    # node-IP:443/:80 (a direct host bind, NOT a nodePort). Companion: the
+    # gateway-elb member reconciler + tofu members target :443/:80.
+    #
+    # DEFAULT stays FALSE: on Hetzner the front door IS the hcloud-ccm-
+    # materialised LoadBalancer Service — flipping hostNetwork there would
+    # drop the CCM LB and break the Hetzner gateway. The bootstrap-kit
+    # slot-01 HR wires this per-provider via the
+    # CILIUM_GATEWAY_HOSTNETWORK_ENABLED substitute (huawei cloud-init sets
+    # "true"; hetzner leaves it unset → default false).
     hostNetwork:
       enabled: false
 
   # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
   envoy:
     enabled: true
+    # #4706 — REQUIRED for the gateway-api hostNetwork host bind on
+    # privileged ports (node:443/:80). Two knobs, both live-proven on hw217:
+    #   1. NET_BIND_SERVICE must be ADDED to the envoy container caps (the
+    #      list REPLACES the chart default [NET_ADMIN, SYS_ADMIN] — keep
+    #      those two or the datapath breaks);
+    #   2. keepCapNetBindService=true — cilium-envoy-starter DROPS ambient
+    #      caps at exec unless told to keep NET_BIND_SERVICE; without it the
+    #      container cap alone still yields "cannot bind '0.0.0.0:80':
+    #      Permission denied" (observed live).
+    # Inert on Hetzner (hostNetwork off → no privileged host bind attempted).
+    securityContext:
+      capabilities:
+        envoy:
+          - NET_ADMIN
+          - SYS_ADMIN
+          - NET_BIND_SERVICE
+        keepCapNetBindService: true
 
   # L2 LoadBalancer announcements (alternative to MetalLB for bare-metal)
   l2announcements:

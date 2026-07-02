@@ -1052,7 +1052,25 @@ func (r *Request) Validate() error {
 		}
 		r.BcpTopology = explicit
 	} else {
+		// NOTE (#4706): the multi-region POST floor ("no implicit
+		// single-region provs") lives in the HANDLER admission path
+		// (CreateDeployment, deployments.go), NOT here — Validate() is
+		// ALSO the on-restart legacy-record migration path (the store
+		// rehydrates pre-floor single-region records through it, see
+		// TestLegacyRecord_NoParentDomainsKey_LoadsCleanly), and a
+		// policy floor here would brick existing deployments on the
+		// next catalyst-api roll. Rehydrated legacy records keep the
+		// historical auto-derivation.
 		r.BcpTopology = deriveBcpTopology(*r)
+	}
+	// Mirror invariant: an EXPLICIT single-region declaration with >=2
+	// regions is contradictory — reject rather than guess which half the
+	// operator meant.
+	if r.BcpTopology == BcpTopologySingleRegion && len(r.Regions) >= 2 {
+		return fmt.Errorf(
+			"bcpTopology=%q contradicts len(regions)=%d — drop the extra regions or choose a multi-region topology",
+			BcpTopologySingleRegion, len(r.Regions),
+		)
 	}
 	// Cross-field invariant: active-hotstandby and active-active both
 	// require >=2 regions on the wire — a single-region prov cannot
