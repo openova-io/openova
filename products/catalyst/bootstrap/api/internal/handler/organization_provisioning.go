@@ -103,6 +103,14 @@ type OrganizationDNSProvisioner interface {
 	// hostnames. Idempotent; returns nil on "record already exists
 	// with the same RDATA" outcomes.
 	ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error
+	// DeprovisionFreeSubdomain removes the per-Org pool A-records that
+	// ProvisionFreeSubdomain wrote (console + app sister hosts under
+	// <subdomain>.<parentZone>). Called on Organization delete so a stale
+	// record does not survive the Org and point a later same-slug re-prov at
+	// a DEAD console-ELB IP — the #4459 Console-000 poisoning. Idempotent:
+	// deleting an already-absent rrset is a 2xx no-op on PowerDNS, so this is
+	// safe to call even when the Org never provisioned DNS.
+	DeprovisionFreeSubdomain(ctx context.Context, subdomain, parentZone string) error
 	// ValidateBYOCNAME resolves `console.<byo_domain>` and confirms
 	// it CNAMEs to one of acceptedTargets (or, when nil/empty, to
 	// the supplied legacyTarget). Returns a structured error when the
@@ -885,6 +893,20 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 			if err := deps.TenantRegistry.Delete(host); err != nil {
 				h.log.Warn("org-tenant: registry delete best-effort failed", "err", err)
 			}
+		}
+	}
+	// #4459 — remove the per-Org pool DNS records so a later same-slug re-prov
+	// does not inherit a stale console/app A-record pointing at a DEAD ELB IP
+	// (Console 000). Best-effort + idempotent (delete of an absent rrset is a
+	// 2xx no-op), mirroring the overlay/registry teardowns above. Free-subdomain
+	// mode only: a BYO-domain Org's records live in the customer's own zone.
+	if deps.DNS != nil && rec.DomainMode == store.OrganizationDomainFreeSubdomain {
+		parentZone := strings.TrimSpace(rec.ParentDomain)
+		if parentZone == "" {
+			parentZone = rec.OTECHFQDN
+		}
+		if err := deps.DNS.DeprovisionFreeSubdomain(r.Context(), rec.Subdomain, parentZone); err != nil {
+			h.log.Warn("org-tenant: DNS deprovision best-effort failed", "err", err, "subdomain", rec.Subdomain)
 		}
 	}
 

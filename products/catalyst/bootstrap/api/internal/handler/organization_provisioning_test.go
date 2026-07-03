@@ -53,8 +53,10 @@ func (f *fakeGitOps) DeleteTenantOverlay(_ context.Context, rec store.Organizati
 type fakeDNS struct {
 	mu             sync.Mutex
 	provisionCalls []string
+	deproviCalls   []string
 	cnameCalls     []string
 	provisionErr   error
+	deprovisionErr error
 	cnameErr       error
 }
 
@@ -63,6 +65,13 @@ func (f *fakeDNS) ProvisionFreeSubdomain(_ context.Context, sub, parent, ip stri
 	defer f.mu.Unlock()
 	f.provisionCalls = append(f.provisionCalls, sub+":"+parent+":"+ip)
 	return f.provisionErr
+}
+
+func (f *fakeDNS) DeprovisionFreeSubdomain(_ context.Context, sub, parent string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deproviCalls = append(f.deproviCalls, sub+":"+parent)
+	return f.deprovisionErr
 }
 
 func (f *fakeDNS) ValidateBYOCNAME(_ context.Context, byo, legacy string, accepted ...string) error {
@@ -1761,5 +1770,37 @@ func TestLoadOrganizationParentDomainsFromEnv_Custom(t *testing.T) {
 		if p.Role != "org-pool" {
 			t.Errorf("non-primary entry should be org-pool: %+v", p)
 		}
+	}
+}
+
+// TestDeleteOrganization_DeprovisionsDNS (#4459) — an Org delete must remove
+// the per-Org pool DNS records the provision path wrote, so a later same-slug
+// re-prov does not inherit a stale console/app A-record → Console 000.
+func TestDeleteOrganization_DeprovisionsDNS(t *testing.T) {
+	h, _, dns, _, _, _ := newTestHandlerWithOrganizationDeps(t)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
+		bytes.NewReader([]byte(`{"subdomain":"acme","admin_email":"a@b.test"}`)))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	h.HandleCreateOrganization(createW, createReq)
+	var created orgTenantResponse
+	_ = json.Unmarshal(createW.Body.Bytes(), &created)
+
+	delReq := httptest.NewRequest(http.MethodDelete,
+		"/api/v1/organizations/"+created.OrganizationID, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", created.OrganizationID)
+	delReq = delReq.WithContext(context.WithValue(delReq.Context(), chi.RouteCtxKey, rctx))
+	delW := httptest.NewRecorder()
+	h.HandleDeleteOrganization(delW, delReq)
+
+	dns.mu.Lock()
+	defer dns.mu.Unlock()
+	if len(dns.deproviCalls) != 1 {
+		t.Fatalf("delete must call DeprovisionFreeSubdomain exactly once (#4459 — stale DNS poisons re-prov); got %d: %v", len(dns.deproviCalls), dns.deproviCalls)
+	}
+	if !strings.HasPrefix(dns.deproviCalls[0], "acme:") {
+		t.Errorf("deprovision must target the Org subdomain 'acme'; got %q", dns.deproviCalls[0])
 	}
 }
