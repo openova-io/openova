@@ -719,7 +719,7 @@ spec:
       # node-local `GET http://127.0.0.1:4001/v2/` serving probe so catalyst-api's
       # daemonset-wait cannot green (→ step-07 catalyst-api re-pull) while the
       # dfdaemon mirror has 0 Ready pods (#4649 condition → connection-refused).
-      version: 0.1.102
+      version: 0.1.103
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
