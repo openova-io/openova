@@ -45,6 +45,15 @@ describe('statusKindOf', () => {
     }
   })
 
+  it('#4731 — classifies the HEALTH-axis vocabulary (#3646 §4c)', () => {
+    // healthy = running-forever-and-correct → green; degraded → amber;
+    // failing → RED (same semantic class as a one-shot failed, never
+    // grey).
+    expect(statusKindOf('healthy')).toBe('success')
+    expect(statusKindOf('degraded')).toBe('warning')
+    expect(statusKindOf('failing')).toBe('failed')
+  })
+
   it('classifies pending / unknown / empty as grey — never green', () => {
     for (const s of ['pending', 'suspended', 'not-started', '', undefined, null]) {
       expect(statusKindOf(s)).toBe('pending')

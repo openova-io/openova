@@ -87,6 +87,10 @@ export function statusKindOf(raw: string | null | undefined): StatusKind {
     case 'stalled':
     case 'out-of-sync':
       return 'warning'
+    // #4731 — `failing` is the Jobs HEALTH axis (issue #3646 §4c) word
+    // for a broken recurring/reconciler row; same semantic red as a
+    // one-shot `failed`.
+    case 'failing':
     case 'failed':
     case 'failure':
     case 'error':

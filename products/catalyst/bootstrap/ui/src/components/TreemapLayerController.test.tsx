@@ -131,6 +131,83 @@ describe('TreemapLayerController — dimension exclusion', () => {
   })
 })
 
+describe('TreemapLayerController — Progress + Kind dimensions (#4731)', () => {
+  it('offers Progress and Kind in every layer picker', () => {
+    render(<Harness initialLayers={['cluster']} />)
+    const layer1 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
+    const values = Array.from(layer1.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    )
+    expect(values).toContain('progress')
+    expect(values).toContain('kind')
+    const labels = Array.from(layer1.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).textContent,
+    )
+    expect(labels).toContain('Progress')
+    expect(labels).toContain('Kind')
+  })
+
+  it('dimension exclusivity applies to the new dimensions too', () => {
+    render(<Harness initialLayers={['progress', 'kind']} />)
+    const layer2 = screen.getByTestId('treemap-layer-1-select') as HTMLSelectElement
+    const values = Array.from(layer2.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    )
+    // 'progress' is taken by layer 1; 'kind' (own value) stays offered.
+    expect(values).not.toContain('progress')
+    expect(values).toContain('kind')
+  })
+
+  it('a job-sourced stack swaps the metric selects to Status + Uniform', () => {
+    render(
+      <Harness
+        initialLayers={['progress', 'kind']}
+        initialColorBy="status"
+        initialSizeBy="uniform"
+      />,
+    )
+    const colour = screen.getByTestId('treemap-color-select') as HTMLSelectElement
+    const size = screen.getByTestId('treemap-size-select') as HTMLSelectElement
+    expect(colour.value).toBe('status')
+    expect(size.value).toBe('uniform')
+    const colourValues = Array.from(colour.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    )
+    const sizeValues = Array.from(size.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    )
+    // Jobs carry no pod capacity/utilisation — the resource metrics
+    // must NOT be offered on a job stack (and the job vocabulary never
+    // leaks onto resource stacks, next test).
+    expect(colourValues).toEqual(['status'])
+    expect(sizeValues).toEqual(['uniform'])
+    // No capacity metric selected → the colour select is not locked.
+    expect(colour.disabled).toBe(false)
+  })
+
+  it('resource stacks do NOT offer status/uniform (backend vocabulary only)', () => {
+    render(<Harness initialLayers={['family', 'application']} />)
+    const colour = screen.getByTestId('treemap-color-select') as HTMLSelectElement
+    const size = screen.getByTestId('treemap-size-select') as HTMLSelectElement
+    const colourValues = Array.from(colour.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    )
+    const sizeValues = Array.from(size.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    )
+    expect(colourValues).not.toContain('status')
+    expect(sizeValues).not.toContain('uniform')
+  })
+
+  it('addLayer default pick never silently flips a resource stack to the job source', () => {
+    render(<Harness initialLayers={['family', 'application']} />)
+    fireEvent.click(screen.getByTestId('treemap-add-layer'))
+    const layer3 = screen.getByTestId('treemap-layer-2-select') as HTMLSelectElement
+    // First unused RESOURCE dimension (organization), not progress/kind.
+    expect(layer3.value).toBe('organization')
+  })
+})
+
 describe('TreemapLayerController — Organization dimension (#3687 fold #3692)', () => {
   it('offers Organization as a Layer-1 dimension', () => {
     render(<Harness initialLayers={['cluster']} />)

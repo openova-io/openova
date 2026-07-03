@@ -6,8 +6,10 @@
  *   • hrRatio — multi-region HR census + componentStates fallback
  *   • wizard render — highlights the live phase + shows the Reconcile ratio
  *   • deep-links — phase ③ → /cloud (unified graph, #3958), phase ② → /jobs
- *   • Dashboard view toggle — auto-flip to treemap on ready; wizard while
- *     converging; the manual Progress ⇄ Treemap toggle flips both ways
+ *   • Dashboard state-aware DEFAULTS (#4731) — the one treemap defaults to
+ *     the job-sourced Progress→Kind stack (status colour) while converging,
+ *     morphs to the resource defaults on ready, and re-stacks back to
+ *     Progress on operator demand. No component toggle.
  */
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
@@ -234,40 +236,64 @@ describe('Dashboard state-aware view', () => {
     stubEventsFetch({ status: 'phase1-watching' } as DeploymentSnapshot)
   })
 
-  // #4704 — the Progress view now renders the ProvisioningTreemap pane
-  // (treemap skeleton that colours in), not the old ConvergenceWizard.
-  it('renders the provisioning treemap (Progress) while converging', async () => {
+  // #4731 — the Dashboard is ONE treemap in both lifecycle states: no
+  // Progress ⇄ Treemap component toggle, no ProvisioningTreemap pane.
+  // While converging the DEFAULTS are the job-sourced Progress→Kind
+  // stack coloured by status; on ready they morph to the resource
+  // defaults. Same pane, same component.
+  it('defaults to the Progress→Kind job stack (status colour) while converging', async () => {
     renderDashboard()
-    expect(await screen.findByTestId('provisioning-treemap')).toBeTruthy()
+    // The one treemap frame + controller are ALWAYS present.
+    expect(await screen.findByTestId('dashboard-treemap-frame')).toBeTruthy()
+    expect(screen.queryByTestId('provisioning-treemap')).toBeNull()
+    expect(screen.queryByTestId('dashboard-view-toggle')).toBeNull()
     expect(screen.queryByTestId('convergence-wizard')).toBeNull()
-    // Treemap controller is hidden in progress view.
-    expect(screen.queryByTestId('dashboard-treemap-frame')).toBeNull()
+    const layer0 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
+    const layer1 = screen.getByTestId('treemap-layer-1-select') as HTMLSelectElement
+    const colour = screen.getByTestId('treemap-color-select') as HTMLSelectElement
+    const size = screen.getByTestId('treemap-size-select') as HTMLSelectElement
+    expect(layer0.value).toBe('progress')
+    expect(layer1.value).toBe('kind')
+    expect(colour.value).toBe('status')
+    expect(size.value).toBe('uniform')
   })
 
-  it('AUTO-FLIPS to the treemap when status is ready', async () => {
+  it('AUTO-MORPHS to the resource defaults when status is ready', async () => {
     stubEventsFetch({ status: 'ready' } as DeploymentSnapshot)
     renderDashboard()
-    // The treemap frame appears once the ready snapshot resolves.
+    // Once the ready snapshot resolves, the SAME pane re-defaults to the
+    // resource treemap (jsdom runs in mothership mode → family layer 1).
     await waitFor(() => {
-      expect(screen.queryByTestId('dashboard-treemap-frame')).toBeTruthy()
+      const layer0 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
+      expect(layer0.value).toBe('family')
     })
-    expect(screen.queryByTestId('provisioning-treemap')).toBeNull()
+    const colour = screen.getByTestId('treemap-color-select') as HTMLSelectElement
+    const size = screen.getByTestId('treemap-size-select') as HTMLSelectElement
+    expect(colour.value).toBe('utilization')
+    expect(size.value).toBe('cpu_request')
+    expect(screen.queryByTestId('dashboard-view-toggle')).toBeNull()
   })
 
-  it('manual toggle flips Progress ⇄ Treemap both ways', async () => {
+  it('post-ready the operator can re-stack BACK to Progress (cutover/cron view)', async () => {
+    stubEventsFetch({ status: 'ready' } as DeploymentSnapshot)
     renderDashboard()
-    // Starts on Progress (converging).
-    expect(await screen.findByTestId('provisioning-treemap')).toBeTruthy()
-    // Flip to Treemap.
-    fireEvent.click(screen.getByTestId('dashboard-view-treemap'))
     await waitFor(() => {
-      expect(screen.queryByTestId('dashboard-treemap-frame')).toBeTruthy()
+      expect(
+        (screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement).value,
+      ).toBe('family')
     })
-    expect(screen.queryByTestId('provisioning-treemap')).toBeNull()
-    // Flip back to Progress.
-    fireEvent.click(screen.getByTestId('dashboard-view-progress'))
+    // Re-adding the Progress dimension flips the stack back to the
+    // job source; colour/size re-derive to the job vocabulary.
+    fireEvent.change(screen.getByTestId('treemap-layer-0-select'), {
+      target: { value: 'progress' },
+    })
     await waitFor(() => {
-      expect(screen.queryByTestId('provisioning-treemap')).toBeTruthy()
+      const layer0 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
+      expect(layer0.value).toBe('progress')
     })
+    const colour = screen.getByTestId('treemap-color-select') as HTMLSelectElement
+    const size = screen.getByTestId('treemap-size-select') as HTMLSelectElement
+    expect(colour.value).toBe('status')
+    expect(size.value).toBe('uniform')
   })
 })

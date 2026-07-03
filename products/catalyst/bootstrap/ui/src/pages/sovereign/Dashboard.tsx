@@ -38,6 +38,30 @@
  * parent's measured y/x in a Map (key = parent name) and clip child
  * label y-positions to (parentY + headerHeight + padding).
  *
+ * ── #4731 — Progress + Kind as first-class layers of THIS treemap ──
+ * The provisioning view is NOT a separate component (the ad-hoc
+ * ProvisioningTreemap of PR #4726 is deleted): it is this same
+ * editable treemap with two extra Layer dimensions and one Color mode.
+ *
+ *   • `progress` layer — lifecycle-stage buckets derived from the Job
+ *     tree's `type=group` parents in dependency order, falling back to
+ *     kind-derived stages when the group set is sparse.
+ *   • `kind` layer — the typed JobKind discriminator (#3646).
+ *   • `status` colour — categorical statusColors mapping (green=
+ *     succeeded/healthy, blue=running pulsing, amber=degraded,
+ *     red=failed/failing, grey=pending).
+ *
+ * Data-source rule (the only conditional): a layer stack containing
+ * progress/kind builds its TreemapItem[] client-side from
+ * GET /api/v1/deployments/{id}/jobs (buildJobsTreemapData in the
+ * sibling ./dashboardJobsTreemap.ts pure module); every other stack
+ * calls getDashboardTreemap exactly as before.
+ * While `status != ready` the DEFAULTS are layers=['progress','kind'],
+ * colorBy='status', sizeBy='uniform'; on ready they flip to the
+ * resource defaults — same pane, same component, a defaults change,
+ * not a component swap. Job-leaf clicks deep-link to JobDetail logs
+ * via the same convention as JobsTable's useJobLinkBuilder.
+ *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the metric
  * options + dimension list live in the controller / types module, not
  * in this page. The cell padding / header height that DO live here are
@@ -52,20 +76,27 @@ import { useQuery } from '@tanstack/react-query'
 
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
-// #4704 — state-aware Dashboard: while converging, the Progress view is
-// the ProvisioningTreemap (a treemap SKELETON of every bootstrap
-// component that colours in as its SSE events arrive), and it ⇄ toggles
-// with the resource treemap, auto-flipping to it on `status==ready` so
-// the pane morphs in place. Replaces the old 5-phase ConvergenceWizard.
-import { ProvisioningTreemap } from './ProvisioningTreemap'
+import { useLiveJobsBackfill } from './useLiveJobsBackfill'
 import { resolveApplications } from './applicationCatalog'
+// #4731 — pure job-tree → treemap derivation (sibling non-component
+// module, same co-location pattern as ./jobs.ts).
+import {
+  buildJobsTreemapData,
+  cellFillFor,
+  cellPulseFor,
+  jobTileHref,
+  PROVISIONING_DEFAULT_LAYERS,
+} from './dashboardJobsTreemap'
 import { useWizardStore } from '@/entities/deployment/store'
+import { STATUS_KIND_COLOR, type StatusKind } from '@/shared/lib/statusColors'
 import {
   TreemapLayerController,
 } from '@/components/TreemapLayerController'
 import {
   colorFunctionFor,
   getDashboardTreemap,
+  isJobSourcedStack,
+  statusColor,
   walkDrillPath,
   type TreemapColorBy,
   type TreemapData,
@@ -121,12 +152,6 @@ interface CellHoverInfo {
 let _onCellHover: ((info: CellHoverInfo | null) => void) | null = null
 let _onCellClick: ((item: TreemapItem, cellDepth: number) => void) | null = null
 
-/** Neutral fill used when a cell's percentage is null (e.g. utilization
- *  requested but metrics-server is not installed on the Sovereign).
- *  Desaturated grey, visibly different from any point on the
- *  utilization/health/age gradients. */
-const NULL_PERCENTAGE_FILL = 'rgba(125, 125, 125, 0.45)'
-
 /* ── Page ────────────────────────────────────────────────────────── */
 
 export interface DashboardProps {
@@ -135,15 +160,13 @@ export interface DashboardProps {
   disableStream?: boolean
   /** Test seam — bypass the React Query fetcher with synthetic data. */
   initialDataOverride?: TreemapData
-  /** Test seam — initial state of the layer / colour / size selects. */
+  /** Test seam — initial state of the layer / colour / size selects.
+   *  Treated as operator overrides: they suppress the status-derived
+   *  defaults (progress/kind + status while converging, resource
+   *  defaults on ready). */
   initialLayers?: readonly TreemapDimension[]
   initialColorBy?: TreemapColorBy
   initialSizeBy?: TreemapSizeBy
-  /** #3925 surface A — test seam: pin the Progress ⇄ Treemap view. When
-   *  set, the wizard/treemap toggle starts on this side regardless of the
-   *  (test-stubbed) deployment status. Production leaves this unset so the
-   *  view derives from status (auto-flip to treemap on ready). */
-  initialView?: 'progress' | 'treemap'
 }
 
 export function Dashboard({
@@ -152,17 +175,15 @@ export function Dashboard({
   initialLayers,
   initialColorBy,
   initialSizeBy,
-  initialView,
 }: DashboardProps = {}) {
   const { deploymentId: resolved } = useResolvedDeploymentId()
   const deploymentId = resolved ?? ''
   const router = useRouter()
 
-  // #4704 — the Progress pane renders one tile per bootstrap component,
-  // so the deployment-event reducer must be seeded with the full resolved
-  // application set (bootstrap kit + mandatory + wizard selection). This
-  // is the SAME derivation JobsPage uses; without it the reducer drops
-  // every per-component SSE event on the floor (state.apps = {}).
+  // The resolved application set (bootstrap kit + mandatory + wizard
+  // selection) — the SAME derivation JobsPage uses. Seeds the
+  // deployment-event reducer AND maps job appIds onto catalog families
+  // for the job-sourced `family` dimension (#4731).
   const store = useWizardStore()
   const applications = useMemo(
     () => resolveApplications(store.selectedComponents),
@@ -170,28 +191,14 @@ export function Dashboard({
   )
   const applicationIds = useMemo(() => applications.map((a) => a.id), [applications])
 
-  const { snapshot, state } = useDeploymentEvents({
+  const { snapshot } = useDeploymentEvents({
     deploymentId,
     applicationIds,
     disableStream,
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
-  // #3925 surface A — state-aware view toggle. While the Sovereign is
-  // converging we render the 5-phase wizard; the moment status flips
-  // `ready` we AUTO-FLIP to the treemap. A persistent Progress ⇄ Treemap
-  // toggle lets the operator flip back/forth AFTER the auto-flip (DECISION:
-  // the user keeps control once they toggle — no auto-flip-back).
-  //
-  // Implementation: `userView` is null until the operator clicks the
-  // toggle. The effective view is the user's choice if set, else derived
-  // from status (treemap when ready, wizard otherwise). This auto-flips on
-  // ready WITHOUT a setState-in-effect storm and respects a manual override.
   const isReady = (snapshot?.status ?? '').trim().toLowerCase() === 'ready'
-  const [userView, setUserView] = useState<'progress' | 'treemap' | null>(
-    initialView ?? null,
-  )
-  const view: 'progress' | 'treemap' = userView ?? (isReady ? 'treemap' : 'progress')
 
   // #3687 fold #3692 (2026-06-18): default Layer-1 = `organization` on the
   // Sovereign Console so the operator's landing treemap groups by the
@@ -215,15 +222,57 @@ export function Dashboard({
   // cloud-list routes use for their mode-gated rendering, so default
   // Layer-1 stays consistent with the rest of the sidebar's Sovereign
   // affordances and is deterministic on first paint.
-  const defaultLayers: readonly TreemapDimension[] =
+  const readyDefaultLayers: readonly TreemapDimension[] =
     DETECTED_MODE.mode === 'sovereign'
       ? ['organization', 'application']
       : ['family', 'application']
-  const [layers, setLayers] = useState<readonly TreemapDimension[]>(
-    initialLayers ?? defaultLayers,
+
+  // #4731 — state-aware DEFAULTS on the one treemap (replaces the #3925
+  // Progress ⇄ Treemap component toggle): while the deployment is
+  // converging the pane defaults to the job-sourced Progress→Kind stack
+  // coloured by status; the moment status flips `ready` the defaults
+  // morph to the resource treemap. Same pane, same component — only the
+  // defaults change.
+  //
+  // Implementation (same pattern as the old userView): the `user*`
+  // states stay null until the operator touches a control; the
+  // effective value is the user's choice if set, else derived. This
+  // auto-morphs on ready WITHOUT a setState-in-effect storm and
+  // respects a manual override (DECISION: the user keeps control once
+  // they touch the toolbar — no auto-flip-back).
+  const [userLayers, setUserLayers] = useState<readonly TreemapDimension[] | null>(
+    initialLayers ?? null,
   )
-  const [colorBy, setColorBy] = useState<TreemapColorBy>(initialColorBy ?? 'utilization')
-  const [sizeBy, setSizeBy] = useState<TreemapSizeBy>(initialSizeBy ?? 'cpu_request')
+  const [userColorBy, setUserColorBy] = useState<TreemapColorBy | null>(
+    initialColorBy ?? null,
+  )
+  const [userSizeBy, setUserSizeBy] = useState<TreemapSizeBy | null>(
+    initialSizeBy ?? null,
+  )
+  const layers: readonly TreemapDimension[] =
+    userLayers ?? (isReady ? readyDefaultLayers : PROVISIONING_DEFAULT_LAYERS)
+  // The data-source rule (#4731, the only conditional): progress/kind
+  // in the stack → Job tree; anything else → getDashboardTreemap.
+  const jobSourced = isJobSourcedStack(layers)
+  // Colour/size defaults follow the STACK's nature, not readiness — a
+  // post-ready operator re-adding the Progress layer gets status/uniform
+  // back, and a converging operator pivoting to a resource stack gets
+  // utilisation/cpu_request.
+  const colorBy: TreemapColorBy = userColorBy ?? (jobSourced ? 'status' : 'utilization')
+  const sizeBy: TreemapSizeBy = userSizeBy ?? (jobSourced ? 'uniform' : 'cpu_request')
+  const setColorBy = (next: TreemapColorBy) => setUserColorBy(next)
+  const setSizeBy = (next: TreemapSizeBy) => setUserSizeBy(next)
+  /** Layer edits that flip the stack between job-sourced and
+   *  resource-sourced reset the colour/size overrides so the selects
+   *  re-derive a value that EXISTS in the new mode's option list (the
+   *  controller swaps option sets — status/uniform are job-only). */
+  const setLayers = (next: readonly TreemapDimension[]) => {
+    if (isJobSourcedStack(next) !== jobSourced) {
+      setUserColorBy(null)
+      setUserSizeBy(null)
+    }
+    setUserLayers(next)
+  }
 
   /** Drill stack — each entry is a (dimension, id, name) triple. The
    *  visible items are derived by walking the in-memory tree. The
@@ -263,12 +312,44 @@ export function Dashboard({
     queryKey: ['treemap', layers.join(','), colorBy, sizeBy, deploymentId],
     queryFn: () => getDashboardTreemap(layers, colorBy, sizeBy, deploymentId),
     staleTime: TREEMAP_STALE_MS,
-    enabled: !initialDataOverride,
+    // #4731 — a job-sourced stack never touches the pods/utilisation
+    // backend (status/uniform are not backend vocabulary); the resource
+    // path stays byte-identical for every other stack.
+    enabled: !initialDataOverride && !jobSourced,
     placeholderData: (prev) => prev,
   })
 
-  const treemapData: TreemapData | undefined = initialDataOverride ?? query.data
+  // #4731 — job-sourced data: the SAME recursive Job tree the Jobs
+  // surface polls (5s cadence while converging via useLiveJobsBackfill;
+  // polling stops once ready — a manual refetch lands on the next
+  // interactivation like the Jobs page).
+  const {
+    liveJobs,
+    isLoading: jobsLoading,
+    isError: jobsError,
+  } = useLiveJobsBackfill({
+    deploymentId,
+    enabled: jobSourced && !initialDataOverride && !!deploymentId,
+    disablePolling: disableStream || isReady,
+  })
+  const jobsTreemap = useMemo<TreemapData | undefined>(
+    () => (jobSourced ? buildJobsTreemapData(liveJobs, layers, applications) : undefined),
+    [jobSourced, liveJobs, layers, applications],
+  )
+
+  const treemapData: TreemapData | undefined =
+    initialDataOverride ?? (jobSourced ? jobsTreemap : query.data)
   const totalCount = treemapData?.total_count ?? 0
+
+  // Loading/error track whichever source is active (test overrides are
+  // never loading/erroring).
+  const sourceLoading = initialDataOverride
+    ? false
+    : jobSourced
+      ? jobsLoading
+      : query.isLoading
+  const sourceError =
+    !initialDataOverride && (jobSourced ? jobsError : query.isError)
 
   /* Visible items at the current drill depth.
    * treemapData.items may be null (not just undefined) when the cluster
@@ -280,13 +361,22 @@ export function Dashboard({
     return walkDrillPath(treemapData.items, drillPath)
   }, [treemapData, drillPath])
 
-  /* SquarifiedSurface receives colorFn directly via prop. The
+  /* SquarifiedSurface receives the fill resolver directly via prop. The
    * _onCellHover / _onCellClick mailboxes survive only because they
    * decouple the surface from the page's tooltip + drill state — the
    * page registers handlers that read its own React state, and the
    * surface invokes them without needing a closure-bound prop callback
-   * that would re-render on every mouse move. */
-  const colorFn = useMemo(() => colorFunctionFor(colorBy), [colorBy])
+   * that would re-render on every mouse move.
+   *
+   * #4731 — `status` colour is CATEGORICAL: the fill comes from the
+   * cell's typed `statusKind` channel (statusColor), never from the
+   * 0..100 percentage, and running cells pulse. Gradient modes keep the
+   * exact pre-#4731 behaviour (percentage → gradient, null → neutral
+   * grey). The resolution logic is the pure cellFillFor/cellPulseFor
+   * (dashboardJobsTreemap.ts); these thin closures just bind the
+   * page's active colorBy. */
+  const fillFor = (item: TreemapItem) => cellFillFor(colorBy, item)
+  const pulseFor = (item: TreemapItem) => cellPulseFor(colorBy, item)
   useEffect(() => {
     _onCellHover = (info) => {
       if (hoverTimerRef.current !== null) {
@@ -339,6 +429,16 @@ export function Dashboard({
           ...prev,
           { dimension, id: item.id, name: item.name },
         ])
+        return
+      }
+      // #4731 — job leaf on a job-sourced tree: deep-link to that job's
+      // JobDetail logs, same convention as JobsTable's useJobLinkBuilder.
+      // `jobId` is ONLY ever stamped on job leaves by
+      // buildJobsTreemapData, so this cannot misfire on a bucket
+      // rendered flat after a drill (flat rendering strips `children`
+      // but not `jobId`).
+      if (item.jobId) {
+        router.navigate({ to: jobTileHref(item.jobId, deploymentId) as never })
         return
       }
       if (dimension === 'application' && item.id) {
@@ -399,7 +499,7 @@ export function Dashboard({
     }
   }, [])
 
-  const isEmpty = !query.isLoading && !treemapData?.items?.length
+  const isEmpty = !sourceLoading && !treemapData?.items?.length
   const isNested = layers.length > 1 && drillPath.length === 0
 
   function popDrillTo(idx: number) {
@@ -424,6 +524,11 @@ export function Dashboard({
         params: { deploymentId, componentId: id } as never,
       })
     }
+  }
+
+  /** #4731 — tooltip affordance twin of the job-leaf cell click. */
+  function navigateToJob(jobId: string) {
+    router.navigate({ to: jobTileHref(jobId, deploymentId) as never })
   }
 
   /* ── Render ────────────────────────────────────────────────────── */
@@ -462,62 +567,11 @@ export function Dashboard({
           Dashboard
         </span>
 
-        {/* #3925 surface A — persistent Progress ⇄ Treemap toggle. Always
-            present so the operator can flip either way; the active side is
-            driven by `view` (auto-flips to treemap on ready). */}
-        <div
-          className="mb-3 inline-flex rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-0.5"
-          role="tablist"
-          aria-label="Dashboard view"
-          data-testid="dashboard-view-toggle"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === 'progress'}
-            onClick={() => setUserView('progress')}
-            data-testid="dashboard-view-progress"
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              view === 'progress'
-                ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
-            }`}
-          >
-            Progress
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === 'treemap'}
-            onClick={() => setUserView('treemap')}
-            data-testid="dashboard-view-treemap"
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              view === 'treemap'
-                ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
-            }`}
-          >
-            Treemap
-          </button>
-        </div>
-
-        {/* Progress view — #4704: the provisioning treemap skeleton. The
-            SAME tile set the converged treemap shows, greyed → coloured
-            as each component's SSE events arrive; tile click drills into
-            that component's JobDetail logs. Auto-flips to the treemap on
-            ready (view derivation above) so the pane morphs in place. */}
-        {view === 'progress' ? (
-          <ProvisioningTreemap
-            snapshot={snapshot}
-            state={state}
-            applications={applications}
-            deploymentId={deploymentId}
-          />
-        ) : null}
-
-        {/* Treemap view — the existing resource-utilisation surface. */}
-        {view === 'treemap' ? (
-        <>
+        {/* #4731 — ONE treemap in both lifecycle states. While the
+            deployment converges the defaults are the job-sourced
+            Progress→Kind stack coloured by status; on ready they morph
+            to the resource stack. The operator can re-stack either way
+            at any time via the same layer controller. */}
         <TreemapLayerController
           layers={layers}
           setLayers={setLayers}
@@ -572,36 +626,53 @@ export function Dashboard({
           className="relative mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4"
           data-testid="dashboard-treemap-frame"
         >
-          {query.isLoading && !treemapData && (
+          {sourceLoading && !treemapData && (
             <div
               className="flex h-[600px] items-center justify-center text-sm text-[var(--color-text-dim)]"
               data-testid="dashboard-loading"
             >
-              Loading utilisation data…
+              {jobSourced ? 'Loading provisioning jobs…' : 'Loading utilisation data…'}
             </div>
           )}
 
-          {query.isError && (
+          {sourceError && (
             <div
               className="rounded-md border border-[color:rgba(239,68,68,0.4)] bg-[color:rgba(239,68,68,0.08)] p-3 text-sm text-[#fca5a5]"
               data-testid="dashboard-error"
             >
-              Failed to load resource utilisation data. Retrying…
+              {jobSourced
+                ? 'Failed to load the deployment job tree. Retrying…'
+                : 'Failed to load resource utilisation data. Retrying…'}
             </div>
           )}
 
-          {isEmpty && !query.isError && (
+          {isEmpty && !sourceError && (
             <div
               className="flex h-[600px] flex-col items-center justify-center gap-2 text-center text-sm text-[var(--color-text-dim)]"
               data-testid="dashboard-empty"
             >
-              <p className="font-medium text-[var(--color-text)]">
-                No utilisation data yet.
-              </p>
-              <p>
-                Once the Sovereign cluster reports back, this dashboard will
-                show resource allocation and consumption per application.
-              </p>
+              {jobSourced ? (
+                <>
+                  <p className="font-medium text-[var(--color-text)]">
+                    No jobs reported yet.
+                  </p>
+                  <p>
+                    Provisioning jobs appear here the moment the deployment
+                    starts reporting; each tile drills into that job&apos;s
+                    logs.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-medium text-[var(--color-text)]">
+                    No utilisation data yet.
+                  </p>
+                  <p>
+                    Once the Sovereign cluster reports back, this dashboard will
+                    show resource allocation and consumption per application.
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -609,7 +680,8 @@ export function Dashboard({
             <SquarifiedSurface
               items={visibleItems}
               isNested={isNested}
-              colorFn={colorFn}
+              fillFor={fillFor}
+              pulseFor={pulseFor}
               onCellHover={(info) => _onCellHover?.(info)}
               onCellClick={(item, depth) => _onCellClick?.(item, depth)}
             />
@@ -628,6 +700,7 @@ export function Dashboard({
               colorBy={colorBy}
               sizeBy={sizeBy}
               onAppClick={navigateToApp}
+              onJobClick={navigateToJob}
               currentDimension={
                 layers[drillPath.length + hoverInfo.depth] ??
                 layers[layers.length - 1]
@@ -638,8 +711,6 @@ export function Dashboard({
 
         {/* Legend */}
         <Legend colorBy={colorBy} />
-        </>
-        ) : null}
       </div>
     </PortalShell>
   )
@@ -652,6 +723,8 @@ interface HoverTooltipProps {
   colorBy: TreemapColorBy
   sizeBy: TreemapSizeBy
   onAppClick: (componentId: string) => void
+  /** #4731 — job-leaf twin of onAppClick (JobDetail logs). */
+  onJobClick: (jobId: string) => void
   currentDimension: TreemapDimension
 }
 
@@ -660,6 +733,7 @@ function HoverTooltip({
   colorBy,
   sizeBy,
   onAppClick,
+  onJobClick,
   currentDimension,
 }: HoverTooltipProps) {
   const { item, x, y } = info
@@ -673,7 +747,11 @@ function HoverTooltip({
 
   const colorLabel = colorBy === 'utilization'
     ? 'Utilisation'
-    : colorBy === 'health' ? 'Health' : 'Age'
+    : colorBy === 'health'
+      ? 'Health'
+      : colorBy === 'status'
+        ? 'Status'
+        : 'Age'
   const sizeLabel = sizeBy === 'cpu_request'
     ? 'CPU request'
     : sizeBy === 'memory_request'
@@ -688,10 +766,15 @@ function HoverTooltip({
               ? 'Memory limit'
               : sizeBy === 'storage_limit'
                 ? 'Storage'
-                : 'Replicas'
+                : sizeBy === 'uniform'
+                  ? 'Jobs'
+                  : 'Replicas'
 
-  const isApp = currentDimension === 'application'
+  const isApp = currentDimension === 'application' && !item.jobId
   const componentId = isApp ? (item.id ?? '') : ''
+  // #4731 — categorical status readout: raw JobStatus word on leaves
+  // ("succeeded", "degraded", "healthy"…), rolled-up kind on buckets.
+  const statusText = item.statusLabel ?? item.statusKind ?? 'no data'
 
   return (
     <div
@@ -713,11 +796,13 @@ function HoverTooltip({
       <div className="mt-1 flex justify-between text-[var(--color-text-dim)]">
         <span>{colorLabel}</span>
         <span className="font-mono" data-testid="dashboard-tooltip-percentage">
-          {item.percentage === null
-            ? colorBy === 'utilization'
-              ? 'metrics-server not installed'
-              : 'no data'
-            : `${Math.round(item.percentage)}%`}
+          {colorBy === 'status'
+            ? statusText
+            : item.percentage === null
+              ? colorBy === 'utilization'
+                ? 'metrics-server not installed'
+                : 'no data'
+              : `${Math.round(item.percentage)}%`}
         </span>
       </div>
       <div className="mt-1 flex justify-between text-[var(--color-text-dim)]">
@@ -738,6 +823,16 @@ function HoverTooltip({
           Open application →
         </button>
       )}
+      {item.jobId && (
+        <button
+          type="button"
+          onClick={() => onJobClick(item.jobId!)}
+          className="mt-2 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+          data-testid="dashboard-tooltip-job-link"
+        >
+          Open job logs →
+        </button>
+      )}
     </div>
   )
 }
@@ -755,6 +850,7 @@ function formatSizeValue(v: number | undefined, sizeBy: TreemapSizeBy): string {
     case 'storage_limit':
       return formatBytes(v)
     case 'replica_count':
+    case 'uniform':
       return String(v)
     default:
       return String(v)
@@ -774,7 +870,50 @@ function formatBytes(bytes: number): string {
 
 /* ── Legend ─────────────────────────────────────────────────────── */
 
+/** #4731 — discrete legend entries for the categorical status colour
+ *  mode. Labels carry BOTH status axes (#3646): the one-shot lifecycle
+ *  vocabulary and the health-axis vocabulary that maps onto the same
+ *  semantic kind. Swatches come from the same statusColor() tint the
+ *  cells use. */
+const STATUS_LEGEND_ENTRIES: { kind: StatusKind; label: string }[] = [
+  { kind: 'success', label: 'Succeeded / healthy' },
+  { kind: 'in-progress', label: 'Running' },
+  { kind: 'warning', label: 'Degraded' },
+  { kind: 'failed', label: 'Failed / failing' },
+  { kind: 'pending', label: 'Pending' },
+]
+
 function Legend({ colorBy }: { colorBy: TreemapColorBy }) {
+  if (colorBy === 'status') {
+    // Categorical legend — five discrete semantic swatches, not a
+    // gradient bar (status is not a 0..100 scale).
+    return (
+      <div
+        className="mt-4 flex flex-wrap items-center gap-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3 text-xs"
+        data-testid="dashboard-legend"
+      >
+        {STATUS_LEGEND_ENTRIES.map(({ kind, label }) => (
+          <span
+            key={kind}
+            className="inline-flex items-center gap-1.5"
+            data-testid={`dashboard-legend-status-${kind}`}
+          >
+            <span
+              aria-hidden
+              className="inline-block h-3 w-3 rounded-sm border border-[var(--color-border)]"
+              style={{ background: statusColor(kind) }}
+            />
+            <span
+              className="font-medium"
+              style={{ color: STATUS_KIND_COLOR[kind] }}
+            >
+              {label}
+            </span>
+          </span>
+        ))}
+      </div>
+    )
+  }
   const fn = colorFunctionFor(colorBy)
   const stops = [0, 25, 50, 75, 100]
   const leftLabel = colorBy === 'health' ? 'Unhealthy' : colorBy === 'age' ? 'New' : 'Wasted'
@@ -832,17 +971,31 @@ function truncateLabel(name: string, width: number): string {
 interface SquarifiedSurfaceProps {
   items: readonly TreemapItem[]
   isNested: boolean
-  colorFn: (pct: number) => string
+  /** Resolves a cell's fill from the item itself — gradient modes read
+   *  `percentage` (null → neutral grey), status mode reads the typed
+   *  `statusKind` channel (#4731). */
+  fillFor: (item: TreemapItem) => string
+  /** True when the cell should pulse (status mode, in-progress). */
+  pulseFor: (item: TreemapItem) => boolean
   onCellHover: (info: CellHoverInfo | null) => void
   onCellClick: (item: TreemapItem, depth: number) => void
 }
 
 const SURFACE_HEIGHT_PX = 600
 
+/** #4731 — running cells pulse in status colour mode so an in-flight
+ *  job is unmistakably distinct from pending (grey) and success
+ *  (green). Same 2s ease curve the Jobs surface uses. */
+const SURFACE_CSS = `
+.dash-cell-pulse { animation: dash-cell-pulse 2s ease-in-out infinite; }
+@keyframes dash-cell-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+`
+
 function SquarifiedSurface({
   items,
   isNested,
-  colorFn,
+  fillFor,
+  pulseFor,
   onCellHover,
   onCellClick,
 }: SquarifiedSurfaceProps) {
@@ -882,6 +1035,7 @@ function SquarifiedSurface({
       data-testid="dashboard-treemap-surface"
       style={{ width: '100%', height: SURFACE_HEIGHT_PX }}
     >
+      <style>{SURFACE_CSS}</style>
       {width > 0 && (
         <svg
           width={width}
@@ -894,7 +1048,8 @@ function SquarifiedSurface({
             <SquarifiedCell
               key={`${r.item.name}-${r.depth}-${i}`}
               rect={r}
-              colorFn={colorFn}
+              fillFor={fillFor}
+              pulseFor={pulseFor}
               onHover={onCellHover}
               onClick={onCellClick}
             />
@@ -907,12 +1062,13 @@ function SquarifiedSurface({
 
 interface SquarifiedCellProps {
   rect: SquarifiedRect
-  colorFn: (pct: number) => string
+  fillFor: (item: TreemapItem) => string
+  pulseFor: (item: TreemapItem) => boolean
   onHover: (info: CellHoverInfo | null) => void
   onClick: (item: TreemapItem, depth: number) => void
 }
 
-function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps) {
+function SquarifiedCell({ rect, fillFor, pulseFor, onHover, onClick }: SquarifiedCellProps) {
   const { x0, y0, x1, y1, item, isParent, depth } = rect
   const w = x1 - x0
   const h = y1 - y0
@@ -921,12 +1077,10 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
   const pct = item.percentage
   // Parent cells in nested mode get a transparent body (the children
   // tile inside) so only the header strip carries colour. Leaf cells
-  // get the full gradient fill.
-  const fill = isParent
-    ? 'rgba(255, 255, 255, 0.04)'
-    : pct === null
-      ? NULL_PERCENTAGE_FILL
-      : colorFn(pct)
+  // get the full semantic fill (gradient or categorical status).
+  const semanticFill = fillFor(item)
+  const pulse = pulseFor(item)
+  const fill = isParent ? 'rgba(255, 255, 255, 0.04)' : semanticFill
 
   const showLabel = w >= LABEL_MIN_WIDTH_PX && h >= LABEL_MIN_HEIGHT_PX
   // Issue #1927: leaf cells with an `id` are clickable too (handler in
@@ -950,7 +1104,8 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
   }
 
   if (isParent) {
-    // Header strip + outline frame.
+    // Header strip + outline frame. The strip carries the semantic
+    // fill (gradient percentage or #4731 rolled-up statusKind tint).
     return (
       <g
         onMouseEnter={handleEnter}
@@ -958,6 +1113,7 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
         onMouseLeave={handleLeave}
         onClick={handleClick}
         style={{ cursor }}
+        data-status-kind={item.statusKind}
       >
         <rect
           x={x0}
@@ -971,12 +1127,13 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
           }}
         />
         <rect
+          className={pulse ? 'dash-cell-pulse' : undefined}
           x={x0}
           y={y0}
           width={w}
           height={SQ_HEADER}
           style={{
-            fill: pct === null ? NULL_PERCENTAGE_FILL : colorFn(pct),
+            fill: semanticFill,
             stroke: 'rgba(255, 255, 255, 0.18)',
             strokeWidth: 1,
           }}
@@ -1005,8 +1162,11 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
       onMouseLeave={handleLeave}
       onClick={handleClick}
       style={{ cursor }}
+      data-status-kind={item.statusKind}
+      data-job-id={item.jobId}
     >
       <rect
+        className={pulse ? 'dash-cell-pulse' : undefined}
         x={x0}
         y={y0}
         width={w}
@@ -1036,7 +1196,9 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
             fontSize={10}
             style={{ pointerEvents: 'none' }}
           >
-            {pct === null ? '— %' : `${Math.round(pct)}%`}
+            {/* #4731 — job leaves read their raw status word; gradient
+                cells keep the percentage read-out. */}
+            {item.statusLabel ?? (pct === null ? '— %' : `${Math.round(pct)}%`)}
           </text>
         </>
       )}
