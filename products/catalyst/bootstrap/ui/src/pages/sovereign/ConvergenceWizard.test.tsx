@@ -234,9 +234,12 @@ describe('Dashboard state-aware view', () => {
     stubEventsFetch({ status: 'phase1-watching' } as DeploymentSnapshot)
   })
 
-  it('renders the wizard (Progress) while converging', async () => {
+  // #4704 — the Progress view now renders the ProvisioningTreemap pane
+  // (treemap skeleton that colours in), not the old ConvergenceWizard.
+  it('renders the provisioning treemap (Progress) while converging', async () => {
     renderDashboard()
-    expect(await screen.findByTestId('convergence-wizard')).toBeTruthy()
+    expect(await screen.findByTestId('provisioning-treemap')).toBeTruthy()
+    expect(screen.queryByTestId('convergence-wizard')).toBeNull()
     // Treemap controller is hidden in progress view.
     expect(screen.queryByTestId('dashboard-treemap-frame')).toBeNull()
   })
@@ -248,23 +251,23 @@ describe('Dashboard state-aware view', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('dashboard-treemap-frame')).toBeTruthy()
     })
-    expect(screen.queryByTestId('convergence-wizard')).toBeNull()
+    expect(screen.queryByTestId('provisioning-treemap')).toBeNull()
   })
 
   it('manual toggle flips Progress ⇄ Treemap both ways', async () => {
     renderDashboard()
     // Starts on Progress (converging).
-    expect(await screen.findByTestId('convergence-wizard')).toBeTruthy()
+    expect(await screen.findByTestId('provisioning-treemap')).toBeTruthy()
     // Flip to Treemap.
     fireEvent.click(screen.getByTestId('dashboard-view-treemap'))
     await waitFor(() => {
       expect(screen.queryByTestId('dashboard-treemap-frame')).toBeTruthy()
     })
-    expect(screen.queryByTestId('convergence-wizard')).toBeNull()
+    expect(screen.queryByTestId('provisioning-treemap')).toBeNull()
     // Flip back to Progress.
     fireEvent.click(screen.getByTestId('dashboard-view-progress'))
     await waitFor(() => {
-      expect(screen.queryByTestId('convergence-wizard')).toBeTruthy()
+      expect(screen.queryByTestId('provisioning-treemap')).toBeTruthy()
     })
   })
 })

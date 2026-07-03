@@ -52,9 +52,14 @@ import { useQuery } from '@tanstack/react-query'
 
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
-// #3925 surface A — state-aware Dashboard: the 5-phase convergence wizard
-// that ⇄ toggles with the treemap and auto-flips to it on `status==ready`.
-import { ConvergenceWizard } from './ConvergenceWizard'
+// #4704 — state-aware Dashboard: while converging, the Progress view is
+// the ProvisioningTreemap (a treemap SKELETON of every bootstrap
+// component that colours in as its SSE events arrive), and it ⇄ toggles
+// with the resource treemap, auto-flipping to it on `status==ready` so
+// the pane morphs in place. Replaces the old 5-phase ConvergenceWizard.
+import { ProvisioningTreemap } from './ProvisioningTreemap'
+import { resolveApplications } from './applicationCatalog'
+import { useWizardStore } from '@/entities/deployment/store'
 import {
   TreemapLayerController,
 } from '@/components/TreemapLayerController'
@@ -153,9 +158,21 @@ export function Dashboard({
   const deploymentId = resolved ?? ''
   const router = useRouter()
 
-  const { snapshot } = useDeploymentEvents({
+  // #4704 — the Progress pane renders one tile per bootstrap component,
+  // so the deployment-event reducer must be seeded with the full resolved
+  // application set (bootstrap kit + mandatory + wizard selection). This
+  // is the SAME derivation JobsPage uses; without it the reducer drops
+  // every per-component SSE event on the floor (state.apps = {}).
+  const store = useWizardStore()
+  const applications = useMemo(
+    () => resolveApplications(store.selectedComponents),
+    [store.selectedComponents],
+  )
+  const applicationIds = useMemo(() => applications.map((a) => a.id), [applications])
+
+  const { snapshot, state } = useDeploymentEvents({
     deploymentId,
-    applicationIds: [],
+    applicationIds,
     disableStream,
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
@@ -484,9 +501,18 @@ export function Dashboard({
           </button>
         </div>
 
-        {/* Progress view — the 5-phase convergence wizard. */}
+        {/* Progress view — #4704: the provisioning treemap skeleton. The
+            SAME tile set the converged treemap shows, greyed → coloured
+            as each component's SSE events arrive; tile click drills into
+            that component's JobDetail logs. Auto-flips to the treemap on
+            ready (view derivation above) so the pane morphs in place. */}
         {view === 'progress' ? (
-          <ConvergenceWizard snapshot={snapshot} deploymentId={deploymentId} />
+          <ProvisioningTreemap
+            snapshot={snapshot}
+            state={state}
+            applications={applications}
+            deploymentId={deploymentId}
+          />
         ) : null}
 
         {/* Treemap view — the existing resource-utilisation surface. */}
