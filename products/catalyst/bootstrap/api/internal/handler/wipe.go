@@ -600,6 +600,39 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		emit("wipe", "error", providerName+" G103 verification: "+itoa(residualTotal)+" catalyst-* resource(s) survived wipe (bastion-* excluded): "+kindCountSummary(report.ResidualOrphans))
 	}
 
+	// Step 2b — sovereign DNS teardown (#4732 item 7). The prov wrote the
+	// canonical per-Sovereign A records (console/api/marketplace/… + apex)
+	// into EVERY parent zone via upsertSovereignParentZoneRecords; nothing
+	// deleted them on wipe, so a wiped env's `console.<fqdn>` kept
+	// resolving a released EIP (verified live: console.hw217.omani.works
+	// a full day post-wipe — the exact stale-record class #1505 was built
+	// to prevent on the WRITE side). Best-effort + idempotent: a DNS
+	// failure logs and never blocks the purge or record cleanup.
+	{
+		fqdn := dep.Request.SovereignFQDN
+		parents := make([]string, 0, len(dep.Request.ParentDomains))
+		for _, pd := range dep.Request.ParentDomains {
+			if pd.Name != "" {
+				parents = append(parents, pd.Name)
+			}
+		}
+		if len(parents) == 0 && fqdn != "" {
+			if idx := strings.IndexByte(fqdn, '.'); idx > 0 {
+				parents = append(parents, fqdn[idx+1:])
+			}
+		}
+		dnsCtx, dnsCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		for _, parent := range parents {
+			if err := h.deleteSovereignParentZoneRecords(dnsCtx, fqdn, parent); err != nil {
+				report.Errors = append(report.Errors, "sovereign dns teardown ("+parent+"): "+err.Error())
+				emit("wipe", "warn", "sovereign DNS teardown failed for zone "+parent+" — stale records may linger: "+err.Error())
+			} else {
+				emit("wipe", "info", "sovereign DNS records deleted from parent zone "+parent)
+			}
+		}
+		dnsCancel()
+	}
+
 	// Step 3 — PDM release (pool-subdomain only). Resolve pool + subdomain
 	// from either the Deployment record (set during the reservation step)
 	// or from the FQDN as a fallback.
