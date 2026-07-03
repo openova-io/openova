@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-03T22:45:04Z` |
+| Last refreshed | `2026-07-03T23:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 43 |
 | Open DoD gates | 0 / 41 |
@@ -250,6 +250,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-03T22:55 | [#4742](https://github.com/openova-io/openova/pull/4742) | #4739 | fix(console): remove AppDetail test-theater identity strip v |
 | 2026-07-03T22:44 | [#4741](https://github.com/openova-io/openova/pull/4741) | #4739 | docs(uat): hw220 full-table walk — 243/243 rows populated wi |
 | 2026-07-03T22:41 | [#4740](https://github.com/openova-io/openova/pull/4740) | #4739 | fix(sovereign-tls): drop the envoy-restart Job TTL — hourly  |
 | 2026-07-03T22:08 | [#4738](https://github.com/openova-io/openova/pull/4738) | #4735 | deploy: re-pin catalyst images to 443f815 (deploy-job race r |
@@ -279,7 +280,6 @@ flowchart LR
 | 2026-07-02T22:42 | [#4708](https://github.com/openova-io/openova/pull/4708) | #4706 | fix(bp-cilium): 1.19.3 + gatewayAPI hostNetwork — §854-clean |
 | 2026-07-02T21:41 | [#4707](https://github.com/openova-io/openova/pull/4707) | #4706 | fix(catalyst-api): gate "ready" on external console reachabi |
 | 2026-07-02T15:14 | [#4702](https://github.com/openova-io/openova/pull/4702) | #3241 | fix(provisioner): trim cluster.name trailing/collapsed dash  |
-| 2026-07-02T06:14 | [#4699](https://github.com/openova-io/openova/pull/4699) | #3971 | docs(session): live Sovereign signup-wizard walk — pillar-1  |
 
 ---
 
