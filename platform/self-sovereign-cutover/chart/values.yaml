@@ -1289,7 +1289,7 @@ trigger:
   # the 30m HR cap. Bumped from 720s (12m) on Fix #152 (chart 0.1.27)
   # after prov #23 hit the 14m Job deadline before catalyst-api came
   # up — cold-start budget needs ~2× headroom on slow Sovereigns.
-  autoWaitForAPISeconds: 1500
+  autoWaitForAPISeconds: 600
   # #4632 (chart 0.1.91): how long the trigger POST RETRIES on HTTP 425
   # (handover-completion gate) before giving up (exit 0; operator can fire
   # via CTA). On a FRESH prov this hook fires at slot-06a install time —
@@ -1301,24 +1301,33 @@ trigger:
   # at 13:56:41 but the lone POST 425'd at 13:54:48, ~2 min too early →
   # cutover stuck progressPercent=0). The Job now polls every 15s within
   # this budget so the trigger re-fires the moment handover seals the
-  # archive — zero-touch, no CTA click (founder rule #933). 1500s (25m)
-  # comfortably covers a slow Hetzner/Huawei handover post-the-/healthz-wait.
-  autoHandoverWaitSeconds: 1500
+  # archive — zero-touch, no CTA click (founder rule #933). #4723 (chart
+  # 0.1.102): 1500s -> 900s. The long wait only needs to cover the #4632
+  # race class (~2min between chart-install and seal on
+  # fireCutoverOnHandover provs). On a PERMANENT Sovereign the seal lands
+  # only after full phase-1 convergence (45min after hook start on hw220)
+  # — no in-Job wait can bridge that, and it does not need to: the #4669
+  # level-triggered reconciler self-heals sealed-but-uncut after this Job
+  # exits 0. Shrinking the wait restores real pod-start margin under the
+  # activeDeadline (see autoTimeoutSeconds below).
+  autoHandoverWaitSeconds: 900
   # Overall cap on the auto-trigger Job runtime. activeDeadlineSeconds
   # on the Job spec — anything longer means catalyst-api is sick and
   # the operator should investigate. The Job exiting at this deadline
   # is non-fatal for the chart install (the cutover engine already
   # runs detached inside catalyst-api once /start returns 200).
-  # Must stay below the HelmRelease install/upgrade timeout (30m =
-  # 1800s post-Fix-#152) so the Job ends and the hook unblocks before
-  # Helm gives up. Bumped from 840s (14m) on Fix #152 (chart 0.1.27)
-  # after prov #23 wedged at 3 consecutive DeadlineExceeded — 29m
-  # leaves a 1m buffer below the 30m HR cap. #4632 (chart 0.1.91): raised
-  # 1740 → 2100 (35m) so the deadline covers the /healthz reachability wait
-  # (autoWaitForAPISeconds, ≤300s effective once the API is up) PLUS the
-  # full autoHandoverWaitSeconds 425-retry window (1500s) PLUS a ~5m buffer.
-  # The HelmRelease install/upgrade timeout is also raised to 40m in the
-  # 06a slot overlay lockstep so the hook still unblocks before Helm gives up.
+  # Must stay below the HelmRelease install/upgrade timeout (40m per the
+  # 06a slot overlay) so the Job ends and the hook unblocks before Helm
+  # gives up. History: 840s (Fix #152) -> 1740 -> 2100 (#4632). #4723
+  # (chart 0.1.102): the #4632 arithmetic was broken — worst-case script
+  # time was autoWaitForAPISeconds(1500) + autoHandoverWaitSeconds(1500)
+  # = 3000s INSIDE this 2100s deadline, and even the happy path (API up)
+  # left ~600s for pod scheduling + a COLD image pull (~10min on a fresh
+  # prov, no warm registry pre-cutover) → the pod was killed mid-retry
+  # before its own graceful exit-0 (live: hw220 attempt 1 DeadlineExceeded
+  # at exactly +2100s, a wasted 26-min Helm remediate/reinstall cycle).
+  # Now: 600 + 900 = 1500s worst-case script time under the unchanged
+  # 2100s deadline = a real 600s pod-start margin on EVERY path.
   autoTimeoutSeconds: 2100
   # TTL on the completed Job — kept for audit so operators can read
   # the trigger Pod logs if something looks wrong.
