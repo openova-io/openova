@@ -263,7 +263,21 @@ data:
                   echo "[helmrepository-patches] Phase -1 OK: Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} Programmed=True"
                   break
                 fi
-                echo "[helmrepository-patches] Phase -1: Gateway exists but Programmed=${programmed:-<unset>}; retrying in 15s"
+                # hostNetwork gateway mode (#4708): cilium assigns NO LB
+                # address, so Programmed stays False FOREVER while envoy
+                # serves node:443 directly (live: hw220 both Gateways
+                # AddressNotAssigned with console answering 200). Probe the
+                # ACTUAL invariant the rewrite depends on instead:
+                # registry.<fqdn> answering TLS. Any HTTP code (401/200/404)
+                # proves TCP+TLS+HTTP through the gateway; only a transport
+                # failure (000) keeps waiting.
+                reg_code=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "https://registry.${SOVEREIGN_FQDN}/v2/" 2>/dev/null || echo "000")
+                if [ "${reg_code}" != "000" ]; then
+                  gw_ready="true"
+                  echo "[helmrepository-patches] Phase -1 OK: Programmed=${programmed:-False} but https://registry.${SOVEREIGN_FQDN}/v2/ answers TLS (HTTP ${reg_code}) — hostNetwork gateway serves without an assigned address (#4708)"
+                  break
+                fi
+                echo "[helmrepository-patches] Phase -1: Gateway exists but Programmed=${programmed:-<unset>} and registry probe=${reg_code}; retrying in 15s"
               else
                 echo "[helmrepository-patches] Phase -1: Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} not yet present; retrying in 15s"
               fi

@@ -1132,10 +1132,13 @@ stepTimeouts:
   # (force-reconcile GitRepository + bootstrap-kit Kustomization and wait
   # for Step-06's durable git-push to converge BEFORE the window opens)
   # + buffer for the assert sweep / policy teardown. Was 900s before
-  # #3526 added the pivot-poll; bumped to 1200s so the worst-case
-  # 300s-poll-then-600s-window run still has headroom under the Job's
-  # activeDeadlineSeconds.
-  egressBlockTestSeconds: 1200
+  # #3526 added the pivot-poll (-> 1200s). #4723-family (2026-07-03,
+  # live hw220): the fresh-pull rollout proof over EVERY external-registry
+  # workload on a 2-region 12-node prov needs >1200s — the Job hit
+  # DeadlineExceeded at exactly +1200s mid-proof (NOT an egress failure)
+  # and the engine looped 20-minute failures. 3600s gives the proof room;
+  # the deny-egress window itself stays 600s.
+  egressBlockTestSeconds: 3600
   # Step 09 (gitea-token-mint, TBD-C18) — short-lived: a single
   # Gitea API mint + validate + Secret patch + best-effort rollout.
   # 600s leaves generous headroom for the provisioning Deployment
