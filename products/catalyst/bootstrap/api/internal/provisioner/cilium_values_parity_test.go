@@ -30,15 +30,15 @@
 // Coverage strategy: substring-presence checks on canonical YAML lines.
 // We deliberately avoid YAML unmarshalling + structural equality for
 // two reasons:
-//   1. The cloud-init `cilium-values.yaml` is INSIDE a tftpl `content: |`
-//      block with OpenTofu interpolations adjacent in the same file —
-//      unmarshalling the surrounding tftpl is non-trivial and adds a
-//      Terraform-specific test dep.
-//   2. The chart values.yaml carries `cilium:` as the umbrella subchart
-//      key while the bootstrap install consumes the upstream cilium/cilium
-//      chart directly (values must be at TOP LEVEL). Structural equality
-//      across a renaming boundary requires a sub-tree slice, which is
-//      more code to maintain than the focused presence checks below.
+//  1. The cloud-init `cilium-values.yaml` is INSIDE a tftpl `content: |`
+//     block with OpenTofu interpolations adjacent in the same file —
+//     unmarshalling the surrounding tftpl is non-trivial and adds a
+//     Terraform-specific test dep.
+//  2. The chart values.yaml carries `cilium:` as the umbrella subchart
+//     key while the bootstrap install consumes the upstream cilium/cilium
+//     chart directly (values must be at TOP LEVEL). Structural equality
+//     across a renaming boundary requires a sub-tree slice, which is
+//     more code to maintain than the focused presence checks below.
 //
 // The presence checks lock down the load-bearing keys identified by
 // the otech8 incident postmortem. New operator-curated values added
@@ -228,12 +228,13 @@ func TestCiliumValuesParity_BootstrapMatchesOverlayKeys(t *testing.T) {
 
 // TestCiliumValuesParity_GatewayHostNetworkLockstep (#4706) locks the
 // three-way gateway-api hostNetwork agreement:
-//   1. the cloud-init cilium-values.yaml block carries a huawei-conditional
-//      `hostNetwork:` + `enabled: true` (bootstrap install binds node:443/:80),
-//   2. the bootstrap-kit slot-01 HR wires
-//      `${CILIUM_GATEWAY_HOSTNETWORK_ENABLED...}` (the HR upgrade agrees),
-//   3. cloud-init's flux-bootstrap substitutes set
-//      CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true" on huawei.
+//  1. the cloud-init cilium-values.yaml block carries a huawei-conditional
+//     `hostNetwork:` + `enabled: true` (bootstrap install binds node:443/:80),
+//  2. the bootstrap-kit slot-01 HR wires
+//     `${CILIUM_GATEWAY_HOSTNETWORK_ENABLED...}` (the HR upgrade agrees),
+//  3. cloud-init's flux-bootstrap substitutes set
+//     CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true" on huawei.
+//
 // Drift between (1) and (2)+(3) is the #491 class: the bootstrap install and
 // the slot-01 upgrade disagree mid-Phase-1 and the gateway flaps between a
 // host bind and a Service-only shape. The ELB targets node:443/:80, so a
@@ -320,6 +321,33 @@ func TestCiliumValuesParity_ConsolePortNoCollision(t *testing.T) {
 		t.Errorf("CONSOLE_GATEWAY_HTTP_PORT must NOT be 80 — collides with the PRIMARY gateway's node:80 host bind (#4706)")
 	}
 }
+
+// TestConsoleGatewaySlot13ConsumesPortSubstitute (#4706, #4715 regression) —
+// the cloud-init emits CONSOLE_GATEWAY_HTTPS_PORT, but that is INERT unless
+// slot-13's bp-catalyst-platform HR values consume it into consoleGateway.
+// httpsPort (the chart's sovereign-tls-vars CM reads .Values.consoleGateway).
+// #4715 shipped the substitute WITHOUT this slot-13 wiring — the console
+// Gateway defaulted to 443 and collided even on fresh provs. This locks the
+// wiring so it cannot be dropped again silently.
+func TestConsoleGatewaySlot13ConsumesPortSubstitute(t *testing.T) {
+	cwd, _ := os.Getwd()
+	root := filepath.Clean(filepath.Join(cwd, "..", "..", "..", "..", "..", ".."))
+	raw, err := os.ReadFile(filepath.Join(root, "clusters", "_template", "bootstrap-kit", "13-bp-catalyst-platform.yaml"))
+	if err != nil {
+		t.Fatalf("read slot-13: %v", err)
+	}
+	slot := string(raw)
+	for _, want := range []string{
+		"consoleGateway:",
+		"httpsPort: ${CONSOLE_GATEWAY_HTTPS_PORT",
+		"httpPort: ${CONSOLE_GATEWAY_HTTP_PORT",
+	} {
+		if !strings.Contains(slot, want) {
+			t.Errorf("slot-13 must wire the console port substitute into HR values — missing %q (#4715 regression: substitute emitted but never consumed → console 443 collision)", want)
+		}
+	}
+}
+
 func TestCiliumValuesParity_BootstrapHelmVersionMatchesChartPin(t *testing.T) {
 	tpl := readCloudInit(t)
 
