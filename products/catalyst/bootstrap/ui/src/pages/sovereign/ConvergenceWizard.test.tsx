@@ -124,6 +124,37 @@ describe('ConvergenceWizard render', () => {
     expect(href).toContain('lens=reconciliation')
     const jobsLink = screen.getByTestId('wizard-link-jobs')
     expect(jobsLink.getAttribute('href')).toContain('/jobs')
+    // #4704 Task B — never a bare /jobs: the link must carry the
+    // deployment id on the mothership (jsdom runs in catalyst-zero mode).
+    expect(jobsLink.getAttribute('href')).toContain('/provision/d-1/jobs')
+  })
+
+  it('#4704 — every phase drills down to a log-bearing surface with the deployment id', async () => {
+    renderWizard({ status: 'tofu-applying' } as DeploymentSnapshot)
+    // Infrastructure → finite Jobs table (rows open JobDetail + LogPane).
+    const infraLink = await screen.findByTestId('wizard-link-infrastructure')
+    expect(infraLink.getAttribute('href')).toContain('/provision/d-1/jobs')
+    // Health → reconciliation graph (recon objects + logs).
+    const healthLink = screen.getByTestId('wizard-link-health')
+    expect(healthLink.getAttribute('href')).toContain('/cloud')
+    expect(healthLink.getAttribute('href')).toContain('lens=reconciliation')
+  })
+
+  it('#4704 — a failed deployment renders its pinned phase RED, not in-progress blue', async () => {
+    renderWizard({ status: 'failed' } as DeploymentSnapshot)
+    // failed pins the Health phase (deriveWizardPhase) — it must carry
+    // the failed marker + class so the semantic red styling applies.
+    const health = await screen.findByTestId('wizard-phase-health')
+    expect(health.getAttribute('data-failed')).toBe('true')
+    expect(health.className).toContain('wizard-phase-failed')
+    expect(health.className).not.toContain('wizard-phase-active')
+  })
+
+  it('#4704 — a converging deployment keeps the in-progress (blue) phase styling', async () => {
+    renderWizard({ status: 'phase1-watching' } as DeploymentSnapshot)
+    const recon = await screen.findByTestId('wizard-phase-reconciliation')
+    expect(recon.getAttribute('data-failed')).toBe('false')
+    expect(recon.className).toContain('wizard-phase-active')
   })
 })
 

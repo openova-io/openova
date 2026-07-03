@@ -85,3 +85,31 @@ export function sovereignPath(page: SovereignPage, opts: PathOptions = {}): stri
   }
   return sub ? `/provision/${deploymentId}/${page}/${sub}` : `/provision/${deploymentId}/${page}`
 }
+
+/**
+ * sovereignPathOrDeployments — `sovereignPath` with an id-less mothership
+ * fallback (#4704 Task B).
+ *
+ * On the mothership every per-deployment page lives under
+ * `/provision/$deploymentId/...`. When a caller has NO deployment id
+ * (SSE not landed yet, stale store, deep-link without context), the old
+ * fallbacks emitted a bare `/<page>` — and on the mothership a
+ * `/provision/${''}/<page>` template collapses via path canonicalisation
+ * to `/provision/<page>`, so the literal word ("jobs", "dashboard", …)
+ * lands in the `$deploymentId` slot. The UI then polls
+ * `/api/v1/deployments/jobs` (404) and banners
+ * "The path segment \"jobs\" is not a valid deployment id".
+ *
+ * Rule: in mothership mode a per-deployment link MUST carry a real
+ * deployment id; without one, route to the deployments list instead.
+ * Sovereign mode is untouched — clean root URLs (`/jobs`, `/dashboard`)
+ * are the canonical surface there and need no id.
+ */
+export function sovereignPathOrDeployments(
+  page: SovereignPage,
+  opts: PathOptions = {},
+): string {
+  const isSovereign = DETECTED_MODE.mode === 'sovereign'
+  if (!isSovereign && !opts.deploymentId) return '/deployments'
+  return sovereignPath(page, opts)
+}

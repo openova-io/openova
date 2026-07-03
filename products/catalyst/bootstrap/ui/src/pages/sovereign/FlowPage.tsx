@@ -35,6 +35,7 @@ import {
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { PortalShell } from './PortalShell'
 import { FlowCanvasOrganic } from './FlowCanvasOrganic'
 import type { FlowOrganicAction } from './FlowCanvasOrganic'
@@ -642,7 +643,7 @@ export function FlowPage({
       pageTitle="Flow"
       headerSlotLeft={
         <Link
-          to={`/jobs` as never}
+          to={sovereignPathOrDeployments('jobs', { deploymentId }) as never}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="flow-page-back-to-table"
         >

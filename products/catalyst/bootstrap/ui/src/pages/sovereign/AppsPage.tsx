@@ -35,6 +35,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter, Link, useParams, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { API_BASE } from '@/shared/config/urls'
 import { authedFetch } from '@/shared/lib/authedFetch'
@@ -559,11 +560,15 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           >
             <div className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
             Provisioning
+            {/* #4704 — watching a live prov is the Dashboard's job (its
+                Progress ⇄ Treemap pane), not the finite-jobs table. The
+                helper also guards the id-less mothership case (never emit
+                a bare path that collapses into /provision/<literal>). */}
             <Link
-              to={`/jobs` as never}
+              to={sovereignPathOrDeployments('dashboard', { deploymentId }) as never}
               className="ml-1 underline text-[var(--color-accent)]"
             >
-              View jobs
+              View progress
             </Link>
           </div>
         ) : streamStatus === 'completed' ? (
@@ -583,7 +588,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               </span>
             ) : null}
             <Link
-              to={`/jobs` as never}
+              to={sovereignPathOrDeployments('jobs', { deploymentId }) as never}
               className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
             >
               View install history
