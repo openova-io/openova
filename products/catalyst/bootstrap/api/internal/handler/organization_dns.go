@@ -160,7 +160,18 @@ type Resolver interface {
 // resolve as soon as Flux finishes reconciling. Per epic #825 the
 // parentZone is operator-supplied (one of the Sovereign's
 // role:org-pool entries) — never inferred from a hardcoded OTECHFQDN.
-func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error {
+//
+// #4732(3): the `console` record and the app records target DIFFERENT
+// front doors. App hosts (wordpress/openclaw/mail/keycloak + the per-Org
+// wildcard) ride the SHARED gateway (ingressIPv4). The Org console rides
+// the DEDICATED console gateway/ELB (#4053/#4718) — the same door
+// `console.<sovereign-fqdn>` serves — so its record must carry
+// consoleIPv4. Writing the console record with the shared-gateway IP is
+// exactly the nstar failure: the shared gateway has no console listener
+// for the Org zone, so the browser got the pool `*.<parent>` cert + 404.
+// consoleIPv4 == "" falls back to ingressIPv4 (single-gateway Sovereigns
+// and older callers keep their prior behaviour).
+func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4, consoleIPv4 string) error {
 	// #4218: pool-domain console A-records (omani.*) live on the CENTRAL
 	// authoritative PowerDNS (pdns.openova.io), not the Sovereign-local
 	// one. Prefer PoolWriter when wired; fall back to the local Writer for
@@ -195,15 +206,23 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 	// ChangeType=REPLACE makes every write an unconditional upsert, so a
 	// stale same-name record (if one ever existed) is overwritten rather
 	// than skipped.
+	consoleIP := strings.TrimSpace(consoleIPv4)
+	if consoleIP == "" {
+		consoleIP = ingressIPv4
+	}
 	for _, prefix := range theFreeSubdomainPrefixes {
 		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone)
+		content := ingressIPv4
+		if prefix == "console" {
+			content = consoleIP
+		}
 		rrsets = append(rrsets, pdnsRRSet{
 			Name:       fqdn,
 			Type:       "A",
 			TTL:        300,
 			ChangeType: "REPLACE",
 			Records: []pdnsRecord{
-				{Content: ingressIPv4, Disabled: false},
+				{Content: content, Disabled: false},
 			},
 		})
 	}
@@ -216,6 +235,40 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 // the surplus records survive the Org and shadow a re-prov's wildcard with a
 // dead IP).
 var theFreeSubdomainPrefixes = []string{"*", "console", "wordpress", "openclaw", "mail", "keycloak"}
+
+// lookupHostFn is the seam tests stub to avoid live DNS. Production uses
+// net.DefaultResolver.
+var lookupHostFn = func(ctx context.Context, host string) ([]string, error) {
+	return net.DefaultResolver.LookupHost(ctx, host)
+}
+
+// resolveSovereignConsoleIPv4 resolves the Sovereign's own console
+// A-record (`console.<sovereignFQDN>`) to discover the DEDICATED console
+// gateway/ELB EIP (#4732 item 3). That record is written at prov time on
+// every Sovereign and always targets the console front door, so it is the
+// zero-config source of truth for where per-Org `console.<slug>.<pool>`
+// records must point. Returns "" on any failure (empty FQDN, lookup error,
+// no IPv4) — the caller then falls back to the shared ingress IP, which is
+// the pre-#4732 behaviour.
+func resolveSovereignConsoleIPv4(ctx context.Context, sovereignFQDN string) string {
+	fqdn := strings.Trim(strings.TrimSpace(sovereignFQDN), ".")
+	if fqdn == "" {
+		return ""
+	}
+	lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	addrs, err := lookupHostFn(lctx, "console."+fqdn)
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		ip := net.ParseIP(a)
+		if ip != nil && ip.To4() != nil {
+			return ip.String()
+		}
+	}
+	return ""
+}
 
 // DeprovisionFreeSubdomain implements OrganizationDNSProvisioner. DELETEs the
 // per-Org pool A-records ProvisionFreeSubdomain wrote (#4459 — a stale record
@@ -296,7 +349,7 @@ func (p DefaultOrganizationDNSProvisioner) ValidateBYOCNAME(ctx context.Context,
 type NoopOrganizationDNSProvisioner struct{}
 
 // ProvisionFreeSubdomain is a no-op.
-func (NoopOrganizationDNSProvisioner) ProvisionFreeSubdomain(_ context.Context, _, _, _ string) error {
+func (NoopOrganizationDNSProvisioner) ProvisionFreeSubdomain(_ context.Context, _, _, _, _ string) error {
 	return nil
 }
 
