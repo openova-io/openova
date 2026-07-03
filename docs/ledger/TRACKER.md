@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-03T03:45:04Z` |
+| Last refreshed | `2026-07-03T04:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -245,6 +245,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-03T03:53 | [#4718](https://github.com/openova-io/openova/pull/4718) | #4715 | fix(gateway): wire console-port substitute into slot-13 — #4 |
 | 2026-07-03T03:39 | [#4717](https://github.com/openova-io/openova/pull/4717) | #4715 | test(gateway): CI guard vs the hw218 console-port collision  |
 | 2026-07-03T03:08 | [#4716](https://github.com/openova-io/openova/pull/4716) | #4707 | fix(readiness): console-gate < 500 → < 400 — a 404 front doo |
 | 2026-07-03T01:07 | [#4715](https://github.com/openova-io/openova/pull/4715) | fix(gateway): console gateway → 8443/8080 host ports — no no |  |
@@ -274,7 +275,6 @@ flowchart LR
 | 2026-06-30T23:14 | [#4673](https://github.com/openova-io/openova/pull/4673) | #4635 | fix(cutover): level-triggered reconciler must re-run a faile |
 | 2026-06-30T23:15 | [#4672](https://github.com/openova-io/openova/pull/4672) | #4111 | docs(glossary): define Agenity + bp-openova-mcp + ban user-f |
 | 2026-06-30T23:15 | [#4671](https://github.com/openova-io/openova/pull/4671) | #4614 | fix(wipe): sweep unbound/nameless orphan EIPs project-wide — |
-| 2026-06-30T21:12 | [#4669](https://github.com/openova-io/openova/pull/4669) | #4635 | feat(cutover): level-triggered sovereignty-cutover reconcile |
 
 ---
 
