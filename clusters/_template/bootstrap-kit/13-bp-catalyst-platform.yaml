@@ -1317,6 +1317,21 @@ spec:
   # for console/admin/api. All chart-level Catalyst service config (image refs,
   # OTel endpoints, NATS subjects) lives in products/catalyst/chart/values.yaml.
   values:
+    # #4706 — console gateway listener host-ports, per-provider. This wires the
+    # CONSOLE_GATEWAY_{HTTPS,HTTP}_PORT cloud-init substitutes into the chart's
+    # consoleGateway values so the sovereign-tls-vars CM (CONSOLE_LISTENERS_YAML)
+    # renders the console Gateway on the right ports. Under the huawei
+    # hostNetwork gateway (cilium 1.19.3) TWO Gateways cannot both bind
+    # node:443, so huawei cloud-init sets 8443/8080 (unprivileged host ports,
+    # NOT nodePorts); the console ELB forwards public :443/:80 → node:8443/:8080.
+    # Hetzner leaves the substitutes unset → 443/80 (hostNetwork off — the
+    # hcloud-ccm LB Service shape has no bind collision). WITHOUT this wiring the
+    # chart default (443/80) always wins and the console Gateway collides with
+    # the PRIMARY gateway's node:443 → 404 on every console host (hw218, #4715
+    # regression: the substitute was emitted but never consumed here).
+    consoleGateway:
+      httpsPort: ${CONSOLE_GATEWAY_HTTPS_PORT:=443}
+      httpPort: ${CONSOLE_GATEWAY_HTTP_PORT:=80}
     # G91.catalyst-console-admin-self-grant (#2659): the Sovereign operator
     # (deployment.OrgEmail; from the sovereign-fqdn ConfigMap orgEmail key)
     # is auto-granted the realm-role `catalyst-admin` (composite over
