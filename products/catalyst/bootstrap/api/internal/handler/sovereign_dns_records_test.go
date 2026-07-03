@@ -1,7 +1,12 @@
 package handler
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"testing"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
 )
 
 // TestCanonicalSovereignSubdomainsCoversBrowserFacingApps guards the parent-zone
@@ -147,5 +152,62 @@ func TestConsoleGatewaySubdomainSetOverride(t *testing.T) {
 	}
 	if got := recordTargetIP("marketplace", "1.1.1.1", "2.2.2.2", set); got != "1.1.1.1" {
 		t.Errorf("marketplace no longer in overridden set → should resolve to sharedLB; got %q", got)
+	}
+}
+
+// stubZoneClient records PatchRRSets calls for the delete-side test.
+type stubZoneClient struct {
+	zones  []string
+	rrsets [][]powerdns.RRSet
+	err    error
+}
+
+func (s *stubZoneClient) CreateZone(_ context.Context, _ powerdns.ZoneSpec) error { return nil }
+func (s *stubZoneClient) ZoneExists(_ context.Context, _ string) (bool, error)   { return true, nil }
+func (s *stubZoneClient) PatchRRSets(_ context.Context, zone string, rrsets []powerdns.RRSet) error {
+	s.zones = append(s.zones, zone)
+	s.rrsets = append(s.rrsets, rrsets)
+	return s.err
+}
+
+// TestDeleteSovereignParentZoneRecords locks #4732 item 7: the wipe-side
+// teardown DELETEs exactly the rrset names the upsert wrote — every
+// canonical subdomain plus the bare apex — so a wiped Sovereign's records
+// cannot linger and resolve a released EIP (the live console.hw217 case).
+func TestDeleteSovereignParentZoneRecords(t *testing.T) {
+	stub := &stubZoneClient{}
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil)), powerdnsZoneClient: stub}
+
+	if err := h.deleteSovereignParentZoneRecords(context.Background(), "hw217.omani.works", ""); err != nil {
+		t.Fatalf("deleteSovereignParentZoneRecords: %v", err)
+	}
+	if len(stub.zones) != 1 || stub.zones[0] != "omani.works" {
+		t.Fatalf("zones patched = %v, want [omani.works] (derived from FQDN tail)", stub.zones)
+	}
+	got := stub.rrsets[0]
+	// Every canonical subdomain + the apex, all changetype=DELETE.
+	if want := len(CanonicalSovereignSubdomains) + 1; len(got) != want {
+		t.Fatalf("rrset count = %d, want %d (canonical set + apex)", len(got), want)
+	}
+	names := map[string]bool{}
+	for _, rr := range got {
+		if rr.ChangeType != "DELETE" {
+			t.Errorf("rrset %s changetype = %q, want DELETE", rr.Name, rr.ChangeType)
+		}
+		names[rr.Name] = true
+	}
+	for _, must := range []string{"console.hw217.omani.works.", "api.hw217.omani.works.", "hw217.omani.works."} {
+		if !names[must] {
+			t.Errorf("missing DELETE rrset for %s", must)
+		}
+	}
+}
+
+// TestDeleteSovereignParentZoneRecords_NilClientNoop locks the
+// best-effort contract: no powerdns client wired → nil error, no panic.
+func TestDeleteSovereignParentZoneRecords_NilClientNoop(t *testing.T) {
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := h.deleteSovereignParentZoneRecords(context.Background(), "hw217.omani.works", ""); err != nil {
+		t.Fatalf("expected nil error with no client, got %v", err)
 	}
 }

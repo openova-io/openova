@@ -335,3 +335,57 @@ func (h *Handler) upsertSovereignParentZoneRecordsFromResult(ctx context.Context
 		)
 	}
 }
+
+// deleteSovereignParentZoneRecords is the wipe-side twin of
+// upsertSovereignParentZoneRecords (#4732 item 7). It DELETEs the same
+// rrset names the upsert wrote — every CanonicalSovereignSubdomain plus
+// the bare apex — from the given parent zone, so a wiped Sovereign's
+// records do not linger and route third parties' traffic (or a later
+// same-name re-prov) at a released EIP. Verified live: a wiped env's
+// `console.<fqdn>` still resolved a full day after the wipe.
+//
+// Idempotent: PowerDNS changetype=DELETE on an absent rrset is a 2xx
+// no-op. Best-effort by design — the caller logs and continues so a DNS
+// hiccup never blocks the wipe's cloud purge or record cleanup.
+func (h *Handler) deleteSovereignParentZoneRecords(ctx context.Context, sovereignFQDN, parentZone string) error {
+	if h.powerdnsZoneClient == nil {
+		h.log.Info("sovereign-dns-records: delete skipped (no powerdns client wired)",
+			"sovereignFQDN", sovereignFQDN,
+		)
+		return nil
+	}
+	if sovereignFQDN == "" {
+		return fmt.Errorf("sovereign-dns-records: sovereignFQDN required for delete")
+	}
+	if parentZone == "" {
+		parts := strings.SplitN(sovereignFQDN, ".", 2)
+		if len(parts) == 2 {
+			parentZone = parts[1]
+		} else {
+			parentZone = sovereignFQDN
+		}
+	}
+	subdomains := CanonicalSovereignSubdomains
+	rrsets := make([]powerdns.RRSet, 0, len(subdomains)+1)
+	for _, sub := range subdomains {
+		rrsets = append(rrsets, powerdns.RRSet{
+			Name:       sub + "." + sovereignFQDN + ".",
+			Type:       "A",
+			ChangeType: "DELETE",
+		})
+	}
+	rrsets = append(rrsets, powerdns.RRSet{
+		Name:       sovereignFQDN + ".",
+		Type:       "A",
+		ChangeType: "DELETE",
+	})
+	if err := h.powerdnsZoneClient.PatchRRSets(ctx, parentZone, rrsets); err != nil {
+		return fmt.Errorf("sovereign-dns-records: delete from parent zone %q: %w", parentZone, err)
+	}
+	h.log.Info("sovereign-dns-records: parent zone records deleted for wiped Sovereign",
+		"sovereignFQDN", sovereignFQDN,
+		"parentZone", parentZone,
+		"recordCount", len(rrsets),
+	)
+	return nil
+}
