@@ -50,6 +50,19 @@ const (
 	gatewayPoolHTTPSuffix  = "-elb-pool-http"
 )
 
+// Console ELB name/pool suffixes tofu gives the dedicated console ELB
+// (huaweicloud_elb_loadbalancer.console → "${name_prefix}-elb-console", pools
+// "-elb-pool-console-https" / "-elb-pool-console-http"). Under the huawei
+// hostNetwork gateway the console gateway binds node:8443/:8080 (NOT :443/:80 —
+// that would collide with the primary gateway, hw218 #4715), so the console ELB
+// forwards public :443/:80 → node:8443/:8080. These are DISTINCT from the
+// primary suffixes so the two reconciles never touch each other's ELB.
+const (
+	consoleELBNameSuffix   = "-elb-console"
+	consolePoolHTTPSSuffix = "-elb-pool-console-https"
+	consolePoolHTTPSuffix  = "-elb-pool-console-http"
+)
+
 // ReconcileGatewayELBMembers converges the gateway ELB's HTTPS/HTTP pool
 // member sets to nodeIPs at the fixed gateway host ports, and points each
 // pool's health monitor at the same port.
@@ -65,6 +78,26 @@ const (
 // logged via progress and do NOT abort the whole reconcile (best-effort, like
 // the day-2 post-handover hooks).
 func (p *Provider) ReconcileGatewayELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN string, nodeIPs []string, httpsPort, httpPort int, progress func(msg string)) (int, error) {
+	return p.reconcileELBMembers(ctx, ak, sk, projectID, region, sovereignFQDN,
+		gatewayELBNameSuffix, gatewayPoolHTTPSSuffix, gatewayPoolHTTPSuffix,
+		nodeIPs, httpsPort, httpPort, false /*softSkipMissing*/, progress)
+}
+
+// ReconcileConsoleELBMembers converges the dedicated CONSOLE ELB's member set
+// to nodeIPs at the console gateway host ports (8443/8080 on huawei). Identical
+// convergence to the primary gateway, targeting the "-elb-console" ELB. It is
+// softSkipMissing: a console_isolation_enabled=false prov has no console ELB, so
+// "ELB not found" is a clean no-op (0, nil), not an error. Without this, primary
+// self-heals node churn (post_handover) but the console ELB kept its tofu-seeded
+// boot member set forever → after an autoscaler node roll the console front door
+// lost its live backends → Console 000. Companion to ReconcileGatewayELBMembers.
+func (p *Provider) ReconcileConsoleELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN string, nodeIPs []string, httpsPort, httpPort int, progress func(msg string)) (int, error) {
+	return p.reconcileELBMembers(ctx, ak, sk, projectID, region, sovereignFQDN,
+		consoleELBNameSuffix, consolePoolHTTPSSuffix, consolePoolHTTPSuffix,
+		nodeIPs, httpsPort, httpPort, true /*softSkipMissing*/, progress)
+}
+
+func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN, elbSuffix, poolHTTPSSuffix, poolHTTPSuffix string, nodeIPs []string, httpsPort, httpPort int, softSkipMissing bool, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -91,13 +124,19 @@ func (p *Provider) ReconcileGatewayELBMembers(ctx context.Context, ak, sk, proje
 	}
 	var gwELBID string
 	for _, e := range elbs {
-		if strings.HasSuffix(e.Name, gatewayELBNameSuffix) {
+		if strings.HasSuffix(e.Name, elbSuffix) {
 			gwELBID = e.ID
 			break
 		}
 	}
 	if gwELBID == "" {
-		return 0, fmt.Errorf("gateway-elb: no ELB named *%s found for %s (elbs=%d)", gatewayELBNameSuffix, sovereignFQDN, len(elbs))
+		if softSkipMissing {
+			// e.g. the console ELB on a console_isolation_enabled=false prov —
+			// there is nothing to reconcile, not a failure.
+			progress(fmt.Sprintf("gateway-elb: no ELB named *%s for %s — nothing to reconcile (soft-skip)", elbSuffix, sovereignFQDN))
+			return 0, nil
+		}
+		return 0, fmt.Errorf("gateway-elb: no ELB named *%s found for %s (elbs=%d)", elbSuffix, sovereignFQDN, len(elbs))
 	}
 
 	// 2. Resolve the ELB's pools + its VIP subnet (the fallback subnet for
@@ -149,9 +188,9 @@ func (p *Provider) ReconcileGatewayELBMembers(ctx context.Context, ak, sk, proje
 
 		desired := 0
 		switch {
-		case strings.HasSuffix(pool.Pool.Name, gatewayPoolHTTPSSuffix):
+		case strings.HasSuffix(pool.Pool.Name, poolHTTPSSuffix):
 			desired = httpsPort
-		case strings.HasSuffix(pool.Pool.Name, gatewayPoolHTTPSuffix):
+		case strings.HasSuffix(pool.Pool.Name, poolHTTPSuffix):
 			desired = httpPort
 		default:
 			// Not a gateway pool (shouldn't happen — the gateway ELB owns only

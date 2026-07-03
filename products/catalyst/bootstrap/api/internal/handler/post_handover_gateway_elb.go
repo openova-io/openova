@@ -47,6 +47,16 @@ const (
 	gatewayHostPortHTTPS = 443
 	gatewayHostPortHTTP  = 80
 
+	// consoleHostPortHTTPS / consoleHostPortHTTP — the console gateway's host
+	// ports under the huawei hostNetwork gateway. Two Gateways cannot both bind
+	// node:443, so the console gateway uses 8443/8080 (unprivileged host ports,
+	// NOT nodePorts — #4715); the console ELB forwards public :443/:80 →
+	// node:8443/:8080. Must match consoleGateway.{https,http}Port
+	// (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml #4718) and
+	// the tofu console member ports (var.console_member_port_{https,http}).
+	consoleHostPortHTTPS = 8443
+	consoleHostPortHTTP  = 8080
+
 	// gatewayELBReconcileMaxWait — budget waiting for the primary cluster to
 	// report ≥1 node InternalIP. Nodes exist long before OutcomeReady, so this
 	// is defensive only. Fully off the bootstrap critical path.
@@ -136,6 +146,24 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 				Level:   "info",
 				Message: "Gateway ELB member set converged to " + strconv.Itoa(len(nodeIPs)) + " live nodes at node:" + strconv.Itoa(gatewayHostPortHTTPS) + "/:" + strconv.Itoa(gatewayHostPortHTTP) + " (" + strconv.Itoa(changed) + " changed); public :443/:80 front door is wired.",
 			})
+
+			// Also converge the dedicated CONSOLE ELB (console_isolation provs)
+			// to the same live nodes at the console gateway host ports (8443/8080).
+			// Best-effort + soft-skip: a console_isolation=false prov has no
+			// console ELB → clean no-op. Without this the console ELB kept its
+			// tofu-seeded boot members forever and lost its backends after an
+			// autoscaler node roll → Console 000 (#4706). Its failure must NOT
+			// mask the primary success above, so it is logged, not returned.
+			if cChanged, cErr := hp.ReconcileConsoleELBMembers(
+				context.Background(),
+				dep.Request.HuaweiAccessKey, dep.Request.HuaweiSecretKey, dep.Request.HuaweiProjectID,
+				region, fqdn, nodeIPs, consoleHostPortHTTPS, consoleHostPortHTTP,
+				func(msg string) { h.log.Info("console-elb: " + msg) },
+			); cErr != nil {
+				h.log.Warn("console-elb: member reconcile failed (non-fatal; primary front door is up)", "id", dep.ID, "err", cErr)
+			} else {
+				h.log.Info("console-elb: reconcile complete", "id", dep.ID, "membersChanged", cChanged)
+			}
 			return
 		}
 		if time.Now().After(deadline) {
