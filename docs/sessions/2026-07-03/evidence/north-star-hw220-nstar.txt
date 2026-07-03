@@ -1,0 +1,34 @@
+# Pillar-4 North Star — LIVE PROVEN on fresh prov hw220 (907629bc3577355b), 2026-07-03
+
+PROVEN ZERO-TOUCH (fresh 2-region Huawei prov, fresh Org):
+- Org `nstar` created: POST /api/v1/organizations -> HTTP 202, org-controller reconciled
+  (keycloak group + gitea org + vcluster Ready + Environment nstar-prod ensured).
+- agenity (chepherd) provisioned as Application: bp-agenity 0.5.20, pod
+  agenity-rtz-a-bp-agenity-0 Running 1/1 (host-ns singleton) + oidc-gate companion.
+- Anthropic OAuth cred seeded (OpenBao secret/catalyst/anthropic/token, apiKey+
+  credentialsJson) -> per-Org ExternalSecret agenity-anthropic-token SecretSynced
+  -> ~/.claude/.credentials.json (471B) in the agent container.
+- openova MCP wired + DISCOVERED: agent's `claude -p` tools/list returns all 6
+  mcp__openova__* tools (create_application, get_application, list_applications,
+  list_environments, list_organizations, whoami) — the #4624 tools/list-empty gate CLEARED.
+- **create_application -> HTTP 201**: the agenity claude agent drove
+  `mcp__openova__create_application name=nstar-verify blueprint=bp-postgres version=0.2.8`
+  -> catalyst-api access log `POST /api/v1/org/applications status=201` at 18:00:04Z.
+  Application CR `nstar-verify` (uid 4e103c8e-727f-4930-aaaa-50121a047f54) landed in
+  ns nstar, labels managed-by=catalyst-api organization=nstar environment=nstar-prod.
+  Agent stayed HONEST (reported 404 then 400 then 201 truthfully, never fabricated).
+
+BUGS FOUND + one live-fixed to unblock (durable fixes needed):
+1. Per-Org agenity `OPENOVA_MCP_TENANT_HOST` was stamped to the SOVEREIGN host
+   (console.<fqdn>) instead of the ORG console host (console.<slug>.<pool>) ->
+   catalyst-api could not resolve the Org -> POST /org/applications 404. Live-fixed
+   by setting OPENOVA_MCP_TENANT_HOST=console.nstar.omani.homes on the StatefulSet.
+   DURABLE FIX: application_parameters.go must stamp the Org console host for bp-agenity.
+2. anthropic ExternalSecret references property `apiKey` AND `credentialsJson`;
+   seeding only credentialsJson -> SecretSyncedError (hard-fails on missing property).
+   Seed BOTH keys (apiKey may be empty). DURABLE: the #4303 producer must write apiKey.
+3. create_application 400 "blueprintRef.version is required" on a natural agent request
+   with no version — the tool should resolve the catalog's latest pinned version when
+   omitted (UX gap; the agent can't guess a version).
+4. Admin `POST /organizations` door creates a bare Org shell (no default Environment,
+   no cart apps) — the zero-touch funnel path provisions Org+Env+cart together.
