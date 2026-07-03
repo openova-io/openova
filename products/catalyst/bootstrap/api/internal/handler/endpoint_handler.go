@@ -860,6 +860,15 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// derives the openova-MCP catalyst-api URL from it; empty → the mothership
 	// console.openova.io). No-op for non-agenity Blueprints.
 	seed.SovereignFQDN = h.sovereignFQDN()
+	// #4624 — stamp the ORG's public console host (console.<slug>.<pool>,
+	// from the tenant registry) so a bp-agenity instance gets
+	// spec.parameters.openovaMCP.tenantHost: the OPENOVA_MCP_TENANT_HOST the
+	// agent's MCP forwards as X-Tenant-Host must be the Org host, NOT the
+	// Sovereign console host derived from sovereignFqdn (that host is not a
+	// registered tenant → every agent create_application 404'd, live-proven
+	// on hw220 2026-07-04). Empty (mothership / no registry row) ⇒ no stamp,
+	// fail-closed. No-op for non-agenity Blueprints.
+	seed.OrgConsoleHost = h.orgConsoleHostFor(seed.Namespace)
 
 	// #3598 (EPIC #3597) — ensure the Org/Environment namespace exists
 	// BEFORE creating any Application CR. Without this the create races the
@@ -2194,7 +2203,7 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// reconciled (phase=Failed). Now seed.Values (when present) is used
 	// verbatim; otherwise we emit at least `{}` plus a configSchema-valid
 	// topology.mode for bp-postgres.
-	spec["parameters"] = defaultedParameters(seed.Blueprint, seed.Topology, seed.SovereignFQDN, seed.Namespace, seed.Values)
+	spec["parameters"] = defaultedParameters(seed.Blueprint, seed.Topology, seed.SovereignFQDN, seed.Namespace, seed.OrgConsoleHost, seed.Values)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }
