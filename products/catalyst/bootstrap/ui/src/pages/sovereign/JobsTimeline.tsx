@@ -27,6 +27,7 @@
 import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications } from './applicationCatalog'
@@ -122,7 +123,7 @@ export function JobsTimeline({
       pageTitle="Jobs timeline"
       headerSlotLeft={
         <Link
-          to={(deploymentId ? `/provision/${deploymentId}/jobs` : `/jobs`) as never}
+          to={sovereignPathOrDeployments('jobs', { deploymentId }) as never}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-jobs-timeline-back"
         >

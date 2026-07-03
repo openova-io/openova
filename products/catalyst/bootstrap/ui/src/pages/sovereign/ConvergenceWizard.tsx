@@ -22,6 +22,7 @@
  */
 
 import { Link } from '@tanstack/react-router'
+import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import type { DeploymentSnapshot, RegionHealth } from './useDeploymentEvents'
 
 /** The five wizard phases, in order. */
@@ -86,6 +87,17 @@ export function deriveWizardPhase(snap: DeploymentSnapshot | null | undefined): 
   }
 }
 
+/**
+ * isFailedStatus — true when the deployment is in a terminal/partial
+ * failure state. The pinned wizard phase then renders RED (semantic
+ * failed colour, #4704 follow-up) instead of the in-progress blue, so a
+ * stuck prov is visually distinct from a converging one.
+ */
+export function isFailedStatus(snap: DeploymentSnapshot | null | undefined): boolean {
+  const s = (snap?.status ?? '').trim().toLowerCase()
+  return s === 'failed' || s === 'partial-failure'
+}
+
 /** hrRatio sums the HelmRelease census across regions → {ready, total}. */
 export function hrRatio(snap: DeploymentSnapshot | null | undefined): { ready: number; total: number } {
   const regions: RegionHealth[] = snap?.regions ?? []
@@ -117,6 +129,7 @@ export function ConvergenceWizard({ snapshot, deploymentId }: ConvergenceWizardP
   const phase = deriveWizardPhase(snapshot)
   const activeIdx = PHASE_INDEX[phase]
   const ratio = hrRatio(snapshot)
+  const failed = isFailedStatus(snapshot)
 
   return (
     <div
@@ -137,25 +150,65 @@ export function ConvergenceWizard({ snapshot, deploymentId }: ConvergenceWizardP
         {WIZARD_PHASES.map((p, i) => {
           const isActive = i === activeIdx
           const isDone = i < activeIdx
+          // #4704 follow-up — semantic colours: done=green, active=blue
+          // (in-progress), pending=grey, FAILED=red. A failed/partial
+          // deployment pins its phase red so a stuck prov never renders
+          // as a calm in-progress blue.
+          const isFailed = failed && isActive
           const stateCls = isDone
             ? 'wizard-phase-done'
-            : isActive
-              ? 'wizard-phase-active'
-              : 'wizard-phase-pending'
+            : isFailed
+              ? 'wizard-phase-failed'
+              : isActive
+                ? 'wizard-phase-active'
+                : 'wizard-phase-pending'
           return (
             <li
               key={p.id}
               data-testid={`wizard-phase-${p.id}`}
               data-active={isActive ? 'true' : 'false'}
               data-done={isDone ? 'true' : 'false'}
+              data-failed={isFailed ? 'true' : 'false'}
               className={`wizard-phase ${stateCls} flex flex-1 flex-col gap-1 rounded-lg border px-3 py-3 sm:mx-1`}
             >
               <span className="flex items-center gap-2 text-sm font-semibold">
                 <span className="wizard-phase-dot" aria-hidden>
-                  {isDone ? '✓' : isActive ? '●' : i + 1}
+                  {isDone ? '✓' : isFailed ? '✕' : isActive ? '●' : i + 1}
                 </span>
                 {p.label}
               </span>
+              {/* #4704 follow-up — every phase drills down to its
+                  log-bearing surface: Infrastructure → the finite Jobs
+                  table (each row opens JobDetail with the live LogPane
+                  for the tofu/provision steps). Mode-aware + id-safe via
+                  sovereignPathOrDeployments (Task B). */}
+              {p.id === 'infrastructure' ? (
+                <span className="text-[11px] text-[var(--color-text-dim)]">
+                  <Link
+                    to={sovereignPathOrDeployments('jobs', { deploymentId }) as never}
+                    data-testid="wizard-link-infrastructure"
+                    className="text-[var(--color-accent)] no-underline hover:underline"
+                  >
+                    view logs →
+                  </Link>
+                </span>
+              ) : null}
+              {/* Health drills into the same reconciliation graph the
+                  Reconciliation phase uses — the recon objects (and their
+                  logs) are what "settling" means. */}
+              {p.id === 'health' ? (
+                <span className="text-[11px] text-[var(--color-text-dim)]">
+                  <Link
+                    to={'/provision/$deploymentId/cloud' as never}
+                    params={{ deploymentId } as never}
+                    search={{ view: 'graph', lens: 'reconciliation' } as never}
+                    data-testid="wizard-link-health"
+                    className="text-[var(--color-accent)] no-underline hover:underline"
+                  >
+                    view graph →
+                  </Link>
+                </span>
+              ) : null}
               {/* Reconciliation phase shows the live HR ratio + a deep-link. */}
               {p.id === 'reconciliation' ? (
                 <span className="text-[11px] text-[var(--color-text-dim)]">
@@ -185,12 +238,14 @@ export function ConvergenceWizard({ snapshot, deploymentId }: ConvergenceWizardP
                   </Link>
                 </span>
               ) : null}
-              {/* Bootstrap phase deep-links the Jobs page (finite jobs). */}
+              {/* Bootstrap phase deep-links the Jobs page (finite jobs).
+                  #4704 Task B: a bare '/jobs' on the mothership collapses
+                  into /provision/jobs (the literal lands in $deploymentId)
+                  — build the mode-aware per-deployment path instead. */}
               {p.id === 'bootstrap' ? (
                 <span className="text-[11px] text-[var(--color-text-dim)]">
                   <Link
-                    to={'/jobs' as never}
-                    params={{ deploymentId } as never}
+                    to={sovereignPathOrDeployments('jobs', { deploymentId }) as never}
                     data-testid="wizard-link-jobs"
                     className="text-[var(--color-accent)] no-underline hover:underline"
                   >
@@ -206,6 +261,11 @@ export function ConvergenceWizard({ snapshot, deploymentId }: ConvergenceWizardP
   )
 }
 
+/* #4704 follow-up — colours reference the theme tokens (the SAME
+ * semantic mapping as shared/lib/statusColors.ts): active/in-progress =
+ * blue (--color-accent), done/success = green (--color-success),
+ * failed = red (--color-danger), pending = grey. Tints via color-mix so
+ * both themes stay correct without per-theme hex forks. */
 const WIZARD_CSS = `
 .wizard-phase { border-color: var(--color-border); background: var(--color-bg); transition: all 0.2s ease; }
 .wizard-phase-dot {
@@ -214,9 +274,11 @@ const WIZARD_CSS = `
   background: var(--color-border); color: var(--color-text-dim);
 }
 .wizard-phase-pending { opacity: 0.6; }
-.wizard-phase-active { border-color: #38BDF8; background: rgba(56,189,248,0.08); }
-.wizard-phase-active .wizard-phase-dot { background: #38BDF8; color: #06121c; animation: wizard-pulse 2s ease-in-out infinite; }
-.wizard-phase-done { border-color: rgba(74,222,128,0.35); }
-.wizard-phase-done .wizard-phase-dot { background: #4ADE80; color: #052e13; }
+.wizard-phase-active { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+.wizard-phase-active .wizard-phase-dot { background: var(--color-accent); color: #fff; animation: wizard-pulse 2s ease-in-out infinite; }
+.wizard-phase-done { border-color: color-mix(in srgb, var(--color-success) 35%, transparent); }
+.wizard-phase-done .wizard-phase-dot { background: var(--color-success); color: #fff; }
+.wizard-phase-failed { border-color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 8%, transparent); }
+.wizard-phase-failed .wizard-phase-dot { background: var(--color-danger); color: #fff; }
 @keyframes wizard-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 `

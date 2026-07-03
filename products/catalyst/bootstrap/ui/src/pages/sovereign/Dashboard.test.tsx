@@ -91,11 +91,16 @@ function renderDashboard(
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
-  return render(
+  const utils = render(
     <QueryClientProvider client={qc}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
+  // Expose the router so navigation tests can assert against the MEMORY
+  // history (#4704 harness fix — memory history never writes
+  // window.location, so the old window.location.pathname fallback always
+  // read '/' and the drill-navigation assertion could never pass).
+  return { ...utils, router }
 }
 
 beforeEach(() => {
@@ -350,7 +355,7 @@ describe('Dashboard — inner-tile drill (issue #1927)', () => {
         },
       ],
     }
-    const { container } = renderDashboard('d-1', NESTED_CLUSTER_APP, {
+    const { container, router } = renderDashboard('d-1', NESTED_CLUSTER_APP, {
       initialLayers: ['cluster', 'application'],
     })
     await screen.findByTestId('dashboard-treemap-frame')
@@ -378,13 +383,12 @@ describe('Dashboard — inner-tile drill (issue #1927)', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('app-target')).toBeTruthy()
     })
-    // assertion: AppDetail route param is `bp-harbor`, NOT bare `harbor`
-    const history = (
-      (window as unknown as { __rt?: { location?: { pathname?: string } } }).__rt ?? {}
-    ).location?.pathname
-    // Fallback to window.location in jsdom — tanstack-router writes
-    // memory-history paths there via createMemoryHistory.
-    const path = history ?? window.location.pathname
+    // assertion: AppDetail route param is `bp-harbor`, NOT bare `harbor`,
+    // AND the target is the per-deployment mothership route (#4704 — a
+    // bare /app/bp-harbor would land the literal in the /app/$deploymentId
+    // slot on the mothership). Read the router's MEMORY history — jsdom
+    // window.location is never written by createMemoryHistory.
+    const path = router.state.location.pathname
     expect(path).toMatch(/\/provision\/d-1\/app\/bp-harbor$/)
   })
 

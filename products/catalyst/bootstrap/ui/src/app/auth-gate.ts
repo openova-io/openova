@@ -40,6 +40,54 @@ export function canonicalisePath(pathname: string): string {
 }
 
 /**
+ * Reserved route words that can NEVER be a deployment id (#4704 Task B).
+ *
+ * These are the child-page segments of the `/provision/$deploymentId/*`
+ * tree (plus sibling top-level route words). When a per-deployment link
+ * is built with an EMPTY deployment id (`/provision/${''}/jobs`),
+ * `canonicalisePath` collapses the double slash and the literal child
+ * word lands in the `$deploymentId` slot (`/provision/jobs`): AppsPage
+ * then banners `The path segment "jobs" is not a valid deployment id
+ * (expected 16 lowercase hex characters; got 4)` and useDeploymentEvents
+ * fires a doomed `/api/v1/deployments/jobs` poll (HTTP 404).
+ *
+ * A real deployment id is 16 lowercase hex chars (catalyst-api `newID()`),
+ * so none of these words can collide with a genuine id. `legacy` is NOT
+ * in the set — `/provision/legacy/$deploymentId` is a real route.
+ */
+export const RESERVED_DEPLOYMENT_ID_SEGMENTS: ReadonlySet<string> = new Set([
+  'jobs',
+  'dashboard',
+  'cloud',
+  'catalog',
+  'app',
+  'apps',
+  'users',
+  'settings',
+  'sessions',
+  'infrastructure',
+  'rbac',
+  'blueprints',
+  'organizations',
+  'notifications',
+  'install',
+  'timeline',
+  'deployments',
+  'wizard',
+])
+
+/**
+ * Return the reserved route word occupying the `$deploymentId` slot of a
+ * canonicalised `/provision/<segment>[/...]` path, or null when the slot
+ * holds anything else (a real id, a malformed id — which keeps the honest
+ * AppsPage error banner — or a non-provision path).
+ */
+export function reservedProvisionIdSegment(canonical: string): string | null {
+  const seg = canonical.match(/^\/provision\/([^/]+)/)?.[1]
+  return seg && RESERVED_DEPLOYMENT_ID_SEGMENTS.has(seg) ? seg : null
+}
+
+/**
  * Derive the set of trusted same-Sovereign hostnames from a host that
  * the UI is currently served on (e.g. `window.location.host`).
  *

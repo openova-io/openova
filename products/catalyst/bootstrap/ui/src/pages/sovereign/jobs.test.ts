@@ -239,10 +239,14 @@ describe('jobs — statusBadge', () => {
   })
 
   it('badge classes carry the canonical color tokens', () => {
+    // #4704 follow-up — semantic contract: success=green, running=BLUE
+    // (in-progress must be visibly distinct), failed=red, pending=GREY
+    // (never amber — amber is reserved for genuine warning states).
     expect(statusBadge('succeeded').classes).toContain('var(--color-success)')
     expect(statusBadge('running').classes).toContain('var(--color-accent)')
     expect(statusBadge('failed').classes).toContain('var(--color-danger)')
-    expect(statusBadge('pending').classes).toContain('var(--color-warn)')
+    expect(statusBadge('pending').classes).toContain('var(--color-text-dim)')
+    expect(statusBadge('pending').classes).not.toContain('var(--color-warn)')
   })
 })
 

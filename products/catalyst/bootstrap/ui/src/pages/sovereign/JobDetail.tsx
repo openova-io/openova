@@ -46,6 +46,7 @@ import { PortalShell } from './PortalShell'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { deriveJobs, fmtTime, statusBadge } from './jobs'
 import type { Job as DerivedJob, JobUiStatus, JobStep } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
@@ -253,7 +254,7 @@ export function JobDetail({
       >
         <div className="mx-auto max-w-3xl py-8" data-testid="job-detail-not-found">
           <Link
-            to={(deploymentId ? `/provision/${deploymentId}/jobs` : `/jobs`) as never}
+            to={sovereignPathOrDeployments('jobs', { deploymentId }) as never}
             className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
             data-testid="job-detail-back"
           >
@@ -305,7 +306,7 @@ export function JobDetail({
          * does not. */}
         <header className="job-detail-header" data-testid="job-detail-header">
           <Link
-            to={(deploymentId ? `/provision/${deploymentId}/jobs` : `/jobs`) as never}
+            to={sovereignPathOrDeployments('jobs', { deploymentId }) as never}
             className="job-detail-back"
             data-testid="job-detail-back"
           >

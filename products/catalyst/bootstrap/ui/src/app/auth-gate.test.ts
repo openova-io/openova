@@ -4,6 +4,7 @@ import {
   isPublicPath,
   hasCatalystSession,
   probeWhoamiAndCacheMarker,
+  reservedProvisionIdSegment,
   sanitizeNextParam,
   sameSovereignHostFamily,
   CANONICAL_SOVEREIGN_SUBDOMAINS,
@@ -30,6 +31,36 @@ describe('canonicalisePath', () => {
   it('passes already-canonical paths through unchanged', () => {
     expect(canonicalisePath('/dashboard')).toBe('/dashboard')
     expect(canonicalisePath('/users/some-user@example.org')).toBe('/users/some-user@example.org')
+  })
+})
+
+describe('reservedProvisionIdSegment — #4704 Task B', () => {
+  it('flags a reserved route word in the $deploymentId slot', () => {
+    // The founder-visible shape: an id-less `/provision/${''}/jobs` link
+    // collapses through canonicalisePath into `/provision/jobs`.
+    expect(reservedProvisionIdSegment(canonicalisePath('/provision//jobs'))).toBe('jobs')
+    expect(reservedProvisionIdSegment('/provision/jobs')).toBe('jobs')
+    expect(reservedProvisionIdSegment('/provision/dashboard')).toBe('dashboard')
+    expect(reservedProvisionIdSegment('/provision/jobs/some-job-id')).toBe('jobs')
+    expect(reservedProvisionIdSegment('/provision/cloud')).toBe('cloud')
+  })
+
+  it('passes real 16-hex deployment ids through untouched', () => {
+    expect(reservedProvisionIdSegment('/provision/4635277cae4ffed9')).toBeNull()
+    expect(reservedProvisionIdSegment('/provision/4635277cae4ffed9/jobs')).toBeNull()
+  })
+
+  it('keeps the honest malformed-id path for non-reserved garbage', () => {
+    // Truncated hex / random words keep the AppsPage error banner.
+    expect(reservedProvisionIdSegment('/provision/4635277c')).toBeNull()
+    expect(reservedProvisionIdSegment('/provision/not-a-real-id')).toBeNull()
+  })
+
+  it('ignores non-provision paths and the legacy literal route', () => {
+    expect(reservedProvisionIdSegment('/jobs')).toBeNull()
+    expect(reservedProvisionIdSegment('/dashboard')).toBeNull()
+    // /provision/legacy/$deploymentId is a REAL route.
+    expect(reservedProvisionIdSegment('/provision/legacy/4635277cae4ffed9')).toBeNull()
   })
 })
 

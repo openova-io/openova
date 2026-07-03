@@ -186,6 +186,7 @@ import {
   hasCatalystSession,
   isPublicPath,
   probeWhoamiAndCacheMarker,
+  reservedProvisionIdSegment,
   sanitizeNextParam,
 } from './auth-gate'
 import { LENSES, type LensId } from '@/widgets/architecture-graph/presets'
@@ -266,6 +267,19 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
     const newURL = basepath + canonical + window.location.search + window.location.hash
     window.location.replace(newURL)
     throw redirect({ to: canonical as never, replace: true })
+  }
+  // #4704 Task B — a reserved route word in the `$deploymentId` slot
+  // (`/provision/jobs`, produced by an id-less `/provision/${''}/jobs`
+  // link collapsing through canonicalisePath) can never be a real
+  // deployment id. Redirect to the deployments list instead of letting
+  // AppsPage render the malformed-id banner + fire a doomed
+  // `/api/v1/deployments/jobs` poll (HTTP 404). Genuinely malformed ids
+  // (e.g. truncated hex) fall through and keep the honest error banner.
+  if (reservedProvisionIdSegment(canonical)) {
+    throw redirect({
+      to: (DETECTED_MODE.mode === 'sovereign' ? '/dashboard' : '/deployments') as never,
+      replace: true,
+    })
   }
   if (DETECTED_MODE.mode !== 'sovereign') return
   if (isPublicPath(canonical)) return

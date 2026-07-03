@@ -350,13 +350,29 @@ export function Dashboard({
         // Inline the navigation so this effect's deps don't have to
         // carry the outer `navigateToApp` closure (whose identity
         // changes on every render via the `router` reference).
-        router.navigate({
-          to: '/app/$componentId' as never,
-          params: { componentId } as never,
-        })
+        //
+        // #4704 follow-up — MODE-AWARE target. `/app/$componentId` is the
+        // chroot Sovereign Console's AppDetail route; on the MOTHERSHIP
+        // `/app/bp-harbor` instead matches `/app/$deploymentId` and lands
+        // on the malformed-deployment-id banner (the same reserved-word
+        // class as Task B). The mothership AppDetail (hero + Jobs section
+        // + logs) lives at /provision/$deploymentId/app/$componentId, so
+        // the treemap drill-down reaches the log-bearing detail surface
+        // on both hosts.
+        if (DETECTED_MODE.mode === 'sovereign') {
+          router.navigate({
+            to: '/app/$componentId' as never,
+            params: { componentId } as never,
+          })
+        } else {
+          router.navigate({
+            to: '/provision/$deploymentId/app/$componentId' as never,
+            params: { deploymentId, componentId } as never,
+          })
+        }
       }
     }
-  }, [layers, drillPath.length, router])
+  }, [layers, drillPath.length, router, deploymentId])
 
   useEffect(() => {
     return () => {
@@ -378,11 +394,19 @@ export function Dashboard({
     // treemap emits `id` from the Pod's `app.kubernetes.io/instance`
     // label which is bare (`harbor`), but AppDetail's route + lookup
     // both key on the bp- prefixed Application CR name (`bp-harbor`).
+    // Mode-aware target — see the #4704 comment in `_onCellClick`.
     const id = componentId.startsWith('bp-') ? componentId : `bp-${componentId}`
-    router.navigate({
-      to: '/app/$componentId' as never,
-      params: { componentId: id } as never,
-    })
+    if (DETECTED_MODE.mode === 'sovereign') {
+      router.navigate({
+        to: '/app/$componentId' as never,
+        params: { componentId: id } as never,
+      })
+    } else {
+      router.navigate({
+        to: '/provision/$deploymentId/app/$componentId' as never,
+        params: { deploymentId, componentId: id } as never,
+      })
+    }
   }
 
   /* ── Render ────────────────────────────────────────────────────── */

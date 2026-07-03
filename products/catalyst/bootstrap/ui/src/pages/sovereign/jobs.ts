@@ -37,6 +37,7 @@ import {
   HETZNER_INFRA_BUCKET,
 } from './eventReducer'
 import type { ApplicationDescriptor } from './applicationCatalog'
+import { STATUS_KIND_BADGE_CLASSES } from '@/shared/lib/statusColors'
 
 /** UI rendering bucket — same vocabulary as core/console JobsPage.svelte. */
 export type JobUiStatus = 'pending' | 'running' | 'succeeded' | 'failed'
@@ -258,12 +259,16 @@ export interface JobBadge {
   classes: string
 }
 export function statusBadge(status: JobUiStatus): JobBadge {
+  // #4704 follow-up — colours come from the ONE semantic mapping in
+  // shared/lib/statusColors.ts: success=green, running=blue (visibly
+  // distinct in-progress), failed=red, pending=GREY (amber is reserved
+  // for genuine warning states, not "hasn't started yet").
   switch (status) {
-    case 'succeeded': return { text: 'Succeeded', classes: 'bg-[var(--color-success)]/15 text-[var(--color-success)]' }
-    case 'running':   return { text: 'Running',   classes: 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]' }
-    case 'failed':    return { text: 'Failed',    classes: 'bg-[var(--color-danger)]/15 text-[var(--color-danger)]' }
+    case 'succeeded': return { text: 'Succeeded', classes: STATUS_KIND_BADGE_CLASSES.success }
+    case 'running':   return { text: 'Running',   classes: STATUS_KIND_BADGE_CLASSES['in-progress'] }
+    case 'failed':    return { text: 'Failed',    classes: STATUS_KIND_BADGE_CLASSES.failed }
     case 'pending':
-    default:          return { text: 'Pending',   classes: 'bg-[var(--color-warn)]/15 text-[var(--color-warn)]' }
+    default:          return { text: 'Pending',   classes: STATUS_KIND_BADGE_CLASSES.pending }
   }
 }
 
