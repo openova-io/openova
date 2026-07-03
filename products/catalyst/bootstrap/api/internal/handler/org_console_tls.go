@@ -117,20 +117,31 @@ const orgConsoleTLSIssuer = "letsencrypt-dns01-prod-powerdns"
 // canonical Sovereign install: the dedicated console Gateway lives as
 // `cilium-gateway-console` in kube-system (#4053,
 // clusters/_template/sovereign-tls/cilium-gateway-console.yaml) and the
-// catalyst-ui + catalyst-api Services live in catalyst-system. The listeners
-// bind the console gateway's own host ports (31443 / 31080) — distinct from
-// the shared gateway's 30443 / 30080 so both coexist in hostNetwork mode.
+// catalyst-ui + catalyst-api Services live in catalyst-system.
+//
+// #4732(2): the per-Org listener PORTS are no longer hardcoded — they are
+// read from the console gateway's own apex `console-https`/`console-http`
+// listeners at apply time (consoleApexListenerPorts). The console ELB
+// forwards 443/80 to exactly those node ports (#4718 hostNetwork scheme:
+// 8443/8080), so a per-Org listener on any OTHER port receives no traffic
+// — the prior 31443/31080 constants were the pre-#4718 scheme and left
+// every per-Org console dead (the nstar failure). SNI differentiates the
+// per-Org wildcard hosts from the apex host on the shared port pair. The
+// constants below remain only as the fallback when the apex pair cannot
+// be read.
 const (
-	consoleGatewayName       = "cilium-gateway-console"
-	consoleGatewayNamespace  = "kube-system"
-	consoleCertNamespace     = "kube-system"
-	catalystConsoleNamespace = "catalyst-system"
-	consoleListenerHTTPSPort = int64(31443)
-	consoleListenerHTTPPort  = int64(31080)
-	catalystUIServiceName    = "catalyst-ui"
-	catalystUIServicePort    = int64(80)
-	catalystAPIServiceName   = "catalyst-api"
-	catalystAPIServicePort   = int64(8080)
+	consoleGatewayName               = "cilium-gateway-console"
+	consoleGatewayNamespace          = "kube-system"
+	consoleCertNamespace             = "kube-system"
+	catalystConsoleNamespace         = "catalyst-system"
+	consoleApexListenerHTTPSName     = "console-https"
+	consoleApexListenerHTTPName      = "console-http"
+	consoleListenerHTTPSPortFallback = int64(8443)
+	consoleListenerHTTPPortFallback  = int64(8080)
+	catalystUIServiceName            = "catalyst-ui"
+	catalystUIServicePort            = int64(80)
+	catalystAPIServiceName           = "catalyst-api"
+	catalystAPIServicePort           = int64(8080)
 )
 
 // consoleGatewayGVR — Gateway API v1 Gateway (for the per-Org listener SSA
@@ -298,6 +309,44 @@ func ensureOrgConsoleCertificate(ctx context.Context, dyn dynamic.Interface, nam
 	return nil
 }
 
+// consoleApexListenerPorts reads the console gateway's live apex
+// `console-https`/`console-http` listeners and returns their ports —
+// the ONLY ports the console ELB actually forwards to (#4732 item 2).
+// Falls back to the #4718 canonical 8443/8080 pair when the gateway or
+// the apex listeners cannot be read (fresh install race, RBAC), so the
+// apply still lands on the current canonical scheme rather than failing.
+func consoleApexListenerPorts(ctx context.Context, dyn dynamic.Interface) (httpsPort, httpPort int64) {
+	httpsPort = consoleListenerHTTPSPortFallback
+	httpPort = consoleListenerHTTPPortFallback
+	gw, err := dyn.Resource(consoleGatewayGVR).Namespace(consoleGatewayNamespace).
+		Get(ctx, consoleGatewayName, metav1.GetOptions{})
+	if err != nil {
+		return httpsPort, httpPort
+	}
+	listeners, found, err := unstructured.NestedSlice(gw.Object, "spec", "listeners")
+	if err != nil || !found {
+		return httpsPort, httpPort
+	}
+	for _, l := range listeners {
+		lm, ok := l.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _, _ := unstructured.NestedString(lm, "name")
+		port, foundPort, _ := unstructured.NestedInt64(lm, "port")
+		if !foundPort {
+			continue
+		}
+		switch name {
+		case consoleApexListenerHTTPSName:
+			httpsPort = port
+		case consoleApexListenerHTTPName:
+			httpPort = port
+		}
+	}
+	return httpsPort, httpPort
+}
+
 // ensureOrgConsoleListener server-side-applies the per-Org HTTPS + HTTP
 // listener pair onto cilium-gateway-console. SSA with our dedicated field
 // manager merges by listener name (the Gateway listeners list is keyed on
@@ -309,6 +358,10 @@ func ensureOrgConsoleCertificate(ctx context.Context, dyn dynamic.Interface, nam
 // force claims ownership for our manager so the codified path heals the
 // hand-fix in place rather than erroring forever.
 func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names orgConsoleTLSNames, rec store.OrganizationProvisionRecord) error {
+	// #4732(2): ride the SAME ports as the apex pair — SNI separates the
+	// per-Org wildcard from the apex host. Any other port pair is dead
+	// (the ELB only forwards to the apex ports).
+	httpsPort, httpPort := consoleApexListenerPorts(ctx, dyn)
 	// Apply object carries ONLY the two per-Org listeners. SSA's name-keyed
 	// merge adds them to the existing listener set without touching the apex
 	// console-https/console-http pair owned by kustomize-controller.
@@ -324,7 +377,7 @@ func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names 
 				"listeners": []any{
 					map[string]any{
 						"name":     names.HTTPSName,
-						"port":     consoleListenerHTTPSPort,
+						"port":     httpsPort,
 						"protocol": "HTTPS",
 						"hostname": names.WildcardHost,
 						"tls": map[string]any{
@@ -339,7 +392,7 @@ func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names 
 					},
 					map[string]any{
 						"name":     names.HTTPName,
-						"port":     consoleListenerHTTPPort,
+						"port":     httpPort,
 						"protocol": "HTTP",
 						"hostname": names.WildcardHost,
 						"allowedRoutes": map[string]any{

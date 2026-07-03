@@ -60,7 +60,7 @@ type fakeDNS struct {
 	cnameErr       error
 }
 
-func (f *fakeDNS) ProvisionFreeSubdomain(_ context.Context, sub, parent, ip string) error {
+func (f *fakeDNS) ProvisionFreeSubdomain(_ context.Context, sub, parent, ip, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.provisionCalls = append(f.provisionCalls, sub+":"+parent+":"+ip)
@@ -1470,7 +1470,7 @@ func TestProvisionFreeSubdomain_WritesWildcardREPLACE(t *testing.T) {
 	defer srv.Close()
 
 	p := DefaultOrganizationDNSProvisioner{Writer: NewPowerDNSWriter(srv.URL, "key")}
-	if err := p.ProvisionFreeSubdomain(context.Background(), "demo", "omani.homes", "212.72.24.33"); err != nil {
+	if err := p.ProvisionFreeSubdomain(context.Background(), "demo", "omani.homes", "212.72.24.33", ""); err != nil {
 		t.Fatalf("ProvisionFreeSubdomain: %v", err)
 	}
 
@@ -1517,7 +1517,7 @@ func TestProvisionFreeSubdomain_PrefersPoolWriter(t *testing.T) {
 		Writer:     NewPowerDNSWriter(localSrv.URL, "local-key"),
 		PoolWriter: NewPowerDNSWriter(poolSrv.URL, "central-key"),
 	}
-	if err := p.ProvisionFreeSubdomain(context.Background(), "f4179close", "omani.works", "212.72.24.33"); err != nil {
+	if err := p.ProvisionFreeSubdomain(context.Background(), "f4179close", "omani.works", "212.72.24.33", ""); err != nil {
 		t.Fatalf("ProvisionFreeSubdomain: %v", err)
 	}
 	if poolHits != 1 {
@@ -1543,7 +1543,7 @@ func TestProvisionFreeSubdomain_FallsBackToLocalWriter(t *testing.T) {
 	defer localSrv.Close()
 
 	p := DefaultOrganizationDNSProvisioner{Writer: NewPowerDNSWriter(localSrv.URL, "local-key")}
-	if err := p.ProvisionFreeSubdomain(context.Background(), "demo", "t01.omani.works", "212.72.24.33"); err != nil {
+	if err := p.ProvisionFreeSubdomain(context.Background(), "demo", "t01.omani.works", "212.72.24.33", ""); err != nil {
 		t.Fatalf("ProvisionFreeSubdomain: %v", err)
 	}
 	if localHits != 1 {
@@ -1806,5 +1806,103 @@ func TestDeleteOrganization_DeprovisionsDNS(t *testing.T) {
 	}
 	if !strings.HasPrefix(dns.deproviCalls[0], "acme:") {
 		t.Errorf("deprovision must target the Org subdomain 'acme'; got %q", dns.deproviCalls[0])
+	}
+}
+
+// TestProvisionFreeSubdomain_ConsoleTargetsConsoleIPv4 locks #4732 item 3:
+// the `console.<slug>.<parent>` record must target the DEDICATED console
+// gateway/ELB EIP (consoleIPv4) while the per-Org wildcard + app hosts stay
+// on the shared-gateway ingress IP. Writing the console record with the
+// shared IP is the nstar failure (pool-wildcard cert + 404 — the shared
+// gateway has no console listener for the Org zone).
+func TestProvisionFreeSubdomain_ConsoleTargetsConsoleIPv4(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = readAll(r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	p := DefaultOrganizationDNSProvisioner{Writer: NewPowerDNSWriter(srv.URL, "key")}
+	if err := p.ProvisionFreeSubdomain(context.Background(), "nstar", "omani.homes", "212.72.24.14", "212.72.24.33"); err != nil {
+		t.Fatalf("ProvisionFreeSubdomain: %v", err)
+	}
+
+	// Decode the rrsets and assert per-record targeting.
+	var body struct {
+		RRSets []struct {
+			Name    string `json:"name"`
+			Records []struct {
+				Content string `json:"content"`
+			} `json:"records"`
+		} `json:"rrsets"`
+	}
+	if err := json.Unmarshal([]byte(gotBody), &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v\nbody: %s", err, gotBody)
+	}
+	byName := map[string]string{}
+	for _, rr := range body.RRSets {
+		if len(rr.Records) > 0 {
+			byName[rr.Name] = rr.Records[0].Content
+		}
+	}
+	if got := byName["console.nstar.omani.homes."]; got != "212.72.24.33" {
+		t.Errorf("console record = %q, want console ELB EIP 212.72.24.33", got)
+	}
+	for _, appHost := range []string{"*.nstar.omani.homes.", "wordpress.nstar.omani.homes.", "keycloak.nstar.omani.homes."} {
+		if got := byName[appHost]; got != "212.72.24.14" {
+			t.Errorf("%s = %q, want shared ingress 212.72.24.14", appHost, got)
+		}
+	}
+}
+
+// TestProvisionFreeSubdomain_EmptyConsoleIPFallsBack locks the back-compat
+// contract: consoleIPv4=="" keeps the pre-#4732 single-IP behaviour.
+func TestProvisionFreeSubdomain_EmptyConsoleIPFallsBack(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = readAll(r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	p := DefaultOrganizationDNSProvisioner{Writer: NewPowerDNSWriter(srv.URL, "key")}
+	if err := p.ProvisionFreeSubdomain(context.Background(), "demo", "omani.rest", "212.72.24.14", ""); err != nil {
+		t.Fatalf("ProvisionFreeSubdomain: %v", err)
+	}
+	if strings.Contains(gotBody, `"content":"212.72.24.33"`) {
+		t.Errorf("unexpected console IP with empty consoleIPv4\nbody: %s", gotBody)
+	}
+	if c := strings.Count(gotBody, `"content":"212.72.24.14"`); c != len(theFreeSubdomainPrefixes) {
+		t.Errorf("expected every rrset on the ingress IP (%d), got %d\nbody: %s", len(theFreeSubdomainPrefixes), c, gotBody)
+	}
+}
+
+// TestResolveSovereignConsoleIPv4 locks the console-EIP discovery seam: the
+// Sovereign's own `console.<fqdn>` A record is the zero-config source of
+// truth for the console front door; failures degrade to "" (caller falls
+// back to the shared ingress IP).
+func TestResolveSovereignConsoleIPv4(t *testing.T) {
+	orig := lookupHostFn
+	defer func() { lookupHostFn = orig }()
+
+	lookupHostFn = func(_ context.Context, host string) ([]string, error) {
+		if host != "console.hw220.omani.works" {
+			t.Errorf("lookup host = %q, want console.hw220.omani.works", host)
+		}
+		return []string{"2a01:db8::1", "212.72.24.33"}, nil
+	}
+	if got := resolveSovereignConsoleIPv4(context.Background(), "hw220.omani.works."); got != "212.72.24.33" {
+		t.Errorf("resolve = %q, want first IPv4 212.72.24.33", got)
+	}
+
+	lookupHostFn = func(_ context.Context, _ string) ([]string, error) {
+		return nil, errors.New("nx")
+	}
+	if got := resolveSovereignConsoleIPv4(context.Background(), "hw220.omani.works"); got != "" {
+		t.Errorf("resolve on lookup error = %q, want empty", got)
+	}
+	if got := resolveSovereignConsoleIPv4(context.Background(), "  "); got != "" {
+		t.Errorf("resolve on blank fqdn = %q, want empty", got)
 	}
 }

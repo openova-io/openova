@@ -102,7 +102,13 @@ type OrganizationDNSProvisioner interface {
 	// `console.<subdomain>.<parentZone>` plus the per-app sister
 	// hostnames. Idempotent; returns nil on "record already exists
 	// with the same RDATA" outcomes.
-	ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error
+	//
+	// #4732(3): consoleIPv4 targets the Org console record at the
+	// DEDICATED console gateway/ELB front door (#4053/#4718) — the same
+	// door `console.<sovereign-fqdn>` serves; the app hosts + per-Org
+	// wildcard stay on ingressIPv4 (the shared gateway). Empty
+	// consoleIPv4 falls back to ingressIPv4.
+	ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4, consoleIPv4 string) error
 	// DeprovisionFreeSubdomain removes the per-Org pool A-records that
 	// ProvisionFreeSubdomain wrote (console + app sister hosts under
 	// <subdomain>.<parentZone>). Called on Organization delete so a stale
@@ -853,6 +859,18 @@ func (h *Handler) HandleReconcileOrganization(w http.ResponseWriter, r *http.Req
 		rec.State = deriveResumeState(rec)
 	}
 	final := h.runOrganizationPipeline(r.Context(), rec)
+	// #4732(1): the step-7 finalisation pair (Organization CR + console
+	// TLS trio) is best-effort and non-gating, so it can fail silently
+	// while the record still reaches done — and the pipeline never
+	// revisits a done record, leaving the Org permanently without a
+	// console front door (the nstar failure: no cert, no listener, no
+	// route → pool-wildcard cert + 404). Re-ensure both on EVERY
+	// operator-triggered reconcile; each is idempotent (AlreadyExists /
+	// SSA-merge = no-op), so a healthy Org is untouched.
+	if final.State == store.STSDone {
+		h.createOrgOrganizationCR(r.Context(), final)
+		h.provisionOrgConsoleTLS(r.Context(), final)
+	}
 	writeJSON(w, http.StatusOK, orgTenantRecordToResponse(final))
 }
 
@@ -1079,7 +1097,17 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 				if parentZone == "" {
 					parentZone = rec.OTECHFQDN
 				}
-				if err := deps.DNS.ProvisionFreeSubdomain(ctx, rec.Subdomain, parentZone, deps.OTECHIngressIPv4); err != nil {
+				// #4732(3): the Org console record must target the
+				// DEDICATED console gateway/ELB, not the shared
+				// gateway. The authoritative source that exists on
+				// EVERY Sovereign with zero extra config is the
+				// Sovereign's own console A-record
+				// (`console.<OTECHFQDN>` → console ELB EIP, written
+				// at prov time). Resolve it here; empty on failure
+				// falls back to the shared ingress IP inside
+				// ProvisionFreeSubdomain (prior behaviour).
+				consoleIPv4 := resolveSovereignConsoleIPv4(ctx, rec.OTECHFQDN)
+				if err := deps.DNS.ProvisionFreeSubdomain(ctx, rec.Subdomain, parentZone, deps.OTECHIngressIPv4, consoleIPv4); err != nil {
 					return failTransient(rec, "dns", err)
 				}
 			case store.OrganizationDomainBYO:

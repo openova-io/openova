@@ -123,8 +123,8 @@ func fakeDynForConsoleTLS(t *testing.T) *dynamicfake.FakeDynamicClient {
 		"spec": map[string]any{
 			"gatewayClassName": "cilium",
 			"listeners": []any{
-				map[string]any{"name": "console-https", "port": int64(31443), "protocol": "HTTPS", "hostname": "*.omantel.biz"},
-				map[string]any{"name": "console-http", "port": int64(31080), "protocol": "HTTP", "hostname": "*.omantel.biz"},
+				map[string]any{"name": "console-https", "port": int64(8443), "protocol": "HTTPS", "hostname": "*.omantel.biz"},
+				map[string]any{"name": "console-http", "port": int64(8080), "protocol": "HTTP", "hostname": "*.omantel.biz"},
 			},
 		},
 	}}
@@ -268,4 +268,72 @@ func sliceContains(ss []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestConsoleApexListenerPorts_DerivesFromApex locks #4732 item 2: the
+// per-Org listener pair must ride the SAME ports as the live apex
+// console-https/console-http listeners (the only ports the console ELB
+// forwards to), never a hardcoded pair from an older port scheme.
+func TestConsoleApexListenerPorts_DerivesFromApex(t *testing.T) {
+	dyn := fakeDynForConsoleTLS(t)
+	httpsPort, httpPort := consoleApexListenerPorts(context.Background(), dyn)
+	// fakeDynForConsoleTLS seeds the apex pair on 8443/8080 (#4718 scheme).
+	if httpsPort != 8443 || httpPort != 8080 {
+		t.Errorf("apex-derived ports = %d/%d, want 8443/8080 from the seeded apex", httpsPort, httpPort)
+	}
+}
+
+// TestConsoleApexListenerPorts_FallbackWhenGatewayMissing locks the
+// degraded path: no gateway readable → the #4718 canonical fallback pair.
+func TestConsoleApexListenerPorts_FallbackWhenGatewayMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	gvrToList := map[schema.GroupVersionResource]string{
+		certificateGVR:    "CertificateList",
+		consoleGatewayGVR: "GatewayList",
+		httpRouteGVR:      "HTTPRouteList",
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList)
+	httpsPort, httpPort := consoleApexListenerPorts(context.Background(), dyn)
+	if httpsPort != consoleListenerHTTPSPortFallback || httpPort != consoleListenerHTTPPortFallback {
+		t.Errorf("fallback ports = %d/%d, want %d/%d", httpsPort, httpPort,
+			consoleListenerHTTPSPortFallback, consoleListenerHTTPPortFallback)
+	}
+}
+
+// TestEnsureOrgConsoleListener_RidesApexPorts is the end-to-end lock for
+// #4732 item 2 through the SSA apply body: the per-Org listener pair in the
+// patch must carry the apex ports.
+func TestEnsureOrgConsoleListener_RidesApexPorts(t *testing.T) {
+	dyn := fakeDynForConsoleTLS(t)
+	names, ok := resolveOrgConsoleTLSNames(store.OrganizationProvisionRecord{
+		Subdomain:    "nstar",
+		DomainMode:   store.OrganizationDomainFreeSubdomain,
+		ParentDomain: "omani.homes",
+	})
+	if !ok {
+		t.Fatal("resolveOrgConsoleTLSNames returned !ok")
+	}
+	// The fake dynamic client does not implement server-side-apply merge
+	// (same limitation TestProvisionOrgConsoleTLS_AppliesTrio documents) —
+	// a returned error is tolerated; the assertion target is the recorded
+	// patch BODY.
+	_ = ensureOrgConsoleListener(context.Background(), dyn, names, store.OrganizationProvisionRecord{})
+	var patched []byte
+	for _, a := range dyn.Actions() {
+		if a.GetResource() == consoleGatewayGVR && a.GetVerb() == "patch" {
+			if pa, ok := a.(interface{ GetPatch() []byte }); ok {
+				patched = pa.GetPatch()
+			}
+		}
+	}
+	if len(patched) == 0 {
+		t.Fatal("no SSA patch recorded against the console gateway")
+	}
+	body := string(patched)
+	if !strings.Contains(body, `"port":8443`) || !strings.Contains(body, `"port":8080`) {
+		t.Errorf("per-Org listeners not on the apex 8443/8080 ports\npatch: %s", body)
+	}
+	if strings.Contains(body, `"port":31443`) || strings.Contains(body, `"port":31080`) {
+		t.Errorf("per-Org listeners still carry the dead pre-#4718 31443/31080 ports\npatch: %s", body)
+	}
 }
