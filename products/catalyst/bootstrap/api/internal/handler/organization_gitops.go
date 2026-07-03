@@ -881,6 +881,40 @@ spec:
       targetPath: smtp.password
       optional: true
   values:
+    # #4739 W-2: per-Org namespaces enforce Guaranteed-only QoS via the
+    # plan-limits LimitRange (maxLimitRequestRatio {cpu:1, memory:1} —
+    # #4389/#4292). Every pod this release renders in the Org namespace
+    # must ship requests==limits or it is FORBIDDEN at admission (live on
+    # hw220 nstar: postgresql primary ratio 1.5 rejected → bp-keycloak
+    # Stalled → all dependent funnel apps DependencyNotReady). Sizes keep
+    # the chart's existing ceilings (no OOM/throttle regression): the JVM
+    # ceiling stays 2Gi, postgresql gets the Bitnami small profile, the
+    # config-cli one-shot Job is tiny.
+    keycloak:
+      resources:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      postgresql:
+        primary:
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      keycloakConfigCli:
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
     # Per-tenant identity zone — drives realm import redirect/origin URIs.
     sovereignFQDN: {{.Subdomain}}.{{.ParentDomain}}
     # Realm import is owned by the chart's keycloak-config-cli post-
@@ -1071,6 +1105,23 @@ spec:
       monitoring:
         # Default OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
         podMonitorEnabled: false
+      # #4739 W-2: the Org namespace's plan-limits LimitRange enforces
+      # maxLimitRequestRatio {cpu:1, memory:1} (Guaranteed-only QoS — the
+      # #4389/#4292 platform contract every per-Org chart must satisfy).
+      # The chart's platform defaults (requests 100m/1Gi, limit 2Gi) render
+      # ratio 2.5/2.0 → every operator pod is FORBIDDEN and the whole
+      # funnel-app chain wedges (live on hw220 nstar: bp-keycloak Stalled →
+      # newapi/openclaw/stalwart/wordpress DependencyNotReady 12h+).
+      # requests==limits here; 1Gi is sufficient because THIS operator is
+      # namespace-scoped (WATCH_NAMESPACE above) — the G17b 2Gi headroom
+      # was sized for the cluster-wide platform operator.
+      resources:
+        requests:
+          cpu: 200m
+          memory: 1Gi
+        limits:
+          cpu: 200m
+          memory: 1Gi
 `
 
 // orgTenantBPNewAPI emits the per-tenant bp-newapi HelmRelease (#945).
