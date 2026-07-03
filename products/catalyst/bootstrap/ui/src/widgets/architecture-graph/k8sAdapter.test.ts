@@ -411,6 +411,83 @@ describe('mergeGraphs', () => {
     expect(merged.edges).toEqual([])
   })
 
+  it('#4732(4): collapses cloud/k8s WorkerNodes by InternalIP when ids differ (Huawei naming), rewriting edges', () => {
+    // Cloud side names nodes from the RegionSpec; k8s side uses the real
+    // Node name — ids NEVER match on Huawei. Same InternalIP = same node.
+    const cloud = {
+      nodes: [
+        { id: 'Cluster:c', type: 'Cluster' as const, label: 'c', status: 'healthy' as const },
+        {
+          id: 'WorkerNode:worker-1-me-east-215-a',
+          type: 'WorkerNode' as const,
+          label: 'worker-1-me-east-215-a',
+          status: 'unknown' as const,
+          metadata: { sku: 's3.large', ip: '192.168.0.44' },
+        },
+      ],
+      edges: [
+        {
+          id: 'e:Cluster:c->WorkerNode:worker-1-me-east-215-a',
+          source: 'Cluster:c',
+          target: 'WorkerNode:worker-1-me-east-215-a',
+          type: 'runs-on' as const,
+        },
+      ],
+    }
+    const k8s = {
+      nodes: [
+        {
+          id: 'WorkerNode:catalyst-hw220-907629bc-me-east-215-a-w1d535a',
+          type: 'WorkerNode' as const,
+          label: 'catalyst-hw220-907629bc-me-east-215-a-w1d535a',
+          status: 'healthy' as const,
+          metadata: { ip: '192.168.0.44', kubeletVersion: 'v1.31.4+k3s1' },
+        },
+        { id: 'Pod:foo/p', type: 'Pod' as const, label: 'p', status: 'healthy' as const },
+      ],
+      edges: [
+        {
+          id: 'e:Pod:foo/p->WorkerNode:catalyst',
+          source: 'Pod:foo/p',
+          target: 'WorkerNode:catalyst-hw220-907629bc-me-east-215-a-w1d535a',
+          type: 'runs-on' as const,
+        },
+      ],
+    }
+    const merged = mergeGraphs(cloud, k8s)
+    // ONE WorkerNode survives — the double-render (12 real → 24 shown) is dead.
+    const workers = merged.nodes.filter((n) => n.type === 'WorkerNode')
+    expect(workers).toHaveLength(1)
+    const node = workers[0]!
+    expect(node.id).toBe('WorkerNode:worker-1-me-east-215-a')
+    // K8s live status wins; cloud sku + k8s kubeletVersion both retained.
+    expect(node.status).toBe('healthy')
+    expect(node.metadata).toEqual(
+      expect.objectContaining({ sku: 's3.large', kubeletVersion: 'v1.31.4+k3s1' }),
+    )
+    // The Pod runs-on edge is REWRITTEN to the surviving cloud id, not dropped.
+    const podEdge = merged.edges.find((e) => e.source === 'Pod:foo/p')!
+    expect(podEdge.target).toBe('WorkerNode:worker-1-me-east-215-a')
+    expect(merged.edges.filter((e) => e.target === 'WorkerNode:worker-1-me-east-215-a')).toHaveLength(2)
+  })
+
+  it('#4732(4): WorkerNodes without an IP never collapse (no false identity)', () => {
+    const cloud = {
+      nodes: [
+        { id: 'WorkerNode:a', type: 'WorkerNode' as const, label: 'a', status: 'unknown' as const, metadata: {} },
+      ],
+      edges: [],
+    }
+    const k8s = {
+      nodes: [
+        { id: 'WorkerNode:b', type: 'WorkerNode' as const, label: 'b', status: 'healthy' as const, metadata: { ip: '' } },
+      ],
+      edges: [],
+    }
+    const merged = mergeGraphs(cloud, k8s)
+    expect(merged.nodes.filter((n) => n.type === 'WorkerNode')).toHaveLength(2)
+  })
+
   it('deduplicates edges that appear in both adapters with the same (source,target,type)', () => {
     const cloud = {
       nodes: [

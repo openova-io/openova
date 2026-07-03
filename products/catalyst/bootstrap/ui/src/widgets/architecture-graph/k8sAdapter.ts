@@ -516,20 +516,42 @@ function kindToArchType(kind: 'deployment' | 'statefulset' | 'daemonset'): ArchN
 
 /**
  * mergeGraphs unions the cloud-side and K8s-side adapter outputs.
- * The collapse rule:
+ * The collapse rules:
  *
- *   Cloud-side WorkerNode + K8s-side WorkerNode (originating from a
- *   Node object) get folded into one node when their ids match. The
- *   K8s-side payload wins for live status (Ready condition) while
- *   the cloud-side payload contributes the SKU / role metadata.
+ *   1. Cloud-side WorkerNode + K8s-side WorkerNode (originating from a
+ *      Node object) get folded into one node when their ids match. The
+ *      K8s-side payload wins for live status (Ready condition) while
+ *      the cloud-side payload contributes the SKU / role metadata.
+ *   2. #4732(4): when the ids DON'T match — the normal case on Huawei,
+ *      where the cloud side names nodes from the RegionSpec
+ *      ("worker-1-me-east-215-a") and the k8s side uses the real Node
+ *      name ("catalyst-<fqdn>-...-w1d535a") — a WorkerNode pair is
+ *      collapsed by InternalIP instead. Both adapters stamp
+ *      `metadata.ip`, and a node's InternalIP is unique within the
+ *      fleet, so IP equality IS node identity. Without this rule every
+ *      node rendered twice (12 real nodes → "24/24" on the graph while
+ *      the list view showed the true 12).
  *
- * Edges referencing either id are rewritten to point at the merged
- * node so neighbour lookups stay correct.
+ * Edges referencing a collapsed k8s id are rewritten to the surviving
+ * cloud id so neighbour lookups (Pod runs-on, Volume attached-to) stay
+ * correct.
  */
 export function mergeGraphs(cloud: AdaptResult, k8s: AdaptResult): AdaptResult {
   const cloudNodesById = new Map(cloud.nodes.map((n) => [n.id, n] as const))
   const merged: GraphNode[] = []
   const seen = new Set<string>()
+
+  // #4732(4): index cloud-side WorkerNodes by InternalIP for the
+  // IP-keyed collapse (rule 2). Only non-empty IPs participate — a
+  // topology row without an IP can never falsely match.
+  const cloudWorkerByIP = new Map<string, string>()
+  for (const cn of cloud.nodes) {
+    if (cn.type !== 'WorkerNode') continue
+    const ip = String(cn.metadata?.['ip'] ?? '').trim()
+    if (ip && !cloudWorkerByIP.has(ip)) cloudWorkerByIP.set(ip, cn.id)
+  }
+  // k8s id → surviving cloud id, for edge rewriting.
+  const aliasedTo = new Map<string, string>()
 
   // Emit cloud nodes first (provenance). When a k8s node has the same
   // id, fold the k8s payload onto the cloud node.
@@ -545,11 +567,32 @@ export function mergeGraphs(cloud: AdaptResult, k8s: AdaptResult): AdaptResult {
       }
       continue
     }
+    // Rule 2 — IP-keyed WorkerNode collapse.
+    if (kn.type === 'WorkerNode') {
+      const ip = String(kn.metadata?.['ip'] ?? '').trim()
+      const cloudId = ip ? cloudWorkerByIP.get(ip) : undefined
+      if (cloudId) {
+        const idx = merged.findIndex((n) => n.id === cloudId)
+        if (idx >= 0) {
+          merged[idx] = mergeNodePayloads(merged[idx]!, kn)
+        }
+        aliasedTo.set(kn.id, cloudId)
+        continue
+      }
+    }
     seen.add(kn.id)
     merged.push(kn)
   }
 
-  const edges = [...cloud.edges, ...k8s.edges]
+  // Rewrite edges that referenced a collapsed k8s WorkerNode id to the
+  // surviving cloud id, so Pod runs-on / Volume attached-to edges land
+  // on the merged node instead of being dropped by the endpoint filter.
+  const rewrite = (id: string) => aliasedTo.get(id) ?? id
+  const edges = [...cloud.edges, ...k8s.edges].map((e) => {
+    const s = rewrite(e.source)
+    const t = rewrite(e.target)
+    return s === e.source && t === e.target ? e : { ...e, source: s, target: t }
+  })
   // De-duplicate edges by (source,target,type) so cloud + k8s emitters
   // don't produce parallel edges for the same relation.
   const edgeKey = (e: GraphEdge) => `${e.source}|${e.target}|${e.type}`
