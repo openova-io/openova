@@ -195,7 +195,7 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 	// ChangeType=REPLACE makes every write an unconditional upsert, so a
 	// stale same-name record (if one ever existed) is overwritten rather
 	// than skipped.
-	for _, prefix := range []string{"*", "console", "wordpress", "openclaw", "mail", "keycloak"} {
+	for _, prefix := range theFreeSubdomainPrefixes {
 		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone)
 		rrsets = append(rrsets, pdnsRRSet{
 			Name:       fqdn,
@@ -208,6 +208,42 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 		})
 	}
 	return writer.PatchRRSets(ctx, zone, rrsets)
+}
+
+// theFreeSubdomainPrefixes is the per-Org host prefix set ProvisionFreeSubdomain
+// writes and DeprovisionFreeSubdomain deletes — kept in ONE place so the write
+// and delete paths can never drift (the #4459 leak class: write N, delete <N,
+// the surplus records survive the Org and shadow a re-prov's wildcard with a
+// dead IP).
+var theFreeSubdomainPrefixes = []string{"*", "console", "wordpress", "openclaw", "mail", "keycloak"}
+
+// DeprovisionFreeSubdomain implements OrganizationDNSProvisioner. DELETEs the
+// per-Org pool A-records ProvisionFreeSubdomain wrote (#4459 — a stale record
+// surviving an Org delete poisons a later same-slug re-prov with a dead
+// console IP → Console 000). No ingress IP is needed: PowerDNS
+// changetype=DELETE removes the whole rrset by name+type. Idempotent (deleting
+// an absent rrset is a 2xx no-op), so it is safe on an Org that never
+// provisioned DNS.
+func (p DefaultOrganizationDNSProvisioner) DeprovisionFreeSubdomain(ctx context.Context, subdomain, parentZone string) error {
+	writer := p.Writer
+	if p.PoolWriter != nil {
+		writer = p.PoolWriter
+	}
+	if writer == nil {
+		return errors.New("powerdns writer not wired")
+	}
+	if strings.TrimSpace(parentZone) == "" {
+		return errors.New("parent zone unconfigured")
+	}
+	rrsets := make([]pdnsRRSet, 0, len(theFreeSubdomainPrefixes))
+	for _, prefix := range theFreeSubdomainPrefixes {
+		rrsets = append(rrsets, pdnsRRSet{
+			Name:       fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone),
+			Type:       "A",
+			ChangeType: "DELETE",
+		})
+	}
+	return writer.PatchRRSets(ctx, parentZone, rrsets)
 }
 
 // ValidateBYOCNAME implements OrganizationDNSProvisioner. Resolves
@@ -261,6 +297,11 @@ type NoopOrganizationDNSProvisioner struct{}
 
 // ProvisionFreeSubdomain is a no-op.
 func (NoopOrganizationDNSProvisioner) ProvisionFreeSubdomain(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+// DeprovisionFreeSubdomain is a no-op.
+func (NoopOrganizationDNSProvisioner) DeprovisionFreeSubdomain(_ context.Context, _, _ string) error {
 	return nil
 }
 
