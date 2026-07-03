@@ -49,8 +49,13 @@
 #   - On a chart-bump or re-provision (different revision), Kustomize
 #     re-creates the Job with the new generation; it runs again, re-
 #     bumps the DaemonSet, and exits — idempotent.
-#   - ttlSecondsAfterFinished cleans up the Pod/Job after 1h so kubectl
-#     output stays clean.
+#   - NO ttlSecondsAfterFinished: the Complete Job object IS the no-op
+#     marker. A TTL deletes it, and the Kustomization's next reconcile
+#     (5m interval, SAME revision) re-creates it, so every hour the Job
+#     re-ran `rollout restart ds/cilium-envoy` — a recurring external
+#     :443 outage window on a HEALTHY env (hw220: DS generation 17 in
+#     15h, 7/20 console probes refused — #4739 W-1). The Complete Job
+#     must persist for the deterministic-name no-op contract to hold.
 #
 # Idempotency at the envoy side:
 #   - `kubectl rollout restart` patches a `kubectl.kubernetes.io/restartedAt`
@@ -147,8 +152,10 @@ spec:
   # thing this Job waits on, and that completes ≤90s in steady-state. A
   # higher limit absorbs the rare PowerDNS propagation flake.
   backoffLimit: 6
-  # Clean up Job + Pod 1h after success so kubectl get jobs stays sane.
-  ttlSecondsAfterFinished: 3600
+  # DELIBERATELY no ttlSecondsAfterFinished (#4739 W-1): the persistent
+  # Complete Job is what makes Flux's same-revision re-apply a no-op.
+  # A TTL turned this into an hourly delete→recreate→restart loop that
+  # rolled cilium-envoy (and dropped external :443) every hour, forever.
   # 15 min hard cap. If the cert hasn't arrived in 15 min, something is
   # broken upstream (cert-manager, PowerDNS webhook, ACME) and a Job
   # restart loop won't fix it; surface the failure to Flux so the
