@@ -1,5 +1,13 @@
 # UAT — Sovereign acceptance walk (consolidated 2026-06-27 — 22 issues closed live + honest gating map) (RESET 2026-07-01 — pending hw206)
 
+> **hw218 walk — 2026-07-03 (dep `25b49b8534ab98db`, hw218.omantel.biz, FIRST-EVER zero-touch 2-region convergence on the merged #4706 train).** Four wire-captured verdicts, no hand-patching anywhere in the env:
+> 1. ✅ **No-nodePort gateway serves externally** — `gitea.hw218.omantel.biz → HTTP 303`, `auth.hw218.omantel.biz → HTTP 302` (off-cluster, ELB 212.72.24.33 → node:443 hostPort → hostNetwork envoy); gateway Service `type=ClusterIP`, **`nodePorts=<none>`** (kubectl wire-capture). Console-isolation leg 404 (two Gateways can't both bind node:443) → fixed in #4715 (merged, 1.4.987 roll-gated).
+> 2. ✅ **Readiness gate (#4707) enforced** — `status=ready` written only at 00:37:03Z after the external console probe answered (<500); the gate code is proven present in the RUNNING mothership binary by capture 3. Hardening note: 404 satisfies the current <500 bar — tighten to <400 as a follow-up.
+> 3. ✅ **2-region admission floor (#4708) live in production** — negative test against the LIVE mothership: `POST /deployments` (1 region, no topology) → **HTTP 400** `"deployment has 1 region(s) and no explicit bcpTopology — the BCP agreement default is multi-region (>=2 regions, Pillar 2)…"`. Nothing created.
+> 4. ✅ **Tenant DNS split-horizon correct** — `gitea./auth.hw218 → 212.72.24.33` (primary ELB), `console.hw218 → 212.72.24.12` (console ELB).
+> Pre-walk hygiene: hw217 wiped via canonical endpoint with **API-audited zero orphans** (0 ELBs, bastion-only ECS, 1 EIP, 1/5 VPCs). Session train: #4707 #4708 #4709 #4710 #4711 #4714 #4715 all MERGED.
+
+
 > **Pillar 1 (Marketplace + voucher onboarding) fully live-walked 2026-06-27 — funnel + plan catalog + voucher issuance/redeem E2E.**
 
 > **Pillar 4 (Agenity workspace + auto-mounted bp-openova-mcp) materially live-walked 2026-06-27 — controller + per-Org provision + MCP auto-mount + RBAC Org-scope verified; agentic chat-run gated on Anthropic credential.** *(Terminology per DOD.md §Pillar 4 + GLOSSARY: the user-facing product is **Agenity** / **bp-openova-mcp**; the legacy "Sandbox" concept + menu are dead/removed — founder 2026-06-30. Internal `sandbox-controller`/`Sandbox` CR plumbing Agenity is built on stays internal.)*
