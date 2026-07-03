@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-03T05:45:02Z` |
+| Last refreshed | `2026-07-03T06:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -245,6 +245,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-03T05:59 | [#4721](https://github.com/openova-io/openova/pull/4721) | fix(gateway): self-heal the console ELB members on node chur |  |
 | 2026-07-03T05:28 | [#4720](https://github.com/openova-io/openova/pull/4720) | #4719 | fix(org): deprovision per-Org DNS on delete — stale records  |
 | 2026-07-03T05:28 | [#4719](https://github.com/openova-io/openova/pull/4719) | #4290 | fix(org-controller): tenant-DNS teardown self-heals the pool |
 | 2026-07-03T03:53 | [#4718](https://github.com/openova-io/openova/pull/4718) | #4715 | fix(gateway): wire console-port substitute into slot-13 — #4 |
@@ -274,7 +275,6 @@ flowchart LR
 | 2026-07-01T05:45 | [#4679](https://github.com/openova-io/openova/pull/4679) | #4635 | fix(cutover): step-04 ack-gate tolerates bounded laggard nod |
 | 2026-07-01T05:27 | [#4678](https://github.com/openova-io/openova/pull/4678) | #4677 | fix(wipe): drain-before-destroy — stop leaking CSI volumes + |
 | 2026-07-01T05:27 | [#4676](https://github.com/openova-io/openova/pull/4676) | #4675 | fix(preflight): ground-truth no-foreign-Sovereign gate — pre |
-| 2026-06-30T23:14 | [#4673](https://github.com/openova-io/openova/pull/4673) | #4635 | fix(cutover): level-triggered reconciler must re-run a faile |
 
 ---
 
