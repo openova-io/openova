@@ -180,6 +180,14 @@ func main() {
 	// defaults to the Hetzner class inside gitops.cnpgStorageClass().
 	generator.CloudProvider = getEnv("CLOUD_PROVIDER", "hetzner")
 
+	// #4706 — pin the per-Org HelmRelease-shaped apps' chart versions so a
+	// funnel Org never installs off a floating `version: "*"` (one mis-tagged
+	// ghcr artifact broke every Org install; majors could jump ungated).
+	// Defaults = the current catalog-seed pins; operators override via env.
+	// A missing/malformed entry falls back to "*" (never fatal).
+	generator.HelmReleaseAppVersions = gitops.ParseHRAppVersions(getEnv(
+		"CATALYST_HR_APP_CHART_VERSIONS", "openclaw=0.2.13,stalwart-mail=0.1.12"))
+
 	// #4282/#4275 CROSS-REGION STANDBY: the flux-system Secret name holding
 	// region-B's (the STANDBY region's) host-cluster kubeconfig. The per-Org
 	// active-hot-standby bp-cnpg-pair is now split-side — the primary HR lands
