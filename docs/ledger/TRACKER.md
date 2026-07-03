@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-03T20:45:02Z` |
+| Last refreshed | `2026-07-03T21:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 42 |
 | Open DoD gates | 0 / 41 |
@@ -249,6 +249,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-03T20:51 | [#4734](https://github.com/openova-io/openova/pull/4734) | #4732 | fix(console): collapse cloud/k8s WorkerNodes by InternalIP — |
+| 2026-07-03T20:53 | [#4733](https://github.com/openova-io/openova/pull/4733) | #4732 | fix(catalyst-api): per-Org console front door — self-healing |
 | 2026-07-03T18:19 | [#4730](https://github.com/openova-io/openova/pull/4730) | #4610 | fix(agenity): per-Org MCP OPENOVA_MCP_TENANT_HOST must be th |
 | 2026-07-03T18:19 | [#4729](https://github.com/openova-io/openova/pull/4729) | #4277 | walk(uat): Pillar-4 North Star PROVEN LIVE on fresh hw220 —  |
 | 2026-07-03T18:19 | [#4728](https://github.com/openova-io/openova/pull/4728) | #4708 | fix(cutover): hostNetwork-era wedges — registry-TLS gate for |
@@ -277,8 +279,6 @@ flowchart LR
 | 2026-07-02T02:17 | [#4694](https://github.com/openova-io/openova/pull/4694) | #4686 | docs(uat): G11 — correct stale '#4686 BLOCKED' row (resolved |
 | 2026-07-02T01:20 | [#4693](https://github.com/openova-io/openova/pull/4693) | #4685 | fix(ci): controller-image-tag freshness — UNVERIFIABLE GHCR  |
 | 2026-07-01T20:42 | [#4691](https://github.com/openova-io/openova/pull/4691) | #4686 | fix(gateway+huawei): restore the Sovereign gateway ELB → nod |
-| 2026-07-01T22:39 | [#4690](https://github.com/openova-io/openova/pull/4690) | #4682 | fix(cutover): steps 02/03 reach Harbor via external host reg |
-| 2026-07-01T17:44 | [#4689](https://github.com/openova-io/openova/pull/4689) | #4687 | P0: gateway sharing-key empty default renders YAML null → Ga |
 
 ---
 
