@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-03T03:00:03Z` |
+| Last refreshed | `2026-07-03T03:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -245,6 +245,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-03T03:08 | [#4716](https://github.com/openova-io/openova/pull/4716) | #4707 | fix(readiness): console-gate < 500 → < 400 — a 404 front doo |
 | 2026-07-03T01:07 | [#4715](https://github.com/openova-io/openova/pull/4715) | fix(gateway): console gateway → 8443/8080 host ports — no no |  |
 | 2026-07-03T01:04 | [#4714](https://github.com/openova-io/openova/pull/4714) | #4710 | fix(provisioning): pin per-Org HR-app chart versions — no fl |
 | 2026-07-02T21:58 | [#4711](https://github.com/openova-io/openova/pull/4711) | #3 | fix(gateway): Hetzner LB annotations provider-scoped — no ve |
@@ -274,7 +275,6 @@ flowchart LR
 | 2026-06-30T23:15 | [#4671](https://github.com/openova-io/openova/pull/4671) | #4614 | fix(wipe): sweep unbound/nameless orphan EIPs project-wide — |
 | 2026-06-30T21:12 | [#4669](https://github.com/openova-io/openova/pull/4669) | #4635 | feat(cutover): level-triggered sovereignty-cutover reconcile |
 | 2026-06-30T19:21 | [#4668](https://github.com/openova-io/openova/pull/4668) | #4637 | fix(bp-self-sovereign-cutover): step-04 gates the v2 node-ac |
-| 2026-06-30T15:10 | [#4667](https://github.com/openova-io/openova/pull/4667) | #3379 | fix(bp-self-sovereign-cutover): step-06 Phase-3a pivots Helm |
 
 ---
 
