@@ -623,16 +623,23 @@ const (
 )
 
 // defaultConsoleReachable is the production external-reachability probe for
-// #4706: it repeatedly GETs https://console.<fqdn>/ until it gets any HTTP
-// response with status < 500 (the gateway + console app are serving) or the
+// #4706: it repeatedly GETs https://console.<fqdn>/ until it gets an HTTP
+// response with status < 400 (the console front door actually SERVES) or the
 // budget expires. It returns nil on reachable, a descriptive error otherwise.
 //
 // TLS verification is skipped on purpose — this proves the gateway ANSWERS
 // (TCP + TLS + HTTP), not that the cert chains to a public root (a fresh
-// Sovereign may still be on an LE-staging/in-cluster wildcard). A 4xx counts
-// as reachable (the gateway routed to a backend that replied); only a 5xx or a
-// transport error (connection refused / timeout / NXDOMAIN) counts as down —
-// which is exactly the console-000 symptom we must stop mislabelling "ready".
+// Sovereign may still be on an LE-staging/in-cluster wildcard).
+//
+// STATUS BAR < 400 (tightened from the original < 500 — hw218 evidence, #4706):
+// the catalyst console is silent-SSO — its bare root returns 200 (SSR landing,
+// signed-in) or 302 (redirect to the Keycloak login), NEVER a 4xx. hw218
+// (2026-07-03) exposed the hole in the old < 500 bar: its console gateway
+// answered HTTP 404 (envoy up, but NO vhost/route to the console backend — the
+// #4715 listener collision), and the < 500 gate mislabelled that broken front
+// door "ready" — the exact false-green this probe exists to kill. A 4xx (404
+// no-route / 401 / 403 misconfigured front door) or 5xx or a transport error
+// (connection refused / timeout / NXDOMAIN) now correctly counts as down.
 func defaultConsoleReachable(fqdn string) error {
 	fqdn = strings.TrimSpace(fqdn)
 	if fqdn == "" {
@@ -652,7 +659,7 @@ func defaultConsoleReachable(fqdn string) error {
 		if err == nil {
 			code := resp.StatusCode
 			resp.Body.Close()
-			if code < 500 {
+			if code < 400 {
 				return nil
 			}
 			last = fmt.Errorf("%s returned HTTP %d", target, code)
@@ -2225,4 +2232,25 @@ func certificateReady(u *unstructured.Unstructured) (bool, string, error) {
 		}
 	}
 	return false, "<missing-ready>", nil
+}
+
+// probeReachableForTest mirrors defaultConsoleReachable's status-bar decision
+// against an explicit URL (no console.<fqdn> construction, single attempt) so
+// the < 400 contract is unit-testable without DNS or the 90s budget. Kept in
+// non-test code because httptest servers need the same *http.Client TLS-skip.
+func probeReachableForTest(target string) error {
+	client := &http.Client{
+		Timeout:   8 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	}
+	resp, err := client.Get(target)
+	if err != nil {
+		return err
+	}
+	code := resp.StatusCode
+	resp.Body.Close()
+	if code < 400 {
+		return nil
+	}
+	return fmt.Errorf("%s returned HTTP %d", target, code)
 }
