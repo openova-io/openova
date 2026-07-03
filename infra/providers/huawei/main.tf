@@ -273,6 +273,35 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_443" {
   description       = "Cilium Gateway HTTPS"
 }
 
+# #4706 — console gateway hostNetwork ports (8443/8080): the console ELB
+# forwards public :443/:80 to these node host ports. Same 0/0 shape as the
+# 443 rule above (traffic still fronts through the console ELB EIP).
+resource "huaweicloud_networking_secgroup_rule" "ingress_8443" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 8443
+  port_range_max    = 8443
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Cilium Gateway HTTPS"
+}
+
+
+resource "huaweicloud_networking_secgroup_rule" "ingress_8080" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 8080
+  port_range_max    = 8080
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Cilium Gateway HTTPS"
+}
+
+
 resource "huaweicloud_networking_secgroup_rule" "ingress_80" {
   for_each          = { for r in var.regions : r.code => r }
   security_group_id = huaweicloud_networking_secgroup.region[each.key].id
@@ -1576,7 +1605,7 @@ resource "huaweicloud_elb_member" "console_https" {
   count         = local.console_member_count
   pool_id       = huaweicloud_elb_pool.console_https[0].id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = 443
+  protocol_port = 8443
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
@@ -1584,7 +1613,7 @@ resource "huaweicloud_elb_member" "console_http" {
   count         = local.console_member_count
   pool_id       = huaweicloud_elb_pool.console_http[0].id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = 80
+  protocol_port = 8080
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
@@ -1592,7 +1621,7 @@ resource "huaweicloud_elb_monitor" "console_https" {
   count       = local.console_isolation_on ? 1 : 0
   pool_id     = huaweicloud_elb_pool.console_https[0].id
   protocol    = "TCP"
-  port        = 443
+  port        = 8443
   interval    = 10
   timeout     = 5
   max_retries = 3
@@ -1602,7 +1631,7 @@ resource "huaweicloud_elb_monitor" "console_http" {
   count       = local.console_isolation_on ? 1 : 0
   pool_id     = huaweicloud_elb_pool.console_http[0].id
   protocol    = "TCP"
-  port        = 80
+  port        = 8080
   interval    = 10
   timeout     = 5
   max_retries = 3

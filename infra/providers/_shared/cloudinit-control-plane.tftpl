@@ -832,6 +832,12 @@ write_files:
             CILIUM_GATEWAY_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
             # #4706 — lockstep w/ the cilium-values hostNetwork block above.
             CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"
+            # #4706 — console gateway binds 8443/8080 under hostNetwork (two
+            # Gateways cannot both bind node:443); the console ELB keeps public
+            # :443/:80 and forwards to node:8443/:8080. Lockstep: slot-13
+            # consoleGateway ports + main.tf console member/monitor ports.
+            CONSOLE_GATEWAY_HTTPS_PORT: "8443"
+            CONSOLE_GATEWAY_HTTP_PORT: "8080"
             SOVEREIGN_GATEWAY_HTTPS_PORT: "443"
             SOVEREIGN_GATEWAY_HTTP_PORT: "80"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
