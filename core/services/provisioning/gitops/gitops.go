@@ -142,6 +142,14 @@ type ManifestGenerator struct {
 	// harbor.<sovereign-fqdn> post-handover.
 	RegistryMirror string
 
+	// HelmReleaseAppVersions pins the per-Org HelmRelease-shaped catalog
+	// apps' chart versions by app slug (e.g. {"openclaw": "0.2.13",
+	// "stalwart-mail": "0.1.12"}) — #4706. A missing entry falls back to
+	// the floating `version: "*"` (see pinHRChartVersion for why floating
+	// is a hazard worth pinning away). Wired from
+	// CATALYST_HR_APP_CHART_VERSIONS in services/provisioning/main.go.
+	HelmReleaseAppVersions map[string]string
+
 	// CloudProvider is the IaC cloud provider this Sovereign runs on —
 	// "hetzner" or "huawei". It selects the block-storage StorageClass
 	// the per-tenant CNPG pair PVCs bind to, because the StorageClass
@@ -687,6 +695,8 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			slug:         slug,
 			parentDomain: g.parentDomain(),
 			kubeSecret:   hrKubeSecret,
+			// #4706 — pin the chart version (empty → floating "*").
+			chartVersion: g.HelmReleaseAppVersions[a],
 			// #4272: the resolvable SHARED-realm OIDC issuer
 			// (auth.<fqdn>/realms/sovereign) when this Sovereign runs no
 			// per-Org realm. Empty falls the HR templates back to the per-Org

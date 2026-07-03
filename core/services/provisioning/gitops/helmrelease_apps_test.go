@@ -336,3 +336,36 @@ func TestParentDomain_DefaultFallback(t *testing.T) {
 		t.Errorf("default parent-domain host wrong:\n%s", openclaw)
 	}
 }
+
+// TestGenerateHelmReleaseApp_PinsChartVersion (#4706): a configured pin
+// replaces the floating `version: "*"` in the rendered HR; an absent pin
+// keeps "*" (degrade-to-historical, never break the render).
+func TestGenerateHelmReleaseApp_PinsChartVersion(t *testing.T) {
+	pinned := generateHelmReleaseApp("openclaw", helmReleaseAppOpts{
+		slug: "acme", parentDomain: "omani.homes", chartVersion: "0.2.13",
+	})
+	if !strings.Contains(pinned, `version: "0.2.13"`) {
+		t.Fatalf("pinned render must carry version: \"0.2.13\"; got:\n%s", pinned)
+	}
+	if strings.Contains(pinned, `version: "*"`) {
+		t.Fatalf("pinned render must not retain the floating version: \"*\"")
+	}
+
+	floating := generateHelmReleaseApp("stalwart-mail", helmReleaseAppOpts{
+		slug: "acme", parentDomain: "omani.homes",
+	})
+	if !strings.Contains(floating, `version: "*"`) {
+		t.Fatalf("absent pin must fall back to the historical floating \"*\"; got:\n%s", floating)
+	}
+}
+
+// TestParseHRAppVersions (#4706): wire-format parse + malformed-entry skip.
+func TestParseHRAppVersions(t *testing.T) {
+	m := ParseHRAppVersions(" openclaw=0.2.13, stalwart-mail = 0.1.12 ,broken,=x,y= ")
+	if m["openclaw"] != "0.2.13" || m["stalwart-mail"] != "0.1.12" {
+		t.Fatalf("parse failed: %#v", m)
+	}
+	if len(m) != 2 {
+		t.Fatalf("malformed entries must be skipped, got %#v", m)
+	}
+}

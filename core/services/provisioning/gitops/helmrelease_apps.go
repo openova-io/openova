@@ -88,6 +88,10 @@ type helmReleaseAppOpts struct {
 	slug         string // Org subdomain == host namespace
 	parentDomain string // org-pool parent zone (e.g. omani.homes)
 	adminEmail   string // operator/admin email for stalwart
+	// chartVersion, when non-empty, pins the HR's chart version instead of
+	// the floating `version: "*"` (#4706 — see pinHRChartVersion). Populated
+	// per-app from ManifestGenerator.HelmReleaseAppVersions.
+	chartVersion string
 	// kubeSecret, when non-empty, is the flux-system Secret holding the Org
 	// vCluster kubeconfig (`tenant-<slug>-kubeconfig`). Set on the vcluster
 	// tier so the host helm-controller installs the chart INTO the vcluster;
@@ -110,14 +114,34 @@ type helmReleaseAppOpts struct {
 // HelmRelease-shaped catalog app. Returns "" for a slug that is not a
 // HelmRelease app (defence in depth — callers gate on isHelmReleaseApp first).
 func generateHelmReleaseApp(appSlug string, opt helmReleaseAppOpts) string {
+	var out string
 	switch appSlug {
 	case "openclaw":
-		return generateOpenClawHR(opt)
+		out = generateOpenClawHR(opt)
 	case "stalwart-mail":
-		return generateStalwartHR(opt)
+		out = generateStalwartHR(opt)
 	default:
 		return ""
 	}
+	return pinHRChartVersion(out, opt.chartVersion)
+}
+
+// pinHRChartVersion replaces the HR template's floating `version: "*"` with
+// the pinned chart version when one is configured (#4706). A floating "*"
+// resolves to the HIGHEST semver tag on the OCI repo — which is how ONE
+// mis-tagged artifact (the bp-agenity container image pushed to the CHART
+// repo as :0.9.7) broke every Org install at once, and how an org app could
+// silently jump a major. Empty version keeps "*" (the historical behaviour)
+// so a missing pin degrades to today's shape, never to a broken render —
+// the pin is a hardening, not a new hard dependency. Single choke-point on
+// the rendered YAML so every current and future HR-shaped app template is
+// covered without per-template printf surgery.
+func pinHRChartVersion(yaml, version string) string {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		return yaml
+	}
+	return strings.Replace(yaml, `version: "*"`, fmt.Sprintf("version: %q", v), 1)
 }
 
 // kubeConfigBlock renders the HR-level spec.kubeConfig the host helm-controller
@@ -366,5 +390,23 @@ func sortedHelmReleaseApps(appSlugs []string) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+
+// ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
+// ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
+// Malformed entries are skipped rather than fatal — a typo in one pin must
+// not take the provisioning service down; the affected app just falls back
+// to the floating "*" it always had.
+func ParseHRAppVersions(raw string) map[string]string {
+	out := map[string]string{}
+	for _, kv := range strings.Split(raw, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(kv), "=")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if ok && k != "" && v != "" {
+			out[k] = v
+		}
+	}
 	return out
 }
