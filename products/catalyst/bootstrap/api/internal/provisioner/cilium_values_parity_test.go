@@ -291,6 +291,35 @@ func TestCiliumValuesParity_GatewayHostNetworkLockstep(t *testing.T) {
 // unsupported multi-minor in-place CNI upgrade mid-Phase-1 (cloud-init
 // installs one cilium, the slot-01 HR immediately upgrades to another) — the
 // exact trap the 1.16.5→1.19.3 bump would have created without this guard.
+
+// TestCiliumValuesParity_ConsolePortNoCollision (#4706, hw218 regression) —
+// under the huawei hostNetwork gateway, cilium-envoy binds the gateway host
+// ports on the node directly, so the PRIMARY gateway and the CONSOLE gateway
+// CANNOT share a port or they collide on node:443 (hw218 2026-07-03: console
+// ELB → node:443 hit the PRIMARY listener's vhost table → 404 on every console
+// host). This locks the console host ports (8443/8080) DISTINCT from the
+// primary (443/80) in the huawei cloud-init substitutes so the collision can
+// never re-ship silently. Hetzner is exempt (hostNetwork off — the two
+// Gateways get separate hcloud-ccm LB Services, no host-bind contention).
+func TestCiliumValuesParity_ConsolePortNoCollision(t *testing.T) {
+	tpl := readCloudInit(t)
+	for _, want := range []string{
+		`CONSOLE_GATEWAY_HTTPS_PORT: "8443"`,
+		`CONSOLE_GATEWAY_HTTP_PORT: "8080"`,
+	} {
+		if !strings.Contains(tpl, want) {
+			t.Errorf("huawei cloud-init must set %q (#4706 — console gateway needs its own host ports under hostNetwork)", want)
+		}
+	}
+	// The collision guard: console HTTPS port must differ from the primary
+	// gateway HTTPS port (both are set in the same huawei substitute block).
+	if strings.Contains(tpl, `CONSOLE_GATEWAY_HTTPS_PORT: "443"`) {
+		t.Errorf("CONSOLE_GATEWAY_HTTPS_PORT must NOT be 443 — it collides with the PRIMARY gateway's node:443 host bind under hostNetwork (hw218 404 regression, #4706)")
+	}
+	if strings.Contains(tpl, `CONSOLE_GATEWAY_HTTP_PORT: "80"`) {
+		t.Errorf("CONSOLE_GATEWAY_HTTP_PORT must NOT be 80 — collides with the PRIMARY gateway's node:80 host bind (#4706)")
+	}
+}
 func TestCiliumValuesParity_BootstrapHelmVersionMatchesChartPin(t *testing.T) {
 	tpl := readCloudInit(t)
 
