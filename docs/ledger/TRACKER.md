@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-03T22:30:03Z` |
+| Last refreshed | `2026-07-03T22:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 42 |
+| Open issues | 43 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 42 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 43 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 42 open items (clickable table)
+### All 43 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -242,6 +242,7 @@ flowchart LR
 | [#4727](https://github.com/openova-io/openova/issues/4727) | fix(cutover): hostNetwork-era wedges — step-06 Programmed gate can NEVER pass  | Other |
 | [#4731](https://github.com/openova-io/openova/issues/4731) | Dashboard treemap: Progress + Kind as first-class layers of the EXISTING editabl | Other |
 | [#4732](https://github.com/openova-io/openova/issues/4732) | Per-Org console front door defect chain (TLS trio unrecoverable, stale #4075 por | Other |
+| [#4739](https://github.com/openova-io/openova/issues/4739) | hw220 UAT walk fault wave — hourly :443 outage loop (TTL'd envoy-restart Job), | Other |
 
 ---
 
@@ -249,6 +250,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-03T22:44 | [#4741](https://github.com/openova-io/openova/pull/4741) | #4739 | docs(uat): hw220 full-table walk — 243/243 rows populated wi |
+| 2026-07-03T22:41 | [#4740](https://github.com/openova-io/openova/pull/4740) | #4739 | fix(sovereign-tls): drop the envoy-restart Job TTL — hourly  |
 | 2026-07-03T22:08 | [#4738](https://github.com/openova-io/openova/pull/4738) | #4735 | deploy: re-pin catalyst images to 443f815 (deploy-job race r |
 | 2026-07-03T21:30 | [#4737](https://github.com/openova-io/openova/pull/4737) | #4731 | docs(session): #4731 delivery evidence — Progress/Kind treem |
 | 2026-07-03T21:04 | [#4736](https://github.com/openova-io/openova/pull/4736) | #4731 | feat(console): Progress + Kind as first-class treemap layers |
@@ -277,8 +280,6 @@ flowchart LR
 | 2026-07-02T21:41 | [#4707](https://github.com/openova-io/openova/pull/4707) | #4706 | fix(catalyst-api): gate "ready" on external console reachabi |
 | 2026-07-02T15:14 | [#4702](https://github.com/openova-io/openova/pull/4702) | #3241 | fix(provisioner): trim cluster.name trailing/collapsed dash  |
 | 2026-07-02T06:14 | [#4699](https://github.com/openova-io/openova/pull/4699) | #3971 | docs(session): live Sovereign signup-wizard walk — pillar-1  |
-| 2026-07-02T05:40 | [#4698](https://github.com/openova-io/openova/pull/4698) | #4697 | docs(uat): G11 — record live console-login walk (#4696→#4697 |
-| 2026-07-02T04:05 | [#4697](https://github.com/openova-io/openova/pull/4697) | #4696 | fix(catalyst): SMTP host mail.openova.io → in-cluster stalwa |
 
 ---
 
