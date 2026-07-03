@@ -459,6 +459,10 @@ func TestRenderOrganizationOverlay_AgenityMCPBearerWiring(t *testing.T) {
 	}
 	for _, want := range []string{
 		"openovaMCP:",
+		// #4624 — the ORG console host pinned as the MCP tenant host
+		// (X-Tenant-Host). MUST be the Org host, never the Sovereign console
+		// host (which is not a registered tenant → create_application 404s).
+		"tenantHost: console.acme.omani.homes",
 		"bearerSecret:",
 		"name: agenity-mcp-bearer",
 		"key: bearer",

@@ -196,6 +196,20 @@ type ApplicationSeed struct {
 	// mothership/Catalyst-Zero. Consumed by newApplicationCRFromSeed via
 	// defaultedParameters; ignored for non-agenity Blueprints.
 	SovereignFQDN string
+
+	// OrgConsoleHost — the Org's public console host
+	// (console.<slug>.<poolParentDomain>, e.g. console.nstar.omani.homes),
+	// stamped by the create-instance handler from the tenant registry so the
+	// bp-agenity install gets spec.parameters.openovaMCP.tenantHost (#4624):
+	// the OPENOVA_MCP_TENANT_HOST the agent-side MCP forwards as
+	// X-Tenant-Host MUST be the ORG console host — the Sovereign console
+	// host (console.<sovereignFqdn>, where the catalyst-api URL correctly
+	// points) is NOT a registered tenant, so without this every agent
+	// create_application 404s `tenant-not-registered`. Empty on the
+	// mothership / when the registry has no row for the Org (no stamp,
+	// fail-closed). Consumed by newApplicationCRFromSeed via
+	// defaultedParameters; ignored for non-agenity Blueprints.
+	OrgConsoleHost string
 }
 
 // Build constructs the ApplicationSeed from a sanitised+validated

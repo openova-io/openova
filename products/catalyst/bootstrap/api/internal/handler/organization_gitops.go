@@ -1746,6 +1746,16 @@ spec:
     # under catalyst/ (the only KV sub-tree a Sovereign can WRITE via the
     # catalyst-api-write policy; vault-region1's role is read-only).
     openovaMCP:
+      # #4624 — the ORG console host the openova-MCP forwards as
+      # X-Tenant-Host on the org-scoped install path. The chart would derive
+      # the same value from httpRoute.hostnames[0] ({{.AgenityHost}} →
+      # console.<slug>.<pool>), but pinning it makes the contract explicit
+      # and byte-identical with the Application-CR install door's
+      # defaultedParameters stamp. It MUST be the Org host — the catalyst-api
+      # URL host (console.<sovereignFqdn>) is NOT a registered tenant, so a
+      # Sovereign-host X-Tenant-Host 404s tenant-not-registered on every
+      # agent create_application (live-proven on hw220 2026-07-04).
+      tenantHost: {{.ConsoleHost}}
       bearerSecret:
         name: agenity-mcp-bearer
         key: bearer

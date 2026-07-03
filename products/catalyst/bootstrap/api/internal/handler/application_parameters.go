@@ -1,6 +1,10 @@
 package handler
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
+)
 
 // agenityMCPBearerSecretName is the in-namespace K8s Secret the agenity
 // chart's externalsecret-mcp-bearer.yaml materialises and the StatefulSet
@@ -94,13 +98,32 @@ const agenityMCPBearerRemoteKeyPrefix = "catalyst/agenity/"
 // caller's Org ref (the path is secret/catalyst/agenity/<slug>/mcp-bearer);
 // empty orgSlug ⇒ skip the mcpBearer stamp (we can't scope the path).
 //
+// For bp-agenity we ALSO stamp `openovaMCP.tenantHost` with the ORG's public
+// console host (#4624, live-proven on hw220 2026-07-04). The openova-MCP
+// forwards this value as `X-Tenant-Host` on the org-scoped install path
+// (POST /api/v1/org/applications); catalyst-api resolves the caller's Org
+// namespace from it via the tenant registry. The catalyst-api base URL is the
+// SOVEREIGN console host (console.<sovereignFqdn>) — which is NOT a registered
+// tenant — so when tenantHost is unset the chart's fallback derivation
+// (agenity.mcpTenantHost helper: httpRoute.hostnames empty → gate host
+// agenity.<sovereignFqdn> → console.<sovereignFqdn>) emits the Sovereign host
+// and EVERY agent create_application call 404s `tenant-not-registered`
+// (`MCP error -32010: upstream error`). The BSS-door GitOps overlay
+// (orgTenantBPAgenity) already resolves correctly (its httpRoute.hostnames[0]
+// = agenity.<slug>.<pool> derives console.<slug>.<pool>); this stamp closes
+// the Application-CR install door. orgConsoleHost is resolved from the tenant
+// registry (h.orgConsoleHostFor); empty ⇒ no stamp (mothership /
+// Catalyst-Zero / unresolvable — fail-closed, the chart's existing behaviour
+// applies), and an explicit caller value is never clobbered (same deference
+// as stampAgenitySovereignFqdn).
+//
 // blueprint may carry the `bp-` prefix or not; topology is the canonical
 // (or legacy-dialect) placement token already chosen by the caller.
 // sovereignFQDN is the Sovereign's own FQDN (e.g. "omantel.biz"); empty on
 // the mothership / Catalyst-Zero, where the agenity install is not a
 // production path — leaving sovereignFqdn unset keeps the chart's existing
 // fail-closed default behaviour.
-func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug string, explicit map[string]interface{}) map[string]interface{} {
+func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsoleHost string, explicit map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(explicit)+1)
 	for k, v := range explicit {
 		out[k] = v
@@ -109,6 +132,7 @@ func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug string, exp
 	if isAgenityBlueprint(blueprint) {
 		stampAgenitySovereignFqdn(out, sovereignFQDN)
 		stampAgenityMCPBearer(out, orgSlug)
+		stampAgenityMCPTenantHost(out, orgConsoleHost)
 	}
 
 	if len(out) > 0 {
@@ -197,6 +221,107 @@ func stampAgenityMCPBearer(params map[string]interface{}, orgSlug string) {
 	mcp["mcpBearer"] = mcpBearer
 
 	params["openovaMCP"] = mcp
+}
+
+// stampAgenityMCPTenantHost sets `parameters.openovaMCP.tenantHost` to the
+// Org's public console host (console.<slug>.<poolParentDomain>, e.g.
+// console.nstar.omani.homes) so the chart's OPENOVA_MCP_TENANT_HOST env — the
+// X-Tenant-Host the MCP forwards on org-scoped calls — targets the ORG host,
+// not the Sovereign console host (#4624, live-proven on hw220: with
+// TENANT_HOST=console.hw220.omani.works every create_application 404'd; the
+// moment it was set to console.nstar.omani.homes the same call returned 201).
+// The chart's `agenity.mcpTenantHost` helper prefers an explicit
+// openovaMCP.tenantHost over any derivation, so this value flows straight to
+// the env. OPENOVA_MCP_CATALYST_API_URL is untouched — it keeps deriving
+// https://console.<sovereignFqdn> from the separately-stamped sovereignFqdn.
+//
+// No-op when:
+//   - orgConsoleHost is empty (mothership / Catalyst-Zero / registry has no
+//     row for this Org — fail-closed, the chart's existing behaviour holds), or
+//   - the caller already pinned a non-empty openovaMCP.tenantHost (we never
+//     clobber an explicit value — same deference as stampAgenitySovereignFqdn).
+//
+// The merge is additive on the openovaMCP block, preserving any other
+// sub-keys (bearerSecret / mcpBearer / …) a caller or sibling stamp supplied.
+func stampAgenityMCPTenantHost(params map[string]interface{}, orgConsoleHost string) {
+	host := strings.ToLower(strings.TrimSpace(orgConsoleHost))
+	if host == "" {
+		return
+	}
+
+	mcp, _ := params["openovaMCP"].(map[string]interface{})
+	if mcp == nil {
+		mcp = map[string]interface{}{}
+	}
+	if existing, ok := mcp["tenantHost"].(string); ok && strings.TrimSpace(existing) != "" {
+		return
+	}
+	mcp["tenantHost"] = host
+	params["openovaMCP"] = mcp
+}
+
+// orgConsoleHostFor resolves the Org's public console host
+// (console.<slug>.<poolParentDomain>) for an Org ref from the tenant
+// registry — the SAME table the org-scoped install path resolves
+// X-Tenant-Host against, so the stamped tenantHost is by construction a
+// registered tenant. Returns "" when the registry is unwired (mothership /
+// CI) or holds no row for this Org (fail-closed — the caller skips the
+// stamp).
+func (h *Handler) orgConsoleHostFor(orgRef string) string {
+	if h == nil || h.tenantRegistry == nil {
+		return ""
+	}
+	return orgConsoleHostFromRegistrations(h.tenantRegistry.List(), orgRef)
+}
+
+// orgConsoleHostFromRegistrations is the pure resolver behind
+// orgConsoleHostFor. The Org ref arrives in several dialects depending on
+// the door: the real Org namespace (`org-<uuid>` or the slug — the org-scoped
+// install door forces this), a bare slug ("nstar"), or the dotted Org zone
+// ("nstar.omani.homes"). Matching, in preference order:
+//
+//  1. registration.OrganizationNamespace == orgNamespace(ref) — the exact
+//     namespace binding (covers the org-door's forced namespace and a
+//     slug-named namespace);
+//  2. the Org slug of the registration's Host (console.<slug>.<pool> →
+//     <slug>, via orgSlugFromHost) == the ref's leading DNS label (covers
+//     the sovereign-admin door's dotted Org-zone refs).
+//
+// Only tenant_kind=org rows participate. Ties resolve to the
+// lexicographically-smallest host so the result is deterministic regardless
+// of registry iteration order.
+func orgConsoleHostFromRegistrations(regs []store.TenantRegistration, orgRef string) string {
+	ref := strings.TrimSpace(orgRef)
+	if ref == "" {
+		return ""
+	}
+	ns := orgNamespace(ref)
+	slug := leadingDNSLabel(ref)
+	nsMatch, slugMatch := "", ""
+	for _, reg := range regs {
+		if reg.TenantKind != store.TenantKindOrg {
+			continue
+		}
+		host := strings.ToLower(strings.TrimSpace(reg.Host))
+		if host == "" {
+			continue
+		}
+		if regNS := strings.ToLower(strings.TrimSpace(reg.OrganizationNamespace)); regNS != "" && regNS == ns {
+			if nsMatch == "" || host < nsMatch {
+				nsMatch = host
+			}
+			continue
+		}
+		if slug != "" && orgSlugFromHost(host) == slug {
+			if slugMatch == "" || host < slugMatch {
+				slugMatch = host
+			}
+		}
+	}
+	if nsMatch != "" {
+		return nsMatch
+	}
+	return slugMatch
 }
 
 // setIfAbsentMap sets key=val only when the destination has no non-empty

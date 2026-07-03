@@ -499,7 +499,16 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 	if sovereignFQDN == "" {
 		sovereignFQDN = h.sovereignFQDN()
 	}
-	obj := newApplicationUnstructured(body, sovereignFQDN)
+	// #4624 — resolve the ORG's public console host (console.<slug>.<pool>)
+	// from the tenant registry so the agenity install stamps
+	// spec.parameters.openovaMCP.tenantHost. Without it the chart falls back
+	// to console.<sovereignFqdn> for OPENOVA_MCP_TENANT_HOST — the Sovereign
+	// host is NOT a registered tenant, so every agent create_application
+	// 404'd `tenant-not-registered` (live-proven on hw220 2026-07-04: 404
+	// with the Sovereign host, 201 the moment the env was set to the Org
+	// host). Empty (mothership / no registry row) ⇒ no stamp, fail-closed.
+	orgConsoleHost := h.orgConsoleHostFor(body.OrganizationRef)
+	obj := newApplicationUnstructured(body, sovereignFQDN, orgConsoleHost)
 	created, err := client.Resource(ApplicationGVR()).Namespace(appNS).Create(
 		r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
@@ -971,7 +980,13 @@ func isSovereignOperatorClaim(claims *auth.Claims) bool {
 // install request. Sets the spec to mirror the API surface exactly so a
 // downstream Get returns the same shape the caller posted (modulo
 // metadata + status).
-func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN string) *unstructured.Unstructured {
+//
+// orgConsoleHost — the Org's public console host (console.<slug>.<pool>),
+// resolved by the caller from the tenant registry (h.orgConsoleHostFor).
+// Stamped as spec.parameters.openovaMCP.tenantHost for bp-agenity (#4624)
+// so the agent-side MCP's X-Tenant-Host targets the ORG, not the Sovereign
+// console host. Empty ⇒ no stamp (fail-closed).
+func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN, orgConsoleHost string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
@@ -1052,7 +1067,7 @@ func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN str
 	// tree valid; the controller's admission webhook + this handler's
 	// validate.Parameters call have already gated explicit params against
 	// configSchema.
-	spec["parameters"] = defaultedParameters(req.BlueprintRef.Name, canonMode, sovereignFQDN, req.OrganizationRef, req.Parameters)
+	spec["parameters"] = defaultedParameters(req.BlueprintRef.Name, canonMode, sovereignFQDN, req.OrganizationRef, orgConsoleHost, req.Parameters)
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
 }
