@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-03T08:00:02Z` |
+| Last refreshed | `2026-07-03T08:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 39 |
 | Open DoD gates | 0 / 41 |
@@ -246,6 +246,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-03T08:00 | [#4725](https://github.com/openova-io/openova/pull/4725) | #4221 | fix(console): re-home provisioning progress to the provision |
+| 2026-07-03T08:00 | [#4724](https://github.com/openova-io/openova/pull/4724) | #4669 | fix(cutover): auto-trigger Job budgets overran activeDeadlin |
 | 2026-07-03T07:04 | [#4722](https://github.com/openova-io/openova/pull/4722) | #4706 | docs(sessions): #4706 cycle status report (Refs #4706) |
 | 2026-07-03T05:59 | [#4721](https://github.com/openova-io/openova/pull/4721) | fix(gateway): self-heal the console ELB members on node chur |  |
 | 2026-07-03T05:28 | [#4720](https://github.com/openova-io/openova/pull/4720) | #4719 | fix(org): deprovision per-Org DNS on delete — stale records  |
@@ -274,8 +276,6 @@ flowchart LR
 | 2026-07-01T12:59 | [#4684](https://github.com/openova-io/openova/pull/4684) | #4053 | fix(gateway): Sovereign gateway = :443 LoadBalancer + regist |
 | 2026-07-01T08:16 | [#4681](https://github.com/openova-io/openova/pull/4681) | #3695 | fix(cutover): step-08 egress-test tolerates leader-elected s |
 | 2026-07-01T07:11 | [#4680](https://github.com/openova-io/openova/pull/4680) | #4466 | fix(janitor): automatic ghost-record GC — no more stale read |
-| 2026-07-01T05:45 | [#4679](https://github.com/openova-io/openova/pull/4679) | #4635 | fix(cutover): step-04 ack-gate tolerates bounded laggard nod |
-| 2026-07-01T05:27 | [#4678](https://github.com/openova-io/openova/pull/4678) | #4677 | fix(wipe): drain-before-destroy — stop leaking CSI volumes + |
 
 ---
 
