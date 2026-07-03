@@ -223,11 +223,21 @@ func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organiza
 		subdomain = org.Spec.Slug
 	}
 	baseURL := strings.TrimSpace(r.PoolPowerDNSURL)
-	apiKey := strings.TrimSpace(r.PoolPowerDNSAPIKey)
+	// #4459 self-heal parity: resolve the key the SAME way the write path
+	// (reconcileTenantDNS) does — prefer the env-frozen value but fall back to a
+	// LIVE read of the bridged Secret (resolvePoolPowerDNSAPIKey, #4290/#4179).
+	// Previously teardown used the FROZEN r.PoolPowerDNSAPIKey only, so on a
+	// Sovereign where the key lives ONLY in the reflected Secret (env empty) the
+	// up-path wrote the per-Org pool A-records but the down-path skipped —
+	// leaving stale console.<slug>.<pool> / *.<slug>.<pool> records that survive
+	// the Org and point a later same-slug re-prov at a DEAD console-ELB IP (the
+	// exact #4459 poisoning this teardown exists to prevent). Now teardown
+	// works whenever the write path worked.
+	apiKey := r.resolvePoolPowerDNSAPIKey(ctx)
 	if baseURL == "" || apiKey == "" {
 		// No central-pdns writer wired — nothing this controller can delete.
-		r.Log.Info("tenant-dns teardown: skipped — central pool PowerDNS not wired",
-			"organization", org.Name)
+		r.Log.Info("tenant-dns teardown: skipped — central pool PowerDNS not wired (or key not yet reflected)",
+			"organization", org.Name, "have_url", baseURL != "", "have_key", apiKey != "")
 		return false, nil
 	}
 
