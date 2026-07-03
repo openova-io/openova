@@ -52,12 +52,13 @@ function renderDashboard(
       <Dashboard
         disableStream
         initialDataOverride={dataOverride}
-        initialLayers={opts.initialLayers}
-        // #3925 surface A — these tests assert the treemap surface; pin the
-        // view to treemap so the new Progress ⇄ Treemap toggle (which
-        // defaults to Progress while the test-stubbed status is non-ready)
-        // doesn't hide it. The wizard/auto-flip behaviour has its own suite.
-        initialView="treemap"
+        // #4731 — the Progress ⇄ Treemap toggle is gone: the pane IS the
+        // treemap in both lifecycle states. These legacy suites assert the
+        // resource-treemap wiring, so they pin the resource layer stack
+        // (the non-ready DEFAULT is now the job-sourced
+        // ['progress','kind']); the morph + job-sourced behaviour has its
+        // own suite (Dashboard.progress-layers.test.tsx).
+        initialLayers={opts.initialLayers ?? ['family', 'application']}
       />
     ),
   })

@@ -29,6 +29,7 @@
 import { useMemo } from 'react'
 import {
   CAPACITY_SIZE_METRICS,
+  isJobSourcedStack,
   lockedColorBy,
   type TreemapColorBy,
   type TreemapDimension,
@@ -52,6 +53,23 @@ const COLOR_OPTIONS: { value: TreemapColorBy; label: string }[] = [
   { value: 'age',         label: 'Age' },
 ]
 
+/**
+ * #4731 — metric options for a JOB-SOURCED stack (any layer =
+ * progress/kind). Jobs carry no resource capacity, so the pod metrics
+ * are meaningless there: area is uniform (1 per job) and colour is the
+ * categorical status mapping. Offering the pod metrics on a job stack
+ * would render an all-grey lie, so the selects swap option sets instead
+ * of disabling — the Dashboard resets colorBy/sizeBy on a stack-source
+ * flip so the current value always exists in the visible option list.
+ */
+const JOB_SIZE_OPTIONS: { value: TreemapSizeBy; label: string }[] = [
+  { value: 'uniform', label: 'Uniform' },
+]
+
+const JOB_COLOR_OPTIONS: { value: TreemapColorBy; label: string }[] = [
+  { value: 'status', label: 'Status' },
+]
+
 const DIMENSION_OPTIONS: { value: TreemapDimension; label: string }[] = [
   { value: 'organization', label: 'Organization' },
   { value: 'sovereign',    label: 'Sovereign' },
@@ -61,6 +79,12 @@ const DIMENSION_OPTIONS: { value: TreemapDimension; label: string }[] = [
   { value: 'family',       label: 'Family' },
   { value: 'namespace',    label: 'Namespace' },
   { value: 'application',  label: 'Application' },
+  // #4731 — job-sourced dimensions. Appended LAST so addLayer's
+  // first-unused default pick keeps its historical behaviour on
+  // resource stacks (adding a layer never silently flips the stack to
+  // the job source; the operator opts in by picking Progress/Kind).
+  { value: 'progress',     label: 'Progress' },
+  { value: 'kind',         label: 'Kind' },
 ]
 
 /** Hard upper bound — recharts treemap legibility falls off a cliff
@@ -94,6 +118,12 @@ export function TreemapLayerController({
   const lockedColor = lockedColorBy(sizeBy)
   const colorIsLocked = lockedColor !== null && colorBy === lockedColor
   const colorIsCapacityCoupled = CAPACITY_SIZE_METRICS.has(sizeBy)
+
+  // #4731 — a stack containing progress/kind sources from the Job tree;
+  // its metric vocabulary is uniform-area + categorical status colour.
+  const jobSourced = isJobSourcedStack(layers)
+  const sizeOptions = jobSourced ? JOB_SIZE_OPTIONS : SIZE_OPTIONS
+  const colorOptions = jobSourced ? JOB_COLOR_OPTIONS : COLOR_OPTIONS
 
   /** A dimension is taken if any *other* layer already picked it. The
    *  current layer's own value is always available so its <option>
@@ -155,16 +185,16 @@ export function TreemapLayerController({
       <CompactSelect
         label="Size"
         value={sizeBy}
-        options={SIZE_OPTIONS}
+        options={sizeOptions}
         onChange={(v) => onSizeByChange(v as TreemapSizeBy)}
         testid="treemap-size-select"
       />
 
-      {/* Color by — gradient meaning */}
+      {/* Color by — gradient meaning (categorical status on job stacks) */}
       <CompactSelect
         label="Color"
         value={colorBy}
-        options={COLOR_OPTIONS}
+        options={colorOptions}
         onChange={(v) => setColorBy(v as TreemapColorBy)}
         disabled={colorIsLocked && colorIsCapacityCoupled}
         title={

@@ -20,6 +20,9 @@ import {
   lockedColorBy,
   walkDrillPath,
   buildTreemapQuery,
+  statusColor,
+  aggregateStatusKinds,
+  isJobSourcedStack,
   type TreemapItem,
 } from './treemap.types'
 
@@ -93,6 +96,61 @@ describe('colorFunctionFor', () => {
     expect(colorFunctionFor('utilization')(0)).toBe('rgb(59, 130, 246)')
     expect(colorFunctionFor('health')(0)).toBe('rgb(239, 68, 68)')
     expect(colorFunctionFor('age')(0)).toBe('rgb(59, 130, 246)')
+  })
+
+  it('#4731 — status keeps the (pct)=>string contract total: every pct → neutral pending tint', () => {
+    // Status is CATEGORICAL (cells colour from statusKind, not pct);
+    // the gradient contract must still be safe for generic callers.
+    const fn = colorFunctionFor('status')
+    for (const pct of [0, 50, 100]) {
+      expect(fn(pct)).toBe(statusColor(undefined))
+    }
+  })
+})
+
+describe('statusColor (#4731 categorical channel)', () => {
+  it('tints each kind from its ONE statusColors theme token — no new hex', () => {
+    expect(statusColor('success')).toContain('var(--color-success)')
+    expect(statusColor('in-progress')).toContain('var(--color-accent)')
+    expect(statusColor('warning')).toContain('var(--color-warn)')
+    expect(statusColor('failed')).toContain('var(--color-danger)')
+    expect(statusColor('pending')).toContain('var(--color-text-dim)')
+    for (const k of ['success', 'in-progress', 'warning', 'failed', 'pending'] as const) {
+      expect(statusColor(k)).toMatch(/^color-mix\(in srgb, var\(--color-/)
+      expect(statusColor(k)).not.toMatch(/#[0-9a-fA-F]{3,8}/)
+    }
+  })
+
+  it('renders an absent statusKind as the pending tint — never success', () => {
+    expect(statusColor(undefined)).toBe(statusColor('pending'))
+  })
+})
+
+describe('aggregateStatusKinds (#4731 bucket rollup)', () => {
+  it('rollup precedence: failed > warning > in-progress > success > pending', () => {
+    expect(aggregateStatusKinds(['success', 'failed', 'in-progress'])).toBe('failed')
+    expect(aggregateStatusKinds(['success', 'warning'])).toBe('warning')
+    expect(aggregateStatusKinds(['success', 'in-progress'])).toBe('in-progress')
+    // Partially-done (mixed success+pending) reads as in-flight.
+    expect(aggregateStatusKinds(['success', 'pending'])).toBe('in-progress')
+    expect(aggregateStatusKinds(['success', 'success'])).toBe('success')
+    expect(aggregateStatusKinds(['pending', 'pending'])).toBe('pending')
+    expect(aggregateStatusKinds([])).toBe('pending')
+  })
+})
+
+describe('isJobSourcedStack (#4731 data-source rule)', () => {
+  it('true when the stack contains progress or kind — anywhere', () => {
+    expect(isJobSourcedStack(['progress', 'kind'])).toBe(true)
+    expect(isJobSourcedStack(['kind'])).toBe(true)
+    expect(isJobSourcedStack(['progress', 'application'])).toBe(true)
+    expect(isJobSourcedStack(['organization', 'application', 'kind'])).toBe(true)
+  })
+
+  it('false for every resource stack (getDashboardTreemap path untouched)', () => {
+    expect(isJobSourcedStack(['organization', 'application'])).toBe(false)
+    expect(isJobSourcedStack(['family', 'application'])).toBe(false)
+    expect(isJobSourcedStack(['cluster'])).toBe(false)
   })
 })
 
