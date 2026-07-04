@@ -328,6 +328,10 @@ const STATUS_FILL_MIX_PCT: Record<StatusKind, number> = {
   warning: 65,
   failed: 70,
   pending: 16,
+  // #4731 — even FAINTER than pending so a parked/dormant tether reads as
+  // "asleep" rather than "queued". The treemap pairs this with a dashed
+  // outline (see SquarifiedCell) for an unmistakable dormant ≠ pending cue.
+  dormant: 8,
 }
 
 export function statusColor(kind: StatusKind | undefined): string {
@@ -348,6 +352,11 @@ export function aggregateStatusKinds(kinds: readonly StatusKind[]): StatusKind {
   if (kinds.some((k) => k === 'warning')) return 'warning'
   if (kinds.some((k) => k === 'in-progress')) return 'in-progress'
   if (kinds.every((k) => k === 'success')) return 'success'
+  // #4731 — an all-dormant bucket (the parked cutover tether) rolls up as
+  // dormant, never pending. Any real work in the bucket wins over dormant
+  // (handled by the branches above / the pending fall-through below), so
+  // dormant only surfaces when it is the ONLY thing present.
+  if (kinds.every((k) => k === 'dormant')) return 'dormant'
   if (kinds.some((k) => k === 'success')) return 'in-progress'
   return 'pending'
 }

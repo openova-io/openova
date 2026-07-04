@@ -258,42 +258,58 @@ describe('Dashboard state-aware view', () => {
     expect(size.value).toBe('uniform')
   })
 
-  it('AUTO-MORPHS to the resource defaults when status is ready', async () => {
+  // #4731 amend (founder escalation 2026-07-05): the ready default NO LONGER
+  // flips to the resource stack — the founder rejected that ("why is the
+  // second layer not kind by default"). [progress, kind] is the default
+  // UNCONDITIONALLY, converging AND converged.
+  it('KEEPS the [progress, kind] default when status is ready (no morph)', async () => {
     stubEventsFetch({ status: 'ready' } as DeploymentSnapshot)
     renderDashboard()
-    // Once the ready snapshot resolves, the SAME pane re-defaults to the
-    // resource treemap (jsdom runs in mothership mode → family layer 1).
+    await screen.findByTestId('dashboard-treemap-frame')
+    // Even on a converged (ready) Sovereign the default stack stays
+    // [progress, kind] coloured by status — never the old
+    // [family/organization, application] + utilisation flip.
     await waitFor(() => {
-      const layer0 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
-      expect(layer0.value).toBe('family')
+      expect(
+        (screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement).value,
+      ).toBe('progress')
     })
+    const layer1 = screen.getByTestId('treemap-layer-1-select') as HTMLSelectElement
     const colour = screen.getByTestId('treemap-color-select') as HTMLSelectElement
     const size = screen.getByTestId('treemap-size-select') as HTMLSelectElement
-    expect(colour.value).toBe('utilization')
-    expect(size.value).toBe('cpu_request')
+    expect(layer1.value).toBe('kind')
+    expect(colour.value).toBe('status')
+    expect(size.value).toBe('uniform')
     expect(screen.queryByTestId('dashboard-view-toggle')).toBeNull()
   })
 
-  it('post-ready the operator can re-stack BACK to Progress (cutover/cron view)', async () => {
+  it('the resource stack (family/application + utilisation) stays selectable on ready', async () => {
+    // MUST-PRESERVE: org / application / utilization are never removed —
+    // they are just no longer the default. The operator re-stacks to the
+    // pods/utilisation view by picking non-job dimensions for BOTH layers.
     stubEventsFetch({ status: 'ready' } as DeploymentSnapshot)
     renderDashboard()
     await waitFor(() => {
       expect(
         (screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement).value,
-      ).toBe('family')
+      ).toBe('progress')
     })
-    // Re-adding the Progress dimension flips the stack back to the
-    // job source; colour/size re-derive to the job vocabulary.
     fireEvent.change(screen.getByTestId('treemap-layer-0-select'), {
-      target: { value: 'progress' },
+      target: { value: 'family' },
+    })
+    fireEvent.change(screen.getByTestId('treemap-layer-1-select'), {
+      target: { value: 'application' },
     })
     await waitFor(() => {
-      const layer0 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
-      expect(layer0.value).toBe('progress')
+      expect(
+        (screen.getByTestId('treemap-layer-1-select') as HTMLSelectElement).value,
+      ).toBe('application')
     })
+    // A fully non-job stack sources from pods/utilisation again: colour/size
+    // re-derive to the resource vocabulary.
     const colour = screen.getByTestId('treemap-color-select') as HTMLSelectElement
     const size = screen.getByTestId('treemap-size-select') as HTMLSelectElement
-    expect(colour.value).toBe('status')
-    expect(size.value).toBe('uniform')
+    expect(colour.value).toBe('utilization')
+    expect(size.value).toBe('cpu_request')
   })
 })

@@ -64,14 +64,24 @@ export interface UseLiveJobsBackfillResult {
  * Default fetcher — exposed via parameter so tests can inject a stub
  * without monkey-patching `globalThis.fetch`.
  */
-async function defaultFetchJobs(deploymentId: string): Promise<Job[]> {
+async function defaultFetchJobs(
+  deploymentId: string,
+  fullInventory = false,
+): Promise<Job[]> {
   // Single endpoint on both surfaces (mother + chroot). The chroot
   // catalyst-api lazily seeds its per-deployment jobs.Store from the
   // live cluster on first read (see chrootSeedJobsStoreIfEmpty) so
   // the wire shape is byte-identical to the mother's. No more
   // parallel-baby /api/v1/sovereign/jobs path.
+  //
+  // #4731 — the Dashboard treemap passes fullInventory to read
+  // ?inventory=full, which returns the COMPLETE platform inventory
+  // (every HelmRelease install / Flux Kustomization / CronJob /
+  // reconciler Deployment / cutover step). The Jobs page omits it and
+  // keeps the #3996 finite-work list — the two never regress each other.
+  const query = fullInventory ? '?inventory=full' : ''
   const res = await fetch(
-    `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/jobs`,
+    `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/jobs${query}`,
     {
       credentials: 'include',
       headers: { Accept: 'application/json' },
@@ -97,6 +107,14 @@ export interface UseLiveJobsBackfillOptions {
    * wasteful. Caller passes `streamStatus !== 'completed' && streamStatus !== 'failed'`.
    */
   enabled?: boolean
+  /**
+   * #4731 — request the FULL platform inventory (?inventory=full) instead
+   * of the default finite-work list. The Dashboard treemap sets this so a
+   * converged Sovereign shows every component; the Jobs page leaves it
+   * false to keep the #3996 finite view. Threaded into the query key so the
+   * two consumers cache independently.
+   */
+  fullInventory?: boolean
 }
 
 /** Founder-specified poll cadence — verbatim ("every 5s while the
@@ -106,7 +124,17 @@ const POLL_INTERVAL_MS = 5_000
 export function useLiveJobsBackfill(
   opts: UseLiveJobsBackfillOptions,
 ): UseLiveJobsBackfillResult {
-  const { deploymentId, disablePolling = false, fetcher = defaultFetchJobs, enabled = true } = opts
+  const {
+    deploymentId,
+    disablePolling = false,
+    fetcher,
+    enabled = true,
+    fullInventory = false,
+  } = opts
+  // Bind fullInventory into the default fetcher; a test-injected fetcher
+  // takes precedence and owns its own URL.
+  const effectiveFetcher =
+    fetcher ?? ((id: string) => defaultFetchJobs(id, fullInventory))
 
   // The query MUST be keyed by the actual deploymentId (not a static
   // 'sovereign' constant) — otherwise on the chroot Sovereign Console,
@@ -120,8 +148,13 @@ export function useLiveJobsBackfill(
   // the resolved id.
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   const query = useQuery<Job[]>({
-    queryKey: ['live-jobs-backfill', isSovereignMode ? 'sovereign' : 'mother', deploymentId],
-    queryFn: () => fetcher(deploymentId),
+    queryKey: [
+      'live-jobs-backfill',
+      isSovereignMode ? 'sovereign' : 'mother',
+      deploymentId,
+      fullInventory ? 'full' : 'finite',
+    ],
+    queryFn: () => effectiveFetcher(deploymentId),
     enabled: enabled && !!deploymentId,
     refetchInterval: () => {
       if (disablePolling) return false

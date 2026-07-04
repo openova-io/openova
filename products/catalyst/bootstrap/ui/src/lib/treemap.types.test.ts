@@ -124,6 +124,16 @@ describe('statusColor (#4731 categorical channel)', () => {
   it('renders an absent statusKind as the pending tint — never success', () => {
     expect(statusColor(undefined)).toBe(statusColor('pending'))
   })
+
+  it('#4731 — dormant tints from a DISTINCT dimmer grey token, not pending', () => {
+    // A distinct dimmer grey token + a lower mix — the parked cutover tether
+    // reads "asleep", never a genuine warning hue and never the same as
+    // pending queued work.
+    expect(statusColor('dormant')).toContain('var(--color-text-dimmer)')
+    expect(statusColor('dormant')).toMatch(/^color-mix\(in srgb, var\(--color-/)
+    expect(statusColor('dormant')).not.toMatch(/#[0-9a-fA-F]{3,8}/)
+    expect(statusColor('dormant')).not.toBe(statusColor('pending'))
+  })
 })
 
 describe('aggregateStatusKinds (#4731 bucket rollup)', () => {
@@ -136,6 +146,14 @@ describe('aggregateStatusKinds (#4731 bucket rollup)', () => {
     expect(aggregateStatusKinds(['success', 'success'])).toBe('success')
     expect(aggregateStatusKinds(['pending', 'pending'])).toBe('pending')
     expect(aggregateStatusKinds([])).toBe('pending')
+  })
+
+  it('#4731 — an all-dormant bucket rolls up dormant; any real work wins', () => {
+    expect(aggregateStatusKinds(['dormant', 'dormant'])).toBe('dormant')
+    // A dormant leaf mixed with genuinely queued work reads pending, never
+    // dormant — real work is never hidden behind a parked tether.
+    expect(aggregateStatusKinds(['dormant', 'pending'])).toBe('pending')
+    expect(aggregateStatusKinds(['dormant', 'failed'])).toBe('failed')
   })
 })
 

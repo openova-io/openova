@@ -1,25 +1,26 @@
 /**
  * Dashboard.progress-layers.test.tsx — #4731 Progress + Kind as
- * first-class layers of the EXISTING editable treemap (supersedes the
- * deleted ProvisioningTreemap suite).
+ * first-class layers of the EXISTING editable treemap, AMENDED per the
+ * founder's four escalation complaints (2026-07-05).
  *
- * Coverage:
- *   • buildJobsTreemapData — group-bucket derivation from the REAL
- *     `type=group` rows in dependency (topological) order; kind buckets
- *     nested under; individual job leaves with jobId/statusKind/
- *     statusLabel and uniform size.
- *   • Status colour mapping — the full 7-value JobStatus vocabulary
- *     incl. the HEALTH axis (healthy→green, degraded→amber,
- *     failing→red).
- *   • Sparse-group fallback — a store with only the `provisioner`
- *     group buckets by kind-derived lifecycle stages instead.
- *   • jobTileHref — JobsTable-identical JobDetail link convention
- *     (bare job name, deployment-scoped on the mothership).
- *   • Render — the converging Dashboard defaults to the job-sourced
- *     Progress→Kind stack, renders real /jobs data as treemap cells,
- *     pulses running cells, shows the categorical legend, and a job
- *     leaf CLICK navigates to that job's JobDetail with the CORRECT
- *     deployment id.
+ * The four complaints, each with the test that proves it dies:
+ *
+ *   1. "where are all the other items" (full inventory) —
+ *      `buildJobsTreemapData` surfaces EVERY component as a leaf,
+ *      including the HelmRelease installs the finite /jobs view dropped
+ *      (the treemap now reads ?inventory=full). See
+ *      `renders the full platform inventory as leaves`.
+ *   2. "second layer is not kind by default" — the default stack is
+ *      [progress, kind] UNCONDITIONALLY, incl. a converged (ready) env.
+ *      See `defaults to [progress, kind] even when status=ready`.
+ *   3. "cutover kinds still showing as pending" — the dormant cutover
+ *      steps collapse into ONE `cutover (dormant)` leaf in a Dormant
+ *      bucket, coloured dormant-grey, never pending. See
+ *      `collapses the dormant cutover steps ...` +
+ *      `pending non-cutover work stays in Pending, dormant is separate`.
+ *   4. relevance on both moments — the progress layer buckets by STATE
+ *      (Running/Pending/Done/Degraded/Failed/Dormant), orthogonal to
+ *      kind, so both a converging and a converged env read meaningfully.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -34,19 +35,21 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 
-import {
-  Dashboard,
-} from './Dashboard'
+import { Dashboard } from './Dashboard'
 import {
   buildJobsTreemapData,
   jobTileHref,
+  progressStateForKind,
   PROVISIONING_DEFAULT_LAYERS,
+  PROGRESS_STATES,
+  CUTOVER_DORMANT_LEAF_NAME,
   KIND_STAGES,
 } from './dashboardJobsTreemap'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 import type { Job, JobStatus } from '@/lib/jobs.types'
 import type { TreemapItem } from '@/lib/treemap.types'
+import type { ApplicationDescriptor } from './applicationCatalog'
 
 afterEach(() => {
   cleanup()
@@ -74,103 +77,46 @@ function J(partial: Partial<Job> & Pick<Job, 'id' | 'jobName'>): Job {
 }
 
 /**
- * Canonical converging store: three top-level groups chained by
- * dependsOn (provisioner → bootstrap-kit → day-2-mutations), leaves of
- * several kinds/statuses, plus one UNGROUPED cron leaf. The array is
- * deliberately SHUFFLED so bucket order can only come from the
- * dependency edges, never from input order.
+ * Full-inventory fixture (post ?inventory=full) in miniature: the four
+ * top groups + install / reconcile / reconciler / cron / lifecycle leaves
+ * + a DORMANT cutover (3 steps, all pending). Mirrors the hw224 converged
+ * shape: mostly Done, one running reconcile, and the parked cutover tether.
+ * Deliberately SHUFFLED so bucket order can only come from state/stage
+ * order, never input order.
  */
-function threeGroupJobs(): Job[] {
+function fullInventoryJobs(): Job[] {
   return [
-    // Shuffled on purpose: day-2 group first.
-    J({
-      id: `${DEP}:day-2-mutations`, jobName: 'day-2-mutations',
-      displayName: 'Day-2 Mutations', type: 'group', kind: 'group',
-      dependsOn: [`${DEP}:bootstrap-kit`],
-      childIds: [`${DEP}:mutation-add-node`, `${DEP}:reconciler-pdm`],
-    }),
-    J({
-      id: `${DEP}:mutation-add-node`, jobName: 'mutation-add-node',
-      kind: 'mutation', parentId: `${DEP}:day-2-mutations`, status: 'pending',
-    }),
-    J({
-      id: `${DEP}:reconciler-pdm`, jobName: 'reconciler-pdm',
-      kind: 'reconciler', parentId: `${DEP}:day-2-mutations`, status: 'degraded',
-    }),
-    J({
-      id: `${DEP}:bootstrap-kit`, jobName: 'bootstrap-kit',
-      displayName: 'Bootstrap', type: 'group', kind: 'group',
-      dependsOn: [`${DEP}:provisioner`],
-      childIds: [
-        `${DEP}:install-cilium`, `${DEP}:install-keycloak`,
-        `${DEP}:reconcile-flux-system`, `${DEP}:cutover-step-01-gitea`,
-      ],
-    }),
-    J({
-      id: `${DEP}:install-cilium`, jobName: 'install-cilium',
-      kind: 'install', appId: 'bp-cilium',
-      parentId: `${DEP}:bootstrap-kit`, status: 'succeeded',
-    }),
-    J({
-      id: `${DEP}:install-keycloak`, jobName: 'install-keycloak',
-      kind: 'install', appId: 'bp-keycloak',
-      parentId: `${DEP}:bootstrap-kit`, status: 'failed',
-    }),
-    J({
-      id: `${DEP}:reconcile-flux-system`, jobName: 'reconcile-flux-system',
-      kind: 'reconcile', parentId: `${DEP}:bootstrap-kit`, status: 'running',
-    }),
-    J({
-      id: `${DEP}:cutover-step-01-gitea`, jobName: 'cutover-step-01-gitea',
-      kind: 'step', parentId: `${DEP}:bootstrap-kit`, status: 'pending',
-    }),
-    J({
-      id: `${DEP}:provisioner`, jobName: 'provisioner',
-      displayName: 'Provisioner', type: 'group', kind: 'group',
-      childIds: [`${DEP}:lifecycle-tofu-apply`, `${DEP}:lifecycle-tofu-init`],
-    }),
-    J({
-      id: `${DEP}:lifecycle-tofu-init`, jobName: 'lifecycle-tofu-init',
-      kind: 'lifecycle', parentId: `${DEP}:provisioner`, status: 'succeeded',
-    }),
-    J({
-      id: `${DEP}:lifecycle-tofu-apply`, jobName: 'lifecycle-tofu-apply',
-      kind: 'lifecycle', parentId: `${DEP}:provisioner`, status: 'succeeded',
-    }),
-    // Ungrouped recurring leaf — must fall back to its kind stage even
-    // though the group set is NOT sparse.
-    J({
-      id: `${DEP}:cron-trivy-scan`, jobName: 'cron-trivy-scan',
-      kind: 'cron', status: 'healthy', runCount: 600,
-    }),
+    J({ id: `${DEP}:cutover`, jobName: 'cutover', displayName: 'Cutover', type: 'group', kind: 'group' }),
+    J({ id: `${DEP}:cutover-step-02-harbor`, jobName: 'cutover-step-02-harbor', kind: 'step', parentId: `${DEP}:cutover`, status: 'pending' }),
+    J({ id: `${DEP}:cutover-step-01-gitea`, jobName: 'cutover-step-01-gitea', kind: 'step', parentId: `${DEP}:cutover`, status: 'pending' }),
+    J({ id: `${DEP}:cutover-step-03-flux`, jobName: 'cutover-step-03-flux', kind: 'step', parentId: `${DEP}:cutover`, status: 'pending' }),
+    J({ id: `${DEP}:bootstrap-kit`, jobName: 'bootstrap-kit', displayName: 'Bootstrap', type: 'group', kind: 'group' }),
+    J({ id: `${DEP}:install-cilium`, jobName: 'install-cilium', kind: 'install', appId: 'bp-cilium', parentId: `${DEP}:bootstrap-kit`, status: 'succeeded' }),
+    J({ id: `${DEP}:install-keycloak`, jobName: 'install-keycloak', kind: 'install', appId: 'bp-keycloak', parentId: `${DEP}:bootstrap-kit`, status: 'succeeded' }),
+    J({ id: `${DEP}:install-gitea`, jobName: 'install-gitea', kind: 'install', appId: 'bp-gitea', parentId: `${DEP}:bootstrap-kit`, status: 'succeeded' }),
+    J({ id: `${DEP}:reconcilers`, jobName: 'reconcilers', displayName: 'Reconcilers', type: 'group', kind: 'group' }),
+    J({ id: `${DEP}:reconcile-flux`, jobName: 'reconcile-flux-system', kind: 'reconcile', parentId: `${DEP}:reconcilers`, status: 'running' }),
+    J({ id: `${DEP}:reconciler-pdm`, jobName: 'reconciler-pool-domain-manager', kind: 'reconciler', parentId: `${DEP}:reconcilers`, status: 'healthy' }),
+    J({ id: `${DEP}:cron-trivy`, jobName: 'cron-trivy-scan', kind: 'cron', parentId: `${DEP}:reconcilers`, status: 'healthy', runCount: 600 }),
+    J({ id: `${DEP}:provisioner`, jobName: 'provisioner', displayName: 'Provisioner', type: 'group', kind: 'group' }),
+    J({ id: `${DEP}:tofu-apply`, jobName: 'lifecycle-tofu-apply', kind: 'lifecycle', parentId: `${DEP}:provisioner`, status: 'succeeded' }),
   ]
 }
 
-/** hw220-shape sparse store: ONLY the provisioner group exists. */
-function sparseGroupJobs(): Job[] {
-  return [
-    J({
-      id: `${DEP}:provisioner`, jobName: 'provisioner',
-      displayName: 'Provisioner', type: 'group', kind: 'group',
-      childIds: [
-        `${DEP}:lifecycle-tofu-apply`, `${DEP}:install-cilium`,
-        `${DEP}:reconcile-flux-system`,
-      ],
-    }),
-    J({
-      id: `${DEP}:lifecycle-tofu-apply`, jobName: 'lifecycle-tofu-apply',
-      kind: 'lifecycle', parentId: `${DEP}:provisioner`, status: 'succeeded',
-    }),
-    J({
-      id: `${DEP}:install-cilium`, jobName: 'install-cilium',
-      kind: 'install', appId: 'bp-cilium',
-      parentId: `${DEP}:provisioner`, status: 'running',
-    }),
-    J({
-      id: `${DEP}:reconcile-flux-system`, jobName: 'reconcile-flux-system',
-      kind: 'reconcile', parentId: `${DEP}:provisioner`, status: 'failing',
-    }),
-  ]
+/** Minimal ApplicationDescriptor for the expected-catalog merge tests. */
+function App(bareId: string): ApplicationDescriptor {
+  return {
+    id: `bp-${bareId}`,
+    bareId,
+    title: bareId,
+    description: '',
+    familyId: 'platform',
+    familyName: 'Platform',
+    tier: 'mandatory',
+    logoUrl: null,
+    dependencies: [],
+    bootstrapKit: true,
+  }
 }
 
 function leafByJobId(items: readonly TreemapItem[], jobId: string): TreemapItem | undefined {
@@ -182,48 +128,72 @@ function leafByJobId(items: readonly TreemapItem[], jobId: string): TreemapItem 
   return undefined
 }
 
-/* ── Unit: derivation ─────────────────────────────────────────────── */
+function bucketByName(items: readonly TreemapItem[], name: string): TreemapItem | undefined {
+  return items.find((i) => i.name === name)
+}
 
-describe('buildJobsTreemapData — progress buckets from real group rows', () => {
-  it('binds the progress layer to the type=group rows in dependency order', () => {
-    const data = buildJobsTreemapData(threeGroupJobs(), PROVISIONING_DEFAULT_LAYERS)
-    // Group buckets first (topological over dependsOn — NOT input
-    // order, which deliberately leads with day-2), then the kind-stage
-    // fallback bucket for the ungrouped cron leaf.
-    expect(data.items.map((i) => i.name)).toEqual([
-      'Provisioner',
-      'Bootstrap',
-      'Day-2 Mutations',
-      'Recurring',
-    ])
-    // total_count = leaf jobs only (groups are buckets, not items).
-    expect(data.total_count).toBe(9)
-    // Bucket ids are the REAL group job ids so drill state stays stable
-    // across the 5s polling rebuilds.
-    expect(data.items[0]?.id).toBe(`${DEP}:provisioner`)
+function allLeaves(items: readonly TreemapItem[]): TreemapItem[] {
+  const out: TreemapItem[] = []
+  for (const it of items) {
+    if (it.children && it.children.length) out.push(...allLeaves(it.children))
+    else out.push(it)
+  }
+  return out
+}
+
+/* ── Unit: progress = STATE, kind = KIND ──────────────────────────── */
+
+describe('buildJobsTreemapData — progress buckets by STATE (#4731 amend)', () => {
+  it('defaults are [progress, kind] and progress buckets are the STATES', () => {
+    expect(PROVISIONING_DEFAULT_LAYERS).toEqual(['progress', 'kind'])
+    const data = buildJobsTreemapData(fullInventoryJobs(), PROVISIONING_DEFAULT_LAYERS)
+    // Only non-empty state buckets, in state order: Running < Done < Dormant.
+    expect(data.items.map((i) => i.name)).toEqual(['Running', 'Done', 'Dormant'])
+    // total_count = the TRUE inventory size (every underlying leaf incl. the
+    // 3 collapsed cutover steps) — 10 leaves total (no applications catalog
+    // passed here, so no upfront-seeded pending leaves).
+    expect(data.total_count).toBe(10)
   })
 
-  it('nests kind buckets under progress (its types under the second layer)', () => {
-    const data = buildJobsTreemapData(threeGroupJobs(), PROVISIONING_DEFAULT_LAYERS)
-    const kit = data.items.find((i) => i.name === 'Bootstrap')
-    // Bootstrap has install + reconcile + step leaves → 3 kind buckets
-    // in stage order.
-    expect(kit?.children?.map((c) => c.name)).toEqual(['Install', 'Reconcile', 'Step'])
-    const installs = kit?.children?.find((c) => c.name === 'Install')
-    expect(installs?.children).toHaveLength(2)
-    // Leaves carry the JobDetail discriminator + uniform size.
-    const keycloak = installs?.children?.find((c) => c.jobId === `${DEP}:install-keycloak`)
-    expect(keycloak?.size_value).toBe(1)
-    expect(keycloak?.name).toBe('install-keycloak')
+  it('progressStateForKind maps every status kind onto its state bucket', () => {
+    expect(progressStateForKind('in-progress')).toBe('running')
+    expect(progressStateForKind('success')).toBe('done')
+    expect(progressStateForKind('warning')).toBe('degraded')
+    expect(progressStateForKind('failed')).toBe('failed')
+    expect(progressStateForKind('pending')).toBe('pending')
+    expect(progressStateForKind('dormant')).toBe('dormant')
+  })
+
+  it('complaint #1 — renders the full platform inventory as leaves (installs are NOT dropped)', () => {
+    const data = buildJobsTreemapData(fullInventoryJobs(), PROVISIONING_DEFAULT_LAYERS)
+    // Every HelmRelease install surfaces as a leaf — the exact rows the
+    // finite /jobs view dropped and the founder said were "missing".
+    for (const id of [`${DEP}:install-cilium`, `${DEP}:install-keycloak`, `${DEP}:install-gitea`]) {
+      expect(leafByJobId(data.items, id), id).toBeTruthy()
+    }
+    // The Done bucket's kind sub-buckets carry the installs + the healthy
+    // reconciler + cron + lifecycle, in stage order.
+    const done = bucketByName(data.items, 'Done')
+    expect(done?.children?.map((c) => c.name)).toEqual(['Lifecycle', 'Install', 'Cron', 'Reconciler'])
+    const installs = done?.children?.find((c) => c.name === 'Install')
+    expect(installs?.children).toHaveLength(3)
+  })
+
+  it('complaint #4 — running reconcile lands in Running, colours by status', () => {
+    const data = buildJobsTreemapData(fullInventoryJobs(), PROVISIONING_DEFAULT_LAYERS)
+    const running = bucketByName(data.items, 'Running')
+    expect(running?.statusKind).toBe('in-progress')
+    expect(leafByJobId(running?.children ?? [], `${DEP}:reconcile-flux`)?.statusKind).toBe('in-progress')
+    // Done bucket rolls up green.
+    expect(bucketByName(data.items, 'Done')?.statusKind).toBe('success')
   })
 
   it('supports the kind dimension standalone (layers=[kind]) in stage order', () => {
-    const data = buildJobsTreemapData(threeGroupJobs(), ['kind'])
-    const names = data.items.map((i) => i.name)
-    // Stage order: Lifecycle < Install < Reconcile < Mutation < Step <
-    // Cron < Reconciler (only the kinds present appear).
-    expect(names).toEqual([
-      'Lifecycle', 'Install', 'Reconcile', 'Mutation', 'Step', 'Cron', 'Reconciler',
+    const data = buildJobsTreemapData(fullInventoryJobs(), ['kind'])
+    // Only present kinds appear, in stage order. The 3 dormant cutover
+    // steps collapse to ONE Step leaf.
+    expect(data.items.map((i) => i.name)).toEqual([
+      'Lifecycle', 'Install', 'Reconcile', 'Step', 'Cron', 'Reconciler',
     ])
     expect(KIND_STAGES.lifecycle.order).toBeLessThan(KIND_STAGES.install.order)
   })
@@ -234,8 +204,6 @@ describe('buildJobsTreemapData — progress buckets from real group rows', () =>
       ['running', 'in-progress'],
       ['failed', 'failed'],
       ['pending', 'pending'],
-      // HEALTH axis (#3646 §4c): running-forever-and-correct is green,
-      // degraded amber, failing red — never grey.
       ['healthy', 'success'],
       ['degraded', 'warning'],
       ['failing', 'failed'],
@@ -247,39 +215,125 @@ describe('buildJobsTreemapData — progress buckets from real group rows', () =>
     for (const [i, [s, expected]] of statuses.entries()) {
       const leaf = leafByJobId(data.items, `${DEP}:install-x${i}`)
       expect(leaf?.statusKind, `${s} → ${expected}`).toBe(expected)
-      // The raw status word is preserved for the tooltip/sub-label.
       expect(leaf?.statusLabel).toBe(s)
     }
   })
+})
 
-  it('rolls leaf kinds up onto buckets (failed > warning > in-progress > success)', () => {
-    const data = buildJobsTreemapData(threeGroupJobs(), PROVISIONING_DEFAULT_LAYERS)
-    const byName = new Map(data.items.map((i) => [i.name, i]))
-    // Bootstrap: succeeded + failed + running + pending → failed wins.
-    expect(byName.get('Bootstrap')?.statusKind).toBe('failed')
-    // Provisioner: all succeeded → success.
-    expect(byName.get('Provisioner')?.statusKind).toBe('success')
-    // Day-2: pending + degraded → warning wins.
-    expect(byName.get('Day-2 Mutations')?.statusKind).toBe('warning')
-    // Recurring: healthy → success.
-    expect(byName.get('Recurring')?.statusKind).toBe('success')
+/* ── Unit: dormant cutover collapse (complaint #3) ────────────────── */
+
+describe('buildJobsTreemapData — dormant cutover collapse (#4731 complaint #3)', () => {
+  it('collapses the dormant cutover steps into ONE dormant leaf, never pending', () => {
+    const data = buildJobsTreemapData(fullInventoryJobs(), PROVISIONING_DEFAULT_LAYERS)
+    // There is NO Pending bucket — the 3 pending cutover steps did NOT
+    // pollute it (the founder's exact complaint).
+    expect(bucketByName(data.items, 'Pending')).toBeUndefined()
+    // The Dormant bucket holds exactly ONE aggregate leaf, coloured dormant.
+    const dormant = bucketByName(data.items, 'Dormant')
+    expect(dormant?.statusKind).toBe('dormant')
+    const dormantLeaves = allLeaves(dormant?.children ?? [])
+    expect(dormantLeaves).toHaveLength(1)
+    expect(dormantLeaves[0]?.name).toBe(CUTOVER_DORMANT_LEAF_NAME)
+    expect(dormantLeaves[0]?.statusKind).toBe('dormant')
+    // The aggregate carries the collapsed step count (3) + deep-links to
+    // the Cutover group so a click opens the per-step detail.
+    expect(dormantLeaves[0]?.count).toBe(3)
+    expect(dormantLeaves[0]?.jobId).toBe(`${DEP}:cutover`)
+    // No individual cutover-step leaf leaked anywhere.
+    expect(leafByJobId(data.items, `${DEP}:cutover-step-01-gitea`)).toBeUndefined()
   })
 
-  it('falls back to kind-derived lifecycle stages on a sparse group set (hw220 shape)', () => {
-    const data = buildJobsTreemapData(sparseGroupJobs(), PROVISIONING_DEFAULT_LAYERS)
-    // ONE group only → sparse → the progress buckets are the
-    // kind-derived stages, in dependency order, NOT 'Provisioner'.
-    expect(data.items.map((i) => i.name)).toEqual([
-      'Infrastructure', 'Installs', 'Reconciles',
-    ])
-    expect(data.items.map((i) => i.name)).not.toContain('Provisioner')
-    // The failing reconcile still surfaces red through the fallback.
-    expect(data.items.find((i) => i.name === 'Reconciles')?.statusKind).toBe('failed')
+  it('pending NON-cutover work stays in Pending; dormant cutover is separate', () => {
+    const jobs = [
+      ...fullInventoryJobs(),
+      // A genuinely queued (pending) install — belongs in Pending.
+      J({ id: `${DEP}:install-openbao`, jobName: 'install-openbao', kind: 'install', appId: 'bp-openbao', parentId: `${DEP}:bootstrap-kit`, status: 'pending' }),
+    ]
+    const data = buildJobsTreemapData(jobs, PROVISIONING_DEFAULT_LAYERS)
+    // Pending bucket now exists (the openbao install) and holds it.
+    const pending = bucketByName(data.items, 'Pending')
+    expect(pending?.statusKind).toBe('pending')
+    expect(leafByJobId(pending?.children ?? [], `${DEP}:install-openbao`)).toBeTruthy()
+    // Dormant is still its own separate bucket — pending and dormant never
+    // share a bucket.
+    expect(bucketByName(data.items, 'Dormant')?.statusKind).toBe('dormant')
+    expect(leafByJobId(pending?.children ?? [], `${DEP}:cutover`)).toBeUndefined()
+  })
+
+  it('once cutover FIRES (any step non-pending) the steps expand as live leaves', () => {
+    const jobs = fullInventoryJobs().map((j) =>
+      j.jobName === 'cutover-step-01-gitea' ? { ...j, status: 'succeeded' as JobStatus } : j,
+    )
+    const data = buildJobsTreemapData(jobs, PROVISIONING_DEFAULT_LAYERS)
+    // The dormant aggregate is gone; individual steps render again.
+    expect(leafByJobId(data.items, `${DEP}:cutover`)).toBeUndefined()
+    expect(allLeaves(data.items).some((l) => l.name === CUTOVER_DORMANT_LEAF_NAME)).toBe(false)
+    expect(leafByJobId(data.items, `${DEP}:cutover-step-01-gitea`)?.statusKind).toBe('success')
+    // The two still-pending steps land in Pending (real queued work now).
+    expect(leafByJobId(bucketByName(data.items, 'Pending')?.children ?? [], `${DEP}:cutover-step-02-harbor`)).toBeTruthy()
+  })
+
+  it('PROGRESS_STATES colours dormant grey and orders it last', () => {
+    expect(PROGRESS_STATES.dormant.statusKind).toBe('dormant')
+    expect(PROGRESS_STATES.dormant.order).toBeGreaterThan(PROGRESS_STATES.done.order)
+    expect(PROGRESS_STATES.running.order).toBeLessThan(PROGRESS_STATES.pending.order)
   })
 })
 
+/* ── Upfront full expected inventory (founder: "see all at once") ──── */
+
+describe('buildJobsTreemapData — upfront expected inventory from t=0', () => {
+  // The full planned catalog for a tiny prov: 5 bootstrap-kit slots.
+  const catalog = [
+    App('cilium'),
+    App('cert-manager'),
+    App('flux'),
+    App('keycloak'),
+    App('gitea'),
+  ]
+
+  it('seeds EVERY expected component as a pending leaf at provisioning start', () => {
+    // t=0: only the provisioner lifecycle rows exist as jobs — no HR has
+    // reconciled yet. The map must STILL show all 5 planned installs.
+    const t0Jobs = [
+      J({ id: `${DEP}:provisioner`, jobName: 'provisioner', displayName: 'Provisioner', type: 'group', kind: 'group' }),
+      J({ id: `${DEP}:tofu-apply`, jobName: 'lifecycle-tofu-apply', kind: 'lifecycle', parentId: `${DEP}:provisioner`, status: 'running' }),
+    ]
+    const data = buildJobsTreemapData(t0Jobs, PROVISIONING_DEFAULT_LAYERS, catalog)
+    // Full expected inventory = 5 planned installs (pending) + 1 lifecycle
+    // (running). total_count counts every planned component from the start.
+    expect(data.total_count).toBe(6)
+    const pendingInstalls = bucketByName(data.items, 'Pending')?.children?.find((c) => c.name === 'Install')
+    expect(pendingInstalls?.children).toHaveLength(5)
+    // Every planned install leaf is pending (queued), NOT missing.
+    for (const c of pendingInstalls?.children ?? []) {
+      expect(c.statusKind).toBe('pending')
+    }
+  })
+
+  it('the live job WINS over the planned pending leaf as convergence progresses', () => {
+    // cilium install has started + succeeded; the other 4 are still planned.
+    const jobs = [
+      J({ id: `${DEP}:bootstrap-kit`, jobName: 'bootstrap-kit', displayName: 'Bootstrap', type: 'group', kind: 'group' }),
+      J({ id: `${DEP}:install-cilium`, jobName: 'install-cilium', kind: 'install', appId: 'cilium', parentId: `${DEP}:bootstrap-kit`, status: 'succeeded' }),
+    ]
+    const data = buildJobsTreemapData(jobs, PROVISIONING_DEFAULT_LAYERS, catalog)
+    // No duplicate cilium: it appears ONCE, in Done (the live job wins).
+    expect(leafByJobId(data.items, `${DEP}:install-cilium`)?.statusKind).toBe('success')
+    const doneInstalls = bucketByName(data.items, 'Done')?.children?.find((c) => c.name === 'Install')
+    expect(allLeaves(doneInstalls?.children ?? [])).toHaveLength(1)
+    // The remaining 4 planned installs are still pending.
+    const pendingInstalls = bucketByName(data.items, 'Pending')?.children?.find((c) => c.name === 'Install')
+    expect(pendingInstalls?.children).toHaveLength(4)
+    // Total still equals the full expected inventory (5 installs) — never
+    // fewer, never doubled.
+    expect(data.total_count).toBe(5)
+  })
+})
+
+/* ── jobTileHref (unchanged convention) ───────────────────────────── */
+
 describe('jobTileHref — JobsTable-identical JobDetail link convention', () => {
-  // jsdom runs in catalyst-zero (mothership) mode.
   it('builds the deployment-scoped path with the bare job name', () => {
     expect(jobTileHref(`${DEP}:install-keycloak`, DEP)).toBe(
       `/provision/${DEP}/jobs/install-keycloak`,
@@ -351,13 +405,12 @@ function renderDashboard() {
   return { ...utils, router }
 }
 
-describe('Dashboard — job-sourced Progress treemap (converging defaults)', () => {
+describe('Dashboard — job-sourced Progress treemap render', () => {
   beforeEach(() => {
     useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
-    stubFetch(threeGroupJobs(), 'phase1-watching')
-    // jsdom lays out nothing: force a measurable surface width so
-    // SquarifiedSurface clears its `width > 0` gate and mounts cells
-    // (same harness as the Dashboard drill suite).
+    // status=ready: the CONVERGED moment — the map must STILL default to
+    // [progress, kind] (complaint #2) and render the full inventory.
+    stubFetch(fullInventoryJobs(), 'ready')
     Object.defineProperty(HTMLDivElement.prototype, 'clientWidth', {
       configurable: true,
       get() {
@@ -379,49 +432,52 @@ describe('Dashboard — job-sourced Progress treemap (converging defaults)', () 
       SyncResizeObserver
   })
 
-  it('renders the /jobs tree as treemap cells with status colours + pulse + legend', async () => {
+  it('complaint #2 — defaults to [progress, kind] even when status=ready', async () => {
+    renderDashboard()
+    await screen.findByTestId('dashboard-treemap-frame')
+    // The two default layer selects are Progress + Kind — NOT the old
+    // ready-flip to Organization / Application.
+    const layer0 = (await screen.findByTestId('treemap-layer-0-select')) as HTMLSelectElement
+    const layer1 = (await screen.findByTestId('treemap-layer-1-select')) as HTMLSelectElement
+    expect(layer0.value).toBe('progress')
+    expect(layer1.value).toBe('kind')
+    // Job-sourced ⇒ Color=Status, Size=Uniform (auto-locked to the job vocab).
+    expect((screen.getByTestId('treemap-color-select') as HTMLSelectElement).value).toBe('status')
+    expect((screen.getByTestId('treemap-size-select') as HTMLSelectElement).value).toBe('uniform')
+  })
+
+  it('renders the /jobs inventory as status-coloured cells + dormant + legend', async () => {
     const { container } = renderDashboard()
     await screen.findByTestId('dashboard-treemap-frame')
-    // Job-sourced cells mounted from the REAL fetch (no override seam).
     await waitFor(() => {
-      expect(
-        container.querySelector(`g[data-job-id="${DEP}:install-keycloak"]`),
-      ).toBeTruthy()
+      expect(container.querySelector(`g[data-job-id="${DEP}:install-keycloak"]`)).toBeTruthy()
     })
-    const failed = container.querySelector(`g[data-job-id="${DEP}:install-keycloak"]`)!
-    const running = container.querySelector(`g[data-job-id="${DEP}:reconcile-flux-system"]`)!
-    const healthy = container.querySelector(`g[data-job-id="${DEP}:cron-trivy-scan"]`)!
-    expect(failed.getAttribute('data-status-kind')).toBe('failed')
+    const done = container.querySelector(`g[data-job-id="${DEP}:install-keycloak"]`)!
+    const running = container.querySelector(`g[data-job-id="${DEP}:reconcile-flux"]`)!
+    expect(done.getAttribute('data-status-kind')).toBe('success')
     expect(running.getAttribute('data-status-kind')).toBe('in-progress')
-    // HEALTH axis: healthy renders green (success), never grey.
-    expect(healthy.getAttribute('data-status-kind')).toBe('success')
-    // Running cells pulse — visibly distinct from pending/success.
+    // The dormant cutover aggregate renders as a dormant cell (dashed).
+    const dormant = container.querySelector(`g[data-job-id="${DEP}:cutover"]`)!
+    expect(dormant.getAttribute('data-status-kind')).toBe('dormant')
+    expect(dormant.querySelector('rect[style*="dasharray"]')).toBeTruthy()
+    // Running cells pulse; the categorical legend carries the Dormant swatch.
     expect(running.querySelector('rect.dash-cell-pulse')).toBeTruthy()
-    expect(failed.querySelector('rect.dash-cell-pulse')).toBeNull()
-    // Categorical legend replaces the gradient bar in status mode.
+    expect(screen.getByTestId('dashboard-legend-status-dormant')).toBeTruthy()
     expect(screen.getByTestId('dashboard-legend-status-success')).toBeTruthy()
-    expect(screen.getByTestId('dashboard-legend-status-failed')).toBeTruthy()
-    expect(screen.getByTestId('dashboard-legend-status-in-progress')).toBeTruthy()
   })
 
   it('job-leaf click navigates to that job\'s JobDetail with the CORRECT deployment id', async () => {
     const { container, router } = renderDashboard()
     await screen.findByTestId('dashboard-treemap-frame')
     await waitFor(() => {
-      expect(
-        container.querySelector(`g[data-job-id="${DEP}:install-keycloak"]`),
-      ).toBeTruthy()
+      expect(container.querySelector(`g[data-job-id="${DEP}:install-keycloak"]`)).toBeTruthy()
     })
-    const leafG = container.querySelector(
-      `g[data-job-id="${DEP}:install-keycloak"]`,
-    ) as SVGGElement
+    const leafG = container.querySelector(`g[data-job-id="${DEP}:install-keycloak"]`) as SVGGElement
     expect((leafG.getAttribute('style') ?? '').includes('pointer')).toBe(true)
     leafG.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await waitFor(() => {
       expect(screen.queryByTestId('job-detail-target')).toBeTruthy()
     })
-    expect(router.state.location.pathname).toBe(
-      `/provision/${DEP}/jobs/install-keycloak`,
-    )
+    expect(router.state.location.pathname).toBe(`/provision/${DEP}/jobs/install-keycloak`)
   })
 })
