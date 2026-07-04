@@ -322,7 +322,7 @@ export function SandboxProvisioningPanel({
       ) : null}
 
       <ol
-        aria-label="Sandbox provisioning stages"
+        aria-label="Agenity provisioning stages"
         data-testid="sandbox-provisioning-stages"
         className="flex flex-col gap-2"
       >

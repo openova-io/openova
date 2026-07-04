@@ -527,7 +527,7 @@ export function SandboxSession({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle={`Sandbox · ${sessionId || 'session'}`}
+      pageTitle={`Agenity · ${sessionId || 'session'}`}
       headerSlotLeft={
         <Link
           to={'/sandbox' as never}
@@ -563,7 +563,7 @@ export function SandboxSession({
         ) : null}
 
         <section
-          aria-label="Sandbox terminal"
+          aria-label="Agenity terminal"
           data-testid="sandbox-session-card"
           data-connection-phase={phase}
           data-show-terminal={showTerminal ? 'true' : 'false'}

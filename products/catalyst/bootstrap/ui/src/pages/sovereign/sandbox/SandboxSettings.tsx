@@ -69,7 +69,7 @@ export function SandboxSettings({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle="Sandbox settings"
+      pageTitle="Agenity settings"
       headerSlotLeft={
         <Link
           to={'/sandbox' as never}

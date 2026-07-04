@@ -95,7 +95,7 @@ export function SandboxLanding({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle="Sandbox"
+      pageTitle="Agenity"
       headerSlotLeft={
         <Link
           to={'/sandbox/settings' as never}
