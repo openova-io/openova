@@ -136,12 +136,16 @@ metadata:
   name: powerdns-zone-bootstrap
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "bp-powerdns.labels" . | nindent 4 }}
-    catalyst.openova.io/component: zone-bootstrap
-    # #4765 live-strike: kyverno ClusterPolicy `flux-managed` denies hook Jobs
-    # without this label (blocked the 1.2.18 upgrade on hw224). The hook IS
-    # created by a Flux-driven Helm upgrade; label satisfies the policy.
+    # #4765: labels spelled out (NOT the bp-powerdns.labels include) because
+    # managed-by MUST be flux here — kyverno ClusterPolicy `flux-managed`
+    # denies hook Jobs labeled managed-by: Helm (blocked 1.2.18 AND the
+    # 1.2.19 duplicate-key attempt on hw224: Helm's YAML decode keeps the
+    # FIRST duplicate key, so an override line after the include is inert).
+    app.kubernetes.io/name: {{ include "bp-powerdns.fullname" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: flux
+    catalyst.openova.io/blueprint: bp-powerdns
+    catalyst.openova.io/component: zone-bootstrap
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "10"

@@ -54,7 +54,9 @@ name: bp-powerdns
 #   app.kubernetes.io/managed-by: flux — kyverno `flux-managed` policy denied
 #   the hook on upgrade (hw224), rolling back 1.2.18 and stranding the anycast
 #   Service as the forbidden NodePort.
-version: 1.2.19
+# 1.2.20 (#4765): hook-Job labels spelled out so managed-by=flux actually
+#   renders — the 1.2.19 duplicate-key override was inert (first key wins).
+version: 1.2.20
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist
