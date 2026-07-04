@@ -370,11 +370,21 @@ spec:
       default:
         cpu: "{{ .DefaultCPU }}"
         memory: "{{ .DefaultMem }}"
-{{- if not .Quota.Burstable }}
-      maxLimitRequestRatio:
-        cpu: "1"
-        memory: "1"
-{{- end }}
+{{- /*
+  #4758 — NO maxLimitRequestRatio on the vcluster-Org host namespace. This
+  template renders the HOST ns of a per-Org vCluster, and the vcluster syncer
+  reflects the vcluster's pods INTO this ns — starting with the vcluster's own
+  bundled system pods (coredns, ratio 50:1 cpu / 2.66:1 mem) which can NEVER be
+  Guaranteed. A maxLimitRequestRatio cpu=1/memory=1 here therefore FORBIDS
+  every synced pod at admission → coredns Pending → the vcluster runs nothing →
+  the customer's first app (WordPress) 404s. Live-confirmed on hw223 uatwalk223
+  (syncer: "forbidden: cpu max limit to request ratio ... is 1, but provided
+  50"). The #4292/W-2 Guaranteed-QoS enforcement belongs on the HOST-namespace
+  Org path (non-vcluster tiers), NOT here — the vcluster boundary + the
+  vcluster's own resource caps provide isolation for vcluster-mode Orgs. The
+  defaultRequest/default above stay (they satisfy the ResourceQuota's
+  "limited resource must be set" admission rule without imposing a ratio).
+*/}}
 `
 
 // networkPolicyTemplate is the default-deny + same-Org-allow baseline rendered
