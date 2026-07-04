@@ -489,3 +489,42 @@ func TestConfigSchema_RejectsExplicitNull_AcceptsEmptyObject(t *testing.T) {
 		t.Fatalf("empty object {} must validate against bp-postgres configSchema, got: %v", repEmpty.Errors)
 	}
 }
+
+// TestDefaultedParameters_AgenityStampsGateHost locks #4739 W-3: the MCP
+// install path must stamp httpRoute.hostnames = [agenity.<slug>.<pool>] from
+// the Org console host, so the chart's gateHostname resolves to the RESOLVABLE
+// Org host instead of falling back to agenity.<sovereignFqdn> (no DNS).
+func TestDefaultedParameters_AgenityStampsGateHost(t *testing.T) {
+	got := defaultedParameters("bp-agenity", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", nil)
+	hr, ok := got["httpRoute"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected httpRoute block, got %#v", got["httpRoute"])
+	}
+	hosts, ok := hr["hostnames"].([]interface{})
+	if !ok || len(hosts) != 1 || hosts[0] != "agenity.nstar.omani.homes" {
+		t.Fatalf("gate host = %#v, want [agenity.nstar.omani.homes] (Org host, not agenity.hw220.omani.works)", hr["hostnames"])
+	}
+}
+
+// TestDefaultedParameters_AgenityGateHostEmptyOrgConsole_NoStamp: mothership /
+// no-registry-row case → leave the chart's fail-closed sovereignFqdn default.
+func TestDefaultedParameters_AgenityGateHostEmptyOrgConsole_NoStamp(t *testing.T) {
+	got := defaultedParameters("bp-agenity", "singleton", "hw220.omani.works", "nstar", "", nil)
+	if _, present := got["httpRoute"]; present {
+		t.Fatalf("no gate host must be stamped when orgConsoleHost is empty, got %#v", got["httpRoute"])
+	}
+}
+
+// TestDefaultedParameters_AgenityExplicitGateHostWins: an explicit
+// httpRoute.hostnames the caller supplied is never clobbered.
+func TestDefaultedParameters_AgenityExplicitGateHostWins(t *testing.T) {
+	explicit := map[string]interface{}{
+		"httpRoute": map[string]interface{}{"hostnames": []interface{}{"agenity.custom.example"}},
+	}
+	got := defaultedParameters("bp-agenity", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", explicit)
+	hr := got["httpRoute"].(map[string]interface{})
+	hosts := hr["hostnames"].([]interface{})
+	if hosts[0] != "agenity.custom.example" {
+		t.Fatalf("explicit gate host must win, got %#v", hosts)
+	}
+}
