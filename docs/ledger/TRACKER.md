@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T02:00:03Z` |
+| Last refreshed | `2026-07-04T02:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 42 |
 | Open DoD gates | 0 / 41 |
@@ -249,6 +249,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T02:07 | [#4745](https://github.com/openova-io/openova/pull/4745) | #4739 | fix(marketplace): banned 'tenant' → Organization on customer |
 | 2026-07-04T00:38 | [#4744](https://github.com/openova-io/openova/pull/4744) | #4739 | fix(org-provisioning): agenity per-Org gate host — MCP-insta |
 | 2026-07-03T23:34 | [#4743](https://github.com/openova-io/openova/pull/4743) | #4739 | fix(org-provisioning): Guaranteed-QoS resources for per-Org  |
 | 2026-07-03T22:55 | [#4742](https://github.com/openova-io/openova/pull/4742) | #4739 | fix(console): remove AppDetail test-theater identity strip v |
@@ -278,7 +279,6 @@ flowchart LR
 | 2026-07-02T21:58 | [#4711](https://github.com/openova-io/openova/pull/4711) | #3 | fix(gateway): Hetzner LB annotations provider-scoped — no ve |
 | 2026-07-02T21:41 | [#4710](https://github.com/openova-io/openova/pull/4710) | fix(bp-agenity): move the dashboard image off the chart OCI  |  |
 | 2026-07-02T21:11 | [#4709](https://github.com/openova-io/openova/pull/4709) | #4684 | fix(test): un-red main — registry-pivot flip test asserted t |
-| 2026-07-02T22:42 | [#4708](https://github.com/openova-io/openova/pull/4708) | #4706 | fix(bp-cilium): 1.19.3 + gatewayAPI hostNetwork — §854-clean |
 
 ---
 
