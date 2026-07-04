@@ -30,6 +30,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1959,86 +1960,25 @@ func TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges(t *testing.T)
 	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
 }
 
-// TestResolveClusterMeshDialPort locks in the #3241 hw128 finding: when
-// the clustermesh-apiserver "LB" is Cilium nodeIPAM, the ingress IP is a
-// node-owned EIP that is DNAT'd to the node's private address — the BPF
-// VIP frontend (keyed on the public EIP) never matches inbound packets,
-// so EIP:2379 is connection-refused from outside the cluster and the
-// ONLY externally-reachable path is the Service NodePort (verified live:
-// 212.72.24.52:2379 refused, :31744 open). A real cloud LB (Hetzner)
-// listens on 2379 itself and must keep dialing 2379.
-func TestResolveClusterMeshDialPort(t *testing.T) {
-	const eip = "212.72.24.52"
-	mkSvc := func(nodePort int32) *corev1.Service {
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{Name: clusterMeshApiserverService, Namespace: clusterMeshNamespace},
-			Spec: corev1.ServiceSpec{
-				Type:  corev1.ServiceTypeLoadBalancer,
-				Ports: []corev1.ServicePort{{Port: 2379, NodePort: nodePort}},
-			},
-		}
-		svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: eip}}
-		return svc
-	}
-	mkNode := func(externalIP string) *corev1.Node {
-		n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp1"}}
-		if externalIP != "" {
-			n.Status.Addresses = []corev1.NodeAddress{
-				{Type: corev1.NodeInternalIP, Address: "10.59.1.52"},
-				{Type: corev1.NodeExternalIP, Address: externalIP},
-			}
-		}
-		return n
-	}
-	h := &Handler{log: silentLogger()}
-	ctx := context.Background()
-
-	t.Run("real-cloud-LB-keeps-2379", func(t *testing.T) {
-		// Node ExternalIPs do NOT include the ingress IP — a real LB owns it.
-		cs := kfake.NewSimpleClientset(mkNode("198.51.100.7"))
-		port, err := h.resolveClusterMeshDialPort(ctx, cs, mkSvc(31744), eip)
-		if err != nil {
-			t.Fatalf("resolveClusterMeshDialPort: %v", err)
-		}
-		if port != 2379 {
-			t.Errorf("port = %d, want 2379 (real cloud LB)", port)
-		}
-	})
-
-	t.Run("node-owned-EIP-dials-NodePort", func(t *testing.T) {
-		cs := kfake.NewSimpleClientset(mkNode(eip))
-		port, err := h.resolveClusterMeshDialPort(ctx, cs, mkSvc(31744), eip)
-		if err != nil {
-			t.Fatalf("resolveClusterMeshDialPort: %v", err)
-		}
-		if port != 31744 {
-			t.Errorf("port = %d, want 31744 (nodeIPAM EIP must dial NodePort)", port)
-		}
-	})
-
-	t.Run("node-owned-EIP-without-nodeport-falls-back", func(t *testing.T) {
-		cs := kfake.NewSimpleClientset(mkNode(eip))
-		port, err := h.resolveClusterMeshDialPort(ctx, cs, mkSvc(0), eip)
-		if err != nil {
-			t.Fatalf("resolveClusterMeshDialPort: %v", err)
-		}
-		if port != 2379 {
-			t.Errorf("port = %d, want 2379 fallback (warn-and-continue, etcd step surfaces it)", port)
-		}
-	})
-}
-
-// TestBuildPeerConfigBlob_DialPort — the endpoint line must carry the
-// RESOLVED dial port (NodePort on nodeIPAM peers), not hardcoded 2379,
-// while keeping the canonical *.mesh.cilium.io hostname (TLS SAN).
-func TestBuildPeerConfigBlob_DialPort(t *testing.T) {
-	blob := string(buildPeerConfigBlob("hw128-me-east-215-b", 31744))
-	want := "- https://hw128-me-east-215-b.mesh.cilium.io:31744"
+// TestBuildPeerConfigBlob_AlwaysDialsVIP2379 locks in #4765 (founder
+// 2026-07-03, "FUCK THE NODEPORTS!!!"): peers ALWAYS dial the clustermesh
+// VIP on :2379 — NodePort is ABSOLUTELY FORBIDDEN. The pre-#4765
+// node-owned-EIP NodePort fallback (resolveClusterMeshDialPort, which
+// returned the Service NodePort on the DNAT'd Huawei EIP — the #3241
+// shape) is DELETED: the single sovereign-vip LB-IPAM pool gives the
+// Service a real VIP that Cilium's kube-proxy-replacement LB frontend
+// serves on 2379. The peer endpoint therefore always carries :2379 with
+// the canonical *.mesh.cilium.io hostname (TLS SAN), and NEVER a
+// 30000-32767 NodePort.
+func TestBuildPeerConfigBlob_AlwaysDialsVIP2379(t *testing.T) {
+	blob := string(buildPeerConfigBlob("hw224-me-east-b", clusterMeshAPIServerPort))
+	want := "- https://hw224-me-east-b.mesh.cilium.io:2379"
 	if !strings.Contains(blob, want) {
-		t.Errorf("blob missing %q:\n%s", want, blob)
+		t.Errorf("blob missing canonical VIP dial %q:\n%s", want, blob)
 	}
-	if strings.Contains(blob, ":2379") {
-		t.Errorf("blob still hardcodes 2379:\n%s", blob)
+	// No NodePort (30000-32767) may ever appear on the peer endpoint.
+	if m := regexp.MustCompile(`mesh\.cilium\.io:3[0-2][0-9]{3}`).FindString(blob); m != "" {
+		t.Errorf("blob dials a forbidden NodePort %q (#4765):\n%s", m, blob)
 	}
 }
 
