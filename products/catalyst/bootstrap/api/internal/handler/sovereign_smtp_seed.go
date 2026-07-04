@@ -191,6 +191,33 @@ func (h *Handler) seedSovereignSMTPCredentials(ctx context.Context, dep *Deploym
 		return SovereignSMTPSeedOutcomeSkippedNoEnv
 	}
 
+	// #4748 — the Phase-1 relay host/port/from must be the mothership's
+	// PUBLIC SMTP endpoint (mail.openova.io:587), NOT the mothership's own
+	// CATALYST_SMTP_HOST — that is the in-cluster `stalwart-web.stalwart.svc.
+	// cluster.local` Service (#4696), which does NOT exist on a customer
+	// Sovereign (Sovereigns run no Stalwart). Seeding ONLY smtp-user/smtp-pass
+	// (the original bug) left the chart's `catalyst-openova-kc-credentials`
+	// contract Secret with no source `smtp-host` to win precedence over, so it
+	// fell back to the `.Values.sovereign.smtp.host` in-cluster-Stalwart default
+	// → `no such host` → operator PIN-login 502 on EVERY fresh Sovereign
+	// (hw221 evidence). Seed the reachable public relay so the source-wins
+	// precedence in catalyst-openova-kc-credentials-secret.yaml repoints the
+	// contract Secret to a host that actually answers. Env-overridable so a
+	// bespoke relay can be pinned without a rebuild; defaults match the seed's
+	// stated intent (mail.openova.io:587).
+	relayHost := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_HOST")
+	if relayHost == "" {
+		relayHost = "mail.openova.io"
+	}
+	relayPort := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_PORT")
+	if relayPort == "" {
+		relayPort = "587"
+	}
+	relayFrom := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_FROM")
+	if relayFrom == "" {
+		relayFrom = smtpUser
+	}
+
 	factory := h.sovereignSMTPSeedClientFactory
 	if factory == nil {
 		factory = helmwatch.NewKubernetesClientFromKubeconfig
@@ -276,6 +303,13 @@ func (h *Handler) seedSovereignSMTPCredentials(ctx context.Context, dep *Deploym
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
+			// #4748 — host/port/from are the PUBLIC relay endpoint, not the
+			// mothership's in-cluster Stalwart. Without these three keys the
+			// chart's contract Secret has nothing to win precedence over and
+			// falls back to the unreachable in-cluster-Stalwart default.
+			"smtp-host": []byte(relayHost),
+			"smtp-port": []byte(relayPort),
+			"smtp-from": []byte(relayFrom),
 			"smtp-user": []byte(smtpUser),
 			"smtp-pass": []byte(smtpPass),
 		},
@@ -307,6 +341,8 @@ func (h *Handler) seedSovereignSMTPCredentials(ctx context.Context, dep *Deploym
 		"deploymentID", dep.ID,
 		"namespace", sovereignSMTPSeedNamespace,
 		"name", sovereignSMTPSeedSecretName,
+		"smtpRelayHost", relayHost, // #4748 — not a secret; the reachable public relay
+		"smtpRelayPort", relayPort,
 		"smtpUserBytes", len(smtpUser),
 		"smtpPassBytes", len(smtpPass),
 	)

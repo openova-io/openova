@@ -121,6 +121,18 @@ func TestSeedSovereignSMTPCredentials_HappyPath(t *testing.T) {
 		// comparison is enough to flag a regression without leaking.
 		t.Errorf("smtp-pass data length = %d, want %d", len(got.Data["smtp-pass"]), len("p455w0rd-bytes-here-not-real"))
 	}
+	// #4748 — the seed MUST also write the public relay host/port/from, else
+	// the chart contract Secret falls back to the unreachable in-cluster
+	// Stalwart and operator PIN-login 502s on every Sovereign.
+	if string(got.Data["smtp-host"]) != "mail.openova.io" {
+		t.Errorf("smtp-host = %q, want mail.openova.io (public relay, NOT in-cluster stalwart)", got.Data["smtp-host"])
+	}
+	if string(got.Data["smtp-port"]) != "587" {
+		t.Errorf("smtp-port = %q, want 587", got.Data["smtp-port"])
+	}
+	if string(got.Data["smtp-from"]) != "noreply@openova.io" {
+		t.Errorf("smtp-from = %q, want noreply@openova.io (defaults to smtp-user)", got.Data["smtp-from"])
+	}
 	if got.Type != corev1.SecretTypeOpaque {
 		t.Errorf("Secret type = %q, want %q", got.Type, corev1.SecretTypeOpaque)
 	}
