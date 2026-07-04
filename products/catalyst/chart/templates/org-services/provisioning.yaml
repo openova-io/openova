@@ -228,17 +228,16 @@ spec:
             # SAME Secret/key via secretKeyRef so the probe validates exactly
             # what the workload runs with (no kubectl get of the Secret, so
             # no extra RBAC; the kubelet resolves it same-namespace).
-            - name: GITHUB_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.orgServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
-                  key: {{ .Values.orgServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" | quote }}
-                  # optional:true — on the very first reconcile the Secret may
-                  # not exist yet (provisioning-github-token.yaml renders it
-                  # only once the bootstrap PAT is populated). An absent token
-                  # reads as empty and the probe keeps waiting rather than
-                  # crash-looping the init on a missing key.
-                  optional: true
+            # #4756 — read the token from a MOUNTED SECRET FILE (below), not a
+            # secretKeyRef env. A secret-env is resolved ONCE at container start
+            # (empty on first boot) and NEVER updates when the cutover bridge
+            # later mints the real token — so the old env probe waited the full
+            # TIMEOUT_SECONDS (1800s) then exit-1-restarted to re-resolve: a
+            # ~30-min customer-provisioning outage on every fresh prov. A secret
+            # VOLUME file is kubelet-synced live (~60s), and the loop re-reads it
+            # each iteration, so the token is picked up the instant it is minted.
+            - name: GITHUB_TOKEN_FILE
+              value: /var/run/provisioning-github-token/GITHUB_TOKEN
             - name: GITEA_INTERNAL_URL
               value: {{ .Values.orgServices.provisioning.waitForCutoverToken.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
             - name: INTERVAL_SECONDS
@@ -252,6 +251,10 @@ spec:
               echo "[wait-for-gitea-token] gating on a Gitea token Gitea accepts (GET ${GITEA_INTERNAL_URL}/api/v1/user → 200)"
               deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
               while [ "$(date +%s)" -lt "${deadline}" ]; do
+                # #4756 — re-read the token from the kubelet-synced Secret FILE
+                # each iteration; a late-minted token is then picked up live
+                # (a secret ENV would be a stale start-time snapshot forever).
+                GITHUB_TOKEN="$(cat "${GITHUB_TOKEN_FILE}" 2>/dev/null || true)"
                 if [ -z "${GITHUB_TOKEN:-}" ]; then
                   echo "[wait-for-gitea-token] GITHUB_TOKEN not yet populated (Secret absent/empty); retrying in ${INTERVAL_SECONDS}s"
                   sleep "${INTERVAL_SECONDS}"
@@ -287,6 +290,13 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            # #4756 — the kubelet-synced token Secret (live-updating, unlike
+            # a secretKeyRef env). optional:true on the volume so first-boot
+            # (Secret absent) reads as an empty file, not a mount failure.
+            - name: provisioning-github-token
+              mountPath: /var/run/provisioning-github-token
+              readOnly: true
       {{- end }}
       containers:
         - name: provisioning
@@ -556,6 +566,16 @@ spec:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
             runAsUser: 65534
+      volumes:
+        # #4756 — the provisioning-github-token Secret mounted as a
+        # live-synced FILE for the wait-for-gitea-token init probe (which
+        # re-reads it each loop iteration, so a late-minted token is picked up
+        # in ~60s instead of the 1800s init-timeout restart). optional:true so
+        # first-boot (Secret absent) mounts an empty dir, not a mount failure.
+        - name: provisioning-github-token
+          secret:
+            secretName: {{ .Values.orgServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
+            optional: true
 ---
 apiVersion: v1
 kind: Service
