@@ -11,9 +11,10 @@ Floating IPs and binds them to the dnsdist replicas across regions
 Until that composition lands (gap explicitly disclosed in
 templates/crossplane-floatingip.yaml + the Phase-1 deferral comment in
 the public-repo PR description), this Service is the operational
-stand-in. Catalyst overlays MAY override `.Values.anycast.serviceType`
-to NodePort/ClusterIP on bare-metal Sovereigns where direct host
-networking provides the public endpoint.
+stand-in. 🛑 NodePort is FORBIDDEN (founder 2026-07-03, #4765): the
+Service is type=LoadBalancer served by a Cilium LB-IPAM VIP sharing
+the Sovereign EIP (`lbipam.cilium.io/sharing-key`), with nodePort
+allocation suppressed. Overlays may only pick LoadBalancer|ClusterIP.
 
 Frontend: dnsdist (rate-limited). Backend (skipped here, dnsdist routes
 in-cluster) is the upstream powerdns Service.
@@ -32,7 +33,16 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ .Values.anycast.serviceType | default "LoadBalancer" }}
+  {{- $svcType := .Values.anycast.serviceType | default "LoadBalancer" }}
+  {{- if eq $svcType "NodePort" }}
+  {{- fail "bp-powerdns: anycast.serviceType=NodePort is FORBIDDEN (#4765) — use LoadBalancer (Cilium LB-IPAM shared VIP) or ClusterIP" }}
+  {{- end }}
+  type: {{ $svcType }}
+  {{- if eq $svcType "LoadBalancer" }}
+  # 🛑 zero nodePorts, ever (#4765): the VIP is served by Cilium LB-IPAM
+  # (north-south via kube-proxy replacement) — node:3xxxx must not exist.
+  allocateLoadBalancerNodePorts: false
+  {{- end }}
   selector:
     app.kubernetes.io/name: dnsdist
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -42,8 +52,5 @@ spec:
       port: {{ .port }}
       targetPort: {{ .targetPort }}
       protocol: {{ .protocol }}
-      {{- if .nodePort }}
-      nodePort: {{ .nodePort }}
-      {{- end }}
     {{- end }}
 {{- end }}

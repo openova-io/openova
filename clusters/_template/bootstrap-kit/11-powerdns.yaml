@@ -150,7 +150,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve powerdns (no more "no Application CR").
-      version: 1.2.17
+      version: 1.2.18
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
@@ -215,28 +215,29 @@ spec:
       uiRedirectHost: pdns-admin.${SOVEREIGN_FQDN}
       gateway:
         enabled: true
-    # DNS-01 wildcard cert: expose PowerDNS on NodePort 30053 so the
-    # Sovereign LB can forward :53 → PowerDNS. This is the NS-delegated
-    # endpoint that Let's Encrypt resolvers query when validating ACME
-    # DNS-01 challenges for *.${SOVEREIGN_FQDN}. Per ADR-0001 §9.4 the
+    # DNS-01 wildcard cert: expose PowerDNS :53 as a Cilium LB-IPAM
+    # LoadBalancer VIP sharing the Sovereign EIP (§854 DIRECT,
+    # lbipam.cilium.io/sharing-key). This is the NS-delegated endpoint
+    # that Let's Encrypt resolvers query when validating ACME DNS-01
+    # challenges for *.${SOVEREIGN_FQDN}. Per ADR-0001 §9.4 the
     # Sovereign must be self-sufficient post-handover — no Dynadot
     # dependency for cert renewals.
+    # 🛑 NodePorts are FORBIDDEN (founder 2026-07-03, #4765): :53 rides
+    # the shared sovereign VIP, never node:3xxxx.
     anycast:
       enabled: true
       serviceName: powerdns-anycast
-      # NodePort on Sovereign Hetzner clusters: lb11 LB forwards TCP:53 to
-      # NodePort 30053; k3s iptables DNAT handles UDP:53 NodePort natively.
-      serviceType: NodePort
+      serviceType: LoadBalancer
+      annotations:
+        lbipam.cilium.io/sharing-key: sovereign-vip
       ports:
         - name: dns-udp
           port: 53
           targetPort: 5353
-          nodePort: 30053
           protocol: UDP
         - name: dns-tcp
           port: 53
           targetPort: 5353
-          nodePort: 30053
           protocol: TCP
     # ─── Multi-zone bootstrap (issue #827, parent epic #825) ───────────
     # The Sovereign creates one PowerDNS zone per parent domain at Helm

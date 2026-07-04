@@ -484,8 +484,8 @@ anycast:
     # managed Sovereign hosts the workload (e.g.
     #   load-balancer.hetzner.cloud/location: fsn1
     #   load-balancer.hetzner.cloud/use-private-ip: "true"
-    # — left empty here so Contabo k3s skips the LB allocation and
-    # falls back to NodePort/external-IP routing during Phase-0).
+    # — left empty here; bare-metal overlays add the Cilium LB-IPAM
+    # sharing-key. 🛑 NodePort is FORBIDDEN (#4765) — template fails render).
     catalyst.openova.io/comment: |
       Placeholder Service. Replaced by XHetznerFloatingIP once the
       Crossplane composition is authored (see
