@@ -614,12 +614,26 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 // reachability gate (#4706). A converged Sovereign whose gateway is not yet
 // serving (LB/ELB just being wired) may need a few seconds; a Sovereign whose
 // gateway is genuinely broken (e.g. an unwired Huawei ELB) never comes up and
-// must be classified failed rather than left probing forever. The budget is
-// deliberately short — Phase-1 convergence already took the long path, and the
-// gateway is either up within seconds of it or structurally broken.
+// must be classified failed rather than left probing forever.
+//
+// #4746 — the budget was 90s on the false premise that "the console is up
+// within seconds of OutcomeReady or structurally broken." That is WRONG on a
+// slow 2-region prov: the phase1 watch's ready-census is narrow, so OutcomeReady
+// fires while the console's own server chain (bp-catalyst-platform → bp-gitea →
+// bp-keycloak, whose HR alone has a 30m install budget) is still installing.
+// Live evidence: hw221 fired OutcomeReady at T+24m but the console only answered
+// at T+48m — a 23-MINUTE gap during which the 90s gate falsely stamped a
+// perfectly healthy prov `status=failed` (hw222 repro'd identically). A false
+// "failed" is not cosmetic: it invites a wrong wipe of a converging env.
+// The budget now covers keycloak's full install budget + the downstream
+// gitea/catalyst-platform/cert chain with margin. The gate stays HARD (a
+// genuinely dead console still fails — just after a realistic wait, not 90s),
+// so the hw217/hw218 false-GREEN this probe exists to kill is unaffected. The
+// probe holds no lock while waiting (see markPhase1Done), so a long wait never
+// blocks State() readers.
 const (
-	consoleProbeBudget   = 90 * time.Second
-	consoleProbeInterval = 10 * time.Second
+	consoleProbeBudget   = 35 * time.Minute
+	consoleProbeInterval = 15 * time.Second
 )
 
 // defaultConsoleReachable is the production external-reachability probe for
