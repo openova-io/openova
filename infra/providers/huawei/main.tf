@@ -338,23 +338,24 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_wireguard" {
   description       = "Cilium WireGuard inter-region (DMZ-WG, static-key crypto is the security boundary)"
 }
 
-resource "huaweicloud_networking_secgroup_rule" "ingress_nodeport" {
+resource "huaweicloud_networking_secgroup_rule" "ingress_clustermesh_2379" {
   for_each          = { for r in var.regions : r.code => r }
   security_group_id = huaweicloud_networking_secgroup.region[each.key].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
-  # #4690 / #4686 foundation-fix: restore the full k8s NodePort range.
-  # Covers the clustermesh-apiserver NodePort (:32379, cross-region mTLS LB)
-  # AND the Sovereign Gateway LoadBalancer Service's auto-allocated nodePort
-  # (30000-32767), which the restored gateway ELB (elb_primary) forwards
-  # public :443/:80 → node:<nodePort> to. #4682 narrowed this to :32379 only;
-  # that broke the no-CCM Huawei gateway path (node:443 doesn't route without
-  # a CCM — verified hw208). Byte-identical to the Hetzner firewall shape.
-  port_range_min   = 30000
-  port_range_max   = 32767
+  # #4765 (founder 2026-07-03, "FUCK THE NODEPORTS!!!") — the k8s NodePort
+  # range (30000-32767) rule is ERADICATED. Cross-region ClusterMesh peers
+  # now dial the clustermesh-apiserver VIP on :2379 directly (the single
+  # sovereign-vip Cilium LB-IPAM pool serves it on the CP-node EIP; peers
+  # reach it over the WG-encrypted node path). etcd mTLS is the security
+  # boundary — same posture as the k3s apiserver :6443 rule above. The
+  # Sovereign Gateway rides gateway-api hostNetwork (node:443/:80 direct,
+  # opened by ingress_443 / ingress_80), so it needs NO NodePort either.
+  port_range_min   = 2379
+  port_range_max   = 2379
   remote_ip_prefix = "0.0.0.0/0"
-  description      = "k8s NodePort range (clustermesh-apiserver mTLS LB + Sovereign Gateway ELB→nodePort front door)"
+  description      = "Cilium clustermesh-apiserver VIP dial :2379 (mTLS-protected; #4765 — replaces the forbidden NodePort range)"
 }
 
 resource "huaweicloud_networking_secgroup_rule" "ingress_icmp" {
@@ -1393,7 +1394,7 @@ resource "huaweicloud_elb_pool" "https" {
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
   loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
-  description     = "cilium-gateway LoadBalancer Service targets on the auto-allocated :443 nodePort"
+  description     = "cilium-gateway members target node:443 — cilium-envoy hostNetwork host port, NOT a nodePort (§854 / #4765)"
 }
 
 resource "huaweicloud_elb_pool" "http" {
@@ -1401,7 +1402,7 @@ resource "huaweicloud_elb_pool" "http" {
   protocol        = "TCP"
   lb_method       = "ROUND_ROBIN"
   loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
-  description     = "cilium-gateway LoadBalancer Service targets on the auto-allocated :80 nodePort"
+  description     = "cilium-gateway members target node:80 — cilium-envoy hostNetwork host port, NOT a nodePort (§854 / #4765)"
 }
 
 resource "huaweicloud_elb_listener" "https" {
@@ -1411,7 +1412,7 @@ resource "huaweicloud_elb_listener" "https" {
   protocol_port   = 443
   default_pool_id = huaweicloud_elb_pool.https.id
   idle_timeout    = 60
-  description     = "TCP passthrough — cilium-envoy terminates TLS behind the gateway Service nodePort"
+  description     = "TCP passthrough — cilium-envoy (hostNetwork, node:443 direct) terminates TLS; no nodePort (§854 / #4765)"
 }
 
 resource "huaweicloud_elb_listener" "http" {
