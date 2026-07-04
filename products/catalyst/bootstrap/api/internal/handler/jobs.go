@@ -684,12 +684,25 @@ func (h *Handler) jobsStore() *jobs.Store {
 	return h.jobs
 }
 
+// fullInventoryRequested reports whether the caller asked for the FULL
+// platform inventory (?inventory=full) instead of the default #3996
+// finite-work view. The Dashboard treemap (#4731) sets it so a converged
+// Sovereign shows every HelmRelease install / Flux Kustomization / CronJob
+// / reconciler Deployment / cutover step; the Jobs page omits it and keeps
+// the finite list. Matching is case-insensitive + whitespace-trimmed.
+func fullInventoryRequested(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("inventory")), "full")
+}
+
 // ListJobs handles GET /api/v1/deployments/{depId}/jobs.
 //
 // Returns `{ "jobs": [...] }` — the slice is sorted started-at DESC
 // with pending Jobs (no StartedAt) bucketed last. Empty deployment →
 // empty slice (not null) so the JSON shape never breaks the
 // frontend's render loop.
+//
+// ?inventory=full (#4731) returns the complete tree (the treemap's data
+// source); the default is the #3996 finite-work list.
 func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	st := h.jobsStore()
 	if st == nil {
@@ -741,17 +754,28 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// /jobs is the FINITE-work view (#3996 follow-up): drop the continuous
-	// reconcilers (Flux HelmRelease installs, Kustomization reconciles, and
-	// long-running reconciler Deployments) so the founder sees jobs that
-	// start/run/end — provision + cutover steps, batch Jobs, CronJob runs,
-	// one-shot Day-2 mutations — instead of an ever-growing wall of
-	// always-on reconcilers. Those reconcilers now live ONLY on the Cloud
-	// Reconciliation lens + reconciler-management surface (#3996), which
-	// reads them LIVE from the cluster; the store keeps the full set, only
-	// this view is narrowed. GetJob stays unfiltered so a deep-link to a
-	// reconciler row still resolves.
-	out = jobs.FilterFiniteJobs(out)
+	// /jobs is the FINITE-work view (#3996 follow-up) BY DEFAULT: drop the
+	// continuous reconcilers (Flux HelmRelease installs, Kustomization
+	// reconciles, and long-running reconciler Deployments) so the founder
+	// sees jobs that start/run/end — provision + cutover steps, batch Jobs,
+	// CronJob runs, one-shot Day-2 mutations — instead of an ever-growing
+	// wall of always-on reconcilers. Those reconcilers live on the Cloud
+	// Reconciliation lens + reconciler-management surface (#3996); the store
+	// keeps the full set, only this view is narrowed. GetJob stays unfiltered
+	// so a deep-link to a reconciler row still resolves.
+	//
+	// #4731 — the Dashboard treemap needs the FULL platform inventory (every
+	// HelmRelease install, Flux Kustomization, CronJob, reconciler
+	// Deployment, cutover step) so a CONVERGED Sovereign renders ~90+ leaves,
+	// not the ~14 finite rows the filtered view leaves behind. It opts in via
+	// ?inventory=full, which SKIPS FilterFiniteJobs and returns the complete
+	// tree. The default (no param) keeps the finite Jobs-page view byte-for-
+	// byte, so the two consumers never regress each other. The store already
+	// holds the full inventory (the chroot/mother seeds every HelmRelease,
+	// reconciler, and cutover step); only this read decides how much to show.
+	if !fullInventoryRequested(r) {
+		out = jobs.FilterFiniteJobs(out)
+	}
 	if out == nil {
 		out = []jobs.Job{}
 	}

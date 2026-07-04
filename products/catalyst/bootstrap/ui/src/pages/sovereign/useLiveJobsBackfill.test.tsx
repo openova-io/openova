@@ -216,3 +216,53 @@ describe('useLiveJobsBackfill — hook', () => {
     expect(result.current.liveJobs).toEqual([])
   })
 })
+
+// #4731 — the default fetcher's URL: the Dashboard treemap reads the FULL
+// platform inventory (?inventory=full); the Jobs page reads the finite list.
+describe('useLiveJobsBackfill — fullInventory drives ?inventory=full', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function stubFetchCapture(): { urls: string[] } {
+    const urls: string[] = []
+    globalThis.fetch = vi.fn((url: string) => {
+      urls.push(String(url))
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ jobs: [] }),
+      } as unknown as Response)
+    }) as unknown as typeof fetch
+    return { urls }
+  }
+
+  it('appends ?inventory=full when fullInventory is set (treemap path)', async () => {
+    const cap = stubFetchCapture()
+    renderHook(
+      () =>
+        useLiveJobsBackfill({
+          deploymentId: 'd-full',
+          disablePolling: true,
+          fullInventory: true,
+        }),
+      { wrapper: wrapper() },
+    )
+    await waitFor(() => expect(cap.urls.length).toBeGreaterThan(0))
+    expect(cap.urls.some((u) => u.includes('/deployments/d-full/jobs?inventory=full'))).toBe(true)
+  })
+
+  it('omits the param by default (finite Jobs-page path)', async () => {
+    const cap = stubFetchCapture()
+    renderHook(
+      () =>
+        useLiveJobsBackfill({
+          deploymentId: 'd-finite',
+          disablePolling: true,
+        }),
+      { wrapper: wrapper() },
+    )
+    await waitFor(() => expect(cap.urls.length).toBeGreaterThan(0))
+    expect(cap.urls.every((u) => !u.includes('inventory=full'))).toBe(true)
+    expect(cap.urls.some((u) => u.endsWith('/deployments/d-finite/jobs'))).toBe(true)
+  })
+})

@@ -10,10 +10,17 @@
  *   amber  (--color-warn)      warning / degraded / partial
  *   red    (--color-danger)    failed / error
  *   grey   (--color-text-dim)  pending / not-started / suspended
+ *   grey   (--color-text-dimmer) dormant — installed-but-never-fired
+ *                              (the tethered cutover chart, #4731); a
+ *                              distinct FAINT grey (see the treemap's
+ *                              dashed dormant cell) so a parked tether is
+ *                              never confused with pending queued work.
  *
  * In-progress MUST be visibly distinct (blue) — never rendered as grey
  * or green. Pending is grey — never amber (amber is reserved for
- * genuine warning states).
+ * genuine warning states). Dormant is grey too but visually parked
+ * (fainter fill + dashed outline on the treemap) — dormant ≠ pending,
+ * the exact confusion the founder flagged on the converged treemap.
  *
  * All values are the theme CSS custom properties from globals.css (both
  * dark + light themes define them), never raw hex — per
@@ -29,6 +36,12 @@ export type StatusKind =
   | 'warning'
   | 'failed'
   | 'pending'
+  // #4731 — a component that is INSTALLED but has never been fired: the
+  // tethered bp-self-sovereign-cutover chart before the operator triggers
+  // cutover. Grey like pending but PARKED, never "queued behind a running
+  // chain". Rendered distinct on the treemap (fainter + dashed) so the 11
+  // dormant cutover steps stop masquerading as pending.
+  | 'dormant'
 
 /** CSS colour token per semantic kind (for inline styles / CSS strings). */
 export const STATUS_KIND_COLOR: Record<StatusKind, string> = {
@@ -37,6 +50,10 @@ export const STATUS_KIND_COLOR: Record<StatusKind, string> = {
   warning: 'var(--color-warn)',
   failed: 'var(--color-danger)',
   pending: 'var(--color-text-dim)',
+  // A DISTINCT, dimmer grey token (not pending's) so dormant is its own
+  // colour — the treemap further sets it apart with a fainter fill + dashed
+  // outline. dormant ≠ pending, by token and by treatment.
+  dormant: 'var(--color-text-dimmer)',
 }
 
 /** Tailwind badge classes per kind — tinted background + solid text. */
@@ -46,6 +63,8 @@ export const STATUS_KIND_BADGE_CLASSES: Record<StatusKind, string> = {
   warning: 'bg-[var(--color-warn)]/15 text-[var(--color-warn)]',
   failed: 'bg-[var(--color-danger)]/15 text-[var(--color-danger)]',
   pending: 'bg-[var(--color-text-dim)]/15 text-[var(--color-text-dim)]',
+  // Dashed border marks the parked/dormant tether apart from solid pending.
+  dormant: 'border border-dashed border-[var(--color-text-dimmer)]/40 bg-[var(--color-text-dimmer)]/5 text-[var(--color-text-dimmer)]',
 }
 
 /**
@@ -96,6 +115,11 @@ export function statusKindOf(raw: string | null | undefined): StatusKind {
     case 'error':
     case 'errored':
       return 'failed'
+    // #4731 — installed-but-never-fired (the tethered cutover chart). Grey
+    // like pending, but parked; the treemap collapses the dormant cutover
+    // steps into one dormant leaf so they never pollute the pending bucket.
+    case 'dormant':
+      return 'dormant'
     default:
       return 'pending'
   }

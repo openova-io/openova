@@ -82,6 +82,7 @@ import { resolveApplications } from './applicationCatalog'
 // module, same co-location pattern as ./jobs.ts).
 import {
   buildJobsTreemapData,
+  cellDashedFor,
   cellFillFor,
   cellPulseFor,
   jobTileHref,
@@ -200,46 +201,22 @@ export function Dashboard({
 
   const isReady = (snapshot?.status ?? '').trim().toLowerCase() === 'ready'
 
-  // #3687 fold #3692 (2026-06-18): default Layer-1 = `organization` on the
-  // Sovereign Console so the operator's landing treemap groups by the
-  // owning Organization (customer estate vs platform overhead) drillable
-  // to Application — the canonical object model the Lane-E UAT asserts,
-  // not a raw infra pod treemap. The Organization dimension keys on the
-  // `openova.io/organization` label join key (same as the per-Org
-  // showback); host/control-plane pods roll into a single "Platform
-  // overhead" bucket. Operators can still pivot to cluster/region for the
-  // multi-region topology view via the Layer-1 selector.
+  // #4731 amend (founder escalation 2026-07-05): the default layer stack is
+  // [progress, kind] UNCONDITIONALLY — on a provisioning env AND on a
+  // converged (ready) env. The prior code flipped the ready default to
+  // [organization, application] + utilization; the founder rejected that
+  // ("why the second layer is not kind by default"). The one treemap now
+  // reads the FULL platform inventory in BOTH moments: converging fills
+  // Running/Pending, converged is a big green Done block sub-divided by
+  // kind, with the parked cutover tether in Dormant. organization /
+  // application / utilization stay AVAILABLE — one click away in the layer
+  // controller — they are just no longer the default.
   //
-  // Prior default was `['cluster', 'application']` (PR M, 2026-05-17 t142
-  // founder follow-up #1) so multi-region operators saw the 3-cluster
-  // grouping; cluster/region remain one click away in the selector.
-  //
-  // Wave 2 Family D (t10 regression): the snapshot-driven `sovereignFQDN`
-  // is fetched asynchronously via SSE — on first paint it is null, so the
-  // default must NOT depend on it. Read mode synchronously from
-  // `DETECTED_MODE` (window.location-derived at module load, stable for
-  // the lifetime of the page) — the SAME source the SovereignSidebar +
-  // cloud-list routes use for their mode-gated rendering, so default
-  // Layer-1 stays consistent with the rest of the sidebar's Sovereign
-  // affordances and is deterministic on first paint.
-  const readyDefaultLayers: readonly TreemapDimension[] =
-    DETECTED_MODE.mode === 'sovereign'
-      ? ['organization', 'application']
-      : ['family', 'application']
-
-  // #4731 — state-aware DEFAULTS on the one treemap (replaces the #3925
-  // Progress ⇄ Treemap component toggle): while the deployment is
-  // converging the pane defaults to the job-sourced Progress→Kind stack
-  // coloured by status; the moment status flips `ready` the defaults
-  // morph to the resource treemap. Same pane, same component — only the
-  // defaults change.
-  //
-  // Implementation (same pattern as the old userView): the `user*`
-  // states stay null until the operator touches a control; the
-  // effective value is the user's choice if set, else derived. This
-  // auto-morphs on ready WITHOUT a setState-in-effect storm and
-  // respects a manual override (DECISION: the user keeps control once
-  // they touch the toolbar — no auto-flip-back).
+  // Implementation (same pattern as the old userView): the `user*` states
+  // stay null until the operator touches a control; the effective value is
+  // the user's choice if set, else the [progress, kind] default. No
+  // status-gated flip, no setState-in-effect storm; the user keeps control
+  // once they touch the toolbar.
   const [userLayers, setUserLayers] = useState<readonly TreemapDimension[] | null>(
     initialLayers ?? null,
   )
@@ -249,8 +226,7 @@ export function Dashboard({
   const [userSizeBy, setUserSizeBy] = useState<TreemapSizeBy | null>(
     initialSizeBy ?? null,
   )
-  const layers: readonly TreemapDimension[] =
-    userLayers ?? (isReady ? readyDefaultLayers : PROVISIONING_DEFAULT_LAYERS)
+  const layers: readonly TreemapDimension[] = userLayers ?? PROVISIONING_DEFAULT_LAYERS
   // The data-source rule (#4731, the only conditional): progress/kind
   // in the stack → Job tree; anything else → getDashboardTreemap.
   const jobSourced = isJobSourcedStack(layers)
@@ -331,6 +307,9 @@ export function Dashboard({
     deploymentId,
     enabled: jobSourced && !initialDataOverride && !!deploymentId,
     disablePolling: disableStream || isReady,
+    // #4731 — the treemap always wants the FULL platform inventory so a
+    // converged Sovereign shows every component, not the ~14 finite rows.
+    fullInventory: true,
   })
   const jobsTreemap = useMemo<TreemapData | undefined>(
     () => (jobSourced ? buildJobsTreemapData(liveJobs, layers, applications) : undefined),
@@ -377,6 +356,9 @@ export function Dashboard({
    * page's active colorBy. */
   const fillFor = (item: TreemapItem) => cellFillFor(colorBy, item)
   const pulseFor = (item: TreemapItem) => cellPulseFor(colorBy, item)
+  // #4731 — dormant cells (the parked cutover tether) render with a dashed
+  // outline so they are unmistakably distinct from solid pending cells.
+  const dashedFor = (item: TreemapItem) => cellDashedFor(colorBy, item)
   useEffect(() => {
     _onCellHover = (info) => {
       if (hoverTimerRef.current !== null) {
@@ -682,6 +664,7 @@ export function Dashboard({
               isNested={isNested}
               fillFor={fillFor}
               pulseFor={pulseFor}
+              dashedFor={dashedFor}
               onCellHover={(info) => _onCellHover?.(info)}
               onCellClick={(item, depth) => _onCellClick?.(item, depth)}
             />
@@ -881,6 +864,10 @@ const STATUS_LEGEND_ENTRIES: { kind: StatusKind; label: string }[] = [
   { kind: 'warning', label: 'Degraded' },
   { kind: 'failed', label: 'Failed / failing' },
   { kind: 'pending', label: 'Pending' },
+  // #4731 — the parked/dormant tether (installed-but-never-fired cutover),
+  // grey + dashed. Distinct from pending so the operator never reads the
+  // dormant cutover as queued work.
+  { kind: 'dormant', label: 'Dormant' },
 ]
 
 function Legend({ colorBy }: { colorBy: TreemapColorBy }) {
@@ -977,6 +964,9 @@ interface SquarifiedSurfaceProps {
   fillFor: (item: TreemapItem) => string
   /** True when the cell should pulse (status mode, in-progress). */
   pulseFor: (item: TreemapItem) => boolean
+  /** True when the cell should render a dashed outline (status mode,
+   *  dormant — the parked cutover tether, #4731). */
+  dashedFor: (item: TreemapItem) => boolean
   onCellHover: (info: CellHoverInfo | null) => void
   onCellClick: (item: TreemapItem, depth: number) => void
 }
@@ -996,6 +986,7 @@ function SquarifiedSurface({
   isNested,
   fillFor,
   pulseFor,
+  dashedFor,
   onCellHover,
   onCellClick,
 }: SquarifiedSurfaceProps) {
@@ -1050,6 +1041,7 @@ function SquarifiedSurface({
               rect={r}
               fillFor={fillFor}
               pulseFor={pulseFor}
+              dashedFor={dashedFor}
               onHover={onCellHover}
               onClick={onCellClick}
             />
@@ -1064,11 +1056,12 @@ interface SquarifiedCellProps {
   rect: SquarifiedRect
   fillFor: (item: TreemapItem) => string
   pulseFor: (item: TreemapItem) => boolean
+  dashedFor: (item: TreemapItem) => boolean
   onHover: (info: CellHoverInfo | null) => void
   onClick: (item: TreemapItem, depth: number) => void
 }
 
-function SquarifiedCell({ rect, fillFor, pulseFor, onHover, onClick }: SquarifiedCellProps) {
+function SquarifiedCell({ rect, fillFor, pulseFor, dashedFor, onHover, onClick }: SquarifiedCellProps) {
   const { x0, y0, x1, y1, item, isParent, depth } = rect
   const w = x1 - x0
   const h = y1 - y0
@@ -1080,6 +1073,9 @@ function SquarifiedCell({ rect, fillFor, pulseFor, onHover, onClick }: Squarifie
   // get the full semantic fill (gradient or categorical status).
   const semanticFill = fillFor(item)
   const pulse = pulseFor(item)
+  // #4731 — a dormant cell (parked cutover tether) gets a dashed outline so
+  // it reads as "asleep", unmistakably distinct from a solid pending cell.
+  const dashArray = dashedFor(item) ? '4 3' : undefined
   const fill = isParent ? 'rgba(255, 255, 255, 0.04)' : semanticFill
 
   const showLabel = w >= LABEL_MIN_WIDTH_PX && h >= LABEL_MIN_HEIGHT_PX
@@ -1136,6 +1132,7 @@ function SquarifiedCell({ rect, fillFor, pulseFor, onHover, onClick }: Squarifie
             fill: semanticFill,
             stroke: 'rgba(255, 255, 255, 0.18)',
             strokeWidth: 1,
+            strokeDasharray: dashArray,
           }}
         />
         {showLabel && (
@@ -1175,6 +1172,7 @@ function SquarifiedCell({ rect, fillFor, pulseFor, onHover, onClick }: Squarifie
           fill,
           stroke: 'rgba(255, 255, 255, 0.18)',
           strokeWidth: depth > 0 ? 0.5 : 1,
+          strokeDasharray: dashArray,
         }}
       />
       {showLabel && (
