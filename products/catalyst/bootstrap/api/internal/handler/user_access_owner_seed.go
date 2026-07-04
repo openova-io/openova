@@ -75,15 +75,14 @@ const userAccessOwnerEmailAnnotation = "catalyst.openova.io/user-email"
 // limit (the apiserver rejects longer names with a 422).
 const userAccessOwnerNamePrefix = "useraccess-owner-"
 
-// userAccessOwnerNamespace is the namespace the auto-seeded owner CR
-// lives in. useraccesses.access.openova.io is a NAMESPACED Crossplane
-// Claim per platform/crossplane-claims/chart/templates/xrds/useraccess.yaml
-// (`claimNames` block). catalyst-system is canonical — every other
-// Catalyst-authored CR lives there too, and the listing/admin handler
-// at user_access.go::ListUserAccess uses `Namespace("")` which surfaces
-// CRs from every namespace, so the operator entry surfaces on /users
-// without per-namespace filtering. Caught on t134 2026-05-17.
-const userAccessOwnerNamespace = "catalyst-system"
+// userAccessOwnerNamespace — EMPTY. useraccesses.access.openova.io is a
+// plain CLUSTER-scoped CRD (Refs #4773). The owner CR carries no
+// namespace; SetNamespace("") removes the field and the Create routes to
+// the cluster REST path. Cluster scope is REQUIRED here: the owner CR
+// grants openova:tier-owner with empty scopes → the useraccess-controller
+// emits a cluster-scoped ClusterRoleBinding, which only a cluster-scoped
+// owner may own via an ownerRef.
+const userAccessOwnerNamespace = ""
 
 // EnsureOwnerUserAccess creates an owner-tier UserAccess CR for the
 // operator who just completed PIN-login + handover, if one does not
@@ -124,14 +123,12 @@ func EnsureOwnerUserAccess(ctx context.Context, client dynamic.Interface, email,
 	sovRef := rbacAssignSlug(sovereignFQDN)
 
 	obj := buildOwnerUserAccessUnstructured(name, email, sovRef)
-	// D21 fix on t134 2026-05-17: the prior Namespace("") call returned
-	// "the server could not find the requested resource" because
-	// useraccesses.access.openova.io is NAMESPACED (Claim semantics per
-	// the XRD's claimNames block). Pin to catalyst-system + stamp the
-	// namespace on the CR object so the apiserver routes the Create.
+	// UserAccess is CLUSTER-scoped (Refs #4773): userAccessOwnerNamespace
+	// is "" so this removes any namespace field and the Create routes to
+	// the cluster REST path — required so the owner-tier ClusterRoleBinding
+	// the controller emits can be owned by this CR via an ownerRef.
 	obj.SetNamespace(userAccessOwnerNamespace)
 	_, err := client.Resource(UserAccessGVR()).
-		Namespace(userAccessOwnerNamespace).
 		Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {

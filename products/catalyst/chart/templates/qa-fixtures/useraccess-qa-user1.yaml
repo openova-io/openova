@@ -10,8 +10,9 @@ reconcile pass once the XRD is live will render and apply the CR.
 apiVersion: access.openova.io/v1alpha1
 kind: UserAccess
 metadata:
+  # UserAccess is a CLUSTER-scoped CRD (Refs #4773) — no namespace here;
+  # the apiserver rejects a namespace on a cluster-scoped object.
   name: qa-user1
-  namespace: catalyst-system
   labels:
     catalyst.openova.io/managed-by: qa-fixtures
     catalyst.openova.io/tier: developer

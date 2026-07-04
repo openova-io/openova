@@ -165,12 +165,12 @@ type rbacAssignScopeBody struct {
 //
 //  1. Canonical (used by U1 multi-grant editor):
 //     {"user":{"email":"...","keycloakSubject":"..."},
-//      "tier":"developer",
-//      "scope":[{"key":"openova.io/application","value":"qa-wp"}]}
+//     "tier":"developer",
+//     "scope":[{"key":"openova.io/application","value":"qa-wp"}]}
 //
 //  2. Ergonomic top-level (used by CLI / scripts / qa-loop matrix):
 //     {"email":"qa-user1@openova.io","tier":"developer",
-//      "scopeType":"application","scopeName":"qa-wp"}
+//     "scopeType":"application","scopeName":"qa-wp"}
 //
 // The handler normalizes shape (2) into shape (1) before validation
 // + find-or-create. The top-level Email + KeycloakSubject collapse
@@ -668,29 +668,21 @@ const rbacAssignMaxRetries = 2
 
 // rbacAssignNamespace — namespace for UserAccess CRs.
 //
-// CRITICAL: useraccesses.access.openova.io is a Crossplane Claim
-// (claimNames in platform/crossplane-claims/chart/templates/xrds/
-// useraccess.yaml). Crossplane Claims are NAMESPACED by construction —
-// only the underlying XR (xuseraccesses) is cluster-scoped. The earlier
-// `const rbacAssignNamespace = ""` comment was wrong (mistook the
-// composition family for "cluster-scoped"). With an empty namespace,
-// the dynamic client routes Create to the apiserver's cluster-wide
-// path /apis/access.openova.io/v1alpha1/useraccesses, which is NOT
-// registered for a namespaced resource — the apiserver returns 404
-// with "the server could not find the requested resource". That's the
-// C6-006 / TBD-C6-006-followup symptom on t22 cov-bench: POST
-// /api/v1/sovereign/rbac/assign 500'd despite PR #1789's
-// CRD-NotFound→503 wrapper, because the IsNotFound branch never fired
-// (the 404 was for the route, not the resource — same wire shape, but
-// it's the namespace-stripping that fooled the apiserver into 404'ing).
+// EMPTY, and it must stay empty: useraccesses.access.openova.io is a
+// plain CLUSTER-scoped CRD (Refs #4773 — the former Crossplane-Claim
+// coupling is gone). It MUST be cluster-scoped because the
+// useraccess-controller materializes RoleBindings into the target
+// application/org/env namespaces and ClusterRoleBindings for
+// wildcard/empty-scope grants, owning each via an ownerReference — a
+// namespaced owner can own NEITHER a cross-namespace RoleBinding (the GC
+// deletes it) NOR a cluster-scoped ClusterRoleBinding (invalid ownerRef).
 //
-// Fix: stamp catalyst-system on every Create + use it on the Resource
-// client, mirroring user_access_owner_seed.go's t134 D21 fix
-// (userAccessOwnerNamespace = "catalyst-system"). The List path keeps
-// Namespace("") for cross-namespace listing (that IS valid against a
-// namespaced CRD — the apiserver routes /apis/<g>/<v>/<r> as
-// list-all-namespaces and returns the union).
-const rbacAssignNamespace = "catalyst-system"
+// Because the value is "", `obj.SetNamespace(rbacAssignNamespace)`
+// removes the namespace field (apimachinery SetNamespace("") deletes it)
+// and `client.Resource(gvr).Namespace(rbacAssignNamespace)` routes to the
+// cluster-scoped REST path /apis/access.openova.io/v1alpha1/useraccesses,
+// which is exactly what a cluster-scoped CRD serves.
+const rbacAssignNamespace = ""
 
 // rbacAssignFindOrCreate runs the 3-path logic:
 //
@@ -824,14 +816,14 @@ func rbacAssignCreate(
 	obj.SetAPIVersion(userAccessGroup + "/" + userAccessVersion)
 	obj.SetKind("UserAccess")
 	obj.SetName(name)
-	// Pin the namespace on the object so the apiserver routes the
-	// Create to the namespaced REST path (see rbacAssignNamespace doc
-	// for the t22 cov-bench symptom this fixes). Mirrors the
-	// owner-seed pattern in user_access_owner_seed.go.
+	// UserAccess is CLUSTER-scoped (Refs #4773): rbacAssignNamespace is
+	// "" so this removes any namespace field and the Create below routes
+	// to the cluster REST path. Kept as an explicit call so the intent
+	// (no namespace) is obvious next to SetName.
 	obj.SetNamespace(rbacAssignNamespace)
 	obj.SetLabels(map[string]string{
-		labelTier:                          wantTier,
-		"catalyst.openova.io/managed-by":   "rbac-assign",
+		labelTier:                        wantTier,
+		"catalyst.openova.io/managed-by": "rbac-assign",
 	})
 
 	user := map[string]any{}
@@ -892,17 +884,9 @@ func rbacAssignUpdateTier(
 		tierClusterRolePrefix+wantTier,
 		"spec", "tierRoleRef",
 	)
-	// Update uses the CR's own namespace (rbacAssignNamespace for new
-	// CRs we created; the apiserver also returns the canonical ns on
-	// every List item). Empty namespace would route to the cluster-
-	// scoped REST path which the apiserver doesn't serve for a
-	// namespaced CRD (404 "the server could not find the requested
-	// resource") — see rbacAssignNamespace doc.
-	ns := desired.GetNamespace()
-	if ns == "" {
-		ns = rbacAssignNamespace
-	}
-	return client.Resource(UserAccessGVR()).Namespace(ns).Update(ctx, desired, metav1.UpdateOptions{})
+	// UserAccess is CLUSTER-scoped (Refs #4773) — Update routes to the
+	// cluster REST path. The CR carries no namespace.
+	return client.Resource(UserAccessGVR()).Update(ctx, desired, metav1.UpdateOptions{})
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

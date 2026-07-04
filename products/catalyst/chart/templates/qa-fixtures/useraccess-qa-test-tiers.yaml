@@ -19,7 +19,10 @@ render → no synthetic users in the cluster.
 
 Per qa-omantel naming conventions (see useraccess-qa-user1.yaml):
 - spec.sovereignRef MUST be the single-label form (TLD/SLD stripped).
-- All CRs land in catalyst-system (cluster-scoped logical principals).
+- UserAccess is a CLUSTER-scoped CRD (Refs #4773) — the CRs carry no
+  namespace (cluster-scoped logical principals); the useraccess-controller
+  owns the RoleBindings/ClusterRoleBindings it materializes across the
+  target namespaces via cluster-scoped ownerRefs.
 - Scopes mirror qa-user1 so the test users live in the same env-type/app
   space the matrix's resource fixtures (qa-omantel ns, qa-wp app) use.
 */ -}}
@@ -37,8 +40,9 @@ admission-rejection class of chart-roll wedges.
 apiVersion: access.openova.io/v1alpha1
 kind: UserAccess
 metadata:
+  # UserAccess is a CLUSTER-scoped CRD (Refs #4773) — no namespace here;
+  # the apiserver rejects a namespace on a cluster-scoped object.
   name: qa-test-{{ $tier }}
-  namespace: catalyst-system
   labels:
     catalyst.openova.io/managed-by: qa-fixtures
     catalyst.openova.io/tier: {{ $tier }}

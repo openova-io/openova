@@ -601,15 +601,14 @@ func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
 	}
 }
 
-// TestHandleRBACAssign_CreateStampsNamespace pins the rbacAssignNamespace
-// fix for TBD-C6-006-followup. The UserAccess Claim is namespaced (XRD
-// claimNames per platform/crossplane-claims/chart/templates/xrds/
-// useraccess.yaml); creating with an empty namespace routes to the
-// cluster-scoped REST path which the apiserver doesn't serve, returning
-// 404 "the server could not find the requested resource". The fix
-// stamps catalyst-system on every Create — this test asserts the stamp
-// is on the wire.
-func TestHandleRBACAssign_CreateStampsNamespace(t *testing.T) {
+// TestHandleRBACAssign_CreateIsClusterScoped pins the cluster-scoped
+// Create for UserAccess (Refs #4773). UserAccess is a plain CLUSTER-scoped
+// CRD — the Create must route to the cluster REST path (empty action
+// namespace) and the object must carry NO metadata.namespace, so the
+// useraccess-controller can own its cross-namespace RoleBindings +
+// ClusterRoleBindings via ownerRefs. This test asserts both are empty on
+// the wire — the inverse of the old namespaced-Claim assertion.
+func TestHandleRBACAssign_CreateIsClusterScoped(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	factory, client := fakeUserAccessDynamicFactory()
 	h.dynamicFactory = factory
@@ -641,14 +640,14 @@ func TestHandleRBACAssign_CreateStampsNamespace(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status: got %d want 201; body=%s", rec.Code, rec.Body.String())
 	}
-	if got, want := createdNs.Load(), rbacAssignNamespace; got != want {
-		t.Errorf("Create action namespace: got %q want %q (regression: empty NS routes to cluster-scoped REST path, apiserver 404s — C6-006-followup symptom)", got, want)
+	if got := createdNs.Load(); got != "" {
+		t.Errorf("Create action namespace: got %q want \"\" (UserAccess is cluster-scoped — Create must route to the cluster REST path, Refs #4773)", got)
 	}
-	if got, want := objNs.Load(), rbacAssignNamespace; got != want {
-		t.Errorf("object metadata.namespace: got %q want %q (must be stamped on the unstructured so kubectl get -n <ns> finds it)", got, want)
+	if got := objNs.Load(); got != "" {
+		t.Errorf("object metadata.namespace: got %q want \"\" (cluster-scoped CR carries no namespace)", got)
 	}
-	if rbacAssignNamespace == "" {
-		t.Fatal("rbacAssignNamespace must be non-empty — UserAccess is a namespaced Crossplane Claim")
+	if rbacAssignNamespace != "" {
+		t.Fatal("rbacAssignNamespace must be empty — UserAccess is a cluster-scoped CRD (Refs #4773)")
 	}
 }
 

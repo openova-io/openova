@@ -190,8 +190,11 @@ var DefaultKinds = []Kind{
 	// platform-health view + the components page both consume this.
 	{Name: "helmrelease", GVR: schema.GroupVersionResource{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}, Namespaced: true},
 	// access.openova.io/v1alpha1 UserAccess — RBAC binding CRD
-	// surfaced on the /users page.
-	{Name: "useraccess", GVR: schema.GroupVersionResource{Group: "access.openova.io", Version: "v1alpha1", Resource: "useraccesses"}, Namespaced: true},
+	// surfaced on the /users page. CLUSTER-scoped (Refs #4773): a single
+	// grant spans many namespaces and can emit ClusterRoleBindings, so
+	// the CR carries no namespace and the generic /k8s/{kind} + informer
+	// paths must treat it cluster-scoped.
+	{Name: "useraccess", GVR: schema.GroupVersionResource{Group: "access.openova.io", Version: "v1alpha1", Resource: "useraccesses"}, Namespaced: false},
 	// apps.openova.io/v1 Application — workload CRD owning the
 	// `/apps` and AppDetail pages (EPIC-2 slice T+O+P).
 	//

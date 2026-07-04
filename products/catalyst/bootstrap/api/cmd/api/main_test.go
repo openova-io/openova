@@ -69,7 +69,7 @@ func captureLogger() (*slog.Logger, *bytes.Buffer) {
 // TestRunBakeTimeOwnerSeed_SeedsWhenChrootEnvsSet proves the canonical
 // happy path: chroot mode (SOVEREIGN_FQDN set) + OPERATOR_EMAIL set +
 // in-cluster dynamic client present → an owner UserAccess CR is
-// created in catalyst-system within the first attempt.
+// created (cluster-scoped, Refs #4773) within the first attempt.
 func TestRunBakeTimeOwnerSeed_SeedsWhenChrootEnvsSet(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "omantel.omani.works")
 	t.Setenv("OPERATOR_EMAIL", "emrah.baysal@openova.io")
@@ -79,13 +79,12 @@ func TestRunBakeTimeOwnerSeed_SeedsWhenChrootEnvsSet(t *testing.T) {
 
 	runBakeTimeOwnerSeed(context.Background(), log, client)
 
-	// Assert: a UserAccess CR exists in catalyst-system with the
-	// canonical owner-seed name. We re-use the same lookup path the
-	// handler tests do — the CR shape is covered exhaustively over
-	// there; this test only proves the boot wiring fires.
+	// Assert: a cluster-scoped UserAccess CR exists with the canonical
+	// owner-seed name. We re-use the same lookup path the handler tests
+	// do — the CR shape is covered exhaustively over there; this test
+	// only proves the boot wiring fires.
 	const wantName = "useraccess-owner-emrah-baysal-at-openova-io"
 	got, err := client.Resource(handler.UserAccessGVR()).
-		Namespace("catalyst-system").
 		Get(context.Background(), wantName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("expected owner UserAccess %q after bake-time seed; got err %v", wantName, err)
