@@ -150,7 +150,7 @@ spec:
       # that span unbounded org-<uuid> namespaces the excludeNamespaces list can't
       # enumerate; without this the WordPress mysql Deployment was admission-blocked
       # → 0 pods → WordPress had no DB. Refs #4422 #3376.
-      version: 1.0.44
+      version: 1.0.45
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

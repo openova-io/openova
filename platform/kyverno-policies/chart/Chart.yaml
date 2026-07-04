@@ -298,7 +298,11 @@ type: application
 # namespaces the excludeNamespaces list can't enumerate. Mirrors the cnpg.io/
 # cluster label-exempt on backup-configured (#3971). Template+values change.
 # Refs #4422 #3376.
-version: 1.0.44
+# 1.0.45 (#4765): flux-managed carve-out for Helm HOOK resources
+#   (helm.sh/hook annotation) — hooks get no Flux labels + Helm force-stamps
+#   managed-by:Helm, so a legit hook Job (bp-powerdns zone-bootstrap) was
+#   Enforce-denied on live upgrade, stranding the powerdns anycast NodePort.
+version: 1.0.45
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

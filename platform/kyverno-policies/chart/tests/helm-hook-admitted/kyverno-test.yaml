@@ -1,0 +1,44 @@
+# #4765 — Kyverno conformance test for the flux-managed (10) carve-out that
+# admits legitimate Helm HOOK resources (helm.sh/hook annotation).
+#
+# Run with the Kyverno CLI:
+#   cd platform/kyverno-policies/chart
+#   # re-render the policy if the template/values changed:
+#   helm template . --set compliancePolicies.fluxManaged.action=Enforce \
+#     --show-only templates/baseline/10-flux-managed.yaml \
+#     | grep -v '^# Source:' | sed '/^---$/d' \
+#     > tests/helm-hook-admitted/policy.yaml
+#   kyverno test tests/helm-hook-admitted/
+#
+# LIVE shape: hw224 region-a, bp-powerdns zone-bootstrap post-upgrade hook
+# repeatedly Enforce-denied (Helm force-stamps managed-by: Helm; hooks get no
+# Flux labels), so the powerdns LoadBalancer upgrade kept rolling back and the
+# anycast Service was stranded on the forbidden NodePort.
+#
+# TWO cases prove the fix:
+#   1. Helm hook Job (helm.sh/hook annotation)            → ADMITTED (pass)
+#   2. plain kubectl Job, no hook annotation, no Flux lbl → DENIED  (fail)
+#      (proves the carve-out is annotation-scoped, not a blanket Job exemption)
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: helm-hook-admitted-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+results:
+  # 1. Helm hook Job → admitted by the helm.sh/hook carve-out.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - powerdns/powerdns-zone-bootstrap
+    kind: Job
+    result: pass
+  # 2. Plain orphan Job, no hook annotation → DENIED (carve-out is narrow).
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - default/rogue-adhoc-job
+    kind: Job
+    result: fail

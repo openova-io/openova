@@ -1,0 +1,41 @@
+# #4765 — INPUT fixtures for the flux-managed (10) Helm-hook carve-out.
+# None carry a Flux label/ownerRef (no `app.kubernetes.io/managed-by: flux`, no
+# `helm.toolkit.fluxcd.io/name`, no `kustomize.toolkit.fluxcd.io/name`), so the
+# deny rule's conditions are all true UNLESS an exclude carve-out spares them.
+
+# 1. The bp-powerdns zone-bootstrap HOOK Job — a Helm post-upgrade hook.
+#    Helm force-stamps `managed-by: Helm` and it gets no Flux labels, so it can
+#    only pass via the new `helm.sh/hook` annotation carve-out. MUST be ADMITTED
+#    (else the powerdns LoadBalancer upgrade rolls back → stranded NodePort).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: powerdns-zone-bootstrap
+  namespace: powerdns
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: curlimages/curl:8.10.1
+---
+# 2. A plain kubectl-applied Job — NO Flux label, NO helm.sh/hook annotation.
+#    MUST stay DENIED: the carve-out is annotation-scoped, not a blanket Job
+#    exemption. Proves the loosening is narrow.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rogue-adhoc-job
+  namespace: default
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: x
+          image: busybox:1.36
