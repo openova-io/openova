@@ -50,7 +50,11 @@ name: bp-powerdns
 # 1.2.17 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
 # 1.2.18 (#4765): anycast NodePort ERADICATED — serviceType=NodePort fails render;
 #   LoadBalancer renders allocateLoadBalancerNodePorts:false (Cilium LB-IPAM shared VIP).
-version: 1.2.18
+# 1.2.19 (#4765 live-strike): zone-bootstrap hook Job carries
+#   app.kubernetes.io/managed-by: flux — kyverno `flux-managed` policy denied
+#   the hook on upgrade (hw224), rolling back 1.2.18 and stranding the anycast
+#   Service as the forbidden NodePort.
+version: 1.2.19
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

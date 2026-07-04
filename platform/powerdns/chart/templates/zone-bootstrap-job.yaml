@@ -138,6 +138,10 @@ metadata:
   labels:
     {{- include "bp-powerdns.labels" . | nindent 4 }}
     catalyst.openova.io/component: zone-bootstrap
+    # #4765 live-strike: kyverno ClusterPolicy `flux-managed` denies hook Jobs
+    # without this label (blocked the 1.2.18 upgrade on hw224). The hook IS
+    # created by a Flux-driven Helm upgrade; label satisfies the policy.
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "10"
