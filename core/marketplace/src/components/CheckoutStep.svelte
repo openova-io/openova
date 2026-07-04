@@ -342,7 +342,7 @@
         const baseSlug = derivedSlug();
         tenant = await createTenantWithRetry(
           baseSlug,
-          orgName || user.email.split('@')[0] + "'s tenant",
+          orgName || user.email.split('@')[0] + "'s Organization",
         );
         localStorage.setItem(cartKey, tenant.id);
       }
@@ -481,7 +481,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
               </svg>
             </div>
-            <h2 class="text-xl font-bold text-[var(--color-text-strong)]">Your tenant is ready!</h2>
+            <h2 class="text-xl font-bold text-[var(--color-text-strong)]">Your Organization is ready!</h2>
             <p class="mt-1 text-sm text-[var(--color-text-dim)]">You'll receive a welcome email shortly.</p>
           {:else if provision.status === 'failed'}
             <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-danger)]/20">
@@ -493,7 +493,7 @@
             <p class="mt-1 text-sm text-[var(--color-text-dim)]">Please contact support.</p>
           {:else}
             <div class="mx-auto mb-3 h-12 w-12 animate-spin rounded-full border-3 border-[var(--color-accent)] border-t-transparent"></div>
-            <h2 class="text-lg font-semibold text-[var(--color-text-strong)]">Setting up your tenant</h2>
+            <h2 class="text-lg font-semibold text-[var(--color-text-strong)]">Setting up your Organization</h2>
           {/if}
         </div>
         <div class="flex flex-col gap-3">
@@ -623,7 +623,7 @@
              already validated in AddonsStep. -->
         <div class="mb-4 space-y-3">
           <div>
-            <label class="text-xs font-medium text-[var(--color-text-dim)]">Tenant name</label>
+            <label class="text-xs font-medium text-[var(--color-text-dim)]">Organization name</label>
             <input
               bind:value={orgName}
               placeholder="My Company"
@@ -664,7 +664,7 @@
                 {:else if slugStatus === 'invalid'}
                   <span class="text-[var(--color-danger)]">Subdomain must be at least 3 characters</span>
                 {:else}
-                  <span class="text-[var(--color-text-dimmer)]">Auto-synced from tenant name — edit to override</span>
+                  <span class="text-[var(--color-text-dimmer)]">Auto-synced from Organization name — edit to override</span>
                 {/if}
               </div>
             </div>
