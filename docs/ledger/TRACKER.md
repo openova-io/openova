@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T21:45:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-07-04T22:00:16Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 46 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -253,6 +253,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T21:56 | [#4781](https://github.com/openova-io/openova/pull/4781) | #4739 | fix(crossplane): cloudadoption Workspace GVK -> opentofu.upb |
+| 2026-07-04T21:53 | [#4780](https://github.com/openova-io/openova/pull/4780) | #4776 | fix(useraccess): cluster-scoped controller alignment so gran |
 | 2026-07-04T21:35 | [#4779](https://github.com/openova-io/openova/pull/4779) | #4778 | docs(uat): row 23 showback ❌ root-caused + fixed (#4778) |
 | 2026-07-04T21:35 | [#4778](https://github.com/openova-io/openova/pull/4778) | #4739 | fix(showback): directory panel renders every Org row, not ju |
 | 2026-07-04T21:01 | [#4777](https://github.com/openova-io/openova/pull/4777) | #4467 | fix(cilium): native routing (drop VXLAN) to end the unfixabl |
@@ -281,8 +283,6 @@ flowchart LR
 | 2026-07-03T22:44 | [#4741](https://github.com/openova-io/openova/pull/4741) | #4739 | docs(uat): hw220 full-table walk — 243/243 rows populated wi |
 | 2026-07-03T22:41 | [#4740](https://github.com/openova-io/openova/pull/4740) | #4739 | fix(sovereign-tls): drop the envoy-restart Job TTL — hourly  |
 | 2026-07-03T22:08 | [#4738](https://github.com/openova-io/openova/pull/4738) | #4735 | deploy: re-pin catalyst images to 443f815 (deploy-job race r |
-| 2026-07-03T21:30 | [#4737](https://github.com/openova-io/openova/pull/4737) | #4731 | docs(session): #4731 delivery evidence — Progress/Kind treem |
-| 2026-07-03T21:04 | [#4736](https://github.com/openova-io/openova/pull/4736) | #4731 | feat(console): Progress + Kind as first-class treemap layers |
 
 ---
 
