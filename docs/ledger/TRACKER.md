@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T21:30:04Z` |
+| Last refreshed | `2026-07-04T21:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 46 |
 | Open DoD gates | 0 / 41 |
@@ -253,6 +253,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T21:35 | [#4779](https://github.com/openova-io/openova/pull/4779) | #4778 | docs(uat): row 23 showback ❌ root-caused + fixed (#4778) |
+| 2026-07-04T21:35 | [#4778](https://github.com/openova-io/openova/pull/4778) | #4739 | fix(showback): directory panel renders every Org row, not ju |
 | 2026-07-04T21:01 | [#4777](https://github.com/openova-io/openova/pull/4777) | #4467 | fix(cilium): native routing (drop VXLAN) to end the unfixabl |
 | 2026-07-04T21:06 | [#4776](https://github.com/openova-io/openova/pull/4776) | #71 | fix(crossplane): stop the XUserAccess composite leak — UserA |
 | 2026-07-04T20:56 | [#4775](https://github.com/openova-io/openova/pull/4775) | #3153 | fix(dashboard): mothership /jobs re-seeds install+reconcile  |
@@ -281,8 +283,6 @@ flowchart LR
 | 2026-07-03T22:08 | [#4738](https://github.com/openova-io/openova/pull/4738) | #4735 | deploy: re-pin catalyst images to 443f815 (deploy-job race r |
 | 2026-07-03T21:30 | [#4737](https://github.com/openova-io/openova/pull/4737) | #4731 | docs(session): #4731 delivery evidence — Progress/Kind treem |
 | 2026-07-03T21:04 | [#4736](https://github.com/openova-io/openova/pull/4736) | #4731 | feat(console): Progress + Kind as first-class treemap layers |
-| 2026-07-03T21:04 | [#4735](https://github.com/openova-io/openova/pull/4735) | #4732 | fix(catalyst-api): tear down sovereign parent-zone DNS recor |
-| 2026-07-03T20:51 | [#4734](https://github.com/openova-io/openova/pull/4734) | #4732 | fix(console): collapse cloud/k8s WorkerNodes by InternalIP — |
 
 ---
 
