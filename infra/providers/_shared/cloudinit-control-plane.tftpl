@@ -401,7 +401,16 @@ write_files:
       kubeProxyReplacement: true
       k8sServiceHost: NODE_IP_PLACEHOLDER
       k8sServicePort: 6443
-      tunnelProtocol: vxlan
+      # #4656: NATIVE routing (not vxlan) so WireGuard node-encryption does not
+      # double-encapsulate. VXLAN-inside-WireGuard is unfixable by any MTU —
+      # pinning MTU makes cilium derive wg0 = MTU-80, so pod(MTU)+50(VXLAN)
+      # always exceeds wg0 (proven live on hw224: host 1370 + 50 > wg0 1290).
+      # Nodes are L2-adjacent within a region so autoDirectNodeRoutes installs
+      # cross-node pod routes with no tunnel; the native CIDR is the per-region
+      # k3s cluster CIDR; cross-region reach stays ClusterMesh's job.
+      routingMode: native
+      ipv4NativeRoutingCIDR: "${cluster_cidr}"
+      autoDirectNodeRoutes: true
       bpf:
         masquerade: true
       ipam:

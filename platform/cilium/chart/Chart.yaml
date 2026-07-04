@@ -223,7 +223,19 @@ name: bp-cilium
 # 1.4.10 (#4765 follow-up): docs-only bump in lockstep with slot 01
 #   clustermesh.apiserver.tls.authMode=legacy (values live in the slot; the
 #   1.19.3 migration default mounts a users CM external establish never makes).
-version: 1.4.10
+# 1.4.11 (#4656, 2026-07-05): NATIVE routing (drop VXLAN). VXLAN-tunnel over
+#   WireGuard node-encryption stacks two headers on every cross-node pod
+#   packet (pod-MTU + 50B VXLAN > wg0), DF-dropping full-size cross-node pod
+#   TCP — UNFIXABLE by any MTU pin (cilium derives wg0 = MTU−80, so
+#   pod(MTU)+50 always exceeds wg0; #4467's MTU=1370 disproven live on hw224).
+#   Fix: routingMode: native + ipv4NativeRoutingCIDR + autoDirectNodeRoutes so
+#   WireGuard encapsulates ONCE and no VXLAN header stacks. MTU 1370 → 1420
+#   (WG-only = eth0−80). ipv4NativeRoutingCIDR 10.42.0.0/15 spans both
+#   per-region k3s pod CIDRs (region-a 10.42.0.0/16 + region-b 10.43.0.0/16).
+#   Layers ON TOP of the 1.4.9/1.4.10 zero-nodeport + authMode=legacy work.
+#   Needs a fresh 2-region prov to verify the cross-region ClusterMesh pod
+#   path end-to-end (datapath change, not CI-provable). Refs #4656.
+version: 1.4.11
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
