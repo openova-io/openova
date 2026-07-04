@@ -48,7 +48,9 @@ name: bp-powerdns
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
 # 1.2.17 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 1.2.17
+# 1.2.18 (#4765): anycast NodePort ERADICATED — serviceType=NodePort fails render;
+#   LoadBalancer renders allocateLoadBalancerNodePorts:false (Cilium LB-IPAM shared VIP).
+version: 1.2.18
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

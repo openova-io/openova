@@ -27,6 +27,23 @@
 # #1101) become reachable from every peer in the mesh.
 
 cilium:
+  # #4765 — the ONE canonical LB-IPAM pool for the shared Sovereign EIP.
+  # templates/sovereign-vip-lb-ipam-pool.yaml renders a single
+  # CiliumLoadBalancerIPPool `sovereign-vip` (no serviceSelector) when
+  # enabled; every type=LoadBalancer Service that must ride the shared EIP
+  # (clustermesh-apiserver :2379, powerdns anycast :53, gateway :443/:80)
+  # co-locates on it via the `lbipam.cilium.io/sharing-key: sovereign-vip`
+  # annotation. This REPLACES the pre-#4765 two-pool shape
+  # (clustermesh.apiserver.service.lbIpam + gateway.lbIpam), whose
+  # overlapping CP-node /32 CIDRs put the second pool Conflicting=True and
+  # starved the clustermesh Service of its VIP → forbidden NodePort
+  # fallback. no-CCM Huawei cloudinit sets CILIUM_LB_IPAM_ENABLED=true +
+  # CILIUM_LB_IPAM_CIDRS=<this-region-cp-public-ipv4>/32; Hetzner leaves
+  # both unset (hcloud-ccm path stays canonical → pool CR not rendered).
+  lbIpam:
+    enabled: false
+    cidrs: []
+
   # Per-Sovereign anchors — ALWAYS overridden by the Sovereign's
   # bootstrap-kit overlay. The empty-string + zero defaults here are
   # intentionally invalid — Cilium chart fails-fast at install time when
@@ -46,24 +63,18 @@ cilium:
     useAPIServer: true
     apiserver:
       service:
-        # LoadBalancer for cloud Sovereigns (Hetzner LB allocates a
-        # public IP that the other peers connect to over the
-        # `cilium clustermesh connect` runbook below). Operators on
-        # non-cloud / bare-metal Sovereigns flip this to NodePort in
-        # their per-Sovereign overlay.
+        # #4765 — LoadBalancer ALWAYS (NodePort is ABSOLUTELY FORBIDDEN,
+        # founder 2026-07-03). On no-CCM Huawei the sovereign-vip LB-IPAM
+        # pool (cilium.lbIpam above) hands this Service the shared EIP; on
+        # Hetzner hcloud-ccm allocates a public IP. Peers connect over the
+        # `cilium clustermesh connect` runbook below.
         type: LoadBalancer
-        # G99 (Refs #2648, 2026-06-01) — Cilium LB IPAM for HCS.
-        # HCS has no cloud CCM → type=LoadBalancer stays Pending
-        # forever without an in-cluster LB controller. When enabled,
-        # templates/clustermesh-lb-ipam-pool.yaml renders a
-        # CiliumLoadBalancerIPPool CR; Cilium itself assigns an
-        # ExternalIP from the configured pool. HCS provider cloudinit
-        # sets CILIUM_LB_IPAM_ENABLED=true + CILIUM_LB_IPAM_CIDRS=
-        # <this-region-cp-public-ipv4>/32 (per-region CP node IP).
-        # Hetzner leaves these unset (hcloud-ccm path stays canonical).
-        lbIpam:
-          enabled: false
-          cidrs: []
+        annotations:
+          # #4765 — ride the ONE shared Sovereign EIP served by the
+          # sovereign-vip pool (no serviceSelector). Distinct L4 port
+          # (:2379) makes the share with powerdns :53 / gateway :443/:80
+          # collision-free. Inert on Hetzner (LB-IPAM disabled → hcloud-ccm).
+          lbipam.cilium.io/sharing-key: sovereign-vip
       tls:
         # Mutual cert auth between Cilium peers — every peer's
         # clustermesh-apiserver verifies the other's cert against the

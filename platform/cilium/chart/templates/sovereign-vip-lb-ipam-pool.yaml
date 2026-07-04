@@ -1,0 +1,87 @@
+{{/*
+#4765 (founder 2026-07-03, "FUCK THE NODEPORTS!!!") — the ONE canonical
+Cilium LoadBalancer IPAM pool for the shared Sovereign EIP.
+
+ROOT CAUSE this template eradicates (Conflicting=True at birth):
+  Until #4765 this chart rendered TWO CiliumLoadBalancerIPPool CRs —
+  `clustermesh-apiserver` (clustermesh-lb-ipam-pool.yaml) and
+  `sovereign-gateway` (gateway-lb-ipam-pool.yaml). On the no-CCM Huawei
+  provider BOTH pools were handed the SAME CP-node public IPv4/32
+  (CILIUM_LB_IPAM_CIDRS == CILIUM_GATEWAY_LB_IPAM_CIDRS ==
+  ${node_external_ip}/32). Cilium's LB-IPAM controller refuses overlapping
+  CIDRs across pools: it marks the second pool `Conflicting=True` and
+  serves NEITHER of that pool's Services. Live-verified hw224: the
+  `clustermesh-apiserver` pool went Conflicting → the clustermesh-apiserver
+  Service (type=LoadBalancer :2379) NEVER got `status.loadBalancer.ingress`
+  → `cilium clustermesh connect` fell back to the Service's auto-allocated
+  NodePort (`hw224-me-east-b.mesh.cilium.io:30868`). A NodePort dependency
+  is ABSOLUTELY FORBIDDEN (founder 2026-07-03, #4765).
+
+CANONICAL FIX — one pool, one CIDR, no conflict:
+  There is exactly ONE shared Sovereign EIP per region (the CP-node public
+  IPv4). Every type=LoadBalancer Service that needs it — clustermesh-
+  apiserver (:2379), the powerdns anycast NS endpoint (:53), and (on a
+  future non-hostNetwork provider) the Sovereign Gateway (:443/:80) —
+  co-locates on that single VIP via the `lbipam.cilium.io/sharing-key:
+  sovereign-vip` Service annotation. Distinct L4 ports (2379 / 53 / 443 /
+  80) make the share collision-free. One pool + one CIDR = no overlap =
+  no Conflicting state = the VIP materialises deterministically at birth.
+
+  NO serviceSelector: Cilium 1.19's matchLabels/matchExpressions selector
+  cannot OR across DIFFERENT label keys in a single pool
+  (k8s-app=clustermesh-apiserver OR io.cilium.gateway/owning-gateway=…),
+  so instead of three separate pools (which would re-introduce the CIDR
+  overlap) this pool serves ALL type=LoadBalancer Services and the
+  sharing-key annotation is the CONTRACT: every LB Service that must ride
+  the shared EIP carries `lbipam.cilium.io/sharing-key: sovereign-vip`.
+  (A single /32 pool with no sharing-key would give the first Service the
+  IP and leave the rest Pending — pool exhausted; the sharing-key is what
+  lets them coexist on the one address.)
+
+OPERATOR GATE:
+  Enabled per-provider via the HelmRelease overlay substitute
+  CILIUM_LB_IPAM_ENABLED (true on no-CCM Huawei, unset on Hetzner where
+  hcloud-ccm materialises real cloud LBs). Per docs/PRINCIPLES.md #4 the
+  chart never auto-enables. Hetzner leaves the gate false → this CR does
+  not render → the hcloud-ccm path stays canonical.
+
+VERIFICATION (post-fresh-prov on no-CCM Huawei multi-region):
+  kubectl get ciliumloadbalancerippool sovereign-vip \
+    -o jsonpath='{.status.conditions[?(@.type=="Conflicting")].status}'
+  # → "False" (exactly one pool exists; nothing to conflict with)
+  kubectl -n kube-system get svc clustermesh-apiserver \
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  # → the CP-node public IPv4, NOT empty
+  kubectl -n kube-system get svc clustermesh-apiserver \
+    -o jsonpath='{.spec.allocateLoadBalancerNodePorts}'
+  # → false (slot-01 postRenderer suppresses the NodePort — #4765)
+*/}}
+{{- /* nil-safe: default values may omit cilium.lbIpam entirely (helm-lint
+     evaluates with defaults; live values set it via the slot-01 overlay). */}}
+{{- $lbIpam := dig "lbIpam" (dict) (.Values.cilium | default dict) }}
+{{- if $lbIpam.enabled }}
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: sovereign-vip
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: sovereign-vip-lb-ipam
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  # Single per-region CIDR — the shared Sovereign EIP (CP-node public
+  # IPv4/32), set by the per-provider cloudinit substitute
+  # CILIUM_LB_IPAM_CIDRS. For no-CCM Huawei: this region's CP-node public
+  # IPv4/32. For Hetzner: leave lbIpam.enabled=false; hcloud-ccm handles LB.
+  blocks:
+    {{- range $lbIpam.cidrs }}
+    - cidr: {{ . | quote }}
+    {{- end }}
+  # NO serviceSelector — serves EVERY type=LoadBalancer Service. Services
+  # that must ride the shared EIP carry `lbipam.cilium.io/sharing-key:
+  # sovereign-vip` so they co-locate on the single /32 (see header). This is
+  # the ONLY pool (#4765) — never add a second CiliumLoadBalancerIPPool with
+  # an overlapping CIDR; that is the Conflicting=True defect this template
+  # eradicated.
+{{- end }}

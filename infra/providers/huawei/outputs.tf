@@ -116,10 +116,10 @@ output "worker_ips_per_region" {
 }
 
 output "clustermesh_endpoint_per_region" {
-  description = "Public clustermesh-apiserver endpoint per region (CP EIP + NodePort). Cilium ClusterMesh peers dial these over DMZ-WG/mTLS."
+  description = "Public clustermesh-apiserver endpoint per region (CP EIP + :2379 VIP). #4765 — peers dial the sovereign-vip LB-IPAM VIP on :2379 over DMZ-WG/mTLS; NodePorts are FORBIDDEN."
   value = {
     for r in var.regions :
-    r.code => "${huaweicloud_vpc_eip.cp[r.code].address}:32379"
+    r.code => "${huaweicloud_vpc_eip.cp[r.code].address}:2379"
   }
 }
 

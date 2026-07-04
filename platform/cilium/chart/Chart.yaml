@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.9 (#4765, 2026-07-05): ZERO NODEPORTS. Merge the two overlapping
+# CiliumLoadBalancerIPPool templates (clustermesh-apiserver + sovereign-
+# gateway, both claiming the SAME CP-node /32 → the second pool went
+# Conflicting=True → the clustermesh-apiserver Service never got its VIP →
+# `cilium clustermesh connect` fell back to the Service's auto-allocated
+# NodePort, hw224 `…mesh.cilium.io:30868`) into ONE canonical pool
+# `sovereign-vip` (templates/sovereign-vip-lb-ipam-pool.yaml), no
+# serviceSelector — every LB Service co-locates on the shared EIP via the
+# `lbipam.cilium.io/sharing-key: sovereign-vip` annotation. Single pool +
+# single CIDR = no overlap = no Conflicting = VIP at birth. Values contract:
+# cilium.clustermesh.apiserver.service.lbIpam + cilium.gateway.lbIpam are
+# retired in favour of a single top-level cilium.lbIpam. Lockstep: slot-01
+# folds CILIUM_{,GATEWAY_}LB_IPAM_* → one cilium.lbIpam block + a
+# postRenderer that suppresses the clustermesh Service NodePort, and adds
+# the sharing-key annotation. Refs #4765.
 # 1.4.8 (#4706, 2026-07-03): cilium 1.16.5 → 1.19.3 + gateway-api hostNetwork
 # per-provider — the PERMANENT §854-clean no-nodePort gateway on no-CCM Huawei.
 # 1.16.5 blocked BOTH clean paths: the LB VIP dies at Huawei's 1:1-NAT'd EIP
@@ -205,7 +220,7 @@ name: bp-cilium
 # the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
 # fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
 # mapper lands on the live hubble-ui client zero-touch.
-version: 1.4.8
+version: 1.4.9
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

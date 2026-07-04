@@ -81,9 +81,11 @@ spec:
                       type: array
                       description: |
                         Listener-port mappings. Catalyst convention for the
-                        bootstrap LB is two services:
-                          80 → 31080 (HTTP, Cilium Gateway NodePort)
-                          443 → 31443 (HTTPS, Cilium Gateway NodePort)
+                        bootstrap LB is two services targeting the cilium-envoy
+                        hostNetwork host ports directly (§854 / #4765 — NodePorts
+                        are FORBIDDEN):
+                          80 → node:80   (HTTP, cilium-envoy hostNetwork)
+                          443 → node:443 (HTTPS, cilium-envoy hostNetwork)
                       minItems: 1
                       items:
                         type: object

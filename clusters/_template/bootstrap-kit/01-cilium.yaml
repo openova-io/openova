@@ -120,7 +120,17 @@ spec:
       # gateway Service's auto-allocated nodePort (discovered + reconciled
       # post-convergence by catalyst-api). The sharing-key annotation is dropped
       # from the clustermesh Service; the two Services no longer share an EIP.
-      version: 1.4.8
+      # 1.4.9 (#4765, 2026-07-05): ZERO NODEPORTS. The 1.4.7 two-pool shape put
+      # `clustermesh-apiserver` + `sovereign-gateway` on the SAME CP-node /32 →
+      # Conflicting=True → clustermesh Service never got its VIP → forbidden
+      # NodePort fallback (hw224 `…mesh.cilium.io:30868`). Merged into ONE
+      # `sovereign-vip` pool (no serviceSelector); the clustermesh + powerdns
+      # Services co-locate via `lbipam.cilium.io/sharing-key: sovereign-vip`.
+      # The gateway rides gatewayAPI.hostNetwork (node:443/:80 direct), so it
+      # needs no LB-IPAM pool — cilium.gateway.lbIpam + CILIUM_GATEWAY_LB_IPAM_*
+      # are retired. Slot folds both gates into one cilium.lbIpam block +
+      # postRenderer that suppresses the clustermesh Service NodePort.
+      version: 1.4.9
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -139,6 +149,29 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  # #4765 — suppress the clustermesh-apiserver Service NodePort. The Service
+  # is type=LoadBalancer (rides the sovereign-vip VIP on :2379), but Kubernetes
+  # auto-allocates a NodePort for EVERY LoadBalancer Service unless told not to
+  # (that is the `…mesh.cilium.io:30868` NodePort the pre-#4765 dial fell back
+  # to). The upstream cilium 1.19.3 clustermesh-apiserver Service template does
+  # NOT expose allocateLoadBalancerNodePorts, so patch it here via a
+  # postRenderer. NodePorts are ABSOLUTELY FORBIDDEN (founder 2026-07-03).
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              version: v1
+              kind: Service
+              name: clustermesh-apiserver
+              namespace: kube-system
+            patch: |
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: clustermesh-apiserver
+                namespace: kube-system
+              spec:
+                allocateLoadBalancerNodePorts: false
   values:
     cilium:
       # Multi-region (operator mandate 2026-05-12) — each region's k3s
@@ -254,6 +287,26 @@ spec:
       bgpControlPlane:
         enabled: ${BGP_ENABLED:=false}
 
+      # ── #4765 — the ONE canonical LB-IPAM pool (sovereign-vip) ─────────
+      # bp-cilium 1.4.9's templates/sovereign-vip-lb-ipam-pool.yaml renders a
+      # SINGLE CiliumLoadBalancerIPPool `sovereign-vip` (no serviceSelector)
+      # when enabled. Every type=LoadBalancer Service that must ride the
+      # shared Sovereign EIP — clustermesh-apiserver (:2379), powerdns anycast
+      # (:53) — co-locates on this one /32 via the
+      # `lbipam.cilium.io/sharing-key: sovereign-vip` annotation. This REPLACES
+      # the pre-#4765 TWO pools (clustermesh-apiserver + sovereign-gateway),
+      # which claimed the SAME CP-node /32 → the second went Conflicting=True →
+      # the clustermesh Service never got its VIP → forbidden NodePort fallback
+      # (hw224 `…mesh.cilium.io:30868`). One pool + one CIDR = no overlap.
+      #   no-CCM Huawei cloud-init: CILIUM_LB_IPAM_ENABLED=true +
+      #     CILIUM_LB_IPAM_CIDRS=<this-region-cp-public-ipv4>/32.
+      #   Hetzner leaves both unset → pool CR not rendered → hcloud-ccm
+      #     materialises the Service LBs directly (canonical).
+      lbIpam:
+        enabled: ${CILIUM_LB_IPAM_ENABLED:=false}
+        cidrs:
+          - ${CILIUM_LB_IPAM_CIDRS:=0.0.0.0/32}
+
       # ── Cilium ClusterMesh — multi-region peering ──────────────────
       #
       # Per ADR-0001 §9 + EPIC-6 #1101 (multi-region active-hotstandby DR),
@@ -287,46 +340,21 @@ spec:
         useAPIServer: true
         apiserver:
           service:
-            # 2026-05-15: default flipped NodePort → LoadBalancer per DoD A3
-            # (docs/SOVEREIGN-MULTI-REGION-DOD.md). Founder ruling:
-            # "ClusterMesh apiserver Service = LoadBalancer (NEVER NodePort)".
+            # #4765 (founder 2026-07-03, "FUCK THE NODEPORTS!!!"): the
+            # clustermesh-apiserver Service is LoadBalancer ALWAYS — NodePort
+            # is ABSOLUTELY FORBIDDEN (no `type: NodePort`, no `nodePort:`
+            # field, no operator escape hatch). The former
+            # ${CLUSTERMESH_SERVICE_TYPE}/${CLUSTERMESH_NODE_PORT} substitutes
+            # and the per-service `lbIpam` block are RETIRED here.
             #
-            # On Hetzner, hcloud-ccm allocates a public-IPv4 LB per peer
-            # region; AutoEstablishClusterMesh (handler/clustermesh.go,
-            # PR #1508) hard-fails on type != LoadBalancer and reads the
-            # LB ingress IP for the peer endpoint. Cilium WG node
+            # On no-CCM Huawei the single sovereign-vip LB-IPAM pool
+            # (cilium.lbIpam below) hands this Service the shared EIP; on
+            # Hetzner hcloud-ccm allocates a public-IPv4 LB per peer region.
+            # AutoEstablishClusterMesh (handler/clustermesh.go) hard-fails on
+            # type != LoadBalancer and reads the LB ingress IP for the peer
+            # endpoint (dialing VIP:2379 — never a NodePort). Cilium WG node
             # encryption secures the LB→node→pod path end-to-end.
-            #
-            # ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer} keeps the
-            # operator escape hatch (e.g. bare-metal Sovereigns with
-            # MetalLB or non-cloud peers can override to NodePort) but
-            # the cloud-Hetzner default is now A3-compliant out of the
-            # box.
-            type: ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer}
-            # G3 (Refs #2534, 2026-05-29): per-region NodePort number when
-            # type=NodePort. Empty string means k8s assigns a random
-            # NodePort in 30000-32767; HCS provider's cloud-init pins
-            # `CLUSTERMESH_NODE_PORT: "31333"` (matching the HCS security-
-            # group ingress rule in infra/providers/huawei/main.tf) so the
-            # peer-dial address is stable + deterministic. Hetzner leaves
-            # this empty (LB pattern doesn't need it).
-            # G99 (Refs #2648, 2026-06-01): HCS now uses LB IPAM (below)
-            # instead of NodePort — substitute defaults to empty here.
-            nodePort: ${CLUSTERMESH_NODE_PORT:=}
-            # G99 (Refs #2648, 2026-06-01): Cilium LB IPAM for HCS.
-            # HCS has no cloud CCM → type=LoadBalancer needs an in-cluster
-            # LB controller. bp-cilium 1.3.6's clustermesh-lb-ipam-pool.yaml
-            # template renders a CiliumLoadBalancerIPPool CR when enabled;
-            # Cilium itself assigns the ExternalIP from the configured pool.
-            # HCS cloudinit substitutes:
-            #   CILIUM_LB_IPAM_ENABLED=true
-            #   CILIUM_LB_IPAM_CIDRS=<this-region-cp-public-ipv4>/32
-            # Hetzner leaves both unset → defaults below render empty pool
-            # → CR not rendered → hcloud-ccm path stays canonical.
-            lbIpam:
-              enabled: ${CILIUM_LB_IPAM_ENABLED:=false}
-              cidrs:
-                - ${CILIUM_LB_IPAM_CIDRS:=0.0.0.0/32}
+            type: LoadBalancer
             # Hetzner CCM requires location OR network-zone annotation
             # to allocate the LB. ${HCLOUD_LB_LOCATION} flows from the
             # bootstrap-kit Kustomization substitute, set by the
@@ -342,6 +370,12 @@ spec:
             # the bug at provision time instead of at clustermesh-
             # apiserver LB allocation time).
             annotations:
+              # #4765 — ride the ONE shared Sovereign EIP served by the
+              # sovereign-vip LB-IPAM pool (no serviceSelector). Distinct L4
+              # port (:2379) makes the share with powerdns :53 collision-free.
+              # Load-bearing on no-CCM Huawei; inert on Hetzner (LB-IPAM
+              # disabled → hcloud-ccm reads its own annotations below).
+              lbipam.cilium.io/sharing-key: sovereign-vip
               load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
               load-balancer.hetzner.cloud/type: "lb11"
               # use-private-ip: false — LB→backend connection transits
@@ -367,40 +401,19 @@ spec:
               # (48d8fe77...): primary + nbg1 both reported external_ip
               # 167.233.14.208 (nbg1 LB), sin stayed <pending>.
               load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-clustermesh"
-              # NOTE (#4690): the #4687/#4689 `lbipam.cilium.io/sharing-key`
-              # annotation here (which co-located the gateway VIP onto THIS
-              # clustermesh CP-node EIP) is REMOVED — that EIP is a Huawei 1:1
-              # NAT, externally unreachable (verified hw208). The Sovereign
-              # Gateway Service now has its OWN dedicated LB-IPAM pool
-              # (gateway-lb-ipam-pool.yaml, wired via cilium.gateway.lbIpam
-              # below) and is fronted publicly by the restored Huawei ELB
-              # (infra/providers/huawei/main.tf), so the two Services no longer
-              # share an EIP. The clustermesh Service keeps its own
-              # clustermesh-lb-ipam-pool ExternalIP on the CP-node EIP (reached
-              # by the remote peer over the WG-encrypted node path — NOT via the
-              # NAT, so the clustermesh path is unaffected).
-
-      # ── cilium.gateway.lbIpam — dedicated LB-IPAM pool for the Sovereign
-      # Gateway Service (#4686 wiring gap fix / #4690). The chart template
-      # platform/cilium/chart/templates/gateway-lb-ipam-pool.yaml renders a
-      # CiliumLoadBalancerIPPool `sovereign-gateway` when enabled, selecting the
-      # Cilium-auto-generated cilium-gateway-<name> Service by its
-      # `io.cilium.gateway/owning-gateway: cilium-gateway` label. #4682 added the
-      # template + the CILIUM_GATEWAY_LB_IPAM_* cloud-init substitutes but NEVER
-      # wired these HR values (the #4686 gap) — so the pool never rendered and
-      # the gateway Service stayed <pending> on Huawei. This wires it.
-      #   Huawei cloud-init: CILIUM_GATEWAY_LB_IPAM_ENABLED=true +
-      #     CILIUM_GATEWAY_LB_IPAM_CIDRS=<this-region-cp-public-ipv4>/32.
-      #   Hetzner leaves both unset → defaults render empty/disabled → pool CR
-      #     not rendered → hcloud-ccm materialises the Service LB (canonical).
-      # The ExternalIP is a datapath marker so Cilium programs the Service +
-      # allocates its nodePort; the PUBLIC front door is the restored Huawei ELB
-      # forwarding :443/:80 → node:<nodePort> (see cilium-gateway.yaml + main.tf).
-      gateway:
-        lbIpam:
-          enabled: ${CILIUM_GATEWAY_LB_IPAM_ENABLED:=false}
-          cidrs:
-            - ${CILIUM_GATEWAY_LB_IPAM_CIDRS:=0.0.0.0/32}
+              # #4765 — the sharing-key annotation above co-locates THIS
+              # Service on the single sovereign-vip pool CIDR (the CP-node
+              # EIP). On no-CCM Huawei that EIP is a 1:1 NAT, but the remote
+              # peer reaches the clustermesh VIP over the WG-encrypted node
+              # path (NOT via the NAT), so 2379-on-the-VIP is served by
+              # Cilium's kube-proxy-replacement LB frontend — no NodePort.
+              # The gateway rides its OWN §854-clean path (gateway-api
+              # hostNetwork, node:443/:80 direct — see gatewayAPI.hostNetwork
+              # below + infra/providers/huawei/main.tf elb_primary members),
+              # so it does NOT need its own LB-IPAM pool; the pre-#4765
+              # cilium.gateway.lbIpam block + CILIUM_GATEWAY_LB_IPAM_*
+              # substitutes are RETIRED (a second pool on the same CIDR was
+              # the Conflicting=True defect #4765 eradicated).
 
       # ── #4706 — gateway-api hostNetwork, PER-PROVIDER ──────────────────
       # cilium 1.19.3 (bp-cilium 1.4.8) fixed the 1.16.x hostNetwork bind

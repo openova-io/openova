@@ -697,7 +697,9 @@ write_files:
             # Hetzner: hcloud-CCM allocates the clustermesh-apiserver LB +
             # the Gateway binds host 443/80 directly (the tofu hcloud LB
             # forwards 443→… to envoy). Suspend HCS-only HRs (bp-velero-hcs).
-            CLUSTERMESH_SERVICE_TYPE: "LoadBalancer"
+            # #4765 — the clustermesh Service type is hardcoded LoadBalancer in
+            # slot-01 (NodePort ABSOLUTELY FORBIDDEN), so the former
+            # CLUSTERMESH_SERVICE_TYPE substitute is retired here.
             HCLOUD_LB_LOCATION: "${region}"
             SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
             HUAWEI_HR_SUSPEND: "true"
@@ -803,33 +805,22 @@ write_files:
             # can never render an empty or ephemeral class.
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
+            # #4765 — the ONE shared LB-IPAM CIDR for the sovereign-vip pool.
+            # bp-cilium 1.4.9 renders a SINGLE CiliumLoadBalancerIPPool
+            # `sovereign-vip` from cilium.lbIpam; the clustermesh-apiserver
+            # (:2379) + powerdns anycast (:53) Services co-locate on this
+            # CP-node EIP via the `lbipam.cilium.io/sharing-key: sovereign-vip`
+            # annotation. The pre-#4765 CILIUM_GATEWAY_LB_IPAM_* substitutes are
+            # RETIRED: they seeded a SECOND pool (sovereign-gateway) on this
+            # SAME /32 → Conflicting=True → the clustermesh Service was starved
+            # of its VIP → forbidden NodePort fallback (hw224
+            # `…mesh.cilium.io:30868`). The gateway needs no LB-IPAM pool — it
+            # rides gateway-api hostNetwork (node:443/:80 direct, §854-clean;
+            # the ELB members target those durable host ports, NOT a nodePort —
+            # see infra/providers/huawei/main.tf elb_primary + variables.tf
+            # gateway_member_port_*). Left UNSET on Hetzner (hcloud-ccm path).
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
-            # #4690 (gateway ELB→nodePort foundation) — the Cilium Gateway is a
-            # Service type=LoadBalancer on :443/:80 (hostNetwork off, no NodePort;
-            # #4682). On the CCM-less Huawei provider a DEDICATED
-            # CiliumLoadBalancerIPPool (gateway-lb-ipam-pool.yaml, gated on
-            # cilium.gateway.lbIpam.enabled) hands that Service an ExternalIP so
-            # Cilium programs the datapath + allocates the Service's nodePort.
-            #
-            # This restores the pre-#4687 wiring and REPLACES the #4687/#4689
-            # "option-B" (CILIUM_GATEWAY_SHARING_KEY co-locating the gateway VIP
-            # on the clustermesh CP-node EIP). That EIP is a Huawei 1:1 NAT —
-            # externally UNREACHABLE (verified live on hw208) — so it never made
-            # a public front door. The PUBLIC front door is the restored Huawei
-            # ELB (infra/providers/huawei/main.tf `elb_primary`, its OWN routable
-            # EIP), which forwards public :443/:80 → node:<gateway-Service-nodePort>.
-            #
-            # The ExternalIP this pool assigns is therefore a DATAPATH MARKER, not
-            # the public address: the CP-node public IPv4/32 (same source as the
-            # clustermesh pool) is a convenient unique-per-region value. The
-            # gateway's real public reachability is the ELB→nodePort path; the
-            # nodePort is discovered + reconciled onto the ELB members
-            # post-convergence by catalyst-api (bootstrap/api
-            # post_handover_gateway_elb.go). Left UNSET on Hetzner, where
-            # hcloud-ccm materialises the Service LB directly.
-            CILIUM_GATEWAY_LB_IPAM_ENABLED: "true"
-            CILIUM_GATEWAY_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
             # #4706 — lockstep w/ the cilium-values hostNetwork block above.
             CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"
             # #4706 — console gateway binds 8443/8080 under hostNetwork (two
