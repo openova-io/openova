@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T04:45:06Z` |
+| Last refreshed | `2026-07-04T05:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 46 |
 | Open DoD gates | 0 / 41 |
@@ -253,6 +253,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T04:55 | [#4753](https://github.com/openova-io/openova/pull/4753) | #4752 | fix(cloud-init): retry cilium rollout-status — stop intermit |
 | 2026-07-04T04:32 | [#4751](https://github.com/openova-io/openova/pull/4751) | #4706 | fix(phase1): console gate 90s→35m — stop false 'failed' on h |
 | 2026-07-04T03:08 | [#4749](https://github.com/openova-io/openova/pull/4749) | #4696 | fix(sovereign-smtp): operator PIN-login 502 on every Soverei |
 | 2026-07-04T03:08 | [#4747](https://github.com/openova-io/openova/pull/4747) | #4739 | docs(uat): reset ledger for hw221 fresh-prov re-walk (Refs # |
@@ -282,7 +283,6 @@ flowchart LR
 | 2026-07-03T03:39 | [#4717](https://github.com/openova-io/openova/pull/4717) | #4715 | test(gateway): CI guard vs the hw218 console-port collision  |
 | 2026-07-03T03:08 | [#4716](https://github.com/openova-io/openova/pull/4716) | #4707 | fix(readiness): console-gate < 500 → < 400 — a 404 front doo |
 | 2026-07-03T01:07 | [#4715](https://github.com/openova-io/openova/pull/4715) | fix(gateway): console gateway → 8443/8080 host ports — no no |  |
-| 2026-07-03T01:04 | [#4714](https://github.com/openova-io/openova/pull/4714) | #4710 | fix(provisioning): pin per-Org HR-app chart versions — no fl |
 
 ---
 
