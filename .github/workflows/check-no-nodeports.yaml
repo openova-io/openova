@@ -1,0 +1,57 @@
+name: check — zero NodePorts (#4765)
+
+# Permanent guard that NodePorts stay ERADICATED, for EVERY future PR.
+#
+# Founder 2026-07-03 (verbatim): "YOU CAN NEVER EVER USE NODEPORT EVEN FOR
+# TESTING PURPOSE!!! ... FUCK THE NODEPORTS!!!" (#4765). NodePorts are
+# ABSOLUTELY FORBIDDEN — no `Service type=NodePort`, no `nodePort:` field,
+# no `serviceType: NodePort`, no `type = "NodePort"` in IaC, no ELB/LB pool
+# member pointing at a node:nodePort. The gateway is served DIRECT (cilium
+# LB-IPAM VIP / shared-EIP, or gateway-api hostNetwork node:443/:80) and
+# clustermesh dials the sovereign-vip VIP on :2379.
+#
+# scripts/check-no-nodeports.sh runs two phases: an authoritative static
+# source scan (platform/ products/ clusters/ infra/ core/) plus a
+# best-effort `helm template` render sweep of every chart. See the script
+# header for detail.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/**'
+      - 'infra/**'
+      - 'core/**'
+      - 'scripts/check-no-nodeports.sh'
+      - '.github/workflows/check-no-nodeports.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/**'
+      - 'infra/**'
+      - 'core/**'
+      - 'scripts/check-no-nodeports.sh'
+      - '.github/workflows/check-no-nodeports.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-nodeports:
+    name: Reject NodePorts (sources + rendered charts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
+      - name: Run zero-NodePort guard
+        run: bash scripts/check-no-nodeports.sh
