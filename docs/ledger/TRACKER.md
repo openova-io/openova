@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T19:30:02Z` |
+| Last refreshed | `2026-07-04T19:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 45 |
+| Open issues | 46 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 45 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 46 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 45 open items (clickable table)
+### All 46 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -245,6 +245,7 @@ flowchart LR
 | [#4761](https://github.com/openova-io/openova/issues/4761) | provisioning gitops: generateAppsSyncKustomization hardcodes sourceRef flux-syst | Other |
 | [#4764](https://github.com/openova-io/openova/issues/4764) | wipe: canonical destroy leaves a dangling console/tenant DNS record (console.<fq | Other |
 | [#4765](https://github.com/openova-io/openova/issues/4765) | Zero NodePorts: kill powerdns-anycast NodePort + clustermesh nodePort dial (LB-I | Other |
+| [#4773](https://github.com/openova-io/openova/issues/4773) | P1: 5,726 orphaned XUserAccess composites leaking on hw224 — Claims still crea | Other |
 
 ---
 
@@ -252,6 +253,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T19:44 | [#4774](https://github.com/openova-io/openova/pull/4774) | #4773 | docs(uat): crossplane-adoption rows 206/207/239 confirmed ❌  |
 | 2026-07-04T19:12 | [#4772](https://github.com/openova-io/openova/pull/4772) | #4466 | docs(uat): G5 janitor + G10 placement walked live on hw224 ( |
 | 2026-07-04T19:11 | [#4771](https://github.com/openova-io/openova/pull/4771) | #4769 | fix(kyverno): flux-managed carve-out for Helm hooks — unbloc |
 | 2026-07-04T18:38 | [#4770](https://github.com/openova-io/openova/pull/4770) | #4739 | docs(uat): rows 73+74 voucher writes walked live on hw224 |
@@ -281,7 +283,6 @@ flowchart LR
 | 2026-07-03T20:53 | [#4733](https://github.com/openova-io/openova/pull/4733) | #4732 | fix(catalyst-api): per-Org console front door — self-healing |
 | 2026-07-03T18:19 | [#4730](https://github.com/openova-io/openova/pull/4730) | #4610 | fix(agenity): per-Org MCP OPENOVA_MCP_TENANT_HOST must be th |
 | 2026-07-03T18:19 | [#4729](https://github.com/openova-io/openova/pull/4729) | #4277 | walk(uat): Pillar-4 North Star PROVEN LIVE on fresh hw220 —  |
-| 2026-07-03T18:19 | [#4728](https://github.com/openova-io/openova/pull/4728) | #4708 | fix(cutover): hostNetwork-era wedges — registry-TLS gate for |
 
 ---
 
