@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T19:00:03Z` |
+| Last refreshed | `2026-07-04T19:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 45 |
 | Open DoD gates | 0 / 41 |
@@ -252,6 +252,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T19:12 | [#4772](https://github.com/openova-io/openova/pull/4772) | #4466 | docs(uat): G5 janitor + G10 placement walked live on hw224 ( |
+| 2026-07-04T19:11 | [#4771](https://github.com/openova-io/openova/pull/4771) | #4769 | fix(kyverno): flux-managed carve-out for Helm hooks — unbloc |
 | 2026-07-04T18:38 | [#4770](https://github.com/openova-io/openova/pull/4770) | #4739 | docs(uat): rows 73+74 voucher writes walked live on hw224 |
 | 2026-07-04T18:35 | [#4769](https://github.com/openova-io/openova/pull/4769) | #4765 | fix(powerdns): hook-Job labels spelled out — managed-by=flux |
 | 2026-07-04T18:42 | [#4768](https://github.com/openova-io/openova/pull/4768) | #4731 | fix(dashboard): treemap full component inventory + [progress |
@@ -280,8 +282,6 @@ flowchart LR
 | 2026-07-03T18:19 | [#4730](https://github.com/openova-io/openova/pull/4730) | #4610 | fix(agenity): per-Org MCP OPENOVA_MCP_TENANT_HOST must be th |
 | 2026-07-03T18:19 | [#4729](https://github.com/openova-io/openova/pull/4729) | #4277 | walk(uat): Pillar-4 North Star PROVEN LIVE on fresh hw220 —  |
 | 2026-07-03T18:19 | [#4728](https://github.com/openova-io/openova/pull/4728) | #4708 | fix(cutover): hostNetwork-era wedges — registry-TLS gate for |
-| 2026-07-03T08:50 | [#4726](https://github.com/openova-io/openova/pull/4726) | #4704 | feat(console): #4704 provisioning Dashboard = treemap skelet |
-| 2026-07-03T08:00 | [#4725](https://github.com/openova-io/openova/pull/4725) | #4221 | fix(console): re-home provisioning progress to the provision |
 
 ---
 
