@@ -20,11 +20,64 @@ import {
 } from '@/lib/organizations.api'
 
 export interface ShowbackPanelProps {
-  /** Render only this org's slice (e.g. the parent). When omitted the
-   *  panel shows the parent (first org) row. */
+  /** Render only this org's slice (e.g. the parent detail view). When
+   *  omitted the panel renders EVERY org's slice — the sovereign estate
+   *  PLUS each customer Organization row (#4739 row 23: a 2nd Org's own
+   *  consumption must show as its own row, distinct from Platform
+   *  overhead), not just the parent. */
   org?: string
   /** Test seam — bypass the fetch with a synthetic feed. */
   initialOverride?: SovereignConsumption
+}
+
+/** OrgShowbackSlice — one org's per-app consumption block. Rendered once
+ *  in the org-detail view and once per org in the directory view. */
+function OrgShowbackSlice({ target }: { target: OrgConsumption }) {
+  return (
+    <div data-testid={`showback-org-slice-${target.org}`} className="mb-4 last:mb-0">
+      <p className="mb-2 text-xs text-[var(--color-text-dim)]">
+        <span data-testid="showback-org" className="font-medium text-[var(--color-text)]">{target.org}</span>
+        {target.isParent
+          ? ' (parent — your own estate)'
+          : target.isPlatform
+            ? ' (platform overhead)'
+            : ' (Organization)'}{' '}
+        ·{' '}
+        <span data-testid="showback-total" className="font-mono">{target.costUnits}</span> units ·{' '}
+        {target.cpuMilli}m CPU · {target.memoryGiB} GiB mem · {target.storageGiB} GiB storage
+      </p>
+      {target.apps.length === 0 ? (
+        <div data-testid="showback-no-apps" className="text-sm text-[var(--color-text-dim)]">
+          No applications attributed yet.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
+          <table data-testid="showback-table" className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-[var(--color-border)] text-left text-[0.7rem] uppercase tracking-wide text-[var(--color-text-dim)]">
+                <th className="px-3 py-2 font-semibold">Application</th>
+                <th className="px-3 py-2 font-semibold">Namespace</th>
+                <th className="px-3 py-2 font-semibold text-right">CPU (m)</th>
+                <th className="px-3 py-2 font-semibold text-right">Mem (GiB)</th>
+                <th className="px-3 py-2 font-semibold text-right">Share</th>
+              </tr>
+            </thead>
+            <tbody>
+              {target.apps.map((a) => (
+                <tr key={`${a.namespace}/${a.application}`} data-testid={`showback-app-${a.application}`} className="border-b border-[var(--color-border)] last:border-b-0">
+                  <td className="px-3 py-2 text-[var(--color-text-strong)]">{a.application}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-[var(--color-text-dim)]">{a.namespace}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{a.cpuMilli}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{a.memoryGiB}</td>
+                  <td className="px-3 py-2 text-right tabular-nums" data-testid={`showback-app-pct-${a.application}`}>{a.percent}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function ShowbackPanel({ org, initialOverride }: ShowbackPanelProps) {
@@ -38,11 +91,15 @@ export function ShowbackPanel({ org, initialOverride }: ShowbackPanelProps) {
   const feed = initialOverride ?? query.data
   const loading = !initialOverride && query.isLoading
 
-  const target: OrgConsumption | undefined = feed
+  // Detail view (`org` given) → that single org's slice. Directory view
+  // (no `org`) → EVERY org, parent first (#4739 row 23): the customer
+  // Organizations' own consumption must each render as their own row,
+  // not be collapsed to the parent-only view.
+  const slices: OrgConsumption[] = feed
     ? org
-      ? feed.orgs.find((o) => o.org === org)
-      : feed.orgs.find((o) => o.isParent) ?? feed.orgs[0]
-    : undefined
+      ? feed.orgs.filter((o) => o.org === org)
+      : feed.orgs
+    : []
 
   return (
     <section
@@ -65,48 +122,15 @@ export function ShowbackPanel({ org, initialOverride }: ShowbackPanelProps) {
 
       {loading ? (
         <div data-testid="showback-loading" className="text-sm text-[var(--color-text-dim)]">Loading…</div>
-      ) : !target ? (
+      ) : slices.length === 0 ? (
         <div data-testid="showback-empty" className="text-sm text-[var(--color-text-dim)]">
           No consumption attributed yet. Showback populates from running workloads.
         </div>
       ) : (
         <div>
-          <p className="mb-3 text-xs text-[var(--color-text-dim)]">
-            <span data-testid="showback-org" className="font-medium text-[var(--color-text)]">{target.org}</span>
-            {target.isParent ? ' (parent — your own estate)' : ''} ·{' '}
-            <span data-testid="showback-total" className="font-mono">{target.costUnits}</span> units ·{' '}
-            {target.cpuMilli}m CPU · {target.memoryGiB} GiB mem · {target.storageGiB} GiB storage
-          </p>
-          {target.apps.length === 0 ? (
-            <div data-testid="showback-no-apps" className="text-sm text-[var(--color-text-dim)]">
-              No applications attributed yet.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
-              <table data-testid="showback-table" className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--color-border)] text-left text-[0.7rem] uppercase tracking-wide text-[var(--color-text-dim)]">
-                    <th className="px-3 py-2 font-semibold">Application</th>
-                    <th className="px-3 py-2 font-semibold">Namespace</th>
-                    <th className="px-3 py-2 font-semibold text-right">CPU (m)</th>
-                    <th className="px-3 py-2 font-semibold text-right">Mem (GiB)</th>
-                    <th className="px-3 py-2 font-semibold text-right">Share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {target.apps.map((a) => (
-                    <tr key={`${a.namespace}/${a.application}`} data-testid={`showback-app-${a.application}`} className="border-b border-[var(--color-border)] last:border-b-0">
-                      <td className="px-3 py-2 text-[var(--color-text-strong)]">{a.application}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-[var(--color-text-dim)]">{a.namespace}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{a.cpuMilli}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{a.memoryGiB}</td>
-                      <td className="px-3 py-2 text-right tabular-nums" data-testid={`showback-app-pct-${a.application}`}>{a.percent}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {slices.map((o) => (
+            <OrgShowbackSlice key={o.org} target={o} />
+          ))}
         </div>
       )}
     </section>
