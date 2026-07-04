@@ -109,11 +109,19 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Make sure the store is seeded (chroot lazy seed) so GetJob resolves
-	// the leaf even on the first hit after a Pod restart.
-	h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
-
 	job, _, err := st.GetJob(depID, jobID)
+	if errors.Is(err, jobs.ErrNotFound) {
+		// Cold store (e.g. first hit after a Pod restart) — lazily seed the
+		// per-deployment store from the live cluster, then resolve again.
+		// Seeding ONLY when the leaf is missing is deliberate (#4731): the
+		// re-seed refreshes every leaf's status from the live cluster, and
+		// the retry path must NOT let that flip the status of the very leaf
+		// the operator is retrying (e.g. a Failed leaf whose stale completed
+		// Job object still lingers in-cluster). The /jobs read paths own the
+		// live-status refresh; here we only need the leaf to exist.
+		h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
+		job, _, err = st.GetJob(depID, jobID)
+	}
 	if err != nil {
 		if errors.Is(err, jobs.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job-not-found"})

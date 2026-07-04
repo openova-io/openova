@@ -1583,6 +1583,23 @@ func (h *Handler) sovereignDynamicClient(dep *Deployment) (dynamic.Interface, er
 		return dynamic.NewForConfig(cfg)
 	}
 
+	// #3153 conventional-path fallback — Result.KubeconfigPath carries json
+	// `omitempty` and is LOST when a mothership Pod roll persists a
+	// rehydrated deployment record before PutKubeconfig re-stamps it, even
+	// though the kubeconfig FILE itself survives on the PVC at
+	// <kubeconfigsDir>/<id>.yaml. Without this, a converged Sovereign's
+	// mother-side catalyst-api can't build a client (record field null) and
+	// the /jobs install+reconcile re-seed (#4731), retry, and reconciler
+	// projections all silently no-op even though the cluster is fully
+	// reachable. resolvePrimaryKubeconfigPath stat-guards the file, so a
+	// record whose kubeconfig was genuinely never posted (provisioning in
+	// flight) still returns the honest "not yet posted back" error below.
+	if kubeconfigPath == "" {
+		if resolved, ok := h.resolvePrimaryKubeconfigPath(dep); ok {
+			kubeconfigPath = resolved
+		}
+	}
+
 	if kubeconfigPath == "" {
 		return nil, errors.New("sovereign cluster kubeconfig not yet posted back — cloud-init in flight or PUT /kubeconfig missed; retry once the wizard's success screen reaches Phase-1 ready")
 	}
