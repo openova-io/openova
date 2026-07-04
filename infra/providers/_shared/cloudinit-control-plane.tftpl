@@ -1297,6 +1297,15 @@ runcmd:
   # (`helm install` would die "cannot re-use a name"). set -e exits on any
   # exhausted retry; a rollout-status failure writes the sentinel + exit 91
   # so "no CNI" is its own loud fault, never a masqueraded Flux wedge.
+  #
+  # #4752 — the cilium rollout-status wait MUST go through `rt` (the 5×/10s
+  # retry helper), like every helm step above it. A single-shot
+  # `rollout status --timeout=240s || exit 91` aborted the WHOLE bootstrap
+  # (Flux never installed → permanent 0-HR wedge) whenever one cilium pod was
+  # merely slow. Live evidence (hw222): the wait timed out at "4 of 5 pods
+  # available", exit 91 fired, and cilium finished healthy seconds later —
+  # too late. Wrapping in `rt` gives cilium up to 5×240s=20m (breaking early
+  # the instant it's Ready) while still failing loud on a genuinely dead CNI.
   - |
     set -e
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
@@ -1305,7 +1314,7 @@ runcmd:
     rt helm repo add cilium https://helm.cilium.io/
     rt helm repo update
     rt helm upgrade --install cilium cilium/cilium --version 1.19.3 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
-    kubectl -n kube-system rollout status ds/cilium --timeout=240s || { echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;exit 91;}
+    rt kubectl -n kube-system rollout status ds/cilium --timeout=240s || { echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;exit 91;}
 %{ if provider == "huawei" ~}
   # #4503 root cause (Huawei-gated note; the byte budget is Hetzner-only): on
   # the IPv4-only kom4dc path a single transient failure of get-helm-3 /
