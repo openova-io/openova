@@ -151,6 +151,29 @@ spec:
                 - Service
               names:
                 - "test-service-delete-me-*"
+          {{- /*
+            #4765 (2026-07-05, proven live hw224 region-a): Helm HOOK resources
+            (carrying a `helm.sh/hook` annotation) are executed by Helm's action
+            engine DIRECTLY and are NOT part of the manifest Flux's helm-controller
+            post-renders — so they never receive the helm.toolkit.fluxcd.io/* labels.
+            Worse, Helm force-stamps `app.kubernetes.io/managed-by: Helm` on apply
+            (a template override of that label is silently dropped — Helm always
+            wins), so a hook can NEVER satisfy any of this rule's three conditions.
+            A hook Job is nonetheless legitimately managed (by Helm, driven by a
+            Flux HelmRelease). On a FRESH prov the hook slips through because it
+            runs at bootstrap before Enforce engages; on a LIVE UPGRADE of a
+            converged env kyverno denies it and Flux rolls the release back —
+            proven on hw224 region-a, where bp-powerdns' zone-bootstrap
+            post-upgrade hook kept being denied so the powerdns anycast Service was
+            stranded on the forbidden NodePort (the LoadBalancer upgrade could
+            never land). Carve out the definitionally-unmanageable Helm hook,
+            mirroring the CNPG-operator + vCluster-probe carve-outs above. Additive
+            (loosens only): a hook that should have been denied is at worst
+            admitted; nothing new is ever denied.
+          */}}
+          - resources:
+              annotations:
+                helm.sh/hook: "*"
       validate:
         message: >-
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
