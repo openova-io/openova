@@ -38,7 +38,7 @@ spec:
   resources:
     - name: adoption-workspace
       base:
-        apiVersion: tf.upbound.io/v1beta1
+        apiVersion: opentofu.upbound.io/v1beta1
         kind: Workspace
         metadata:
           # external-name is patched to the real resource id below; it is
