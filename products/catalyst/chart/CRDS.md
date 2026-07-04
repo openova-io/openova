@@ -30,9 +30,16 @@ controller-runtime.source.EventHandler   if kind is a CRD, it should be installe
 ## UserAccess (out-of-tree CRD)
 
 `useraccesses.access.openova.io` is **not** in this chart — it is a
-Crossplane Composite Resource backed by an XRD shipped from
-`platform/crossplane-claims/chart/templates/xrds/useraccess.yaml`
-(per ADR-0001 §3: Crossplane is the day-2 IaC for IAM grants).
+plain namespaced CustomResourceDefinition shipped from
+`platform/crossplane-claims/chart/templates/crds/useraccess.yaml`.
+
+As of Refs #4773 it is **no longer** a Crossplane XRD/Claim: the old
+XRD carried `claimNames: {kind: UserAccess}`, so every UserAccess CR
+spawned an XUserAccess composite that could never bind (the legacy
+Composition was retired by default) — an unbounded leak. The XRD +
+Composition are removed; the `catalyst-useraccess-controller`
+reconciles the plain CRD directly into RoleBinding / ClusterRoleBinding
+objects (no Crossplane, no provider-kubernetes).
 
 A Sovereign that runs `catalyst-useraccess-controller` therefore
 requires both this catalyst chart **and** the `crossplane-claims`
@@ -56,10 +63,10 @@ for crd in products/catalyst/chart/crds/*.yaml; do
   kubectl --context=<sovereign> apply -f "$crd"
 done
 
-# UserAccess XRD lives in the crossplane-claims chart:
+# UserAccess plain CRD lives in the crossplane-claims chart:
 helm template platform/crossplane-claims/chart \
   --set userAccess.enabled=true \
-  --show-only templates/xrds/useraccess.yaml \
+  --show-only templates/crds/useraccess.yaml \
   | kubectl --context=<sovereign> apply -f -
 ```
 

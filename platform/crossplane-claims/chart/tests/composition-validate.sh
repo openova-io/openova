@@ -3,29 +3,32 @@
 #
 # This is the chart-level lint+template+kubectl-dry-run pass that runs
 # against every render of bp-crossplane's templates/xrds + templates/compositions
-# directory tree. The 7 XRDs back the catalyst-api Day-2 CRUD endpoints
-# (RegionClaim, ClusterClaim, NodePoolClaim, LoadBalancerClaim, PeeringClaim,
-# NodeActionClaim) plus the Sovereign IAM access plane (UserAccess —
-# issue #322). The default render ships 6 Compositions (one per Hetzner
-# CRUD kind); the legacy useraccess Composition was retired by PR #1309
-# (qa-loop iter-16 Fix #71) — it now only renders when
-# --set userAccess.compositionEnabled=true. The canonical day-2 IaC for
-# IAM grants is the catalyst-useraccess-controller.
+# + templates/crds directory tree. The 7 XRDs back the catalyst-api Day-2
+# CRUD endpoints (RegionClaim, ClusterClaim, NodePoolClaim,
+# LoadBalancerClaim, PeeringClaim, NodeActionClaim) plus the cloud-agnostic
+# XCloudAdoption adoption seam. The default render ships 7 Compositions
+# (6 Hetzner CRUD kinds + opentofu-cloud-adoption).
+#
+# Sovereign IAM access plane (UserAccess — issue #322): as of Refs #4773
+# UserAccess is a PLAIN CustomResourceDefinition (templates/crds/
+# useraccess.yaml), NOT a Crossplane XRD/Claim. The old XRD's
+# `claimNames: {kind: UserAccess}` spawned XUserAccess composites that
+# could never bind (the legacy Composition was retired by default,
+# PR #1309 / Fix #71) — an unbounded leak. The XRD + the legacy
+# Composition are removed; the canonical realization is the in-cluster
+# catalyst-useraccess-controller.
 #
 # Verifies, in order:
 #   1. `helm template` renders without error (no Go-template breakage).
-#   2. The render contains exactly 7 XRDs (6 Hetzner CRUD kinds + UserAccess).
-#   3. The render contains the 6 expected default Compositions by name,
-#      AND the legacy useraccess Composition is gated off by default,
-#      AND the back-compat path (`--set userAccess.compositionEnabled=true`)
-#      still renders the legacy Composition.
-#   4. Each XRD's `claimNames.kind` matches the catalyst-api expectation:
-#      RegionClaim, ClusterClaim, NodePoolClaim, LoadBalancerClaim,
-#      PeeringClaim, NodeActionClaim, UserAccess.
-#   4. `kubectl --dry-run=client` accepts every rendered XRD + Composition
-#      (schema-shape verification — does NOT require a live cluster).
+#   2. The render contains exactly 7 XRDs (6 Hetzner CRUD kinds +
+#      XCloudAdoption) — UserAccess is NO LONGER an XRD.
+#   3. The render contains the 7 expected default Compositions by name,
+#      AND no useraccess Composition renders (removed Refs #4773).
+#   3d. UserAccess ships as a plain namespaced CRD and NO XUserAccess
+#      composite type is rendered anywhere.
+#   4. Each expected claim/CR kind is present in the render.
 #   5. Each XRC sample fixture under tests/fixtures/ refers to a kind that
-#      matches one of the rendered XRDs.
+#      matches one of the rendered XRDs / CRDs.
 #
 # Usage: bash tests/composition-validate.sh [CHART_DIR]
 #
@@ -60,12 +63,14 @@ helm template smoke-cp . > "$TMP/render.yaml" 2> "$TMP/render.err" || {
 }
 echo "  PASS"
 
-echo "[composition-validate] Case 2: render contains 8 XRDs"
-# 7 day-2 Hetzner CRUD XRDs + 1 cloud-agnostic XCloudAdoption (the
-# OpenTofu→Crossplane adoption seam, ADR-0011 / #4002).
+echo "[composition-validate] Case 2: render contains 7 XRDs"
+# 6 day-2 Hetzner CRUD XRDs + 1 cloud-agnostic XCloudAdoption (the
+# OpenTofu→Crossplane adoption seam, ADR-0011 / #4002). UserAccess is NO
+# LONGER an XRD — it is a plain CRD (Refs #4773) so it never spawns an
+# XUserAccess composite.
 XRD_COUNT="$(grep -c '^kind: CompositeResourceDefinition$' "$TMP/render.yaml" || true)"
-if [ "$XRD_COUNT" -ne 8 ]; then
-  echo "FAIL: expected 8 XRDs, found $XRD_COUNT" >&2
+if [ "$XRD_COUNT" -ne 7 ]; then
+  echo "FAIL: expected 7 XRDs, found $XRD_COUNT" >&2
   grep -E '^(kind|  name): ' "$TMP/render.yaml" | head -40 >&2
   exit 1
 fi
@@ -74,12 +79,13 @@ echo "  PASS ($XRD_COUNT XRDs)"
 echo "[composition-validate] Case 3: render contains the 7 expected default Compositions"
 # Explicit-name check (qa-loop iter-16 Fix #89, post PR #1309).
 #
-# Pre-#1309 the chart shipped 7 Compositions including the legacy
-# useraccess.compose.openova.io. PR #1309 retired that Composition by
-# default — it now only renders when --set userAccess.compositionEnabled=true.
-# The canonical day-2 IaC for IAM grants is the catalyst-useraccess-controller.
+# The legacy useraccess.compose.openova.io Composition was retired by
+# default in PR #1309 (Fix #71) and is now DELETED outright (Refs #4773) —
+# along with its XUserAccess XRD — because it fed an unbounded composite
+# leak. The canonical day-2 IaC for IAM grants is the in-cluster
+# catalyst-useraccess-controller.
 #
-# We assert the EXACT 6 default-rendered Composition names rather than a
+# We assert the EXACT default-rendered Composition names rather than a
 # magic-number count so this gate is robust against future
 # additions/retirements (Principle 4: target-state, never hardcode the wrong
 # magic number; the names ARE the contract).
@@ -107,36 +113,34 @@ for name in "${EXPECTED_COMPOSITIONS[@]}"; do
 done
 echo "  PASS ($COMPOSITION_COUNT Compositions, all expected names present)"
 
-echo "[composition-validate] Case 3a: legacy useraccess Composition is gated off by default"
-# Per PR #1309: useraccess.compose.openova.io must NOT render with default
-# values. It can be re-enabled with --set userAccess.compositionEnabled=true
-# but that's an opt-in path; the default render must omit it so the
-# catalyst-useraccess-controller owns IAM grants without composite-controller
-# status fights.
+echo "[composition-validate] Case 3a: legacy useraccess Composition is fully removed"
+# Refs #4773: useraccess.compose.openova.io is DELETED (not merely gated
+# off). It must never render, at any values combination — the leak it
+# fed was the XUserAccess composite it backed.
 if grep -q '^  name: useraccess.compose.openova.io$' "$TMP/render.yaml"; then
-  echo "FAIL: useraccess.compose.openova.io rendered with default values — PR #1309 regression?" >&2
+  echo "FAIL: useraccess.compose.openova.io still renders — it should be removed (Refs #4773)" >&2
   exit 1
 fi
-echo "  PASS (useraccess Composition correctly gated off)"
+echo "  PASS (useraccess Composition removed)"
 
-echo "[composition-validate] Case 3a-back-compat: --set userAccess.compositionEnabled=true re-enables the legacy Composition"
-# Back-compat assertion: opt-in path still renders the legacy Composition
-# so operators with the override on get the expected 7-Composition shape.
-helm template smoke-cp . --set userAccess.compositionEnabled=true > "$TMP/render-compat.yaml" 2> "$TMP/render-compat.err" || {
-  echo "FAIL: helm template with --set userAccess.compositionEnabled=true failed:" >&2
-  cat "$TMP/render-compat.err" >&2
-  exit 1
-}
-COMPAT_COUNT="$(grep -c '^kind: Composition$' "$TMP/render-compat.yaml" || true)"
-if [ "$COMPAT_COUNT" -ne $((${#EXPECTED_COMPOSITIONS[@]} + 1)) ]; then
-  echo "FAIL: expected $((${#EXPECTED_COMPOSITIONS[@]} + 1)) Compositions with compositionEnabled=true, found $COMPAT_COUNT" >&2
+echo "[composition-validate] Case 3d: UserAccess ships as a plain CRD, no XUserAccess composite"
+# Refs #4773: the plain useraccesses.access.openova.io CustomResourceDefinition
+# MUST render (it registers the CRD the catalyst-useraccess-controller
+# watches), and the composite type XUserAccess / xuseraccesses MUST NOT
+# appear anywhere (that is the leaked type — removing the XRD removes it).
+if ! grep -q '^  name: useraccesses.access.openova.io$' "$TMP/render.yaml"; then
+  echo "FAIL: plain CRD useraccesses.access.openova.io did not render — controller would lose its CRD" >&2
   exit 1
 fi
-if ! grep -q '^  name: useraccess.compose.openova.io$' "$TMP/render-compat.yaml"; then
-  echo "FAIL: useraccess.compose.openova.io did not render under --set userAccess.compositionEnabled=true" >&2
+# Strip comment lines (the plain-CRD template's own history note names the
+# retired type in prose) before asserting the composite type is gone —
+# match only real manifest declarations of the XUserAccess composite.
+if grep -vE '^\s*#' "$TMP/render.yaml" | grep -Eq 'kind: XUserAccess|xuseraccesses'; then
+  echo "FAIL: XUserAccess / xuseraccesses composite type still present — the XR-spawning layer must be gone (Refs #4773)" >&2
+  grep -vE '^\s*#' "$TMP/render.yaml" | grep -nE 'kind: XUserAccess|xuseraccesses' >&2
   exit 1
 fi
-echo "  PASS ($COMPAT_COUNT Compositions including legacy useraccess)"
+echo "  PASS (plain UserAccess CRD present, no XUserAccess composite)"
 
 echo "[composition-validate] Case 3b: render contains 8 ClusterRoles (Sovereign IAM + 5 catalog tiers)"
 # 3 legacy openova:application-{admin,editor,viewer} + 5 EPIC-3 tier-*
@@ -162,7 +166,10 @@ if [ "$POLICY_COUNT" -ne 1 ]; then
 fi
 echo "  PASS ($POLICY_COUNT ClusterPolicy)"
 
-echo "[composition-validate] Case 4: every expected claim kind is present"
+echo "[composition-validate] Case 4: every expected CR kind is present"
+# RegionClaim..CloudAdoption are XRD claim kinds; UserAccess is a plain
+# CRD kind (Refs #4773). The grep asserts the kind string is present in
+# the render regardless of which resource declares it.
 EXPECTED_KINDS=(
   RegionClaim
   ClusterClaim
@@ -175,11 +182,11 @@ EXPECTED_KINDS=(
 )
 for kind in "${EXPECTED_KINDS[@]}"; do
   if ! grep -q "kind: $kind$" "$TMP/render.yaml"; then
-    echo "FAIL: claim kind $kind not found in any XRD" >&2
+    echo "FAIL: expected CR kind $kind not found in render" >&2
     exit 1
   fi
 done
-echo "  PASS (all ${#EXPECTED_KINDS[@]} claim kinds present)"
+echo "  PASS (all ${#EXPECTED_KINDS[@]} CR kinds present)"
 
 echo "[composition-validate] Case 5: every rendered document is valid YAML"
 # We can't run `kubectl apply --dry-run=client` without an API server
