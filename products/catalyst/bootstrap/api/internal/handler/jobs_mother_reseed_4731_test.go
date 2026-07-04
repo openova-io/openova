@@ -27,6 +27,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -221,5 +223,70 @@ func TestChrootSeedJobsStoreIfEmpty_MotherNoKubeconfigIsNoOp(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected empty store when kubeconfig unreachable, got %d jobs", len(got))
+	}
+}
+
+// TestChrootSeedJobsStoreIfEmpty_MotherReseedsViaConventionalPath is the
+// live-verified hw224 case: a CONVERGED Sovereign's mother-side record has a
+// NULL Result.KubeconfigPath (the omitempty field was dropped when a
+// mothership Pod roll rehydrated the record before PutKubeconfig re-stamped
+// it), yet the kubeconfig FILE still lives on the PVC at
+// <kubeconfigsDir>/<id>.yaml. The reachability gate + sovereignDynamicClient
+// must fall back to that conventional path (#3153) so the install re-seed
+// still fires — otherwise the treemap shows zero install leaves despite a
+// fully reachable cluster.
+func TestChrootSeedJobsStoreIfEmpty_MotherReseedsViaConventionalPath(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
+
+	const depID = "dep4731conv"
+	st, err := jobs.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	// The kubeconfig FILE survives on the PVC at the conventional path even
+	// though the record's KubeconfigPath field is null.
+	kubeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(kubeDir, depID+".yaml"),
+		[]byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatalf("write conventional kubeconfig: %v", err)
+	}
+
+	hrNames := []string{"bp-cilium", "bp-flux", "bp-cnpg"}
+	fake := fakeReseedDynamicClient(t, hrNames...)
+	h := &Handler{
+		jobs:           st,
+		log:            slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		kubeconfigsDir: kubeDir,
+		dynamicFactory: func(string) (dynamic.Interface, error) {
+			return fake, nil
+		},
+	}
+	dep := &Deployment{
+		ID:     depID,
+		Status: "ready",
+		Request: provisioner.Request{
+			SovereignFQDN: "hw224.omani.works",
+			Regions:       []provisioner.RegionSpec{{Provider: "huawei"}},
+		},
+		// Result present but KubeconfigPath EMPTY — the null-field record.
+		Result: &provisioner.Result{KubeconfigPath: ""},
+	}
+
+	h.chrootSeedJobsStoreIfEmpty(context.Background(), dep)
+
+	got, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	installCount := 0
+	for _, j := range got {
+		if j.Kind == jobs.KindInstall && j.Type == jobs.JobTypeInstall {
+			installCount++
+		}
+	}
+	if installCount != len(hrNames) {
+		t.Fatalf("conventional-path fallback: install leaf count = %d, want %d — the null-KubeconfigPath record did not resolve to the on-PVC file",
+			installCount, len(hrNames))
 	}
 }

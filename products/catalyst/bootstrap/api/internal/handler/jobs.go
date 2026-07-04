@@ -242,14 +242,16 @@ func envTruthy(name string) bool {
 //   - chroot in-cluster: SOVEREIGN_FQDN set AND matches this deployment
 //     (the in-cluster ServiceAccount is the client), preserved exactly
 //     as before; OR
-//   - mother mode: the deployment's kubeconfig has been posted back
-//     (dep.Result.KubeconfigPath set) so sovereignDynamicClient can
-//     build a client from it.
+//   - mother mode: the deployment's kubeconfig is resolvable via
+//     resolvePrimaryKubeconfigPath — either dep.Result.KubeconfigPath OR,
+//     when that omitempty field was dropped by a Pod-roll rehydrate, the
+//     surviving file at <kubeconfigsDir>/<id>.yaml (#3153) — so
+//     sovereignDynamicClient can build a client from it.
 //
 // No-op (Debug log, never an error — a /jobs read must not fail because
 // the cluster isn't reachable yet) when:
 //   - h.jobs is nil (persistence disabled)
-//   - mother mode AND no kubeconfig posted back yet (provisioning in
+//   - mother mode AND no kubeconfig resolvable yet (provisioning in
 //     flight — the next poll retries once cloud-init PUTs it)
 //   - jobs.Store already has the install group (hasBootstrapKit) — the
 //     expensive live HR-LIST is skipped; the always-idempotent
@@ -261,18 +263,20 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	}
 	// The seed can only reach the Sovereign cluster via the chroot
 	// in-cluster client (SOVEREIGN_FQDN set + matches this dep) OR the
-	// mother's posted-back per-deployment kubeconfig. When NEITHER holds
-	// (mother mode, kubeconfig not yet posted — provisioning in flight)
-	// keep the historical no-op so the /jobs read never errors; the next
-	// poll retries once the kubeconfig lands.
+	// mother's posted-back per-deployment kubeconfig. resolvePrimaryKubeconfigPath
+	// resolves the latter with the #3153 conventional-path fallback — a
+	// converged Sovereign's record often has a NULL Result.KubeconfigPath
+	// (the omitempty field is dropped when a mothership Pod roll rehydrates
+	// the record before PutKubeconfig re-stamps it) even though the
+	// kubeconfig FILE still lives on the PVC at <kubeconfigsDir>/<id>.yaml.
+	// When NEITHER resolves (mother mode, kubeconfig genuinely not posted —
+	// provisioning in flight) keep the historical no-op so the /jobs read
+	// never errors; the next poll retries once the kubeconfig lands.
 	selfFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
 	chrootInCluster := selfFQDN != "" && strings.EqualFold(selfFQDN, dep.Request.SovereignFQDN)
 	if !chrootInCluster {
-		dep.mu.Lock()
-		hasKubeconfig := dep.Result != nil && strings.TrimSpace(dep.Result.KubeconfigPath) != ""
-		dep.mu.Unlock()
-		if !hasKubeconfig {
-			h.log.Debug("jobs seed: sovereign cluster unreachable — no kubeconfig posted back yet; skipping install/reconcile re-seed",
+		if _, ok := h.resolvePrimaryKubeconfigPath(dep); !ok {
+			h.log.Debug("jobs seed: sovereign cluster unreachable — no kubeconfig resolvable yet; skipping install/reconcile re-seed",
 				"depId", dep.ID)
 			return
 		}
