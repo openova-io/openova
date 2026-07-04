@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T04:30:03Z` |
+| Last refreshed | `2026-07-04T04:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 45 |
+| Open issues | 46 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 45 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 46 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 45 open items (clickable table)
+### All 46 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -245,6 +245,7 @@ flowchart LR
 | [#4746](https://github.com/openova-io/openova/issues/4746) | Fresh 2-region prov falsely marked 'failed': phase1 ready-census fires OutcomeRe | Other |
 | [#4748](https://github.com/openova-io/openova/issues/4748) | Operator PIN-login 502 on EVERY customer Sovereign: sovereign-smtp seed omits sm | Other |
 | [#4750](https://github.com/openova-io/openova/issues/4750) | hw221 fresh-prov residual faults: mimir OBS bucket missing (metrics down) + clus | Other |
+| [#4752](https://github.com/openova-io/openova/issues/4752) | Intermittent fresh-prov 0-HR wedge ROOT-CAUSED: cloud-init aborts (runcmd exit 9 | Other |
 
 ---
 
@@ -252,6 +253,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T04:32 | [#4751](https://github.com/openova-io/openova/pull/4751) | #4706 | fix(phase1): console gate 90s→35m — stop false 'failed' on h |
 | 2026-07-04T03:08 | [#4749](https://github.com/openova-io/openova/pull/4749) | #4696 | fix(sovereign-smtp): operator PIN-login 502 on every Soverei |
 | 2026-07-04T03:08 | [#4747](https://github.com/openova-io/openova/pull/4747) | #4739 | docs(uat): reset ledger for hw221 fresh-prov re-walk (Refs # |
 | 2026-07-04T02:07 | [#4745](https://github.com/openova-io/openova/pull/4745) | #4739 | fix(marketplace): banned 'tenant' → Organization on customer |
@@ -281,7 +283,6 @@ flowchart LR
 | 2026-07-03T03:08 | [#4716](https://github.com/openova-io/openova/pull/4716) | #4707 | fix(readiness): console-gate < 500 → < 400 — a 404 front doo |
 | 2026-07-03T01:07 | [#4715](https://github.com/openova-io/openova/pull/4715) | fix(gateway): console gateway → 8443/8080 host ports — no no |  |
 | 2026-07-03T01:04 | [#4714](https://github.com/openova-io/openova/pull/4714) | #4710 | fix(provisioning): pin per-Org HR-app chart versions — no fl |
-| 2026-07-02T21:58 | [#4711](https://github.com/openova-io/openova/pull/4711) | #3 | fix(gateway): Hetzner LB annotations provider-scoped — no ve |
 
 ---
 
