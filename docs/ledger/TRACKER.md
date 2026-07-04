@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T12:45:05Z` |
+| Last refreshed | `2026-07-04T13:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 46 |
 | Open DoD gates | 0 / 41 |
@@ -253,6 +253,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T12:57 | [#4762](https://github.com/openova-io/openova/pull/4762) | #4739 | fix(console): rename user-facing 'Sandbox' → 'Agenity' nav/p |
 | 2026-07-04T08:25 | [#4760](https://github.com/openova-io/openova/pull/4760) | #4292 | fix(org-controller): drop maxLimitRequestRatio on vcluster-O |
 | 2026-07-04T08:08 | [#4759](https://github.com/openova-io/openova/pull/4759) | #4758 | fix(provisioning): gitea-token init reads live secret FILE n |
 | 2026-07-04T06:30 | [#4757](https://github.com/openova-io/openova/pull/4757) | #4748 | docs(uat): hw223 authenticated pillar walk — operator login  |
@@ -282,7 +283,6 @@ flowchart LR
 | 2026-07-03T05:59 | [#4721](https://github.com/openova-io/openova/pull/4721) | fix(gateway): self-heal the console ELB members on node chur |  |
 | 2026-07-03T05:28 | [#4720](https://github.com/openova-io/openova/pull/4720) | #4719 | fix(org): deprovision per-Org DNS on delete — stale records  |
 | 2026-07-03T05:28 | [#4719](https://github.com/openova-io/openova/pull/4719) | #4290 | fix(org-controller): tenant-DNS teardown self-heals the pool |
-| 2026-07-03T03:53 | [#4718](https://github.com/openova-io/openova/pull/4718) | #4715 | fix(gateway): wire console-port substitute into slot-13 — #4 |
 
 ---
 
