@@ -308,7 +308,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     const res = await page.goto('/')
     expect(res, 'navigation response').not.toBeNull()
     expect(res!.status()).toBeLessThan(400)
-    await expect(page.getByRole('heading', { name: /Build your cloud tenant/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Build your cloud Organization/i })).toBeVisible()
     await expect(page.getByRole('link', { name: /Get Started/i })).toBeVisible()
   })
 
