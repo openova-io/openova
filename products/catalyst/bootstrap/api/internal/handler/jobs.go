@@ -216,30 +216,66 @@ func envTruthy(name string) bool {
 	}
 }
 
-// chrootSeedJobsStoreIfEmpty — when the chroot Sovereign-side
-// catalyst-api gets a /jobs read for an imported deployment whose
-// per-deployment jobs.Store has no records, lazily seed the store
-// from a one-shot live-cluster HelmRelease list. Same shape as the
-// mother's Phase-1 informer initial-list seed (snapshotsToSeeds +
-// Bridge.SeedJobsFromInformerList) so the read returns byte-identical
-// rich Job records (deps + parent + status) just like the mother.
+// chrootSeedJobsStoreIfEmpty — when a /jobs read arrives for a
+// deployment whose per-deployment jobs.Store is missing the live
+// install/reconcile leaves, lazily re-seed the store from a one-shot
+// live-cluster HelmRelease list (+ reconciler / secondary-region /
+// cutover projections). Same shape as the mother's Phase-1 informer
+// initial-list seed (snapshotsToSeeds + Bridge.SeedJobsFromInformerList)
+// so the read returns byte-identical rich Job records (deps + parent +
+// status).
 //
-// No-op when:
-//   - SOVEREIGN_FQDN env is unset (mother mode)
-//   - dep.Request.SovereignFQDN doesn't match SOVEREIGN_FQDN
-//   - jobs.Store already has records for this deployment
-//   - sovereignDynamicClient errors (handler returns the existing
-//     empty list — caller already handles that case)
+// Despite the historical "chroot" name this now serves BOTH modes
+// (#4731): the mothership's per-deployment jobs.Store loses the
+// install-* / reconcile-* leaves whenever the catalyst-api Pod rolls
+// (they were only ever held in the Phase-1 helmwatch.Watcher's
+// in-memory store), leaving a converged Sovereign's Dashboard treemap
+// with only the statically-seeded lifecycle/cron/task/step kinds. The
+// mother is fully capable of re-listing the Sovereign's HelmReleases —
+// h.sovereignDynamicClient(dep) already works in mother mode by reading
+// the deployment's posted-back kubeconfig off the catalyst-api-
+// deployments PVC — so the re-seed simply runs wherever that client can
+// be built.
+//
+// Reachability gate — the seed lists the SOVEREIGN cluster's live
+// objects, so it runs only where catalyst-api can reach that cluster:
+//   - chroot in-cluster: SOVEREIGN_FQDN set AND matches this deployment
+//     (the in-cluster ServiceAccount is the client), preserved exactly
+//     as before; OR
+//   - mother mode: the deployment's kubeconfig has been posted back
+//     (dep.Result.KubeconfigPath set) so sovereignDynamicClient can
+//     build a client from it.
+//
+// No-op (Debug log, never an error — a /jobs read must not fail because
+// the cluster isn't reachable yet) when:
+//   - h.jobs is nil (persistence disabled)
+//   - mother mode AND no kubeconfig posted back yet (provisioning in
+//     flight — the next poll retries once cloud-init PUTs it)
+//   - jobs.Store already has the install group (hasBootstrapKit) — the
+//     expensive live HR-LIST is skipped; the always-idempotent
+//     reconciler / secondary / cutover projections still run
+//   - sovereignDynamicClient errors (handler returns the existing rows)
 func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deployment) {
 	if h.jobs == nil {
 		return
 	}
+	// The seed can only reach the Sovereign cluster via the chroot
+	// in-cluster client (SOVEREIGN_FQDN set + matches this dep) OR the
+	// mother's posted-back per-deployment kubeconfig. When NEITHER holds
+	// (mother mode, kubeconfig not yet posted — provisioning in flight)
+	// keep the historical no-op so the /jobs read never errors; the next
+	// poll retries once the kubeconfig lands.
 	selfFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
-	if selfFQDN == "" {
-		return
-	}
-	if !strings.EqualFold(selfFQDN, dep.Request.SovereignFQDN) {
-		return
+	chrootInCluster := selfFQDN != "" && strings.EqualFold(selfFQDN, dep.Request.SovereignFQDN)
+	if !chrootInCluster {
+		dep.mu.Lock()
+		hasKubeconfig := dep.Result != nil && strings.TrimSpace(dep.Result.KubeconfigPath) != ""
+		dep.mu.Unlock()
+		if !hasKubeconfig {
+			h.log.Debug("jobs seed: sovereign cluster unreachable — no kubeconfig posted back yet; skipping install/reconcile re-seed",
+				"depId", dep.ID)
+			return
+		}
 	}
 	existing, _ := h.jobs.ListJobs(dep.ID)
 	hasBootstrapKit := false
