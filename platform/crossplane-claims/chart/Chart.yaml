@@ -11,7 +11,18 @@ name: bp-crossplane-claims
 # harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl. Per CLAUDE.md
 # inviolable rule, ALL chart-hook references MUST be explicit Harbor
 # proxy-cache form.
-version: 1.2.0
+#
+# 1.3.0 (Refs #4773): UserAccess is no longer a Crossplane XRD/Claim. The
+# XRD (templates/xrds/useraccess.yaml) + the retired legacy Composition
+# (templates/compositions/useraccess.yaml) are DELETED and replaced by a
+# plain namespaced CustomResourceDefinition (templates/crds/useraccess.yaml)
+# reconciled solely by the catalyst-useraccess-controller. This ends the
+# unbounded XUserAccess composite leak (hw224: 5,726 orphaned composites,
+# all "cannot select Composition: no compatible Compositions found") that
+# starved the shared Crossplane reconcile queue and held crossplane-adoption
+# CloudAdoption CRs at Ready=False. The `userAccess.compositionEnabled`
+# value is removed (no Composition remains to enable).
+version: 1.3.0
 description: |
   Catalyst Crossplane XRDs + Compositions Blueprint. Carries ONLY the
   apiextensions.crossplane.io/v1 CompositeResourceDefinition and

@@ -1,57 +1,75 @@
 {{- if .Values.userAccess.enabled }}
-# XRD: XUserAccess — Catalyst Sovereign IAM intent.
+# CRD: useraccesses.access.openova.io — Catalyst Sovereign IAM intent.
 #
-# A UserAccess Claim is the source-of-truth declaration of "user X
-# (identified by Keycloak subject or group) has role Y on Sovereign Z's
-# Application A in namespace(s) N". The Composition (useraccess.compose
-# .openova.io) materialises the intent into one K8s RoleBinding per
-# (application × namespace × role) tuple on the target Sovereign cluster
-# via provider-kubernetes.
+# ⚠️ HISTORY (Refs #4773): this was previously a Crossplane
+# CompositeResourceDefinition (XRD) with `claimNames: {kind: UserAccess}`
+# — i.e. UserAccess was a Crossplane *Claim* whose composite was
+# XUserAccess. That coupling is REMOVED. It caused an unbounded composite
+# leak: with the legacy Composition retired by default (qa-loop iter-16
+# Fix #71, `userAccess.compositionEnabled=false`), every UserAccess Claim
+# spawned an XUserAccess XR that could never select a Composition
+# (`cannot select Composition: no compatible Compositions found`). The
+# per-Org producer (organization-controller `upsertUserAccess`) rewrites
+# `spec` wholesale on every reconcile, wiping the `spec.resourceRef` the
+# Crossplane claim controller writes back — so the claim controller
+# re-spawned a fresh XR each loop. hw224 accumulated 5,726 orphaned
+# XUserAccess composites over ~10h, and the churn starved the shared
+# Crossplane reconcile queue, holding the crossplane-adoption
+# CloudAdoption CRs at Ready=False.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md:
-#   #3  Crossplane is the day-2 IaC for IAM grants too — never let
-#       catalyst-api `kubectl apply` RoleBindings directly. catalyst-api
-#       writes the UserAccess Claim; Crossplane reconciles the RBAC.
-#   #4  Role names are the three canonical openova:application-* ClusterRoles
-#       (admin/editor/viewer); the role string in spec.applications[].role
-#       is one of {admin, editor, viewer} and the Composition rewrites it
-#       to the fully-qualified ClusterRole name.
+# The canonical realization path is the in-cluster
+# catalyst-useraccess-controller
+# (core/controllers/useraccess/, deployed by
+# products/catalyst/chart/templates/controllers/useraccess-controller-*),
+# which reconciles UserAccess CRs directly into RoleBinding /
+# ClusterRoleBinding objects — no Crossplane, no provider-kubernetes
+# (which is not installed on production Sovereigns). Since Crossplane is
+# no longer part of this path, UserAccess is a PLAIN CRD. Nothing spawns
+# an XUserAccess XR, so the leak cannot recur.
 #
-# Cluster-scoped: a UserAccess spans namespaces by design (one user can
-# hold grants on many tenants), so the Claim itself is cluster-scoped.
-# Composed RoleBindings are namespaced per spec.applications[].namespaces.
+# Scope: Namespaced — every existing producer writes the CR into the
+# Sovereign-wide `catalyst-system` namespace (organization-controller
+# `upsertUserAccess`, catalyst-api `user_access_owner_seed.go` /
+# `rbac_assign.go` / `user_access.go`, and the qa-fixtures). Keeping the
+# resource namespaced preserves those producers verbatim — the ONLY thing
+# this change removes is the redundant Crossplane XR-spawning layer.
+#
+# The GVK (access.openova.io/v1alpha1, kind UserAccess) and GVR
+# (useraccesses) are UNCHANGED, so the catalyst-useraccess-controller,
+# catalyst-api handlers, and the userAccess-boundary Kyverno policy all
+# continue to bind to the same resource. Only the composite type
+# `xuseraccesses.access.openova.io` (kind XUserAccess) is gone.
+#
+# Per docs/PRINCIPLES.md:
+#   #3  Sovereign IAM grants are reconciled by a native controller
+#       (RoleBinding/ClusterRoleBinding), not by catalyst-api kubectl.
+#   #4  Role names are the three canonical openova:application-*
+#       ClusterRoles (admin/editor/viewer); spec.applications[].role is
+#       one of {admin, editor, viewer} and the controller rewrites it.
 
-apiVersion: apiextensions.crossplane.io/v1
-kind: CompositeResourceDefinition
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
 metadata:
-  name: xuseraccesses.access.openova.io
+  name: useraccesses.access.openova.io
   labels:
-    catalyst.openova.io/component: crossplane
-    catalyst.openova.io/composition-family: iam
-    catalyst.openova.io/day2-crud: "true"
+    catalyst.openova.io/component: useraccess
+    catalyst.openova.io/iam-plane: "true"
 spec:
   group: access.openova.io
+  scope: Namespaced
   names:
-    kind: XUserAccess
-    plural: xuseraccesses
-  claimNames:
     kind: UserAccess
+    listKind: UserAccessList
     plural: useraccesses
-  {{- if .Values.userAccess.compositionEnabled }}
-  # defaultCompositionRef is rendered ONLY when the legacy Crossplane
-  # Composition path is enabled (qa-loop iter-16 Fix #71). When the
-  # canonical catalyst-useraccess-controller is in charge (default),
-  # the composite controller has nothing to reconcile and stops fighting
-  # the controller over `.status.conditions[]`. The XRD itself stays
-  # installed because it owns the `useraccesses.access.openova.io` CRD
-  # the controller watches.
-  defaultCompositionRef:
-    name: useraccess.compose.openova.io
-  {{- end }}
+    singular: useraccess
+    categories:
+      - catalyst
   versions:
     - name: v1alpha1
       served: true
-      referenceable: true
+      storage: true
+      subresources:
+        status: {}
       schema:
         openAPIV3Schema:
           type: object
@@ -67,7 +85,7 @@ spec:
                     Identity of the principal receiving access. Either
                     keycloakSubject (an OIDC `sub` claim, binding a single
                     user) or keycloakGroups (a list of group names, binding
-                    every member of those groups) or both. The Composition
+                    every member of those groups) or both. The controller
                     emits one RoleBinding subject per identity.
                   properties:
                     keycloakSubject:
@@ -88,10 +106,9 @@ spec:
                 sovereignRef:
                   type: string
                   description: |
-                    Sovereign identifier — used to select the per-Sovereign
-                    provider-kubernetes ProviderConfig (named
-                    `sovereign-<sovereignRef>`) that the Composition writes
-                    RoleBindings against.
+                    Sovereign identifier — a single DNS label (no dots).
+                    Carried as an ops/audit label on the materialized
+                    RoleBindings.
                   pattern: '^[a-z0-9][a-z0-9-]{0,62}$'
                 applications:
                   type: array
@@ -101,10 +118,8 @@ spec:
                     (Application × role) grant. An entry may name explicit
                     namespaces, vClusters (rendered as additional
                     namespaces with the vCluster prefix), or omit both —
-                    in which case catalyst-api expands the Claim against
-                    Application.k8s_namespaces before applying. The
-                    Composition itself only renders explicit namespaces;
-                    expansion is the api's job.
+                    in which case catalyst-api expands the grant against
+                    Application.k8s_namespaces before applying.
 
                     EPIC-3 (#1098) UserAccess CRs authored via the
                     /rbac/assign endpoint use the new tierRoleRef + scopes
@@ -123,7 +138,7 @@ spec:
                       role:
                         type: string
                         description: |
-                          One of admin | editor | viewer. The Composition
+                          One of admin | editor | viewer. The controller
                           rewrites this to the canonical ClusterRole name
                           openova:application-<role>.
                         enum: [admin, editor, viewer]
@@ -135,9 +150,9 @@ spec:
                           Explicit namespace list for this grant. When
                           omitted, catalyst-api resolves it from the
                           Application's k8s_namespaces field before writing
-                          the Claim. The Composition treats an empty list
-                          as "no RoleBindings for this application" (the
-                          api MUST expand before submitting).
+                          the CR. A `["*"]` entry materializes a
+                          ClusterRoleBinding instead of per-namespace
+                          RoleBindings.
                       vClusters:
                         type: array
                         items:
@@ -149,10 +164,10 @@ spec:
                 providerConfigRef:
                   type: object
                   description: |
-                    Override for the Composition's per-Sovereign
-                    provider-kubernetes ProviderConfig. Defaults to
-                    `sovereign-<sovereignRef>` (resolved via Composition
-                    patch). Most callers leave this unset.
+                    Retained for backward-compatibility with CRs authored
+                    against the legacy Crossplane Claim shape. Ignored by
+                    the catalyst-useraccess-controller. Most callers leave
+                    this unset.
                   properties:
                     name:
                       type: string
@@ -174,17 +189,15 @@ spec:
 
                     When unset, the legacy `applications[*].role` short
                     enum (admin/editor/viewer → openova:application-*)
-                    is used by the Composition. Both fields can co-exist
-                    during EPIC-3 rollout — tierRoleRef takes precedence
-                    when both are set.
+                    is used. Both fields can co-exist during EPIC-3
+                    rollout — tierRoleRef takes precedence when both set.
                   pattern: '^openova:tier-(viewer|developer|operator|admin|owner)$'
                 scopes:
                   type: array
                   description: |
-                    Manara DNA label-based scope tags per
-                    docs/EPICS-1-6-unified-design.md §6.3. Each entry is
-                    a `{key, value}` pair from the canonical openova.io
-                    label vocabulary (NAMING-CONVENTION.md §6).
+                    Manara DNA label-based scope tags. Each entry is a
+                    `{key, value}` pair from the canonical openova.io
+                    label vocabulary.
 
                     Semantics: AND-within (all scopes must match the
                     target), OR-across UserAccess CRs (any matching CR
@@ -193,9 +206,9 @@ spec:
 
                     Empty list = cluster-wide (same as wildcard scope).
 
-                    Authored by the /rbac/assign endpoint and consumed
-                    by the useraccess-controller's label-matching engine
-                    at `core/controllers/internal/labels/`.
+                    Authored by the /rbac/assign endpoint and consumed by
+                    the useraccess-controller's label-matching engine at
+                    `core/controllers/internal/labels/`.
                   items:
                     type: object
                     required: [key, value]
@@ -215,7 +228,17 @@ spec:
                           value.
             status:
               type: object
+              # Preserve the catalyst-useraccess-controller's status writes
+              # (phase, roleBindings[], and the EPIC-3 tier conditions
+              # EnforcedScopeApplied / TierResolved / BindingsReconciled)
+              # rather than pruning them to the documented subset below.
+              x-kubernetes-preserve-unknown-fields: true
               properties:
+                phase:
+                  type: string
+                  description: |
+                    Pending → Active on first successful reconcile; Failed
+                    on a hard error. Surfaced to the access-matrix UI.
                 conditions:
                   type: array
                   items:
@@ -229,14 +252,9 @@ spec:
                 rolebindingsCreated:
                   type: integer
                   description: |
-                    Count of RoleBinding Objects this composite owns.
-                    Surfaced to the catalyst-api for the user-access editor
+                    Count of RoleBinding / ClusterRoleBinding objects this
+                    UserAccess owns. Surfaced to the user-access editor
                     UI's "<n> grants active" badge.
-                providerConfigRef:
-                  type: string
-                  description: |
-                    Resolved ProviderConfig name — useful for ops debugging
-                    when a grant fails to land.
       additionalPrinterColumns:
         - name: SOVEREIGN
           type: string
@@ -244,6 +262,9 @@ spec:
         - name: USER
           type: string
           jsonPath: .spec.user.keycloakSubject
+        - name: PHASE
+          type: string
+          jsonPath: .status.phase
         - name: GRANTS
           type: integer
           jsonPath: .status.rolebindingsCreated
