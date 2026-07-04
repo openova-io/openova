@@ -159,10 +159,33 @@ cilium:
   # default) means auto-detect and reproduces the bug.
   #
   # Air-gapped / jumbo-frame (eth0 MTU != 1500) Sovereigns recompute as
-  # `<eth0-mtu> − 130` in their per-Sovereign overlay at clusters/<sov>/
-  # bootstrap-kit/01-cilium.yaml. Native-routing (non-vxlan) Sovereigns,
-  # if ever shipped, override to `<eth0-mtu> − 80` (WG-only) there too.
-  MTU: 1370
+  # `<eth0-mtu> − 80` (WG-only, native routing) in their per-Sovereign overlay
+  # at clusters/<sov>/bootstrap-kit/01-cilium.yaml.
+  #
+  # #4656 (2026-07-04): switched to NATIVE routing (routingMode below) so
+  # WireGuard encapsulates ONCE. VXLAN-inside-WireGuard was UNFIXABLE by any
+  # MTU: pinning MTU makes cilium derive wg0 = MTU−80, so pod(MTU)+50(VXLAN)
+  # ALWAYS exceeds wg0 (proven live hw224: host 1370 + 50 > wg0 1290). With
+  # no VXLAN the WG-only MTU is eth0(1500)−80 = 1420.
+  MTU: 1420
+
+  # #4656: native routing (NOT the upstream vxlan-tunnel default). WireGuard
+  # node-encryption then encapsulates cross-node pod traffic ONCE. Nodes are
+  # L2-adjacent within a region (same VPC subnet) so autoDirectNodeRoutes
+  # installs direct cross-node pod routes with no tunnel.
+  #
+  # ipv4NativeRoutingCIDR spans BOTH per-region k3s pod CIDRs — region-a
+  # 10.42.0.0/16 + region-b 10.43.0.0/16 collapse to the /15 10.42.0.0/15 —
+  # so a single chart value is correct for every region AND for single-region
+  # Sovereigns (whose pod CIDR is a subset). Traffic to pod IPs inside this
+  # CIDR is routed natively (never masqueraded); everything else egresses
+  # NAT'd. The bootstrap cloud-init pins the tighter per-region cluster_cidr
+  # explicitly; this chart overlay widens it to cover cross-region ClusterMesh.
+  # ⚠️ 2-region ClusterMesh cross-region pod reach MUST be fresh-prov-verified
+  # before merge (see #4656 spec) — this is the reviewable starting point.
+  routingMode: native
+  ipv4NativeRoutingCIDR: "10.42.0.0/15"
+  autoDirectNodeRoutes: true
 
   # Hubble — network observability (L3/L4/L7 flows, DNS, drop, http metrics).
   #

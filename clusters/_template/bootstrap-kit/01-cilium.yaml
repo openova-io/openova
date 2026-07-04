@@ -134,7 +134,14 @@ spec:
       # the 1.19.3 default (migration) mounts a helm-managed users CM that the
       # externally-established Catalyst mesh never renders (both hw224 regions
       # wedged Init:0/1 FailedMount on the 1.4.9 roll).
-      version: 1.4.10
+      # 1.4.11 (#4656, 2026-07-05): NATIVE routing (drop VXLAN). VXLAN-over-
+      # WireGuard stacked two headers per cross-node pod packet → DF-drops
+      # unfixable by any MTU. Chart switches routingMode: native +
+      # ipv4NativeRoutingCIDR + autoDirectNodeRoutes; MTU pin above moves
+      # 1370 → 1420 (WG-only). Layers on the 1.4.9/1.4.10 zero-nodeport +
+      # authMode=legacy work. Cross-region ClusterMesh pod path needs a fresh
+      # 2-region prov to verify (datapath change). Refs #4656.
+      version: 1.4.11
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -191,20 +198,22 @@ spec:
       # The :=10.0.1.2 fallback preserves single-region (primary-only)
       # provisions where the substitute var would be empty/absent.
       k8sServiceHost: ${CILIUM_K8S_SERVICE_HOST:=10.0.1.2}
-      # 1.4.4 (#4467, Huawei kom4dc fresh prov): pin the datapath MTU to
-      # account for the COMBINED VXLAN-tunnel(+50) + WireGuard-node-
-      # encryption(+80) overhead. Cilium auto-MTU read eth0=1500 and
-      # programmed cilium_wg0=1420 but left cilium_vxlan/cilium_host/lxc*
-      # at 1500 → full-size pod frames overflow the WireGuard MTU and are
-      # silently DF-dropped → ALL cross-node pod TCP to non-trivial payloads
-      # times out (curl 28) → Phase-1 convergence deadlock (gitea-token-mint
-      # → gitea-http.gitea.svc:3000 cross-node). 1500−50−80 = 1370; a 1370B
-      # pod payload + 50B VXLAN = 1420 = the cilium_wg0 MTU exactly. The
-      # chart default (platform/cilium/chart/values.yaml `cilium.MTU: 1370`)
-      # already carries this; pinned here too so the load-bearing value is
-      # visible at the slot. Jumbo-frame / non-1500-eth0 Sovereigns override
-      # via ${CILIUM_MTU:=1370} in their per-Sovereign overlay (eth0−130).
-      MTU: ${CILIUM_MTU:=1370}
+      # 1.4.11 (#4656, 2026-07-05): NATIVE routing (drop VXLAN) — the datapath
+      # MTU is now WG-only. The old VXLAN-tunnel + WireGuard stack was
+      # UNFIXABLE by any MTU (cilium derived cilium_wg0 = MTU−80, so a pod
+      # packet + 50B VXLAN header ALWAYS exceeded wg0 → full-size cross-node
+      # pod TCP DF-dropped → Phase-1 convergence deadlock; #4467's MTU=1370
+      # pin disproven live on hw224). With routingMode: native (chart
+      # values.yaml) there is no VXLAN header to stack — WireGuard
+      # encapsulates ONCE, so the correct pod MTU is eth0(1500)−80 = 1420.
+      # The chart default (platform/cilium/chart/values.yaml `cilium.MTU:
+      # 1420`) already carries this; pinned here too so the load-bearing value
+      # is visible at the slot. Jumbo-frame / non-1500-eth0 Sovereigns override
+      # via ${CILIUM_MTU:=1420} in their per-Sovereign overlay (eth0−80).
+      # routingMode: native + ipv4NativeRoutingCIDR (10.42.0.0/15, spanning
+      # both per-region k3s pod CIDRs) + autoDirectNodeRoutes live in the chart
+      # values.yaml; the slot inherits them (no override needed here).
+      MTU: ${CILIUM_MTU:=1420}
       # Phase-8a bug #15 (otech8 deployment 1bfc46347564467b 2026-05-01):
       # cilium-agent waits forever for the operator to register
       # ciliumenvoyconfigs + ciliumclusterwideenvoyconfigs CRDs.
