@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T21:00:10Z` |
+| Last refreshed | `2026-07-04T21:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 46 |
 | Open DoD gates | 0 / 41 |
@@ -253,6 +253,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T21:01 | [#4777](https://github.com/openova-io/openova/pull/4777) | #4467 | fix(cilium): native routing (drop VXLAN) to end the unfixabl |
+| 2026-07-04T21:06 | [#4776](https://github.com/openova-io/openova/pull/4776) | #71 | fix(crossplane): stop the XUserAccess composite leak — UserA |
 | 2026-07-04T20:56 | [#4775](https://github.com/openova-io/openova/pull/4775) | #3153 | fix(dashboard): mothership /jobs re-seeds install+reconcile  |
 | 2026-07-04T19:44 | [#4774](https://github.com/openova-io/openova/pull/4774) | #4773 | docs(uat): crossplane-adoption rows 206/207/239 confirmed ❌  |
 | 2026-07-04T19:12 | [#4772](https://github.com/openova-io/openova/pull/4772) | #4466 | docs(uat): G5 janitor + G10 placement walked live on hw224 ( |
@@ -281,8 +283,6 @@ flowchart LR
 | 2026-07-03T21:04 | [#4736](https://github.com/openova-io/openova/pull/4736) | #4731 | feat(console): Progress + Kind as first-class treemap layers |
 | 2026-07-03T21:04 | [#4735](https://github.com/openova-io/openova/pull/4735) | #4732 | fix(catalyst-api): tear down sovereign parent-zone DNS recor |
 | 2026-07-03T20:51 | [#4734](https://github.com/openova-io/openova/pull/4734) | #4732 | fix(console): collapse cloud/k8s WorkerNodes by InternalIP — |
-| 2026-07-03T20:53 | [#4733](https://github.com/openova-io/openova/pull/4733) | #4732 | fix(catalyst-api): per-Org console front door — self-healing |
-| 2026-07-03T18:19 | [#4730](https://github.com/openova-io/openova/pull/4730) | #4610 | fix(agenity): per-Org MCP OPENOVA_MCP_TENANT_HOST must be th |
 
 ---
 
