@@ -448,6 +448,69 @@ func TestReconcile_NotFoundIsNoOp(t *testing.T) {
 	}
 }
 
+// T11 — regression for the hw224 0-RoleBindings bug (Refs #4773).
+//
+// Root cause of the production 0-bindings symptom: the reconcile Request
+// carried a namespace (the CR was a namespaced Crossplane Claim), but the
+// Get dropped it — `r.Client.Get(ctx, types.NamespacedName{Name: req.Name}, ua)`
+// looked up ("", name), got NotFound, and the controller treated EVERY
+// UserAccess as deleted → it never created a single RoleBinding.
+//
+// The fix flips UserAccess to a cluster-scoped CRD (so Requests carry no
+// namespace) AND makes the Get use `req.NamespacedName` verbatim, so the
+// reconciler stays correct even if a Request ever arrives carrying a
+// namespace (e.g. an Owns()-remapped enqueue). This test fires a Request
+// WITH a namespace against a CR stored under that namespace and asserts a
+// RoleBinding is ACTUALLY created — it fails against the pre-fix
+// `{Name: req.Name}` Get (0 bindings) and passes against `req.NamespacedName`.
+func TestReconcile_RequestCarriesNamespace_StillBinds(t *testing.T) {
+	ua := newUA("ns-carried-ua", 1, map[string]any{
+		"user":         map[string]any{"keycloakSubject": "sub-xyz"},
+		"sovereignRef": "omantel",
+		"applications": []any{
+			map[string]any{
+				"app":        "wordpress",
+				"role":       "editor",
+				"namespaces": []any{"acme-prod"},
+			},
+		},
+	})
+	// Store the CR under a namespace, as a namespaced producer would have.
+	ua.SetNamespace("catalyst-system")
+	r, c := newReconciler(t, ua)
+
+	// Fire the Request WITH the namespace — exactly what tripped the old
+	// namespace-dropping Get and produced 0 bindings.
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "catalyst-system", Name: "ns-carried-ua"},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var rbs rbacv1.RoleBindingList
+	if err := c.List(context.Background(), &rbs); err != nil {
+		t.Fatalf("list rbs: %v", err)
+	}
+	if len(rbs.Items) != 1 {
+		t.Fatalf("0-bindings regression (Refs #4773): expected 1 RoleBinding, got %d", len(rbs.Items))
+	}
+	rb := rbs.Items[0]
+	if rb.Namespace != "acme-prod" {
+		t.Fatalf("namespace: got %s want acme-prod", rb.Namespace)
+	}
+	if rb.RoleRef.Name != "openova:application-editor" {
+		t.Fatalf("roleRef: got %s want openova:application-editor", rb.RoleRef.Name)
+	}
+	if len(rb.Subjects) != 1 || rb.Subjects[0].Kind != SubjectKindUser || rb.Subjects[0].Name != "oidc:sub-xyz" {
+		t.Fatalf("subject: %+v", rb.Subjects)
+	}
+	// ownerRef pinned to the UA's UID — the cascade-delete linkage that a
+	// cluster-scoped owner can legally hold over a cross-namespace binding.
+	if len(rb.OwnerReferences) != 1 || rb.OwnerReferences[0].UID != ua.GetUID() {
+		t.Fatalf("ownerRef: %+v", rb.OwnerReferences)
+	}
+}
+
 // asMetaTime is a small helper so the test file doesn't drag a
 // metav1 import for the one place we want to compare timestamps.
 func asMetaTime(t apiextv1.Time) string { return t.Format("2006-01-02T15:04:05Z") }

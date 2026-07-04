@@ -1,9 +1,21 @@
 // reconciler.go — UserAccessReconciler.Reconcile.
 //
+// Scope (Refs #4773): UserAccess is a CLUSTER-scoped CRD. A single grant
+// spans many namespaces and can emit cluster-scoped ClusterRoleBindings,
+// so the CR must be cluster-scoped for the ownerRef-based GC below to be
+// valid — a namespaced owner cannot own a ClusterRoleBinding (invalid
+// ownerRef) nor a RoleBinding in a different namespace (cross-namespace
+// ownerRef → the GC treats the owner as absent and deletes the binding).
+// The Fetch below uses req.NamespacedName, which for a cluster-scoped CR
+// carries an empty namespace; using it (rather than dropping the field)
+// keeps the reconciler correct even if a Request ever arrives carrying a
+// namespace (the historical namespaced-CR / cluster-scoped-Get mismatch
+// that produced 0 RoleBindings on hw224).
+//
 // Steady-state algorithm:
 //
-//   1. Fetch the UserAccess CR (cluster-scoped). Not-found → no-op
-//      (garbage-collected by ownerRef cascade).
+//   1. Fetch the UserAccess CR (cluster-scoped) via req.NamespacedName.
+//      Not-found → no-op (garbage-collected by ownerRef cascade).
 //   2. ParseSpec(). On invalid spec → status.phase=Failed + Condition
 //      Ready=False, Reason=Invalid, Message=<text>. Stop.
 //   3. Build the desired RoleBinding / ClusterRoleBinding set:
@@ -112,7 +124,11 @@ func (r *UserAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	ua := &unstructured.Unstructured{}
 	ua.SetGroupVersionKind(UserAccessGVK())
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: req.Name}, ua); err != nil {
+	// UserAccess is cluster-scoped (Refs #4773) so req.Namespace is empty;
+	// use req.NamespacedName verbatim so the Get honours whatever the
+	// enqueued Request carries (defends against the historical
+	// namespaced-CR mismatch that dropped req.Namespace → 0 bindings).
+	if err := r.Client.Get(ctx, req.NamespacedName, ua); err != nil {
 		if apierrors.IsNotFound(err) {
 			// UserAccess deleted — owner refs garbage-collect bindings.
 			return ctrl.Result{}, nil
@@ -148,7 +164,7 @@ func (r *UserAccessReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// view.
 		fresh := &unstructured.Unstructured{}
 		fresh.SetGroupVersionKind(UserAccessGVK())
-		if getErr := r.Client.Get(ctx, types.NamespacedName{Name: req.Name}, fresh); getErr == nil {
+		if getErr := r.Client.Get(ctx, req.NamespacedName, fresh); getErr == nil {
 			ua = fresh
 			if reparsed, vmsg2 := ParseSpec(ua); vmsg2 == "" {
 				spec = reparsed

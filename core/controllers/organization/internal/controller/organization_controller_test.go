@@ -784,24 +784,20 @@ func TestReconcile_Missing_NoError(t *testing.T) {
 	}
 }
 
-// TestUpsertUserAccess_NamespaceScoped — qa-loop iter-8 Fix #42 regression.
+// TestUpsertUserAccess_ClusterScoped — Refs #4773.
 //
-// The Crossplane Claim CR (`useraccesses.access.openova.io`) is
-// namespace-scoped on the live API server. A previous code path called
-// r.Get / r.Create with `client.ObjectKey{Name: name}` (empty
-// namespace), which the apiserver rejects with `an empty namespace may
-// not be set when a resource name is provided`. That single error
-// blocked the entire downstream chain on omantel — Organization
-// transitioned to Failed/UserAccessFailed, Environment never created
-// the per-Org repo, Application never registered Flux GitRepository,
-// no Pod was ever scheduled.
+// UserAccess flipped from a namespaced Crossplane Claim to a plain
+// CLUSTER-scoped CRD (the useraccess-controller owns cross-namespace
+// RoleBindings + cluster-scoped ClusterRoleBindings via ownerRefs, which
+// a namespaced owner cannot do). The upsert path therefore writes the CR
+// with NO metadata.namespace and Get/Create route to the cluster path.
 //
 // This test asserts:
-//  1. Upsert writes the UserAccess CR into the configured
-//     r.UserAccessNamespace (default `catalyst-system`).
-//  2. The CR carries metadata.namespace == that namespace (NOT empty).
+//  1. Upsert writes the UserAccess CR cluster-scoped (Get with
+//     `client.ObjectKey{Name: name}`, no namespace).
+//  2. The CR carries an EMPTY metadata.namespace.
 //  3. The owner-per-CR mapping holds (1 owner = 1 CR).
-func TestUpsertUserAccess_NamespaceScoped(t *testing.T) {
+func TestUpsertUserAccess_ClusterScoped(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
 	r, _, _ := makeReconciler(t, org)
@@ -810,17 +806,16 @@ func TestUpsertUserAccess_NamespaceScoped(t *testing.T) {
 		NamespacedName: types.NamespacedName{Name: "acme"},
 	})
 	if err != nil {
-		t.Fatalf("reconcile failed (regression — empty-namespace bug?): %v", err)
+		t.Fatalf("reconcile failed: %v", err)
 	}
 	// #3687 (fold #3669): the reconcile requeues while the vCluster HR is
 	// still provisioning (no HR/namespace seeded in this fake cluster).
 	// That is correct convergence behavior — the UserAccess writes below
-	// still happen on this pass; this test asserts their namespace, not
-	// the requeue cadence.
+	// still happen on this pass; this test asserts their scope, not the
+	// requeue cadence.
 	_ = res
 
-	// Assert every UserAccess CR carries metadata.namespace =
-	// r.UserAccessNamespace (catalyst-system).
+	// Assert every UserAccess CR is cluster-scoped (empty namespace).
 	uaList := unstructured.UnstructuredList{}
 	uaList.SetGroupVersionKind(schema.GroupVersionKind{
 		Group: "access.openova.io", Version: "v1alpha1", Kind: "UserAccessList",
@@ -832,9 +827,9 @@ func TestUpsertUserAccess_NamespaceScoped(t *testing.T) {
 		t.Fatalf("expected 2 UserAccess CRs (one per owner), got %d", len(uaList.Items))
 	}
 	for _, ua := range uaList.Items {
-		if ua.GetNamespace() != "catalyst-system" {
-			t.Errorf("UserAccess %s: namespace = %q, want %q (the apiserver rejects an empty namespace on namespaced CRs)",
-				ua.GetName(), ua.GetNamespace(), "catalyst-system")
+		if ua.GetNamespace() != "" {
+			t.Errorf("UserAccess %s: namespace = %q, want %q (cluster-scoped CR carries no namespace)",
+				ua.GetName(), ua.GetNamespace(), "")
 		}
 	}
 
@@ -861,20 +856,20 @@ func TestUpsertUserAccess_NamespaceScoped(t *testing.T) {
 	}
 }
 
-// TestUpsertUserAccess_DefaultsToCatalystSystem — when the Reconciler
-// is constructed with UserAccessNamespace=="" (e.g. main.go env var
-// missing), the upsert path must default to "catalyst-system" rather
-// than panic or write into the empty namespace.
-func TestUpsertUserAccess_DefaultsToCatalystSystem(t *testing.T) {
+// TestUpsertUserAccess_ClusterScopedRegardlessOfNamespaceField — Refs
+// #4773. UserAccess is cluster-scoped, so the upsert path writes the CR
+// with NO namespace regardless of the (now-vestigial) UserAccessNamespace
+// field. Setting it must not leak a namespace onto the cluster-scoped CR.
+func TestUpsertUserAccess_ClusterScopedRegardlessOfNamespaceField(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
 	r, _, _ := makeReconciler(t, org)
-	r.UserAccessNamespace = "" // simulate unset env var
+	r.UserAccessNamespace = "catalyst-system" // vestigial; must be ignored
 
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "acme"},
 	}); err != nil {
-		t.Fatalf("reconcile with empty UserAccessNamespace must default and succeed: %v", err)
+		t.Fatalf("reconcile must succeed: %v", err)
 	}
 	uaList := unstructured.UnstructuredList{}
 	uaList.SetGroupVersionKind(schema.GroupVersionKind{
@@ -884,9 +879,9 @@ func TestUpsertUserAccess_DefaultsToCatalystSystem(t *testing.T) {
 		t.Fatalf("list UserAccess: %v", err)
 	}
 	for _, ua := range uaList.Items {
-		if ua.GetNamespace() != "catalyst-system" {
-			t.Errorf("UserAccess %s: namespace = %q, want default %q",
-				ua.GetName(), ua.GetNamespace(), "catalyst-system")
+		if ua.GetNamespace() != "" {
+			t.Errorf("UserAccess %s: namespace = %q, want %q (cluster-scoped — the UserAccessNamespace field must not leak onto the CR)",
+				ua.GetName(), ua.GetNamespace(), "")
 		}
 	}
 }

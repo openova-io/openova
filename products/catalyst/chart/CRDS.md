@@ -30,7 +30,7 @@ controller-runtime.source.EventHandler   if kind is a CRD, it should be installe
 ## UserAccess (out-of-tree CRD)
 
 `useraccesses.access.openova.io` is **not** in this chart — it is a
-plain namespaced CustomResourceDefinition shipped from
+plain **cluster-scoped** CustomResourceDefinition shipped from
 `platform/crossplane-claims/chart/templates/crds/useraccess.yaml`.
 
 As of Refs #4773 it is **no longer** a Crossplane XRD/Claim: the old
@@ -40,6 +40,15 @@ Composition was retired by default) — an unbounded leak. The XRD +
 Composition are removed; the `catalyst-useraccess-controller`
 reconciles the plain CRD directly into RoleBinding / ClusterRoleBinding
 objects (no Crossplane, no provider-kubernetes).
+
+The CRD is **cluster-scoped** (not namespaced): a single UserAccess
+grant spans many namespaces and can emit cluster-scoped
+ClusterRoleBindings, each owned by the CR via an ownerReference — a
+namespaced owner could own neither a cross-namespace RoleBinding (the
+GC deletes it) nor a ClusterRoleBinding (invalid ownerRef), which was
+the 0-RoleBindings symptom. The producers (organization-controller,
+catalyst-api `rbac/assign` + owner-seed + admin CRUD, qa-fixtures)
+write the CR with no namespace.
 
 A Sovereign that runs `catalyst-useraccess-controller` therefore
 requires both this catalyst chart **and** the `crossplane-claims`

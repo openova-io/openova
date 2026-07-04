@@ -50,21 +50,22 @@ import (
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
-// userAccessGVR is the namespace-scoped UserAccess CR group/version/kind
+// userAccessGVR is the CLUSTER-scoped UserAccess CR group/version/kind
 // the reconciler writes per Org owner. Defined in
-// platform/crossplane-claims/chart/templates/xrds/useraccess.yaml as
+// platform/crossplane-claims/chart/templates/crds/useraccess.yaml as
 // access.openova.io/v1alpha1.
 //
-// NOTE on scope: Crossplane Claims are namespace-scoped by convention
-// (the underlying XR — XUserAccess — is cluster-scoped, but the *Claim*
-// the controller writes is namespaced). The runtime CRD on a live
-// Sovereign therefore reports `spec.scope: Namespaced`, and a Get/Create
-// without a namespace fails with `an empty namespace may not be set
-// when a resource name is provided`. Reconciler.UserAccessNamespace
-// (env CATALYST_USERACCESS_NAMESPACE, default `catalyst-system`)
-// matches the qa-fixtures convention at
-// products/catalyst/chart/templates/qa-fixtures/useraccess-qa-user1.yaml
-// — the Sovereign-wide namespace where every Sovereign-IAM CR lives.
+// NOTE on scope (Refs #4773): UserAccess is a plain CLUSTER-scoped CRD.
+// The former Crossplane-Claim coupling (which made the Claim namespaced)
+// is gone; more importantly the resource MUST be cluster-scoped because
+// the useraccess-controller materializes RoleBindings into the Org's own
+// namespace (≠ wherever the CR lives) and ClusterRoleBindings for
+// wildcard grants, owning each via an ownerReference — a namespaced
+// owner cannot own a cross-namespace RoleBinding (the GC would delete it)
+// nor a cluster-scoped ClusterRoleBinding (invalid ownerRef). So the CR
+// is written cluster-scoped: NO metadata.namespace, and Get/Create route
+// to the cluster path. This mirrors Organization itself being cluster-
+// scoped so it can own children across namespaces.
 var userAccessGVR = schema.GroupVersionResource{
 	Group:    "access.openova.io",
 	Version:  "v1alpha1",
@@ -948,31 +949,25 @@ func (r *Reconciler) patchStatus(ctx context.Context, org *orgapi.Organization, 
 	return r.Status().Update(ctx, updated)
 }
 
-// upsertUserAccess writes (or updates) a single-grant UserAccess Claim
-// CR scoped to the Organization. The CR shape mirrors
+// upsertUserAccess writes (or updates) a single-grant UserAccess CR
+// scoped to the Organization. The CR shape mirrors
 // platform/crossplane-claims/chart/tests/fixtures/useraccess-sample.yaml.
 //
-// The CR is written into r.UserAccessNamespace (default
-// `catalyst-system`) per the qa-fixtures convention at
-// products/catalyst/chart/templates/qa-fixtures/useraccess-qa-user1.yaml.
-// Crossplane Claims are namespace-scoped on the live API server (the
-// underlying XR is cluster-scoped) — Get/Create without a namespace
-// fails with `an empty namespace may not be set when a resource name is
-// provided`. See organization_controller.go top-of-file note on
-// userAccessGVR for the full rationale.
+// The CR is CLUSTER-scoped (Refs #4773) — no metadata.namespace — because
+// the useraccess-controller materializes the RoleBinding into the Org's
+// own namespace (≠ where the CR lives) and owns it via an ownerReference;
+// a namespaced owner cannot own a cross-namespace RoleBinding (the GC
+// would delete it). See the top-of-file note on userAccessGVR for the
+// full ownerRef rationale.
 //
-// Slice C5 (useraccess-controller) consumes the Claim and materialises
-// the RoleBindings.
+// Slice C5 (useraccess-controller) consumes the CR and materialises the
+// RoleBindings.
 func (r *Reconciler) upsertUserAccess(ctx context.Context, org *orgapi.Organization, owner orgapi.OrganizationOwner) error {
 	// Sanitize the email into a label-safe leaf: "ceo@acme.com" →
 	// "ceo-at-acme-com". Keeps the CR name deterministic + RFC 1123-
 	// compliant.
 	emailLeaf := sanitizeEmail(owner.Email)
 	name := fmt.Sprintf("%s-%s", org.Spec.Slug, emailLeaf)
-	ns := r.UserAccessNamespace
-	if ns == "" {
-		ns = "catalyst-system"
-	}
 
 	// Map Org owner role to UserAccess role. Per the unified design
 	// §6.2 "owner" is the highest tier; the existing XRD uses the
@@ -983,7 +978,7 @@ func (r *Reconciler) upsertUserAccess(ctx context.Context, org *orgapi.Organizat
 	desired := unstructured.Unstructured{}
 	desired.SetGroupVersionKind(userAccessGVK)
 	desired.SetName(name)
-	desired.SetNamespace(ns)
+	// No SetNamespace: UserAccess is cluster-scoped (Refs #4773).
 	desired.SetLabels(map[string]string{
 		"openova.io/organization":      org.Spec.Slug,
 		"openova.io/sovereign":         org.Spec.SovereignRef,
@@ -1023,16 +1018,16 @@ func (r *Reconciler) upsertUserAccess(ctx context.Context, org *orgapi.Organizat
 	// claims/ today).
 	current := unstructured.Unstructured{}
 	current.SetGroupVersionKind(userAccessGVK)
-	if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &current); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: name}, &current); err != nil {
 		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("get UserAccess %s/%s: %w", ns, name, err)
+			return fmt.Errorf("get UserAccess %s: %w", name, err)
 		}
 		// Create.
 		if err := r.Create(ctx, &desired); err != nil {
 			if apierrors.IsAlreadyExists(err) {
 				return nil
 			}
-			return fmt.Errorf("create UserAccess %s/%s: %w", ns, name, err)
+			return fmt.Errorf("create UserAccess %s: %w", name, err)
 		}
 		return nil
 	}
@@ -1040,7 +1035,7 @@ func (r *Reconciler) upsertUserAccess(ctx context.Context, org *orgapi.Organizat
 	current.Object["spec"] = desired.Object["spec"]
 	current.SetLabels(desired.GetLabels())
 	if err := r.Update(ctx, &current); err != nil {
-		return fmt.Errorf("update UserAccess %s/%s: %w", ns, name, err)
+		return fmt.Errorf("update UserAccess %s: %w", name, err)
 	}
 	return nil
 }

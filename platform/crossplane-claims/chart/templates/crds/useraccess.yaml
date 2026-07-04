@@ -27,12 +27,34 @@
 # no longer part of this path, UserAccess is a PLAIN CRD. Nothing spawns
 # an XUserAccess XR, so the leak cannot recur.
 #
-# Scope: Namespaced — every existing producer writes the CR into the
-# Sovereign-wide `catalyst-system` namespace (organization-controller
-# `upsertUserAccess`, catalyst-api `user_access_owner_seed.go` /
-# `rbac_assign.go` / `user_access.go`, and the qa-fixtures). Keeping the
-# resource namespaced preserves those producers verbatim — the ONLY thing
-# this change removes is the redundant Crossplane XR-spawning layer.
+# Scope: Cluster (Refs #4773 follow-up) — a single UserAccess grant spans
+# MANY namespaces by design and can materialize CLUSTER-scoped bindings:
+#   • the useraccess-controller emits ClusterRoleBinding objects for
+#     wildcard / empty-scope grants (owner-seed, `namespaces: ["*"]`), and
+#   • it emits RoleBinding objects into the target application / org /
+#     env namespaces, which are DIFFERENT from wherever the CR itself
+#     would live (the org-controller writes the CR "centrally" but the
+#     RoleBinding lands in the Org's own namespace).
+# Every materialized binding carries an ownerReference back to this CR so
+# K8s garbage-collects them on delete (no finalizer). Kubernetes ownerRef
+# rules make that IMPOSSIBLE for a namespaced owner:
+#   • a cluster-scoped ClusterRoleBinding may only be owned by a
+#     cluster-scoped owner — a namespaced owner is an unresolvable
+#     ownerRef (OwnerRefInvalidNamespace), the binding is never GC'd, and
+#   • a RoleBinding in namespace M may only reference a namespaced owner
+#     in the SAME namespace M — an ownerRef to a UserAccess in a
+#     different namespace is treated as ABSENT and the GC DELETES the
+#     freshly-created RoleBinding within seconds.
+# So a namespaced UserAccess cannot own its bindings: grants either leak
+# (CRBs) or are immediately garbage-collected (cross-namespace RBs) — the
+# 0-RoleBindings symptom on hw224. A cluster-scoped UserAccess CAN own
+# both (namespaced dependents may name a cluster-scoped owner in ANY
+# namespace, and cluster-scoped dependents may name a cluster-scoped
+# owner) — exactly the reason Organization (the org-controller's own
+# parent CR) is cluster-scoped too. The producers are updated lockstep to
+# stop stamping a namespace (organization-controller `upsertUserAccess`,
+# catalyst-api `user_access_owner_seed.go` / `rbac_assign.go` /
+# `user_access.go`, and the qa-fixtures).
 #
 # The GVK (access.openova.io/v1alpha1, kind UserAccess) and GVR
 # (useraccesses) are UNCHANGED, so the catalyst-useraccess-controller,
@@ -56,7 +78,7 @@ metadata:
     catalyst.openova.io/iam-plane: "true"
 spec:
   group: access.openova.io
-  scope: Namespaced
+  scope: Cluster
   names:
     kind: UserAccess
     listKind: UserAccessList

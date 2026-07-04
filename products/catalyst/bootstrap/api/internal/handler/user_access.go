@@ -130,10 +130,10 @@ type userAccessAppGrantBody struct {
 }
 
 type userAccessItem struct {
-	Name              string                  `json:"name"`
-	Spec              userAccessSpecBody      `json:"spec"`
-	Status            *userAccessStatusBody   `json:"status,omitempty"`
-	CreationTimestamp string                  `json:"creationTimestamp,omitempty"`
+	Name              string                `json:"name"`
+	Spec              userAccessSpecBody    `json:"spec"`
+	Status            *userAccessStatusBody `json:"status,omitempty"`
+	CreationTimestamp string                `json:"creationTimestamp,omitempty"`
 }
 
 type userAccessStatusBody struct {
@@ -202,14 +202,9 @@ func (h *Handler) serveUserAccessList(w http.ResponseWriter, r *http.Request, de
 		writeUserAccessUnavailable(w, err)
 		return
 	}
-	// UserAccess Claims are NAMESPACED per the XRD's claimNames block
-	// (Crossplane Claims are namespaced by construction — only the
-	// underlying XR xuseraccesses is cluster-scoped). Listing with
-	// Namespace("") asks the apiserver for all-namespaces and works
-	// against a namespaced CRD; metadata.namespace is preserved on
-	// every item for any caller that wants to filter. Refs t134 D21
-	// fix in user_access_owner_seed.go + TBD-C6-006-followup.
-	listIface, err := client.Resource(UserAccessGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
+	// UserAccess is a CLUSTER-scoped CRD (Refs #4773) — List routes to
+	// the cluster-scoped REST path and returns every CR on the Sovereign.
+	listIface, err := client.Resource(UserAccessGVR()).List(r.Context(), metav1.ListOptions{})
 	if err != nil {
 		// CRD not installed → return empty list, not 500. The
 		// access.openova.io UserAccess CRD ships via a separate
@@ -257,16 +252,12 @@ func (h *Handler) CreateUserAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	obj := userAccessToUnstructured(body)
-	// Stamp the canonical namespace on the Claim — Crossplane Claims
-	// are namespaced; an empty namespace routes to the cluster-scoped
-	// REST path which the apiserver doesn't serve for a namespaced
-	// CRD (404 "the server could not find the requested resource").
-	// Mirrors rbacAssignNamespace + userAccessOwnerNamespace.
-	// Refs TBD-C6-006-followup.
-	if obj.GetNamespace() == "" {
-		obj.SetNamespace(rbacAssignNamespace)
-	}
-	created, err := client.Resource(UserAccessGVR()).Namespace(obj.GetNamespace()).Create(r.Context(), obj, metav1.CreateOptions{})
+	// UserAccess is a CLUSTER-scoped CRD (Refs #4773) — no namespace on
+	// the object, and Create routes to the cluster-scoped REST path. A
+	// cluster-scoped owner is REQUIRED for the useraccess-controller to
+	// own its cross-namespace RoleBindings + ClusterRoleBindings via
+	// ownerRefs (a namespaced owner cannot).
+	created, err := client.Resource(UserAccessGVR()).Create(r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			writeJSON(w, http.StatusConflict, map[string]string{
@@ -317,11 +308,8 @@ func (h *Handler) UpdateUserAccess(w http.ResponseWriter, r *http.Request) {
 		writeUserAccessUnavailable(w, err)
 		return
 	}
-	// Find the existing Claim across all namespaces. UserAccess Claims
-	// are namespaced; we walk the all-namespaces list to discover the
-	// canonical namespace before issuing the Update against that exact
-	// REST path. Refs TBD-C6-006-followup.
-	current, currentNs, err := findUserAccessByName(r.Context(), client, name)
+	// Find the existing CR (cluster-scoped, Refs #4773).
+	current, _, err := findUserAccessByName(r.Context(), client, name)
 	if err != nil {
 		if errors.Is(err, errUserAccessNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{
@@ -339,8 +327,9 @@ func (h *Handler) UpdateUserAccess(w http.ResponseWriter, r *http.Request) {
 	desired := userAccessToUnstructured(body)
 	desired.SetResourceVersion(current.GetResourceVersion())
 	desired.SetUID(current.GetUID())
-	desired.SetNamespace(currentNs)
-	updated, err := client.Resource(UserAccessGVR()).Namespace(currentNs).Update(r.Context(), desired, metav1.UpdateOptions{})
+	// No namespace — UserAccess is cluster-scoped; Update routes to the
+	// cluster REST path.
+	updated, err := client.Resource(UserAccessGVR()).Update(r.Context(), desired, metav1.UpdateOptions{})
 	if err != nil {
 		if apierrors.IsConflict(err) {
 			writeJSON(w, http.StatusConflict, map[string]string{
@@ -398,19 +387,14 @@ func (h *Handler) DeleteUserAccess(w http.ResponseWriter, r *http.Request) {
 
 var errUserAccessNotFound = errors.New("user-access: not found")
 
-// findUserAccessByName walks the all-namespaces list and returns the
-// first UserAccess Claim whose metadata.name matches. Returns the
-// CR + its namespace, or errUserAccessNotFound on miss. Used by
-// UpdateUserAccess and tryDeleteUserAccess to discover the canonical
-// namespace before issuing a per-namespace REST call.
-//
-// UserAccess Claims are namespaced; an empty-namespace Get/Update/
-// Delete routes to the cluster-scoped REST path which the apiserver
-// returns 404 for ("the server could not find the requested
-// resource"). Walk the list once to discover the namespace, then
-// route the mutation to the canonical path. Refs TBD-C6-006-followup.
+// findUserAccessByName lists the cluster-scoped UserAccess CRs and
+// returns the first whose metadata.name matches. Returns the CR + its
+// namespace (empty — the resource is cluster-scoped, Refs #4773), or
+// errUserAccessNotFound on miss. A List by name (rather than a direct
+// Get) is retained so callers get the full object + resourceVersion in
+// one round trip.
 func findUserAccessByName(ctx context.Context, client dynamic.Interface, name string) (*unstructured.Unstructured, string, error) {
-	listIface, err := client.Resource(UserAccessGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	listIface, err := client.Resource(UserAccessGVR()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, "", errUserAccessNotFound
@@ -426,20 +410,16 @@ func findUserAccessByName(ctx context.Context, client dynamic.Interface, name st
 	return nil, "", errUserAccessNotFound
 }
 
-// tryDeleteUserAccess deletes the named namespaced Claim. Walks the
-// all-namespaces list to discover the canonical namespace before
-// issuing the Delete (UserAccess Claims are namespaced per the XRD
-// claimNames block — an empty-namespace Delete routes to the
-// cluster-scoped REST path which the apiserver doesn't serve for a
-// namespaced CRD). Returns errUserAccessNotFound on miss so the
-// caller can map onto HTTP 404. Refs TBD-C6-006-followup.
+// tryDeleteUserAccess deletes the named cluster-scoped UserAccess CR
+// (Refs #4773). Returns errUserAccessNotFound on miss so the caller can
+// map onto HTTP 404. Deleting the CR cascades the useraccess-controller's
+// materialized RoleBindings / ClusterRoleBindings via ownerRef GC.
 func tryDeleteUserAccess(ctx context.Context, client dynamic.Interface, name string) error {
-	_, ns, err := findUserAccessByName(ctx, client, name)
-	if err != nil {
+	if _, _, err := findUserAccessByName(ctx, client, name); err != nil {
 		return err
 	}
 	policy := metav1.DeletePropagationForeground
-	err = client.Resource(UserAccessGVR()).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{
+	err := client.Resource(UserAccessGVR()).Delete(ctx, name, metav1.DeleteOptions{
 		PropagationPolicy: &policy,
 	})
 	if err != nil {
