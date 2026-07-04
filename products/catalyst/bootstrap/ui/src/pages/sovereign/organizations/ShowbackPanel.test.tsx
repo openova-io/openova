@@ -56,6 +56,42 @@ describe('ShowbackPanel — parent self-showback (DoD 3)', () => {
     expect(screen.getByTestId('showback-no-apps')).toBeTruthy()
   })
 
+  it('directory view (no org prop) renders EVERY org — the customer Org row, not just the parent (#4739 row 23)', () => {
+    const multi: SovereignConsumption = {
+      totalCostUnits: 1425.5,
+      pending: false,
+      orgs: [
+        { org: 'sovereign', isParent: true, isPlatform: false, costUnits: 0, cpuMilli: 0, memoryGiB: 0, storageGiB: 0, apps: [] },
+        { org: 'uatwp4758', isParent: false, isPlatform: false, costUnits: 525.5, cpuMilli: 520, memoryGiB: 1.06, storageGiB: 5,
+          apps: [{ application: 'vcluster', namespace: 'uatwp4758', costUnits: 525.5, cpuMilli: 520, memoryGiB: 1.06, storageGiB: 5, percent: 100 }] },
+        { org: '__platform', isParent: false, isPlatform: true, costUnits: 900, cpuMilli: 750, memoryGiB: 2, storageGiB: 10, apps: [] },
+      ],
+    }
+    renderPanel(multi)
+    // The customer Org slice MUST render (the bug: it was dropped, only the parent showed).
+    expect(screen.getByTestId('showback-org-slice-uatwp4758')).toBeTruthy()
+    expect(screen.getByTestId('showback-app-vcluster')).toBeTruthy()
+    // All three orgs present + distinct (parent, customer, platform).
+    expect(screen.getByTestId('showback-org-slice-sovereign')).toBeTruthy()
+    expect(screen.getByTestId('showback-org-slice-__platform')).toBeTruthy()
+    // The customer Org's 525.5 units surface (not collapsed to the parent's 0).
+    expect(screen.getAllByTestId('showback-total').some((n) => n.textContent === '525.5')).toBe(true)
+  })
+
+  it('detail view (org prop) still renders only that one org', () => {
+    const multi: SovereignConsumption = {
+      totalCostUnits: 525.5, pending: false,
+      orgs: [
+        { org: 'sovereign', isParent: true, isPlatform: false, costUnits: 0, cpuMilli: 0, memoryGiB: 0, storageGiB: 0, apps: [] },
+        { org: 'uatwp4758', isParent: false, isPlatform: false, costUnits: 525.5, cpuMilli: 520, memoryGiB: 1.06, storageGiB: 5,
+          apps: [{ application: 'vcluster', namespace: 'uatwp4758', costUnits: 525.5, cpuMilli: 520, memoryGiB: 1.06, storageGiB: 5, percent: 100 }] },
+      ],
+    }
+    renderPanel(multi, 'uatwp4758')
+    expect(screen.getByTestId('showback-org-slice-uatwp4758')).toBeTruthy()
+    expect(screen.queryByTestId('showback-org-slice-sovereign')).toBeNull()
+  })
+
   it('never crashes on an empty feed', () => {
     renderPanel({ totalCostUnits: 0, pending: true, orgs: [] })
     expect(screen.getByTestId('showback-empty')).toBeTruthy()
