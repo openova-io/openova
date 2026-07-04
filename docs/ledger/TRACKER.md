@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T20:45:03Z` |
+| Last refreshed | `2026-07-04T21:00:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 46 |
 | Open DoD gates | 0 / 41 |
@@ -253,6 +253,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T20:56 | [#4775](https://github.com/openova-io/openova/pull/4775) | #3153 | fix(dashboard): mothership /jobs re-seeds install+reconcile  |
 | 2026-07-04T19:44 | [#4774](https://github.com/openova-io/openova/pull/4774) | #4773 | docs(uat): crossplane-adoption rows 206/207/239 confirmed ❌  |
 | 2026-07-04T19:12 | [#4772](https://github.com/openova-io/openova/pull/4772) | #4466 | docs(uat): G5 janitor + G10 placement walked live on hw224 ( |
 | 2026-07-04T19:11 | [#4771](https://github.com/openova-io/openova/pull/4771) | #4769 | fix(kyverno): flux-managed carve-out for Helm hooks — unbloc |
@@ -282,7 +283,6 @@ flowchart LR
 | 2026-07-03T20:51 | [#4734](https://github.com/openova-io/openova/pull/4734) | #4732 | fix(console): collapse cloud/k8s WorkerNodes by InternalIP — |
 | 2026-07-03T20:53 | [#4733](https://github.com/openova-io/openova/pull/4733) | #4732 | fix(catalyst-api): per-Org console front door — self-healing |
 | 2026-07-03T18:19 | [#4730](https://github.com/openova-io/openova/pull/4730) | #4610 | fix(agenity): per-Org MCP OPENOVA_MCP_TENANT_HOST must be th |
-| 2026-07-03T18:19 | [#4729](https://github.com/openova-io/openova/pull/4729) | #4277 | walk(uat): Pillar-4 North Star PROVEN LIVE on fresh hw220 —  |
 
 ---
 
