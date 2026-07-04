@@ -102,22 +102,26 @@ spec:
     disableWait: true
     remediation:
       retries: 3
-  # DNS-01 wildcard cert: expose PowerDNS on NodePort 30053 so the
-  # Sovereign LB can forward :53 → PowerDNS for ACME DNS-01 challenge
-  # validation. Both TCP and UDP are exposed on the same NodePort.
+  # DNS-01 wildcard cert: expose PowerDNS :53 as a Cilium LB-IPAM
+  # LoadBalancer VIP sharing the Sovereign EIP (§854 DIRECT). This is the
+  # NS-delegated endpoint Let's Encrypt resolvers query when validating
+  # ACME DNS-01 challenges for *.<fqdn>.
+  # 🛑 NodePorts are ABSOLUTELY FORBIDDEN (founder 2026-07-03, #4765): :53
+  # rides the shared sovereign VIP via lbipam.cilium.io/sharing-key, never
+  # node:3xxxx. Mirrors clusters/_template/bootstrap-kit/11-powerdns.yaml.
   values:
     anycast:
       enabled: true
       serviceName: powerdns-anycast
-      serviceType: NodePort
+      serviceType: LoadBalancer
+      annotations:
+        lbipam.cilium.io/sharing-key: sovereign-vip
       ports:
         - name: dns-udp
           port: 53
           targetPort: 5353
-          nodePort: 30053
           protocol: UDP
         - name: dns-tcp
           port: 53
           targetPort: 5353
-          nodePort: 30053
           protocol: TCP
