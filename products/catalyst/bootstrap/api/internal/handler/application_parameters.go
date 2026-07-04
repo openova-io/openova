@@ -133,6 +133,7 @@ func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsole
 		stampAgenitySovereignFqdn(out, sovereignFQDN)
 		stampAgenityMCPBearer(out, orgSlug)
 		stampAgenityMCPTenantHost(out, orgConsoleHost)
+		stampAgenityGateHost(out, orgConsoleHost)
 	}
 
 	if len(out) > 0 {
@@ -258,6 +259,51 @@ func stampAgenityMCPTenantHost(params map[string]interface{}, orgConsoleHost str
 	}
 	mcp["tenantHost"] = host
 	params["openovaMCP"] = mcp
+}
+
+// stampAgenityGateHost sets `parameters.httpRoute.hostnames[0]` to the Org's
+// public agenity app host (agenity.<slug>.<poolParentDomain>, e.g.
+// agenity.nstar.omani.homes) so the chart's `agenity.gateHostname` helper
+// resolves to the ORG host instead of falling back to `agenity.<sovereignFqdn>`
+// (#4739 W-3). Live-confirmed on hw220: the MCP `create_application` door never
+// sets httpRoute.hostnames, so the gate/oidc-gate HTTPRoute rendered on
+// `agenity.hw220.omani.works` — a host with NO DNS record — while the resolvable
+// Org host `agenity.nstar.omani.homes` had no route → agenity unreachable
+// externally (the API-side North Star still passed; only the human front door
+// was split-brained).
+//
+// The Org host is the exact inverse of the mcpTenantHost derivation: swap the
+// leading label of orgConsoleHost (console.<slug>.<pool>) for `agenity` →
+// agenity.<slug>.<pool>. This also keeps the chart's mcpTenantHost helper's
+// fallback derivation (agenity.<zone> → console.<zone>) self-consistent.
+//
+// No-op when:
+//   - orgConsoleHost is empty (mothership / Catalyst-Zero — the chart's
+//     fail-closed `agenity.<sovereignFqdn>` default holds), or
+//   - the caller already pinned a non-empty httpRoute.hostnames (deference —
+//     an explicit host wins, same as the sibling stamps).
+func stampAgenityGateHost(params map[string]interface{}, orgConsoleHost string) {
+	host := strings.ToLower(strings.TrimSpace(orgConsoleHost))
+	if host == "" {
+		return
+	}
+	// console.<slug>.<pool> → <slug>.<pool>; require a dotted host so a bare
+	// label can't produce a zone-less "agenity." host.
+	parts := strings.SplitN(host, ".", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return
+	}
+	gateHost := "agenity." + parts[1]
+
+	hr, _ := params["httpRoute"].(map[string]interface{})
+	if hr == nil {
+		hr = map[string]interface{}{}
+	}
+	if existing, ok := hr["hostnames"].([]interface{}); ok && len(existing) > 0 {
+		return
+	}
+	hr["hostnames"] = []interface{}{gateHost}
+	params["httpRoute"] = hr
 }
 
 // orgConsoleHostFor resolves the Org's public console host
