@@ -111,7 +111,7 @@ const FLAT_NAV: FlatNavItem[] = [
   // used by Cloud (Tabler cloud) / Apps (grid) / Jobs (clipboard).
   {
     id: 'sandbox',
-    label: 'Sandbox',
+    label: 'Agenity',
     to: '/sandbox',
     icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8',
   },
