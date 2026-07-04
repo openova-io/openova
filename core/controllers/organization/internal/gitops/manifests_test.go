@@ -234,7 +234,12 @@ func TestRender_FlexiNoResourceQuota(t *testing.T) {
 
 // TestRender_LimitRangeGuaranteedRatio proves fixed tiers pin the
 // maxLimitRequestRatio {cpu:1,memory:1} + defaultRequest==default → Guaranteed.
-func TestRender_LimitRangeGuaranteedRatio(t *testing.T) {
+// #4758 — the vcluster-Org host-namespace LimitRange must NOT set
+// maxLimitRequestRatio: the vcluster syncer reflects the vcluster's own
+// (non-Guaranteed) system pods (coredns, ratio 50:1) into this ns, and a
+// ratio=1 forbids every synced pod at admission → vcluster runs nothing →
+// customer app 404. defaultRequest/default stay (quota admission), ratio goes.
+func TestRender_LimitRangeNoRatioForVclusterOrg(t *testing.T) {
 	t.Parallel()
 	out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
 		PlanSlug: "m", SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
@@ -244,9 +249,6 @@ func TestRender_LimitRangeGuaranteedRatio(t *testing.T) {
 	lr := string(out["vcluster/limitrange.yaml"])
 	for _, want := range []string{
 		"kind: LimitRange",
-		"maxLimitRequestRatio",
-		"cpu: \"1\"",
-		"memory: \"1\"",
 		"defaultRequest:",
 		"default:",
 		"namespace: acme",
@@ -254,6 +256,9 @@ func TestRender_LimitRangeGuaranteedRatio(t *testing.T) {
 		if !strings.Contains(lr, want) {
 			t.Errorf("M-tier limitrange.yaml missing %q\n%s", want, lr)
 		}
+	}
+	if strings.Contains(lr, "maxLimitRequestRatio") {
+		t.Errorf("#4758: vcluster-Org limitrange.yaml must NOT set maxLimitRequestRatio (breaks vcluster pod-sync)\n%s", lr)
 	}
 	var v any
 	if err := yaml.Unmarshal([]byte(lr), &v); err != nil {
