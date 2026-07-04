@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-04T06:30:06Z` |
+| Last refreshed | `2026-07-04T06:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 45 |
+| Open issues | 44 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 45 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 44 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 45 open items (clickable table)
+### All 44 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -234,7 +234,6 @@ flowchart LR
 | [#4686](https://github.com/openova-io/openova/issues/4686) | #4682 Wave-D3 gap: gateway CiliumLoadBalancerIPPool not wired on Huawei — gate | Other |
 | [#4688](https://github.com/openova-io/openova/issues/4688) | cutover steps 02/03 still reach Harbor via internal svc name (harbor-core.harbor | Other |
 | [#4692](https://github.com/openova-io/openova/issues/4692) | fix(cloud-init): kom4dc cilium-bootstrap DNS-wedge — /etc/hosts pin-loop resol | Other |
-| [#4696](https://github.com/openova-io/openova/issues/4696) | Operator console PIN-login broken: catalyst-api SMTP send can't resolve mail.ope | Other |
 | [#4706](https://github.com/openova-io/openova/issues/4706) | Sovereign not genuinely-ready on convergence: console EIP unpooled (000) + false | Other |
 | [#4723](https://github.com/openova-io/openova/issues/4723) | fix(cutover): auto-trigger Job DeadlineExceeded on fresh prov — script budgets | Other |
 | [#4727](https://github.com/openova-io/openova/issues/4727) | fix(cutover): hostNetwork-era wedges — step-06 Programmed gate can NEVER pass  | Other |
@@ -252,6 +251,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-04T06:30 | [#4757](https://github.com/openova-io/openova/pull/4757) | #4748 | docs(uat): hw223 authenticated pillar walk — operator login  |
 | 2026-07-04T04:55 | [#4753](https://github.com/openova-io/openova/pull/4753) | #4752 | fix(cloud-init): retry cilium rollout-status — stop intermit |
 | 2026-07-04T04:32 | [#4751](https://github.com/openova-io/openova/pull/4751) | #4706 | fix(phase1): console gate 90s→35m — stop false 'failed' on h |
 | 2026-07-04T03:08 | [#4749](https://github.com/openova-io/openova/pull/4749) | #4696 | fix(sovereign-smtp): operator PIN-login 502 on every Soverei |
@@ -281,7 +281,6 @@ flowchart LR
 | 2026-07-03T03:53 | [#4718](https://github.com/openova-io/openova/pull/4718) | #4715 | fix(gateway): wire console-port substitute into slot-13 — #4 |
 | 2026-07-03T03:39 | [#4717](https://github.com/openova-io/openova/pull/4717) | #4715 | test(gateway): CI guard vs the hw218 console-port collision  |
 | 2026-07-03T03:08 | [#4716](https://github.com/openova-io/openova/pull/4716) | #4707 | fix(readiness): console-gate < 500 → < 400 — a 404 front doo |
-| 2026-07-03T01:07 | [#4715](https://github.com/openova-io/openova/pull/4715) | fix(gateway): console gateway → 8443/8080 host ports — no no |  |
 
 ---
 
