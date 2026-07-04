@@ -130,7 +130,11 @@ spec:
       # needs no LB-IPAM pool — cilium.gateway.lbIpam + CILIUM_GATEWAY_LB_IPAM_*
       # are retired. Slot folds both gates into one cilium.lbIpam block +
       # postRenderer that suppresses the clustermesh Service NodePort.
-      version: 1.4.9
+      # 1.4.10 (#4765 follow-up): clustermesh apiserver tls.authMode=legacy —
+      # the 1.19.3 default (migration) mounts a helm-managed users CM that the
+      # externally-established Catalyst mesh never renders (both hw224 regions
+      # wedged Init:0/1 FailedMount on the 1.4.9 roll).
+      version: 1.4.10
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -339,6 +343,18 @@ spec:
       clustermesh:
         useAPIServer: true
         apiserver:
+          # #4765 follow-up (hw224 live, 2026-07-05): cilium 1.19.3 defaults
+          # tls.authMode=migration, which mounts `etcd-users-config` from
+          # ConfigMap `clustermesh-remote-users` — a CM only rendered when
+          # helm itself manages the mesh peer list (clustermesh.config.enabled).
+          # Catalyst establishes the mesh EXTERNALLY (catalyst-api
+          # AutoEstablishClusterMesh distributes CA-signed client certs), so
+          # that CM never exists and the 1.4.9 roll wedged BOTH hw224 regions'
+          # apiserver pods Init:0/1 on FailedMount -> mesh down. legacy =
+          # plain CA-signed client-cert etcd auth, no users CM, matching the
+          # external establish flow exactly.
+          tls:
+            authMode: legacy
           service:
             # #4765 (founder 2026-07-03, "FUCK THE NODEPORTS!!!"): the
             # clustermesh-apiserver Service is LoadBalancer ALWAYS — NodePort

@@ -220,7 +220,10 @@ name: bp-cilium
 # the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
 # fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
 # mapper lands on the live hubble-ui client zero-touch.
-version: 1.4.9
+# 1.4.10 (#4765 follow-up): docs-only bump in lockstep with slot 01
+#   clustermesh.apiserver.tls.authMode=legacy (values live in the slot; the
+#   1.19.3 migration default mounts a users CM external establish never makes).
+version: 1.4.10
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
