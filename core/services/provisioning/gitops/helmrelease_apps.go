@@ -193,6 +193,19 @@ func generateOpenClawHR(opt helmReleaseAppOpts) string {
 	if keycloakRealm == "" {
 		keycloakRealm = fmt.Sprintf("https://keycloak.%s.%s/realms/org-%s", opt.slug, opt.parentDomain, opt.slug)
 	}
+	// #4739/#4803/#4804: the IN-CLUSTER issuer base openclaw fetches the JWKS
+	// from — http://keycloak.keycloak.svc.cluster.local + the realm path — so a
+	// vcluster-hosted controller resolves the JWKS INTERNALLY (the host keycloak
+	// Service is mirrored into the vcluster by #4804's sync.fromHost.services)
+	// instead of the public issuer's EXTERNAL jwks_uri (the NAT-EIP hairpin that
+	// 503s /readyz on kom4dc). The iss claim is still validated against the
+	// PUBLIC keycloakRealm above. Empty (an issuer with no /realms/ path) leaves
+	// it "" → openclaw falls back to public discovery (the chart's {{- with }}
+	// omits the env for an empty value), so this is a safe no-op off-kom4dc.
+	internalRealm := ""
+	if idx := strings.Index(keycloakRealm, "/realms/"); idx != -1 {
+		internalRealm = "http://keycloak.keycloak.svc.cluster.local" + keycloakRealm[idx:]
+	}
 	newapiBase := fmt.Sprintf("https://api.%s.%s/v1", opt.slug, opt.parentDomain)
 	return fmt.Sprintf(`# bp-openclaw (#4272) — per-Org workspace controller rendered by the generic
 # funnel generator. Mirrors the BSS-door orgTenantBPOpenClaw overlay so a cart
@@ -234,6 +247,7 @@ spec:
   values:
     oidc:
       issuerURL: %s
+      internalIssuerURL: %s
       clientId: openclaw
       clientSecret:
         name: openclaw-oidc-client-secret
@@ -285,7 +299,7 @@ spec:
         allowApiserverEntity: true
         allowPublicHttps: true
 `, helmRepoBlock("bp-openclaw"), opt.slug, opt.slug, opt.kubeConfigBlock(),
-		keycloakRealm, newapiBase, keycloakRealm, newapiBase, opt.slug, host)
+		keycloakRealm, internalRealm, newapiBase, keycloakRealm, newapiBase, opt.slug, host)
 }
 
 // generateStalwartHR mirrors orgTenantBPStalwart (#4307) for the generic
