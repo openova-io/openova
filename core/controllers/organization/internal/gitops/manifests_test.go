@@ -349,6 +349,14 @@ func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
 			`port: "443"`,
 			`port: "6443"`,
 			"openova.io/organization: acme",
+			// vcluster bootstrap-deadlock fix (proven live hw225): the same-Org
+			// (same-ns) allow lets the synced coredns reach vcluster-0:8443, and
+			// the flux-system allow lets the kustomize-controller mint the
+			// kubeconfig + apply apps. Without BOTH, the vcluster never functions
+			// and no customer app ever deploys.
+			"fromEndpoints:",
+			"k8s:io.kubernetes.pod.namespace: flux-system",
+			"toEndpoints:",
 		} {
 			if !strings.Contains(s, want) {
 				t.Errorf("plan %s ciliumnetworkpolicy.yaml missing %q\n%s", slug, want, s)
