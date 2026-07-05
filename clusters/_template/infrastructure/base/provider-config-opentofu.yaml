@@ -38,7 +38,26 @@ spec:
   configuration: |
     // Catalyst-default OpenTofu provider configuration for adoption
     // Workspaces. Per-Workspace inline modules override/extend this.
-    // Empty by default — the adoption module carries its own provider{}
-    // block keyed to the cloud being adopted, because the on-prem HCS
-    // endpoints + insecure flag must be set per-cloud and cannot be a
-    // single global default.
+    // The adoption module carries its own provider{} block keyed to the
+    // cloud being adopted, because the on-prem HCS endpoints + insecure
+    // flag must be set per-cloud and cannot be a single global default.
+    //
+    // #4620: the kubernetes backend is MANDATORY, not an optimization.
+    // provider-opentofu's Observe runs `tofu state list` UNCONDITIONALLY
+    // (workspace.go Observe -> tofu.Resources) BEFORE Create can ever
+    // fire. With the default LOCAL backend a fresh Workspace has no state
+    // file, so `state list` hard-errors ("No state file was found") ->
+    // Observe errors -> Create/apply never runs -> permanent
+    // Synced=False deadlock (live-proven on hw225, 24/24 Workspaces).
+    // The kubernetes backend returns an EMPTY state gracefully (state
+    // list exit 0, live-verified in the provider pod), so the first
+    // Observe succeeds with exists=false, Create fires the one-shot
+    // apply, and the state Secret (tfstate-<workspace>-adoption in
+    // crossplane-system) survives provider-pod restarts.
+    terraform {
+      backend "kubernetes" {
+        secret_suffix     = "adoption"
+        namespace         = "crossplane-system"
+        in_cluster_config = true
+      }
+    }
