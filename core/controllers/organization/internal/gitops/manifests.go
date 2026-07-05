@@ -507,6 +507,28 @@ spec:
         - ingress
         - host
         - remote-node
+    # SAME-ORG (same-namespace) intra-Org allow. WITHOUT this the vcluster's own
+    # synced coredns (host ns pod) is denied reaching the vcluster apiserver pod
+    # (vcluster-0 :8443 — a regular pod, NOT the reserved kube-apiserver entity),
+    # so coredns never becomes ready and the vcluster never functions. The #4475
+    # host-apps move left the same-Org-allow baseline stranded in the
+    # vcluster/apps/ tree, which can ONLY apply AFTER the vcluster is functional →
+    # chicken-and-egg deadlock (proven live hw225: coredns 0/1 forever, no app
+    # ever deploys). endpointSelector {} default-denies every ns pod, so the
+    # same-Org allow MUST be host-side + unconditional here. Same-namespace only
+    # ⇒ cross-Org / cross-Environment denial is preserved.
+    - fromEndpoints:
+        - {}
+    # PLATFORM GITOPS reach: the flux kustomize-controller (flux-system) applies
+    # the Org's day-2 apps INTO the vcluster + mints the tenant-<slug>-kubeconfig
+    # secret — it must reach the vcluster apiserver pod :8443. Cross-namespace, so
+    # neither fromEntities nor the same-Org fromEndpoints covers it (proven live:
+    # flux 10.42.x → vcluster-0:8443 tcp SYN dropped "Policy denied" → apps
+    # Kustomization wedged "kubeConfig secret not found" forever). Scoped to the
+    # trusted flux-system ns only.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: flux-system
   egress:
     # Admit egress to the cluster API (the reserved kube-apiserver entity) so an
     # in-vcluster Org app pod / in-cluster client can reach :443/:6443.
@@ -518,6 +540,11 @@ spec:
               protocol: TCP
             - port: "6443"
               protocol: TCP
+    # SAME-ORG egress: coredns / app pods → the vcluster apiserver pod + each
+    # other. Same-namespace only ⇒ no cross-Org weakening. Completes the bootstrap
+    # path that the vcluster-gated baseline could never deliver in time.
+    - toEndpoints:
+        - {}
 `
 
 // networkPolicyDoc is the apps-tree filename for the default-deny +
