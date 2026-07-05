@@ -802,6 +802,40 @@ func loadVClusters(ctx context.Context, in LoaderInput) (out []VCluster) {
 			Status:    "healthy",
 		})
 	}
+
+	// Third-source: loft-sh/vcluster StatefulSets (label app=vcluster). The
+	// per-Org vcluster (bp-rtz-vcluster / org-controller) renders a StatefulSet
+	// named `vcluster` in the Org boundary ns WITHOUT a vcluster.io/.com CR AND
+	// without the catalyst.openova.io/vcluster-role ns label, so BOTH sources
+	// above miss it → "vCluster 0/0" despite a Running 1/1 vcluster (live hw225
+	// uat225wp 2026-07-05, #936 class). Enumerate app=vcluster StatefulSets,
+	// deduping against namespaces already emitted above. Refs #4739.
+	seen := map[string]bool{}
+	for _, v := range out {
+		seen[v.Namespace] = true
+	}
+	stsGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	stsCtx, stsCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer stsCancel()
+	stsList, stsErr := in.DynamicClient.Resource(stsGVR).List(stsCtx, metav1.ListOptions{
+		LabelSelector: "app=vcluster",
+	})
+	if stsErr == nil && stsList != nil {
+		for _, sts := range stsList.Items {
+			ns := sts.GetNamespace()
+			if seen[ns] {
+				continue
+			}
+			seen[ns] = true
+			out = append(out, VCluster{
+				ID:        "vcluster-" + ns,
+				Name:      sts.GetName(),
+				Namespace: ns,
+				Role:      vclusterRole(sts.GetLabels()),
+				Status:    "healthy",
+			})
+		}
+	}
 	return out
 }
 
