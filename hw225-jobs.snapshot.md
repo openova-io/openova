@@ -1,0 +1,680 @@
+- generic [ref=f13e3]:
+  - complementary [ref=f13e4]:
+    - generic [ref=f13e5]:
+      - generic [ref=f13e6]:
+        - img [ref=f13e7]
+        - generic [ref=f13e9]: OpenOva Sovereign
+      - button "hw225.omani.works" [ref=f13e11]:
+        - generic [ref=f13e12]: hw225.omani.works
+        - img [ref=f13e13]
+    - navigation [ref=f13e15]:
+      - link "Dashboard" [ref=f13e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=f13e17]
+        - text: Dashboard
+      - link "Cloud" [ref=f13e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=f13e20]
+        - text: Cloud
+      - link "Apps" [ref=f13e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=f13e23]
+        - text: Apps
+      - link "Catalog" [ref=f13e25] [cursor=pointer]:
+        - /url: /catalog
+        - img [ref=f13e26]
+        - text: Catalog
+      - link "Agenity" [ref=f13e28] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=f13e29]
+        - text: Agenity
+      - link "Jobs" [ref=f13e31] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=f13e32]
+        - text: Jobs
+      - link "Compliance" [ref=f13e34] [cursor=pointer]:
+        - /url: /sre/compliance
+        - img [ref=f13e35]
+        - text: Compliance
+      - link "Users" [ref=f13e37] [cursor=pointer]:
+        - /url: /users
+        - img [ref=f13e38]
+        - text: Users
+      - link "Organizations" [ref=f13e40] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=f13e41]
+        - text: Organizations
+      - link "Billing" [ref=f13e43] [cursor=pointer]:
+        - /url: /billing
+        - img [ref=f13e44]
+        - text: Billing
+      - link "Settings" [ref=f13e46] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=f13e47]
+        - text: Settings
+    - generic [ref=f13e50]:
+      - generic [ref=f13e51]: EB
+      - generic [ref=f13e52]:
+        - paragraph [ref=f13e53]: emrah.baysal@openova.io
+        - paragraph [ref=f13e54]: hw225.omani.works
+  - generic [ref=f13e55]:
+    - banner [ref=f13e56]:
+      - generic [ref=f13e57]:
+        - heading "Jobs" [level=1] [ref=f13e58]
+        - link "← Back to apps" [ref=f13e59] [cursor=pointer]:
+          - /url: /dashboard
+      - generic [ref=f13e60]:
+        - 'link "Sovereign status: Degraded. Open the Dashboard." [ref=f13e1363] [cursor=pointer]':
+          - /url: /dashboard
+          - generic [ref=f13e1365]: Degraded
+        - button "No notifications" [ref=f13e62]:
+          - img [ref=f13e63]
+        - button "Switch to light theme" [ref=f13e66]:
+          - img [ref=f13e67]
+        - button "E" [ref=f13e1367] [cursor=pointer]
+    - main [ref=f13e74]:
+      - status [ref=f13e1368]: Live state stream re-attached. Refreshing from the catalyst-api every 5s.
+      - generic [ref=f13e76]:
+        - generic [ref=f13e77]:
+          - generic [ref=f13e78]:
+            - img [ref=f13e79]
+            - searchbox "Search jobs" [ref=f13e82]
+          - generic [ref=f13e83]:
+            - generic [ref=f13e84]:
+              - generic [ref=f13e85]: Status
+              - combobox "Filter by status" [ref=f13e86] [cursor=pointer]:
+                - option "All" [selected]
+                - option "running"
+                - option "pending"
+                - option "succeeded"
+                - option "failed"
+                - option "healthy"
+                - option "degraded"
+                - option "failing"
+            - generic [ref=f13e87]:
+              - generic [ref=f13e88]: Kind
+              - combobox "Filter by kind" [ref=f13e89] [cursor=pointer]:
+                - option "All" [selected]
+                - option "cron"
+                - option "lifecycle"
+                - option "step"
+                - option "task"
+            - generic [ref=f13e90]:
+              - generic [ref=f13e91]: App
+              - combobox "Filter by app" [ref=f13e92] [cursor=pointer]:
+                - option "All" [selected]
+                - option "bp-flux-stuck-hr-recovery"
+                - option "bp-self-sovereign-cutover-gitea-secret-bridge"
+                - option "cert-nextkey-guard"
+                - option "cilium-envoy-tls-restart"
+                - option "cnpg-cabundle-reassert"
+                - option "guacamole-bp-guacamole-admin-enroll"
+                - option "kyverno-migrate-resources"
+                - option "legacy-cert-cleanup"
+                - option "mimir-make-minio-buckets"
+                - option "newapi-bp-newapi-admin-promote"
+                - option "openbao-snapshot-save"
+                - option "powerdns-zone-bootstrap"
+                - option "syft-sbom"
+                - option "trivy-security-scan"
+            - generic [ref=f13e93]:
+              - generic [ref=f13e94]: Parent
+              - combobox "Filter by parent group" [ref=f13e95] [cursor=pointer]:
+                - option "All" [selected]
+                - option "Cutover"
+                - option "Provision Huawei"
+                - option "Reconcilers"
+            - generic [ref=f13e96]: 30/33
+        - table [ref=f13e98]:
+          - rowgroup [ref=f13e99]:
+            - row "Name Kind App Deps Parent Status Runs Started Duration Actions" [ref=f13e1369]:
+              - columnheader "Name" [ref=f13e101]
+              - columnheader "Kind" [ref=f13e102]
+              - columnheader "App" [ref=f13e103]
+              - columnheader "Deps" [ref=f13e104]
+              - columnheader "Parent" [ref=f13e105]
+              - columnheader "Status" [ref=f13e106]
+              - columnheader "Runs" [ref=f13e107]
+              - columnheader "Started" [ref=f13e108]
+              - columnheader "Duration" [ref=f13e109]
+              - columnheader "Actions" [ref=f13e1370]
+          - rowgroup [ref=f13e110]:
+            - row "Trivy Security Scan (task) task trivy-security-scan — Reconcilers Running 1 1m ago — —" [ref=f13e1371]:
+              - cell "Trivy Security Scan (task)" [ref=f13e1372]:
+                - link "Trivy Security Scan (task)" [ref=f13e1373] [cursor=pointer]:
+                  - /url: /jobs/task-trivy-security-scan
+              - cell "task" [ref=f13e1374]:
+                - generic [ref=f13e1375]: task
+              - cell "trivy-security-scan" [ref=f13e1376]:
+                - generic "trivy-security-scan" [ref=f13e1377]
+              - cell "—" [ref=f13e1378]
+              - cell "Reconcilers" [ref=f13e1379]:
+                - link "Reconcilers" [ref=f13e1380] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Running" [ref=f13e1381]:
+                - generic [ref=f13e1384]: Running
+              - cell "1" [ref=f13e1385]
+              - cell "1m ago" [ref=f13e1386]
+              - cell "—" [ref=f13e1387]
+              - cell "—" [ref=f13e1388]
+            - row "CNPG Cabundle Reassert (cron) cron cnpg-cabundle-reassert — Reconcilers Pending — — — —" [ref=f13e1389]:
+              - cell "CNPG Cabundle Reassert (cron)" [ref=f13e1390]:
+                - link "CNPG Cabundle Reassert (cron)" [ref=f13e1391] [cursor=pointer]:
+                  - /url: /jobs/cron-cnpg-cabundle-reassert
+              - cell "cron" [ref=f13e1392]:
+                - generic [ref=f13e1393]: cron
+              - cell "cnpg-cabundle-reassert" [ref=f13e1394]:
+                - generic "cnpg-cabundle-reassert" [ref=f13e1395]
+              - cell "—" [ref=f13e1396]
+              - cell "Reconcilers" [ref=f13e1397]:
+                - link "Reconcilers" [ref=f13e1398] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Pending" [ref=f13e1399]:
+                - generic [ref=f13e1401]: Pending
+              - cell "—" [ref=f13e1402]
+              - cell "—" [ref=f13e1403]
+              - cell "—" [ref=f13e1404]
+              - cell "—" [ref=f13e1405]
+            - row "Catalyst Api Env Patch step — — Cutover Pending — — — —" [ref=f13e1406]:
+              - cell "Catalyst Api Env Patch" [ref=f13e1407]:
+                - link "Catalyst Api Env Patch" [ref=f13e1408] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-catalyst-api-env-patch
+              - cell "step" [ref=f13e1409]:
+                - generic [ref=f13e1410]: step
+              - cell "—" [ref=f13e1411]
+              - cell "—" [ref=f13e1412]
+              - cell "Cutover" [ref=f13e1413]:
+                - link "Cutover" [ref=f13e1414] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1415]:
+                - generic [ref=f13e1417]: Pending
+              - cell "—" [ref=f13e1418]
+              - cell "—" [ref=f13e1419]
+              - cell "—" [ref=f13e1420]
+              - cell "—" [ref=f13e1421]
+            - row "Crossplane Provider Pivot step — cutover-step-catalyst-api-env-patch Cutover Pending — — — —" [ref=f13e1422]:
+              - cell "Crossplane Provider Pivot" [ref=f13e1423]:
+                - link "Crossplane Provider Pivot" [ref=f13e1424] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-crossplane-provider-pivot
+              - cell "step" [ref=f13e1425]:
+                - generic [ref=f13e1426]: step
+              - cell "—" [ref=f13e1427]
+              - cell "cutover-step-catalyst-api-env-patch" [ref=f13e1428]:
+                - generic "cutover-step-catalyst-api-env-patch" [ref=f13e1430]
+              - cell "Cutover" [ref=f13e1431]:
+                - link "Cutover" [ref=f13e1432] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1433]:
+                - generic [ref=f13e1435]: Pending
+              - cell "—" [ref=f13e1436]
+              - cell "—" [ref=f13e1437]
+              - cell "—" [ref=f13e1438]
+              - cell "—" [ref=f13e1439]
+            - row "Egress Block Test step — cutover-step-crossplane-provider-pivot Cutover Pending — — — —" [ref=f13e1440]:
+              - cell "Egress Block Test" [ref=f13e1441]:
+                - link "Egress Block Test" [ref=f13e1442] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-egress-block-test
+              - cell "step" [ref=f13e1443]:
+                - generic [ref=f13e1444]: step
+              - cell "—" [ref=f13e1445]
+              - cell "cutover-step-crossplane-provider-pivot" [ref=f13e1446]:
+                - generic "cutover-step-crossplane-provider-pivot" [ref=f13e1448]
+              - cell "Cutover" [ref=f13e1449]:
+                - link "Cutover" [ref=f13e1450] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1451]:
+                - generic [ref=f13e1453]: Pending
+              - cell "—" [ref=f13e1454]
+              - cell "—" [ref=f13e1455]
+              - cell "—" [ref=f13e1456]
+              - cell "—" [ref=f13e1457]
+            - row "Flux Gitrepository Patch step — cutover-step-egress-block-test Cutover Pending — — — —" [ref=f13e1458]:
+              - cell "Flux Gitrepository Patch" [ref=f13e1459]:
+                - link "Flux Gitrepository Patch" [ref=f13e1460] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-flux-gitrepository-patch
+              - cell "step" [ref=f13e1461]:
+                - generic [ref=f13e1462]: step
+              - cell "—" [ref=f13e1463]
+              - cell "cutover-step-egress-block-test" [ref=f13e1464]:
+                - generic "cutover-step-egress-block-test" [ref=f13e1466]
+              - cell "Cutover" [ref=f13e1467]:
+                - link "Cutover" [ref=f13e1468] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1469]:
+                - generic [ref=f13e1471]: Pending
+              - cell "—" [ref=f13e1472]
+              - cell "—" [ref=f13e1473]
+              - cell "—" [ref=f13e1474]
+              - cell "—" [ref=f13e1475]
+            - row "Gitea Mirror step — cutover-step-flux-gitrepository-patch Cutover Pending — — — —" [ref=f13e1476]:
+              - cell "Gitea Mirror" [ref=f13e1477]:
+                - link "Gitea Mirror" [ref=f13e1478] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-gitea-mirror
+              - cell "step" [ref=f13e1479]:
+                - generic [ref=f13e1480]: step
+              - cell "—" [ref=f13e1481]
+              - cell "cutover-step-flux-gitrepository-patch" [ref=f13e1482]:
+                - generic "cutover-step-flux-gitrepository-patch" [ref=f13e1484]
+              - cell "Cutover" [ref=f13e1485]:
+                - link "Cutover" [ref=f13e1486] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1487]:
+                - generic [ref=f13e1489]: Pending
+              - cell "—" [ref=f13e1490]
+              - cell "—" [ref=f13e1491]
+              - cell "—" [ref=f13e1492]
+              - cell "—" [ref=f13e1493]
+            - row "Gitea Token Mint step — cutover-step-gitea-mirror Cutover Pending — — — —" [ref=f13e1494]:
+              - cell "Gitea Token Mint" [ref=f13e1495]:
+                - link "Gitea Token Mint" [ref=f13e1496] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-gitea-token-mint
+              - cell "step" [ref=f13e1497]:
+                - generic [ref=f13e1498]: step
+              - cell "—" [ref=f13e1499]
+              - cell "cutover-step-gitea-mirror" [ref=f13e1500]:
+                - generic "cutover-step-gitea-mirror" [ref=f13e1502]
+              - cell "Cutover" [ref=f13e1503]:
+                - link "Cutover" [ref=f13e1504] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1505]:
+                - generic [ref=f13e1507]: Pending
+              - cell "—" [ref=f13e1508]
+              - cell "—" [ref=f13e1509]
+              - cell "—" [ref=f13e1510]
+              - cell "—" [ref=f13e1511]
+            - row "Harbor Prewarm step — cutover-step-gitea-token-mint Cutover Pending — — — —" [ref=f13e1512]:
+              - cell "Harbor Prewarm" [ref=f13e1513]:
+                - link "Harbor Prewarm" [ref=f13e1514] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-harbor-prewarm
+              - cell "step" [ref=f13e1515]:
+                - generic [ref=f13e1516]: step
+              - cell "—" [ref=f13e1517]
+              - cell "cutover-step-gitea-token-mint" [ref=f13e1518]:
+                - generic "cutover-step-gitea-token-mint" [ref=f13e1520]
+              - cell "Cutover" [ref=f13e1521]:
+                - link "Cutover" [ref=f13e1522] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1523]:
+                - generic [ref=f13e1525]: Pending
+              - cell "—" [ref=f13e1526]
+              - cell "—" [ref=f13e1527]
+              - cell "—" [ref=f13e1528]
+              - cell "—" [ref=f13e1529]
+            - row "Harbor Projects step — cutover-step-harbor-prewarm Cutover Pending — — — —" [ref=f13e1530]:
+              - cell "Harbor Projects" [ref=f13e1531]:
+                - link "Harbor Projects" [ref=f13e1532] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-harbor-projects
+              - cell "step" [ref=f13e1533]:
+                - generic [ref=f13e1534]: step
+              - cell "—" [ref=f13e1535]
+              - cell "cutover-step-harbor-prewarm" [ref=f13e1536]:
+                - generic "cutover-step-harbor-prewarm" [ref=f13e1538]
+              - cell "Cutover" [ref=f13e1539]:
+                - link "Cutover" [ref=f13e1540] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1541]:
+                - generic [ref=f13e1543]: Pending
+              - cell "—" [ref=f13e1544]
+              - cell "—" [ref=f13e1545]
+              - cell "—" [ref=f13e1546]
+              - cell "—" [ref=f13e1547]
+            - row "Helmrepository Patches step — cutover-step-harbor-projects Cutover Pending — — — —" [ref=f13e1548]:
+              - cell "Helmrepository Patches" [ref=f13e1549]:
+                - link "Helmrepository Patches" [ref=f13e1550] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-helmrepository-patches
+              - cell "step" [ref=f13e1551]:
+                - generic [ref=f13e1552]: step
+              - cell "—" [ref=f13e1553]
+              - cell "cutover-step-harbor-projects" [ref=f13e1554]:
+                - generic "cutover-step-harbor-projects" [ref=f13e1556]
+              - cell "Cutover" [ref=f13e1557]:
+                - link "Cutover" [ref=f13e1558] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1559]:
+                - generic [ref=f13e1561]: Pending
+              - cell "—" [ref=f13e1562]
+              - cell "—" [ref=f13e1563]
+              - cell "—" [ref=f13e1564]
+              - cell "—" [ref=f13e1565]
+            - row "Registry Pivot step — cutover-step-helmrepository-patches Cutover Pending — — — —" [ref=f13e1566]:
+              - cell "Registry Pivot" [ref=f13e1567]:
+                - link "Registry Pivot" [ref=f13e1568] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-registry-pivot
+              - cell "step" [ref=f13e1569]:
+                - generic [ref=f13e1570]: step
+              - cell "—" [ref=f13e1571]
+              - cell "cutover-step-helmrepository-patches" [ref=f13e1572]:
+                - generic "cutover-step-helmrepository-patches" [ref=f13e1574]
+              - cell "Cutover" [ref=f13e1575]:
+                - link "Cutover" [ref=f13e1576] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1577]:
+                - generic [ref=f13e1579]: Pending
+              - cell "—" [ref=f13e1580]
+              - cell "—" [ref=f13e1581]
+              - cell "—" [ref=f13e1582]
+              - cell "—" [ref=f13e1583]
+            - row "Vcluster Registry Pivot step — cutover-step-registry-pivot Cutover Pending — — — —" [ref=f13e1584]:
+              - cell "Vcluster Registry Pivot" [ref=f13e1585]:
+                - link "Vcluster Registry Pivot" [ref=f13e1586] [cursor=pointer]:
+                  - /url: /jobs/cutover-step-vcluster-registry-pivot
+              - cell "step" [ref=f13e1587]:
+                - generic [ref=f13e1588]: step
+              - cell "—" [ref=f13e1589]
+              - cell "cutover-step-registry-pivot" [ref=f13e1590]:
+                - generic "cutover-step-registry-pivot" [ref=f13e1592]
+              - cell "Cutover" [ref=f13e1593]:
+                - link "Cutover" [ref=f13e1594] [cursor=pointer]:
+                  - /url: /jobs/cutover
+              - cell "Pending" [ref=f13e1595]:
+                - generic [ref=f13e1597]: Pending
+              - cell "—" [ref=f13e1598]
+              - cell "—" [ref=f13e1599]
+              - cell "—" [ref=f13e1600]
+              - cell "—" [ref=f13e1601]
+            - row "Syft SBOM (task) task syft-sbom — Reconcilers Pending — — — —" [ref=f13e1602]:
+              - cell "Syft SBOM (task)" [ref=f13e1603]:
+                - link "Syft SBOM (task)" [ref=f13e1604] [cursor=pointer]:
+                  - /url: /jobs/task-syft-sbom
+              - cell "task" [ref=f13e1605]:
+                - generic [ref=f13e1606]: task
+              - cell "syft-sbom" [ref=f13e1607]:
+                - generic "syft-sbom" [ref=f13e1608]
+              - cell "—" [ref=f13e1609]
+              - cell "Reconcilers" [ref=f13e1610]:
+                - link "Reconcilers" [ref=f13e1611] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Pending" [ref=f13e1612]:
+                - generic [ref=f13e1614]: Pending
+              - cell "—" [ref=f13e1615]
+              - cell "—" [ref=f13e1616]
+              - cell "—" [ref=f13e1617]
+              - cell "—" [ref=f13e1618]
+            - row "Legacy Cert Cleanup (task) task legacy-cert-cleanup — Reconcilers Succeeded 1 9m ago 5s —" [ref=f13e1619]:
+              - cell "Legacy Cert Cleanup (task)" [ref=f13e1620]:
+                - link "Legacy Cert Cleanup (task)" [ref=f13e1621] [cursor=pointer]:
+                  - /url: /jobs/task-legacy-cert-cleanup
+              - cell "task" [ref=f13e1622]:
+                - generic [ref=f13e1623]: task
+              - cell "legacy-cert-cleanup" [ref=f13e1624]:
+                - generic "legacy-cert-cleanup" [ref=f13e1625]
+              - cell "—" [ref=f13e1626]
+              - cell "Reconcilers" [ref=f13e1627]:
+                - link "Reconcilers" [ref=f13e1628] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1629]:
+                - generic [ref=f13e1631]: Succeeded
+              - cell "1" [ref=f13e1632]
+              - cell "9m ago" [ref=f13e1633]
+              - cell "5s" [ref=f13e1634]
+              - cell "—" [ref=f13e1635]
+            - row "Bp Flux Stuck Hr Recovery (cron) cron bp-flux-stuck-hr-recovery — Reconcilers Succeeded 3 1h ago 1h 40m —" [ref=f13e1636]:
+              - cell "Bp Flux Stuck Hr Recovery (cron)" [ref=f13e1637]:
+                - link "Bp Flux Stuck Hr Recovery (cron)" [ref=f13e1638] [cursor=pointer]:
+                  - /url: /jobs/cron-bp-flux-stuck-hr-recovery
+              - cell "cron" [ref=f13e1639]:
+                - generic [ref=f13e1640]: cron
+              - cell "bp-flux-stuck-hr-recovery" [ref=f13e1641]:
+                - generic "bp-flux-stuck-hr-recovery" [ref=f13e1642]
+              - cell "—" [ref=f13e1643]
+              - cell "Reconcilers" [ref=f13e1644]:
+                - link "Reconcilers" [ref=f13e1645] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1646]:
+                - generic [ref=f13e1648]: Succeeded
+              - cell "3" [ref=f13e1649]
+              - cell "1h ago" [ref=f13e1650]
+              - cell "1h 40m" [ref=f13e1651]
+              - cell "—" [ref=f13e1652]
+            - row "Guacamole Bp Guacamole Admin Enroll (cron) cron guacamole-bp-guacamole-admin-enroll — Reconcilers Succeeded 4 1h ago 1h 40m —" [ref=f13e1653]:
+              - cell "Guacamole Bp Guacamole Admin Enroll (cron)" [ref=f13e1654]:
+                - link "Guacamole Bp Guacamole Admin Enroll (cron)" [ref=f13e1655] [cursor=pointer]:
+                  - /url: /jobs/cron-guacamole-bp-guacamole-admin-enroll
+              - cell "cron" [ref=f13e1656]:
+                - generic [ref=f13e1657]: cron
+              - cell "guacamole-bp-guacamole-admin-enroll" [ref=f13e1658]:
+                - generic "guacamole-bp-guacamole-admin-enroll" [ref=f13e1659]
+              - cell "—" [ref=f13e1660]
+              - cell "Reconcilers" [ref=f13e1661]:
+                - link "Reconcilers" [ref=f13e1662] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1663]:
+                - generic [ref=f13e1665]: Succeeded
+              - cell "4" [ref=f13e1666]
+              - cell "1h ago" [ref=f13e1667]
+              - cell "1h 40m" [ref=f13e1668]
+              - cell "—" [ref=f13e1669]
+            - row "Newapi Bp Newapi Admin Promote (cron) cron newapi-bp-newapi-admin-promote — Reconcilers Succeeded 4 1h ago 1h 40m —" [ref=f13e1670]:
+              - cell "Newapi Bp Newapi Admin Promote (cron)" [ref=f13e1671]:
+                - link "Newapi Bp Newapi Admin Promote (cron)" [ref=f13e1672] [cursor=pointer]:
+                  - /url: /jobs/cron-newapi-bp-newapi-admin-promote
+              - cell "cron" [ref=f13e1673]:
+                - generic [ref=f13e1674]: cron
+              - cell "newapi-bp-newapi-admin-promote" [ref=f13e1675]:
+                - generic "newapi-bp-newapi-admin-promote" [ref=f13e1676]
+              - cell "—" [ref=f13e1677]
+              - cell "Reconcilers" [ref=f13e1678]:
+                - link "Reconcilers" [ref=f13e1679] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1680]:
+                - generic [ref=f13e1682]: Succeeded
+              - cell "4" [ref=f13e1683]
+              - cell "1h ago" [ref=f13e1684]
+              - cell "1h 40m" [ref=f13e1685]
+              - cell "—" [ref=f13e1686]
+            - row "OpenBao Snapshot Save (cron) cron openbao-snapshot-save — Reconcilers Succeeded 3 1h ago 1h 40m —" [ref=f13e1687]:
+              - cell "OpenBao Snapshot Save (cron)" [ref=f13e1688]:
+                - link "OpenBao Snapshot Save (cron)" [ref=f13e1689] [cursor=pointer]:
+                  - /url: /jobs/cron-openbao-snapshot-save
+              - cell "cron" [ref=f13e1690]:
+                - generic [ref=f13e1691]: cron
+              - cell "openbao-snapshot-save" [ref=f13e1692]:
+                - generic "openbao-snapshot-save" [ref=f13e1693]
+              - cell "—" [ref=f13e1694]
+              - cell "Reconcilers" [ref=f13e1695]:
+                - link "Reconcilers" [ref=f13e1696] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1697]:
+                - generic [ref=f13e1699]: Succeeded
+              - cell "3" [ref=f13e1700]
+              - cell "1h ago" [ref=f13e1701]
+              - cell "1h 40m" [ref=f13e1702]
+              - cell "—" [ref=f13e1703]
+            - row "Cert Nextkey Guard (task) task cert-nextkey-guard — Reconcilers Succeeded 1 1h ago 5s —" [ref=f13e1704]:
+              - cell "Cert Nextkey Guard (task)" [ref=f13e1705]:
+                - link "Cert Nextkey Guard (task)" [ref=f13e1706] [cursor=pointer]:
+                  - /url: /jobs/task-cert-nextkey-guard
+              - cell "task" [ref=f13e1707]:
+                - generic [ref=f13e1708]: task
+              - cell "cert-nextkey-guard" [ref=f13e1709]:
+                - generic "cert-nextkey-guard" [ref=f13e1710]
+              - cell "—" [ref=f13e1711]
+              - cell "Reconcilers" [ref=f13e1712]:
+                - link "Reconcilers" [ref=f13e1713] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1714]:
+                - generic [ref=f13e1716]: Succeeded
+              - cell "1" [ref=f13e1717]
+              - cell "1h ago" [ref=f13e1718]
+              - cell "5s" [ref=f13e1719]
+              - cell "—" [ref=f13e1720]
+            - row "Cilium Envoy TLS Restart (task) task cilium-envoy-tls-restart — Reconcilers Succeeded 1 2h ago 5m 7s —" [ref=f13e1721]:
+              - cell "Cilium Envoy TLS Restart (task)" [ref=f13e1722]:
+                - link "Cilium Envoy TLS Restart (task)" [ref=f13e1723] [cursor=pointer]:
+                  - /url: /jobs/task-cilium-envoy-tls-restart
+              - cell "task" [ref=f13e1724]:
+                - generic [ref=f13e1725]: task
+              - cell "cilium-envoy-tls-restart" [ref=f13e1726]:
+                - generic "cilium-envoy-tls-restart" [ref=f13e1727]
+              - cell "—" [ref=f13e1728]
+              - cell "Reconcilers" [ref=f13e1729]:
+                - link "Reconcilers" [ref=f13e1730] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1731]:
+                - generic [ref=f13e1733]: Succeeded
+              - cell "1" [ref=f13e1734]
+              - cell "2h ago" [ref=f13e1735]
+              - cell "5m 7s" [ref=f13e1736]
+              - cell "—" [ref=f13e1737]
+            - row "Bp Self Sovereign Cutover Gitea Secret Bridge (task) task bp-self-sovereign-cutover-gitea-secret-bridge — Reconcilers Succeeded 1 2h ago 4m 34s —" [ref=f13e1738]:
+              - cell "Bp Self Sovereign Cutover Gitea Secret Bridge (task)" [ref=f13e1739]:
+                - link "Bp Self Sovereign Cutover Gitea Secret Bridge (task)" [ref=f13e1740] [cursor=pointer]:
+                  - /url: /jobs/task-bp-self-sovereign-cutover-gitea-secret-bridge
+              - cell "task" [ref=f13e1741]:
+                - generic [ref=f13e1742]: task
+              - cell "bp-self-sovereign-cutover-gitea-secret-bridge" [ref=f13e1743]:
+                - generic "bp-self-sovereign-cutover-gitea-secret-bridge" [ref=f13e1744]
+              - cell "—" [ref=f13e1745]
+              - cell "Reconcilers" [ref=f13e1746]:
+                - link "Reconcilers" [ref=f13e1747] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1748]:
+                - generic [ref=f13e1750]: Succeeded
+              - cell "1" [ref=f13e1751]
+              - cell "2h ago" [ref=f13e1752]
+              - cell "4m 34s" [ref=f13e1753]
+              - cell "—" [ref=f13e1754]
+            - row "PowerDNS Zone Bootstrap (task) task powerdns-zone-bootstrap — Reconcilers Succeeded 1 2h ago 3m 55s —" [ref=f13e1755]:
+              - cell "PowerDNS Zone Bootstrap (task)" [ref=f13e1756]:
+                - link "PowerDNS Zone Bootstrap (task)" [ref=f13e1757] [cursor=pointer]:
+                  - /url: /jobs/task-powerdns-zone-bootstrap
+              - cell "task" [ref=f13e1758]:
+                - generic [ref=f13e1759]: task
+              - cell "powerdns-zone-bootstrap" [ref=f13e1760]:
+                - generic "powerdns-zone-bootstrap" [ref=f13e1761]
+              - cell "—" [ref=f13e1762]
+              - cell "Reconcilers" [ref=f13e1763]:
+                - link "Reconcilers" [ref=f13e1764] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1765]:
+                - generic [ref=f13e1767]: Succeeded
+              - cell "1" [ref=f13e1768]
+              - cell "2h ago" [ref=f13e1769]
+              - cell "3m 55s" [ref=f13e1770]
+              - cell "—" [ref=f13e1771]
+            - row "Kyverno Migrate Resources (task) task kyverno-migrate-resources — Reconcilers Succeeded 1 2h ago 2m 16s —" [ref=f13e1772]:
+              - cell "Kyverno Migrate Resources (task)" [ref=f13e1773]:
+                - link "Kyverno Migrate Resources (task)" [ref=f13e1774] [cursor=pointer]:
+                  - /url: /jobs/task-kyverno-migrate-resources
+              - cell "task" [ref=f13e1775]:
+                - generic [ref=f13e1776]: task
+              - cell "kyverno-migrate-resources" [ref=f13e1777]:
+                - generic "kyverno-migrate-resources" [ref=f13e1778]
+              - cell "—" [ref=f13e1779]
+              - cell "Reconcilers" [ref=f13e1780]:
+                - link "Reconcilers" [ref=f13e1781] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Succeeded" [ref=f13e1782]:
+                - generic [ref=f13e1784]: Succeeded
+              - cell "1" [ref=f13e1785]
+              - cell "2h ago" [ref=f13e1786]
+              - cell "2m 16s" [ref=f13e1787]
+              - cell "—" [ref=f13e1788]
+            - row "Bootstrap Cluster lifecycle — 26df2f30b065e857:tofu-output Provision Huawei Succeeded 1 2h ago 1s —" [ref=f13e1789]:
+              - cell "Bootstrap Cluster" [ref=f13e1790]:
+                - link "Bootstrap Cluster" [ref=f13e1791] [cursor=pointer]:
+                  - /url: /jobs/cluster-bootstrap
+              - cell "lifecycle" [ref=f13e1792]:
+                - generic [ref=f13e1793]: lifecycle
+              - cell "—" [ref=f13e1794]
+              - cell "26df2f30b065e857:tofu-output" [ref=f13e1795]:
+                - generic "26df2f30b065e857:tofu-output" [ref=f13e1797]
+              - cell "Provision Huawei" [ref=f13e1798]:
+                - link "Provision Huawei" [ref=f13e1799] [cursor=pointer]:
+                  - /url: /jobs/provisioner
+              - cell "Succeeded" [ref=f13e1800]:
+                - generic [ref=f13e1802]: Succeeded
+              - cell "1" [ref=f13e1803]
+              - cell "2h ago" [ref=f13e1804]
+              - cell "1s" [ref=f13e1805]
+              - cell "—" [ref=f13e1806]
+            - row "Terraform Output lifecycle — 26df2f30b065e857:tofu-apply Provision Huawei Succeeded 1 2h ago 6s —" [ref=f13e1807]:
+              - cell "Terraform Output" [ref=f13e1808]:
+                - link "Terraform Output" [ref=f13e1809] [cursor=pointer]:
+                  - /url: /jobs/tofu-output
+              - cell "lifecycle" [ref=f13e1810]:
+                - generic [ref=f13e1811]: lifecycle
+              - cell "—" [ref=f13e1812]
+              - cell "26df2f30b065e857:tofu-apply" [ref=f13e1813]:
+                - generic "26df2f30b065e857:tofu-apply" [ref=f13e1815]
+              - cell "Provision Huawei" [ref=f13e1816]:
+                - link "Provision Huawei" [ref=f13e1817] [cursor=pointer]:
+                  - /url: /jobs/provisioner
+              - cell "Succeeded" [ref=f13e1818]:
+                - generic [ref=f13e1820]: Succeeded
+              - cell "1" [ref=f13e1821]
+              - cell "2h ago" [ref=f13e1822]
+              - cell "6s" [ref=f13e1823]
+              - cell "—" [ref=f13e1824]
+            - row "Terraform Apply lifecycle — 26df2f30b065e857:tofu-plan Provision Huawei Succeeded 1 3h ago 7m 5s —" [ref=f13e1825]:
+              - cell "Terraform Apply" [ref=f13e1826]:
+                - link "Terraform Apply" [ref=f13e1827] [cursor=pointer]:
+                  - /url: /jobs/tofu-apply
+              - cell "lifecycle" [ref=f13e1828]:
+                - generic [ref=f13e1829]: lifecycle
+              - cell "—" [ref=f13e1830]
+              - cell "26df2f30b065e857:tofu-plan" [ref=f13e1831]:
+                - generic "26df2f30b065e857:tofu-plan" [ref=f13e1833]
+              - cell "Provision Huawei" [ref=f13e1834]:
+                - link "Provision Huawei" [ref=f13e1835] [cursor=pointer]:
+                  - /url: /jobs/provisioner
+              - cell "Succeeded" [ref=f13e1836]:
+                - generic [ref=f13e1838]: Succeeded
+              - cell "1" [ref=f13e1839]
+              - cell "3h ago" [ref=f13e1840]
+              - cell "7m 5s" [ref=f13e1841]
+              - cell "—" [ref=f13e1842]
+            - row "Terraform Plan lifecycle — 26df2f30b065e857:tofu-init Provision Huawei Succeeded 1 3h ago 7m 20s —" [ref=f13e1843]:
+              - cell "Terraform Plan" [ref=f13e1844]:
+                - link "Terraform Plan" [ref=f13e1845] [cursor=pointer]:
+                  - /url: /jobs/tofu-plan
+              - cell "lifecycle" [ref=f13e1846]:
+                - generic [ref=f13e1847]: lifecycle
+              - cell "—" [ref=f13e1848]
+              - cell "26df2f30b065e857:tofu-init" [ref=f13e1849]:
+                - generic "26df2f30b065e857:tofu-init" [ref=f13e1851]
+              - cell "Provision Huawei" [ref=f13e1852]:
+                - link "Provision Huawei" [ref=f13e1853] [cursor=pointer]:
+                  - /url: /jobs/provisioner
+              - cell "Succeeded" [ref=f13e1854]:
+                - generic [ref=f13e1856]: Succeeded
+              - cell "1" [ref=f13e1857]
+              - cell "3h ago" [ref=f13e1858]
+              - cell "7m 20s" [ref=f13e1859]
+              - cell "—" [ref=f13e1860]
+            - row "Terraform Init lifecycle — — Provision Huawei Succeeded 1 3h ago 7m 45s —" [ref=f13e1861]:
+              - cell "Terraform Init" [ref=f13e1862]:
+                - link "Terraform Init" [ref=f13e1863] [cursor=pointer]:
+                  - /url: /jobs/tofu-init
+              - cell "lifecycle" [ref=f13e1864]:
+                - generic [ref=f13e1865]: lifecycle
+              - cell "—" [ref=f13e1866]
+              - cell "—" [ref=f13e1867]
+              - cell "Provision Huawei" [ref=f13e1868]:
+                - link "Provision Huawei" [ref=f13e1869] [cursor=pointer]:
+                  - /url: /jobs/provisioner
+              - cell "Succeeded" [ref=f13e1870]:
+                - generic [ref=f13e1872]: Succeeded
+              - cell "1" [ref=f13e1873]
+              - cell "3h ago" [ref=f13e1874]
+              - cell "7m 45s" [ref=f13e1875]
+              - cell "—" [ref=f13e1876]
+            - row "Mimir Make Minio Buckets (task) task mimir-make-minio-buckets — Reconcilers Failed 1 2h ago 13m 1s Re-run" [ref=f13e1877]:
+              - cell "Mimir Make Minio Buckets (task)" [ref=f13e1878]:
+                - link "Mimir Make Minio Buckets (task)" [ref=f13e1879] [cursor=pointer]:
+                  - /url: /jobs/task-mimir-make-minio-buckets
+              - cell "task" [ref=f13e1880]:
+                - generic [ref=f13e1881]: task
+              - cell "mimir-make-minio-buckets" [ref=f13e1882]:
+                - generic "mimir-make-minio-buckets" [ref=f13e1883]
+              - cell "—" [ref=f13e1884]
+              - cell "Reconcilers" [ref=f13e1885]:
+                - link "Reconcilers" [ref=f13e1886] [cursor=pointer]:
+                  - /url: /jobs/reconcilers
+              - cell "Failed" [ref=f13e1887]:
+                - generic [ref=f13e1889]: Failed
+              - cell "1" [ref=f13e1890]
+              - cell "2h ago" [ref=f13e1891]
+              - cell "13m 1s" [ref=f13e1892]
+              - cell "Re-run" [ref=f13e1893]:
+                - button "Re-run" [ref=f13e1895] [cursor=pointer]
