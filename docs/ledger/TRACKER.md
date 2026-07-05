@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T14:30:04Z` |
+| Last refreshed | `2026-07-05T14:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -256,6 +256,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T14:41 | [#4806](https://github.com/openova-io/openova/pull/4806) | #4739 | fix(funnel): render bp-newapi HR (openclaw LLM gateway + row |
+| 2026-07-05T14:41 | [#4805](https://github.com/openova-io/openova/pull/4805) | #4803 | fix(funnel): wire openclaw HR oidc.internalIssuerURL (comple |
+| 2026-07-05T14:41 | [#4804](https://github.com/openova-io/openova/pull/4804) | #4792 | fix(org-controller): sync host keycloak Service into vcluste |
+| 2026-07-05T14:40 | [#4803](https://github.com/openova-io/openova/pull/4803) | #4739 | fix(openclaw): internal-JWKS seam to dodge NAT-EIP hairpin ( |
+| 2026-07-05T14:39 | [#4801](https://github.com/openova-io/openova/pull/4801) | #4739 | fix(topology): detect per-Org vcluster via StatefulSet (vClu |
+| 2026-07-05T14:40 | [#4800](https://github.com/openova-io/openova/pull/4800) | #4739 | fix(console): worker-nodes tile excludes control-planes (nod |
 | 2026-07-05T07:46 | [#4795](https://github.com/openova-io/openova/pull/4795) | #4794 | chore(crossplane): republish bp-crossplane-claims with #4794 |
 | 2026-07-05T06:43 | [#4794](https://github.com/openova-io/openova/pull/4794) | #4739 | fix(adoption): plant empty cross-cloud key so CloudAdoption  |
 | 2026-07-05T06:43 | [#4793](https://github.com/openova-io/openova/pull/4793) | #4739 | fix(mimir): make-buckets Job survives slow kom4dc MinIO firs |
@@ -280,12 +286,6 @@ flowchart LR
 | 2026-07-04T18:42 | [#4768](https://github.com/openova-io/openova/pull/4768) | #4731 | fix(dashboard): treemap full component inventory + [progress |
 | 2026-07-04T18:22 | [#4767](https://github.com/openova-io/openova/pull/4767) | #4766 | fix(cilium,powerdns): unwedge the #4765 live roll — authMode |
 | 2026-07-04T17:49 | [#4766](https://github.com/openova-io/openova/pull/4766) | #4765 | fix(cilium,infra): zero NodePorts — single sovereign-vip LB- |
-| 2026-07-04T12:57 | [#4762](https://github.com/openova-io/openova/pull/4762) | #4739 | fix(console): rename user-facing 'Sandbox' → 'Agenity' nav/p |
-| 2026-07-04T08:25 | [#4760](https://github.com/openova-io/openova/pull/4760) | #4292 | fix(org-controller): drop maxLimitRequestRatio on vcluster-O |
-| 2026-07-04T08:08 | [#4759](https://github.com/openova-io/openova/pull/4759) | #4758 | fix(provisioning): gitea-token init reads live secret FILE n |
-| 2026-07-04T06:30 | [#4757](https://github.com/openova-io/openova/pull/4757) | #4748 | docs(uat): hw223 authenticated pillar walk — operator login  |
-| 2026-07-04T04:55 | [#4753](https://github.com/openova-io/openova/pull/4753) | #4752 | fix(cloud-init): retry cilium rollout-status — stop intermit |
-| 2026-07-04T04:32 | [#4751](https://github.com/openova-io/openova/pull/4751) | #4706 | fix(phase1): console gate 90s→35m — stop false 'failed' on h |
 
 ---
 
