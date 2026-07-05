@@ -329,6 +329,22 @@ spec:
       fromHost:
         ingressClasses:
           enabled: true
+        # #4739/#4803: mirror the HOST keycloak Service INTO the vcluster so a
+        # vcluster-hosted app (bp-openclaw) resolves keycloak.keycloak.svc.
+        # cluster.local and fetches the realm JWKS IN-CLUSTER — dodging the
+        # kom4dc NAT-EIP hairpin that 503s /readyz when the JWKS is pulled from
+        # the public issuer's EXTERNAL jwks_uri (the gateway EIP, unreachable
+        # from a Pod on kom4dc). Pairs with openclaw's OIDC_INTERNAL_ISSUER_URL
+        # seam (#4803): the overlay sets it to
+        # http://keycloak.keycloak.svc.cluster.local/realms/<realm> and this
+        # mapping makes that name resolve inside the vcluster. vcluster 0.33
+        # config-v2 fromHost.services.mappings.byName ("host-ns/name":
+        # "virtual-ns/name").
+        services:
+          enabled: true
+          mappings:
+            byName:
+              "keycloak/keycloak": "keycloak/keycloak"
 `
 
 // resourceQuotaTemplate caps the Org boundary host namespace at the plan the
