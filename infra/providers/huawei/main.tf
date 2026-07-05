@@ -867,6 +867,16 @@ locals {
       # The huaweicloud-csi-driver cloud-config reads this as `project-id`.
       huawei-project-id: "${var.huawei_project_id}"
       huawei-region: "${var.huawei_region}"
+      # #4620: the crossplane cloud-adoption Composition's Workspace env sets
+      # HCLOUD_TOKEN from a REQUIRED secretKeyRef to key `hcloud-token` (the
+      # provider-opentofu env schema has NO `optional` field — #4739). On a
+      # Huawei Sovereign that key is absent, so EVERY adopt-* Workspace
+      # hard-fails at env-resolution: "couldn't find key hcloud-token in Secret
+      # flux-system/cloud-credentials" → 0/24 Synced (live hw227, 2026-07-05),
+      # AFTER the #4808 structural fix cleared the "No state file" deadlock.
+      # Plant an EMPTY placeholder so the ref resolves; the tofu hcloud
+      # provider already no-ops on an empty token (chart try/dummy-token path).
+      hcloud-token: ""
   EOT
 
   # provider prelude — Huawei. Runs BEFORE k3s (runcmd 0-indent items; the
