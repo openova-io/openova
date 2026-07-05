@@ -1,0 +1,220 @@
+- generic [ref=f14e3]:
+  - complementary [ref=f14e4]:
+    - generic [ref=f14e5]:
+      - generic [ref=f14e6]:
+        - img [ref=f14e7]
+        - generic [ref=f14e9]: OpenOva Sovereign
+      - button "hw225.omani.works" [ref=f14e11]:
+        - generic [ref=f14e12]: hw225.omani.works
+        - img [ref=f14e13]
+    - navigation [ref=f14e15]:
+      - link "Dashboard" [ref=f14e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=f14e17]
+        - text: Dashboard
+      - link "Cloud" [ref=f14e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=f14e20]
+        - text: Cloud
+      - link "Apps" [ref=f14e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=f14e23]
+        - text: Apps
+      - link "Catalog" [ref=f14e25] [cursor=pointer]:
+        - /url: /catalog
+        - img [ref=f14e26]
+        - text: Catalog
+      - link "Agenity" [ref=f14e28] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=f14e29]
+        - text: Agenity
+      - link "Jobs" [ref=f14e31] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=f14e32]
+        - text: Jobs
+      - link "Compliance" [ref=f14e34] [cursor=pointer]:
+        - /url: /sre/compliance
+        - img [ref=f14e35]
+        - text: Compliance
+      - link "Users" [ref=f14e37] [cursor=pointer]:
+        - /url: /users
+        - img [ref=f14e38]
+        - text: Users
+      - link "Organizations" [ref=f14e40] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=f14e41]
+        - text: Organizations
+      - link "Billing" [ref=f14e43] [cursor=pointer]:
+        - /url: /billing
+        - img [ref=f14e44]
+        - text: Billing
+      - link "Settings" [ref=f14e46] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=f14e47]
+        - text: Settings
+    - generic [ref=f14e50]:
+      - generic [ref=f14e51]: EB
+      - generic [ref=f14e52]:
+        - paragraph [ref=f14e53]: emrah.baysal@openova.io
+        - paragraph [ref=f14e54]: hw225.omani.works
+  - generic [ref=f14e55]:
+    - banner [ref=f14e56]:
+      - heading "Cloud" [level=1] [ref=f14e58]
+      - generic [ref=f14e59]:
+        - combobox [ref=f14e60]:
+          - option "hw225.omani.works" [selected]
+        - 'link "Sovereign status: Degraded. Open the Dashboard." [ref=f14e159] [cursor=pointer]':
+          - /url: /dashboard
+          - generic [ref=f14e161]: Degraded
+        - button "No notifications" [ref=f14e62]:
+          - img [ref=f14e63]
+        - button "Switch to light theme" [ref=f14e66]:
+          - img [ref=f14e67]
+        - button "E" [ref=f14e163] [cursor=pointer]
+    - main [ref=f14e74]:
+      - generic [ref=f14e75]:
+        - generic [ref=f14e76]: Cloud
+        - generic [ref=f14e77]:
+          - tablist "Cloud view" [ref=f14e78]:
+            - tab "Graph" [selected] [ref=f14e79] [cursor=pointer]:
+              - img [ref=f14e80]
+              - generic [ref=f14e86]: Graph
+            - tab "List" [ref=f14e87] [cursor=pointer]:
+              - img [ref=f14e88]
+              - generic [ref=f14e89]: List
+          - button "Toggle fullscreen" [ref=f14e90] [cursor=pointer]:
+            - img [ref=f14e91]
+        - generic [ref=f14e98]:
+          - generic [ref=f14e99]:
+            - searchbox "Search nodes…" [ref=f14e100]
+            - generic [ref=f14e101]:
+              - text: Lens
+              - combobox "Lens" [ref=f14e102]:
+                - option "Cloud" [selected]
+                - option "Runtime"
+                - option "Reconciliation"
+                - option "Networking"
+                - option "Data"
+                - option "Security"
+                - option "Flux"
+                - option "Crossplane"
+                - option "cert-manager"
+                - option "CNPG"
+                - option "External-Secrets"
+                - option "Cilium"
+                - option "Catalyst"
+            - generic [ref=f14e103]:
+              - generic [ref=f14e104]: Density
+              - slider "Density" [ref=f14e105]: "100"
+              - generic [ref=f14e106]: 100%
+          - generic [ref=f14e107]:
+            - generic [ref=f14e109]:
+              - button "Cloud 1/1" [ref=f14e164]:
+                - generic [ref=f14e112]: Cloud
+                - generic [ref=f14e113]: 1/1
+              - button "Remove Cloud chip" [ref=f14e114]: ×
+            - generic [ref=f14e116]:
+              - button "Region 2/2" [ref=f14e165]:
+                - generic [ref=f14e119]: Region
+                - generic [ref=f14e120]: 2/2
+              - button "Remove Region chip" [ref=f14e121]: ×
+            - generic [ref=f14e123]:
+              - button "Cluster 2/2" [ref=f14e166]:
+                - generic [ref=f14e126]: Cluster
+                - generic [ref=f14e127]: 2/2
+              - button "Remove Cluster chip" [ref=f14e128]: ×
+            - generic [ref=f14e130]:
+              - button "NodePool 4/4" [ref=f14e167]:
+                - generic [ref=f14e133]: NodePool
+                - generic [ref=f14e134]: 4/4
+              - button "Remove NodePool chip" [ref=f14e135]: ×
+            - generic [ref=f14e137]:
+              - button "WorkerNode 24/24" [ref=f14e168]:
+                - generic [ref=f14e140]: WorkerNode
+                - generic [ref=f14e141]: 24/24
+              - button "Remove WorkerNode chip" [ref=f14e142]: ×
+            - generic [ref=f14e144]:
+              - button "LoadBalancer 2/2" [ref=f14e169]:
+                - generic [ref=f14e147]: LoadBalancer
+                - generic [ref=f14e148]: 2/2
+              - button "Remove LoadBalancer chip" [ref=f14e149]: ×
+            - button "Add type chip" [ref=f14e151]:
+              - generic [ref=f14e152]: +
+              - generic [ref=f14e153]: Add
+          - generic [ref=f14e170]:
+            - img [ref=f14e171]:
+              - generic [ref=f14e195]:
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-a-w29a34d — WorkerNode (healthy)" [ref=f14e196] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-a-w7b8286 — WorkerNode (healthy)" [ref=f14e198] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-a-wa2a6e7 — WorkerNode (healthy)" [ref=f14e200] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-a-wa3cb73 — WorkerNode (healthy)" [ref=f14e202] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-a-wde3181 — WorkerNode (healthy)" [ref=f14e204] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-a-cp1-3fd5cd — WorkerNode (healthy)" [ref=f14e206] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "huawei — Cloud (healthy)" [ref=f14e208] [cursor=pointer]:
+                  - generic: huawei
+                - button "me-east-215-a — Region (healthy)" [ref=f14e210] [cursor=pointer]:
+                  - generic: me-east-215-a
+                - button "hw225.omani.works — Cluster (healthy)" [ref=f14e212] [cursor=pointer]:
+                  - generic: hw225.omani.works
+                - button "pool-cp-me-east-215-a — NodePool (healthy)" [ref=f14e214] [cursor=pointer]:
+                  - generic: pool-cp-me-east-215-a
+                - button "pool-worker-me-east-215-a — NodePool (healthy)" [ref=f14e216] [cursor=pointer]:
+                  - generic: pool-worker-me-east-215…
+                - button "control-plane-me-east-215-a — WorkerNode (healthy)" [ref=f14e218] [cursor=pointer]:
+                  - generic: control-plane-me-east-2…
+                - button "worker-1-me-east-215-a — WorkerNode (healthy)" [ref=f14e220] [cursor=pointer]:
+                  - generic: worker-1-me-east-215-a
+                - button "worker-2-me-east-215-a — WorkerNode (healthy)" [ref=f14e222] [cursor=pointer]:
+                  - generic: worker-2-me-east-215-a
+                - button "worker-3-me-east-215-a — WorkerNode (healthy)" [ref=f14e224] [cursor=pointer]:
+                  - generic: worker-3-me-east-215-a
+                - button "worker-4-me-east-215-a — WorkerNode (healthy)" [ref=f14e226] [cursor=pointer]:
+                  - generic: worker-4-me-east-215-a
+                - button "worker-5-me-east-215-a — WorkerNode (healthy)" [ref=f14e228] [cursor=pointer]:
+                  - generic: worker-5-me-east-215-a
+                - button "hw225.omani.works — LoadBalancer (healthy)" [ref=f14e230] [cursor=pointer]:
+                  - generic: hw225.omani.works
+                - button "me-east-215-b — Region (healthy)" [ref=f14e232] [cursor=pointer]:
+                  - generic: me-east-215-b
+                - button "hw225.omani.works — Cluster (healthy)" [ref=f14e234] [cursor=pointer]:
+                  - generic: hw225.omani.works
+                - button "pool-cp-me-east-215-b — NodePool (healthy)" [ref=f14e236] [cursor=pointer]:
+                  - generic: pool-cp-me-east-215-b
+                - button "pool-worker-me-east-215-b — NodePool (healthy)" [ref=f14e238] [cursor=pointer]:
+                  - generic: pool-worker-me-east-215…
+                - button "control-plane-me-east-215-b — WorkerNode (healthy)" [ref=f14e240] [cursor=pointer]:
+                  - generic: control-plane-me-east-2…
+                - button "worker-1-me-east-215-b — WorkerNode (healthy)" [ref=f14e242] [cursor=pointer]:
+                  - generic: worker-1-me-east-215-b
+                - button "worker-2-me-east-215-b — WorkerNode (healthy)" [ref=f14e244] [cursor=pointer]:
+                  - generic: worker-2-me-east-215-b
+                - button "worker-3-me-east-215-b — WorkerNode (healthy)" [ref=f14e246] [cursor=pointer]:
+                  - generic: worker-3-me-east-215-b
+                - button "worker-4-me-east-215-b — WorkerNode (healthy)" [ref=f14e248] [cursor=pointer]:
+                  - generic: worker-4-me-east-215-b
+                - button "worker-5-me-east-215-b — WorkerNode (healthy)" [ref=f14e250] [cursor=pointer]:
+                  - generic: worker-5-me-east-215-b
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-b-waa5255 — WorkerNode (healthy)" [ref=f14e252] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-b-cp1-c9d05c — WorkerNode (healthy)" [ref=f14e254] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-b-w07c676 — WorkerNode (healthy)" [ref=f14e256] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-b-w4af6c3 — WorkerNode (healthy)" [ref=f14e258] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-b-w545d6f — WorkerNode (healthy)" [ref=f14e260] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+                - button "catalyst-hw225-omani-works-26df2f30-me-east-215-b-w9afb2e — WorkerNode (healthy)" [ref=f14e262] [cursor=pointer]:
+                  - generic: catalyst-hw225-omani-wo…
+            - button "Legend" [ref=f14e265]:
+              - generic [ref=f14e266]: ▸
+              - generic [ref=f14e267]: Legend
+            - generic:
+              - generic: 34 nodes
+              - generic: 22 edges

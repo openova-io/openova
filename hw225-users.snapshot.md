@@ -1,0 +1,118 @@
+- generic [ref=f15e9]:
+  - complementary [ref=f15e10]:
+    - generic [ref=f15e11]:
+      - generic [ref=f15e12]:
+        - img [ref=f15e13]
+        - generic [ref=f15e15]: OpenOva Sovereign
+      - button "hw225.omani.works" [ref=f15e17]:
+        - generic [ref=f15e18]: hw225.omani.works
+        - img [ref=f15e19]
+    - navigation [ref=f15e21]:
+      - link "Dashboard" [ref=f15e22] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=f15e23]
+        - text: Dashboard
+      - link "Cloud" [ref=f15e25] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=f15e26]
+        - text: Cloud
+      - link "Apps" [ref=f15e28] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=f15e29]
+        - text: Apps
+      - link "Catalog" [ref=f15e31] [cursor=pointer]:
+        - /url: /catalog
+        - img [ref=f15e32]
+        - text: Catalog
+      - link "Agenity" [ref=f15e34] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=f15e35]
+        - text: Agenity
+      - link "Jobs" [ref=f15e37] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=f15e38]
+        - text: Jobs
+      - link "Compliance" [ref=f15e40] [cursor=pointer]:
+        - /url: /sre/compliance
+        - img [ref=f15e41]
+        - text: Compliance
+      - link "Users" [ref=f15e43] [cursor=pointer]:
+        - /url: /users
+        - img [ref=f15e44]
+        - text: Users
+      - link "Organizations" [ref=f15e46] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=f15e47]
+        - text: Organizations
+      - link "Billing" [ref=f15e49] [cursor=pointer]:
+        - /url: /billing
+        - img [ref=f15e50]
+        - text: Billing
+      - link "Settings" [ref=f15e52] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=f15e53]
+        - text: Settings
+    - generic [ref=f15e56]:
+      - generic [ref=f15e57]: EB
+      - generic [ref=f15e58]:
+        - paragraph [ref=f15e59]: emrah.baysal@openova.io
+        - paragraph [ref=f15e60]: hw225.omani.works
+  - generic [ref=f15e61]:
+    - banner [ref=f15e62]:
+      - heading "User Access" [level=1] [ref=f15e64]
+      - generic [ref=f15e65]:
+        - 'link "Sovereign status: Degraded. Open the Dashboard." [ref=f15e66] [cursor=pointer]':
+          - /url: /dashboard
+          - generic [ref=f15e68]: Degraded
+        - button "No notifications" [ref=f15e70]:
+          - img [ref=f15e71]
+        - button "Switch to light theme" [ref=f15e74]:
+          - img [ref=f15e75]
+        - button "E" [ref=f15e82] [cursor=pointer]
+    - main [ref=f15e83]:
+      - generic [ref=f15e84]:
+        - generic [ref=f15e85]:
+          - generic [ref=f15e86]:
+            - heading "User Access" [level=1] [ref=f15e87]
+            - paragraph [ref=f15e88]: Per-user access to Sovereigns × Applications × Namespaces × Roles.
+          - link "+ New" [ref=f15e89] [cursor=pointer]:
+            - /url: /provision/26df2f30b065e857/users/new
+        - list "Available access tiers" [ref=f15e90]:
+          - listitem [ref=f15e91]: "tier: viewer"
+          - listitem [ref=f15e92]: "tier: developer"
+          - listitem [ref=f15e93]: "tier: operator"
+          - listitem [ref=f15e94]: "tier: admin"
+          - listitem [ref=f15e95]: "tier: owner"
+        - table [ref=f15e96]:
+          - rowgroup [ref=f15e97]:
+            - row "Name User / Groups Sovereign Grants Bindings Created actions" [ref=f15e98]:
+              - columnheader "Name" [ref=f15e99]
+              - columnheader "User / Groups" [ref=f15e100]
+              - columnheader "Sovereign" [ref=f15e101]
+              - columnheader "Grants" [ref=f15e102]
+              - columnheader "Bindings" [ref=f15e103]
+              - columnheader "Created" [ref=f15e104]
+              - columnheader "actions" [ref=f15e105]
+          - rowgroup [ref=f15e106]:
+            - row "hw225-omani-works-emrah-baysal-at-openova-io emrah.baysal@openova.io hw225-omani-works hw225-omani-works (admin) 0 2026-07-05T01:00:03Z Delete" [ref=f15e107]:
+              - cell "hw225-omani-works-emrah-baysal-at-openova-io" [ref=f15e108]:
+                - link "hw225-omani-works-emrah-baysal-at-openova-io" [ref=f15e109] [cursor=pointer]:
+                  - /url: /provision/26df2f30b065e857/users/hw225-omani-works-emrah-baysal-at-openova-io
+              - cell "emrah.baysal@openova.io" [ref=f15e110]
+              - cell "hw225-omani-works" [ref=f15e111]
+              - cell "hw225-omani-works (admin)" [ref=f15e112]
+              - cell "0" [ref=f15e113]
+              - cell "2026-07-05T01:00:03Z" [ref=f15e114]
+              - cell "Delete" [ref=f15e115]:
+                - button "Delete" [ref=f15e116]
+            - row "uat225wp-emrah-baysal-at-openova-io emrah.baysal@openova.io uat225wp uat225wp (admin) 0 2026-07-05T01:24:16Z Delete" [ref=f15e117]:
+              - cell "uat225wp-emrah-baysal-at-openova-io" [ref=f15e118]:
+                - link "uat225wp-emrah-baysal-at-openova-io" [ref=f15e119] [cursor=pointer]:
+                  - /url: /provision/26df2f30b065e857/users/uat225wp-emrah-baysal-at-openova-io
+              - cell "emrah.baysal@openova.io" [ref=f15e120]
+              - cell "uat225wp" [ref=f15e121]
+              - cell "uat225wp (admin)" [ref=f15e122]
+              - cell "0" [ref=f15e123]
+              - cell "2026-07-05T01:24:16Z" [ref=f15e124]
+              - cell "Delete" [ref=f15e125]:
+                - button "Delete" [ref=f15e126]

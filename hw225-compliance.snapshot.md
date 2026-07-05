@@ -1,0 +1,213 @@
+- generic [ref=f17e3]:
+  - complementary [ref=f17e4]:
+    - generic [ref=f17e5]:
+      - generic [ref=f17e6]:
+        - img [ref=f17e7]
+        - generic [ref=f17e9]: OpenOva Sovereign
+      - button "hw225.omani.works" [ref=f17e11]:
+        - generic [ref=f17e12]: hw225.omani.works
+        - img [ref=f17e13]
+    - navigation [ref=f17e15]:
+      - link "Dashboard" [ref=f17e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=f17e17]
+        - text: Dashboard
+      - link "Cloud" [ref=f17e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=f17e20]
+        - text: Cloud
+      - link "Apps" [ref=f17e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=f17e23]
+        - text: Apps
+      - link "Catalog" [ref=f17e25] [cursor=pointer]:
+        - /url: /catalog
+        - img [ref=f17e26]
+        - text: Catalog
+      - link "Agenity" [ref=f17e28] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=f17e29]
+        - text: Agenity
+      - link "Jobs" [ref=f17e31] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=f17e32]
+        - text: Jobs
+      - link "Compliance" [ref=f17e34] [cursor=pointer]:
+        - /url: /sre/compliance
+        - img [ref=f17e35]
+        - text: Compliance
+      - link "Users" [ref=f17e37] [cursor=pointer]:
+        - /url: /users
+        - img [ref=f17e38]
+        - text: Users
+      - link "Organizations" [ref=f17e40] [cursor=pointer]:
+        - /url: /organizations
+        - img [ref=f17e41]
+        - text: Organizations
+      - link "Billing" [ref=f17e43] [cursor=pointer]:
+        - /url: /billing
+        - img [ref=f17e44]
+        - text: Billing
+      - link "Settings" [ref=f17e46] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=f17e47]
+        - text: Settings
+    - generic [ref=f17e50]:
+      - generic [ref=f17e51]: EB
+      - generic [ref=f17e52]:
+        - paragraph [ref=f17e53]: emrah.baysal@openova.io
+        - paragraph [ref=f17e54]: hw225.omani.works
+  - generic [ref=f17e55]:
+    - banner [ref=f17e56]:
+      - heading "Compliance" [level=1] [ref=f17e58]
+      - generic [ref=f17e59]:
+        - 'link "Sovereign status: Degraded. Open the Dashboard." [ref=f17e161] [cursor=pointer]':
+          - /url: /dashboard
+          - generic [ref=f17e163]: Degraded
+        - button "No notifications" [ref=f17e61]:
+          - img [ref=f17e62]
+        - button "Switch to light theme" [ref=f17e65]:
+          - img [ref=f17e66]
+        - button "E" [ref=f17e165] [cursor=pointer]
+    - main [ref=f17e73]:
+      - generic [ref=f17e74]:
+        - navigation "breadcrumb" [ref=f17e75]: Admin/Compliance/SRE
+        - paragraph [ref=f17e76]: "Admin surface: Compliance — SRE Lead role. Empty cells render as \"No data\" placeholders per scoring domain. Live updates stream over text/event-stream (SSE). Click any policy tile to drill into /admin/compliance/policy/<policyName> for per-policy violations."
+        - generic [ref=f17e77]:
+          - generic [ref=f17e78]:
+            - heading "SRE Lead — Compliance Dashboard" [level=1] [ref=f17e79]
+            - paragraph [ref=f17e80]: "Fleet view: Sovereign × Organization × Application × score. Cells are sized by policy weight (security, sre, baseline, reliability), colored by pass-rate. Track violations, baseline policies, and Kyverno-managed Severity per Application."
+            - paragraph [ref=f17e81]:
+              - text: "Scoring domains:"
+              - code [ref=f17e82]: security
+              - text: ","
+              - code [ref=f17e83]: sre
+              - text: ","
+              - code [ref=f17e84]: baseline
+              - text: ","
+              - code [ref=f17e85]: reliability
+              - text: . Each Application aggregates policy
+              - code [ref=f17e86]: violations
+              - text: across these domains. Live updates over
+              - code [ref=f17e87]: text/event-stream
+              - text: (Server-Sent Events from
+              - code [ref=f17e88]: /api/v1/sovereigns/26df2f30b065e857/compliance/stream
+              - text: ).
+          - generic [ref=f17e89]:
+            - generic [ref=f17e90]: Sovereign score
+            - generic [ref=f17e91]: 86%
+        - generic [ref=f17e92]:
+          - generic [ref=f17e93]: "Filters:"
+          - generic [ref=f17e94]:
+            - generic [ref=f17e95]: Organization
+            - combobox "Organization" [ref=f17e96]:
+              - option "All" [selected]
+          - generic [ref=f17e97]:
+            - generic [ref=f17e98]: Environment
+            - combobox "Environment" [ref=f17e99]:
+              - option "All" [selected]
+          - generic [ref=f17e100]: "live: idle"
+        - generic [ref=f17e102]:
+          - generic [ref=f17e103]: "Framework:"
+          - button "PCI DSS" [ref=f17e104]
+          - button "ISO 27001" [ref=f17e105]
+          - button "SOC 2" [ref=f17e106]
+          - button "GDPR" [ref=f17e107]
+          - button "HIPAA" [ref=f17e108]
+          - button "DORA" [ref=f17e109]
+          - button "NIS 2" [ref=f17e110]
+          - button "FedRAMP" [ref=f17e111]
+          - generic [ref=f17e112]: All frameworks
+        - img [ref=f17e169]:
+          - generic [ref=f17e171]:
+            - generic [ref=f17e174]:
+              - generic: —
+            - generic [ref=f17e179] [cursor=pointer]:
+              - generic: guacamole
+              - generic: 97%
+            - generic [ref=f17e184] [cursor=pointer]:
+              - generic: newapi
+              - generic: 98%
+            - generic [ref=f17e189] [cursor=pointer]:
+              - generic: mimir
+              - generic: 68%
+            - generic [ref=f17e194] [cursor=pointer]:
+              - generic: harbor
+              - generic: 80%
+            - generic [ref=f17e199] [cursor=pointer]:
+              - generic: seaweedfs
+              - generic: 73%
+            - generic [ref=f17e204] [cursor=pointer]:
+              - generic: bp-huawei-ev…
+              - generic: 60%
+            - generic [ref=f17e209] [cursor=pointer]:
+              - generic: vpa
+              - generic: 64%
+            - generic [ref=f17e214] [cursor=pointer]:
+              - generic: nats-jets…
+              - generic: 68%
+            - generic [ref=f17e219] [cursor=pointer]:
+              - generic: powerdns
+              - generic: 84%
+            - generic [ref=f17e224] [cursor=pointer]:
+              - generic: external…
+              - generic: 58%
+            - generic [ref=f17e229] [cursor=pointer]:
+              - generic: openbao
+              - generic: 79%
+            - generic [ref=f17e234] [cursor=pointer]:
+              - generic: k8s-ws-…
+              - generic: 72%
+            - generic [ref=f17e239] [cursor=pointer]:
+              - generic: alloy
+              - generic: 83%
+            - generic [ref=f17e244] [cursor=pointer]:
+              - generic: bp-cnpg
+              - generic: 75%
+            - generic [ref=f17e269] [cursor=pointer]:
+              - generic: crosspla…
+              - generic: 51%
+            - generic [ref=f17e274] [cursor=pointer]:
+              - generic: cataly…
+              - generic: 80%
+        - generic [ref=f17e116]:
+          - generic [ref=f17e117]:
+            - generic [ref=f17e118]: security
+            - generic [ref=f17e119]: 1 policies
+          - generic [ref=f17e120]:
+            - generic [ref=f17e121]: sre
+            - generic [ref=f17e122]: No data yet
+          - generic [ref=f17e123]:
+            - generic [ref=f17e124]: baseline
+            - generic [ref=f17e125]: 23 policies
+          - generic [ref=f17e126]:
+            - generic [ref=f17e127]: reliability
+            - generic [ref=f17e128]: No data yet
+        - generic [ref=f17e130]:
+          - paragraph [ref=f17e131]:
+            - text: "Per-policy drill-down: link prefix"
+            - code [ref=f17e132]: /admin/compliance/policy/
+            - text: — open any Kyverno or custom-evaluator policy.
+          - paragraph [ref=f17e133]:
+            - text: No policies surfaced yet — drill-down links appear here under
+            - code [ref=f17e134]: /admin/compliance/policy/
+            - text: as PolicyReports land.
+        - generic [ref=f17e135]:
+          - generic [ref=f17e136]: Failing
+          - generic [ref=f17e142]: Partial
+          - generic [ref=f17e143]: Passing
+        - generic [ref=f17e145]:
+          - generic [ref=f17e146]:
+            - heading "Falco — runtime security alerts" [level=2] [ref=f17e147]
+            - generic [ref=f17e148]: "source: k8s-events · updated 2026-07-05T03:44:40Z"
+          - generic [ref=f17e149]:
+            - generic [ref=f17e150]: "priority:"
+            - button "EMERGENCY" [ref=f17e151]
+            - button "ALERT" [ref=f17e152]
+            - button "CRITICAL" [ref=f17e153]
+            - button "ERROR" [ref=f17e154]
+            - button "WARNING" [ref=f17e155]
+            - button "NOTICE" [ref=f17e156]
+            - button "INFO" [ref=f17e157]
+            - button "DEBUG" [ref=f17e158]
+          - paragraph [ref=f17e159]: Falco is running — no alerts on the selected priorities within the recent window. Widen the priority chips above to see lower-severity activity.
