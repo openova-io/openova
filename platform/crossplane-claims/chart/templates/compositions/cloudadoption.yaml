@@ -229,13 +229,19 @@ spec:
                   try(data.hcloud_network.hz[0].id, ""),
                   var.resource_id,
                 )
-                observed_address = coalesce(
-                  try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].vip_address, ""),
+                # #4739: coalesce ERRORS when every argument is empty (needs a
+                # non-null/non-empty result) — happens on an Observe-only
+                # adoption whose data lookups all resolve empty on the
+                # non-active cloud (count=0), aborting the whole tofu plan with
+                # "Error in function call". Wrap in try() so an all-empty set
+                # yields "". Also ipv4_address (not vip_address) is the
+                # huaweicloud plural-ELB attribute.
+                observed_address = try(coalesce(
+                  try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].ipv4_address, ""),
                   try(data.huaweicloud_compute_instance.hw[0].public_ip, ""),
                   try(data.hcloud_load_balancer.hz[0].ipv4, ""),
                   try(data.hcloud_server.hz[0].ipv4_address, ""),
-                  "",
-                )
+                ), "")
               }
 
               output "observed_id"      { value = local.observed_id }
