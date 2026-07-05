@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-wordpress-tenant
   labels:
-    catalyst.openova.io/category: tenant-app
+    catalyst.openova.io/category: organization-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
   version: 0.4.20
@@ -19,7 +19,7 @@ spec:
       time so the Organization admin's first browser hit lands on /wp-admin
       authenticated. No install wizard, no manual config.
     icon: wordpress.svg
-    category: tenant-app
+    category: organization-app
     tags: [wordpress, cms, organization, sso, keycloak, oidc, postgres]
     documentation: https://wordpress.org/documentation/
     license: GPL-2.0-or-later
