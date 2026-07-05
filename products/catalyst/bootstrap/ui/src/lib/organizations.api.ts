@@ -246,6 +246,9 @@ export interface AppConsumption {
 export interface OrgConsumption {
   org: string
   isParent: boolean
+  /** True on the single synthetic "Platform overhead" row the API folds
+   *  infra/Job usage into (org_consumption.go `json:"isPlatform"`). */
+  isPlatform?: boolean
   costUnits: number
   cpuMilli: number
   memoryGiB: number
