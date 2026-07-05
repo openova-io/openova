@@ -45,6 +45,13 @@ spec:
             # builds that haven't yet been recompiled to the new names.
             - name: OIDC_ISSUER_URL
               value: {{ include "bp-openclaw.oidc.issuerURL" . | quote }}
+            {{- with .Values.oidc.internalIssuerURL }}
+            # #4739: in-cluster JWKS base — skips discovery, dodges the NAT-EIP
+            # hairpin so /readyz's JWKS leg reaches keycloak internally. Only
+            # emitted when the overlay sets it (default "" → public discovery).
+            - name: OIDC_INTERNAL_ISSUER_URL
+              value: {{ . | quote }}
+            {{- end }}
             - name: OIDC_CLIENT_ID
               value: {{ include "bp-openclaw.oidc.clientId" . | quote }}
             - name: OIDC_CLIENT_SECRET
