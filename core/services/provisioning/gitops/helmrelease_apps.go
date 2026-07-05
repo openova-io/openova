@@ -58,6 +58,7 @@ import (
 var helmReleaseAppSlugs = map[string]bool{
 	"openclaw":      true, // #4272 — bp-openclaw HelmRelease overlay
 	"stalwart-mail": true, // #4307 — bp-stalwart-tenant HelmRelease overlay
+	"newapi":        true, // #4739 — bp-newapi HelmRelease (openclaw's LLM gateway + row225 funnel parity with the BSS-door orgTenantBPNewAPI)
 }
 
 // isHelmReleaseApp reports whether the catalog slug is rendered as a
@@ -120,6 +121,8 @@ func generateHelmReleaseApp(appSlug string, opt helmReleaseAppOpts) string {
 		out = generateOpenClawHR(opt)
 	case "stalwart-mail":
 		out = generateStalwartHR(opt)
+	case "newapi":
+		out = generateNewAPIHR(opt)
 	default:
 		return ""
 	}
@@ -286,6 +289,88 @@ spec:
         allowPublicHttps: true
 `, helmRepoBlock("bp-openclaw"), opt.slug, opt.slug, opt.kubeConfigBlock(),
 		keycloakRealm, newapiBase, keycloakRealm, newapiBase, opt.slug, host)
+}
+
+// generateNewAPIHR renders the per-Org bp-newapi HelmRelease for the generic
+// funnel path (#4739) — the LLM gateway openclaw's llm.baseURL points at
+// (api.<slug>.<parent>/v1) AND a standalone per-Org NewAPI (UAT row225). Mirrors
+// the BSS-door orgTenantBPNewAPI (#945) but with the SAME funnel divergence as
+// generateOpenClawHR: NO dependsOn: bp-keycloak (the generic funnel emits no
+// per-tenant bp-keycloak — a dependsOn on a never-rendered HR wedges the release
+// in DependencyNotReady forever). The chart OWNS its Postgres (cnpg.enabled
+// default) + PATCHes the DSN via its own post-install hook, so disableWait:true
+// lets the release reach hook execution (the #4246 deadlock fix). Tier-aware
+// kubeConfig like the other HR apps (vcluster tier installs INTO the vcluster).
+func generateNewAPIHR(opt helmReleaseAppOpts) string {
+	host := fmt.Sprintf("api.%s.%s", opt.slug, opt.parentDomain)
+	primaryDomain := fmt.Sprintf("%s.%s", opt.slug, opt.parentDomain)
+	keycloakRealm := strings.TrimSpace(opt.sharedRealmIssuer)
+	if keycloakRealm == "" {
+		keycloakRealm = fmt.Sprintf("https://keycloak.%s.%s/realms/org-%s", opt.slug, opt.parentDomain, opt.slug)
+	}
+	return fmt.Sprintf(`# bp-newapi (#4739) — per-Org NewAPI LLM gateway rendered by the generic funnel
+# generator. openclaw's llm.baseURL (api.<slug>.<parent>/v1) routes here. Mirrors
+# the BSS-door orgTenantBPNewAPI (#945) but DROPS the dependsOn: bp-keycloak the
+# generic funnel never renders (a dependsOn on a never-rendered HR wedges the
+# release forever — the same divergence as bp-openclaw). Chart owns its CNPG.
+%s
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-newapi
+  namespace: %s
+  labels:
+    catalyst.openova.io/app: newapi
+    openova.io/category: customer-facing-capability
+spec:
+  interval: 10m
+  releaseName: newapi
+  targetNamespace: %s%s
+  chart:
+    spec:
+      chart: bp-newapi
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: bp-newapi
+        namespace: flux-system
+  # #4246 — disableWait: the Deployment gates on a non-empty SQL_DSN via a
+  # wait-for-sql-dsn initContainer PATCHed by the chart's post-install db-dsn-
+  # sync hook. With wait enabled Helm blocks on Ready BEFORE hooks run → the
+  # init never unblocks → hard deadlock. disableWait lets the DSN sync + the
+  # Pod converge.
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    cleanupOnFail: true
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    # Per-tenant identity zone — tenant-unique OpenBao ExternalSecret path.
+    sovereignFQDN: %s
+    # Chart-owned CNPG Postgres (cnpg.enabled default): the chart renders its
+    # own per-Org CNPG Cluster + syncs the canonical DSN via its post-install
+    # hook. Do NOT set database.existingSecret (deployment.yaml auto-resolves
+    # bp-newapi-newapi-db-dsn).
+    oidc:
+      issuerURL: %s
+    ingress:
+      enabled: false
+    httpRoute:
+      enabled: true
+      hostnames:
+        - %s
+      parentRef:
+        name: cilium-gateway-console
+        namespace: kube-system
+`, helmRepoBlock("bp-newapi"), opt.slug, opt.slug, opt.kubeConfigBlock(),
+		primaryDomain, keycloakRealm, host)
 }
 
 // generateStalwartHR mirrors orgTenantBPStalwart (#4307) for the generic
