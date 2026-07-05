@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T05:45:02Z` |
+| Last refreshed | `2026-07-05T06:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -256,6 +256,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T05:53 | [#4792](https://github.com/openova-io/openova/pull/4792) | #4785 | fix(org-controller): sync gateway-api HTTPRoutes into per-Or |
 | 2026-07-05T04:36 | [#4791](https://github.com/openova-io/openova/pull/4791) | #4739 | fix(console): eradicate residual user-facing tenant leaks (r |
 | 2026-07-05T04:36 | [#4790](https://github.com/openova-io/openova/pull/4790) | #4786 | fix(provisioning): mirror per-Org kubeconfig into tenant ns  |
 | 2026-07-05T04:36 | [#4789](https://github.com/openova-io/openova/pull/4789) | #4781 | fix(crossplane): ProviderConfig GVK tf→opentofu (adopt-* Wor |
@@ -285,7 +286,6 @@ flowchart LR
 | 2026-07-04T03:08 | [#4749](https://github.com/openova-io/openova/pull/4749) | #4696 | fix(sovereign-smtp): operator PIN-login 502 on every Soverei |
 | 2026-07-04T03:08 | [#4747](https://github.com/openova-io/openova/pull/4747) | #4739 | docs(uat): reset ledger for hw221 fresh-prov re-walk (Refs # |
 | 2026-07-04T02:07 | [#4745](https://github.com/openova-io/openova/pull/4745) | #4739 | fix(marketplace): banned 'tenant' → Organization on customer |
-| 2026-07-04T00:38 | [#4744](https://github.com/openova-io/openova/pull/4744) | #4739 | fix(org-provisioning): agenity per-Org gate host — MCP-insta |
 
 ---
 
