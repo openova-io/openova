@@ -5698,7 +5698,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "title": "WordPress (per-Organization)",
     "summary": "|",
     "icon": "wordpress.svg",
-    "category": "tenant-app",
+    "category": "organization-app",
     "tagline": null,
     "tags": [],
     "visibility": "listed",

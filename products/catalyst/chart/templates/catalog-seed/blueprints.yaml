@@ -38,7 +38,7 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: tenant-app
+    catalyst.openova.io/category: organization-app
     catalyst.openova.io/section: pts-7-org-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
@@ -58,7 +58,7 @@ spec:
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
-    category: tenant-app
+    category: organization-app
     family: cms
     summary: "Turnkey, SSO-pre-wired WordPress per Organization. Postgres + cert-manager TLS pre-wired."
     description: "Runs in the Organization's vcluster, namespace = Organization namespace. SSO via the Organization-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time."
@@ -183,7 +183,7 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: tenant-app
+    catalyst.openova.io/category: organization-app
     catalyst.openova.io/section: pts-7-org-tenant
     catalyst.openova.io/alias-of: bp-wordpress-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
@@ -193,7 +193,7 @@ spec:
   visibility: listed
   card:
     title: "WordPress"
-    category: tenant-app
+    category: organization-app
     family: cms
     summary: "Turnkey, SSO-pre-wired WordPress. Postgres + cert-manager TLS pre-wired. The marketplace funnel's flagship CMS."
     description: "Runs in the Org's vcluster. SSO via the per-Org Keycloak realm (openid-connect-generic). Default theme + admin user pre-seeded at install time so the first browser hit lands on /wp-admin authenticated. Aliases the bp-wordpress-tenant chart."
@@ -372,7 +372,7 @@ spec:
 # though the chart is published and the wordpress-tenant chart's
 # `pg.activeHotStandby.enabled` knob already renders the same shape
 # inline (DoD D31). Seeding here lets operators install the pair
-# standalone (companion DB for any tenant-app) AND lets the install
+# standalone (companion DB for any organization-app) AND lets the install
 # flow render a stable reference target when wordpress-tenant.db.mode
 # = active-hot-standby. Refs TBD-E8b, TBD-B31.
 apiVersion: catalyst.openova.io/v1

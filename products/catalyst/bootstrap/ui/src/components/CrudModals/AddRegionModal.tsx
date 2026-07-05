@@ -122,7 +122,7 @@ export function AddRegionModal({
               ))}
             </select>
           </FormRow>
-          <FormRow label="Region" hint="Provider tenant already credentialed during initial provisioning.">
+          <FormRow label="Region" hint="Provider account already credentialed during initial provisioning.">
             <select
               data-testid="add-region-modal-region"
               value={regionId}
