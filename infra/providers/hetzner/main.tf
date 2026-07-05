@@ -831,6 +831,17 @@ locals {
       hcloud-network-name: ${hcloud_network.region["primary"].name}
       hcloud-firewall-name: ${hcloud_firewall.main.name}
       hcloud-ssh-key-name: ${hcloud_ssh_key.main.name}
+      # #4739: empty cross-cloud placeholders. The cloud-agnostic
+      # opentofu-cloud-adoption Composition wires HW_ACCESS_KEY / HW_SECRET_KEY /
+      # HW_PROJECT_ID / HW_REGION_NAME via REQUIRED secretKeyRefs (the
+      # provider-opentofu Workspace env schema has no `optional` field). Without
+      # these keys on a Hetzner Sovereign every adoption Workspace fails Sync
+      # "couldn't find key huawei-ak…". Empty values are inert (cloud==hetzner so
+      # the huaweicloud data lookups have count=0 and that provider is unused).
+      huawei-ak: ""
+      huawei-sk: ""
+      huawei-project-id: ""
+      huawei-region: ""
   EOT
 
   # ── Worker cloud-init computed BEFORE the control-plane cloud-init so it
