@@ -1,0 +1,115 @@
+{{/*
+#4784 — clustermesh-proxy: a hostNetwork TCP-passthrough shim that makes the
+Cilium clustermesh-apiserver etcd reachable by cross-region peers on a
+DEDICATED non-2379 host port on the no-CCM Huawei 1:1-NAT'd EIP.
+
+ROOT CAUSE this template fixes (proven LIVE on hw225, dep 26df2f30b065e857):
+  #4765 gave the clustermesh-apiserver Service a real VIP on the shared
+  Sovereign EIP (the CP-node public IPv4) and had peers dial <EIP>:2379. But
+  on no-CCM Huawei that EIP is a Huawei-fabric 1:1 NAT to the CP node's
+  PRIVATE IP, AND the CP node runs k3s' OWN embedded etcd bound on the host
+  :2379. So an off-cluster peer dialing <EIP>:2379 is DNAT'd to
+  <CP-private>:2379 and is answered by K3S ETCD (a dst-IP-agnostic host
+  socket; server cert CN=etcd-server, k3s CA) — NEVER by Cilium's LB-VIP
+  datapath (keyed on the public EIP, which never sees the post-NAT packet).
+  The peer's etcd client presents a Cilium-CA client cert that k3s etcd
+  rejects and receives a k3s server cert the peer does not trust → the etcd
+  session never establishes → "context canceled" / heartbeat-watcher timeout
+  → 0 remote clusters ready → cross-region global-service backend sync dead
+  → CNPG shared-pg replicas cannot bootstrap.
+
+  openssl from region-B (issue #4784): <EIP>:2379 → CN=etcd-server (Verify
+  19); the SAME mesh certs against a host-socket on a NON-2379 port →
+  CN=clustermesh-apiserver.cilium.io (Cilium CA, Verify 0).
+
+THE FIX (mirrors the gateway's proven no-CCM-Huawei host-socket model):
+  Bind a hostNetwork socket on a dedicated non-2379 port and TCP-passthrough
+  (L4, TLS/mTLS preserved end-to-end) to the in-cluster clustermesh-apiserver
+  Service. Off-cluster <EIP>:<proxyPort> → post-NAT <CP-private>:<proxyPort>
+  → this host socket → clustermesh-apiserver etcd (real Cilium cert). k3s
+  etcd on :2379 is untouched. catalyst-api points peers at <proxyPort> via
+  CLUSTERMESH_APISERVER_DIAL_PORT (clustermesh.go). This is NOT a NodePort —
+  it is a hostNetwork bind, the same §854-clean mechanism the Sovereign
+  gateway uses (cilium-envoy hostNetwork node:443/:80).
+
+OPERATOR GATE (per docs/PRINCIPLES.md #4 — the chart never auto-enables):
+  Enabled per-provider via the HelmRelease overlay substitute
+  CILIUM_CLUSTERMESH_PROXY_ENABLED (true on no-CCM Huawei, unset/false on
+  Hetzner where hcloud-ccm materialises a real cloud LB whose IP has NO
+  k3s-etcd host collision, so the canonical :2379 dial stays correct).
+
+  The proxy hostPort MUST equal CLUSTERMESH_APISERVER_DIAL_PORT (catalyst-api)
+  AND be opened in the Sovereign security group (infra/providers/huawei
+  ingress_clustermesh_proxy). Default 12379 (proven free of k3s' etcd
+  2379/2380/2382 + the kubelet/supervisor ports on hw225 kom4dc CP nodes;
+  well outside the forbidden 30000-32767 NodePort range).
+*/}}
+{{- $cm := dig "clustermeshProxy" (dict) (.Values.cilium | default dict) }}
+{{- if $cm.enabled }}
+{{- $port := (int (default 12379 $cm.hostPort)) }}
+{{- $image := (default "alpine/socat:1.8.0.0" $cm.image) }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: clustermesh-proxy
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: clustermesh-proxy
+    k8s-app: clustermesh-proxy
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  selector:
+    matchLabels:
+      k8s-app: clustermesh-proxy
+  template:
+    metadata:
+      labels:
+        k8s-app: clustermesh-proxy
+        app.kubernetes.io/name: bp-cilium
+        app.kubernetes.io/component: clustermesh-proxy
+    spec:
+      # hostNetwork + cluster DNS so socat binds the NODE's :<port> directly
+      # (post-NAT EIP ingress lands on it) and can still resolve the
+      # clustermesh-apiserver ClusterIP via cluster DNS.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      priorityClassName: system-node-critical
+      # Run on EVERY node (incl. the CP node that owns the shared EIP). The
+      # CP-node instance is the one that receives the post-NAT EIP ingress;
+      # the others make the internal (VPC-peered) node-IP:<port> dial work too.
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: socat
+          image: {{ $image | quote }}
+          # L4 TCP passthrough — the clustermesh-apiserver's own TLS/mTLS is
+          # terminated by etcd, NOT here, so the peer validates the real
+          # CN=clustermesh-apiserver.cilium.io cert end-to-end.
+          args:
+            - "-d"
+            - "TCP-LISTEN:{{ $port }},fork,reuseaddr"
+            - "TCP:clustermesh-apiserver.kube-system.svc.cluster.local:2379"
+          ports:
+            - name: cm-etcd
+              containerPort: {{ $port }}
+              hostPort: {{ $port }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: false
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          readinessProbe:
+            tcpSocket:
+              port: {{ $port }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+{{- end }}

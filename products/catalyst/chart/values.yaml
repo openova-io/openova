@@ -1323,6 +1323,13 @@ catalystApi:
   # (uncommon; the bp-nats-jetstream Blueprint deploys an in-cluster
   # broker by default).
   natsURL: ""
+  # #4784 — the etcd port catalyst-api dials for a peer's clustermesh-apiserver
+  # endpoint (CLUSTERMESH_APISERVER_DIAL_PORT). Empty → clustermesh.go defaults
+  # to 2379 (canonical Hetzner hcloud-ccm path). no-CCM Huawei sets this to the
+  # bp-cilium clustermesh-proxy hostPort (dodges the CP-node k3s-etcd :2379
+  # host collision — proven live hw225). MUST equal cilium.clustermeshProxy.
+  # hostPort + infra clustermesh_proxy_port. A NodePort value is forbidden.
+  clusterMeshDialPort: ""
   # Whether the child catalyst-api auto-fires the self-sovereignty cutover
   # engine the instant the mothership completes handover (#4061). Wires
   # CATALYST_FIRE_CUTOVER_ON_HANDOVER on Sovereign installs only (gated on

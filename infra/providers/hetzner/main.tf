@@ -963,6 +963,7 @@ locals {
     pdns_api_host          = ""
     sovereign_region_role  = "primary"
     node_external_ip_value = ""
+    clustermesh_proxy_port = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off; hcloud-ccm LB IP has no k3s-etcd :2379 host collision)
 
     # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
     registry_mirror_yaml          = local.registry_mirror_yaml_hetzner
@@ -1506,6 +1507,7 @@ locals {
       pdns_api_host          = ""
       sovereign_region_role  = "secondary"
       node_external_ip_value = ""
+      clustermesh_proxy_port = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off)
 
       # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
       registry_mirror_yaml     = local.registry_mirror_yaml_hetzner

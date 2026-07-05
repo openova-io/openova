@@ -1559,6 +1559,14 @@ spec:
     # browser-trusted Sovereign reaches cutoverComplete with ZERO manual steps.
     catalystApi:
       fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}
+      # #4784 — the etcd port catalyst-api dials for a peer's
+      # clustermesh-apiserver (CLUSTERMESH_APISERVER_DIAL_PORT env →
+      # clustermesh.go clusterMeshDialPort). Default 2379 (Hetzner hcloud-ccm
+      # path). no-CCM Huawei cloud-init sets CLUSTERMESH_APISERVER_DIAL_PORT to
+      # the bp-cilium clustermesh-proxy hostPort (dodges the CP-node k3s-etcd
+      # :2379 host collision — proven live hw225). MUST equal
+      # cilium.clustermeshProxy.hostPort + infra clustermesh_proxy_port.
+      clusterMeshDialPort: "${CLUSTERMESH_APISERVER_DIAL_PORT:-2379}"
     # ─── Sovereign-side region seeding (DoD D5) ─────────────────────
     # regionsJson — JSON-array literal of the canonical multi-region
     # RegionSpec[] this Sovereign was provisioned with. Threaded

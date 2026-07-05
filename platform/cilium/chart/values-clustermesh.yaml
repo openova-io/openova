@@ -44,6 +44,22 @@ cilium:
     enabled: false
     cidrs: []
 
+  # #4784 — clustermesh-proxy: hostNetwork TCP-passthrough shim so
+  # cross-region peers reach the clustermesh-apiserver etcd on a DEDICATED
+  # non-2379 host port (templates/clustermesh-proxy-daemonset.yaml). REQUIRED
+  # on no-CCM Huawei: the shared Sovereign EIP is the CP-node IP, which is a
+  # 1:1 NAT AND runs k3s' own etcd on host :2379 — so <EIP>:2379 lands on
+  # k3s etcd, not Cilium's clustermesh-apiserver (proven live hw225, #4784).
+  # hostPort MUST equal catalyst-api's CLUSTERMESH_APISERVER_DIAL_PORT and be
+  # opened in the Sovereign SG (infra ingress_clustermesh_proxy). Disabled by
+  # default (Hetzner hcloud-ccm LB IP has no k3s-etcd host collision → the
+  # canonical :2379 dial stays correct). no-CCM Huawei cloudinit flips
+  # CILIUM_CLUSTERMESH_PROXY_ENABLED=true.
+  clustermeshProxy:
+    enabled: false
+    hostPort: 12379
+    image: alpine/socat:1.8.0.0
+
   # Per-Sovereign anchors — ALWAYS overridden by the Sovereign's
   # bootstrap-kit overlay. The empty-string + zero defaults here are
   # intentionally invalid — Cilium chart fails-fast at install time when

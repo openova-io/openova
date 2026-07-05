@@ -102,6 +102,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,7 +167,23 @@ const (
 	clusterMeshCASecretName     = "cilium-ca"
 	clusterMeshApiserverService = "clustermesh-apiserver"
 	clusterMeshNamespace        = "kube-system"
+	// clusterMeshAPIServerPort — the DEFAULT etcd port a peer dials
+	// (2379). Overridable at runtime via CLUSTERMESH_APISERVER_DIAL_PORT
+	// (see clusterMeshDialPort). On no-CCM Huawei the CP-node public EIP is
+	// a Huawei-fabric 1:1 NAT AND the CP node runs k3s' own embedded etcd on
+	// the host :2379 — so an off-cluster peer dialing <CP-EIP>:2379 is
+	// DNAT'd to <CP-private-IP>:2379 and lands on K3S ETCD (server cert
+	// CN=etcd-server, k3s CA), NEVER the Cilium clustermesh-apiserver
+	// (CN=clustermesh-apiserver.cilium.io, Cilium CA). The peer's etcd
+	// client then hangs on "Connecting to etcd server…" → "context
+	// canceled" → heartbeat-watcher timeout (issue #4784, proven live on
+	// hw225 with openssl: <EIP>:2379 → etcd-server cert; a host-socket on a
+	// NON-2379 port → clustermesh-apiserver.cilium.io cert, Verify OK). The
+	// durable fix routes peers to the clustermesh-proxy host-socket on a
+	// dedicated non-2379 port (bp-cilium clustermesh-proxy DaemonSet) via
+	// this override; Hetzner keeps the default 2379 behind hcloud-ccm.
 	clusterMeshAPIServerPort    = 2379
+	clusterMeshDialPortEnvVar   = "CLUSTERMESH_APISERVER_DIAL_PORT"
 	clusterMeshLBLookupTimeout  = 5 * time.Minute
 	clusterMeshLBLookupInterval = 10 * time.Second
 	clusterMeshCallTimeout      = 30 * time.Second
@@ -2290,6 +2307,23 @@ func regionKeyFromSpec(rs provisioner.RegionSpec, idx int) string {
 // type MUST be LoadBalancer; a typed-mismatch is a hard failure rather
 // than retried. A missing ingress after the timeout is likewise a hard
 // failure — the slot never silently falls back to a NodePort.
+// clusterMeshDialPort returns the etcd port a peer dials for the
+// clustermesh-apiserver endpoint. Default is clusterMeshAPIServerPort
+// (2379, the canonical Hetzner-hcloud-ccm path). On no-CCM Huawei the
+// cloud-init/deploy sets CLUSTERMESH_APISERVER_DIAL_PORT to the
+// clustermesh-proxy host-socket port (a dedicated non-2379 port that does
+// NOT collide with k3s' embedded etcd on the CP-node host :2379) — see
+// clusterMeshAPIServerPort's doc + issue #4784. A NodePort value here is
+// still forbidden; the proxy binds a hostNetwork socket, not a NodePort.
+func clusterMeshDialPort() int {
+	if v := strings.TrimSpace(os.Getenv(clusterMeshDialPortEnvVar)); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 && p <= 65535 {
+			return p
+		}
+	}
+	return clusterMeshAPIServerPort
+}
+
 func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface) (string, int, error) {
 	timeout := clusterMeshLBLookupTimeout
 	if clusterMeshTestOverrideLBTimeout > 0 {
@@ -2332,16 +2366,30 @@ func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.In
 				continue
 			}
 			// #4765 (founder 2026-07-03, "FUCK THE NODEPORTS!!!") — peers
-			// ALWAYS dial the clustermesh VIP on :2379. NodePort is
-			// ABSOLUTELY FORBIDDEN. The single sovereign-vip LB-IPAM pool
-			// (bp-cilium 1.4.9) gives this Service a real VIP — no
-			// Conflicting=True, no starved ingress — so 2379 is served by
-			// Cilium's kube-proxy-replacement LB frontend on the ingress IP
-			// (reached over the WG-encrypted node path on the no-CCM Huawei
-			// 1:1-NAT'd EIP). There is NO node-owned-EIP NodePort fallback:
-			// if the VIP is unreachable the etcd connect step surfaces it
-			// with full peer context rather than silently dialing a NodePort.
-			return ip, clusterMeshAPIServerPort, nil
+			// dial the clustermesh endpoint on clusterMeshDialPort(); a
+			// NodePort is ABSOLUTELY FORBIDDEN and there is no node-owned-EIP
+			// NodePort fallback (if the endpoint is unreachable the etcd
+			// connect step surfaces it with full peer context).
+			//
+			// #4784 CORRECTION (proven live on hw225): the pre-#4784 belief
+			// that ":2379 is served by Cilium's LB frontend on the ingress
+			// IP, reached over the WG node path on the no-CCM Huawei
+			// 1:1-NAT'd EIP" is FALSE. The ingress IP IS the CP node's public
+			// EIP, the EIP is a 1:1 NAT to the CP node's PRIVATE IP, and the
+			// CP node runs k3s' OWN embedded etcd on the host :2379 — so the
+			// post-NAT packet (dst=<CP-private>:2379) is answered by k3s etcd
+			// (host socket, dst-IP-agnostic), never by Cilium's LB-VIP
+			// datapath (which is keyed on the public EIP and never sees the
+			// post-NAT packet). openssl from region-B: <EIP>:2379 →
+			// CN=etcd-server (k3s CA, Verify 19); the SAME certs against a
+			// host-socket on a NON-2379 port → CN=clustermesh-apiserver.
+			// cilium.io (Cilium CA, Verify 0). The durable fix therefore
+			// serves the clustermesh etcd on a dedicated non-2379 host socket
+			// (clustermesh-proxy DaemonSet) and points peers at it via
+			// CLUSTERMESH_APISERVER_DIAL_PORT — still NO NodePort. Hetzner
+			// keeps the default 2379 (hcloud-ccm real LB, no k3s-etcd host
+			// collision on the LB IP).
+			return ip, clusterMeshDialPort(), nil
 		}
 		if time.Now().After(deadline) {
 			return "", 0, fmt.Errorf("Service %s/%s has no LoadBalancer ingress after %s",

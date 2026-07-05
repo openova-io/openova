@@ -486,6 +486,17 @@ spec:
               # post-G92.2 nats-jetstream runs INSIDE the mgmt vCluster
               # and the host's `nats-system` namespace no longer exists.
               value: '{{ .Values.catalystApi.natsURL | default "nats://nats-jetstream.nats-system.svc.cluster.local:4222" }}'
+            # CLUSTERMESH_APISERVER_DIAL_PORT — #4784. The etcd port a peer
+            # dials for the clustermesh-apiserver endpoint (clustermesh.go
+            # clusterMeshDialPort). Default 2379 (Hetzner hcloud-ccm LB IP —
+            # no k3s-etcd host collision). On no-CCM Huawei the CP-node EIP is
+            # a 1:1 NAT whose host :2379 is bound by k3s' OWN etcd, so peers
+            # dialing <EIP>:2379 hit k3s etcd, not Cilium (proven live hw225);
+            # the catalyst bootstrap-kit slot sets catalystApi.clusterMeshDialPort
+            # to the clustermesh-proxy hostPort (matches
+            # cilium.clustermeshProxy.hostPort + infra clustermesh_proxy_port).
+            - name: CLUSTERMESH_APISERVER_DIAL_PORT
+              value: '{{ .Values.catalystApi.clusterMeshDialPort | default "2379" }}'
             # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
             # the k8scache.Factory reads kubeconfigs from at startup.
             # The data-plane SharedInformerFactory opens one informer
