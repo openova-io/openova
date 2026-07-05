@@ -58,12 +58,17 @@ spec:
             # HW_ACCESS_KEY / HW_SECRET_KEY / HW_REGION_NAME / HW_PROJECT_ID
             # when its args are omitted; hcloud reads HCLOUD_TOKEN. Sourced
             # from the flux-system/cloud-credentials Secret the cloud-init
-            # plants (Hetzner: hcloud-token; Huawei: huawei-ak/-sk/-project-
-            # id/-region). Every secretKeyRef is `optional`-shaped by the
-            # provider — a Hetzner Sovereign (no huawei-* keys) leaves the
-            # HW_* vars empty, and the cloud var gates which data lookup runs,
-            # so the missing keys are inert. This is what lets the Observe
-            # data lookup actually AUTHENTICATE against the live cloud API —
+            # plants. #4739: the provider-opentofu Workspace env secretKeyRef
+            # schema has NO `optional` field (verified: only key/name/namespace),
+            # so a REQUIRED reference to a key that is absent hard-fails the
+            # Workspace Sync ("couldn't find key hcloud-token in Secret …"). The
+            # cloud-init on BOTH clouds therefore plants ALL 5 keys — the native
+            # ones populated + the cross-cloud ones as EMPTY placeholders
+            # (Huawei carries an empty hcloud-token; Hetzner empty huawei-*).
+            # Every secretKeyRef then resolves; the empty cross-cloud value is
+            # inert because the `cloud` var gates which data lookup runs (the
+            # unused provider's lookups have count=0). This is what lets the
+            # Observe data lookup AUTHENTICATE against the live cloud API —
             # without it the Workspace tofu run has no credentials and the
             # adoption never reaches Synced.
             env:

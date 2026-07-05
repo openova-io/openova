@@ -837,6 +837,15 @@ locals {
       # The huaweicloud-csi-driver cloud-config reads this as `project-id`.
       huawei-project-id: "${var.huawei_project_id}"
       huawei-region: "${var.huawei_region}"
+      # #4739: empty cross-cloud placeholder. The cloud-agnostic
+      # opentofu-cloud-adoption Composition (platform/crossplane-claims) wires
+      # HCLOUD_TOKEN via a REQUIRED secretKeyRef on key `hcloud-token` (the
+      # provider-opentofu Workspace env schema has no `optional` field). Without
+      # this key present on a Huawei Sovereign every adoption Workspace fails
+      # Sync "couldn't find key hcloud-token in Secret cloud-credentials" → all
+      # CloudAdoptions stuck non-Ready. Empty value is inert (cloud==huawei so
+      # the hcloud data lookups have count=0 and the hcloud provider is unused).
+      hcloud-token: ""
   EOT
 
   # provider prelude — Huawei. Runs BEFORE k3s (runcmd 0-indent items; the
