@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T06:30:06Z` |
+| Last refreshed | `2026-07-05T06:45:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -256,6 +256,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T06:43 | [#4794](https://github.com/openova-io/openova/pull/4794) | #4739 | fix(adoption): plant empty cross-cloud key so CloudAdoption  |
+| 2026-07-05T06:43 | [#4793](https://github.com/openova-io/openova/pull/4793) | #4739 | fix(mimir): make-buckets Job survives slow kom4dc MinIO firs |
 | 2026-07-05T05:53 | [#4792](https://github.com/openova-io/openova/pull/4792) | #4785 | fix(org-controller): sync gateway-api HTTPRoutes into per-Or |
 | 2026-07-05T04:36 | [#4791](https://github.com/openova-io/openova/pull/4791) | #4739 | fix(console): eradicate residual user-facing tenant leaks (r |
 | 2026-07-05T04:36 | [#4790](https://github.com/openova-io/openova/pull/4790) | #4786 | fix(provisioning): mirror per-Org kubeconfig into tenant ns  |
@@ -284,8 +286,6 @@ flowchart LR
 | 2026-07-04T04:55 | [#4753](https://github.com/openova-io/openova/pull/4753) | #4752 | fix(cloud-init): retry cilium rollout-status — stop intermit |
 | 2026-07-04T04:32 | [#4751](https://github.com/openova-io/openova/pull/4751) | #4706 | fix(phase1): console gate 90s→35m — stop false 'failed' on h |
 | 2026-07-04T03:08 | [#4749](https://github.com/openova-io/openova/pull/4749) | #4696 | fix(sovereign-smtp): operator PIN-login 502 on every Soverei |
-| 2026-07-04T03:08 | [#4747](https://github.com/openova-io/openova/pull/4747) | #4739 | docs(uat): reset ledger for hw221 fresh-prov re-walk (Refs # |
-| 2026-07-04T02:07 | [#4745](https://github.com/openova-io/openova/pull/4745) | #4739 | fix(marketplace): banned 'tenant' → Organization on customer |
 
 ---
 
