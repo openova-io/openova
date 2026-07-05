@@ -974,7 +974,6 @@ func (h *Handler) mirrorVClusterKubeconfig(ctx context.Context, tenantSlug strin
 	// Kustomization (generateAppsSyncKustomization) references.
 	srcNS := tenantSlug
 	srcName := "vc-vcluster"
-	dstNS := "flux-system"
 	dstName := "tenant-" + tenantSlug + "-kubeconfig"
 
 	srcBody, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", srcNS, srcName))
@@ -989,48 +988,60 @@ func (h *Handler) mirrorVClusterKubeconfig(ctx context.Context, tenantSlug strin
 		return fmt.Errorf("parse source secret: %w", err)
 	}
 
-	// Build the destination secret payload. Copy .data verbatim (base64 values
-	// survive the round trip) and carry over the type so opaque stays opaque.
-	//
-	// NB: K8s label values are restricted to [A-Za-z0-9-_.], so the source-ns
-	// reference goes in an annotation (unconstrained) rather than a label.
-	dst := map[string]any{
-		"apiVersion": "v1",
-		"kind":       "Secret",
-		"metadata": map[string]any{
-			"name":      dstName,
-			"namespace": dstNS,
-			"labels": map[string]string{
-				"openova.io/tenant":     tenantSlug,
-				"openova.io/managed-by": "provisioning",
+	// #4785: mirror the kubeconfig into BOTH `flux-system` AND the tenant
+	// `<slug>` namespace. `flux-system` is where the apps-sync Kustomization's
+	// `kubeConfig.secretRef` resolves (issue #97). But the per-Org application
+	// HelmReleases (generateHelmReleaseApp → helmrelease_apps.go) are stamped
+	// into the `<slug>` namespace and reference the kubeconfig with NO
+	// namespace on the secretRef — Flux resolves that in the HR's OWN
+	// namespace. A flux-system-only mirror therefore left every customer app HR
+	// stuck `could not get KubeConfig secret '<slug>/tenant-<slug>-kubeconfig':
+	// not found` → no customer app ever deployed (proven live hw225 uat225wp:
+	// bp-openclaw HR False, WordPress 404). Mirroring into both namespaces is
+	// the last mile of the per-Org apps-in-vCluster pillar.
+	for _, dstNS := range []string{"flux-system", tenantSlug} {
+		// Build the destination secret payload. Copy .data verbatim (base64
+		// values survive the round trip) and carry over the type so opaque
+		// stays opaque. NB: K8s label values are restricted to [A-Za-z0-9-_.],
+		// so the source-ns reference goes in an annotation (unconstrained).
+		dst := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"metadata": map[string]any{
+				"name":      dstName,
+				"namespace": dstNS,
+				"labels": map[string]string{
+					"openova.io/tenant":     tenantSlug,
+					"openova.io/managed-by": "provisioning",
+				},
+				"annotations": map[string]string{
+					"openova.io/mirror-of": srcNS + "/" + srcName,
+				},
 			},
-			"annotations": map[string]string{
-				"openova.io/mirror-of": srcNS + "/" + srcName,
-			},
-		},
-		"data": src.Data,
-		"type": src.Type,
-	}
-	payload, err := json.Marshal(dst)
-	if err != nil {
-		return fmt.Errorf("marshal mirror secret: %w", err)
-	}
+			"data": src.Data,
+			"type": src.Type,
+		}
+		payload, err := json.Marshal(dst)
+		if err != nil {
+			return fmt.Errorf("marshal mirror secret (%s): %w", dstNS, err)
+		}
 
-	// Try create first; fall back to PUT (full replace) if it already exists.
-	_, err = h.k8sRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%s/secrets", dstNS), payload)
-	if err == nil {
-		slog.Info("mirrored vCluster kubeconfig", "src", srcNS+"/"+srcName, "dst", dstNS+"/"+dstName)
-		return nil
+		// Try create first; fall back to PUT (full replace) if it exists.
+		_, err = h.k8sRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%s/secrets", dstNS), payload)
+		if err == nil {
+			slog.Info("mirrored vCluster kubeconfig", "src", srcNS+"/"+srcName, "dst", dstNS+"/"+dstName)
+			continue
+		}
+		// 409 conflict → already exists. Update via PUT to keep data fresh.
+		if !strings.Contains(err.Error(), "status 409") {
+			return fmt.Errorf("create mirror secret (%s): %w", dstNS, err)
+		}
+		_, err = h.k8sRequest(http.MethodPut, fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", dstNS, dstName), payload)
+		if err != nil {
+			return fmt.Errorf("update mirror secret (%s): %w", dstNS, err)
+		}
+		slog.Info("updated mirrored vCluster kubeconfig", "src", srcNS+"/"+srcName, "dst", dstNS+"/"+dstName)
 	}
-	// 409 conflict → already exists. Update via PUT to keep data fresh.
-	if !strings.Contains(err.Error(), "status 409") {
-		return fmt.Errorf("create mirror secret: %w", err)
-	}
-	_, err = h.k8sRequest(http.MethodPut, fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", dstNS, dstName), payload)
-	if err != nil {
-		return fmt.Errorf("update mirror secret: %w", err)
-	}
-	slog.Info("updated mirrored vCluster kubeconfig", "src", srcNS+"/"+srcName, "dst", dstNS+"/"+dstName)
 	return nil
 }
 
