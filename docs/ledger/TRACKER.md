@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T04:30:03Z` |
+| Last refreshed | `2026-07-05T04:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -256,6 +256,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T04:36 | [#4791](https://github.com/openova-io/openova/pull/4791) | #4739 | fix(console): eradicate residual user-facing tenant leaks (r |
+| 2026-07-05T04:36 | [#4790](https://github.com/openova-io/openova/pull/4790) | #4786 | fix(provisioning): mirror per-Org kubeconfig into tenant ns  |
+| 2026-07-05T04:36 | [#4789](https://github.com/openova-io/openova/pull/4789) | #4781 | fix(crossplane): ProviderConfig GVK tf→opentofu (adopt-* Wor |
 | 2026-07-05T03:30 | [#4786](https://github.com/openova-io/openova/pull/4786) | #4785 | fix(org-controller): per-Org vcluster CNP bootstrap deadlock |
 | 2026-07-05T00:07 | [#4782](https://github.com/openova-io/openova/pull/4782) | #4781 | docs(uat): rows 206/207/239 deep-walk finding (GVK fix #4781 |
 | 2026-07-04T21:56 | [#4781](https://github.com/openova-io/openova/pull/4781) | #4739 | fix(crossplane): cloudadoption Workspace GVK -> opentofu.upb |
@@ -283,9 +286,6 @@ flowchart LR
 | 2026-07-04T03:08 | [#4747](https://github.com/openova-io/openova/pull/4747) | #4739 | docs(uat): reset ledger for hw221 fresh-prov re-walk (Refs # |
 | 2026-07-04T02:07 | [#4745](https://github.com/openova-io/openova/pull/4745) | #4739 | fix(marketplace): banned 'tenant' → Organization on customer |
 | 2026-07-04T00:38 | [#4744](https://github.com/openova-io/openova/pull/4744) | #4739 | fix(org-provisioning): agenity per-Org gate host — MCP-insta |
-| 2026-07-03T23:34 | [#4743](https://github.com/openova-io/openova/pull/4743) | #4739 | fix(org-provisioning): Guaranteed-QoS resources for per-Org  |
-| 2026-07-03T22:55 | [#4742](https://github.com/openova-io/openova/pull/4742) | #4739 | fix(console): remove AppDetail test-theater identity strip v |
-| 2026-07-03T22:44 | [#4741](https://github.com/openova-io/openova/pull/4741) | #4739 | docs(uat): hw220 full-table walk — 243/243 rows populated wi |
 
 ---
 
