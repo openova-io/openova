@@ -559,7 +559,13 @@ data:
     MC_CONFIG_DIR="/tmp/minio/mc/"
     MC="/usr/bin/mc --insecure --config-dir ${MC_CONFIG_DIR}"
     connectToMinio() {
-      ATTEMPTS=0 ; LIMIT=29
+      # LIMIT bumped 29→150 (#4739): on kom4dc the Catalyst-owned MinIO
+      # Deployment pulls its server image through the Harbor pull-through proxy
+      # and can take several minutes to become Ready. At LIMIT=29 (58s/attempt)
+      # the make-buckets Job exhausted backoffLimit 6 (~6min total) before MinIO
+      # answered → Job Failed → mimir-ingester CrashLoop (no tsdb bucket).
+      # 150×2s = 5min/attempt ×6 = ~30min tolerance for slow first-boot.
+      ATTEMPTS=0 ; LIMIT=150
       ACCESS=$(cat /config/rootUser) ; SECRET=$(cat /config/rootPassword)
       set +e
       MC_COMMAND="${MC} alias set myminio http://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET"
