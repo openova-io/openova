@@ -799,7 +799,7 @@ spec:
   targetNamespace: %s
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: openova-org-tenants
     namespace: flux-system
   path: ./%s/%s/apps%s
 `, slug, ns, basePath, slug, kubeConfig)
