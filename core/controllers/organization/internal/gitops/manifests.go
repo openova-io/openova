@@ -312,6 +312,20 @@ spec:
         # whole-ns NetworkPolicy -- a different mechanism.)
         networkPolicies:
           enabled: true
+        # #4785: sync gateway-api HTTPRoutes to the host <slug> ns. A customer
+        # app's Helm chart (e.g. bp-openclaw, bp-wordpress-tenant) renders an
+        # HTTPRoute for its external ingress and is installed INTO the
+        # Org-vcluster (apps tree, via kubeConfig). A vanilla vcluster has NO
+        # gateway.networking.k8s.io CRD, so the install fails with
+        # 'no matches for kind HTTPRoute in gateway.networking.k8s.io' and no
+        # customer app ever serves (proven live hw225 uat225wp). Enabling the
+        # custom-resource sync imports the HTTPRoute CRD (copied from host) so
+        # the app can create it, AND reflects it to the host <slug> ns where the
+        # Cilium Gateway routes external traffic to the app pod — the same
+        # host-reflection model as services/networkPolicies above.
+        customResources:
+          httproutes.gateway.networking.k8s.io:
+            enabled: true
       fromHost:
         ingressClasses:
           enabled: true
