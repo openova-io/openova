@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T16:45:05Z` |
+| Last refreshed | `2026-07-05T17:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -256,6 +256,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T16:58 | [#4807](https://github.com/openova-io/openova/pull/4807) | #4656 | fix(#4656): pod-CIDR peering routes — the native-routing dat |
 | 2026-07-05T14:41 | [#4806](https://github.com/openova-io/openova/pull/4806) | #4739 | fix(funnel): render bp-newapi HR (openclaw LLM gateway + row |
 | 2026-07-05T14:41 | [#4805](https://github.com/openova-io/openova/pull/4805) | #4803 | fix(funnel): wire openclaw HR oidc.internalIssuerURL (comple |
 | 2026-07-05T14:41 | [#4804](https://github.com/openova-io/openova/pull/4804) | #4792 | fix(org-controller): sync host keycloak Service into vcluste |
@@ -285,7 +286,6 @@ flowchart LR
 | 2026-07-04T18:35 | [#4769](https://github.com/openova-io/openova/pull/4769) | #4765 | fix(powerdns): hook-Job labels spelled out — managed-by=flux |
 | 2026-07-04T18:42 | [#4768](https://github.com/openova-io/openova/pull/4768) | #4731 | fix(dashboard): treemap full component inventory + [progress |
 | 2026-07-04T18:22 | [#4767](https://github.com/openova-io/openova/pull/4767) | #4766 | fix(cilium,powerdns): unwedge the #4765 live roll — authMode |
-| 2026-07-04T17:49 | [#4766](https://github.com/openova-io/openova/pull/4766) | #4765 | fix(cilium,infra): zero NodePorts — single sovereign-vip LB- |
 
 ---
 
