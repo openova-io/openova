@@ -230,7 +230,7 @@ spec:
                   var.resource_id,
                 )
                 observed_address = coalesce(
-                  try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].vip_address, ""),
+                  try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].ipv4_address, ""),
                   try(data.huaweicloud_compute_instance.hw[0].public_ip, ""),
                   try(data.hcloud_load_balancer.hz[0].ipv4, ""),
                   try(data.hcloud_server.hz[0].ipv4_address, ""),
