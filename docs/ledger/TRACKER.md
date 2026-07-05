@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T07:45:02Z` |
+| Last refreshed | `2026-07-05T08:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -256,6 +256,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T07:46 | [#4795](https://github.com/openova-io/openova/pull/4795) | #4794 | chore(crossplane): republish bp-crossplane-claims with #4794 |
 | 2026-07-05T06:43 | [#4794](https://github.com/openova-io/openova/pull/4794) | #4739 | fix(adoption): plant empty cross-cloud key so CloudAdoption  |
 | 2026-07-05T06:43 | [#4793](https://github.com/openova-io/openova/pull/4793) | #4739 | fix(mimir): make-buckets Job survives slow kom4dc MinIO firs |
 | 2026-07-05T05:53 | [#4792](https://github.com/openova-io/openova/pull/4792) | #4785 | fix(org-controller): sync gateway-api HTTPRoutes into per-Or |
@@ -285,7 +286,6 @@ flowchart LR
 | 2026-07-04T06:30 | [#4757](https://github.com/openova-io/openova/pull/4757) | #4748 | docs(uat): hw223 authenticated pillar walk — operator login  |
 | 2026-07-04T04:55 | [#4753](https://github.com/openova-io/openova/pull/4753) | #4752 | fix(cloud-init): retry cilium rollout-status — stop intermit |
 | 2026-07-04T04:32 | [#4751](https://github.com/openova-io/openova/pull/4751) | #4706 | fix(phase1): console gate 90s→35m — stop false 'failed' on h |
-| 2026-07-04T03:08 | [#4749](https://github.com/openova-io/openova/pull/4749) | #4696 | fix(sovereign-smtp): operator PIN-login 502 on every Soverei |
 
 ---
 
