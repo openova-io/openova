@@ -34,8 +34,12 @@ def flip(text: str, ref: str) -> tuple[str, list[str]]:
         head, rest = text.split(BEGIN, 1)
         table, tail = rest.split(END, 1)
     except ValueError:
-        print(f"FATAL: markers {BEGIN} / {END} not found in UAT.md", file=sys.stderr)
-        sys.exit(2)
+        # The dedicated zero-click table (and its markers) was folded into
+        # the consolidated per-row ledger (area column == `sso`). Honour the
+        # same #3374 law against that shape instead of hard-failing — the
+        # docstring's contract is "Exit 0 always (idempotent)", and a FATAL
+        # here turned every SSO-path merge red once the markers were gone.
+        return flip_area_rows(text, ref)
 
     today = datetime.date.today().isoformat()
     stamp = f"UNVERIFIED (flipped {today} by {ref})"
@@ -52,6 +56,40 @@ def flip(text: str, ref: str) -> tuple[str, list[str]]:
                 line = "|".join(cells)
         out_lines.append(line)
     return head + BEGIN + "\n".join(out_lines) + END + tail, flipped
+
+
+VERIFIED_VERDICTS = ("✅", "⚠️")
+
+
+def flip_area_rows(text: str, ref: str) -> tuple[str, list[str]]:
+    """Marker-less mode: flip consolidated-ledger rows whose area column is
+    `sso` and whose verdict claims a verified state (✅/⚠️) back to ☐.
+    ❌/⛔/☐/⏳/N/A rows keep their measured state (a roll does not un-break
+    or un-gate what was measured). Ledger row shape:
+    | id | area | issue | criterion | env | verdict | evidence |
+    """
+    today = datetime.date.today().isoformat()
+    row_re = re.compile(r"^\| *\d+ *\| *sso *\|")
+    flipped: list[str] = []
+    out_lines: list[str] = []
+    saw_sso_row = False
+    for line in text.splitlines():
+        if row_re.match(line):
+            saw_sso_row = True
+            cells = line.split("|")
+            if len(cells) >= 8 and cells[6].strip() in VERIFIED_VERDICTS:
+                cells[6] = " ☐ "
+                cells[7] = f" UNVERIFIED (flipped {today} by {ref}) — was: {cells[7].strip()} "
+                flipped.append(cells[1].strip())
+                line = "|".join(cells)
+        out_lines.append(line)
+    if not saw_sso_row:
+        print(
+            f"FATAL: neither markers {BEGIN}/{END} nor `| sso |` ledger rows found in UAT.md",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return "\n".join(out_lines) + ("\n" if text.endswith("\n") else ""), flipped
 
 
 def main() -> None:
