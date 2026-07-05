@@ -182,7 +182,7 @@ spec:
               }
 
               # hcloud reads HCLOUD_TOKEN env when token is null.
-              provider "hcloud" { token = var.hcloud_token != "" ? var.hcloud_token : null }
+              provider "hcloud" { token = var.hcloud_token != "" ? var.hcloud_token : "unused-on-non-hetzner" }
 
               # ── Huawei data lookups (read-only) ──────────────────────
               data "huaweicloud_elb_loadbalancers" "hw" {
