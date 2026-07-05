@@ -120,15 +120,37 @@ spec:
               - key: hcloud_token
                 value: ""
             module: |
-              variable "cloud"             { type = string }
-              variable "resource_kind"     { type = string }
-              variable "resource_id"       { type = string }
-              variable "huawei_region"     { type = string  default = "me-east-215" }
-              variable "huawei_access_key" { type = string  default = "" }
-              variable "huawei_secret_key" { type = string  default = "" }
-              variable "huawei_project_id" { type = string  default = "" }
-              variable "huawei_insecure"   { type = string  default = "true" }
-              variable "hcloud_token"      { type = string  default = "" }
+              # #4739: OpenTofu (unlike Terraform) REJECTS a single-line block
+              # with more than one argument ("Invalid single-argument block
+              # definition"). The var blocks that carry BOTH `type` and
+              # `default` must be multi-line. Single-arg blocks stay inline.
+              variable "cloud"         { type = string }
+              variable "resource_kind" { type = string }
+              variable "resource_id"   { type = string }
+              variable "huawei_region" {
+                type    = string
+                default = "me-east-215"
+              }
+              variable "huawei_access_key" {
+                type    = string
+                default = ""
+              }
+              variable "huawei_secret_key" {
+                type    = string
+                default = ""
+              }
+              variable "huawei_project_id" {
+                type    = string
+                default = ""
+              }
+              variable "huawei_insecure" {
+                type    = string
+                default = "true"
+              }
+              variable "hcloud_token" {
+                type    = string
+                default = ""
+              }
 
               terraform {
                 required_providers {
