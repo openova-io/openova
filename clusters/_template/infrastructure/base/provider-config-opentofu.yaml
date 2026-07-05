@@ -22,7 +22,7 @@
 #
 # A Hetzner Sovereign has no huawei-* keys; the `cloud` var gates which
 # data lookup the Workspace runs, so the empty HW_* env is inert there.
-apiVersion: tf.upbound.io/v1beta1
+apiVersion: opentofu.upbound.io/v1beta1
 kind: ProviderConfig
 metadata:
   name: default
