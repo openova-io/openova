@@ -114,6 +114,20 @@ oidc:
   # the controller will validate JWTs against). Placeholder default lets
   # `helm template` smoke-render pass.
   issuerURL: "https://keycloak.example.local/realms/example"
+  # #4739: OPTIONAL in-cluster issuer base for discovery/JWKS fetch. When set
+  # (e.g. http://keycloak.keycloak.svc.cluster.local/realms/<realm>), the
+  # controller fetches the realm JWKS from THIS in-cluster URL and skips OIDC
+  # discovery — the PUBLIC issuer's discovery doc advertises an EXTERNAL
+  # jwks_uri (the gateway EIP), which a pod cannot reach on kom4dc (the
+  # NAT-EIP hairpin) → readyz's JWKS leg 503s and the app never goes Ready.
+  # The `iss` claim is still validated against the PUBLIC issuerURL above.
+  # DEFAULT "" (disabled) preserves the public-discovery path. This mirrors
+  # oidc-gate's keycloakInternalURL seam. NOTE: the target must be reachable
+  # from the controller Pod's DNS/network — for a vcluster-hosted controller
+  # that means the host keycloak Service synced into the vcluster OR a
+  # split-horizon rewrite of the issuer host; the overlay sets this only when
+  # that reachability is arranged.
+  internalIssuerURL: ""
   # OIDC client registered in the per-tenant Keycloak realm.
   clientId: "openclaw"
   # OIDC client_secret. Loaded from a K8s Secret via secretKeyRef so the

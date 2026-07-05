@@ -67,7 +67,7 @@ func TestVerifyValidToken(t *testing.T) {
 	srv := jwksServer(t, key, kid)
 	defer srv.Close()
 
-	v := newJWTVerifier(srv.URL, "openclaw", srv.Client())
+	v := newJWTVerifier(srv.URL, "", "openclaw", srv.Client())
 	tok := signJWT(t, key, kid, map[string]any{
 		"iss": srv.URL,
 		"sub": "user-abc-123",
@@ -89,7 +89,7 @@ func TestVerifyRejectsExpired(t *testing.T) {
 	const kid = "k"
 	srv := jwksServer(t, key, kid)
 	defer srv.Close()
-	v := newJWTVerifier(srv.URL, "openclaw", srv.Client())
+	v := newJWTVerifier(srv.URL, "", "openclaw", srv.Client())
 	tok := signJWT(t, key, kid, map[string]any{
 		"iss": srv.URL, "sub": "u", "azp": "openclaw",
 		"exp": time.Now().Add(-time.Hour).Unix(),
@@ -104,7 +104,7 @@ func TestVerifyRejectsWrongIssuer(t *testing.T) {
 	const kid = "k"
 	srv := jwksServer(t, key, kid)
 	defer srv.Close()
-	v := newJWTVerifier(srv.URL, "openclaw", srv.Client())
+	v := newJWTVerifier(srv.URL, "", "openclaw", srv.Client())
 	tok := signJWT(t, key, kid, map[string]any{
 		"iss": "https://evil.example/realms/x", "sub": "u", "azp": "openclaw",
 		"exp": time.Now().Add(time.Hour).Unix(),
@@ -119,7 +119,7 @@ func TestVerifyRejectsWrongAudience(t *testing.T) {
 	const kid = "k"
 	srv := jwksServer(t, key, kid)
 	defer srv.Close()
-	v := newJWTVerifier(srv.URL, "openclaw", srv.Client())
+	v := newJWTVerifier(srv.URL, "", "openclaw", srv.Client())
 	tok := signJWT(t, key, kid, map[string]any{
 		"iss": srv.URL, "sub": "u", "azp": "some-other-client", "aud": "account",
 		"exp": time.Now().Add(time.Hour).Unix(),
@@ -134,7 +134,7 @@ func TestVerifyRejectsTamperedSignature(t *testing.T) {
 	const kid = "k"
 	srv := jwksServer(t, key, kid)
 	defer srv.Close()
-	v := newJWTVerifier(srv.URL, "openclaw", srv.Client())
+	v := newJWTVerifier(srv.URL, "", "openclaw", srv.Client())
 	tok := signJWT(t, key, kid, map[string]any{
 		"iss": srv.URL, "sub": "u", "azp": "openclaw",
 		"exp": time.Now().Add(time.Hour).Unix(),

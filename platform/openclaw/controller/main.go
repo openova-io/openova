@@ -82,27 +82,35 @@ const (
 // config is the fully-resolved controller configuration, sourced
 // entirely from the environment (Inviolable Principle 4).
 type config struct {
-	port        string
-	issuerURL   string
-	clientID    string
-	tenantNS    string
-	idleTimeout time.Duration
-	k8sAPIHost  string
-	k8sAPIPort  string
-	saToken     string
-	httpClient  *http.Client // talks to the in-cluster api-server (CA-pinned)
-	requireAuth bool         // false only when OIDC is unconfigured (smoke)
+	port              string
+	issuerURL         string
+	internalIssuerURL string // #4739: in-cluster issuer base for discovery/JWKS (avoids NAT-EIP hairpin)
+	clientID          string
+	tenantNS          string
+	idleTimeout       time.Duration
+	k8sAPIHost        string
+	k8sAPIPort        string
+	saToken           string
+	httpClient        *http.Client // talks to the in-cluster api-server (CA-pinned)
+	requireAuth       bool         // false only when OIDC is unconfigured (smoke)
 }
 
 func loadConfig() (*config, error) {
 	c := &config{
-		port:        getenvDefault("PORT", defaultPort),
-		issuerURL:   strings.TrimRight(os.Getenv("OIDC_ISSUER_URL"), "/"),
-		clientID:    os.Getenv("OIDC_CLIENT_ID"),
-		tenantNS:    os.Getenv("TENANT_NAMESPACE"),
-		k8sAPIHost:  getenvDefault("KUBERNETES_SERVICE_HOST", ""),
-		k8sAPIPort:  getenvDefault("KUBERNETES_SERVICE_PORT", "443"),
-		requireAuth: true,
+		port:      getenvDefault("PORT", defaultPort),
+		issuerURL: strings.TrimRight(os.Getenv("OIDC_ISSUER_URL"), "/"),
+		// #4739: when set (e.g. http://keycloak.keycloak.svc.cluster.local/realms/<realm>),
+		// discovery+JWKS are fetched from this in-cluster base instead of the public
+		// issuer. The public issuer's discovery doc returns an EXTERNAL jwks_uri (the
+		// gateway EIP), which a pod cannot reach on kom4dc (the NAT-EIP hairpin) — so
+		// readyz's JWKS leg 503s and the app never goes Ready. iss-claim validation
+		// still uses the PUBLIC issuerURL. Mirrors oidc-gate's keycloakInternalURL.
+		internalIssuerURL: strings.TrimRight(os.Getenv("OIDC_INTERNAL_ISSUER_URL"), "/"),
+		clientID:          os.Getenv("OIDC_CLIENT_ID"),
+		tenantNS:          os.Getenv("TENANT_NAMESPACE"),
+		k8sAPIHost:        getenvDefault("KUBERNETES_SERVICE_HOST", ""),
+		k8sAPIPort:        getenvDefault("KUBERNETES_SERVICE_PORT", "443"),
+		requireAuth:       true,
 	}
 
 	idleMin := getenvDefault("IDLE_TIMEOUT_MINUTES", "30")
@@ -210,7 +218,7 @@ func main() {
 		log.Fatalf("FATAL: %v", err)
 	}
 
-	verifier := newJWTVerifier(cfg.issuerURL, cfg.clientID, cfg.httpClient)
+	verifier := newJWTVerifier(cfg.issuerURL, cfg.internalIssuerURL, cfg.clientID, cfg.httpClient)
 	spawner := newPodSpawner(cfg)
 
 	mux := http.NewServeMux()
@@ -383,9 +391,10 @@ type jwtClaims struct {
 }
 
 type jwtVerifier struct {
-	issuerURL string
-	clientID  string
-	client    *http.Client
+	issuerURL   string
+	internalURL string // #4739: in-cluster base for discovery/JWKS; "" → use issuerURL
+	clientID    string
+	client      *http.Client
 
 	mu       sync.RWMutex
 	keys     map[string]*rsa.PublicKey // kid -> key
@@ -393,12 +402,13 @@ type jwtVerifier struct {
 	lastLoad time.Time
 }
 
-func newJWTVerifier(issuerURL, clientID string, client *http.Client) *jwtVerifier {
+func newJWTVerifier(issuerURL, internalURL, clientID string, client *http.Client) *jwtVerifier {
 	return &jwtVerifier{
-		issuerURL: issuerURL,
-		clientID:  clientID,
-		client:    client,
-		keys:      map[string]*rsa.PublicKey{},
+		issuerURL:   issuerURL,
+		internalURL: internalURL,
+		clientID:    clientID,
+		client:      client,
+		keys:        map[string]*rsa.PublicKey{},
 	}
 }
 
@@ -439,16 +449,26 @@ func (v *jwtVerifier) loadKeys(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, jwksRefreshTimeout)
 	defer cancel()
 
-	// 1. Discovery.
-	discURL := v.issuerURL + "/.well-known/openid-configuration"
-	var disc oidcDiscovery
-	if err := v.getJSON(ctx, discURL, &disc); err != nil {
-		return fmt.Errorf("OIDC discovery %s: %w", discURL, err)
-	}
-	jwksURL := disc.JWKSURI
-	if jwksURL == "" {
-		// Keycloak's conventional JWKS path under the realm.
-		jwksURL = v.issuerURL + "/protocol/openid-connect/certs"
+	// 1. Discovery → JWKS URL.
+	var jwksURL string
+	if v.internalURL != "" {
+		// #4739: an in-cluster issuer base is configured. Go DIRECTLY to the
+		// realm's conventional JWKS path and SKIP discovery — the public
+		// issuer's discovery doc advertises an EXTERNAL jwks_uri (the gateway
+		// EIP), which a pod cannot reach on kom4dc (the NAT-EIP hairpin). This
+		// mirrors oidc-gate's --skip-oidc-discovery + --oidc-jwks-url seam.
+		jwksURL = v.internalURL + "/protocol/openid-connect/certs"
+	} else {
+		discURL := v.issuerURL + "/.well-known/openid-configuration"
+		var disc oidcDiscovery
+		if err := v.getJSON(ctx, discURL, &disc); err != nil {
+			return fmt.Errorf("OIDC discovery %s: %w", discURL, err)
+		}
+		jwksURL = disc.JWKSURI
+		if jwksURL == "" {
+			// Keycloak's conventional JWKS path under the realm.
+			jwksURL = v.issuerURL + "/protocol/openid-connect/certs"
+		}
 	}
 
 	// 2. JWKS.
