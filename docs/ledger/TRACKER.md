@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T03:30:03Z` |
+| Last refreshed | `2026-07-05T03:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 48 |
 | Open DoD gates | 0 / 41 |
@@ -255,6 +255,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T03:30 | [#4786](https://github.com/openova-io/openova/pull/4786) | #4785 | fix(org-controller): per-Org vcluster CNP bootstrap deadlock |
 | 2026-07-05T00:07 | [#4782](https://github.com/openova-io/openova/pull/4782) | #4781 | docs(uat): rows 206/207/239 deep-walk finding (GVK fix #4781 |
 | 2026-07-04T21:56 | [#4781](https://github.com/openova-io/openova/pull/4781) | #4739 | fix(crossplane): cloudadoption Workspace GVK -> opentofu.upb |
 | 2026-07-04T21:53 | [#4780](https://github.com/openova-io/openova/pull/4780) | #4776 | fix(useraccess): cluster-scoped controller alignment so gran |
@@ -284,7 +285,6 @@ flowchart LR
 | 2026-07-03T23:34 | [#4743](https://github.com/openova-io/openova/pull/4743) | #4739 | fix(org-provisioning): Guaranteed-QoS resources for per-Org  |
 | 2026-07-03T22:55 | [#4742](https://github.com/openova-io/openova/pull/4742) | #4739 | fix(console): remove AppDetail test-theater identity strip v |
 | 2026-07-03T22:44 | [#4741](https://github.com/openova-io/openova/pull/4741) | #4739 | docs(uat): hw220 full-table walk — 243/243 rows populated wi |
-| 2026-07-03T22:41 | [#4740](https://github.com/openova-io/openova/pull/4740) | #4739 | fix(sovereign-tls): drop the envoy-restart Job TTL — hourly  |
 
 ---
 
