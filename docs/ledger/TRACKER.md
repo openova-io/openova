@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T18:00:04Z` |
+| Last refreshed | `2026-07-05T18:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -265,6 +265,7 @@ flowchart LR
 | 2026-07-05T14:40 | [#4803](https://github.com/openova-io/openova/pull/4803) | #4739 | fix(openclaw): internal-JWKS seam to dodge NAT-EIP hairpin ( |
 | 2026-07-05T14:39 | [#4801](https://github.com/openova-io/openova/pull/4801) | #4739 | fix(topology): detect per-Org vcluster via StatefulSet (vClu |
 | 2026-07-05T14:40 | [#4800](https://github.com/openova-io/openova/pull/4800) | #4739 | fix(console): worker-nodes tile excludes control-planes (nod |
+| 2026-07-05T18:03 | [#4798](https://github.com/openova-io/openova/pull/4798) | #4739 | fix(provisioning): funnel-door apps sourceRef flux-system→op |
 | 2026-07-05T07:46 | [#4795](https://github.com/openova-io/openova/pull/4795) | #4794 | chore(crossplane): republish bp-crossplane-claims with #4794 |
 | 2026-07-05T06:43 | [#4794](https://github.com/openova-io/openova/pull/4794) | #4739 | fix(adoption): plant empty cross-cloud key so CloudAdoption  |
 | 2026-07-05T06:43 | [#4793](https://github.com/openova-io/openova/pull/4793) | #4739 | fix(mimir): make-buckets Job survives slow kom4dc MinIO firs |
@@ -285,7 +286,6 @@ flowchart LR
 | 2026-07-04T19:12 | [#4772](https://github.com/openova-io/openova/pull/4772) | #4466 | docs(uat): G5 janitor + G10 placement walked live on hw224 ( |
 | 2026-07-04T19:11 | [#4771](https://github.com/openova-io/openova/pull/4771) | #4769 | fix(kyverno): flux-managed carve-out for Helm hooks — unbloc |
 | 2026-07-04T18:38 | [#4770](https://github.com/openova-io/openova/pull/4770) | #4739 | docs(uat): rows 73+74 voucher writes walked live on hw224 |
-| 2026-07-04T18:35 | [#4769](https://github.com/openova-io/openova/pull/4769) | #4765 | fix(powerdns): hook-Job labels spelled out — managed-by=flux |
 
 ---
 
