@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T21:15:03Z` |
+| Last refreshed | `2026-07-05T21:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 50 |
 | Open DoD gates | 0 / 41 |
@@ -257,6 +257,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T21:17 | [#4812](https://github.com/openova-io/openova/pull/4812) | #4808 | fix(#4620): Huawei cloud-credentials empty hcloud-token plac |
 | 2026-07-05T18:19 | [#4810](https://github.com/openova-io/openova/pull/4810) | #3374 | fix(ci): uat-sso-flip consolidated-ledger fallback — unbreak |
 | 2026-07-05T17:37 | [#4809](https://github.com/openova-io/openova/pull/4809) | #4807 | fix(ui): OrgConsumption.isPlatform — unbreak catalyst-build |
 | 2026-07-05T17:32 | [#4808](https://github.com/openova-io/openova/pull/4808) | #4620 | fix(#4620): adoption consolidated — k8s backend + anchor + f |
@@ -286,7 +287,6 @@ flowchart LR
 | 2026-07-04T20:56 | [#4775](https://github.com/openova-io/openova/pull/4775) | #3153 | fix(dashboard): mothership /jobs re-seeds install+reconcile  |
 | 2026-07-04T19:44 | [#4774](https://github.com/openova-io/openova/pull/4774) | #4773 | docs(uat): crossplane-adoption rows 206/207/239 confirmed ❌  |
 | 2026-07-04T19:12 | [#4772](https://github.com/openova-io/openova/pull/4772) | #4466 | docs(uat): G5 janitor + G10 placement walked live on hw224 ( |
-| 2026-07-04T19:11 | [#4771](https://github.com/openova-io/openova/pull/4771) | #4769 | fix(kyverno): flux-managed carve-out for Helm hooks — unbloc |
 
 ---
 
