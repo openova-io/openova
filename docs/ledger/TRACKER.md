@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-05T17:30:05Z` |
+| Last refreshed | `2026-07-05T17:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 49 |
 | Open DoD gates | 0 / 41 |
@@ -256,6 +256,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-05T17:37 | [#4809](https://github.com/openova-io/openova/pull/4809) | #4807 | fix(ui): OrgConsumption.isPlatform — unbreak catalyst-build |
+| 2026-07-05T17:32 | [#4808](https://github.com/openova-io/openova/pull/4808) | #4620 | fix(#4620): adoption consolidated — k8s backend + anchor + f |
 | 2026-07-05T16:58 | [#4807](https://github.com/openova-io/openova/pull/4807) | #4656 | fix(#4656): pod-CIDR peering routes — the native-routing dat |
 | 2026-07-05T14:41 | [#4806](https://github.com/openova-io/openova/pull/4806) | #4739 | fix(funnel): render bp-newapi HR (openclaw LLM gateway + row |
 | 2026-07-05T14:41 | [#4805](https://github.com/openova-io/openova/pull/4805) | #4803 | fix(funnel): wire openclaw HR oidc.internalIssuerURL (comple |
@@ -284,8 +286,6 @@ flowchart LR
 | 2026-07-04T19:11 | [#4771](https://github.com/openova-io/openova/pull/4771) | #4769 | fix(kyverno): flux-managed carve-out for Helm hooks — unbloc |
 | 2026-07-04T18:38 | [#4770](https://github.com/openova-io/openova/pull/4770) | #4739 | docs(uat): rows 73+74 voucher writes walked live on hw224 |
 | 2026-07-04T18:35 | [#4769](https://github.com/openova-io/openova/pull/4769) | #4765 | fix(powerdns): hook-Job labels spelled out — managed-by=flux |
-| 2026-07-04T18:42 | [#4768](https://github.com/openova-io/openova/pull/4768) | #4731 | fix(dashboard): treemap full component inventory + [progress |
-| 2026-07-04T18:22 | [#4767](https://github.com/openova-io/openova/pull/4767) | #4766 | fix(cilium,powerdns): unwedge the #4765 live roll — authMode |
 
 ---
 
