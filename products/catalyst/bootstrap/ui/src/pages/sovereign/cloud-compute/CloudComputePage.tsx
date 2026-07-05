@@ -58,7 +58,12 @@ export function CloudComputePage() {
         out['clusters'] += 1
         out['vclusters'] += cluster.vclusters?.length ?? 0
         out['node-pools'] += cluster.nodePools?.length ?? 0
-        out['worker-nodes'] += cluster.nodes?.length ?? 0
+        // #4739: the "worker-nodes" tile must count WORKER nodes only —
+        // cluster.nodes includes control-plane VMs too (TopologyNode carries a
+        // role field), so the unfiltered length over-counted by the control
+        // planes (e.g. showed 12 for a 2×[1 cp + 5 worker] Sovereign instead of
+        // 10). Filter to non-control-plane roles.
+        out['worker-nodes'] += cluster.nodes?.filter((n) => n.role !== 'control-plane').length ?? 0
       }
     }
     return out
