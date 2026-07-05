@@ -213,6 +213,36 @@ resource "huaweicloud_vpc_route" "mesh_b_to_a" {
   nexthop     = huaweicloud_vpc_peering_connection.mesh[each.key].id
 }
 
+# ── #4656: POD-CIDR peering routes (the native-routing complement) ──────────
+# The VPC-CIDR routes above carry NODE-to-NODE traffic — sufficient under the
+# old VXLAN tunnel (pod packets were encapsulated over node IPs). PR #4763
+# switches cilium to NATIVE routing (routingMode: native) to end the
+# VXLAN-over-WireGuard MTU DF-drops, so cross-cluster pod-to-pod now routes
+# pod-IP->pod-IP (region-a 10.42.x -> region-b 10.43.x) with NO encapsulation.
+# Those pod CIDRs (local.region_cluster_cidr, offset per region at ~L83) are
+# NOT in the VPC route tables, so the peer VPC has no route back to them -> the
+# region-A<->B POD datapath black-holes (node reachable, pod times out = the
+# EXACT #4656 signature; live hw225: node WG OK, 56-byte pod ping 100% loss
+# cross-region). Add pod-CIDR routes over the SAME peering so native
+# cross-cluster pod traffic has a return path.
+resource "huaweicloud_vpc_route" "mesh_pod_a_to_b" {
+  for_each = local.vpc_peering_pairs
+
+  vpc_id      = huaweicloud_vpc.region[each.value.a].id
+  destination = local.region_cluster_cidr[each.value.b]
+  type        = "peering"
+  nexthop     = huaweicloud_vpc_peering_connection.mesh[each.key].id
+}
+
+resource "huaweicloud_vpc_route" "mesh_pod_b_to_a" {
+  for_each = local.vpc_peering_pairs
+
+  vpc_id      = huaweicloud_vpc.region[each.value.b].id
+  destination = local.region_cluster_cidr[each.value.a]
+  type        = "peering"
+  nexthop     = huaweicloud_vpc_peering_connection.mesh[each.key].id
+}
+
 resource "huaweicloud_vpc_subnet" "region" {
   for_each = { for r in var.regions : r.code => r }
 
@@ -837,15 +867,6 @@ locals {
       # The huaweicloud-csi-driver cloud-config reads this as `project-id`.
       huawei-project-id: "${var.huawei_project_id}"
       huawei-region: "${var.huawei_region}"
-      # #4739: empty cross-cloud placeholder. The cloud-agnostic
-      # opentofu-cloud-adoption Composition (platform/crossplane-claims) wires
-      # HCLOUD_TOKEN via a REQUIRED secretKeyRef on key `hcloud-token` (the
-      # provider-opentofu Workspace env schema has no `optional` field). Without
-      # this key present on a Huawei Sovereign every adoption Workspace fails
-      # Sync "couldn't find key hcloud-token in Secret cloud-credentials" → all
-      # CloudAdoptions stuck non-Ready. Empty value is inert (cloud==huawei so
-      # the hcloud data lookups have count=0 and the hcloud provider is unused).
-      hcloud-token: ""
   EOT
 
   # provider prelude — Huawei. Runs BEFORE k3s (runcmd 0-indent items; the
