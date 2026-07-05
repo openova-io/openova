@@ -106,3 +106,18 @@ spec:
                 - secretRef:
                     name: cloud-credentials
                     optional: true
+              # #4739: resources.requests are MANDATORY. The host-ns Kyverno
+              # `resource-requests` + `resource-limits` Enforce policies DENY any
+              # pod that omits both cpu+memory requests. Without this the
+              # provider-opentofu pod is admission-denied on EVERY restart /
+              # fresh-prov ("Every container must declare resources.requests.cpu
+              # and resources.requests.memory") → deployment 0/1,
+              # UnhealthyPackageRevision → ALL crossplane CloudAdoptions stuck
+              # non-Ready (rows 206/207/239, live-observed hw225 2026-07-05).
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
