@@ -81,13 +81,15 @@ function formatListeners(lb: LoadBalancerSpec): string {
 }
 
 // formatFrontDoor explains the real ingress datapath (Refs #3998): a real
-// cloud LB vs an EIP DNAT'd to the Cilium Gateway NodePort (Huawei).
-function formatFrontDoor(lb: LoadBalancerSpec): string {
+// cloud LB vs an EIP whose ELB targets node:443/:80 — the cilium-envoy
+// hostNetwork host port (§854 / #4765 / #4706), NOT a nodePort. The gateway
+// is served DIRECT; there is no nodePort anywhere in the datapath.
+export function formatFrontDoor(lb: LoadBalancerSpec): string {
   switch (lb.frontDoorKind) {
     case 'cloud-lb':
       return 'Cloud load balancer'
     case 'gateway-eip':
-      return 'EIP → Cilium Gateway (NodePort)'
+      return 'EIP → Cilium Gateway (hostPort node:443/:80)'
     default:
       return '—'
   }
