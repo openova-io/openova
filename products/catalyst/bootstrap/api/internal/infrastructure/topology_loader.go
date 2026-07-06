@@ -118,7 +118,7 @@ func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
 
 	regions := []Region{}
 	if len(in.Regions) > 0 {
-		for _, rs := range in.Regions {
+		for i, rs := range in.Regions {
 			// Multi-region live-source fix (fix/console-topology-both-
 			// regions): the mothership path (Request.Regions populated)
 			// previously read EVERY region's live data — vClusters,
@@ -138,6 +138,22 @@ func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
 			perRegionIn := in
 			if dc := perRegionDynamicClient(in, rs); dc != nil {
 				perRegionIn.DynamicClient = dc
+			} else if i > 0 && in.K8sCache != nil && len(in.K8sCache.Clusters()) > 0 {
+				// Secondary declared region (Regions[0] is primary) with
+				// NO live kubeconfig registered in a POPULATED k8sCache =
+				// standby-region-absent (#4811). (When K8sCache is nil /
+				// empty — legacy single-cluster mode — the primary-client
+				// fallback below is still correct; only guard the
+				// multi-cluster case.) Falling back to the primary client
+				// here made
+				// buildRegion read the primary's Nodes and emit THIS
+				// region's DECLARED worker count as present — the #4814
+				// fabrication ("Region 2/2 · WorkerNode 24/24" on a
+				// region-b-absent 2-region prov, 6 live nodes). Emit a
+				// degraded, live-empty region so the console counts stay
+				// honest (0 live vs declared → renders as degraded/partial).
+				regions = append(regions, buildAbsentRegion(rs))
+				continue
 			}
 			regions = append(regions, buildRegion(ctx, perRegionIn, rs))
 		}
@@ -521,6 +537,31 @@ func derivePattern(in LoaderInput) string {
 		return "solo"
 	default:
 		return "unknown"
+	}
+}
+
+// buildAbsentRegion renders a DECLARED secondary region that has no live
+// kubeconfig registered in the k8sCache (standby-region-absent — the #4811
+// gap on a 2-region prov where region-b never converged). It emits a
+// degraded, live-empty Region (no Clusters → 0 live nodes) carrying only
+// the declared SKUs/WorkerCount, so the console counts reflect reality
+// (0 live vs declared) instead of falling back to the primary region's
+// client and rendering this region's declared worker count as present
+// (#4814). The frontend derives the live node count from
+// len(Clusters[*].Nodes), so an empty Clusters slice yields an honest
+// "0 live / N declared" and a degraded region badge.
+func buildAbsentRegion(rs provisioner.RegionSpec) Region {
+	return Region{
+		ID:             "region-" + rs.CloudRegion,
+		Name:           rs.CloudRegion,
+		Provider:       rs.Provider,
+		ProviderRegion: rs.CloudRegion,
+		SkuCP:          rs.ControlPlaneSize,
+		SkuWorker:      rs.WorkerSize,
+		WorkerCount:    rs.WorkerCount, // declared total; live=0 (empty Clusters)
+		Status:         "degraded",
+		Clusters:       nil,
+		Networks:       nil,
 	}
 }
 

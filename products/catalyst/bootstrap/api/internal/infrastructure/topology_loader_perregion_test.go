@@ -171,6 +171,57 @@ func TestLoad_PerRegionFallsBackToPrimaryWhenCacheNil(t *testing.T) {
 	}
 }
 
+// TestLoad_SecondaryAbsentKubeconfigRendersDegraded proves the #4814 fix:
+// on a POPULATED k8sCache (multi-cluster mode) where a declared secondary
+// region's own kubeconfig never registered (standby-region-absent, #4811),
+// the loader must render that region DEGRADED + live-empty — NOT fall back
+// to the primary client and mirror its live contents, which rendered the
+// secondary's DECLARED worker count as present ("Region 2/2 · WorkerNode
+// 24/24" on a region-b-absent 2-region prov with 6 live nodes).
+func TestLoad_SecondaryAbsentKubeconfigRendersDegraded(t *testing.T) {
+	const depID = "depY"
+	primaryClient := vclusterRoleNamespaceClient(t, "only-primary")
+	in := LoaderInput{
+		DeploymentID:  depID,
+		Status:        "ready",
+		SovereignFQDN: "depy.omani.works",
+		Provider:      "huawei",
+		Region:        "reg-a",
+		Regions: []provisioner.RegionSpec{
+			{Provider: "huawei", CloudRegion: "reg-a", WorkerCount: 3},
+			{Provider: "huawei", CloudRegion: "reg-b", WorkerCount: 3},
+		},
+		DynamicClient: primaryClient,
+		// Populated cache with ONLY the primary cluster registered;
+		// reg-b's "<depID>-reg-b" kubeconfig is absent (never converged).
+		K8sCache: &fakeK8sCache{clients: map[string]dynamic.Interface{
+			depID: primaryClient,
+		}},
+	}
+	resp := Load(context.Background(), in)
+	if len(resp.Topology.Regions) != 2 {
+		t.Fatalf("expected 2 region rows, got %d", len(resp.Topology.Regions))
+	}
+	var regB *Region
+	for i := range resp.Topology.Regions {
+		if resp.Topology.Regions[i].Name == "reg-b" {
+			regB = &resp.Topology.Regions[i]
+		}
+	}
+	if regB == nil {
+		t.Fatalf("reg-b region row missing; got %v", regionNames(resp.Topology.Regions))
+	}
+	if regB.Status != "degraded" {
+		t.Errorf("reg-b (absent kubeconfig) should render degraded, got %q", regB.Status)
+	}
+	if len(regB.Clusters) != 0 {
+		t.Errorf("reg-b should have 0 live clusters (no primary fallback), got %d", len(regB.Clusters))
+	}
+	if contains(vclusterNames(*regB), "only-primary") {
+		t.Errorf("reg-b must NOT mirror the primary client's vclusters (#4814 fabrication), got %v", vclusterNames(*regB))
+	}
+}
+
 func regionNames(rs []Region) []string {
 	out := make([]string, 0, len(rs))
 	for _, r := range rs {
