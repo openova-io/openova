@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-06T21:15:03Z` |
+| Last refreshed | `2026-07-06T21:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 57 |
 | Open DoD gates | 0 / 41 |
@@ -264,6 +264,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-06T21:29 | [#4829](https://github.com/openova-io/openova/pull/4829) | #4811 | fix(#4811): retriable startup ClusterMesh reconcile on trans |
 | 2026-07-06T19:53 | [#4828](https://github.com/openova-io/openova/pull/4828) | #4785 | fix(provisioning): kill WordPress per-Org double-reconcile c |
 | 2026-07-06T18:48 | [#4826](https://github.com/openova-io/openova/pull/4826) | #4792 | fix(#4785): register Gateway-API HTTPRoute CRD in per-Org vc |
 | 2026-07-06T12:34 | [#4822](https://github.com/openova-io/openova/pull/4822) | #4804 | fix(#4821): customer-Org vcluster — replicateServices.fromHo |
@@ -293,7 +294,6 @@ flowchart LR
 | 2026-07-05T00:07 | [#4782](https://github.com/openova-io/openova/pull/4782) | #4781 | docs(uat): rows 206/207/239 deep-walk finding (GVK fix #4781 |
 | 2026-07-04T21:56 | [#4781](https://github.com/openova-io/openova/pull/4781) | #4739 | fix(crossplane): cloudadoption Workspace GVK -> opentofu.upb |
 | 2026-07-04T21:53 | [#4780](https://github.com/openova-io/openova/pull/4780) | #4776 | fix(useraccess): cluster-scoped controller alignment so gran |
-| 2026-07-04T21:35 | [#4779](https://github.com/openova-io/openova/pull/4779) | #4778 | docs(uat): row 23 showback ❌ root-caused + fixed (#4778) |
 
 ---
 
