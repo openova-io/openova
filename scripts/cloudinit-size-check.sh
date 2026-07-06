@@ -150,6 +150,11 @@ fixture_cp_common() {
     pdns_api_host                     = "pdns.openova.io"
     sovereign_region_role             = "primary"
     node_external_ip_value            = "203.0.113.10"
+    # #4784 — clustermesh-proxy host port. The real templatefile() maps in
+    # infra/providers/*/main.tf supply this on every control-plane surface
+    # (primary + secondary-region); keep the size-check fixture in lockstep
+    # or tofu errors "vars map does not contain key clustermesh_proxy_port".
+    clustermesh_proxy_port            = 12379
 HCL
 }
 
