@@ -137,8 +137,9 @@ export interface LoadBalancerSpec {
   /**
    * Provider-agnostic descriptor of HOW the cluster is fronted (Refs #3998):
    * - 'cloud-lb'    — a real provider load balancer (e.g. Hetzner hcloud LB).
-   * - 'gateway-eip' — a cloud EIP DNAT'd to the Cilium Gateway NodePort
-   *                   (Huawei kom4dc, where no day-2 ELB is instantiated).
+   * - 'gateway-eip' — a cloud EIP whose ELB targets node:443/:80, the
+   *                   cilium-envoy hostNetwork host port (§854 / #4765 / #4706
+   *                   — NOT a nodePort; the gateway is served DIRECT).
    * Lets the LB view explain the EIP+Gateway datapath. Optional —
    * absent on older API builds.
    */

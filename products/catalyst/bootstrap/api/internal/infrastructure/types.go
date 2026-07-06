@@ -141,9 +141,9 @@ type VCluster struct {
 
 // LoadBalancer — the cloud front door fronting the cluster's ingress.
 // Provider-agnostic (Refs #3998): on Hetzner this is a real
-// `hcloud_load_balancer`; on Huawei kom4dc (no day-2 ELB instantiated)
-// it is the EIP DNAT'd to the Cilium-Gateway NodePort. Either way the
-// PublicIP + listeners are sourced from the deployment record
+// `hcloud_load_balancer`; on Huawei the gateway ELB targets node:443/:80,
+// the cilium-envoy hostNetwork host port (§854 / #4765 — NOT a nodePort).
+// Either way the PublicIP + listeners are sourced from the deployment record
 // (`Result.LoadBalancerIP`) — NOT the empty Crossplane XRC layer — so
 // the page answers "how is the platform fronted" on every Sovereign.
 type LoadBalancer struct {
@@ -166,7 +166,8 @@ type LoadBalancer struct {
 
 	// FrontDoorKind — provider-agnostic descriptor of HOW the cluster is
 	// fronted: "cloud-lb" (a real provider LB, e.g. Hetzner hcloud LB) or
-	// "gateway-eip" (Huawei EIP DNAT'd to the Cilium Gateway NodePort).
+	// "gateway-eip" (Huawei EIP whose ELB targets node:443/:80 — the
+	// cilium-envoy hostNetwork host port, §854 / #4765, NOT a nodePort).
 	// Lets the UI explain the EIP+Gateway datapath when no cloud LB exists
 	// (Refs #3998). Empty when unknown.
 	FrontDoorKind string `json:"frontDoorKind,omitempty"`

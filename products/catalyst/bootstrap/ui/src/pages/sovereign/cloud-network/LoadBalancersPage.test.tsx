@@ -15,7 +15,7 @@ import {
 } from '@tanstack/react-router'
 
 import { CloudPage } from '../CloudPage'
-import { LoadBalancersPage } from './LoadBalancersPage'
+import { LoadBalancersPage, formatFrontDoor } from './LoadBalancersPage'
 import { infrastructureTopologyFixture } from '@/test/fixtures/infrastructure-topology.fixture'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
@@ -82,5 +82,21 @@ describe('LoadBalancersPage', () => {
     expect(body.textContent).toContain('116.203.42.1')
     expect(body.textContent).toContain('tcp:80')
     expect(body.textContent).toContain('tcp:443')
+  })
+
+  // #4818 — the Huawei gateway front door is served DIRECT via the cilium-envoy
+  // hostNetwork host port node:443/:80 (§854 / #4765 / #4706), NOT a nodePort.
+  // The label must never print "NodePort" — that falsely advertises the exact
+  // datapath the founder's absolute hard rule forbids.
+  describe('formatFrontDoor', () => {
+    it('gateway-eip renders the hostPort datapath, never "NodePort"', () => {
+      const label = formatFrontDoor({ frontDoorKind: 'gateway-eip' } as never)
+      expect(label).not.toContain('NodePort')
+      expect(label).toContain('hostPort')
+      expect(label).toContain('node:443/:80')
+    })
+    it('cloud-lb renders a real provider load balancer', () => {
+      expect(formatFrontDoor({ frontDoorKind: 'cloud-lb' } as never)).toBe('Cloud load balancer')
+    })
   })
 })

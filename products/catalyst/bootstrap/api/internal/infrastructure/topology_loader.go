@@ -698,7 +698,8 @@ func buildLBs(in LoaderInput, rs provisioner.RegionSpec) []LoadBalancer {
 // DEPLOYMENT RECORD (Result.LoadBalancerIP) — the source of truth that is
 // always populated post-Phase-0 — rather than the empty Crossplane XRC
 // layer (Refs #3998). On Hetzner the IP is a real `hcloud_load_balancer`;
-// on Huawei kom4dc it is the EIP DNAT'd to the Cilium Gateway NodePort
+// on Huawei it is an EIP whose ELB targets node:443/:80 — the cilium-envoy
+// hostNetwork host port (§854 / #4765, NOT a nodePort)
 // (FrontDoorKind distinguishes them so the UI can explain the datapath).
 //
 // Both the declared (mothership) path and the live chroot path call this,
@@ -722,9 +723,10 @@ func frontDoorLBs(in LoaderInput, region string) []LoadBalancer {
 		{Port: 443, Protocol: "tcp"},
 		{Port: 6443, Protocol: "tcp"},
 	}
-	// FrontDoorKind: Huawei has no day-2 ELB instantiated (the EIP DNATs
-	// straight to the Gateway NodePort), so model it as gateway-eip;
-	// every other provider provisions a real cloud LB.
+	// FrontDoorKind: on Huawei the gateway ELB targets node:443/:80 — the
+	// cilium-envoy hostNetwork host port (§854 / #4765, NOT a nodePort) —
+	// so model it as gateway-eip; every other provider provisions a real
+	// cloud LB.
 	frontDoor := "cloud-lb"
 	if strings.EqualFold(in.Provider, "huawei") {
 		frontDoor = "gateway-eip"
