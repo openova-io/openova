@@ -638,3 +638,21 @@ variable "gateway_member_port_http" {
     error_message = "gateway_member_port_http must be a host port below the k8s NodePort range (30000-32767) — nodePorts are forbidden (§854)."
   }
 }
+
+# #4784 — clustermesh-proxy host-socket dial port. The bp-cilium
+# clustermesh-proxy DaemonSet (hostNetwork) binds this port on every node and
+# TCP-passthroughs to the clustermesh-apiserver etcd; catalyst-api points
+# cross-region peers here via CLUSTERMESH_APISERVER_DIAL_PORT. MUST NOT be
+# 2379/2380 (k3s' own embedded etcd on the CP-node host) nor in the forbidden
+# 30000-32767 NodePort range. Default 12379 (proven free on hw225 kom4dc CP
+# nodes). MUST equal the chart value cilium.clustermeshProxy.hostPort AND the
+# catalyst-api CLUSTERMESH_APISERVER_DIAL_PORT env.
+variable "clustermesh_proxy_port" {
+  type        = number
+  description = "Cilium clustermesh-proxy host-socket dial port (non-2379, host bind; NOT a NodePort). Peers dial <CP-EIP>:<this> → hostNetwork socat → clustermesh-apiserver etcd. Dodges the CP-node k3s-etcd :2379 collision (#4784)."
+  default     = 12379
+  validation {
+    condition     = var.clustermesh_proxy_port >= 1 && var.clustermesh_proxy_port <= 32767 && !(var.clustermesh_proxy_port >= 30000) && var.clustermesh_proxy_port != 2379 && var.clustermesh_proxy_port != 2380
+    error_message = "clustermesh_proxy_port must be a host port below the k8s NodePort range (30000-32767; §854) and NOT 2379/2380 (k3s embedded etcd on the CP-node host)."
+  }
+}

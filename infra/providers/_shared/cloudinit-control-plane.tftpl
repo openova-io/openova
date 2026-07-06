@@ -830,6 +830,22 @@ write_files:
             # gateway_member_port_*). Left UNSET on Hetzner (hcloud-ccm path).
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
+            # #4784 — clustermesh-proxy: the shared Sovereign EIP is the
+            # CP-node IP (1:1 NAT) AND the CP node runs k3s' own etcd on host
+            # :2379, so a peer dialing <EIP>:2379 lands on k3s etcd, not the
+            # Cilium clustermesh-apiserver (proven live hw225, #4784). Enable
+            # the bp-cilium clustermesh-proxy DaemonSet (hostNetwork socket on
+            # a dedicated non-2379 port → TCP-passthrough to the
+            # clustermesh-apiserver etcd) and point peers at it. The port MUST
+            # match infra/providers/huawei clustermesh_proxy_port (SG rule) +
+            # the catalyst-api CLUSTERMESH_APISERVER_DIAL_PORT env. Left UNSET
+            # on Hetzner (hcloud-ccm LB IP has no k3s-etcd host collision).
+            CILIUM_CLUSTERMESH_PROXY_ENABLED: "true"
+            CILIUM_CLUSTERMESH_PROXY_PORT: "${clustermesh_proxy_port}"
+            # catalyst-api dials peers on this port instead of 2379 (#4784).
+            # Consumed by the catalyst-api Deployment env (products/catalyst
+            # chart) — see clustermesh.go clusterMeshDialPort().
+            CLUSTERMESH_APISERVER_DIAL_PORT: "${clustermesh_proxy_port}"
             # #4706 — lockstep w/ the cilium-values hostNetwork block above.
             CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"
             # #4706 — console gateway binds 8443/8080 under hostNetwork (two

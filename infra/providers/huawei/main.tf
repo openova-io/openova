@@ -388,6 +388,27 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_clustermesh_2379" {
   description      = "Cilium clustermesh-apiserver VIP dial :2379 (mTLS-protected; #4765 — replaces the forbidden NodePort range)"
 }
 
+# #4784 — clustermesh-proxy host-socket dial port. On no-CCM Huawei the shared
+# Sovereign EIP is the CP-node IP, a 1:1 NAT whose host :2379 is ALREADY bound
+# by k3s' own embedded etcd — so peers dialing <EIP>:2379 hit k3s etcd, never
+# the Cilium clustermesh-apiserver (proven live hw225, #4784). The bp-cilium
+# clustermesh-proxy DaemonSet binds a hostNetwork socket on this dedicated
+# non-2379 port and TCP-passthroughs to the clustermesh-apiserver etcd;
+# catalyst-api points peers here via CLUSTERMESH_APISERVER_DIAL_PORT. This is
+# a hostNetwork bind, NOT a NodePort (the port is well outside the forbidden
+# 30000-32767 range). etcd mTLS remains the security boundary.
+resource "huaweicloud_networking_secgroup_rule" "ingress_clustermesh_proxy" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = var.clustermesh_proxy_port
+  port_range_max    = var.clustermesh_proxy_port
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Cilium clustermesh-proxy host-socket dial (mTLS-protected; #4784 — non-2379 to dodge the CP-node k3s-etcd host collision)"
+}
+
 resource "huaweicloud_networking_secgroup_rule" "ingress_icmp" {
   for_each          = { for r in var.regions : r.code => r }
   security_group_id = huaweicloud_networking_secgroup.region[each.key].id
@@ -1142,6 +1163,11 @@ locals {
       # region's tofu-known CP EIP (printf, NOT curl). Hard dependency (plan §5).
       node_external_ip_cmd   = "printf '%s' '${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'"
       node_external_ip_value = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
+      # #4784 — clustermesh-proxy host-socket dial port (non-2379; dodges the
+      # CP-node k3s-etcd :2379 collision). Drives CILIUM_CLUSTERMESH_PROXY_PORT
+      # + CLUSTERMESH_APISERVER_DIAL_PORT; matches the ingress_clustermesh_proxy
+      # SG rule + the bp-cilium clustermeshProxy.hostPort value.
+      clustermesh_proxy_port = var.clustermesh_proxy_port
       # node PRIVATE IP — HCS DHCP is non-deterministic (Wave 5.29 #2163:
       # cidrhost(subnet,2) is wrong), so detect the real eth0 address at
       # runtime. Used for k3s --node-ip + cilium k8sServiceHost substitution.

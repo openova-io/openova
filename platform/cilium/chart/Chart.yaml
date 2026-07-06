@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.12 (#4784, 2026-07-05): clustermesh-proxy — fix cross-region ClusterMesh
+# on no-CCM Huawei. #4765 had peers dial the clustermesh-apiserver VIP on the
+# shared Sovereign EIP :2379, but that EIP IS the CP-node IP: a Huawei 1:1 NAT
+# whose host :2379 is bound by k3s' OWN embedded etcd. So an off-cluster peer
+# dialing <EIP>:2379 is DNAT'd to <CP-private>:2379 and answered by K3S ETCD
+# (CN=etcd-server, k3s CA) — NEVER by Cilium's clustermesh-apiserver
+# (CN=clustermesh-apiserver.cilium.io, Cilium CA). The peer's etcd client
+# hangs → 0 remote clusters ready → cross-region global-service backend sync
+# dead → CNPG shared-pg replicas can't bootstrap. PROVEN LIVE hw225 with
+# openssl: <EIP>:2379 → etcd-server cert (Verify 19); the SAME mesh certs
+# against a host-socket on a NON-2379 port → clustermesh-apiserver.cilium.io
+# (Verify 0), mesh flips 0/1 → 1/1 ready, 13 region-A backends sync. FIX
+# (mirrors the gateway's proven host-socket model): a hostNetwork
+# clustermesh-proxy DaemonSet (templates/clustermesh-proxy-daemonset.yaml,
+# gated cilium.clustermeshProxy.enabled) binds a dedicated non-2379 host port
+# and TCP-passthroughs to the clustermesh-apiserver etcd; catalyst-api points
+# peers at it via CLUSTERMESH_APISERVER_DIAL_PORT (clustermesh.go). NOT a
+# NodePort — a hostNetwork bind (§854-clean, same as the gateway envoy).
+# Lockstep: blueprint.yaml 1.4.12 + 01-cilium.yaml slot pin 1.4.12 + catalog-
+# seed + values-clustermesh.yaml clustermeshProxy + infra/providers/huawei
+# (clustermesh_proxy_port var + ingress_clustermesh_proxy SG rule) +
+# cloudinit-control-plane.tftpl (CILIUM_CLUSTERMESH_PROXY_* +
+# CLUSTERMESH_APISERVER_DIAL_PORT) + products/catalyst chart (catalystApi.
+# clusterMeshDialPort → api-deployment env) + catalyst-api image rebuild.
+# DRAFT: needs a fresh 2-region Huawei prov cross-region walk (datapath
+# activation) to flip 1/1 ready on a clean prov. Refs #4784 #4656.
 # 1.4.9 (#4765, 2026-07-05): ZERO NODEPORTS. Merge the two overlapping
 # CiliumLoadBalancerIPPool templates (clustermesh-apiserver + sovereign-
 # gateway, both claiming the SAME CP-node /32 → the second pool went
@@ -235,7 +261,7 @@ name: bp-cilium
 #   Layers ON TOP of the 1.4.9/1.4.10 zero-nodeport + authMode=legacy work.
 #   Needs a fresh 2-region prov to verify the cross-region ClusterMesh pod
 #   path end-to-end (datapath change, not CI-provable). Refs #4656.
-version: 1.4.11
+version: 1.4.12
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

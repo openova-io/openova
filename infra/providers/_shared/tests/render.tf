@@ -71,6 +71,7 @@ locals {
     node_ip_cmd                       = "echo 10.0.1.2"
     node_external_ip_cmd              = "echo 203.0.113.10"
     node_external_ip_value            = "203.0.113.10"
+    clustermesh_proxy_port            = 12379
     k3s_extra_args                    = ""
     registry_mirror_yaml              = "mirrors: {}"
     catalyst_api_url                  = "https://console.example.test"
