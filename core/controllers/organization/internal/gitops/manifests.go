@@ -329,22 +329,27 @@ spec:
       fromHost:
         ingressClasses:
           enabled: true
-        # #4739/#4803: mirror the HOST keycloak Service INTO the vcluster so a
-        # vcluster-hosted app (bp-openclaw) resolves keycloak.keycloak.svc.
-        # cluster.local and fetches the realm JWKS IN-CLUSTER — dodging the
-        # kom4dc NAT-EIP hairpin that 503s /readyz when the JWKS is pulled from
-        # the public issuer's EXTERNAL jwks_uri (the gateway EIP, unreachable
-        # from a Pod on kom4dc). Pairs with openclaw's OIDC_INTERNAL_ISSUER_URL
-        # seam (#4803): the overlay sets it to
-        # http://keycloak.keycloak.svc.cluster.local/realms/<realm> and this
-        # mapping makes that name resolve inside the vcluster. vcluster 0.33
-        # config-v2 fromHost.services.mappings.byName ("host-ns/name":
-        # "virtual-ns/name").
-        services:
-          enabled: true
-          mappings:
-            byName:
-              "keycloak/keycloak": "keycloak/keycloak"
+    # #4739/#4803/#4821: mirror the HOST keycloak Service INTO the vcluster so a
+    # vcluster-hosted app (bp-openclaw) resolves keycloak.keycloak.svc.cluster.
+    # local and fetches the realm JWKS IN-CLUSTER — dodging the kom4dc NAT-EIP
+    # hairpin that 503s /readyz when the JWKS is pulled from the public issuer's
+    # EXTERNAL jwks_uri (the gateway EIP, unreachable from a Pod on kom4dc).
+    # Pairs with openclaw's OIDC_INTERNAL_ISSUER_URL seam (#4803).
+    #
+    # #4821: loft vcluster 0.33.4 has NO sync.fromHost.services key — its
+    # values.schema.json rejects it ("Additional property services is not
+    # allowed"), so the vcluster HelmRelease InstallFailed and the ENTIRE
+    # customer-Org provision stalled (dns/certs/keycloak/registry never ran;
+    # first surfaced on the first real customer-Org vcluster prov, hw228 acme).
+    # The correct vcluster config to import a host Service is
+    # networking.replicateServices.fromHost (a list of {from,to} — host-ns/svc
+    # to virtual-ns/svc) — the same key the platform's bp-mgmt-vcluster chart
+    # uses for shared-pg.
+    networking:
+      replicateServices:
+        fromHost:
+          - from: keycloak/keycloak
+            to: keycloak/keycloak
 `
 
 // resourceQuotaTemplate caps the Org boundary host namespace at the plan the
