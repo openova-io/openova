@@ -1381,66 +1381,106 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 
 	// --- Step: Generate manifests ---
 	h.markStep(ctx, provisionID, stepIdx, prov.Steps[stepIdx].Name, "running")
-	manifests := h.Generator.GenerateAllWithAppConfigs(subdomain, planSlug, appSlugs, "", appConfigs)
-	if len(manifests) == 0 {
-		h.failProvision(ctx, provisionID, tenantID, stepIdx, "failed to generate manifests")
-		return
-	}
-	slog.Info("generated manifests",
-		"provision_id", provisionID,
-		"tenant", subdomain,
-		"files", len(manifests),
-	)
-	h.completeStep(ctx, provisionID, tenantID, stepIdx, prov.Steps[stepIdx].Name, totalSteps)
-	stepIdx++
 
-	// --- Step: Commit to Git ---
-	h.markStep(ctx, provisionID, stepIdx, prov.Steps[stepIdx].Name, "running")
+	// #4827 — On a Sovereign (PerOrgGitops) the customer's Applications are
+	// authored ONLY into the per-Org `<slug>/catalyst-tenant` repo: the
+	// org-controller bootstraps that repo's `vcluster/apps` tree + its
+	// `catalyst-tenant-<slug>-apps` Flux Kustomization, and each cart app's
+	// tenant.app_install_requested event drives applyTenantChangePerOrg to
+	// commit there (branch `main`, DB password read-preserved from that same
+	// tree). Authoring the SAME apps ALSO into the global `org-tenants` catalog
+	// tree here (the legacy contabo path) mints a SECOND, divergent apps tree
+	// with an independently-generated random DB password; that tree's
+	// `tenant-<slug>-apps` Kustomization AND the per-Org
+	// `catalyst-tenant-<slug>-apps` Kustomization then both reconcile the SAME
+	// WordPress Deployment INTO the vCluster (identical name/namespace, both
+	// prune=true) with two different *plaintext* WORDPRESS_DB_PASSWORD values,
+	// so the WordPress pod template flip-flops on every reconcile → endless
+	// rollout churn → intermittent HTTP 500. (The MySQL pod is immune: it
+	// consumes creds via `envFrom secretRef: mysql-credentials`, a
+	// template-stable reference by NAME, so its template is byte-identical
+	// across both trees and it never rolls.) The PerOrgGitops contract is
+	// explicit — "the global repo is the WRONG target for per-Org apps on a
+	// Sovereign" — and everything the org-tenants overlay carried lives in the
+	// per-Org tree (the #4785 in-vCluster HTTPRoute datapath, the networkpolicy
+	// baseline, the vCluster CR; the org-tenants overlay's only extras were a
+	// legacy `kind: Ingress` + per-tenant RBAC, both inert on a Gateway-API
+	// Sovereign). So on a Sovereign this legacy monolithic workflow authors
+	// NOTHING to git — it completes the generate + commit timeline steps as a
+	// no-op and proceeds to OBSERVE the per-Org-delivered vCluster pods for the
+	// funnel progress UI.
+	if h.PerOrgGitops {
+		h.completeStepWithMessage(ctx, provisionID, tenantID, stepIdx, prov.Steps[stepIdx].Name, totalSteps,
+			"per-Org Sovereign — Applications authored in the Org's catalyst-tenant repo (not the global org-tenants tree)")
+		stepIdx++
 
-	if h.GitHubClient == nil {
-		h.failProvision(ctx, provisionID, tenantID, stepIdx, "GitHub client not configured")
-		return
-	}
+		// --- Step: Commit to Git (owned by the per-Org app-install path) ---
+		h.markStep(ctx, provisionID, stepIdx, prov.Steps[stepIdx].Name, "running")
+		h.completeStepWithMessage(ctx, provisionID, tenantID, stepIdx, prov.Steps[stepIdx].Name, totalSteps,
+			"per-Org Sovereign — manifests committed to the Org's catalyst-tenant repo by the app-install path")
+		stepIdx++
+	} else {
+		manifests := h.Generator.GenerateAllWithAppConfigs(subdomain, planSlug, appSlugs, "", appConfigs)
+		if len(manifests) == 0 {
+			h.failProvision(ctx, provisionID, tenantID, stepIdx, "failed to generate manifests")
+			return
+		}
+		slog.Info("generated manifests",
+			"provision_id", provisionID,
+			"tenant", subdomain,
+			"files", len(manifests),
+		)
+		h.completeStep(ctx, provisionID, tenantID, stepIdx, prov.Steps[stepIdx].Name, totalSteps)
+		stepIdx++
 
-	parentKustomPath := h.Generator.BasePath + "/kustomization.yaml"
+		// --- Step: Commit to Git ---
+		h.markStep(ctx, provisionID, stepIdx, prov.Steps[stepIdx].Name, "running")
 
-	// Issue #944 cross-cluster pollution guard. Validate the parent
-	// kustomization path AND the per-tenant subdir live under the
-	// configured GIT_BASE_PATH before any commit lands.
-	if err := h.VerifyCommitTargetSafe(parentKustomPath); err != nil {
-		slog.Error("commit guard rejected provision target", "provision_id", provisionID, "path", parentKustomPath, "error", err)
-		h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("commit guard: %s", err))
-		return
-	}
-	if err := h.VerifyCommitTargetSafe(h.Generator.TenantDir(subdomain) + "/"); err != nil {
-		slog.Error("commit guard rejected tenant target", "provision_id", provisionID, "tenant", subdomain, "error", err)
-		h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("commit guard: %s", err))
-		return
-	}
+		if h.GitHubClient == nil {
+			h.failProvision(ctx, provisionID, tenantID, stepIdx, "GitHub client not configured")
+			return
+		}
 
-	branch := h.GitBranch
-	if branch == "" {
-		branch = "main"
-	}
+		parentKustomPath := h.Generator.BasePath + "/kustomization.yaml"
 
-	// Re-read the parent kustomization on EACH commit attempt so a concurrent
-	// teardown's removal of another slug doesn't get reverted by our retry
-	// replaying a stale files map (live race observed 2026-05-06: multitest
-	// provision's retry resurrected the just-deleted bookcheck slug). The
-	// #4250 sibling-prune guard lives in provisionParentRebuild.
-	rebuild := func(ctx context.Context) (map[string]string, error) {
-		return h.provisionParentRebuild(ctx, branch, parentKustomPath, subdomain, manifests)
-	}
+		// Issue #944 cross-cluster pollution guard. Validate the parent
+		// kustomization path AND the per-tenant subdir live under the
+		// configured GIT_BASE_PATH before any commit lands.
+		if err := h.VerifyCommitTargetSafe(parentKustomPath); err != nil {
+			slog.Error("commit guard rejected provision target", "provision_id", provisionID, "path", parentKustomPath, "error", err)
+			h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("commit guard: %s", err))
+			return
+		}
+		if err := h.VerifyCommitTargetSafe(h.Generator.TenantDir(subdomain) + "/"); err != nil {
+			slog.Error("commit guard rejected tenant target", "provision_id", provisionID, "tenant", subdomain, "error", err)
+			h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("commit guard: %s", err))
+			return
+		}
 
-	commitMsg := fmt.Sprintf("provision: deploy tenant %s (plan: %s, apps: %d)", subdomain, planSlug, len(appSlugs))
-	if err := h.GitHubClient.CommitFilesWithPruneAndRebuild(ctx, branch, commitMsg, nil, nil, rebuild); err != nil {
-		slog.Error("failed to commit manifests", "provision_id", provisionID, "error", err)
-		h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("git commit failed: %s", err))
-		return
+		branch := h.GitBranch
+		if branch == "" {
+			branch = "main"
+		}
+
+		// Re-read the parent kustomization on EACH commit attempt so a concurrent
+		// teardown's removal of another slug doesn't get reverted by our retry
+		// replaying a stale files map (live race observed 2026-05-06: multitest
+		// provision's retry resurrected the just-deleted bookcheck slug). The
+		// #4250 sibling-prune guard lives in provisionParentRebuild.
+		rebuild := func(ctx context.Context) (map[string]string, error) {
+			return h.provisionParentRebuild(ctx, branch, parentKustomPath, subdomain, manifests)
+		}
+
+		commitMsg := fmt.Sprintf("provision: deploy tenant %s (plan: %s, apps: %d)", subdomain, planSlug, len(appSlugs))
+		if err := h.GitHubClient.CommitFilesWithPruneAndRebuild(ctx, branch, commitMsg, nil, nil, rebuild); err != nil {
+			slog.Error("failed to commit manifests", "provision_id", provisionID, "error", err)
+			h.failProvision(ctx, provisionID, tenantID, stepIdx, fmt.Sprintf("git commit failed: %s", err))
+			return
+		}
+		slog.Info("committed manifests to GitHub", "provision_id", provisionID, "tenant", subdomain)
+		h.completeStep(ctx, provisionID, tenantID, stepIdx, prov.Steps[stepIdx].Name, totalSteps)
+		stepIdx++
 	}
-	slog.Info("committed manifests to GitHub", "provision_id", provisionID, "tenant", subdomain)
-	h.completeStep(ctx, provisionID, tenantID, stepIdx, prov.Steps[stepIdx].Name, totalSteps)
-	stepIdx++
 
 	// --- Step: Wait for vCluster HelmRelease Ready ---
 	// #4297 TIER GATE — vcluster-only. The "Provisioning vCluster" step stays in
