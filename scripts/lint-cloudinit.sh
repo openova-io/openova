@@ -134,6 +134,11 @@ fixture_common() {
     pdns_api_host                     = "pdns.openova.io"
     sovereign_region_role             = "primary"
     node_external_ip_value            = "203.0.113.10"
+    # #4784 — clustermesh-proxy host port (below k8s NodePort range, not
+    # 2379/2380). The real templatefile() maps in infra/providers/*/main.tf
+    # supply this; keep the lint fixture in lockstep or tofu errors
+    # "vars map does not contain key clustermesh_proxy_port".
+    clustermesh_proxy_port            = 12379
 HCL
 }
 
