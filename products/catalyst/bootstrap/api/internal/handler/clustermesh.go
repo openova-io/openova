@@ -2589,6 +2589,18 @@ func peerMeshHostname(peerClusterName string) string {
 // mesh-component crash-cycle (clustermesh-apiserver Deployment hit
 // generation 35 on hw128) that never left the agents a stable window to
 // finish the remote-config sync.
+//
+// #4811 part-b INVARIANT (relied on by the establish path + pinned by
+// TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish): the
+// per-peer ENDPOINT config-blob key (`<peer>` → buildPeerConfigBlob output)
+// is a MANAGED key, so it is ALWAYS overwritten — never merged-and-kept —
+// with the freshly-built blob. That blob carries the current
+// clusterMeshDialPort(), so an env whose peer endpoint was written in a
+// pre-12379 window (stale `:2379`) is authoritatively corrected to
+// `:12379` on the next establish pass rather than preserved. A future
+// refactor that turns this into skip-if-key-exists semantics would
+// silently reintroduce the stuck-`:2379` / ClusterMesh 0/1 symptom proven
+// live on hw228 — keep managed keys authoritative.
 func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.Interface, entries map[string][]byte) (bool, error) {
 	if len(entries) == 0 {
 		return false, nil
