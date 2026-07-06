@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-06T05:45:02Z` |
+| Last refreshed | `2026-07-06T06:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 53 |
+| Open issues | 52 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 53 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 52 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 53 open items (clickable table)
+### All 52 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -252,7 +252,6 @@ flowchart LR
 | [#4811](https://github.com/openova-io/openova/issues/4811) | region-b clustermesh dead: #4765 dials :2379 on shared CP-EIP where k3s embedded | Other |
 | [#4813](https://github.com/openova-io/openova/issues/4813) | Funnel-provisioned customer Org lands namespace-isolated, not vcluster (+ false  | Other |
 | [#4814](https://github.com/openova-io/openova/issues/4814) | Cloud graph renders WorkerNode 24/24 + Region 2/2 as healthy while region-b is a | Other |
-| [#4815](https://github.com/openova-io/openova/issues/4815) | Per-Org console Apps list empty for funnel customer Org — tenant-service apps[ | Other |
 
 ---
 
@@ -260,6 +259,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-06T05:53 | [#4816](https://github.com/openova-io/openova/pull/4816) | #4811 | fix(#4814): cloud-graph counts honest for standby-absent sec |
 | 2026-07-05T21:17 | [#4812](https://github.com/openova-io/openova/pull/4812) | #4808 | fix(#4620): Huawei cloud-credentials empty hcloud-token plac |
 | 2026-07-05T18:19 | [#4810](https://github.com/openova-io/openova/pull/4810) | #3374 | fix(ci): uat-sso-flip consolidated-ledger fallback — unbreak |
 | 2026-07-05T17:37 | [#4809](https://github.com/openova-io/openova/pull/4809) | #4807 | fix(ui): OrgConsumption.isPlatform — unbreak catalyst-build |
@@ -289,7 +289,6 @@ flowchart LR
 | 2026-07-04T21:06 | [#4776](https://github.com/openova-io/openova/pull/4776) | #71 | fix(crossplane): stop the XUserAccess composite leak — UserA |
 | 2026-07-04T20:56 | [#4775](https://github.com/openova-io/openova/pull/4775) | #3153 | fix(dashboard): mothership /jobs re-seeds install+reconcile  |
 | 2026-07-04T19:44 | [#4774](https://github.com/openova-io/openova/pull/4774) | #4773 | docs(uat): crossplane-adoption rows 206/207/239 confirmed ❌  |
-| 2026-07-04T19:12 | [#4772](https://github.com/openova-io/openova/pull/4772) | #4466 | docs(uat): G5 janitor + G10 placement walked live on hw224 ( |
 
 ---
 
