@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-06T06:30:04Z` |
+| Last refreshed | `2026-07-06T06:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 52 |
 | Open DoD gates | 0 / 41 |
@@ -279,6 +279,7 @@ flowchart LR
 | 2026-07-05T04:36 | [#4791](https://github.com/openova-io/openova/pull/4791) | #4739 | fix(console): eradicate residual user-facing tenant leaks (r |
 | 2026-07-05T04:36 | [#4790](https://github.com/openova-io/openova/pull/4790) | #4786 | fix(provisioning): mirror per-Org kubeconfig into tenant ns  |
 | 2026-07-05T04:36 | [#4789](https://github.com/openova-io/openova/pull/4789) | #4781 | fix(crossplane): ProviderConfig GVK tf→opentofu (adopt-* Wor |
+| 2026-07-06T06:31 | [#4787](https://github.com/openova-io/openova/pull/4787) | #4765 | fix(cilium): clustermesh-proxy — cross-region ClusterMesh di |
 | 2026-07-05T03:30 | [#4786](https://github.com/openova-io/openova/pull/4786) | #4785 | fix(org-controller): per-Org vcluster CNP bootstrap deadlock |
 | 2026-07-05T00:07 | [#4782](https://github.com/openova-io/openova/pull/4782) | #4781 | docs(uat): rows 206/207/239 deep-walk finding (GVK fix #4781 |
 | 2026-07-04T21:56 | [#4781](https://github.com/openova-io/openova/pull/4781) | #4739 | fix(crossplane): cloudadoption Workspace GVK -> opentofu.upb |
@@ -288,7 +289,6 @@ flowchart LR
 | 2026-07-04T21:01 | [#4777](https://github.com/openova-io/openova/pull/4777) | #4467 | fix(cilium): native routing (drop VXLAN) to end the unfixabl |
 | 2026-07-04T21:06 | [#4776](https://github.com/openova-io/openova/pull/4776) | #71 | fix(crossplane): stop the XUserAccess composite leak — UserA |
 | 2026-07-04T20:56 | [#4775](https://github.com/openova-io/openova/pull/4775) | #3153 | fix(dashboard): mothership /jobs re-seeds install+reconcile  |
-| 2026-07-04T19:44 | [#4774](https://github.com/openova-io/openova/pull/4774) | #4773 | docs(uat): crossplane-adoption rows 206/207/239 confirmed ❌  |
 
 ---
 
