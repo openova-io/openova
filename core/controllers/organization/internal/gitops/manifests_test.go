@@ -266,6 +266,40 @@ func TestRender_LimitRangeNoRatioForVclusterOrg(t *testing.T) {
 	}
 }
 
+// TestRender_VclusterRegistersHTTPRouteCRD_4785 locks in the #4785 fix: the per-Org
+// vcluster HR must register the Gateway-API HTTPRoute CRD via
+// experimental.deploy.vcluster.manifests so a customer app's chart (bp-wordpress)
+// can CREATE its ingress HTTPRoute. vcluster 0.33.4 sync.toHost.customResources does
+// NOT register the CRD (only reflects instances host-ward), so without this the
+// tenant-<slug>-apps Kustomization dry-run fails "no matches for kind HTTPRoute" and
+// wedges every customer app. Validated live on hw228 acme 2026-07-06 — WordPress+MySQL
+// reached 1/1 Running the moment this CRD was registered.
+func TestRender_VclusterRegistersHTTPRouteCRD_4785(t *testing.T) {
+	t.Parallel()
+	out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+		PlanSlug: "m", SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	vc := string(out["vcluster/vcluster.yaml"])
+	for _, want := range []string{
+		"experimental:",
+		"deploy:",
+		"manifests: |",
+		"httproutes.gateway.networking.k8s.io",
+		"kind: HTTPRoute",
+		"x-kubernetes-preserve-unknown-fields: true",
+	} {
+		if !strings.Contains(vc, want) {
+			t.Errorf("#4785: vcluster.yaml must register the HTTPRoute CRD in the per-Org vcluster, missing %q", want)
+		}
+	}
+	var v any
+	if err := yaml.Unmarshal([]byte(vc), &v); err != nil {
+		t.Errorf("#4785: vcluster.yaml invalid YAML after the CRD-register block: %v", err)
+	}
+}
+
 // TestRender_NetworkPolicyBaselineInAppsTree proves the default-deny +
 // same-Org-allow baseline renders in the apps tree (so the syncer reflects it
 // to the host). The np-sync flag itself is asserted in TestRender_AllPaths.

@@ -350,6 +350,55 @@ spec:
         fromHost:
           - from: keycloak/keycloak
             to: keycloak/keycloak
+    # #4785: REGISTER the Gateway-API HTTPRoute CRD inside the per-Org vcluster so
+    # a customer app's chart (bp-wordpress etc.) can CREATE its ingress HTTPRoute.
+    # A vanilla vcluster has NO gateway.networking.k8s.io CRD, and vcluster 0.33.4
+    # sync.toHost.customResources (above) does NOT register the CRD in the vcluster
+    # apiserver — it only reflects instances host-ward — so the kubeConfig-targeted
+    # tenant-<slug>-apps Kustomization dry-run fails 'no matches for kind HTTPRoute
+    # in gateway.networking.k8s.io/v1' and wedges the ENTIRE app tree (no customer
+    # app ever serves). VALIDATED live on hw228 acme 2026-07-06: the moment this
+    # CRD was registered the apps Kustomization flipped False->Ready/Applied and
+    # WordPress+MySQL reached 1/1 Running. A STRUCTURAL stub
+    # (x-kubernetes-preserve-unknown-fields) is sufficient — the vcluster only needs
+    # to ACCEPT the create; the HOST Cilium Gateway-API operator holds the
+    # authoritative full schema + does the real validation when toHost reflects the
+    # route. Same mechanism bp-mgmt-vcluster uses (values.yaml experimental.deploy,
+    # proven hw130) — see #4785 conclusive diagnosis.
+    experimental:
+      deploy:
+        vcluster:
+          manifests: |
+            apiVersion: apiextensions.k8s.io/v1
+            kind: CustomResourceDefinition
+            metadata:
+              name: httproutes.gateway.networking.k8s.io
+              annotations:
+                api-approved.kubernetes.io: "https://github.com/kubernetes-sigs/gateway-api/pull/1111"
+                catalyst.openova.io/managed-by: org-controller
+            spec:
+              group: gateway.networking.k8s.io
+              scope: Namespaced
+              names:
+                kind: HTTPRoute
+                listKind: HTTPRouteList
+                plural: httproutes
+                singular: httproute
+              versions:
+                - name: v1
+                  served: true
+                  storage: true
+                  schema:
+                    openAPIV3Schema:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                - name: v1beta1
+                  served: true
+                  storage: false
+                  schema:
+                    openAPIV3Schema:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
 `
 
 // resourceQuotaTemplate caps the Org boundary host namespace at the plan the
