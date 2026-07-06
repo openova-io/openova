@@ -1142,6 +1142,79 @@ func TestShouldStartupClusterMeshReconcile_ConventionalFallback(t *testing.T) {
 	})
 }
 
+// TestStartupClusterMeshRetry_SelfHealsTransientKubeconfigMiss is the #4811
+// regression: on a fresh 2-region Sovereign restore, restoreFromStore runs
+// inside New() sometimes MILLISECONDS before the k8scache dir-load writes the
+// primary kubeconfig file to the PVC. The record's omitempty
+// Result.KubeconfigPath is empty and the conventional file is not yet on disk,
+// so shouldStartupClusterMeshReconcile's os.Stat misses it and the one-shot
+// gate returns false. The OLD code dropped the mesh reconcile forever, so the
+// establish loop (and its steady-state heal that regenerates a stale
+// clustermesh endpoint) never started and region-b stayed ClusterMesh 0/1
+// across every OOM restart. The FIX starts a bounded retry that re-checks the
+// gate and launches the establish the moment the kubeconfig lands.
+func TestStartupClusterMeshRetry_SelfHealsTransientKubeconfigMiss(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	// Simulate the transient miss: the record lost its omitempty
+	// Result.KubeconfigPath AND the conventional primary file is not yet on the
+	// PVC when the reconcile is first evaluated.
+	fx.dep.mu.Lock()
+	fx.dep.Result.KubeconfigPath = ""
+	fx.dep.mu.Unlock()
+	if err := os.Remove(fx.primaryKubeconfigPath); err != nil {
+		t.Fatalf("remove primary kubeconfig to simulate transient miss: %v", err)
+	}
+
+	// Precondition: the one-shot gate skips right now (the bug), but the dep IS
+	// a ready multi-region mesh candidate — so the retry SHOULD arm.
+	if fx.handler.shouldStartupClusterMeshReconcile(fx.dep) {
+		t.Fatalf("precondition: gate must skip while the primary kubeconfig is absent")
+	}
+	if !fx.handler.clusterMeshReconcileStatusGate(fx.dep) {
+		t.Fatalf("precondition: a ready 2-region dep must pass the status gate so the retry arms")
+	}
+
+	// Sub-second knobs so the retry re-checks and the establish converges in ms.
+	fx.handler.clusterMeshStartupRetryInterval = 10 * time.Millisecond
+	fx.handler.clusterMeshStartupRetryBudget = 10 * time.Second
+	fx.handler.clusterMeshRetryInitialBackoff = 20 * time.Millisecond
+	fx.handler.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
+	fx.handler.clusterMeshRetryBudget = 10 * time.Second
+	fx.handler.clusterMeshAttemptTimeout = 5 * time.Second
+	fx.handler.clusterMeshSteadyStateInterval = 20 * time.Millisecond
+
+	// Release the (blocking) steady-state heal once convergence lands so the
+	// establish goroutine returns cleanly.
+	stopSteady := watchAndStopSteadyStateOnConverged(fx)
+	defer stopSteady()
+
+	// Arm the bounded retry — it must NOT establish yet (file still absent).
+	go fx.handler.retryStartupClusterMeshReconcile(fx.dep)
+
+	// The kubeconfig FILE lands on the PVC shortly after (k8scache dir-load
+	// finishes). The retry's next poll now resolves it, passes the gate, and
+	// launches the establish → the mesh converges.
+	time.Sleep(40 * time.Millisecond)
+	if hasClusterMeshEvent(fx.dep, "info", "reconcile loop complete") {
+		t.Fatalf("establish fired before the kubeconfig landed — retry must not launch while the primary is unresolved")
+	}
+	writeFakeKubeconfig(t, fx.dir, fx.dep.ID, "") // re-creates <dir>/<id>.yaml (== fx.primaryKubeconfigPath)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if hasClusterMeshEvent(fx.dep, "info", "reconcile loop complete") {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("startup mesh reconcile never fired after the transient kubeconfig miss self-healed; events:\n%s", dumpClusterMeshEvents(fx.dep))
+}
+
 // TestBuildRegionSlots_SecondaryConventionalFallback documents + locks in
 // the part-2 finding: secondary region kubeconfigs are resolved from the
 // conventional `<kubeconfigsDir>/<id>-<region>-<idx>.yaml` filesystem path

@@ -56,6 +56,16 @@ type Handler struct {
 	dynadotAPIKey    string
 	dynadotAPISecret string
 
+	// clusterMeshLoopActive guards against double-starting the establish +
+	// steady-state loop for the same deployment (#4811). runAutoEstablishClusterMesh
+	// LoadOrStores the dep ID on entry and Deletes it on return, so a second
+	// concurrent trigger — the startup retry racing markPhase1Done /
+	// converged-late, or two restore passes — becomes a cheap no-op instead of
+	// two competing loops thrashing the same idempotent Secret writes. Cleared
+	// on return so a later legitimate re-trigger (next catalyst-api roll) still
+	// runs. map[string]struct{}.
+	clusterMeshLoopActive sync.Map
+
 	// pdm — pool-domain-manager client. Required in production; tests can
 	// inject a fake via NewWithPDM. The default URL points at the in-cluster
 	// service FQDN so a stock Catalyst-Zero deployment "just works" without
@@ -209,6 +219,22 @@ type Handler struct {
 	// value so the steady-state pass is exercised in milliseconds;
 	// production leaves it at zero.
 	clusterMeshSteadyStateInterval time.Duration
+
+	// clusterMeshStartupRetry* (#4811) — bounded retry for the STARTUP
+	// ClusterMesh reconcile when restoreFromStore finds a ready multi-region
+	// deployment whose primary kubeconfig was merely UNRESOLVED at restore.
+	// restoreFromStore runs inside New(), sometimes milliseconds BEFORE the
+	// k8scache dir-load writes the primary kubeconfig file to the PVC, so the
+	// resolvePrimaryKubeconfigPath os.Stat misses it and
+	// shouldStartupClusterMeshReconcile returns false. The old one-shot dropped
+	// the reconcile forever; retryStartupClusterMeshReconcile instead re-checks
+	// on Interval and launches runAutoEstablishClusterMesh the first time it
+	// passes, giving up after Budget so a genuinely-lost kubeconfig still stops.
+	// Zero falls back to the clusterMeshStartupRetry*Default constants in
+	// clustermesh.go. Tests inject sub-second values so the self-heal is
+	// exercised in milliseconds; production leaves both at zero.
+	clusterMeshStartupRetryInterval time.Duration
+	clusterMeshStartupRetryBudget   time.Duration
 
 	// handoverCertWaitTimeout / handoverCertPollInterval — runtime knobs
 	// for the loop that waits for the sovereign-wildcard-tls Certificate

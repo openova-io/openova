@@ -527,6 +527,7 @@ func (h *Handler) restoreFromStore() {
 
 	resumed := 0
 	meshReconciles := 0
+	meshRetries := 0
 	spineReconciles := 0
 	for _, rec := range records {
 		dep := fromRecord(rec)
@@ -599,6 +600,22 @@ func (h *Handler) restoreFromStore() {
 			// kubeconfigs are warn-and-skipped inside the should-helper.
 			meshReconciles++
 			go h.runAutoEstablishClusterMesh(dep)
+		} else if h.clusterMeshReconcileStatusGate(dep) {
+			// #4811 — the deployment IS a ready multi-region mesh candidate but
+			// shouldStartupClusterMeshReconcile returned false ONLY because the
+			// primary kubeconfig was unresolved at restore (the k8scache
+			// dir-load race: restoreFromStore runs during New(), sometimes
+			// milliseconds before the kubeconfig file lands on the PVC, so the
+			// resolvePrimaryKubeconfigPath os.Stat misses it). The old one-shot
+			// dropped the reconcile forever, so the stale cilium-clustermesh
+			// endpoint (:2379 KINE port instead of the :12379 proxy dial port) —
+			// regenerated only by the establish loop's steady-state heal — never
+			// healed and region-b's mesh stayed 0/1 across every OOM restart.
+			// Start a bounded background retry that re-checks and fires the
+			// establish the moment the kubeconfig resolves; it self-bounds so a
+			// genuinely-lost kubeconfig still stops.
+			meshRetries++
+			go h.retryStartupClusterMeshReconcile(dep)
 		}
 		// #3319 (founder, 2026-06-12) — converged-late handover. MUST be
 		// an INDEPENDENT hook, not the else-arm above: #3317 made the
@@ -641,6 +658,7 @@ func (h *Handler) restoreFromStore() {
 		"count", len(records),
 		"resumed", resumed,
 		"clusterMeshReconciles", meshReconciles,
+		"clusterMeshRetries", meshRetries,
 		"spineReconciles", spineReconciles,
 		"dir", h.store.Dir(),
 	)

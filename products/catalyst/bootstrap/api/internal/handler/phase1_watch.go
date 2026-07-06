@@ -1470,6 +1470,20 @@ func (h *Handler) runHandoverJobSweep(dep *Deployment) {
 // convergence success event still fires exactly once (operator signal);
 // the status!=ready check ends the goroutine on wipe.
 func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
+	// #4811 — one establish+heal loop per deployment. A second concurrent
+	// trigger (the startup retry racing markPhase1Done / converged-late, or two
+	// restore passes) LoadOrStores the same dep ID and becomes a no-op instead
+	// of spinning a competing loop that thrashes the same idempotent Secret
+	// writes. Cleared on return so a later legitimate re-trigger (the next
+	// catalyst-api roll) still runs.
+	if _, active := h.clusterMeshLoopActive.LoadOrStore(dep.ID, struct{}{}); active {
+		h.log.Info("clustermesh: establish loop already active for deployment — skipping duplicate start",
+			"id", dep.ID,
+		)
+		return
+	}
+	defer h.clusterMeshLoopActive.Delete(dep.ID)
+
 	defer func() {
 		if r := recover(); r != nil {
 			h.log.Error("clustermesh: orchestrator panic recovered",

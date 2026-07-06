@@ -224,6 +224,18 @@ const (
 	// on the next pass. The Handler field clusterMeshSteadyStateInterval
 	// overrides this for tests; zero falls back to the default below.
 	clusterMeshSteadyStateIntervalDefault = 5 * time.Minute
+
+	// #4811 — startup mesh-reconcile retry cadence + budget. When
+	// restoreFromStore finds a ready multi-region deployment whose primary
+	// kubeconfig is unresolved (the k8scache dir-load race — the file is on the
+	// PVC but os.Stat missed it by a few ms), retryStartupClusterMeshReconcile
+	// re-evaluates shouldStartupClusterMeshReconcile on this interval and
+	// launches the establish the first time it resolves, giving up after the
+	// budget so a genuinely-lost kubeconfig stops instead of spinning forever.
+	// The Handler fields clusterMeshStartupRetry* override these for tests;
+	// zero falls back to the defaults below.
+	clusterMeshStartupRetryIntervalDefault = 5 * time.Second
+	clusterMeshStartupRetryBudgetDefault   = 3 * time.Minute
 )
 
 // ClusterMesh-gated cnpg-pair enable (#3236) — names of the Flux
@@ -2842,6 +2854,39 @@ func (h *Handler) resolvePrimaryKubeconfigPath(dep *Deployment) (string, bool) {
 // loop's first attempt is a cheap idempotent re-run that confirms full
 // mesh and exits.
 func (h *Handler) shouldStartupClusterMeshReconcile(dep *Deployment) bool {
+	if !h.clusterMeshReconcileStatusGate(dep) {
+		return false
+	}
+	if _, ok := h.resolvePrimaryKubeconfigPath(dep); !ok {
+		dep.mu.Lock()
+		regionCount := len(dep.Request.Regions)
+		dep.mu.Unlock()
+		h.log.Warn("clustermesh: startup reconcile skipped — primary kubeconfig unresolved on ready multi-region deployment",
+			"id", dep.ID,
+			"regions", regionCount,
+		)
+		return false
+	}
+	return true
+}
+
+// clusterMeshReconcileStatusGate reports whether a rehydrated deployment's
+// status + region count make it a candidate for the startup ClusterMesh
+// reconcile — the STATUS/REGION half of shouldStartupClusterMeshReconcile,
+// factored out for #4811 so restoreFromStore can tell "not a mesh candidate at
+// all" (single-region, hard-failed) apart from "mesh candidate whose primary
+// kubeconfig was merely UNRESOLVED at restore". The latter is a TRANSIENT
+// condition — the kubeconfig FILE is on the PVC but the k8scache dir-load had
+// not finished when restoreFromStore ran, so os.Stat missed it — and must be
+// RETRIED (retryStartupClusterMeshReconcile) rather than skipped forever, which
+// is exactly the bug that left region-b ClusterMesh 0/1 across every OOM
+// restart.
+//
+// ready, OR failed-by-TIMEOUT (#3285/hw130): a timeout record's cluster keeps
+// converging under Flux — abandoning its mesh forever contradicted the
+// never-wipe-a-timeout doctrine. Hard failures (OutcomeFailed /
+// flux-not-reconciling) stay excluded.
+func (h *Handler) clusterMeshReconcileStatusGate(dep *Deployment) bool {
 	dep.mu.Lock()
 	status := dep.Status
 	regionCount := len(dep.Request.Regions)
@@ -2850,22 +2895,88 @@ func (h *Handler) shouldStartupClusterMeshReconcile(dep *Deployment) bool {
 		outcome = dep.Result.Phase1Outcome
 	}
 	dep.mu.Unlock()
-	// ready, OR failed-by-TIMEOUT (#3285/hw130): a timeout record's
-	// cluster keeps converging under Flux — abandoning its mesh forever
-	// contradicted the never-wipe-a-timeout doctrine. Hard failures
-	// (OutcomeFailed / flux-not-reconciling) stay excluded.
 	rescuableTimeout := status == "failed" && outcome == helmwatch.OutcomeTimeout
 	if (status != "ready" && !rescuableTimeout) || regionCount < 2 {
 		return false
 	}
-	if _, ok := h.resolvePrimaryKubeconfigPath(dep); !ok {
-		h.log.Warn("clustermesh: startup reconcile skipped — primary kubeconfig unresolved on ready multi-region deployment",
-			"id", dep.ID,
-			"regions", regionCount,
-		)
-		return false
-	}
 	return true
+}
+
+// retryStartupClusterMeshReconcile is the #4811 bounded self-heal for the
+// TRANSIENT "primary kubeconfig unresolved at restore" race. restoreFromStore
+// runs inside New(), sometimes milliseconds BEFORE the k8scache "loaded cluster
+// from kubeconfigs dir" step writes the primary kubeconfig file to the PVC — so
+// shouldStartupClusterMeshReconcile's resolvePrimaryKubeconfigPath os.Stat
+// misses the file and the gate returns false. The old code dropped the mesh
+// reconcile on the floor (a one-shot else-if), so the establish loop — which
+// carries the steady-state heal that REGENERATES a stale cilium-clustermesh
+// endpoint (the live #4811 symptom: the mesh endpoint stuck at the :2379 KINE
+// port instead of the :12379 proxy dial port → ClusterMesh 0/1 forever) — never
+// started, and every OOM restart re-lost the same race.
+//
+// This goroutine re-evaluates shouldStartupClusterMeshReconcile(dep) on
+// clusterMeshStartupRetryInterval and launches runAutoEstablishClusterMesh the
+// FIRST time it passes, then returns (the establish loop owns convergence +
+// steady-state from there; its own clusterMeshLoopActive guard makes any
+// double-start a no-op). It stops early when the deployment leaves the
+// ready/rescuable-timeout status gate (a wipe landed mid-wait — the kubeconfigs
+// are gone) and gives up after clusterMeshStartupRetryBudget so a genuinely-lost
+// kubeconfig (PVC unmount / wipe race) does NOT spin forever.
+func (h *Handler) retryStartupClusterMeshReconcile(dep *Deployment) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.log.Error("clustermesh: startup reconcile retry panic recovered",
+				"id", dep.ID,
+				"panic", r,
+			)
+		}
+	}()
+
+	interval := h.clusterMeshStartupRetryInterval
+	if interval <= 0 {
+		interval = clusterMeshStartupRetryIntervalDefault
+	}
+	budget := h.clusterMeshStartupRetryBudget
+	if budget <= 0 {
+		budget = clusterMeshStartupRetryBudgetDefault
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+
+	h.log.Info("clustermesh: startup reconcile deferred — primary kubeconfig unresolved at restore; retrying until it lands on the PVC",
+		"id", dep.ID,
+		"interval", interval,
+		"budget", budget,
+	)
+
+	for attempt := 1; ; attempt++ {
+		// Stop the moment the deployment stops being a mesh candidate — a wipe
+		// mid-wait removes the kubeconfigs, so there is nothing left to mesh.
+		if !h.clusterMeshReconcileStatusGate(dep) {
+			h.log.Info("clustermesh: startup reconcile retry stopped — deployment no longer a ready multi-region mesh candidate",
+				"id", dep.ID,
+				"attempt", attempt,
+			)
+			return
+		}
+		if h.shouldStartupClusterMeshReconcile(dep) {
+			h.log.Info("clustermesh: startup reconcile primary kubeconfig resolved — launching establish loop",
+				"id", dep.ID,
+				"attempt", attempt,
+			)
+			go h.runAutoEstablishClusterMesh(dep)
+			return
+		}
+		if sleepErr := sleepCtx(ctx, interval); sleepErr != nil {
+			h.log.Warn("clustermesh: startup reconcile retry budget exhausted — primary kubeconfig never resolved; next trigger is a catalyst-api restart",
+				"id", dep.ID,
+				"attempts", attempt,
+				"err", sleepErr,
+			)
+			return
+		}
+	}
 }
 
 // emitClusterMeshProgress pushes a typed SSE event onto the deployment
