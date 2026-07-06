@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-06T12:00:05Z` |
+| Last refreshed | `2026-07-06T12:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 55 |
+| Open issues | 56 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 55 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 56 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 55 open items (clickable table)
+### All 56 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -255,6 +255,7 @@ flowchart LR
 | [#4817](https://github.com/openova-io/openova/issues/4817) | hw228 fresh-prov anomalies on a0478e3 train: kubeconfig-PUT-back never fires (40 | Other |
 | [#4818](https://github.com/openova-io/openova/issues/4818) | Cloud-view LB 'Front door' mislabels the §854-compliant hostPort datapath as '( | Other |
 | [#4820](https://github.com/openova-io/openova/issues/4820) | Cloud list: selecting HTTPRoutes/NetworkPolicies/CiliumNetworkPolicies redirects | Other |
+| [#4821](https://github.com/openova-io/openova/issues/4821) | Funnel customer-Org provisioning stalls at dns:pending + console_host ignores fu | Other |
 
 ---
 
