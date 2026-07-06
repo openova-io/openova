@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-06T11:00:04Z` |
+| Last refreshed | `2026-07-06T11:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 54 |
+| Open issues | 55 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 54 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 55 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 54 open items (clickable table)
+### All 55 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -254,6 +254,7 @@ flowchart LR
 | [#4814](https://github.com/openova-io/openova/issues/4814) | Cloud graph renders WorkerNode 24/24 + Region 2/2 as healthy while region-b is a | Other |
 | [#4817](https://github.com/openova-io/openova/issues/4817) | hw228 fresh-prov anomalies on a0478e3 train: kubeconfig-PUT-back never fires (40 | Other |
 | [#4818](https://github.com/openova-io/openova/issues/4818) | Cloud-view LB 'Front door' mislabels the §854-compliant hostPort datapath as '( | Other |
+| [#4820](https://github.com/openova-io/openova/issues/4820) | Cloud list: selecting HTTPRoutes/NetworkPolicies/CiliumNetworkPolicies redirects | Other |
 
 ---
 
@@ -261,6 +262,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-06T11:09 | [#4819](https://github.com/openova-io/openova/pull/4819) | #4765 | fix(#4818): cloud-view LB front door — hostPort datapath, no |
 | 2026-07-06T05:53 | [#4816](https://github.com/openova-io/openova/pull/4816) | #4811 | fix(#4814): cloud-graph counts honest for standby-absent sec |
 | 2026-07-05T21:17 | [#4812](https://github.com/openova-io/openova/pull/4812) | #4808 | fix(#4620): Huawei cloud-credentials empty hcloud-token plac |
 | 2026-07-05T18:19 | [#4810](https://github.com/openova-io/openova/pull/4810) | #3374 | fix(ci): uat-sso-flip consolidated-ledger fallback — unbreak |
@@ -290,7 +292,6 @@ flowchart LR
 | 2026-07-04T21:35 | [#4778](https://github.com/openova-io/openova/pull/4778) | #4739 | fix(showback): directory panel renders every Org row, not ju |
 | 2026-07-04T21:01 | [#4777](https://github.com/openova-io/openova/pull/4777) | #4467 | fix(cilium): native routing (drop VXLAN) to end the unfixabl |
 | 2026-07-04T21:06 | [#4776](https://github.com/openova-io/openova/pull/4776) | #71 | fix(crossplane): stop the XUserAccess composite leak — UserA |
-| 2026-07-04T20:56 | [#4775](https://github.com/openova-io/openova/pull/4775) | #3153 | fix(dashboard): mothership /jobs re-seeds install+reconcile  |
 
 ---
 
