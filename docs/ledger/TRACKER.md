@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-06T05:30:05Z` |
+| Last refreshed | `2026-07-06T05:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 53 |
 | Open DoD gates | 0 / 41 |
@@ -252,7 +252,7 @@ flowchart LR
 | [#4811](https://github.com/openova-io/openova/issues/4811) | region-b clustermesh dead: #4765 dials :2379 on shared CP-EIP where k3s embedded | Other |
 | [#4813](https://github.com/openova-io/openova/issues/4813) | Funnel-provisioned customer Org lands namespace-isolated, not vcluster (+ false  | Other |
 | [#4814](https://github.com/openova-io/openova/issues/4814) | Cloud graph renders WorkerNode 24/24 + Region 2/2 as healthy while region-b is a | Other |
-| [#4815](https://github.com/openova-io/openova/issues/4815) | Namespace-tier (Plan S) funnel apps deploy without Application CRs → invisible | Other |
+| [#4815](https://github.com/openova-io/openova/issues/4815) | Per-Org console Apps list empty for funnel customer Org — tenant-service apps[ | Other |
 
 ---
 
