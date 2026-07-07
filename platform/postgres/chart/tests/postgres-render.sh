@@ -332,6 +332,91 @@ if grep -qE '^      additional:$' "$TMP/preflip-secondary.yaml"; then
 fi
 grep -q 'cnpg.io/instanceRole: primary' "$TMP/preflip-secondary.yaml" || fail "#4460 pre-flip secondary -mesh-rw stub missing primary-role selector"
 
+# ── Case 4e: #4846 — crossRegionPeerClusters → identity-based CNP, NO ipBlock ─
+# The cross-region DR admission is an identity-based CiliumNetworkPolicy that
+# selects the peer cluster(s) by io.cilium.k8s.policy.cluster. A k8s-netpol
+# ipBlock (the reverted #4846 first attempt) is INERT for ClusterMesh remote
+# endpoints (proven hw228) and MUST NOT render. Assert one CNP per side that
+# selects THIS side's Cluster Pods and lists the peer cluster name(s) in the
+# io.cilium.k8s.policy.cluster In-set — and that ZERO ipBlock rules remain.
+echo "[render] Case 4e: #4846 crossRegionPeerClusters → per-side CiliumNetworkPolicy (identity In-list), NO ipBlock"
+cat > "$TMP/cnp.values.yaml" <<'YAML'
+instance: { name: shared-pg }
+topology:
+  mode: active-hot-standby
+  side: primary
+  instances: 3
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+  networkPolicy:
+    crossRegionPeerClusters: [hw228-me-east-b]
+databases:
+  - name: registry
+    owner: harbor
+    reflect: { secretName: harbor-database-secret, namespaces: [harbor] }
+YAML
+helm template shared-pg . -f "$TMP/cnp.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/cnp-primary.yaml" 2>&1 || fail "#4846 CNP primary render errored"
+# Exactly ONE CiliumNetworkPolicy on the primary side, named -crossregion-dr-primary.
+[ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-primary.yaml")" = "1" ] \
+  || fail "#4846 primary side expected exactly 1 CiliumNetworkPolicy"
+grep -qE '^  name: shared-pg-crossregion-dr-primary$' "$TMP/cnp-primary.yaml" \
+  || fail "#4846 primary CNP name != shared-pg-crossregion-dr-primary"
+# It selects the PRIMARY Cluster's Pods (endpointSelector), never the replica.
+grep -qE '^      cnpg.io/cluster: shared-pg$' "$TMP/cnp-primary.yaml" \
+  || fail "#4846 primary CNP endpointSelector must select cnpg.io/cluster: shared-pg (the primary Cluster)"
+# It admits the peer cluster by IDENTITY (io.cilium.k8s.policy.cluster In-list).
+grep -q 'key: io.cilium.k8s.policy.cluster' "$TMP/cnp-primary.yaml" \
+  || fail "#4846 primary CNP missing io.cilium.k8s.policy.cluster identity match"
+grep -q 'operator: In' "$TMP/cnp-primary.yaml" || fail "#4846 primary CNP not using an In-list of peer clusters"
+grep -q '"hw228-me-east-b"' "$TMP/cnp-primary.yaml" || fail "#4846 primary CNP missing the peer cluster name in the In-list"
+# NO ipBlock rule anywhere (the inert #4846 first attempt is gone). Match only a
+# real `ipBlock:` YAML key, not the prose comment that names it.
+if grep -qE '^[[:space:]]*-?[[:space:]]*ipBlock:' "$TMP/cnp-primary.yaml"; then
+  fail "#4846 primary render leaked an ipBlock rule (inert for ClusterMesh — must be an identity CNP)"
+fi
+# The k8s-NetworkPolicy carve-outs (consumer / own-cluster / operator) are intact.
+grep -q 'allow-replication-to-primary' "$TMP/cnp-primary.yaml" \
+  || fail "#4846 primary render dropped the k8s allow-replication-to-primary NetworkPolicy"
+# Replica side: the CNP selects the REPLICA Cluster's Pods + lists the primary mesh.
+cat > "$TMP/cnp-replica.values.yaml" <<'YAML'
+instance: { name: shared-pg }
+topology:
+  mode: active-hot-standby
+  side: replica
+  instances: 3
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+  networkPolicy:
+    crossRegionPeerClusters: [hw228-mesh]
+databases:
+  - name: registry
+    owner: harbor
+    reflect: { secretName: harbor-database-secret, namespaces: [harbor] }
+YAML
+helm template shared-pg . -f "$TMP/cnp-replica.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/cnp-replica.yaml" 2>&1 || fail "#4846 CNP replica render errored"
+[ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-replica.yaml")" = "1" ] \
+  || fail "#4846 replica side expected exactly 1 CiliumNetworkPolicy"
+grep -qE '^  name: shared-pg-crossregion-dr-replica$' "$TMP/cnp-replica.yaml" \
+  || fail "#4846 replica CNP name != shared-pg-crossregion-dr-replica"
+grep -qE '^      cnpg.io/cluster: shared-pg-replica$' "$TMP/cnp-replica.yaml" \
+  || fail "#4846 replica CNP endpointSelector must select cnpg.io/cluster: shared-pg-replica"
+grep -q '"hw228-mesh"' "$TMP/cnp-replica.yaml" || fail "#4846 replica CNP missing the primary mesh name in the In-list"
+if grep -qE '^[[:space:]]*-?[[:space:]]*ipBlock:' "$TMP/cnp-replica.yaml"; then
+  fail "#4846 replica render leaked an ipBlock rule"
+fi
+
+# ── Case 4f: #4846 — EMPTY crossRegionPeerClusters → ZERO CNP (default) ──────
+# The default (single-region / singleton, and every AHS render before the
+# post-mesh peer-name stamp) carries an empty crossRegionPeerClusters, which
+# MUST render NO CiliumNetworkPolicy while the k8s-netpol carve-outs stay.
+echo "[render] Case 4f: #4846 empty crossRegionPeerClusters → ZERO CiliumNetworkPolicy, k8s netpol intact"
+grep -q 'CiliumNetworkPolicy' "$TMP/ahs.yaml" \
+  && fail "#4846 AHS render WITHOUT crossRegionPeerClusters must emit ZERO CiliumNetworkPolicy" || true
+grep -q 'allow-replication-to-primary' "$TMP/ahs.yaml" \
+  || fail "#4846 AHS render lost the k8s allow-replication-to-primary NetworkPolicy"
+
 # ── Case 5: singleton → byte-identical (NO sync, NO mesh, NO netpol) ──────
 echo "[render] Case 5: singleton → no synchronous block, no -mesh Service, only the CNPG-operator status-probe NetworkPolicy (no AHS replication carve-out)"
 if grep -q 'synchronous_commit' "$TMP/shared.yaml"; then
@@ -364,6 +449,10 @@ fi
 # Cluster stalls Ready=False at "Instance Status Extraction Error").
 if grep -qE 'allow-replication-to-(primary|replica)' "$TMP/shared.yaml"; then
   fail "singleton render leaked an AHS replication NetworkPolicy (active-hot-standby only)"
+fi
+# #4846: singleton must NOT leak the cross-region DR CiliumNetworkPolicy.
+if grep -q 'CiliumNetworkPolicy' "$TMP/shared.yaml"; then
+  fail "#4846: singleton render leaked a cross-region DR CiliumNetworkPolicy (active-hot-standby only)"
 fi
 grep -qE '^  name: shared-pg-allow-cnpg-operator-probe$' "$TMP/shared.yaml" \
   || fail "#4282: singleton render missing the CNPG-operator status-probe NetworkPolicy"

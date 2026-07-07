@@ -6,7 +6,10 @@ metadata:
     catalyst.openova.io/section: pts-9-disaster-recovery
     catalyst.openova.io/companion: bp-cnpg
 spec:
-  version: 0.2.8
+  # 0.2.9 (#4846): cross-region DR admission is an identity-based
+  # CiliumNetworkPolicy (io.cilium.k8s.policy.cluster) — the 0.2.8 ipBlock was
+  # inert for ClusterMesh remote endpoints. values crossRegionPeerClusters.
+  version: 0.2.9
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |
