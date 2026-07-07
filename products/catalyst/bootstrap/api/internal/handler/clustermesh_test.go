@@ -318,12 +318,12 @@ type testFixture struct {
 // clustermesh.go that defaults to nil; tests set it to a map keyed by
 // kubeconfig path. Production never touches this variable.
 func installClusterMeshClientFactory(clients map[string]kubernetes.Interface) func() {
-	prev := clusterMeshTestClientFactory
-	clusterMeshTestClientFactory = func(kcPath string) (kubernetes.Interface, bool) {
+	prev := loadClusterMeshTestClientFactory()
+	setClusterMeshTestClientFactory(func(kcPath string) (kubernetes.Interface, bool) {
 		c, ok := clients[kcPath]
 		return c, ok
-	}
-	return func() { clusterMeshTestClientFactory = prev }
+	})
+	return func() { setClusterMeshTestClientFactory(prev) }
 }
 
 func newTestFixture(t *testing.T, lbIPs []string) *testFixture {
@@ -505,12 +505,29 @@ func newFakeKustomizationDynClient(t *testing.T, objs ...runtime.Object) dynamic
 // installClusterMeshClientFactory for the dynamic-client path used by
 // the cnpg-pair gate flip. Returns a restore func.
 func installClusterMeshDynamicClientFactory(clients map[string]dynamic.Interface) func() {
-	prev := clusterMeshTestDynamicClientFactory
-	clusterMeshTestDynamicClientFactory = func(kcPath string) (dynamic.Interface, bool) {
+	prev := loadClusterMeshTestDynamicClientFactory()
+	setClusterMeshTestDynamicClientFactory(func(kcPath string) (dynamic.Interface, bool) {
 		c, ok := clients[kcPath]
 		return c, ok
-	}
-	return func() { clusterMeshTestDynamicClientFactory = prev }
+	})
+	return func() { setClusterMeshTestDynamicClientFactory(prev) }
+}
+
+// setClusterMeshLBOverrides sets the atomic LB-discovery poll overrides for
+// the duration of the test and restores them on cleanup. Atomic-backed so a
+// steady-state heal goroutine leaked by an earlier test (status never leaves
+// "ready") reading these in waitForClusterMeshLB cannot data-race this write
+// under `go test -race` (#4811 part-b).
+func setClusterMeshLBOverrides(t *testing.T, timeout, interval time.Duration) {
+	t.Helper()
+	prevTimeout := clusterMeshTestOverrideLBTimeoutNanos.Load()
+	prevInterval := clusterMeshTestOverrideLBIntervalNanos.Load()
+	clusterMeshTestOverrideLBTimeoutNanos.Store(int64(timeout))
+	clusterMeshTestOverrideLBIntervalNanos.Store(int64(interval))
+	t.Cleanup(func() {
+		clusterMeshTestOverrideLBTimeoutNanos.Store(prevTimeout)
+		clusterMeshTestOverrideLBIntervalNanos.Store(prevInterval)
+	})
 }
 
 // getBootstrapKitKustomization re-reads the Kustomization from the fake
@@ -591,14 +608,7 @@ func TestAutoEstablishClusterMesh_LBAbsentInOneRegion(t *testing.T) {
 	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
 	defer restoreDyn()
 	// Shrink the LB lookup timeout so the test isn't slow.
-	// (We reach into the package-level const indirectly via a test
-	// hook below.)
-	prev := clusterMeshTestOverrideLBTimeout
-	clusterMeshTestOverrideLBTimeout = 200 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
-	prevInt := clusterMeshTestOverrideLBInterval
-	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+	setClusterMeshLBOverrides(t, 200*time.Millisecond, 25*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -795,12 +805,7 @@ func TestRunAutoEstablishClusterMesh_RetryConvergesAfterLBAppears(t *testing.T) 
 
 	// Fast knobs: sub-second LB poll + retry backoff so the loop
 	// converges in milliseconds.
-	prev := clusterMeshTestOverrideLBTimeout
-	clusterMeshTestOverrideLBTimeout = 150 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
-	prevInt := clusterMeshTestOverrideLBInterval
-	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+	setClusterMeshLBOverrides(t, 150*time.Millisecond, 25*time.Millisecond)
 	fx.handler.clusterMeshRetryInitialBackoff = 20 * time.Millisecond
 	fx.handler.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
 	fx.handler.clusterMeshRetryBudget = 20 * time.Second
@@ -1646,12 +1651,7 @@ func TestAutoEstablishClusterMesh_PartialMeshDoesNotFlipCNPGPairGate(t *testing.
 	defer restore()
 	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
 	defer restoreDyn()
-	prev := clusterMeshTestOverrideLBTimeout
-	clusterMeshTestOverrideLBTimeout = 200 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
-	prevInt := clusterMeshTestOverrideLBInterval
-	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+	setClusterMeshLBOverrides(t, 200*time.Millisecond, 25*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

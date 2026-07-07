@@ -104,6 +104,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -596,30 +597,89 @@ var clusterMeshRolloutTargets = []struct {
 	{"deployment", clusterMeshApiserverService},
 }
 
-// clusterMeshTestClientFactory — test-only hook. When non-nil,
+// clusterMeshTestClientFactory — test-only hook. When set,
 // buildRegionSlots routes its kubeconfig → clientset construction
 // through this function instead of the production helmwatch parser.
-// Tests inject fakes; production leaves this nil.
+// Tests inject fakes; production leaves it unset.
 //
 // Returning (nil, false) means "no override for this path, fall
 // through to production". Returning (client, true) injects the fake.
-var clusterMeshTestClientFactory func(kubeconfigPath string) (kubernetes.Interface, bool)
+//
+// #4811 part-b: stored behind an atomic.Pointer rather than a bare
+// package var. The establish reconcile loop (runAutoEstablishClusterMesh)
+// READS this hook from a background goroutine that a prior test may leak
+// past its own boundary (e.g. the bounded-retry self-heal test); the NEXT
+// test's install/restore WRITES it. Under `go test -race` that unsynchronized
+// read/write on a plain var is a reported data race that crashes the whole
+// package binary (seen only in CI, where scheduling differs). The atomic
+// load/store makes the seam race-free without any production lock on the hot
+// path (production leaves the pointer nil → a single atomic load returning nil).
+type clusterMeshClientFactory func(kubeconfigPath string) (kubernetes.Interface, bool)
+
+var clusterMeshTestClientFactoryPtr atomic.Pointer[clusterMeshClientFactory]
+
+func loadClusterMeshTestClientFactory() clusterMeshClientFactory {
+	if p := clusterMeshTestClientFactoryPtr.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+func setClusterMeshTestClientFactory(fn clusterMeshClientFactory) {
+	if fn == nil {
+		clusterMeshTestClientFactoryPtr.Store(nil)
+		return
+	}
+	clusterMeshTestClientFactoryPtr.Store(&fn)
+}
 
 // clusterMeshTestDynamicClientFactory — test-only hook mirroring
 // clusterMeshTestClientFactory for the DYNAMIC client the cnpg-pair
 // gate flip (#3236) uses to patch the bootstrap-kit Flux Kustomization.
-// Same contract: (nil, false) falls through to production; production
-// leaves this nil.
-var clusterMeshTestDynamicClientFactory func(kubeconfigPath string) (dynamic.Interface, bool)
+// Same contract + same atomic-pointer race-safety rationale as above.
+type clusterMeshDynamicClientFactory func(kubeconfigPath string) (dynamic.Interface, bool)
+
+var clusterMeshTestDynamicClientFactoryPtr atomic.Pointer[clusterMeshDynamicClientFactory]
+
+func loadClusterMeshTestDynamicClientFactory() clusterMeshDynamicClientFactory {
+	if p := clusterMeshTestDynamicClientFactoryPtr.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+func setClusterMeshTestDynamicClientFactory(fn clusterMeshDynamicClientFactory) {
+	if fn == nil {
+		clusterMeshTestDynamicClientFactoryPtr.Store(nil)
+		return
+	}
+	clusterMeshTestDynamicClientFactoryPtr.Store(&fn)
+}
 
 // clusterMeshTestOverrideLBTimeout / clusterMeshTestOverrideLBInterval
 // — test-only override knobs for the LB-discovery poll loop. Zero
 // falls back to the production constants. Tests set these to
 // sub-second values so the LB-absent path runs in milliseconds.
+//
+// #4811 part-b: stored as atomic.Int64 nanoseconds for the same reason
+// the factory hooks above are atomic — waitForClusterMeshLB READS them
+// from the long-lived steady-state heal goroutine, which some tests leave
+// running past their own boundary (status never leaves "ready"), while a
+// LATER test WRITES them. A plain time.Duration var makes that a `-race`
+// data race that crashes the package test binary in CI. Production never
+// sets them (both stay 0 → the load returns 0 → production constants win).
 var (
-	clusterMeshTestOverrideLBTimeout  time.Duration
-	clusterMeshTestOverrideLBInterval time.Duration
+	clusterMeshTestOverrideLBTimeoutNanos  atomic.Int64
+	clusterMeshTestOverrideLBIntervalNanos atomic.Int64
 )
+
+func clusterMeshTestOverrideLBTimeout() time.Duration {
+	return time.Duration(clusterMeshTestOverrideLBTimeoutNanos.Load())
+}
+
+func clusterMeshTestOverrideLBInterval() time.Duration {
+	return time.Duration(clusterMeshTestOverrideLBIntervalNanos.Load())
+}
 
 // AutoEstablishClusterMesh wires every region's clustermesh-apiserver
 // into a fully-connected peer mesh. Called from deployments.go AFTER
@@ -2114,8 +2174,8 @@ func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret
 // behind the given kubeconfig path, honouring the test-only factory
 // override the same way buildRegionSlots does for typed clients.
 func (h *Handler) clusterMeshDynamicClient(kubeconfigPath string) (dynamic.Interface, error) {
-	if clusterMeshTestDynamicClientFactory != nil {
-		if d, ok := clusterMeshTestDynamicClientFactory(kubeconfigPath); ok {
+	if factory := loadClusterMeshTestDynamicClientFactory(); factory != nil {
+		if d, ok := factory(kubeconfigPath); ok {
 			return d, nil
 		}
 	}
@@ -2263,8 +2323,8 @@ func (h *Handler) buildRegionSlots(
 		// Test-only short-circuit: if a factory override is wired,
 		// route the path through it. Production override is nil; the
 		// fall-through reads the file and calls helmwatch.
-		if clusterMeshTestClientFactory != nil {
-			if c, ok := clusterMeshTestClientFactory(kc); ok {
+		if factory := loadClusterMeshTestClientFactory(); factory != nil {
+			if c, ok := factory(kc); ok {
 				slot.clientset = c
 				out = append(out, slot)
 				continue
@@ -2338,12 +2398,12 @@ func clusterMeshDialPort() int {
 
 func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface) (string, int, error) {
 	timeout := clusterMeshLBLookupTimeout
-	if clusterMeshTestOverrideLBTimeout > 0 {
-		timeout = clusterMeshTestOverrideLBTimeout
+	if v := clusterMeshTestOverrideLBTimeout(); v > 0 {
+		timeout = v
 	}
 	interval := clusterMeshLBLookupInterval
-	if clusterMeshTestOverrideLBInterval > 0 {
-		interval = clusterMeshTestOverrideLBInterval
+	if v := clusterMeshTestOverrideLBInterval(); v > 0 {
+		interval = v
 	}
 	deadline := time.Now().Add(timeout)
 	for {
