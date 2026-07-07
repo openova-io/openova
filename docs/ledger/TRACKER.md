@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-07T17:45:03Z` |
+| Last refreshed | `2026-07-07T18:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 65 |
 | Open DoD gates | 0 / 41 |
@@ -272,6 +272,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-07T17:46 | [#4850](https://github.com/openova-io/openova/pull/4850) | #4846 | fix(#4846): identity-based CiliumNetworkPolicy for cross-reg |
 | 2026-07-07T15:10 | [#4848](https://github.com/openova-io/openova/pull/4848) | #4846 | fix(#4846): cnpg-pair cross-region netpol — ipBlock allow fo |
 | 2026-07-07T14:58 | [#4847](https://github.com/openova-io/openova/pull/4847) | #4846 | fix(#4846): cross-region shared-pg netpol — ipBlock allow fo |
 | 2026-07-07T12:27 | [#4844](https://github.com/openova-io/openova/pull/4844) | #4843 | fix(#4843): Edit-IaC editor seeds committable YAML (inline e |
@@ -301,7 +302,6 @@ flowchart LR
 | 2026-07-05T18:03 | [#4798](https://github.com/openova-io/openova/pull/4798) | #4739 | fix(provisioning): funnel-door apps sourceRef flux-system→op |
 | 2026-07-05T07:46 | [#4795](https://github.com/openova-io/openova/pull/4795) | #4794 | chore(crossplane): republish bp-crossplane-claims with #4794 |
 | 2026-07-05T06:43 | [#4794](https://github.com/openova-io/openova/pull/4794) | #4739 | fix(adoption): plant empty cross-cloud key so CloudAdoption  |
-| 2026-07-05T06:43 | [#4793](https://github.com/openova-io/openova/pull/4793) | #4739 | fix(mimir): make-buckets Job survives slow kom4dc MinIO firs |
 
 ---
 
