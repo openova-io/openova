@@ -185,8 +185,11 @@ func main() {
 	// ghcr artifact broke every Org install; majors could jump ungated).
 	// Defaults = the current catalog-seed pins; operators override via env.
 	// A missing/malformed entry falls back to "*" (never fatal).
+	// stalwart-mail 0.1.13 (#4833): CPU right-sized 1->500m so bp-openclaw's
+	// controller fits the S-plan 2-vCPU plan-quota on a co-tenant funnel Org
+	// (0.1.12's guaranteed full core starved openclaw → UAT 224/232 red).
 	generator.HelmReleaseAppVersions = gitops.ParseHRAppVersions(getEnv(
-		"CATALYST_HR_APP_CHART_VERSIONS", "openclaw=0.2.13,stalwart-mail=0.1.12"))
+		"CATALYST_HR_APP_CHART_VERSIONS", "openclaw=0.2.13,stalwart-mail=0.1.13"))
 
 	// #4282/#4275 CROSS-REGION STANDBY: the flux-system Secret name holding
 	// region-B's (the STANDBY region's) host-cluster kubeconfig. The per-Org
