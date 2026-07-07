@@ -9,7 +9,7 @@ name: bp-cnpg-pair
 # and the console Topology tab fell back to "singleton"). The template
 # gains an optional leaseClient.namespace passthrough. Slot-16b pin moves
 # to 0.2.7 in lockstep (Inviolable Principle #13).
-version: 0.2.7
+version: 0.2.8
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

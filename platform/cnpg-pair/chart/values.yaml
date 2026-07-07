@@ -237,6 +237,20 @@ cnpgPair:
     # cnpg-system (or the operator's own metrics collection) is not
     # default-denied once the gate flips ON.
     operatorMetricsPort: 9187
+    # crossRegionPodCIDRs (#4846) — pod CIDRs of the PEER region('s) cluster,
+    # allowed to reach the pair's 5432 for cross-region replication. REQUIRED:
+    # the podSelector `cnpg.io/cluster=<replica>` rule above claims to match
+    # "regardless of source cluster", but k8s NetworkPolicy pod/namespace
+    # selectors are implicitly scoped to the LOCAL cluster (Cilium ANDs
+    # io.cilium.k8s.policy.cluster=<local>), so ClusterMesh REMOTE-cluster Pods
+    # (the region-b replica streaming from + pg_basebackup'ing the region-a
+    # primary) are NEVER matched → default-denied → the replica wedges "Creating
+    # a new replica" (hw130 24h wedge; hw128's region-kill "PASS" missed it —
+    # its writes ran via kubectl-exec unix socket, never crossing the wire). An
+    # ipBlock matches by RAW source IP, not endpoint identity, so it is NOT
+    # subject to that scope. Wired to the deterministic pod supernet 10.42.0.0/15
+    # (spans both regions, 01-cilium ipv4NativeRoutingCIDR). EMPTY → no ipBlock.
+    crossRegionPodCIDRs: []
 
   # ── Continuum DR contract seed (#3195, Refs #3189) ────────────────
   # When `continuum.enabled: true` AND `cnpgPair.enabled: true`, the
