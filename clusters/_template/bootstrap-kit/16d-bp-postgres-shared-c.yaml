@@ -126,6 +126,15 @@ spec:
       # them). See slot 16a for the full rationale.
       networkPolicy:
         sharedConsumers: true
+        # crossRegionPodCIDRs (#4846) — admit the PEER region's pods to 5432 so
+        # region-b consumers (keycloak/grafana/…) + the region-b replica's
+        # pg_basebackup reach the primary. k8s netpol label rules are implicitly
+        # local-cluster-scoped (Cilium ANDs io.cilium.k8s.policy.cluster=<local>),
+        # so remote-cluster sources are dropped; an ipBlock matches by raw IP and
+        # is NOT scoped. 10.42.0.0/15 is the deterministic pod supernet spanning
+        # BOTH regions (01-cilium ipv4NativeRoutingCIDR). Only consumed in
+        # active-hot-standby; singleton ignores it (byte-identical default).
+        crossRegionPodCIDRs: ['${SOVEREIGN_POD_SUPERNET_CIDR:-10.42.0.0/15}']
     # The Organization-mesh bindings: three isolated databases, ONE role `org`
     # (chart 0.1.5 dedupes the role + password Secret across same-owner
     # bindings). Database names mirror orgPostgres.cluster.database +
