@@ -97,3 +97,5 @@ func TestApplicationUpdateNormalize_ExplicitModeWins(t *testing.T) {
 		t.Errorf("explicit regions overwritten: got %v", got.Placement.Regions)
 	}
 }
+
+// (ci: retrigger test workflow after rebase onto flake fix #4839 — path-filtered job needs a Go-file change)
