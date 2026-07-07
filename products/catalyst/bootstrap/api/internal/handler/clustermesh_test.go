@@ -318,12 +318,12 @@ type testFixture struct {
 // clustermesh.go that defaults to nil; tests set it to a map keyed by
 // kubeconfig path. Production never touches this variable.
 func installClusterMeshClientFactory(clients map[string]kubernetes.Interface) func() {
-	prev := clusterMeshTestClientFactory
-	clusterMeshTestClientFactory = func(kcPath string) (kubernetes.Interface, bool) {
+	prev := loadClusterMeshTestClientFactory()
+	setClusterMeshTestClientFactory(func(kcPath string) (kubernetes.Interface, bool) {
 		c, ok := clients[kcPath]
 		return c, ok
-	}
-	return func() { clusterMeshTestClientFactory = prev }
+	})
+	return func() { setClusterMeshTestClientFactory(prev) }
 }
 
 func newTestFixture(t *testing.T, lbIPs []string) *testFixture {
@@ -505,12 +505,29 @@ func newFakeKustomizationDynClient(t *testing.T, objs ...runtime.Object) dynamic
 // installClusterMeshClientFactory for the dynamic-client path used by
 // the cnpg-pair gate flip. Returns a restore func.
 func installClusterMeshDynamicClientFactory(clients map[string]dynamic.Interface) func() {
-	prev := clusterMeshTestDynamicClientFactory
-	clusterMeshTestDynamicClientFactory = func(kcPath string) (dynamic.Interface, bool) {
+	prev := loadClusterMeshTestDynamicClientFactory()
+	setClusterMeshTestDynamicClientFactory(func(kcPath string) (dynamic.Interface, bool) {
 		c, ok := clients[kcPath]
 		return c, ok
-	}
-	return func() { clusterMeshTestDynamicClientFactory = prev }
+	})
+	return func() { setClusterMeshTestDynamicClientFactory(prev) }
+}
+
+// setClusterMeshLBOverrides sets the atomic LB-discovery poll overrides for
+// the duration of the test and restores them on cleanup. Atomic-backed so a
+// steady-state heal goroutine leaked by an earlier test (status never leaves
+// "ready") reading these in waitForClusterMeshLB cannot data-race this write
+// under `go test -race` (#4811 part-b).
+func setClusterMeshLBOverrides(t *testing.T, timeout, interval time.Duration) {
+	t.Helper()
+	prevTimeout := clusterMeshTestOverrideLBTimeoutNanos.Load()
+	prevInterval := clusterMeshTestOverrideLBIntervalNanos.Load()
+	clusterMeshTestOverrideLBTimeoutNanos.Store(int64(timeout))
+	clusterMeshTestOverrideLBIntervalNanos.Store(int64(interval))
+	t.Cleanup(func() {
+		clusterMeshTestOverrideLBTimeoutNanos.Store(prevTimeout)
+		clusterMeshTestOverrideLBIntervalNanos.Store(prevInterval)
+	})
 }
 
 // getBootstrapKitKustomization re-reads the Kustomization from the fake
@@ -591,14 +608,7 @@ func TestAutoEstablishClusterMesh_LBAbsentInOneRegion(t *testing.T) {
 	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
 	defer restoreDyn()
 	// Shrink the LB lookup timeout so the test isn't slow.
-	// (We reach into the package-level const indirectly via a test
-	// hook below.)
-	prev := clusterMeshTestOverrideLBTimeout
-	clusterMeshTestOverrideLBTimeout = 200 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
-	prevInt := clusterMeshTestOverrideLBInterval
-	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+	setClusterMeshLBOverrides(t, 200*time.Millisecond, 25*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -795,12 +805,7 @@ func TestRunAutoEstablishClusterMesh_RetryConvergesAfterLBAppears(t *testing.T) 
 
 	// Fast knobs: sub-second LB poll + retry backoff so the loop
 	// converges in milliseconds.
-	prev := clusterMeshTestOverrideLBTimeout
-	clusterMeshTestOverrideLBTimeout = 150 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
-	prevInt := clusterMeshTestOverrideLBInterval
-	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+	setClusterMeshLBOverrides(t, 150*time.Millisecond, 25*time.Millisecond)
 	fx.handler.clusterMeshRetryInitialBackoff = 20 * time.Millisecond
 	fx.handler.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
 	fx.handler.clusterMeshRetryBudget = 20 * time.Second
@@ -1378,6 +1383,122 @@ func TestAutoEstablishClusterMesh_Idempotent(t *testing.T) {
 	}
 }
 
+// peerEndpointBlob returns the single cilium-clustermesh peer config-blob
+// entry (the key whose value carries `endpoints:`) from a region's Secret,
+// together with its key. Fails the test if zero or more than one such entry
+// exists — the 2-region fixture has exactly one peer per region.
+func peerEndpointBlob(t *testing.T, client kubernetes.Interface) (peerKey string, blob []byte) {
+	t.Helper()
+	secret, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(context.Background(), clusterMeshSecretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get cilium-clustermesh: %v", err)
+	}
+	for k, v := range secret.Data {
+		if bytes.Contains(v, []byte("endpoints:")) {
+			if peerKey != "" {
+				t.Fatalf("expected exactly one endpoint config-blob entry, found >1 (%q and %q)", peerKey, k)
+			}
+			peerKey, blob = k, append([]byte(nil), v...)
+		}
+	}
+	if peerKey == "" {
+		t.Fatalf("no endpoint config-blob entry in Secret (keys %v)", secretKeys(secret))
+	}
+	return peerKey, blob
+}
+
+// TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish pins the
+// #4811 part-b migration invariant: an env whose cilium-clustermesh peer
+// endpoint was written in a PRE-12379 window (endpoint carries the stale
+// KINE `:2379` port) has that endpoint AUTHORITATIVELY corrected to the
+// current clusterMeshDialPort() (`:12379`) on the next establish pass —
+// the merge in applyClusterMeshSecret overwrites the managed endpoint key
+// rather than preserving the stale one. The per-peer cert/key/CA material
+// is preserved byte-for-byte across the port-only rewrite.
+//
+// Live proof this matters: on hw228 the mesh stayed ClusterMesh 0/1 until
+// the secret endpoint was patched `:2379`→`:12379` and cilium rolled. No
+// prior test asserted the endpoint PORT at all (they only checked the
+// 4-key entry COUNT), so a buildPeerConfigBlob regression that hardcoded
+// `:2379` would have shipped green — this test closes that gap.
+func TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Pass 1 — no dial-port override, so clusterMeshDialPort() == the
+	// default 2379. This seeds each region's Secret with a peer endpoint
+	// carrying the stale KINE port, exactly the pre-12379-window shape.
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("pass 1 (default port): %v", err)
+	}
+	primary := fx.clients[fx.primaryKubeconfigPath]
+	stalePeerKey, staleBlob := peerEndpointBlob(t, primary)
+	staleEndpoint := fmt.Sprintf("https://%s:%d", peerMeshHostname(stalePeerKey), clusterMeshAPIServerPort)
+	if !bytes.Contains(staleBlob, []byte(staleEndpoint)) {
+		t.Fatalf("pass 1 endpoint blob does not carry default port %d:\n%s",
+			clusterMeshAPIServerPort, staleBlob)
+	}
+	// Snapshot the peer cert/key/CA bytes so we can prove they survive the
+	// port-only rewrite untouched.
+	staleSecret, err := primary.CoreV1().Secrets(clusterMeshNamespace).Get(ctx, clusterMeshSecretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get stale secret: %v", err)
+	}
+	certMaterial := map[string][]byte{}
+	for _, suffix := range []string{"-ca.crt", ".crt", ".key"} {
+		k := stalePeerKey + suffix
+		v, ok := staleSecret.Data[k]
+		if !ok {
+			t.Fatalf("expected cert material key %q in seeded secret (keys %v)", k, secretKeys(staleSecret))
+		}
+		certMaterial[k] = append([]byte(nil), v...)
+	}
+
+	// Pass 2 — env now sets the clustermesh-proxy dial port (12379), the
+	// no-CCM Huawei value. The establish must REWRITE the stale endpoint.
+	t.Setenv(clusterMeshDialPortEnvVar, "12379")
+	if got := clusterMeshDialPort(); got != 12379 {
+		t.Fatalf("clusterMeshDialPort() = %d after env set, want 12379", got)
+	}
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("pass 2 (12379 override): %v", err)
+	}
+
+	freshPeerKey, freshBlob := peerEndpointBlob(t, primary)
+	if freshPeerKey != stalePeerKey {
+		t.Fatalf("peer key changed across passes: %q -> %q", stalePeerKey, freshPeerKey)
+	}
+	wantEndpoint := fmt.Sprintf("https://%s:12379", peerMeshHostname(freshPeerKey))
+	if !bytes.Contains(freshBlob, []byte(wantEndpoint)) {
+		t.Errorf("endpoint NOT corrected to :12379 after re-establish; blob:\n%s", freshBlob)
+	}
+	if bytes.Contains(freshBlob, []byte(staleEndpoint)) {
+		t.Errorf("stale :2379 endpoint PRESERVED after re-establish (merge kept it instead of overwriting):\n%s", freshBlob)
+	}
+
+	// Cert/key/CA material preserved byte-for-byte — only the port moved.
+	freshSecret, err := primary.CoreV1().Secrets(clusterMeshNamespace).Get(ctx, clusterMeshSecretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get fresh secret: %v", err)
+	}
+	for k, want := range certMaterial {
+		got, ok := freshSecret.Data[k]
+		if !ok {
+			t.Errorf("cert material key %q dropped by re-establish", k)
+			continue
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("cert material key %q mutated by the port-only rewrite", k)
+		}
+	}
+}
+
 // TestAutoEstablishClusterMesh_SingleRegionSkips — len(Regions) < 2
 // returns (nil, nil) immediately.
 func TestAutoEstablishClusterMesh_SingleRegionSkips(t *testing.T) {
@@ -1530,12 +1651,7 @@ func TestAutoEstablishClusterMesh_PartialMeshDoesNotFlipCNPGPairGate(t *testing.
 	defer restore()
 	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
 	defer restoreDyn()
-	prev := clusterMeshTestOverrideLBTimeout
-	clusterMeshTestOverrideLBTimeout = 200 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
-	prevInt := clusterMeshTestOverrideLBInterval
-	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
-	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+	setClusterMeshLBOverrides(t, 200*time.Millisecond, 25*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
