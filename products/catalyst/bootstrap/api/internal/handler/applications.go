@@ -72,6 +72,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
 
+	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
@@ -126,6 +127,17 @@ type applicationPlacement struct {
 	// Clusters — canonical cluster IDs narrowing the topology
 	// fan-out for THIS instance.
 	Clusters []string `json:"clusters,omitempty"`
+
+	// Targets — the #3969 per-region placement model the console
+	// PlacementEditor sends: [{region, role:Primary|Standby,
+	// standbyType:Hot|Cold}]. When present with an empty Mode (the
+	// switchover / add-target flows, UAT row G10), the update handler folds
+	// it onto the canonical mode+regions the CR stores — Mode via
+	// bpv1.DerivePattern (the single source of pattern truth) and Regions
+	// Primary-first so regions[0] is the primary (placement_projection.go
+	// keys primaryRegion off regions[0]). Legacy {mode,regions} callers are
+	// unaffected. Refs #3969 #3375.
+	Targets []bpv1.PlacementTarget `json:"targets,omitempty"`
 }
 
 // validVClusterTier — accepted spec.placement.vcluster values

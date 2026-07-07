@@ -39,6 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
@@ -122,7 +123,45 @@ func applicationUpdateRequestNormalize(b applicationUpdateRequest) applicationUp
 	if strings.TrimSpace(b.DisplayName) == "" && strings.TrimSpace(b.TitleShort) != "" {
 		b.DisplayName = strings.TrimSpace(b.TitleShort)
 	}
+	// #3969 / row G10: the console PlacementEditor PUTs the per-region
+	// targets model — {placement:{targets:[{region,role,standbyType}]}} —
+	// with no mode/regions, so the legacy validator (placement.mode is
+	// required) 400'd the switchover / add-target flows. Fold targets onto
+	// the canonical mode+regions the Application CR stores: Mode via
+	// bpv1.DerivePattern (the ONLY place patterns come from, #3969 §7.3) and
+	// Regions Primary-first (regions[0] == primary, per placement_projection).
+	// Only fires when Mode is empty, so an explicit {mode,regions} caller (or
+	// a body that sets both) is byte-unchanged.
+	if b.Placement != nil && len(b.Placement.Targets) > 0 && strings.TrimSpace(b.Placement.Mode) == "" {
+		b.Placement.Mode = string(bpv1.DerivePattern(b.Placement.Targets, ""))
+		if len(b.Placement.Regions) == 0 {
+			b.Placement.Regions = regionsFromPlacementTargets(b.Placement.Targets)
+		}
+	}
 	return b
+}
+
+// regionsFromPlacementTargets flattens the #3969 targets model into the
+// legacy spec.regions list, Primary target(s) first so regions[0] is the
+// primary region (placement_projection.go derives status.placement.
+// primaryRegion from regions[0] for the single-primary modes). Duplicate
+// regions are dropped; relative order is otherwise preserved.
+func regionsFromPlacementTargets(targets []bpv1.PlacementTarget) []string {
+	seen := map[string]bool{}
+	var primaries, rest []string
+	for _, t := range targets {
+		r := strings.TrimSpace(t.Region)
+		if r == "" || seen[r] {
+			continue
+		}
+		seen[r] = true
+		if t.Role == bpv1.DataRolePrimary {
+			primaries = append(primaries, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	return append(primaries, rest...)
 }
 
 // applicationUpdateResponse mirrors applicationStatusResponse — the UI
