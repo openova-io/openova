@@ -99,12 +99,23 @@ stalwart:
   # #4389/#4292: per-Org LimitRange maxLimitRequestRatio {cpu:1,memory:1}
   # forces Guaranteed QoS — render requests==limits or the StatefulSet pod is
   # 'forbidden: limit to request ratio is 1'.
+  #
+  # CPU right-sized 1 -> 500m (2026-07-07): a guaranteed FULL core for an idle
+  # per-Org mailserver was 50% of the entire S-plan quota (plan-quota caps
+  # requests.cpu at 2). Live on hw228 walk-stranger (S-plan): stalwart-0 at 1000m
+  # + mysql 250m + wordpress 100m + webmail 250m = 1600m used, leaving only 400m
+  # — so bp-openclaw's controller (requests 500m) was quota-DENIED
+  # ('exceeded quota: plan-quota, requested cpu=500m, used=1600m, limited=2') and
+  # UAT rows 224/232 (#4272 openclaw Ready + /readyz) stayed red. openclaw and
+  # stalwart-tenant co-default on the S funnel bundle but were never co-sized to
+  # fit 2 vCPU. 500m guaranteed is ample for an idle demo mailserver and frees the
+  # headroom openclaw needs. Refs #4272 #4307 #4292.
   resources:
     requests:
-      cpu: "1"
+      cpu: "500m"
       memory: 1Gi
     limits:
-      cpu: "1"
+      cpu: "500m"
       memory: 1Gi
 
   # SecurityContext — non-root + NET_BIND_SERVICE (issue #898).
