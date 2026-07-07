@@ -145,7 +145,7 @@ name: bp-postgres
 #   carve-outs (sync GUCs, replica-Pod cross-cluster allow, own-cluster
 #   pg_basebackup join, replica-side policy) stay $ahs-gated. Post-flip render is
 #   byte-identical to 0.2.7's $ahs shape.
-version: 0.2.8
+version: 0.2.9
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable

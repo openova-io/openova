@@ -199,6 +199,22 @@ topology:
     # consumers are same-Org, covered by allow-same-org — no broad open). The
     # host shared-data slots set it true.
     sharedConsumers: false
+    # crossRegionPodCIDRs (#4846) — pod CIDRs of the OTHER region('s) cluster,
+    # allowed to reach this instance's 5432 for cross-region replication +
+    # shared-consumer reach. REQUIRED in a 2-region (active-hot-standby)
+    # Sovereign: k8s NetworkPolicy namespaceSelector/podSelector are implicitly
+    # scoped to the LOCAL cluster (Cilium ANDs `io.cilium.k8s.policy.cluster=
+    # <local>`), so ClusterMesh REMOTE-cluster sources (region-b keycloak/
+    # grafana consumers + the region-b replica's pg_basebackup) are NEVER
+    # matched by the label rules above and get default-denied → timeout (region-b
+    # grafana CrashLoop, replica stuck "Setting up primary" 30h, keycloak JGroups
+    # JDBC timeout — all on hw228). An `ipBlock` rule matches by raw source IP,
+    # NOT endpoint identity, so it is NOT subject to that local-cluster scoping
+    # and admits the remote region's pods. The bootstrap-kit wires this to the
+    # secondary region's pod CIDR(s) (SOVEREIGN_REPLICA_POD_CIDR / the peer
+    # region's cluster-pool CIDR) in active-hot-standby mode. EMPTY (default) →
+    # singleton renders NO ipBlock rule (byte-identical single-region default).
+    crossRegionPodCIDRs: []
 
 # ── Bindings (the shareable part) ───────────────────────────────────────
 # Each entry binds ONE consumer to this instance. The chart renders a
