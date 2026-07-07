@@ -153,7 +153,7 @@ spec:
       # harbor NXDOMAIN'd on a fresh 2-region prov (0 remote clusters ready). The
       # cross-mesh consumer-5432 path is already opened by 0.2.7's sharedConsumers
       # (#4442). Lockstep with 16c/16d.
-      version: 0.2.8
+      version: 0.2.9
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
