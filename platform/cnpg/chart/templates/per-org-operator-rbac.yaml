@@ -192,6 +192,22 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusterimagecatalogs"]
     verbs: ["get", "list", "watch"]
+  # #4813 (2026-07-07): cnpg 1.29's operator startup ALWAYS runs
+  # controller.ensurePKI(), which does a cluster-scoped GET on the
+  # mutating/validating webhook configs to verify the caBundle — even for a
+  # namespace-scoped (clusterWide=false) per-Org operator. The G65 fix above
+  # omitted ALL webhookconfigurations verbs to kill the #4322 caBundle-hijack,
+  # but that also removed the GET ensurePKI needs → "cannot get resource
+  # mutatingwebhookconfigurations at the cluster scope" → operator
+  # CrashLoopBackOff → bp-cnpg InstallFailed → every DB-backed per-Org app
+  # (wordpress/newapi/openclaw) DependencyNotReady (live: hw228 walkstrangertwo,
+  # an S-plan namespace Org). FIX: grant READ-ONLY get/list/watch ONLY — NO
+  # patch/update/create/delete — so ensurePKI can verify the caBundle but the
+  # per-Org operator remains STRUCTURALLY INCAPABLE of PATCHing (hijacking) the
+  # cluster-singleton webhook. The hijack vector was the PATCH verb, not GET.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

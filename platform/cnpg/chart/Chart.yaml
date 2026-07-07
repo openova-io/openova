@@ -101,7 +101,25 @@ name: bp-cnpg
 #       4635277cae4ffed9). FIX: switch both to `command: ["/bin/bash", ...]`
 #       (the image carries /bin/bash + /usr/bin/openssl; webhook-gate-hook.yaml
 #       already uses bash). Refs #4322 #4143 #4201 #4326.
-version: 1.0.14
+#
+# 1.0.15 (#4813, 2026-07-07): the G65/1.0.14 fix (A) removed ALL
+#       *webhookconfigurations verbs from the per-Org operator's minimal
+#       ClusterRole to kill the caBundle hijack — but cnpg 1.29's operator
+#       startup ALWAYS calls controller.ensurePKI(), which does a cluster-scoped
+#       GET on the webhook configs to verify the caBundle, even for a
+#       namespace-scoped per-Org operator. So the RBAC removal broke operator
+#       STARTUP: "cannot get resource mutatingwebhookconfigurations at the
+#       cluster scope" → CrashLoopBackOff → bp-cnpg InstallFailed → every
+#       DB-backed per-Org app (wordpress/newapi/openclaw) DependencyNotReady on
+#       an S-plan namespace-isolated Org (live-found hw228 walkstrangertwo, an
+#       S-plan Org lands namespace per the #4292 tier gate). FIX: grant the
+#       per-Org operator READ-ONLY get/list/watch on mutating/validating
+#       webhookconfigurations — NO patch/update — so ensurePKI's GET succeeds
+#       but the operator is STILL structurally incapable of PATCHing (hijacking)
+#       the cluster-singleton caBundle (the hijack was the PATCH verb, not GET).
+#       Needs a fresh S-plan (namespace) Org convergence to fully verify.
+#       Refs #4813 #4322 #4293.
+version: 1.0.15
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
