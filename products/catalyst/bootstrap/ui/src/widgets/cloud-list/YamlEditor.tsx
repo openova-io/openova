@@ -72,7 +72,7 @@ export interface YamlEditorProps {
  *  js-yaml; for the editor's seed-text use we keep the dependency
  *  surface minimal by stringifying via JSON.stringify + a YAML adapter
  *  that's good enough for `kubectl apply -f` round-trip. */
-function objectToYAML(obj: unknown, indent = 0): string {
+export function objectToYAML(obj: unknown, indent = 0): string {
   const pad = '  '.repeat(indent)
   if (obj === null || obj === undefined) return 'null'
   if (typeof obj === 'string') {
@@ -99,7 +99,16 @@ function objectToYAML(obj: unknown, indent = 0): string {
     if (entries.length === 0) return '{}'
     return entries
       .map(([k, v]) => {
-        if (v && typeof v === 'object' && (!Array.isArray(v) || v.length > 0)) {
+        // Newline+indent ONLY for a NON-EMPTY container. An empty object or
+        // empty array is a scalar-like leaf and MUST stay inline (`k: {}` /
+        // `k: []`). The old test (`!Array.isArray(v) || v.length > 0`) newlined
+        // an empty MAP, and objectToYAML({}) returns a bare `{}` with NO
+        // indent — so an empty map like a k8s `fieldsV1: {}` landed as `{}` at
+        // column 0, invalid YAML that made "Edit IaC" uncommittable (#4843).
+        const nonEmptyContainer =
+          !!v && typeof v === 'object' &&
+          (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
+        if (nonEmptyContainer) {
           return `${pad}${k}:\n${objectToYAML(v, indent + 1)}`
         }
         return `${pad}${k}: ${objectToYAML(v, indent)}`
@@ -107,6 +116,34 @@ function objectToYAML(obj: unknown, indent = 0): string {
       .join('\n')
   }
   return String(obj)
+}
+
+/** Strip server-populated / runtime fields that are NOT part of the
+ *  user-authored IaC contract before seeding the editor — mirrors the
+ *  server-side sanitiser in application_iac_git.go (`status`,
+ *  `metadata.managedFields`, …). Presenting them is noise, and
+ *  `metadata.managedFields` in particular carries empty `fieldsV1: {}` maps
+ *  that historically serialised to uncommittable YAML (#4843). Shallow-clones
+ *  so the live query object is never mutated. */
+export function stripServerFields(obj: K8sObject): K8sObject {
+  const clone: Record<string, unknown> = { ...(obj as Record<string, unknown>) }
+  delete clone.status
+  const meta = clone.metadata
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    const m: Record<string, unknown> = { ...(meta as Record<string, unknown>) }
+    for (const k of [
+      'managedFields',
+      'resourceVersion',
+      'uid',
+      'generation',
+      'creationTimestamp',
+      'selfLink',
+    ]) {
+      delete m[k]
+    }
+    clone.metadata = m
+  }
+  return clone as K8sObject
 }
 
 interface DiffLine {
@@ -134,7 +171,7 @@ function computeDiff(left: string, right: string): DiffLine[] {
 }
 
 export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride, onCommit, commitLabel, onCreateEditor }: YamlEditorProps) {
-  const initial = useMemo(() => (obj ? objectToYAML(obj) : ''), [obj])
+  const initial = useMemo(() => (obj ? objectToYAML(stripServerFields(obj)) : ''), [obj])
   const [yaml, setYaml] = useState<string>(initial)
   const [showDiff, setShowDiff] = useState(false)
   const [validateMsg, setValidateMsg] = useState<string | null>(null)
