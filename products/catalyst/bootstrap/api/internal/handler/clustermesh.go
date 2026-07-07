@@ -151,9 +151,10 @@ type regionSlot struct {
 	kubeconfigPath string               // on-disk path to the region's kubeconfig YAML
 	clusterName    string               // Cilium cluster.name for this region
 	clusterID      int                  // Cilium cluster.id (1..255)
+	provider       string               // cloud provider of THIS region ("huawei"/"hetzner"/…) — selects the dial port (#4811)
 	clientset      kubernetes.Interface // typed client built from kubeconfig
 	lbIP           string               // public LB IP of clustermesh-apiserver Service
-	apiPort        int                  // port peers DIAL on lbIP — 2379 on a real cloud LB; the Service NodePort when lbIP is a node-owned EIP (Cilium nodeIPAM, kom4dc shape)
+	apiPort        int                  // port peers DIAL on lbIP — 2379 on a real cloud LB (Hetzner hcloud-ccm); the clustermesh-proxy hostPort (12379) on a no-CCM cloud (Huawei/kom4dc, CP-EIP ingress collides with k3s-etcd :2379). Never a NodePort (#4765).
 	caCert         []byte               // cilium-ca tls.crt bytes
 	caKey          []byte               // cilium-ca tls.key bytes
 	err            error                // non-nil if LB lookup / CA snapshot failed
@@ -184,6 +185,15 @@ const (
 	// dedicated non-2379 port (bp-cilium clustermesh-proxy DaemonSet) via
 	// this override; Hetzner keeps the default 2379 behind hcloud-ccm.
 	clusterMeshAPIServerPort    = 2379
+	// clusterMeshProxyDialPort — the bp-cilium clustermesh-proxy DaemonSet
+	// hostPort (#4784). On a no-CCM cloud (Huawei/kom4dc) there is no real
+	// LoadBalancer: the clustermesh-apiserver Service's ingress IP is the
+	// CP-node's public EIP (1:1 NAT to the CP private IP), and that host's
+	// :2379 is answered by k3s' OWN embedded etcd — so peers MUST dial the
+	// dedicated proxy host-socket instead. This value MUST match infra
+	// `clustermesh_proxy_port` + bp-cilium `clustermeshProxy.hostPort`
+	// (both 12379). NOT a NodePort — the proxy binds a hostNetwork socket.
+	clusterMeshProxyDialPort    = 12379
 	clusterMeshDialPortEnvVar   = "CLUSTERMESH_APISERVER_DIAL_PORT"
 	clusterMeshLBLookupTimeout  = 5 * time.Minute
 	clusterMeshLBLookupInterval = 10 * time.Second
@@ -807,7 +817,7 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		if s.err != nil {
 			continue
 		}
-		lbIP, apiPort, err := h.waitForClusterMeshLB(ctx, s.clientset)
+		lbIP, apiPort, err := h.waitForClusterMeshLB(ctx, s.clientset, s.provider)
 		if err != nil {
 			s.err = fmt.Errorf("lb-discovery: %w", err)
 			h.log.Warn("clustermesh: LB lookup failed for region",
@@ -2303,10 +2313,19 @@ func (h *Handler) buildRegionSlots(
 			}
 		}
 
+		// #4811 — the dial port keys on THIS region's cloud. Prefer the
+		// per-region Provider; fall back to the deployment-level Provider
+		// (single-cloud provs often set only the top-level field).
+		regionProvider := strings.TrimSpace(rs.Provider)
+		if regionProvider == "" {
+			regionProvider = strings.TrimSpace(dep.Request.Provider)
+		}
+
 		slot := regionSlot{
 			key:            key,
 			kubeconfigPath: kc,
 			clusterName:    clusterName,
+			provider:       regionProvider,
 		}
 		if isPrimary {
 			slot.clusterID = primaryID
@@ -2387,16 +2406,47 @@ func regionKeyFromSpec(rs provisioner.RegionSpec, idx int) string {
 // NOT collide with k3s' embedded etcd on the CP-node host :2379) — see
 // clusterMeshAPIServerPort's doc + issue #4784. A NodePort value here is
 // still forbidden; the proxy binds a hostNetwork socket, not a NodePort.
-func clusterMeshDialPort() int {
+//
+// #4811 — the port MUST key on the DIALED region's cloud, not on a single
+// static env. The mothership catalyst-api establishes meshes for BOTH
+// Hetzner and Huawei Sovereigns from ONE (env-unset) deployment, so a static
+// CLUSTERMESH_APISERVER_DIAL_PORT env can never be right for a multi-cloud
+// mothership: with the env unset it defaulted to 2379 and wrote every Huawei
+// Sovereign's peer endpoint as `:2379` (→ k3s KINE, ClusterMesh 0/1). The
+// env is retained as an explicit single-cloud override (highest precedence),
+// but when it is unset the default is resolved from `provider`: a no-CCM
+// cloud (Huawei/kom4dc) dials the clustermesh-proxy hostPort (12379); a CCM
+// cloud (Hetzner, real hcloud-ccm LB IP with no k3s-etcd host collision)
+// dials the canonical etcd :2379.
+func clusterMeshDialPort(provider string) int {
 	if v := strings.TrimSpace(os.Getenv(clusterMeshDialPortEnvVar)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil && p > 0 && p <= 65535 {
 			return p
 		}
 	}
+	if isNoCCMCloud(provider) {
+		return clusterMeshProxyDialPort
+	}
 	return clusterMeshAPIServerPort
 }
 
-func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface) (string, int, error) {
+// isNoCCMCloud reports whether the given deployment/region provider runs
+// WITHOUT a cloud-controller-manager LoadBalancer — i.e. the
+// clustermesh-apiserver Service has no real LB IP and the CP-node public EIP
+// (which serves the ingress) collides with k3s' embedded etcd on host :2379,
+// so peers must dial the clustermesh-proxy hostPort (clusterMeshProxyDialPort)
+// instead of :2379. Hetzner (hcloud-ccm) returns false. Matches the provider
+// strings validated in deployments.go (req.Provider / Regions[i].Provider).
+func isNoCCMCloud(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "huawei", "hcs", "kom4dc":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface, provider string) (string, int, error) {
 	timeout := clusterMeshLBLookupTimeout
 	if v := clusterMeshTestOverrideLBTimeout(); v > 0 {
 		timeout = v
@@ -2461,7 +2511,7 @@ func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.In
 			// CLUSTERMESH_APISERVER_DIAL_PORT — still NO NodePort. Hetzner
 			// keeps the default 2379 (hcloud-ccm real LB, no k3s-etcd host
 			// collision on the LB IP).
-			return ip, clusterMeshDialPort(), nil
+			return ip, clusterMeshDialPort(provider), nil
 		}
 		if time.Now().After(deadline) {
 			return "", 0, fmt.Errorf("Service %s/%s has no LoadBalancer ingress after %s",

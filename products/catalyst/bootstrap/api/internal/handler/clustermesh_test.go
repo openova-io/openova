@@ -1463,7 +1463,7 @@ func TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish(t *testing.
 	// Pass 2 — env now sets the clustermesh-proxy dial port (12379), the
 	// no-CCM Huawei value. The establish must REWRITE the stale endpoint.
 	t.Setenv(clusterMeshDialPortEnvVar, "12379")
-	if got := clusterMeshDialPort(); got != 12379 {
+	if got := clusterMeshDialPort(""); got != 12379 {
 		t.Fatalf("clusterMeshDialPort() = %d after env set, want 12379", got)
 	}
 	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
@@ -1496,6 +1496,47 @@ func TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish(t *testing.
 		if !bytes.Equal(got, want) {
 			t.Errorf("cert material key %q mutated by the port-only rewrite", k)
 		}
+	}
+}
+
+// TestClusterMeshDialPort_CloudAware — #4811. The dial port must be resolved
+// from the DIALED region's cloud when the env is unset, because the mothership
+// catalyst-api establishes meshes for BOTH clouds from ONE env-unset
+// deployment. A no-CCM cloud (Huawei/kom4dc) dials the clustermesh-proxy
+// hostPort (12379); a CCM cloud (Hetzner) dials the canonical etcd :2379. An
+// explicit env override still wins over the cloud default (single-cloud escape
+// hatch). Regression guard: env-unset + provider=huawei previously returned
+// 2379 (KINE) and wedged every Huawei Sovereign at ClusterMesh 0/1.
+func TestClusterMeshDialPort_CloudAware(t *testing.T) {
+	// Ensure no ambient override leaks in from the environment.
+	t.Setenv(clusterMeshDialPortEnvVar, "")
+
+	cases := []struct {
+		provider string
+		want     int
+	}{
+		{"huawei", clusterMeshProxyDialPort}, // no-CCM → proxy hostPort 12379
+		{"hcs", clusterMeshProxyDialPort},
+		{"kom4dc", clusterMeshProxyDialPort},
+		{"HUAWEI", clusterMeshProxyDialPort}, // case-insensitive
+		{"hetzner", clusterMeshAPIServerPort}, // CCM real LB → 2379
+		{"", clusterMeshAPIServerPort},        // unknown → safe 2379 default
+		{"aws", clusterMeshAPIServerPort},
+	}
+	for _, c := range cases {
+		if got := clusterMeshDialPort(c.provider); got != c.want {
+			t.Errorf("clusterMeshDialPort(%q) = %d, want %d", c.provider, got, c.want)
+		}
+	}
+
+	// Explicit env override wins over the cloud-aware default, for either cloud.
+	t.Setenv(clusterMeshDialPortEnvVar, "12379")
+	if got := clusterMeshDialPort("hetzner"); got != 12379 {
+		t.Errorf("env override ignored for hetzner: got %d, want 12379", got)
+	}
+	t.Setenv(clusterMeshDialPortEnvVar, "2379")
+	if got := clusterMeshDialPort("huawei"); got != 2379 {
+		t.Errorf("env override ignored for huawei: got %d, want 2379", got)
 	}
 }
 
