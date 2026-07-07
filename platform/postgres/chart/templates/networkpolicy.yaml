@@ -91,6 +91,22 @@ spec:
           protocol: TCP
         - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+    # CROSS-REGION pod CIDRs (#4846): the REPLICA region's Pods (consumers +
+    # the replica Cluster's pg_basebackup / streaming) reach the primary's 5432
+    # by RAW SOURCE IP via ipBlock. k8s NetworkPolicy namespaceSelector/
+    # podSelector are implicitly scoped to the LOCAL cluster (Cilium ANDs
+    # `io.cilium.k8s.policy.cluster=<local>`), so the region-b (remote-cluster)
+    # sources above are NOT matched and get default-denied → timeout (region-b
+    # grafana CrashLoop + replica stuck "Setting up primary" on hw228). ipBlock
+    # matches by IP, not endpoint identity, so it is NOT subject to that scope.
+    {{- range .Values.topology.networkPolicy.crossRegionPodCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- end }}
 {{- end }}
 {{- if $isReplica }}
 ---
@@ -134,5 +150,17 @@ spec:
           protocol: TCP
         - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+    # CROSS-REGION pod CIDRs (#4846): the PRIMARY region's Pods (the primary
+    # Cluster streaming to this replica + consumers reading the replica's
+    # -mesh-rw) reach the replica's 5432 by RAW SOURCE IP via ipBlock — same
+    # local-cluster-scope bypass as the primary side above.
+    {{- range .Values.topology.networkPolicy.crossRegionPodCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- end }}
 {{- end }}
 {{- end }}

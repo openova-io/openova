@@ -91,7 +91,7 @@ spec:
       # global Service aliases decoupled from the cnpg-pair flip → render on the
       # multi-region signal so cross-region grafana/powerdns/pda hosts resolve the
       # moment the mesh peers. Lockstep with 16a/16d.
-      version: 0.2.8
+      version: 0.2.9
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -138,6 +138,15 @@ spec:
       # them). See slot 16a for the full rationale.
       networkPolicy:
         sharedConsumers: true
+        # crossRegionPodCIDRs (#4846) — admit the PEER region's pods to 5432 so
+        # region-b consumers (keycloak/grafana/…) + the region-b replica's
+        # pg_basebackup reach the primary. k8s netpol label rules are implicitly
+        # local-cluster-scoped (Cilium ANDs io.cilium.k8s.policy.cluster=<local>),
+        # so remote-cluster sources are dropped; an ipBlock matches by raw IP and
+        # is NOT scoped. 10.42.0.0/15 is the deterministic pod supernet spanning
+        # BOTH regions (01-cilium ipv4NativeRoutingCIDR). Only consumed in
+        # active-hot-standby; singleton ignores it (byte-identical default).
+        crossRegionPodCIDRs: ['${SOVEREIGN_POD_SUPERNET_CIDR:-10.42.0.0/15}']
     databases:
       # grafana — FLIPPED (see header). The extraData keys are grafana's
       # native GF_DATABASE_* env contract; GF_DATABASE_HOST carries

@@ -8,7 +8,7 @@ metadata:
 spec:
   # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
   # cnpg-pair flip (render on the multi-region signal; region-B NXDOMAIN fix).
-  version: 0.2.8
+  version: 0.2.9
   card:
     title: PostgreSQL
     summary: |
