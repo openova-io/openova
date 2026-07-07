@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-07T12:15:06Z` |
+| Last refreshed | `2026-07-07T12:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 61 |
+| Open issues | 62 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 61 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 62 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 61 open items (clickable table)
+### All 62 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -261,6 +261,7 @@ flowchart LR
 | [#4836](https://github.com/openova-io/openova/issues/4836) | Console PlacementEditor targets[] model rejected by HandleApplicationUpdate lega | Other |
 | [#4838](https://github.com/openova-io/openova/issues/4838) | Flaky TestSnapshot_HydrateStaleThenRelist — Factory.Stop() doesn't wait for sn | Other |
 | [#4841](https://github.com/openova-io/openova/issues/4841) | SSO walk flags on hw228: owner UserAccess CRs Failed/0-grants + stray ratelimit- | Other |
+| [#4843](https://github.com/openova-io/openova/issues/4843) | Edit-IaC editor seeds uncommittable YAML for any Blueprint whose live CR carries | Other |
 
 ---
 
@@ -268,6 +269,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-07T12:27 | [#4844](https://github.com/openova-io/openova/pull/4844) | #4843 | fix(#4843): Edit-IaC editor seeds committable YAML (inline e |
 | 2026-07-07T10:17 | [#4840](https://github.com/openova-io/openova/pull/4840) | #4837 | fix(#4836): accept #3969 placement targets[] in HandleApplic |
 | 2026-07-07T09:37 | [#4839](https://github.com/openova-io/openova/pull/4839) | #4831 | fix(#4838): Factory.Stop() waits for snapshot loop to drain  |
 | 2026-07-07T08:35 | [#4835](https://github.com/openova-io/openova/pull/4835) | #4834 | fix(#4833): pin fresh funnel-Org stalwart-mail to 0.1.13 so  |
@@ -297,7 +299,6 @@ flowchart LR
 | 2026-07-05T06:43 | [#4793](https://github.com/openova-io/openova/pull/4793) | #4739 | fix(mimir): make-buckets Job survives slow kom4dc MinIO firs |
 | 2026-07-05T05:53 | [#4792](https://github.com/openova-io/openova/pull/4792) | #4785 | fix(org-controller): sync gateway-api HTTPRoutes into per-Or |
 | 2026-07-05T04:36 | [#4791](https://github.com/openova-io/openova/pull/4791) | #4739 | fix(console): eradicate residual user-facing tenant leaks (r |
-| 2026-07-05T04:36 | [#4790](https://github.com/openova-io/openova/pull/4790) | #4786 | fix(provisioning): mirror per-Org kubeconfig into tenant ns  |
 
 ---
 
