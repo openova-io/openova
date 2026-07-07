@@ -166,7 +166,16 @@ name: bp-stalwart-tenant
 #   100m/64Mi — overridable) and wired it onto the Job container. The
 #   StatefulSet already declared resources (stalwart.resources); only the
 #   hook Job was missing them. Mirrors the bp-newapi hook-Job convention.
-version: 0.1.12
+#
+# 0.1.13 (#4272/#4307/#4292, 2026-07-07): right-size stalwart.resources CPU
+#   1 -> 500m (requests==limits, Guaranteed QoS preserved). A guaranteed FULL
+#   core for an idle per-Org mailserver consumed 50% of the S-plan's 2-vCPU
+#   plan-quota, so on a co-tenant S funnel Org (wordpress+mysql+stalwart+openclaw)
+#   bp-openclaw's controller (requests 500m) was quota-DENIED and UAT rows
+#   224/232 stayed red. Live-root-caused on hw228 walk-stranger: used 1600m/2000m
+#   with stalwart at 1000m. 500m is ample for an idle demo mailserver and frees
+#   the headroom openclaw needs to schedule. Refs #4272 #4307 #4292.
+version: 0.1.13
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated

@@ -56,7 +56,7 @@ spec:
   # webadmin stays in-cluster on `-web` with an optional default-off
   # `mailadmin.<slug>` HTTPRoute.
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.12
+  version: 0.1.13
   card:
     title: Stalwart (per-Organization)
     summary: |
