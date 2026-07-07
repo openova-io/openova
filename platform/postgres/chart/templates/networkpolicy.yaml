@@ -91,22 +91,49 @@ spec:
           protocol: TCP
         - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
           protocol: TCP
-    # CROSS-REGION pod CIDRs (#4846): the REPLICA region's Pods (consumers +
-    # the replica Cluster's pg_basebackup / streaming) reach the primary's 5432
-    # by RAW SOURCE IP via ipBlock. k8s NetworkPolicy namespaceSelector/
-    # podSelector are implicitly scoped to the LOCAL cluster (Cilium ANDs
-    # `io.cilium.k8s.policy.cluster=<local>`), so the region-b (remote-cluster)
-    # sources above are NOT matched and get default-denied → timeout (region-b
-    # grafana CrashLoop + replica stuck "Setting up primary" on hw228). ipBlock
-    # matches by IP, not endpoint identity, so it is NOT subject to that scope.
-    {{- range .Values.topology.networkPolicy.crossRegionPodCIDRs }}
-    - from:
-        - ipBlock:
-            cidr: {{ . | quote }}
-      ports:
-        - port: 5432
-          protocol: TCP
-    {{- end }}
+{{- if gt (len .Values.topology.networkPolicy.crossRegionPeerClusters) 0 }}
+---
+# CROSS-REGION DR (#4846): the REPLICA region's Pods (consumers + the replica
+# Cluster's pg_basebackup / WAL streaming) reach the primary's 5432 over Cilium
+# ClusterMesh. They arrive as KNOWN Cilium endpoints carrying their OWN pod
+# security identity — NOT a CIDR identity — so a k8s-NetworkPolicy `ipBlock`
+# rule NEVER admits them: Cilium assigns a CIDR identity ONLY to IPs that are
+# NOT known endpoints, so a ClusterMesh remote pod is `match none` → deny (the
+# #4847 ipBlock shipped inert; proven on hw228). A k8s-netpol label selector is
+# ALSO implicitly local-cluster-scoped (Cilium ANDs `io.cilium.k8s.policy.
+# cluster=<local>`), so it can't match a remote endpoint either. The CORRECT
+# admission is an identity-based CiliumNetworkPolicy selecting the peer
+# cluster(s) by the `io.cilium.k8s.policy.cluster` label — this exact shape made
+# region-b→region-a pg_isready succeed + the DR replica basebackup complete on
+# hw228. Gated on crossRegionPeerClusters (the peer ClusterMesh name(s), stamped
+# by catalyst-api at the post-mesh cnpg-pair flip); EMPTY (singleton /
+# single-region) → NO CNP → byte-identical default render.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-crossregion-dr-primary
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range .Values.topology.networkPolicy.crossRegionPeerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}
 {{- end }}
 {{- if $isReplica }}
 ---
@@ -150,17 +177,39 @@ spec:
           protocol: TCP
         - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
           protocol: TCP
-    # CROSS-REGION pod CIDRs (#4846): the PRIMARY region's Pods (the primary
-    # Cluster streaming to this replica + consumers reading the replica's
-    # -mesh-rw) reach the replica's 5432 by RAW SOURCE IP via ipBlock — same
-    # local-cluster-scope bypass as the primary side above.
-    {{- range .Values.topology.networkPolicy.crossRegionPodCIDRs }}
-    - from:
-        - ipBlock:
-            cidr: {{ . | quote }}
-      ports:
-        - port: 5432
-          protocol: TCP
-    {{- end }}
+{{- if gt (len .Values.topology.networkPolicy.crossRegionPeerClusters) 0 }}
+---
+# CROSS-REGION DR (#4846): the PRIMARY region's Pods (the primary Cluster
+# streaming to this replica + consumers reading the replica's -mesh-rw) reach
+# the replica's 5432 over ClusterMesh as KNOWN endpoints with their OWN pod
+# identity — an `ipBlock` never matches them (same inert-ipBlock root cause as
+# the primary side above). Admit them by cluster identity via a
+# CiliumNetworkPolicy selecting the peer ClusterMesh name(s). EMPTY → no CNP.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-crossregion-dr-replica
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range .Values.topology.networkPolicy.crossRegionPeerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}
 {{- end }}
 {{- end }}

@@ -271,6 +271,25 @@ const (
 	clusterMeshRegionRoleSubstituteKey = "SOVEREIGN_REGION_ROLE"
 	fluxReconcileRequestedAtAnnotation = "reconcile.fluxcd.io/requestedAt"
 
+	// clusterMeshPeerClusterMeshNamesSubstituteKey (#4846, Refs #4656 #4275)
+	// carries the Cilium ClusterMesh cluster.name(s) of the OTHER region(s)
+	// for the region whose bootstrap-kit Kustomization it is stamped onto,
+	// as a YAML flow-sequence string (e.g. `[hw228-me-east-b]` on region-A;
+	// `[hw228-mesh]` on region-B). bp-postgres (16a/16c/16d) + bp-cnpg-pair
+	// (16b) consume it as `crossRegionPeerClusters:
+	// ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:-[]}` to render the cross-region DR
+	// CiliumNetworkPolicy that admits the ClusterMesh remote replica by
+	// `io.cilium.k8s.policy.cluster` identity. This REPLACES the inert #4846
+	// ipBlock: a k8s-NetworkPolicy ipBlock matches only a CIDR identity
+	// (assigned solely to NON-endpoint IPs), so a ClusterMesh remote pod — a
+	// KNOWN endpoint with its own pod identity — is `match none` → deny
+	// (proven with cilium-dbg on hw228). It is stamped alongside the
+	// SOVEREIGN_ENABLE_CNPG_PAIR flip below (the crossRegion netpol half only
+	// renders once that gate is on), so the CNP appears exactly when the
+	// cross-region datapath activates; single-region provs never reach this
+	// flip → the slot default `[]` → no CNP (byte-identical).
+	clusterMeshPeerClusterMeshNamesSubstituteKey = "SOVEREIGN_PEER_CLUSTERMESH_NAMES"
+
 	// Cross-region shared-pg WRITE-host substitute keys (#4436, Refs
 	// #4159). On a 2-region shared-pg Sovereign the CNPG primary (the
 	// region-local `shared-pg-rw` Service) lives ONLY in region-A; the
@@ -1142,6 +1161,35 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	return statuses, cnpgPairConverged, nil
 }
 
+// buildPeerClusterMeshNamesValue returns the SOVEREIGN_PEER_CLUSTERMESH_NAMES
+// substitute value for the region at slots[idx] — a YAML flow-sequence string
+// listing EVERY OTHER region's Cilium cluster.name (the identity the
+// cross-region DR CiliumNetworkPolicy matches via io.cilium.k8s.policy.cluster,
+// #4846). Each slot's clusterName was already derived (buildRegionSlots) via
+// provisioner.DeriveClusterMeshName (primary = `<label>-mesh`) /
+// DeriveSecondaryClusterMeshName (`<stem>-<region-no-digits>`), so this reuses
+// the SAME strings cilium-config carries on each cluster — the identity the
+// remote pods actually present.
+//
+// Returns "[]" when there is no peer (single-region, or every other slot's
+// clusterName is empty), so the chart renders NO CiliumNetworkPolicy. Emitted
+// as a flow sequence (e.g. "[hw228-me-east-b]") so the slot's
+// `crossRegionPeerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:-[]}` substitutes
+// to a valid YAML list.
+func buildPeerClusterMeshNamesValue(slots []regionSlot, idx int) string {
+	peers := make([]string, 0, len(slots))
+	for j := range slots {
+		if j == idx {
+			continue
+		}
+		name := strings.TrimSpace(slots[j].clusterName)
+		if name != "" {
+			peers = append(peers, name)
+		}
+	}
+	return "[" + strings.Join(peers, ",") + "]"
+}
+
 // enableCNPGPairAfterFullMesh flips the slot-16b gate on EVERY
 // region's bootstrap-kit Flux Kustomization (the one cloud-init applies
 // — infra/providers/_shared/cloudinit-control-plane.tftpl) by merging
@@ -1227,6 +1275,13 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 		// this crossRegion flip, so their `<instance>-replication`/`-ca`
 		// Secrets must be synced primary → replica alongside bp-cnpg-pair's.
 		sharedPGEnabled bool
+		// peerClusterMeshNames (#4846) — the OTHER region(s)' Cilium
+		// cluster.name(s) as a YAML flow-sequence string, stamped onto THIS
+		// region's SOVEREIGN_PEER_CLUSTERMESH_NAMES substitute so the
+		// bp-postgres / bp-cnpg-pair cross-region DR CiliumNetworkPolicy
+		// admits the ClusterMesh remote replica by identity. Derived from the
+		// slots' already-computed clusterName (buildPeerClusterMeshNamesValue).
+		peerClusterMeshNames string
 	}
 	targets := make([]flipTarget, 0, len(slots))
 	for i := range slots {
@@ -1300,7 +1355,13 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			}
 		}
 		sharedPGEnabled := strings.EqualFold(strings.TrimSpace(substitute[clusterMeshSharedPGSubstituteKey]), "true")
-		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn, primarySide: role == "primary", sharedPGEnabled: sharedPGEnabled})
+		targets = append(targets, flipTarget{
+			regionKey:            regionLabel,
+			dyn:                  dyn,
+			primarySide:          role == "primary",
+			sharedPGEnabled:      sharedPGEnabled,
+			peerClusterMeshNames: buildPeerClusterMeshNamesValue(slots, i),
+		})
 	}
 
 	// ── Patch phase: TWO-STAGE (#3241 first-flip deadlock) ──────────
@@ -1325,27 +1386,39 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 	// sibling substitute keys + existing annotations are preserved —
 	// only the gate key and the reconcile-request stamp change.
 	stamp := time.Now().UTC().Format(time.RFC3339Nano)
-	patch := map[string]any{
-		"metadata": map[string]any{
-			"annotations": map[string]any{
-				fluxReconcileRequestedAtAnnotation: stamp,
-			},
-		},
-		"spec": map[string]any{
-			"postBuild": map[string]any{
-				"substitute": map[string]any{
-					clusterMeshCNPGPairSubstituteKey: "true",
+	// Per-region patch: SOVEREIGN_ENABLE_CNPG_PAIR is identical for every
+	// region, but SOVEREIGN_PEER_CLUSTERMESH_NAMES (#4846) differs — each
+	// region's substitute must carry the OTHER region(s)' Cilium cluster.name,
+	// so the cross-region DR CiliumNetworkPolicy admits the correct remote
+	// peer by identity. Both keys land in ONE merge patch so the CNP appears
+	// atomically with the crossRegion netpol half it gates. The JSON merge
+	// patch (RFC 7386) merges nested objects key-by-key, so sibling substitute
+	// keys + existing annotations are preserved.
+	patchOne := func(t flipTarget) bool {
+		substitute := map[string]any{
+			clusterMeshCNPGPairSubstituteKey: "true",
+		}
+		if t.peerClusterMeshNames != "" {
+			substitute[clusterMeshPeerClusterMeshNamesSubstituteKey] = t.peerClusterMeshNames
+		}
+		patch := map[string]any{
+			"metadata": map[string]any{
+				"annotations": map[string]any{
+					fluxReconcileRequestedAtAnnotation: stamp,
 				},
 			},
-		},
-	}
-	patchBytes, err := json.Marshal(patch)
-	if err != nil {
-		h.log.Warn("clustermesh: cnpg-pair gate: marshal merge patch failed",
-			"id", dep.ID, "err", err)
-		return false
-	}
-	patchOne := func(t flipTarget) bool {
+			"spec": map[string]any{
+				"postBuild": map[string]any{
+					"substitute": substitute,
+				},
+			},
+		}
+		patchBytes, err := json.Marshal(patch)
+		if err != nil {
+			h.log.Warn("clustermesh: cnpg-pair gate: marshal merge patch failed",
+				"id", dep.ID, "region", t.regionKey, "err", err)
+			return false
+		}
 		patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
 		_, patchErr := t.dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
 			Patch(patchCtx, bootstrapKitKustomizationName, types.MergePatchType, patchBytes, metav1.PatchOptions{})

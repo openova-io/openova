@@ -9,7 +9,26 @@ name: bp-cnpg-pair
 # and the console Topology tab fell back to "singleton"). The template
 # gains an optional leaseClient.namespace passthrough. Slot-16b pin moves
 # to 0.2.7 in lockstep (Inviolable Principle #13).
-version: 0.2.8
+# 0.2.9 (#4846, Refs #4656 #4275): REPLACE the inert cross-region ipBlock with
+# an identity-based CiliumNetworkPolicy. 0.2.8 added a k8s-NetworkPolicy
+# `ipBlock: {cidr: crossRegionPodCIDRs}` on 5432 to admit the ClusterMesh remote
+# replica, but that ipBlock is INERT for ClusterMesh traffic: a k8s `ipBlock`
+# matches only a CIDR identity, which Cilium assigns SOLELY to IPs that are NOT
+# known endpoints. A ClusterMesh remote-cluster pod IS a known endpoint carrying
+# its own pod security identity → the ipBlock is `match none` → deny (confirmed
+# with cilium-dbg on hw228). networkpolicy.yaml now REMOVES both ipBlock blocks
+# (primary allow-replication-to-primary + replica allow-probe-to-replica) and,
+# gated on the new `cnpgPair.networkPolicy.crossRegionPeerClusters` (peer
+# ClusterMesh name(s)), renders a per-side CiliumNetworkPolicy (cilium.io/v2)
+# selecting THIS side's Cluster Pods (primaryName / replicaName) and admitting
+# ingress fromEndpoints matching `io.cilium.k8s.policy.cluster In [<peers>]` on
+# 5432/TCP — the shape that made region-b→region-a pg_isready + DR basebackup
+# succeed LIVE on hw228. values `crossRegionPodCIDRs` → `crossRegionPeerClusters`;
+# catalyst-api stamps the peer name(s) via SOVEREIGN_PEER_CLUSTERMESH_NAMES at
+# the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
+# empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
+# counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
+version: 0.2.9
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

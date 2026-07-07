@@ -8,7 +8,10 @@ metadata:
 spec:
   # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
   # cnpg-pair flip (render on the multi-region signal; region-B NXDOMAIN fix).
-  version: 0.2.9
+  # 0.2.10 (#4846): cross-region DR admission is an identity-based
+  # CiliumNetworkPolicy (io.cilium.k8s.policy.cluster) — the 0.2.9 ipBlock was
+  # inert for ClusterMesh remote endpoints. values crossRegionPeerClusters.
+  version: 0.2.10
   card:
     title: PostgreSQL
     summary: |

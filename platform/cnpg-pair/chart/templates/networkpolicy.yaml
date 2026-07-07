@@ -89,20 +89,45 @@ spec:
           protocol: TCP
         - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
           protocol: TCP
-    # CROSS-REGION pod CIDRs (#4846): the REPLICA region's Pods (streaming +
-    # pg_basebackup) reach the primary's 5432 by RAW SOURCE IP. The
-    # podSelector `cnpg.io/cluster=<replica>` rule above is implicitly
-    # local-cluster-scoped (Cilium ANDs io.cilium.k8s.policy.cluster=<local>),
-    # so the ClusterMesh remote-cluster replica Pods are NOT matched by it and
-    # get default-denied. ipBlock matches by IP, not identity — NOT scoped.
-    {{- range .Values.cnpgPair.networkPolicy.crossRegionPodCIDRs }}
-    - from:
-        - ipBlock:
-            cidr: {{ . | quote }}
-      ports:
-        - port: 5432
-          protocol: TCP
-    {{- end }}
+{{- if gt (len .Values.cnpgPair.networkPolicy.crossRegionPeerClusters) 0 }}
+---
+# CROSS-REGION DR (#4846): the REPLICA region's Pods (streaming + pg_basebackup)
+# reach the primary's 5432 over ClusterMesh as KNOWN endpoints carrying their
+# OWN pod security identity. The podSelector `cnpg.io/cluster=<replica>` rule
+# above is implicitly local-cluster-scoped (Cilium ANDs io.cilium.k8s.policy.
+# cluster=<local>) so it never matches the remote replica; and a k8s-netpol
+# `ipBlock` matches ONLY a CIDR identity (assigned SOLELY to IPs that are NOT
+# known endpoints) so it is `match none` for the remote replica → deny (the
+# #4846 ipBlock shipped INERT; proven with cilium-dbg on hw228 — "Creating a
+# new replica" wedge). Admit the peer cluster(s) by IDENTITY via a
+# CiliumNetworkPolicy selecting `io.cilium.k8s.policy.cluster`; this exact shape
+# made region-b→region-a pg_isready + the DR basebackup succeed on hw228.
+# EMPTY (single-region) → NO CiliumNetworkPolicy (byte-identical default).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-crossregion-dr-primary
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "cnpg-pair.primaryName" . }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range .Values.cnpgPair.networkPolicy.crossRegionPeerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}
 {{- end }}
 {{- if (include "cnpg-pair.isReplicaSide" .) }}
 ---
@@ -157,18 +182,39 @@ spec:
           protocol: TCP
         - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
           protocol: TCP
-    # CROSS-REGION pod CIDRs (#4846): the PRIMARY region's Pods (streaming to
-    # this replica + any consumer reading the replica's -r) reach the replica's
-    # 5432 by RAW SOURCE IP — same local-cluster-scope bypass as the primary
-    # side above (k8s netpol label selectors don't match ClusterMesh remote).
-    {{- range .Values.cnpgPair.networkPolicy.crossRegionPodCIDRs }}
-    - from:
-        - ipBlock:
-            cidr: {{ . | quote }}
-      ports:
-        - port: 5432
-          protocol: TCP
-    {{- end }}
+{{- if gt (len .Values.cnpgPair.networkPolicy.crossRegionPeerClusters) 0 }}
+---
+# CROSS-REGION DR (#4846): the PRIMARY region's Pods (streaming to this replica
+# + any consumer reading the replica's -r) reach the replica's 5432 over
+# ClusterMesh as KNOWN endpoints with their OWN pod identity — an `ipBlock`
+# never matches them (same inert-ipBlock root cause as the primary side above,
+# proven hw228). Admit them by cluster identity via a CiliumNetworkPolicy
+# selecting the peer ClusterMesh name(s). EMPTY (single-region) → no CNP.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-crossregion-dr-replica
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range .Values.cnpgPair.networkPolicy.crossRegionPeerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}
 ---
 # Egress carve-out for the probe Pod — must resolve DNS and reach
 # the replica's `-r` Service on 5432.

@@ -197,7 +197,9 @@ spec:
       # 0.2.6 (#3740): replication-source mesh Service flipped
       # selectorType r→rw so the cross-region replica streams from the
       # PRIMARY's walsender (not a cascaded local standby) → sync_state=sync.
-      version: 0.2.8
+      # 0.2.9 (#4846): identity-based cross-region DR CiliumNetworkPolicy
+      # (crossRegionPeerClusters) replaces the inert ipBlock.
+      version: 0.2.9
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -278,15 +280,19 @@ spec:
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
       networkPolicy:
-        # crossRegionPodCIDRs (#4846) — admit the PEER region's Pods to the
-        # pair's 5432 by RAW IP (ipBlock), bypassing the io.cilium.k8s.policy.
-        # cluster local-cluster scoping that drops ClusterMesh remote-cluster
-        # label-selector matches (region-b replica pg_basebackup/streaming was
-        # default-denied → "Creating a new replica" wedge). 10.42.0.0/15 is the
-        # deterministic pod supernet spanning both regions (01-cilium
-        # ipv4NativeRoutingCIDR). Only consumed when cnpgPair.enabled (AHS);
-        # a single-region prov (gate OFF) renders NO ipBlock (byte-identical).
-        crossRegionPodCIDRs: ['${SOVEREIGN_POD_SUPERNET_CIDR:-10.42.0.0/15}']
+        # crossRegionPeerClusters (#4846) — admit the PEER region's Pods to the
+        # pair's 5432 by CLUSTER IDENTITY. A k8s `ipBlock` (the reverted #4846
+        # first attempt) is INERT for ClusterMesh traffic: it matches only a CIDR
+        # identity, which Cilium assigns solely to NON-endpoint IPs, so the
+        # region-b replica (a known remote endpoint) is `match none` → deny →
+        # "Creating a new replica" wedge (proven hw228). The chart renders an
+        # identity-based CiliumNetworkPolicy selecting io.cilium.k8s.policy.cluster
+        # instead. SOVEREIGN_PEER_CLUSTERMESH_NAMES is stamped by catalyst-api
+        # (enableCNPGPairAfterFullMesh) with the peer region's mesh name(s) at the
+        # post-mesh flip, as a YAML flow-sequence e.g. [hw228-mesh]. Only consumed
+        # when cnpgPair.enabled (AHS); a single-region prov (gate OFF) + the
+        # DEFAULT [] render NO CiliumNetworkPolicy (byte-identical).
+        crossRegionPeerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:-[]}
       # ── Continuum DR contract seed (#3195 G6, flipped 2026-06-12) ──
       # Renders the production Continuum CR so continuum-controller has
       # a real DR contract to reconcile (it was idle on every prov —

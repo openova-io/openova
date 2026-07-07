@@ -547,4 +547,62 @@ if [ "$PAIROFF" -ne 0 ]; then
 fi
 echo "  PASS"
 
+# ── Case 12: #4846 — crossRegionPeerClusters → identity-based CNP, NO ipBlock ─
+# Cross-region DR admission is an identity-based CiliumNetworkPolicy selecting
+# the peer cluster(s) by io.cilium.k8s.policy.cluster. A k8s-netpol ipBlock (the
+# reverted #4846 first attempt) is INERT for ClusterMesh remote endpoints (proven
+# hw228) and MUST NOT render. Assert one CNP per side + zero ipBlock; and that
+# empty crossRegionPeerClusters (Case 2/3 default) renders ZERO CNP.
+echo "[render] Case 12: #4846 crossRegionPeerClusters → per-side CiliumNetworkPolicy (identity In-list), NO ipBlock"
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={hw228-me-east-b}' \
+  > "$TMP/cnp-primary.yaml" 2> "$TMP/cnp-primary.err" || {
+  echo "FAIL: #4846 side=primary CNP render errored:" >&2; cat "$TMP/cnp-primary.err" >&2; exit 1; }
+if [ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-primary.yaml")" != "1" ]; then
+  echo "FAIL: #4846 side=primary expected exactly 1 CiliumNetworkPolicy." >&2; exit 1; fi
+grep -qE '^  name: smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-primary$' "$TMP/cnp-primary.yaml" || {
+  echo "FAIL: #4846 primary CNP name != smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-primary." >&2; exit 1; }
+grep -qE '^      cnpg.io/cluster: smoke-cnpg-pair-bp-cnpg-pair-primary$' "$TMP/cnp-primary.yaml" || {
+  echo "FAIL: #4846 primary CNP endpointSelector must select the primary Cluster Pods." >&2; exit 1; }
+grep -q 'key: io.cilium.k8s.policy.cluster' "$TMP/cnp-primary.yaml" || {
+  echo "FAIL: #4846 primary CNP missing io.cilium.k8s.policy.cluster identity match." >&2; exit 1; }
+grep -q 'operator: In' "$TMP/cnp-primary.yaml" || {
+  echo "FAIL: #4846 primary CNP not using an In-list of peer clusters." >&2; exit 1; }
+grep -q '"hw228-me-east-b"' "$TMP/cnp-primary.yaml" || {
+  echo "FAIL: #4846 primary CNP missing the peer cluster name in the In-list." >&2; exit 1; }
+if grep -qE '^[[:space:]]*-?[[:space:]]*ipBlock:' "$TMP/cnp-primary.yaml"; then
+  echo "FAIL: #4846 primary render leaked an ipBlock rule (inert for ClusterMesh)." >&2; exit 1; fi
+grep -q 'allow-replication-to-primary' "$TMP/cnp-primary.yaml" || {
+  echo "FAIL: #4846 primary render dropped the k8s allow-replication-to-primary NetworkPolicy." >&2; exit 1; }
+# Replica side.
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.side=replica \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={hw228-mesh}' \
+  > "$TMP/cnp-replica.yaml" 2> "$TMP/cnp-replica.err" || {
+  echo "FAIL: #4846 side=replica CNP render errored:" >&2; cat "$TMP/cnp-replica.err" >&2; exit 1; }
+if [ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-replica.yaml")" != "1" ]; then
+  echo "FAIL: #4846 side=replica expected exactly 1 CiliumNetworkPolicy." >&2; exit 1; fi
+grep -qE '^  name: smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-replica$' "$TMP/cnp-replica.yaml" || {
+  echo "FAIL: #4846 replica CNP name != smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-replica." >&2; exit 1; }
+grep -qE '^      cnpg.io/cluster: smoke-cnpg-pair-bp-cnpg-pair-replica$' "$TMP/cnp-replica.yaml" || {
+  echo "FAIL: #4846 replica CNP endpointSelector must select the replica Cluster Pods." >&2; exit 1; }
+grep -q '"hw228-mesh"' "$TMP/cnp-replica.yaml" || {
+  echo "FAIL: #4846 replica CNP missing the primary mesh name in the In-list." >&2; exit 1; }
+if grep -qE '^[[:space:]]*-?[[:space:]]*ipBlock:' "$TMP/cnp-replica.yaml"; then
+  echo "FAIL: #4846 replica render leaked an ipBlock rule." >&2; exit 1; fi
+# Empty crossRegionPeerClusters (Case 2 default primary render) → ZERO CNP.
+if grep -q 'CiliumNetworkPolicy' "$TMP/primary.yaml"; then
+  echo "FAIL: #4846 primary render WITHOUT crossRegionPeerClusters must emit ZERO CiliumNetworkPolicy." >&2; exit 1; fi
+if grep -q 'CiliumNetworkPolicy' "$TMP/replica.yaml"; then
+  echo "FAIL: #4846 replica render WITHOUT crossRegionPeerClusters must emit ZERO CiliumNetworkPolicy." >&2; exit 1; fi
+echo "  PASS (1 CNP per side, identity In-list, no ipBlock; empty peers → zero CNP)"
+
 echo "[render] All bp-cnpg-pair render gates green."

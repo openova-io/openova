@@ -91,7 +91,9 @@ spec:
       # global Service aliases decoupled from the cnpg-pair flip → render on the
       # multi-region signal so cross-region grafana/powerdns/pda hosts resolve the
       # moment the mesh peers. Lockstep with 16a/16d.
-      version: 0.2.9
+      # 0.2.10 (#4846): identity-based cross-region DR CiliumNetworkPolicy
+      # (crossRegionPeerClusters) replaces the inert ipBlock. Lockstep 16a/16d.
+      version: 0.2.10
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -138,15 +140,19 @@ spec:
       # them). See slot 16a for the full rationale.
       networkPolicy:
         sharedConsumers: true
-        # crossRegionPodCIDRs (#4846) — admit the PEER region's pods to 5432 so
-        # region-b consumers (keycloak/grafana/…) + the region-b replica's
-        # pg_basebackup reach the primary. k8s netpol label rules are implicitly
-        # local-cluster-scoped (Cilium ANDs io.cilium.k8s.policy.cluster=<local>),
-        # so remote-cluster sources are dropped; an ipBlock matches by raw IP and
-        # is NOT scoped. 10.42.0.0/15 is the deterministic pod supernet spanning
-        # BOTH regions (01-cilium ipv4NativeRoutingCIDR). Only consumed in
-        # active-hot-standby; singleton ignores it (byte-identical default).
-        crossRegionPodCIDRs: ['${SOVEREIGN_POD_SUPERNET_CIDR:-10.42.0.0/15}']
+        # crossRegionPeerClusters (#4846) — admit the PEER region's pods to 5432
+        # by CLUSTER IDENTITY so region-b consumers (keycloak/grafana/…) + the
+        # region-b replica's pg_basebackup reach the primary. k8s-netpol label
+        # rules are implicitly local-cluster-scoped, and a k8s `ipBlock` never
+        # matches a ClusterMesh remote endpoint (it matches only a CIDR identity,
+        # which Cilium assigns solely to NON-endpoint IPs) — so the chart renders
+        # an identity-based CiliumNetworkPolicy selecting io.cilium.k8s.policy.
+        # cluster instead. SOVEREIGN_PEER_CLUSTERMESH_NAMES is stamped by
+        # catalyst-api (enableCNPGPairAfterFullMesh) with the peer region's mesh
+        # name(s) at the post-mesh cnpg-pair flip, as a YAML flow-sequence e.g.
+        # [hw228-me-east-b]. Only consumed in active-hot-standby; DEFAULT [] →
+        # singleton renders NO CiliumNetworkPolicy (byte-identical default).
+        crossRegionPeerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:-[]}
     databases:
       # grafana — FLIPPED (see header). The extraData keys are grafana's
       # native GF_DATABASE_* env contract; GF_DATABASE_HOST carries

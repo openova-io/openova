@@ -145,7 +145,29 @@ name: bp-postgres
 #   carve-outs (sync GUCs, replica-Pod cross-cluster allow, own-cluster
 #   pg_basebackup join, replica-side policy) stay $ahs-gated. Post-flip render is
 #   byte-identical to 0.2.7's $ahs shape.
-version: 0.2.9
+# 0.2.10 (#4846, Refs #4656 #4275): REPLACE the inert cross-region ipBlock with
+#   an identity-based CiliumNetworkPolicy. 0.2.9 added a k8s-NetworkPolicy
+#   `ipBlock: {cidr: crossRegionPodCIDRs}` on 5432 to admit the ClusterMesh
+#   remote replica, but that ipBlock is INERT for ClusterMesh traffic: a k8s
+#   `ipBlock` matches only a CIDR identity, which Cilium assigns SOLELY to IPs
+#   that are NOT known endpoints. A ClusterMesh remote-cluster pod IS a known
+#   endpoint carrying its own pod security identity, so the ipBlock rule is
+#   never consulted → `match none` → deny (confirmed with cilium-dbg on hw228,
+#   region-b→region-a pg_isready failed, DR replica stuck "Setting up primary").
+#   networkpolicy.yaml now REMOVES both ipBlock blocks and, gated on the new
+#   `topology.networkPolicy.crossRegionPeerClusters` (peer ClusterMesh name(s)),
+#   renders a per-side CiliumNetworkPolicy (cilium.io/v2) selecting THIS side's
+#   Cluster Pods (primaryName on primary, replicaName on replica) and admitting
+#   ingress `fromEndpoints` matching `io.cilium.k8s.policy.cluster In
+#   [<peers>]` on 5432/TCP — the exact shape that made region-b→region-a
+#   pg_isready succeed + the DR replica basebackup complete LIVE on hw228.
+#   values `crossRegionPodCIDRs` → `crossRegionPeerClusters`; catalyst-api
+#   stamps the peer name(s) via SOVEREIGN_PEER_CLUSTERMESH_NAMES at the
+#   post-mesh cnpg-pair flip. EMPTY (singleton / single-region) → NO CNP, so
+#   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
+#   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
+#   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
+version: 0.2.10
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
