@@ -197,7 +197,7 @@ spec:
       # 0.2.6 (#3740): replication-source mesh Service flipped
       # selectorType r→rw so the cross-region replica streams from the
       # PRIMARY's walsender (not a cascaded local standby) → sync_state=sync.
-      version: 0.2.7
+      version: 0.2.8
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -277,6 +277,16 @@ spec:
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
+      networkPolicy:
+        # crossRegionPodCIDRs (#4846) — admit the PEER region's Pods to the
+        # pair's 5432 by RAW IP (ipBlock), bypassing the io.cilium.k8s.policy.
+        # cluster local-cluster scoping that drops ClusterMesh remote-cluster
+        # label-selector matches (region-b replica pg_basebackup/streaming was
+        # default-denied → "Creating a new replica" wedge). 10.42.0.0/15 is the
+        # deterministic pod supernet spanning both regions (01-cilium
+        # ipv4NativeRoutingCIDR). Only consumed when cnpgPair.enabled (AHS);
+        # a single-region prov (gate OFF) renders NO ipBlock (byte-identical).
+        crossRegionPodCIDRs: ['${SOVEREIGN_POD_SUPERNET_CIDR:-10.42.0.0/15}']
       # ── Continuum DR contract seed (#3195 G6, flipped 2026-06-12) ──
       # Renders the production Continuum CR so continuum-controller has
       # a real DR contract to reconcile (it was idle on every prov —

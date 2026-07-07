@@ -89,6 +89,20 @@ spec:
           protocol: TCP
         - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+    # CROSS-REGION pod CIDRs (#4846): the REPLICA region's Pods (streaming +
+    # pg_basebackup) reach the primary's 5432 by RAW SOURCE IP. The
+    # podSelector `cnpg.io/cluster=<replica>` rule above is implicitly
+    # local-cluster-scoped (Cilium ANDs io.cilium.k8s.policy.cluster=<local>),
+    # so the ClusterMesh remote-cluster replica Pods are NOT matched by it and
+    # get default-denied. ipBlock matches by IP, not identity — NOT scoped.
+    {{- range .Values.cnpgPair.networkPolicy.crossRegionPodCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- end }}
 {{- end }}
 {{- if (include "cnpg-pair.isReplicaSide" .) }}
 ---
@@ -143,6 +157,18 @@ spec:
           protocol: TCP
         - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+    # CROSS-REGION pod CIDRs (#4846): the PRIMARY region's Pods (streaming to
+    # this replica + any consumer reading the replica's -r) reach the replica's
+    # 5432 by RAW SOURCE IP — same local-cluster-scope bypass as the primary
+    # side above (k8s netpol label selectors don't match ClusterMesh remote).
+    {{- range .Values.cnpgPair.networkPolicy.crossRegionPodCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- end }}
 ---
 # Egress carve-out for the probe Pod — must resolve DNS and reach
 # the replica's `-r` Service on 5432.
