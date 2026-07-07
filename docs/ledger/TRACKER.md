@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-07T10:15:03Z` |
+| Last refreshed | `2026-07-07T10:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 60 |
 | Open DoD gates | 0 / 41 |
@@ -267,6 +267,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-07T10:17 | [#4840](https://github.com/openova-io/openova/pull/4840) | #4837 | fix(#4836): accept #3969 placement targets[] in HandleApplic |
 | 2026-07-07T09:37 | [#4839](https://github.com/openova-io/openova/pull/4839) | #4831 | fix(#4838): Factory.Stop() waits for snapshot loop to drain  |
 | 2026-07-07T08:35 | [#4835](https://github.com/openova-io/openova/pull/4835) | #4834 | fix(#4833): pin fresh funnel-Org stalwart-mail to 0.1.13 so  |
 | 2026-07-07T08:03 | [#4834](https://github.com/openova-io/openova/pull/4834) | #4272 | fix(#4833): right-size bp-stalwart-tenant CPU 1→500m so open |
@@ -296,7 +297,6 @@ flowchart LR
 | 2026-07-05T05:53 | [#4792](https://github.com/openova-io/openova/pull/4792) | #4785 | fix(org-controller): sync gateway-api HTTPRoutes into per-Or |
 | 2026-07-05T04:36 | [#4791](https://github.com/openova-io/openova/pull/4791) | #4739 | fix(console): eradicate residual user-facing tenant leaks (r |
 | 2026-07-05T04:36 | [#4790](https://github.com/openova-io/openova/pull/4790) | #4786 | fix(provisioning): mirror per-Org kubeconfig into tenant ns  |
-| 2026-07-05T04:36 | [#4789](https://github.com/openova-io/openova/pull/4789) | #4781 | fix(crossplane): ProviderConfig GVK tf→opentofu (adopt-* Wor |
 
 ---
 
