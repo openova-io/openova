@@ -240,6 +240,14 @@ type Factory struct {
 	stopOnce sync.Once
 	stop     chan struct{}
 
+	// loopWG tracks the Start-spawned background loops (snapshot writer +
+	// kubeconfigs rescan) so Stop() can WAIT for them to fully exit — draining
+	// any in-flight snapshot write — before returning. Without the wait,
+	// Stop() only closed `stop` and returned, so a test's t.TempDir() cleanup
+	// (RemoveAll) raced runSnapshotLoop's eager snapshotOnce write →
+	// "directory not empty" flake (TestSnapshot_HydrateStaleThenRelist).
+	loopWG sync.WaitGroup
+
 	// started + runCtx (#4000) — set once Start() has run. AddCluster
 	// consults these so a cluster registered AFTER the factory started
 	// (the rescan loop, the secondary-kubeconfig POST handler, the #4001
@@ -762,7 +770,8 @@ func (f *Factory) Start(ctx context.Context) error {
 	}
 
 	if f.cfg.SnapshotDir != "" {
-		go f.runSnapshotLoop(ctx)
+		f.loopWG.Add(1)
+		go func() { defer f.loopWG.Done(); f.runSnapshotLoop(ctx) }()
 	}
 
 	// Periodic kubeconfigs-dir rescan + chroot self-register recovery.
@@ -775,7 +784,8 @@ func (f *Factory) Start(ctx context.Context) error {
 	// treemap multi-region only showed 1 cluster). See Config.RescanInterval
 	// godoc for the full root-cause analysis.
 	if f.cfg.KubeconfigsDir != "" || f.cfg.HomeCoreClient != nil {
-		go f.runKubeconfigsRescanLoop(ctx)
+		f.loopWG.Add(1)
+		go func() { defer f.loopWG.Done(); f.runKubeconfigsRescanLoop(ctx) }()
 	}
 
 	return nil
@@ -973,9 +983,14 @@ func (f *Factory) readSovereignFQDNFromConfigMap(ctx context.Context) string {
 	return strings.TrimSpace(cm.Data["fqdn"])
 }
 
-// Stop signals every informer + the snapshot loop to exit. Idempotent.
+// Stop signals every informer + the snapshot loop to exit, then WAITS for
+// the Start-spawned background loops to fully drain (any in-flight snapshot
+// write completes) before returning. Idempotent. The wait is what makes
+// Stop() safe to pair with a test's t.TempDir() cleanup — without it the
+// RemoveAll raced runSnapshotLoop's write ("directory not empty").
 func (f *Factory) Stop() {
 	f.stopOnce.Do(func() { close(f.stop) })
+	f.loopWG.Wait()
 }
 
 // Synced returns true when at least one informer per cluster has
