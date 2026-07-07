@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-07T08:00:05Z` |
+| Last refreshed | `2026-07-07T08:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 58 |
 | Open DoD gates | 0 / 41 |
@@ -265,6 +265,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-07T08:03 | [#4834](https://github.com/openova-io/openova/pull/4834) | #4272 | fix(#4833): right-size bp-stalwart-tenant CPU 1→500m so open |
 | 2026-07-07T01:38 | [#4831](https://github.com/openova-io/openova/pull/4831) | #4811 | fix(#4811): cloud-aware ClusterMesh dial port (mothership se |
 | 2026-07-07T00:10 | [#4830](https://github.com/openova-io/openova/pull/4830) | #4811 | test(#4811): pin clustermesh endpoint dial-port authoritativ |
 | 2026-07-06T21:29 | [#4829](https://github.com/openova-io/openova/pull/4829) | #4811 | fix(#4811): retriable startup ClusterMesh reconcile on trans |
@@ -294,7 +295,6 @@ flowchart LR
 | 2026-07-05T04:36 | [#4789](https://github.com/openova-io/openova/pull/4789) | #4781 | fix(crossplane): ProviderConfig GVK tf→opentofu (adopt-* Wor |
 | 2026-07-06T06:31 | [#4787](https://github.com/openova-io/openova/pull/4787) | #4765 | fix(cilium): clustermesh-proxy — cross-region ClusterMesh di |
 | 2026-07-05T03:30 | [#4786](https://github.com/openova-io/openova/pull/4786) | #4785 | fix(org-controller): per-Org vcluster CNP bootstrap deadlock |
-| 2026-07-05T00:07 | [#4782](https://github.com/openova-io/openova/pull/4782) | #4781 | docs(uat): rows 206/207/239 deep-walk finding (GVK fix #4781 |
 
 ---
 
