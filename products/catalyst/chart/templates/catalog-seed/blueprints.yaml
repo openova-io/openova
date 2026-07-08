@@ -54,7 +54,7 @@ spec:
   # #3971 forbid-local-path Kyverno ENFORCE policy); 0.4.4 moved active-hot-standby
   # CNPG sync to the native spec.postgresql.synchronous block. (#3870: 0.2.0→0.4.1;
   # #4139: →0.4.4.)
-  version: "0.4.12"
+  version: "0.4.20"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -83,7 +83,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: 0.4.12
+    version: "0.4.20"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -292,7 +292,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.14"
   visibility: listed
   # #3648 — DECLARED operator→instance edge (lockstep with
   # platform/cnpg/blueprint.yaml). bp-cnpg is the engine that produces
@@ -321,7 +321,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg
-    version: 1.0.0
+    version: "1.0.14"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/cnpg/blueprint.yaml. Operator pattern: each region runs its
   # own controller (singleton everywhere); HA happens at the per-Cluster
@@ -389,7 +389,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.1"
+  version: "0.2.9"
   visibility: listed
   card:
     title: "CNPG Cluster-Pair (Active-Hotstandby DR)"
@@ -419,7 +419,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg-pair
-    version: 0.1.1
+    version: "0.2.9"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): cluster-pair IS
   # active-hot-standby by construction. Only one topology variant —
   # active-passive — because the chart renders 2 Cluster CRs (primary +
@@ -551,7 +551,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.5.5"
   visibility: listed
   card:
     title: "Keycloak"
@@ -579,7 +579,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: 1.0.0
+    version: "1.5.5"
   # G117.1+G117.4+G117.6 #2744-followup (2026-06-03): bp-keycloak
   # catalog-seed needs topology + endpoints + sso so application-
   # controller can fan out HRs and operator console can mint silent-SSO
@@ -659,7 +659,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.17"
   visibility: listed
   card:
     title: "Grafana"
@@ -681,7 +681,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-grafana
-    version: 1.0.0
+    version: "1.0.17"
   # G117.1+G117.6 #2745-followup (2026-06-03): application-controller
   # fan-out reads spec.topology.perTopology[choice].placement.clusters[]
   # to render per-cluster HelmReleases. Without this block the controller
@@ -1187,7 +1187,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.1.0"
   visibility: listed
   card:
     title: "Temporal"
@@ -1209,7 +1209,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-temporal
-    version: 1.0.0
+    version: "1.1.0"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): catalog-seed
   # lockstep with platform/temporal/blueprint.yaml. Same gap class as
   # bp-grafana (PR #2883+#2893) + bp-keycloak (PR #2900). Helm-escape
@@ -1364,7 +1364,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.1.0"
   visibility: listed
   card:
     title: "Langfuse"
@@ -1386,7 +1386,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-langfuse
-    version: 1.0.0
+    version: "1.1.0"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): catalog-seed
   # lockstep with platform/langfuse/blueprint.yaml. Same gap class as
   # PR #2883+#2893 (grafana) + PR #2900 (keycloak) + PR #2901 (temporal).
@@ -1452,7 +1452,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.1"
   visibility: listed
   card:
     title: "LLM Gateway"
@@ -1474,7 +1474,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-llm-gateway
-    version: 1.0.0
+    version: "1.0.1"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/llm-gateway/blueprint.yaml. active-active topology.
   topology:
@@ -1559,7 +1559,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.1"
+  version: "1.0.2"
   visibility: listed
   card:
     title: "Alloy"
@@ -1578,7 +1578,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-alloy
-    version: "1.0.1"
+    version: "1.0.2"
   topology:
     supported:
     - singleton
@@ -1717,7 +1717,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.2"
+    version: "0.2.27"
   topology:
     supported:
     - active-hot-standby
@@ -2157,7 +2157,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.5"
+  version: "1.0.8"
   visibility: listed
   card:
     title: "Mimir"
@@ -2176,7 +2176,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-mimir
-    version: "1.0.5"
+    version: "1.0.8"
   topology:
     supported:
     - active-passive
@@ -2295,7 +2295,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.63"
+  version: "1.4.137"
   visibility: listed
   card:
     title: "NewAPI"
@@ -2340,7 +2340,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.63"
+    version: "1.4.137"
   topology:
     supported:
     - active-passive
@@ -2395,7 +2395,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.13"
+  version: "0.2.16"
   visibility: listed
   card:
     title: "OpenClaw"
@@ -2430,7 +2430,7 @@ hook (ADR-0003). Identity-blind by construction.
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openclaw
-    version: "0.2.13"
+    version: "0.2.16"
   topology:
     supported:
       - singleton
@@ -2620,7 +2620,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.1"
+  version: "1.2.4"
   visibility: unlisted
   card:
     title: "SeaweedFS"
@@ -2639,7 +2639,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-seaweedfs
-    version: "1.2.1"
+    version: "1.2.4"
   topology:
     supported:
     - singleton
@@ -2688,7 +2688,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.12"
+  version: "0.1.13"
   visibility: listed
   card:
     title: "Stalwart (per-Organization)"
@@ -2729,7 +2729,7 @@ is event-driven (ADR-0003 §3).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-stalwart-tenant
-    version: "0.1.12"
+    version: "0.1.13"
   topology:
     supported:
     - active-passive
@@ -2896,7 +2896,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.1"
   visibility: listed
   card:
     title: "Tempo"
@@ -2915,7 +2915,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-tempo
-    version: "1.0.0"
+    version: "1.0.1"
   topology:
     supported:
     - active-passive
@@ -2968,7 +2968,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.0"
+  version: "1.1.4"
   visibility: unlisted
   # Shareability + Contexts (#3370 generality proof) — seeded verbatim
   # from platform/valkey/blueprint.yaml (lockstep-guarded). One instance
@@ -3011,7 +3011,7 @@ docs/SRE.md §2.5).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-valkey
-    version: "1.1.0"
+    version: "1.1.4"
   topology:
     supported:
     - active-passive
@@ -3127,7 +3127,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.0"
+  version: "0.1.1"
   visibility: listed
   card:
     title: "Velero (HCS)"
@@ -3154,7 +3154,7 @@ backup-engine gap (#2847).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-velero-hcs
-    version: "0.1.0"
+    version: "0.1.1"
   topology:
     supported:
     - singleton
@@ -3197,7 +3197,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.1"
   visibility: listed
   card:
     title: "vLLM"
@@ -3218,7 +3218,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-vllm
-    version: "1.0.0"
+    version: "1.0.1"
   topology:
     supported:
     - active-active
@@ -3284,7 +3284,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.26"
+  version: "1.2.40"
   visibility: unlisted
   card:
     title: "Harbor"
@@ -3308,7 +3308,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-harbor
-    version: "1.2.26"
+    version: "1.2.40"
   topology:
     supported:
     - active-hot-standby
@@ -3395,7 +3395,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.25"
+  version: "1.2.59"
   visibility: unlisted
   card:
     title: "OpenBao"
@@ -3420,7 +3420,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: "1.2.25"
+    version: "1.2.59"
   topology:
     supported:
     - active-passive
@@ -3768,7 +3768,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.12"
+  version: "1.4.13"
   visibility: unlisted
   card:
     title: "Cilium"
@@ -3785,7 +3785,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cilium
-    version: "1.4.12"
+    version: "1.4.13"
   topology:
     supported:
       - singleton
@@ -3872,7 +3872,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.1"
   visibility: unlisted
   card:
     title: "Coraza WAF (SPOA)"
@@ -3889,7 +3889,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-coraza
-    version: "1.0.0"
+    version: "1.0.1"
   topology:
     supported:
       - singleton
@@ -3964,7 +3964,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.5"
+  version: "1.3.3"
   visibility: unlisted
   card:
     title: "Crossplane Claims"
@@ -3981,7 +3981,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane-claims
-    version: "1.1.5"
+    version: "1.3.3"
   topology:
     supported:
       - singleton
@@ -4056,7 +4056,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.1"
+  version: "1.1.4"
   visibility: unlisted
   card:
     title: "External Secrets Operator"
@@ -4073,7 +4073,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-external-secrets
-    version: "1.1.1"
+    version: "1.1.4"
   topology:
     supported:
       - singleton
@@ -4209,7 +4209,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.6"
+  version: "1.2.7"
   visibility: unlisted
   card:
     title: "Flux"
@@ -4226,7 +4226,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-flux
-    version: "1.2.6"
+    version: "1.2.7"
   topology:
     supported:
       - singleton
@@ -4311,7 +4311,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.24"
+  version: "1.2.46"
   visibility: unlisted
   card:
     title: "Gitea"
@@ -4334,7 +4334,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-gitea
-    version: "1.2.24"
+    version: "1.2.46"
   topology:
     supported:
       - active-hot-standby
@@ -4518,7 +4518,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.6"
+  version: "1.3.8"
   visibility: unlisted
   card:
     title: "Kyverno"
@@ -4535,7 +4535,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno
-    version: "1.3.6"
+    version: "1.3.8"
   topology:
     supported:
       - singleton
@@ -4569,7 +4569,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.28"
+  version: "1.0.45"
   visibility: unlisted
   card:
     title: "Kyverno Policy Library"
@@ -4586,7 +4586,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: "1.0.28"
+    version: "1.0.45"
   topology:
     supported:
       - singleton
@@ -4620,7 +4620,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.3"
+  version: "1.3.5"
   visibility: unlisted
   card:
     title: "NATS JetStream"
@@ -4637,7 +4637,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-nats-jetstream
-    version: "1.3.3"
+    version: "1.3.5"
   topology:
     supported:
       - active-passive
@@ -4732,7 +4732,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.9"
+  version: "1.2.20"
   visibility: unlisted
   card:
     title: "PowerDNS"
@@ -4749,7 +4749,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: "1.2.9"
+    version: "1.2.20"
   topology:
     supported:
       - singleton
@@ -4797,7 +4797,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.5"
+  version: "0.1.18"
   visibility: unlisted
   card:
     title: "PowerDNS-Admin"
@@ -4814,7 +4814,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns-admin
-    version: "0.1.5"
+    version: "0.1.18"
   topology:
     supported:
       - singleton
@@ -5036,7 +5036,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.101"
+    version: "0.1.103"
   topology:
     supported:
       - singleton
@@ -5124,7 +5124,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.15"
+  version: "0.2.24"
   visibility: unlisted
   card:
     title: "SSO Bridge"
@@ -5141,7 +5141,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sso-bridge
-    version: "0.2.15"
+    version: "0.2.24"
   topology:
     supported:
       - active-passive
@@ -5279,7 +5279,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.1"
+  version: "1.0.3"
   visibility: unlisted
   card:
     title: "Vertical Pod Autoscaler"
@@ -5296,7 +5296,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-vpa
-    version: "1.0.1"
+    version: "1.0.3"
   topology:
     supported:
       - singleton
@@ -5346,7 +5346,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-continuum
-    version: "0.1.3"
+    version: "0.1.9"
   topology:
     supported:
       - active-hot-standby
@@ -5400,7 +5400,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.3"
+  version: "0.2.5"
   visibility: unlisted
   card:
     title: "OpenOva Flow Server"
@@ -5417,7 +5417,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-flow-server
-    version: "0.2.3"
+    version: "0.2.5"
   topology:
     supported:
       - singleton
@@ -5810,7 +5810,7 @@ metadata:
 spec:
   # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
   # cnpg-pair flip (region-B cross-region consumer DB host NXDOMAIN fix).
-  version: "0.2.8"
+  version: "0.2.10"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5906,7 +5906,7 @@ spec:
     # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
     # cnpg-pair flip (render on the multi-region signal so cross-region consumer
     # DB hosts resolve the moment the mesh peers; region-B NXDOMAIN fix).
-    version: 0.2.8
+    version: "0.2.10"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the
