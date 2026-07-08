@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-08T23:30:07Z` |
+| Last refreshed | `2026-07-08T23:45:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 69 |
 | Open DoD gates | 0 / 41 |
@@ -276,6 +276,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-08T23:30 | [#4870](https://github.com/openova-io/openova/pull/4870) | #4674 | fix(#3379): cutover registry-pivot ack-gate tolerates a lagg |
+| 2026-07-08T23:30 | [#4869](https://github.com/openova-io/openova/pull/4869) | #4811 | fix(#4854): row-67 cross-region CNP namespace-scoping (L1 eg |
 | 2026-07-08T21:34 | [#4868](https://github.com/openova-io/openova/pull/4868) | #4853 | fix(#4853): retry finalizer add/remove on 409 Conflict — fix |
 | 2026-07-08T20:53 | [#4867](https://github.com/openova-io/openova/pull/4867) | #4415 | test(#4415): catalog-seed drift guard + sync 5 pins the #486 |
 | 2026-07-08T20:53 | [#4866](https://github.com/openova-io/openova/pull/4866) | #4845 | fix(#4845): Jobs Re-run returns graceful 422 for aggregate r |
@@ -304,8 +306,6 @@ flowchart LR
 | 2026-07-06T12:34 | [#4822](https://github.com/openova-io/openova/pull/4822) | #4804 | fix(#4821): customer-Org vcluster — replicateServices.fromHo |
 | 2026-07-06T11:09 | [#4819](https://github.com/openova-io/openova/pull/4819) | #4765 | fix(#4818): cloud-view LB front door — hostPort datapath, no |
 | 2026-07-06T05:53 | [#4816](https://github.com/openova-io/openova/pull/4816) | #4811 | fix(#4814): cloud-graph counts honest for standby-absent sec |
-| 2026-07-05T21:17 | [#4812](https://github.com/openova-io/openova/pull/4812) | #4808 | fix(#4620): Huawei cloud-credentials empty hcloud-token plac |
-| 2026-07-05T18:19 | [#4810](https://github.com/openova-io/openova/pull/4810) | #3374 | fix(ci): uat-sso-flip consolidated-ledger fallback — unbreak |
 
 ---
 
