@@ -129,6 +129,19 @@ spec:
                 {{- range .Values.topology.networkPolicy.crossRegionPeerClusters }}
                 - {{ . | quote }}
                 {{- end }}
+            # ANY-NAMESPACE (#4854 row 67 L2): a namespaced CNP's fromEndpoints
+            # is implicitly ANDed with `k8s:io.kubernetes.pod.namespace=<this
+            # policy's namespace>` (proven live on hw228 — the derived selector
+            # carried `namespace=shared-data`). Without this Exists expression the
+            # rule admits ONLY peer-region Pods in shared-data (the DR replica),
+            # silently denying every cross-region SHARED-PG CONSUMER in another
+            # namespace (grafana ns=grafana, keycloak, gitea, harbor, powerdns …)
+            # → `Policy denied` DROP at the primary's bpf_lxc. Referencing the
+            # namespace label here suppresses the implicit same-namespace AND, so
+            # the rule matches consumers in EVERY peer-region namespace — the
+            # cross-cluster mirror of the in-region `namespaceSelector:{}` above.
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
       toPorts:
         - ports:
             - port: "5432"
@@ -206,6 +219,19 @@ spec:
                 {{- range .Values.topology.networkPolicy.crossRegionPeerClusters }}
                 - {{ . | quote }}
                 {{- end }}
+            # ANY-NAMESPACE (#4854 row 67 L2): a namespaced CNP's fromEndpoints
+            # is implicitly ANDed with `k8s:io.kubernetes.pod.namespace=<this
+            # policy's namespace>` (proven live on hw228 — the derived selector
+            # carried `namespace=shared-data`). Without this Exists expression the
+            # rule admits ONLY peer-region Pods in shared-data (the DR replica),
+            # silently denying every cross-region SHARED-PG CONSUMER in another
+            # namespace (grafana ns=grafana, keycloak, gitea, harbor, powerdns …)
+            # → `Policy denied` DROP at the primary's bpf_lxc. Referencing the
+            # namespace label here suppresses the implicit same-namespace AND, so
+            # the rule matches consumers in EVERY peer-region namespace — the
+            # cross-cluster mirror of the in-region `namespaceSelector:{}` above.
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
       toPorts:
         - ports:
             - port: "5432"

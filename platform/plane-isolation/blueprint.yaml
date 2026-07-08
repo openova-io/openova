@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.12  # lockstep with chart/Chart.yaml (#4579 — apiserver-webhook-ingress CNP for the OTel-operator :9443 webhook)
+  version: 0.1.13  # lockstep with chart/Chart.yaml (#4579 — apiserver-webhook-ingress CNP for the OTel-operator :9443 webhook)
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

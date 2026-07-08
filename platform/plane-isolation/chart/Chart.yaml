@@ -192,7 +192,7 @@ name: bp-plane-isolation
 #   single-region (no peer → no global service resolves remote). NOTE: the
 #   region-A INGRESS realization (#4811 family — the #4846 CNP is Valid but the
 #   datapath is stale) is a separate layer that resolves on a clean converge.
-version: 0.1.12
+version: 0.1.13
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform

@@ -76,6 +76,32 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
+    # REMOTE-BACKEND carve-out (#4854 row 67 L1, corrected 2026-07-09). With
+    # socketLB `bpf-lb-sock=false` + `bpf-lb-sock-hostns-only=true`, a POD's
+    # connection to a global-service ClusterIP is DNAT'd to the backend Pod IP
+    # by bpf_lxc BEFORE the egress policy verdict — so the egress is evaluated
+    # against the RESOLVED peer-region backend endpoint (e.g. shared-pg-b-2
+    # 10.42.1.162, identity cluster=<peer>), NOT the ClusterIP. Proven live on
+    # hw228 (dep ac35eda8561b7922): the drop was `egress deny match none ->
+    # 10.42.1.162:5432` at bpf_lxc.c:1651 and `toCIDR: [serviceCIDR]` did NOT
+    # clear it (the earlier claim it did was measured before the DNAT-order
+    # behaviour above). The backend arrives as a KNOWN remote endpoint, so — like
+    # the #4846 ingress carve-out — it needs an identity `toEndpoints`, not a
+    # CIDR. A bare `toEndpoints` is implicitly ANDed with BOTH `cluster=<local>`
+    # and `namespace=<this ns>`; referencing each key with Exists suppresses both
+    # AND-injections so the rule matches any Postgres backend Pod in ANY peer
+    # cluster / ANY namespace on 5432 (empty MatchLabels in the derived selector,
+    # verified live: grafana ns=grafana → shared-pg-b ns=shared-data succeeded).
+    - toEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
 {{- end }}{{/* end namespace-present guard */}}
 {{- end }}
 {{- end -}}

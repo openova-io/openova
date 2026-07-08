@@ -145,7 +145,7 @@ spec:
       #   Live-proven dep 00720a7a9c72364d (kom4dc, 2026-06-27). Additive (admits
       #   ONLY the apiserver on :9443, scoped to the operator pods); default-deny
       #   intact. Only the opentelemetry entry sets apiserverWebhookPorts today.
-      version: 0.1.12
+      version: 0.1.13
       sourceRef:
         kind: HelmRepository
         name: bp-plane-isolation

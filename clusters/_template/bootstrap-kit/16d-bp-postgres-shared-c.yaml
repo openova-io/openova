@@ -81,7 +81,7 @@ spec:
       # openova-flow hosts resolve the moment the mesh peers. Lockstep 16a/16c.
       # 0.2.10 (#4846): identity-based cross-region DR CiliumNetworkPolicy
       # (crossRegionPeerClusters) replaces the inert ipBlock. Lockstep 16a/16c.
-      version: 0.2.10
+      version: 0.2.11
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
