@@ -1348,6 +1348,18 @@ catalystApi:
   # cutover walk end-to-end with no operator click. Flipping this to true
   # does NOT change the operator/BSS CTA path — that always fires.
   fireCutoverOnHandover: false
+  # #3379 / #4674 — registry-pivot (cutover step-04) ack-gate laggard tolerance,
+  # wired to CATALYST_CUTOVER_ACK_TOLERANCE (Sovereign-only). A control-plane
+  # node whose dragonfly dfdaemon is dead (the known kom4dc cp1 fault) never
+  # writes its v2 local-Harbor ack; the in-code strict default (0) wedges the
+  # WHOLE sovereignty cutover on that one immaterial node for the full 10-min
+  # timeout (observed live hw228: 5/6 workers acked, cp1 control-plane laggard →
+  # registry-pivot Failed). A control-plane node runs no harbor-pulling
+  # workloads, so tolerating it is safe — the true local-only proof is the
+  # step-08 deny-egress hold, which still fails fast if a real WORKER can't pull.
+  # Default 1 tolerates a single laggard; a genuine multi-node outage exceeds it
+  # and fails. Set 0 to restore the strict all-nodes invariant.
+  cutoverAckTolerance: 1
 
 # ─── #4053 — Dedicated console Gateway (poison-proof blast-radius isolation) ──
 # Cilium Gateway API compiles every HTTPRoute + backend of a Gateway into ONE
