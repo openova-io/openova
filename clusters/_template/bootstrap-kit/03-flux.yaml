@@ -155,3 +155,29 @@ spec:
                   rollingUpdate:
                     maxUnavailable: 0
                     maxSurge: 1
+                template:
+                  spec:
+                    containers:
+                      # #4849: source-controller default memLimit (384Mi) OOMs
+                      # (exit 137) cloning this repo -> each OOM leaves a ~500MB
+                      # partial clone in the UNBOUNDED /tmp emptyDir -> /tmp fills
+                      # the node disk (91% on hw228) -> node DiskPressure -> the
+                      # GitRepository wedges (14h stall, delivery dead). Bump mem
+                      # so a full clone fits, and cap the emptyDirs so a clone
+                      # loop can never again exhaust the node (it fails its own
+                      # pod, not every pod on the node). Patched via postRenderer
+                      # because helm-controller owns this Deployment and reverts
+                      # a raw kubectl patch.
+                      - name: manager
+                        resources:
+                          limits:
+                            memory: 1Gi
+                          requests:
+                            memory: 256Mi
+                    volumes:
+                      - name: tmp
+                        emptyDir:
+                          sizeLimit: 2Gi
+                      - name: data
+                        emptyDir:
+                          sizeLimit: 3Gi
