@@ -159,6 +159,19 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	action, rerr := h.dispatchRetry(r.Context(), dyn, job, now)
 	if rerr != nil {
+		// #4845: a leaf with no directly-retryable backing (aggregate
+		// trivy-operator scan, mutation-bridge, unsupported kind) is a
+		// client-side condition, not a server fault — return a graceful 422
+		// with an actionable message instead of a raw 502 so the operator
+		// sees "not directly retryable" rather than a gateway error.
+		if errors.Is(rerr, errNotDirectlyRetryable) {
+			h.log.Info("RetryJob: leaf not directly retryable", "depId", depID, "jobId", jobID, "kind", job.Kind, "detail", rerr.Error())
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+				"error":  "not-directly-retryable",
+				"detail": rerr.Error(),
+			})
+			return
+		}
 		h.log.Warn("RetryJob: remediation failed", "depId", depID, "jobId", jobID, "kind", job.Kind, "err", rerr)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "remediation-failed",
@@ -247,7 +260,7 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 		// on the stored claim. Best-effort: the claim GVR is not always
 		// resolvable from the leaf alone, so we re-drive via the HR fallback
 		// when the mutation maps to a bp-* release.
-		return "", fmt.Errorf("mutation re-submit is driven by the mutation bridge; retry via the originating Day-2 action")
+		return "", fmt.Errorf("mutation re-submit is driven by the mutation bridge; retry via the originating Day-2 action: %w", errNotDirectlyRetryable)
 
 	case jobs.KindTask:
 		// Standalone batch Job. A finished Job is TERMINAL — its
@@ -279,9 +292,17 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 		return "deleted + recreated Job " + name + " for a fresh run", nil
 
 	default:
-		return "", fmt.Errorf("kind %q does not support retry", job.Kind)
+		return "", fmt.Errorf("kind %q does not support retry: %w", job.Kind, errNotDirectlyRetryable)
 	}
 }
+
+// errNotDirectlyRetryable marks a retry request against a leaf that has no
+// directly-retryable backing resource — an aggregate/operator-managed
+// reconciler (trivy-operator scan aggregate, a mutation bridged via a Day-2
+// action, or a kind with no retry mechanism). It is a client-side condition
+// (nothing to re-run here), NOT a server fault, so RetryJob maps it to a
+// graceful 422 with an actionable message instead of a raw 502. #4845.
+var errNotDirectlyRetryable = errors.New("reconciler is aggregate or operator-managed; not directly retryable")
 
 // retryTargetName derives the underlying object's name from a leaf Job by
 // stripping its kind prefix. The install leaf carries the bare chart in
@@ -527,7 +548,13 @@ func resolveObjectNamespace(ctx context.Context, dyn dynamic.Interface, gvr sche
 		}
 	}
 	if ns == "" {
-		return "", fmt.Errorf("%s %q not found in any namespace", gvr.Resource, name)
+		// #4845: a synthetic AGGREGATE reconciler (e.g. the "Trivy Security
+		// Scan" row aggregating trivy-operator's scan-vulnerabilityreport-*
+		// Jobs) has no standalone Job named after the reconciler, so the
+		// resolve fails. That is NOT a server fault — the row simply has no
+		// directly-retryable backing. Wrap with errNotDirectlyRetryable so
+		// the HTTP handler returns a graceful 422 instead of a raw 502.
+		return "", fmt.Errorf("%s %q not found in any namespace: %w", gvr.Resource, name, errNotDirectlyRetryable)
 	}
 	return ns, nil
 }
