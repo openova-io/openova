@@ -70,12 +70,18 @@ controller:
   # #4389/#4292: per-Org LimitRange maxLimitRequestRatio {cpu:1,memory:1}
   # rejects Burstable pods (a funnel Org's boundary forces Guaranteed QoS).
   # Render requests==limits so the controller pod is admitted.
+  # #4272: CPU must fit the S-plan ResourceQuota (plan-quota, 2 CPU per Org
+  # namespace). The rest of the funnel bundle already holds ~1600m
+  # (stalwart-tenant 1000m legacy / 500m current + mysql 250m + wordpress
+  # 100m + webmail 100m), so a 500m controller is FORBIDDEN by quota and the
+  # HR install deadlocks ("context deadline exceeded", ReplicaSet
+  # FailedCreate: exceeded quota). 250m fits beside even the legacy bundle.
   resources:
     requests:
-      cpu: 500m
+      cpu: 250m
       memory: 512Mi
     limits:
-      cpu: 500m
+      cpu: 250m
       memory: 512Mi
   securityContext:
     runAsNonRoot: true
