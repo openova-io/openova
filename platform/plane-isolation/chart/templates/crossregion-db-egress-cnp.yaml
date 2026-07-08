@@ -1,0 +1,81 @@
+{{- /*
+Per-component cross-region DB-egress CiliumNetworkPolicy (#4854 / #4846, UAT row 67).
+
+THE service-CIDR sibling of apiserver-egress-cnp.yaml. Same failure shape as
+the reserved kube-apiserver identity, one layer out: a ClusterMesh GLOBAL
+service whose backend primary lives in the PEER region.
+
+The companion default-deny NetworkPolicy allows egress to (a)
+namespaceSelector:{} → every in-cluster pod identity (the #4360 fix) and (b)
+ipBlock 0.0.0.0/0 → the Cilium `world` entity. For a LOCAL service ClusterIP
+that is enough — with socketLB.hostNamespaceOnly=true the pod egresses to the
+ClusterIP and the backend resolves to a LOCAL pod identity, which
+namespaceSelector:{} matches. But for a cross-region CNPG GLOBAL service
+(`service.cilium.io/global=true`, e.g. `shared-pg-b-mesh-rw` whose `-rw`
+primary sits in the peer region), the ClusterIP resolves to a REMOTE-CLUSTER
+identity: NOT a local pod (namespaceSelector:{} misses it) and NOT `world`
+(ipBlock 0.0.0.0/0 misses it). Result: a region-B DB consumer's SYN to its
+cross-region Postgres primary is silently dropped.
+
+Proven live on hw228 (dep ac35eda8561b7922, 2 VPC, 2026-07-09): region-B
+grafana → `shared-pg-b-mesh-rw:5432` and gitea → `shared-pg-1:5432` both
+`Policy denied DROPPED (SYN)` in hubble even though the datapath ROUTE was
+fixed (#4861). A CNP egress `toEndpoints io.cilium.k8s.policy.cluster In
+[<peer>]` and a `toCIDR <peer-pod-range>` BOTH failed to match (the policy is
+evaluated against the ClusterIP, not the resolved backend). `toCIDR:
+[10.96.0.0/12]` (the SERVICE CIDR) on 5432 CLEARED the egress drop — grafana's
+egress bpf policy then showed Allow with non-zero packet counts and the SYN
+reached the peer region. This is the INVERSE of the #4846 INGRESS carve-out
+(fromEndpoints cluster identity) — the ingress source arrives with its
+ClusterMesh identity intact, but the egress destination is a bare ClusterIP.
+
+A vanilla K8s NetworkPolicy ipBlock cannot express this (it matches `world`,
+not a resolved remote-cluster ClusterIP), so — exactly like the apiserver
+carve-out — the allow lives in a CiliumNetworkPolicy. Cilium computes the
+UNION of every policy selecting an endpoint, so this is purely additive to the
+default-deny: it grants cross-region Postgres reachability without weakening
+isolation (no `world`, only the service CIDR on the Postgres port).
+
+Scoped to 5432/TCP (Postgres) and the service CIDR — the minimal surface that
+carries all CNPG `-rw`/`-r`/`-mesh-rw` global-service DBs. Rendered for EVERY
+component (like apiserver-egress): a component whose DB is LOCAL gets a
+redundant-but-harmless allow (its local ClusterIP is already covered by
+namespaceSelector:{}), and a component placed cross-region gets the carve-out
+it needs. On a single-region prov this is inert (no peer region → no global
+service resolves remote).
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI), and on the SAME
+namespace-present defer guard as apiserver-egress-cnp.yaml / the default-deny
+(#4442/#4445/#4456 deadlock-guard parity).
+*/ -}}
+{{- if and .Values.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+{{- range .Values.components }}
+{{- $ns := .namespace }}
+{{- $guardNamespace := not (eq (toString .ensureNamespacePresent) "false") }}
+{{- if and $guardNamespace (not $.Values.renderUnconditional) (not (lookup "v1" "Namespace" "" $ns)) }}
+{{- /* namespace not present yet — defer this component's CNP to a later reconcile */ -}}
+{{- else }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ $ns }}-allow-crossregion-db-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-plane-isolation.labels" $ | nindent 4 }}
+    catalyst.openova.io/component: {{ $ns }}-crossregion-db-netpol
+spec:
+  # endpointSelector {} = every endpoint in this namespace, matching the
+  # default-deny policy's scope.
+  endpointSelector: {}
+  egress:
+    - toCIDR:
+        - {{ $.Values.serviceCIDR | quote }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}{{/* end namespace-present guard */}}
+{{- end }}
+{{- end -}}
