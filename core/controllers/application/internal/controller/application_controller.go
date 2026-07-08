@@ -59,6 +59,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/util/retry"
 
 	topo "github.com/openova-io/openova/core/controllers/application/internal/render"
 	"github.com/openova-io/openova/core/controllers/internal/clusterregistry"
@@ -2284,104 +2285,126 @@ type statusUpdate struct {
 // concurrent edits, then update with the desired status. The dynamic
 // client's UpdateStatus handles the /status subresource correctly.
 func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstructured, su statusUpdate) error {
-	// Always re-fetch to avoid clobbering. If the object is gone, no-op.
-	latest, err := r.Dynamic.Resource(ApplicationGVR).Namespace(app.GetNamespace()).
-		Get(ctx, app.GetName(), metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("re-fetch application for status: %w", err)
-	}
-
 	now := time.Now().UTC().Format(time.RFC3339)
-	currentStatus, _, _ := unstructured.NestedMap(latest.Object, "status")
-	if currentStatus == nil {
-		currentStatus = map[string]interface{}{}
-	}
-	currentStatus["observedGeneration"] = latest.GetGeneration()
-	if su.Phase != "" {
-		currentStatus["phase"] = su.Phase
-	}
-	if su.PrimaryRegion != "" {
-		currentStatus["primaryRegion"] = su.PrimaryRegion
-	}
-	if su.Regions != nil {
-		regions := make([]interface{}, len(su.Regions))
-		for i, r := range su.Regions {
-			regions[i] = r
-		}
-		currentStatus["regions"] = regions
-	}
-	if su.Placement != nil {
-		// #3373 — effective placement reflection.
-		currentStatus["placement"] = su.Placement
-	}
-	if su.PlacementRecon != "" {
-		// #3969 §7.4 — the ONE recon status value (string), distinct from
-		// the legacy `status.placement` object above. Reconciled /
-		// Reconciling / Degraded — never a second contradictory class.
-		currentStatus["placementRecon"] = su.PlacementRecon
-		// The plain reason is set (or cleared) alongside the status so a
-		// stale reason never lingers once the placement reconciles green.
-		currentStatus["placementReason"] = su.PlacementReason
-	}
-	if su.ObservedTargets != nil {
-		// #3969 §7.4 — the observed per-target rollup the Topology tab
-		// reads. One status value, never two.
-		currentStatus["targets"] = su.ObservedTargets
-	}
-	if su.ContinuumRef != "" {
-		// #4416 — the back-pointer to this Application's per-app Continuum DR
-		// contract, closing the #4212 spine→Continuum round-trip.
-		currentStatus["continuumRef"] = su.ContinuumRef
-	}
-	if su.GiteaRepo != "" {
-		currentStatus["giteaRepo"] = su.GiteaRepo
-	}
-	if su.Installed != nil {
-		currentStatus["installedBlueprint"] = su.Installed
-	}
-	if su.LastReconciledAt != "" {
-		currentStatus["lastReconciledAt"] = su.LastReconciledAt
-	}
-	if su.PerCluster != nil {
-		// G117.6 — slice of map[string]interface{} → []interface{} for
-		// the dynamic client's NestedSlice contract.
-		perCluster := make([]interface{}, len(su.PerCluster))
-		for i, c := range su.PerCluster {
-			perCluster[i] = c
-		}
-		currentStatus["perCluster"] = perCluster
-	}
 
-	// Replace Ready condition; preserve unrelated conditions.
-	conditions := []interface{}{}
-	if existing, ok := currentStatus["conditions"].([]interface{}); ok {
-		for _, c := range existing {
-			cm, ok := c.(map[string]interface{})
-			if !ok {
-				continue
+	// #4853 — the periodic re-list goroutine (runPeriodicRelist → initialList)
+	// and the watch goroutine (watchOnce) both call Reconcile → updateStatus on
+	// the SAME Application concurrently. A bare Get-then-UpdateStatus races on
+	// resourceVersion in the window between the read and the write: whichever
+	// writes second gets a 409 Conflict ("the object has been modified; please
+	// apply your latest changes to the latest version") and the reconcile logs
+	// `update status: Operation cannot be fulfilled ...` every ~30s. Wrapping
+	// the whole read-modify-write in RetryOnConflict re-runs it with the fresh
+	// resourceVersion so the loser self-heals instead of erroring + requeuing.
+	// The closure returns the RAW api error on the write so RetryOnConflict's
+	// IsConflict check fires (a %w-wrapped error would not be recognised).
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Always re-fetch to avoid clobbering. If the object is gone, no-op.
+		latest, err := r.Dynamic.Resource(ApplicationGVR).Namespace(app.GetNamespace()).
+			Get(ctx, app.GetName(), metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
 			}
-			if t, _ := cm["type"].(string); t == "Ready" {
-				continue
-			}
-			conditions = append(conditions, c)
+			return fmt.Errorf("re-fetch application for status: %w", err)
 		}
-	}
-	conditions = append(conditions, map[string]interface{}{
-		"type":               "Ready",
-		"status":             su.Ready,
-		"reason":             su.Reason,
-		"message":            su.Message,
-		"lastTransitionTime": now,
+
+		currentStatus, _, _ := unstructured.NestedMap(latest.Object, "status")
+		if currentStatus == nil {
+			currentStatus = map[string]interface{}{}
+		}
+		currentStatus["observedGeneration"] = latest.GetGeneration()
+		if su.Phase != "" {
+			currentStatus["phase"] = su.Phase
+		}
+		if su.PrimaryRegion != "" {
+			currentStatus["primaryRegion"] = su.PrimaryRegion
+		}
+		if su.Regions != nil {
+			regions := make([]interface{}, len(su.Regions))
+			for i, r := range su.Regions {
+				regions[i] = r
+			}
+			currentStatus["regions"] = regions
+		}
+		if su.Placement != nil {
+			// #3373 — effective placement reflection.
+			currentStatus["placement"] = su.Placement
+		}
+		if su.PlacementRecon != "" {
+			// #3969 §7.4 — the ONE recon status value (string), distinct from
+			// the legacy `status.placement` object above. Reconciled /
+			// Reconciling / Degraded — never a second contradictory class.
+			currentStatus["placementRecon"] = su.PlacementRecon
+			// The plain reason is set (or cleared) alongside the status so a
+			// stale reason never lingers once the placement reconciles green.
+			currentStatus["placementReason"] = su.PlacementReason
+		}
+		if su.ObservedTargets != nil {
+			// #3969 §7.4 — the observed per-target rollup the Topology tab
+			// reads. One status value, never two.
+			currentStatus["targets"] = su.ObservedTargets
+		}
+		if su.ContinuumRef != "" {
+			// #4416 — the back-pointer to this Application's per-app Continuum DR
+			// contract, closing the #4212 spine→Continuum round-trip.
+			currentStatus["continuumRef"] = su.ContinuumRef
+		}
+		if su.GiteaRepo != "" {
+			currentStatus["giteaRepo"] = su.GiteaRepo
+		}
+		if su.Installed != nil {
+			currentStatus["installedBlueprint"] = su.Installed
+		}
+		if su.LastReconciledAt != "" {
+			currentStatus["lastReconciledAt"] = su.LastReconciledAt
+		}
+		if su.PerCluster != nil {
+			// G117.6 — slice of map[string]interface{} → []interface{} for
+			// the dynamic client's NestedSlice contract.
+			perCluster := make([]interface{}, len(su.PerCluster))
+			for i, c := range su.PerCluster {
+				perCluster[i] = c
+			}
+			currentStatus["perCluster"] = perCluster
+		}
+
+		// Replace Ready condition; preserve unrelated conditions.
+		conditions := []interface{}{}
+		if existing, ok := currentStatus["conditions"].([]interface{}); ok {
+			for _, c := range existing {
+				cm, ok := c.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if t, _ := cm["type"].(string); t == "Ready" {
+					continue
+				}
+				conditions = append(conditions, c)
+			}
+		}
+		conditions = append(conditions, map[string]interface{}{
+			"type":               "Ready",
+			"status":             su.Ready,
+			"reason":             su.Reason,
+			"message":            su.Message,
+			"lastTransitionTime": now,
+		})
+		currentStatus["conditions"] = conditions
+
+		latest.Object["status"] = currentStatus
+
+		if _, err := r.Dynamic.Resource(ApplicationGVR).Namespace(latest.GetNamespace()).
+			UpdateStatus(ctx, latest, metav1.UpdateOptions{}); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			// Return the raw error so RetryOnConflict can recognise a 409
+			// Conflict and re-run the closure with the fresh resourceVersion.
+			return err
+		}
+		return nil
 	})
-	currentStatus["conditions"] = conditions
-
-	latest.Object["status"] = currentStatus
-
-	_, err = r.Dynamic.Resource(ApplicationGVR).Namespace(latest.GetNamespace()).
-		UpdateStatus(ctx, latest, metav1.UpdateOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
