@@ -123,6 +123,14 @@ spec:
                 {{- range .Values.cnpgPair.networkPolicy.crossRegionPeerClusters }}
                 - {{ . | quote }}
                 {{- end }}
+            # ANY-NAMESPACE (#4854 row 67 L2): a namespaced CNP's fromEndpoints
+            # is implicitly ANDed with `k8s:io.kubernetes.pod.namespace=<this
+            # policy's namespace>`, so without this Exists expression the rule
+            # admits ONLY peer-region Pods in this namespace and silently denies
+            # cross-region consumers in other namespaces. Referencing the
+            # namespace label suppresses the implicit same-namespace AND.
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
       toPorts:
         - ports:
             - port: "5432"
@@ -210,6 +218,14 @@ spec:
                 {{- range .Values.cnpgPair.networkPolicy.crossRegionPeerClusters }}
                 - {{ . | quote }}
                 {{- end }}
+            # ANY-NAMESPACE (#4854 row 67 L2): a namespaced CNP's fromEndpoints
+            # is implicitly ANDed with `k8s:io.kubernetes.pod.namespace=<this
+            # policy's namespace>`, so without this Exists expression the rule
+            # admits ONLY peer-region Pods in this namespace and silently denies
+            # cross-region consumers in other namespaces. Referencing the
+            # namespace label suppresses the implicit same-namespace AND.
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
       toPorts:
         - ports:
             - port: "5432"
