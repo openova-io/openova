@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-08T20:45:03Z` |
+| Last refreshed | `2026-07-08T21:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 69 |
 | Open DoD gates | 0 / 41 |
@@ -276,6 +276,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-08T20:53 | [#4867](https://github.com/openova-io/openova/pull/4867) | #4415 | test(#4415): catalog-seed drift guard + sync 5 pins the #486 |
+| 2026-07-08T20:53 | [#4866](https://github.com/openova-io/openova/pull/4866) | #4845 | fix(#4845): Jobs Re-run returns graceful 422 for aggregate r |
 | 2026-07-08T20:29 | [#4865](https://github.com/openova-io/openova/pull/4865) | #4854 | fix(#4854): cross-region DB egress carve-out in plane-isolat |
 | 2026-07-08T20:23 | [#4864](https://github.com/openova-io/openova/pull/4864) | #4415 | fix(#4415): sync 38 catalog-seed delivery pins to published  |
 | 2026-07-08T19:19 | [#4863](https://github.com/openova-io/openova/pull/4863) | #4389 | fix(bp-openclaw): controller CPU 500m->250m so the S-plan pl |
@@ -304,8 +306,6 @@ flowchart LR
 | 2026-07-05T21:17 | [#4812](https://github.com/openova-io/openova/pull/4812) | #4808 | fix(#4620): Huawei cloud-credentials empty hcloud-token plac |
 | 2026-07-05T18:19 | [#4810](https://github.com/openova-io/openova/pull/4810) | #3374 | fix(ci): uat-sso-flip consolidated-ledger fallback — unbreak |
 | 2026-07-05T17:37 | [#4809](https://github.com/openova-io/openova/pull/4809) | #4807 | fix(ui): OrgConsumption.isPlatform — unbreak catalyst-build |
-| 2026-07-05T17:32 | [#4808](https://github.com/openova-io/openova/pull/4808) | #4620 | fix(#4620): adoption consolidated — k8s backend + anchor + f |
-| 2026-07-05T16:58 | [#4807](https://github.com/openova-io/openova/pull/4807) | #4656 | fix(#4656): pod-CIDR peering routes — the native-routing dat |
 
 ---
 
