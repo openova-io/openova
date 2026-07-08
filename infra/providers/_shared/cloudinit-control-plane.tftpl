@@ -858,6 +858,17 @@ write_files:
             SOVEREIGN_GATEWAY_HTTP_PORT: "80"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
             PDNS_API_HOST: "${pdns_api_host}"
+            # #4656/#4854 — per-node pod-CIDR VPC route reconciler (bp-cilium
+            # CronJob). The #4807 whole-/16 peering routes only carry pod
+            # traffic INTO the peer VPC; without a per-/24 `type=ecs` route in
+            # the VPC's own table, delivery to the owning node rides
+            # Huawei-fabric learning and black-holes PER-NODE (hw228 wab0925,
+            # grafana 326× crashloop). node.spec.podCIDR is runtime data, so
+            # an in-cluster reconciler — not tofu — owns these routes. Creds
+            # resolve via the slot-01 valuesFrom against cloud-credentials
+            # (huawei-ak/sk/project-id/region). Left UNSET on Hetzner (pod
+            # routing rides the WireGuard node mesh; no VPC route table).
+            HUAWEI_VPC_ROUTES_ENABLED: "true"
 %{ endif ~}
       ---
       # sovereign-tls Kustomization — carries the cert-manager Certificate
