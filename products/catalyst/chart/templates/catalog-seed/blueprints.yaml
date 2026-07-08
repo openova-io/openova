@@ -211,7 +211,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: 0.4.12
+    version: "0.4.20"
   # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
   # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
   topology:
@@ -5514,7 +5514,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-mgmt-vcluster
-    version: "0.2.6"
+    version: "0.2.29"
   topology:
     supported:
       - singleton
@@ -5560,7 +5560,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-dmz-vcluster
-    version: "0.2.5"
+    version: "0.2.9"
   topology:
     supported:
       - singleton
@@ -5606,7 +5606,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-rtz-vcluster
-    version: "0.2.6"
+    version: "0.2.14"
   topology:
     supported:
       - singleton
@@ -5700,7 +5700,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: sandbox
-    version: "0.3.9"
+    version: "0.3.11"
   topology:
     supported:
       - active-hot-standby
