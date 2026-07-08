@@ -2134,17 +2134,39 @@ func (r *Reconciler) ensureFinalizer(ctx context.Context, app *unstructured.Unst
 	if hasFinalizer(app, FinalizerName) {
 		return nil
 	}
-	finalizers := app.GetFinalizers()
-	finalizers = append(finalizers, FinalizerName)
-	app.SetFinalizers(finalizers)
-	_, err := r.Dynamic.Resource(ApplicationGVR).Namespace(app.GetNamespace()).Update(ctx, app, metav1.UpdateOptions{})
+	// #4853 — the finalizer add is a read-modify-write on the Application, so
+	// (like updateStatus) it races the second reconcile goroutine / org-
+	// controller on resourceVersion. A bare Update on the stale `app` 409s and
+	// the reconcile errors + requeues. Mirror the updateStatus fix: re-GET the
+	// latest object each attempt under RetryOnConflict so the loser self-heals.
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest, err := r.Dynamic.Resource(ApplicationGVR).Namespace(app.GetNamespace()).
+			Get(ctx, app.GetName(), metav1.GetOptions{})
+		if err != nil {
+			// Gone between List and Update — nothing to finalize.
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("re-fetch application for finalizer add: %w", err)
+		}
+		if hasFinalizer(latest, FinalizerName) {
+			return nil
+		}
+		latest.SetFinalizers(append(latest.GetFinalizers(), FinalizerName))
+		// Return the RAW api error so RetryOnConflict's IsConflict check fires
+		// (a %w-wrapped error would not be recognised).
+		_, uErr := r.Dynamic.Resource(ApplicationGVR).Namespace(latest.GetNamespace()).
+			Update(ctx, latest, metav1.UpdateOptions{})
+		if apierrors.IsNotFound(uErr) {
+			return nil
+		}
+		return uErr
+	})
 	if err != nil {
-		// Tolerate "not found" — the resource may have been deleted
-		// between our List and the Update.
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("ensure finalizer: %w", err)
 	}
 	return nil
 }
@@ -2155,17 +2177,48 @@ func (r *Reconciler) removeFinalizer(ctx context.Context, app *unstructured.Unst
 	if !hasFinalizer(app, FinalizerName) {
 		return nil
 	}
-	out := make([]string, 0, len(app.GetFinalizers()))
-	for _, f := range app.GetFinalizers() {
-		if f == FinalizerName {
-			continue
+	// #4853 — THE ORIGINAL wedge: uat-openclaw stuck phase=Uninstalling for 32h
+	// with every managed resource already gone, because this strip did a bare
+	// Update on the stale reconcile object. A persistent concurrent writer bumps
+	// resourceVersion → every Update 409-conflicts → the finalizer never comes
+	// off → the CR never deletes → the reconcile loops forever (~3s, 32h). #4856
+	// fixed only updateStatus; the finalizer path had the same bug. Re-GET the
+	// latest object each attempt under RetryOnConflict so the strip applies
+	// against the fresh resourceVersion and the finalizer actually releases.
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest, err := r.Dynamic.Resource(ApplicationGVR).Namespace(app.GetNamespace()).
+			Get(ctx, app.GetName(), metav1.GetOptions{})
+		if err != nil {
+			// Already GC'd — the finalizer is gone, done.
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("re-fetch application for finalizer removal: %w", err)
 		}
-		out = append(out, f)
-	}
-	app.SetFinalizers(out)
-	_, err := r.Dynamic.Resource(ApplicationGVR).Namespace(app.GetNamespace()).Update(ctx, app, metav1.UpdateOptions{})
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
+		if !hasFinalizer(latest, FinalizerName) {
+			return nil
+		}
+		out := make([]string, 0, len(latest.GetFinalizers()))
+		for _, f := range latest.GetFinalizers() {
+			if f == FinalizerName {
+				continue
+			}
+			out = append(out, f)
+		}
+		latest.SetFinalizers(out)
+		// Raw api error so RetryOnConflict's IsConflict check fires.
+		_, uErr := r.Dynamic.Resource(ApplicationGVR).Namespace(latest.GetNamespace()).
+			Update(ctx, latest, metav1.UpdateOptions{})
+		if apierrors.IsNotFound(uErr) {
+			return nil
+		}
+		return uErr
+	})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("remove finalizer: %w", err)
 	}
 	return nil
 }
