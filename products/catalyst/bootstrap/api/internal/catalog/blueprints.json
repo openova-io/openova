@@ -4760,7 +4760,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.1.8",
+      "version": "0.1.13",
       "section": "pts-4-5-communication",
       "depends": [
         "bp-keycloak",
