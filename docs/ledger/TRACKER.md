@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-08T18:30:07Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 68 |
+| Last refreshed | `2026-07-08T18:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Open issues | 69 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 68 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 69 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 68 open items (clickable table)
+### All 69 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -268,6 +268,7 @@ flowchart LR
 | [#4851](https://github.com/openova-io/openova/issues/4851) | hw228 passwordless PIN login broken — catalyst-api SMTP relays to mothership 4 | Other |
 | [#4853](https://github.com/openova-io/openova/issues/4853) | application-controller: finalization stuck in persistent resourceVersion-conflic | Other |
 | [#4854](https://github.com/openova-io/openova/issues/4854) | grafana region-b crashloops (exit 2 on cross-region DB connect) — 312 restarts | Other |
+| [#4858](https://github.com/openova-io/openova/issues/4858) | fix: mothership self-hosting image deadlock — DiskPressure image-GC + harbor.o | Other |
 
 ---
 
