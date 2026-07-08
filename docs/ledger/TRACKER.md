@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-08T20:15:03Z` |
+| Last refreshed | `2026-07-08T20:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 69 |
 | Open DoD gates | 0 / 41 |
@@ -276,6 +276,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-08T20:29 | [#4865](https://github.com/openova-io/openova/pull/4865) | #4854 | fix(#4854): cross-region DB egress carve-out in plane-isolat |
+| 2026-07-08T20:23 | [#4864](https://github.com/openova-io/openova/pull/4864) | #4415 | fix(#4415): sync 38 catalog-seed delivery pins to published  |
 | 2026-07-08T19:19 | [#4863](https://github.com/openova-io/openova/pull/4863) | #4389 | fix(bp-openclaw): controller CPU 500m->250m so the S-plan pl |
 | 2026-07-08T19:42 | [#4862](https://github.com/openova-io/openova/pull/4862) | #4844 | fix(#4860): grant catalyst-api update/patch on blueprints fo |
 | 2026-07-08T19:24 | [#4861](https://github.com/openova-io/openova/pull/4861) | #4807 | fix(#4656): per-node pod-CIDR VPC routes — deterministic cro |
@@ -304,8 +306,6 @@ flowchart LR
 | 2026-07-05T17:37 | [#4809](https://github.com/openova-io/openova/pull/4809) | #4807 | fix(ui): OrgConsumption.isPlatform — unbreak catalyst-build |
 | 2026-07-05T17:32 | [#4808](https://github.com/openova-io/openova/pull/4808) | #4620 | fix(#4620): adoption consolidated — k8s backend + anchor + f |
 | 2026-07-05T16:58 | [#4807](https://github.com/openova-io/openova/pull/4807) | #4656 | fix(#4656): pod-CIDR peering routes — the native-routing dat |
-| 2026-07-05T14:41 | [#4806](https://github.com/openova-io/openova/pull/4806) | #4739 | fix(funnel): render bp-newapi HR (openclaw LLM gateway + row |
-| 2026-07-05T14:41 | [#4805](https://github.com/openova-io/openova/pull/4805) | #4803 | fix(funnel): wire openclaw HR oidc.internalIssuerURL (comple |
 
 ---
 
