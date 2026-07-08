@@ -1,5 +1,23 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.13 (#4656 #4854, 2026-07-09): vpc-podcidr-route-reconciler — per-node
+# pod-CIDR VPC routes on no-CCM Huawei. #4807's whole-/16 pod-CIDR peering
+# routes only carry native-routed pod traffic INTO the peer VPC; each VPC's
+# own table had NO per-/24 delivery entry, so peering ingress to a pod IP
+# depended on Huawei-fabric learning and black-holed PER-NODE (hw228
+# wab0925 10.43.2.0/24 dropped ALL region-A ingress while sibling
+# 10.43.3.0/24 worked; grafana crashlooped 326× on the -mesh-rw dial —
+# #4854; Cilium/node-routes/CNPs proven innocent). Fix: CronJob reconciler
+# (templates/vpc-podcidr-route-reconciler.yaml, gated catalystOverlay.
+# vpcPodcidrRouteReconciler.enabled) ensures one `type=ecs` route per node
+# (`node.spec.podCIDR` -> node ECS id) in the cluster's own VPC route table
+# — podCIDRs are runtime data (k3s assigns at registration; nodes are
+# replaced on region heal), so this cannot live in tofu, and there is no
+# Huawei CCM/route-controller. Proven live on hw228 2026-07-09: 12 signed
+# route-adds → full A<->B pod-IP dial matrix OPEN incl. the black-holed
+# node. Lockstep: blueprint.yaml 1.4.13 + 01-cilium.yaml slot pin 1.4.13 +
+# slot-01 valuesFrom (cloud-credentials huawei-ak/sk/project-id/region) +
+# cloudinit-control-plane.tftpl HUAWEI_VPC_ROUTES_ENABLED. Refs #4656 #4854.
 # 1.4.12 (#4784, 2026-07-05): clustermesh-proxy — fix cross-region ClusterMesh
 # on no-CCM Huawei. #4765 had peers dial the clustermesh-apiserver VIP on the
 # shared Sovereign EIP :2379, but that EIP IS the CP-node IP: a Huawei 1:1 NAT
@@ -261,7 +279,7 @@ name: bp-cilium
 #   Layers ON TOP of the 1.4.9/1.4.10 zero-nodeport + authMode=legacy work.
 #   Needs a fresh 2-region prov to verify the cross-region ClusterMesh pod
 #   path end-to-end (datapath change, not CI-provable). Refs #4656.
-version: 1.4.12
+version: 1.4.13
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

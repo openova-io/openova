@@ -1,0 +1,264 @@
+{{/*
+#4656/#4854 — vpc-podcidr-route-reconciler: per-node pod-CIDR VPC routes on
+no-CCM Huawei, so cross-region (VPC-peered) POD traffic is delivered to the
+OWNING node DETERMINISTICALLY instead of by SDN learning.
+
+ROOT CAUSE this template fixes (proven LIVE on hw228, dep ac35eda8561b7922):
+  #4807 added the whole-/16 pod-CIDR peering routes (10.42.0.0/16 <->
+  10.43.0.0/16) — the EGRESS half: they get native-routed pod packets INTO the
+  peer VPC. But each VPC's route table had NO entry for its OWN pod /16, so
+  when a peering packet for e.g. 10.43.2.5 arrived at region-B's VPC router
+  there was nothing that said which ECS owns 10.43.2.0/24. Delivery then
+  depends on Huawei-fabric learning and fails PER-NODE: on hw228, node
+  wab0925 (10.43.2.0/24) black-holed ALL ingress from region-A while sibling
+  w623064 (10.43.3.0/24) worked — grafana crashlooped 326× on
+  `dial tcp <shared-pg-b-mesh-rw>:5432: connect: connection timed out` while
+  the CNPG replicas on the lucky node replicated fine, masking the gap.
+  Node routes, Cilium health and CNPs were all proven innocent (#4854).
+
+THE FIX (proven live 2026-07-09 via signed VPC API calls):
+  One `type=ecs` route per node in the node's OWN VPC route table —
+  `<node.spec.podCIDR> -> <node's ECS id>` — gives the router a definite
+  per-/24 delivery decision for peering ingress. Applied live to both hw228
+  route tables (12 routes) the full A<->B pod-IP dial matrix went OPEN,
+  including the previously black-holed node.
+
+WHY A CronJob AND NOT tofu:
+  node.spec.podCIDR is RUNTIME data — k3s allocates it at node registration
+  in join order, which tofu cannot know at plan time; and nodes are replaced
+  on region heal/re-prov. There is deliberately NO Huawei cloud-controller-
+  manager on these clusters (no route controller), so a small in-cluster
+  reconciler is the smallest correct owner of this state. Each cluster
+  reconciles ONLY its own VPC's table (its own nodes' /24s); the peer region's
+  instance handles the mirror half. Routes are matched/adopted by the
+  `#4656` description marker — foreign route entries are never touched.
+
+CREDS: the same flux-system/cloud-credentials AK/SK the EVS CSI uses, lifted
+by the slot-01 HelmRelease via valuesFrom (huawei-ak / huawei-sk /
+huawei-project-id / huawei-region) — plaintext never lands in git. The HCS
+API endpoint derives as https://vpc.<region>.<cloud>/ exactly like
+platform/huawei-evs-csi (cloud.go newServiceClient); TLS is `curl -k` because
+the on-prem HCS CA is not in the standard trust store (parity with the tofu
+provider's `insecure = true`, infra/providers/huawei/versions.tf).
+
+OPERATOR GATE (per docs/PRINCIPLES.md #4 — the chart never auto-enables):
+  Enabled per-provider via the HelmRelease overlay substitute
+  HUAWEI_VPC_ROUTES_ENABLED (true on no-CCM Huawei via
+  infra/providers/_shared/cloudinit-control-plane.tftpl, unset/false on
+  Hetzner where pod routing rides the wireguard node mesh and no VPC route
+  table exists).
+*/}}
+{{- $rr := dig "vpcPodcidrRouteReconciler" (dict) (.Values.catalystOverlay | default dict) }}
+{{- if and $rr.enabled $rr.huaweiAccessKey }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vpc-podcidr-route-reconciler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: vpc-podcidr-route-reconciler
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vpc-podcidr-route-reconciler
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: vpc-podcidr-route-reconciler
+rules:
+  # Read-only: node names, InternalIPs and spec.podCIDR are the reconciler's
+  # entire cluster-side input. All mutation happens on the Huawei VPC API.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vpc-podcidr-route-reconciler
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: vpc-podcidr-route-reconciler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vpc-podcidr-route-reconciler
+subjects:
+  - kind: ServiceAccount
+    name: vpc-podcidr-route-reconciler
+    namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vpc-podcidr-route-reconciler-credentials
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: vpc-podcidr-route-reconciler
+type: Opaque
+stringData:
+  HW_AK: {{ $rr.huaweiAccessKey | quote }}
+  HW_SK: {{ $rr.huaweiSecretKey | quote }}
+  HW_PROJECT_ID: {{ $rr.huaweiProjectId | quote }}
+  HW_REGION: {{ $rr.huaweiRegion | quote }}
+  HW_CLOUD: {{ (default "kom4dc.nationalcloud.om" $rr.cloud) | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpc-podcidr-route-reconciler-script
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: vpc-podcidr-route-reconciler
+data:
+  reconcile.sh: |
+    #!/usr/bin/env bash
+    # #4656 — ensure one `type=ecs` VPC route per node: <podCIDR> -> <ECS id>.
+    # Marker-scoped ownership: only routes whose description starts with
+    # "#4656" are ever modified or deleted; everything else is foreign.
+    set -euo pipefail
+    : "${HW_AK:?}" "${HW_SK:?}" "${HW_PROJECT_ID:?}" "${HW_REGION:?}" "${HW_CLOUD:?}"
+    MARKER_PREFIX="#4656"
+    MARKER="#4656 podcidr-route-reconciler"
+    VPC_HOST="vpc.${HW_REGION}.${HW_CLOUD}"
+    ECS_HOST="ecs.${HW_REGION}.${HW_CLOUD}"
+
+    sha256hex() { printf '%s' "$1" | openssl dgst -sha256 -hex | awk '{print $NF}'; }
+    hmachex()   { printf '%s' "$2" | openssl dgst -sha256 -hex -mac HMAC -macopt "key:$1" | awk '{print $NF}'; }
+
+    # Huawei SDK-HMAC-SHA256 signer (parity with the provider's AK/SK signing;
+    # query strings passed here must already be canonical: sorted + encoded).
+    api() { # api <host> <METHOD> <path> <query> [body]
+      local host="$1" method="$2" path="$3" query="$4" body="${5:-}"
+      local date; date="$(date -u +%Y%m%dT%H%M%SZ)"
+      local cpath="$path"; case "$cpath" in */) ;; *) cpath="$path/";; esac
+      local signed="content-type;host;x-project-id;x-sdk-date"
+      local cheaders="content-type:application/json"$'\n'"host:$host"$'\n'"x-project-id:$HW_PROJECT_ID"$'\n'"x-sdk-date:$date"$'\n'
+      local creq="$method"$'\n'"$cpath"$'\n'"$query"$'\n'"$cheaders"$'\n'"$signed"$'\n'"$(sha256hex "$body")"
+      local sts="SDK-HMAC-SHA256"$'\n'"$date"$'\n'"$(sha256hex "$creq")"
+      local sig; sig="$(hmachex "$HW_SK" "$sts")"
+      local url="https://$host$path"; [ -n "$query" ] && url="$url?$query"
+      # -k: on-prem HCS CA is not in the trust store (tofu provider parity:
+      # infra/providers/huawei/versions.tf `insecure = true`).
+      curl -sk --fail-with-body -X "$method" "$url" \
+        -H "Content-Type: application/json" \
+        -H "X-Project-Id: $HW_PROJECT_ID" \
+        -H "X-Sdk-Date: $date" \
+        -H "Authorization: SDK-HMAC-SHA256 Access=$HW_AK, SignedHeaders=$signed, Signature=$sig" \
+        ${body:+--data "$body"}
+    }
+
+    nodes_json="$(kubectl get nodes -o json)"
+    desired_nodes="$(jq -c '[.items[]
+      | select(.spec.podCIDR != null)
+      | {name: .metadata.name,
+         cidr: .spec.podCIDR,
+         ip: ([.status.addresses[] | select(.type=="InternalIP") | .address] | first)}
+      | select(.ip != null)]' <<<"$nodes_json")"
+    [ "$(jq 'length' <<<"$desired_nodes")" -gt 0 ] || { echo "no nodes with podCIDR — nothing to do"; exit 0; }
+
+    ecs_json="$(api "$ECS_HOST" GET "/v1/$HW_PROJECT_ID/cloudservers/detail" "limit=100")"
+    ip2ecs="$(jq -c '[.servers[] | . as $s | [.addresses[]?[]?.addr] | map({(.): $s.id})] | flatten | add // {}' <<<"$ecs_json")"
+
+    # Locate OUR VPC: the one whose CIDR contains this cluster's node IPs.
+    myip="$(jq -r '.[0].ip' <<<"$desired_nodes")"
+    vpcs_json="$(api "$VPC_HOST" GET "/v1/$HW_PROJECT_ID/vpcs" "limit=100")"
+    vpc_id="$(jq -r --arg ip "$myip" '
+      def ip2n: split(".") | map(tonumber) | .[0]*16777216 + .[1]*65536 + .[2]*256 + .[3];
+      [.vpcs[]
+        | select((.cidr // "") != "")
+        | select((.cidr | split("/")) as [$net, $len]
+            | (($ip | ip2n) >= ($net | ip2n))
+              and (($ip | ip2n) < (($net | ip2n) + pow(2; 32 - ($len | tonumber)))))
+      ][0].id // empty' <<<"$vpcs_json")"
+    [ -n "$vpc_id" ] || { echo "ERROR: no VPC contains node IP $myip" >&2; exit 1; }
+
+    rts_json="$(api "$VPC_HOST" GET "/v1/$HW_PROJECT_ID/routetables" "vpc_id=$vpc_id")"
+    rt_id="$(jq -r '[.routetables[] | select(.default == true)][0].id // empty' <<<"$rts_json")"
+    [ -n "$rt_id" ] || { echo "ERROR: no default route table for vpc $vpc_id" >&2; exit 1; }
+    rt_json="$(api "$VPC_HOST" GET "/v1/$HW_PROJECT_ID/routetables/$rt_id" "")"
+
+    patch="$(jq -cn --argjson nodes "$desired_nodes" --argjson ip2ecs "$ip2ecs" \
+                    --argjson rt "$rt_json" --arg marker "$MARKER" --arg prefix "$MARKER_PREFIX" '
+      ($nodes | map(select($ip2ecs[.ip] != null)
+        | {type:"ecs", destination:.cidr, nexthop:$ip2ecs[.ip],
+           description: ($marker + " " + .name)})) as $desired
+      | ($rt.routetable.routes // []) as $current
+      | ($current | map(select(.type=="ecs" and ((.description // "") | startswith($prefix))))) as $owned
+      | ($current | map(.destination)) as $alldests
+      | {add: [$desired[] | select(.destination as $d | ($alldests | index($d)) == null)],
+         mod: [$desired[] | . as $w
+               | select(($owned | map(select(.destination == $w.destination and .nexthop != $w.nexthop)) | length) > 0)],
+         del: [$owned[] | select(.destination as $d | ($desired | map(.destination) | index($d)) == null)
+               | {type, destination, nexthop}]}
+      | with_entries(select(.value | length > 0))')"
+
+    if [ -z "$patch" ] || [ "$patch" = "{}" ]; then
+      echo "routes in sync (vpc=$vpc_id rt=$rt_id, $(jq 'length' <<<"$desired_nodes") nodes)"
+      exit 0
+    fi
+    echo "reconciling routes on rt=$rt_id: $patch"
+    api "$VPC_HOST" PUT "/v1/$HW_PROJECT_ID/routetables/$rt_id" "" \
+      "$(jq -cn --argjson p "$patch" '{routetable:{routes:$p}}')" >/dev/null
+    echo "route table updated"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vpc-podcidr-route-reconciler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: vpc-podcidr-route-reconciler
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  schedule: {{ (default "*/5 * * * *" $rr.schedule) | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: bp-cilium
+            app.kubernetes.io/component: vpc-podcidr-route-reconciler
+        spec:
+          serviceAccountName: vpc-podcidr-route-reconciler
+          restartPolicy: Never
+          containers:
+            - name: reconcile
+              # alpine/k8s toolbox (bash + kubectl + jq + curl + openssl),
+              # dockerhub-proxied per MIRROR-EVERYTHING.
+              image: {{ (default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" $rr.image) | quote }}
+              command: ["bash", "/opt/reconciler/reconcile.sh"]
+              envFrom:
+                - secretRef:
+                    name: vpc-podcidr-route-reconciler-credentials
+              volumeMounts:
+                - name: script
+                  mountPath: /opt/reconciler
+                  readOnly: true
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+          volumes:
+            - name: script
+              configMap:
+                name: vpc-podcidr-route-reconciler-script
+{{- end }}

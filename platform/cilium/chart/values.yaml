@@ -480,3 +480,32 @@ catalystOverlay:
         limits:
           cpu: 100m
           memory: 64Mi
+
+  # #4656/#4854 — vpc-podcidr-route-reconciler: per-node pod-CIDR VPC routes
+  # on no-CCM Huawei. #4807's whole-/16 peering routes only carry pod traffic
+  # INTO the peer VPC; with no per-/24 entry in the VPC's OWN table, delivery
+  # to the owning node depends on Huawei-fabric learning and black-holes
+  # PER-NODE (hw228 wab0925, grafana 326× crashloop — #4854). A CronJob
+  # reconciles one `type=ecs` route per node (`node.spec.podCIDR` ->
+  # node's ECS id) in this cluster's own VPC route table; the peer region's
+  # instance mirrors it for its side. podCIDRs are runtime data (k3s assigns
+  # at registration), so this CANNOT live in tofu — and there is deliberately
+  # no Huawei CCM/route-controller on these clusters.
+  #
+  # Enabled per-provider by the slot-01 HelmRelease substitute
+  # HUAWEI_VPC_ROUTES_ENABLED (true on Huawei via cloud-init, absent on
+  # Hetzner). The four huawei* creds are lifted from
+  # flux-system/cloud-credentials via valuesFrom — never committed.
+  vpcPodcidrRouteReconciler:
+    enabled: false
+    schedule: "*/5 * * * *"
+    # alpine/k8s toolbox (bash + kubectl + jq + curl + openssl), proxied.
+    image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0"
+    # HCS endpoint domain — service endpoints derive as
+    # https://vpc.<huaweiRegion>.<cloud>/ (same derivation as
+    # platform/huawei-evs-csi values `cloud`).
+    cloud: "kom4dc.nationalcloud.om"
+    huaweiAccessKey: ""
+    huaweiSecretKey: ""
+    huaweiProjectId: ""
+    huaweiRegion: ""

@@ -141,7 +141,7 @@ spec:
       # 1370 → 1420 (WG-only). Layers on the 1.4.9/1.4.10 zero-nodeport +
       # authMode=legacy work. Cross-region ClusterMesh pod path needs a fresh
       # 2-region prov to verify (datapath change). Refs #4656.
-      version: 1.4.12
+      version: 1.4.13
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -511,6 +511,55 @@ spec:
           name: hubble-ui
           namespace: kube-system
           port: 80
+
+      # ── #4656/#4854 — per-node pod-CIDR VPC route reconciler ───────────
+      # #4807's whole-/16 pod-CIDR peering routes only carry native-routed
+      # pod traffic INTO the peer VPC; with no per-/24 entry in the VPC's
+      # OWN table, delivery to the owning node rides Huawei-fabric learning
+      # and black-holes PER-NODE (hw228 wab0925: grafana 326× crashloop on
+      # the -mesh-rw dial while the sibling node worked — #4854). The
+      # bp-cilium CronJob reconciles one `type=ecs` route per node
+      # (node.spec.podCIDR -> node ECS id) in this cluster's own VPC route
+      # table; podCIDRs are runtime data so tofu cannot own them, and there
+      # is deliberately no Huawei CCM/route-controller.
+      #   Huawei (no-CCM): cloud-init sets HUAWEI_VPC_ROUTES_ENABLED="true"
+      #     and the huawei-* creds below resolve from cloud-credentials.
+      #   Hetzner: unset → false — pod routing rides the WireGuard node
+      #     mesh; there is no VPC route table to reconcile.
+      vpcPodcidrRouteReconciler:
+        enabled: ${HUAWEI_VPC_ROUTES_ENABLED:=false}
+
+  # ── #4656 — AK/SK wiring for the route reconciler ────────────────────
+  # Pull the four Huawei creds from the canonical flux-system/
+  # cloud-credentials Secret (cloud-init Phase 0) into the chart values;
+  # the chart renders the namespace-local
+  # vpc-podcidr-route-reconciler-credentials Secret from them. Flux
+  # dereferences valuesFrom at apply time so the plaintext never lands in
+  # this committed manifest. `optional: true` — on Hetzner the Secret
+  # carries `hcloud-token`, NOT the huawei-* keys; optional makes Flux
+  # SKIP each absent key (same idiom as slots 50/55a/55b), and the
+  # reconciler is disabled there anyway.
+  valuesFrom:
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-ak
+      targetPath: catalystOverlay.vpcPodcidrRouteReconciler.huaweiAccessKey
+      optional: true
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-sk
+      targetPath: catalystOverlay.vpcPodcidrRouteReconciler.huaweiSecretKey
+      optional: true
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-project-id
+      targetPath: catalystOverlay.vpcPodcidrRouteReconciler.huaweiProjectId
+      optional: true
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-region
+      targetPath: catalystOverlay.vpcPodcidrRouteReconciler.huaweiRegion
+      optional: true
 ---
 # ─── Per-Sovereign Gateway API resources (issue #387) ────────────────────
 #
