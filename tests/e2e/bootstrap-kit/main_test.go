@@ -42,6 +42,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1276,4 +1277,232 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 			t.Errorf("bp-plane-isolation: %q allow-apiserver-webhook-ingress CiliumNetworkPolicy does NOT admit the apiserver on port %s — the webhook server listens there; the call will be DROPPED (#4579). Ensure apiserverWebhookPorts on the %q entry contains %s", ns, port, ns, port)
 		}
 	}
+}
+
+// ── #4415 recurrence guard — catalog-seed delivery pins must not lag behind
+//    the component charts they reference ──────────────────────────────────
+//
+// Root cause of #4415 (fixed by PR #4864): 38 of 81 `source.version` pins in
+// products/catalyst/chart/templates/catalog-seed/blueprints.yaml had drifted
+// BEHIND their component chart/Chart.yaml source-of-truth (e.g. bp-openclaw
+// seed 0.2.13 while platform/openclaw/chart/Chart.yaml was already 0.2.16).
+// A published, merged chart therefore never reached the catalog, so a
+// catalog bump was silently stale — invisible until a per-Org install pulled
+// an old chart. This guard makes that drift a hard CI failure the moment a
+// component chart is bumped without syncing its catalog-seed delivery pin.
+//
+// It compares ONLY in-repo pins: every catalog-seed `source` block references
+// an OCI chart published from this monorepo (oci://ghcr.io/openova-io/bp-*).
+// A seed pin whose `chart:` has no co-located component chart in the repo is
+// skipped (external/unpublished — not a drift). Semver-aware so 0.2.13 < 0.2.16
+// and 1.0.0 < 1.5.5 compare correctly (string compare would miss both).
+
+// parseSemverNumeric splits a dotted version into numeric components,
+// stripping a leading "v", surrounding quotes, and any build/pre-release
+// suffix. Returns (nil,false) when a component is non-numeric so the caller
+// can skip an uncomparable pair rather than fail on it.
+func parseSemverNumeric(s string) ([]int, bool) {
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, `"'`)
+	s = strings.TrimPrefix(s, "v")
+	if i := strings.IndexAny(s, "-+"); i >= 0 {
+		s = s[:i]
+	}
+	if s == "" {
+		return nil, false
+	}
+	parts := strings.Split(s, ".")
+	nums := make([]int, len(parts))
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, false
+		}
+		nums[i] = n
+	}
+	return nums, true
+}
+
+// semverLess reports whether a < b numerically. The second return value is
+// false when either side is not a plain numeric dotted version.
+func semverLess(a, b string) (less bool, comparable bool) {
+	av, aok := parseSemverNumeric(a)
+	bv, bok := parseSemverNumeric(b)
+	if !aok || !bok {
+		return false, false
+	}
+	for i := 0; i < len(av) || i < len(bv); i++ {
+		var x, y int
+		if i < len(av) {
+			x = av[i]
+		}
+		if i < len(bv) {
+			y = bv[i]
+		}
+		if x != y {
+			return x < y, true
+		}
+	}
+	return false, true
+}
+
+// componentChartVersions builds a map of chart name (bp-<x>) → chart version
+// from every co-located Chart.yaml under platform/ and products/. These are
+// the source-of-truth versions the blueprint-release workflow publishes.
+func componentChartVersions(t *testing.T, root string) map[string]string {
+	t.Helper()
+	m := map[string]string{}
+	globs := []string{
+		"platform/*/chart/Chart.yaml",
+		"products/*/chart/Chart.yaml",
+		"products/*/charts/*/Chart.yaml",
+		"products/*/*/chart/Chart.yaml",
+	}
+	for _, g := range globs {
+		matches, _ := filepath.Glob(filepath.Join(root, g))
+		for _, f := range matches {
+			raw, err := os.ReadFile(f)
+			if err != nil {
+				continue
+			}
+			var c struct {
+				Name    string `yaml:"name"`
+				Version string `yaml:"version"`
+			}
+			if err := yaml.Unmarshal(raw, &c); err != nil {
+				continue
+			}
+			if c.Name == "" || c.Version == "" {
+				continue
+			}
+			// If the same chart name appears twice (shouldn't), keep the
+			// highest version so the guard uses the true source-of-truth.
+			if prev, ok := m[c.Name]; ok {
+				if less, cmp := semverLess(prev, c.Version); !(cmp && less) {
+					continue
+				}
+			}
+			m[c.Name] = c.Version
+		}
+	}
+	return m
+}
+
+type seedPin struct {
+	chart   string
+	version string
+	line    int
+}
+
+var (
+	reSeedSource  = regexp.MustCompile(`^\s{2}source:\s*$`)
+	reSeedChart   = regexp.MustCompile(`^\s+chart:\s*"?([A-Za-z0-9][A-Za-z0-9._-]*)"?\s*$`)
+	reSeedVersion = regexp.MustCompile(`^\s+version:\s*"?([0-9][0-9A-Za-z._+-]*)"?\s*$`)
+)
+
+// catalogSeedPins line-parses the delivery `source` blocks out of the
+// catalog-seed template. The file is a Helm template (has {{ }} directives)
+// so a plain YAML unmarshal is not possible; the source blocks themselves are
+// static YAML, so a scoped line scan is both sufficient and robust.
+func catalogSeedPins(t *testing.T, root string) []seedPin {
+	t.Helper()
+	f := filepath.Join(root, "products", "catalyst", "chart", "templates", "catalog-seed", "blueprints.yaml")
+	raw, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatalf("read catalog-seed: %v", err)
+	}
+	var pins []seedPin
+	lines := strings.Split(string(raw), "\n")
+	inSource := false
+	var cur seedPin
+	flush := func() {
+		if cur.chart != "" && cur.version != "" {
+			pins = append(pins, cur)
+		}
+		cur = seedPin{}
+	}
+	for i, ln := range lines {
+		if reSeedSource.MatchString(ln) {
+			flush()
+			inSource = true
+			cur.line = i + 1
+			continue
+		}
+		if !inSource {
+			continue
+		}
+		// source-block children are indented deeper than the 2-space
+		// `source:` key. A line at <=2-space indent (and non-blank) ends it.
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		if !strings.HasPrefix(ln, "    ") {
+			flush()
+			inSource = false
+			continue
+		}
+		if m := reSeedChart.FindStringSubmatch(ln); m != nil {
+			cur.chart = m[1]
+		}
+		if m := reSeedVersion.FindStringSubmatch(ln); m != nil {
+			cur.version = m[1]
+		}
+	}
+	flush()
+	return pins
+}
+
+func TestCatalogSeed_DeliveryPinsNotBehindComponentCharts(t *testing.T) {
+	root := repoRoot(t)
+
+	comp := componentChartVersions(t, root)
+	if len(comp) == 0 {
+		t.Fatal("discovered zero component charts under platform/ + products/ — guard is inert (glob/parse broken)")
+	}
+	pins := catalogSeedPins(t, root)
+	if len(pins) == 0 {
+		t.Fatal("parsed zero catalog-seed source blocks — the line parser is broken (expected dozens)")
+	}
+
+	// bp-catalyst-platform is the umbrella chart whose version auto-increments
+	// on EVERY merge (products/catalyst/chart/Chart.yaml). The catalog-seed
+	// itself lives INSIDE that chart, so the seed can never reference its own
+	// future umbrella version — a chicken-and-egg the seed cannot win. Exclude
+	// it (the platform installs from the bootstrap-kit slot, not the catalog;
+	// its catalog card is display-only).
+	selfReferential := map[string]bool{"bp-catalyst-platform": true}
+
+	checked := 0
+	for _, p := range pins {
+		if selfReferential[p.chart] {
+			continue
+		}
+		cv, ok := comp[p.chart]
+		if !ok {
+			// External/upstream chart or one with no co-located Chart.yaml in
+			// this repo — a missing component chart is not drift. Skip.
+			continue
+		}
+		less, comparable := semverLess(p.version, cv)
+		if !comparable {
+			// Non-numeric version on one side (unexpected for our bp-* charts);
+			// skip rather than risk a false positive.
+			continue
+		}
+		checked++
+		if less {
+			t.Errorf("CATALOG-SEED DRIFT (#4415 / #4864):\n"+
+				"  chart %q delivery pin is BEHIND its component chart:\n"+
+				"    catalog-seed source.version = %q  (blueprints.yaml line %d)\n"+
+				"    component chart/Chart.yaml   = %q\n"+
+				"  → the catalog serves a STALE chart; a published fix never reaches Sovereigns.\n"+
+				"  Sync the seed pin: set source.version to %q for chart %q in\n"+
+				"  products/catalyst/chart/templates/catalog-seed/blueprints.yaml",
+				p.chart, p.version, p.line, cv, cv, p.chart)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("zero in-repo catalog-seed pins were comparable against component charts — the chart-name mapping is broken (guard would never catch drift)")
+	}
+	t.Logf("catalog-seed drift guard: compared %d in-repo delivery pins against component chart versions; none behind", checked)
 }
