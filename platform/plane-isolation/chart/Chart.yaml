@@ -176,7 +176,23 @@ name: bp-plane-isolation
 #   (admits ONLY the apiserver on :9443, scoped to the operator pods);
 #   default-deny posture intact. New per-component `apiserverWebhookPorts` +
 #   `apiserverWebhookSelector` values; only the opentelemetry entry sets them.
-version: 0.1.11
+#
+# 0.1.12 (#4854 / #4846, UAT row 67): cross-region DB egress. A region-B DB
+#   consumer (grafana, gitea, …) dialling its cross-region CNPG GLOBAL service
+#   (`shared-pg-*-mesh-rw`, primary in the peer region) is silently dropped:
+#   with socketLB.hostNamespaceOnly=true the pod egresses to the service
+#   ClusterIP, which resolves to a REMOTE-CLUSTER identity that neither the
+#   default-deny namespaceSelector:{} (local pods) nor ipBlock 0.0.0.0/0
+#   (world) matches — the same reserved/foreign-identity class as the
+#   apiserver-egress carve-out, one layer out. New crossregion-db-egress-cnp.yaml
+#   renders a per-component CNP allowing `toCIDR: [serviceCIDR]` on 5432/TCP
+#   (new `serviceCIDR` value, default 10.96.0.0/12). Live-proven on hw228
+#   (dep ac35eda8561b7922, 2026-07-09): `toCIDR 10.96.0.0/12:5432` cleared the
+#   grafana→shared-pg-b-mesh-rw egress DROP (hubble FORWARDED). Additive; inert
+#   single-region (no peer → no global service resolves remote). NOTE: the
+#   region-A INGRESS realization (#4811 family — the #4846 CNP is Valid but the
+#   datapath is stale) is a separate layer that resolves on a clean converge.
+version: 0.1.12
 description: |
   Per-component default-deny + explicit-allow micro-segmentation for the
   de-vclustered platform planes (#4291 Workstream C). For each platform

@@ -11,6 +11,17 @@ enabled: true
 # kube-system.
 dnsNamespace: kube-system
 
+# Service ClusterIP CIDR (k3s default 10.96.0.0/12). Used by the
+# crossregion-db-egress CNP (#4854/#4846 row 67). A cross-region ClusterMesh
+# GLOBAL-service DB (e.g. shared-pg-*-mesh-rw whose primary lives in the peer
+# region) is dialled via its ClusterIP; with socketLB.hostNamespaceOnly=true
+# the pod egresses to that ClusterIP and Cilium evaluates egress policy against
+# the SERVICE CIDR — a resolved remote-cluster identity that neither the
+# default-deny's namespaceSelector:{} (local pods) nor ipBlock 0.0.0.0/0
+# (world) matches. So DB egress to a cross-region global service is silently
+# dropped. This CIDR is the toCIDR target of the crossregion-db-egress CNP.
+serviceCIDR: 10.96.0.0/12
+
 # #4442 deferral escape hatch. The per-component default-deny is normally
 # DEFERRED for a component whose namespace does not yet exist (a `lookup` guard
 # that breaks the fresh-prov circular deadlock — see Chart.yaml 0.1.7). But
