@@ -1058,6 +1058,24 @@ spec:
               # zero-touch walk — handover auto-fires the cutover. Customer provs
               # (qaFixtures.enabled=false, fireCutoverOnHandover=false) stay gated.
               value: '{{ if .Values.global.sovereignFQDN }}{{ if or .Values.catalystApi.fireCutoverOnHandover .Values.qaFixtures.enabled }}true{{ else }}false{{ end }}{{ end }}'
+            # CATALYST_CUTOVER_ACK_TOLERANCE (#3379 / #4674) — how many
+            # registry-pivot (step-04) nodes may miss their v2 local-Harbor
+            # ack before the ack-gate (cutover.go waitForRegistryPivotNodeAcks)
+            # still proceeds. A control-plane node whose dragonfly dfdaemon is
+            # dead (the known kom4dc cp1 fault) never writes its v2 ack, and the
+            # in-code strict default (0) wedged the ENTIRE sovereignty cutover on
+            # that one node for the full 10-min timeout — observed live on hw228
+            # (5/6 workers acked, cp1 control-plane laggard → registry-pivot
+            # Failed). A control-plane node runs NO harbor-pulling workloads so
+            # its pivot is immaterial; the true local-only proof is the step-08
+            # deny-egress hold, which still fails fast if a real WORKER can't
+            # pull. Default 1 tolerates a single laggard (the #4635 reconciler +
+            # un-acked-node Warn log keep it visible); a genuine multi-node
+            # outage exceeds 1 and fails. Rendered directly (no `default` — the
+            # sprig int-default gotcha maps an explicit 0 back to the default).
+            # Sovereign-only; empty on the mothership (never a cutover subject).
+            - name: CATALYST_CUTOVER_ACK_TOLERANCE
+              value: '{{ if .Values.global.sovereignFQDN }}{{ .Values.catalystApi.cutoverAckTolerance }}{{ end }}'
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When
