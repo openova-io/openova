@@ -348,6 +348,28 @@ func TestRetryJob_Task_CompletedJob_DeleteAndRecreate(t *testing.T) {
 	}
 }
 
+// #4845: an AGGREGATE task reconciler (e.g. the "Trivy Security Scan" row
+// aggregating trivy-operator's scan-vulnerabilityreport-* Jobs) has NO
+// standalone Job named after the reconciler, so resolveObjectNamespace can't
+// find a retry target. The reported defect was a raw 502
+// (remediation-failed). The contract now: a graceful 422 with a
+// "not-directly-retryable" code, never a 5xx — the row simply has no
+// directly-retryable backing.
+func TestRetryJob_Task_AggregateNoBackingJob_422(t *testing.T) {
+	// No backing Job seeded — mirrors the trivy scan aggregate.
+	r, _, depID := installRetryHarness(t, "owner@t99.omani.works",
+		"task-trivy-security-scan", jobs.StatusFailed)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, retryReq(depID, "task-trivy-security-scan",
+		&auth.Claims{Email: "owner@t99.omani.works", Tier: "operator"}))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422 (graceful not-directly-retryable), got %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "not-directly-retryable") {
+		t.Fatalf("body missing the not-directly-retryable code: %s", rec.Body.String())
+	}
+}
+
 // A task leaf whose Job is OWNED by a CronJob re-drives through the CronJob
 // ("Run now"), never a standalone recreate (which would orphan it).
 func TestRetryJob_Task_CronJobOwned_RunsViaCronJob(t *testing.T) {
