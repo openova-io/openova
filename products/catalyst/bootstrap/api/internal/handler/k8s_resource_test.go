@@ -20,13 +20,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	kfake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
@@ -389,27 +387,7 @@ func TestHandleK8sResourceDryRun_StampsResourceVersionWhenOmitted(t *testing.T) 
 	pod.SetResourceVersion("4242")
 	rig := newResourceRig(t, pod)
 	defer rig.stop()
-
-	rig.dyn.PrependReactor("update", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
-		ua, ok := action.(clienttesting.UpdateAction)
-		if !ok {
-			return false, nil, nil
-		}
-		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(ua.GetObject())
-		if err != nil {
-			return false, nil, nil
-		}
-		u := &unstructured.Unstructured{Object: obj}
-		if u.GetResourceVersion() == "" {
-			return true, nil, apierrors.NewInvalid(
-				schema.GroupKind{Kind: "Pod"}, u.GetName(),
-				field.ErrorList{field.Invalid(
-					field.NewPath("metadata", "resourceVersion"), "0x0",
-					"must be specified for an update")},
-			)
-		}
-		return false, nil, nil
-	})
+	rig.dyn.ClearActions()
 
 	yamlBody := `apiVersion: v1
 kind: Pod
@@ -425,7 +403,31 @@ spec:
 	rec := httptest.NewRecorder()
 	rig.router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("dry-run with RV-less YAML: got %d want 200 (RV should be stamped from live object); body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("dry-run with RV-less YAML: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The fix's contract: when the submitted YAML omits resourceVersion,
+	// the handler MUST Get the live object first (to stamp its RV before
+	// the Update) — otherwise a real apiserver 400s "resourceVersion must
+	// be specified for an update". Assert a `get` on pods preceded the
+	// `update`, and that the object sent to Update carried the live RV.
+	var sawGet bool
+	var updateRV string
+	for _, a := range rig.dyn.Actions() {
+		if a.GetVerb() == "get" && a.GetResource().Resource == "pods" {
+			sawGet = true
+		}
+		if ua, ok := a.(clienttesting.UpdateAction); ok && a.GetResource().Resource == "pods" {
+			if u, ok := ua.GetObject().(*unstructured.Unstructured); ok {
+				updateRV = u.GetResourceVersion()
+			}
+		}
+	}
+	if !sawGet {
+		t.Fatalf("handler did not Get the live object to stamp resourceVersion; actions=%v", rig.dyn.Actions())
+	}
+	if updateRV != "4242" {
+		t.Fatalf("Update object resourceVersion = %q, want %q (stamped from live object)", updateRV, "4242")
 	}
 }
 
