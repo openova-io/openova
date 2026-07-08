@@ -20,13 +20,16 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	kfake "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
@@ -368,6 +371,61 @@ spec:
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp["dryRun"] != true {
 		t.Fatalf("dryRun flag not echoed back: %v", resp)
+	}
+}
+
+// TestHandleK8sResourceDryRun_StampsResourceVersionWhenOmitted is the
+// #4860 guard. The Edit-IaC editor submits CR YAML without
+// metadata.resourceVersion; a real apiserver 400s a plain Update with
+// "resourceVersion ... must be specified for an update" (caught live on
+// hw228, bp-wordpress). The lenient fake client does NOT enforce this,
+// so we install a reactor that mimics the apiserver: reject any update
+// whose object carries no resourceVersion. Pre-fix the handler would
+// forward the RV-less object and this reactor would 400; post-fix the
+// handler Gets the live object and stamps its RV first, so the update
+// carries a valid token and the dry-run returns 200.
+func TestHandleK8sResourceDryRun_StampsResourceVersionWhenOmitted(t *testing.T) {
+	pod := newPodObj("default", "wp-1")
+	pod.SetResourceVersion("4242")
+	rig := newResourceRig(t, pod)
+	defer rig.stop()
+
+	rig.dyn.PrependReactor("update", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		ua, ok := action.(clienttesting.UpdateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(ua.GetObject())
+		if err != nil {
+			return false, nil, nil
+		}
+		u := &unstructured.Unstructured{Object: obj}
+		if u.GetResourceVersion() == "" {
+			return true, nil, apierrors.NewInvalid(
+				schema.GroupKind{Kind: "Pod"}, u.GetName(),
+				field.ErrorList{field.Invalid(
+					field.NewPath("metadata", "resourceVersion"), "0x0",
+					"must be specified for an update")},
+			)
+		}
+		return false, nil, nil
+	})
+
+	yamlBody := `apiVersion: v1
+kind: Pod
+metadata:
+  name: wp-1
+  namespace: default
+spec:
+  containers: []
+`
+	body, _ := json.Marshal(map[string]string{"yaml": yamlBody})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/pod/default/wp-1/dry-run", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dry-run with RV-less YAML: got %d want 200 (RV should be stamped from live object); body=%s", rec.Code, rec.Body.String())
 	}
 }
 
