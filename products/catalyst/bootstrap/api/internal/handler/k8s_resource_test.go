@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	kfake "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
@@ -368,6 +369,65 @@ spec:
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp["dryRun"] != true {
 		t.Fatalf("dryRun flag not echoed back: %v", resp)
+	}
+}
+
+// TestHandleK8sResourceDryRun_StampsResourceVersionWhenOmitted is the
+// #4860 guard. The Edit-IaC editor submits CR YAML without
+// metadata.resourceVersion; a real apiserver 400s a plain Update with
+// "resourceVersion ... must be specified for an update" (caught live on
+// hw228, bp-wordpress). The lenient fake client does NOT enforce this,
+// so we install a reactor that mimics the apiserver: reject any update
+// whose object carries no resourceVersion. Pre-fix the handler would
+// forward the RV-less object and this reactor would 400; post-fix the
+// handler Gets the live object and stamps its RV first, so the update
+// carries a valid token and the dry-run returns 200.
+func TestHandleK8sResourceDryRun_StampsResourceVersionWhenOmitted(t *testing.T) {
+	pod := newPodObj("default", "wp-1")
+	pod.SetResourceVersion("4242")
+	rig := newResourceRig(t, pod)
+	defer rig.stop()
+	rig.dyn.ClearActions()
+
+	yamlBody := `apiVersion: v1
+kind: Pod
+metadata:
+  name: wp-1
+  namespace: default
+spec:
+  containers: []
+`
+	body, _ := json.Marshal(map[string]string{"yaml": yamlBody})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/pod/default/wp-1/dry-run", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dry-run with RV-less YAML: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The fix's contract: when the submitted YAML omits resourceVersion,
+	// the handler MUST Get the live object first (to stamp its RV before
+	// the Update) — otherwise a real apiserver 400s "resourceVersion must
+	// be specified for an update". Assert a `get` on pods preceded the
+	// `update`, and that the object sent to Update carried the live RV.
+	var sawGet bool
+	var updateRV string
+	for _, a := range rig.dyn.Actions() {
+		if a.GetVerb() == "get" && a.GetResource().Resource == "pods" {
+			sawGet = true
+		}
+		if ua, ok := a.(clienttesting.UpdateAction); ok && a.GetResource().Resource == "pods" {
+			if u, ok := ua.GetObject().(*unstructured.Unstructured); ok {
+				updateRV = u.GetResourceVersion()
+			}
+		}
+	}
+	if !sawGet {
+		t.Fatalf("handler did not Get the live object to stamp resourceVersion; actions=%v", rig.dyn.Actions())
+	}
+	if updateRV != "4242" {
+		t.Fatalf("Update object resourceVersion = %q, want %q (stamped from live object)", updateRV, "4242")
 	}
 }
 

@@ -395,6 +395,26 @@ rules:
   - apiGroups: ["catalyst.openova.io"]
     resources: ["blueprints", "environments"]
     verbs: ["get", "list", "watch"]
+  # #4860 (Refs #3668, #4844) — the console Edit-IaC editor's
+  # Validate(dry-run) + Commit round-trip (UAT rows 148/154) does a
+  # server-side APPLY / update of the edited Blueprint CR via this SA
+  # (POST /api/v1/sovereigns/{dep}/k8s/Blueprint/_/{name}/dry-run then
+  # the real commit). With only get/list/watch above, the apiserver
+  # 500s the browser with
+  #   blueprints.catalyst.openova.io "<name>" is forbidden: User
+  #   system:serviceaccount:catalyst-system:catalyst-api-cutover-driver
+  #   cannot update resource "blueprints"
+  # — caught live on hw228 2026-07-09 (bp-wordpress). Grant the missing
+  # mutating verbs so the Edit-IaC contract works. Scoped to blueprints
+  # only (the editor edits published Blueprint records; environments
+  # stay read-only here). No `create` — the editor only edits an
+  # existing catalog Blueprint, never seeds a new one via this path
+  # (and create+resourceNames would 403 per
+  # feedback_rbac_create_no_resourcenames.md anyway; this rule carries
+  # no resourceNames so update/patch are safe together).
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints"]
+    verbs: ["update", "patch"]
   # EnvironmentPolicy CRD — backs slice X (#1147) PUT
   # /environments/{env}/policy, restored to working contract by Fix #19
   # (#1208) in qa-loop iter-3. Without this rule the handler 503s on

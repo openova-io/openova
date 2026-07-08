@@ -334,6 +334,42 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 		opts.DryRun = []string{"All"}
 	}
 
+	// #4860 (Refs #3668, #4844) — the Edit-IaC editor submits the CR YAML
+	// without metadata.resourceVersion, but a plain Update requires one for
+	// optimistic concurrency, so the apiserver 400s with
+	//   metadata.resourceVersion: Invalid value: 0x0: must be specified for
+	//   an update
+	// (caught live on hw228, bp-wordpress Validate(dry-run)). The sibling
+	// PUT-apply handler (k8s_resource_put_apply.go) already Gets the live
+	// object and stamps its resourceVersion when the caller omits one; the
+	// dry-run/apply path never did. Mirror that: when parsed omits an RV,
+	// fetch the live object and stamp it so both the dry-run validation and
+	// a same-RV apply carry a valid concurrency token.
+	if parsed.GetResourceVersion() == "" {
+		var existing *unstructured.Unstructured
+		var getErr error
+		if kind.Namespaced {
+			existing, getErr = dyn.Resource(kind.GVR).Namespace(ns).Get(r.Context(), name, metav1.GetOptions{})
+		} else {
+			existing, getErr = dyn.Resource(kind.GVR).Get(r.Context(), name, metav1.GetOptions{})
+		}
+		if getErr != nil {
+			if apierrors.IsNotFound(getErr) {
+				writeJSON(w, http.StatusNotFound, map[string]string{
+					"error":  "resource-not-found",
+					"detail": getErr.Error(),
+				})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error":  "resource-get-failed",
+				"detail": getErr.Error(),
+			})
+			return
+		}
+		parsed.SetResourceVersion(existing.GetResourceVersion())
+	}
+
 	var updated *unstructured.Unstructured
 	var updErr error
 	if kind.Namespaced {
