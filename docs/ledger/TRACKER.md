@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-08T19:30:12Z` |
+| Last refreshed | `2026-07-08T19:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 70 |
 | Open DoD gates | 0 / 41 |
@@ -278,6 +278,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-07-08T19:19 | [#4863](https://github.com/openova-io/openova/pull/4863) | #4389 | fix(bp-openclaw): controller CPU 500m->250m so the S-plan pl |
+| 2026-07-08T19:42 | [#4862](https://github.com/openova-io/openova/pull/4862) | #4844 | fix(#4860): grant catalyst-api update/patch on blueprints fo |
 | 2026-07-08T19:24 | [#4861](https://github.com/openova-io/openova/pull/4861) | #4807 | fix(#4656): per-node pod-CIDR VPC routes — deterministic cro |
 | 2026-07-08T18:59 | [#4857](https://github.com/openova-io/openova/pull/4857) | #4843 | fix(#4843): declare js-yaml + @types/js-yaml so the catalyst |
 | 2026-07-08T16:48 | [#4856](https://github.com/openova-io/openova/pull/4856) | #4853 | fix(#4853): retry Application status writes on 409 Conflict |
@@ -306,7 +307,6 @@ flowchart LR
 | 2026-07-05T16:58 | [#4807](https://github.com/openova-io/openova/pull/4807) | #4656 | fix(#4656): pod-CIDR peering routes — the native-routing dat |
 | 2026-07-05T14:41 | [#4806](https://github.com/openova-io/openova/pull/4806) | #4739 | fix(funnel): render bp-newapi HR (openclaw LLM gateway + row |
 | 2026-07-05T14:41 | [#4805](https://github.com/openova-io/openova/pull/4805) | #4803 | fix(funnel): wire openclaw HR oidc.internalIssuerURL (comple |
-| 2026-07-05T14:41 | [#4804](https://github.com/openova-io/openova/pull/4804) | #4792 | fix(org-controller): sync host keycloak Service into vcluste |
 
 ---
 
