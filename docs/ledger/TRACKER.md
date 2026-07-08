@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-08T16:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-07-08T16:30:11Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 68 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -275,6 +275,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-08T16:22 | [#4855](https://github.com/openova-io/openova/pull/4855) | #3735 | fix(#4849): source-controller OOM + unbounded emptyDir → nod |
 | 2026-07-08T15:22 | [#4852](https://github.com/openova-io/openova/pull/4852) | #4834 | fix(#4834): align catalog seed bp-stalwart-tenant 0.1.8→0.1. |
 | 2026-07-07T17:46 | [#4850](https://github.com/openova-io/openova/pull/4850) | #4846 | fix(#4846): identity-based CiliumNetworkPolicy for cross-reg |
 | 2026-07-07T15:10 | [#4848](https://github.com/openova-io/openova/pull/4848) | #4846 | fix(#4846): cnpg-pair cross-region netpol — ipBlock allow fo |
@@ -304,7 +305,6 @@ flowchart LR
 | 2026-07-05T14:39 | [#4801](https://github.com/openova-io/openova/pull/4801) | #4739 | fix(topology): detect per-Org vcluster via StatefulSet (vClu |
 | 2026-07-05T14:40 | [#4800](https://github.com/openova-io/openova/pull/4800) | #4739 | fix(console): worker-nodes tile excludes control-planes (nod |
 | 2026-07-05T18:03 | [#4798](https://github.com/openova-io/openova/pull/4798) | #4739 | fix(provisioning): funnel-door apps sourceRef flux-system→op |
-| 2026-07-05T07:46 | [#4795](https://github.com/openova-io/openova/pull/4795) | #4794 | chore(crossplane): republish bp-crossplane-claims with #4794 |
 
 ---
 
