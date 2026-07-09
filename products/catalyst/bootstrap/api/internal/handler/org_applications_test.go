@@ -244,6 +244,66 @@ func TestOrgApplications_ProjectsOwnNamespaceOnly(t *testing.T) {
 	}
 }
 
+// makeApplicationWithPlacement is makeApplicationFull plus a spec.placement of
+// an arbitrary shape (a legacy posture STRING, or the object {mode, regions})
+// so the projection's topology read can be exercised against BOTH forms.
+func makeApplicationWithPlacement(name, ns, bp, phase string, placement any) *unstructured.Unstructured {
+	u := makeApplicationFull(name, ns, bp, phase)
+	_ = unstructured.SetNestedField(u.Object, placement, "spec", "placement")
+	return u
+}
+
+// TestOrgApplications_TopologyBadge_ObjectAndStringPlacement — #4897. A New-
+// instance active-hot-standby create writes spec.placement as the OBJECT
+// {mode, regions}; a singleton / spine AHS create writes the legacy STRING.
+// The Org-scoped Apps-grid projection must surface the topology posture for
+// BOTH shapes (the raw NestedString read collapsed the object to "" → the
+// sov-app-topology-<name> badge was absent for object-placement AHS apps).
+func TestOrgApplications_TopologyBadge_ObjectAndStringPlacement(t *testing.T) {
+	dynObjs := []runtime.Object{
+		// New-instance AHS — placement is the OBJECT form (the #4897 defect).
+		makeApplicationWithPlacement("uatprobe-ahs", demoOrgNS, "bp-grafana", "Ready",
+			map[string]any{
+				"mode":    "active-hot-standby",
+				"regions": []any{"me-east-215-a", "me-east-215-b"},
+			}),
+		// Spine AHS — placement is the legacy STRING form (already rendered).
+		makeApplicationWithPlacement("spine-ahs", demoOrgNS, "bp-grafana", "Ready", "active-hot-standby"),
+		// Singleton — string form (already rendered).
+		makeApplicationWithPlacement("uatprobe-single", demoOrgNS, "bp-grafana", "Ready", "singleton"),
+	}
+	claims := &auth.Claims{Tier: orgScopedTier, Org: "demo"}
+	rec := orgAppsGet(t, "console.demo.omani.homes", claims, dynObjs)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Apps []struct {
+			ID       string `json:"id"`
+			Instance bool   `json:"instance"`
+			Topology string `json:"topology"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	topoByID := map[string]string{}
+	for _, a := range resp.Apps {
+		topoByID[a.ID] = a.Topology
+	}
+	// The object-placement AHS app is the regression under test: it must now
+	// carry the "active-hot-standby" posture, identical to the string-form one.
+	if got := topoByID["uatprobe-ahs"]; got != "active-hot-standby" {
+		t.Errorf("object-placement AHS topology = %q, want active-hot-standby (badge was absent before #4897)", got)
+	}
+	if got := topoByID["spine-ahs"]; got != "active-hot-standby" {
+		t.Errorf("string-placement AHS topology = %q, want active-hot-standby (must not regress)", got)
+	}
+	if got := topoByID["uatprobe-single"]; got != "singleton" {
+		t.Errorf("singleton topology = %q, want singleton (must not regress)", got)
+	}
+}
+
 // TestOrgApplications_CrossOrgForged — a demo session forging the acme host is
 // 403 org-scope-mismatch (the #4110 binding), never projecting acme's estate.
 func TestOrgApplications_CrossOrgForged(t *testing.T) {

@@ -664,6 +664,13 @@ func (h *Handler) collectApplicationsForSovereign(
 		app := &apps.Items[i]
 		topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
 		if topology == "" {
+			// #4897 — object-form placement {mode, regions, …} carries the
+			// posture in .mode; a raw string read collapses it to "". Without
+			// this an active-hot-standby app (object placement) fell through to
+			// the single-region default in the Fleet table + DR-posture derive.
+			topology, _, _ = unstructured.NestedString(app.Object, "spec", "placement", "mode")
+		}
+		if topology == "" {
 			topology = topologySingleRegion
 		}
 		regions, _, _ := unstructured.NestedStringSlice(app.Object, "spec", "regions")
