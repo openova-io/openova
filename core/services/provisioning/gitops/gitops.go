@@ -235,6 +235,29 @@ type ManifestGenerator struct {
 	// `realm: sovereign`; catalyst-api's CATALYST_KC_REALM default). Empty
 	// resolves to sharedRealmNameDefault.
 	SharedRealmName string
+
+	// AppsSyncSourceRepo is the name of the Flux GitRepository CR (in
+	// flux-system) that generateAppsSyncKustomization's `tenant-<slug>-apps`
+	// Kustomization resolves its sourceRef against — the Gitea mono-repo that
+	// holds the funnel-door apps tree (`./<basePath>/<slug>/apps`).
+	//
+	// #4761 LANDMINE: this sourceRef.name was HARDCODED — first to `flux-system`
+	// (#4785: no such GitRepository exists on a Sovereign → the Kustomization
+	// stuck permanently FALSE `GitRepository "flux-system" not found`), then
+	// #4798 swapped the literal to `openova-org-tenants` (the Sovereign's
+	// funnel-door mono-repo GitRepository). But a bare literal is still an
+	// Inviolable-Principle-4 violation: the GitRepository name is
+	// per-Sovereign-bootstrap state (a differently-bootstrapped Sovereign, or a
+	// mothership whose source CR is named `flux-system`, names this repo
+	// differently), so a hardcode renders the `tenant-<slug>-apps` Kustomization
+	// permanently FALSE — the SAME "GitRepository not found" failure #4785 hit,
+	// just re-hardcoded to a different name.
+	//
+	// Populated from CATALYST_APPS_SYNC_SOURCE_REPO in main.go. Empty resolves
+	// to appsSyncSourceRepoDefault ("openova-org-tenants") so the post-#4798
+	// funnel-door behavior is byte-unchanged for every existing Sovereign
+	// (NO-REGRESS).
+	AppsSyncSourceRepo string
 }
 
 // parentDomain resolves the funnel's org-pool parent zone for the
@@ -306,6 +329,15 @@ const replicaRegionKubeSecretDefault = "sovereign-replica-region-kubeconfig"
 // defaultVClusterRegistryMirror is the bootstrap Harbor proxy host.
 const defaultVClusterRegistryMirror = "harbor.openova.io"
 
+// appsSyncSourceRepoDefault is the Flux GitRepository CR name the funnel-door
+// `tenant-<slug>-apps` Kustomization resolves its sourceRef against when
+// AppsSyncSourceRepo (CATALYST_APPS_SYNC_SOURCE_REPO) is unset. Matches the
+// post-#4798 funnel-door mono-repo GitRepository so an unconfigured Sovereign
+// renders byte-identically (NO-REGRESS). See ManifestGenerator.AppsSyncSourceRepo
+// for why the name must be per-Sovereign-configurable rather than hardcoded
+// (#4761 / Inviolable Principle 4).
+const appsSyncSourceRepoDefault = "openova-org-tenants"
+
 // Block-storage StorageClass names per cloud provider. These are the
 // canonical Catalyst CSI classes installed by the per-provider CSI
 // Blueprints (platform/hcloud-csi → hcloud-volumes,
@@ -346,6 +378,18 @@ func (g *ManifestGenerator) replicaRegionKubeSecret() string {
 		return s
 	}
 	return replicaRegionKubeSecretDefault
+}
+
+// appsSyncSourceRepo resolves the Flux GitRepository CR name the funnel-door
+// `tenant-<slug>-apps` Kustomization points its sourceRef at (#4761). Empty
+// falls back to appsSyncSourceRepoDefault ("openova-org-tenants") so the
+// post-#4798 behavior is byte-unchanged on any Sovereign that does not wire
+// CATALYST_APPS_SYNC_SOURCE_REPO.
+func (g *ManifestGenerator) appsSyncSourceRepo() string {
+	if s := strings.TrimSpace(g.AppsSyncSourceRepo); s != "" {
+		return s
+	}
+	return appsSyncSourceRepoDefault
 }
 
 func NewManifestGenerator(basePath string) *ManifestGenerator {
@@ -488,7 +532,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	// never inside the vcluster-redirected apps/ tree).
 	hostFiles := map[string]string{
 		"ingress.yaml":           generateHostIngress(hostNS, slug, appSlugs),
-		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath, isVcluster),
+		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath, isVcluster, g.appsSyncSourceRepo()),
 		"provisioning-rbac.yaml": generateProvisioningTenantRBAC(hostNS),
 	}
 
@@ -776,7 +820,15 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 // exists this Kustomization simply StateErrors-then-retries (retryInterval 1m)
 // — the intended self-healing for the vcluster tier. The host tier has no
 // secret dependency at all, so it reconciles immediately.
-func generateAppsSyncKustomization(ns, slug, basePath string, isVcluster bool) string {
+//
+// #4761 — sourceRef.name is threaded from ManifestGenerator.appsSyncSourceRepo()
+// (CATALYST_APPS_SYNC_SOURCE_REPO, default "openova-org-tenants"), NOT a bare
+// literal. The Flux GitRepository CR that backs the funnel-door apps tree is
+// per-Sovereign-bootstrap state — hardcoding its name (first `flux-system`
+// #4785, then `openova-org-tenants` #4798) leaves the `tenant-<slug>-apps`
+// Kustomization permanently FALSE (`GitRepository "<name>" not found`) on any
+// Sovereign that names the repo differently (Inviolable Principle 4).
+func generateAppsSyncKustomization(ns, slug, basePath string, isVcluster bool, sourceRepo string) string {
 	kubeConfig := ""
 	if isVcluster {
 		kubeConfig = fmt.Sprintf(`
@@ -799,10 +851,10 @@ spec:
   targetNamespace: %s
   sourceRef:
     kind: GitRepository
-    name: openova-org-tenants
+    name: %s
     namespace: flux-system
   path: ./%s/%s/apps%s
-`, slug, ns, basePath, slug, kubeConfig)
+`, slug, ns, sourceRepo, basePath, slug, kubeConfig)
 }
 
 func generateHostIngress(ns, slug string, appSlugs []string) string {

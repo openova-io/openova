@@ -228,6 +228,15 @@ func main() {
 	generator.SovereignFQDN = sovereignFQDN
 	generator.SharedRealmName = getEnv("CATALYST_KC_REALM", "sovereign")
 
+	// #4761: the Flux GitRepository CR name the funnel-door `tenant-<slug>-apps`
+	// Kustomization resolves its sourceRef against — the Gitea mono-repo that
+	// holds the apps tree. Previously hardcoded (flux-system #4785 → then
+	// openova-org-tenants #4798), which left the Kustomization permanently FALSE
+	// (`GitRepository "<name>" not found`) on any Sovereign that names the repo
+	// differently. Now wired from env; empty falls back to the post-#4798 default
+	// (openova-org-tenants) inside the generator so existing provs are unchanged.
+	generator.AppsSyncSourceRepo = getEnv("CATALYST_APPS_SYNC_SOURCE_REPO", "")
+
 	// ── Git host coordinates (issue #940) ────────────────────────────
 	// On Sovereigns the canonical Git target is the local Gitea (the
 	// cutover step flipped the Sovereign's GitRepository CR to point
