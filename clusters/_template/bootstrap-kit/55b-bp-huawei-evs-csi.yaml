@@ -225,6 +225,13 @@ spec:
   # storage-durability gate fails it (local-path is FORBIDDEN, never a silent
   # fallback). See #3971 #892.
   values:
+    # #4885 / #4892: global.imageRegistry override seam for the step-07 cutover
+    # image-registry pivot (imageRegistryPivot.additionalHRs). step-07 patches
+    # this HR's spec.values.global.imageRegistry live AND durably sed-edits THIS
+    # file — the sed matches `^      imageRegistry:`, so the 6-space indent is
+    # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
+    global:
+      imageRegistry: ''
     enabled: ${EVS_CSI_ENABLED:=true}
     defaultStorageClass: ${EVS_CSI_ENABLED:=true}
     # idc=true (chart default) engages the no-Keystone AK/SK bypass — REQUIRED

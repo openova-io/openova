@@ -206,6 +206,13 @@ spec:
   # below is replaced with the concrete sovereign FQDN before the HR
   # bytes land in the cluster.
   values:
+    # #4885 / #4892: global.imageRegistry override seam for the step-07 cutover
+    # image-registry pivot (imageRegistryPivot.additionalHRs). step-07 patches
+    # this HR's spec.values.global.imageRegistry live AND durably sed-edits THIS
+    # file — the sed matches `^      imageRegistry:`, so the 6-space indent is
+    # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
+    global:
+      imageRegistry: ''
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for guacamole (the
     # canonical instance representation every console surface reads),

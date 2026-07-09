@@ -727,10 +727,15 @@ spec:
       # hook is now gated on trigger.fireCutoverOnHandover (wired from
       # ${FIRE_CUTOVER_ON_HANDOVER:-false} below) so an operator's
       # fireCutoverOnHandover=false suppresses the auto-fire, consistent with the
-      # catalyst-api reconciler (#4061). Charts that don't honour
-      # global.imageRegistry (bp-guacamole/bp-huawei-evs-csi/bp-newapi/bp-sandbox/
-      # org-services) are excluded pending a per-chart templating fix (#4885).
-      version: 0.1.106
+      # catalyst-api reconciler (#4061).
+      # 0.1.107 (#4885 Refs #4888 #4892): bp-guacamole / bp-huawei-evs-csi /
+      # bp-newapi / bp-sandbox now honour global.imageRegistry (#4892 per-chart
+      # image-helper fix), so they are ADDED to imageRegistryPivot.additionalHRs
+      # and step-07 pivots them to the local Harbor at cutover; each slot file
+      # gains the 6-space `global.imageRegistry: ''` seam so the durable Gitea
+      # edit persists. Only org-services (marketplace/auth concrete deploybot-
+      # bumped ghcr.io refs) stays excluded — the #4885 residual.
+      version: 0.1.107
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
