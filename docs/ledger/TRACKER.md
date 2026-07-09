@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T21:30:12Z` |
+| Last refreshed | `2026-07-09T21:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 95 |
+| Open issues | 96 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 95 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 96 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 95 open items (clickable table)
+### All 96 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -295,6 +295,7 @@ flowchart LR
 | [#4934](https://github.com/openova-io/openova/issues/4934) | Flaky handler test: leaked post-handover goroutines outlive phase1-watch, race t | Other |
 | [#4936](https://github.com/openova-io/openova/issues/4936) | bp-wordpress-tenant@0.4.20: per-Org WordPress never serves — dialog omits orgD | Other |
 | [#4937](https://github.com/openova-io/openova/issues/4937) | Customer self-service app install fails 403 — marketplace HS256 member session | Other |
+| [#4942](https://github.com/openova-io/openova/issues/4942) | Cross-region host-network→remote-pod black-holed on Huawei VPC (residual #4656 | Other |
 
 ---
 
@@ -302,6 +303,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T21:31 | [#4941](https://github.com/openova-io/openova/pull/4941) | #4932 | test(#4934): stop leaked phase1-watch + post-handover gorout |
 | 2026-07-09T21:28 | [#4940](https://github.com/openova-io/openova/pull/4940) | #4937 | fix(#4937): authorize a customer's own-Org session for app l |
 | 2026-07-09T21:16 | [#4939](https://github.com/openova-io/openova/pull/4939) | #4929 | fix(#4936): per-Org WordPress serves after funnel install —  |
 | 2026-07-09T21:05 | [#4938](https://github.com/openova-io/openova/pull/4938) | #4546 | fix(marketplace): redeem page owns the authed-owner→console  |
@@ -331,7 +333,6 @@ flowchart LR
 | 2026-07-09T10:53 | [#4899](https://github.com/openova-io/openova/pull/4899) | #4885 | org-services marketplace + auth honor global.imageRegistry f |
 | 2026-07-09T10:35 | [#4898](https://github.com/openova-io/openova/pull/4898) | #4896 | fix(#4896): reconcile bp- prefix in Blueprint Edit-IaC dry-r |
 | 2026-07-09T09:50 | [#4895](https://github.com/openova-io/openova/pull/4895) | #4878 | fix(#4878): gate shared-pg consumer restart on credential co |
-| 2026-07-09T09:40 | [#4894](https://github.com/openova-io/openova/pull/4894) | #4885 | fix(#4885): wire 4 imageRegistry-honouring charts into cutov |
 
 ---
 
