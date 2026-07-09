@@ -407,30 +407,50 @@ func TestAllObservedTerminal_SyncedGate(t *testing.T) {
 		"cert-manager": {},
 	}
 
+	// #4746 sentinel fixtures: an early-only observed set (cilium terminal,
+	// catalyst-platform not yet in the cache) and a set that additionally
+	// carries the sentinel.
+	earlyOnly := map[string]string{"cilium": StateInstalled}
+	observedEarlyOnly := map[string]struct{}{"cilium": {}}
+	withSentinelInstalled := map[string]string{"cilium": StateInstalled, "catalyst-platform": StateInstalled}
+	observedWithSentinel := map[string]struct{}{"cilium": {}, "catalyst-platform": {}}
+	withSentinelFailed := map[string]string{"cilium": StateInstalled, "catalyst-platform": StateFailed}
+
 	cases := []struct {
-		name             string
-		states           map[string]string
-		observed         map[string]struct{}
-		minHRs           int
-		firstSeenAt      time.Time
-		synced           bool
-		want             bool
+		name          string
+		states        map[string]string
+		observed      map[string]struct{}
+		minHRs        int
+		firstSeenAt   time.Time
+		synced        bool
+		readySentinel string
+		want          bool
 	}{
-		{"synced=false blocks even if all-Ready", allReady, observedAllReady, 1, now, false, false},
-		{"firstSeenAt zero blocks even if synced", allReady, observedAllReady, 1, zero, true, false},
-		{"observed below floor blocks", allReady, observedAllReady, 999, now, true, false},
-		{"one HR not terminal blocks", map[string]string{"cilium": StateInstalled, "cert-manager": StateInstalling}, observedAllReady, 1, now, true, false},
-		{"all-Ready synced cache fires", allReady, observedAllReady, 1, now, true, true},
-		{"all-Ready synced cache with absurd floor still fires when count >= floor", allReady, observedAllReady, 2, now, true, true},
-		{"failed counts as terminal", map[string]string{"cilium": StateInstalled, "cert-manager": StateFailed}, observedAllReady, 1, now, true, true},
+		{"synced=false blocks even if all-Ready", allReady, observedAllReady, 1, now, false, "", false},
+		{"firstSeenAt zero blocks even if synced", allReady, observedAllReady, 1, zero, true, "", false},
+		{"observed below floor blocks", allReady, observedAllReady, 999, now, true, "", false},
+		{"one HR not terminal blocks", map[string]string{"cilium": StateInstalled, "cert-manager": StateInstalling}, observedAllReady, 1, now, true, "", false},
+		{"all-Ready synced cache fires", allReady, observedAllReady, 1, now, true, "", true},
+		{"all-Ready synced cache with absurd floor still fires when count >= floor", allReady, observedAllReady, 2, now, true, "", true},
+		{"failed counts as terminal", map[string]string{"cilium": StateInstalled, "cert-manager": StateFailed}, observedAllReady, 1, now, true, "", true},
+
+		// #4746 — sentinel gate. An early-only terminal set must NOT fire
+		// while the console backend (catalyst-platform) is still absent, but
+		// once the sentinel is observed-and-terminal the gate fires. A
+		// terminal-FAILED sentinel still trips it (classified OutcomeFailed
+		// downstream, never a hang). Empty sentinel = historical behaviour.
+		{"sentinel absent blocks even though early set is terminal", earlyOnly, observedEarlyOnly, 1, now, true, "catalyst-platform", false},
+		{"empty sentinel keeps historical early-fire", earlyOnly, observedEarlyOnly, 1, now, true, "", true},
+		{"sentinel observed+installed fires", withSentinelInstalled, observedWithSentinel, 1, now, true, "catalyst-platform", true},
+		{"sentinel observed+failed still fires (→ OutcomeFailed)", withSentinelFailed, observedWithSentinel, 1, now, true, "catalyst-platform", true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := allObservedTerminal(tc.states, tc.observed, tc.minHRs, tc.firstSeenAt, tc.synced)
+			got := allObservedTerminal(tc.states, tc.observed, tc.minHRs, tc.firstSeenAt, tc.synced, tc.readySentinel)
 			if got != tc.want {
-				t.Errorf("allObservedTerminal(synced=%t, firstSeenAt-zero=%t, minHRs=%d) = %t, want %t",
-					tc.synced, tc.firstSeenAt.IsZero(), tc.minHRs, got, tc.want)
+				t.Errorf("allObservedTerminal(synced=%t, firstSeenAt-zero=%t, minHRs=%d, sentinel=%q) = %t, want %t",
+					tc.synced, tc.firstSeenAt.IsZero(), tc.minHRs, tc.readySentinel, got, tc.want)
 			}
 		})
 	}
