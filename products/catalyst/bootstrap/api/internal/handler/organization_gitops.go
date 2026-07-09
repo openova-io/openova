@@ -16,7 +16,6 @@
 //
 //   - Namespace          org-<org_tenant_id>
 //   - HelmRelease       bp-keycloak (per-organization, fresh realm)
-//   - HelmRelease       bp-cnpg (in tenant ns)
 //   - HelmRelease       bp-wordpress-tenant
 //   - HelmRelease       bp-openclaw
 //   - HelmRelease       bp-stalwart-tenant
@@ -239,7 +238,7 @@ func writeParentTenantsIndex(parentDir string) error {
 		}
 	}
 	// Also emit the shared HelmRepositories file (#893) — the Organization
-	// charts (bp-keycloak / bp-cnpg / bp-wordpress-tenant / bp-openclaw /
+	// charts (bp-keycloak / bp-wordpress-tenant / bp-openclaw /
 	// bp-stalwart-tenant + vcluster's loft repo) are NOT shipped by the
 	// bootstrap-kit on a Sovereign by default. The orchestrator emits them
 	// here at the parent level so every per-tenant HR has a valid
@@ -310,18 +309,6 @@ apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-keycloak
-  namespace: flux-system
-spec:
-  type: oci
-  interval: 15m
-  url: oci://ghcr.io/openova-io
-  secretRef:
-    name: ghcr-pull
----
-apiVersion: source.toolkit.fluxcd.io/v1beta2
-kind: HelmRepository
-metadata:
-  name: bp-cnpg
   namespace: flux-system
 spec:
   type: oci
@@ -748,7 +735,6 @@ var orgTenantTemplates = map[string]string{
 	"kustomization.yaml":       orgTenantKustomization,
 	"namespace.yaml":           orgTenantNamespace,
 	"bp-keycloak.yaml":         orgTenantBPKeycloak,
-	"bp-cnpg.yaml":             orgTenantBPCNPG,
 	"bp-newapi.yaml":           orgTenantBPNewAPI,
 	"bp-wordpress-tenant.yaml": orgTenantBPWordPress,
 	"bp-openclaw.yaml":         orgTenantBPOpenClaw,
@@ -775,7 +761,6 @@ resources:
   # the old one.
   - namespace.yaml
   - bp-keycloak.yaml
-  - bp-cnpg.yaml
   - bp-newapi.yaml
   - bp-wordpress-tenant.yaml
   - bp-openclaw.yaml
@@ -1036,125 +1021,39 @@ spec:
         parentDomain: {{.ParentDomain}}
 `
 
-const orgTenantBPCNPG = `# bp-cnpg in the Organization tenant namespace — Postgres for WordPress
-# + (in future tenants) other apps that need a relational store.
-#
-# Values contract (issue #910 / B3): bp-cnpg is a pure umbrella subchart
-# of cloudnative-pg; per-Sovereign overrides flow through the
-# ` + "`cloudnative-pg.*`" + ` namespace (see platform/cnpg/chart/values.yaml).
-# Earlier orchestrator versions emitted ` + "`namespace`" + ` and ` + "`operator.enabled`" + `
-# at the top level — the chart silently ignored them. Fixed to the
-# canonical subchart-keyed shape.
-#
-# 🛑 NAMESPACE-SCOPED, WEBHOOK-LESS per-Org operator (#4143). The
-# cloudnative-pg "single operator per cluster" guidance: the
-# Mutating/ValidatingWebhookConfiguration objects it registers
-# (cnpg-mutating-webhook-configuration / cnpg-validating-webhook-
-# configuration) are CLUSTER-SCOPED SINGLETONS with FIXED names AND the
-# webhook serving Service name (cnpg-webhook-service) is hardcoded
-# upstream ("DO NOT CHANGE THE SERVICE NAME"). When a per-Org operator
-# also creates these, it and the platform cnpg-system operator both
-# reconcile the SAME singletons — whichever writes last repoints the
-# webhook clientConfig.service at ITS namespace's cnpg-webhook-service
-# with a caBundle the other operator's served cert does not match, so
-# admission fails "x509: certificate signed by unknown authority" and
-# every NEW Cluster CR (e.g. wordpress-db) is blocked. Live outage on
-# omantel.biz kom4dc (dep 4635277cae4ffed9): the singleton webhook ended
-# up owned by an Org-namespace release, breaking the platform operator.
-#
-# Fix: the per-Org operator runs WEBHOOK-LESS and NAMESPACE-SCOPED.
-#   - webhook.{mutating,validating}.create=false → it never touches the
-#     cluster-singleton webhook configs; the single platform cnpg-system
-#     operator owns them and admits Cluster CRs in EVERY namespace
-#     (including this Org's) via its cluster-wide webhook.
-#   - config.clusterWide=false + WATCH_NAMESPACE pinned to this Org ns →
-#     the per-Org operator reconciles ONLY its own namespace and can
-#     never contend cluster-scoped resources owned by the platform
-#     operator. (The per-Org operator still manages this Org's own
-#     Cluster/Backup CRs; it just stops fighting over the singletons.)
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: bp-cnpg
-  namespace: {{.Namespace}}
-spec:
-  interval: 10m
-  chart:
-    spec:
-      chart: bp-cnpg
-      version: "{{.ChartVersions.CNPG}}"
-      sourceRef:
-        kind: HelmRepository
-        name: bp-cnpg
-        namespace: flux-system
-  values:
-    cloudnative-pg:
-      # Single replica per tenant — operator-leader-elected, additional
-      # replicas are passive standbys; Organization footprint trade-off per
-      # docs/INVIOLABLE-PRINCIPLES.md #4 (overridable via per-cluster
-      # overlay).
-      replicaCount: 1
-      crds:
-        # CRDs ship with the bootstrap-kit's mothership bp-cnpg already;
-        # the per-tenant install must NOT re-create them or apiserver
-        # rejects the manifest with "already exists, owned by ...".
-        create: false
-      # #4143: do NOT register the cluster-scoped webhook configs — they
-      # are singletons owned by the platform cnpg-system operator. A
-      # per-Org copy fights over them and breaks admission cluster-wide.
-      webhook:
-        mutating:
-          create: false
-        validating:
-          create: false
-      # #4322 (G65): KILL the webhook-HIJACK RBAC vector at its root. The
-      # upstream cloudnative-pg subchart includes its clusterwideRules
-      # (which grant get,patch on mutating/validatingwebhookconfigurations)
-      # in the ClusterRole bp-cnpg-cloudnative-pg UNCONDITIONALLY — even when
-      # clusterWide=false. So a per-Org operator, despite being namespace-
-      # scoped + webhook-less, was STILL granted cluster-scoped patch on the
-      # webhook singleton and on each restart over-wrote the shared caBundle
-      # with its own org-ns leaf cert (CA:FALSE) → apiserver x509-fail → every
-      # CNPG Cluster create/patch rejected cluster-wide (live omantel.biz
-      # org-7283eb4a, #4322). Turning OFF the subchart RBAC (rbac.create=false)
-      # stops that ClusterRole rendering; the bp-cnpg umbrella's
-      # templates/per-org-operator-rbac.yaml then renders REPLACEMENT RBAC —
-      # a namespace Role with the operator's in-ns permissions + a minimal
-      # ClusterRole (nodes + clusterimagecatalogs reads ONLY, NO
-      # webhookconfigurations) — so the per-Org operator is STRUCTURALLY
-      # INCAPABLE of patching the cluster singleton. (serviceAccount.create
-      # stays at its true default so the operator SA still exists.)
-      rbac:
-        create: false
-      # #4143: namespace-scoped watch — the per-Org operator reconciles
-      # ONLY its own Org namespace, never cluster-scoped singletons. The
-      # platform cnpg-system operator stays cluster-wide and admits this
-      # Org's Cluster CRs via the cluster-singleton webhook.
-      config:
-        clusterWide: false
-        data:
-          WATCH_NAMESPACE: {{.Namespace}}
-      monitoring:
-        # Default OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
-        podMonitorEnabled: false
-      # #4739 W-2: the Org namespace's plan-limits LimitRange enforces
-      # maxLimitRequestRatio {cpu:1, memory:1} (Guaranteed-only QoS — the
-      # #4389/#4292 platform contract every per-Org chart must satisfy).
-      # The chart's platform defaults (requests 100m/1Gi, limit 2Gi) render
-      # ratio 2.5/2.0 → every operator pod is FORBIDDEN and the whole
-      # funnel-app chain wedges (live on hw220 nstar: bp-keycloak Stalled →
-      # newapi/openclaw/stalwart/wordpress DependencyNotReady 12h+).
-      # requests==limits here; 1Gi is sufficient because THIS operator is
-      # namespace-scoped (WATCH_NAMESPACE above) — the G17b 2Gi headroom
-      # was sized for the cluster-wide platform operator.
-      resources:
-        requests:
-          cpu: 200m
-          memory: 1Gi
-        limits:
-          cpu: 200m
-          memory: 1Gi
-`
+// orgTenantBPCNPG was REMOVED (#4920). The per-Org bp-cnpg operator is no
+// longer emitted into the Organization tenant overlay.
+//
+// WHY (root cause, verified against upstream CNPG v1.29.0 source):
+//   The per-Org operator ran WEBHOOK-LESS + NAMESPACE-SCOPED and, since G65
+//   (#4322), with its cluster-scoped webhookconfigurations RBAC stripped so it
+//   could not hijack the shared cnpg-{mutating,validating}-webhook-configuration
+//   singletons. But at the pinned operator image (1.29.0) the operator's
+//   mandatory startup `ensurePKI` UNCONDITIONALLY get+patches those singletons
+//   (internal/cmd/manager/controller/controller.go → pkg/certs/k8s.go
+//   injectPublicKeyInto{Mutating,Validating}Webhook). The
+//   `MANAGE_WEBHOOK_CONFIGURATIONS=false` opt-out that the bp-cnpg chart already
+//   sets does NOT exist until a later CNPG release, so on 1.29.0 it is a silent
+//   no-op. Result: without the RBAC the per-Org operator CrashLoopBackOff'd on
+//   ensurePKI → the bp-cnpg HelmRelease never went Ready → the Flux
+//   `dependsOn: bp-cnpg` gate blocked bp-wordpress-tenant / bp-newapi from ever
+//   installing (hw233 walk 2026-07-09, #4920). Re-granting the RBAC would fix
+//   the crash but re-introduce the exact #4322 cluster-wide caBundle hijack
+//   (the per-Org operator injects its own org-ns leaf into the shared caBundle).
+//
+// FIX (#4920, issue Option B): don't deploy a per-Org operator at all. The
+//   platform cnpg-system operator is cluster-wide (upstream subchart default
+//   `config.clusterWide: true`, no WATCH_NAMESPACE) and already reconciles
+//   postgresql.cnpg.io/v1.Cluster CRs in EVERY namespace — including the host
+//   org-tenant namespace the per-Org apps install into. It also owns the
+//   cluster-singleton webhook that admits Org Cluster CRs. So the per-Org
+//   operator was redundant for reconciliation AND the sole source of the
+//   webhook-hijack / crashloop class. Removing it (this const + the
+//   bp-cnpg.yaml overlay file + the bp-cnpg HelmRepository + the
+//   `dependsOn: bp-cnpg` on bp-newapi/bp-wordpress-tenant) lets the platform
+//   operator own the Org's Postgres end-to-end. The per-Org apps still OWN
+//   their Postgres via their own chart `cnpg.enabled=true` Cluster CRs; only
+//   the redundant per-namespace operator is gone.
 
 // orgTenantBPNewAPI emits the per-tenant bp-newapi HelmRelease (#945).
 //
@@ -1203,9 +1102,11 @@ spec:
 //     auto-seeded at install time (canonical
 //     first-otech default per #915 C4 PR #919).
 //
-// dependsOn: bp-keycloak (OIDC for admin UI) + bp-cnpg (Postgres
-// backend). Ordering matters — without it the chart's channel-seed
-// post-install Job races the readiness of the dependencies and Flux
+// dependsOn: bp-keycloak (OIDC for admin UI). Postgres is provided by the
+// cluster-wide platform cnpg-system operator (#4920 removed the redundant
+// per-Org bp-cnpg operator; the chart still OWNS its own CNPG Cluster via
+// cnpg.enabled=true). Ordering matters — without the keycloak gate the
+// chart's channel-seed post-install Job races the readiness of the dependency and Flux
 // retries cost minutes.
 const orgTenantBPNewAPI = `# bp-newapi per-tenant (#915, #945) — alice's own NewAPI gateway.
 #
@@ -1243,7 +1144,8 @@ spec:
   # context deadline, and the post-install DSN-sync hook never fires: a hard
   # deadlock (verified on the omantel.biz demo Org 2026-06-24). disableWait lets
   # the release reach hook execution, the DSN syncs, and the Pod converges.
-  # CNPG/Keycloak readiness is still gated by dependsOn below.
+  # Keycloak readiness is still gated by dependsOn below; the CNPG Cluster is
+  # reconciled by the cluster-wide platform cnpg-system operator (#4920).
   install:
     timeout: 15m
     disableWait: true
@@ -1253,8 +1155,6 @@ spec:
     disableWait: true
   dependsOn:
     - name: bp-keycloak
-      namespace: {{.Namespace}}
-    - name: bp-cnpg
       namespace: {{.Namespace}}
   values:
     # Per-tenant identity zone — drives the OpenBao path convention for
@@ -1441,8 +1341,6 @@ spec:
         namespace: flux-system
   dependsOn:
     - name: bp-keycloak
-      namespace: {{.Namespace}}
-    - name: bp-cnpg
       namespace: {{.Namespace}}
   values:
     # MIRROR-EVERYTHING (#3785, Refs #3376 #3761): route BOTH WordPress

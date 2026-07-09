@@ -1,25 +1,36 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
-	"sigs.k8s.io/yaml"
 )
 
-// TestPerOrgBPCNPGWebhookHijackRBACOff is the generator-side guard for the
-// G65 (#4322 #4143 #4201) webhook-HIJACK fix.
+// TestPerOrgBPCNPGOperatorNotEmitted is the generator-side guard for the #4920
+// fix (issue Option B): the Organization tenant overlay must NOT deploy a
+// per-Org bp-cnpg operator anymore.
 //
-// The per-Org bp-cnpg operator must be STRUCTURALLY INCAPABLE of patching the
-// cluster-singleton cnpg webhook configs. The upstream cloudnative-pg subchart
-// grants get,patch on *webhookconfigurations in the operator ClusterRole
-// UNCONDITIONALLY (even when clusterWide=false), so the per-Org install MUST
-// turn the subchart RBAC off (cloudnative-pg.rbac.create=false) — the bp-cnpg
-// umbrella then renders minimal replacement RBAC with NO webhookconfigurations
-// (asserted by platform/cnpg/chart/tests/per-org-operator-rbac.sh). This test
-// locks the generator half: the emitted HelmRelease values carry rbac.create
-// false alongside the existing webhook-less + namespace-scoped settings.
-func TestPerOrgBPCNPGWebhookHijackRBACOff(t *testing.T) {
+// History: the per-Org operator ran webhook-LESS + namespace-scoped and, since
+// G65 (#4322), with its cluster-scoped webhookconfigurations RBAC stripped so
+// it could not hijack the shared cnpg webhook singletons. But at the pinned
+// operator image (CNPG 1.29.0) the mandatory startup `ensurePKI` UNCONDITIONALLY
+// get+patches those singletons — the `MANAGE_WEBHOOK_CONFIGURATIONS=false`
+// opt-out does not exist until a later CNPG release, so it is a silent no-op on
+// 1.29.0. Without the RBAC the operator CrashLoopBackOff'd on ensurePKI → the
+// bp-cnpg HelmRelease never went Ready → the Flux `dependsOn: bp-cnpg` gate
+// blocked bp-wordpress-tenant / bp-newapi from installing (hw233 walk, #4920).
+// Re-granting the RBAC would fix the crash but re-introduce the exact #4322
+// cluster-wide caBundle hijack.
+//
+// FIX: drop the per-Org operator entirely. The platform cnpg-system operator is
+// cluster-wide (upstream subchart default `config.clusterWide: true`, no
+// WATCH_NAMESPACE) and already reconciles postgresql.cnpg.io/v1.Cluster CRs in
+// EVERY namespace — including the host org-tenant namespace the per-Org apps
+// install into — AND owns the singleton webhook that admits them. So no per-Org
+// operator is needed. This test locks that in: no bp-cnpg.yaml overlay file, and
+// no per-Org app HelmRelease `dependsOn: bp-cnpg`.
+func TestPerOrgBPCNPGOperatorNotEmitted(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
@@ -35,51 +46,24 @@ func TestPerOrgBPCNPGWebhookHijackRBACOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	body, ok := files["bp-cnpg.yaml"]
-	if !ok {
-		t.Fatalf("bp-cnpg.yaml missing from render output")
+
+	// 1. No per-Org bp-cnpg operator HelmRelease overlay file.
+	if _, ok := files["bp-cnpg.yaml"]; ok {
+		t.Errorf("#4920 regression: bp-cnpg.yaml must NOT be emitted — the per-Org operator crashloops on ensurePKI (no webhookconfigurations RBAC) and re-granting it re-introduces the #4322 hijack; the cluster-wide platform operator reconciles the Org's Cluster CRs")
 	}
 
-	var hr helmReleaseYAML
-	if err := yaml.Unmarshal([]byte(body), &hr); err != nil {
-		t.Fatalf("bp-cnpg.yaml does not parse as YAML: %v\n--- body ---\n%s", err, body)
+	// 2. It must not appear in the kustomization resource list either.
+	if k := files["kustomization.yaml"]; strings.Contains(k, "bp-cnpg.yaml") {
+		t.Errorf("#4920 regression: kustomization.yaml still lists bp-cnpg.yaml:\n%s", k)
 	}
 
-	cnpg, ok := hr.Spec.Values["cloudnative-pg"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("values.cloudnative-pg missing or not a map; values=%#v", hr.Spec.Values)
-	}
-
-	// rbac.create MUST be explicitly false — this is the keystone of the
-	// hijack-vector removal.
-	rbac, ok := cnpg["rbac"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("values.cloudnative-pg.rbac missing — the subchart RBAC (with the cluster webhookconfigurations grant) would still render")
-	}
-	if create, _ := rbac["create"].(bool); create {
-		t.Errorf("cloudnative-pg.rbac.create must be false (got true) — per-Org operator would retain cluster-scoped webhookconfigurations patch (#4322)")
-	}
-
-	// The pre-existing webhook-less + namespace-scoped invariants must remain.
-	webhook, ok := cnpg["webhook"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("values.cloudnative-pg.webhook missing — per-Org operator must be webhook-less")
-	}
-	for _, side := range []string{"mutating", "validating"} {
-		w, ok := webhook[side].(map[string]interface{})
-		if !ok {
-			t.Fatalf("values.cloudnative-pg.webhook.%s missing", side)
+	// 3. No per-Org app HelmRelease may `dependsOn` a per-Org bp-cnpg — the HR
+	//    no longer exists, so any such reference wedges the app on
+	//    `dependency bp-cnpg not found`. Postgres readiness is owned by the
+	//    always-present platform cnpg-system operator (bootstrap-kit slot 16).
+	for name, body := range files {
+		if strings.Contains(body, "name: bp-cnpg") {
+			t.Errorf("#4920 regression: %s still references a per-Org bp-cnpg HelmRelease (dependsOn/sourceRef):\n%s", name, body)
 		}
-		if create, _ := w["create"].(bool); create {
-			t.Errorf("cloudnative-pg.webhook.%s.create must be false (got true) — per-Org operator must not own the cluster webhook singleton", side)
-		}
-	}
-
-	cfg, ok := cnpg["config"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("values.cloudnative-pg.config missing")
-	}
-	if clusterWide, _ := cfg["clusterWide"].(bool); clusterWide {
-		t.Errorf("cloudnative-pg.config.clusterWide must be false (got true) — per-Org operator must be namespace-scoped")
 	}
 }
