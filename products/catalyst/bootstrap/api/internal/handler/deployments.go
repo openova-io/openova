@@ -801,7 +801,22 @@ func (h *Handler) resumePhase1Watch(dep *Deployment) {
 		"kubeconfigPath", dep.Result.KubeconfigPath,
 	)
 
+	// phase1WatchWG (test-only; nil in production) lets a test await this
+	// resumed watch before returning, exactly as PutKubeconfig does for the
+	// first-launch spawn (#4932). restoreFromStore fires this on a
+	// rehydrated phase1-watching record, and its terminal markPhase1Done →
+	// persistDeployment write into the store dir races Go's testing
+	// RemoveAll cleanup when the store is a t.TempDir() (the #4934 restore
+	// leak, e.g. TestPodRestart_Phase1WatchingResumesWithKubeconfig). Add(1)
+	// runs before `go` (the WaitGroup contract); Done fires when the
+	// goroutine fully unwinds.
+	if h.phase1WatchWG != nil {
+		h.phase1WatchWG.Add(1)
+	}
 	go func() {
+		if h.phase1WatchWG != nil {
+			defer h.phase1WatchWG.Done()
+		}
 		h.runPhase1Watch(dep)
 		// runPhase1Watch -> markPhase1Done flips Status terminal,
 		// but does NOT close the channels (the original
