@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T13:45:12Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-07-09T14:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 81 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -288,6 +288,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T13:55 | [#4909](https://github.com/openova-io/openova/pull/4909) | #4872 | fix(#4872): project-wide OBS-bucket orphan sweep so wiped pr |
 | 2026-07-09T13:23 | [#4907](https://github.com/openova-io/openova/pull/4907) | #4765 | docs(cilium): retire stale clustermesh NodePort-32379 commen |
 | 2026-07-09T13:19 | [#4906](https://github.com/openova-io/openova/pull/4906) | #3998 | fix(#4820): cloud-list kind aliases hijack HTTPRoutes/Networ |
 | 2026-07-09T13:23 | [#4905](https://github.com/openova-io/openova/pull/4905) | #4901 | fix(#4901): surface cnpg-pair Continuum standby-absent condi |
@@ -317,7 +318,6 @@ flowchart LR
 | 2026-07-08T20:53 | [#4867](https://github.com/openova-io/openova/pull/4867) | #4415 | test(#4415): catalog-seed drift guard + sync 5 pins the #486 |
 | 2026-07-08T20:53 | [#4866](https://github.com/openova-io/openova/pull/4866) | #4845 | fix(#4845): Jobs Re-run returns graceful 422 for aggregate r |
 | 2026-07-08T20:29 | [#4865](https://github.com/openova-io/openova/pull/4865) | #4854 | fix(#4854): cross-region DB egress carve-out in plane-isolat |
-| 2026-07-08T20:23 | [#4864](https://github.com/openova-io/openova/pull/4864) | #4415 | fix(#4415): sync 38 catalog-seed delivery pins to published  |
 
 ---
 
