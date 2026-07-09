@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T09:30:08Z` |
+| Last refreshed | `2026-07-09T09:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -284,6 +284,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T09:40 | [#4894](https://github.com/openova-io/openova/pull/4894) | #4885 | fix(#4885): wire 4 imageRegistry-honouring charts into cutov |
+| 2026-07-09T09:37 | [#4893](https://github.com/openova-io/openova/pull/4893) | #4732 | fix(#4814): count live WorkerNodes not declared in cloud-gra |
+| 2026-07-09T09:39 | [#4892](https://github.com/openova-io/openova/pull/4892) | #4885 | fix(#4885): 4 charts honour global.imageRegistry for step-07 |
 | 2026-07-09T09:21 | [#4891](https://github.com/openova-io/openova/pull/4891) | #4885 | fix(#4885): roll gitea on admin-secret change so keepUpdated |
 | 2026-07-09T09:20 | [#4890](https://github.com/openova-io/openova/pull/4890) | #4889 | fix(#4889): HR-Ready overlay for adopted spine/bootstrap App |
 | 2026-07-09T09:09 | [#4888](https://github.com/openova-io/openova/pull/4888) | #4885 | fix(#4885): step-07 multi-HR imageRegistry pivot + couple au |
@@ -311,9 +314,6 @@ flowchart LR
 | 2026-07-08T15:22 | [#4852](https://github.com/openova-io/openova/pull/4852) | #4834 | fix(#4834): align catalog seed bp-stalwart-tenant 0.1.8→0.1. |
 | 2026-07-07T17:46 | [#4850](https://github.com/openova-io/openova/pull/4850) | #4846 | fix(#4846): identity-based CiliumNetworkPolicy for cross-reg |
 | 2026-07-07T15:10 | [#4848](https://github.com/openova-io/openova/pull/4848) | #4846 | fix(#4846): cnpg-pair cross-region netpol — ipBlock allow fo |
-| 2026-07-07T14:58 | [#4847](https://github.com/openova-io/openova/pull/4847) | #4846 | fix(#4846): cross-region shared-pg netpol — ipBlock allow fo |
-| 2026-07-07T12:27 | [#4844](https://github.com/openova-io/openova/pull/4844) | #4843 | fix(#4843): Edit-IaC editor seeds committable YAML (inline e |
-| 2026-07-07T10:17 | [#4840](https://github.com/openova-io/openova/pull/4840) | #4837 | fix(#4836): accept #3969 placement targets[] in HandleApplic |
 
 ---
 
