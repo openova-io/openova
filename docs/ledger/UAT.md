@@ -326,8 +326,8 @@ _Update: topology rows 46–71 re-walked across BOTH region clusters (#3965 fix)
 | 195 | recon | [#3996](https://github.com/openova-io/openova/issues/3996) | Drill a reconciler → its controller **logs** render. | — | ☐ | — |
 | 196 | recon | [#3996](https://github.com/openova-io/openova/issues/3996) | **Reconcile** action → `reconcile.fluxcd.io/requestedAt` lands on the live object. | — | ☐ | — |
 | 197 | recon | [#3996](https://github.com/openova-io/openova/issues/3996) | **Suspend/Resume** → `spec.suspend` flips on the live object. | — | ☐ | — |
-| 198 | cloud | [#3987](https://github.com/openova-io/openova/issues/3987) | `/cloud` per-kind **helmreleases** page shows the real count (~65), not 0. | — | ☐ | — |
-| 199 | cloud | [#3998](https://github.com/openova-io/openova/issues/3998) | Cloud **Gateway** page shows the live `cilium-gateway` (1). | — | ☐ | — |
+| 198 | cloud | [#3987](https://github.com/openova-io/openova/issues/3987) | `/cloud` per-kind **helmreleases** page shows the real count (~65), not 0. | — | ✅ | — ‖ **2026-07-09 ✅ LIVE hw231 (real browser /cloud?view=list&kind=helmreleases):** the per-kind HelmReleases list shows **'65 item'** (matches kubectl `get hr -A` = 65 region-a) — NOT 0; populated with bp-alloy/catalyst-platform/cilium/cnpg/cnpg-pair/continuum/crossplane/… Refs #3987 #4814 |
+| 199 | cloud | [#3998](https://github.com/openova-io/openova/issues/3998) | Cloud **Gateway** page shows the live `cilium-gateway` (1). | — | ✅ | — ‖ **2026-07-09 ✅ LIVE hw231 (real browser /cloud?view=list&kind=gateways):** the Gateway per-kind page renders the live `cilium-gateway` (matches kubectl `get gateway -A`). Refs #3987 |
 | 200 | cloud | [#3998](https://github.com/openova-io/openova/issues/3998) | Cloud **HTTPRoutes** page shows 15. | — | ☐ | — |
 | 201 | cloud | [#3998](https://github.com/openova-io/openova/issues/3998) | Cloud **NetworkPolicies** page shows the live policies (~10). | — | ☐ | — |
 | 202 | cloud | [#3998](https://github.com/openova-io/openova/issues/3998) | Cloud **CiliumNetworkPolicies** page shows 5. | — | ☐ | — |
