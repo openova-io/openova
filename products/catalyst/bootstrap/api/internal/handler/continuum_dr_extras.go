@@ -344,13 +344,14 @@ func (h *Handler) HandleContinuumSwitchoverHistory(w http.ResponseWriter, r *htt
 		return
 	}
 	items := h.collectContinuumSwitchoverHistory(depID, name)
-	if len(items) == 0 {
-		// qa-loop iter-1 prefetch Fix #110 — synthesize a single
-		// "last switchover" row so the SovereignConsole's history
-		// panel renders a non-empty audit trail on a fresh
-		// Sovereign that hasn't yet exercised a switchover.
-		items = append(items, synthesizedSwitchoverHistoryItem(depID, name))
-	}
+	// #4930 (follow-up to #4923/#4927) — a Sovereign that has not exercised a
+	// switchover has an EMPTY switchover history. The prior code fabricated a
+	// single "last switchover" row (fromRegion hz-fsn-rtz-prod → toRegion
+	// hz-hel-rtz-prod — Hetzner regions on a Huawei-only Sovereign — plus an
+	// invented 47s duration / 3s RPO) purely so the panel rendered a non-empty
+	// audit trail. That is exactly the synthesized-data anti-theater the founder
+	// bans. Return the honest (possibly empty) trail; the SovereignConsole
+	// renders "no switchovers recorded" instead of a fabricated event.
 	// Newest first for the UI.
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].Timestamp > items[j].Timestamp
@@ -522,7 +523,7 @@ func (h *Handler) HandleDRQuorumStatus(w http.ResponseWriter, r *http.Request) {
 	if contName == "" {
 		contName = "cont-omantel"
 	}
-	resp := synthesizedQuorumStatus(depID, contName, zone)
+	resp := pendingQuorumStatus(depID, contName, zone)
 	dep, ok := h.lookupDeploymentForInfra(depID)
 	if !ok {
 		writeJSON(w, http.StatusOK, resp)
@@ -656,7 +657,7 @@ func (h *Handler) HandleContinuumSettingsGet(w http.ResponseWriter, r *http.Requ
 		writeNotFound(w, depID)
 		return
 	}
-	settings := synthesizedContinuumSettings(name, "qa-omantel")
+	settings := defaultContinuumSettings(name, "qa-omantel")
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
 		writeJSON(w, http.StatusOK, settings)
@@ -1129,53 +1130,73 @@ func pendingReplicationStatus(name, ns string) continuumReplicationStatus {
 	}
 }
 
-func synthesizedSwitchoverHistoryItem(depID, contName string) continuumSwitchoverHistoryItem {
-	now := time.Now()
-	return continuumSwitchoverHistoryItem{
-		AuditType:       "continuum-switchover-completed",
-		Timestamp:       now.Add(-time.Hour).UTC().Format(time.RFC3339),
-		Actor:           "qa-fixture-seed",
-		Sovereign:       depID,
-		Continuum:       contName,
-		FromRegion:      "hz-fsn-rtz-prod",
-		ToRegion:        "hz-hel-rtz-prod",
-		Reason:          "qa-loop-baseline",
-		Result:          "completed",
-		DurationSeconds: 47,
-		RPOObservedSec:  3,
-		RTOObservedSec:  47,
-		AuditEventID:    fmt.Sprintf("synth-%s-%d", contName, now.Unix()),
+// sovereignRegionsFromEnv returns the Sovereign's REAL configured primary +
+// replica regions from SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION
+// (threaded in by bp-catalyst-platform from the sovereign-fqdn ConfigMap — the
+// same env pair pendingReplicationStatus / chrootRegionsFromPrimaryReplicaEnv
+// read). Both are empty when genuinely unknown — NEVER a Hetzner (or any cloud)
+// placeholder. replica is blanked when it equals primary (a single-region prov
+// has no distinct standby). #4930 (follow-up to #4923/#4927).
+func sovereignRegionsFromEnv() (primary, replica string) {
+	primary = strings.TrimSpace(os.Getenv("SOVEREIGN_PRIMARY_REGION"))
+	replica = strings.TrimSpace(os.Getenv("SOVEREIGN_REPLICA_REGION"))
+	if replica == primary {
+		replica = ""
 	}
+	return primary, replica
 }
 
-func synthesizedQuorumStatus(depID, contName, zone string) drQuorumStatus {
-	now := time.Now()
+// pendingQuorumStatus is the HONEST fallback for GET /dr/quorum/status when the
+// PDM witness CRs are not observable (dynamic client bootstrapping, PDM CRD
+// absent, or no PDM CRs present). #4930 (follow-up to #4923/#4927).
+//
+// It NEVER fabricates witness state. The prior synthesizedQuorumStatus
+// hardcoded a 3-PDM "2of3 in-quorum" shape with Hetzner regions
+// (hz-fsn-rtz-prod / hz-hel-rtz-prod) on a Huawei-only Sovereign and invented
+// pdm-1 as an in-quorum lease holder — a false "healthy quorum" claim the
+// operator could not distinguish from a live reading. This replacement carries
+// ONLY the Sovereign's real primary region (from SOVEREIGN_PRIMARY_REGION,
+// empty when unknown, never a cloud placeholder), no fabricated witnesses, no
+// invented lease holder, Quorum:"pending", and source:"pending" so the UI's
+// NOT-LIVE gate holds. RecordName is a derived DNS name (not telemetry), so it
+// stays.
+func pendingQuorumStatus(depID, contName, zone string) drQuorumStatus {
+	primary, _ := sovereignRegionsFromEnv()
 	return drQuorumStatus{
 		Sovereign:     depID,
 		Zone:          zone,
 		RecordName:    fmt.Sprintf("_continuum-quorum.%s.%s", contName, zone),
-		LeaseHolder:   "pdm-1",
-		LeaseExpires:  now.Add(30 * time.Second).UTC().Format(time.RFC3339),
-		Quorum:        "in-quorum",
-		QuorumOf:      "2of3",
-		PrimaryRegion: "hz-fsn-rtz-prod",
-		Witnesses: []drQuorumWitness{
-			{Name: "pdm-1", Endpoint: fmt.Sprintf("https://pdm-1.%s:8081", zone),
-				Region: "hz-fsn-rtz-prod", Phase: "Healthy", Agreement: true,
-				LastProbed: now.Add(-5 * time.Second).UTC().Format(time.RFC3339)},
-			{Name: "pdm-2", Endpoint: fmt.Sprintf("https://pdm-2.%s:8081", zone),
-				Region: "hz-hel-rtz-prod", Phase: "Healthy", Agreement: true,
-				LastProbed: now.Add(-5 * time.Second).UTC().Format(time.RFC3339)},
-			{Name: "pdm-3", Endpoint: fmt.Sprintf("https://pdm-3.%s:8081", zone),
-				Region: "hz-fsn-rtz-prod", Phase: "Pending", Agreement: false,
-				LastProbed: now.Add(-15 * time.Second).UTC().Format(time.RFC3339)},
-		},
-		ObservedAt: now.UTC().Format(time.RFC3339),
-		Source:     "synthesized",
+		LeaseHolder:   "",
+		LeaseExpires:  "",
+		Quorum:        "pending",
+		QuorumOf:      "",
+		PrimaryRegion: primary,
+		Witnesses:     []drQuorumWitness{},
+		ObservedAt:    time.Now().UTC().Format(time.RFC3339),
+		Source:        "pending",
 	}
 }
 
-func synthesizedContinuumSettings(name, ns string) continuumSettings {
+// defaultContinuumSettings is the HONEST fallback for GET
+// /continuum/{name}/settings when no live Continuum CR is readable. #4930
+// (follow-up to #4923/#4927).
+//
+// It returns the platform's genuine per-Application DR policy DEFAULTS (the
+// RPO/RTO knobs a fresh Continuum carries) — those are configured defaults for
+// the settings form, NOT fabricated telemetry. The prior
+// synthesizedContinuumSettings additionally hardcoded
+// HotStandbyRegions:["hz-hel-rtz-prod"] (a Hetzner region on a Huawei-only
+// Sovereign) plus an invented NotificationChannels:["sre-pager"] and
+// UpdatedBy:"qa-fixture-seed". This replacement derives the hot-standby region
+// from the Sovereign's REAL configured replica (SOVEREIGN_REPLICA_REGION, empty
+// when unknown, never a cloud placeholder) and carries no fabricated channel or
+// actor.
+func defaultContinuumSettings(name, ns string) continuumSettings {
+	_, replica := sovereignRegionsFromEnv()
+	hotStandby := []string{}
+	if replica != "" {
+		hotStandby = append(hotStandby, replica)
+	}
 	return continuumSettings{
 		Continuum:             name,
 		Namespace:             ns,
@@ -1183,11 +1204,11 @@ func synthesizedContinuumSettings(name, ns string) continuumSettings {
 		RTOSeconds:            60,
 		AutoFailover:          false,
 		AutoFailoverThreshold: 120,
-		HotStandbyRegions:     []string{"hz-hel-rtz-prod"},
-		NotificationChannels:  []string{"sre-pager"},
+		HotStandbyRegions:     hotStandby,
+		NotificationChannels:  []string{},
 		MaintenanceWindow:     "",
 		UpdatedAt:             time.Now().UTC().Format(time.RFC3339),
-		UpdatedBy:             "qa-fixture-seed",
+		UpdatedBy:             "",
 	}
 }
 
