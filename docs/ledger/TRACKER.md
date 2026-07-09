@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T20:15:03Z` |
+| Last refreshed | `2026-07-09T20:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 91 |
+| Open issues | 92 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 91 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 92 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 91 open items (clickable table)
+### All 92 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -291,6 +291,7 @@ flowchart LR
 | [#4923](https://github.com/openova-io/openova/issues/4923) | DR replication-status endpoint returns SYNTHESIZED Hetzner placeholder, not live | Other |
 | [#4930](https://github.com/openova-io/openova/issues/4930) | DR switchover-history/quorum/settings endpoints still render synthesized Hetzner | Other |
 | [#4932](https://github.com/openova-io/openova/issues/4932) | Flaky TestGetKubeconfig_ReadsFromPathPointer — phase1-watch goroutine writes i | Other |
+| [#4934](https://github.com/openova-io/openova/issues/4934) | Flaky handler test: leaked post-handover goroutines outlive phase1-watch, race t | Other |
 
 ---
 
@@ -298,6 +299,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T20:18 | [#4933](https://github.com/openova-io/openova/pull/4933) | #944 | test(#4932): await phase1-watch goroutine so it stops writin |
 | 2026-07-09T18:32 | [#4929](https://github.com/openova-io/openova/pull/4929) | #4322 | fix(#4920): drop per-Org bp-cnpg operator; platform operator |
 | 2026-07-09T18:11 | [#4928](https://github.com/openova-io/openova/pull/4928) | #934 | fix(#4919): signup PIN never sends — org-services SMTP auto- |
 | 2026-07-09T17:47 | [#4927](https://github.com/openova-io/openova/pull/4927) | #4923 | fix(#4923): DR replication-status reads live CNPGPair, not s |
@@ -327,7 +329,6 @@ flowchart LR
 | 2026-07-09T09:21 | [#4891](https://github.com/openova-io/openova/pull/4891) | #4885 | fix(#4885): roll gitea on admin-secret change so keepUpdated |
 | 2026-07-09T09:20 | [#4890](https://github.com/openova-io/openova/pull/4890) | #4889 | fix(#4889): HR-Ready overlay for adopted spine/bootstrap App |
 | 2026-07-09T09:09 | [#4888](https://github.com/openova-io/openova/pull/4888) | #4885 | fix(#4885): step-07 multi-HR imageRegistry pivot + couple au |
-| 2026-07-09T09:01 | [#4887](https://github.com/openova-io/openova/pull/4887) | #4551 | fix(#4886): surface live Continuum DR state on Topology tab  |
 
 ---
 
