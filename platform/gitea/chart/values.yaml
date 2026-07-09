@@ -216,6 +216,33 @@ gitea:
   # no HA during a roll, so Recreate costs nothing it didn't already lack.
   strategy:
     type: Recreate
+  # ─── #4885: roll gitea when gitea-admin-secret changes (Stakater Reloader) ─
+  # Root cause (hw232 live, Pillar-5 cutover step-06 demirror 401): the Gitea
+  # admin user's password is seeded into the live DB by the init container from
+  # `gitea-admin-secret`, and GITEA_ADMIN_PASSWORD_MODE=keepUpdated re-syncs the
+  # DB password to the Secret ONLY ON POD RESTART. Gitea never restarts on its
+  # own, so if `gitea-admin-secret` ever changes (rotation, a re-render, an
+  # operator reset) the live DB keeps the OLD password while the Secret holds
+  # the NEW one — every admin-API auth (including bp-self-sovereign-cutover
+  # step-06 demirror) then 401s `user's password is invalid [uid:1 gitea_admin]`.
+  #
+  # templates/admin-secret.yaml's Helm `lookup` guard already pins the password
+  # so it does NOT regenerate on normal reconciles (issue #830 Bug 2). This
+  # annotation is the belt-and-braces companion the #4885 root-cause calls for:
+  # bp-reloader (bootstrap-kit slot 28, --reload-strategy=annotations) watches
+  # `gitea-admin-secret` and triggers a rolling restart of THIS Deployment on
+  # any change, so the init container re-runs and keepUpdated re-syncs the DB
+  # password immediately instead of waiting for an unrelated restart. The
+  # annotation lives on the Deployment's OWN metadata (upstream
+  # `deployment.annotations` → templates/gitea/deployment.yaml metadata.annotations)
+  # which is exactly where Reloader reads (same idiom as bp-powerdns-admin's
+  # `secret.reloader.stakater.com/reload: pda-sso-oidc-credentials`). The
+  # Recreate strategy above makes the roll RWO-PVC / LevelDB-lock-safe. The
+  # admin-secret always exists (chart-core), so the annotation is unconditional.
+  # Refs #4885 #3379 #830.
+  deployment:
+    annotations:
+      secret.reloader.stakater.com/reload: "gitea-admin-secret"
   # Upstream chart Ingress — DISABLED. Catalyst routes via Cilium Gateway
   # API (see top-level `gateway:` block below). Issue #387.
   ingress:

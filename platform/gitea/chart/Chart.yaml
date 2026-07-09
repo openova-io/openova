@@ -192,7 +192,21 @@ name: bp-gitea
 #   `seaweedfs-s3.seaweedfs.svc` / `seaweedfs-filer.seaweedfs.svc` (bp-seaweedfs
 #   re-homed to host ns by #4325). objectStorage/mirror are default-OFF. Test
 #   assertion updated in lockstep. Refs #4388 #4325.
-version: 1.2.46
+# 1.2.47 (#4885, Refs #3379 #830, 2026-07-09): Pillar-5 cutover hardening —
+#   gitea admin-secret reload gap. Live on hw232 the cutover step-06 demirror
+#   got 401 `user's password is invalid [uid:1 gitea_admin]` because
+#   GITEA_ADMIN_PASSWORD_MODE=keepUpdated re-syncs the DB password to
+#   gitea-admin-secret ONLY on pod restart, and gitea never restarts — so once
+#   the Secret changed the live DB kept the old password while the Secret held
+#   the new one. templates/admin-secret.yaml's Helm `lookup` already pins the
+#   password against regeneration (issue #830); this bump adds the belt-and-braces
+#   companion: a `secret.reloader.stakater.com/reload: gitea-admin-secret`
+#   annotation on the gitea Deployment metadata (via the upstream chart's
+#   `deployment.annotations`) so bp-reloader (slot 28) rolls the Deployment on any
+#   admin-secret change and keepUpdated re-syncs the DB password immediately. The
+#   Recreate strategy keeps the roll RWO/LevelDB-safe. Non-cutover render unchanged
+#   except the new (always-present) Deployment annotation.
+version: 1.2.47
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
