@@ -31,12 +31,49 @@ spec:
                 secretKeyRef:
                   name: marketplace-api-secrets
                   key: jwt-secret
+            # SMTP relay for marketplace signup PIN/OTP delivery (#4919).
+            # Source the durable Phase-1 relay seed
+            # catalyst-system/sovereign-smtp-credentials (#4748/#4749 →
+            # mail.openova.io:587) — the SAME seed the org-services auth
+            # service (#934) and catalyst-api CATALYST_SMTP_* consume. The
+            # former hardcoded stalwart-mail.stalwart.svc.cluster.local
+            # resolved to nothing on a fresh Sovereign (Sovereigns run no
+            # in-cluster Stalwart), so the signup PIN silently never sent.
+            # The seed Secret lives in this same namespace (catalyst-system),
+            # so a plain secretKeyRef resolves it — no reflector hop needed.
+            # All optional:true so a Sovereign/contabo without the seed still
+            # renders cleanly (absent key → unset env → code default = no send
+            # attempt, no CreateContainerConfigError).
             - name: SMTP_HOST
-              value: "stalwart-mail.stalwart.svc.cluster.local"
+              valueFrom:
+                secretKeyRef:
+                  name: sovereign-smtp-credentials
+                  key: smtp-host
+                  optional: true
             - name: SMTP_PORT
-              value: "25"
+              valueFrom:
+                secretKeyRef:
+                  name: sovereign-smtp-credentials
+                  key: smtp-port
+                  optional: true
             - name: FROM_EMAIL
-              value: "marketplace@openova.io"
+              valueFrom:
+                secretKeyRef:
+                  name: sovereign-smtp-credentials
+                  key: smtp-from
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sovereign-smtp-credentials
+                  key: smtp-user
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: sovereign-smtp-credentials
+                  key: smtp-pass
+                  optional: true
             - name: CORS_ORIGIN
               value: "https://openova.io"
             - name: GIT_REPO_PATH
