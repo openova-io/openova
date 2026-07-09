@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T20:30:06Z` |
+| Last refreshed | `2026-07-09T20:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 92 |
 | Open DoD gates | 0 / 41 |
@@ -299,7 +299,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T20:33 | [#4935](https://github.com/openova-io/openova/pull/4935) | #4925 | fix(#4841): grant useraccess-controller `bind` on the 8 cano |
 | 2026-07-09T20:18 | [#4933](https://github.com/openova-io/openova/pull/4933) | #944 | test(#4932): await phase1-watch goroutine so it stops writin |
+| 2026-07-09T20:39 | [#4931](https://github.com/openova-io/openova/pull/4931) | #4927 | fix(#4930): DR switchover-history/quorum/settings drop synth |
 | 2026-07-09T18:32 | [#4929](https://github.com/openova-io/openova/pull/4929) | #4322 | fix(#4920): drop per-Org bp-cnpg operator; platform operator |
 | 2026-07-09T18:11 | [#4928](https://github.com/openova-io/openova/pull/4928) | #934 | fix(#4919): signup PIN never sends — org-services SMTP auto- |
 | 2026-07-09T17:47 | [#4927](https://github.com/openova-io/openova/pull/4927) | #4923 | fix(#4923): DR replication-status reads live CNPGPair, not s |
@@ -327,8 +329,6 @@ flowchart LR
 | 2026-07-09T09:37 | [#4893](https://github.com/openova-io/openova/pull/4893) | #4732 | fix(#4814): count live WorkerNodes not declared in cloud-gra |
 | 2026-07-09T09:39 | [#4892](https://github.com/openova-io/openova/pull/4892) | #4885 | fix(#4885): 4 charts honour global.imageRegistry for step-07 |
 | 2026-07-09T09:21 | [#4891](https://github.com/openova-io/openova/pull/4891) | #4885 | fix(#4885): roll gitea on admin-secret change so keepUpdated |
-| 2026-07-09T09:20 | [#4890](https://github.com/openova-io/openova/pull/4890) | #4889 | fix(#4889): HR-Ready overlay for adopted spine/bootstrap App |
-| 2026-07-09T09:09 | [#4888](https://github.com/openova-io/openova/pull/4888) | #4885 | fix(#4885): step-07 multi-HR imageRegistry pivot + couple au |
 
 ---
 
