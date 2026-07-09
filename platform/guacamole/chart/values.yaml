@@ -18,7 +18,6 @@ catalystBlueprint:
     chart: "" # scratch chart — no upstream Helm chart
     version: ""
     repo: ""
-
 # ─── Global registry rewrite (matches catalyst / continuum chart pattern) ──
 # When set, every openova-io image pull (guacd + webapp) routes through this
 # registry instead of ghcr.io. Per-Sovereign overlays leave this empty; the
@@ -31,7 +30,6 @@ catalystBlueprint:
 # openova-io so they carry their own registry and are untouched.
 global:
   imageRegistry: ""
-
 # Top-level enable gate. When false, NO resources render. Verified by
 # `helm template` test in tests/.
 guacamole:
