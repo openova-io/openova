@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T04:45:04Z` |
+| Last refreshed | `2026-07-09T05:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 71 |
+| Open issues | 74 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 71 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 74 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 71 open items (clickable table)
+### All 74 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -271,6 +271,9 @@ flowchart LR
 | [#4860](https://github.com/openova-io/openova/issues/4860) | Blueprint Edit-IaC Validate(dry-run)/Commit returns HTTP 500 after ~52s (blocks  | Other |
 | [#4872](https://github.com/openova-io/openova/issues/4872) | Wipe handler leaks Huawei OBS buckets → account hits 100-bucket quota → fres | Other |
 | [#4873](https://github.com/openova-io/openova/issues/4873) | Cutover wedges at helmrepository-patches when a deploybot chart bump races the p | Other |
+| [#4877](https://github.com/openova-io/openova/issues/4877) | catalyst-api seed seams (newapi-admin-token / anthropic / mcp-bearer) gated on O | Other |
+| [#4878](https://github.com/openova-io/openova/issues/4878) | region-b keycloak DB-auth broken (password authentication failed for user keyclo | Other |
+| [#4879](https://github.com/openova-io/openova/issues/4879) | openbao-snapshot-fetch (region-b secondary) NoSuchBucket — save writes region- | Other |
 
 ---
 
