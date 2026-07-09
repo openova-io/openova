@@ -1069,6 +1069,21 @@ func main() {
 	// on a ticker, and a no-op when the registry/dynamic-client isn't wired.
 	go h.ReconcileTenantRegistryFromOrgCRs(context.Background())
 
+	// #4877 — level-triggered self-heal for the three OpenBao seed seams
+	// (newapi-admin-token / anthropic / per-Org mcp-bearer). Those seeds fire
+	// from EXACTLY ONE place (runOrganizationPipeline, once per HTTP Org-create,
+	// no retry). If that single write misses — catalyst-api OOM mid-pipeline
+	// (#4811) or a prereq not yet reflected — the OpenBao paths are never
+	// written and the ExternalSecrets reading them stay SecretSyncedError
+	// forever (unified-rbac 401s; agenity's agent gets no Anthropic cred / no
+	// Catalyst MCP bearer). This reconciler re-runs the seeds on startup + a
+	// periodic tick, seeding ONLY paths that are absent/empty (read-before-write
+	// → zero churn on healthy paths). Idempotent + non-fatal; dormant on the
+	// orchestrator (nil OpenBao) and behind CATALYST_SEED_RECONCILER_ENABLED.
+	// Wired here, after SetOpenBao (#189) + SetHandoverSigner (#233) +
+	// SetOrganizationDeps (all seed prerequisites) are in place.
+	h.StartSovereignSeedReconciler(context.Background())
+
 	// Unauthenticated cloud-init postback (issue #183, Option D + #634).
 	// The new Sovereign's control plane PUTs its rewritten kubeconfig
 	// here with `Authorization: Bearer <postback-token>`. PutKubeconfig
