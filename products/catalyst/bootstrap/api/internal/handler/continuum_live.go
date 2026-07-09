@@ -137,6 +137,12 @@ type cnpgPairState struct {
 	// PrimaryReady / ReplicaReady — each half's Ready condition.
 	PrimaryReady bool
 	ReplicaReady bool
+
+	// SyncReplication reflects whether the PRIMARY half declares synchronous
+	// replication (spec.postgresql.synchronous present) — the RPO=0 durability
+	// posture that makes CNPG render `synchronous_standby_names = FIRST N (...)`
+	// (sync_state=sync in pg_stat_replication). False for async/lab pairs. #4923.
+	SyncReplication bool
 }
 
 // findCNPGPairForApp discovers the cnpg cluster-pair backing an
@@ -262,6 +268,7 @@ func (h *Handler) findCNPGPairForApp(
 	st.PrimaryReady = cnpgClusterReady(hv.primary)
 	st.ReplicaReady = cnpgClusterReady(hv.replica)
 	st.LagSeconds = cnpgClusterLag(hv.replica)
+	st.SyncReplication = cnpgClusterSynchronous(hv.primary)
 	// Healthy = the standby half is Ready and still in replica mode
 	// (actively following WAL). If replica.enabled flipped to false the
 	// pair is mid/post-switchover — not "healthy steady-state".
@@ -301,6 +308,36 @@ func cnpgClusterLag(cr *unstructured.Unstructured) int {
 		return int(lag)
 	}
 	return 0
+}
+
+// cnpgClusterSynchronous reports whether the PRIMARY half of a cnpg-pair
+// declares synchronous replication. CNPG renders
+// `synchronous_standby_names = FIRST N ("<replica>")` — the RPO=0 durability
+// posture (sync_state=sync in pg_stat_replication) — ONLY when
+// spec.postgresql.synchronous is present. The bp-cnpg-pair chart sets that
+// block (method:first + number:N + standbyNamesPre:[<replica>]) when
+// replication.mode=sync and OMITS it for the forensic "async" mode. Mirrors
+// the chart contract at platform/cnpg-pair/chart/templates/primary-cluster.yaml.
+// #4923.
+func cnpgClusterSynchronous(primary *unstructured.Unstructured) bool {
+	if primary == nil {
+		return false
+	}
+	sync, found, err := unstructured.NestedMap(primary.Object, "spec", "postgresql", "synchronous")
+	if err != nil || !found || len(sync) == 0 {
+		return false
+	}
+	// A synchronous block with a positive `number` forces N synchronous
+	// standbys — the unambiguous sync signal.
+	if n, ok, _ := unstructured.NestedInt64(sync, "number"); ok && n > 0 {
+		return true
+	}
+	// A `method` (first | any) present is likewise sufficient.
+	if m, _, _ := unstructured.NestedString(sync, "method"); strings.TrimSpace(m) != "" {
+		return true
+	}
+	// Any non-empty synchronous block declares synchronous intent.
+	return true
 }
 
 // cnpgClusterReadyInstances reports status.readyInstances (the count of a
@@ -574,7 +611,11 @@ func (h *Handler) deriveLiveContinuumRecord(
 			"replicationLagSeconds": int64(st.LagSeconds),
 			"currentPrimary":        st.CurrentPrimary,
 			"cnpgPair":              st.PairName,
-			"observedAt":            h.continuumNow().UTC().Format(time.RFC3339),
+			// #4923 — the live synchronous posture (RPO=0 when true), read off
+			// the primary half's spec.postgresql.synchronous. Consumed by
+			// liveReplicationStatusFromCNPGPair to report syncState honestly.
+			"syncReplication": st.SyncReplication,
+			"observedAt":      h.continuumNow().UTC().Format(time.RFC3339),
 		},
 	}
 	return rec, true

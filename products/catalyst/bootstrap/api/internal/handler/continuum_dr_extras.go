@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -237,13 +238,13 @@ func (h *Handler) HandleContinuumReplicationStatus(w http.ResponseWriter, r *htt
 		writeNotFound(w, depID)
 		return
 	}
-	resp := synthesizedReplicationStatus(name, "qa-omantel")
+	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
+	resp := pendingReplicationStatus(name, ns)
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
-	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
 	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if !apierrors.IsNotFound(getErr) {
@@ -310,6 +311,15 @@ func (h *Handler) HandleContinuumReplicationStatus(w http.ResponseWriter, r *htt
 			}
 		}
 	}
+	// #4923 — the Continuum CR / linked CNPGPair status frequently omit
+	// syncState (and a spine CR carries none), so enrich defaulted it to a
+	// misleading "async". Read the AUTHORITATIVE synchronous posture straight
+	// off the live CNPG cluster-pair backing the app: CNPG renders
+	// `synchronous_standby_names = FIRST N (...)` (sync_state=sync, RPO=0) only
+	// when the primary half declares spec.postgresql.synchronous. No-op when no
+	// 2-region pair resolves (e.g. openbao-raft spine continuums).
+	h.augmentReplicationSyncFromLivePair(
+		r.Context(), client, appNameFromContinuumName(cr.GetName()), cr.GetNamespace(), &resp)
 	resp.Source = "live"
 	resp.ObservedAt = h.continuumNow().UTC().Format(time.RFC3339)
 	writeJSON(w, http.StatusOK, resp)
@@ -596,23 +606,18 @@ func (h *Handler) HandleDRReplicationStatus(w http.ResponseWriter, r *http.Reque
 		Sovereign:  depID,
 		Continuums: []continuumReplicationStatus{},
 		ObservedAt: h.continuumNow().UTC().Format(time.RFC3339),
-		Source:     "synthesized",
+		Source:     "pending",
 	}
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
-		out.Continuums = append(out.Continuums, synthesizedReplicationStatus("cont-omantel", "qa-omantel"))
-		out.ContinuumCount = 1
-		out.ReplicasHealthy = 1
-		out.MaxWALLagSeconds = 2.0
+		// #4923 — honest empty roll-up (source:pending). NEVER a fabricated
+		// 1-healthy / 2s-lag / Hetzner row that misreports the Sovereign's DR
+		// posture when the live status is simply not observable yet.
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
 	list, lerr := client.Resource(ContinuumGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
 	if lerr != nil || len(list.Items) == 0 {
-		out.Continuums = append(out.Continuums, synthesizedReplicationStatus("cont-omantel", "qa-omantel"))
-		out.ContinuumCount = 1
-		out.ReplicasHealthy = 1
-		out.MaxWALLagSeconds = 2.0
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
@@ -990,7 +995,15 @@ func (h *Handler) liveReplicationStatusFromCNPGPair(
 	healthy, _ := rec.Status["replicationHealthy"].(bool)
 	lag := readNumericNested(map[string]interface{}{"status": rec.Status}, "status", "replicationLagSeconds")
 	streaming := "streaming"
+	// #4923 — real syncState from the live CNPG cluster-pair. deriveLive-
+	// ContinuumRecord stamps status.syncReplication=true when the primary half
+	// declares spec.postgresql.synchronous (CNPG renders
+	// `synchronous_standby_names = FIRST N (...)`, sync_state=sync, RPO=0). The
+	// prior hardcoded "async" mislabelled a synchronous RPO=0 pair as async.
 	syncState := "async"
+	if sr, _ := rec.Status["syncReplication"].(bool); sr {
+		syncState = "sync"
+	}
 	if !healthy {
 		streaming = "catching-up"
 	}
@@ -1020,6 +1033,44 @@ func (h *Handler) liveReplicationStatusFromCNPGPair(
 	return out, true
 }
 
+// augmentReplicationSyncFromLivePair upgrades a replication-status response
+// with the REAL synchronous posture (+ regions when the CR left them blank)
+// read straight off the live CNPG cluster-pair backing the app. #4923.
+//
+// CNPG renders `synchronous_standby_names = FIRST N (...)` — sync_state=sync,
+// replay_lag=0, RPO=0 — ONLY when the primary half declares
+// spec.postgresql.synchronous (the bp-cnpg-pair chart sets it when
+// replication.mode=sync). That is the authoritative sync/async signal; the
+// Continuum CR and the dr.openova.io CNPGPair status often omit syncState, so
+// enrichReplicationStatus otherwise defaults it to a misleading "async" on a
+// genuinely synchronous pair. No-op when no 2-region pair resolves (e.g. the
+// openbao-raft spine continuums carry no cnpg pair) so their observed status
+// is left untouched.
+func (h *Handler) augmentReplicationSyncFromLivePair(
+	ctx context.Context,
+	client dynamic.Interface,
+	appName, ns string,
+	resp *continuumReplicationStatus,
+) {
+	st, err := h.findCNPGPairForApp(ctx, client, appName, ns)
+	if err != nil || st == nil {
+		return
+	}
+	if st.SyncReplication {
+		resp.SyncState = "sync"
+	} else {
+		resp.SyncState = "async"
+	}
+	// Fill regions the CR-derived enrich left blank from the live cluster
+	// placement labels (never a Hetzner placeholder).
+	if resp.PrimaryRegion == "" && st.PrimaryRegion != "" {
+		resp.PrimaryRegion = st.PrimaryRegion
+	}
+	if resp.CurrentPrimary == "" {
+		resp.CurrentPrimary = resp.PrimaryRegion
+	}
+}
+
 // gatePass maps a bool to the health-gate status vocabulary.
 func gatePass(ok bool) string {
 	if ok {
@@ -1028,30 +1079,53 @@ func gatePass(ok bool) string {
 	return "Warn"
 }
 
-func synthesizedReplicationStatus(name, ns string) continuumReplicationStatus {
+// pendingReplicationStatus is the HONEST shape returned when the live
+// cnpg-pair replication status is not yet observable (dynamic client
+// bootstrapping, no Continuum CR, no resolvable 2-region pair). #4923.
+//
+// It NEVER fabricates data. The prior `synthesizedReplicationStatus`
+// hardcoded Hetzner regions (`hz-fsn-rtz-prod` / `hz-hel-rtz-prod`) on a
+// Huawei-only Sovereign, a byte-identical `walLagSeconds:2 / walLagBytes:8192`
+// for EVERY app, and `syncState:async` — flatly contradicting the live truth
+// (`pg_stat_replication`: `sync_state=sync`, `replay_lag=0`,
+// `synchronous_standby_names=FIRST 1`). That misled the operator into reading
+// async / wrong-cloud / 2s-lag when reality was synchronous RPO=0.
+//
+// This replacement carries ONLY facts we actually know at fallback time: the
+// Sovereign's REAL configured regions (from SOVEREIGN_PRIMARY_REGION /
+// SOVEREIGN_REPLICA_REGION, threaded in by bp-catalyst-platform from the
+// sovereign-fqdn ConfigMap — empty when genuinely unknown, NEVER a Hetzner
+// placeholder), zero lag (unknown, not a fake 2s), empty sync/streaming state
+// (unknown), and `source:"pending"` so the UI's "NOT LIVE" gate holds without
+// drawing wrong-cloud regions or invented lag. Region derivation is the same
+// env pair `chrootRegionsFromPrimaryReplicaEnv` reads.
+func pendingReplicationStatus(name, ns string) continuumReplicationStatus {
+	primary := strings.TrimSpace(os.Getenv("SOVEREIGN_PRIMARY_REGION"))
+	replica := strings.TrimSpace(os.Getenv("SOVEREIGN_REPLICA_REGION"))
+	replicas := []continuumReplicaInfo{}
+	if replica != "" && replica != primary {
+		replicas = append(replicas, continuumReplicaInfo{
+			Region: replica,
+			Role:   "replica",
+		})
+	}
 	return continuumReplicationStatus{
 		Continuum:         name,
 		Namespace:         ns,
-		PrimaryRegion:     "hz-fsn-rtz-prod",
-		CurrentPrimary:    "hz-fsn-rtz-prod",
-		WALLagSeconds:     2.0,
-		WALLagBytes:       8192,
-		ReplicaPromotable: true,
-		StreamingState:    "streaming",
-		SyncState:         "async",
-		LastHeartbeat:     time.Now().UTC().Format(time.RFC3339),
-		Replicas: []continuumReplicaInfo{
-			{Region: "hz-hel-rtz-prod", Role: "replica", LagSeconds: 2.0,
-				LastHeartbeat: time.Now().UTC().Format(time.RFC3339)},
-		},
+		PrimaryRegion:     primary,
+		CurrentPrimary:    primary,
+		WALLagSeconds:     0,
+		WALLagBytes:       0,
+		ReplicaPromotable: false,
+		StreamingState:    "",
+		SyncState:         "",
+		Replicas:          replicas,
 		HealthGates: []continuumHealthGate{
-			{Name: "streaming-replication", Status: "Pass", Severity: "info",
-				Message: "synthesized: live cnpgpair status not yet available"},
-			{Name: "wal-lag-under-rpo", Status: "Pass", Severity: "info"},
-			{Name: "lease-witness-quorum", Status: "Pass", Severity: "info"},
+			{Name: "live-status", Status: "Warn", Severity: "info",
+				Message: "live cnpg-pair replication status not yet available; awaiting region-b convergence"},
 		},
 		ObservedAt: time.Now().UTC().Format(time.RFC3339),
-		Source:     "synthesized",
+		Source:     "pending",
 	}
 }
 
