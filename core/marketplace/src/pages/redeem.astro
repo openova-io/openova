@@ -118,6 +118,17 @@ import Layout from '../layouts/Layout.astro';
   </div>
 
   <script>
+    // #4546 (UAT row 3, Refs #3687): the redeem page owns the authenticated-owner
+    // redirect itself, using the SAME storefront helpers the rest of the funnel
+    // already uses to hand a signed-in owner to their console — `getMyOrgs`
+    // (GET /api/tenant/orgs) + `consoleLaunchHref` (the #4182/#4186 secure
+    // handoff routed through the #4273 /launching readiness interstitial),
+    // exactly as CheckoutStep's post-checkout redirect and Header.portalHref do.
+    // This is a processed (bundled) module script — NOT `is:inline` — so these
+    // imports resolve. No new session mechanism is introduced.
+    import { getMyOrgs, setActiveOrgConsoleHost } from '../lib/api';
+    import { consoleLaunchHref } from '../lib/config';
+
     // Storage key shared with CheckoutStep: when a pending voucher is set,
     // the checkout step will pre-fill the promo_code field.
     const PENDING_VOUCHER_KEY = 'org-pending-voucher';
@@ -182,35 +193,94 @@ import Layout from '../layouts/Layout.astro';
       }
     }
 
-    function init() {
-      // #4546 (UAT row 3, Refs #3687): owner-redirect contract. An authed owner
-      // landing on the public redeem funnel must be bounced to their console —
-      // they must NEVER see the public funnel chrome ("Voucher not valid" / the
-      // signup CTA). The Layout's returning-user redirect script handles the
-      // actual bounce, but it runs asynchronously (it fetches /api/tenant/orgs
-      // before calling window.location.replace). If we paint the funnel here in
-      // the meantime, the owner sees the public chrome flash/stick — exactly the
-      // observed fault. So when a session token is present, suppress the funnel
-      // paint entirely: keep the neutral loading shim visible (it reads as a
-      // "redirecting…" state) and let the Layout redirect take over. Only the
-      // unauthenticated public flow falls through to the validate() funnel.
-      var hasToken = false;
-      try { hasToken = !!localStorage.getItem('org-token'); } catch (_) {}
-      if (hasToken) {
-        show('redeem-loading');
-        var loadingCopy = document.querySelector('#redeem-loading p');
-        if (loadingCopy) loadingCopy.textContent = 'Taking you to your dashboard…';
-        // Safety fall-through: the Layout redirect only fires for an authed
-        // user who actually has at least one live workspace. A signed-in user
-        // with NO workspace yet (e.g. a returning visitor mid-signup) is never
-        // bounced — so after a short grace window with no navigation, fall
-        // through to the public redeem flow so they can still redeem. The
-        // window.location.replace in the Layout redirect tears this timer down
-        // by unloading the page before it fires.
-        window.setTimeout(function () { runFunnel(); }, 2500);
+    // #4546 (UAT row 3, Refs #3687): owner-redirect contract. An authenticated
+    // OWNER — a returning marketplace customer who ALREADY owns a live
+    // Organization — must be bounced to their console dashboard and must NEVER
+    // see the public redeem funnel chrome ("No voucher code" / "Voucher not
+    // valid" / the signup CTA). The marketplace is a STATIC build with
+    // CLIENT-side auth (there is no SSR session to redirect from), so the bounce
+    // is client-side.
+    //
+    // Previously the redeem page only checked token PRESENCE and then deferred
+    // ENTIRELY to Layout.astro's returning-user redirect (an async
+    // /api/tenant/orgs fetch), painting the funnel after a blind 2.5s timer if
+    // that redirect hadn't navigated yet. That let the owner flash/stick on the
+    // funnel whenever the shared redirect was slow, cache-missed, or errored —
+    // the observed fault. This page now makes the ownership decision
+    // AUTHORITATIVELY and performs the redirect itself, so an owner is never
+    // trapped on the funnel regardless of the shared script's timing.
+    //
+    // Personas (identical gate to Layout's returning-user redirect):
+    //   - no org-token                 → unauthenticated → public funnel (unchanged)
+    //   - org-token + >=1 live Org      → OWNER → hand off to console, NEVER funnel
+    //   - org-token + 0 live Orgs       → signed-in mid-signup (no workspace yet)
+    //                                     → funnel, so they can still redeem
+    //   - org-token but /tenant/orgs errors (expired / API down) → cannot confirm
+    //                                     ownership → funnel, so they are not trapped
+    async function init() {
+      // Honour the same demo/partner opt-out the Layout redirect respects: those
+      // tenants deliberately keep returning visitors ON the marketplace, so we
+      // must not bounce them to a console either. `__ORG_TENANT__` is set by the
+      // Layout head script, which runs before this DOMContentLoaded handler.
+      var tenant = (window as any).__ORG_TENANT__;
+      var skipConsoleRedirect = !!(tenant && tenant.skipConsoleRedirect);
+
+      var token = '';
+      try { token = localStorage.getItem('org-token') || ''; } catch (_) {}
+      if (!token || skipConsoleRedirect) {
+        runFunnel();
         return;
       }
-      runFunnel();
+
+      // Signed in: show a neutral "redirecting…" shim (never the funnel) while
+      // we confirm ownership, suppressing any funnel flash.
+      show('redeem-loading');
+      var loadingCopy = document.querySelector('#redeem-loading p');
+      if (loadingCopy) loadingCopy.textContent = 'Taking you to your dashboard…';
+
+      let orgs;
+      try {
+        orgs = await getMyOrgs();
+      } catch (_) {
+        // Token present but ownership unconfirmable (expired session, API down):
+        // fall through to the public funnel rather than trapping the visitor.
+        runFunnel();
+        return;
+      }
+
+      const live = Array.isArray(orgs)
+        ? orgs.filter((o) => o && o.status !== 'deleted')
+        : [];
+      if (live.length === 0) {
+        // Signed in but not yet an owner (mid-signup returning visitor).
+        runFunnel();
+        return;
+      }
+
+      // OWNER — hand off to the console dashboard. Prefer the active org, else
+      // the first live one, mirroring Layout.astro's pick + CheckoutStep.
+      let activeId = '';
+      try { activeId = localStorage.getItem('org-active-org') || ''; } catch (_) {}
+      const pick = (activeId && live.find((o) => o.id === activeId)) || live[0];
+      const slug = (pick && pick.slug) ? String(pick.slug) : '';
+      // #4176 — stamp the SERVER-AUTHORITATIVE console host so the derivation
+      // lands on the Org's chosen POOL TLD (console.<slug>.<pool-apex>) instead
+      // of re-splicing the marketplace host, which on a Sovereign whose
+      // marketplace runs on the Sovereign domain yields an unreachable host.
+      if (pick && pick.console_host) {
+        try { setActiveOrgConsoleHost(pick.console_host); } catch (_) {}
+      }
+      if (slug) {
+        try { localStorage.setItem('org-active-org-slug', slug); } catch (_) {}
+      }
+      let refresh = '';
+      try { refresh = localStorage.getItem('org-refresh-token') || ''; } catch (_) {}
+      // consoleLaunchHref routes a per-Org Sovereign console through the #4273
+      // /launching interstitial (waits for host readiness, then the #4182 secure
+      // /auth/org-handover → the signed-in owner's dashboard). The mothership
+      // /nova console passes straight through. Same call the funnel already
+      // makes post-checkout and from the Header "Console" link.
+      window.location.replace(consoleLaunchHref(token, refresh, { slug }));
     }
 
     function runFunnel() {
@@ -238,12 +308,15 @@ import Layout from '../layouts/Layout.astro';
       validate(code);
     }
 
-    // The Layout's returning-user redirect script runs first; if it doesn't
-    // redirect (no token / no live workspace), we fire init.
+    // Layout.astro's returning-user redirect (a shared head script) may fire
+    // first and navigate away before this runs — that's fine, it lands the owner
+    // in the same place. If it hasn't (cache miss / slow or errored fetch), init
+    // makes the ownership call authoritatively here so an owner is never left on
+    // the funnel. `init` is async; we intentionally do not await it.
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', init);
+      document.addEventListener('DOMContentLoaded', () => { void init(); });
     } else {
-      init();
+      void init();
     }
   </script>
 </Layout>
