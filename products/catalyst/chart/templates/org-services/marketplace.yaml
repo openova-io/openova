@@ -21,12 +21,13 @@ spec:
         - name: ghcr-pull
       containers:
         - name: marketplace
-          # SHA-pinned tag bumped by .github/workflows/marketplace-build.yaml.
-          # This file is applied as raw YAML by the contabo-mkt Flux Kustomization
-          # (`./products/catalyst/chart/templates/org-services`), so it must contain
-          # concrete strings — Helm template syntax silently produces an
-          # InvalidImageName when Kustomize-applied. Sovereigns skip via .helmignore.
-          image: ghcr.io/openova-io/openova/marketplace:c07094a
+          # Registry honours global.imageRegistry so the #4885 cutover step-07 HR
+          # patch pivots this Pod to the Sovereign's local Harbor during the
+          # deny-egress hold (matching the 9 templated org-services siblings +
+          # catalyst-ui #4563). The mutable SHA tag lives in values.yaml
+          # `images.marketplaceTag`, bumped by .github/workflows/marketplace-build.yaml
+          # (it no longer sed-rewrites this line — see that workflow's comment).
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/marketplace:{{ .Values.images.marketplaceTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

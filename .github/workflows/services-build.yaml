@@ -96,12 +96,18 @@ jobs:
           VALUES_YAML="products/catalyst/chart/values.yaml"
 
           # ──────────────────────────────────────────────────────────
-          # Issue #953: 7 of 8 org-services templates render their
-          # image as `{{ .Values.images.orgTag }}` — the chart's
-          # values.yaml `images.orgTag` field is the SINGLE source of
-          # truth for those Pods. Only `auth.yaml` keeps a hardcoded
-          # `image: ghcr.io/...:<sha>` line (held at the older shape
-          # because of a historical InvalidImageName quirk).
+          # Issue #953 + #4885: ALL 8 org-services templates (auth
+          # included, as of #4885) render their image as
+          # `{{ .Values.images.orgTag }}` — the chart's values.yaml
+          # `images.orgTag` field is the SINGLE source of truth for
+          # those Pods. auth.yaml WAS the last hardcoded holdout (held
+          # at the older `image: ghcr.io/...:<sha>` shape because of a
+          # historical InvalidImageName quirk); #4885 flipped it to the
+          # templated form so the cutover step-07 pivot honours
+          # global.imageRegistry, exactly the auth-template flip this
+          # workflow always anticipated (see the "Hardcoded form" note
+          # below). The literal-sed loop that follows is now a full
+          # no-op — retained defensively so a revert stays covered.
           #
           # Pre-#953 this loop only ran a sed against the hardcoded
           # form. The 7 templated services silently no-op'd and the
@@ -112,20 +118,19 @@ jobs:
           # otech113 — services-catalog Pod still on 95a06f5 after
           # PR #951's commit `68927688` claimed it deployed).
           #
-          # Fix: bump `images.orgTag` in values.yaml AS WELL AS the
-          # hardcoded auth.yaml line. The values.yaml bump rolls
-          # all 7 templated services on the next chart release; the
-          # auth.yaml sed keeps the special-cased Pod on the same
-          # SHA. This stays event-driven (the push to main triggers
-          # this workflow); cron is intentionally absent per
-          # CLAUDE.md (every workflow MUST be event-driven, never
-          # scheduled).
+          # Fix: bump `images.orgTag` in values.yaml. The values.yaml
+          # bump now rolls ALL 8 templated services (auth included,
+          # post-#4885) on the next chart release. This stays
+          # event-driven (the push to main triggers this workflow);
+          # cron is intentionally absent per CLAUDE.md (every workflow
+          # MUST be event-driven, never scheduled).
           # ──────────────────────────────────────────────────────────
 
-          # Hardcoded form — auth.yaml only. Kept until auth.yaml is
-          # re-templated (issue #953 fix scope was values.yaml; the
-          # back-compat hardcoded loop is preserved so a future
-          # auth-template flip is a no-op for this workflow).
+          # Back-compat literal-sed loop — every org-service template
+          # is now templated (auth flipped in #4885), so this sed
+          # matches nothing and is a documented no-op. Preserved so a
+          # revert of any template back to a hardcoded `image:` line
+          # stays covered without another workflow edit.
           for svc in auth catalog gateway tenant domain billing provisioning notification; do
             FILE="${DEPLOY_DIR}/${svc}.yaml"
             if [ -f "$FILE" ]; then
@@ -189,9 +194,12 @@ jobs:
           #
           # Issue #953: rewrite() must mirror the values.yaml orgTag
           # bump that the rewrite step does — otherwise a retry that
-          # reset-to-origin/main would leave values.yaml on the OLD
-          # SHA and only auth.yaml would carry the new SHA, recreating
-          # the original bug under any push-conflict scenario.
+          # reset-to-origin/main would leave values.yaml (the sole
+          # source of truth for all 8 templated org-services post-#4885)
+          # on the OLD SHA, recreating the original stale-image bug under
+          # any push-conflict scenario. The literal-image loop below is a
+          # no-op (every template is now templated) but is kept in
+          # lockstep with the rewrite step for defensive symmetry.
           rewrite() {
             for svc in auth catalog gateway tenant domain billing provisioning notification; do
               FILE="${DEPLOY_DIR}/${svc}.yaml"
