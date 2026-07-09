@@ -889,10 +889,27 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 	}
 	out.PrimaryRegion, _, _ = unstructured.NestedString(cr.Object, "spec", "primaryRegion")
 	out.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "currentPrimary")
+	// #4886 — the Continuum controller records the ACTIVE region as the
+	// witness-lease holder in `status.leaseHolder`, NOT `status.currentPrimary`
+	// (that field is CNPGPair-derived and only present when a cnpg pair backs
+	// the app). Prefer leaseHolder so the DR panel's active region is correct
+	// for the spine continuums (openbao raft, keycloak/gitea/harbor) and stays
+	// correct after a switchover flips the lease off the original primaryRegion.
+	if leaseHolder, _, _ := unstructured.NestedString(cr.Object, "status", "leaseHolder"); leaseHolder != "" {
+		out.CurrentPrimary = leaseHolder
+	}
 	if out.CurrentPrimary == "" {
 		out.CurrentPrimary = out.PrimaryRegion
 	}
 	out.WALLagSeconds = readNumericNested(cr.Object, "status", "walLagSeconds")
+	// #4886 — the Continuum controller writes the numeric lag as
+	// `status.replicationLagSeconds` (int64); `walLagSeconds` is the
+	// CNPGPair-only spelling. Fall back to replicationLagSeconds so the spine
+	// continuums surface their real lag instead of a hardcoded 0. (A linked
+	// CNPGPair reading, when present, still overrides this in the caller.)
+	if out.WALLagSeconds == 0 {
+		out.WALLagSeconds = readNumericNested(cr.Object, "status", "replicationLagSeconds")
+	}
 	out.WALLagBytes = int64(readNumericNested(cr.Object, "status", "walLagBytes"))
 	if streaming, _, _ := unstructured.NestedString(cr.Object, "status", "streamingState"); streaming != "" {
 		out.StreamingState = streaming
