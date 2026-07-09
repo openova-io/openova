@@ -348,11 +348,17 @@ spec:
       # provision time. Mesh registry: docs/CLUSTERMESH-CLUSTER-IDS.md
       # tracks the cluster.id allocation across the OpenOva fleet.
       #
-      # NodePort 32379: clustermesh-apiserver Pod is exposed on every
-      # Cilium node so peers reach it over the Hetzner private network on
-      # `<cp-private-ip>:32379` WITHOUT requiring a Hetzner LoadBalancer
-      # per peer (LB count is project-quota'd). Hetzner firewall must
-      # open 32379/tcp from peer Sovereigns' Hetzner CIDRs.
+      # Cross-region reachability (#4765 — ZERO NodePorts, ever): peers
+      # reach the clustermesh-apiserver etcd (:2379) over the DIRECT
+      # LoadBalancer path — never a NodePort. On no-CCM Huawei the single
+      # `sovereign-vip` LB-IPAM pool (cilium.lbIpam above) hands the
+      # clustermesh-apiserver Service the shared Sovereign EIP via the
+      # `lbipam.cilium.io/sharing-key: sovereign-vip` annotation, and the
+      # #4784 `clustermeshProxy` hostNetwork shim (hostPort :12379) fronts
+      # the etcd where <EIP>:2379 would otherwise collide with the CP
+      # node's own k3s etcd. On Hetzner hcloud-ccm allocates a public-IPv4
+      # LB per peer region. The retired pre-#4765 `node:32379` NodePort
+      # exposure is FORBIDDEN and no longer rendered.
       #
       # A Sovereign that does NOT join a mesh leaves CLUSTER_MESH_NAME
       # empty (Flux envsubst rule: ${VAR:=default} -> "default" when
