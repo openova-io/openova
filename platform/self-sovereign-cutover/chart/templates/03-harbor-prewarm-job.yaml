@@ -576,10 +576,22 @@ data:
             # Enumerate (chart, version, sourceRef.kind, sourceRef.name) from
             # every HelmRelease cluster-wide. Tab-separated; a HR with no
             # explicit chart.spec is skipped (empty fields).
+            # #4870-followup: mirror the DEPLOYED chart version
+            # (.status.history[0].chartVersion), NOT the mutable desired
+            # .spec.chart.spec.version. During a cutover the gitea-mirror step
+            # can pull a deploybot-bumped catalog pin into the env, so
+            # .spec.chart.spec.version can transiently oscillate (e.g. an env
+            # DEPLOYED on 1.4.1038 briefly shows spec 1.4.1039 then settles
+            # back). If prewarm mirrors the transient desired (1.4.1039) but
+            # step-06 later checks the settled deployed (1.4.1038), the pivot
+            # wedges forever ("chart not yet pullable"). The deployed version
+            # is immutable for the running release — mirror THAT so the release
+            # keeps reconciling from local Harbor post-pivot.
             chart_tuples=$(kubectl get helmreleases -A -o json | \
-              jq -r '.items[].spec.chart.spec
-                | select(.chart != null and .sourceRef != null)
-                | [ .chart, (.version // ""), (.sourceRef.kind // ""), (.sourceRef.name // "") ]
+              jq -r '.items[]
+                | .spec.chart.spec as $cs
+                | select($cs.chart != null and $cs.sourceRef != null)
+                | [ $cs.chart, ((.status.history[0].chartVersion) // $cs.version // ""), ($cs.sourceRef.kind // ""), ($cs.sourceRef.name // "") ]
                 | @tsv' 2>/dev/null | sort -u || true)
 
             # Resolve the UPSTREAM chart-OCI host/project prefix from the same
