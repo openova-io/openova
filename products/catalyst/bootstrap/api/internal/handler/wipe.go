@@ -623,9 +623,15 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		}
 		dnsCtx, dnsCancel := context.WithTimeout(context.Background(), 60*time.Second)
 		for _, parent := range parents {
-			if err := h.deleteSovereignParentZoneRecords(dnsCtx, fqdn, parent); err != nil {
+			// WithFallback mirrors the write-side 404 retry: a BYO Sovereign's
+			// ParentDomains[0].Name is the FQDN itself, whose authoritative zone
+			// is the tail label — so a DELETE against the sub-FQDN 404s and the
+			// records (incl. console.<fqdn>) survive unless we retry the tail
+			// (#4764). Surfaced at ERROR (not warn) so a genuinely leaked record
+			// is a visible wipe error, not a silently-swallowed line.
+			if err := h.deleteSovereignParentZoneRecordsWithFallback(dnsCtx, fqdn, parent); err != nil {
 				report.Errors = append(report.Errors, "sovereign dns teardown ("+parent+"): "+err.Error())
-				emit("wipe", "warn", "sovereign DNS teardown failed for zone "+parent+" — stale records may linger: "+err.Error())
+				emit("wipe", "error", "sovereign DNS teardown FAILED for zone "+parent+" — stale records may linger and resolve a released EIP; re-run the wipe (idempotent) or delete them by hand: "+err.Error())
 			} else {
 				emit("wipe", "info", "sovereign DNS records deleted from parent zone "+parent)
 			}
