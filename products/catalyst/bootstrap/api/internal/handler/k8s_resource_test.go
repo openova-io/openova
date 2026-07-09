@@ -61,11 +61,17 @@ func newResourceRig(t *testing.T, objs ...runtime.Object) *k8sResourceTestRig {
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, &unstructured.Unstructured{})
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "ReplicaSetList"}, &unstructured.UnstructuredList{})
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "ReplicaSet"}, &unstructured.Unstructured{})
+	// Blueprint is a CLUSTER-scoped catalyst CRD (products/catalyst/chart/crds
+	// /blueprint.yaml: scope: Cluster). Registered here so the #4896 Edit-IaC
+	// dry-run test can route through the real handler against a seeded CR.
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "catalyst.openova.io", Version: "v1", Kind: "BlueprintList"}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "catalyst.openova.io", Version: "v1", Kind: "Blueprint"}, &unstructured.Unstructured{})
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		{Version: "v1", Resource: "pods"}:                        "PodList",
-		{Version: "v1", Resource: "configmaps"}:                  "ConfigMapList",
-		{Group: "apps", Version: "v1", Resource: "deployments"}:  "DeploymentList",
-		{Group: "apps", Version: "v1", Resource: "replicasets"}:  "ReplicaSetList",
+		{Version: "v1", Resource: "pods"}:                                     "PodList",
+		{Version: "v1", Resource: "configmaps"}:                               "ConfigMapList",
+		{Group: "apps", Version: "v1", Resource: "deployments"}:               "DeploymentList",
+		{Group: "apps", Version: "v1", Resource: "replicasets"}:               "ReplicaSetList",
+		{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}: "BlueprintList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
 	core := kfake.NewSimpleClientset()
@@ -76,6 +82,9 @@ func newResourceRig(t *testing.T, objs ...runtime.Object) *k8sResourceTestRig {
 		{Name: "configmap", GVR: schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}, Namespaced: true, Sensitive: true},
 		{Name: "deployment", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, Namespaced: true},
 		{Name: "replicaset", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "replicasets"}, Namespaced: true},
+		// Mirrors products/catalyst/bootstrap/api/internal/k8scache/kinds.go
+		// so the #4896 Edit-IaC dry-run routes resolve the Blueprint kind.
+		{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}, Namespaced: true},
 	} {
 		_ = r.Add(k)
 	}
@@ -165,6 +174,25 @@ func newDeploymentObj(ns, name string, replicas int64) *unstructured.Unstructure
 					"labels": map[string]any{"app": "wp"},
 				},
 			},
+		},
+	}}
+}
+
+// newBlueprintObj builds a cluster-scoped Blueprint CR named with the
+// canonical `bp-` prefix (e.g. "bp-alloy"), as the chart's catalog-seed
+// ships it. No metadata.namespace — the CRD is cluster-scoped.
+func newBlueprintObj(name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "catalyst.openova.io/v1",
+		"kind":       "Blueprint",
+		"metadata": map[string]any{
+			"name":            name,
+			"uid":             "uid-bp-" + name,
+			"resourceVersion": "7",
+		},
+		"spec": map[string]any{
+			"version": "1.0.2",
+			"card":    map[string]any{"title": "Alloy"},
 		},
 	}}
 }
@@ -449,6 +477,110 @@ spec: {}
 	rig.router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "name-mismatch") {
+		t.Fatalf("expected name-mismatch error, got %s", rec.Body.String())
+	}
+}
+
+// TestReconcileBlueprintBareName is the #4896 unit contract for the
+// bp-prefix name reconciliation used by the Edit-IaC dry-run/apply guard.
+func TestReconcileBlueprintBareName(t *testing.T) {
+	mk := func(name string) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "catalyst.openova.io/v1",
+			"kind":       "Blueprint",
+			"metadata":   map[string]any{"name": name},
+		}}
+	}
+	// Authored bare slug vs canonical bp-prefixed URL → SAME identity:
+	// reconciled, and parsed.name stamped to the URL form so the k8s
+	// Update targets the real bp-<slug> CR.
+	p := mk("alloy")
+	if !reconcileBlueprintBareName(p, "blueprint", "bp-alloy") {
+		t.Fatalf("bare 'alloy' vs URL 'bp-alloy' should reconcile")
+	}
+	if p.GetName() != "bp-alloy" {
+		t.Fatalf("parsed name not stamped: got %q want %q", p.GetName(), "bp-alloy")
+	}
+	// A genuine rename (bare) must NOT reconcile — the guard still fires.
+	if reconcileBlueprintBareName(mk("loki"), "blueprint", "bp-alloy") {
+		t.Fatalf("genuine rename 'loki' vs 'bp-alloy' must not reconcile")
+	}
+	// A genuine rename between two prefixed names must NOT reconcile.
+	if reconcileBlueprintBareName(mk("bp-loki"), "blueprint", "bp-alloy") {
+		t.Fatalf("prefixed rename 'bp-loki' vs 'bp-alloy' must not reconcile")
+	}
+	// Non-Blueprint kinds are never bp-reconciled (guard fully preserved).
+	if reconcileBlueprintBareName(mk("alloy"), "configmap", "bp-alloy") {
+		t.Fatalf("non-blueprint kind must not reconcile")
+	}
+}
+
+// TestHandleK8sResourceDryRun_BlueprintBareNameAgainstBpPrefixedURL is the
+// #4896 regression: the catalog Edit-IaC editor seeds the AUTHORED
+// blueprint.yaml (metadata.name = bare "alloy", no resourceVersion) and
+// dry-runs it against the in-cluster CR "bp-alloy" (URL name). Before the
+// fix this 400'd with "metadata.name='alloy' does not match URL
+// name='bp-alloy'"; now the bp-prefix is reconciled and the dry-run
+// returns 200 against the seeded CR.
+func TestHandleK8sResourceDryRun_BlueprintBareNameAgainstBpPrefixedURL(t *testing.T) {
+	bp := newBlueprintObj("bp-alloy")
+	rig := newResourceRig(t, bp)
+	defer rig.stop()
+
+	// Exactly what the YamlEditor submits: the bare-named authored source.
+	yamlBody := `apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: alloy
+spec:
+  version: 1.0.2
+  card:
+    title: Alloy
+`
+	body, _ := json.Marshal(map[string]string{"yaml": yamlBody})
+	// URL kind segment is "Blueprint" (as the console sends it) → canonicalised
+	// to the registry "blueprint"; ns segment "_" → cluster-scoped.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/Blueprint/_/bp-alloy/dry-run", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("blueprint bare-name dry-run: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["dryRun"] != true {
+		t.Fatalf("dryRun flag not echoed: %v", resp)
+	}
+	if resp["name"] != "bp-alloy" {
+		t.Fatalf("response name: got %v want bp-alloy (Update must target the prefixed CR)", resp["name"])
+	}
+}
+
+// TestHandleK8sResourceApply_BlueprintGenuineRenameStillRejected proves the
+// #4896 fix does NOT weaken the guard: renaming the Blueprint in the editor
+// (bp-alloy URL, but metadata.name = "loki") still 400s name-mismatch.
+func TestHandleK8sResourceApply_BlueprintGenuineRenameStillRejected(t *testing.T) {
+	bp := newBlueprintObj("bp-alloy")
+	rig := newResourceRig(t, bp)
+	defer rig.stop()
+
+	yamlBody := `apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: loki
+spec:
+  version: 1.0.2
+`
+	body, _ := json.Marshal(map[string]string{"yaml": yamlBody})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/Blueprint/_/bp-alloy/apply", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("genuine blueprint rename: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "name-mismatch") {
 		t.Fatalf("expected name-mismatch error, got %s", rec.Body.String())
