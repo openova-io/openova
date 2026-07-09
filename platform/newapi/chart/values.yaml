@@ -47,7 +47,6 @@ imagePullSecrets:
 #                sync.fromHost.secrets `newapi/*` mirror + replicateServices.
 placement:
   role: all
-
 # ─── Global registry rewrite (matches catalyst / continuum chart pattern) ──
 # When set, the openova-io images (newapi-mirror, newapi-sandbox-bridge,
 # services-metering-sidecar) route through this registry instead of ghcr.io.
@@ -60,7 +59,6 @@ placement:
 # templates/_helpers.tpl performs the host-swap.
 global:
   imageRegistry: ""
-
 # ─── NewAPI application ──────────────────────────────────────────────────
 newapi:
   enabled: true
