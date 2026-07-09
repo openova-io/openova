@@ -58,6 +58,53 @@ func TestGeneratePerOrgAppsTree_WordpressCart(t *testing.T) {
 	}
 }
 
+// TestGeneratePerOrgAppsTree_NoDuplicateAppsSyncKustomization is the #4758
+// regression guard: on a Sovereign (PerOrgGitops) the org-controller's
+// `catalyst-tenant-<slug>-apps` Flux Kustomization is the SINGLE authoritative
+// reconciler of the per-Org apps tree. The legacy contabo-model funnel
+// scaffolding emits a SECOND `tenant-<slug>-apps` Kustomization
+// (generateAppsSyncKustomization → apps-sync.yaml) that, once committed to a
+// Sovereign, becomes a broken DUPLICATE — historically it stuck FALSE on a
+// hardcoded `sourceRef.name: flux-system` (finding #1 on hw223), and even with
+// the sourceRef repointed it double-reconciles the SAME WordPress Deployment as
+// the org-controller's Kustomization (WordPress double-reconcile churn, #4827).
+//
+// GeneratePerOrgAppsTree is the pure-function seam that re-roots ONLY the app
+// payload into `vcluster/apps/` and DROPS the contabo host scaffolding. This
+// test locks that contract by NAME so the duplicate can never be re-minted: the
+// per-Org tree must carry NO apps-sync.yaml, NO `tenant-<slug>-apps`
+// Kustomization, and NO `sourceRef` at all (the org-controller owns the
+// GitRepository + Kustomization wiring).
+func TestGeneratePerOrgAppsTree_NoDuplicateAppsSyncKustomization(t *testing.T) {
+	g := NewManifestGenerator("clusters/sov/org-tenants")
+	g.ParentDomain = "omani.homes"
+
+	for _, plan := range []string{"s", "m"} {
+		t.Run("plan="+plan, func(t *testing.T) {
+			files, _ := g.GeneratePerOrgAppsTree("g6wpwalk", plan, []string{"wordpress"}, "pw123")
+
+			for path, content := range files {
+				// The contabo apps-sync scaffolding must be dropped entirely.
+				if strings.HasSuffix(path, "apps-sync.yaml") {
+					t.Errorf("per-Org tree leaked the legacy apps-sync scaffolding %q — the org-controller's catalyst-tenant-<slug>-apps is authoritative (#4758):\n%s", path, content)
+				}
+				// No rendered doc may BE the broken duplicate Kustomization: a
+				// `kind: Kustomization` named `tenant-<slug>-apps`.
+				if strings.Contains(content, "kind: Kustomization") &&
+					strings.Contains(content, "name: tenant-g6wpwalk-apps") {
+					t.Errorf("per-Org tree emitted the duplicate tenant-<slug>-apps Kustomization at %q (#4758 finding #1):\n%s", path, content)
+				}
+				// The org-controller owns the GitRepository/sourceRef wiring — the
+				// funnel payload must carry no sourceRef (and never the historically
+				// broken flux-system one).
+				if strings.Contains(content, "sourceRef:") {
+					t.Errorf("per-Org tree payload %q carries a sourceRef — the org-controller owns the GitRepository binding, the funnel payload must not (#4758):\n%s", path, content)
+				}
+			}
+		})
+	}
+}
+
 // TestMergePerOrgAppsKustomization preserves the org-controller's NP baseline
 // AND adds the funnel's app docs, deterministically + idempotently — and
 // #4567 force-EXCLUDES ciliumnetworkpolicy.yaml (which lives in host-apps/, not
