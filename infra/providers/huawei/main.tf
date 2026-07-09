@@ -97,6 +97,35 @@ locals {
     r.code => format("10.%d.0.0/16", 96 + idx)
   }
 
+  # #4942 — mesh-wide ingress source CIDRs for the cilium-health (4240) and
+  # pod-CIDR security-group rules.
+  #
+  # On a multi-region Sovereign the primary CP node does NOT participate in
+  # node-to-node WireGuard the way workers do: its cilium ipcache entry carries
+  # `encryptkey=0` (proven live hw234 — worker peer nodes read `encryptkey=255`).
+  # So the CP's CROSS-REGION cilium-health TCP:4240 probes and host→pod traffic
+  # travel NATIVE (unencrypted) over the VPC peering, whereas worker traffic is
+  # WireGuard-wrapped and rides UDP:51871 (opened 0.0.0.0/0 by
+  # ingress_cilium_wireguard) — bypassing these L3/L4 rules entirely.
+  #
+  # The two rule families below were scoped to the node's OWN region only
+  # (region_subnet_cidr / region_cluster_cidr), so the peer region's native
+  # CP traffic was dropped: cilium-health read the peer CP 0/1 on BOTH the host
+  # (node:4240) and endpoint (pod:4240) paths — every worker stayed 1/1 — which
+  # flipped the console to a FALSE "region Degraded" even though the pod
+  # datapath was healthy (cross-region ICMP + CNPG replica streaming, RPO=0).
+  # ICMP survived because ingress_icmp is already 0.0.0.0/0.
+  #
+  # Permit every mesh region's node subnet + pod CIDR (PRIVATE ranges only,
+  # never 0.0.0.0/0) so the native CP path is delivered. On a single-region
+  # prov this collapses to the node's own subnet + own pod CIDR — no behaviour
+  # change. Workers are unaffected (their traffic already bypasses the SG via
+  # WireGuard); this rule only makes the native CP path reachable.
+  mesh_ingress_cidrs = distinct(concat(
+    [for c in local.region_keys : local.region_subnet_cidr[c]],
+    [for c in local.region_keys : local.region_cluster_cidr[c]],
+  ))
+
   # Effective per-region SKU — operator-supplied wins; module defaults
   # back-fill empty entries (s7n.large.4 / m7n.xlarge.8).
   effective_cp_flavor = {
@@ -494,52 +523,70 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_wireguard" {
 }
 
 # Cilium health probes (4240/TCP — node-to-node L3 reachability).
+# #4942: fan out over local.mesh_ingress_cidrs so the peer region's native
+# (encryptkey=0) CP health probes are permitted — not just the own region.
 resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_health" {
-  for_each          = { for r in var.regions : r.code => r }
-  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  for_each = {
+    for pair in setproduct(local.region_keys, local.mesh_ingress_cidrs) :
+    "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = pair[1] }
+  }
+  security_group_id = huaweicloud_networking_secgroup.region[each.value.region].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
   port_range_min    = 4240
   port_range_max    = 4240
-  remote_ip_prefix  = local.region_subnet_cidr[each.key]
-  description       = "Cilium cilium-health (node reachability probes)"
+  remote_ip_prefix  = each.value.cidr
+  description       = "Cilium cilium-health (node reachability probes) — mesh src ${each.value.cidr}"
 }
 
 # Wave 5.30 (Refs #2163): pod CIDR allow-all from same-region subnet so
 # any pod-to-pod traffic that escapes encap (e.g. host-gw / native routing
 # fallback) is also permitted. Defence-in-depth alongside source_dest_check=false.
 # HCS rejects "any" protocol — list specific protocols Cilium pod-to-pod uses.
-# #3504 (Refs #3375): the allowed prefix is the region's OWN pod CIDR
+# #3504 (Refs #3375): the allowed prefix WAS the region's OWN pod CIDR
 # (was hardcoded 10.42.0.0/16; with per-region pod CIDRs region-b is now
 # 10.43.0.0/16, so a hardcoded 10.42 rule would drop region-b's own
 # pod-to-pod fallback traffic).
+# #4942: fan out over local.mesh_ingress_cidrs (all regions' node subnets +
+# pod CIDRs) so native (encryptkey=0) cross-region host→CP-pod traffic is
+# also permitted. Worker-hosted pods are reachable already (WireGuard bypass);
+# CP-hosted pods need this because the CP node egresses/ingresses native.
 resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_tcp" {
-  for_each          = { for r in var.regions : r.code => r }
-  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  for_each = {
+    for pair in setproduct(local.region_keys, local.mesh_ingress_cidrs) :
+    "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = pair[1] }
+  }
+  security_group_id = huaweicloud_networking_secgroup.region[each.value.region].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
-  remote_ip_prefix  = local.region_cluster_cidr[each.key]
-  description       = "Pod CIDR TCP all-ports (Cilium pod-to-pod fallback path)"
+  remote_ip_prefix  = each.value.cidr
+  description       = "Pod CIDR TCP all-ports (Cilium pod-to-pod / native CP path) — mesh src ${each.value.cidr}"
 }
 resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_udp" {
-  for_each          = { for r in var.regions : r.code => r }
-  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  for_each = {
+    for pair in setproduct(local.region_keys, local.mesh_ingress_cidrs) :
+    "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = pair[1] }
+  }
+  security_group_id = huaweicloud_networking_secgroup.region[each.value.region].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "udp"
-  remote_ip_prefix  = local.region_cluster_cidr[each.key]
-  description       = "Pod CIDR UDP all-ports (Cilium pod-to-pod fallback path)"
+  remote_ip_prefix  = each.value.cidr
+  description       = "Pod CIDR UDP all-ports (Cilium pod-to-pod / native CP path) — mesh src ${each.value.cidr}"
 }
 resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_icmp" {
-  for_each          = { for r in var.regions : r.code => r }
-  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  for_each = {
+    for pair in setproduct(local.region_keys, local.mesh_ingress_cidrs) :
+    "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = pair[1] }
+  }
+  security_group_id = huaweicloud_networking_secgroup.region[each.value.region].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "icmp"
-  remote_ip_prefix  = local.region_cluster_cidr[each.key]
-  description       = "Pod CIDR ICMP (Cilium pod-to-pod diagnostics)"
+  remote_ip_prefix  = each.value.cidr
+  description       = "Pod CIDR ICMP (Cilium pod-to-pod / native CP path) — mesh src ${each.value.cidr}"
 }
 
 # SSH — narrow rule per ssh_allowed_cidrs. When the list is empty no
