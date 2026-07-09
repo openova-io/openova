@@ -74,6 +74,7 @@ import { Dashboard } from '@/pages/sovereign/Dashboard'
 // merge into the unified Cloud graph (/cloud?view=graph).
 import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { ResourceDetailRoute } from '@/pages/sovereign/cloud-list/ResourceDetailRoute'
+import { normaliseCloudKind } from '@/pages/sovereign/cloud-list/normaliseKind'
 import { SessionsRoute } from '@/pages/sovereign/sessions/SessionsRoute'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
@@ -908,106 +909,21 @@ interface CloudSearch {
   lens?: LensId
 }
 
-/**
- * D17 Wave-1 Fix-Author Family A (2026-05-17 t10.omantel.biz):
- *
- * Test agents (E, C2) reported every deep-link `/cloud?view=list&kind=<X>`
- * was "redirected to /dashboard or /cloud/resource/.../overview". Several
- * of the failing kinds in the agent matrix are NOT in `KIND_IDS`
- * (kinds.ts) but ARE the natural plural / no-hyphen / kubectl form an
- * operator types:
- *
- *   loadbalancers              → canonical `load-balancers`
- *   nodepools / node-pool      → canonical `node-pools`
- *   workernodes / worker-node  → canonical `worker-nodes`
- *   storageclasses             → canonical `storage-classes`
- *   dnszones                   → canonical `dns-zones`
- *   httproutes                 → fall back to `services` (closest kind)
- *   networkpolicies            → not in registry — fall back to default
- *   ciliumnetworkpolicies      → not in registry — fall back to default
- *   ciliumclusterwidenetworkpolicies
- *                              → not in registry — fall back to default
- *   policyreports / clusterpolicyreports
- *                              → not in registry — fall back to default
- *   pvc / pv                   → canonical `pvcs` / `persistentvolumes`
- *
- * Without normalisation, `CloudListView`'s URL-canonicalising useEffect
- * sees `search.kind !== activeKind` and fires a `navigate({replace:true})`
- * to overwrite the URL. The downstream re-mount + concurrent SSE
- * connection churn produces the "drifts to /dashboard" symptom the test
- * agents saw. Normalising AT validateSearch fixes it at the lowest
- * possible layer so the URL the React tree observes is already canonical
- * on the very first render — no nav-replace storm, no /dashboard drift.
- *
- * Per CLAUDE.md "architect-first": `KIND_IDS` (`kinds.ts`) is the single
- * source of truth for valid kinds; this map only lives in router.tsx
- * because the alias normalisation must happen at route-parse time before
- * any component mounts. The map is closed (no fall-through) — anything
- * not in `KIND_IDS` and not in the alias set is left as-is so the
- * CloudListView's existing `isValidKind` fallback to DEFAULT_KIND still
- * applies (no behavioural regression for valid kinds).
- */
-const CLOUD_KIND_ALIASES: Record<string, string> = {
-  // Hyphen vs no-hyphen (kubectl natural form)
-  loadbalancers: 'load-balancers',
-  loadbalancer: 'load-balancers',
-  nodepools: 'node-pools',
-  nodepool: 'node-pools',
-  workernodes: 'worker-nodes',
-  workernode: 'worker-nodes',
-  storageclasses: 'storage-classes',
-  storageclass: 'storage-classes',
-  dnszones: 'dns-zones',
-  dnszone: 'dns-zones',
-  // Singular forms of valid plural kinds
-  pvc: 'pvcs',
-  pv: 'persistentvolumes',
-  persistentvolume: 'persistentvolumes',
-  cluster: 'clusters',
-  vcluster: 'vclusters',
-  service: 'services',
-  ingress: 'ingresses',
-  bucket: 'buckets',
-  volume: 'volumes',
-  pod: 'pods',
-  deployment: 'deployments',
-  statefulset: 'statefulsets',
-  daemonset: 'daemonsets',
-  replicaset: 'replicasets',
-  configmap: 'configmaps',
-  secret: 'secrets',
-  namespace: 'namespaces',
-  node: 'nodes',
-  endpointslice: 'endpointslices',
-  // Kinds the test matrix mentions but the registry doesn't surface yet
-  // — alias to the nearest valid kind so the URL doesn't bounce.
-  // HTTPRoutes are Gateway-API objects that ride on top of Services;
-  // operator intent of "look at HTTP routing" is best served by the
-  // Services list until a dedicated kind ships.
-  httproutes: 'services',
-  httproute: 'services',
-  // Network-policy kinds are not in the K8s list registry; fall back to
-  // services (the closest networking surface) so the operator lands on a
-  // populated table instead of drifting.
-  networkpolicies: 'services',
-  networkpolicy: 'services',
-  ciliumnetworkpolicies: 'services',
-  ciliumnetworkpolicy: 'services',
-  ciliumclusterwidenetworkpolicies: 'services',
-  ciliumclusterwidenetworkpolicy: 'services',
-  // Policy reports — Wave-2 Family-E (#1583/C11-005/C11-006): both
-  // kinds now have first-class CloudListKind registrations + pages; the
-  // alias collapses kubectl-natural singular/plural to the canonical
-  // plural form. The old `→ configmaps` rewrite was a silent fallback
-  // that hid an architecture gap (UI didn't surface Kyverno reports).
-  policyreport: 'policyreports',
-  clusterpolicyreport: 'clusterpolicyreports',
-}
-
-function normaliseCloudKind(raw: string): string {
-  const lower = raw.toLowerCase()
-  return CLOUD_KIND_ALIASES[lower] ?? raw
-}
+// `normaliseCloudKind` — canonicalises the raw `kind` URL param to a valid
+// CloudListKind id BEFORE either cloud route's React tree mounts (both
+// `provisionCloudRoute` and `consoleCloudRoute` call it in `validateSearch`).
+//
+// D17 Wave-1 (2026-05-17 t10.omantel.biz) added this to stop the
+// "/cloud?view=list&kind=<X>" deep-links drifting to /dashboard: without a
+// canonical `kind`, CloudListView's URL-replace useEffect storms on the
+// `search.kind !== activeKind` mismatch. #4820 then fixed the inverse defect:
+// the alias map had stale `→ services` entries for httproutes /
+// networkpolicies / ciliumnetworkpolicies / ciliumclusterwidenetworkpolicies
+// that hijacked every per-kind nav to the Services list even after #3998
+// first-classed those kinds. `normaliseKind.ts` now resolves KIND_IDS (the
+// kinds.ts single source of truth) FIRST, so a first-class kind can never be
+// shadowed by an alias again. The alias map + normaliser live next to the
+// kind catalogue (kinds.ts) and are unit-tested there (normaliseKind.test.ts).
 
 const provisionCloudRoute = createRoute({
   getParentRoute: () => rootRoute,
