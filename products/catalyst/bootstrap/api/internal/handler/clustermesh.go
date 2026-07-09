@@ -582,43 +582,51 @@ func sharedPGConsumerCredentialFingerprint(s *corev1.Secret) string {
 // lands. Single-region / pre-flip hubs carry `-rw` and are correctly skipped.
 const sharedPGMeshRWHostMarker = "-mesh-rw."
 
-// keycloakAdminSecretName / keycloakAdminSecretNamespace — the HOST-cluster
-// name + namespace of the keycloak master-realm admin Secret (#4158, the layer
-// above the #4159 DB-secret fix).
+// keycloakAdminSecretNamespace / keycloakAdminSecretName / keycloakAdminSecretNames
+// — the HOST-cluster namespace + Secret names of the keycloak master-realm admin
+// credentials synced primary → replica (#4158, refreshed for #4915).
 //
 // WHY THIS NEEDS A CROSS-REGION COPY (proven live on dep 4635277cae4ffed9
-// region-B `me-east-215-b`, 2026-06-23):
+// region-B `me-east-215-b`, 2026-06-23; re-confirmed hw233 dep aef1a818344814b4,
+// 2026-07-09):
 //
-// The bp-keycloak chart pins NO `keycloak.auth.existingSecret` / `adminPassword`,
-// so the upstream bitnami subchart auto-GENERATES a RANDOM `admin-password` into
-// its `keycloak` Secret on each install — and that value DIVERGES per region
-// (region-A `1b58…`, region-B `2e7e…`, both 10 bytes). The vCluster syncer
-// surfaces the in-vc `keycloak/keycloak` Secret on the HOST as
-// `mgmt/keycloak-x-keycloak-x-mgmt-vcluster`.
+// The bp-keycloak chart's #4344 defense materialises a STABLE per-region
+// `keycloak-admin` Secret (`admin-password`, resource-policy: keep) and wires the
+// bitnami subchart at it — but that value is generated INDEPENDENTLY per region
+// (region-A `mMPW…`, region-B `aevF…`), because each cluster's chart runs its own
+// `randAlphaNum` at install with no prior Secret to adopt.
 //
-// In active-hot-standby the keycloak SERVER in region-B boots against the
-// cross-region-replicated shared-pg Postgres, whose `admin` user password hash
-// was written by REGION-A's keycloak. So the only password that authenticates
-// against region-B's running keycloak is region-A's — verified live:
+// Both regions' keycloak SERVERS share ONE keycloak DB: the distributed CNPG
+// `shared-pg-mesh-rw` (region-A primary + region-B streaming replica), and
+// KC_CACHE_STACK=jdbc-ping makes the two keycloak Pods one cross-region Infinispan
+// cluster. Region-A (primary) boots first and seeds the shared DB's master-realm
+// `admin` password hash from ITS Secret. Region-B boots later against the
+// NON-empty shared DB, so KC_BOOTSTRAP_ADMIN is ignored (the admin row exists) —
+// the only password that authenticates against the shared keycloak is region-A's:
 //
-//	region-A pw → region-B server: login OK
-//	region-B pw → region-B server: "Invalid user credentials [invalid_grant]"
+//	region-A pw → keycloak server: login OK
+//	region-B pw → keycloak server: "invalid_user_credentials" (HTTP 401)
 //
-// But region-B's `keycloak-config-cli` post-upgrade hook (and every kcadm
-// consumer) reads region-B's LOCAL, divergent `admin-password` → HTTP 401
-// Unauthorized → the realm import never runs → the bp-keycloak HR's post-upgrade
-// hook times out → the whole mgmt-vCluster SSO tier (bp-oidc-gate / bp-sso-bridge
-// / bp-grafana / bp-gitea / bp-powerdns-admin / bp-newapi-host-seams) stays
-// `Ready=False` with `dependency 'mgmt/bp-keycloak' is not ready`.
+// So region-B's `keycloak-config-cli` post-install hook (and every kcadm /
+// sso-bridge consumer) reads region-B's LOCAL, divergent `admin-password` → HTTP
+// 401 → the sovereign-realm import never runs → the bp-keycloak HR's hook times
+// out → the whole SSO tier (bp-grafana / bp-gitea / bp-guacamole / bp-newapi /
+// bp-oidc-gate / bp-powerdns-admin / bp-sso-bridge) stays `Ready=False` with
+// `dependency 'flux-system/bp-keycloak' is not ready` and region-B apps never
+// install.
 //
-// The emberstack reflector copies only WITHIN a cluster, never across the
-// ClusterMesh, and this Secret carries no reflection annotations anyway (it is a
-// plain Helm-minted Secret), so nothing materialises region-A's value on
-// region-B. catalyst-api is the only actor that spans both regions, so it copies
-// region-A's authoritative admin Secret primary → every replica directly into
-// the HOST `mgmt` namespace (the vCluster syncer then propagates the updated
-// bytes back down into the in-vc `keycloak/keycloak` Secret the config-cli +
-// kcadm consumers read). Idempotent + best-effort: on the steady-state pass the
+// The #4325 de-vcluster moved keycloak OUT of the `mgmt` vCluster INTO the host
+// `keycloak` namespace, so the credentials now live at their PLAIN host names
+// (`keycloak/keycloak-admin`, `keycloak/catalyst-kc-master-admin-credentials`) —
+// NOT the retired syncer-mangled `mgmt/keycloak-x-keycloak-x-mgmt-vcluster`. The
+// emberstack reflector copies only WITHIN a cluster, never across the ClusterMesh,
+// so nothing materialises region-A's value on region-B on its own. catalyst-api
+// is the only actor that spans both regions, so it copies region-A's authoritative
+// admin Secret(s) primary → every replica: the replica's config-cli + sso-bridge
+// then authenticate against the SAME shared keycloak DB region-A seeded. No DB
+// surgery + no keycloak restart is needed on a fresh prov — once the replica's
+// Secret carries region-A's value, its config-cli retry succeeds against the value
+// already in the shared DB. Idempotent + best-effort: on the steady-state pass the
 // bytes already match and copySecretAcrossClusters skips the write.
 //
 // UNLIKE the consumer-hub sync this is NOT gated on the `-mesh-rw` host marker:
@@ -626,9 +634,20 @@ const sharedPGMeshRWHostMarker = "-mesh-rw."
 // is authoritative the moment region-A's keycloak has minted it — there is no
 // "pushing it would NXDOMAIN" window to wait out.
 const (
-	keycloakAdminSecretName      = "keycloak-x-keycloak-x-mgmt-vcluster"
-	keycloakAdminSecretNamespace = "mgmt"
+	keycloakAdminSecretName      = "keycloak-admin"
+	keycloakAdminSecretNamespace = "keycloak"
 )
+
+// keycloakAdminSecretNames — every host-namespace keycloak admin Secret synced
+// region-A → replica by syncKeycloakAdminSecret. `keycloak-admin` (#4344 stable
+// admin-password) is what config-cli + KC_BOOTSTRAP_ADMIN read; the derived
+// `catalyst-kc-master-admin-credentials` (#2914) is the master-realm token
+// credential bp-sso-bridge uses to create per-Org realms — both MUST equal
+// region-A's value since both regions share ONE keycloak DB (#4915).
+var keycloakAdminSecretNames = []string{
+	keycloakAdminSecretName,
+	"catalyst-kc-master-admin-credentials",
+}
 
 // ssoOIDCMangledHostSecrets — the vCluster-syncer-mangled HOST-namespace names
 // of the per-app SSO/OIDC credential Secrets the in-vc-mgmt apps mount, that must
@@ -2084,13 +2103,14 @@ func (h *Handler) patchSecondaryCrossRegionPGHosts(ctx context.Context, dep *Dep
 	}
 }
 
-// syncKeycloakAdminSecret copies the primary region's keycloak master-realm
-// admin Secret (keycloakAdminSecretName, namespace keycloakAdminSecretNamespace)
-// onto every replica region so the replica's keycloak-config-cli post-upgrade
-// hook (and every kcadm consumer) authenticates with the SAME `admin-password`
-// the running keycloak server expects (#4158 — one layer above the #4159
-// DB-secret fix). See keycloakAdminSecretName for the full divergence analysis +
-// the live region-B 401 evidence.
+// syncKeycloakAdminSecret copies the primary region's keycloak master-realm admin
+// Secrets (keycloakAdminSecretNames, host namespace keycloakAdminSecretNamespace)
+// onto every replica region so the replica's keycloak-config-cli post-install hook
+// (and every kcadm / sso-bridge consumer) authenticates with the SAME
+// `admin-password` the shared keycloak DB — seeded by region-A — expects
+// (#4158/#4915 — one layer above the #4159 DB-secret fix). See
+// keycloakAdminSecretName for the full shared-DB divergence analysis + the live
+// region-B 401 evidence.
 //
 // BEST-EFFORT — like syncSharedPGConsumerHubSecrets this NEVER blocks/refuses the
 // cnpg-pair flip: the admin Secret is not part of the WAL-stream auth, so a
@@ -2103,12 +2123,14 @@ func (h *Handler) patchSecondaryCrossRegionPGHosts(ctx context.Context, dep *Dep
 // password (no DB host), and region-A's value is authoritative the moment
 // region-A's keycloak has minted it. Single-region (len(slots)<2) is a no-op.
 //
-// The destination is the HOST `mgmt` namespace where the vCluster syncer
-// surfaces the in-vc `keycloak/keycloak` Secret; overwriting the host object
-// makes the syncer propagate region-A's bytes down into the in-vc Secret the
-// config-cli + kcadm consumers read. Region-A's own keycloak is untouched (it is
-// the SOURCE, never a destination — slots[0] is skipped), so this can never
-// regress the working primary.
+// The destination is the HOST `keycloak` namespace where the de-vcluster (#4325)
+// keycloak StatefulSet + config-cli read the Secret DIRECTLY — no syncer hop. Once
+// the replica's `keycloak-admin` carries region-A's value, its config-cli retry
+// authenticates against the value already in the shared DB (no DB surgery / no
+// keycloak restart needed on a fresh prov). Region-A's own keycloak is untouched
+// (it is the SOURCE, never a destination — slots[0] is skipped), so this can never
+// regress the working primary. Each Secret in keycloakAdminSecretNames is synced
+// INDEPENDENTLY: a source not present yet is skipped without holding back the rest.
 func (h *Handler) syncKeycloakAdminSecret(ctx context.Context, dep *Deployment, slots []regionSlot) {
 	if len(slots) < 2 {
 		return // single-region — no replica to sync to
@@ -2120,38 +2142,48 @@ func (h *Handler) syncKeycloakAdminSecret(ctx context.Context, dep *Deployment, 
 		return
 	}
 
-	getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
-	src, err := primary.clientset.CoreV1().Secrets(keycloakAdminSecretNamespace).Get(getCtx, keycloakAdminSecretName, metav1.GetOptions{})
-	cancel()
-	if err != nil {
-		// region-A's keycloak (or its host-synced admin Secret) is not present
-		// yet — the mgmt-vCluster keycloak may still be installing. Skip quietly;
-		// the level-trigger re-run converges once it exists. Best-effort.
-		h.log.Info("clustermesh: keycloak admin-secret sync: source Secret not present on primary — skipping (mgmt-vCluster keycloak may still be installing; best-effort, re-run converges)",
-			"id", dep.ID, "namespace", keycloakAdminSecretNamespace, "secret", keycloakAdminSecretName)
-		return
-	}
-
-	copied := 0
-	for i := 1; i < len(slots); i++ {
-		replica := &slots[i]
-		if replica.clientset == nil {
+	synced := make([]string, 0, len(keycloakAdminSecretNames))
+	for _, name := range keycloakAdminSecretNames {
+		getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		src, err := primary.clientset.CoreV1().Secrets(keycloakAdminSecretNamespace).Get(getCtx, name, metav1.GetOptions{})
+		cancel()
+		if err != nil {
+			// region-A has not minted THIS Secret yet — the host keycloak may still
+			// be installing, or catalyst-kc-master-admin-credentials has not
+			// back-filled its derived value. Skip this Secret quietly; the
+			// level-trigger re-run converges once it exists. Best-effort — never
+			// holds back the others.
+			h.log.Info("clustermesh: keycloak admin-secret sync: source Secret not present on primary — skipping (host keycloak may still be installing; best-effort, re-run converges)",
+				"id", dep.ID, "namespace", keycloakAdminSecretNamespace, "secret", name)
 			continue
 		}
-		if _, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, keycloakAdminSecretNamespace); err != nil {
-			h.log.Warn("clustermesh: keycloak admin-secret sync: copy to replica failed — skipping this region (best-effort, re-run converges)",
-				"id", dep.ID, "region", replica.key, "namespace", keycloakAdminSecretNamespace, "secret", keycloakAdminSecretName, "err", err)
-			continue
+		changedAny := false
+		for i := 1; i < len(slots); i++ {
+			replica := &slots[i]
+			if replica.clientset == nil {
+				continue
+			}
+			changed, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, keycloakAdminSecretNamespace)
+			if err != nil {
+				h.log.Warn("clustermesh: keycloak admin-secret sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
+					"id", dep.ID, "region", replica.key, "namespace", keycloakAdminSecretNamespace, "secret", name, "err", err)
+				continue
+			}
+			if changed {
+				changedAny = true
+			}
 		}
-		copied++
+		if changedAny {
+			synced = append(synced, name)
+		}
 	}
 
-	if copied > 0 {
-		h.log.Info("clustermesh: keycloak master-realm admin Secret synced primary → replica region(s) (#4158 — kill the region-B config-cli 401 / realm-import HR wedge)",
-			"id", dep.ID, "namespace", keycloakAdminSecretNamespace, "secret", keycloakAdminSecretName, "replicaRegions", copied)
+	if len(synced) > 0 {
+		h.log.Info("clustermesh: keycloak master-realm admin Secret(s) synced primary → replica region(s) (#4915/#4158 — kill the region-B config-cli 401 / realm-import HR wedge; both regions share ONE keycloak DB seeded by region-A)",
+			"id", dep.ID, "namespace", keycloakAdminSecretNamespace, "secrets", strings.Join(synced, ", "), "replicaRegions", len(slots)-1)
 		h.emitClusterMeshProgress(dep, "info",
-			fmt.Sprintf("ClusterMesh: synced keycloak master-realm admin Secret (%s) primary → %d replica region(s) — the replica's config-cli + kcadm now authenticate against the replicated keycloak (#4158)",
-				keycloakAdminSecretName, copied))
+			fmt.Sprintf("ClusterMesh: synced keycloak admin Secret(s) (%s) primary → %d replica region(s) — the replica's config-cli + sso-bridge now authenticate against the shared keycloak DB region-A seeded (#4915)",
+				strings.Join(synced, ", "), len(slots)-1))
 	}
 }
 
