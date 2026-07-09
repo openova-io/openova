@@ -499,7 +499,9 @@ catalystOverlay:
   vpcPodcidrRouteReconciler:
     enabled: false
     schedule: "*/5 * * * *"
-    # alpine/k8s toolbox (bash + kubectl + jq + curl + openssl), proxied.
+    # alpine/k8s toolbox (bash + kubectl + jq + curl), proxied. NOTE (#4875):
+    # this image does NOT ship the openssl CLI — the reconcile script apk-adds it
+    # at start (the Huawei SDK-HMAC-SHA256 signer needs `openssl dgst`).
     image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0"
     # HCS endpoint domain — service endpoints derive as
     # https://vpc.<huaweiRegion>.<cloud>/ (same derivation as

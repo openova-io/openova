@@ -123,6 +123,17 @@ data:
     # "#4656" are ever modified or deleted; everything else is foreign.
     set -euo pipefail
     : "${HW_AK:?}" "${HW_SK:?}" "${HW_PROJECT_ID:?}" "${HW_REGION:?}" "${HW_CLOUD:?}"
+    # #4875 — the alpine/k8s image does NOT ship the openssl CLI, but the Huawei
+    # SDK-HMAC-SHA256 signer below (sha256hex/hmachex, lines ~139-140) hard-depends
+    # on `openssl dgst`. Without this ensure, every run died with
+    # "openssl: command not found" at the first api() call → the reconciler never
+    # wrote a single per-node route (live: 6/6 pods, both regions, zero successful
+    # runs). Guard → apk-add → clear-fail so a genuine signing-tool gap surfaces
+    # loudly instead of aborting cryptically before any route is reconciled.
+    command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl >/dev/null 2>&1 || {
+      echo "FATAL: openssl CLI unavailable (image lacks it AND apk add failed); Huawei AK/SK SDK-HMAC-SHA256 signing requires it — per-node cross-region pod-CIDR routes cannot be reconciled. See #4875." >&2
+      exit 1
+    }
     MARKER_PREFIX="#4656"
     MARKER="#4656 podcidr-route-reconciler"
     VPC_HOST="vpc.${HW_REGION}.${HW_CLOUD}"
@@ -236,7 +247,7 @@ spec:
           restartPolicy: Never
           containers:
             - name: reconcile
-              # alpine/k8s toolbox (bash + kubectl + jq + curl + openssl),
+              # alpine/k8s toolbox (bash + kubectl + jq + curl; openssl apk-added at runtime #4875),
               # dockerhub-proxied per MIRROR-EVERYTHING.
               image: {{ (default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" $rr.image) | quote }}
               command: ["bash", "/opt/reconciler/reconcile.sh"]
