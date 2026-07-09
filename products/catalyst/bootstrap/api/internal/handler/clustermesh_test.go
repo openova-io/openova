@@ -2838,6 +2838,140 @@ func TestSyncSharedPGConsumerHubSecrets(t *testing.T) {
 	})
 }
 
+// TestReconcileSharedPGConsumerRestart locks in the #4878 RESIDUAL fix
+// (live-verified on hw232): the consumer rollout-restart must NOT fire the
+// instant the shared-data hub Secret changes — it must wait until the corrected
+// region-A credential has actually PROPAGATED into the CONSUMER's own namespace
+// (the emberstack reflector re-push). Firing early recreates the pod against the
+// STALE mounted Secret and it crashloops on `password authentication failed`
+// (keycloak-0 crashlooped 5× 06:43:50→06:47:23Z). Once the credential is
+// consistent in-namespace it restarts EXACTLY ONCE (idempotent per credential
+// fingerprint), so a steady-state / re-checked pass never thrashes (#3241/#3583).
+func TestReconcileSharedPGConsumerRestart(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dep := &Deployment{ID: "dep-4878"}
+
+	const (
+		ns         = "keycloak"
+		secretName = "keycloak-database-secret"
+		stsName    = "keycloak"
+	)
+	target := sharedPGConsumerRestartTargets[secretName] // statefulset keycloak/keycloak
+	const regionAHost = "shared-pg-mesh-rw.shared-data.svc.cluster.local"
+	const regionAPassword = "E5WJ-region-A-pw"
+
+	// authoritative is the region-A hub Secret the sync just copied onto the
+	// replica's shared-data (the `src` argument).
+	authoritative := func() *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: sharedPGNamespace},
+			Type:       corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"host":     []byte(regionAHost),
+				"password": []byte(regionAPassword),
+				"uri":      []byte("postgresql://keycloak:" + regionAPassword + "@" + regionAHost + ":5432/keycloak"),
+			},
+		}
+	}
+	// consumerSecret is the CONSUMER-namespace reflected copy with a given
+	// password — byte-identical to authoritative() when pw == regionAPassword.
+	consumerSecret := func(pw string) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: ns},
+			Type:       corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"host":     []byte(regionAHost),
+				"password": []byte(pw),
+				"uri":      []byte("postgresql://keycloak:" + pw + "@" + regionAHost + ":5432/keycloak"),
+			},
+		}
+	}
+	newReplica := func(t *testing.T, consumerPW string, withConsumerSecret bool) kubernetes.Interface {
+		t.Helper()
+		cs := kfake.NewSimpleClientset()
+		ctx := context.Background()
+		if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create ns: %v", err)
+		}
+		if _, err := cs.AppsV1().StatefulSets(ns).Create(ctx, &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName, Namespace: ns}}, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create sts: %v", err)
+		}
+		if withConsumerSecret {
+			if _, err := cs.CoreV1().Secrets(ns).Create(ctx, consumerSecret(consumerPW), metav1.CreateOptions{}); err != nil {
+				t.Fatalf("create consumer secret: %v", err)
+			}
+		}
+		return cs
+	}
+	restartStampOf := func(t *testing.T, cs kubernetes.Interface) (stamp, hash string) {
+		t.Helper()
+		sts, err := cs.AppsV1().StatefulSets(ns).Get(context.Background(), stsName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get sts: %v", err)
+		}
+		return sts.Spec.Template.Annotations["catalyst.openova.io/restartedAt"],
+			sts.Spec.Template.Annotations[sharedPGConsumerCredHashAnnotation]
+	}
+
+	t.Run("defers-when-consumer-ns-secret-absent", func(t *testing.T) {
+		cs := newReplica(t, "", false)
+		slot := &regionSlot{key: "secondary", clientset: cs}
+		h.reconcileSharedPGConsumerRestart(context.Background(), dep, slot, secretName, target, authoritative())
+		if stamp, _ := restartStampOf(t, cs); stamp != "" {
+			t.Errorf("restarted despite the consumer-ns Secret being absent (stamp=%q) — the reflector had not propagated yet", stamp)
+		}
+	})
+
+	t.Run("defers-when-consumer-ns-secret-stale", func(t *testing.T) {
+		cs := newReplica(t, "RXq1-region-B-STALE-pw", true)
+		slot := &regionSlot{key: "secondary", clientset: cs}
+		h.reconcileSharedPGConsumerRestart(context.Background(), dep, slot, secretName, target, authoritative())
+		if stamp, _ := restartStampOf(t, cs); stamp != "" {
+			t.Errorf("restarted while the consumer-ns Secret still carried the STALE password (stamp=%q) — this is exactly the premature-restart crashloop the residual fix prevents", stamp)
+		}
+	})
+
+	t.Run("restarts-and-is-idempotent-once-consistent", func(t *testing.T) {
+		cs := newReplica(t, regionAPassword, true) // consumer-ns == authoritative
+		slot := &regionSlot{key: "secondary", clientset: cs}
+		h.reconcileSharedPGConsumerRestart(context.Background(), dep, slot, secretName, target, authoritative())
+		stamp, hash := restartStampOf(t, cs)
+		if stamp == "" {
+			t.Fatalf("did NOT restart even though the consumer-ns credential is consistent with region-A — the stale in-process password would never clear")
+		}
+		if want := sharedPGConsumerCredentialFingerprint(authoritative()); hash != want {
+			t.Errorf("cred-hash annotation = %q, want the authoritative fingerprint %q", hash, want)
+		}
+		// Idempotent re-run: consumer still consistent AND the workload is already
+		// rolled onto this fingerprint → must NOT restart again (no thrash).
+		h.reconcileSharedPGConsumerRestart(context.Background(), dep, slot, secretName, target, authoritative())
+		if stamp2, _ := restartStampOf(t, cs); stamp2 != stamp {
+			t.Errorf("idempotent re-run bumped restartedAt %q -> %q — the #3241/#3583 no-thrash contract broke", stamp, stamp2)
+		}
+	})
+
+	t.Run("re-fires-after-propagation", func(t *testing.T) {
+		// Pass 1 — consumer-ns still STALE → deferred, no restart (the hw232
+		// window where the old code fired prematurely and crashlooped).
+		cs := newReplica(t, "region-B-STALE", true)
+		slot := &regionSlot{key: "secondary", clientset: cs}
+		h.reconcileSharedPGConsumerRestart(context.Background(), dep, slot, secretName, target, authoritative())
+		if stamp, _ := restartStampOf(t, cs); stamp != "" {
+			t.Fatalf("pass 1 restarted against the stale credential (stamp=%q)", stamp)
+		}
+		// The reflector catches up: the consumer-ns Secret now carries region-A's
+		// authoritative password.
+		if _, err := cs.CoreV1().Secrets(ns).Update(context.Background(), consumerSecret(regionAPassword), metav1.UpdateOptions{}); err != nil {
+			t.Fatalf("update consumer secret to consistent: %v", err)
+		}
+		// Pass 2 — now consistent → the restart fires exactly once.
+		h.reconcileSharedPGConsumerRestart(context.Background(), dep, slot, secretName, target, authoritative())
+		if stamp, _ := restartStampOf(t, cs); stamp == "" {
+			t.Fatalf("pass 2 did NOT restart after the corrected credential propagated — the consumer would stay pinned to the stale in-process password")
+		}
+	})
+}
+
 // seedKeycloakAdminSecret creates the host-cluster keycloak admin Secret
 // (mgmt/keycloak-x-keycloak-x-mgmt-vcluster, key admin-password) on the given
 // clientset — mirrors what the bitnami keycloak subchart mints + the vCluster
