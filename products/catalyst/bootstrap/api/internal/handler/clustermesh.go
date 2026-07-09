@@ -488,6 +488,54 @@ var sharedPGConsumerHubSecrets = []string{
 	"grafana-database-env-x-grafana-x-mgmt-vcluster",
 }
 
+// sharedPGConsumerWorkload identifies the long-running host-cluster workload a
+// consumer hub-secret feeds, so #4878's post-copy rollout-restart can target it.
+type sharedPGConsumerWorkload struct {
+	kind      string // "statefulset" | "deployment"
+	name      string
+	namespace string
+}
+
+// sharedPGConsumerRestartTargets maps the SUBSET of sharedPGConsumerHubSecrets
+// whose consumer is a LONG-RUNNING host-cluster workload that reads its DB
+// password ONCE at boot (into a JVM/connection pool) and does NOT crash-restart
+// when that password later rotates — so it must be explicitly rolled to pick up
+// the corrected credential (#4878).
+//
+// THE BUG: on a 2-region prov, region-B's keycloak/gitea/harbor boot during the
+// pre-ClusterMesh-flip SINGLETON phase against a region-LOCAL, randomly-minted
+// shared-pg password. After the flip, syncSharedPGConsumerHubSecrets overwrites
+// region-B's divergent hub Secret with region-A's AUTHORITATIVE password (and
+// the DB role replicates onto the follower), but the already-running pod stays
+// pinned to the stale password it cached at boot → endless
+// `FATAL: password authentication failed`. The mounted Secret + the DB are both
+// correct; only the process is stale. A rollout-restart is the fix.
+//
+// Confirmed against the charts + bootstrap-kit slots:
+//   - keycloak-database-secret → StatefulSet keycloak/keycloak
+//     (bitnami keycloak subchart, HelmRelease releaseName=keycloak,
+//     targetNamespace=keycloak — slot 09-keycloak.yaml)
+//   - gitea-database-secret    → Deployment gitea/gitea
+//     (gitea subchart renders a Deployment — platform/gitea Chart.yaml L18 +
+//     strategy.type=Recreate; releaseName=gitea, ns=gitea — slot 10-gitea.yaml)
+//   - harbor-database-secret   → Deployment harbor/harbor-core
+//     (goharbor subchart core Deployment; releaseName=harbor, ns=harbor —
+//     slot 19-harbor.yaml)
+//
+// DELIBERATELY NOT mapped: the other consumers (grafana / powerdns-admin / pdns
+// / org / newapi / openova-flow) CrashLoopBackOff on the stale region-LOCAL host
+// before the flip, so they already restart-and-re-read on their own once the
+// corrected Secret lands; and the `-x-…-x-mgmt-vcluster` mangled copies are
+// vestigial after the #4325 de-vcluster (keycloak/gitea/harbor now run directly
+// on the region control plane, not inside vc-mgmt). Restarting an unmapped name
+// is a silent no-op (the map lookup misses), so the set is conservative by
+// construction — no restart-thrash risk beyond the three verified workloads.
+var sharedPGConsumerRestartTargets = map[string]sharedPGConsumerWorkload{
+	"keycloak-database-secret": {kind: "statefulset", name: "keycloak", namespace: "keycloak"},
+	"gitea-database-secret":    {kind: "deployment", name: "gitea", namespace: "gitea"},
+	"harbor-database-secret":   {kind: "deployment", name: "harbor-core", namespace: "harbor"},
+}
+
 // sharedPGMeshRWHostMarker — the substring a hub Secret's `host` key carries
 // ONLY once bp-postgres has rendered the active-hot-standby topology-aware write
 // alias (`<instance>-mesh-rw`). The consumer-hub sync uses this as a readiness
@@ -1644,7 +1692,7 @@ func (h *Handler) syncCNPGPairReplicaAuthSecrets(ctx context.Context, dep *Deplo
 			return false
 		}
 		for _, src := range sources {
-			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, cnpgPairNamespace); err != nil {
+			if _, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, cnpgPairNamespace); err != nil {
 				h.log.Warn("clustermesh: cnpg-pair replica-auth sync: copy to replica failed — refusing flip",
 					"id", dep.ID, "region", regionLabel, "namespace", cnpgPairNamespace, "secret", src.Name, "err", err)
 				h.emitClusterMeshProgress(dep, "warn",
@@ -1731,7 +1779,7 @@ func (h *Handler) syncSharedPGReplicaAuthSecrets(ctx context.Context, dep *Deplo
 			return false
 		}
 		for _, src := range sources {
-			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace); err != nil {
+			if _, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace); err != nil {
 				h.log.Warn("clustermesh: shared-pg replica-auth sync: copy to replica failed — refusing flip",
 					"id", dep.ID, "region", regionLabel, "namespace", sharedPGNamespace, "secret", src.Name, "err", err)
 				h.emitClusterMeshProgress(dep, "warn",
@@ -1814,11 +1862,31 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				copied = false
 				continue
 			}
-			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace); err != nil {
+			changed, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace)
+			if err != nil {
 				h.log.Warn("clustermesh: shared-pg consumer-hub sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
 					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "err", err)
 				copied = false
 				continue
+			}
+			// #4878: when the authoritative region-A hub Secret actually
+			// OVERWROTE a divergent copy on this replica (region-B minted its
+			// OWN random DB password during its pre-flip SINGLETON phase; we
+			// just replaced it with region-A's — and the DB role has
+			// replicated the region-A password onto the replica's follower),
+			// the LONG-RUNNING consumer pod is still pinned to the STALE
+			// password it cached in-process at boot and NEVER re-reads the
+			// remounted Secret on its own → repeated
+			// `FATAL: password authentication failed`. Rollout-restart the
+			// mapped workload IN THIS REGION so it re-reads the corrected
+			// credential. Gated STRICTLY on changed==true (a steady-state heal
+			// pass where the bytes already match does NOT restart) to respect
+			// the #3241/#3583 no-thrash contract — an unconditional restart per
+			// ~2-min level-trigger pass would crash-cycle these consumers.
+			if changed {
+				if target, ok := sharedPGConsumerRestartTargets[name]; ok {
+					h.rolloutRestartConsumerWorkload(ctx, dep, replica, target)
+				}
 			}
 		}
 		if copied {
@@ -2033,7 +2101,7 @@ func (h *Handler) syncKeycloakAdminSecret(ctx context.Context, dep *Deployment, 
 		if replica.clientset == nil {
 			continue
 		}
-		if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, keycloakAdminSecretNamespace); err != nil {
+		if _, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, keycloakAdminSecretNamespace); err != nil {
 			h.log.Warn("clustermesh: keycloak admin-secret sync: copy to replica failed — skipping this region (best-effort, re-run converges)",
 				"id", dep.ID, "region", replica.key, "namespace", keycloakAdminSecretNamespace, "secret", keycloakAdminSecretName, "err", err)
 			continue
@@ -2107,7 +2175,7 @@ func (h *Handler) syncSSOOIDCMangledSecrets(ctx context.Context, dep *Deployment
 				copied = false
 				continue
 			}
-			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, ssoOIDCMangledHostSecretsNamespace); err != nil {
+			if _, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, ssoOIDCMangledHostSecretsNamespace); err != nil {
 				h.log.Warn("clustermesh: SSO-OIDC mangled-secret sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
 					"id", dep.ID, "region", replica.key, "namespace", ssoOIDCMangledHostSecretsNamespace, "secret", name, "err", err)
 				copied = false
@@ -2141,9 +2209,15 @@ func (h *Handler) syncSSOOIDCMangledSecrets(ctx context.Context, dep *Deployment
 // (#3583), so a heal pass is a cheap Get+compare that writes only on
 // drift. The destination namespace is assumed to exist (slot 16b ships
 // the `cnpg` Namespace unconditionally on every region).
-func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secret, dst kubernetes.Interface, namespace string) error {
+//
+// Returns changed=true ONLY when the destination bytes were actually
+// written — a Create (the copy didn't exist) or an Update (the copy
+// drifted). A steady-state match returns changed=false so a caller can
+// gate a downstream side-effect (e.g. #4878's consumer rollout-restart)
+// STRICTLY on a real change and never thrash on the level-trigger re-run.
+func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secret, dst kubernetes.Interface, namespace string) (bool, error) {
 	if src == nil {
-		return fmt.Errorf("source Secret is nil")
+		return false, fmt.Errorf("source Secret is nil")
 	}
 	desired := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -2162,16 +2236,16 @@ func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secr
 	existing, err := dst.CoreV1().Secrets(namespace).Get(callCtx, src.Name, metav1.GetOptions{})
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("Get Secret %s/%s on replica: %w", namespace, src.Name, err)
+			return false, fmt.Errorf("Get Secret %s/%s on replica: %w", namespace, src.Name, err)
 		}
 		if _, createErr := dst.CoreV1().Secrets(namespace).Create(callCtx, desired, metav1.CreateOptions{}); createErr != nil {
 			if apierrors.IsAlreadyExists(createErr) {
 				// Lost a race with another writer — fall through to update.
 				return h.updateCopiedSecret(callCtx, desired, dst, namespace)
 			}
-			return fmt.Errorf("Create Secret %s/%s on replica: %w", namespace, src.Name, createErr)
+			return false, fmt.Errorf("Create Secret %s/%s on replica: %w", namespace, src.Name, createErr)
 		}
-		return nil
+		return true, nil
 	}
 	// #3583: the destination already exists. On the common steady-state pass
 	// the bytes match (nothing drifted) — skip the Update entirely so the
@@ -2179,7 +2253,7 @@ func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secr
 	// genuinely re-healing. An Update on every pass would churn
 	// resourceVersions for no reason and add needless apiserver load.
 	if secretContentMatches(existing, desired) {
-		return nil
+		return false, nil
 	}
 	// Update in place — preserve the destination's resourceVersion so the
 	// Update is accepted, overwrite Data/Type/Labels/Annotations.
@@ -2189,9 +2263,9 @@ func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secr
 	existing.Labels = desired.Labels
 	existing.Annotations = desired.Annotations
 	if _, updErr := dst.CoreV1().Secrets(namespace).Update(callCtx, existing, metav1.UpdateOptions{}); updErr != nil {
-		return fmt.Errorf("Update Secret %s/%s on replica: %w", namespace, src.Name, updErr)
+		return false, fmt.Errorf("Update Secret %s/%s on replica: %w", namespace, src.Name, updErr)
 	}
-	return nil
+	return true, nil
 }
 
 // secretContentMatches reports whether the destination Secret already
@@ -2231,16 +2305,18 @@ func effectiveSecretData(s *corev1.Secret) map[string][]byte {
 
 // updateCopiedSecret is the create-raced-update fallback for
 // copySecretAcrossClusters: re-Get to pick up the live resourceVersion,
-// then Update with the desired Data/Type/Labels/Annotations.
-func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret, dst kubernetes.Interface, namespace string) error {
+// then Update with the desired Data/Type/Labels/Annotations. Returns
+// changed=true only when it actually writes (matches copySecretAcrossClusters'
+// contract so the race path never spuriously reports a change).
+func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret, dst kubernetes.Interface, namespace string) (bool, error) {
 	existing, err := dst.CoreV1().Secrets(namespace).Get(ctx, desired.Name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("Get Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, err)
+		return false, fmt.Errorf("Get Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, err)
 	}
 	// #3583: the racing creator may have already written the desired bytes —
 	// skip the redundant Update if so.
 	if secretContentMatches(existing, desired) {
-		return nil
+		return false, nil
 	}
 	existing.Data = desired.Data
 	existing.StringData = desired.StringData
@@ -2248,9 +2324,9 @@ func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret
 	existing.Labels = desired.Labels
 	existing.Annotations = desired.Annotations
 	if _, updErr := dst.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); updErr != nil {
-		return fmt.Errorf("Update Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, updErr)
+		return false, fmt.Errorf("Update Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, updErr)
 	}
-	return nil
+	return true, nil
 }
 
 // clusterMeshDynamicClient builds a dynamic.Interface for the cluster
@@ -2970,6 +3046,53 @@ func (h *Handler) rolloutRestartClusterMeshTargets(ctx context.Context, dep *Dep
 			)
 		}
 	}
+}
+
+// rolloutRestartConsumerWorkload bumps the same
+// `catalyst.openova.io/restartedAt` annotation idiom
+// rolloutRestartClusterMeshTargets uses, but on a SINGLE consumer workload in a
+// SPECIFIC replica region, so its Pod re-reads the (now corrected) shared-pg DB
+// Secret it cached at boot (#4878). Called ONLY on a real hub-secret change (the
+// syncSharedPGConsumerHubSecrets caller gates on copySecretAcrossClusters'
+// changed==true), so it inherits the #3241/#3583 no-thrash contract — a
+// steady-state heal pass never reaches here. Best-effort: a NotFound (the
+// workload isn't wired on this Sovereign) or any patch error is logged and
+// swallowed, never fatal — the level-triggered reconcile re-runs and only
+// re-bumps the annotation when the Secret genuinely changes again.
+func (h *Handler) rolloutRestartConsumerWorkload(ctx context.Context, dep *Deployment, slot *regionSlot, w sharedPGConsumerWorkload) {
+	if slot == nil || slot.clientset == nil {
+		return
+	}
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	patch := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"catalyst.openova.io/restartedAt":%q}}}}}`, stamp))
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	var err error
+	switch w.kind {
+	case "statefulset":
+		_, err = slot.clientset.AppsV1().StatefulSets(w.namespace).Patch(callCtx, w.name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+	case "deployment":
+		_, err = slot.clientset.AppsV1().Deployments(w.namespace).Patch(callCtx, w.name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+	default:
+		h.log.Warn("clustermesh: #4878 consumer rollout-restart: unknown workload kind — skipping",
+			"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace)
+		return
+	}
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			h.log.Info("clustermesh: #4878 consumer rollout-restart: workload not present on replica — skipping (consumer may be unconfigured on this Sovereign; best-effort)",
+				"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace)
+			return
+		}
+		h.log.Warn("clustermesh: #4878 consumer rollout-restart failed (continuing; re-run converges)",
+			"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace, "err", err)
+		return
+	}
+	h.log.Info("clustermesh: #4878 rolled consumer workload so it re-reads region-A's authoritative shared-pg password after the hub-secret changed on this replica",
+		"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace)
+	h.emitClusterMeshProgress(dep, "info",
+		fmt.Sprintf("ClusterMesh: rolled %s/%s in region %q so it re-reads region-A's authoritative shared-pg password (#4878 — clears the stale-password FATAL after the hub-secret sync)",
+			w.namespace, w.name, slot.key))
 }
 
 // countFullyMeshedRegions returns how many regions in the status
