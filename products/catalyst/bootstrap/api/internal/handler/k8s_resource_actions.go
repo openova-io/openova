@@ -31,8 +31,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
@@ -305,7 +305,7 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 		writeBadRequest(w, "missing-metadata-name", "metadata.name is required")
 		return
 	}
-	if parsed.GetName() != name {
+	if parsed.GetName() != name && !reconcileBlueprintBareName(parsed, kindName, name) {
 		writeBadRequest(w, "name-mismatch", fmt.Sprintf(
 			"yaml metadata.name=%q does not match URL name=%q", parsed.GetName(), name))
 		return
@@ -414,6 +414,41 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 		"resourceVersion": updated.GetResourceVersion(),
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// reconcileBlueprintBareName bridges the Blueprint `bp-` prefix convention in
+// the catalog Edit-IaC (YamlEditor) dry-run/apply path (#4896).
+//
+// The catalog IaC editor seeds itself from the AUTHORED `blueprint.yaml`, whose
+// `metadata.name` is the BARE slug (e.g. "alloy"), while the in-cluster
+// Blueprint CR — and therefore the request URL — use the canonical `bp-` prefix
+// (e.g. "bp-alloy") per docs/ARCHITECTURE §4 (Naming) + the chart's
+// catalog-seed. A dry-run/apply of the UNCHANGED blueprint.yaml would otherwise
+// fail the name-match guard with
+//
+//	400 "yaml metadata.name='alloy' does not match URL name='bp-alloy'"
+//
+// even though it names the very same CR, blocking every full-CR IaC commit for
+// bp-prefixed blueprints (hw232, UAT rows 145/148/154).
+//
+// When (and only when) the resource is a Blueprint AND the URL name is exactly
+// "bp-"+parsed.name, the two are the SAME identity: we stamp the URL form onto
+// the parsed object so the downstream k8s Update targets the real `bp-<slug>`
+// CR, and report the match as reconciled. Every other case — a different kind,
+// or a genuine rename (bare `alloy`→`loki`, or prefixed `bp-alloy`→`bp-loki`) —
+// still fails the guard, so its protective purpose (rejecting a mis-targeted /
+// renamed CR) is preserved.
+func reconcileBlueprintBareName(parsed *unstructured.Unstructured, kindName, urlName string) bool {
+	// kindName is the canonical registry Kind.Name (see parseResourceParams);
+	// the Blueprint CRD registers as "blueprint".
+	if kindName != "blueprint" {
+		return false
+	}
+	if urlName == "bp-"+parsed.GetName() {
+		parsed.SetName(urlName)
+		return true
+	}
+	return false
 }
 
 // ── Internal helpers ────────────────────────────────────────────────
