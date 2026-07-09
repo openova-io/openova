@@ -214,7 +214,16 @@ var DefaultKinds = []Kind{
 	// v1alpha1 (deprecated, storage:false) and v1 (storage:true); pin
 	// the watcher to the storage version so events are not silently
 	// missed. Refs #1946.
-	{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}, Namespaced: true},
+	//
+	// CLUSTER-scoped (Refs #4860): the served CRD at
+	// products/catalyst/chart/crds/blueprint.yaml declares `scope: Cluster`,
+	// so the Blueprint CR carries no namespace. Registering it Namespaced
+	// drove the generic /k8s/{kind} read + the Edit-IaC dry-run/apply write
+	// down the namespaced dynamic-client branch (`.Namespace(ns)`) and the
+	// GET/tree handlers' `Namespaced && ns==""` guard rejected the "_" ns
+	// with a spurious 400; align the registry with the CRD scope so every
+	// path resolves the cluster-scoped Blueprint correctly.
+	{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}, Namespaced: false},
 	// orgs.openova.io/v1 Organization — top-level tenancy CRD
 	// surfaced on the /organizations page. CRD ships v1 only. Refs #1946.
 	{Name: "organization", GVR: schema.GroupVersionResource{Group: "orgs.openova.io", Version: "v1", Resource: "organizations"}, Namespaced: false},
