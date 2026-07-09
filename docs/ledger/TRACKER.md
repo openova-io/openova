@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T03:15:03Z` |
+| Last refreshed | `2026-07-09T03:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 70 |
+| Open issues | 71 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 70 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 71 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 70 open items (clickable table)
+### All 71 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -270,6 +270,7 @@ flowchart LR
 | [#4858](https://github.com/openova-io/openova/issues/4858) | fix: mothership self-hosting image deadlock — DiskPressure image-GC + harbor.o | Other |
 | [#4860](https://github.com/openova-io/openova/issues/4860) | Blueprint Edit-IaC Validate(dry-run)/Commit returns HTTP 500 after ~52s (blocks  | Other |
 | [#4872](https://github.com/openova-io/openova/issues/4872) | Wipe handler leaks Huawei OBS buckets → account hits 100-bucket quota → fres | Other |
+| [#4873](https://github.com/openova-io/openova/issues/4873) | Cutover wedges at helmrepository-patches when a deploybot chart bump races the p | Other |
 
 ---
 
@@ -277,6 +278,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T03:26 | [#4874](https://github.com/openova-io/openova/pull/4874) | #4870 | fix(#4873): cutover prewarm+probe read DEPLOYED chart versio |
 | 2026-07-09T02:35 | [#4871](https://github.com/openova-io/openova/pull/4871) | fix: kom4dc per-region VPC CIDR overflow (region-b 10.257.0. |  |
 | 2026-07-08T23:30 | [#4870](https://github.com/openova-io/openova/pull/4870) | #4674 | fix(#3379): cutover registry-pivot ack-gate tolerates a lagg |
 | 2026-07-08T23:30 | [#4869](https://github.com/openova-io/openova/pull/4869) | #4811 | fix(#4854): row-67 cross-region CNP namespace-scoping (L1 eg |
@@ -306,7 +308,6 @@ flowchart LR
 | 2026-07-06T19:53 | [#4828](https://github.com/openova-io/openova/pull/4828) | #4785 | fix(provisioning): kill WordPress per-Org double-reconcile c |
 | 2026-07-06T18:48 | [#4826](https://github.com/openova-io/openova/pull/4826) | #4792 | fix(#4785): register Gateway-API HTTPRoute CRD in per-Org vc |
 | 2026-07-06T12:34 | [#4822](https://github.com/openova-io/openova/pull/4822) | #4804 | fix(#4821): customer-Org vcluster — replicateServices.fromHo |
-| 2026-07-06T11:09 | [#4819](https://github.com/openova-io/openova/pull/4819) | #4765 | fix(#4818): cloud-view LB front door — hostPort datapath, no |
 
 ---
 
