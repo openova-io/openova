@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
@@ -156,10 +158,14 @@ func TestConsoleGatewaySubdomainSetOverride(t *testing.T) {
 }
 
 // stubZoneClient records PatchRRSets calls for the delete-side test.
+// failZone, when set, makes PatchRRSets return a PowerDNS-shaped 404 for that
+// exact zone (the record of the attempt is still captured) so the 404 →
+// derived-parent fallback can be exercised deterministically.
 type stubZoneClient struct {
-	zones  []string
-	rrsets [][]powerdns.RRSet
-	err    error
+	zones    []string
+	rrsets   [][]powerdns.RRSet
+	err      error
+	failZone string
 }
 
 func (s *stubZoneClient) CreateZone(_ context.Context, _ powerdns.ZoneSpec) error { return nil }
@@ -167,7 +173,111 @@ func (s *stubZoneClient) ZoneExists(_ context.Context, _ string) (bool, error)  
 func (s *stubZoneClient) PatchRRSets(_ context.Context, zone string, rrsets []powerdns.RRSet) error {
 	s.zones = append(s.zones, zone)
 	s.rrsets = append(s.rrsets, rrsets)
+	if s.failZone != "" && zone == s.failZone {
+		// Mirrors *powerdns.Client.PatchRRSets on a missing zone; the
+		// "status 404" token is what the fallback keys off.
+		return fmt.Errorf("powerdns: patch zone %q status 404: Not Found", zone)
+	}
 	return s.err
+}
+
+// TestSovereignParentZoneRecordNames locks the record-SELECTION contract that
+// both the write side and the wipe teardown share: every canonical subdomain
+// plus the apex, each dot-terminated, and NO record at all for a blank FQDN
+// (so a wipe with a missing FQDN can never emit a bare-dot "." apex rrset).
+func TestSovereignParentZoneRecordNames(t *testing.T) {
+	names := sovereignParentZoneRecordNames("hw220.omani.works")
+	if want := len(CanonicalSovereignSubdomains) + 1; len(names) != want {
+		t.Fatalf("name count = %d, want %d (canonical subdomains + apex)", len(names), want)
+	}
+	set := map[string]bool{}
+	for _, n := range names {
+		if !strings.HasSuffix(n, ".") {
+			t.Errorf("record name %q must be dot-terminated (PowerDNS canonical rrset name)", n)
+		}
+		set[n] = true
+	}
+	for _, must := range []string{
+		"console.hw220.omani.works.",
+		"api.hw220.omani.works.",
+		"marketplace.hw220.omani.works.",
+		"hw220.omani.works.", // apex
+	} {
+		if !set[must] {
+			t.Errorf("record-selection missing %q — the wiped-record leak class #4764 guards", must)
+		}
+	}
+	// Case-insensitive + trailing-dot tolerant, and blank → nothing.
+	if got := sovereignParentZoneRecordNames("HW220.omani.works."); !hasName(got, "console.hw220.omani.works.") {
+		t.Errorf("uppercase/trailing-dot FQDN should normalise to lowercase names, got %v", got)
+	}
+	if got := sovereignParentZoneRecordNames("   "); got != nil {
+		t.Errorf("blank FQDN must yield no record names (no bare-dot apex), got %v", got)
+	}
+}
+
+func hasName(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDeleteSovereignParentZoneRecordsWithFallback_404RetriesDerivedParent is
+// the heart of #4764. BYO back-compat stamps ParentDomains[0].Name =
+// SovereignFQDN, so the wipe is handed parent == the sub-FQDN. That sub-FQDN is
+// not an authoritative PowerDNS zone (the tail `omani.works` is), so the first
+// DELETE 404s; the fallback MUST retry against the derived tail where the
+// records — including console.<fqdn> → the released console EIP — actually live.
+func TestDeleteSovereignParentZoneRecordsWithFallback_404RetriesDerivedParent(t *testing.T) {
+	stub := &stubZoneClient{failZone: "hw220.omani.works"}
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil)), powerdnsZoneClient: stub}
+
+	if err := h.deleteSovereignParentZoneRecordsWithFallback(context.Background(), "hw220.omani.works", "hw220.omani.works"); err != nil {
+		t.Fatalf("expected fallback to succeed against derived tail parent, got %v", err)
+	}
+	if len(stub.zones) != 2 || stub.zones[0] != "hw220.omani.works" || stub.zones[1] != "omani.works" {
+		t.Fatalf("zones attempted = %v, want [hw220.omani.works omani.works] (404 then derived-parent retry)", stub.zones)
+	}
+	// The derived-parent DELETE must still carry the console record so the
+	// released console EIP stops resolving after the wipe.
+	sawConsole := false
+	for _, rr := range stub.rrsets[1] {
+		if rr.Name == "console.hw220.omani.works." && rr.ChangeType == "DELETE" {
+			sawConsole = true
+		}
+	}
+	if !sawConsole {
+		t.Errorf("derived-parent DELETE missing console.hw220.omani.works. — the dangling-record leak #4764 fixes")
+	}
+}
+
+// TestDeleteSovereignParentZoneRecordsWithFallback_NoRetryWhenParentIsRealZone
+// guards the blast-radius invariant: for a pool / explicit-multi-domain wipe the
+// parent is the real registered zone (omani.works), the single DELETE succeeds,
+// and the fallback must NOT fire — we never touch a second (sibling) zone.
+func TestDeleteSovereignParentZoneRecordsWithFallback_NoRetryWhenParentIsRealZone(t *testing.T) {
+	stub := &stubZoneClient{}
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil)), powerdnsZoneClient: stub}
+
+	if err := h.deleteSovereignParentZoneRecordsWithFallback(context.Background(), "hw220.omani.works", "omani.works"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stub.zones) != 1 || stub.zones[0] != "omani.works" {
+		t.Fatalf("zones attempted = %v, want exactly [omani.works] (no fallback, no sibling-zone touch)", stub.zones)
+	}
+}
+
+// TestDeleteSovereignParentZoneRecordsWithFallback_NilClientNoop keeps the
+// best-effort contract: no PowerDNS client wired (pool-mode Sovereigns whose
+// DNS is entirely PDM's child zone) → nil error, no fallback, no panic.
+func TestDeleteSovereignParentZoneRecordsWithFallback_NilClientNoop(t *testing.T) {
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := h.deleteSovereignParentZoneRecordsWithFallback(context.Background(), "hw220.omani.works", "hw220.omani.works"); err != nil {
+		t.Fatalf("expected nil error with no client, got %v", err)
+	}
 }
 
 // TestDeleteSovereignParentZoneRecords locks #4732 item 7: the wipe-side

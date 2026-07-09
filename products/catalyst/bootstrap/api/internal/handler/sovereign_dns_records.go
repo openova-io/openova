@@ -336,6 +336,32 @@ func (h *Handler) upsertSovereignParentZoneRecordsFromResult(ctx context.Context
 	}
 }
 
+// sovereignParentZoneRecordNames returns the fully-qualified, dot-terminated
+// rrset names a Sovereign owns in its parent zone: one per
+// CanonicalSovereignSubdomain (`<sub>.<fqdn>.`) plus the bare apex (`<fqdn>.`).
+//
+// This is the single source of truth for the record-SELECTION contract shared
+// by the write side (upsertSovereignParentZoneRecords) and the wipe teardown
+// (deleteSovereignParentZoneRecords) — keeping them symmetric so a wiped
+// Sovereign can never leave behind a record the upsert created (the #4764
+// dangling-`console.<fqdn>` leak). Pure + allocation-only so the selection can
+// be unit-tested without a PowerDNS client. FQDN is lowercased + trimmed of a
+// trailing dot (DNS names are case-insensitive; PowerDNS canonicalises on
+// write) so a blank/whitespace FQDN yields NO names rather than a bare-dot `.`
+// rrset that could touch the zone apex.
+func sovereignParentZoneRecordNames(sovereignFQDN string) []string {
+	fqdn := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(sovereignFQDN)), ".")
+	if fqdn == "" {
+		return nil
+	}
+	names := make([]string, 0, len(CanonicalSovereignSubdomains)+1)
+	for _, sub := range CanonicalSovereignSubdomains {
+		names = append(names, sub+"."+fqdn+".")
+	}
+	names = append(names, fqdn+".") // apex
+	return names
+}
+
 // deleteSovereignParentZoneRecords is the wipe-side twin of
 // upsertSovereignParentZoneRecords (#4732 item 7). It DELETEs the same
 // rrset names the upsert wrote — every CanonicalSovereignSubdomain plus
@@ -347,6 +373,13 @@ func (h *Handler) upsertSovereignParentZoneRecordsFromResult(ctx context.Context
 // Idempotent: PowerDNS changetype=DELETE on an absent rrset is a 2xx
 // no-op. Best-effort by design — the caller logs and continues so a DNS
 // hiccup never blocks the wipe's cloud purge or record cleanup.
+//
+// NOTE: this targets exactly the `parentZone` it is given. When the wipe is
+// handed a `parentZone` equal to the FQDN itself (the BYO back-compat synthesis
+// that stamps ParentDomains[0].Name = SovereignFQDN), that sub-FQDN is NOT an
+// authoritative PowerDNS zone and the PATCH 404s — the records actually live in
+// the FQDN's tail zone. deleteSovereignParentZoneRecordsWithFallback mirrors the
+// write-side 404 retry so callers get the tail-zone cleanup for free (#4764).
 func (h *Handler) deleteSovereignParentZoneRecords(ctx context.Context, sovereignFQDN, parentZone string) error {
 	if h.powerdnsZoneClient == nil {
 		h.log.Info("sovereign-dns-records: delete skipped (no powerdns client wired)",
@@ -365,20 +398,15 @@ func (h *Handler) deleteSovereignParentZoneRecords(ctx context.Context, sovereig
 			parentZone = sovereignFQDN
 		}
 	}
-	subdomains := CanonicalSovereignSubdomains
-	rrsets := make([]powerdns.RRSet, 0, len(subdomains)+1)
-	for _, sub := range subdomains {
+	names := sovereignParentZoneRecordNames(sovereignFQDN)
+	rrsets := make([]powerdns.RRSet, 0, len(names))
+	for _, name := range names {
 		rrsets = append(rrsets, powerdns.RRSet{
-			Name:       sub + "." + sovereignFQDN + ".",
+			Name:       name,
 			Type:       "A",
 			ChangeType: "DELETE",
 		})
 	}
-	rrsets = append(rrsets, powerdns.RRSet{
-		Name:       sovereignFQDN + ".",
-		Type:       "A",
-		ChangeType: "DELETE",
-	})
 	if err := h.powerdnsZoneClient.PatchRRSets(ctx, parentZone, rrsets); err != nil {
 		return fmt.Errorf("sovereign-dns-records: delete from parent zone %q: %w", parentZone, err)
 	}
@@ -388,4 +416,49 @@ func (h *Handler) deleteSovereignParentZoneRecords(ctx context.Context, sovereig
 		"recordCount", len(rrsets),
 	)
 	return nil
+}
+
+// deleteSovereignParentZoneRecordsWithFallback is the wipe entry point. It
+// deletes the Sovereign's parent-zone records and — crucially — mirrors the
+// write-side 404 retry in upsertSovereignParentZoneRecordsFromResult so the
+// teardown is symmetric with the write.
+//
+// Root cause of #4764: Request.Validate() synthesises ParentDomains[0].Name =
+// SovereignFQDN for BYO Sovereigns (no SovereignPoolDomain). The wipe hands that
+// verbatim value as `parentZone`, but for a sub-FQDN like `t126.omani.works` the
+// authoritative PowerDNS zone is the tail `omani.works` — the write side already
+// learned this (the sub-FQDN PATCH 404s) and retried against the derived tail,
+// so the A records — including `console.<fqdn>` → the console EIP — landed in
+// `omani.works`. The wipe did NOT retry, so it PATCH-DELETEd the non-existent
+// sub-FQDN zone (404), and every record it should have removed survived. A wiped
+// env's `console.<fqdn>` then kept resolving a released EIP.
+//
+// The fallback fires ONLY when the first attempt 404s AND the parent equals the
+// FQDN itself — the exact condition the write side uses. The retry target is
+// strictly the FQDN's own tail label (this deployment's registered parent
+// domain), so it never touches a sibling Sovereign's records or a shared /
+// mothership zone. Idempotent: DELETE on absent rrsets is a PowerDNS no-op.
+func (h *Handler) deleteSovereignParentZoneRecordsWithFallback(ctx context.Context, sovereignFQDN, parentZone string) error {
+	err := h.deleteSovereignParentZoneRecords(ctx, sovereignFQDN, parentZone)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "status 404") && parentZone == sovereignFQDN {
+		if i := strings.IndexByte(sovereignFQDN, '.'); i > 0 {
+			derivedParent := sovereignFQDN[i+1:]
+			if derivedParent != parentZone {
+				h.log.Info("sovereign-dns-records: parent zone 404 on delete — retrying with derived tail parent",
+					"sovereignFQDN", sovereignFQDN,
+					"originalParent", parentZone,
+					"derivedParent", derivedParent,
+				)
+				if err2 := h.deleteSovereignParentZoneRecords(ctx, sovereignFQDN, derivedParent); err2 == nil {
+					return nil
+				} else {
+					return fmt.Errorf("original=%w, derived-fallback=%v", err, err2)
+				}
+			}
+		}
+	}
+	return err
 }
