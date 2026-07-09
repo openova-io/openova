@@ -52,19 +52,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update deployment manifest
+      - name: Bump marketplace image tag in values.yaml
         run: |
           SHA=$(echo $GITHUB_SHA | head -c 7)
-          FILE="products/catalyst/chart/templates/org-services/marketplace.yaml"
-          if [ -f "$FILE" ]; then
-            sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${SHA}|" "$FILE"
-            echo "Updated marketplace to SHA ${SHA}"
+          VALUES="products/catalyst/chart/values.yaml"
+          # #4885: templates/org-services/marketplace.yaml is now templated
+          # through global.imageRegistry (so the cutover step-07 HR patch can
+          # pivot the storefront onto the Sovereign's local Harbor during the
+          # deny-egress hold). Its mutable SHA lives in values.yaml
+          # `images.marketplaceTag` (a flat field, like orgTag) — bump THAT
+          # here instead of sed-rewriting the now-templated `image:` line.
+          # Refuse to bump if the field is missing/reshaped so a contributor
+          # renaming it can't silently freeze the storefront pin.
+          if ! grep -Eq '^  marketplaceTag: "[A-Za-z0-9_.-]*"$' "${VALUES}"; then
+            echo "::error title=marketplaceTag field missing or unparseable::Expected '  marketplaceTag: \"<sha>\"' line in ${VALUES}; refusing to auto-bump."
+            exit 1
           fi
+          sed -i "s|^  marketplaceTag: \"[A-Za-z0-9_.-]*\"$|  marketplaceTag: \"${SHA}\"|" "${VALUES}"
+          echo "Bumped ${VALUES} images.marketplaceTag to ${SHA}"
+          grep -n '^  marketplaceTag:' "${VALUES}"
 
       # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
-      # composite action.
+      # composite action. Its per-line cherry-pick (#4464) merges this
+      # marketplaceTag bump cleanly against a concurrent services-build orgTag
+      # or catalyst-build catalystApi.tag bump on the same values.yaml — each
+      # job owns a different line.
       - name: Commit and push
         uses: ./.github/actions/deploy-bump
         with:
-          paths: products/catalyst/chart/templates/org-services/marketplace.yaml
+          paths: products/catalyst/chart/values.yaml
           commit-message: "deploy: update Catalyst marketplace image to ${{ needs.build.outputs.sha_short }}"

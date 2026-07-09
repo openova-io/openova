@@ -1,59 +1,69 @@
 #!/usr/bin/env bash
 # tests/integration/services-build-rewrite.sh
 #
-# Issue #953 regression test for `.github/workflows/services-build.yaml`.
+# Regression test for the deploy step of
+# `.github/workflows/services-build.yaml`.
 #
-# Why this test exists
-# --------------------
-# 2026-05-05: the deploy step's image-rewrite loop only matched
-# hardcoded `image: ghcr.io/openova-io/openova/services-<svc>:<sha>`
-# lines. 7 of 8 sme-services templates are written in the templated
-# form `image: "{{ ... }}/services-<svc>:{{ .Values.images.smeTag }}"`
-# — the sed regex never matched those, so each services-build run
-# bumped only `auth.yaml` while reporting a successful deploy of all
-# eight services. Caught live on otech113: services-catalog Pod still
-# pulled `:95a06f5` after PR #951's commit `68927688` claimed it had
-# rolled out, so #941's catalog migration fix never reached the live
-# Pod despite the merge + chart bump + commit chain looking healthy.
+# History
+# -------
+# * #953 (2026-05-05): the deploy step's image-rewrite loop only matched
+#   hardcoded `image: ghcr.io/openova-io/openova/services-<svc>:<sha>`
+#   lines. Most org-services templates are written in the templated form
+#   `image: "{{ ... }}/services-<svc>:{{ .Values.images.orgTag }}"` — the
+#   sed regex never matched those, so each services-build run bumped only
+#   the one remaining hardcoded template (auth.yaml) while reporting a
+#   successful deploy of all services. Caught live on otech113:
+#   services-catalog Pod still pulled `:95a06f5` after PR #951's commit
+#   claimed it rolled out. Fix: bump `images.orgTag` in values.yaml (the
+#   single source of truth for every templated service).
+# * #3383 (2026-06-17): the `sme-services` directory + `smeTag` field were
+#   renamed to `org-services` + `orgTag` in the SME→Organization refactor.
+# * #4885 (2026-07-09): auth.yaml — the last hardcoded holdout — was
+#   flipped to the templated `{{ .Values.images.orgTag }}` form so the
+#   sovereignty-cutover step-07 patch pivots it through
+#   global.imageRegistry. ALL org-services templates are now templated;
+#   the workflow's literal-image sed loop is a documented no-op retained
+#   for defensive back-compat.
 #
-# This test reproduces the exact rewrite logic the workflow runs
-# locally (no GitHub Actions runner needed) on a snapshot of
-# products/catalyst/chart/{templates/sme-services/*.yaml,values.yaml}
-# at HEAD, then asserts:
+# This test reproduces the exact rewrite logic the workflow runs locally
+# (no GitHub Actions runner needed) on a snapshot of
+# products/catalyst/chart/{templates/org-services/*.yaml,values.yaml} at
+# HEAD, then asserts:
 #
-#   1. The hardcoded `auth.yaml` image gets bumped (back-compat is
-#      preserved).
-#   2. The 7 templated services' VALUES surface (`images.smeTag` in
-#      values.yaml) gets bumped to the new SHA — i.e. the chart will
-#      render every templated `image:` line at the new SHA on the
-#      next release.
-#   3. The other unrelated tag fields in values.yaml
-#      (`catalystApi.tag`, `console.tag`, etc.) are left untouched.
+#   1. Every org-services template is in the templated `orgTag` form
+#      (including auth.yaml — the #4885 flip).
+#   2. The bump moves `images.orgTag` in values.yaml to the new SHA, so
+#      the chart renders every templated `image:` line at the new SHA on
+#      the next release.
+#   3. Unrelated tag fields (catalystApi.tag, console.tag, marketplaceApi
+#      .tag, marketplaceTag) are left untouched.
 #   4. A second invocation with a DIFFERENT SHA correctly re-bumps
-#      everything to the second SHA (idempotency / no-locking on the
-#      first SHA).
+#      orgTag to the second SHA (idempotency / no first-SHA locking).
+#   5. (helm available) the rendered org-services Deployments — auth
+#      included — carry the new SHA.
 
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-deploy_dir="${repo_root}/products/catalyst/chart/templates/sme-services"
+deploy_dir="${repo_root}/products/catalyst/chart/templates/org-services"
 values_yaml="${repo_root}/products/catalyst/chart/values.yaml"
 image_base="ghcr.io/openova-io/openova/services"
 
 # Sandbox copies — never mutate the live tree.
 sandbox=$(mktemp -d)
 trap 'rm -rf "$sandbox"' EXIT
-mkdir -p "${sandbox}/templates/sme-services"
-cp -r "${deploy_dir}"/*.yaml "${sandbox}/templates/sme-services/"
+mkdir -p "${sandbox}/templates/org-services"
+cp -r "${deploy_dir}"/*.yaml "${sandbox}/templates/org-services/"
 cp "${values_yaml}" "${sandbox}/values.yaml"
 
-sandbox_deploy_dir="${sandbox}/templates/sme-services"
+sandbox_deploy_dir="${sandbox}/templates/org-services"
 sandbox_values="${sandbox}/values.yaml"
 
-# Apply the workflow's rewrite logic (verbatim copy of the bash
-# block that lives in services-build.yaml's `Update deployment
-# manifests` step, parameterised on the sandbox paths). If the
-# workflow body changes shape, this test must change in lockstep.
+# Apply the workflow's rewrite logic (a faithful copy of the bash block
+# in services-build.yaml's deploy step, parameterised on the sandbox
+# paths). If the workflow body changes shape, this test must change in
+# lockstep. The literal-image loop is a no-op today (every template is
+# templated) but is kept here to mirror the workflow exactly.
 rewrite() {
   local SHA="$1"
   for svc in auth catalog gateway tenant domain billing provisioning notification; do
@@ -62,68 +72,84 @@ rewrite() {
       sed -i "s|image: ${image_base}-${svc}:.*|image: ${image_base}-${svc}:${SHA}|" "$FILE"
     fi
   done
-  if ! grep -Eq '^  smeTag: "[A-Za-z0-9_.-]*"$' "${sandbox_values}"; then
-    echo "FAIL: smeTag line not found in values.yaml"
+  if ! grep -Eq '^  orgTag: "[A-Za-z0-9_.-]*"$' "${sandbox_values}"; then
+    echo "FAIL: orgTag line not found in values.yaml"
     return 1
   fi
-  sed -i "s|^  smeTag: \"[A-Za-z0-9_.-]*\"$|  smeTag: \"${SHA}\"|" "${sandbox_values}"
+  sed -i "s|^  orgTag: \"[A-Za-z0-9_.-]*\"$|  orgTag: \"${SHA}\"|" "${sandbox_values}"
 }
 
 # Capture pre-state so we can assert which fields changed.
 pre_catalystApi_tag=$(awk '/^  catalystApi:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
 pre_console_tag=$(awk '/^  console:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
-pre_marketplace_tag=$(awk '/^  marketplaceApi:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
+pre_marketplaceApi_tag=$(awk '/^  marketplaceApi:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
+pre_marketplaceTag=$(grep -E '^  marketplaceTag:' "${sandbox_values}" || true)
+
+# All org-services templates (auth included, post-#4885) must be in the
+# templated orgTag form BEFORE any rewrite runs.
+# svc -> template file (organization.yaml carries the services-tenant image).
+declare -A svc_file=(
+  [auth]=auth.yaml [catalog]=catalog.yaml [gateway]=gateway.yaml
+  [tenant]=organization.yaml [domain]=domain.yaml [billing]=billing.yaml
+  [provisioning]=provisioning.yaml [notification]=notification.yaml
+)
+for svc in "${!svc_file[@]}"; do
+  f="${sandbox_deploy_dir}/${svc_file[$svc]}"
+  if ! grep -q '{{ .Values.images.orgTag }}' "$f"; then
+    echo "FAIL: ${svc_file[$svc]} is not in the templated orgTag form"
+    exit 1
+  fi
+done
+# auth.yaml specifically — the #4885 flip: templated services-auth ref.
+if ! grep -q 'services-auth:{{ .Values.images.orgTag }}' "${sandbox_deploy_dir}/auth.yaml"; then
+  echo "FAIL: auth.yaml lost its #4885 templated services-auth reference"
+  exit 1
+fi
 
 # ── Case 1: bump to NEW_SHA_1 ─────────────────────────────────────────
 NEW_SHA_1="abc1234"
 echo "[services-build-rewrite] Case 1: bump to ${NEW_SHA_1}"
 rewrite "${NEW_SHA_1}"
 
-# auth.yaml hardcoded line bumped
-if ! grep -q "image: ${image_base}-auth:${NEW_SHA_1}" "${sandbox_deploy_dir}/auth.yaml"; then
-  echo "FAIL: auth.yaml hardcoded image not bumped to ${NEW_SHA_1}"
+# values.yaml orgTag bumped
+if ! grep -q "^  orgTag: \"${NEW_SHA_1}\"$" "${sandbox_values}"; then
+  echo "FAIL: values.yaml orgTag not bumped to ${NEW_SHA_1}"
+  echo "Live orgTag line:"
+  grep "^  orgTag:" "${sandbox_values}"
   exit 1
 fi
 
-# values.yaml smeTag bumped
-if ! grep -q "^  smeTag: \"${NEW_SHA_1}\"$" "${sandbox_values}"; then
-  echo "FAIL: values.yaml smeTag not bumped to ${NEW_SHA_1}"
-  echo "Live smeTag line:"
-  grep "^  smeTag:" "${sandbox_values}"
-  exit 1
-fi
-
-# 7 templated services — verify their helm-rendered image tag now
-# resolves to the new SHA. Templated form is:
-#   image: "{{ ... }}/services-<svc>:{{ .Values.images.smeTag }}"
-# We do not rewrite those .yaml files directly; we rewrote the
-# values.yaml smeTag and that's what the chart consumes at render
-# time. Assert the templated-form lines are STILL templated (we did
-# not accidentally rewrite them to a hardcoded string) AND assert
-# the values.yaml change would feed them.
-for svc in catalog gateway tenant domain billing provisioning notification; do
-  if ! grep -q '{{ .Values.images.smeTag }}' "${sandbox_deploy_dir}/${svc}.yaml"; then
-    echo "FAIL: ${svc}.yaml lost its templated smeTag reference"
+# All 8 templated services still templated (the no-op sed loop must not
+# have rewritten any of them to a hardcoded string).
+for svc in "${!svc_file[@]}"; do
+  f="${sandbox_deploy_dir}/${svc_file[$svc]}"
+  if ! grep -q '{{ .Values.images.orgTag }}' "$f"; then
+    echo "FAIL: ${svc_file[$svc]} lost its templated orgTag reference after rewrite"
     exit 1
   fi
 done
 
-# Untouched tag fields preserved
+# Untouched tag fields preserved.
 post_catalystApi_tag=$(awk '/^  catalystApi:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
 post_console_tag=$(awk '/^  console:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
-post_marketplace_tag=$(awk '/^  marketplaceApi:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
+post_marketplaceApi_tag=$(awk '/^  marketplaceApi:/{f=1; next} f && /tag:/{print; exit}' "${sandbox_values}")
+post_marketplaceTag=$(grep -E '^  marketplaceTag:' "${sandbox_values}" || true)
 if [ "${pre_catalystApi_tag}" != "${post_catalystApi_tag}" ]; then
   echo "FAIL: catalystApi.tag mutated unexpectedly"
-  echo "  pre:  ${pre_catalystApi_tag}"
-  echo "  post: ${post_catalystApi_tag}"
   exit 1
 fi
 if [ "${pre_console_tag}" != "${post_console_tag}" ]; then
   echo "FAIL: console.tag mutated unexpectedly"
   exit 1
 fi
-if [ "${pre_marketplace_tag}" != "${post_marketplace_tag}" ]; then
+if [ "${pre_marketplaceApi_tag}" != "${post_marketplaceApi_tag}" ]; then
   echo "FAIL: marketplaceApi.tag mutated unexpectedly"
+  exit 1
+fi
+# marketplaceTag is owned by the SEPARATE marketplace-build workflow —
+# services-build must never touch it.
+if [ "${pre_marketplaceTag}" != "${post_marketplaceTag}" ]; then
+  echo "FAIL: marketplaceTag mutated by services-build (owned by marketplace-build)"
   exit 1
 fi
 echo "[services-build-rewrite] Case 1: PASS"
@@ -133,43 +159,31 @@ NEW_SHA_2="def5678"
 echo "[services-build-rewrite] Case 2: re-bump to ${NEW_SHA_2}"
 rewrite "${NEW_SHA_2}"
 
-if ! grep -q "image: ${image_base}-auth:${NEW_SHA_2}" "${sandbox_deploy_dir}/auth.yaml"; then
-  echo "FAIL: auth.yaml hardcoded image not re-bumped to ${NEW_SHA_2}"
+if ! grep -q "^  orgTag: \"${NEW_SHA_2}\"$" "${sandbox_values}"; then
+  echo "FAIL: values.yaml orgTag not re-bumped to ${NEW_SHA_2}"
   exit 1
 fi
-if grep -q "image: ${image_base}-auth:${NEW_SHA_1}" "${sandbox_deploy_dir}/auth.yaml"; then
-  echo "FAIL: auth.yaml still references first SHA"
-  exit 1
-fi
-if ! grep -q "^  smeTag: \"${NEW_SHA_2}\"$" "${sandbox_values}"; then
-  echo "FAIL: values.yaml smeTag not re-bumped to ${NEW_SHA_2}"
-  exit 1
-fi
-if grep -q "^  smeTag: \"${NEW_SHA_1}\"$" "${sandbox_values}"; then
-  echo "FAIL: values.yaml smeTag still references first SHA"
+if grep -q "^  orgTag: \"${NEW_SHA_1}\"$" "${sandbox_values}"; then
+  echo "FAIL: values.yaml orgTag still references first SHA"
   exit 1
 fi
 echo "[services-build-rewrite] Case 2: PASS"
 
-# ── Case 3: helm-render assertion — actual SME-services Pods carry the
-# new SHA after the bump. Renders the catalyst chart with the sandbox
-# values.yaml + an enableSme override (the chart's existing dispatch
-# knob) and greps the resulting Deployment manifests for the SHA.
+# ── Case 3: helm-render assertion — org-services Pods carry the new SHA
+# after the bump. Skipped when helm is unavailable.
 # ──────────────────────────────────────────────────────────────────────
-echo "[services-build-rewrite] Case 3: helm-render — Pods carry new smeTag"
 helm="${HELM_BIN:-helm}"
+if ! command -v "$helm" >/dev/null 2>&1; then
+  echo "[services-build-rewrite] Case 3: SKIP (helm not on PATH)"
+  echo "[services-build-rewrite] All runnable cases PASS"
+  exit 0
+fi
+echo "[services-build-rewrite] Case 3: helm-render — Pods carry new orgTag"
 chart_root="${repo_root}/products/catalyst/chart"
-
-# Build chart deps once into a sandbox so we don't pollute the live
-# tree's charts/ directory.
 sandbox_chart="${sandbox}/catalyst-chart"
 cp -r "${chart_root}" "${sandbox_chart}"
 cp "${sandbox_values}" "${sandbox_chart}/values.yaml"
-# Carry over the rewritten sme-services templates (auth.yaml's
-# hardcoded image line is the one our sed loop touched in Cases 1/2;
-# the rest are unchanged but copying the directory wholesale is
-# cheaper than per-file conditional logic).
-cp -r "${sandbox_deploy_dir}"/*.yaml "${sandbox_chart}/templates/sme-services/"
+cp -r "${sandbox_deploy_dir}"/*.yaml "${sandbox_chart}/templates/org-services/"
 "$helm" dependency build "${sandbox_chart}" >/dev/null 2>&1 || true
 
 render_values=$(mktemp)
@@ -183,23 +197,21 @@ EOF
 out=$("$helm" template smoke "${sandbox_chart}" -f "${render_values}" 2>&1 || true)
 rm -f "${render_values}"
 
-# Drop into a per-svc check: every templated SME service's image must
-# now reference NEW_SHA_2.
 fail=0
-for svc in catalog gateway tenant domain billing provisioning notification; do
-  if ! echo "$out" | grep -q "/services-${svc}:${NEW_SHA_2}"; then
-    echo "FAIL: helm-rendered ${svc} image does not carry SHA ${NEW_SHA_2}"
-    echo "  matched:"
-    echo "$out" | grep -E "image:.*/services-${svc}:" | head -3 || true
+# Every org-services image (auth included) must reference NEW_SHA_2.
+for pair in auth:services-auth catalog:services-catalog gateway:services-gateway \
+            tenant:services-tenant domain:services-domain billing:services-billing \
+            provisioning:services-provisioning notification:services-notification; do
+  img="${pair#*:}"
+  # here-string (not a pipe): under `set -o pipefail`, `echo "$out" | grep -q`
+  # makes grep exit early on match → echo gets SIGPIPE (141) → pipefail
+  # reports 141 → the `if !` inverts a real match into a false FAIL.
+  if ! grep -q "/${img}:${NEW_SHA_2}" <<<"$out"; then
+    echo "FAIL: helm-rendered ${img} image does not carry SHA ${NEW_SHA_2}"
+    grep -E "image:.*/${img}:" <<<"$out" | head -3 || true
     fail=1
   fi
 done
-
-# auth.yaml is hardcoded — its rendered image must also carry the new SHA.
-if ! echo "$out" | grep -q "/services-auth:${NEW_SHA_2}"; then
-  echo "FAIL: helm-rendered auth image does not carry SHA ${NEW_SHA_2}"
-  fail=1
-fi
 
 if [ "$fail" -eq 1 ]; then
   exit 1

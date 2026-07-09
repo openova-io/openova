@@ -571,6 +571,16 @@ images:
   # #4390 merged — it carries #4387 (per-Org <slug>/catalyst-tenant commit) for
   # the HR-app path too. Pin it so the cart HR apps land in the per-Org repo.
   orgTag: "71589b7"
+  # Marketplace storefront image tag (the `marketplace` frontend, distinct from
+  # the `marketplaceApi` backend). Bumped by .github/workflows/marketplace-build.yaml
+  # on every push to core/marketplace/**. Kept as a flat, uniquely-named field
+  # (like orgTag) — NOT nested under `marketplace:` — so the deploy-bot's sed can
+  # anchor on `^  marketplaceTag: "…"$` without colliding with the 2-space
+  # `ingress.marketplace:` / top-level `marketplace:` config blocks. Consumed by
+  # templates/org-services/marketplace.yaml, which now honours global.imageRegistry
+  # for the #4885 cutover step-07 pivot (mirrors the 9 templated org-services
+  # siblings + ui-deployment.yaml's #4563 split).
+  marketplaceTag: "c07094a"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────

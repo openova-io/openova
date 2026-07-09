@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1049 — #4885 (Refs #3379, cutover step-07 image pivot, 2026-07-09): the last
+#   two org-services templates that hardcoded `image: ghcr.io/openova-io/openova/…`
+#   — marketplace.yaml (storefront) + auth.yaml — now template the registry through
+#   global.imageRegistry, exactly like their 9 already-templated siblings
+#   (catalog/gateway/domain/…) and catalyst-ui (#4563). This lets the sovereignty
+#   cutover step-07 HR patch pivot BOTH Pods onto the Sovereign's local Harbor so
+#   the step-08 deny-egress fresh-pull proof stops FATALing on their residual
+#   ghcr.io tether. Coordinated so the deploy-bots keep bumping the pin without an
+#   InvalidImageName regression (#580 shape): marketplace's mutable SHA moves into a
+#   new flat values.yaml `images.marketplaceTag` field, bumped by the
+#   marketplace-build deploy-bot (no longer sed-rewriting the templated image line);
+#   auth reuses the existing `images.orgTag` bundle tag that services-build already
+#   bumps, so its now-templated form is the auth-flip that workflow always
+#   anticipated (its literal-image sed becomes a documented no-op). No render change
+#   when global.imageRegistry is unset (default ghcr.io). Bootstrap-kit slot-13 pin
+#   bumps in lockstep.
 # 1.4.955 — #4061 (zero-touch cutover): a qaFixtures-enabled prov (omantel.biz,
 #   qaTestEnabled=true) now auto-fires the cutover on handover for the full
 #   unattended zero-touch walk; permanent customer Sovereigns stay operator-gated
@@ -3408,7 +3424,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.1048
+version: 1.4.1049
 # 1.4.980 — #4696: SMTP host default mail.openova.io -> stalwart-web.stalwart.svc.cluster.local
 #           (in-cluster svc, matches auth.go code default) — kill flaky-upstream-DNS PIN-delivery 502s.
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/

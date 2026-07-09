@@ -21,11 +21,16 @@ spec:
         - name: ghcr-pull
       containers:
         - name: auth
-          # See marketplace.yaml: this directory is Kustomize-applied by the
-          # contabo-mkt Flux Kustomization (Sovereigns skip via .helmignore),
-          # so the image must be a concrete string. PR #580 templated it and
-          # pinned the new ReplicaSet at InvalidImageName since 2026-05-02.
-          image: ghcr.io/openova-io/openova/services-auth:71589b7
+          # Templated through global.imageRegistry so the #4885 cutover step-07 HR
+          # patch pivots this Pod to the Sovereign's local Harbor during the
+          # deny-egress hold — identical form to its 9 org-services siblings
+          # (catalog/gateway/domain/…). The SHA comes from values.yaml
+          # `images.orgTag` (the shared Organization-services bundle tag), which
+          # the services-build deploy-bot already bumps in lockstep — so the
+          # workflow's now-inert `services-auth:<sha>` literal sed is a documented
+          # no-op (see services-build.yaml). This is the auth-template flip that
+          # workflow anticipated.
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-auth:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8081
