@@ -473,6 +473,45 @@ if ! grep -q 'clusters/_template/bootstrap-kit' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-06 pushes YAML edit to local Gitea)"
 
+echo "[cutover-contract] Case 16b: Step-06 pivots the per-Org TENANT HelmRepositories (#4885)"
+# hw232 (#4885 10:36 residual): step-06 pivoted ONLY the curated
+# .Values.helmRepositories.names set, which NEVER lists the per-Org / marketplace
+# TENANT-blueprint HelmRepositories (bp-agenity / bp-openclaw / bp-stalwart-tenant /
+# bp-wordpress-tenant + shared bp-keycloak/bp-cnpg/bp-newapi) the catalyst-api
+# org-tenant pipeline seeds at Org-provisioning time in
+# clusters/<fqdn>/org-tenants/**.yaml. Those stayed on oci://ghcr.io/openova-io →
+# step-08's `-A` offender scan wedged its deny-egress PRE-CHECK on them →
+# cutoverComplete never set. 0.1.108 fixes this in step-06 with TWO changes; this
+# case locks both so a future edit can't silently drop them.
+#
+# (a) Phase-0.9 LIVE pivot must be DRIFT-PROOF: the Phase-1 patch input unions the
+#     curated names with EVERY live HelmRepository whose spec.url is the upstream
+#     OCI prefix (not just the hand-maintained list).
+if ! grep -q 'curated ∪ live-upstream' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-1 does not union the curated names with live upstream HelmRepositories — tenant/catalog HRs stay on ghcr.io (#4885)" >&2
+  exit 1
+fi
+if ! grep -Eq 'index\(\$2,p\)==1' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-1 missing the live-HR upstream-prefix enumeration (awk index match) (#4885)" >&2
+  exit 1
+fi
+if ! grep -q 'done < "${combined_names}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-1 loop no longer iterates the curated∪live combined_names set (#4885)" >&2
+  exit 1
+fi
+# (b) Phase-2b DURABLE edit must rewrite the org-tenants Gitea source (the tenant
+#     HRs' durable source is the org-tenants parent Kustomization, NOT bootstrap-kit,
+#     so a live patch alone is reverted).
+if ! grep -q "grep '/org-tenants/'" "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-2b does not rewrite the clusters/<fqdn>/org-tenants HelmRepository files — the tenant-HR pivot is non-durable and reverts (#4885)" >&2
+  exit 1
+fi
+if ! grep -q 'org-tenant HelmRepository file(s)' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-2b org-tenant durable-edit log line missing (#4885)" >&2
+  exit 1
+fi
+echo "  PASS (Step-06 pivots tenant HelmRepositories live + durably)"
+
 echo "[cutover-contract] Case 18: Step-06 Phase-0 probe is escape-free + has wait-loop (Fix #77, Gap A)"
 # 0.1.24 used kubectl jsonpath `{.data['.dockerconfigjson']}` which
 # silently returns EMPTY because the leading dot inside bracket-form
