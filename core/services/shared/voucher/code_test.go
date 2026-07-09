@@ -1,18 +1,21 @@
-package handlers
+package voucher
 
-// Tests for voucher-code entropy (#3376 DoD-6).
+// Tests for voucher-code entropy (#3376 DoD-6). Moved here from
+// core/services/billing/handlers when the policy was factored into this
+// shared package (#4914) so both the billing service and the catalyst-api
+// BSS proxy exercise one implementation.
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestGenerateVoucherCode_ShapeAndEntropy(t *testing.T) {
+func TestGenerateCode_ShapeAndEntropy(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 500; i++ {
-		code, err := generateVoucherCode()
+		code, err := GenerateCode()
 		if err != nil {
-			t.Fatalf("generateVoucherCode: %v", err)
+			t.Fatalf("GenerateCode: %v", err)
 		}
 		if !strings.HasPrefix(code, "VCH-") {
 			t.Fatalf("code %q missing VCH- prefix", code)
@@ -22,12 +25,12 @@ func TestGenerateVoucherCode_ShapeAndEntropy(t *testing.T) {
 			t.Fatalf("code body %q len = %d, want 12", body, len(body))
 		}
 		for _, r := range body {
-			if !strings.ContainsRune(voucherCodeAlphabet, r) {
+			if !strings.ContainsRune(CodeAlphabet, r) {
 				t.Fatalf("code %q contains char %q outside the unambiguous alphabet", code, r)
 			}
 		}
 		// A generated code must itself pass the strength gate.
-		if err := validateVoucherCodeStrength(code); err != nil {
+		if err := ValidateCodeStrength(code); err != nil {
 			t.Fatalf("generated code %q failed strength check: %v", code, err)
 		}
 		if seen[code] {
@@ -37,7 +40,7 @@ func TestGenerateVoucherCode_ShapeAndEntropy(t *testing.T) {
 	}
 }
 
-func TestValidateVoucherCodeStrength(t *testing.T) {
+func TestValidateCodeStrength(t *testing.T) {
 	cases := []struct {
 		name    string
 		code    string
@@ -57,7 +60,7 @@ func TestValidateVoucherCodeStrength(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateVoucherCodeStrength(tc.code)
+			err := ValidateCodeStrength(tc.code)
 			if tc.wantErr && err == nil {
 				t.Errorf("code %q: expected error, got nil", tc.code)
 			}
