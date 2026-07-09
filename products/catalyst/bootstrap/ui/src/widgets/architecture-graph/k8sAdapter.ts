@@ -531,6 +531,26 @@ function kindToArchType(kind: 'deployment' | 'statefulset' | 'daemonset'): ArchN
  *      fleet, so IP equality IS node identity. Without this rule every
  *      node rendered twice (12 real nodes → "24/24" on the graph while
  *      the list view showed the true 12).
+ *   3. #4814: rules 1 + 2 both FAIL when the declared side carries no
+ *      identity that can match a live node. The topology_loader's
+ *      declared `buildNodes` emits synthetic ids
+ *      (`node-w-<i>-<region>` / `node-cp-<region>`) AND leaves worker
+ *      `ip` EMPTY (only the control-plane gets an EIP, which is not the
+ *      live InternalIP). So neither the id match nor the IP-keyed
+ *      collapse fires, and a 2-region ×(1 cp + 5 worker) prov renders
+ *      12 declared + 12 live = "24/24" — an exact 2× over-count of the
+ *      12 physical nodes. There is no per-node key that can ever fold
+ *      the declared placeholders onto their live twins (the live node
+ *      name is a random hash, not the declared ordinal), so we count
+ *      LIVE, not declared: when confirmed-live WorkerNodes are present
+ *      (a standalone k8s Node WITH a non-empty InternalIP), the
+ *      remaining declared WorkerNode leaves that did NOT collapse onto
+ *      a live node are dropped — the live nodes are the leaves. The
+ *      declared Region / Cluster / NodePool structural layer stays, so
+ *      declared capacity is still visible (and a live-absent region
+ *      still shows its NodePool). Pre-convergence, when no live Node
+ *      has streamed yet, every declared placeholder is kept so the
+ *      declared-only preview still renders.
  *
  * Edges referencing a collapsed k8s id are rewritten to the surviving
  * cloud id so neighbour lookups (Pod runs-on, Volume attached-to) stay
@@ -552,6 +572,14 @@ export function mergeGraphs(cloud: AdaptResult, k8s: AdaptResult): AdaptResult {
   }
   // k8s id → surviving cloud id, for edge rewriting.
   const aliasedTo = new Map<string, string>()
+  // #4814: cloud-side WorkerNode ids that DID absorb a live payload
+  // (via rule 1 id-match or rule 2 IP-collapse). These represent a
+  // confirmed physical node and must never be dropped by rule 3.
+  const declaredWorkersMergedWithLive = new Set<string>()
+  // #4814: k8s WorkerNodes that rendered standalone (no declared twin).
+  // A non-empty InternalIP marks a CONFIRMED live node — the signal
+  // that the declared placeholders for that fleet are now redundant.
+  let confirmedLiveWorkerPresent = false
 
   // Emit cloud nodes first (provenance). When a k8s node has the same
   // id, fold the k8s payload onto the cloud node.
@@ -565,6 +593,7 @@ export function mergeGraphs(cloud: AdaptResult, k8s: AdaptResult): AdaptResult {
       if (idx >= 0) {
         merged[idx] = mergeNodePayloads(merged[idx]!, kn)
       }
+      if (kn.type === 'WorkerNode') declaredWorkersMergedWithLive.add(kn.id)
       continue
     }
     // Rule 2 — IP-keyed WorkerNode collapse.
@@ -576,13 +605,34 @@ export function mergeGraphs(cloud: AdaptResult, k8s: AdaptResult): AdaptResult {
         if (idx >= 0) {
           merged[idx] = mergeNodePayloads(merged[idx]!, kn)
         }
+        declaredWorkersMergedWithLive.add(cloudId)
         aliasedTo.set(kn.id, cloudId)
         continue
       }
+      // Standalone live WorkerNode — a real node with no declared twin.
+      if (ip) confirmedLiveWorkerPresent = true
     }
     seen.add(kn.id)
     merged.push(kn)
   }
+
+  // #4814 (rule 3) — count LIVE, not declared. When at least one
+  // confirmed live WorkerNode is present, the declared WorkerNode
+  // leaves that never collapsed onto a live node are the un-matchable
+  // duplicates the topology_loader emitted (synthetic id + empty
+  // worker IP); drop them so each physical node is counted ONCE. The
+  // declared Cluster / NodePool structural layer is untouched, so
+  // declared capacity stays visible. With no live node yet (declared-
+  // only preview) nothing is dropped.
+  let survivingNodes = merged
+  if (confirmedLiveWorkerPresent) {
+    survivingNodes = merged.filter((n) => {
+      if (n.type !== 'WorkerNode') return true
+      if (!cloudNodesById.has(n.id)) return true // live-originated leaf — keep
+      return declaredWorkersMergedWithLive.has(n.id) // declared: keep only if it has a live twin
+    })
+  }
+  const survivingIds = new Set(survivingNodes.map((n) => n.id))
 
   // Rewrite edges that referenced a collapsed k8s WorkerNode id to the
   // surviving cloud id, so Pod runs-on / Volume attached-to edges land
@@ -604,13 +654,12 @@ export function mergeGraphs(cloud: AdaptResult, k8s: AdaptResult): AdaptResult {
     seenEdges.add(k)
     dedupedEdges.push(e)
   }
-  // Drop edges whose endpoints aren't in the merged node set.
+  // Drop edges whose endpoints aren't in the surviving node set (this
+  // also sheds the runs-on edges of any #4814-dropped declared leaf).
   const merge: AdaptResult = {
-    nodes: merged,
-    edges: dedupedEdges.filter((e) => seen.has(e.source) && seen.has(e.target)),
+    nodes: survivingNodes,
+    edges: dedupedEdges.filter((e) => survivingIds.has(e.source) && survivingIds.has(e.target)),
   }
-  // unused but keeps the variable referenced under strict TS noUnusedLocals
-  void cloudNodesById
   return merge
 }
 

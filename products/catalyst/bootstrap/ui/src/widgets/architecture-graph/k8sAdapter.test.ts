@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { k8sToGraph, mergeGraphs } from './k8sAdapter'
 import type { K8sObject, K8sSnapshot } from './useK8sCacheStream'
+import type { GraphEdge, GraphNode } from './types'
 
 function snap(...entries: Array<[string, K8sObject]>): K8sSnapshot {
   const m = new Map<string, K8sObject>()
@@ -486,6 +487,121 @@ describe('mergeGraphs', () => {
     }
     const merged = mergeGraphs(cloud, k8s)
     expect(merged.nodes.filter((n) => n.type === 'WorkerNode')).toHaveLength(2)
+  })
+
+  // ── #4814: declared-vs-live WorkerNode over-count ─────────────────
+  // Builds the exact hw232 shape: the declared side (topology_loader
+  // buildNodes) emits synthetic ids + EMPTY worker IPs, so neither the
+  // id match nor the #4732 IP-collapse can fold a declared leaf onto its
+  // live twin. Without rule 3 the graph doubles (declared + live).
+  function declaredRegion(region: string, workers: number, cpEip: string) {
+    const clusterId = `Cluster:cl-${region}`
+    const nodes = [
+      { id: clusterId, type: 'Cluster' as const, label: `cl-${region}`, status: 'healthy' as const },
+      {
+        id: `WorkerNode:node-cp-${region}`,
+        type: 'WorkerNode' as const,
+        label: `node-cp-${region}`,
+        status: 'unknown' as const,
+        // Declared CP carries the public EIP — NOT the live InternalIP.
+        metadata: { sku: 's3.large', role: 'control-plane', ip: cpEip },
+      },
+    ]
+    const edges = [
+      { id: `e:${nodes[1]!.id}->${clusterId}`, source: nodes[1]!.id, target: clusterId, type: 'runs-on' as const },
+    ]
+    for (let i = 0; i < workers; i++) {
+      const id = `WorkerNode:node-w-${i}-${region}`
+      nodes.push({
+        id,
+        type: 'WorkerNode' as const,
+        label: `node-w-${i}-${region}`,
+        status: 'unknown' as const,
+        // Declared WORKER ip is EMPTY (topology_loader buildNodes).
+        metadata: { sku: 's3.large', role: 'worker', ip: '' } as Record<string, string>,
+      } as (typeof nodes)[number])
+      edges.push({ id: `e:${id}->${clusterId}`, source: id, target: clusterId, type: 'runs-on' as const })
+    }
+    return { nodes, edges }
+  }
+
+  function liveRegion(region: string, workers: number, ipBase: string) {
+    const nodes = [
+      {
+        id: `WorkerNode:catalyst-hw232-${region}-cp1`,
+        type: 'WorkerNode' as const,
+        label: `catalyst-hw232-${region}-cp1`,
+        status: 'healthy' as const,
+        metadata: { ip: `${ipBase}.10`, kubeletVersion: 'v1.31.4+k3s1' } as Record<string, string>,
+      },
+    ]
+    for (let i = 0; i < workers; i++) {
+      nodes.push({
+        id: `WorkerNode:catalyst-hw232-${region}-w${i}abc`,
+        type: 'WorkerNode' as const,
+        label: `catalyst-hw232-${region}-w${i}abc`,
+        status: 'healthy' as const,
+        metadata: { ip: `${ipBase}.${20 + i}`, kubeletVersion: 'v1.31.4+k3s1' } as Record<string, string>,
+      })
+    }
+    return { nodes, edges: [] as GraphEdge[] }
+  }
+
+  function concat(...gs: Array<{ nodes: GraphNode[]; edges: GraphEdge[] }>) {
+    return { nodes: gs.flatMap((g) => g.nodes), edges: gs.flatMap((g) => g.edges) }
+  }
+
+  it('#4814: two live regions ×(1 cp + 5 workers) collapse 24→12 (count live, not declared)', () => {
+    // hw232: BOTH regions fully live. 12 declared (synthetic id, empty
+    // worker IP) + 12 live (real name + IP) → must render 12, not 24.
+    const cloud = concat(
+      declaredRegion('me-east-215-a', 5, '203.0.113.1'),
+      declaredRegion('me-east-215-b', 5, '203.0.113.2'),
+    )
+    const k8s = concat(
+      liveRegion('me-east-215-a', 5, '10.209.1'),
+      liveRegion('me-east-215-b', 5, '10.219.1'),
+    )
+    // Before the fix: 12 + 12 = 24.
+    expect(cloud.nodes.filter((n) => n.type === 'WorkerNode')).toHaveLength(12)
+    expect(k8s.nodes.filter((n) => n.type === 'WorkerNode')).toHaveLength(12)
+
+    const merged = mergeGraphs(cloud, k8s)
+    const workers = merged.nodes.filter((n) => n.type === 'WorkerNode')
+    expect(workers).toHaveLength(12)
+    // Every surviving WorkerNode is a live leaf (real name), carrying
+    // the live Ready status — no synthetic declared placeholder remains.
+    expect(workers.every((n) => n.id.startsWith('WorkerNode:catalyst-hw232-'))).toBe(true)
+    expect(workers.every((n) => n.status === 'healthy')).toBe(true)
+    // The declared Cluster structural layer is preserved.
+    expect(merged.nodes.filter((n) => n.type === 'Cluster')).toHaveLength(2)
+  })
+
+  it('#4814: declared-only preview (no live nodes) keeps every declared WorkerNode leaf', () => {
+    // Pre-convergence: the k8s stream is empty. Nothing is suppressed —
+    // the declared topology still renders in full.
+    const cloud = concat(declaredRegion('me-east-215-a', 5, '203.0.113.1'))
+    const merged = mergeGraphs(cloud, { nodes: [], edges: [] })
+    // 1 cp + 5 workers = 6 declared leaves, all kept.
+    expect(merged.nodes.filter((n) => n.type === 'WorkerNode')).toHaveLength(6)
+    // Their runs-on → Cluster edges survive too.
+    expect(merged.edges.filter((e) => e.type === 'runs-on')).toHaveLength(6)
+  })
+
+  it('#4814: a live-absent secondary region is counted by its live nodes only (no fabricated leaves)', () => {
+    // region-a live (1 cp + 5 workers = 6 real), region-b declared but
+    // NOT provisioned (0 live). The over-count fix reports the 6 live
+    // nodes — region-b contributes no fabricated WorkerNode leaves.
+    const cloud = concat(
+      declaredRegion('me-east-215-a', 5, '203.0.113.1'),
+      declaredRegion('me-east-215-b', 5, '203.0.113.2'),
+    )
+    const k8s = concat(liveRegion('me-east-215-a', 5, '10.209.1'))
+    const merged = mergeGraphs(cloud, k8s)
+    expect(merged.nodes.filter((n) => n.type === 'WorkerNode')).toHaveLength(6)
+    // Both declared Clusters remain so region-b's declared capacity is
+    // still structurally visible (degraded, live-empty).
+    expect(merged.nodes.filter((n) => n.type === 'Cluster')).toHaveLength(2)
   })
 
   it('deduplicates edges that appear in both adapters with the same (source,target,type)', () => {
