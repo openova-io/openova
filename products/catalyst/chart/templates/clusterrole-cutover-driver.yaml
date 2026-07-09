@@ -631,3 +631,52 @@ rules:
       - helmrepositories
       - helmcharts
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # Issue #4921 — PER-ORG CONSOLE TLS TRIO + Organization CR mint.
+  # The STSTenantRegistered → STSDone finalisation
+  # (org_tenant_org_cr.go createOrgOrganizationCR + org_console_tls.go
+  # provisionOrgConsoleTLS) mutates four cluster resources via THIS SA
+  # (catalyst-api runs permanently as catalyst-api-cutover-driver —
+  # api-deployment.yaml), but the ClusterRole granted only get/list/watch
+  # on all four kinds. So on every free-subdomain Org create catalyst-api
+  # 403'd (caught live hw233, dep aef1a818):
+  #
+  #   1. ensureOrgConsoleListener SSA-applies the per-Org
+  #      `console-https-<slug>`/`console-http-<slug>` listener pair
+  #      (hostname `*.<slug>.<parent>`) onto cilium-gateway-console
+  #      (kube-system) → needs PATCH on gateways. WITHOUT it the per-Org
+  #      listener is never added, so every per-Org HTTPRoute
+  #      (console/mail/openclaw/keycloak.<slug>.<parent>) fails attachment
+  #      with `NoMatchingListenerHostname` and the front door returns 000.
+  #      THIS is the #4921 root cause. (The console Gateway is pre-created
+  #      by the sovereign-tls Kustomization at Phase-1, so PATCH — the SSA
+  #      merge verb — is sufficient; the path never CREATEs a Gateway.)
+  #   2. ensureOrgConsoleCertificate CREATEs the per-Org wildcard
+  #      Certificate `org-wildcard-tls-<slug>-<parent>` in kube-system →
+  #      needs CREATE on certificates.cert-manager.io.
+  #   3. ensureOrgConsoleHTTPRoute CREATEs the per-Org console HTTPRoute
+  #      `catalyst-ui-<slug>-<parent>` in catalyst-system → needs CREATE
+  #      on httproutes.
+  #   4. createOrgOrganizationCR CREATEs the canonical cluster-scoped
+  #      Organization CR (orgs.openova.io/v1, #3687) → needs CREATE on
+  #      organizations.
+  #
+  # get/list/watch on certificates / gateways+httproutes / organizations
+  # are already granted above (#3978, QA-loop iter-11, Organization page);
+  # RBAC rules merge additively so only the missing mutating verbs are
+  # added here. Per feedback_rbac_create_no_resourcenames.md every `create`
+  # is in its own Rule WITHOUT resourceNames (a POST has no name to match).
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["create"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    verbs: ["patch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["create"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["create"]
