@@ -14,12 +14,37 @@ Least-privilege grants (CC3 audit, #1095):
   clusterroles:get                                             yes    ownerRef sanity (the openova:application-*
                                                                        ClusterRoles must exist before a binding to
                                                                        them is emitted) — get-only, never modified
+  clusterroles:bind (resourceNames = 8 canonical roles)        ADD    #4841 escalation-prevention. Creating a
+                                                                       RoleBinding/ClusterRoleBinding whose roleRef
+                                                                       targets a ClusterRole the controller does NOT
+                                                                       itself hold the permissions of is REJECTED by the
+                                                                       apiserver admission check ("attempting to grant
+                                                                       RBAC permissions not currently held") UNLESS the
+                                                                       requester holds the `bind` verb on that
+                                                                       ClusterRole. See kubernetes.io/docs/reference/
+                                                                       access-authn/authz/rbac/#restrictions-on-role-
+                                                                       binding-creation. Without this every owner +
+                                                                       customer-Org UserAccess CR failed phase=Failed /
+                                                                       0 grants on EVERY fresh prov. The controller binds
+                                                                       ONLY to the fixed canonical set: openova:tier-
+                                                                       {viewer,developer,operator,admin,owner} (tier
+                                                                       path, spec.tierRoleRef) + openova:application-
+                                                                       {admin,editor,viewer} (legacy path,
+                                                                       clusterRoleForRole) — so `bind` is resourceNames-
+                                                                       scoped to exactly those 8. `bind` acts on a NAMED
+                                                                       role, so resourceNames is valid here (unlike
+                                                                       `create`, which must stay unnamed — see
+                                                                       feedback_rbac_create_no_resourcenames).
   leases:get/list/watch/create/update/patch/delete             yes    leader election
   events:create/patch                                          ADD    controller-runtime emits Events on every error;
                                                                        missing in agent's original RBAC.
 
 Net delta vs the agent's original ClusterRole:
   - ADDED events:create/patch (was missing — controller-runtime requires it).
+  - ADDED clusterroles:bind on the 8 canonical tier + application roles
+    (#4841 — the create verb alone is insufficient; the RBAC escalation-
+    prevention admission gate additionally requires `bind` on the target
+    ClusterRole the binding's roleRef points at).
 */ -}}
 {{- if .Values.controllers.useraccess.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -44,6 +69,27 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles"]
     verbs: ["get"]
+  # #4841 — escalation-prevention `bind`. The controller emits
+  # RoleBindings/ClusterRoleBindings whose roleRef points at the canonical
+  # Sovereign-IAM ClusterRoles (tier + application). Because the controller
+  # does NOT itself hold the permissions those roles grant, the apiserver
+  # admission check denies the create unless the controller holds `bind` on
+  # the referenced ClusterRole. `bind` targets a NAMED role, so resourceNames
+  # is valid (unlike `create` — see feedback_rbac_create_no_resourcenames).
+  # Scoped to exactly the fixed canonical set so the grant cannot be abused
+  # to bind subjects to an arbitrary (e.g. cluster-admin) ClusterRole.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames:
+      - "openova:tier-viewer"
+      - "openova:tier-developer"
+      - "openova:tier-operator"
+      - "openova:tier-admin"
+      - "openova:tier-owner"
+      - "openova:application-admin"
+      - "openova:application-editor"
+      - "openova:application-viewer"
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -1237,7 +1237,12 @@ spec:
       #   console-https-<slug> listener actually lands on cilium-gateway-console
       #   (was 403 -> NoMatchingListenerHostname -> per-Org front doors 000).
       #   Lockstep w/ Chart.yaml.
-      version: 1.4.1062
+      # 1.4.1063 — #4841: useraccess-controller ClusterRole gains `bind` on the 8
+      #   canonical tier + application ClusterRoles so RoleBinding/ClusterRoleBinding
+      #   creates pass the apiserver escalation-prevention gate (owner + customer-Org
+      #   UserAccess CRs were phase=Failed / 0 grants on every fresh prov).
+      #   Lockstep w/ Chart.yaml.
+      version: 1.4.1063
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
