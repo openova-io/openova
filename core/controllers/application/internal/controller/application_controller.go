@@ -194,6 +194,17 @@ const (
 // FinalizerName — owned by application-controller.
 const FinalizerName = "application.apps.openova.io/finalizer"
 
+// LabelAppUID is the per-instance back-pointer the topology fan-out
+// stamps on every `<app>-<cluster>` HelmRelease it imperatively upserts
+// (via fanoutOwnerLabels). It carries the owning Application CR's
+// metadata.uid — globally unique per instance, so it disambiguates two
+// same-named Applications in different Orgs/namespaces. handleDeletion()
+// cascades on this label because the fan-out HRs carry NO ownerReferences
+// (they can live in a DIFFERENT namespace than the Application CR — the
+// vCluster pivot lands them in the tier host namespace — and K8s
+// ownerRefs only resolve inside a single namespace; see #4902).
+const LabelAppUID = "catalyst.openova.io/app-uid"
+
 // Gitea is the subset of the gitea.Client surface the reconciler needs.
 // Defining it as an interface here lets tests swap in a fake without a
 // real HTTP server. The production gitea.Client satisfies this
@@ -2065,6 +2076,24 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 		Ready:   "False",
 	})
 
+	// #4902 — cascade-delete the per-region HelmReleases the topology
+	// fan-out imperatively upserted for this Application (the
+	// `<app>-<cluster>` HRs — e.g. `uatprobe-ahs-rtz-a`). They carry NO
+	// ownerReferences (they can live in a different namespace than the
+	// Application CR, which makes same-namespace ownerRefs unsafe — see
+	// the cross-namespace-GC note on ensureHostFluxBootstrap), so K8s GC
+	// never reaps them; and when the fan-out owns the install the legacy
+	// per-region Gitea path below is suppressed, so nothing else removes
+	// them. Without this, an Application created via the New-instance
+	// flow leaks its per-region HR (and its Helm release) on every
+	// delete. Runs BEFORE the spec/env resolution below so orphans are
+	// cleaned even when the spec is unparseable or the parent Environment
+	// is already gone — the cleanup keys off the app-uid back-pointer
+	// label alone.
+	if err := r.cascadeDeleteFanoutHelmReleases(ctx, app); err != nil {
+		return fmt.Errorf("delete per-cluster HelmReleases: %w", err)
+	}
+
 	spec, err := parseSpec(app)
 	if err != nil {
 		// Spec is unparseable — nothing we can do but release the
@@ -2126,6 +2155,78 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 	}
 
 	return r.removeFinalizer(ctx, app)
+}
+
+// cascadeDeleteFanoutHelmReleases removes every per-cluster HelmRelease
+// the topology fan-out imperatively upserted for this Application
+// (#4902). The fan-out reconcile path (§G117.6a) writes each
+// `<app>-<cluster>` HelmRelease straight onto the host k3s via the
+// dynamic client — NOT through Gitea — and when the fan-out owns the
+// install the legacy per-region Gitea render+commit path is suppressed.
+// So handleDeletion's Gitea cleanup removes nothing for a fan-out-owned
+// Application and these HRs would orphan (no deletionTimestamp, only the
+// Flux finalizer) unless we delete them here.
+//
+// We select by the globally-unique app-uid back-pointer label rather
+// than an ownerReference: the fan-out HRs deliberately carry no
+// ownerRefs because they may live in a DIFFERENT namespace than the
+// Application CR (the vCluster pivot lands them in the tier host
+// namespace), and K8s ownerRefs only resolve within a single namespace
+// — a cross-namespace ownerRef would get the HR hard-GC'd the instant
+// it is created (the same trap documented on ensureHostFluxBootstrap).
+//
+// The List is cluster-scoped because the fan-out authors HRs across the
+// Application's own namespace AND per-Tier vCluster host namespaces: the
+// app-uid label pre-filters server-side (efficient on a busy Sovereign)
+// and we re-verify it client-side so nothing outside THIS instance is
+// ever deleted. The controller ClusterRole grants list+delete on
+// helmreleases cluster-wide.
+func (r *Reconciler) cascadeDeleteFanoutHelmReleases(ctx context.Context, app *unstructured.Unstructured) error {
+	uid := string(app.GetUID())
+	name := app.GetName()
+
+	// Prefer the globally-unique app-uid selector; fall back to the
+	// app-name back-pointer only when the CR carries no UID (never in
+	// practice for an API-server-persisted CR, but keeps the cleanup
+	// robust against a hand-crafted / partially-migrated object).
+	selectorKey, selectorVal := LabelAppUID, uid
+	if uid == "" {
+		selectorKey, selectorVal = topo.LabelApp, name
+	}
+
+	list, err := r.Dynamic.Resource(FluxHelmReleaseGVR).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", selectorKey, selectorVal),
+	})
+	if err != nil {
+		return fmt.Errorf("list fan-out HelmReleases: %w", err)
+	}
+
+	for i := range list.Items {
+		hr := &list.Items[i]
+		labels := hr.GetLabels()
+		// Client-side re-verify against the app-uid (or, uid-absent, the
+		// app-name) back-pointer so a List that ignored the server-side
+		// selector can never over-delete another Application's HRs.
+		if uid != "" {
+			if labels[LabelAppUID] != uid {
+				continue
+			}
+		} else if labels[topo.LabelApp] != name {
+			continue
+		}
+		ns, hrName := hr.GetNamespace(), hr.GetName()
+		if derr := r.Dynamic.Resource(FluxHelmReleaseGVR).Namespace(ns).
+			Delete(ctx, hrName, metav1.DeleteOptions{}); derr != nil {
+			if apierrors.IsNotFound(derr) {
+				continue
+			}
+			return fmt.Errorf("delete fan-out HelmRelease %s/%s: %w", ns, hrName, derr)
+		}
+		r.Log.Info("cascade-deleted per-cluster HelmRelease on Application delete (#4902)",
+			"namespace", ns, "name", hrName,
+			"cluster", labels[topo.LabelCluster], "app", name)
+	}
+	return nil
 }
 
 // ensureFinalizer adds the controller's finalizer to the Application
@@ -3333,7 +3434,7 @@ func fanoutOwnerLabels(envSpec envParsedSpec, app *unstructured.Unstructured) ma
 	return map[string]string{
 		"catalyst.openova.io/organization": envSpec.OrganizationRef,
 		"catalyst.openova.io/env-type":     envSpec.EnvType,
-		"catalyst.openova.io/app-uid":      string(app.GetUID()),
+		LabelAppUID:                        string(app.GetUID()),
 	}
 }
 
