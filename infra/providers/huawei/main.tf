@@ -36,6 +36,14 @@ locals {
   # range. Each region gets `base + idx*10` (so a 2-region deploy occupies
   # two distinct /16s).
   #
+  # OVERFLOW FIX (2026-07-09, hw230 dep bc64c0e8): the modulo MUST leave
+  # headroom for the per-region `+idx*10` offset, else a high base pushes
+  # the LAST region past the second octet's 255 ceiling — hw230 hashed to
+  # base=247, so region-b (idx 1) rendered `10.257.0.0/16`, an INVALID CIDR
+  # that failed `tofu plan` before any resource was created. Subtract the
+  # max region offset `(N-1)*10` from the 216-bucket span so every region
+  # stays within [32, 247]: 2 regions → base∈[32,237], region-b∈[42,247].
+  #
   # Wave 5.27 (Refs #2191 follow-up): caught live on 22nd attempt
   # ac117d1e — VPC creation rejected because 19th/20th attempts left
   # orphaned VPCs at 10.20.0.0/16 + 10.30.0.0/16 in HCS. Per Principle
@@ -46,7 +54,7 @@ locals {
   #
   # Inter-VPC routing is via DMZ WireGuard over PUBLIC EIPs (per
   # docs/DOD.md A2), so a fresh CIDR per prov is transparent.
-  cidr_base = 32 + (parseint(substr(sha256(var.deployment_id), 0, 2), 16) % 216)
+  cidr_base = 32 + (parseint(substr(sha256(var.deployment_id), 0, 2), 16) % (216 - (length(var.regions) - 1) * 10))
   region_vpc_cidr = {
     for idx, r in var.regions :
     r.code => format("10.%d.0.0/16", local.cidr_base + idx * 10)
