@@ -182,7 +182,7 @@ spec:
         # as the legacy plain-container bridge (kept identical so the only
         # behavioural change is WHEN it starts and HOW its endpoint publishes).
         - name: sandbox-bridge
-          image: "{{ .Values.sandboxBridge.image.repository }}:{{ .Values.sandboxBridge.image.tag }}"
+          image: {{ include "bp-newapi.image" (dict "repo" .Values.sandboxBridge.image.repository "tag" .Values.sandboxBridge.image.tag "root" $) | quote }}
           imagePullPolicy: {{ .Values.sandboxBridge.image.pullPolicy }}
           restartPolicy: Always
           ports:
@@ -235,7 +235,7 @@ spec:
         # databaseDsnGate.image with any image that also matches the glob +
         # carries the ghcr-pull secret.
         - name: wait-for-sql-dsn
-          image: {{ $dsnGate.image | default (printf "%s:%s" .Values.newapi.image.repository .Values.newapi.image.tag) | quote }}
+          image: {{ $dsnGate.image | default (include "bp-newapi.image" (dict "repo" .Values.newapi.image.repository "tag" .Values.newapi.image.tag "root" $)) | quote }}
           imagePullPolicy: {{ .Values.newapi.image.pullPolicy | default "IfNotPresent" }}
           env:
             - name: DSN_GATE_TIMEOUT_SECONDS
@@ -284,7 +284,7 @@ spec:
       {{- end }}
       containers:
         - name: newapi
-          image: "{{ .Values.newapi.image.repository }}:{{ .Values.newapi.image.tag }}"
+          image: {{ include "bp-newapi.image" (dict "repo" .Values.newapi.image.repository "tag" .Values.newapi.image.tag "root" $) | quote }}
           imagePullPolicy: {{ .Values.newapi.image.pullPolicy }}
           ports:
             - name: http
@@ -438,7 +438,7 @@ spec:
         # signing key + admin secret as the in-binary code path
         # would.
         - name: sandbox-bridge
-          image: "{{ .Values.sandboxBridge.image.repository }}:{{ .Values.sandboxBridge.image.tag }}"
+          image: {{ include "bp-newapi.image" (dict "repo" .Values.sandboxBridge.image.repository "tag" .Values.sandboxBridge.image.tag "root" $) | quote }}
           imagePullPolicy: {{ .Values.sandboxBridge.image.pullPolicy }}
           ports:
             - name: bridge
@@ -477,7 +477,7 @@ spec:
         # see values.yaml `meteringSidecar` for the architecture
         # rationale.
         - name: metering-sidecar
-          image: "{{ .Values.meteringSidecar.image.repository }}:{{ .Values.meteringSidecar.image.tag }}"
+          image: {{ include "bp-newapi.image" (dict "repo" .Values.meteringSidecar.image.repository "tag" .Values.meteringSidecar.image.tag "root" $) | quote }}
           imagePullPolicy: {{ .Values.meteringSidecar.image.pullPolicy }}
           ports:
             - name: metering

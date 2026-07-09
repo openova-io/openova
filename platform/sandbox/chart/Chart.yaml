@@ -119,7 +119,16 @@ annotations:
 # `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
 # → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
 # substrate be4f78bc872e2c56) caught the live regression.
-version: 0.3.11
+# 0.3.12 (#4885): honour global.imageRegistry for the three openova-io images —
+# the sandbox-controller (image) AND the runtime.ptyServerImage / runtime.mcpImage
+# env values the controller stamps into every per-Sandbox child workload. New
+# sandbox.rewriteImageRef helper (host-swap on the leading registry segment when
+# global.imageRegistry set; verbatim ghcr.io otherwise — default byte-identical
+# pre-cutover); sandbox.image now routes through it. New global.imageRegistry:""
+# seam. Ensures the self-sovereign-cutover step-07 pivot reaches both the
+# controller and every child pty/mcp Pod. Lockstep: 19a-bp-sandbox.yaml pin +
+# blueprint.yaml + catalog-seed source.version → 0.3.12. Refs #4885.
+version: 0.3.12
 appVersion: "0.3.7"
 keywords:
   - catalyst

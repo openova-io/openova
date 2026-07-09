@@ -67,7 +67,9 @@ spec:
             # render fast if the per-Sovereign overlay forgets to wire
             # them (Inviolable Principle #4a — no silent :latest).
             - name: SANDBOX_PTY_SERVER_IMAGE
-              value: {{ required "values.runtime.ptyServerImage MUST be set (SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4a)" .Values.runtime.ptyServerImage | quote }}
+              # #4885: honour global.imageRegistry so the child pty-server Pods the
+              # controller stamps this into pivot to local Harbor post-cutover.
+              value: {{ include "sandbox.rewriteImageRef" (dict "ref" (required "values.runtime.ptyServerImage MUST be set (SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4a)" .Values.runtime.ptyServerImage) "root" $) | quote }}
             # TBD-P4 B2 (#1986, 2026-05-20): SANDBOX_MCP_IMAGE is no
             # longer used by sandbox-controller — the per-Sandbox MCP
             # Deployment was removed (stdio binary cannot run as a Pod).
@@ -80,7 +82,8 @@ spec:
             # remove from values.yaml + bootstrap-kit overlays in a
             # later follow-up once all overlays drop the setting.
             - name: SANDBOX_MCP_IMAGE
-              value: {{ .Values.runtime.mcpImage | default "" | quote }}
+              # #4885: honour global.imageRegistry (empty default → unchanged).
+              value: {{ include "sandbox.rewriteImageRef" (dict "ref" (.Values.runtime.mcpImage | default "") "root" $) | quote }}
             - name: SANDBOX_NEWAPI_URL
               value: {{ required "values.runtime.newapiURL MUST be set (e.g. https://newapi.<sov-fqdn>/v1 - newapi-proxy-contract.md)" .Values.runtime.newapiURL | quote }}
             - name: SANDBOX_LLM_GATEWAY_TOKEN_SECRET

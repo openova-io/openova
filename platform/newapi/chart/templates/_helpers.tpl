@@ -313,3 +313,24 @@ the EFFECTIVE channel list (`.Values.channels` + composed defaults).
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Registry-rewrite image helper (#4885). Given an openova-io "<host>/<path>"
+repository + tag, prepend .Values.global.imageRegistry in place of the leading
+registry host when it is set (self-sovereign-cutover step-07 pivot), else emit
+the ghcr.io ref verbatim (default byte-identical pre-cutover). Mirrors the
+continuum.image pattern. Apply ONLY to openova-io first-party images — the
+3rd-party helper images (harbor.openova.io proxy-* curl / postgres) carry their
+own registry and must NOT be routed through this.
+Usage: {{ include "bp-newapi.image" (dict "repo" <repo> "tag" <tag> "root" $) }}
+*/}}
+{{- define "bp-newapi.image" -}}
+{{- $repo := .repo -}}
+{{- $tag := .tag -}}
+{{- $globalRegistry := .root.Values.global.imageRegistry | default "" -}}
+{{- if ne $globalRegistry "" -}}
+{{- printf "%s/%s:%s" $globalRegistry (join "/" (slice (splitList "/" $repo) 1)) $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+{{- end -}}
