@@ -1,5 +1,41 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.108 (#4885 Refs #3379 #4888, the tenant-HelmRepo cutover-pivot gap — hw232
+# step-08 deny-egress PRE-CHECK wedged on 4 tenant/catalog HRs still on ghcr.io):
+# step-06 (helmrepository-patches) previously pivoted ONLY the curated
+# .Values.helmRepositories.names set, which NEVER lists the per-Org / marketplace
+# TENANT-blueprint HelmRepositories the catalyst-api org-tenant pipeline seeds at
+# Org-provisioning time — bp-agenity / bp-openclaw / bp-stalwart-tenant /
+# bp-wordpress-tenant (+ shared bp-keycloak / bp-cnpg / bp-newapi), declared in
+# products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
+# (orgTenantSharedHelmRepositories) + core/services/provisioning/gitops/
+# helmrelease_apps.go (helmRepoBlock), both hardcoded to oci://ghcr.io/openova-io.
+# So those HRs stayed on ghcr.io → step-08's `-A` offender scan (count_offenders)
+# wedged its deny-egress PRE-CHECK on them → the 600s hold never ran →
+# cutoverComplete unreachable (PROVEN hw232, #4885 10:36 residual). The design
+# comment in organization_gitops.go assumed a post-cutover registries.yaml would
+# rewrite these pulls transparently — TRUE for containerd image pulls but FALSE
+# for the Flux source-controller OCI CHART pull, which resolves ghcr.io directly.
+# TWO step-06 changes (chart-only, no step-count / job-mode / RBAC change; still
+# 11 steps):
+#   Phase-0.9 (live pivot, drift-proof) — the Phase-1 patch input is now the
+#     curated names list UNION every live HelmRepository in HELMREPO_NAMESPACE
+#     whose spec.url still points at the upstream OCI prefix (same live∪declared
+#     discipline step-03 Phase-A2 / #4573 F4 uses), so tenant/catalog blueprint
+#     HRs present at cutover time get the URL + certSecretRef pivot.
+#   Phase-2b (durable Gitea edit) — the tenant HRs live in
+#     clusters/<fqdn>/org-tenants/**.yaml in THIS same openova/openova gitops repo,
+#     reconciled by the org-tenants PARENT Kustomization (a DIFFERENT durable source
+#     than the bootstrap-kit slots), so a live patch alone is reverted ~1 reconcile
+#     later. step-06 Phase-2 now ALSO sed-rewrites the upstream url in every
+#     org-tenants YAML (and injects the certSecretRef trust ref into them) so the
+#     pivot is durable and step-08 converges. Repos SEEDED AFTER this step (Orgs
+#     provisioned post-cutover) still get ghcr.io from the org-tenant pipeline
+#     source — the durable-source follow-on (emit local URLs at org-tenant seed
+#     time when post-cutover) is tracked in #4885; this bump covers every tenant HR
+#     present when the cutover runs (the proven wedge). Contract Case 16b locks the
+#     union + the org-tenants durable edit. Lockstep w/ blueprint.yaml + 06a slot
+#     pin + catalog seed. Refs #4885 #3379 #4888.
 # 0.1.107 (#4885 Refs #4888 #4892, wire the four newly-honouring charts into the
 # step-07 image-registry pivot): #4888 introduced
 # .Values.imageRegistryPivot.additionalHRs + the pivot_extra_hr() mechanism
@@ -1556,7 +1592,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.107
+version: 0.1.108
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

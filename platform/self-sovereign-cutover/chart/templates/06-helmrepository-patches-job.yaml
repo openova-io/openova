@@ -525,6 +525,46 @@ data:
                 ;;
             esac
 
+            # ---- Phase 0.9 (#4885): union curated names with live upstream HRs ----
+            #
+            # The curated .Values.helmRepositories.names list (materialised into
+            # /work/helmrepository-names.txt) is HAND-MAINTAINED and always drifts
+            # behind the per-Org / marketplace TENANT-blueprint HelmRepositories the
+            # catalyst-api org-tenant pipeline seeds at Org-provisioning time —
+            # bp-agenity / bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant
+            # (+ the shared bp-keycloak / bp-cnpg / bp-newapi), declared in
+            # products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
+            # (orgTenantSharedHelmRepositories) + core/services/provisioning/gitops/
+            # helmrelease_apps.go (helmRepoBlock), both hardcoded to
+            # oci://ghcr.io/openova-io. Those names are NEVER in the curated list, so
+            # step-06 left them on ghcr.io and step-08's `-A` offender scan
+            # (count_offenders) wedged the deny-egress PRE-CHECK on them → the 600s
+            # hold never ran → cutoverComplete unreachable (PROVEN hw232, #4885 10:36
+            # residual).
+            #
+            # FIX: union the curated list with EVERY live HelmRepository in
+            # HELMREPO_NAMESPACE whose spec.url still points at the upstream OCI
+            # prefix, so the Phase-1 pivot is DRIFT-PROOF and covers tenant/catalog
+            # blueprint repos present at cutover time — the SAME live∪declared
+            # discipline step-03 Phase-A2 (#4573 F4) already applies to the chart-
+            # mirror set. (Phase-2b below rewrites their org-tenants Gitea source so
+            # the live patch is durable. Repos SEEDED AFTER this step — Orgs
+            # provisioned post-cutover — additionally need the org-tenant pipeline to
+            # emit local URLs at source; tracked as the #4885 durable-source
+            # follow-on. This covers everything present when the cutover runs, which
+            # is the proven wedge.)
+            combined_names=/tmp/hr-names-combined.txt
+            sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' /work/helmrepository-names.txt \
+              | grep -v '^$' > "${combined_names}" || true
+            kubectl get helmrepositories.source.toolkit.fluxcd.io -n "${HELMREPO_NAMESPACE}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' 2>/dev/null \
+              | awk -F= -v p="${UPSTREAM_PREFIX}" 'NF>=2 && index($2,p)==1 {print $1}' \
+              >> "${combined_names}" || true
+            # De-dup (stable sort) so an HR in both the curated list and the live
+            # upstream set is patched exactly once.
+            sort -u "${combined_names}" -o "${combined_names}"
+            echo "[helmrepository-patches] Phase-1 input: $(grep -c . "${combined_names}") HelmRepository name(s) (curated ∪ live-upstream)"
+
             # ---- Phase 1: live K8s patches (immediate) ----
             ok=0
             skip=0
@@ -603,7 +643,7 @@ data:
                 echo "[helmrepository-patches] FAIL ${name}"
                 fail=$((fail+1))
               fi
-            done < /work/helmrepository-names.txt
+            done < "${combined_names}"
 
             echo "[helmrepository-patches] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
@@ -734,7 +774,32 @@ data:
               edited=$((edited+1))
               echo "[helmrepository-patches] edited ${f}"
             done
-            echo "[helmrepository-patches] sed edited ${edited} files"
+            echo "[helmrepository-patches] sed edited ${edited} bootstrap-kit file(s)"
+
+            # ---- Phase 2b (#4885): pivot the per-Org TENANT shared HelmRepositories ----
+            #
+            # The catalyst-api org-tenant pipeline writes the shared bp-* tenant
+            # HelmRepositories to clusters/<sov-fqdn>/org-tenants/helmrepositories.yaml
+            # (+ per-tenant overlay files under .../org-tenants/<org-id>/), in THIS
+            # same openova/openova gitops repo, reconciled by the org-tenants PARENT
+            # Flux Kustomization — a DIFFERENT durable source than the bootstrap-kit
+            # slots above. So the Phase-1 live patch of these HRs is REVERTED ~1
+            # reconcile later unless their Gitea source is rewritten here too (the
+            # exact #970/#3526 revert-race, one directory over). Rewrite every
+            # org-tenants YAML that still declares the upstream url
+            # (bp-agenity / bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant /
+            # bp-keycloak / bp-cnpg / bp-newapi) to the local Harbor prefix so
+            # step-08's `-A` offender scan converges durably. Guarded on the tree
+            # existing (a Sovereign with no customer Orgs has no org-tenants dir →
+            # 0 edits, harmless no-op).
+            tenant_edited=0
+            for f in $(grep -rlE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" clusters 2>/dev/null | grep '/org-tenants/' || true); do
+              sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${f}"
+              tenant_edited=$((tenant_edited+1))
+              edited=$((edited+1))
+              echo "[helmrepository-patches] edited tenant-HR ${f}"
+            done
+            echo "[helmrepository-patches] sed edited ${tenant_edited} org-tenant HelmRepository file(s)"
 
             # Phase-2 trust durability (Refs #3379): inject `certSecretRef:`
             # into every HelmRepository spec whose url was just pivoted to the
@@ -748,7 +813,17 @@ data:
             # Only runs when a trust secret was actually built (Phase-0.5).
             if [ -n "${trust_secret}" ]; then
               trust_edited=0
-              for f in $(grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${target_dir}"/*.yaml 2>/dev/null || true); do
+              # #4885: union the bootstrap-kit slot files with the org-tenants HR
+              # files (Phase-2b) so the pivoted TENANT HelmRepositories carry the
+              # source-controller trust ref too — else they x509-fail pulling the
+              # LE-staging in-cluster Harbor once the org-tenants Kustomization
+              # reconciles the durable local url. Collect both into a temp file
+              # (avoids an unindented continuation line inside this YAML block scalar).
+              trust_list=/tmp/cutover-trust-targets.txt
+              : > "${trust_list}"
+              grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${target_dir}"/*.yaml 2>/dev/null >> "${trust_list}" || true
+              grep -rlE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" clusters 2>/dev/null | grep '/org-tenants/' >> "${trust_list}" || true
+              for f in $(awk 'NF' "${trust_list}" | sort -u); do
                 awk -v ref="${trust_secret}" -v lp="${local_prefix}" '
                   # Match a pivoted `url:` line (local Harbor prefix). Capture
                   # its leading whitespace so the injected block aligns with the

@@ -735,7 +735,14 @@ spec:
       # gains the 6-space `global.imageRegistry: ''` seam so the durable Gitea
       # edit persists. Only org-services (marketplace/auth concrete deploybot-
       # bumped ghcr.io refs) stays excluded — the #4885 residual.
-      version: 0.1.107
+      # 0.1.108 (#4885 Refs #3379 #4888): step-06 now pivots the per-Org / marketplace
+      # TENANT-blueprint HelmRepositories too (bp-agenity / bp-openclaw /
+      # bp-stalwart-tenant / bp-wordpress-tenant + shared bp-keycloak/bp-cnpg/bp-newapi)
+      # — Phase-0.9 unions the curated names with every live upstream HR, and Phase-2b
+      # durably rewrites their clusters/<fqdn>/org-tenants/**.yaml Gitea source — so the
+      # step-08 deny-egress PRE-CHECK no longer wedges on tenant HRs still on ghcr.io
+      # (proven hw232). No step-count / job-mode / RBAC change.
+      version: 0.1.108
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
