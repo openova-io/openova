@@ -2525,15 +2525,7 @@ func purgeOBSBuckets(ctx context.Context, endpoint string, hw hwCreds, region, s
 		if !strings.HasPrefix(b.Name, prefix) {
 			continue
 		}
-		// Empty + delete.
-		objCh := client.ListObjects(ctx, b.Name, minio.ListObjectsOptions{Recursive: true})
-		for o := range objCh {
-			if o.Err != nil {
-				continue
-			}
-			_ = client.RemoveObject(ctx, b.Name, o.Key, minio.RemoveObjectOptions{})
-		}
-		if err := client.RemoveBucket(ctx, b.Name); err != nil {
+		if err := emptyAndRemoveOBSBucket(ctx, client, b.Name); err != nil {
 			progress(fmt.Sprintf("obs: remove bucket %s failed: %s", b.Name, err))
 			continue
 		}
@@ -2541,6 +2533,144 @@ func purgeOBSBuckets(ctx context.Context, endpoint string, hw hwCreds, region, s
 		progress("obs: removed bucket " + b.Name)
 	}
 	return removed, nil
+}
+
+// emptyAndRemoveOBSBucket empties a bucket then deletes it. `tofu destroy`
+// cannot remove a NON-EMPTY OBS bucket (the huaweicloud_obs_bucket resource
+// errors with `BucketNotEmpty` unless force_destroy is set), which is the
+// root cause of #4872: every prov's backup bucket outlives its wipe and the
+// account marches to the 100-bucket OBS quota, false-failing the next fresh
+// prov's Phase-0 `tofu apply` with `Code=TooManyBuckets`.
+//
+// Emptying has TWO parts, both required before DeleteBucket will succeed:
+//  1. every object (recursive), and
+//  2. every incomplete multipart upload — an interrupted tofu apply or CSI
+//     backup can leave dangling parts that keep the bucket non-empty even
+//     after all listable objects are gone, so RemoveBucket still fails with
+//     BucketNotEmpty.
+//
+// Shared by the per-deployment wipe purge (purgeOBSBuckets) and the
+// project-wide janitor reclaim (SweepOrphanOBSBuckets). Idempotent: an
+// already-absent object/upload/bucket is a no-op (the caller only ever passes
+// bucket names ListBuckets just returned, so the terminal RemoveBucket sees a
+// bucket that exists; a re-run simply finds no such bucket in the next list).
+func emptyAndRemoveOBSBucket(ctx context.Context, client *minio.Client, bucket string) error {
+	objCh := client.ListObjects(ctx, bucket, minio.ListObjectsOptions{Recursive: true})
+	for o := range objCh {
+		if o.Err != nil {
+			continue
+		}
+		_ = client.RemoveObject(ctx, bucket, o.Key, minio.RemoveObjectOptions{ForceDelete: true})
+	}
+	for up := range client.ListIncompleteUploads(ctx, bucket, "", true) {
+		if up.Err != nil {
+			continue
+		}
+		_ = client.RemoveIncompleteUpload(ctx, bucket, up.Key)
+	}
+	return client.RemoveBucket(ctx, bucket)
+}
+
+// isReclaimableOrphanOBSBucket is the pure match/protection predicate for the
+// project-wide OBS-bucket orphan sweep (#4872). OBS buckets carry NO usable
+// tags on Kom4DC (Wave 5.4 disabled HCS tags), so — exactly like the EIP /
+// keypair / VPC / EVS sweeps — the reclaim decision is driven purely by the
+// deterministic `catalyst-<sovereign-dashed>-<dep-id-prefix>` naming
+// convention, never by a tag.
+//
+// A bucket is reclaimable when ALL of:
+//   - its name carries the `catalyst-` prefix every per-Sovereign OBS bucket
+//     shares (so operator- / bastion-owned buckets, and any non-catalyst
+//     bucket, are hard-protected — we NEVER reach outside this platform's
+//     own buckets), AND
+//   - its name contains NONE of the in-flight deployment-ID 8-char prefixes
+//     (protect-by-default: a bucket belonging to any live / parked / failed
+//     deployment is never swept — only a genuinely-wiped deployment leaves
+//     its prefix out of the active set and its bucket reclaimable).
+//
+// A `bastion` substring is a defence-in-depth second guard — the catalyst-
+// prefix filter already excludes bastion buckets, but the explicit check
+// costs nothing. Extracted as a free function so the selection logic is
+// unit-testable without an OBS endpoint seam.
+func isReclaimableOrphanOBSBucket(name string, activeDepIDPrefixes map[string]struct{}) bool {
+	if name == "" {
+		return false
+	}
+	if strings.Contains(name, "bastion") || !strings.HasPrefix(name, "catalyst-") {
+		return false
+	}
+	for prefix := range activeDepIDPrefixes {
+		if prefix != "" && strings.Contains(name, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+// SweepOrphanOBSBuckets lists every OBS bucket in the account and reclaims
+// catalyst-owned buckets that belong to no in-flight deployment (#4872). It
+// is the object-storage sibling of SweepOrphanEIPs / Keypairs / VPCs / EVS:
+// the per-deployment Wipe purges only the buckets matching the CURRENT
+// Sovereign's prefix (purgeOBSBuckets), so a bucket from a PRIOR failed /
+// wiped prov — or one whose wipe never ran / timed out — falls out of reach
+// and piles up against the OBS 100-bucket account quota until a fresh prov
+// fails Phase-0 with `Code=TooManyBuckets` (58 May+June orphans back to hw01
+// observed on the #4872 incident).
+//
+// OBS ListAllMyBuckets is account-wide (not region-scoped), so one pass with
+// any region's endpoint reclaims every stranded bucket. Match + protection
+// live in isReclaimableOrphanOBSBucket (pure, unit-testable). `destructive`
+// gates the real empty+delete (default false → log-only `would-reap`),
+// identical to the sibling sweeps. activeDepIDPrefixes is the protect-by-
+// default set of in-flight deployment-ID 8-char prefixes. `projectID` is
+// unused (S3-compat OBS authenticates by AK/SK) but kept in the signature so
+// the janitor wires this sweep exactly like its siblings. Returns the count
+// reaped (or would-reap, in log-only mode). Idempotent + safe to run during
+// active provisioning.
+func (p *Provider) SweepOrphanOBSBuckets(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, destructive bool, progress func(msg string)) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	if strings.TrimSpace(ak) == "" || strings.TrimSpace(sk) == "" {
+		return 0, errors.New("obs access/secret keys are empty")
+	}
+	if strings.TrimSpace(region) == "" {
+		region = "me-east-215"
+	}
+	endpoint := fmt.Sprintf("obs.%s.kom4dc.nationalcloud.om", region)
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(ak, sk, ""),
+		Secure: true,
+		Region: region,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("construct minio client: %w", err)
+	}
+	buckets, err := client.ListBuckets(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list buckets: %w", err)
+	}
+	reaped := 0
+	for _, b := range buckets {
+		if !isReclaimableOrphanOBSBucket(b.Name, activeDepIDPrefixes) {
+			if strings.HasPrefix(b.Name, "catalyst-") {
+				progress(fmt.Sprintf("sweep orphan OBS bucket %s: skipped (in-flight deployment or protected)", b.Name))
+			}
+			continue
+		}
+		if !destructive {
+			progress(fmt.Sprintf("sweep orphan OBS bucket %s: would-reap (log-only; set CATALYST_JANITOR_DESTRUCTIVE=true to act)", b.Name))
+			reaped++
+			continue
+		}
+		if err := emptyAndRemoveOBSBucket(ctx, client, b.Name); err != nil {
+			progress(fmt.Sprintf("sweep orphan OBS bucket %s: remove failed: %s", b.Name, err))
+			continue
+		}
+		progress("sweep orphan OBS bucket " + b.Name + ": deleted")
+		reaped++
+	}
+	return reaped, nil
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
