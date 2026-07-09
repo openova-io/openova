@@ -100,7 +100,9 @@ spec:
             capabilities: { drop: [ALL] }
             seccompProfile: { type: RuntimeDefault }
         - name: evs-csi-plugin
-          image: "{{ $img.driver.repository }}:{{ $img.driver.tag }}"
+          # #4885: honour global.imageRegistry so step-07 cutover pivot reaches
+          # the driver Pod (sidecars stay on their harbor.openova.io mirrors).
+          image: "{{ include "bp-huawei-evs-csi.driverImage" . }}"
           imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
           args:
             - "/bin/evs-csi-plugin"

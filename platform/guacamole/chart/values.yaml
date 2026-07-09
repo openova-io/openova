@@ -18,6 +18,20 @@ catalystBlueprint:
     chart: "" # scratch chart — no upstream Helm chart
     version: ""
     repo: ""
+
+# ─── Global registry rewrite (matches catalyst / continuum chart pattern) ──
+# When set, every openova-io image pull (guacd + webapp) routes through this
+# registry instead of ghcr.io. Per-Sovereign overlays leave this empty; the
+# self-sovereign-cutover step-07 image pivot (#4885) sets it to
+# registry.<sovereign-fqdn> so post-cutover pulls hit the Sovereign's own
+# Harbor rather than ghcr.io (which the step-08 deny-egress hold blocks).
+# Empty = no rewrite → the default ghcr.io refs below are used verbatim.
+# The image helpers in templates/_helpers.tpl apply the rewrite (host-swap
+# on the leading registry segment); the sidecar/3rd-party images are never
+# openova-io so they carry their own registry and are untouched.
+global:
+  imageRegistry: ""
+
 # Top-level enable gate. When false, NO resources render. Verified by
 # `helm template` test in tests/.
 guacamole:

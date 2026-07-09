@@ -186,7 +186,7 @@ spec:
       # the same `managed-by: flux` label so the kyverno policy admits BOTH the
       # pre- and post- hooks — without it the 1.0.6 upgrade rolled back on the
       # post-upgrade phase and the HR stayed Stalled.
-      version: 1.0.7
+      version: 1.0.8
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi

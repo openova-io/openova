@@ -89,7 +89,14 @@ name: bp-huawei-evs-csi
 # ownerReference. Stamp `app.kubernetes.io/managed-by: flux` on it too so the
 # 1.0.6 upgrade no longer rolls back on the post-upgrade phase. Completes the
 # hook-label sweep for this chart (both pre- and post- hooks now admitted).
-version: 1.0.7
+# 1.0.8 (#4885): honour global.imageRegistry for the openova-io EVS driver image
+# so the self-sovereign-cutover step-07 image pivot reaches the controller +
+# node driver Pods. New templates/_helpers.tpl driverImage helper (host-swap on
+# the leading registry segment when global.imageRegistry set; verbatim ghcr.io
+# otherwise). New global.imageRegistry:"" seam. The six CSI sidecar images are
+# public harbor.openova.io proxy-k8s mirrors (3rd-party) and are NOT rewritten.
+# Lockstep: 55b-bp-huawei-evs-csi.yaml pin + blueprint.yaml → 1.0.8. Refs #4885.
+version: 1.0.8
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable

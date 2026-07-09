@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-guacamole
+# 0.2.28 (#4885): honour global.imageRegistry for the guacd + webapp openova-io
+# images so the self-sovereign-cutover step-07 image pivot reaches these Pods.
+# _helpers.tpl guacdImage/webappImage now route through a new registryImage
+# helper (host-swap on the leading registry segment when global.imageRegistry is
+# set; verbatim ghcr.io otherwise — default byte-identical pre-cutover). New
+# `global.imageRegistry: ""` seam in values.yaml. The 3rd-party sidecar/curl
+# images carry their own registry and are untouched. Lockstep: 52-bp-guacamole.yaml
+# pin + blueprint.yaml + catalog-seed source.version → 0.2.28. Refs #4885.
 # 0.2.17 (#3374, 2026-06-14): admin group-enrollment fix. After 0.2.16 landed
 # the JDBC permission store (sovereign-admins USER_GROUP with ADMINISTER + the
 # scheduling/POSTGRESQL_USER fixes), the owner STILL got no admin menu —
@@ -198,7 +206,7 @@ name: bp-guacamole
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
 # 0.2.26 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 0.2.27
+version: 0.2.28
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

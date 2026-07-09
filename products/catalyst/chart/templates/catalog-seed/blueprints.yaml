@@ -1717,7 +1717,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.27"
+    version: "0.2.28"
   topology:
     supported:
     - active-hot-standby
@@ -2340,7 +2340,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.137"
+    version: "1.4.138"
   topology:
     supported:
     - active-passive
@@ -5700,7 +5700,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: sandbox
-    version: "0.3.11"
+    version: "0.3.12"
   topology:
     supported:
       - active-hot-standby

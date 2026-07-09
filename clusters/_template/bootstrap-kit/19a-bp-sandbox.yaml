@@ -186,7 +186,7 @@ spec:
       # enum) + non-empty metrics hostnameTemplate; matches catalog-seed.
       # 0.3.11 (#4375): topology placement.tier rtz → '' (host-native)
       # post-#4325 de-vcluster — lockstep with the chart + blueprint bump.
-      version: 0.3.11
+      version: 0.3.12
       sourceRef:
         kind: HelmRepository
         name: bp-sandbox

@@ -38,10 +38,30 @@ catalyst.openova.io/controller: sandbox
 {{/* Resolve the controller image reference. Fails-fast when tag is
      empty so the operator catches the misconfig at `helm template`
      time rather than from a CrashLoopBackoff. */}}
+{{/*
+sandbox.rewriteImageRef (#4885) — apply the global.imageRegistry host-swap to a
+full "<host>/<path>:<tag>" openova-io image ref. When .Values.global.imageRegistry
+is set (self-sovereign-cutover step-07 pivot) the leading registry host is
+replaced (ghcr.io/openova-io/openova/x:tag → registry.<fqdn>/openova-io/openova/x:tag);
+when empty (or the ref is empty) the ref is returned verbatim so the default stays
+byte-identical pre-cutover. Used for the pty-server / mcp env values the controller
+stamps into each per-Sandbox child workload.
+Usage: {{ include "sandbox.rewriteImageRef" (dict "ref" <fullref> "root" $) }}
+*/}}
+{{- define "sandbox.rewriteImageRef" -}}
+{{- $ref := .ref -}}
+{{- $globalRegistry := .root.Values.global.imageRegistry | default "" -}}
+{{- if and (ne $ref "") (ne $globalRegistry "") -}}
+{{- printf "%s/%s" $globalRegistry (join "/" (slice (splitList "/" $ref) 1)) -}}
+{{- else -}}
+{{- $ref -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "sandbox.image" -}}
 {{- $tag := .Values.image.tag | default "" -}}
 {{- if eq $tag "" -}}
 {{- fail "platform/sandbox/chart values.image.tag is empty — CI must stamp a SHA before render. Per docs/INVIOLABLE-PRINCIPLES.md #4a no :latest is permitted." -}}
 {{- end -}}
-{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- include "sandbox.rewriteImageRef" (dict "ref" (printf "%s:%s" .Values.image.repository $tag) "root" $) -}}
 {{- end -}}

@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.138 (#4885): honour global.imageRegistry for the openova-io images
+# (newapi-mirror, newapi-sandbox-bridge, services-metering-sidecar) so the
+# self-sovereign-cutover step-07 image pivot reaches those Pods. New
+# templates/_helpers.tpl `bp-newapi.image` helper (host-swap on the leading
+# registry segment when global.imageRegistry set; verbatim ghcr.io otherwise —
+# default byte-identical pre-cutover). New global.imageRegistry:"" seam. The
+# 3rd-party helper images (harbor.openova.io proxy-* curl / postgres client) are
+# NOT rewritten. Lockstep: 80-newapi.yaml pin + blueprint.yaml + catalog-seed
+# source.version → 1.4.138. Refs #4885.
 # 1.4.136 (#4477 secondary, 2026-06-27): the `catalyst-newapi-admin-token`
 # ExternalSecret's canonical OpenBao read-path moves from the
 # never-written `sovereign/<fqdn>/newapi/admin-token` to the cluster-shared
@@ -928,7 +937,7 @@ name: bp-newapi
 #   drift, then hash-gated reload), mounts the OIDC secret, and its Role reads
 #   it. Live-verified on 91dc0591/omantel.biz: DB secret resynced, pod reloaded
 #   "Loaded 1 custom OAuth providers", KC authenticates the corrected secret.
-version: 1.4.137
+version: 1.4.138
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

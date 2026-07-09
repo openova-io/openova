@@ -84,12 +84,31 @@ Image-tag fail-fast helpers. Per docs/INVIOLABLE-PRINCIPLES.md #4a
 empty `:tag` MUST fail the helm template render — we never want
 floating `:latest` shipping into production.
 */}}
+{{/*
+Registry-rewrite helper (#4885). Given an openova-io "<host>/<path>" image
+repository + a validated tag, prepend .Values.global.imageRegistry in place of
+the leading registry host when it is set (self-sovereign-cutover step-07 pivot),
+else emit the ghcr.io ref verbatim. Mirrors the continuum.image pattern so the
+default byte-identically stays on ghcr.io pre-cutover.
+Usage: {{ include "bp-guacamole.registryImage" (dict "repo" <repo> "tag" <tag> "root" $) }}
+*/}}
+{{- define "bp-guacamole.registryImage" -}}
+{{- $repo := .repo -}}
+{{- $tag := .tag -}}
+{{- $globalRegistry := .root.Values.global.imageRegistry | default "" -}}
+{{- if ne $globalRegistry "" -}}
+{{- printf "%s/%s:%s" $globalRegistry (join "/" (slice (splitList "/" $repo) 1)) $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+{{- end }}
+
 {{- define "bp-guacamole.guacdImage" -}}
 {{- $tag := .Values.guacamole.guacd.image.tag -}}
 {{- if not $tag -}}
 {{- fail "bp-guacamole: .Values.guacamole.guacd.image.tag is empty — SHA-pinned image required (CI populates this)" -}}
 {{- end -}}
-{{- printf "%s:%s" .Values.guacamole.guacd.image.repository $tag -}}
+{{- include "bp-guacamole.registryImage" (dict "repo" .Values.guacamole.guacd.image.repository "tag" $tag "root" $) -}}
 {{- end }}
 
 {{- define "bp-guacamole.webappImage" -}}
@@ -97,7 +116,7 @@ floating `:latest` shipping into production.
 {{- if not $tag -}}
 {{- fail "bp-guacamole: .Values.guacamole.webapp.image.tag is empty — SHA-pinned image required (CI populates this)" -}}
 {{- end -}}
-{{- printf "%s:%s" .Values.guacamole.webapp.image.repository $tag -}}
+{{- include "bp-guacamole.registryImage" (dict "repo" .Values.guacamole.webapp.image.repository "tag" $tag "root" $) -}}
 {{- end }}
 
 {{/*
