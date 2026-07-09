@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T04:15:04Z` |
+| Last refreshed | `2026-07-09T04:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 71 |
 | Open DoD gates | 0 / 41 |
@@ -278,6 +278,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T04:21 | [#4876](https://github.com/openova-io/openova/pull/4876) | #4875 | fix(#4875): vpc-podcidr-route-reconciler ensures openssl (im |
 | 2026-07-09T03:26 | [#4874](https://github.com/openova-io/openova/pull/4874) | #4870 | fix(#4873): cutover prewarm+probe read DEPLOYED chart versio |
 | 2026-07-09T02:35 | [#4871](https://github.com/openova-io/openova/pull/4871) | fix: kom4dc per-region VPC CIDR overflow (region-b 10.257.0. |  |
 | 2026-07-08T23:30 | [#4870](https://github.com/openova-io/openova/pull/4870) | #4674 | fix(#3379): cutover registry-pivot ack-gate tolerates a lagg |
@@ -307,7 +308,6 @@ flowchart LR
 | 2026-07-06T21:29 | [#4829](https://github.com/openova-io/openova/pull/4829) | #4811 | fix(#4811): retriable startup ClusterMesh reconcile on trans |
 | 2026-07-06T19:53 | [#4828](https://github.com/openova-io/openova/pull/4828) | #4785 | fix(provisioning): kill WordPress per-Org double-reconcile c |
 | 2026-07-06T18:48 | [#4826](https://github.com/openova-io/openova/pull/4826) | #4792 | fix(#4785): register Gateway-API HTTPRoute CRD in per-Org vc |
-| 2026-07-06T12:34 | [#4822](https://github.com/openova-io/openova/pull/4822) | #4804 | fix(#4821): customer-Org vcluster — replicateServices.fromHo |
 
 ---
 
