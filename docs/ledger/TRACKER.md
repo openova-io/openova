@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T05:30:08Z` |
+| Last refreshed | `2026-07-09T05:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 74 |
 | Open DoD gates | 0 / 41 |
@@ -270,10 +270,10 @@ flowchart LR
 | [#4858](https://github.com/openova-io/openova/issues/4858) | fix: mothership self-hosting image deadlock — DiskPressure image-GC + harbor.o | Other |
 | [#4860](https://github.com/openova-io/openova/issues/4860) | Blueprint Edit-IaC Validate(dry-run)/Commit returns HTTP 500 after ~52s (blocks  | Other |
 | [#4872](https://github.com/openova-io/openova/issues/4872) | Wipe handler leaks Huawei OBS buckets → account hits 100-bucket quota → fres | Other |
-| [#4873](https://github.com/openova-io/openova/issues/4873) | Cutover wedges at helmrepository-patches when a deploybot chart bump races the p | Other |
 | [#4877](https://github.com/openova-io/openova/issues/4877) | catalyst-api seed seams (newapi-admin-token / anthropic / mcp-bearer) gated on O | Other |
 | [#4878](https://github.com/openova-io/openova/issues/4878) | region-b keycloak DB-auth broken (password authentication failed for user keyclo | Other |
 | [#4879](https://github.com/openova-io/openova/issues/4879) | openbao-snapshot-fetch (region-b secondary) NoSuchBucket — save writes region- | Other |
+| [#4881](https://github.com/openova-io/openova/issues/4881) | Blueprint Release CI fails for bp-self-sovereign-cutover 0.1.104 — stale cutov | Other |
 
 ---
 
@@ -281,6 +281,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T05:42 | [#4882](https://github.com/openova-io/openova/pull/4882) | #3627 | fix(#4881): un-wedge Blueprint Release for bp-self-sovereign |
+| 2026-07-09T05:38 | [#4880](https://github.com/openova-io/openova/pull/4880) | #4879 | fix(#4879): openbao snapshot-fetch treats missing bucket as  |
 | 2026-07-09T04:21 | [#4876](https://github.com/openova-io/openova/pull/4876) | #4875 | fix(#4875): vpc-podcidr-route-reconciler ensures openssl (im |
 | 2026-07-09T03:26 | [#4874](https://github.com/openova-io/openova/pull/4874) | #4870 | fix(#4873): cutover prewarm+probe read DEPLOYED chart versio |
 | 2026-07-09T02:35 | [#4871](https://github.com/openova-io/openova/pull/4871) | fix: kom4dc per-region VPC CIDR overflow (region-b 10.257.0. |  |
@@ -309,8 +311,6 @@ flowchart LR
 | 2026-07-07T01:38 | [#4831](https://github.com/openova-io/openova/pull/4831) | #4811 | fix(#4811): cloud-aware ClusterMesh dial port (mothership se |
 | 2026-07-07T00:10 | [#4830](https://github.com/openova-io/openova/pull/4830) | #4811 | test(#4811): pin clustermesh endpoint dial-port authoritativ |
 | 2026-07-06T21:29 | [#4829](https://github.com/openova-io/openova/pull/4829) | #4811 | fix(#4811): retriable startup ClusterMesh reconcile on trans |
-| 2026-07-06T19:53 | [#4828](https://github.com/openova-io/openova/pull/4828) | #4785 | fix(provisioning): kill WordPress per-Org double-reconcile c |
-| 2026-07-06T18:48 | [#4826](https://github.com/openova-io/openova/pull/4826) | #4792 | fix(#4785): register Gateway-API HTTPRoute CRD in per-Org vc |
 
 ---
 
