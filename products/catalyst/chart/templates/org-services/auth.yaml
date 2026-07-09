@@ -11,6 +11,16 @@ spec:
       app: org-auth
   template:
     metadata:
+      annotations:
+        # Auto-roll when the Sovereign SMTP seed flips empty→populated (#4919).
+        # SMTP_* below are secretKeyRef env, frozen by the kubelet at Pod start.
+        # sovereign_smtp_seed.go seeds the relay (mail.openova.io) asynchronously,
+        # so on a fresh prov this Pod can start BEFORE the seed lands →
+        # org-services-secrets is baked correct on the next reconcile but this Pod
+        # keeps stale-empty SMTP env → POST /auth/magic-link silently no-sends the
+        # anonymous signup PIN. This checksum changes when the seed appears,
+        # forcing Flux to roll auth onto the populated env. See _smtp-helpers.tpl.
+        checksum/smtp-config: {{ include "catalyst.orgSmtpChecksum" . | quote }}
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
         app: org-auth

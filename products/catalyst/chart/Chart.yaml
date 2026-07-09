@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1058 — #4919 (Refs #4749): the REAL hw233 funnel row-84 fix (Pillar-1) —
+#   deterministically roll org-services/{auth,notification} onto the SMTP relay when
+#   the seed lands. Those Pods read SMTP_* from org-services-secrets via secretKeyRef,
+#   which the kubelet freezes at Pod start; sovereign_smtp_seed.go seeds the relay
+#   (mail.openova.io) ASYNC, so on a fresh prov a Pod can start before it and keep
+#   stale-EMPTY SMTP env even after org-services-secrets is baked correct on the next
+#   reconcile (#934) — POST /auth/magic-link then silently no-sends the anonymous
+#   signup PIN until an unrelated reconcile happens to roll the Pod. New helper
+#   catalyst.orgSmtpChecksum (_smtp-helpers.tpl) hashes the seed and is stamped as a
+#   checksum/smtp-config Pod annotation on auth + notification so Flux rolls them the
+#   moment the seed appears. Gated by tests/org-services-smtp-autoroll-contract.sh.
+#   (1.4.1055 shipped the sibling marketplace-api SMTP repoint.)
 # 1.4.1055 — #4919 (Refs #4749): marketplace-api SMTP env now sources the durable
 #   catalyst-system/sovereign-smtp-credentials seed (#4748/#4749 → mail.openova.io:587)
 #   via secretKeyRef (smtp-host/-port/-from/-user/-pass, all optional:true) instead of
@@ -3432,7 +3444,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.1057
+version: 1.4.1058
 # 1.4.980 — #4696: SMTP host default mail.openova.io -> stalwart-web.stalwart.svc.cluster.local
 #           (in-cluster svc, matches auth.go code default) — kill flaky-upstream-DNS PIN-delivery 502s.
 # 1.4.880 — #4212/#4018: catalog-seed bp-crossplane pin 1.1.5 -> 1.1.6 (lockstep w/
