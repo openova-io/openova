@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T20:45:04Z` |
+| Last refreshed | `2026-07-09T21:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 92 |
+| Open issues | 94 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 92 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 94 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 92 open items (clickable table)
+### All 94 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -292,6 +292,8 @@ flowchart LR
 | [#4930](https://github.com/openova-io/openova/issues/4930) | DR switchover-history/quorum/settings endpoints still render synthesized Hetzner | Other |
 | [#4932](https://github.com/openova-io/openova/issues/4932) | Flaky TestGetKubeconfig_ReadsFromPathPointer — phase1-watch goroutine writes i | Other |
 | [#4934](https://github.com/openova-io/openova/issues/4934) | Flaky handler test: leaked post-handover goroutines outlive phase1-watch, race t | Other |
+| [#4936](https://github.com/openova-io/openova/issues/4936) | bp-wordpress-tenant@0.4.20: per-Org WordPress never serves — dialog omits orgD | Other |
+| [#4937](https://github.com/openova-io/openova/issues/4937) | Customer self-service app install fails 403 — marketplace HS256 member session | Other |
 
 ---
 
