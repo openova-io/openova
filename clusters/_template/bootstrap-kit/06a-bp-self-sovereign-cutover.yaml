@@ -719,7 +719,18 @@ spec:
       # node-local `GET http://127.0.0.1:4001/v2/` serving probe so catalyst-api's
       # daemonset-wait cannot green (→ step-07 catalyst-api re-pull) while the
       # dfdaemon mirror has 0 Ready pods (#4649 condition → connection-refused).
-      version: 0.1.105
+      # 0.1.106 (#4885 Refs #3379 #4061): (D3) step-07 now pivots a CURATED set of
+      # ADDITIONAL openova-io HRs (imageRegistryPivot.additionalHRs, default
+      # [bp-continuum]) whose chart honours global.imageRegistry — the 2-HR
+      # hard-code left ~6 workloads on ghcr.io that 401'd under the step-08
+      # deny-egress hold (cutoverComplete never set, hw232). (D1) the auto-trigger
+      # hook is now gated on trigger.fireCutoverOnHandover (wired from
+      # ${FIRE_CUTOVER_ON_HANDOVER:-false} below) so an operator's
+      # fireCutoverOnHandover=false suppresses the auto-fire, consistent with the
+      # catalyst-api reconciler (#4061). Charts that don't honour
+      # global.imageRegistry (bp-guacamole/bp-huawei-evs-csi/bp-newapi/bp-sandbox/
+      # org-services) are excluded pending a per-chart templating fix (#4885).
+      version: 0.1.106
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -855,3 +866,19 @@ spec:
     # picks it up at HelmRelease apply time.
     upstream:
       harborProxyMirrorEndpoint: "${HARBOR_PROXY_MIRROR_ENDPOINT:=}"
+    # #4885 Defect 1 (Refs #3379 #4061): couple the chart's auto-trigger hook to
+    # the operator's fireCutoverOnHandover gate. Before this, the auto-trigger
+    # hook Job rendered whenever trigger.auto=true (chart default) and POSTed
+    # /api/v1/internal/cutover/trigger — a path gated ONLY by the handover-seal
+    # 425, NOT by the operator flag — so an operator setting
+    # fireCutoverOnHandover=false (honoured by the catalyst-api reconciler,
+    # `[CUTOVER-RECONCILE] dormant: fireCutoverOnHandover=false`, #4061) STILL
+    # got an auto-fired cutover. We wire trigger.fireCutoverOnHandover from the
+    # SAME ${FIRE_CUTOVER_ON_HANDOVER:-false} Flux postBuild substitution the
+    # catalyst-api reads (13-bp-catalyst-platform.yaml catalystApi.
+    # fireCutoverOnHandover ← cloud-init FIRE_CUTOVER_ON_HANDOVER), so the hook
+    # renders (auto-fires) ONLY on a Sovereign the operator opted in to
+    # fire-on-handover. Default false → the cutover fires via the BSS CTA (or the
+    # #4669 level-triggered reconciler once the operator flips the flag).
+    trigger:
+      fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}

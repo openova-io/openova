@@ -141,38 +141,61 @@ else
   exit 1
 fi
 
-echo "[cutover-contract] Case 8: auto-trigger Job renders by default (#933)"
-# Founder rule: handover is not done until cutover has run. The chart MUST
-# auto-fire by default. trigger.auto=false is the operator override, NOT
-# the default.
-if ! grep -q 'cutover-auto-trigger' "$TMP/render.yaml"; then
-  echo "FAIL: auto-trigger Job missing from default render — handover gate broken" >&2
-  exit 1
-fi
-# It MUST be a post-install + post-upgrade Helm hook so chart upgrades
-# also re-fire (catalyst-api handles idempotency).
-if ! grep -q '"helm.sh/hook": "post-install,post-upgrade"' "$TMP/render.yaml" ; then
-  echo "FAIL: auto-trigger Job missing post-install + post-upgrade hook annotations" >&2
-  exit 1
-fi
-echo "  PASS (auto-trigger Job present + hook-annotated)"
+# #4885 Defect 1 (Refs #4061): the auto-trigger hook is now COUPLED to the
+# operator's fireCutoverOnHandover gate — it renders only when BOTH
+# trigger.auto AND trigger.fireCutoverOnHandover are true. Render a "fire"
+# variant with fireCutoverOnHandover=true so the auto-trigger-internals cases
+# (8/10/11/13/14) can assert against a render where the hook is PRESENT.
+helm template smoke-fire . --set trigger.fireCutoverOnHandover=true > "$TMP/render-fire.yaml"
 
-echo "[cutover-contract] Case 9: auto-trigger absent when trigger.auto=false"
-# Operator override path — the chart MUST install dormant when an overlay
-# disables auto-trigger.
-helm template smoke-noauto . --set trigger.auto=false > "$TMP/render-noauto.yaml"
+echo "[cutover-contract] Case 8: auto-trigger Job renders when fireCutoverOnHandover=true; ABSENT by default (#4885 Defect 1, Refs #4061)"
+# BEFORE #4885 the founder-rule-#933 default was "auto-fire always" (gated on
+# trigger.auto alone). But /internal/cutover/trigger is gated only by the
+# handover-seal 425, NOT by the operator flag — so an operator who set
+# fireCutoverOnHandover=false (honoured by the catalyst-api reconciler, #4061
+# operator-gated Sovereign) STILL got an auto-fired cutover. #4061 already made
+# the cutover operator-gated-by-default; #4885 couples the hook to the SAME
+# flag. The hook now renders ONLY when trigger.auto AND
+# trigger.fireCutoverOnHandover are BOTH true, and is fail-closed by default
+# (fireCutoverOnHandover: false). On a real Sovereign the 06a overlay wires the
+# flag from ${FIRE_CUTOVER_ON_HANDOVER:-false} so both gates always agree.
+#
+# (a) with fireCutoverOnHandover=true the hook MUST render + be hook-annotated.
+if ! grep -q 'cutover-auto-trigger' "$TMP/render-fire.yaml"; then
+  echo "FAIL: auto-trigger Job missing when fireCutoverOnHandover=true — handover-fire path broken (#4885)" >&2
+  exit 1
+fi
+if ! grep -q '"helm.sh/hook": "post-install,post-upgrade"' "$TMP/render-fire.yaml" ; then
+  echo "FAIL: auto-trigger Job missing post-install + post-upgrade hook annotations (#4885)" >&2
+  exit 1
+fi
+# (b) THE DEFECT-1 GUARD: with the chart default (fireCutoverOnHandover=false)
+#     the hook MUST NOT render — else an operator's `false` is silently
+#     overridden (the exact hw232 bug).
+if grep -q 'cutover-auto-trigger' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job rendered by default (fireCutoverOnHandover=false) — the operator gate is silently overridden (#4885 Defect 1)" >&2
+  exit 1
+fi
+echo "  PASS (auto-trigger renders iff fireCutoverOnHandover=true; suppressed by default)"
+
+echo "[cutover-contract] Case 9: auto-trigger absent when trigger.auto=false (even with fireCutoverOnHandover=true)"
+# Operator override path — trigger.auto=false MUST fully disable the auto-
+# trigger regardless of the fireCutoverOnHandover gate (the sandboxed-test-
+# Sovereign override). Set fireCutoverOnHandover=true to isolate the trigger.auto
+# gate (else the hook would be absent for the OTHER reason and prove nothing).
+helm template smoke-noauto . --set trigger.auto=false --set trigger.fireCutoverOnHandover=true > "$TMP/render-noauto.yaml"
 if grep -q 'cutover-auto-trigger' "$TMP/render-noauto.yaml"; then
   echo "FAIL: auto-trigger Job rendered despite trigger.auto=false" >&2
   exit 1
 fi
-echo "  PASS (auto-trigger gated on trigger.auto)"
+echo "  PASS (auto-trigger gated on trigger.auto independently of fireCutoverOnHandover)"
 
 echo "[cutover-contract] Case 10: auto-trigger uses /internal/cutover/trigger (#935 Bug 2)"
 # Chart 0.1.16 POSTed /api/v1/sovereign/cutover/start which sat behind
 # RequireSession middleware and 401'd forever on otech113 2026-05-05.
 # 0.1.17 must route through /api/v1/internal/cutover/trigger (lives
 # OUTSIDE RequireSession, validates the bearer SA token via TokenReview).
-if ! grep -q '/api/v1/internal/cutover/trigger' "$TMP/render.yaml"; then
+if ! grep -q '/api/v1/internal/cutover/trigger' "$TMP/render-fire.yaml"; then
   echo "FAIL: auto-trigger Job does NOT POST /api/v1/internal/cutover/trigger" >&2
   exit 1
 fi
@@ -182,11 +205,11 @@ echo "[cutover-contract] Case 11: auto-trigger sends SA bearer token (#935 Bug 2
 # The Job must mount its projected ServiceAccount token AND send it as
 # Authorization: Bearer. Without this the /internal/cutover/trigger
 # endpoint will reject the request with 401 missing-bearer.
-if ! grep -q '/var/run/secrets/kubernetes.io/serviceaccount/token' "$TMP/render.yaml"; then
+if ! grep -q '/var/run/secrets/kubernetes.io/serviceaccount/token' "$TMP/render-fire.yaml"; then
   echo "FAIL: auto-trigger Job does NOT read its projected SA token" >&2
   exit 1
 fi
-if ! grep -q 'Authorization: Bearer' "$TMP/render.yaml"; then
+if ! grep -q 'Authorization: Bearer' "$TMP/render-fire.yaml"; then
   echo "FAIL: auto-trigger Job does NOT send Authorization: Bearer header" >&2
   exit 1
 fi
@@ -220,11 +243,11 @@ echo "[cutover-contract] Case 13: readiness probe targets /healthz, NOT /soverei
 # 0.1.18 polls /healthz instead (unauthenticated, always 200 when
 # the process is up). This gate guards against future regressions
 # that re-introduce an auth-gated readiness probe.
-if ! grep -q 'healthz_url=' "$TMP/render.yaml"; then
+if ! grep -q 'healthz_url=' "$TMP/render-fire.yaml"; then
   echo "FAIL: auto-trigger Job missing healthz_url= readiness probe target" >&2
   exit 1
 fi
-if ! grep -q '/healthz' "$TMP/render.yaml"; then
+if ! grep -q '/healthz' "$TMP/render-fire.yaml"; then
   echo "FAIL: auto-trigger Job does NOT include the /healthz probe path" >&2
   exit 1
 fi
@@ -237,7 +260,7 @@ fi
 # appears in the rendered Job. The string itself is allowed in
 # documentation comments — that's why we anchor on `=` (assignment),
 # not just substring presence.
-if grep -E '^\s*[a-zA-Z_][a-zA-Z0-9_]*=.*/api/v1/sovereign/cutover/status' "$TMP/render.yaml" >/dev/null; then
+if grep -E '^\s*[a-zA-Z_][a-zA-Z0-9_]*=.*/api/v1/sovereign/cutover/status' "$TMP/render-fire.yaml" >/dev/null; then
   echo "FAIL: auto-trigger Job polls /sovereign/cutover/status as a readiness probe (auth-gated, 401-loops)" >&2
   exit 1
 fi
@@ -251,7 +274,7 @@ echo "[cutover-contract] Case 14: no early cutoverComplete short-circuit on auth
 # cutover/trigger endpoint is itself idempotent (returns 200 with the
 # existing snapshot when cutoverComplete=true; cutover_internal.go
 # line 279) so no separate pre-read is needed.
-if grep -E "grep.*cutoverComplete.*/tmp/status\.json" "$TMP/render.yaml" >/dev/null; then
+if grep -E "grep.*cutoverComplete.*/tmp/status\.json" "$TMP/render-fire.yaml" >/dev/null; then
   echo "FAIL: auto-trigger Job retains the 0.1.17 cutoverComplete pre-read off /tmp/status.json — that file no longer exists" >&2
   exit 1
 fi

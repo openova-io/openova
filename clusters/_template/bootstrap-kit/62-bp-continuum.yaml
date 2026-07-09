@@ -181,6 +181,22 @@ spec:
   # + nats.openova-system.svc.cluster.local respectively). Per-
   # Sovereign overlays may repoint at Sovereign-local instances.
   values:
+    # #4885 (Refs #3379): imageRegistry override seam — same pattern as
+    # slot 13 bp-catalyst-platform + slot 56 bp-openova-flow-server. Empty
+    # literal default at Phase 1 (pre-cutover) → the chart helper's
+    # `{{ if ne (.Values.global.imageRegistry | default "") "" }}` (continuum
+    # templates/_helpers.tpl `continuum.image`) falls back to the literal
+    # ghcr.io repository. Cutover step-07 (#4885, via
+    # .Values.imageRegistryPivot.additionalHRs) patches this HR's
+    # spec.values.global.imageRegistry live AND durably edits THIS file in
+    # local Gitea, replacing the empty string with the local Harbor host so
+    # continuum-controller pulls registry.<sov-fqdn>/openova-io/openova/
+    # continuum-controller under the deny-egress hold (image native-pushed by
+    # cutover step-03). Without this seam the live HR patch is reverted by the
+    # next Flux Kustomization reconcile. 6-space indent on `imageRegistry:` is
+    # REQUIRED — step-07's sed matches `^      imageRegistry:`.
+    global:
+      imageRegistry: ''
     continuum:
       enabled: ${CONTINUUM_ENABLED:-false}
       # ── harbor-proxy-pull compliance (#3195) ──────────────────────────

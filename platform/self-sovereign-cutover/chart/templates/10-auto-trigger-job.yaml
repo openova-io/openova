@@ -1,4 +1,4 @@
-{{- if .Values.trigger.auto }}
+{{- if and .Values.trigger.auto .Values.trigger.fireCutoverOnHandover }}
 {{- /*
 Step 10 — auto-trigger Job (issue #933, refined per issue #935 Bug 2).
 
@@ -90,9 +90,23 @@ Re-trigger semantics:
     re-trigger idempotently (skips already-success steps via the
     durable status ConfigMap). Safe to fire repeatedly.
 
-Operator override:
-  - Set trigger.auto=false in the per-Sovereign overlay to disable the
-    auto-trigger and require the manual CTA. Default: true (founder rule).
+Operator override (#4885 Defect 1 — COUPLED gate):
+  - This hook now renders ONLY when BOTH trigger.auto AND
+    trigger.fireCutoverOnHandover are true (see the `{{ if and ... }}`
+    guard at the top of this template). Previously the render was gated on
+    trigger.auto ALONE, independent of the operator's fireCutoverOnHandover
+    flag — so an operator who set fireCutoverOnHandover=false (honoured by
+    the catalyst-api reconciler, #4061) STILL got an auto-fired cutover
+    because /internal/cutover/trigger is gated only by the handover-seal
+    425, not by the operator flag. The two gates were uncoupled.
+  - trigger.fireCutoverOnHandover defaults FALSE (fail-closed) and is wired
+    on real Sovereigns from the SAME ${FIRE_CUTOVER_ON_HANDOVER:-false}
+    postBuild substitution the catalyst-api reads (06a slot overlay), so
+    both gates always agree: a Sovereign auto-fires ONLY when the operator
+    opted in. When false the cutover fires via the operator's BSS CTA (or
+    the #4669 level-triggered reconciler once the operator flips the flag).
+  - trigger.auto=false STILL fully disables the auto-trigger regardless of
+    fireCutoverOnHandover (the sandboxed-test-Sovereign override).
 */ -}}
 apiVersion: batch/v1
 kind: Job
