@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T17:15:04Z` |
+| Last refreshed | `2026-07-09T17:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 84 |
+| Open issues | 89 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 84 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 89 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 84 open items (clickable table)
+### All 89 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -284,6 +284,11 @@ flowchart LR
 | [#4913](https://github.com/openova-io/openova/issues/4913) | Harbor front-door 404 (no HTTPRoute at gateway) despite bp-harbor HR Reconciled  | Other |
 | [#4914](https://github.com/openova-io/openova/issues/4914) | Weak voucher code not rejected on console BSS issue path (strength check missing | Other |
 | [#4915](https://github.com/openova-io/openova/issues/4915) | Region-b keycloak config-cli 401 on fresh 2-region prov — admin-pw divergence  | Other |
+| [#4919](https://github.com/openova-io/openova/issues/4919) | Marketplace signup PIN never sends — marketplace-api SMTP_HOST points at non-e | Other |
+| [#4920](https://github.com/openova-io/openova/issues/4920) | Per-Org bp-cnpg operator RBAC missing webhookconfigurations → ensurePKI crashl | Other |
+| [#4921](https://github.com/openova-io/openova/issues/4921) | Per-Org cilium-gateway-console Programmed=False AddressNotAssigned → all per-O | Other |
+| [#4922](https://github.com/openova-io/openova/issues/4922) | bp-agenity:0.9.7 malformed OCI chart artifact (1 descriptor, needs 2) → pull e | Other |
+| [#4923](https://github.com/openova-io/openova/issues/4923) | DR replication-status endpoint returns SYNTHESIZED Hetzner placeholder, not live | Other |
 
 ---
 
