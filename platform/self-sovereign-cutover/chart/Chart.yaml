@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.106 (#4885 Refs #3379 #4563 #4061, hw232 live-walk: cutover wedged at
+# step-08 deny-egress hold because step-07 pivoted only 2 HRs + the auto-trigger
+# ignored the operator flag): TWO chart fixes.
+#   D3 (step-07 multi-HR image-registry pivot) — step-07 hard-coded the
+#     global.imageRegistry pivot to ONLY bp-catalyst-platform (~L71) +
+#     bp-openova-flow-server (#4563, ~L224). Every OTHER openova-io-image HR
+#     whose chart honours global.imageRegistry stayed on ghcr.io → under the
+#     step-08 deny-egress hold its image ref 401s → cutoverComplete never set.
+#     step-07 now ALSO iterates a CURATED list
+#     (.Values.imageRegistryPivot.additionalHRs, default [bp-continuum]) and
+#     pivots each such HR with the IDENTICAL live-HR-patch + durable-Gitea-edit
+#     pattern (new pivot_extra_hr() shell function + range). ONLY charts VERIFIED
+#     to template through global.imageRegistry are listed; the offenders that do
+#     NOT (bp-guacamole/bp-huawei-evs-csi/bp-newapi/bp-sandbox + the org-services
+#     marketplace/auth hardcoded refs) are DELIBERATELY EXCLUDED — each needs a
+#     separate per-chart templating fix (tracked in #4885) and patching their HR
+#     here would be a silent no-op. Added a `global.imageRegistry: ''` seam to
+#     slot 62-bp-continuum.yaml so the durable Gitea edit persists. The existing
+#     bp-catalyst-platform + bp-openova-flow-server pivots are UNCHANGED.
+#   D1 (auto-trigger vs fireCutoverOnHandover) — the 10-auto-trigger-job.yaml
+#     hook rendered whenever trigger.auto=true (default), independent of the
+#     operator's fireCutoverOnHandover gate → an operator setting
+#     fireCutoverOnHandover=false (honoured by the catalyst-api reconciler,
+#     #4061) STILL got an auto-fired cutover. The hook now renders only when
+#     BOTH trigger.auto AND trigger.fireCutoverOnHandover are true. New value
+#     trigger.fireCutoverOnHandover (default false, fail-closed) is wired on real
+#     Sovereigns from the SAME ${FIRE_CUTOVER_ON_HANDOVER:-false} postBuild
+#     substitution catalyst-api reads (06a slot overlay). NO step-count / job-
+#     mode / RBAC change (still 11 steps; the auto-trigger Job is not a cutover
+#     step). Lockstep w/ blueprint.yaml + 06a slot pin + catalog seed. Refs #4885.
 # 0.1.99 (#4682 Refs #3379 #4666 #4652 #4639, the registry-external-host + gateway
 # :443-LoadBalancer cutover: KILL every :30443 NodePort append + the CoreDNS
 # registry-local.server rewrite + the dfdaemon hostAlias→cilium-gateway-ClusterIP
@@ -1509,7 +1539,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.105
+version: 0.1.106
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -22,6 +22,17 @@ global.imageRegistry — this step now patches that HR too (live +
 durable Gitea edit) so both residual ghcr.io tethers pivot to the
 local Harbor before the step-08 fresh-pull-under-deny-egress proof.
 
+#4885 (Refs #3379): the bp-catalyst-platform + bp-openova-flow-server
+pivots above were the ONLY two HRs step-07 pivoted — every OTHER
+openova-io-image HR whose chart honours global.imageRegistry stayed on
+ghcr.io and 401'd under the step-08 deny-egress hold, so cutoverComplete
+never set (live wedge hw232). This step now ALSO iterates a CURATED list
+(.Values.imageRegistryPivot.additionalHRs, default [bp-continuum]) and
+pivots each such HR with the identical live-HR-patch + durable-Gitea-edit
+pattern. Charts that do NOT honour global.imageRegistry (bp-guacamole,
+bp-huawei-evs-csi, bp-newapi, bp-sandbox, org-services marketplace/auth)
+need a separate per-chart templating fix and are excluded (#4885 residual).
+
 Phase 2 (pre-G61): kubectl set env CATALYST_GITOPS_REPO_URL pointing
 catalyst-api at the local Gitea mirror. Triggers another rolling
 restart (likely already in-flight from Phase 1's HR upgrade, but
@@ -275,6 +286,80 @@ data:
             else
               echo "[catalyst-api-env-patch] #4563 SKIP: HR ${FLOW_HR_NAMESPACE}/${FLOW_HR_NAME} not present (flow-server not installed on this Sovereign)"
             fi
+
+            # ---- #4885 (Refs #3379): pivot the REMAINING openova-io HRs ----
+            # whose chart honours global.imageRegistry. bp-catalyst-platform
+            # (above) + bp-openova-flow-server (above) were the ONLY two HRs
+            # step-07 pivoted; every OTHER openova-io-image HR that honours
+            # global.imageRegistry stayed on ghcr.io and 401'd under the
+            # step-08 deny-egress hold → the hold never went green →
+            # cutoverComplete never set (live wedge hw232, dep d71ca7ee89fd4451).
+            # The curated set (.Values.imageRegistryPivot.additionalHRs) is
+            # pivoted here with the SAME live-HR-patch + durable-Gitea-edit
+            # pattern as the two blocks above. ONLY charts VERIFIED to template
+            # their images through global.imageRegistry are listed (values.yaml
+            # carries the excluded-offenders list + rationale) — patching an HR
+            # whose chart ignores the value is a SILENT NO-OP, so the offenders
+            # that need a separate per-chart templating fix (bp-guacamole,
+            # bp-huawei-evs-csi, bp-newapi, bp-sandbox, org-services marketplace/
+            # auth) are deliberately NOT in the default list (#4885 residual).
+            pivot_extra_hr() {
+              _hr_name="$1"; _hr_ns="$2"; _slot="$3"
+              if ! kubectl get hr "${_hr_name}" -n "${_hr_ns}" >/dev/null 2>&1; then
+                echo "[catalyst-api-env-patch] #4885 SKIP: HR ${_hr_ns}/${_hr_name} not present (not installed on this Sovereign)"
+                return 0
+              fi
+              echo "[catalyst-api-env-patch] #4885 HR patch ${_hr_ns}/${_hr_name} spec.values.global.imageRegistry=${REGISTRY}"
+              _patch=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
+              kubectl patch hr "${_hr_name}" \
+                -n "${_hr_ns}" \
+                --type=merge \
+                -p "${_patch}" || echo "[catalyst-api-env-patch] #4885 ${_hr_name} HR patch failed (non-fatal; will retry on next cutover)"
+
+              # Durable Gitea edit of the slot file so Flux Kustomization
+              # doesn't revert the live patch (same #2613 rule as the two
+              # blocks above). The slot MUST carry `imageRegistry: ''` at
+              # 6-space indent under its values.global block.
+              cd /tmp
+              rm -rf xhrrepo
+              _push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+              if git clone --depth 1 --branch main "${_push_url}" xhrrepo >/dev/null 2>&1; then
+                cd xhrrepo
+                git config user.email "self-sovereign-cutover@${HARBOR_HOST}"
+                git config user.name  "self-sovereign-cutover (#4885 ${_hr_name} imageRegistry patch)"
+                if [ -f "${_slot}" ]; then
+                  if sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${REGISTRY}'|" "${_slot}" 2>/dev/null; then
+                    if ! git diff --quiet "${_slot}"; then
+                      git add "${_slot}"
+                      git commit -m "cutover #4885: pivot ${_hr_name} global.imageRegistry to local Harbor (${REGISTRY})" >/dev/null
+                      if git push origin main >/dev/null 2>&1; then
+                        echo "[catalyst-api-env-patch] #4885 OK: Gitea-edit pushed ${_slot} global.imageRegistry='${REGISTRY}'"
+                      else
+                        echo "[catalyst-api-env-patch] #4885 WARN: git push failed for ${_hr_name} (live HR-patch non-durable; next reconcile may revert)" >&2
+                      fi
+                    else
+                      echo "[catalyst-api-env-patch] #4885 SKIP: ${_slot} already has imageRegistry=${REGISTRY} (idempotent re-run)"
+                    fi
+                  else
+                    echo "[catalyst-api-env-patch] #4885 WARN: sed match failed on ${_slot} (missing 6-space imageRegistry:'' seam?); ${_hr_name} pivot durability not guaranteed" >&2
+                  fi
+                else
+                  echo "[catalyst-api-env-patch] #4885 SKIP: ${_slot} not present in local mirror"
+                fi
+                cd /tmp
+                rm -rf xhrrepo
+              else
+                echo "[catalyst-api-env-patch] #4885 WARN: git clone of local Gitea failed; ${_hr_name} pivot durability not guaranteed" >&2
+              fi
+
+              kubectl annotate hr "${_hr_name}" \
+                -n "${_hr_ns}" \
+                "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
+                --overwrite || true
+            }
+{{- range .Values.imageRegistryPivot.additionalHRs }}
+            pivot_extra_hr {{ .name | quote }} {{ .namespace | quote }} {{ .slotFile | quote }}
+{{- end }}
 
             # G61 Phase 2 (was Step 07 pre-G61): set env on the
             # catalyst-api Deployment so it routes GitOps queries to

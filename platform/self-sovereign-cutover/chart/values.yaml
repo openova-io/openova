@@ -655,6 +655,52 @@ catalystAPI:
   # The env var that catalyst-api reads for its GitOps source URL.
   envVar: "CATALYST_GITOPS_REPO_URL"
 
+# #4885 (Refs #3379 #4563): step-07 image-registry pivot — the CURATED set of
+# ADDITIONAL openova-io HelmReleases whose chart HONOURS global.imageRegistry
+# and must be pivoted to the local Harbor at cutover.
+#
+# THE BUG (#4885 Defect 3, live wedge hw232): step-07 hard-coded the
+# global.imageRegistry pivot to ONLY bp-catalyst-platform (~L71) +
+# bp-openova-flow-server (#4563, ~L224). Every OTHER openova-io-image HR whose
+# chart honours global.imageRegistry stayed on ghcr.io → under the step-08
+# deny-egress hold its image ref 401s → the hold never goes green →
+# cutoverComplete never set. bp-continuum is such a chart (its
+# templates/_helpers.tpl `continuum.image` honours global.imageRegistry, same
+# mechanism bp-catalyst-platform uses).
+#
+# Each entry is pivoted with the IDENTICAL live-HR-patch + durable-Gitea-edit
+# pattern step-07 already applies to bp-catalyst-platform / bp-openova-flow-
+# server: `kubectl patch hr <name> --type=merge -p
+# '{"spec":{"values":{"global":{"imageRegistry":"<registry.fqdn>"}}}}'` plus a
+# sed of the slot file's `imageRegistry: ''` seam (6-space indent) so Flux
+# Kustomization doesn't revert the live patch. So every slotFile below MUST
+# carry a `global.imageRegistry: ''` seam at 6-space indent (added to
+# 62-bp-continuum.yaml in lockstep with this chart bump).
+#
+# ⚠️ ONLY list charts VERIFIED to template their images through
+# global.imageRegistry. Patching an HR whose chart does NOT read the value is a
+# SILENT NO-OP — the workload stays on ghcr.io and step-08 still FATALs, but the
+# cutover log falsely reports the pivot "OK". The following #4885 offenders were
+# verified to NOT honour global.imageRegistry and are DELIBERATELY EXCLUDED —
+# each needs a SEPARATE per-chart templating fix (make its image helper honour
+# global.imageRegistry + add a slot seam) before it can be added here:
+#   - bp-guacamole        (platform/guacamole:  guacd/webapp images are literal
+#                          .Values.guacamole.*.image.repository = ghcr.io/...)
+#   - bp-huawei-evs-csi   (platform/huawei-evs-csi: driver image is literal
+#                          $img.driver.repository = ghcr.io/...)
+#   - bp-newapi           (platform/newapi: newapi/sandboxBridge/meteringSidecar
+#                          images are literal .Values.*.image.repository)
+#   - bp-sandbox          (platform/sandbox: controller/pty/mcp images literal)
+#   - org-services        (products/catalyst/chart/templates/org-services:
+#                          marketplace.yaml + auth.yaml hardcode ghcr.io — the
+#                          rest already pivot via the bp-catalyst-platform HR)
+# Tracked in #4885 as the residual cutover blocker.
+imageRegistryPivot:
+  additionalHRs:
+    - name: bp-continuum
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/62-bp-continuum.yaml
+
 # Step container images. The first three steps (01..03) + the
 # registry-pivot DaemonSet use upstream-public images because they run
 # BEFORE registries.yaml v2 takes effect on the node containerd.
@@ -1271,6 +1317,30 @@ trigger:
   # console.<sov-fqdn>/console/dashboard. Set to false in per-Sovereign
   # overlay if a sandboxed test Sovereign should stay tethered.
   auto: true
+  # #4885 (Refs #3379 #4061): COUPLE the auto-trigger hook to the operator's
+  # fireCutoverOnHandover gate. Before this, the auto-trigger hook Job
+  # rendered whenever trigger.auto=true (default) and POSTed
+  # /api/v1/internal/cutover/trigger — a path gated ONLY by the handover-seal
+  # 425, NOT by the operator flag. So an operator who set
+  # fireCutoverOnHandover=false (honoured by the catalyst-api reconciler:
+  # `[CUTOVER-RECONCILE] dormant: fireCutoverOnHandover=false`, #4061
+  # operator-gated Sovereign) STILL got an auto-fired cutover — the two gates
+  # were uncoupled. The hook now renders only when trigger.auto AND
+  # fireCutoverOnHandover are BOTH true (see templates/10-auto-trigger-job.yaml
+  # `{{ if and .Values.trigger.auto .Values.trigger.fireCutoverOnHandover }}`).
+  #
+  # DEFAULT false — fail-closed / operator-gated, CONSISTENT with the source
+  # catalyst-api reads: the catalyst chart plumbs
+  # CATALYST_FIRE_CUTOVER_ON_HANDOVER from catalystApi.fireCutoverOnHandover =
+  # ${FIRE_CUTOVER_ON_HANDOVER:-false} (13-bp-catalyst-platform.yaml), so a
+  # Sovereign auto-fires ONLY when the operator opted in (tofu var
+  # fire_cutover_on_handover=true → FIRE_CUTOVER_ON_HANDOVER=true). The 06a
+  # slot overlay (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-
+  # cutover.yaml) wires this value from the SAME ${FIRE_CUTOVER_ON_HANDOVER:-
+  # false} postBuild substitution so both gates always agree. When false the
+  # cutover fires via the operator's BSS CTA (or the #4669 level-triggered
+  # reconciler once the operator flips the flag). Overlay always wins.
+  fireCutoverOnHandover: false
   # Optional pre-flight delay before the hook POSTs /start. 0 = fire
   # immediately. Useful for soak Sovereigns where the operator wants a
   # short window to inspect the freshly-handed-over dashboard before
