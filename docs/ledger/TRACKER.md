@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T09:00:05Z` |
+| Last refreshed | `2026-07-09T09:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 76 |
+| Open issues | 77 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 76 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 77 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 76 open items (clickable table)
+### All 77 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -276,6 +276,7 @@ flowchart LR
 | [#4881](https://github.com/openova-io/openova/issues/4881) | Blueprint Release CI fails for bp-self-sovereign-cutover 0.1.104 — stale cutov | Other |
 | [#4885](https://github.com/openova-io/openova/issues/4885) | Cutover hardening: 3 Pillar-5 defects block cutoverComplete on fresh 2-region pr | Other |
 | [#4886](https://github.com/openova-io/openova/issues/4886) | Per-app Topology DR tab doesn't surface live Continuum state for bootstrap-HelmR | Other |
+| [#4889](https://github.com/openova-io/openova/issues/4889) | Apps grid + AppDetail header show spine/bootstrap apps FAILED (source: Applicati | Other |
 
 ---
 
@@ -283,6 +284,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T09:09 | [#4888](https://github.com/openova-io/openova/pull/4888) | #4885 | fix(#4885): step-07 multi-HR imageRegistry pivot + couple au |
+| 2026-07-09T09:01 | [#4887](https://github.com/openova-io/openova/pull/4887) | #4551 | fix(#4886): surface live Continuum DR state on Topology tab  |
 | 2026-07-09T06:12 | [#4884](https://github.com/openova-io/openova/pull/4884) | #4878 | fix(#4878): rollout-restart shared-pg consumers after cross- |
 | 2026-07-09T06:04 | [#4883](https://github.com/openova-io/openova/pull/4883) | #4877 | fix(#4877): self-heal reconciler for catalyst-api OpenBao se |
 | 2026-07-09T05:42 | [#4882](https://github.com/openova-io/openova/pull/4882) | #3627 | fix(#4881): un-wedge Blueprint Release for bp-self-sovereign |
@@ -311,8 +314,6 @@ flowchart LR
 | 2026-07-07T10:17 | [#4840](https://github.com/openova-io/openova/pull/4840) | #4837 | fix(#4836): accept #3969 placement targets[] in HandleApplic |
 | 2026-07-07T09:37 | [#4839](https://github.com/openova-io/openova/pull/4839) | #4831 | fix(#4838): Factory.Stop() waits for snapshot loop to drain  |
 | 2026-07-07T08:35 | [#4835](https://github.com/openova-io/openova/pull/4835) | #4834 | fix(#4833): pin fresh funnel-Org stalwart-mail to 0.1.13 so  |
-| 2026-07-07T08:03 | [#4834](https://github.com/openova-io/openova/pull/4834) | #4272 | fix(#4833): right-size bp-stalwart-tenant CPU 1→500m so open |
-| 2026-07-07T01:38 | [#4831](https://github.com/openova-io/openova/pull/4831) | #4811 | fix(#4811): cloud-aware ClusterMesh dial port (mothership se |
 
 ---
 
