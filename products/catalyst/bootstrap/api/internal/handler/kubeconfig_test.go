@@ -118,6 +118,20 @@ func makePutFixture(t *testing.T, status string) (*Handler, string, string, stri
 	h.phase1WatchWG = &phase1WG
 	t.Cleanup(phase1WG.Wait)
 
+	// phase1WatchWG above awaits runPhase1Watch's OWN return, but its
+	// OutcomeReady terminal (markPhase1Done) spawns fire-and-forget day-2
+	// goroutines (runAutoEstablishClusterMesh + the runPostHandover* hooks)
+	// on context.Background() carrying 15-min / 6-hour budgets. Those
+	// descendants outlive phase1WG.Wait and — because this fixture wires a
+	// real store + kubeconfigsDir on t.TempDir() — their emitWatchEvent →
+	// recordEventAndPersist write (or a spine-seam read) races Go's testing
+	// RemoveAll cleanup ("TempDir RemoveAll cleanup: directory not empty")
+	// and trips -race, intermittently reddening a clean package run (the
+	// #4934 second flake, sibling of the #4932 phase1-watch leak). Suppress
+	// the hooks here so no goroutine outlives the test; the hooks keep their
+	// own dedicated coverage in post_handover_*_test.go / clustermesh_test.go.
+	h.suppressPostHandoverHooks = true
+
 	id := "putkc-" + status
 	bearer, hash, err := newBearerToken()
 	if err != nil {

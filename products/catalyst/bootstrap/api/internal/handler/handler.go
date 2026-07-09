@@ -145,6 +145,22 @@ type Handler struct {
 	// empty"). See makePutFixture in kubeconfig_test.go.
 	phase1WatchWG *sync.WaitGroup
 
+	// suppressPostHandoverHooks — test-only gate. markPhase1Done, at its
+	// OutcomeReady/OutcomeTimeout terminal, spawns fire-and-forget day-2
+	// goroutines on context.Background() (runAutoEstablishClusterMesh +
+	// the runPostHandover* hooks). They carry 15-min / 6-hour budgets, so
+	// in a store+kubeconfigsDir fixture backed by t.TempDir() they outlive
+	// the test body and their emitWatchEvent → recordEventAndPersist write
+	// (or a spine-seam read) races Go's testing RemoveAll cleanup
+	// ("TempDir RemoveAll cleanup: directory not empty") / trips -race.
+	// phase1WatchWG only awaits runPhase1Watch's OWN return, not these
+	// descendant goroutines. Nil/false in production (New leaves it zero)
+	// so the hooks always fire on a real Sovereign; the phase1-watch
+	// fixtures set it true so no goroutine outlives the test. The hooks
+	// keep their own dedicated coverage in post_handover_*_test.go /
+	// clustermesh_test.go. See makePutFixture in kubeconfig_test.go.
+	suppressPostHandoverHooks bool
+
 	// phase1ReadySentinel is the component id (bp- prefix stripped) whose
 	// terminal-install gates OutcomeReady (#4746). The PRIMARY watch refuses
 	// to classify a prov "ready" until this component (the console's own

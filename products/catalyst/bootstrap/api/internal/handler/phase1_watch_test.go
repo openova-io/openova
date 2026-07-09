@@ -751,16 +751,30 @@ func TestPodRestart_Phase1WatchingResumesWithKubeconfig(t *testing.T) {
 			// when the previous Pod died.
 		},
 	}
+
+	// Build the handler against the (still-empty) store first so the
+	// constructor's restoreFromStore finds nothing and spawns no watch yet.
+	// Then wire a WaitGroup the resumed watch joins (+ suppress the day-2
+	// hooks), persist the record, and restore explicitly: restoreFromStore
+	// now fires resumePhase1Watch UNDER the WaitGroup. Its background watch
+	// ends in markPhase1Done → persistDeployment, writing into the store dir
+	// (this test's t.TempDir()); left unbounded it outlives the test body
+	// and its write races Go's testing RemoveAll cleanup ("TempDir RemoveAll
+	// cleanup: directory not empty" — the #4934 restore leak). t.Cleanup is
+	// registered AFTER t.TempDir() so it runs (cleanups are LIFO) BEFORE
+	// RemoveAll. We do NOT assert on the resumed watch here (that is covered
+	// by the runPhase1Watch happy-path tests above); we only assert the
+	// gating decision (shouldResumePhase1=true) and the preserved Status.
+	h := NewWithStore(silentLogger(), &fakePDM{}, st)
+	var phase1WG sync.WaitGroup
+	h.phase1WatchWG = &phase1WG
+	h.suppressPostHandoverHooks = true
+	t.Cleanup(phase1WG.Wait)
+
 	if err := st.Save(rec); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-
-	// Build a handler against the on-disk store. We do NOT exercise
-	// runPhase1Watch end-to-end here (that's covered above); we only
-	// assert the gating decision (shouldResumePhase1=true) and the
-	// preserved Status value, both of which are the load-bearing
-	// pieces of the issue #830 Bug 3 fix.
-	h := NewWithStore(silentLogger(), &fakePDM{}, st)
+	h.restoreFromStore()
 
 	// Confirm the gating decision matches expectation.
 	dep := fromRecord(rec)

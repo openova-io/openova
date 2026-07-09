@@ -729,6 +729,20 @@ func (h *Handler) EnableConsoleReachabilityGate() {
 	h.consoleProbe = defaultConsoleReachable
 }
 
+// spawnPostHandoverHook runs fn on a background goroutine — the
+// fire-and-forget day-2 shape every post-handover hook uses — UNLESS the
+// test-only suppressPostHandoverHooks gate is set (see the field doc on
+// Handler). Production always spawns; the phase1-watch fixtures suppress so
+// no goroutine carrying a 15-min / 6-hour budget outlives the test body and
+// races t.TempDir cleanup / trips -race. Behaviour when not suppressed is
+// byte-identical to the previous inline `go h.run…(dep)`.
+func (h *Handler) spawnPostHandoverHook(fn func()) {
+	if h.suppressPostHandoverHooks {
+		return
+	}
+	go fn()
+}
+
 func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string, outcome string) {
 	now := time.Now().UTC()
 
@@ -1053,7 +1067,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// path (which holds no locks now) doesn't block on the
 		// per-region LB IP wait loops (each up to 5 min).
 		// docs/SOVEREIGN-MULTI-REGION-DOD.md gates D9-D12.
-		go h.runAutoEstablishClusterMesh(dep)
+		h.spawnPostHandoverHook(func() { h.runAutoEstablishClusterMesh(dep) })
 		// C10-003 (2026-05-17 t143): when Phase-1 reaches
 		// OutcomeReady, the PRIMARY's terminate path persists the
 		// final per-Job status from its own helmwatch state map.
@@ -1118,7 +1132,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// handover (Audit-stuck is non-catastrophic; operators can
 		// manually patch per #2441 fallback). See post_handover_policy_
 		// enforce.go for the full helper.
-		go h.runPostHandoverPolicyEnforceFlip(dep)
+		h.spawnPostHandoverHook(func() { h.runPostHandoverPolicyEnforceFlip(dep) })
 
 		// #4212 (Path B of #4018; un-gates #4002): carry the real-id
 		// Observe-first CloudAdoption claims from the deploy workdir's
@@ -1134,7 +1148,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// this must NOT block the terminate path. Failures log + emit SSE
 		// warn but never fail the handover (adoption is a day-2
 		// observability surface). See post_handover_adoption_apply.go.
-		go h.runPostHandoverAdoptionApply(dep)
+		h.spawnPostHandoverHook(func() { h.runPostHandoverAdoptionApply(dep) })
 
 		// #4212 Seam 3 (folds #3829): enroll the DR-capable bootstrap spine
 		// (openbao/keycloak/harbor/gitea) into the object model by stamping
@@ -1147,7 +1161,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// this must NOT block the terminate path. Failures log + emit SSE
 		// warn but never fail the handover (spine enrollment is a day-2
 		// object-model surface). See post_handover_spine_apps.go.
-		go h.runPostHandoverSpineApplications(dep)
+		h.spawnPostHandoverHook(func() { h.runPostHandoverSpineApplications(dep) })
 
 		// #4690 / #4686: on the CCM-less Huawei provider, discover the Sovereign
 		// gateway LoadBalancer Service's live auto-allocated nodePort and
@@ -1159,7 +1173,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// block the terminate path. No-op on Hetzner (hcloud-ccm programs
 		// node:443 directly). Failures log + emit SSE warn but never fail the
 		// handover. See post_handover_gateway_elb.go.
-		go h.runPostHandoverGatewayELB(dep)
+		h.spawnPostHandoverHook(func() { h.runPostHandoverGatewayELB(dep) })
 	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
 		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
 		// recoverable classification ("components observed, none
@@ -1175,7 +1189,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// it converges exactly when the env does. Handover, the job
 		// sweep, and the policy flip stay ready-only — this rescues
 		// the TOPOLOGY, not the lifecycle.
-		go h.runAutoEstablishClusterMesh(dep)
+		h.spawnPostHandoverHook(func() { h.runAutoEstablishClusterMesh(dep) })
 		// #3277 (founder, 2026-06-12): the secondary-region job rows
 		// freeze at their last-seen state forever on a timeout record
 		// (witnessed live: 9 "running" rows on hw130 with every
