@@ -699,7 +699,20 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		h.emitSovereignSMTPSeedEvent(dep, seedOutcome)
 
 		// Launch the helmwatch goroutine in the background.
+		//
+		// phase1WatchWG (test-only; nil in production) lets a test
+		// deterministically await this goroutine before it returns, so
+		// its terminal markPhase1Done → persistDeployment write can
+		// never race t.TempDir()'s RemoveAll cleanup. Add(1) runs on the
+		// request goroutine BEFORE `go` (the WaitGroup contract); Done
+		// fires when the goroutine fully unwinds.
+		if h.phase1WatchWG != nil {
+			h.phase1WatchWG.Add(1)
+		}
 		go func() {
+			if h.phase1WatchWG != nil {
+				defer h.phase1WatchWG.Done()
+			}
 			h.runPhase1Watch(dep)
 			if relaunchAfterTerminalKubeconfigMissing {
 				dep.mu.Lock()

@@ -134,6 +134,17 @@ type Handler struct {
 	phase1MinBootstrapKitHRs int
 	phase1FirstSeenTimeout   time.Duration
 
+	// phase1WatchWG — test-only WaitGroup that the background
+	// phase1-watch goroutine launched by PutKubeconfig joins (Add on
+	// the request goroutine before `go`, Done when the goroutine fully
+	// unwinds). Nil in production (New leaves it zero) so the goroutine
+	// stays fire-and-forget. Tests set it to a &sync.WaitGroup{} and
+	// Wait on it in a t.Cleanup so the goroutine's async
+	// markPhase1Done → persistDeployment write can never race the
+	// testing package's t.TempDir() RemoveAll cleanup ("directory not
+	// empty"). See makePutFixture in kubeconfig_test.go.
+	phase1WatchWG *sync.WaitGroup
+
 	// phase1ReadySentinel is the component id (bp- prefix stripped) whose
 	// terminal-install gates OutcomeReady (#4746). The PRIMARY watch refuses
 	// to classify a prov "ready" until this component (the console's own

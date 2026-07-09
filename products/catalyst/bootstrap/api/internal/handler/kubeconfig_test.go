@@ -35,6 +35,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,6 +91,32 @@ func makePutFixture(t *testing.T, status string) (*Handler, string, string, stri
 	}
 
 	h := NewWithStoreAndKubeconfigsDir(silentLogger(), &fakePDM{}, st, kubeconfigsDir)
+
+	// A successful PUT launches a background phase1-watch goroutine that
+	// ends in markPhase1Done → persistDeployment, writing into
+	// deploymentsDir (this test's t.TempDir()). Left unbounded it
+	// outlives the test body and its write races Go's testing RemoveAll
+	// cleanup → "TempDir RemoveAll cleanup: directory not empty" (a real
+	// CI flake, e.g. TestGetKubeconfig_ReadsFromPathPointer). Bound and
+	// await it deterministically:
+	//   - inject a fake dynamic factory so the watch runs against an
+	//     in-memory cluster — this also flips helmwatch to
+	//     noopReachability (helmwatch.go:781), so the goroutine never
+	//     dials the real network — and a tiny watch timeout so it
+	//     terminates in milliseconds (a single ready HR + the default
+	//     MinBootstrapKitHRs=1 with no ready-sentinel gate reaches
+	//     all-done almost immediately);
+	//   - hand the handler a WaitGroup the goroutine joins, then Wait on
+	//     it in a t.Cleanup registered AFTER both t.TempDir() calls so it
+	//     runs (cleanups are LIFO) BEFORE either RemoveAll.
+	// Tests that need their own watch wiring (e.g. LaunchesPhase1Watch)
+	// overwrite dynamicFactory/phase1WatchTimeout after this returns; the
+	// WaitGroup still awaits their goroutine.
+	h.dynamicFactory = fakeDynamicFactoryFromObjects(makeReadyHR("bp-cilium"))
+	h.phase1WatchTimeout = 500 * time.Millisecond
+	var phase1WG sync.WaitGroup
+	h.phase1WatchWG = &phase1WG
+	t.Cleanup(phase1WG.Wait)
 
 	id := "putkc-" + status
 	bearer, hash, err := newBearerToken()
