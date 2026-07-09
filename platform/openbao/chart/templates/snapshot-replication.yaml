@@ -464,10 +464,33 @@ spec:
                   # uninterrupted. The restore + peers.json recovery is a
                   # bp-continuum step; this only stages the data.
                   log "fetching latest snapshot from s3://${S3_BUCKET} to ${STAGING_PATH}"
-                  LATEST="$(aws --endpoint-url "${S3_ENDPOINT}" s3api list-objects-v2 \
+                  # #4879: on a freshly-provisioned secondary the local seaweedfs
+                  # `openbao-snapshots` bucket may not exist yet — the primary's
+                  # save Job creates it on its FIRST successful ship. Under
+                  # `set -eu` a NoSuchBucket error from list-objects-v2 aborts the
+                  # whole Job (hard CronJob failure) instead of taking the graceful
+                  # empty-bucket skip below. Capture stderr and treat a
+                  # not-yet-present bucket EXACTLY like an empty one: WARN + exit 0
+                  # (a not-yet-created bucket is a skipped tick, not a failure).
+                  # Any OTHER list error still aborts, re-raising its exit code so
+                  # real faults stay loud.
+                  LIST_ERR=/tmp/openbao-snapshot-list.err
+                  if LATEST="$(aws --endpoint-url "${S3_ENDPOINT}" s3api list-objects-v2 \
                     --bucket "${S3_BUCKET}" \
                     --query 'sort_by(Contents,&LastModified)[-1].Key' \
-                    --output text)"
+                    --output text 2>"${LIST_ERR}")"; then
+                    rm -f "${LIST_ERR}"
+                  else
+                    rc=$?
+                    if grep -q 'NoSuchBucket' "${LIST_ERR}"; then
+                      log "WARN: bucket s3://${S3_BUCKET} not yet present on local S3 — skipping this tick (#4879)"
+                      rm -f "${LIST_ERR}"
+                      exit 0
+                    fi
+                    log "FATAL: list-objects-v2 on s3://${S3_BUCKET} failed (rc=${rc}): $(cat "${LIST_ERR}" 2>/dev/null)"
+                    rm -f "${LIST_ERR}"
+                    exit "${rc}"
+                  fi
                   if [ -z "${LATEST}" ] || [ "${LATEST}" = "None" ]; then
                     log "WARN: no snapshot objects in s3://${S3_BUCKET} yet — nothing to stage this tick"
                     exit 0
