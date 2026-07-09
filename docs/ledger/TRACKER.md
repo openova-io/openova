@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T09:15:05Z` |
+| Last refreshed | `2026-07-09T09:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -284,6 +284,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T09:21 | [#4891](https://github.com/openova-io/openova/pull/4891) | #4885 | fix(#4885): roll gitea on admin-secret change so keepUpdated |
+| 2026-07-09T09:20 | [#4890](https://github.com/openova-io/openova/pull/4890) | #4889 | fix(#4889): HR-Ready overlay for adopted spine/bootstrap App |
 | 2026-07-09T09:09 | [#4888](https://github.com/openova-io/openova/pull/4888) | #4885 | fix(#4885): step-07 multi-HR imageRegistry pivot + couple au |
 | 2026-07-09T09:01 | [#4887](https://github.com/openova-io/openova/pull/4887) | #4551 | fix(#4886): surface live Continuum DR state on Topology tab  |
 | 2026-07-09T06:12 | [#4884](https://github.com/openova-io/openova/pull/4884) | #4878 | fix(#4878): rollout-restart shared-pg consumers after cross- |
@@ -312,8 +314,6 @@ flowchart LR
 | 2026-07-07T14:58 | [#4847](https://github.com/openova-io/openova/pull/4847) | #4846 | fix(#4846): cross-region shared-pg netpol — ipBlock allow fo |
 | 2026-07-07T12:27 | [#4844](https://github.com/openova-io/openova/pull/4844) | #4843 | fix(#4843): Edit-IaC editor seeds committable YAML (inline e |
 | 2026-07-07T10:17 | [#4840](https://github.com/openova-io/openova/pull/4840) | #4837 | fix(#4836): accept #3969 placement targets[] in HandleApplic |
-| 2026-07-07T09:37 | [#4839](https://github.com/openova-io/openova/pull/4839) | #4831 | fix(#4838): Factory.Stop() waits for snapshot loop to drain  |
-| 2026-07-07T08:35 | [#4835](https://github.com/openova-io/openova/pull/4835) | #4834 | fix(#4833): pin fresh funnel-Org stalwart-mail to 0.1.13 so  |
 
 ---
 
