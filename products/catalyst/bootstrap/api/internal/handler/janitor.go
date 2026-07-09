@@ -307,6 +307,19 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	// owned by no live dep are eligible (same protect-by-default guard).
 	stats.OrphanEVS = h.cleanOrphanEVSHuawei(tofuWorkDir, activeIDs)
 
+	// Step 7: #4872 — per-account orphan-OBS-bucket sweep. OBS buckets are
+	// not tagged on HCS (Wave 5.4 disabled tags) so the per-deployment Wipe
+	// (purgeOBSBuckets) reaches only buckets bearing the CURRENT Sovereign's
+	// prefix; a bucket from a PRIOR failed/wiped prov — or one whose wipe
+	// never ran — falls out of reach and piles up against the OBS 100-bucket
+	// account quota, false-failing the next fresh prov's Phase-0 tofu apply
+	// with `Code=TooManyBuckets` (58 May+June orphans back to hw01 observed).
+	// EIPs/keypairs/VPCs/EVS each already had a project-wide reclaim sweep;
+	// object storage did not. Same catalyst- prefix match + 8-char in-flight
+	// protection + log-only gate as its siblings; bastion/non-catalyst
+	// buckets are hard-protected in isReclaimableOrphanOBSBucket itself.
+	stats.OrphanOBSBuckets = h.cleanOrphanOBSBucketsHuawei(tofuWorkDir, activeIDs)
+
 	h.log.Info("[JANITOR] pass complete",
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
 		"destructive", janitorDestructive(),
@@ -318,6 +331,7 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		"orphanKeypairsDeleted", stats.OrphanKeypairs,
 		"orphanVPCsDeleted", stats.OrphanVPCs,
 		"orphanEVSDeleted", stats.OrphanEVS,
+		"orphanOBSBucketsDeleted", stats.OrphanOBSBuckets,
 	)
 }
 
@@ -337,6 +351,7 @@ type janitorStats struct {
 	OrphanKeypairs     int
 	OrphanVPCs         int
 	OrphanEVS          int
+	OrphanOBSBuckets   int
 }
 
 // reapDeployment is the cleanup primitive used by the janitor. It
@@ -743,6 +758,42 @@ func (h *Handler) cleanOrphanEVSHuawei(tofuWorkDir string, activeIDs map[string]
 	})
 	if err != nil {
 		h.log.Warn("[JANITOR] orphan-EVS sweep error", "err", err.Error())
+		return deleted
+	}
+	return deleted
+}
+
+// cleanOrphanOBSBucketsHuawei is the object-storage orphan sweep (#4872). OBS
+// buckets are not tagged on HCS so the per-deployment Wipe (purgeOBSBuckets)
+// reaches only buckets bearing the CURRENT Sovereign's prefix; a bucket from a
+// PRIOR failed/wiped prov falls out of reach and accumulates against the OBS
+// 100-bucket account quota until the next fresh prov false-fails Phase-0 with
+// `Code=TooManyBuckets`. EIPs / keypairs / VPCs / EVS each already had a
+// project-wide reclaim sweep; object storage did not. Same protect-by-default
+// guard (buildActivePrefixes) + same log-only gate (janitorDestructive) as its
+// siblings. Only catalyst-prefixed buckets that carry no in-flight
+// deployment-ID prefix are eligible; bastion / non-catalyst buckets are
+// hard-protected.
+func (h *Handler) cleanOrphanOBSBucketsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
+	creds, ok := discoverHuaweiCreds(tofuWorkDir)
+	if !ok {
+		return 0
+	}
+	hp := h.huaweiProvider("orphan-OBS-bucket")
+	if hp == nil {
+		return 0
+	}
+	// Emptying + deleting many buckets (each may hold a full CNPG/openbao
+	// backup set + incomplete multipart parts) is slower than the single-
+	// DELETE sibling sweeps, so give it a wider budget.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	activePrefixes := h.buildActivePrefixes()
+	deleted, err := hp.SweepOrphanOBSBuckets(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
+		h.log.Info("[JANITOR] " + msg)
+	})
+	if err != nil {
+		h.log.Warn("[JANITOR] orphan-OBS-bucket sweep error", "err", err.Error())
 		return deleted
 	}
 	return deleted
