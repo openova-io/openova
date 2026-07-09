@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T17:00:02Z` |
+| Last refreshed | `2026-07-09T17:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 84 |
 | Open DoD gates | 0 / 41 |
@@ -291,6 +291,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T17:12 | [#4918](https://github.com/openova-io/openova/pull/4918) | #4878 | fix(#4915): sync host-ns keycloak admin secrets region-A to  |
+| 2026-07-09T17:11 | [#4917](https://github.com/openova-io/openova/pull/4917) | #4913 | fix(#4913): serve Harbor UI on harbor.<fqdn> alias, not just |
+| 2026-07-09T17:11 | [#4916](https://github.com/openova-io/openova/pull/4916) | #3376 | fix(billing): enforce voucher-code strength on catalyst-api  |
 | 2026-07-09T14:25 | [#4912](https://github.com/openova-io/openova/pull/4912) | #4758 | fix(provisioning): thread funnel-door apps Kustomization sou |
 | 2026-07-09T14:14 | [#4911](https://github.com/openova-io/openova/pull/4911) | #4764 | fix(catalyst-api): wipe DNS teardown retries the derived tai |
 | 2026-07-09T14:02 | [#4910](https://github.com/openova-io/openova/pull/4910) | #4746 | fix(#4746): gate phase-1 ready on the console backend so a s |
@@ -318,9 +321,6 @@ flowchart LR
 | 2026-07-09T05:38 | [#4880](https://github.com/openova-io/openova/pull/4880) | #4879 | fix(#4879): openbao snapshot-fetch treats missing bucket as  |
 | 2026-07-09T04:21 | [#4876](https://github.com/openova-io/openova/pull/4876) | #4875 | fix(#4875): vpc-podcidr-route-reconciler ensures openssl (im |
 | 2026-07-09T03:26 | [#4874](https://github.com/openova-io/openova/pull/4874) | #4870 | fix(#4873): cutover prewarm+probe read DEPLOYED chart versio |
-| 2026-07-09T02:35 | [#4871](https://github.com/openova-io/openova/pull/4871) | fix: kom4dc per-region VPC CIDR overflow (region-b 10.257.0. |  |
-| 2026-07-08T23:30 | [#4870](https://github.com/openova-io/openova/pull/4870) | #4674 | fix(#3379): cutover registry-pivot ack-gate tolerates a lagg |
-| 2026-07-08T23:30 | [#4869](https://github.com/openova-io/openova/pull/4869) | #4811 | fix(#4854): row-67 cross-region CNP namespace-scoping (L1 eg |
 
 ---
 
