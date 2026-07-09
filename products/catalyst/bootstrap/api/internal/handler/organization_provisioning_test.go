@@ -432,6 +432,54 @@ func TestDeleteOrganization_RemovesFromRegistry(t *testing.T) {
 	}
 }
 
+// TestRenderOrganizationOverlay_AgenityChartVersionBounded is the #4922 guard.
+// The bp-agenity per-Org HelmRelease MUST pin a BOUNDED SemVer range
+// (>=0.5.0 <0.6.0), never the unbounded "*". The bp-agenity CHART OCI repo was
+// historically squatted by the dashboard IMAGE (tag == appVersion 0.9.7, a
+// 1-descriptor Docker manifest) before #4706 moved the image to
+// ghcr.io/openova-io/agenity. A "*" pin resolves the HIGHEST semver tag, so
+// that lingering image (0.9.7 > 0.5.20 chart) out-ranks the real chart and
+// Flux dies with "manifest does not contain minimum number of descriptors (2),
+// found: 1" — bp-agenity never installs (rows 218/219). The bound makes the
+// resolution deterministic even before the squatting tags are pruned. An
+// explicit CATALYST_ORG_BP_AGENITY_VER still wins verbatim.
+func TestRenderOrganizationOverlay_AgenityChartVersionBounded(t *testing.T) {
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "t-acme",
+		Subdomain:       "acme",
+		DomainMode:      store.OrganizationDomainFreeSubdomain,
+		AdminEmail:      "admin@acme.test",
+		OTECHFQDN:       "otech.example",
+		ParentDomain:    "omani.homes",
+		TenantNamespace: "org-t-acme",
+	}
+
+	// Unconfigured version → the bounded range, NOT "*".
+	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body, ok := files["bp-agenity.yaml"]
+	if !ok {
+		t.Fatalf("bp-agenity.yaml missing")
+	}
+	if !strings.Contains(body, `version: ">=0.5.0 <0.6.0"`) {
+		t.Errorf("bp-agenity.yaml must pin the bounded chart range, got:\n%s", body)
+	}
+	if strings.Contains(body, `version: "*"`) {
+		t.Errorf("bp-agenity.yaml must NOT pin the unbounded \"*\" (would resolve the squatting 0.9.7 image, #4922):\n%s", body)
+	}
+
+	// An explicit env-provided version still wins verbatim.
+	filesPinned, err := renderOrganizationOverlay(rec, OrganizationChartVersions{Agenity: "0.5.20"})
+	if err != nil {
+		t.Fatalf("render pinned: %v", err)
+	}
+	if !strings.Contains(filesPinned["bp-agenity.yaml"], `version: "0.5.20"`) {
+		t.Errorf("explicit Agenity version should render verbatim, got:\n%s", filesPinned["bp-agenity.yaml"])
+	}
+}
+
 // TestRenderOrganizationOverlay_AgenityMCPBearerWiring is the #4276 hop 7/7b
 // emitter guard. The bp-agenity overlay MUST set openovaMCP.bearerSecret +
 // rs256PubkeySecret + enable the per-Org mcpBearer ExternalSecret pointed at

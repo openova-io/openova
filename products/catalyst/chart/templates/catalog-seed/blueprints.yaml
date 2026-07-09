@@ -5972,9 +5972,14 @@ spec:
 # Fresh provs seed THIS pin,
 # so the chart-version here gates which image a new Sovereign installs — bump
 # in lockstep with the chart on every agenity release. (The per-Org install
-# in organization_gitops.go pins `*` and so auto-resolves the newest published
-# chart; this seed pin is the catalog-card version a fresh prov shows +
-# installs.)
+# in organization_gitops.go pins the BOUNDED range `>=0.5.0 <0.6.0`
+# (agenityChartConstraint), NOT `*`: the bp-agenity CHART repo was historically
+# squatted by the dashboard IMAGE tag (appVersion 0.9.7) before #4706 moved the
+# image to ghcr.io/openova-io/agenity, and an unbounded `*` wrongly resolved
+# that 1-descriptor image over the chart → "manifest does not contain minimum
+# number of descriptors (2), found: 1" (#4922). The bound resolves to the
+# newest 0.5.x chart deterministically. This seed pin is the catalog-card
+# version a fresh prov shows + installs.)
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
