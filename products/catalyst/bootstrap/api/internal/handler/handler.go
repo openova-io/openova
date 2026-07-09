@@ -134,6 +134,19 @@ type Handler struct {
 	phase1MinBootstrapKitHRs int
 	phase1FirstSeenTimeout   time.Duration
 
+	// phase1ReadySentinel is the component id (bp- prefix stripped) whose
+	// terminal-install gates OutcomeReady (#4746). The PRIMARY watch refuses
+	// to classify a prov "ready" until this component (the console's own
+	// backend, catalyst-platform) has been observed — closing the narrow-
+	// census false-"failed" on slow 2-region provs where an early HR reaches
+	// Ready long before the console backend even exists. The zero value ("")
+	// DISABLES the gate: production New() sets it to
+	// helmwatch.DefaultReadySentinelComponent, while unit tests build
+	// &Handler{} inline and leave it empty so a small fake kit (no
+	// catalyst-platform) still exercises the historical terminate path.
+	// Operators override at runtime with CATALYST_PHASE1_READY_SENTINEL.
+	phase1ReadySentinel string
+
 	// consoleProbe is the external console-reachability gate applied before
 	// markPhase1Done flips a converged deployment to "ready" (#4706). NIL =
 	// gate OFF (the pre-#4706 behaviour): production turns it on by calling
@@ -658,6 +671,12 @@ func New(log *slog.Logger) *Handler {
 		dynadotAPISecret: os.Getenv("DYNADOT_API_SECRET"),
 		pdm:              pdm.New(pdmURL),
 		kubeconfigsDir:   kubeconfigsDir,
+		// #4746 — arm the phase-1 ready sentinel so the PRIMARY watch cannot
+		// declare a prov ready before the console's own backend
+		// (catalyst-platform) has converged. Tests build &Handler{} inline
+		// and leave this empty (gate off); the env override still applies in
+		// phase1WatchConfigForDeployment.
+		phase1ReadySentinel: helmwatch.DefaultReadySentinelComponent,
 	}
 
 	// #4614: arm the in-band VPC-quota reclaim (provisioner pre-flight) with

@@ -139,6 +139,40 @@ const MinComponentCount = 1
 // exercise the floor.
 const DefaultMinBootstrapKitHRs = 1
 
+// DefaultReadySentinelComponent — the component id (bp- prefix stripped)
+// that MUST have been observed AND reached a terminal state before the
+// terminate-on-all-done gate may fire OutcomeReady. catalyst-platform is
+// the operator-facing console's OWN server and the terminal node of the
+// bootstrap-kit dependency chain (it dependsOn gitea → keycloak → openbao
+// → …), so its arrival-and-terminality is the earliest HONEST signal that
+// the whole platform — the console backend included — has converged.
+//
+// #4746 root cause: the count floor above is 1 (deliberately, to stay
+// drift-proof against kit cardinality — see otech48 in allObservedTerminal).
+// But "≥1 observed AND all-observed-terminal" fires the instant the
+// informer's initial List catches a NARROW early set (e.g. only bp-cilium)
+// all Ready=True — long before bp-catalyst-platform has even been created
+// by Flux. On a slow 2-region prov that premature OutcomeReady then ran the
+// #4706 external console-reachability probe against a console whose backend
+// had not begun installing, so the probe could only fail: a healthy,
+// still-converging Sovereign was stamped status=failed (hw221/hw222). The
+// sentinel closes the census so OutcomeReady cannot precede the console
+// backend, instead of merely widening the downstream probe budget.
+//
+// A terminal-FAILED sentinel does NOT block the gate — an all-terminal
+// snapshot with a failed component classifies OutcomeFailed downstream, so
+// a genuinely broken console still surfaces a failure rather than hanging
+// to WatchTimeout. If the sentinel never appears at all, the watch simply
+// runs to WatchTimeout → OutcomeTimeout (failed) — the correct verdict for
+// a prov whose console backend never installed.
+//
+// Empty string DISABLES the sentinel gate. applyDefaults leaves it empty so
+// existing helmwatch fixtures (which seed kits without catalyst-platform)
+// keep exercising the historical path; the PRODUCTION path wires this
+// constant via the handler's phase1WatchConfigForDeployment, and operators
+// override it with CATALYST_PHASE1_READY_SENTINEL (Inviolable Principle #4).
+const DefaultReadySentinelComponent = "catalyst-platform"
+
 // DefaultFirstSeenTimeout — how long the Watcher waits for the FIRST
 // bp-* HelmRelease to appear in the informer cache after the watch
 // starts. If this elapses with zero HRs observed, the watch emits a
@@ -376,6 +410,19 @@ type Config struct {
 	// satisfy "all observed are terminal" — see helmwatch.go for the
 	// bug-fix narrative.
 	MinBootstrapKitHRs int
+
+	// ReadySentinelComponent — component id (bp- prefix stripped) that
+	// MUST have been observed before the terminate-on-all-done gate may
+	// fire (#4746). When non-empty, allObservedTerminal additionally
+	// requires this id to be present in the observed set; the same
+	// all-terminal loop then guarantees it is in a terminal state. This
+	// closes the narrow-census false-ready on slow multi-region provs
+	// where an early HR reaches Ready before the console's own backend
+	// (catalyst-platform) has even been created. Empty (the applyDefaults
+	// default) disables the requirement so existing fixtures are
+	// unaffected. Production wires DefaultReadySentinelComponent via the
+	// handler; CATALYST_PHASE1_READY_SENTINEL overrides.
+	ReadySentinelComponent string
 
 	// FirstSeenTimeout — duration after watch start during which the
 	// Watcher waits for the FIRST bp-* HelmRelease. If zero HRs are
@@ -917,7 +964,7 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 	// enter the cache. We park the all-terminal check until here.
 	w.mu.Lock()
 	w.informerSynced = true
-	allTerminalAtSync := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, true)
+	allTerminalAtSync := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, true, w.cfg.ReadySentinelComponent)
 	w.mu.Unlock()
 
 	if allTerminalAtSync {
@@ -1570,7 +1617,7 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	// The post-WaitForCacheSync block in Watch() owns the first
 	// terminal-check after sync; from then on every transition
 	// re-evaluates here.
-	allTerminal := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, w.informerSynced)
+	allTerminal := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, w.informerSynced, w.cfg.ReadySentinelComponent)
 	w.mu.Unlock()
 
 	// Dispatch on first observation (this watcher has never seen
@@ -1651,6 +1698,10 @@ func (w *Watcher) maybeEmitReadyTransition() {
 //     bootstrap-kit ships ≥ 1 HelmRelease; production sets this to
 //     1 via the chart default to guard the "Phase-0 succeeded but
 //     Flux on the new cluster never started" footgun), AND
+//   - readySentinel (when non-empty) has been OBSERVED — #4746: the
+//     console's own backend (catalyst-platform) must be present before
+//     the platform can be called ready, so a narrow initial List of
+//     early HRs cannot fire OutcomeReady before it even exists, AND
 //   - every observed component is in terminalStates (installed |
 //     failed).
 //
@@ -1671,7 +1722,7 @@ func (w *Watcher) maybeEmitReadyTransition() {
 // alarm bell from this comment when reading: never gate on a count
 // that can drift independently of the kit. The synced gate is
 // drift-proof.
-func allObservedTerminal(states map[string]string, observed map[string]struct{}, minBootstrapKitHRs int, firstSeenAt time.Time, synced bool) bool {
+func allObservedTerminal(states map[string]string, observed map[string]struct{}, minBootstrapKitHRs int, firstSeenAt time.Time, synced bool, readySentinel string) bool {
 	if !synced {
 		return false
 	}
@@ -1680,6 +1731,21 @@ func allObservedTerminal(states map[string]string, observed map[string]struct{},
 	}
 	if len(observed) < minBootstrapKitHRs {
 		return false
+	}
+	// #4746 — the console's own backend sentinel (readySentinel, e.g.
+	// catalyst-platform) must have been OBSERVED before we may declare the
+	// platform done. Without this a narrow initial List that caught only
+	// the alphabetically-early HRs (bp-cilium) all Ready=True would fire
+	// OutcomeReady while catalyst-platform had not even been created — the
+	// slow-2-region false-"failed". The all-observed-terminal loop below
+	// then enforces that the sentinel (and every sibling) is in a terminal
+	// state; a terminal-FAILED sentinel still trips the gate so a genuinely
+	// broken console classifies OutcomeFailed downstream rather than hanging
+	// to WatchTimeout. Empty readySentinel disables the check.
+	if readySentinel != "" {
+		if _, seen := observed[readySentinel]; !seen {
+			return false
+		}
 	}
 	for id := range observed {
 		if !terminalStates[states[id]] {

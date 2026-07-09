@@ -66,6 +66,16 @@ const phase1WatchTimeoutEnv = "CATALYST_PHASE1_WATCH_TIMEOUT"
 // catalyst-api Deployment — no code change required.
 const phase1MinBootstrapKitHRsEnv = "CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS"
 
+// phase1ReadySentinelEnv — env var override for the component whose
+// terminal-install gates OutcomeReady (#4746). Default
+// helmwatch.DefaultReadySentinelComponent ("catalyst-platform") — the
+// console's own backend + the terminal node of the bootstrap-kit
+// dependency chain. Setting this empty on the catalyst-api Deployment
+// disables the sentinel gate (reverting to the pre-#4746 narrow census);
+// a future kit that renames the console umbrella only needs this flipped,
+// no code change.
+const phase1ReadySentinelEnv = "CATALYST_PHASE1_READY_SENTINEL"
+
 // phase1FirstSeenTimeoutEnv — env var override for the first-seen
 // gate window. If zero bp-* HelmReleases appear within this window,
 // the watcher emits a single warn event ("bootstrap-kit not
@@ -348,6 +358,17 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 		}
 	}
 
+	// #4746 — the component whose terminal-install gates OutcomeReady.
+	// Base value is the Handler field (production New() sets it to
+	// catalyst-platform; tests leave it empty → gate off). An explicitly
+	// set CATALYST_PHASE1_READY_SENTINEL wins — including set-to-empty,
+	// which disables the gate — so os.LookupEnv (not envOrEmpty) is used to
+	// distinguish "unset" from "set empty" (Inviolable Principle #4).
+	readySentinel := h.phase1ReadySentinel
+	if v, ok := os.LookupEnv(phase1ReadySentinelEnv); ok {
+		readySentinel = strings.TrimSpace(v)
+	}
+
 	cfg := helmwatch.Config{
 		KubeconfigYAML:            kubeconfig,
 		WatchTimeout:              timeout,
@@ -356,6 +377,7 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 		LatePollTimeout:           latePollTimeout,
 		LatePollInterval:          latePollInterval,
 		ReachabilityOverallBudget: reachabilityBudget,
+		ReadySentinelComponent:    readySentinel,
 		// OnSubstate — issue #923. The watcher fires this on every
 		// Phase-1 substate transition (reconnecting → watching). We
 		// stamp Result.Phase1Substate under dep.mu so a /deployments/
@@ -456,6 +478,15 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 			return
 		}
 		cfg := h.phase1WatchConfigForDeployment(dep, string(raw))
+		// #4746 — the ready sentinel (catalyst-platform) is a PRIMARY-region
+		// concept: the console backend runs only in the primary region, so a
+		// secondary-region watcher must NOT wait on catalyst-platform (it
+		// would never observe it and could not self-terminate). Secondary
+		// watchers do not contribute to markPhase1Done's terminal outcome
+		// anyway (see the func doc), so clearing the gate here only lets a
+		// converged secondary self-terminate cleanly instead of idling until
+		// stopSecondaries cancels it.
+		cfg.ReadySentinelComponent = ""
 		watcher, err := helmwatch.NewWatcher(cfg, func(ev provisioner.Event) {
 			// Region-tag the component events so the SSE consumer
 			// can group them per region. Bare bp-* names from
