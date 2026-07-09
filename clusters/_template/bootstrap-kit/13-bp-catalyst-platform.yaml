@@ -1237,7 +1237,7 @@ spec:
       #   console-https-<slug> listener actually lands on cilium-gateway-console
       #   (was 403 -> NoMatchingListenerHostname -> per-Org front doors 000).
       #   Lockstep w/ Chart.yaml.
-      version: 1.4.1061
+      version: 1.4.1062
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
