@@ -668,7 +668,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		return r.markDegraded(ctx, app, ReasonGiteaError,
 			fmt.Sprintf("fetch Organization: %v", err))
 	}
-	_ = org // currently unused beyond existence check; future slices read more
+
+	// 2.5 (#4936) — derive per-Org WordPress parameters the customer never
+	// types. The console 'New instance' dialog + the marketplace funnel
+	// collect neither `orgDomain` nor `adminUser`, so requiring them made
+	// the WordPress Application fail configSchema admission below
+	// (`missing properties: 'orgDomain','adminUser'`). The controller owns
+	// the Org context (it just fetched the Organization CR), so it injects
+	// orgDomain (the Org's public hostname) + adminUser.{email,displayName}
+	// (the Org owner identity) into spec.Parameters here — BEFORE the step-6
+	// validation + every render path, which all read spec.Parameters. No-op
+	// for non-WordPress Blueprints and for values the operator set explicitly.
+	spec.Parameters = injectOrgDerivedParameters(spec.BlueprintName, org, spec.Parameters)
 
 	// 3. Resolve Blueprint (try v1, fallback v1alpha1).
 	bp, err := r.fetchBlueprint(ctx, spec.BlueprintName)
@@ -3555,6 +3566,115 @@ func mergeMaps(a, b map[string]interface{}) map[string]interface{} {
 		out[k] = v
 	}
 	return out
+}
+
+// wordpressTenantBlueprints are the Blueprint names whose per-Org WordPress
+// Application derives orgDomain + adminUser from the parent Organization
+// context instead of requiring the customer to type them (#4936).
+// `bp-wordpress` is the marketplace/funnel bare-slug alias of
+// `bp-wordpress-tenant` (same chart bytes, see the catalog-seed).
+var wordpressTenantBlueprints = map[string]bool{
+	"bp-wordpress-tenant": true,
+	"bp-wordpress":        true,
+}
+
+// injectOrgDerivedParameters fills in the per-Org WordPress parameters the
+// console 'New instance' dialog + the marketplace funnel never collect —
+// orgDomain (the Org's public hostname) and adminUser.{email,displayName}
+// (the Org owner identity) — from the parent Organization CR (#4936).
+//
+// It is a no-op unless the Blueprint is the per-Org WordPress chart, and it
+// never overwrites a value the operator supplied explicitly (operator
+// overlay wins). The derived orgDomain mirrors the organization-controller's
+// tenant-route formula:
+// `<tenantPublic.subdomain||spec.slug>.<tenantPublic.parentDomain>`.
+func injectOrgDerivedParameters(blueprintName string, org *unstructured.Unstructured, params map[string]interface{}) map[string]interface{} {
+	if !wordpressTenantBlueprints[blueprintName] || org == nil {
+		return params
+	}
+	out := make(map[string]interface{}, len(params)+2)
+	for k, v := range params {
+		out[k] = v
+	}
+
+	// orgDomain — derive only when absent AND resolvable from the Org CR.
+	if _, set := out["orgDomain"]; !set {
+		if d := deriveOrgDomain(org); d != "" {
+			out["orgDomain"] = d
+		}
+	}
+
+	// adminUser.{email,displayName} — copy any explicit map first so an
+	// operator override of either sub-field is preserved, then fill the
+	// absent sub-fields from Org context.
+	admin := map[string]interface{}{}
+	if existing, ok := out["adminUser"].(map[string]interface{}); ok {
+		for k, v := range existing {
+			admin[k] = v
+		}
+	}
+	if _, ok := admin["email"]; !ok {
+		if email := deriveOrgOwnerEmail(org); email != "" {
+			admin["email"] = email
+		}
+	}
+	if _, ok := admin["displayName"]; !ok {
+		if display, _, _ := unstructured.NestedString(org.Object, "spec", "displayName"); strings.TrimSpace(display) != "" {
+			admin["displayName"] = display
+		}
+	}
+	if len(admin) > 0 {
+		out["adminUser"] = admin
+	}
+	return out
+}
+
+// deriveOrgDomain returns `<subdomain||slug>.<parentDomain>` from the
+// Organization CR's spec.tenantPublic, matching the organization-controller
+// tenant-route derivation. Returns "" when the Org has no public hostname
+// binding (parentDomain empty) so the caller leaves orgDomain unset.
+func deriveOrgDomain(org *unstructured.Unstructured) string {
+	parent, _, _ := unstructured.NestedString(org.Object, "spec", "tenantPublic", "parentDomain")
+	parent = strings.TrimSpace(parent)
+	if parent == "" {
+		return ""
+	}
+	sub, _, _ := unstructured.NestedString(org.Object, "spec", "tenantPublic", "subdomain")
+	sub = strings.TrimSpace(sub)
+	if sub == "" {
+		slug, _, _ := unstructured.NestedString(org.Object, "spec", "slug")
+		sub = strings.TrimSpace(slug)
+	}
+	if sub == "" {
+		return ""
+	}
+	return sub + "." + parent
+}
+
+// deriveOrgOwnerEmail returns the email of the Organization owner —
+// spec.owners[] entry with role=="owner", falling back to the first owner
+// with a non-empty email. Returns "" when no owner email is present.
+func deriveOrgOwnerEmail(org *unstructured.Unstructured) string {
+	owners, _, _ := unstructured.NestedSlice(org.Object, "spec", "owners")
+	firstEmail := ""
+	for _, o := range owners {
+		m, ok := o.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		email, _ := m["email"].(string)
+		email = strings.TrimSpace(email)
+		if email == "" {
+			continue
+		}
+		if firstEmail == "" {
+			firstEmail = email
+		}
+		if role, _ := m["role"].(string); strings.EqualFold(strings.TrimSpace(role), "owner") {
+			return email
+		}
+	}
+	return firstEmail
 }
 
 // replicasFor returns the rendered replicas count for a region row.
