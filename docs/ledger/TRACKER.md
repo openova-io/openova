@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T02:30:08Z` |
+| Last refreshed | `2026-07-09T02:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 70 |
 | Open DoD gates | 0 / 41 |
@@ -277,6 +277,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T02:35 | [#4871](https://github.com/openova-io/openova/pull/4871) | fix: kom4dc per-region VPC CIDR overflow (region-b 10.257.0. |  |
 | 2026-07-08T23:30 | [#4870](https://github.com/openova-io/openova/pull/4870) | #4674 | fix(#3379): cutover registry-pivot ack-gate tolerates a lagg |
 | 2026-07-08T23:30 | [#4869](https://github.com/openova-io/openova/pull/4869) | #4811 | fix(#4854): row-67 cross-region CNP namespace-scoping (L1 eg |
 | 2026-07-08T21:34 | [#4868](https://github.com/openova-io/openova/pull/4868) | #4853 | fix(#4853): retry finalizer add/remove on 409 Conflict — fix |
@@ -306,7 +307,6 @@ flowchart LR
 | 2026-07-06T18:48 | [#4826](https://github.com/openova-io/openova/pull/4826) | #4792 | fix(#4785): register Gateway-API HTTPRoute CRD in per-Org vc |
 | 2026-07-06T12:34 | [#4822](https://github.com/openova-io/openova/pull/4822) | #4804 | fix(#4821): customer-Org vcluster — replicateServices.fromHo |
 | 2026-07-06T11:09 | [#4819](https://github.com/openova-io/openova/pull/4819) | #4765 | fix(#4818): cloud-view LB front door — hostPort datapath, no |
-| 2026-07-06T05:53 | [#4816](https://github.com/openova-io/openova/pull/4816) | #4811 | fix(#4814): cloud-graph counts honest for standby-absent sec |
 
 ---
 
