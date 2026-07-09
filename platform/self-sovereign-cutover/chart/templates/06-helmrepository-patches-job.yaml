@@ -1043,10 +1043,16 @@ data:
               done | sort -u > "${local_hr_file}" || : > "${local_hr_file}"
 
             probe_file=/tmp/.chart-probe.txt
+            # #4870-followup: probe the DEPLOYED chart version
+            # (.status.history[0].chartVersion), matching what step-03
+            # harbor-prewarm mirrors. Reading the mutable desired
+            # .spec.chart.spec.version here races the deploybot catalog bump
+            # and wedges the pivot when prewarm mirrored a different version.
             kubectl get helmreleases -A -o json 2>/dev/null | \
-              jq -r '.items[].spec.chart.spec
-                | select(.chart != null and .sourceRef != null and (.sourceRef.kind // "") == "HelmRepository")
-                | [ (.sourceRef.name // ""), .chart, (.version // "") ]
+              jq -r '.items[]
+                | .spec.chart.spec as $cs
+                | select($cs.chart != null and $cs.sourceRef != null and ($cs.sourceRef.kind // "") == "HelmRepository")
+                | [ ($cs.sourceRef.name // ""), $cs.chart, ((.status.history[0].chartVersion) // $cs.version // "") ]
                 | @tsv' 2>/dev/null | \
               while IFS="$(printf '\t')" read -r src chart ver; do
                 [ -z "${chart}" ] && continue
@@ -1104,9 +1110,10 @@ data:
                       esac
                     done | sort -u > "${local_hr_file}" || : > "${local_hr_file}"
                 kubectl get helmreleases -A -o json 2>/dev/null | \
-                  jq -r '.items[].spec.chart.spec
-                    | select(.chart != null and .sourceRef != null and (.sourceRef.kind // "") == "HelmRepository")
-                    | [ (.sourceRef.name // ""), .chart, (.version // "") ]
+                  jq -r '.items[]
+                    | .spec.chart.spec as $cs
+                    | select($cs.chart != null and $cs.sourceRef != null and ($cs.sourceRef.kind // "") == "HelmRepository")
+                    | [ ($cs.sourceRef.name // ""), $cs.chart, ((.status.history[0].chartVersion) // $cs.version // "") ]
                     | @tsv' 2>/dev/null | \
                   while IFS="$(printf '\t')" read -r src chart ver; do
                     [ -z "${chart}" ] && continue
