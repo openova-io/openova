@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T13:15:02Z` |
+| Last refreshed | `2026-07-09T13:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 81 |
 | Open DoD gates | 0 / 41 |
@@ -288,6 +288,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T13:23 | [#4907](https://github.com/openova-io/openova/pull/4907) | #4765 | docs(cilium): retire stale clustermesh NodePort-32379 commen |
+| 2026-07-09T13:19 | [#4906](https://github.com/openova-io/openova/pull/4906) | #3998 | fix(#4820): cloud-list kind aliases hijack HTTPRoutes/Networ |
+| 2026-07-09T13:23 | [#4905](https://github.com/openova-io/openova/pull/4905) | #4901 | fix(#4901): surface cnpg-pair Continuum standby-absent condi |
+| 2026-07-09T13:23 | [#4904](https://github.com/openova-io/openova/pull/4904) | #4573 | fix(#4885): step-06 pivots per-Org tenant HelmRepositories a |
+| 2026-07-09T13:23 | [#4903](https://github.com/openova-io/openova/pull/4903) | #4897 | fix(#4902): cascade-delete fan-out per-region HelmReleases o |
 | 2026-07-09T10:52 | [#4900](https://github.com/openova-io/openova/pull/4900) | #4897 | fix(#4897): render Apps-grid topology badge for object-form  |
 | 2026-07-09T10:53 | [#4899](https://github.com/openova-io/openova/pull/4899) | #4885 | org-services marketplace + auth honor global.imageRegistry f |
 | 2026-07-09T10:35 | [#4898](https://github.com/openova-io/openova/pull/4898) | #4896 | fix(#4896): reconcile bp- prefix in Blueprint Edit-IaC dry-r |
@@ -313,11 +318,6 @@ flowchart LR
 | 2026-07-08T20:53 | [#4866](https://github.com/openova-io/openova/pull/4866) | #4845 | fix(#4845): Jobs Re-run returns graceful 422 for aggregate r |
 | 2026-07-08T20:29 | [#4865](https://github.com/openova-io/openova/pull/4865) | #4854 | fix(#4854): cross-region DB egress carve-out in plane-isolat |
 | 2026-07-08T20:23 | [#4864](https://github.com/openova-io/openova/pull/4864) | #4415 | fix(#4415): sync 38 catalog-seed delivery pins to published  |
-| 2026-07-08T19:19 | [#4863](https://github.com/openova-io/openova/pull/4863) | #4389 | fix(bp-openclaw): controller CPU 500m->250m so the S-plan pl |
-| 2026-07-08T19:42 | [#4862](https://github.com/openova-io/openova/pull/4862) | #4844 | fix(#4860): grant catalyst-api update/patch on blueprints fo |
-| 2026-07-08T19:24 | [#4861](https://github.com/openova-io/openova/pull/4861) | #4807 | fix(#4656): per-node pod-CIDR VPC routes — deterministic cro |
-| 2026-07-08T18:59 | [#4857](https://github.com/openova-io/openova/pull/4857) | #4843 | fix(#4843): declare js-yaml + @types/js-yaml so the catalyst |
-| 2026-07-08T16:48 | [#4856](https://github.com/openova-io/openova/pull/4856) | #4853 | fix(#4853): retry Application status writes on 409 Conflict |
 
 ---
 
