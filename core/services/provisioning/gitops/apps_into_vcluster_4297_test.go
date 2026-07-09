@@ -85,6 +85,48 @@ func TestAppsSync_HostTier_NoKubeConfig(t *testing.T) {
 	}
 }
 
+// TestAppsSync_SourceRepo_DefaultsToHistoricalDefault — #4761. With no
+// AppsSyncSourceRepo wiring the funnel-door `tenant-<slug>-apps` Kustomization's
+// sourceRef must resolve to the post-#4798 default GitRepository name
+// (openova-org-tenants) so every existing Sovereign renders byte-unchanged.
+func TestAppsSync_SourceRepo_DefaultsToHistoricalDefault(t *testing.T) {
+	for _, plan := range []string{"m", "s", ""} {
+		t.Run("plan="+plan, func(t *testing.T) {
+			body := appsSyncFor(t, "acme", plan)
+			if !strings.Contains(body, "name: "+appsSyncSourceRepoDefault) {
+				t.Errorf("empty AppsSyncSourceRepo must render the historical default sourceRef name %q:\n%s", appsSyncSourceRepoDefault, body)
+			}
+			// The literal default must equal the post-#4798 name (no silent drift).
+			if appsSyncSourceRepoDefault != "openova-org-tenants" {
+				t.Errorf("appsSyncSourceRepoDefault drifted from the post-#4798 funnel-door repo name: got %q", appsSyncSourceRepoDefault)
+			}
+		})
+	}
+}
+
+// TestAppsSync_SourceRepo_Configurable — #4761. A Sovereign whose funnel-door
+// apps GitRepository CR is named differently (per-bootstrap state) can point the
+// sourceRef at it via CATALYST_APPS_SYNC_SOURCE_REPO (ManifestGenerator
+// .AppsSyncSourceRepo) with no code change. Non-default config → non-default
+// output; the historical default must NOT leak through.
+func TestAppsSync_SourceRepo_Configurable(t *testing.T) {
+	for _, plan := range []string{"m", "s"} {
+		t.Run("plan="+plan, func(t *testing.T) {
+			g := NewManifestGenerator(testBasePath)
+			g.AppsSyncSourceRepo = "sovereign-org-tenants"
+			out := g.GenerateAllWithAppConfigs("acme", plan, []string{"wordpress"}, "pw", nil)
+			body := out[testBasePath+"/acme/apps-sync.yaml"]
+			if !strings.Contains(body, "name: sovereign-org-tenants") {
+				t.Errorf("apps-sync sourceRef must honour the overridden AppsSyncSourceRepo:\n%s", body)
+			}
+			// The default must not appear as the live sourceRef name when overridden.
+			if strings.Contains(body, "name: "+appsSyncSourceRepoDefault) {
+				t.Errorf("apps-sync sourceRef must not fall back to the default %q when AppsSyncSourceRepo is set:\n%s", appsSyncSourceRepoDefault, body)
+			}
+		})
+	}
+}
+
 // TestBoundaryIsVcluster_FunnelParity locks the funnel's tier gate in lockstep
 // with the org-controller's authoritative boundaryIsVcluster gate (#4292,
 // core/controllers/organization/internal/gitops/manifests.go). The two are
