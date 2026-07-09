@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-openbao
+# 1.2.60 (#4879, 2026-07-09): snapshot-FETCH robustness — the secondary's
+# openbao-snapshot-fetch CronJob ran `s3api list-objects-v2` under `set -eu`,
+# so a NoSuchBucket error (the local seaweedfs `openbao-snapshots` bucket not
+# yet created — the primary creates it on its first successful ship) aborted
+# the whole Job every tick (hard CronJob failure). Now a missing bucket is
+# caught and treated like the already-handled EMPTY-bucket case: WARN + exit 0
+# (a skipped tick, not a failure). Real list errors still abort loudly. The
+# cross-region-replication half (seeding the bucket from region-A) is a larger
+# separate change, deferred.
 # 1.2.53 (#4343, 2026-06-25): set `injector.resources.requests` (cpu/memory)
 # so the agent-injector Deployment satisfies the cluster-wide Kyverno
 # `resource-requests` Enforce policy. Post-#4325 this chart installs into the
@@ -219,7 +228,7 @@ name: bp-openbao
 #   entity joined the sovereign-admins external group (direct_group_ids). Only
 #   the sso-configure reconcile.sh ROLE_PAYLOAD changes (+ the chart bump that
 #   rolls the Deployment per the #3374 checksum); no other template moves.
-version: 1.2.59
+version: 1.2.60
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid
