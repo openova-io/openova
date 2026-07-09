@@ -1232,7 +1232,7 @@ spec:
       #   stamp spec.parameters.sovereignFqdn so the openova-MCP URL points at
       #   this Sovereign, not the mothership. catalyst-api + application-controller
       #   image fixes (deploy-bot pins on next build). Lockstep w/ Chart.yaml.
-      version: 1.4.1044
+      version: 1.4.1045
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
