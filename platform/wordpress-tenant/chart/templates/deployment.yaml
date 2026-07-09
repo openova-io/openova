@@ -251,7 +251,7 @@ spec:
               containerPort: {{ .Values.wordpress.port }}
               protocol: TCP
           env:
-            # ── Database connection (CNPG-emitted reflector secret) ─
+            # ── Database connection (CNPG-emitted app Secret, direct) ─
             - name: WORDPRESS_DB_HOST
               value: {{ include "bp-wordpress-tenant.cnpgRwHost" . | quote }}
             - name: WORDPRESS_DB_NAME
@@ -261,15 +261,22 @@ spec:
             - name: WORDPRESS_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.secretName }}
+                  # 0.4.21 (#4936): bind DIRECTLY to the CNPG-generated
+                  # `<cluster>-app` Secret (default `wordpress-db-app`, key
+                  # `password`). CNPG synthesises this Secret WITH the real
+                  # password the moment the Cluster CR is admitted — well
+                  # inside Helm's `--wait` window. The previous indirection
+                  # through the reflector-mirrored `wordpress-database-secret`
+                  # populated ~6 min AFTER install (reflector is a separate
+                  # watch controller), which blew past the 5 m `--wait` →
+                  # HR `InstallFailed: context deadline exceeded` → the
+                  # external HTTPRoute was never created (host 404). Pointing
+                  # at the source Secret removes the async populate + the
+                  # empty-placeholder race entirely. NOT `optional`: the key
+                  # is guaranteed present once CNPG has created the Secret, so
+                  # the Pod must never boot binding an empty password.
+                  name: {{ include "bp-wordpress-tenant.cnpgAppSecret" . }}
                   key: password
-                  # 0.4.12 (#4152, Refs #3858): the password key is no
-                  # longer Helm-seeded — reflector / the sync Job populate
-                  # it from the CNPG `<cluster>-app` source. `optional`
-                  # lets the Pod schedule during the brief pre-reflection
-                  # window instead of CreateContainerConfigError; once the
-                  # key lands the Pod's next start binds the real value.
-                  optional: true
             # ── Site URL (used by WP to construct admin/login links) ─
             - name: WORDPRESS_CONFIG_EXTRA
               value: |

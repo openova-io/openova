@@ -77,7 +77,9 @@ spec:
             - name: WP_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.secretName }}
+                  # #4936: read the password DIRECTLY from the CNPG-generated
+                  # `<cluster>-app` Secret (no reflector-mirror indirection).
+                  name: {{ include "bp-wordpress-tenant.cnpgAppSecret" . }}
                   key: password
             - name: ADMIN_EMAIL
               value: {{ .Values.adminUser.email | quote }}

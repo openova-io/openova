@@ -16,10 +16,13 @@
 #      + the main `wordpress` container, which all use the PRIVATE image).
 #   2. admin-user Job (private image) also carries the reference.
 #   3. oidc-config Job (PUBLIC `wordpress:cli-*` image) must NOT carry it.
-#   4. db-secret-sync Job (PUBLIC proxy-dockerhub curl) must NOT carry it.
-#   5. Operator override `wordpress.image.pullSecrets: []` suppresses the block.
-#   6. Operator override with a custom secret name renders that name (per
+#   4. Operator override `wordpress.image.pullSecrets: []` suppresses the block.
+#   5. Operator override with a custom secret name renders that name (per
 #      Inviolable Principle #4 — never hardcode).
+#
+# (#4936 dropped the db-secret-sync Job — WORDPRESS_DB_PASSWORD now binds
+# directly to the CNPG `<cluster>-app` Secret — so its former no-pull-secret
+# case is gone with it.)
 
 set -euo pipefail
 
@@ -42,8 +45,8 @@ EOF
 # Extract the Job doc whose `metadata.name` contains the given suffix from a
 # multi-doc render. $1 = full render, $2 = name suffix. Matches the `name:`
 # LINE (not end-of-record) so the trailing Pod-spec content does not defeat the
-# anchor, and scopes to `kind: Job` so the shared-named ServiceAccount/Role/
-# RoleBinding docs (db-secret-sync) are excluded.
+# anchor, and scopes to `kind: Job` so any shared-named non-Job docs are
+# excluded.
 job_by_name() {
   echo "$1" | awk -v SUF="$2" '
     BEGIN { RS="---\n" }
@@ -93,19 +96,8 @@ if echo "$oidc_job" | grep -q "imagePullSecrets:"; then
 fi
 echo "[bp-wordpress-tenant] Case 3: PASS"
 
-# ── Case 4: db-secret-sync Job (PUBLIC curl image) has NO imagePullSecrets ─
-echo "[bp-wordpress-tenant] Case 4: db-secret-sync Job — no imagePullSecrets (public curl image)"
-sync_job_doc=$(job_by_name "$out" "-db-secret-sync")
-if [ -z "$sync_job_doc" ]; then
-  echo "FAIL: db-secret-sync Job did not render"; exit 1
-fi
-if echo "$sync_job_doc" | grep -q "imagePullSecrets:"; then
-  echo "FAIL: db-secret-sync Job (public proxy-dockerhub curl) must not carry imagePullSecrets"; exit 1
-fi
-echo "[bp-wordpress-tenant] Case 4: PASS"
-
-# ── Case 5: operator override `pullSecrets: []` suppresses ───────────────
-echo "[bp-wordpress-tenant] Case 5: empty override — imagePullSecrets omitted"
+# ── Case 4: operator override `pullSecrets: []` suppresses ───────────────
+echo "[bp-wordpress-tenant] Case 4: empty override — imagePullSecrets omitted"
 empty_values=$(mktemp)
 cat > "$empty_values" <<'EOF'
 adminUser:
@@ -123,10 +115,10 @@ fi
 if echo "$deployment_block5" | grep -q "imagePullSecrets:"; then
   echo "FAIL: empty override should suppress imagePullSecrets block (Inviolable Principle #4)"; exit 1
 fi
-echo "[bp-wordpress-tenant] Case 5: PASS"
+echo "[bp-wordpress-tenant] Case 4: PASS"
 
-# ── Case 6: custom secret name flows through ─────────────────────────────
-echo "[bp-wordpress-tenant] Case 6: custom secret name — operator override"
+# ── Case 5: custom secret name flows through ─────────────────────────────
+echo "[bp-wordpress-tenant] Case 5: custom secret name — operator override"
 custom_values=$(mktemp)
 cat > "$custom_values" <<'EOF'
 adminUser:
@@ -145,6 +137,6 @@ fi
 if echo "$deployment_block6" | grep -q "name: ghcr-pull"; then
   echo "FAIL: custom override leaked default ghcr-pull reference"; exit 1
 fi
-echo "[bp-wordpress-tenant] Case 6: PASS"
+echo "[bp-wordpress-tenant] Case 5: PASS"
 
 echo "[bp-wordpress-tenant] All imagePullSecrets render cases PASS"

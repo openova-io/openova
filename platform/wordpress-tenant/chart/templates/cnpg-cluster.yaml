@@ -29,10 +29,10 @@ orchestrator overlays (see TBD-E8b).
 
 WordPress connects to `<cnpgClusterName>-rw.<ns>.svc.cluster.local` in
 both modes; in HA mode CNPG handles RW routing through the operator's
-switchover sequencer (Continuum K-Cont-2). The reflector + post-install
-sync Job mirror the CNPG-emitted `<cluster>-app` Secret into
-`wordpress-database-secret` so the canonical `password` key is always
-present before the WordPress Pod starts.
+switchover sequencer (Continuum K-Cont-2). WordPress + the hook Jobs read
+the DB password DIRECTLY from the CNPG-emitted `<cluster>-app` Secret's
+`password` key (secretKeyRef) — no reflector mirror, no post-install sync
+Job (#4936: that async populate raced past Helm `--wait`).
 
 Capabilities gate: bp-cnpg ships the `postgresql.cnpg.io/v1` CRD. On a
 cold install before bp-cnpg is reconciling, the apiserver rejects this
@@ -40,9 +40,6 @@ Cluster. The Capabilities check skips this template until the CRD is
 registered. The Sovereign's bootstrap order MUST land bp-cnpg before
 bp-wordpress-tenant in EVERY region for HA mode.
 
-History: the `inheritedMetadata.annotations` reflector pattern is the
-canonical way to mirror the CNPG-emitted `<cluster>-app` Secret across
-namespaces (issue #584; bp-gitea precedent).
 */ -}}
 {{- if and .Values.wordpress.enabled .Values.database.cluster.enabled }}
 {{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}

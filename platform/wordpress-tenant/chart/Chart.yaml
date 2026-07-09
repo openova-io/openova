@@ -254,7 +254,33 @@ name: bp-wordpress-tenant
 #   tests/oidc-config.sh Case 8 asserts the Job has no `wp plugin install`, never
 #   references wordpress.org, vendors from the pinned GitHub tag, and tolerates a
 #   fetch failure — so the HR reaches Ready without ANY external plugin download.
-version: 0.4.20
+# 0.4.21 (#4936): FIX the per-Org WordPress that never serves after a funnel
+#   install (wordpress.<org>.<pool> → 404). Two independent chart defects:
+#   1. DB-password reflector RACE vs Helm `--wait`. The chart created an EMPTY
+#      `wordpress-database-secret` annotated to be reflector-mirrored from the
+#      CNPG app Secret `<cluster>-app`. bp-reflector (a SEPARATE watch
+#      controller) populated the `password` key ~6 min AFTER install — past
+#      Helm's 5 m `--wait` → HR `InstallFailed: context deadline exceeded` →
+#      the external HTTPRoute was never created (host 404); suspend/resume
+#      re-hit the race → CrashLoopBackOff.
+#      FIX: WORDPRESS_DB_PASSWORD (deployment) + WP_DB_PASSWORD (admin-user
+#      Job) + WORDPRESS_DB_PASSWORD (oidc-config Job) now bind DIRECTLY to the
+#      CNPG-generated `<cluster>-app` Secret's `password` key via secretKeyRef
+#      (resolved by _helpers.tpl `cnpgAppSecret`). CNPG creates that Secret
+#      WITH the real password when the Cluster CR is admitted — well inside the
+#      `--wait` window — so there is NO async populate to race. DROPPED the
+#      empty reflector Secret (templates/database-secret.yaml), the post-install
+#      sync Job (templates/database-secret-sync-job.yaml), and the now-unused
+#      `database.secretName` value. The deployment env no longer needs
+#      `optional: true` (the key is always present once the Secret exists).
+#   2. configSchema required orgDomain + adminUser — fields the console 'New
+#      instance' dialog + funnel never collect → Application admission failed
+#      `missing properties: 'orgDomain','adminUser'`. FIX: both are now
+#      NON-required (the Organization controller derives orgDomain from the Org
+#      domain + adminUser.email from the Org owner and injects them before
+#      render). blueprint.yaml + the catalog-seed Blueprint CRs updated in
+#      lockstep.
+version: 0.4.21
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

@@ -104,7 +104,9 @@ spec:
             - name: WORDPRESS_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.secretName }}
+                  # #4936: read the password DIRECTLY from the CNPG-generated
+                  # `<cluster>-app` Secret (no reflector-mirror indirection).
+                  name: {{ include "bp-wordpress-tenant.cnpgAppSecret" . }}
                   key: password
             - name: WP_SITE_URL
               value: "https://{{ include "bp-wordpress-tenant.ingressHost" . }}"

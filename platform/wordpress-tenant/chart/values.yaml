@@ -148,16 +148,19 @@ wordpress:
       timeoutSeconds: 5
       failureThreshold: 6
 # ─── Database (bp-cnpg in tenant namespace) ─────────────────────────────
-# Per the bp-gitea / bp-harbor pattern (templates/cnpg-cluster.yaml):
-# this chart provisions a dedicated `Cluster.postgresql.cnpg.io` for
-# WordPress. The CNPG-emitted `<cluster>-app` Secret is mirrored into
-# `wordpress-database-secret` by reflector + a post-install sync Job
-# so the canonical `password` key is always populated before the
-# WordPress Pod starts.
+# This chart provisions a dedicated `Cluster.postgresql.cnpg.io` for
+# WordPress. WORDPRESS_DB_PASSWORD (deployment + the two hook Jobs) binds
+# DIRECTLY to the CNPG-generated `<cluster>-app` Secret's `password` key
+# via secretKeyRef — the source Secret CNPG synthesises when the Cluster
+# CR is admitted.
 #
-# The pattern matches what bp-gitea uses; see
-# platform/gitea/chart/templates/database-secret-sync-job.yaml for
-# the rationale on Reflector vs. post-install Job.
+# #4936: the chart NO LONGER creates an empty `wordpress-database-secret`
+# reflector-mirror + post-install sync Job. That indirection populated the
+# `password` key ~6 min after install (bp-reflector is a separate watch
+# controller), which raced past Helm's 5 m `--wait` deadline → HelmRelease
+# `InstallFailed: context deadline exceeded` → the external HTTPRoute was
+# never created (customer host 404). Referencing the CNPG source Secret
+# directly removes the async-populate race outright.
 database:
   # ─── D31 / TBD-E8b — canonical DB topology selector ──────────────────
   # Operator-facing enum: "singleton" (default) | "active-hot-standby".
@@ -209,9 +212,11 @@ database:
         memory: 256Mi
       limits:
         memory: 512Mi
-  # The reflector-managed wrapper Secret WordPress reads. Always carries
-  # at minimum the `password` key (mirrored from `<cluster>-app`).
-  secretName: "wordpress-database-secret"
+  # #4936: `database.secretName` is REMOVED. WordPress + the hook Jobs now
+  # read WORDPRESS_DB_PASSWORD straight from the CNPG-generated
+  # `<cluster>-app` Secret (name derived from `cnpgClusterName`, resolved by
+  # _helpers.tpl `cnpgAppSecret`). There is no separate reflector-mirrored
+  # wrapper Secret to name.
 # ─── Postgres topology (D31 active-hot-standby) ─────────────────────────
 # Sovereign DoD D31 — tenants subscribing to an HA-capable marketplace
 # app (catalog Tags include `ha` + `cnpg-pair`) may opt into a cross-

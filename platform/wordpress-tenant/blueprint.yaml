@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: organization-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.4.20
+  version: 0.4.21
   card:
     title: WordPress (per-Organization)
     summary: |
@@ -29,16 +29,25 @@ spec:
     contact: catalyst@openova.io
   configSchema:
     type: object
-    required: [orgDomain, oidc, adminUser]
+    # #4936: orgDomain + adminUser are NOT customer-required. Neither the
+    # console 'New instance' dialog nor the marketplace funnel collects them,
+    # so requiring them failed Application admission
+    # (`missing properties: 'orgDomain','adminUser'`). The Organization
+    # controller DERIVES both from Org context — orgDomain from the Org's
+    # domain, adminUser.email from the Org owner identity — and injects them
+    # into the Application config before render (organization_gitops.go /
+    # the application-controller). They remain accepted here (with their
+    # own nested validation) for operator overlays that DO set them.
+    required: [oidc]
     properties:
       orgDomain:
         type: string
         description: |
           The Organization tenant's domain (e.g. `acme.<otech-fqdn>` for free-
           subdomain tenants, or `acme.com` for BYO). Used to derive the
-          default ingress host as `wordpress.<orgDomain>`. Per
-          docs/INVIOLABLE-PRINCIPLES.md #4 there is no default — the
-          tenant-provisioning pipeline supplies this at install time.
+          default ingress host as `wordpress.<orgDomain>`. #4936: DERIVED by
+          the Organization controller from Org context — customers never type
+          it. Operator overlays MAY still set it explicitly.
       replicas:
         type: integer
         default: 1
