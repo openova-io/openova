@@ -288,6 +288,14 @@ func (h *Handler) HandleContinuumGet(w http.ResponseWriter, r *http.Request) {
 	if statusObj, ok, _ := unstructured.NestedMap(cr.Object, "status"); ok {
 		resp.Status = statusObj
 	}
+	// #4901 — the continuum-controller tracks the witness lease / primary
+	// correctly but derives phase purely from lease-held-ness; it does NOT
+	// reflect a lost REQUIRED synchronous hot-standby into phase/lag. Cross-
+	// check the live cnpg-pair standby and surface a Degraded/standby-absent
+	// condition when the region-b replica is unreachable (writes stalling on
+	// SyncRep, RPO=0 durability at risk). Read-only augmentation of the
+	// projection (NestedMap deep-copies status) — the CR is never mutated.
+	resp.Status = h.augmentContinuumStandbyStatus(r.Context(), client, cr, resp.Status)
 	writeJSON(w, http.StatusOK, resp)
 }
 
