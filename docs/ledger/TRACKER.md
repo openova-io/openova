@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T06:00:05Z` |
+| Last refreshed | `2026-07-09T06:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 74 |
 | Open DoD gates | 0 / 41 |
@@ -281,6 +281,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T06:12 | [#4884](https://github.com/openova-io/openova/pull/4884) | #4878 | fix(#4878): rollout-restart shared-pg consumers after cross- |
+| 2026-07-09T06:04 | [#4883](https://github.com/openova-io/openova/pull/4883) | #4877 | fix(#4877): self-heal reconciler for catalyst-api OpenBao se |
 | 2026-07-09T05:42 | [#4882](https://github.com/openova-io/openova/pull/4882) | #3627 | fix(#4881): un-wedge Blueprint Release for bp-self-sovereign |
 | 2026-07-09T05:38 | [#4880](https://github.com/openova-io/openova/pull/4880) | #4879 | fix(#4879): openbao snapshot-fetch treats missing bucket as  |
 | 2026-07-09T04:21 | [#4876](https://github.com/openova-io/openova/pull/4876) | #4875 | fix(#4875): vpc-podcidr-route-reconciler ensures openssl (im |
@@ -309,8 +311,6 @@ flowchart LR
 | 2026-07-07T08:35 | [#4835](https://github.com/openova-io/openova/pull/4835) | #4834 | fix(#4833): pin fresh funnel-Org stalwart-mail to 0.1.13 so  |
 | 2026-07-07T08:03 | [#4834](https://github.com/openova-io/openova/pull/4834) | #4272 | fix(#4833): right-size bp-stalwart-tenant CPU 1→500m so open |
 | 2026-07-07T01:38 | [#4831](https://github.com/openova-io/openova/pull/4831) | #4811 | fix(#4811): cloud-aware ClusterMesh dial port (mothership se |
-| 2026-07-07T00:10 | [#4830](https://github.com/openova-io/openova/pull/4830) | #4811 | test(#4811): pin clustermesh endpoint dial-port authoritativ |
-| 2026-07-06T21:29 | [#4829](https://github.com/openova-io/openova/pull/4829) | #4811 | fix(#4811): retriable startup ClusterMesh reconcile on trans |
 
 ---
 
