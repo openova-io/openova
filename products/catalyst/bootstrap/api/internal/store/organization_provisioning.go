@@ -58,8 +58,10 @@ const (
 	// pushed to the GitOps repo. Flux reconciles within ~1 min.
 	STSVClusterCreated OrganizationProvisionState = "vcluster_created"
 	// STSBPChartsInstalled — the same overlay also installs the bp-*
-	// charts (bp-keycloak, bp-cnpg, bp-wordpress-tenant, bp-openclaw,
-	// bp-stalwart-tenant) inside the Organization vcluster. The orchestrator
+	// charts (bp-keycloak, bp-wordpress-tenant, bp-openclaw,
+	// bp-stalwart-tenant) inside the Organization vcluster. (Postgres is
+	// reconciled by the cluster-wide platform cnpg-system operator; the per-Org
+	// bp-cnpg operator was removed in #4920.) The orchestrator
 	// advances to this state once the parent overlay's Kustomization
 	// is Ready=True.
 	STSBPChartsInstalled OrganizationProvisionState = "bp_charts_installed"

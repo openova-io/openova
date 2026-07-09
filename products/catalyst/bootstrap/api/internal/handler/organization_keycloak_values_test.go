@@ -276,43 +276,11 @@ func TestBPKeycloakValuesContract_NoLegacyKeys(t *testing.T) {
 	}
 }
 
-// TestBPCNPGSubchartKey — the bp-cnpg chart is a pure umbrella subchart
-// of cloudnative-pg; per-Sovereign overrides MUST flow through the
-// `cloudnative-pg.*` values namespace. Earlier orchestrator versions
-// emitted top-level `namespace` and `operator.enabled` — silently
-// ignored by Helm.
-func TestBPCNPGSubchartKey(t *testing.T) {
-	files := mustRenderTenantOverlay(t)
-	body, ok := files["bp-cnpg.yaml"]
-	if !ok {
-		t.Fatalf("bp-cnpg.yaml missing from render output")
-	}
-	var hr helmReleaseYAML
-	if err := yaml.Unmarshal([]byte(body), &hr); err != nil {
-		t.Fatalf("bp-cnpg.yaml does not parse: %v", err)
-	}
-	v := hr.Spec.Values
-	cnpg, ok := v["cloudnative-pg"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("cloudnative-pg subchart block missing or wrong shape: %#v", v["cloudnative-pg"])
-	}
-	if _, ok := cnpg["replicaCount"]; !ok {
-		t.Errorf("cloudnative-pg.replicaCount missing")
-	}
-	crds, ok := cnpg["crds"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("cloudnative-pg.crds missing or wrong shape")
-	}
-	if got, _ := crds["create"].(bool); got {
-		t.Errorf("cloudnative-pg.crds.create: want false (mothership owns CRDs) got true")
-	}
-	// Banned legacy keys at top level — silent-ignore traps.
-	for _, banned := range []string{"namespace", "operator"} {
-		if _, present := v[banned]; present {
-			t.Errorf("legacy key %q still emitted at bp-cnpg values root", banned)
-		}
-	}
-}
+// TestBPCNPGSubchartKey was REMOVED with #4920. The per-Org bp-cnpg operator
+// overlay (bp-cnpg.yaml) is no longer emitted — the cluster-wide platform
+// cnpg-system operator reconciles the Org's Cluster CRs. The invariant that the
+// operator is NOT deployed per-Org is guarded by
+// TestPerOrgBPCNPGOperatorNotEmitted in organization_cnpg_rbac_test.go.
 
 // TestBPKeycloakValuesFromSMTPSecret — the orchestrator wires the
 // tenant SMTP user/password via valuesFrom referring to an OPTIONAL

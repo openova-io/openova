@@ -585,7 +585,6 @@ func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) 
 		// vcluster.yaml deliberately absent (#4188): the per-Org vCluster
 		// is owned by the CRD org-controller, not this overlay.
 		"bp-keycloak.yaml",
-		"bp-cnpg.yaml",
 		"bp-newapi.yaml",
 		"bp-wordpress-tenant.yaml",
 		"bp-openclaw.yaml",
@@ -715,7 +714,6 @@ func TestOrgTenantSharedHelmRepositories_DeclaresAgenity(t *testing.T) {
 	//    rendered HR fails `HelmRepository <name> not found` on a fresh Org.
 	for _, want := range []string{
 		"name: bp-keycloak",
-		"name: bp-cnpg",
 		"name: bp-newapi",
 		"name: bp-wordpress-tenant",
 		"name: bp-openclaw",
@@ -725,6 +723,11 @@ func TestOrgTenantSharedHelmRepositories_DeclaresAgenity(t *testing.T) {
 		if !strings.Contains(orgTenantSharedHelmRepositories, want) {
 			t.Errorf("shared HelmRepositories missing %q", want)
 		}
+	}
+	// #4920 — the per-Org bp-cnpg operator was removed; its HelmRepository
+	// must no longer be declared in the shared block.
+	if strings.Contains(orgTenantSharedHelmRepositories, "name: bp-cnpg") {
+		t.Errorf("#4920 regression: shared HelmRepositories still declares bp-cnpg (the per-Org operator was removed)")
 	}
 
 	// 3. Shape parity with the siblings: the bp-agenity block must carry
@@ -829,8 +832,10 @@ func TestRenderOrganizationOverlay_VersionsApplied(t *testing.T) {
 	if !strings.Contains(files["bp-keycloak.yaml"], `version: "1.2.3"`) {
 		t.Errorf("keycloak version missing: %s", files["bp-keycloak.yaml"])
 	}
-	if !strings.Contains(files["bp-cnpg.yaml"], `version: "0.5.0"`) {
-		t.Errorf("cnpg version missing")
+	// #4920 — the per-Org bp-cnpg operator overlay was removed; no bp-cnpg.yaml
+	// is rendered (the cluster-wide platform operator reconciles Org Clusters).
+	if _, ok := files["bp-cnpg.yaml"]; ok {
+		t.Errorf("#4920 regression: bp-cnpg.yaml must not be rendered")
 	}
 }
 
@@ -925,7 +930,9 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 // NXDOMAIN on every chat request.
 //
 // The chart values must:
-//   - dependsOn bp-keycloak (admin-UI OIDC) AND bp-cnpg (Postgres backend).
+//   - dependsOn bp-keycloak (admin-UI OIDC). Postgres is reconciled by the
+//     cluster-wide platform cnpg-system operator (#4920 removed the per-Org
+//     bp-cnpg operator); the chart still OWNS its CNPG Cluster via cnpg.enabled.
 //   - Emit ingress.host = api.<sub>.<parent> + ingress.adminHost =
 //     admin.<sub>.<parent> so OpenClaw's llm.baseURL resolves.
 //   - Wire auth.adminUI to the per-tenant Keycloak realm
@@ -973,18 +980,21 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 		}
 	}
 
-	// dependsOn: bp-keycloak + bp-cnpg (BOTH required).
+	// dependsOn: bp-keycloak only. #4920 removed the per-Org bp-cnpg operator;
+	// Postgres is reconciled by the cluster-wide platform cnpg-system operator,
+	// so bp-newapi must NOT dependsOn a (non-existent) per-Org bp-cnpg HR.
 	wantDependsOn := []string{
 		"  dependsOn:",
 		"    - name: bp-keycloak",
-		"      namespace: org-t-alice",
-		"    - name: bp-cnpg",
 		"      namespace: org-t-alice",
 	}
 	for _, line := range wantDependsOn {
 		if !strings.Contains(body, line) {
 			t.Errorf("bp-newapi.yaml dependsOn missing line %q\n--- rendered ---\n%s", line, body)
 		}
+	}
+	if strings.Contains(body, "name: bp-cnpg") {
+		t.Errorf("#4920 regression: bp-newapi.yaml must not dependsOn a per-Org bp-cnpg HR\n--- rendered ---\n%s", body)
 	}
 
 	// #4246 — install.disableWait + upgrade.disableWait MUST be set. The Pod
