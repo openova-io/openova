@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T23:15:03Z` |
+| Last refreshed | `2026-07-09T23:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 96 |
 | Open DoD gates | 0 / 41 |
@@ -303,6 +303,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T23:18 | [#4944](https://github.com/openova-io/openova/pull/4944) | #4758 | test(provisioning): lock the no-duplicate per-Org apps Kusto |
 | 2026-07-09T22:03 | [#4943](https://github.com/openova-io/openova/pull/4943) | #4942 | fix(#4942): permit native cross-region CP cilium-health + po |
 | 2026-07-09T21:31 | [#4941](https://github.com/openova-io/openova/pull/4941) | #4932 | test(#4934): stop leaked phase1-watch + post-handover gorout |
 | 2026-07-09T21:28 | [#4940](https://github.com/openova-io/openova/pull/4940) | #4937 | fix(#4937): authorize a customer's own-Org session for app l |
@@ -332,7 +333,6 @@ flowchart LR
 | 2026-07-09T13:23 | [#4903](https://github.com/openova-io/openova/pull/4903) | #4897 | fix(#4902): cascade-delete fan-out per-region HelmReleases o |
 | 2026-07-09T10:52 | [#4900](https://github.com/openova-io/openova/pull/4900) | #4897 | fix(#4897): render Apps-grid topology badge for object-form  |
 | 2026-07-09T10:53 | [#4899](https://github.com/openova-io/openova/pull/4899) | #4885 | org-services marketplace + auth honor global.imageRegistry f |
-| 2026-07-09T10:35 | [#4898](https://github.com/openova-io/openova/pull/4898) | #4896 | fix(#4896): reconcile bp- prefix in Blueprint Edit-IaC dry-r |
 
 ---
 
