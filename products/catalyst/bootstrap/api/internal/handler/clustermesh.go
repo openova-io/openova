@@ -91,9 +91,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -534,6 +536,40 @@ var sharedPGConsumerRestartTargets = map[string]sharedPGConsumerWorkload{
 	"keycloak-database-secret": {kind: "statefulset", name: "keycloak", namespace: "keycloak"},
 	"gitea-database-secret":    {kind: "deployment", name: "gitea", namespace: "gitea"},
 	"harbor-database-secret":   {kind: "deployment", name: "harbor-core", namespace: "harbor"},
+}
+
+// sharedPGConsumerCredHashAnnotation records, on a restarted consumer's POD
+// TEMPLATE, a short fingerprint of the shared-pg credential the rollout-restart
+// last rolled it onto (#4878 residual). It is the IDEMPOTENCY key: the restart
+// reconcile re-fires only when the authoritative credential's fingerprint
+// differs from the one already stamped here, so a steady-state / already-healed
+// pass never restarts (the #3241/#3583 no-thrash contract) while a genuine
+// rotation re-fires exactly once — and, crucially, the restart no longer fires
+// on the mere hub-secret CHANGE before the credential is consistent.
+const sharedPGConsumerCredHashAnnotation = "catalyst.openova.io/sharedpg-cred-hash"
+
+// sharedPGConsumerCredentialFingerprint returns a stable, short hex fingerprint
+// of a shared-pg hub Secret's EFFECTIVE data (Data overlaid with StringData —
+// the same bytes the consumer reads). Used as the #4878 idempotency key so the
+// consumer rollout-restart fires exactly once per distinct credential value.
+func sharedPGConsumerCredentialFingerprint(s *corev1.Secret) string {
+	if s == nil {
+		return ""
+	}
+	data := effectiveSecretData(s)
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	sum := sha256.New()
+	for _, k := range keys {
+		sum.Write([]byte(k))
+		sum.Write([]byte{0})
+		sum.Write(data[k])
+		sum.Write([]byte{0})
+	}
+	return hex.EncodeToString(sum.Sum(nil))[:16]
 }
 
 // sharedPGMeshRWHostMarker — the substring a hub Secret's `host` key carries
@@ -1862,31 +1898,32 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				copied = false
 				continue
 			}
-			changed, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace)
-			if err != nil {
+			if _, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace); err != nil {
 				h.log.Warn("clustermesh: shared-pg consumer-hub sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
 					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "err", err)
 				copied = false
 				continue
 			}
-			// #4878: when the authoritative region-A hub Secret actually
-			// OVERWROTE a divergent copy on this replica (region-B minted its
-			// OWN random DB password during its pre-flip SINGLETON phase; we
-			// just replaced it with region-A's — and the DB role has
-			// replicated the region-A password onto the replica's follower),
-			// the LONG-RUNNING consumer pod is still pinned to the STALE
-			// password it cached in-process at boot and NEVER re-reads the
-			// remounted Secret on its own → repeated
-			// `FATAL: password authentication failed`. Rollout-restart the
-			// mapped workload IN THIS REGION so it re-reads the corrected
-			// credential. Gated STRICTLY on changed==true (a steady-state heal
-			// pass where the bytes already match does NOT restart) to respect
-			// the #3241/#3583 no-thrash contract — an unconditional restart per
-			// ~2-min level-trigger pass would crash-cycle these consumers.
-			if changed {
-				if target, ok := sharedPGConsumerRestartTargets[name]; ok {
-					h.rolloutRestartConsumerWorkload(ctx, dep, replica, target)
-				}
+			// #4878 (+ residual, live hw232): after we OVERWRITE the replica's
+			// divergent shared-data hub Secret with region-A's authoritative one,
+			// the LONG-RUNNING consumer pod (keycloak/gitea/harbor) is still pinned
+			// to the STALE password it cached in-process at boot and never re-reads
+			// the remounted Secret on its own → repeated
+			// `FATAL: password authentication failed`. It must be rolled to pick up
+			// the corrected credential. BUT firing the restart the instant the hub
+			// Secret changes is PREMATURE: the emberstack reflector has not yet
+			// re-pushed region-A's bytes from shared-data into the consumer's OWN
+			// namespace, so the fresh pod re-reads the stale mounted Secret and
+			// crashloops until kubelet retries happen to catch the propagated value
+			// (hw232: keycloak-0 crashlooped 5× 06:43:50→06:47:23Z). Instead we
+			// reconcile the restart against CREDENTIAL CONSISTENCY every
+			// level-trigger pass — restart ONLY once the consumer-namespace Secret
+			// already carries region-A's bytes, and only ONCE per credential value
+			// (idempotent; a steady-state pass never restarts, honouring the
+			// #3241/#3583 no-thrash contract). `changed` no longer gates it; the
+			// level-trigger re-run drives it to consistency.
+			if target, ok := sharedPGConsumerRestartTargets[name]; ok {
+				h.reconcileSharedPGConsumerRestart(ctx, dep, replica, name, target, src)
 			}
 		}
 		if copied {
@@ -3048,35 +3085,130 @@ func (h *Handler) rolloutRestartClusterMeshTargets(ctx context.Context, dep *Dep
 	}
 }
 
+// reconcileSharedPGConsumerRestart is the #4878-residual credential-consistency
+// gate in front of rolloutRestartConsumerWorkload. The original #4878 fix rolled
+// the consumer the instant syncSharedPGConsumerHubSecrets OVERWROTE the replica's
+// divergent shared-data hub Secret (gated on copySecretAcrossClusters'
+// changed==true). Live hw232 proved that is PREMATURE: at that moment the
+// emberstack reflector has not yet re-pushed region-A's authoritative password
+// from shared-data into the consumer's OWN namespace, so the recreated pod
+// mounts the STALE bytes and crashloops on `FATAL: password authentication
+// failed` until kubelet-driven restarts happen to catch the propagated value
+// (keycloak-0 crashlooped 5× 06:43:50→06:47:23Z; powerdns/powerdns-admin in the
+// same window).
+//
+// Instead this reconciles the restart against CONSISTENCY on every ~2-min
+// level-trigger pass:
+//
+//	1. CONSISTENCY GATE — read the consumer-namespace copy of the hub Secret on
+//	   the replica. If it is absent, or its effective bytes do NOT yet match
+//	   region-A's authoritative hub Secret (`src`), the reflector has not
+//	   propagated the corrected credential — DEFER (no restart; the re-run
+//	   re-checks). Because region-A mints the hub Secret AND the PG role password
+//	   from the same source, and keycloak/gitea/harbor dial the `-mesh-rw` alias
+//	   that routes writes to region-A's primary, `consumer-ns == src`
+//	   transitively means the mounted password matches the LIVE PG role password
+//	   on the primary — so no in-process DB probe is needed to prove (c).
+//	2. IDEMPOTENCY / RESTART — hand the authoritative credential's fingerprint to
+//	   rolloutRestartConsumerWorkload, which restarts ONLY when the workload's pod
+//	   template was not already rolled onto this exact fingerprint. So a
+//	   steady-state / already-healed pass never restarts (the #3241/#3583
+//	   no-thrash contract) while a genuine future rotation re-fires exactly once.
+//
+// Net effect: the restart fires ONCE, AFTER the mounted credential is consistent
+// — the single clean restart the #4878 goal wanted — and the level-trigger
+// re-run keeps re-checking until that consistency is reached, so nothing depends
+// on the reflector winning a race with the first restart.
+func (h *Handler) reconcileSharedPGConsumerRestart(ctx context.Context, dep *Deployment, slot *regionSlot, hubSecretName string, w sharedPGConsumerWorkload, src *corev1.Secret) {
+	if slot == nil || slot.clientset == nil || src == nil {
+		return
+	}
+	// 1. CONSISTENCY GATE — the reflector must have re-pushed region-A's bytes
+	// into the consumer's own namespace before a restart can help.
+	getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	consumerSecret, err := slot.clientset.CoreV1().Secrets(w.namespace).Get(getCtx, hubSecretName, metav1.GetOptions{})
+	cancel()
+	if err != nil {
+		h.log.Info("clustermesh: #4878 consumer restart deferred — consumer-namespace DB Secret not present yet (reflector has not re-pushed region-A's credential; level-trigger re-run re-checks)",
+			"id", dep.ID, "region", slot.key, "namespace", w.namespace, "secret", hubSecretName, "err", err)
+		return
+	}
+	if !secretContentMatches(consumerSecret, src) {
+		h.log.Info("clustermesh: #4878 consumer restart deferred — consumer-namespace DB Secret has not caught up to region-A's authoritative credential (reflector propagation lag; re-run re-checks — this is what prevents the premature-restart crashloop)",
+			"id", dep.ID, "region", slot.key, "namespace", w.namespace, "secret", hubSecretName)
+		return
+	}
+	// 2. Credential is consistent — hand the fingerprint to the idempotent
+	// restart (it no-ops when the workload was already rolled onto this value).
+	h.rolloutRestartConsumerWorkload(ctx, dep, slot, w, sharedPGConsumerCredentialFingerprint(src))
+}
+
 // rolloutRestartConsumerWorkload bumps the same
 // `catalyst.openova.io/restartedAt` annotation idiom
 // rolloutRestartClusterMeshTargets uses, but on a SINGLE consumer workload in a
 // SPECIFIC replica region, so its Pod re-reads the (now corrected) shared-pg DB
-// Secret it cached at boot (#4878). Called ONLY on a real hub-secret change (the
-// syncSharedPGConsumerHubSecrets caller gates on copySecretAcrossClusters'
-// changed==true), so it inherits the #3241/#3583 no-thrash contract — a
-// steady-state heal pass never reaches here. Best-effort: a NotFound (the
-// workload isn't wired on this Sovereign) or any patch error is logged and
-// swallowed, never fatal — the level-triggered reconcile re-runs and only
-// re-bumps the annotation when the Secret genuinely changes again.
-func (h *Handler) rolloutRestartConsumerWorkload(ctx context.Context, dep *Deployment, slot *regionSlot, w sharedPGConsumerWorkload) {
+// Secret it cached at boot (#4878). Idempotent per CREDENTIAL: it first reads the
+// workload's current pod-template `sharedPGConsumerCredHashAnnotation`; if it
+// already equals credFingerprint the workload was ALREADY rolled onto this exact
+// password → no-op (so a steady-state or re-checked pass never thrashes, honouring
+// #3241/#3583). Only a differing fingerprint patches the pod template (stamping
+// both restartedAt and the fingerprint), which rolls the workload exactly once
+// per distinct credential value. Best-effort: a NotFound (the workload isn't
+// wired on this Sovereign) or any Get/Patch error is logged and swallowed, never
+// fatal — the level-triggered reconcile re-runs.
+func (h *Handler) rolloutRestartConsumerWorkload(ctx context.Context, dep *Deployment, slot *regionSlot, w sharedPGConsumerWorkload, credFingerprint string) {
 	if slot == nil || slot.clientset == nil {
 		return
 	}
-	stamp := time.Now().UTC().Format(time.RFC3339)
-	patch := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"catalyst.openova.io/restartedAt":%q}}}}}`, stamp))
 	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
 	defer cancel()
+
+	// Idempotency gate: read the current pod-template credential fingerprint so a
+	// pass that already rolled onto this credential does not restart again.
+	var currentFingerprint string
+	var getErr error
+	switch w.kind {
+	case "statefulset":
+		sts, e := slot.clientset.AppsV1().StatefulSets(w.namespace).Get(callCtx, w.name, metav1.GetOptions{})
+		if e == nil {
+			currentFingerprint = sts.Spec.Template.Annotations[sharedPGConsumerCredHashAnnotation]
+		}
+		getErr = e
+	case "deployment":
+		dp, e := slot.clientset.AppsV1().Deployments(w.namespace).Get(callCtx, w.name, metav1.GetOptions{})
+		if e == nil {
+			currentFingerprint = dp.Spec.Template.Annotations[sharedPGConsumerCredHashAnnotation]
+		}
+		getErr = e
+	default:
+		h.log.Warn("clustermesh: #4878 consumer rollout-restart: unknown workload kind — skipping",
+			"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace)
+		return
+	}
+	if getErr != nil {
+		if apierrors.IsNotFound(getErr) {
+			h.log.Info("clustermesh: #4878 consumer rollout-restart: workload not present on replica — skipping (consumer may be unconfigured on this Sovereign; best-effort)",
+				"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace)
+			return
+		}
+		h.log.Warn("clustermesh: #4878 consumer rollout-restart: get workload failed (continuing; re-run converges)",
+			"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace, "err", getErr)
+		return
+	}
+	if credFingerprint != "" && currentFingerprint == credFingerprint {
+		// Already rolled onto this exact credential — no-op (no thrash).
+		return
+	}
+
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	patch := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"catalyst.openova.io/restartedAt":%q,%q:%q}}}}}`,
+		stamp, sharedPGConsumerCredHashAnnotation, credFingerprint))
 	var err error
 	switch w.kind {
 	case "statefulset":
 		_, err = slot.clientset.AppsV1().StatefulSets(w.namespace).Patch(callCtx, w.name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
 	case "deployment":
 		_, err = slot.clientset.AppsV1().Deployments(w.namespace).Patch(callCtx, w.name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
-	default:
-		h.log.Warn("clustermesh: #4878 consumer rollout-restart: unknown workload kind — skipping",
-			"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace)
-		return
 	}
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -3088,10 +3220,10 @@ func (h *Handler) rolloutRestartConsumerWorkload(ctx context.Context, dep *Deplo
 			"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace, "err", err)
 		return
 	}
-	h.log.Info("clustermesh: #4878 rolled consumer workload so it re-reads region-A's authoritative shared-pg password after the hub-secret changed on this replica",
-		"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace)
+	h.log.Info("clustermesh: #4878 rolled consumer workload so it re-reads region-A's authoritative shared-pg password once the corrected credential propagated into the consumer namespace",
+		"id", dep.ID, "region", slot.key, "kind", w.kind, "name", w.name, "namespace", w.namespace, "credFingerprint", credFingerprint)
 	h.emitClusterMeshProgress(dep, "info",
-		fmt.Sprintf("ClusterMesh: rolled %s/%s in region %q so it re-reads region-A's authoritative shared-pg password (#4878 — clears the stale-password FATAL after the hub-secret sync)",
+		fmt.Sprintf("ClusterMesh: rolled %s/%s in region %q so it re-reads region-A's authoritative shared-pg password once the credential was consistent in-namespace (#4878 — single clean restart, clears the stale-password FATAL)",
 			w.namespace, w.name, slot.key))
 }
 
