@@ -794,6 +794,17 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			if hrName, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "name"); hrName != "" {
 				adoptedHRs[hrName] = true
 				externalURL = urlByHRName[hrName]
+				// #4889 — HR-Ready overlay for adopted spine/bootstrap CRs.
+				// The Application CR status.phase lags/flaps behind Flux (the
+				// app-controller can sit at Provisioning/Failed while the
+				// adopted HelmRelease is already Ready=True). When the adopted
+				// HR (installed map, built from helmReleaseReady above) is
+				// Ready, prefer it — mirrors the detail endpoint's C4-003 /
+				// #4889 overlay so the grid card doesn't render FAILED/
+				// installing while the HelmRelease is Ready.
+				if status != "installed" && installed[hrName] == "installed" {
+					status = "installed"
+				}
 			}
 			topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
 			instanceRows = append(instanceRows, sovereignAppItem{
