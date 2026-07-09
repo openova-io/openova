@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T10:45:03Z` |
+| Last refreshed | `2026-07-09T11:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 79 |
 | Open DoD gates | 0 / 41 |
@@ -286,6 +286,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T10:52 | [#4900](https://github.com/openova-io/openova/pull/4900) | #4897 | fix(#4897): render Apps-grid topology badge for object-form  |
+| 2026-07-09T10:53 | [#4899](https://github.com/openova-io/openova/pull/4899) | #4885 | org-services marketplace + auth honor global.imageRegistry f |
 | 2026-07-09T10:35 | [#4898](https://github.com/openova-io/openova/pull/4898) | #4896 | fix(#4896): reconcile bp- prefix in Blueprint Edit-IaC dry-r |
 | 2026-07-09T09:50 | [#4895](https://github.com/openova-io/openova/pull/4895) | #4878 | fix(#4878): gate shared-pg consumer restart on credential co |
 | 2026-07-09T09:40 | [#4894](https://github.com/openova-io/openova/pull/4894) | #4885 | fix(#4885): wire 4 imageRegistry-honouring charts into cutov |
@@ -314,8 +316,6 @@ flowchart LR
 | 2026-07-08T19:24 | [#4861](https://github.com/openova-io/openova/pull/4861) | #4807 | fix(#4656): per-node pod-CIDR VPC routes — deterministic cro |
 | 2026-07-08T18:59 | [#4857](https://github.com/openova-io/openova/pull/4857) | #4843 | fix(#4843): declare js-yaml + @types/js-yaml so the catalyst |
 | 2026-07-08T16:48 | [#4856](https://github.com/openova-io/openova/pull/4856) | #4853 | fix(#4853): retry Application status writes on 409 Conflict |
-| 2026-07-08T16:22 | [#4855](https://github.com/openova-io/openova/pull/4855) | #3735 | fix(#4849): source-controller OOM + unbounded emptyDir → nod |
-| 2026-07-08T15:22 | [#4852](https://github.com/openova-io/openova/pull/4852) | #4834 | fix(#4834): align catalog seed bp-stalwart-tenant 0.1.8→0.1. |
 
 ---
 
