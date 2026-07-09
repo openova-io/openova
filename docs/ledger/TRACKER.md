@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T21:00:02Z` |
+| Last refreshed | `2026-07-09T21:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 94 |
+| Open issues | 95 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 94 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 95 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 94 open items (clickable table)
+### All 95 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -207,6 +207,7 @@ flowchart LR
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
 | [#4541](https://github.com/openova-io/openova/issues/4541) | fix(harbor): create the missing proxy-xpkg/proxy-ecr proxy-cache projects on the | Other |
+| [#4546](https://github.com/openova-io/openova/issues/4546) | fix(marketplace): authed owner on /redeem must not see the public funnel — own | Other |
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
 | [#4569](https://github.com/openova-io/openova/issues/4569) | Funnel TLD choice (omani.rest/.trade) is silently overridden to the single Sover | Other |
 | [#4600](https://github.com/openova-io/openova/issues/4600) | fix(crossplane): remove artificial bastion-Harbor (harbor.openova.io/proxy-xpkg) | Other |
@@ -301,6 +302,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T21:05 | [#4938](https://github.com/openova-io/openova/pull/4938) | #4546 | fix(marketplace): redeem page owns the authed-owner→console  |
 | 2026-07-09T20:33 | [#4935](https://github.com/openova-io/openova/pull/4935) | #4925 | fix(#4841): grant useraccess-controller `bind` on the 8 cano |
 | 2026-07-09T20:18 | [#4933](https://github.com/openova-io/openova/pull/4933) | #944 | test(#4932): await phase1-watch goroutine so it stops writin |
 | 2026-07-09T20:39 | [#4931](https://github.com/openova-io/openova/pull/4931) | #4927 | fix(#4930): DR switchover-history/quorum/settings drop synth |
@@ -330,7 +332,6 @@ flowchart LR
 | 2026-07-09T09:40 | [#4894](https://github.com/openova-io/openova/pull/4894) | #4885 | fix(#4885): wire 4 imageRegistry-honouring charts into cutov |
 | 2026-07-09T09:37 | [#4893](https://github.com/openova-io/openova/pull/4893) | #4732 | fix(#4814): count live WorkerNodes not declared in cloud-gra |
 | 2026-07-09T09:39 | [#4892](https://github.com/openova-io/openova/pull/4892) | #4885 | fix(#4885): 4 charts honour global.imageRegistry for step-07 |
-| 2026-07-09T09:21 | [#4891](https://github.com/openova-io/openova/pull/4891) | #4885 | fix(#4885): roll gitea on admin-secret change so keepUpdated |
 
 ---
 
