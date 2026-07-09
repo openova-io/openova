@@ -303,6 +303,205 @@ func cnpgClusterLag(cr *unstructured.Unstructured) int {
 	return 0
 }
 
+// cnpgClusterReadyInstances reports status.readyInstances (the count of a
+// CNPG Cluster's Pods currently Ready) and whether the field was present.
+// CNPG drops it to 0 when every instance of a Cluster is down — the
+// region-kill drill (#4901: region-b nodes cordoned, replica Pods deleted →
+// 0 ready). A present-but-zero reading is a standby-absent signal; an absent
+// field means the Cluster status is too old/partial to judge on this axis
+// (the caller then falls back to the Ready condition alone).
+func cnpgClusterReadyInstances(cr *unstructured.Unstructured) (int, bool) {
+	v, found, err := unstructured.NestedFieldNoCopy(cr.Object, "status", "readyInstances")
+	if err != nil || !found {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int64:
+		return int(n), true
+	case int:
+		return n, true
+	case float64:
+		return int(n), true
+	}
+	return 0, false
+}
+
+// cnpgStandbyAvailable reports whether the replica (standby) half of a cnpg
+// cluster-pair is genuinely serving as a hot-standby: its Cluster reports
+// Ready=True AND (when the field is present) at least one instance is Ready.
+//
+// A Ready-but-LAGGING standby is still AVAILABLE — replication lag is a
+// separate axis (status.replicationLagSeconds) and must NEVER raise a
+// standby-absent alarm (the issue's explicit no-false-alarm rule). Only an
+// unreachable / down standby (not Ready, or zero ready instances) counts as
+// absent.
+func cnpgStandbyAvailable(replica *unstructured.Unstructured) bool {
+	if !cnpgClusterReady(replica) {
+		return false
+	}
+	if inst, found := cnpgClusterReadyInstances(replica); found {
+		return inst >= 1
+	}
+	return true
+}
+
+// cnpgStandbyState is the resolved availability of the REQUIRED synchronous
+// hot-standby a cnpg-pair Continuum CR references via spec.cnpgPair.
+type cnpgStandbyState struct {
+	PairName       string
+	ReplicaCluster string
+	ReplicaRegion  string
+	Available      bool
+}
+
+// cnpgPairStandbyForContinuum resolves the standby (replica) availability of
+// the cnpg cluster-pair a Continuum CR names in spec.cnpgPair. It returns
+// (state, true) ONLY when the CR references a cnpg pair AND that pair's
+// replica-role Cluster half is present on the cluster (so a determination
+// can be made). It returns (_, false) — leave the observed status untouched
+// — when:
+//
+//   - the CR carries no spec.cnpgPair: the dr-spine / openbao-raft continuums
+//     have no synchronous cnpg pair, so the SyncRep standby-absent branch is
+//     not theirs (their own standby posture is surfaced elsewhere), or
+//   - the replica-role Cluster half cannot be listed/found: provisioning in
+//     flight, or the client cannot see the pair — being conservative here
+//     avoids false-alarming a half-provisioned pair.
+//
+// The replica-role Cluster PRESENT-but-not-Ready is the proven region-kill
+// state (#4901) — that is exactly the case this returns Available=false for.
+func (h *Handler) cnpgPairStandbyForContinuum(
+	ctx context.Context,
+	client dynamic.Interface,
+	cr *unstructured.Unstructured,
+) (cnpgStandbyState, bool) {
+	pairName, _, _ := unstructured.NestedString(cr.Object, "spec", "cnpgPair", "name")
+	if strings.TrimSpace(pairName) == "" {
+		return cnpgStandbyState{}, false
+	}
+	pairNS, _, _ := unstructured.NestedString(cr.Object, "spec", "cnpgPair", "namespace")
+	if strings.TrimSpace(pairNS) == "" {
+		pairNS = cr.GetNamespace()
+	}
+	list, err := client.Resource(cnpgClusterGVR).Namespace(pairNS).List(ctx, metav1.ListOptions{
+		LabelSelector: cnpgPairLabel + "=" + pairName,
+	})
+	if err != nil || list == nil {
+		return cnpgStandbyState{}, false
+	}
+	var replica *unstructured.Unstructured
+	for i := range list.Items {
+		if list.Items[i].GetLabels()[cnpgRoleLabel] == cnpgRoleReplica {
+			replica = &list.Items[i]
+			break
+		}
+	}
+	if replica == nil {
+		// No replica-role half resolvable — cannot judge; leave untouched.
+		return cnpgStandbyState{}, false
+	}
+	return cnpgStandbyState{
+		PairName:       pairName,
+		ReplicaCluster: replica.GetName(),
+		ReplicaRegion:  replica.GetLabels()[cnpgRegionLabel],
+		Available:      cnpgStandbyAvailable(replica),
+	}, true
+}
+
+// augmentContinuumStandbyStatus cross-checks the live cnpg-pair standby for a
+// cnpg-pair-backed Continuum CR and reflects a lost REQUIRED synchronous
+// hot-standby into the OBSERVED status the DR panel renders (#4901).
+//
+// THE GAP THIS CLOSES. The continuum-controller owns the CR's stored status
+// (ADR-0001 §2.7) and tracks the witness lease / primary correctly, but it
+// derives phase purely from lease-held-ness (patchStatusFromCR). A lost
+// required-sync standby — region-b replica unreachable, writes stalling on
+// SyncRep — therefore leaves the cnpg-pair Continuum pinned phase=Healthy,
+// replicationLagSeconds=0, switchoverInProgress=false (proven in the G12
+// region-kill drill on hw232). An operator watching the cnpg-pair Continuum
+// would not see that RPO=0 durability is at risk. This augments the READ
+// projection (it does NOT write the CR — no second status writer fighting
+// the controller) so the panel surfaces the standby-absent condition,
+// reusing the same live replica-readiness signal deriveLiveContinuumRecord
+// already computes for the no-CR path.
+//
+// Invariants:
+//   - ONLY cnpg-pair-backed continuums (spec.cnpgPair present) with a
+//     resolvable replica half are touched — dr-spine/raft continuums are
+//     left untouched.
+//   - lease/primary tracking (leaseHolder / currentPrimary /
+//     replicationLagSeconds) is preserved verbatim.
+//   - phase is only nudged Healthy→Degraded — never clobbering a FailedOver /
+//     SwitchingOver / already-Degraded phase.
+//   - a Ready-but-lagging standby is NOT flagged (lag rides its own field).
+func (h *Handler) augmentContinuumStandbyStatus(
+	ctx context.Context,
+	client dynamic.Interface,
+	cr *unstructured.Unstructured,
+	status map[string]interface{},
+) map[string]interface{} {
+	st, ok := h.cnpgPairStandbyForContinuum(ctx, client, cr)
+	if !ok {
+		return status
+	}
+	if status == nil {
+		status = map[string]interface{}{}
+	}
+	now := h.continuumNow().UTC().Format(time.RFC3339)
+	status["standbyAvailable"] = st.Available
+	if st.Available {
+		status["hotStandbyAbsent"] = false
+		setContinuumStatusCondition(status, now, "StandbyAvailable", "True", "StandbyReachable",
+			fmt.Sprintf("required synchronous hot-standby %s (cnpg-pair replica cluster %q) is reachable and following the primary",
+				standbyRegionLabel(st.ReplicaRegion), st.ReplicaCluster))
+		return status
+	}
+	// Standby unreachable — surface the Degraded / standby-absent posture.
+	if phase, _ := status["phase"].(string); phase == "" || phase == "Healthy" {
+		status["phase"] = "Degraded"
+	}
+	status["hotStandbyAbsent"] = true
+	setContinuumStatusCondition(status, now, "StandbyAvailable", "False", "StandbyUnreachable",
+		fmt.Sprintf("required synchronous hot-standby %s (cnpg-pair replica cluster %q) is unreachable; synchronous replication has no standby to acknowledge commits so writes stall and RPO=0 durability is at risk",
+			standbyRegionLabel(st.ReplicaRegion), st.ReplicaCluster))
+	return status
+}
+
+// standbyRegionLabel renders a human region for the condition message,
+// falling back to a generic label when the replica Cluster carries no
+// openova.io/region label (single-node dev pairs).
+func standbyRegionLabel(region string) string {
+	if strings.TrimSpace(region) == "" {
+		return "the standby region"
+	}
+	return region
+}
+
+// setContinuumStatusCondition upserts a K8s-style condition into
+// status.conditions[] (append, or replace the existing entry of the same
+// type). It mutates the OBSERVED status map (a deep copy of the CR's status)
+// — never the CR itself.
+func setContinuumStatusCondition(status map[string]interface{}, now, condType, condStatus, reason, message string) {
+	cond := map[string]interface{}{
+		"type":               condType,
+		"status":             condStatus,
+		"reason":             reason,
+		"message":            message,
+		"lastTransitionTime": now,
+	}
+	conds, _ := status["conditions"].([]interface{})
+	for i := range conds {
+		if m, ok := conds[i].(map[string]interface{}); ok {
+			if t, _ := m["type"].(string); t == condType {
+				conds[i] = cond
+				status["conditions"] = conds
+				return
+			}
+		}
+	}
+	status["conditions"] = append(conds, cond)
+}
+
 // deriveLiveContinuumRecord builds a Continuum DR record from the live
 // cnpg cluster-pair backing the app, in the EXACT continuumGetResponse
 // shape the AppDetail DR panel reads. Returns (record, true) when a real
