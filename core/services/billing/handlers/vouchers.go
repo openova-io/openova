@@ -38,6 +38,7 @@ import (
 	"github.com/openova-io/openova/core/services/billing/store"
 	sharedauth "github.com/openova-io/openova/core/services/shared/auth"
 	"github.com/openova-io/openova/core/services/shared/respond"
+	"github.com/openova-io/openova/core/services/shared/voucher"
 )
 
 // issueVoucherRequest is the wire shape for POST /billing/vouchers/issue.
@@ -96,13 +97,13 @@ func (h *Handler) IssueVoucher(w http.ResponseWriter, r *http.Request) {
 	// `WALKMART2026` shape) can't be issued. The redeem path resists
 	// brute-force only if the code space is large.
 	if p.Code == "" {
-		gen, err := generateVoucherCode()
+		gen, err := voucher.GenerateCode()
 		if err != nil {
 			respond.Error(w, http.StatusInternalServerError, "failed to generate voucher code")
 			return
 		}
 		p.Code = gen
-	} else if err := validateVoucherCodeStrength(p.Code); err != nil {
+	} else if err := voucher.ValidateCodeStrength(p.Code); err != nil {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}

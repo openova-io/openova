@@ -72,7 +72,9 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -83,8 +85,15 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	sharedauth "github.com/openova-io/openova/core/services/shared/auth"
+	"github.com/openova-io/openova/core/services/shared/voucher"
 	authpkg "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
+
+// maxVoucherIssueBody bounds how much of the issue request body the edge
+// strength gate buffers before proxying. A voucher-issue payload is a
+// handful of small JSON fields; 1 MiB is generous headroom that still
+// caps a hostile oversized body.
+const maxVoucherIssueBody = 1 << 20
 
 const (
 	// defaultOrgGatewayURL — the in-cluster Service DNS the chart's
@@ -207,11 +216,61 @@ func (h *Handler) HandleListOrgBillingVouchers(w http.ResponseWriter, r *http.Re
 // HandleIssueOrgBillingVoucher — POST /api/v1/org/billing/vouchers/issue.
 //
 // Forwards to `POST /api/billing/vouchers/issue` on the Organization gateway.
-// The body is streamed through unchanged — see
-// core/services/billing/handlers/vouchers.go `IssueVoucher` for the
+// See core/services/billing/handlers/vouchers.go `IssueVoucher` for the
 // upsert + D28 voucher-issued email semantics (recipient_email is an
 // optional request-only field; the row never persists it).
+//
+// #4914 — voucher-code strength is enforced at the console edge here, not
+// only on the upstream billing service. Previously this handler streamed
+// the body straight through, so an operator-supplied weak code (the walk's
+// `WALKMART2026`-shape) reached the gateway unchecked — and on a Sovereign
+// whose billing image predates #3376 would persist. We now buffer the
+// body, inspect the `code` field, and reject a weak CUSTOM code with a 400
+// `voucher-code-too-weak` BEFORE the upstream hop, sharing the SAME
+// validator the billing service uses (core/services/shared/voucher — one
+// implementation, no divergent copies).
+//
+// An omitted / empty `code` is the auto-generate path (the billing service
+// mints a high-entropy `VCH-…` code) and MUST pass through untouched — the
+// edge gate only runs when the operator SUPPLIED a code. Any body that is
+// absent or not decodable JSON is forwarded verbatim so the upstream owns
+// its own shape errors; the only new rejection here is a weak custom code.
 func (h *Handler) HandleIssueOrgBillingVoucher(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxVoucherIssueBody))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":  "voucher-issue-body-read",
+			"detail": err.Error(),
+		})
+		return
+	}
+	_ = r.Body.Close()
+
+	// Decode leniently — only the `code` field gates the request. A body
+	// that isn't valid JSON carries no code to validate; forward it and let
+	// the billing service return its own shape error (preserves the proxy's
+	// verbatim-passthrough contract for everything but the strength gate).
+	var probe struct {
+		Code string `json:"code"`
+	}
+	if len(bytes.TrimSpace(body)) > 0 {
+		_ = json.Unmarshal(body, &probe)
+	}
+	// Normalise exactly as the billing service does (uppercase + trim) so
+	// the edge verdict matches the upstream's stored-code semantics. An
+	// empty code after normalisation is the auto-generate path — skip.
+	if code := strings.ToUpper(strings.TrimSpace(probe.Code)); code != "" {
+		if verr := voucher.ValidateCodeStrength(code); verr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error":  "voucher-code-too-weak",
+				"detail": verr.Error(),
+			})
+			return
+		}
+	}
+	// Re-attach the buffered body so proxyOrgVoucher can stream it upstream.
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
 	h.proxyOrgVoucher(w, r, http.MethodPost, "/api/billing/vouchers/issue")
 }
 
