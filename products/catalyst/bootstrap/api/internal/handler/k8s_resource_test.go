@@ -53,6 +53,22 @@ type k8sResourceTestRig struct {
 }
 
 func newResourceRig(t *testing.T, objs ...runtime.Object) *k8sResourceTestRig {
+	return newResourceRigWithPrep(t, nil, objs...)
+}
+
+// newResourceRigWithPrep is newResourceRig plus a hook that runs against
+// the fake dynamic client BEFORE the k8scache informer factory starts.
+//
+// This ordering is load-bearing for tests that install a PrependReactor:
+// client-go's fake `PrependReactor` mutates `Fake.ReactionChain` WITHOUT
+// taking the fake's mutex (testing/fake.go), whereas the background
+// informer's reflector reads that same chain under the lock via
+// `Fake.Invokes` on every List/Watch. Installing the reactor after
+// `factory.Start` therefore data-races the reflector goroutine. Running
+// the prep here — before any reflector goroutine exists — means the
+// reaction chain is fully built by the time concurrent Invokes begin, and
+// every subsequent access is serialized under `Fake.Lock`.
+func newResourceRigWithPrep(t *testing.T, prep func(*dynamicfake.FakeDynamicClient), objs ...runtime.Object) *k8sResourceTestRig {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "PodList"}, &unstructured.UnstructuredList{})
@@ -76,6 +92,11 @@ func newResourceRig(t *testing.T, objs ...runtime.Object) *k8sResourceTestRig {
 		{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}: "BlueprintList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
+	// Install any reactors BEFORE the informer factory starts — see the
+	// doc comment on newResourceRigWithPrep for why the ordering matters.
+	if prep != nil {
+		prep(dyn)
+	}
 	core := kfake.NewSimpleClientset()
 
 	r := k8scache.NewRegistry()
@@ -608,15 +629,18 @@ var blueprintsGR = schema.GroupResource{Group: "catalyst.openova.io", Resource: 
 // fixed alongside so the cluster-scoped Update routes correctly.
 func TestHandleK8sResourceDryRun_ForbiddenUpdateMapsTo403(t *testing.T) {
 	bp := newBlueprintObj("bp-alloy")
-	rig := newResourceRig(t, bp)
-	defer rig.stop()
 	// Let the RV-block Get succeed (object is seeded) but deny the Update,
-	// exactly as an under-privileged SA would experience it.
-	rig.dyn.PrependReactor("update", "blueprints", func(action clienttesting.Action) (bool, runtime.Object, error) {
-		return true, nil, apierrors.NewForbidden(blueprintsGR, "bp-alloy",
-			errors.New(`blueprints.catalyst.openova.io "bp-alloy" is forbidden: `+
-				`User "system:serviceaccount:catalyst:catalyst-api" cannot update resource "blueprints"`))
-	})
+	// exactly as an under-privileged SA would experience it. The reactor is
+	// installed pre-start (via the prep hook) so it does not race the
+	// informer's reflector — see newResourceRigWithPrep.
+	rig := newResourceRigWithPrep(t, func(dyn *dynamicfake.FakeDynamicClient) {
+		dyn.PrependReactor("update", "blueprints", func(action clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(blueprintsGR, "bp-alloy",
+				errors.New(`blueprints.catalyst.openova.io "bp-alloy" is forbidden: `+
+					`User "system:serviceaccount:catalyst:catalyst-api" cannot update resource "blueprints"`))
+		})
+	}, bp)
+	defer rig.stop()
 
 	yamlBody := `apiVersion: catalyst.openova.io/v1
 kind: Blueprint
@@ -645,13 +669,16 @@ spec:
 // resource-get-failed 500; it must now surface 403.
 func TestHandleK8sResourceApply_ForbiddenGetMapsTo403(t *testing.T) {
 	bp := newBlueprintObj("bp-alloy")
-	rig := newResourceRig(t, bp)
+	// Reactor installed pre-start so it does not race the informer's
+	// reflector List/Watch — see newResourceRigWithPrep.
+	rig := newResourceRigWithPrep(t, func(dyn *dynamicfake.FakeDynamicClient) {
+		dyn.PrependReactor("get", "blueprints", func(action clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(blueprintsGR, "bp-alloy",
+				errors.New(`blueprints.catalyst.openova.io "bp-alloy" is forbidden: `+
+					`User "system:serviceaccount:catalyst:catalyst-api" cannot get resource "blueprints"`))
+		})
+	}, bp)
 	defer rig.stop()
-	rig.dyn.PrependReactor("get", "blueprints", func(action clienttesting.Action) (bool, runtime.Object, error) {
-		return true, nil, apierrors.NewForbidden(blueprintsGR, "bp-alloy",
-			errors.New(`blueprints.catalyst.openova.io "bp-alloy" is forbidden: `+
-				`User "system:serviceaccount:catalyst:catalyst-api" cannot get resource "blueprints"`))
-	})
 
 	// YAML deliberately omits resourceVersion → the handler runs the
 	// RV-block Get, which the reactor denies.
