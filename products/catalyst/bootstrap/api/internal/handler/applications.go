@@ -1487,7 +1487,21 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	//
 	// Mirrors the C4-013 contract: surface the discrepancy when the
 	// CR phase disagrees with HR Ready, so the operator can see both.
-	if isHRReady := h.helmReleaseReadyByName(r.Context(), depID, resp.ReleaseName); isHRReady && resp.Phase != "Ready" {
+	//
+	// #4889 — resolve the HR-lookup identity from spec.helmRelease.name
+	// (the adopted HelmRelease) first. Spine/bootstrap Application CRs
+	// reference their HR there (e.g. spine-gitea → flux-system/bp-gitea)
+	// and carry NO spec.releaseName, so resp.ReleaseName fell back to the
+	// CR's OWN name ("spine-gitea") and helmReleaseReadyByName never
+	// matched the real HR ("bp-gitea") — the overlay was inert for exactly
+	// these apps and the operator saw FAILED/Provisioning (source:
+	// Application CR) while the HelmRelease was Ready. Fallback chain:
+	// spec.helmRelease.name → resp.ReleaseName.
+	hrLookupName := resp.ReleaseName
+	if hrn, ok, _ := unstructured.NestedString(obj.Object, "spec", "helmRelease", "name"); ok && hrn != "" {
+		hrLookupName = hrn
+	}
+	if isHRReady := h.helmReleaseReadyByName(r.Context(), depID, hrLookupName); isHRReady && resp.Phase != "Ready" {
 		resp.HRReady = true
 		resp.PhaseFromCR = resp.Phase
 		resp.Phase = "Ready"
