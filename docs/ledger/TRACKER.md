@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T09:45:06Z` |
+| Last refreshed | `2026-07-09T10:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -284,6 +284,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T09:50 | [#4895](https://github.com/openova-io/openova/pull/4895) | #4878 | fix(#4878): gate shared-pg consumer restart on credential co |
 | 2026-07-09T09:40 | [#4894](https://github.com/openova-io/openova/pull/4894) | #4885 | fix(#4885): wire 4 imageRegistry-honouring charts into cutov |
 | 2026-07-09T09:37 | [#4893](https://github.com/openova-io/openova/pull/4893) | #4732 | fix(#4814): count live WorkerNodes not declared in cloud-gra |
 | 2026-07-09T09:39 | [#4892](https://github.com/openova-io/openova/pull/4892) | #4885 | fix(#4885): 4 charts honour global.imageRegistry for step-07 |
@@ -313,7 +314,6 @@ flowchart LR
 | 2026-07-08T16:22 | [#4855](https://github.com/openova-io/openova/pull/4855) | #3735 | fix(#4849): source-controller OOM + unbounded emptyDir → nod |
 | 2026-07-08T15:22 | [#4852](https://github.com/openova-io/openova/pull/4852) | #4834 | fix(#4834): align catalog seed bp-stalwart-tenant 0.1.8→0.1. |
 | 2026-07-07T17:46 | [#4850](https://github.com/openova-io/openova/pull/4850) | #4846 | fix(#4846): identity-based CiliumNetworkPolicy for cross-reg |
-| 2026-07-07T15:10 | [#4848](https://github.com/openova-io/openova/pull/4848) | #4846 | fix(#4846): cnpg-pair cross-region netpol — ipBlock allow fo |
 
 ---
 
