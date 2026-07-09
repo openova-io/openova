@@ -174,7 +174,12 @@ spec:
       #   at admission → pre-upgrade gate failed → bp-gitea HR rollback-looped and
       #   stranded bp-catalyst-platform / bp-continuum / bp-sandbox. Fix: default the
       #   guard image to the harbor-proxy form. Refs #4369 #4367 #4354.
-      version: 1.2.46
+      # 1.2.47 — #4885: reloader annotation on the gitea Deployment metadata
+      #   (secret.reloader.stakater.com/reload: gitea-admin-secret) so bp-reloader
+      #   (slot 28) rolls gitea on any admin-secret change and keepUpdated re-syncs
+      #   the DB password — closes the Pillar-5 cutover step-06 demirror 401 gap
+      #   (live hw232). Refs #4885 #3379 #830.
+      version: 1.2.47
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
