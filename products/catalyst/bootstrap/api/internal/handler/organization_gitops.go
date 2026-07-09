@@ -79,8 +79,14 @@ type OrganizationChartVersions struct {
 	Stalwart  string
 	NewAPI    string
 	// Agenity — the per-Org agentic dashboard (bp-agenity, #4180). Read
-	// from CATALYST_ORG_BP_AGENITY_VER; "*" when empty so Flux pulls the
-	// latest published chart (currently 0.5.4 / appVersion 0.9.6).
+	// from CATALYST_ORG_BP_AGENITY_VER; when empty it falls back to the
+	// BOUNDED range agenityChartConstraint (NOT "*"). Unlike every other
+	// per-Org chart, the bp-agenity OCI repo was historically polluted by
+	// the dashboard IMAGE (tag == appVersion 0.9.x) squatting the CHART
+	// repo before #4706 moved the image to ghcr.io/openova-io/agenity — an
+	// unbounded "*" resolves the HIGHEST semver tag and wrongly picks that
+	// 1-descriptor image over the real chart (#4922). See
+	// agenityChartConstraint.
 	Agenity string
 }
 
@@ -671,10 +677,36 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 	return out, nil
 }
 
+// agenityChartConstraint bounds the per-Org bp-agenity chart resolution to
+// the chart's current 0.5.x minor line instead of an unbounded "*". The
+// bp-agenity OCI repo was historically polluted: the dashboard IMAGE (tag ==
+// appVersion, e.g. 0.9.7) was pushed to the CHART repo before #4706-family
+// moved the image to ghcr.io/openova-io/agenity. A "*" pin resolves the
+// HIGHEST semver tag, so a lingering 0.9.7 image manifest (a 1-descriptor
+// Docker image) out-ranks the real 0.5.20 chart (a 2-descriptor Helm artifact)
+// and Flux dies with `manifest does not contain minimum number of descriptors
+// (2), found: 1` — bp-agenity never installs (#4922, UAT rows 218/219; the
+// same failure the #4706 Chart.yaml note describes). Bounding to <0.6.0 makes
+// the resolution DETERMINISTIC — a stray high-semver image tag can never be
+// picked, even before the squatting tags are pruned from ghcr.
+// Lockstep: bump this upper bound when the bp-agenity chart crosses a minor
+// (0.6.0), alongside products/agenity/blueprint.yaml spec.version + the
+// catalog-seed source.version.
+const agenityChartConstraint = ">=0.5.0 <0.6.0"
+
 func withVersionDefaults(v OrganizationChartVersions) OrganizationChartVersions {
 	star := func(s string) string {
 		if strings.TrimSpace(s) == "" {
 			return "*"
+		}
+		return s
+	}
+	// bounded falls back to a SemVer RANGE (not "*") for charts whose OCI
+	// repo can carry a higher-semver NON-chart tag that "*" would wrongly
+	// resolve. An explicit env-provided version still wins verbatim.
+	bounded := func(s, fallback string) string {
+		if strings.TrimSpace(s) == "" {
+			return fallback
 		}
 		return s
 	}
@@ -685,7 +717,7 @@ func withVersionDefaults(v OrganizationChartVersions) OrganizationChartVersions 
 		OpenClaw:  star(v.OpenClaw),
 		Stalwart:  star(v.Stalwart),
 		NewAPI:    star(v.NewAPI),
-		Agenity:   star(v.Agenity),
+		Agenity:   bounded(v.Agenity, agenityChartConstraint),
 	}
 }
 
