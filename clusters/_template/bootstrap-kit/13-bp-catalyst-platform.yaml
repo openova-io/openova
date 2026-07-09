@@ -1242,7 +1242,7 @@ spec:
       #   creates pass the apiserver escalation-prevention gate (owner + customer-Org
       #   UserAccess CRs were phase=Failed / 0 grants on every fresh prov).
       #   Lockstep w/ Chart.yaml.
-      version: 1.4.1063
+      version: 1.4.1064
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
