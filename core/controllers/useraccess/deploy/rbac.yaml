@@ -52,6 +52,25 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles"]
     verbs: ["get"]
+  # #4841 — escalation-prevention `bind`. Emitting a RoleBinding /
+  # ClusterRoleBinding whose roleRef targets a ClusterRole whose permissions
+  # this controller does NOT itself hold is rejected by the apiserver
+  # ("attempting to grant RBAC permissions not currently held") unless the
+  # controller holds `bind` on that named ClusterRole. Scoped to the fixed
+  # canonical Sovereign-IAM roles the controller binds to — tier + application.
+  # `bind` operates on a named role so resourceNames is valid (unlike create).
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames:
+      - "openova:tier-viewer"
+      - "openova:tier-developer"
+      - "openova:tier-operator"
+      - "openova:tier-admin"
+      - "openova:tier-owner"
+      - "openova:application-admin"
+      - "openova:application-editor"
+      - "openova:application-viewer"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

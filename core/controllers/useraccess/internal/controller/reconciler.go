@@ -115,6 +115,7 @@ const (
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind,resourceNames=openova:tier-viewer;openova:tier-developer;openova:tier-operator;openova:tier-admin;openova:tier-owner;openova:application-admin;openova:application-editor;openova:application-viewer
 //
 // Reconcile is the controller-runtime entrypoint. Exposed so the
 // controller can be wired both from the leader-elected manager (cmd/
