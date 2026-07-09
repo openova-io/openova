@@ -847,10 +847,22 @@ if ! grep -q 'Phase A2: mirror openova-io helm charts into local Harbor' "$TMP/r
   echo "FAIL: Step-03 missing the Phase A2 helm-chart mirror — the charts never reach local Harbor; step-06's ghcr.io strip would 404 every (re)pull (Refs #3627)" >&2
   exit 1
 fi
-# The chart name+version MUST be read off the consuming HelmRelease's
-# spec.chart.spec (NOT the HelmRepository, whose spec.url is only the pointer).
-if ! grep -q '.items\[\].spec.chart.spec' "$TMP/render.yaml"; then
-  echo "FAIL: Step-03 Phase A2 does not enumerate chart+version from HelmRelease spec.chart.spec (Refs #3627)" >&2
+# The chart name MUST be read off the consuming HelmRelease's spec.chart.spec
+# (NOT the HelmRepository, whose spec.url is only the pointer). #4873/#4874:
+# Phase A2's jq now binds `.spec.chart.spec as $cs` for the chart name and reads
+# the DEPLOYED version from `.status.history[0].chartVersion` (falling back to
+# $cs.version). The mutable desired .spec.chart.spec.version oscillates
+# mid-cutover on a deploybot catalog bump, so mirroring the deployed version is
+# what keeps prewarm (step-03) and the pull-probe (step-06) in lockstep.
+if ! grep -q '.spec.chart.spec as \$cs' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A2 does not enumerate the chart off HelmRelease spec.chart.spec (Refs #3627 #4873)" >&2
+  exit 1
+fi
+# And it MUST mirror the DEPLOYED chart version, not the mutable desired
+# spec.chart.spec.version (which races the deploybot catalog bump and wedges
+# the pivot when prewarm mirrored a different version than step-06 probes).
+if ! grep -q 'status.history\[0\].chartVersion' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A2 does not mirror the DEPLOYED chart version (.status.history[0].chartVersion); reading the mutable desired spec.version wedges the pivot (Refs #4873)" >&2
   exit 1
 fi
 # It MUST select only sourceRef.kind=HelmRepository entries (skip OCIRepository/
