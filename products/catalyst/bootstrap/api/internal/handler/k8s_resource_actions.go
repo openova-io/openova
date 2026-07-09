@@ -361,6 +361,22 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 				})
 				return
 			}
+			// #4860 — an RBAC denial on the resourceVersion pre-fetch is a
+			// CLIENT/permission error, not a server fault; surface 403 like
+			// the sibling read path (k8s_resource_get.go) does. Before this
+			// case a Forbidden fell through to the 500 below, which is the
+			// exact "Validate(dry-run) → HTTP 500" symptom seen on hw228
+			// when catalyst-api's SA lacked blueprints get/update (later
+			// granted by #4862, but the handler must still classify the
+			// error correctly for any cluster where the grant is absent).
+			if apierrors.IsForbidden(getErr) {
+				writeJSON(w, http.StatusForbidden, map[string]string{
+					"error":  "apiserver-forbidden",
+					"code":   "403",
+					"detail": getErr.Error(),
+				})
+				return
+			}
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error":  "resource-get-failed",
 				"detail": getErr.Error(),
@@ -379,10 +395,25 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 	}
 	if updErr != nil {
 		// Validation errors and conflicts surface via apierrors; surface
-		// 400 for invalid + 409 for conflict + 500 otherwise.
+		// 400 for invalid + 403 for forbidden + 409 for conflict + 404 for
+		// not-found + 500 otherwise.
 		if apierrors.IsInvalid(updErr) || apierrors.IsBadRequest(updErr) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error":  "invalid-resource",
+				"detail": updErr.Error(),
+			})
+			return
+		}
+		// #4860 — an apiserver RBAC denial on the dry-run/apply Update is a
+		// permission (4xx) error, not a server fault. This case was the one
+		// missing from the switch below, so a Forbidden bubbled to the 500
+		// default and the console saw "Validate(dry-run)/Commit → HTTP 500"
+		// (caught live on hw228, bp-wordpress). Match the sibling PUT path
+		// (writeK8sUpdateError) + scale/restart/delete (writeResourceMutationError).
+		if apierrors.IsForbidden(updErr) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "apiserver-forbidden",
+				"code":   "403",
 				"detail": updErr.Error(),
 			})
 			return

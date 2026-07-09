@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -51,6 +53,22 @@ type k8sResourceTestRig struct {
 }
 
 func newResourceRig(t *testing.T, objs ...runtime.Object) *k8sResourceTestRig {
+	return newResourceRigWithPrep(t, nil, objs...)
+}
+
+// newResourceRigWithPrep is newResourceRig plus a hook that runs against
+// the fake dynamic client BEFORE the k8scache informer factory starts.
+//
+// This ordering is load-bearing for tests that install a PrependReactor:
+// client-go's fake `PrependReactor` mutates `Fake.ReactionChain` WITHOUT
+// taking the fake's mutex (testing/fake.go), whereas the background
+// informer's reflector reads that same chain under the lock via
+// `Fake.Invokes` on every List/Watch. Installing the reactor after
+// `factory.Start` therefore data-races the reflector goroutine. Running
+// the prep here — before any reflector goroutine exists — means the
+// reaction chain is fully built by the time concurrent Invokes begin, and
+// every subsequent access is serialized under `Fake.Lock`.
+func newResourceRigWithPrep(t *testing.T, prep func(*dynamicfake.FakeDynamicClient), objs ...runtime.Object) *k8sResourceTestRig {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "PodList"}, &unstructured.UnstructuredList{})
@@ -74,6 +92,11 @@ func newResourceRig(t *testing.T, objs ...runtime.Object) *k8sResourceTestRig {
 		{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}: "BlueprintList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
+	// Install any reactors BEFORE the informer factory starts — see the
+	// doc comment on newResourceRigWithPrep for why the ordering matters.
+	if prep != nil {
+		prep(dyn)
+	}
 	core := kfake.NewSimpleClientset()
 
 	r := k8scache.NewRegistry()
@@ -84,7 +107,9 @@ func newResourceRig(t *testing.T, objs ...runtime.Object) *k8sResourceTestRig {
 		{Name: "replicaset", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "replicasets"}, Namespaced: true},
 		// Mirrors products/catalyst/bootstrap/api/internal/k8scache/kinds.go
 		// so the #4896 Edit-IaC dry-run routes resolve the Blueprint kind.
-		{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}, Namespaced: true},
+		// Cluster-scoped (Namespaced:false) to match the served CRD
+		// (blueprint.yaml scope: Cluster) — see #4860.
+		{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}, Namespaced: false},
 	} {
 		_ = r.Add(k)
 	}
@@ -584,6 +609,96 @@ spec:
 	}
 	if !strings.Contains(rec.Body.String(), "name-mismatch") {
 		t.Fatalf("expected name-mismatch error, got %s", rec.Body.String())
+	}
+}
+
+// blueprintsGR is the GroupResource the fake apiserver reactors below
+// stamp onto the synthetic Forbidden errors, mirroring what a real
+// kube-apiserver returns when catalyst-api's ServiceAccount lacks the
+// verb on catalyst.openova.io/blueprints.
+var blueprintsGR = schema.GroupResource{Group: "catalyst.openova.io", Resource: "blueprints"}
+
+// TestHandleK8sResourceDryRun_ForbiddenUpdateMapsTo403 is the #4860
+// regression: an apiserver RBAC denial on the dry-run Update MUST surface
+// as 403 (a clear client/permission error), never as 500. This is the
+// exact "Validate(dry-run) → HTTP 500" symptom seen live on hw228 before
+// #4862 granted catalyst-api update/patch on blueprints — the handler's
+// error switch was missing the IsForbidden case, so a Forbidden fell
+// through to the resource-update-failed 500 default. The scope-mismatch
+// (Blueprint registered Namespaced while the CRD is cluster-scoped) is
+// fixed alongside so the cluster-scoped Update routes correctly.
+func TestHandleK8sResourceDryRun_ForbiddenUpdateMapsTo403(t *testing.T) {
+	bp := newBlueprintObj("bp-alloy")
+	// Let the RV-block Get succeed (object is seeded) but deny the Update,
+	// exactly as an under-privileged SA would experience it. The reactor is
+	// installed pre-start (via the prep hook) so it does not race the
+	// informer's reflector — see newResourceRigWithPrep.
+	rig := newResourceRigWithPrep(t, func(dyn *dynamicfake.FakeDynamicClient) {
+		dyn.PrependReactor("update", "blueprints", func(action clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(blueprintsGR, "bp-alloy",
+				errors.New(`blueprints.catalyst.openova.io "bp-alloy" is forbidden: `+
+					`User "system:serviceaccount:catalyst:catalyst-api" cannot update resource "blueprints"`))
+		})
+	}, bp)
+	defer rig.stop()
+
+	yamlBody := `apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-alloy
+spec:
+  version: 1.0.3
+`
+	body, _ := json.Marshal(map[string]string{"yaml": yamlBody})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/Blueprint/_/bp-alloy/dry-run", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("forbidden Update: got %d want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "apiserver-forbidden") {
+		t.Fatalf("expected apiserver-forbidden envelope, got %s", rec.Body.String())
+	}
+}
+
+// TestHandleK8sResourceApply_ForbiddenGetMapsTo403 covers the sibling
+// error site: the resourceVersion pre-fetch Get (run when the submitted
+// YAML omits metadata.resourceVersion, as the Edit-IaC editor always
+// does) hitting an RBAC denial. Before #4860 this returned
+// resource-get-failed 500; it must now surface 403.
+func TestHandleK8sResourceApply_ForbiddenGetMapsTo403(t *testing.T) {
+	bp := newBlueprintObj("bp-alloy")
+	// Reactor installed pre-start so it does not race the informer's
+	// reflector List/Watch — see newResourceRigWithPrep.
+	rig := newResourceRigWithPrep(t, func(dyn *dynamicfake.FakeDynamicClient) {
+		dyn.PrependReactor("get", "blueprints", func(action clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(blueprintsGR, "bp-alloy",
+				errors.New(`blueprints.catalyst.openova.io "bp-alloy" is forbidden: `+
+					`User "system:serviceaccount:catalyst:catalyst-api" cannot get resource "blueprints"`))
+		})
+	}, bp)
+	defer rig.stop()
+
+	// YAML deliberately omits resourceVersion → the handler runs the
+	// RV-block Get, which the reactor denies.
+	yamlBody := `apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-alloy
+spec:
+  version: 1.0.3
+`
+	body, _ := json.Marshal(map[string]string{"yaml": yamlBody})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/Blueprint/_/bp-alloy/apply", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("forbidden Get: got %d want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "apiserver-forbidden") {
+		t.Fatalf("expected apiserver-forbidden envelope, got %s", rec.Body.String())
 	}
 }
 
