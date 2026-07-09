@@ -11,6 +11,15 @@ spec:
       app: org-notification
   template:
     metadata:
+      annotations:
+        # Auto-roll when the Sovereign SMTP seed flips empty→populated (#4919).
+        # SMTP_* below are secretKeyRef env, frozen by the kubelet at Pod start;
+        # sovereign_smtp_seed.go seeds the relay asynchronously, so on a fresh
+        # prov this Pod can start with stale-empty SMTP env and keep it (every
+        # notification email then 503s / no-sends) until an unrelated reconcile
+        # rolls it. This checksum changes when the seed appears, forcing the
+        # roll onto the populated env. See _smtp-helpers.tpl.
+        checksum/smtp-config: {{ include "catalyst.orgSmtpChecksum" . | quote }}
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
         app: org-notification
