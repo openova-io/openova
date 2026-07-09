@@ -628,6 +628,24 @@ func (h *Handler) restoreFromStore() {
 			go h.runConvergedLateRescue(dep)
 		}
 
+		// #4746 — console-unreachable self-heal, the OutcomeReady sibling
+		// of the converged-late rescue above. A record stamped `failed`
+		// ONLY because the #4706 external console probe expired (Flux fully
+		// converged, Phase1Outcome==OutcomeReady) is otherwise a PERMANENT
+		// false-negative: the watch already terminated, so nothing re-probes
+		// when the console DOES come up (issue #4746 root-cause point #4).
+		// The converged-late rescue misses it (that gates on OutcomeTimeout,
+		// not OutcomeReady). This re-probes the SAME hard console gate on the
+		// next catalyst-api roll and heals the record zero-touch the moment
+		// the console answers — only ever flipping failed→ready on a POSITIVE
+		// external observation, so the hw217/hw218 false-green stays killed.
+		// Independent hook (not an else-arm): a converged-late record and a
+		// console-unreachable record are disjoint by Phase1Outcome, and each
+		// downstream step is idempotent.
+		if h.shouldConsoleUnreachableRescue(dep) {
+			go h.runConsoleUnreachableRescue(dep)
+		}
+
 		// #4212 — level-triggered spine Application-CR enrollment on startup.
 		// The spine producer (runPostHandoverSpineApplications) is otherwise
 		// one-shot (Phase-1 OutcomeReady + converged-late only), so a
