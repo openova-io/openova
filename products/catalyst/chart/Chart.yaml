@@ -3444,7 +3444,7 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.1068
+version: 1.4.1069
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
 #   canonical Sovereign-IAM ClusterRoles (openova:tier-{viewer,developer,operator,
 #   admin,owner} + openova:application-{admin,editor,viewer}). The controller
