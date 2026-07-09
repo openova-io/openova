@@ -767,20 +767,43 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !applicationInstallCallerAuthorized(claims) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"code":    "forbidden",
-				"message": "instance create requires tier-admin or higher",
-			})
-			return
-		}
-		// G117.3a #2757 — must be a member of the target Org.
-		if !h.callerInOrg(r.Context(), claims, body.Org) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"code":    "forbidden-cross-org",
-				"message": fmt.Sprintf("caller is not a member of Organization %q", body.Org),
-			})
-			return
+		// #4937 — an Org-scoped customer session (marketplace→console
+		// handover, tier=org-admin) is the authority over its OWN Org: this
+		// is the RBAC parity of what the Org console UI offers. Reaching this
+		// OrgScopeGuard-allowlisted route on a tenant_kind=org console host
+		// already proves a session confined to its own Org (host-anchored via
+		// X-Forwarded-Host, which the browser cannot forge) — the same own-Org
+		// binding HandleOrgApplicationInstall relies on. So for that path we
+		// FORCE the target to the caller's OWN Org namespace (a customer can
+		// never create outside it, regardless of the body's `org`) and the
+		// Sovereign-tier gate + cross-Org membership check are
+		// satisfied-by-construction and skipped.
+		//
+		// A non-Org-scoped session (operator on the Sovereign console) keeps
+		// the existing tier-admin-or-higher + own-Org checks unchanged — ZERO
+		// behaviour change for the operator console.
+		if ownOrg, scoped := h.orgScopeForRequest(r); scoped && ownOrg != "" {
+			if ns := h.orgNamespaceForRequest(r); ns != "" {
+				body.Org = ns
+			} else {
+				body.Org = ownOrg
+			}
+		} else {
+			if !applicationInstallCallerAuthorized(claims) {
+				writeJSON(w, http.StatusForbidden, map[string]string{
+					"code":    "forbidden",
+					"message": "instance create requires tier-admin or higher",
+				})
+				return
+			}
+			// G117.3a #2757 — must be a member of the target Org.
+			if !h.callerInOrg(r.Context(), claims, body.Org) {
+				writeJSON(w, http.StatusForbidden, map[string]string{
+					"code":    "forbidden-cross-org",
+					"message": fmt.Sprintf("caller is not a member of Organization %q", body.Org),
+				})
+				return
+			}
 		}
 	}
 
@@ -1186,6 +1209,39 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 	bp := strings.TrimPrefix(chi.URLParam(r, "blueprint"), "bp-")
 	orgFilter := strings.TrimSpace(r.URL.Query().Get("org"))
 
+	// #4937 — an Org-scoped customer session (marketplace→console handover,
+	// tier=org-admin) is confined to its OWN Organization. It gets a 200
+	// listing of ONLY its own instances; a Sovereign-admin / operator session
+	// is unaffected (scoped=false) and keeps its cluster-wide reach — ZERO
+	// behaviour change for the operator console.
+	//
+	// Confinement is Kubernetes-authoritative: when the request host resolves
+	// to the caller's Org namespace we list ONLY that namespace (listNS),
+	// which is robust to the `catalyst.openova.io/organization` label differing
+	// across install paths (slug vs. real `org-<uuid>`). When the namespace
+	// can't be resolved (claims-only scope, no registry) we fall back to the
+	// slug label filter, which still never leaks another Org.
+	ownOrg, scoped := h.orgScopeForRequest(r)
+	listNS := ""
+	if scoped {
+		if ownOrg == "" {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"code":    "org-scope-unresolved",
+				"message": "could not resolve the Organization for this Org-scoped session",
+			})
+			return
+		}
+		if orgFilter != "" && !strings.EqualFold(orgFilter, ownOrg) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"code":    "forbidden-cross-org",
+				"message": fmt.Sprintf("this Organization session cannot list instances for Organization %q", orgFilter),
+			})
+			return
+		}
+		orgFilter = ownOrg
+		listNS = h.orgNamespaceForRequest(r)
+	}
+
 	client, err := h.dynamicClientOrFallback()
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -1195,7 +1251,7 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	list, err := client.Resource(ApplicationGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
+	list, err := client.Resource(ApplicationGVR()).Namespace(listNS).List(r.Context(), metav1.ListOptions{})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"code":    "list-failed",
@@ -1217,7 +1273,12 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 			continue
 		}
 		org := extractOrgFromApp(item)
-		if orgFilter != "" && !strings.EqualFold(org, orgFilter) {
+		// When the listing is already namespace-confined (listNS != "", the
+		// #4937 Org-scoped path) the org-label filter is skipped: the label
+		// may legitimately be the real `org-<uuid>` namespace rather than the
+		// slug, and the namespace scope is the authoritative boundary. The
+		// unconfined operator listing (listNS == "") still honours ?org=.
+		if listNS == "" && orgFilter != "" && !strings.EqualFold(org, orgFilter) {
 			continue
 		}
 		params, _, _ := unstructured.NestedMap(item.Object, "spec", "parameters")

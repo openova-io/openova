@@ -76,6 +76,12 @@ type orgScope struct {
 	Org string
 	// TenantID is the opaque tenant id from the registry.
 	TenantID string
+	// Namespace is the Org's Kubernetes namespace from the registry
+	// (TenantRegistration.OrganizationNamespace, the real `org-<uuid>` for a
+	// free-subdomain Org). Empty when the registry row carries none; callers
+	// then fall back to slugging the Org slug (#4937 uses it to confine the
+	// per-Blueprint instances listing to the caller's own namespace).
+	Namespace string
 	// Host is the resolved (lowercased, port-stripped) request host.
 	Host string
 }
@@ -111,7 +117,12 @@ func (h *Handler) resolveOrgScope(r *http.Request) (orgScope, bool) {
 	if slug == "" {
 		slug = t.TenantID
 	}
-	return orgScope{Org: slug, TenantID: t.TenantID, Host: host}, true
+	return orgScope{
+		Org:       slug,
+		TenantID:  t.TenantID,
+		Namespace: strings.TrimSpace(t.OrganizationNamespace),
+		Host:      host,
+	}, true
 }
 
 // orgSlugFromHost extracts the Org slug from a console host. For
@@ -147,6 +158,66 @@ func claimsAreOrgScoped(claims *auth.Claims) bool {
 	return strings.EqualFold(strings.TrimSpace(claims.Tier), orgScopedTier)
 }
 
+// orgScopeForRequest returns the Organization slug a request is confined
+// to, and whether the request is Org-scoped at all. It mirrors
+// OrgScopeGuard's trust model exactly:
+//
+//  1. The REQUEST HOST is the primary anchor (resolveOrgScope). A request
+//     that arrived on a registered tenant_kind=org console host is confined
+//     to that Org even if it carries a stale / replayed sovereign-admin
+//     cookie — the gateway sets X-Forwarded-Host to the real browser host,
+//     which an Org-console browser can never forge.
+//  2. The session's org-scoped claims (tier=org-admin) are the fallback for
+//     the window before the host is a registered tenant, or in tests /
+//     chroots without a registry.
+//
+// A non-Org-scoped (Sovereign-admin / operator) request returns ("", false)
+// — those keep their existing cross-Org reach with ZERO behaviour change.
+// The slug is lower-cased + trimmed so it compares cleanly against the
+// Application `catalyst.openova.io/organization` label and the JWT `org`
+// claim.
+//
+// This is the single seam the self-service app-instance handlers
+// (HandleListBlueprintInstances / HandleCreateInstance) consult to confine a
+// customer to its OWN Org (#4937).
+func (h *Handler) orgScopeForRequest(r *http.Request) (string, bool) {
+	if sc, ok := h.resolveOrgScope(r); ok {
+		return strings.ToLower(strings.TrimSpace(sc.Org)), true
+	}
+	claims := auth.ClaimsFromContext(r.Context())
+	if claimsAreOrgScoped(claims) {
+		return strings.ToLower(strings.TrimSpace(claims.Org)), true
+	}
+	return "", false
+}
+
+// orgNamespaceForRequest resolves the caller's OWN Organization Kubernetes
+// namespace (the `org-<uuid>` a free-subdomain Org lives in, or the slugged
+// Org slug for a namespace-named Org) from the request HOST via the tenant
+// registry. It returns "" when the request is not Org-scoped by host, or
+// when no namespace can be resolved — the caller then falls back to a
+// slug-label filter rather than widening the query.
+//
+// This is what lets HandleListBlueprintInstances confine an Org-scoped
+// customer to its own namespace (Kubernetes-authoritative), which is robust
+// to the `catalyst.openova.io/organization` label convention differing
+// across install paths (slug on the sovereign/create-instance path vs. the
+// real `org-<uuid>` on the /org/applications install path). Mirrors the
+// namespace resolution HandleOrgApplications already uses (#4113/#4937).
+func (h *Handler) orgNamespaceForRequest(r *http.Request) string {
+	sc, ok := h.resolveOrgScope(r)
+	if !ok {
+		return ""
+	}
+	if ns := strings.TrimSpace(sc.Namespace); ns != "" {
+		return orgNamespace(ns)
+	}
+	if slug := strings.TrimSpace(sc.Org); slug != "" {
+		return orgNamespace(slug)
+	}
+	return ""
+}
+
 // orgSafePathPrefixes is the DENY-BY-DEFAULT allowlist: the ONLY API path
 // prefixes an Org-scoped customer session may reach. Everything else under
 // the RequireSession group (deployments + deployment-stream, the whole-
@@ -179,6 +250,21 @@ func claimsAreOrgScoped(claims *auth.Claims) bool {
 //                                 incl. the agenity Open link. A true per-Org
 //                                 apps PROJECTION (filtering to the Org's own
 //                                 namespaces + vClusters) is the #4113 follow-up.
+//   - /catalyst/v1/catalog/     — the per-Blueprint instances drill-down feed
+//                                 (getApplicationInstances). The customer
+//                                 console's AppDetail / Instances section lists a
+//                                 Blueprint's installed instances here. The
+//                                 handler (HandleListBlueprintInstances) FORCES
+//                                 the org filter to the caller's OWN Org for an
+//                                 Org-scoped session and 403s an explicit
+//                                 cross-Org query, so the allowlist entry never
+//                                 leaks another Org's estate (#4937).
+//   - /catalyst/v1/apps/instances — the self-service install seam
+//                                 (createApplicationInstance). HandleCreateInstance
+//                                 FORCES the target Org to the caller's OWN Org for
+//                                 an Org-scoped session (a customer can never
+//                                 create outside its own Org) and drops the
+//                                 Sovereign-tier gate for that confined case (#4937).
 //
 // NOTE: BSS / billing / commerce / consumption / organizations-directory /
 // the deployments API / the whole-cluster /sovereigns/{id}/k8s estate /
@@ -199,6 +285,11 @@ var orgSafePathPrefixes = []string{
 	"/api/v1/sandbox",
 	"/api/v1/sovereign/self",
 	"/api/v1/sovereign/apps",
+	// #4937 — self-service app list + install for a customer's OWN Org.
+	// Both handlers below server-side-confine an Org-scoped session to its
+	// own Org, so these entries can never span Orgs (see handler comments).
+	"/catalyst/v1/catalog/",
+	"/catalyst/v1/apps/instances",
 }
 
 // pathIsOrgSafe reports whether the request path is on the Org-scoped

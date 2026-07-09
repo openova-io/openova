@@ -59,6 +59,10 @@ func TestPathIsOrgSafe(t *testing.T) {
 		"/api/v1/sandbox/sessions",
 		"/api/v1/sovereign/apps",
 		"/api/v1/sovereign/self",
+		// #4937 — self-service app list + install (server-side confined to
+		// the caller's own Org inside the handlers).
+		"/catalyst/v1/catalog/wordpress/instances",
+		"/catalyst/v1/apps/instances",
 	}
 	for _, p := range safe {
 		if !pathIsOrgSafe(p) {
@@ -75,6 +79,10 @@ func TestPathIsOrgSafe(t *testing.T) {
 		"/api/v1/organizations",
 		"/api/v1/parent-domains",
 		"/api/v1/org/commerce/plans",
+		// #4937 stays NARROW: the sibling catalyst/v1 app surfaces (endpoint
+		// mutation, launch-url) are NOT opened to Org sessions by this change.
+		"/catalyst/v1/apps/uid-1/endpoints",
+		"/catalyst/v1/apps/uid-1/launch-url",
 	}
 	for _, p := range unsafe {
 		if pathIsOrgSafe(p) {
