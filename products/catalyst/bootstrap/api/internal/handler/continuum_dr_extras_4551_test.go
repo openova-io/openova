@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,10 +121,13 @@ func TestReplicationStatus_DerivesLiveFromCNPGPairWhenNoCR(t *testing.T) {
 }
 
 // A single-region pair (both halves same region) must NOT be passed off as
-// live cross-region DR — the synthesized fallback stands (honest).
+// live cross-region DR — the HONEST pending fallback stands. #4923: that
+// fallback must NEVER fabricate Hetzner regions or a fake 2s/8192 lag; it
+// carries the Sovereign's real configured regions (empty here — no env set)
+// and zero lag, with source:"pending" so the UI's NOT-LIVE gate holds.
 func TestReplicationStatus_NoLivePairSingleRegionFallsBack(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "hz-fsn-rtz-prod", "hz-fsn-rtz-prod")
+	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-a")
 	factory, _ := fakeContinuumDynamicFactory(primary, replica)
 	h.dynamicFactory = factory
 	dep := installUserAccessDeployment(t, h, "dep-repl-single")
@@ -142,10 +146,163 @@ func TestReplicationStatus_NoLivePairSingleRegionFallsBack(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// No genuine cross-region pair → synthesized fallback (not a fabricated
-	// "live").
-	if resp.Source != "synthesized" {
-		t.Errorf("source: got %q want synthesized (no real cross-region pair)", resp.Source)
+	// No genuine cross-region pair → honest pending fallback (not a fabricated
+	// "live", and NOT the old "synthesized" Hetzner shape).
+	if resp.Source != "pending" {
+		t.Errorf("source: got %q want pending (no real cross-region pair)", resp.Source)
+	}
+	// The fabricated Hetzner constants must be GONE.
+	for _, banned := range []string{"hz-fsn-rtz-prod", "hz-hel-rtz-prod"} {
+		if resp.PrimaryRegion == banned || resp.CurrentPrimary == banned {
+			t.Errorf("fallback leaked Hetzner region %q on a Huawei Sovereign", banned)
+		}
+		for _, rep := range resp.Replicas {
+			if rep.Region == banned {
+				t.Errorf("fallback replica leaked Hetzner region %q", banned)
+			}
+		}
+	}
+	// The byte-identical fake lag must be GONE.
+	if resp.WALLagSeconds != 0 || resp.WALLagBytes != 0 {
+		t.Errorf("fallback fabricated lag: walLagSeconds=%v walLagBytes=%d (want 0/0)",
+			resp.WALLagSeconds, resp.WALLagBytes)
+	}
+}
+
+// #4923 — when no Continuum CR and no live cnpg-pair resolve, the honest
+// pending fallback still derives the primary/replica regions from the
+// Sovereign's REAL configured regions (SOVEREIGN_PRIMARY_REGION /
+// SOVEREIGN_REPLICA_REGION, threaded in by bp-catalyst-platform), NEVER from
+// a hardcoded Hetzner placeholder.
+func TestReplicationStatus_PendingFallbackDerivesRegionsFromDeployment(t *testing.T) {
+	t.Setenv("SOVEREIGN_PRIMARY_REGION", "me-east-215-a")
+	t.Setenv("SOVEREIGN_REPLICA_REGION", "me-east-215-b")
+
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// No cnpg-pair, no Continuum CR — forces the pending fallback.
+	factory, _ := fakeContinuumDynamicFactory()
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-repl-pending-regions")
+
+	r := chi.NewRouter()
+	registerReplicationStatusRoute(r, h)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-catalyst-platform/replication-status", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp continuumReplicationStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Source != "pending" {
+		t.Fatalf("source: got %q want pending", resp.Source)
+	}
+	// Regions derive from the deployment's real (Huawei) regions — NOT Hetzner.
+	if resp.PrimaryRegion != "me-east-215-a" {
+		t.Errorf("primaryRegion: got %q want me-east-215-a (from SOVEREIGN_PRIMARY_REGION)", resp.PrimaryRegion)
+	}
+	var sawReplica bool
+	for _, rep := range resp.Replicas {
+		if rep.Region == "me-east-215-b" {
+			sawReplica = true
+		}
+		if strings.HasPrefix(rep.Region, "hz-") {
+			t.Errorf("replica leaked a Hetzner region %q", rep.Region)
+		}
+	}
+	if !sawReplica {
+		t.Errorf("replicas: missing derived replica region me-east-215-b; got %+v", resp.Replicas)
+	}
+	if resp.WALLagSeconds != 0 || resp.WALLagBytes != 0 {
+		t.Errorf("pending fallback must not fabricate lag; got %v/%d", resp.WALLagSeconds, resp.WALLagBytes)
+	}
+}
+
+// #4923 — the live path must report syncState=sync when the primary CNPG
+// cluster declares synchronous replication (spec.postgresql.synchronous →
+// `synchronous_standby_names = FIRST N (...)`, RPO=0), and it must derive the
+// regions from the live CLUSTER placement labels (me-east-215-a/-b), NOT the
+// old hardcoded Hetzner constants. Fixture: a real 2-region cnpg-pair whose
+// primary half carries the synchronous block, no Continuum CR (derive path).
+func TestReplicationStatus_LiveSyncStateFromSynchronousCNPGPair(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
+	// Primary declares synchronous replication — the bp-cnpg-pair sync mode.
+	_ = unstructured.SetNestedMap(primary.Object, map[string]interface{}{
+		"method":         "first",
+		"number":         int64(1),
+		"dataDurability": "required",
+	}, "spec", "postgresql", "synchronous")
+	factory, _ := fakeContinuumDynamicFactory(primary, replica)
+	h.dynamicFactory = factory
+	fixed := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	h.SetContinuumClock(func() time.Time { return fixed })
+	dep := installUserAccessDeployment(t, h, "dep-repl-sync")
+
+	r := chi.NewRouter()
+	registerReplicationStatusRoute(r, h)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-shared-pg/replication-status?namespace=catalyst-system", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp continuumReplicationStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Source != "live" {
+		t.Errorf("source: got %q want live", resp.Source)
+	}
+	// Regions derived from the CLUSTER placement labels, never Hetzner.
+	if resp.PrimaryRegion != "me-east-215-a" {
+		t.Errorf("primaryRegion: got %q want me-east-215-a (from cluster label)", resp.PrimaryRegion)
+	}
+	if strings.HasPrefix(resp.PrimaryRegion, "hz-") {
+		t.Errorf("primaryRegion leaked Hetzner: %q", resp.PrimaryRegion)
+	}
+	// syncState reflects the synchronous config, NOT a hardcoded async.
+	if resp.SyncState != "sync" {
+		t.Errorf("syncState: got %q want sync (spec.postgresql.synchronous is set → RPO=0)", resp.SyncState)
+	}
+}
+
+// #4923 — the mirror of the sync case: a pair WITHOUT the synchronous block
+// (forensic async mode) reports syncState=async off the same live path, so the
+// signal is genuinely derived, not hardcoded either way.
+func TestReplicationStatus_LiveAsyncStateWhenNoSynchronousBlock(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
+	// No spec.postgresql.synchronous on the primary → async.
+	factory, _ := fakeContinuumDynamicFactory(primary, replica)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-repl-async")
+
+	r := chi.NewRouter()
+	registerReplicationStatusRoute(r, h)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-shared-pg/replication-status?namespace=catalyst-system", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp continuumReplicationStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Source != "live" {
+		t.Errorf("source: got %q want live", resp.Source)
+	}
+	if resp.SyncState != "async" {
+		t.Errorf("syncState: got %q want async (no synchronous block)", resp.SyncState)
 	}
 }
 
