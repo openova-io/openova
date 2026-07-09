@@ -237,6 +237,13 @@ spec:
   # the canonical path is bumping chart values.yaml + bootstrap-kit
   # pin (single source of truth, INVIOLABLE-PRINCIPLES.md #4a).
   values:
+    # #4885 / #4892: global.imageRegistry override seam for the step-07 cutover
+    # image-registry pivot (imageRegistryPivot.additionalHRs). step-07 patches
+    # this HR's spec.values.global.imageRegistry live AND durably sed-edits THIS
+    # file — the sed matches `^      imageRegistry:`, so the 6-space indent is
+    # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
+    global:
+      imageRegistry: ''
     enabled: ${SANDBOX_ENABLED:-true}
     # G91.sandbox (#2657) — wire bp-sso-bridge framework. The chart-side
     # SANDBOX_SSO_* env-vars on the sandbox-controller Pod are sourced

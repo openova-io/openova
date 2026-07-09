@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.107 (#4885 Refs #4888 #4892, wire the four newly-honouring charts into the
+# step-07 image-registry pivot): #4888 introduced
+# .Values.imageRegistryPivot.additionalHRs + the pivot_extra_hr() mechanism
+# (seeded [bp-continuum]); #4892 then made bp-guacamole / bp-huawei-evs-csi /
+# bp-newapi / bp-sandbox honour global.imageRegistry (each per-chart image helper
+# now host-swaps the leading registry segment when set, verbatim ghcr.io when
+# empty). This bump ADDS those four HRs to additionalHRs so step-07 pivots them to
+# the local Harbor at cutover with the IDENTICAL live-HR-patch + durable-Gitea-edit
+# pattern already used for bp-catalyst-platform / bp-openova-flow-server /
+# bp-continuum. Each of the four bootstrap-kit slot files (19a-bp-sandbox /
+# 52-bp-guacamole / 55b-bp-huawei-evs-csi / 80-newapi) gains the required 6-space
+# `global.imageRegistry: ''` seam so the durable Gitea edit persists (the
+# 62-bp-continuum.yaml precedent from #4888). Only org-services (marketplace/auth
+# concrete deploybot-bumped ghcr.io refs) stays excluded — the #4885 residual. NO
+# step-count / job-mode / RBAC change (still 11 steps; the pivot is additive shell
+# in step-07). Lockstep w/ blueprint.yaml + 06a slot pin + catalog seed.
+# Refs #4885 #4888 #4892.
 # 0.1.106 (#4885 Refs #3379 #4563 #4061, hw232 live-walk: cutover wedged at
 # step-08 deny-egress hold because step-07 pivoted only 2 HRs + the auto-trigger
 # ignored the operator flag): TWO chart fixes.
@@ -1539,7 +1556,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.106
+version: 0.1.107
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

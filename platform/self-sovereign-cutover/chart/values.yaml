@@ -680,26 +680,49 @@ catalystAPI:
 # ⚠️ ONLY list charts VERIFIED to template their images through
 # global.imageRegistry. Patching an HR whose chart does NOT read the value is a
 # SILENT NO-OP — the workload stays on ghcr.io and step-08 still FATALs, but the
-# cutover log falsely reports the pivot "OK". The following #4885 offenders were
-# verified to NOT honour global.imageRegistry and are DELIBERATELY EXCLUDED —
-# each needs a SEPARATE per-chart templating fix (make its image helper honour
-# global.imageRegistry + add a slot seam) before it can be added here:
-#   - bp-guacamole        (platform/guacamole:  guacd/webapp images are literal
-#                          .Values.guacamole.*.image.repository = ghcr.io/...)
-#   - bp-huawei-evs-csi   (platform/huawei-evs-csi: driver image is literal
-#                          $img.driver.repository = ghcr.io/...)
-#   - bp-newapi           (platform/newapi: newapi/sandboxBridge/meteringSidecar
-#                          images are literal .Values.*.image.repository)
-#   - bp-sandbox          (platform/sandbox: controller/pty/mcp images literal)
+# cutover log falsely reports the pivot "OK".
+#
+# #4892 (Refs #4885): bp-guacamole / bp-huawei-evs-csi / bp-newapi / bp-sandbox
+# were FORMERLY excluded (their openova-io images were literal ghcr.io refs). The
+# per-chart templating fix landed in #4892 — each image helper now host-swaps the
+# leading registry segment when global.imageRegistry is set (verbatim ghcr.io when
+# empty, byte-identical pre-cutover) — so they are now VERIFIED to honour the value
+# and are listed below. Their bootstrap-kit slot files each carry a
+# `global.imageRegistry: ''` seam at 6-space indent (added in lockstep with this
+# chart bump) so the durable Gitea edit sticks.
+#
+# STILL DELIBERATELY EXCLUDED — the residual offender a plain global.imageRegistry
+# prefix cannot fix (needs a SEPARATE change before it can be added here):
 #   - org-services        (products/catalyst/chart/templates/org-services:
-#                          marketplace.yaml + auth.yaml hardcode ghcr.io — the
-#                          rest already pivot via the bp-catalyst-platform HR)
-# Tracked in #4885 as the residual cutover blocker.
+#                          marketplace.yaml + auth.yaml carry concrete
+#                          `image: ghcr.io/...:tag` strings the marketplace-build /
+#                          services-build deploybots sed-bump — templating them
+#                          would break those image-pin bumps. The 7 sibling
+#                          org-services templates already honour global.imageRegistry
+#                          and pivot via the bp-catalyst-platform HR patch. Needs a
+#                          coordinated deploybot change; tracked in #4885 as the
+#                          residual cutover blocker.)
 imageRegistryPivot:
   additionalHRs:
     - name: bp-continuum
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/62-bp-continuum.yaml
+    # #4892 (Refs #4885): the four charts formerly excluded above now honour
+    # global.imageRegistry, so their HRs pivot cleanly (no longer silent no-ops).
+    # Each metadata.name matches the live HelmRelease the cutover patches, and
+    # each slotFile carries the 6-space `global.imageRegistry: ''` seam.
+    - name: bp-guacamole
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/52-bp-guacamole.yaml
+    - name: bp-huawei-evs-csi
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml
+    - name: bp-newapi
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/80-newapi.yaml
+    - name: bp-sandbox
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/19a-bp-sandbox.yaml
 
 # Step container images. The first three steps (01..03) + the
 # registry-pivot DaemonSet use upstream-public images because they run

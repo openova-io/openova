@@ -346,6 +346,13 @@ spec:
   # family model, `qwen3-coder`); the operator overlay overrides any of
   # these by setting them in this HelmRelease's spec.values.
   values:
+    # #4885 / #4892: global.imageRegistry override seam for the step-07 cutover
+    # image-registry pivot (imageRegistryPivot.additionalHRs). step-07 patches
+    # this HR's spec.values.global.imageRegistry live AND durably sed-edits THIS
+    # file — the sed matches `^      imageRegistry:`, so the 6-space indent is
+    # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
+    global:
+      imageRegistry: ''
     database:
       # #4291 DE-VCLUSTER — newapi OWNS its CNPG natively in host ns `newapi`
       # (cnpg.enabled below), and the chart's own DSN-sync Job writes exactly
