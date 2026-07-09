@@ -109,4 +109,44 @@ if echo "$appcr" | grep -qE '^  placement: single-region$'; then
 fi
 echo "[bp-harbor] Case 5: PASS"
 
+# ── Case 6: registry.<fqdn> host also serves the app-named harbor.<fqdn> ──
+# #4913 (hw233): Harbor's UI+registry+SSO all live on registry.<fqdn>
+# (gateway.host). The intuitive harbor.<fqdn> deliberately had no route → a
+# bare-envoy 404 for any operator/tool reaching for it. gateway.aliasHarborHost
+# (default true) auto-adds the harbor.-prefixed sibling as a SECOND hostname on
+# the SAME route so both hosts serve the UI (the wildcard listener + wildcard
+# TLS already cover it). The sign-in→/c/oidc/login redirect + externalURL stay
+# on registry.<fqdn>, so entry via harbor.<fqdn> lands on the canonical host.
+echo "[bp-harbor] Case 6: registry.<fqdn> host auto-serves harbor.<fqdn> alias"
+out_alias=$("$helm" template smoke "$chart_dir" \
+        --set gateway.enabled=true \
+        --set gateway.host=registry.smoke.omani.works 2>&1)
+route_block_alias=$(echo "$out_alias" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
+if ! echo "$route_block_alias" | grep -q "registry.smoke.omani.works"; then
+  echo "FAIL: canonical gateway.host missing from HTTPRoute hostnames"
+  echo "$route_block_alias"
+  exit 1
+fi
+if ! echo "$route_block_alias" | grep -q "harbor.smoke.omani.works"; then
+  echo "FAIL: #4913 REGRESSION — harbor.<fqdn> alias NOT added (bare-envoy 404 returns)"
+  echo "$route_block_alias"
+  exit 1
+fi
+# The sign-in redirect must stay on the canonical registry host (loop-safety).
+if ! echo "$route_block_alias" | grep -q "hostname: \"registry.smoke.omani.works\""; then
+  echo "FAIL: sign-in RequestRedirect hostname must stay canonical registry.<fqdn>"
+  exit 1
+fi
+# Opt-out: aliasHarborHost=false serves ONLY the canonical host.
+out_noalias=$("$helm" template smoke "$chart_dir" \
+        --set gateway.enabled=true \
+        --set gateway.host=registry.smoke.omani.works \
+        --set gateway.aliasHarborHost=false 2>&1)
+route_block_noalias=$(echo "$out_noalias" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
+if echo "$route_block_noalias" | grep -q "harbor.smoke.omani.works"; then
+  echo "FAIL: gateway.aliasHarborHost=false should NOT emit the harbor.<fqdn> alias"
+  exit 1
+fi
+echo "[bp-harbor] Case 6: PASS"
+
 echo "[bp-harbor] All HTTPRoute render cases PASS"

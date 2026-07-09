@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.40  # lockstep with chart/Chart.yaml (#4402 spine topology tier:mgmt → '' host-native, #4325 de-vcluster fallout)
+  version: 1.2.41  # lockstep with chart/Chart.yaml (#4913 harbor.<fqdn> HTTPRoute alias so the app-named host stops 404ing; UI stays canonical on registry.<fqdn>)
   card:
     title: Harbor
     family: foundation
@@ -151,6 +151,12 @@ spec:
       # the Keycloak OIDC client redirect_uri is registry.<sov>/c/oidc/callback.
       # The earlier harbor.<sov> value pointed at a host with NO HTTPRoute → the
       # console launch-url would 404. Keep this aligned with the live externalURL.
+      # registry.<sov> is therefore the CANONICAL launch host and stays the
+      # hostnameTemplate below. #4913 (chart 1.2.41): the HTTPRoute now ALSO
+      # answers on the app-named harbor.<sov> (gateway.aliasHarborHost) so an
+      # operator who reaches for harbor.<sov> by intuition no longer hits a
+      # bare-envoy 404 — but the launch-url / OIDC redirect_uri MUST remain
+      # registry.<sov> (Harbor's externalURL), so do NOT flip this template.
       hostnameTemplate: "registry.{{.SovereignFQDN}}"
       port: 443
       protocol: https

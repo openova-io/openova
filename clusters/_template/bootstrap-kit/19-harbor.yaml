@@ -215,7 +215,16 @@ spec:
       # 1.2.39 — #4347: harbor-sso-configure liveness/readiness EXEC probes so
       #   it clears the host-ns Kyverno probes-present Enforce policy (post-#4325).
       #   Refs #4347 #4325.
-      version: 1.2.40
+      # 1.2.41 — #4913 (hw233): the HTTPRoute now ALSO answers on the app-named
+      #   harbor.${SOVEREIGN_FQDN}, not just the canonical registry.${SOVEREIGN_FQDN}
+      #   set in gateway.host below. Harbor serves UI+registry+SSO on ONE host
+      #   (registry.<fqdn>); harbor.<fqdn> had NO route → bare-envoy 404 for any
+      #   operator/tool reaching for it (wildcard DNS resolves it to the gateway VIP
+      #   but no route hostname matched). gateway.aliasHarborHost (default true)
+      #   auto-adds the harbor.-prefixed alias; the wildcard listener (01-cilium.yaml
+      #   *.${SOVEREIGN_FQDN}:443) + wildcard TLS already cover it, so no per-Sovereign
+      #   DNS/cert change. externalURL + OIDC redirect_uri stay on registry.<fqdn>.
+      version: 1.2.41
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

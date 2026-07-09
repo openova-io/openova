@@ -544,8 +544,24 @@ sso:
 # Gateway shipped by clusters/_template/bootstrap-kit/01-cilium.yaml.
 gateway:
   enabled: true
-  # host: registry.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4
+  # host: registry.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4.
+  # This is the CANONICAL Harbor host: UI (`/`) + registry-v2 (`/v2/`) + SSO all
+  # terminate here, and it MUST equal harbor.externalURL (the OIDC redirect_uri base).
   host: ""
+  # #4913 (hw233): also answer the HTTPRoute on the app-named harbor.<fqdn> so the
+  # intuitive host stops returning a bare-envoy 404 (it deliberately had no route;
+  # the UI lives on registry.<fqdn>). When true AND gateway.host begins with
+  # "registry.", the chart auto-adds the "harbor."-prefixed sibling as a second
+  # hostname on the SAME route. The Sovereign wildcard DNS (*.<fqdn>) + wildcard
+  # TLS already cover it, so no per-Sovereign DNS/cert change is needed. Auth +
+  # self-links stay on gateway.host, so an entry via harbor.<fqdn> lands on the
+  # canonical registry.<fqdn> after login. Set false to serve ONLY gateway.host.
+  aliasHarborHost: true
+  # Additional hostnames the SAME HTTPRoute should answer on (beyond gateway.host
+  # and the auto-derived harbor.<fqdn> alias above). Empty entries and any entry
+  # equal to gateway.host are skipped. Each must be covered by the Gateway
+  # listener's wildcard hostname + TLS cert.
+  extraHosts: []
   path: "/"
   # Backend Service — defaults to <release>-harbor-core (harbor subchart core Service)
   backendService: ""

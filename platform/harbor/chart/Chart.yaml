@@ -152,7 +152,21 @@ type: application
 #   Enforce ClusterPolicy admits it (after #4325 de-vcluster re-homed bp-harbor
 #   into a native host namespace). Adds tests/kyverno-probes-present.sh.
 #   Refs #4347 #4325.
-version: 1.2.40
+# 1.2.41 (#4913, hw233 live walk): the HTTPRoute now ALSO answers on the
+#   app-named harbor.<fqdn>, not just the canonical registry.<fqdn>. Harbor
+#   serves UI + registry-v2 + SSO on ONE host (registry.<fqdn> = gateway.host =
+#   externalURL = OIDC redirect_uri base); the intuitive harbor.<fqdn> had NO
+#   route, so operators/tools reaching for it got a bare-envoy 404 (wildcard DNS
+#   *.<fqdn> resolves it to the gateway VIP but no route hostname matched). NOT a
+#   missing UI route — the UI route lives on registry.<fqdn>. New value
+#   gateway.aliasHarborHost (default true) auto-adds the harbor.-prefixed sibling
+#   as a second hostname on the SAME route when gateway.host is registry.-prefixed;
+#   the Sovereign wildcard listener + wildcard TLS already cover it, so no
+#   DNS/cert change is needed. Auth + self-links stay on registry.<fqdn> (the
+#   sign-in->/c/oidc/login redirect keeps its canonical hostname), so entry via
+#   harbor.<fqdn> lands on the canonical host with no loop. Also adds
+#   gateway.extraHosts (arbitrary aliases) + tests/httproute-render.sh Case 6.
+version: 1.2.41
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

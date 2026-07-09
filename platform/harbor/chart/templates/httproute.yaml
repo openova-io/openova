@@ -37,6 +37,30 @@ spec:
       {{- end }}
   hostnames:
     - {{ .Values.gateway.host | quote }}
+{{- /*
+#4913 (hw233 live walk): Harbor's UI + registry-v2 API + SSO are ALL served on
+ONE host — registry.<fqdn> (gateway.host; also harbor.externalURL and the OIDC
+redirect_uri). The app-named harbor.<fqdn> deliberately had NO HTTPRoute, so an
+operator/tool reaching for the intuitive harbor.<fqdn> hit a bare-envoy 404: the
+Sovereign wildcard DNS *.<fqdn> resolves it to the gateway VIP, but no route
+hostname matched (the exact hw233 symptom; NOT a missing UI route — the UI route
+lives on registry.<fqdn>). The wildcard listener (*.${SOVEREIGN_FQDN}:443,
+clusters/_template/bootstrap-kit/01-cilium.yaml) + wildcard TLS already cover
+harbor.<fqdn>, so listing it as a SECOND hostname on the SAME route serves the UI
+there too — no DNS/cert change needed. gateway.host stays canonical: the
+sign-in→/c/oidc/login redirect below and Harbor's externalURL keep auth +
+self-links on registry.<fqdn>, so an entry via harbor.<fqdn> lands on the
+canonical host after login (no redirect loop). Disable via
+gateway.aliasHarborHost=false; add arbitrary aliases via gateway.extraHosts.
+*/}}
+{{- if and .Values.gateway.aliasHarborHost (hasPrefix "registry." .Values.gateway.host) }}
+    - {{ printf "harbor.%s" (trimPrefix "registry." .Values.gateway.host) | quote }}
+{{- end }}
+{{- range $h := .Values.gateway.extraHosts }}
+{{- if and $h (ne $h $.Values.gateway.host) }}
+    - {{ $h | quote }}
+{{- end }}
+{{- end }}
   rules:
 {{- if and .Values.sso .Values.sso.enabled .Values.sso.bareURL .Values.sso.bareURL.enabled }}
 {{- $oidcLoginPath := .Values.sso.bareURL.oidcLoginPath | default "/c/oidc/login" }}
