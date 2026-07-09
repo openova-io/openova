@@ -54,6 +54,32 @@ import { isDeploymentID } from '@/shared/types/deployment'
 import { useTheme } from '@/shared/lib/useTheme'
 import { resolveCatalogIcon } from '@/shared/lib/resolveCatalogIcon'
 
+/**
+ * topologyLabel — #4897. The apps-list `topology` field is normally the
+ * canonical placement-posture STRING (the BFF projects it via readTopology).
+ * The Application's `spec.placement` is dual-form, though: a legacy posture
+ * string OR an object `{ mode, regions }` — the shape a New-instance
+ * active-hot-standby create writes. This normaliser keeps the topology badge
+ * resilient to BOTH shapes reaching the grid:
+ *   • string  → used as-is (e.g. "active-hot-standby", "singleton")
+ *   • object  → read `.mode` (the posture)
+ *   • neither → '' (no badge)
+ * The load-bearing fix is server-side (the BFF now projects the object
+ * form's mode); this guard keeps the grid correct if the raw dual-form
+ * placement ever reaches the FE.
+ */
+export function topologyLabel(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { mode?: unknown }).mode === 'string'
+  ) {
+    return (value as { mode: string }).mode
+  }
+  return ''
+}
+
 interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
@@ -184,7 +210,9 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           externalURL?: string
           instance?: boolean
           blueprint?: string
-          topology?: string
+          // #4897 — normally the projected posture string; tolerate the raw
+          // dual-form placement object ({ mode, regions }) too (topologyLabel).
+          topology?: string | { mode?: string }
           contextCount?: number
           bootstrapKit?: boolean
         }>
@@ -203,7 +231,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             id: a.id,
             slug: a.slug ?? '',
             blueprint: a.blueprint ?? '',
-            topology: a.topology ?? '',
+            topology: topologyLabel(a.topology),
             contextCount: a.contextCount ?? 0,
             status: a.status === 'installed' ? 'installed' : 'installing',
             environment: a.environment ?? 'dev',

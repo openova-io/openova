@@ -316,7 +316,13 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 					externalURL = resolveOpenURL(hr.urlKeys)
 				}
 			}
-			topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
+			// #4897 — spec.placement is dual-form (legacy posture STRING or the
+			// object {mode, regions, …}). readTopology reads .mode for the
+			// object form, so an active-hot-standby instance created via
+			// Catalog→New-instance renders its topology badge in the Org-scoped
+			// Apps grid too. A raw NestedString read collapsed the object to
+			// "" → the sov-app-topology-<name> badge was absent.
+			topology := readTopology(app)
 			rows = append(rows, sovereignAppItem{
 				ID:          app.GetName(),
 				Slug:        slug,

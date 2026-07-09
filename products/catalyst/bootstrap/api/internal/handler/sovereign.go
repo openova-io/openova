@@ -806,7 +806,13 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 					status = "installed"
 				}
 			}
-			topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
+			// #4897 — spec.placement is dual-form: a legacy posture STRING or
+			// the object {mode, regions, …}. readTopology handles both (the
+			// object posture rides in .mode), so an active-hot-standby instance
+			// created via Catalog→New-instance (which writes the OBJECT form)
+			// gets its topology badge, same as string-form spine AHS apps. A
+			// raw NestedString read collapsed the object to "" → no badge.
+			topology := readTopology(app)
 			instanceRows = append(instanceRows, sovereignAppItem{
 				ID:           app.GetName(),
 				Slug:         slug,
