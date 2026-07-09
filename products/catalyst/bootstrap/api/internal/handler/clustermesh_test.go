@@ -2403,27 +2403,43 @@ func TestCopySecretAcrossClusters_SkipsUpdateWhenUnchanged(t *testing.T) {
 	}
 
 	// First copy creates the Secret (a Create, not an Update).
-	if err := h.copySecretAcrossClusters(ctx, src, dst, sharedPGNamespace); err != nil {
+	// #4878: the create path must report changed=true so the caller rolls the
+	// consumer that had booted against a divergent local password.
+	changed, err := h.copySecretAcrossClusters(ctx, src, dst, sharedPGNamespace)
+	if err != nil {
 		t.Fatalf("first copy (create): %v", err)
+	}
+	if !changed {
+		t.Errorf("create path reported changed=false, want true — #4878 rollout-restart would never fire on a first-copy")
 	}
 	if updates != 0 {
 		t.Fatalf("create path issued %d Update(s), want 0", updates)
 	}
 
-	// Second copy with an IDENTICAL source must be a no-op — no Update.
-	if err := h.copySecretAcrossClusters(ctx, src, dst, sharedPGNamespace); err != nil {
+	// Second copy with an IDENTICAL source must be a no-op — no Update, and
+	// #4878: changed=false so a steady-state heal pass never restart-thrashes.
+	changed, err = h.copySecretAcrossClusters(ctx, src, dst, sharedPGNamespace)
+	if err != nil {
 		t.Fatalf("second copy (unchanged): %v", err)
+	}
+	if changed {
+		t.Errorf("unchanged re-copy reported changed=true, want false — #4878 rollout-restart would thrash the consumer every level-trigger pass")
 	}
 	if updates != 0 {
 		t.Errorf("unchanged re-copy issued %d Update(s), want 0 — write-elision regressed (a heal pass would churn the apiserver every interval)", updates)
 	}
 
 	// Now drift the source — the next copy MUST write (exactly one Update)
-	// so a genuine heal still lands.
+	// so a genuine heal still lands, and #4878: changed=true so the consumer
+	// gets rolled onto the corrected credential.
 	drifted := src.DeepCopy()
 	drifted.Data["tls.crt"] = []byte("CRT-2-HEALED")
-	if err := h.copySecretAcrossClusters(ctx, drifted, dst, sharedPGNamespace); err != nil {
+	changed, err = h.copySecretAcrossClusters(ctx, drifted, dst, sharedPGNamespace)
+	if err != nil {
 		t.Fatalf("third copy (drifted): %v", err)
+	}
+	if !changed {
+		t.Errorf("drifted re-copy reported changed=false, want true — #4878 rollout-restart would never fire on a genuine password rotation")
 	}
 	if updates != 1 {
 		t.Errorf("drifted re-copy issued %d Update(s), want exactly 1 — the heal Update never fired", updates)
