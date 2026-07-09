@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-09T18:30:08Z` |
+| Last refreshed | `2026-07-09T18:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 89 |
 | Open DoD gates | 0 / 41 |
@@ -296,6 +296,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-09T18:32 | [#4929](https://github.com/openova-io/openova/pull/4929) | #4322 | fix(#4920): drop per-Org bp-cnpg operator; platform operator |
 | 2026-07-09T18:11 | [#4928](https://github.com/openova-io/openova/pull/4928) | #934 | fix(#4919): signup PIN never sends — org-services SMTP auto- |
 | 2026-07-09T17:47 | [#4927](https://github.com/openova-io/openova/pull/4927) | #4923 | fix(#4923): DR replication-status reads live CNPGPair, not s |
 | 2026-07-09T17:45 | [#4926](https://github.com/openova-io/openova/pull/4926) | #4706 | fix(#4922): bound per-Org bp-agenity chart pin so the squatt |
@@ -325,7 +326,6 @@ flowchart LR
 | 2026-07-09T09:20 | [#4890](https://github.com/openova-io/openova/pull/4890) | #4889 | fix(#4889): HR-Ready overlay for adopted spine/bootstrap App |
 | 2026-07-09T09:09 | [#4888](https://github.com/openova-io/openova/pull/4888) | #4885 | fix(#4885): step-07 multi-HR imageRegistry pivot + couple au |
 | 2026-07-09T09:01 | [#4887](https://github.com/openova-io/openova/pull/4887) | #4551 | fix(#4886): surface live Continuum DR state on Topology tab  |
-| 2026-07-09T06:12 | [#4884](https://github.com/openova-io/openova/pull/4884) | #4878 | fix(#4878): rollout-restart shared-pg consumers after cross- |
 
 ---
 
