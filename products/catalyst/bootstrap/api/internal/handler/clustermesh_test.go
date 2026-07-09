@@ -2972,11 +2972,11 @@ func TestReconcileSharedPGConsumerRestart(t *testing.T) {
 	})
 }
 
-// seedKeycloakAdminSecret creates the host-cluster keycloak admin Secret
-// (mgmt/keycloak-x-keycloak-x-mgmt-vcluster, key admin-password) on the given
-// clientset — mirrors what the bitnami keycloak subchart mints + the vCluster
-// syncer surfaces on the host.
-func seedKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface, adminPassword string) {
+// seedKeycloakNamedSecret creates a keycloak admin Secret with the given name +
+// data key in the host `keycloak` namespace (keycloakAdminSecretNamespace) on the
+// given clientset — mirrors what the #4325 de-vcluster host keycloak install +
+// #4344/#2914 chart templates materialise directly on the host.
+func seedKeycloakNamedSecret(t *testing.T, cs kubernetes.Interface, name, key, value string) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
@@ -2986,34 +2986,48 @@ func seedKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface, adminPasswor
 	}
 	if _, err := cs.CoreV1().Secrets(keycloakAdminSecretNamespace).Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      keycloakAdminSecretName,
+			Name:      name,
 			Namespace: keycloakAdminSecretNamespace,
 		},
 		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{"admin-password": []byte(adminPassword)},
+		Data: map[string][]byte{key: []byte(value)},
 	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatalf("create keycloak admin Secret: %v", err)
+		t.Fatalf("create keycloak Secret %s: %v", name, err)
 	}
 }
 
-func getKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface) (*corev1.Secret, bool) {
+// seedKeycloakAdminSecret seeds the primary `keycloak-admin` admin-password Secret
+// (the master-realm credential config-cli reads).
+func seedKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface, adminPassword string) {
 	t.Helper()
-	s, err := cs.CoreV1().Secrets(keycloakAdminSecretNamespace).Get(context.Background(), keycloakAdminSecretName, metav1.GetOptions{})
+	seedKeycloakNamedSecret(t, cs, keycloakAdminSecretName, "admin-password", adminPassword)
+}
+
+func getKeycloakNamedSecret(t *testing.T, cs kubernetes.Interface, name string) (*corev1.Secret, bool) {
+	t.Helper()
+	s, err := cs.CoreV1().Secrets(keycloakAdminSecretNamespace).Get(context.Background(), name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil, false
 	}
 	if err != nil {
-		t.Fatalf("get keycloak admin Secret: %v", err)
+		t.Fatalf("get keycloak Secret %s: %v", name, err)
 	}
 	return s, true
 }
 
-// TestSyncKeycloakAdminSecret covers the #4158 best-effort cross-region keycloak
-// master-realm admin Secret sync: (1) region-A's authoritative admin-password
-// overwrites the replica's DIVERGENT local value (the live region-B 401 root
-// cause); (2) a missing source is skipped (keycloak still installing); (3)
-// single-region is a no-op; (4) region-A (slots[0]) is NEVER written — the
-// primary's working keycloak must not regress.
+func getKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface) (*corev1.Secret, bool) {
+	t.Helper()
+	return getKeycloakNamedSecret(t, cs, keycloakAdminSecretName)
+}
+
+// TestSyncKeycloakAdminSecret covers the #4158/#4915 best-effort cross-region
+// keycloak master-realm admin Secret sync: (1) region-A's authoritative
+// admin-password overwrites the replica's DIVERGENT local value (the live
+// region-B 401 root cause); (2) a missing source is skipped (keycloak still
+// installing); (3) single-region is a no-op; (4) region-A (slots[0]) is NEVER
+// written — the primary's working keycloak must not regress; (5) #4915 — BOTH
+// host-ns admin Secrets (keycloak-admin + catalyst-kc-master-admin-credentials)
+// are synced so config-cli AND sso-bridge authenticate against the shared DB.
 func TestSyncKeycloakAdminSecret(t *testing.T) {
 	h := &Handler{log: silentLogger()}
 	dep := &Deployment{ID: "dep-4158"}
@@ -3068,6 +3082,47 @@ func TestSyncKeycloakAdminSecret(t *testing.T) {
 		seedKeycloakAdminSecret(t, primaryCS, "pw")
 		// len(slots) == 1 → no replica → must return immediately, no panic.
 		h.syncKeycloakAdminSecret(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
+	})
+
+	// #4915: post-#4325 de-vcluster, keycloak runs on the HOST `keycloak` ns and
+	// bp-sso-bridge reads catalyst-kc-master-admin-credentials for per-Org realm
+	// creation. Both host-ns admin Secrets must adopt region-A's value (the shared
+	// keycloak DB, seeded by region-A, only accepts region-A's password), not just
+	// keycloak-admin. This is the concrete gap #4915 fixes.
+	t.Run("both-host-admin-secrets-synced-to-replica", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		replicaCS := kfake.NewSimpleClientset()
+		// region-A authoritative values (whose hash the shared DB holds).
+		seedKeycloakNamedSecret(t, primaryCS, keycloakAdminSecretName, "admin-password", "mMPW-region-A-pw")
+		seedKeycloakNamedSecret(t, primaryCS, "catalyst-kc-master-admin-credentials", "master-realm-admin-password", "mMPW-region-A-pw")
+		// region-B divergent locally-generated values → 401 until synced.
+		seedKeycloakNamedSecret(t, replicaCS, keycloakAdminSecretName, "admin-password", "aevF-region-B-pw")
+		seedKeycloakNamedSecret(t, replicaCS, "catalyst-kc-master-admin-credentials", "master-realm-admin-password", "aevF-region-B-pw")
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncKeycloakAdminSecret(context.Background(), dep, slots)
+
+		gotAdmin, ok := getKeycloakNamedSecret(t, replicaCS, keycloakAdminSecretName)
+		if !ok {
+			t.Fatalf("replica keycloak-admin Secret missing after sync")
+		}
+		if p := string(gotAdmin.Data["admin-password"]); p != "mMPW-region-A-pw" {
+			t.Errorf("replica keycloak-admin admin-password = %q, want region-A's authoritative value", p)
+		}
+		gotMaster, ok := getKeycloakNamedSecret(t, replicaCS, "catalyst-kc-master-admin-credentials")
+		if !ok {
+			t.Fatalf("replica catalyst-kc-master-admin-credentials Secret missing after sync (#4915 — sso-bridge would 401 on per-Org realm creation)")
+		}
+		if p := string(gotMaster.Data["master-realm-admin-password"]); p != "mMPW-region-A-pw" {
+			t.Errorf("replica catalyst-kc-master-admin-credentials master-realm-admin-password = %q, want region-A's authoritative value (#4915)", p)
+		}
+		// Region-A (the source) must be UNTOUCHED for both Secrets.
+		if src, _ := getKeycloakNamedSecret(t, primaryCS, keycloakAdminSecretName); string(src.Data["admin-password"]) != "mMPW-region-A-pw" {
+			t.Errorf("primary keycloak-admin was written — the source region must never be modified")
+		}
 	})
 }
 
