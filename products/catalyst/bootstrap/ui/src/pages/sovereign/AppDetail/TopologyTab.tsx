@@ -226,14 +226,25 @@ export function TopologyTab({
   )
   const continuumName = useMemo(() => `dr-${applicationName}`, [applicationName])
 
-  // Only poll the DR endpoint for genuinely multi-region apps. A 404 (no
-  // Continuum CR for this app) does NOT retry and leaves drStatus
-  // undefined → the section renders the calm "no cross-region replica"
-  // note rather than a fabricated lag.
+  // Poll the DR endpoint for genuinely multi-region apps. Two entry points:
+  //   • App-CR apps with a Standby placement target (hasStandby, the #3375 path).
+  //   • #4886 — Continuum-backed BOOTSTRAP-HR apps (spine-keycloak/gitea/harbor/
+  //     openbao, cnpg-pair). These have NO Application CR and their Pods run
+  //     active-active across both regions, so the placement projection can't
+  //     advertise a Standby target → hasStandby is false even though the live
+  //     `continuums.dr.openova.io` CR carries the real active/standby + lag.
+  //     We poll for them too and gate rendering on a live cross-region result
+  //     (source:"live" + a distinct standby region) so a singleton bootstrap
+  //     component never fabricates DR off the synthesized fallback.
+  // A 404 (no Continuum CR) does NOT retry and leaves drStatus undefined.
+  // Bootstrap components query with an EMPTY namespace so the cluster-wide
+  // lookup finds the CR in its own namespace (the HR lives in flux-system, the
+  // Continuum in the spine's namespace) — mirrors the #4000 placement rule.
+  const drNamespace = isBootstrap ? undefined : namespace
   const drQ = useQuery({
-    queryKey: ['continuum-replication-status', sovereignId, continuumName, namespace, refreshTick],
-    queryFn: () => getContinuumReplicationStatus(sovereignId, continuumName, { namespace }),
-    enabled: !disableNetwork && hasStandby && !!sovereignId && !!applicationName,
+    queryKey: ['continuum-replication-status', sovereignId, continuumName, drNamespace, refreshTick],
+    queryFn: () => getContinuumReplicationStatus(sovereignId, continuumName, { namespace: drNamespace }),
+    enabled: !disableNetwork && (hasStandby || isBootstrap) && !!sovereignId && !!applicationName,
     refetchInterval: 30_000,
     retry: false,
   })
@@ -270,6 +281,22 @@ export function TopologyTab({
     [drStatus],
   )
   const lagColor: LagBucket = useMemo(() => lagBucket(lagSeconds), [lagSeconds])
+
+  // #4886 — the DR section renders for App-CR apps with a Standby placement
+  // target (the existing #3375 hasStandby path) AND for bootstrap-HR apps whose
+  // LIVE continuum status confirms a genuine cross-region pair: source:"live"
+  // plus a standby region distinct from the active/lease-holder region. A
+  // singleton bootstrap component (no live continuum → synthesized fallback, or
+  // a same-region echo) never renders DR, so we never arm a phantom region.
+  const liveStandbyRegion = useMemo(
+    () =>
+      drStatus?.replicas?.find(
+        (rep) => rep.role !== 'primary' && !!rep.region && rep.region !== drPrimaryRegion,
+      )?.region || '',
+    [drStatus, drPrimaryRegion],
+  )
+  const bootstrapHasLiveDR = isBootstrap && drStatus?.source === 'live' && !!liveStandbyRegion
+  const showDR = hasStandby || bootstrapHasLiveDR
 
   // Owned dependencies that cascade — read from spec.placement.ownedDependencies
   // when present (override state); the names also come from the blueprint's
@@ -464,8 +491,9 @@ export function TopologyTab({
           READ-ONLY cross-region DR telemetry. Rendered ONLY for apps whose
           placement carries a Standby target (a live cross-region replica);
           honestly absent for singletons so we never arm a DR block against
-          a phantom region (row 58). */}
-      {hasStandby ? (
+          a phantom region (row 58). #4886 also renders it for Continuum-backed
+          bootstrap-HR apps off the live continuum status. */}
+      {showDR ? (
         <section
           className="mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4"
           data-testid="topology-tab-dr-panel"
@@ -546,7 +574,9 @@ export function TopologyTab({
                       Standby region
                     </div>
                     <div className="mt-0.5 font-mono text-xs font-semibold text-yellow-400">
-                      {drStatus?.replicas?.find((rep) => rep.role !== 'primary')?.region || '—'}
+                      {liveStandbyRegion ||
+                        drStatus?.replicas?.find((rep) => rep.role !== 'primary')?.region ||
+                        '—'}
                     </div>
                     <div className="text-[10px] text-[var(--color-text-dim)]">
                       {drStatus?.streamingState || 'hot replica (follows WAL)'}

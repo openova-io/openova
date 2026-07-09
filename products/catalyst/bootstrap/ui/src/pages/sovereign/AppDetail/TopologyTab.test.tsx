@@ -418,3 +418,104 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
     expect(screen.queryByTestId('topology-tab-dr-lag-value')).toBeNull()
   })
 })
+
+describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () => {
+  // spine-keycloak/gitea/harbor/openbao + cnpg-pair: Continuum-backed bootstrap
+  // HelmReleases with NO Application CR. Their Pods run active-active across
+  // both regions, so the placement projection labels BOTH regions Primary and
+  // hasStandby is false — yet the live continuum carries the real active
+  // (leaseHolder) + standby + replicationLagSeconds. The DR section must render
+  // off that live status instead of vanishing.
+  const activeActivePlacement = {
+    targets: [
+      { region: 'me-east-215-a', cluster: 'dep-x', vcluster: 'mgmt', role: 'Primary' },
+      { region: 'me-east-215-b', cluster: 'dep-x-b', vcluster: 'mgmt', role: 'Primary' },
+    ],
+    derivedFromRuntime: true,
+  }
+
+  it('renders the DR section for a bootstrap-HR app off the LIVE continuum (active region=leaseHolder, standby, numeric lag)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationPlacement.mockResolvedValue(activeActivePlacement)
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-spine-keycloak',
+      namespace: 'keycloak',
+      primaryRegion: 'me-east-215-a',
+      // active region = the witness-lease holder (surfaced as currentPrimary).
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0,
+      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
+      streamingState: 'streaming',
+      source: 'live',
+    })
+
+    render(
+      withProviders(
+        <TopologyTab
+          sovereignId="dep-x"
+          applicationName="spine-keycloak"
+          namespace="flux-system"
+          isBootstrap
+        />,
+      ),
+    )
+
+    // Bootstrap components query with EMPTY namespace so the cluster-wide lookup
+    // finds the CR in the spine's namespace (not the flux-system HR ns).
+    await waitFor(() => {
+      expect(getContinuumReplicationStatus).toHaveBeenCalledWith('dep-x', 'dr-spine-keycloak', {
+        namespace: undefined,
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    // Active region = leaseHolder; standby is the OTHER region — NOT a second
+    // "PRIMARY / serves writes" card.
+    expect(screen.getByTestId('topology-tab-dr-primary').textContent).toContain('me-east-215-a')
+    expect(screen.getByTestId('topology-tab-dr-standby').textContent).toContain('me-east-215-b')
+    // Numeric replication lag in seconds (row 56/64) — never a bare dash.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('0.0 s')
+    })
+    expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
+    // The Status panel's honest "n/a — bootstrap component" note is unaffected.
+    expect(screen.getByTestId('topology-tab-status-bootstrap')).toBeTruthy()
+  })
+
+  it('does NOT render DR for a SINGLETON bootstrap app (synthesized fallback is never passed off as live)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [{ region: 'me-east-215-a', cluster: 'dep-x', vcluster: 'mgmt', role: 'Primary' }],
+      derivedFromRuntime: true,
+    })
+    // The endpoint returns a synthesized shape (source:"synthesized") when no
+    // live Continuum/cnpg-pair backs the app — the DR section must stay hidden.
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-cert-manager',
+      namespace: 'cert-manager',
+      primaryRegion: 'hz-fsn-rtz-prod',
+      currentPrimary: 'hz-fsn-rtz-prod',
+      walLagSeconds: 2.0,
+      replicas: [{ region: 'hz-hel-rtz-prod', role: 'replica' }],
+      source: 'synthesized',
+    })
+
+    render(
+      withProviders(
+        <TopologyTab
+          sovereignId="dep-x"
+          applicationName="cert-manager"
+          namespace="flux-system"
+          isBootstrap
+        />,
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-status-bootstrap')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('topology-tab-dr-panel')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()
+  })
+})

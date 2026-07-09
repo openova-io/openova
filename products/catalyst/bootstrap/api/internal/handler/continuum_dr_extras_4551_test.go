@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 )
@@ -145,6 +146,67 @@ func TestReplicationStatus_NoLivePairSingleRegionFallsBack(t *testing.T) {
 	// "live").
 	if resp.Source != "synthesized" {
 		t.Errorf("source: got %q want synthesized (no real cross-region pair)", resp.Source)
+	}
+}
+
+// #4886 — the Continuum controller records the ACTIVE region as
+// `status.leaseHolder` and the lag as `status.replicationLagSeconds` (NOT the
+// CNPGPair-only `status.currentPrimary` / `status.walLagSeconds`). The spine
+// continuums (openbao raft, keycloak/gitea/harbor) carry no cnpgPair link, so
+// the replication-status endpoint must read those continuum-level fields
+// directly — otherwise the panel shows the wrong active region (after a
+// switchover) and a hardcoded 0 lag. Fixture: a spine Continuum whose lease has
+// flipped to region-b (leaseHolder != spec.primaryRegion) with a 7s lag.
+func TestReplicationStatus_ReadsLeaseHolderAndReplicationLagSeconds(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	cr := newContinuumUnstructured(
+		"dr-spine-openbao", "openbao", "openbao",
+		"me-east-215-a", []string{"me-east-215-b"})
+	// Lease has flipped to region-b (a switchover); the numeric lag lives in
+	// status.replicationLagSeconds (int64), the continuum-controller spelling.
+	_ = unstructured.SetNestedField(cr.Object, "me-east-215-b", "status", "leaseHolder")
+	_ = unstructured.SetNestedField(cr.Object, int64(7), "status", "replicationLagSeconds")
+	factory, _ := fakeContinuumDynamicFactory(cr)
+	h.dynamicFactory = factory
+	fixed := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	h.SetContinuumClock(func() time.Time { return fixed })
+	dep := installUserAccessDeployment(t, h, "dep-repl-leaseholder")
+
+	r := chi.NewRouter()
+	registerReplicationStatusRoute(r, h)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-spine-openbao/replication-status?namespace=openbao", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp continuumReplicationStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Source != "live" {
+		t.Errorf("source: got %q want live", resp.Source)
+	}
+	// Active region = leaseHolder (region-b after the switchover), NOT the
+	// static spec.primaryRegion.
+	if resp.CurrentPrimary != "me-east-215-b" {
+		t.Errorf("currentPrimary: got %q want me-east-215-b (=status.leaseHolder)", resp.CurrentPrimary)
+	}
+	// Numeric lag from status.replicationLagSeconds.
+	if resp.WALLagSeconds != 7 {
+		t.Errorf("walLagSeconds: got %v want 7 (=status.replicationLagSeconds)", resp.WALLagSeconds)
+	}
+	// The standby region surfaces so the panel can render the standby card.
+	foundStandby := false
+	for _, rep := range resp.Replicas {
+		if rep.Region == "me-east-215-b" {
+			foundStandby = true
+		}
+	}
+	if !foundStandby {
+		t.Errorf("replicas: missing standby me-east-215-b; got %+v", resp.Replicas)
 	}
 }
 
