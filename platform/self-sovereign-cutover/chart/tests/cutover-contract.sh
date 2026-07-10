@@ -37,6 +37,13 @@
 set -euo pipefail
 
 CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Absolute path to THIS script's own directory (chart/tests), captured BEFORE
+# the `cd "$CHART_DIR"` below. Sibling test scripts (image-registry-coverage.sh)
+# are resolved via ${SCRIPT_DIR} so the lookup is robust when the CI harness
+# invokes this script with a RELATIVE $0 (blueprint-release.yaml runs
+# `bash platform/<x>/chart/tests/cutover-contract.sh platform/<x>/chart`) —
+# a bare `$(dirname "$0")` breaks after the cd (#4975).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -1467,7 +1474,7 @@ echo "  PASS (coverage map + shared resolver wired into steps 03/04/08; public m
 # excluded). The guardrail's --self-test proves an un-mapped host FAILS; the
 # real scan proves the current repo is 100% covered.
 echo "[cutover-contract] Case 38: image-registry coverage guardrail (+ negative test)"
-COVERAGE="$(dirname "$0")/image-registry-coverage.sh"
+COVERAGE="${SCRIPT_DIR}/image-registry-coverage.sh"
 if [ ! -x "${COVERAGE}" ] && [ ! -f "${COVERAGE}" ]; then
   echo "FAIL: image-registry-coverage.sh guardrail missing (#4975)" >&2
   exit 1
