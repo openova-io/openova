@@ -138,6 +138,20 @@ type applicationPlacement struct {
 	// keys primaryRegion off regions[0]). Legacy {mode,regions} callers are
 	// unaffected. Refs #3969 #3375.
 	Targets []bpv1.PlacementTarget `json:"targets,omitempty"`
+
+	// OwnedDependencies — the #3969 per-owned-dependency cascade overrides
+	// the console PlacementEditor sends ALONGSIDE targets[] on every Apply
+	// (PlacementEditor.tsx: `ownedDependencies: owned.map(...)`). This field
+	// MUST exist on the wire struct even though the update handler does not
+	// yet project it: `decodeApplicationUpdateBody` decodes the canonical
+	// shape with `DisallowUnknownFields`, so an absent field made the strict
+	// decode REJECT the real console body and fall back to the lenient
+	// simplified decoder — which drops targets[] entirely, leaving Mode empty
+	// and 400'ing "placement.mode is required" (#4950). Mirroring the
+	// bpv1.Placement.OwnedDependencies wire contract lets the canonical
+	// decode accept the body so the targets[]→mode fold fires. Refs #4950
+	// #4840 #3969.
+	OwnedDependencies []bpv1.OwnedDependencyOverride `json:"ownedDependencies,omitempty"`
 }
 
 // validVClusterTier — accepted spec.placement.vcluster values

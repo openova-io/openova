@@ -128,20 +128,30 @@ func TestDecodeApplicationUpdateBody_ValuesAlias(t *testing.T) {
 func TestDecodePlacementValue_BothShapes(t *testing.T) {
 	t.Parallel()
 	// String form
-	mode, regions, err := decodePlacementValue([]byte(`"active-active"`))
+	mode, regions, targets, err := decodePlacementValue([]byte(`"active-active"`))
 	if err != nil {
 		t.Fatalf("string-form failed: %v", err)
 	}
-	if mode != "active-active" || len(regions) != 0 {
-		t.Errorf("string-form wrong: mode=%q regions=%+v", mode, regions)
+	if mode != "active-active" || len(regions) != 0 || len(targets) != 0 {
+		t.Errorf("string-form wrong: mode=%q regions=%+v targets=%+v", mode, regions, targets)
 	}
-	// Object form
-	mode, regions, err = decodePlacementValue([]byte(`{"mode":"single-region","regions":["fsn1"]}`))
+	// Object form (mode+regions)
+	mode, regions, targets, err = decodePlacementValue([]byte(`{"mode":"single-region","regions":["fsn1"]}`))
 	if err != nil {
 		t.Fatalf("object-form failed: %v", err)
 	}
-	if mode != "single-region" || !reflect.DeepEqual(regions, []string{"fsn1"}) {
-		t.Errorf("object-form wrong: mode=%q regions=%+v", mode, regions)
+	if mode != "single-region" || !reflect.DeepEqual(regions, []string{"fsn1"}) || len(targets) != 0 {
+		t.Errorf("object-form wrong: mode=%q regions=%+v targets=%+v", mode, regions, targets)
+	}
+	// #4950 — object form with the #3969 targets[] model MUST carry targets
+	// back so the lenient fallback decoder never drops them (the silent-decode
+	// arm of the "placement.mode is required" 400).
+	mode, regions, targets, err = decodePlacementValue([]byte(`{"targets":[{"region":"me-east-215-a","role":"Primary"}]}`))
+	if err != nil {
+		t.Fatalf("targets-form failed: %v", err)
+	}
+	if mode != "" || len(regions) != 0 || len(targets) != 1 || targets[0].Region != "me-east-215-a" {
+		t.Errorf("targets-form wrong: mode=%q regions=%+v targets=%+v", mode, regions, targets)
 	}
 }
 
