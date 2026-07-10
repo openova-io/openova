@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.112 (#4969 Refs #4967 #3379): REPUBLISH of the 0.1.111 payload — no chart
+# behavior change. 0.1.111's release FAILED at "Run chart integration tests" so
+# it never published to GHCR while slot-06a already pinned it → a fresh prov
+# would wedge at slot-06a (HelmChart artifact-not-found). Root cause was a
+# TEST-HARNESS SIGPIPE, not a chart defect: tests/cutover-contract.sh Case 16c
+# asserted the #4967 self-heal via `printf "$STEP06" | grep -q` under
+# `set -o pipefail` — grep -q closed the pipe on first match, printf took EPIPE
+# ("printf: write error: Broken pipe"), the pipeline exited non-zero, and the
+# `if !` fired a spurious FAIL. Case 16c now reads Step-06 into a file and
+# asserts against the file (file-fed grep + `awk '…{print NR;exit}'`, no
+# printf|grep / head pipe to SIGPIPE). This version bump republishes the intact
+# gitea self-heal with a self-consistent slot-06a pin. No step-count / job-mode
+# / RBAC change (still 11 steps).
 # 0.1.111 (#4967 Refs #4885 #3379): step-06 now RE-ASSERTS the Gitea admin
 # password before the demirror PATCH + git push. Root cause (hw236 live): the
 # demirror authenticates gitea_admin:<gitea-admin-secret.password>, but step-04
@@ -1648,7 +1661,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.111
+version: 0.1.112
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
