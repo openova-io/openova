@@ -292,4 +292,48 @@ if not ok:
 PY
 echo "  PASS"
 
+echo "[render-toggles] Case 10: per-Org install (no tenant.namespace override) targets the release namespace, NOT a placeholder (#4952)"
+# #4952: bp-openclaw 0.2.16 defaulted tenant.namespace to the truthy placeholder
+# "org-example". The bp-openclaw.tenantNamespace helper is
+# `default .Release.Namespace .Values.tenant.namespace` — Helm's `default`
+# returns the SECOND arg when truthy, so the placeholder WON over
+# .Release.Namespace and the controller Role + RoleBinding rendered with
+# `metadata.namespace: org-example`. On a real Sovereign that namespace does not
+# exist → Helm install failed `namespaces "org-example" not found` (×2: Role +
+# RoleBinding). The fix defaults tenant.namespace to "" so the helper falls back
+# to the release namespace. A per-Org install passes `--namespace <org-slug>`;
+# assert the render targets THAT namespace and emits ZERO org-example literals.
+if ! helm template smoke-openclaw . --namespace acme235 > "$TMP/org-ns.yaml" 2> "$TMP/org-ns.err"; then
+  echo "FAIL: per-Org (--namespace acme235) render failed:" >&2
+  cat "$TMP/org-ns.err" >&2
+  exit 1
+fi
+# No placeholder namespace may survive anywhere in the render.
+if grep -q "org-example" "$TMP/org-ns.yaml"; then
+  echo "FAIL: render still contains the 'org-example' placeholder namespace — a per-Org install would fail 'namespaces \"org-example\" not found' (#4952)." >&2
+  grep -n "org-example" "$TMP/org-ns.yaml" >&2
+  exit 1
+fi
+# The controller Role + RoleBinding (the two resources that carry an explicit
+# metadata.namespace = tenantNamespace) MUST land in the release namespace.
+RENDER_OUT="$TMP/org-ns.yaml" python3 - <<'PY'
+import os, sys, yaml
+docs = [d for d in yaml.safe_load_all(open(os.environ["RENDER_OUT"])) if d]
+want = "acme235"
+checked = 0
+for d in docs:
+    if d.get("kind") not in {"Role", "RoleBinding"}:
+        continue
+    ns = d.get("metadata", {}).get("namespace")
+    name = d.get("metadata", {}).get("name", "<unnamed>")
+    checked += 1
+    if ns != want:
+        print(f"FAIL: {d['kind']} {name} metadata.namespace={ns!r}, expected {want!r} (the release namespace) — #4952 fallback broken.", file=sys.stderr)
+        sys.exit(1)
+if checked < 2:
+    print(f"FAIL: expected the controller Role + RoleBinding (2 namespaced resources), found {checked}.", file=sys.stderr)
+    sys.exit(1)
+PY
+echo "  PASS"
+
 echo "[render-toggles] All bp-openclaw render-toggle gates green."

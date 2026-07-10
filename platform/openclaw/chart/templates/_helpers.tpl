@@ -63,9 +63,13 @@ ConfigMap name (per-user pod template).
 {{- end }}
 
 {{/*
-Tenant namespace — falls back to .Release.Namespace if tenant.namespace
-is unset, but we prefer an explicit value so the controller's RBAC scope
-matches the operator's intent.
+Tenant namespace — falls back to .Release.Namespace when tenant.namespace
+is empty (the #4952 default), but an overlay may set it explicitly so the
+controller's RBAC scope matches the operator's intent. NEVER default this
+to a non-empty placeholder: `default` returns the SECOND arg when it is
+truthy, so a placeholder would win over .Release.Namespace and pin the
+Role/RoleBinding at a namespace that does not exist on a real per-Org
+install (the #4952 `namespaces "org-example" not found` failure).
 */}}
 {{- define "bp-openclaw.tenantNamespace" -}}
 {{- default .Release.Namespace .Values.tenant.namespace }}
@@ -192,9 +196,12 @@ HelmRelease.
 {{- if eq (include "bp-openclaw.llm.baseURL" .) "https://newapi.example.local/v1" }}
 {{- fail "llm.baseURL is still the placeholder — overlay must supply the per-tenant NewAPI OpenAI-compatible endpoint" }}
 {{- end }}
-{{- if eq .Values.tenant.namespace "sme-example" }}
-{{- fail "tenant.namespace is still the placeholder — overlay must supply the SME tenant namespace" }}
-{{- end }}
+{{- /* #4952: tenant.namespace has NO placeholder guard. It defaults to ""
+       and `bp-openclaw.tenantNamespace` falls back to .Release.Namespace — the
+       real per-Org namespace of a per-Org install — so an unset value is a
+       CORRECT install, not a placeholder. (The old guard checked a stale
+       "sme-example" literal that never matched the real "org-example" default,
+       which is exactly how the org-example namespace leaked into the RBAC.) */}}
 {{- /* #4272: ingress.host only matters when the traefik Ingress is rendered.
        On a Sovereign the public exposure is httpRoute.hostnames (Cilium Gateway)
        and ingress.enabled is false, so the placeholder host is harmless. */}}

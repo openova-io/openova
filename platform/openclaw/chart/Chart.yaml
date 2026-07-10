@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.16
+version: 0.2.17
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,30 @@ description: |
 
   Changelog
   ─────────
+  0.2.17 (2026-07-10, #4952 — per-Org install no longer targets a non-existent
+          `org-example` namespace)
+    - ROOT CAUSE: `tenant.namespace` defaulted to the truthy placeholder
+      "org-example". The `bp-openclaw.tenantNamespace` helper is
+      `default .Release.Namespace .Values.tenant.namespace` — and Helm's
+      `default` returns the SECOND argument when it is truthy, so the
+      placeholder WON over `.Release.Namespace`. Any install path that did not
+      explicitly set `tenant.namespace` (e.g. a day-2 / raw Application-CR
+      install) rendered the controller Role + RoleBinding with
+      `metadata.namespace: org-example`. On a real Sovereign that namespace does
+      not exist, so Helm install failed with `namespaces "org-example" not
+      found` — TWICE (the Role and the RoleBinding), matching the "2 errors
+      occurred" the live hw235 acme235 install reported.
+        • THE FIX: default `tenant.namespace` to "" so the helper falls back to
+          `.Release.Namespace` — the real per-Org namespace the release installs
+          into. Overlays (funnel generator / BSS-door orgTenantBPOpenClaw) still
+          set it explicitly to the Org slug; an unset value is now a CORRECT
+          install, not a placeholder. Removed the obsolete assertNoPlaceholders
+          guard (it checked a stale "sme-example" literal that never matched the
+          real "org-example" default). Render test Case 10 asserts a
+          `--namespace acme235` install with NO tenant.namespace override puts
+          the Role + RoleBinding in `acme235` and emits ZERO `org-example`
+          literals.
+  0.2.16 (2026-07-02, #4863 — controller CPU 500m -> 250m for the S-plan quota)
   0.2.12 (2026-06-26, #4272 #4407 — controller TLS-trust: verify the PUBLIC
           LE cert on the OIDC issuer, the 4th + FINAL openclaw layer)
     - After 0.2.11 opened public-HTTPS egress so the JWKS hairpin REACHED

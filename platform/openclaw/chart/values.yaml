@@ -208,8 +208,16 @@ newapi:
 #   - per-user pods are created and deleted
 #   - newapi-key-{uuid} Secrets are read by the controller's ServiceAccount
 tenant:
-  # Required at install time. Placeholder default lets smoke render pass.
-  namespace: "org-example"
+  # #4952: leave EMPTY by default. The `bp-openclaw.tenantNamespace` helper
+  # (`default .Release.Namespace .Values.tenant.namespace`) then falls back to
+  # `.Release.Namespace` — the real per-Org namespace a per-Org install targets
+  # (e.g. acme235). A NON-empty placeholder default here (previously
+  # "org-example") WON that `default` call and pinned the controller Role +
+  # RoleBinding at a namespace that does not exist on a real Sovereign → the
+  # install failed with `namespaces "org-example" not found` (×2). Overlays
+  # (funnel generator / BSS-door orgTenantBPOpenClaw) still set this explicitly
+  # to the Org slug; leaving it empty is now a correct install, not a placeholder.
+  namespace: ""
 # ─── Per-user pod template ───────────────────────────────────────────────
 # These values are baked into a ConfigMap; the controller renders the
 # pod-spec at session-start time, substituting NEWAPI_KEY (Secret ref)

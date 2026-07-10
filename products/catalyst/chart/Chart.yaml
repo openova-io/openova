@@ -3444,7 +3444,16 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-version: 1.4.1071
+# 1.4.1072 — #4952: catalog-seed bp-openclaw pin 0.2.16 -> 0.2.17 (lockstep w/
+#   platform/openclaw chart + blueprint.yaml) so the per-Org-namespace fix
+#   reaches fresh funnel Orgs. bp-openclaw 0.2.16 defaulted tenant.namespace to
+#   the truthy placeholder "org-example", which WON the helper's
+#   `default .Release.Namespace .Values.tenant.namespace`, so a per-Org install
+#   rendered the controller Role + RoleBinding into the non-existent org-example
+#   namespace and Helm install failed `namespaces "org-example" not found` (×2).
+#   0.2.17 defaults it to "" so the helper falls back to .Release.Namespace.
+#   Bootstrap-kit slot-13 pin bumped in lockstep (pin-sync gate).
+version: 1.4.1072
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
 #   canonical Sovereign-IAM ClusterRoles (openova:tier-{viewer,developer,operator,
 #   admin,owner} + openova:application-{admin,editor,viewer}). The controller
