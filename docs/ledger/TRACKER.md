@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T06:30:05Z` |
+| Last refreshed | `2026-07-10T06:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 76 |
+| Open issues | 74 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 76 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 74 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 76 open items (clickable table)
+### All 74 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -251,14 +251,11 @@ flowchart LR
 | [#4836](https://github.com/openova-io/openova/issues/4836) | Console PlacementEditor targets[] model rejected by HandleApplicationUpdate lega | Other |
 | [#4843](https://github.com/openova-io/openova/issues/4843) | Edit-IaC editor seeds uncommittable YAML for any Blueprint whose live CR carries | Other |
 | [#4845](https://github.com/openova-io/openova/issues/4845) | Jobs Re-run 502s for aggregate/operator-managed reconcilers (trivy scan) — ret | Other |
-| [#4846](https://github.com/openova-io/openova/issues/4846) | Cross-region DR broken: shared-pg NetworkPolicies don't allow ClusterMesh remote | Other |
 | [#4851](https://github.com/openova-io/openova/issues/4851) | hw228 passwordless PIN login broken — catalyst-api SMTP relays to mothership 4 | Other |
 | [#4853](https://github.com/openova-io/openova/issues/4853) | application-controller: finalization stuck in persistent resourceVersion-conflic | Other |
 | [#4858](https://github.com/openova-io/openova/issues/4858) | fix: mothership self-hosting image deadlock — DiskPressure image-GC + harbor.o | Other |
 | [#4860](https://github.com/openova-io/openova/issues/4860) | Blueprint Edit-IaC Validate(dry-run)/Commit returns HTTP 500 after ~52s (blocks  | Other |
 | [#4872](https://github.com/openova-io/openova/issues/4872) | Wipe handler leaks Huawei OBS buckets → account hits 100-bucket quota → fres | Other |
-| [#4877](https://github.com/openova-io/openova/issues/4877) | catalyst-api seed seams (newapi-admin-token / anthropic / mcp-bearer) gated on O | Other |
-| [#4878](https://github.com/openova-io/openova/issues/4878) | region-b keycloak DB-auth broken (password authentication failed for user keyclo | Other |
 | [#4881](https://github.com/openova-io/openova/issues/4881) | Blueprint Release CI fails for bp-self-sovereign-cutover 0.1.104 — stale cutov | Other |
 | [#4885](https://github.com/openova-io/openova/issues/4885) | Cutover hardening: 3 Pillar-5 defects block cutoverComplete on fresh 2-region pr | Other |
 | [#4889](https://github.com/openova-io/openova/issues/4889) | Apps grid + AppDetail header show spine/bootstrap apps FAILED (source: Applicati | Other |
@@ -276,6 +273,7 @@ flowchart LR
 | [#4963](https://github.com/openova-io/openova/issues/4963) | fix(marketplace): checkout page renders banned term "tenant" — should be "Orga | Other |
 | [#4964](https://github.com/openova-io/openova/issues/4964) | per-Org provisioning SA forbidden create-secrets/delete-pods in tenant namespace | Other |
 | [#4967](https://github.com/openova-io/openova/issues/4967) | cutover step-06 gitea-admin password drift → demirror PATCH 401 | Other |
+| [#4969](https://github.com/openova-io/openova/issues/4969) | cutover-contract Case 16c SIGPIPE false-FAIL blocks bp-self-sovereign-cutover 0. | Other |
 
 ---
 
@@ -283,6 +281,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T06:42 | [#4970](https://github.com/openova-io/openova/pull/4970) | #4968 | fix(#4969): cutover-contract Case 16c SIGPIPE false-FAIL; re |
 | 2026-07-10T06:00 | [#4968](https://github.com/openova-io/openova/pull/4968) | #4885 | fix(#4967): cutover step-06 re-asserts gitea admin password  |
 | 2026-07-10T06:01 | [#4966](https://github.com/openova-io/openova/pull/4966) | #4785 | fix(#4964): grant per-Org provisioning SA tenant-NS secrets  |
 | 2026-07-10T05:04 | [#4965](https://github.com/openova-io/openova/pull/4965) | #3383 | fix(marketplace): checkout renders "Organization" not banned |
@@ -312,7 +311,6 @@ flowchart LR
 | 2026-07-09T17:45 | [#4926](https://github.com/openova-io/openova/pull/4926) | #4706 | fix(#4922): bound per-Org bp-agenity chart pin so the squatt |
 | 2026-07-09T18:16 | [#4925](https://github.com/openova-io/openova/pull/4925) | #3687 | fix(#4921): grant catalyst-api RBAC to add per-Org console g |
 | 2026-07-09T17:37 | [#4924](https://github.com/openova-io/openova/pull/4924) | #934 | fix(#4919): marketplace-api SMTP sources durable sovereign-s |
-| 2026-07-09T17:12 | [#4918](https://github.com/openova-io/openova/pull/4918) | #4878 | fix(#4915): sync host-ns keycloak admin secrets region-A to  |
 
 ---
 
