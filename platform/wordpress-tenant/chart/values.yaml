@@ -110,12 +110,25 @@ wordpress:
     pullSecrets:
       - name: ghcr-pull
   port: 80
+  # #4951: the per-Org namespace carries a `plan-quota` ResourceQuota
+  # (default 4 CPU limit for the WHOLE vcluster-backed namespace) AND a
+  # LimitRange that DEFAULTS every un-capped container to a 500m CPU
+  # limit. vcluster overhead alone (coredns 1000m + vcluster-0 500m +
+  # embedded postgres 500m) plus the CNPG DB (500m) already eats ~2500m.
+  # A 1-core (1000m) runtime LIMIT here left only ~250m of `limits.cpu`
+  # headroom — NOT enough for the post-install oidc-config hook Job to
+  # schedule its pod (its 500m-limit pod was rejected `exceeded quota:
+  # plan-quota` and NEVER created → Helm post-install timed out → HR
+  # Failed → the external HTTPRoute was never programmed → host 404).
+  # A per-Org tenant WordPress site is light; a 500m CPU CEILING (burst)
+  # with a 100m request is ample and frees durable quota headroom so the
+  # transient bootstrap hooks fit alongside the running site.
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 1
+      cpu: 500m
       memory: 512Mi
   # SecurityContext — the official WordPress image runs Apache as
   # `www-data` (UID 33). Keep readOnlyRootFilesystem=false because the

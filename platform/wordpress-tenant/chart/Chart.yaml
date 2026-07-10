@@ -280,7 +280,38 @@ name: bp-wordpress-tenant
 #      domain + adminUser.email from the Org owner and injects them before
 #      render). blueprint.yaml + the catalog-seed Blueprint CRs updated in
 #      lockstep.
-version: 0.4.21
+# 0.4.22 (#4951): FIX the per-Org WordPress that runs 1/1 but never serves
+#   externally (wordpress.<org>.<pool> → Envoy 404, valid cert, no route). The
+#   `oidc-config` post-install hook Job stayed Running 0/1 for 13 m+ (never
+#   completed) → Helm post-install `timed out waiting for the condition` → HR
+#   Failed → the org-controller never programmed the external HTTPRoute.
+#   ROOT CAUSE (proven live hw235, Org acme235): the hook's POD WAS NEVER
+#   CREATED. The per-Org namespace carries a `plan-quota` ResourceQuota
+#   (limits.cpu=4 for the WHOLE vcluster-backed namespace) plus a LimitRange
+#   that DEFAULTS every un-capped container to a 500m CPU limit. Steady-state
+#   consumed 3750m (vcluster coredns 1000m + vcluster-0 500m + embedded
+#   postgres 500m + openclaw 250m + WordPress Deployment 1000m + CNPG 500m),
+#   leaving only 250m of `limits.cpu` headroom. The oidc-config Job requested
+#   a 500m CPU LIMIT → the job-controller looped `FailedCreate: exceeded
+#   quota: plan-quota, requested: limits.cpu=500m, used: 3750m, limited: 4` →
+#   no pod → Job 0/1 forever → hook timeout. (NOT a script/keycloak hang — the
+#   container never ran; kyverno did not reject it either, the Deployment runs
+#   with the same securityContext.)
+#   FIX — right-size the bp-wordpress-tenant footprint to fit a 4-CPU per-Org
+#   plan alongside vcluster overhead, with durable headroom for its transient
+#   bootstrap hooks:
+#     1. wordpress.resources.limits.cpu 1 → 500m (a per-Org tenant site is
+#        light; 500m CEILING / 100m request is ample) — frees 500m of durable
+#        quota headroom.
+#     2. oidc-config (weight 10) + admin-user (weight 15) hook Jobs
+#        limits.cpu 500m → 250m (short, self-deleting wp-cli/PHP bootstraps).
+#   Post-fix steady-state 3250m; a running hook peaks at 3500m ≤ 4000m (500m
+#   margin) → the hook pod schedules, the Job completes, the HR reaches Ready,
+#   and the org-controller programs the HTTPRoute → the site serves.
+#   Also hardened the step-0 pg4wp `curl` with `--max-time 120` (mirrors the
+#   step-4 OIDC-plugin vendor) so a black-holed GitHub egress can only FAIL
+#   FAST (→ OnFailure retry) instead of hanging the hook indefinitely.
+version: 0.4.22
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
