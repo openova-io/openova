@@ -36,6 +36,7 @@ import {
 } from '@/lib/continuum.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { PlacementEditor, type OwnedDependencyInfo } from '@/widgets/topology/PlacementEditor'
+import { SwitchoverDialog } from '@/widgets/continuum/SwitchoverDialog'
 import {
   type Capability,
   type PlacementTarget,
@@ -102,6 +103,9 @@ export function TopologyTab({
   const qc = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
+  // #4552 — the armed manual-switchover confirm dialog (opened from the DR
+  // panel's "Switch over…" button). Closed by default.
+  const [showSwitchover, setShowSwitchover] = useState(false)
 
   // #3656 — bootstrap-kit HelmReleases have no Application CR; the status
   // endpoint 404s forever, so don't poll it for them.
@@ -226,17 +230,24 @@ export function TopologyTab({
   )
   const continuumName = useMemo(() => `dr-${applicationName}`, [applicationName])
 
-  // Poll the DR endpoint for genuinely multi-region apps. Two entry points:
+  // Poll the DR endpoint for every networked app and gate rendering on a
+  // genuine live cross-region result. Three cases the poll covers:
   //   • App-CR apps with a Standby placement target (hasStandby, the #3375 path).
   //   • #4886 — Continuum-backed BOOTSTRAP-HR apps (spine-keycloak/gitea/harbor/
   //     openbao, cnpg-pair). These have NO Application CR and their Pods run
   //     active-active across both regions, so the placement projection can't
   //     advertise a Standby target → hasStandby is false even though the live
   //     `continuums.dr.openova.io` CR carries the real active/standby + lag.
-  //     We poll for them too and gate rendering on a live cross-region result
-  //     (source:"live" + a distinct standby region) so a singleton bootstrap
-  //     component never fabricates DR off the synthesized fallback.
-  // A 404 (no Continuum CR) does NOT retry and leaves drStatus undefined.
+  //   • #4552 — an app whose placement projection reports a FALSE singleton
+  //     (e.g. shared-pg, whose CNPG replica half the projection doesn't surface
+  //     as a Standby target). hasStandby is false and it is not a bootstrap
+  //     component, yet a live 2-region cnpg-pair genuinely backs it. Polling
+  //     unconditionally lets the DR panel render it as a pair with the
+  //     switchover control instead of a stale singleton.
+  // Rendering is ALWAYS gated on a live cross-region result (source:"live" + a
+  // distinct standby region), so a genuine singleton — which 404s or returns a
+  // synthesized/pending shape — never fabricates a DR panel. A 404 (no
+  // Continuum CR / no live pair) does NOT retry and leaves drStatus undefined.
   // Bootstrap components query with an EMPTY namespace so the cluster-wide
   // lookup finds the CR in its own namespace (the HR lives in flux-system, the
   // Continuum in the spine's namespace) — mirrors the #4000 placement rule.
@@ -244,7 +255,7 @@ export function TopologyTab({
   const drQ = useQuery({
     queryKey: ['continuum-replication-status', sovereignId, continuumName, drNamespace, refreshTick],
     queryFn: () => getContinuumReplicationStatus(sovereignId, continuumName, { namespace: drNamespace }),
-    enabled: !disableNetwork && (hasStandby || isBootstrap) && !!sovereignId && !!applicationName,
+    enabled: !disableNetwork && !!sovereignId && !!applicationName,
     refetchInterval: 30_000,
     retry: false,
   })
@@ -282,12 +293,14 @@ export function TopologyTab({
   )
   const lagColor: LagBucket = useMemo(() => lagBucket(lagSeconds), [lagSeconds])
 
-  // #4886 — the DR section renders for App-CR apps with a Standby placement
-  // target (the existing #3375 hasStandby path) AND for bootstrap-HR apps whose
+  // #4886 / #4552 — the DR section renders for App-CR apps with a Standby
+  // placement target (the existing #3375 hasStandby path) AND for ANY app whose
   // LIVE continuum status confirms a genuine cross-region pair: source:"live"
-  // plus a standby region distinct from the active/lease-holder region. A
-  // singleton bootstrap component (no live continuum → synthesized fallback, or
-  // a same-region echo) never renders DR, so we never arm a phantom region.
+  // plus a standby region distinct from the active/lease-holder region. This
+  // covers bootstrap-HR spine apps (#4886) and App-CR apps whose placement
+  // projection reported a false singleton (#4552 — shared-pg). An app with no
+  // live pair (404 → synthesized/pending shape, or a same-region echo) never
+  // renders DR, so we never arm a phantom region.
   const liveStandbyRegion = useMemo(
     () =>
       drStatus?.replicas?.find(
@@ -295,8 +308,15 @@ export function TopologyTab({
       )?.region || '',
     [drStatus, drPrimaryRegion],
   )
-  const bootstrapHasLiveDR = isBootstrap && drStatus?.source === 'live' && !!liveStandbyRegion
-  const showDR = hasStandby || bootstrapHasLiveDR
+  const hasLiveDR = drStatus?.source === 'live' && !!liveStandbyRegion
+  const showDR = hasStandby || hasLiveDR
+
+  // The switchover target — the standby region we would promote. Prefer the
+  // placement Standby target, fall back to the live continuum standby region.
+  const switchoverTarget = useMemo(
+    () => drStandbyRegions[0] || liveStandbyRegion || '',
+    [drStandbyRegions, liveStandbyRegion],
+  )
 
   // Owned dependencies that cascade — read from spec.placement.ownedDependencies
   // when present (override state); the names also come from the blueprint's
@@ -612,24 +632,50 @@ export function TopologyTab({
                 ) : null}
               </div>
 
-              {/* Destructive Switchover is DEFERRED (#4552 — needs careful
-                  safety UX: confirm + RPO/health preflight). Surfaced as a
-                  disabled affordance so the surface is discoverable without
-                  arming a one-click region flip. */}
+              {/* Armed manual Switchover (#4552). The button opens a confirm
+                  dialog that runs a read-only RPO/health preflight and only
+                  arms [ Confirm Switchover ] when the standby is caught up and
+                  promotable. The confirm wires to the operator-gated
+                  POST .../switchover endpoint (the K-Cont-2 reconciler runs the
+                  7-step cordon-before-promote sequence). Hidden when we can't
+                  resolve a standby region to promote to. */}
               <div className="mt-4 flex items-center gap-2" data-testid="topology-tab-dr-switchover">
                 <button
                   type="button"
-                  className="cursor-not-allowed rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-dim)] opacity-60"
-                  disabled
-                  aria-disabled="true"
-                  title="Manual switchover ships next — it needs a confirm + preflight safety flow (Refs #4552)."
+                  className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs hover:border-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => setShowSwitchover(true)}
+                  disabled={!switchoverTarget}
+                  data-testid="topology-tab-dr-switchover-open"
                 >
                   Switch over…
                 </button>
                 <span className="text-[10px] text-[var(--color-text-dim)]">
-                  manual switchover ships next (Refs #4552)
+                  {switchoverTarget
+                    ? `promote standby ${switchoverTarget} — runs an RPO/health preflight before you confirm`
+                    : 'resolving standby region…'}
                 </span>
               </div>
+
+              {showSwitchover && switchoverTarget ? (
+                <SwitchoverDialog
+                  sovereignId={sovereignId}
+                  continuumName={continuumName}
+                  namespace={drNamespace}
+                  fromRegion={drPrimaryRegion}
+                  toRegion={switchoverTarget}
+                  applicationName={applicationName}
+                  lagSeconds={lagSeconds}
+                  syncState={drStatus?.syncState}
+                  disableNetwork={disableNetwork}
+                  onClose={() => setShowSwitchover(false)}
+                  onConfirmed={() => {
+                    setShowSwitchover(false)
+                    // Re-poll the DR status so the panel reflects the promoted
+                    // primary + fresh lag right after the sequence kicks off.
+                    setRefreshTick((t) => t + 1)
+                  }}
+                />
+              ) : null}
             </>
           )}
         </section>

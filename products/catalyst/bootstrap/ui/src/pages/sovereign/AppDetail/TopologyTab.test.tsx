@@ -10,7 +10,7 @@
  * blueprint name.
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 /* ── Mock the API + infra clients so no network is hit ─────────────────── */
@@ -20,6 +20,8 @@ const getCatalogItem = vi.fn()
 const getApplicationPlacement = vi.fn()
 const getHierarchicalInfrastructure = vi.fn()
 const getContinuumReplicationStatus = vi.fn()
+const getSwitchoverPreview = vi.fn()
+const requestSwitchover = vi.fn()
 
 vi.mock('@/lib/catalog.api', () => ({
   getApplicationStatus: (...a: unknown[]) => getApplicationStatus(...a),
@@ -35,6 +37,10 @@ vi.mock('@/lib/continuum.api', async (importOriginal) => {
   return {
     ...actual,
     getContinuumReplicationStatus: (...a: unknown[]) => getContinuumReplicationStatus(...a),
+    // #4552 — the armed SwitchoverDialog runs a preflight + confirm. Mock both
+    // so opening the dialog from the DR panel doesn't hit the network.
+    getSwitchoverPreview: (...a: unknown[]) => getSwitchoverPreview(...a),
+    requestSwitchover: (...a: unknown[]) => requestSwitchover(...a),
   }
 })
 
@@ -64,6 +70,31 @@ beforeEach(() => {
   // the DR section renders the calm "no cross-region replica" note unless a
   // case overrides it. Mirrors the endpoint's real not-found behaviour.
   getContinuumReplicationStatus.mockRejectedValue(new Error('continuum replication-status: HTTP 404'))
+  // #4552 — the switchover preflight defaults to a promotable result so the
+  // armed dialog can be exercised; cases override per-scenario.
+  getSwitchoverPreview.mockResolvedValue({
+    continuum: 'dr-shared-pg',
+    namespace: 'shared-data',
+    targetRegion: 'me-east-215-b',
+    currentPrimary: 'me-east-215-a',
+    currentLagSec: 0,
+    estimatedDurationSec: 60,
+    estimatedDuration: '60s',
+    blockingChecks: [],
+    promotable: true,
+    message: 'preview only',
+  })
+  requestSwitchover.mockResolvedValue({
+    name: 'dr-shared-pg',
+    namespace: 'shared-data',
+    targetRegion: 'me-east-215-b',
+    fromRegion: 'me-east-215-a',
+    toRegion: 'me-east-215-b',
+    requestedAt: new Date().toISOString(),
+    message: 'switchover completed',
+    applied: true,
+    completed: true,
+  })
 })
 
 afterEach(() => {
@@ -358,7 +389,7 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
     expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
   })
 
-  it('Switchover affordance is present but DISABLED (deferred, row 57)', async () => {
+  it('Switchover affordance is ARMED — opens the confirm dialog (row 57, #4552)', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     getApplicationPlacement.mockResolvedValue(standbyPlacement)
     getContinuumReplicationStatus.mockResolvedValue({
@@ -374,11 +405,56 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
     render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
 
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-switchover')).toBeTruthy()
+      expect(screen.getByTestId('topology-tab-dr-switchover-open')).toBeTruthy()
     })
-    const btn = screen.getByTestId('topology-tab-dr-switchover').querySelector('button')
-    expect(btn).toBeTruthy()
-    expect(btn?.disabled).toBe(true)
+    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
+    // Armed (not the old deferred disabled affordance).
+    expect(btn.disabled).toBe(false)
+    // No dialog until the operator clicks.
+    expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
+    fireEvent.click(btn)
+    // The confirm dialog opens with the from→to diff (the standby is the target).
+    await waitFor(() => {
+      expect(screen.getByTestId('continuum-switchover-dialog')).toBeTruthy()
+    })
+    expect(screen.getByTestId('continuum-switchover-dialog-diff').textContent).toContain('me-east-215-b')
+  })
+
+  it('#4552: a paired CNPG whose placement projects a false singleton STILL renders the pair + switchover (no stale singleton)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    // The placement projection reports ONLY the primary (the CNPG replica half
+    // isn't surfaced as a Standby target) → hasStandby is false → the tab used
+    // to render a stale singleton with no DR. But the LIVE continuum status
+    // confirms a real cross-region pair, so the DR panel + switchover must
+    // render off it.
+    getApplicationPlacement.mockResolvedValue({
+      targets: [{ region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' }],
+      derivedFromRuntime: true,
+    })
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0,
+      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
+      streamingState: 'streaming',
+      syncState: 'sync',
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    // DR panel renders off the live pair even though placement said singleton.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-dr-primary').textContent).toContain('me-east-215-a')
+    expect(screen.getByTestId('topology-tab-dr-standby').textContent).toContain('me-east-215-b')
+    // And the switchover control is armed for it.
+    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
   })
 
   it('a SINGLETON app shows NO DR panel + NO Switchover (honestly hidden, row 58)', async () => {

@@ -1,34 +1,47 @@
 /**
- * SwitchoverDialog — EPIC-6 Slice U-DR-1 (#1101).
+ * SwitchoverDialog — EPIC-6 Slice U-DR-1 (#1101) + armed preflight (#4552).
  *
  * Confirm dialog the operator clicks through before the catalyst-api
  * patches the Continuum CR's `spec.switchover.requested = true`. Shows:
  *
  *   - The diff: "Primary will move from <fromRegion> → <toRegion>"
+ *   - A read-only RPO/health PREFLIGHT (#4552): the live WAL replication
+ *     lag + every blocking check the switchover would hit. The
+ *     [ Confirm Switchover ] button is armed ONLY when the preflight is
+ *     promotable (no blocking checks) — a lagging / mid-switchover /
+ *     already-primary target keeps Confirm disabled with the reason shown.
  *   - The 7-step list from K-Cont-2's Sequencer (SWITCHOVER_STEPS)
  *   - Estimated duration <60s, write disruption <5s
  *   - Cancel / Confirm buttons
  *
  * On Confirm → POST /api/v1/sovereigns/{id}/continuums/{name}/switchover
- * (via continuum.api.requestSwitchover). Returns 202 Accepted; the
- * K-Cont-2 reconciler picks up the patch on its next loop iteration
- * and emits the 7-step audit events on NATS.
+ * (via continuum.api.requestSwitchover). The K-Cont-2 reconciler picks up
+ * the patch on its next reconcile pass and runs the 7-step
+ * cordon-before-promote sequence (or, when no Continuum CR backs the app,
+ * catalyst-api drives the proven live cnpg-pair `spec.replica.enabled`
+ * flip directly). The handler returns HTTP 200 even on a no-op / failure —
+ * the body's `applied` / `error` carry the truth, so the dialog only
+ * closes on a real apply and surfaces the reason otherwise.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #5 the underlying handler enforces
- * owner tier on the Application server-side. The widget renders
- * regardless of tier; the parent (DRSection) hides the entry-point
- * button when the caller lacks owner. On a 403 from the API the dialog
- * surfaces the error inline.
+ * owner/operator tier on the Application server-side. The widget renders
+ * regardless of tier; the parent hides the entry-point button when the
+ * caller lacks owner. On a 403 from the API the dialog surfaces the error
+ * inline.
  *
- * Disable-network seam mirrors TopologyEditor — tests render the
- * dialog without a real fetch.
+ * Disable-network seam mirrors TopologyEditor — tests render the dialog
+ * without a real fetch (preflight is skipped and Confirm is armed so the
+ * seam stays a pure UI harness).
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
+  getSwitchoverPreview,
   requestSwitchover,
   SWITCHOVER_STEPS,
+  lagBucket,
+  type ContinuumSwitchoverPreview,
   type ContinuumSwitchoverResponse,
 } from '@/lib/continuum.api'
 
@@ -45,11 +58,20 @@ export interface SwitchoverDialogProps {
   toRegion: string
   /** Application name surfaced in the dialog header for context. */
   applicationName: string
+  /**
+   * Live WAL replication lag in seconds (from the Topology tab's
+   * replication-status poll). Displayed in the preflight header while the
+   * authoritative preview resolves; the preview's `currentLagSec` wins once
+   * it lands. Optional.
+   */
+  lagSeconds?: number | null
+  /** Live sync/streaming state (e.g. "sync" / "async") — display only. */
+  syncState?: string
   /** Fired when the operator dismisses the dialog (cancel or after success). */
   onClose: () => void
   /** Fired on a successful POST. */
   onConfirmed?: (resp: ContinuumSwitchoverResponse) => void
-  /** Test seam — bypass the network call. */
+  /** Test seam — bypass the network calls (preflight + confirm). */
   disableNetwork?: boolean
 }
 
@@ -60,6 +82,8 @@ export function SwitchoverDialog({
   fromRegion,
   toRegion,
   applicationName,
+  lagSeconds,
+  syncState,
   onClose,
   onConfirmed,
   disableNetwork = false,
@@ -67,6 +91,58 @@ export function SwitchoverDialog({
   const [reason, setReason] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // ── RPO/health preflight (#4552) ──────────────────────────────────
+  // A read-only dry-run against the live Continuum + CNPGPair status. The
+  // Confirm button is armed ONLY when `preflight.promotable` is true.
+  const [preflight, setPreflight] = useState<ContinuumSwitchoverPreview | null>(null)
+  const [preflightLoading, setPreflightLoading] = useState(!disableNetwork)
+  const [preflightError, setPreflightError] = useState<string | null>(null)
+  // Bump to re-run the preflight after a transient network error.
+  const [preflightTick, setPreflightTick] = useState(0)
+
+  // Kick off the preflight on open (and on each retry). State updates happen
+  // ONLY in the async callbacks — the effect body itself calls no setState
+  // (the "loading" reset lives in the retry click handler / the initial
+  // useState), so this stays clear of cascading synchronous renders.
+  useEffect(() => {
+    if (disableNetwork) return
+    let cancelled = false
+    getSwitchoverPreview(
+      sovereignId,
+      continuumName,
+      { targetRegion: toRegion || undefined },
+      { namespace },
+    )
+      .then((rep) => {
+        if (cancelled) return
+        setPreflight(rep)
+        setPreflightError(null)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setPreflightError((e as Error).message)
+      })
+      .finally(() => {
+        if (cancelled) return
+        setPreflightLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [disableNetwork, sovereignId, continuumName, toRegion, namespace, preflightTick])
+
+  // The live lag: prefer the authoritative preview reading, fall back to the
+  // parent-supplied replication-status lag while the preview is in flight.
+  const shownLag: number | null =
+    preflight != null ? preflight.currentLagSec : lagSeconds ?? null
+  const shownLagColor = lagBucket(shownLag)
+
+  // Confirm is armed only when the preflight passed. Under disableNetwork the
+  // gate is skipped so the seam stays a pure UI harness.
+  const preflightPassed = disableNetwork || (preflight != null && preflight.promotable)
+  const confirmDisabled =
+    busy || (!disableNetwork && (preflightLoading || !preflightPassed))
 
   const onConfirm = async () => {
     setError(null)
@@ -82,6 +158,12 @@ export function SwitchoverDialog({
       }
       onConfirmed?.(stub)
       onClose()
+      return
+    }
+    // Belt-and-braces: never fire the mutation when the preflight has not
+    // cleared (the button is already disabled, but guard the handler too).
+    if (!preflightPassed) {
+      setError('preflight has not passed — resolve the blocking checks first')
       return
     }
     setBusy(true)
@@ -154,6 +236,125 @@ export function SwitchoverDialog({
           ) : null}
         </div>
 
+        {/* ── RPO/health preflight (#4552) ─────────────────────────────── */}
+        {!disableNetwork ? (
+          <div
+            className="mb-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3"
+            data-testid="continuum-switchover-dialog-preflight"
+          >
+            <div className="mb-2 flex items-baseline justify-between">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-dim)]">
+                RPO / health preflight
+              </h4>
+              {preflightLoading ? (
+                <span
+                  className="text-[10px] text-[var(--color-text-dim)]"
+                  data-testid="continuum-switchover-dialog-preflight-loading"
+                >
+                  checking…
+                </span>
+              ) : preflightError ? (
+                <span
+                  className="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400"
+                  data-testid="continuum-switchover-dialog-preflight-status"
+                >
+                  ○ check failed
+                </span>
+              ) : preflight?.promotable ? (
+                <span
+                  className="rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-400"
+                  data-testid="continuum-switchover-dialog-preflight-status"
+                >
+                  ● ready to promote
+                </span>
+              ) : (
+                <span
+                  className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-400"
+                  data-testid="continuum-switchover-dialog-preflight-status"
+                >
+                  ○ not promotable
+                </span>
+              )}
+            </div>
+
+            {/* Live replication lag (the RPO reading). */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span className="text-[var(--color-text-dim)]">Replication lag</span>
+                <span
+                  className={`inline-flex items-center rounded-md px-2 py-0.5 font-semibold tabular-nums ${
+                    shownLagColor === 'green'
+                      ? 'bg-green-500/10 text-green-400'
+                      : shownLagColor === 'yellow'
+                        ? 'bg-yellow-500/10 text-yellow-400'
+                        : shownLagColor === 'red'
+                          ? 'bg-red-500/10 text-red-400'
+                          : 'bg-[var(--color-bg)] text-[var(--color-text-dim)]'
+                  }`}
+                  data-testid="continuum-switchover-dialog-preflight-lag"
+                >
+                  {shownLag == null ? '—' : `${shownLag.toFixed(1)} s`}
+                </span>
+              </span>
+              {syncState ? (
+                <span className="text-[var(--color-text-dim)]">
+                  replication: <span className="text-[var(--color-text)]">{syncState}</span>
+                </span>
+              ) : null}
+              {preflight?.estimatedDuration ? (
+                <span className="text-[var(--color-text-dim)]">
+                  est. failover:{' '}
+                  <span className="text-[var(--color-text)]">{preflight.estimatedDuration}</span>
+                </span>
+              ) : null}
+            </div>
+
+            {/* Blocking checks — Confirm stays disabled while any is present. */}
+            {preflightError ? (
+              <div
+                className="mt-2 flex items-center justify-between gap-2 text-xs text-red-400"
+                data-testid="continuum-switchover-dialog-preflight-error"
+              >
+                <span>Preflight could not run: {preflightError}</span>
+                <button
+                  type="button"
+                  className="rounded-md border border-[var(--color-border)] px-2 py-0.5 text-[10px] hover:border-[var(--color-accent)]"
+                  onClick={() => {
+                    setPreflight(null)
+                    setPreflightError(null)
+                    setPreflightLoading(true)
+                    setPreflightTick((t) => t + 1)
+                  }}
+                  data-testid="continuum-switchover-dialog-preflight-retry"
+                >
+                  Re-run
+                </button>
+              </div>
+            ) : preflight && preflight.blockingChecks.length > 0 ? (
+              <ul
+                className="mt-2 space-y-1 text-xs text-yellow-300"
+                data-testid="continuum-switchover-dialog-preflight-checks"
+              >
+                {preflight.blockingChecks.map((c, i) => (
+                  <li
+                    key={i}
+                    data-testid={`continuum-switchover-dialog-preflight-check-${i}`}
+                    className="flex items-start gap-1.5"
+                  >
+                    <span aria-hidden>⚠</span>
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : preflight ? (
+              <p className="mt-2 text-xs text-green-400">
+                All preflight checks passed — the standby is caught up and
+                promotable.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="mb-4">
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-dim)]">
             What happens (7 steps)
@@ -224,9 +425,14 @@ export function SwitchoverDialog({
           <button
             type="button"
             data-testid="continuum-switchover-dialog-confirm"
-            className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40"
+            className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs text-[var(--color-bg)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={confirmDisabled}
+            title={
+              confirmDisabled && !busy
+                ? 'The RPO/health preflight must pass before switchover can be confirmed.'
+                : undefined
+            }
           >
             {busy ? 'Confirming…' : 'Confirm Switchover'}
           </button>
