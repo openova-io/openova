@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T06:00:04Z` |
+| Last refreshed | `2026-07-10T06:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 76 |
 | Open DoD gates | 0 / 41 |
@@ -283,6 +283,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T06:00 | [#4968](https://github.com/openova-io/openova/pull/4968) | #4885 | fix(#4967): cutover step-06 re-asserts gitea admin password  |
+| 2026-07-10T06:01 | [#4966](https://github.com/openova-io/openova/pull/4966) | #4785 | fix(#4964): grant per-Org provisioning SA tenant-NS secrets  |
 | 2026-07-10T05:04 | [#4965](https://github.com/openova-io/openova/pull/4965) | #3383 | fix(marketplace): checkout renders "Organization" not banned |
 | 2026-07-10T03:05 | [#4962](https://github.com/openova-io/openova/pull/4962) | #4885 | fix(#4961 Refs #4885): registry-aware helpers pivot the last |
 | 2026-07-10T02:46 | [#4960](https://github.com/openova-io/openova/pull/4960) | #4552 | feat(console #4552): arm the per-app Topology Switchover wit |
@@ -311,8 +313,6 @@ flowchart LR
 | 2026-07-09T18:16 | [#4925](https://github.com/openova-io/openova/pull/4925) | #3687 | fix(#4921): grant catalyst-api RBAC to add per-Org console g |
 | 2026-07-09T17:37 | [#4924](https://github.com/openova-io/openova/pull/4924) | #934 | fix(#4919): marketplace-api SMTP sources durable sovereign-s |
 | 2026-07-09T17:12 | [#4918](https://github.com/openova-io/openova/pull/4918) | #4878 | fix(#4915): sync host-ns keycloak admin secrets region-A to  |
-| 2026-07-09T17:11 | [#4917](https://github.com/openova-io/openova/pull/4917) | #4913 | fix(#4913): serve Harbor UI on harbor.<fqdn> alias, not just |
-| 2026-07-09T17:11 | [#4916](https://github.com/openova-io/openova/pull/4916) | #3376 | fix(billing): enforce voucher-code strength on catalyst-api  |
 
 ---
 
