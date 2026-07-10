@@ -758,7 +758,12 @@ spec:
       # before the demirror PATCH + git push, so a step-04 gitea-image roll that
       # left the DB password drifted from gitea-admin-secret no longer 401s the
       # demirror (hw236 wedge). Self-healing, best-effort; no step-count / RBAC change.
-      version: 0.1.111
+      # 0.1.112 (#4969 Refs #4967 #3379): REPUBLISH of the identical 0.1.111 payload —
+      # 0.1.111 never published to GHCR (its release FAILED on a TEST-HARNESS SIGPIPE
+      # in tests/cutover-contract.sh Case 16c, not a chart defect), so this pin would
+      # have wedged slot-06a at HelmChart artifact-not-found. Case 16c now asserts the
+      # self-heal against a file (no printf|grep SIGPIPE). No chart behavior change.
+      version: 0.1.112
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

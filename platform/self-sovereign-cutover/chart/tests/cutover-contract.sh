@@ -482,17 +482,28 @@ echo "[cutover-contract] Case 16c: Step-06 re-asserts the Gitea admin password b
 # `gitea admin user change-password` in the live gitea Pod BEFORE the first
 # authenticated Gitea call to force the DB row to match the Secret (self-heal).
 # Lock the re-assert in AND lock its ordering ahead of the demirror.
-STEP06_S=$(awk '/name: cutover-step-06-helmrepository-patches/,/^---$/' "$TMP/render.yaml")
-if ! printf '%s' "$STEP06_S" | grep -q 'gitea admin user change-password'; then
+#
+# NOTE (#4969): read the Step-06 ConfigMap into a FILE and assert against the
+# file — never `printf "$STEP06" | grep -q` / `grep -n | head`. Under
+# `set -o pipefail`, `grep -q` (and `head -1`) closes the pipe on its first
+# match, the upstream `printf`/`grep` takes EPIPE ("printf: write error:
+# Broken pipe"), and the whole pipeline exits non-zero → the `if !` fires a
+# spurious FAIL even though the re-assert renders correctly (this is exactly
+# what false-FAILed the 0.1.111 release "Run chart integration tests" step).
+# File-fed `grep` has no upstream writer to SIGPIPE, and `awk '…{print NR;exit}'`
+# yields the first matching line number with no downstream reader to close early.
+STEP06_F="$TMP/step06.yaml"
+awk '/name: cutover-step-06-helmrepository-patches/,/^---$/' "$TMP/render.yaml" > "$STEP06_F"
+if ! grep -q 'gitea admin user change-password' "$STEP06_F"; then
   echo "FAIL: Step-06 never execs 'gitea admin user change-password' — a drifted gitea DB password 401s the demirror PATCH (#4967)" >&2
   exit 1
 fi
-if ! printf '%s' "$STEP06_S" | grep -q 'GITEA_ADMIN_PASSWORD_REASSERT'; then
+if ! grep -q 'GITEA_ADMIN_PASSWORD_REASSERT' "$STEP06_F"; then
   echo "FAIL: Step-06 missing the GITEA_ADMIN_PASSWORD_REASSERT gate env — the re-assert is not wired (#4967)" >&2
   exit 1
 fi
-reassert_ln=$(printf '%s\n' "$STEP06_S" | grep -n 'gitea admin user change-password' | head -1 | cut -d: -f1)
-demirror_ln=$(printf '%s\n' "$STEP06_S" | grep -n 'demirror_code=' | head -1 | cut -d: -f1)
+reassert_ln=$(awk 'index($0,"gitea admin user change-password"){print NR; exit}' "$STEP06_F")
+demirror_ln=$(awk 'index($0,"demirror_code="){print NR; exit}' "$STEP06_F")
 if [ -z "$reassert_ln" ] || [ -z "$demirror_ln" ] || [ "$reassert_ln" -ge "$demirror_ln" ]; then
   echo "FAIL: Step-06 password re-assert (line ${reassert_ln:-?}) does not run BEFORE the demirror PATCH (line ${demirror_ln:-?}) — drift would still 401 the PATCH (#4967)" >&2
   exit 1
