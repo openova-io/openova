@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T22:30:07Z` |
+| Last refreshed | `2026-07-10T22:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -284,6 +284,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T22:33 | [#4977](https://github.com/openova-io/openova/pull/4977) | #3379 | fix(#4975): complete offline-mirror + per-host containerd re |
 | 2026-07-10T22:20 | [#4976](https://github.com/openova-io/openova/pull/4976) | #3379 | fix(#4975): cutover step-08 stops misreading a Recreate slow |
 | 2026-07-10T09:47 | [#4974](https://github.com/openova-io/openova/pull/4974) | #4973 | fix(#4973): pivot Huawei EVS CSI sidecar images through loca |
 | 2026-07-10T09:47 | [#4972](https://github.com/openova-io/openova/pull/4972) | #4971 | fix(#4971): keep catalyst-api off driverless control-plane d |
@@ -313,7 +314,6 @@ flowchart LR
 | 2026-07-09T20:39 | [#4931](https://github.com/openova-io/openova/pull/4931) | #4927 | fix(#4930): DR switchover-history/quorum/settings drop synth |
 | 2026-07-09T18:32 | [#4929](https://github.com/openova-io/openova/pull/4929) | #4322 | fix(#4920): drop per-Org bp-cnpg operator; platform operator |
 | 2026-07-09T18:11 | [#4928](https://github.com/openova-io/openova/pull/4928) | #934 | fix(#4919): signup PIN never sends — org-services SMTP auto- |
-| 2026-07-09T17:47 | [#4927](https://github.com/openova-io/openova/pull/4927) | #4923 | fix(#4923): DR replication-status reads live CNPGPair, not s |
 
 ---
 
