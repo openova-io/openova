@@ -769,7 +769,11 @@ spec:
       # registry but sits PodInitializing (readyReplicas transiently 0) now PASSES
       # via a #4975 carve-out (the strict ImagePullBackOff FAIL is untouched). No
       # chart behavior change for any other workload.
-      version: 0.1.113
+      # 0.1.114 (#4975 Refs #3379 #3695): the COMPLETE offline-mirror datapath —
+      # step-03 pushes every workload image, step-04 rewrites containerd per-host,
+      # step-08 pre-hold completeness gate + fixed localRegistryHostSubstr (below,
+      # now the FULL registry.${SOVEREIGN_FQDN}). Builds on 0.1.113's carve-out.
+      version: 0.1.114
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -885,17 +889,20 @@ spec:
     # a tether the preceding steps 01-07 already pivoted off.
     egressTest:
       enforceCIDRBlock: true
-      # #4563 (Refs #3379): the Sovereign-local registry host is
-      # `registry.${SOVEREIGN_FQDN}` (bp-harbor's HTTPRoute, see
-      # 19-harbor.yaml + harborPublicURL above), NOT `harbor.<fqdn>`.
-      # The step-08 #3695 fresh-pull proof classifies a workload as
-      # "already local" when its image host contains this substring —
-      # with the chart default `harbor.` the post-pivot catalyst-ui /
-      # openova-flow-server images (registry.<fqdn>/openova-io/...) were
-      # mis-classified as external and needlessly bounced. Override to
-      # `registry.` so pivoted workloads are correctly recognised as
-      # local and the proof PASSes on the first scan.
-      localRegistryHostSubstr: "registry."
+      # #4975 (Refs #3379 #3695): the Sovereign-local registry host is the FULL
+      # `registry.${SOVEREIGN_FQDN}` (bp-harbor's HTTPRoute, see 19-harbor.yaml +
+      # harborPublicURL above). The step-08 roll-set classifies a workload as
+      # "already local" when its image host contains this substring.
+      #   • the chart default `harbor.` was doubly wrong: it EXCLUDED the
+      #     harbor.openova.io/proxy-* mothership tether (the DOMINANT tether) from
+      #     the roll-set AND did not match the real local host so pivoted refs
+      #     were needlessly bounced;
+      #   • the former `registry.` (this overlay's prior value) ALSO matched
+      #     registry.k8s.io (an EXTERNAL upstream that MUST be rolled).
+      # The FULL host classifies correctly. Since chart 0.1.113 step-08 DERIVES
+      # this from sovereign.harborPublicURL's host when unset, this override is
+      # made explicit for clarity but agrees with the derive.
+      localRegistryHostSubstr: "registry.${SOVEREIGN_FQDN}"
     # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io,
     # substituted from cloudinit's flux-system/bastion-mirror Secret
     # (Huawei provider only; Hetzner leaves the var empty → chart skips

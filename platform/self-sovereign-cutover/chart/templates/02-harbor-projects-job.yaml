@@ -148,6 +148,30 @@ data:
               esac
             done
             echo "[harbor-projects] all push-mode projects ensured"
+
+            # #4975 (Refs #3379 #3695): PUBLIC push-mode OFFLINE-MIRROR projects.
+            # These hold the complete skopeo-pushed copy of every non-openova
+            # upstream image (step-03 Phase A3) so the node's containerd
+            # (step-04 rewrite) serves them under the step-08 deny-egress hold —
+            # a proxy-cache project cannot (its back-to-source is black-holed).
+            # PUBLIC so an upstream-image pod with NO imagePullSecret pulls
+            # anonymously post-rewrite (the proxy-cache projects these replace
+            # were public:true). Push still requires the harbor admin auth used
+            # here; only anonymous PULL is opened. Names MATCH the mothership
+            # Harbor project names so harbor.openova.io/proxy-<x>/PATH host-swaps
+            # to registry.<fqdn>/proxy-<x>/PATH with the path preserved.
+            for mirror_proj in {{ join " " .Values.harbor.mirrorProjects }}; do
+              echo "[harbor-projects] ensuring public offline-mirror project ${mirror_proj}"
+              proj_payload="{\"project_name\":\"${mirror_proj}\",\"public\":true,\"metadata\":{\"public\":\"true\"}}"
+              code=$(curl -sk -o /tmp/proj.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
+                -H "Content-Type: application/json" \
+                "${base}/projects" --data "${proj_payload}")
+              case "${code}" in
+                201|409) echo "[harbor-projects]   mirror project ${mirror_proj} OK (${code})" ;;
+                *)       echo "[harbor-projects]   mirror project ${mirror_proj} FAILED (${code})"; cat /tmp/proj.out; exit 1 ;;
+              esac
+            done
+            echo "[harbor-projects] all offline-mirror projects ensured"
         resources:
           requests: { cpu: 100m, memory: 128Mi }
           limits:   { memory: 512Mi }

@@ -65,3 +65,60 @@ the same SA so RBAC is single-source.
 {{- define "bp-self-sovereign-cutover.serviceAccountName" -}}
 {{- printf "%s-runner" (include "bp-self-sovereign-cutover.name" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{/*
+── #4975 offline-mirror coverage map (single source of truth) ───────────────
+The bare host of the LOCAL Sovereign Harbor (registry.<fqdn>), derived from
+sovereign.harborPublicURL. Steps 03/04/08 all resolve the local registry from
+THIS one helper so "which host is local" is never hardcoded per-step (the
+"harbor." vs "registry." drift that made step-08 exclude the mothership tether
+and needlessly roll local refs).
+*/}}
+{{- define "bp-self-sovereign-cutover.localRegistryHost" -}}
+{{- .Values.sovereign.harborPublicURL | trimPrefix "https://" | trimPrefix "http://" | trimSuffix "/" -}}
+{{- end -}}
+
+{{/*
+The bare host of the MOTHERSHIP Harbor (harbor.openova.io), derived from
+upstream.mothershipHarborURL. Post-cutover this host is a tether: its
+`harbor.openova.io/proxy-<x>/PATH` refs host-swap to
+`registry.<fqdn>/proxy-<x>/PATH` (path preserved).
+*/}}
+{{- define "bp-self-sovereign-cutover.mothershipHost" -}}
+{{- .Values.upstream.mothershipHarborURL | trimPrefix "https://" | trimPrefix "http://" | trimSuffix "/" -}}
+{{- end -}}
+
+{{/*
+The host→local-Harbor-project coverage map, rendered as a single-line,
+env-safe, space-separated list of `host:project` tokens (empty project =
+host-swap/path-preserve, used for the mothership host whose path already
+carries the proxy-<x> project segment). Consumed VERBATIM by step-03
+(skopeo push dest), step-04 (containerd certs.d rewrite target) and step-08
+(pre-hold completeness HEAD) so all three derive identical local paths from
+one declaration — this is the retirement of the three hand-maintained lists.
+*/}}
+{{- define "bp-self-sovereign-cutover.hostProjectMapInline" -}}
+{{- $pairs := list -}}
+{{- range .Values.offlineMirror.hostProjects -}}
+{{- $pairs = append $pairs (printf "%s:%s" .host (.project | default "")) -}}
+{{- end -}}
+{{- join " " $pairs -}}
+{{- end -}}
+
+{{/*
+Hosts EXCLUDED from the offline mirror (handled elsewhere / un-mirrorable):
+xpkg.upbound.io is pivoted by step-11 (crossplaneProviderPivot) and bypasses
+containerd. Space-separated, env-safe.
+*/}}
+{{- define "bp-self-sovereign-cutover.excludedHostsInline" -}}
+{{- .Values.offlineMirror.excludedHosts | default (list) | join " " -}}
+{{- end -}}
+
+{{/*
+Image-path substrings EXCLUDED from the offline mirror + the step-08 roll-set
+(rancher/k3s = per-Org vcluster distro, un-mirrorable on the host plane;
+loft-sh/vcluster = handled by step-10 vcluster-registry-pivot). Space-separated.
+*/}}
+{{- define "bp-self-sovereign-cutover.excludedSubstringsInline" -}}
+{{- .Values.offlineMirror.excludedImageSubstrings | default (list) | join " " -}}
+{{- end -}}

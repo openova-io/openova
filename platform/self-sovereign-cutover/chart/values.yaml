@@ -407,51 +407,110 @@ harbor:
   # The `openova-io` project name matches the path segment in
   # ghcr.io/openova-io/openova/<svc>:<tag> — Phase A copies to
   # registry.<sov>/openova-io/openova/<svc>:<tag>, dropping only
-  # the `ghcr.io/` host prefix.
+  # the `ghcr.io/` host prefix. Kept private (public:false) — the
+  # Sovereign HTTPRoute + Kyverno glob gate anonymous pull of this
+  # project, per CLAUDE.md §pushProjects.
   pushProjects:
     - "openova-io"
-  # Seven proxy-cache projects + their upstream registry endpoints.
-  # Names are stable because step 06 (helmrepository-patches) +
-  # registries.yaml v2 (registry-pivot) rewrite paths against these
-  # literal project names.
+  # #4975 (Refs #3379 #3695) — the OFFLINE-MIRROR push projects. These
+  # REPLACE the former proxy-cache projects for every upstream host containerd
+  # can reach (docker.io / ghcr.io / quay.io / registry.k8s.io / gcr.io /
+  # public.ecr.aws). A proxy-cache project CANNOT survive the step-08
+  # deny-egress hold (its back-to-source to the upstream OR the mothership is
+  # black-holed), so a workload image that was never node-cached
+  # ImagePullBackOffs the moment its pod is rolled. Step-03 Phase A3 skopeo-
+  # PUSHES a COMPLETE copy of every workload image into these projects; step-04
+  # rewrites containerd to serve them from the local Harbor. That is a real
+  # offline mirror, not a warm cache subject to eviction.
+  #
+  # PUBLIC (public:true) so an upstream-image pod that carries NO
+  # imagePullSecret (the common case — it pulled anonymously from docker.io
+  # pre-cutover) still pulls anonymously post-rewrite; the proxy-cache projects
+  # these replace were public:true, so this preserves the proven anon-pull
+  # behaviour. Step 02 ensures these exist (harbor.mirrorProjects loop).
+  #
+  # Names MATCH the MOTHERSHIP Harbor project names (proxy-dockerhub, not
+  # proxy-docker) so a `harbor.openova.io/proxy-<x>/PATH` ref host-swaps to
+  # `registry.<fqdn>/proxy-<x>/PATH` with the path segment preserved — the
+  # dominant bootstrap-kit image shape (cnpg, kubectl, csi, …).
+  mirrorProjects:
+    - "proxy-ghcr"
+    - "proxy-dockerhub"
+    - "proxy-quay"
+    - "proxy-k8s"
+    - "proxy-gcr"
+    - "proxy-ecr"
+  # Proxy-cache project(s) that REMAIN pull-through. Only `proxy-xpkg`:
+  # Crossplane's xpkg fetcher (internal/xpkg/fetch.go remote.Image) bypasses
+  # the node containerd mirror, so step-11 (crossplaneProviderPivot) — NOT the
+  # step-04 containerd rewrite — owns the xpkg tether. xpkg is EXCLUDED from
+  # the offline mirror (offlineMirror.excludedHosts) so the step-08
+  # completeness gate + roll-set never flag it. Names are stable because
+  # step 11 rewrites Provider spec.package against this literal project name.
   proxyProjects:
-    - name: "proxy-ghcr"
-      upstreamURL: "https://ghcr.io"
-      # Harbor adapter "github-ghcr" (the canonical GHCR proxy-cache
-      # adapter), with `docker-registry` fallback for older Harbor
-      # versions. Caught live on otech103 2026-05-04 (was "github" →
-      # "adapter factory for github not found"). Per Harbor 2.x docs.
-      registryType: "github-ghcr"
-      authMode: "credential"      # uses harbor.ghcrSecretRef
-    - name: "proxy-docker"
-      upstreamURL: "https://registry-1.docker.io"
-      registryType: "docker-hub"
-      authMode: "anonymous"
-    - name: "proxy-k8s"
-      upstreamURL: "https://registry.k8s.io"
-      registryType: "docker-registry"
-      authMode: "anonymous"
-    - name: "proxy-gcr"
-      upstreamURL: "https://gcr.io"
-      registryType: "docker-registry"
-      authMode: "anonymous"
-    - name: "proxy-quay"
-      upstreamURL: "https://quay.io"
-      # docker-registry adapter — Harbor's "quay" type is internal/legacy
-      # and rejects project metadata.proxy_cache=true with HTTP 400
-      # "unsupported registry type quay". Quay speaks plain v2 so the
-      # generic docker-registry adapter is the right shape. Caught live
-      # on otech103 2026-05-04.
-      registryType: "docker-registry"
-      authMode: "anonymous"
     - name: "proxy-xpkg"
       upstreamURL: "https://xpkg.upbound.io"
       registryType: "docker-registry"
       authMode: "anonymous"
-    - name: "proxy-ecr"
-      upstreamURL: "https://public.ecr.aws"
-      registryType: "docker-registry"
-      authMode: "anonymous"
+
+# #4975 (Refs #3379 #3695) — the OFFLINE-MIRROR coverage map: the SINGLE
+# source of truth that retires the three hand-maintained lists (step-03
+# ghcr-only push filter, prewarm.images, imageRegistryPivot.additionalHRs)
+# whose drift caused the per-prov whack-a-mole (each fresh prov surfaced a new
+# residual image tether the deny-egress hold caught mid-window).
+#
+# HOW IT ENDS THE WHACK-A-MOLE. Three cutover steps all consume THIS map, so
+# they can never disagree about where an image lives locally:
+#   • step-03 Phase A3 skopeo-PUSHES every enumerated workload image into
+#     registry.<fqdn>/<project>/<path> (host-drop for openova-io; host-swap for
+#     the mothership; <project>/<path> for a direct upstream host);
+#   • step-04 rewrites the node's containerd certs.d so a pull of that upstream
+#     host resolves to EXACTLY that local path;
+#   • step-08 HEADs registry.<fqdn>/v2/<local-path>/manifests/<tag> BEFORE the
+#     deny-egress hold and FATALs (naming the offender) if any is absent —
+#     turning an opaque mid-hold ImagePullBackOff into a fail-fast.
+# A chart that introduces an image from an un-mapped host FAILS the CI
+# guardrail (tests/image-registry-coverage.sh) at authoring time.
+offlineMirror:
+  enabled: true
+  # host → local Harbor project. project "" = host-swap, path preserved (the
+  # mothership host, whose path already carries the proxy-<x> segment).
+  hostProjects:
+    - host: "ghcr.io"
+      project: "proxy-ghcr"
+    - host: "docker.io"
+      project: "proxy-dockerhub"
+    - host: "registry-1.docker.io"
+      project: "proxy-dockerhub"
+    - host: "index.docker.io"
+      project: "proxy-dockerhub"
+    - host: "quay.io"
+      project: "proxy-quay"
+    - host: "registry.k8s.io"
+      project: "proxy-k8s"
+    - host: "gcr.io"
+      project: "proxy-gcr"
+    - host: "k8s.gcr.io"
+      project: "proxy-gcr"
+    - host: "public.ecr.aws"
+      project: "proxy-ecr"
+    # MOTHERSHIP — host-swap, path preserved. Must equal the host of
+    # upstream.mothershipHarborURL. Empty project because the path already
+    # carries the proxy-<x> project (e.g. proxy-ghcr/cloudnative-pg/postgresql).
+    - host: "harbor.openova.io"
+      project: ""
+  # Hosts whose images are NOT mirrored (handled elsewhere / un-mirrorable).
+  excludedHosts:
+    # Crossplane package host — step-11 crossplaneProviderPivot owns it; the
+    # xpkg fetcher bypasses containerd, so a containerd mirror is inert for it.
+    - "xpkg.upbound.io"
+  # Image-path substrings NEVER mirrored NOR rolled under deny-egress.
+  excludedImageSubstrings:
+    # per-Org vcluster distro image — un-mirrorable on the host plane (it runs
+    # inside each Org's vcluster, not a host workload).
+    - "rancher/k3s"
+    # vcluster control-plane image — step-10 vcluster-registry-pivot owns it.
+    - "loft-sh/vcluster"
 
 # Pre-warm list — images to HEAD-pull through Harbor proxy-cache before
 # the cluster reconciles against local Harbor, so first-reconcile pulls
@@ -505,18 +564,16 @@ prewarm:
   # trust store may set this true via overlay; default false is the correct
   # fresh-prov behaviour.
   destTLSVerify: false
-  images:
-    - "proxy-docker/library/redis:7"
-    - "proxy-docker/library/postgres:16"
-    - "proxy-quay/cilium/cilium:v1.16.5"
-    - "proxy-quay/jetstack/cert-manager-controller:v1.16.1"
-    - "proxy-quay/kyverno/kyverno:v1.13.4"
-    - "proxy-docker/grafana/loki:3.3.2"
-    - "proxy-docker/grafana/grafana:11.4.0"
-    - "proxy-docker/grafana/alloy:v1.5.1"
-    - "proxy-docker/falcosecurity/falco:0.39.2"
-    - "proxy-ghcr/fluxcd/source-controller:v1.4.1"
-    - "proxy-ghcr/fluxcd/helm-controller:v1.1.0"
+  # #4975 (Refs #3379 #3695) — RETIRED. This hand-maintained 11-image HEAD list
+  # (the old Phase B "warm the proxy-cache" pass) was one of the three drifting
+  # lists that caused the per-prov whack-a-mole: any upstream image a chart added
+  # but this list omitted was never warmed, so under the deny-egress hold its
+  # roll ImagePullBackOff'd. Coverage now comes from step-03 Phase A3's LIVE
+  # enumeration (every running Pod ∪ declared workload template image), pushed
+  # into the offlineMirror push projects — nothing to keep in sync. Left as an
+  # empty list (Phase B is a no-op) for back-compat with overlays that still set
+  # it; an operator MAY still HEAD-warm a proxy-cache project via overlay.
+  images: []
 
 # GitOps source — Flux GitRepository in flux-system namespace that step
 # 05 (flux-gitrepository-patch) patches to point at local Gitea.
@@ -740,6 +797,17 @@ catalystAPI:
 # registry-aware AND lists their HRs in additionalHRs below, so step-07 pivots
 # them with the identical live-HR-patch + durable-Gitea-edit pattern. With that,
 # NO openova-io-image HR is left un-pivoted — there is no remaining residual.
+# #4975 (Refs #3379 #3695 #4885): DEMOTED to an OPTIONAL fallback. step-07's
+# global.imageRegistry pivot (this list) is now a BELT to the step-04 offline
+# mirror's SUSPENDERS: even an openova-io-image HR whose chart does NOT honour
+# global.imageRegistry — so step-07 leaves it on a literal ghcr.io/openova-io ref
+# — survives the step-08 deny-egress hold, because step-03 Phase A3 pushed that
+# image into registry.<fqdn>/proxy-ghcr/openova-io/<path> and step-04 rewrites
+# ghcr.io → that local path. So a chart missing from this list no longer FATALs
+# the cutover (the old whack-a-mole). The list is KEPT because pivoting the HR to
+# global.imageRegistry is still the CLEANER end-state (the pod ref reads
+# registry.<fqdn> directly, no containerd rewrite dependency) — but it is no
+# longer the sole thing standing between a new chart and a wedged cutover.
 imageRegistryPivot:
   additionalHRs:
     - name: bp-continuum
@@ -1021,7 +1089,23 @@ egressTest:
   # demands. localRegistryHostSubstr identifies the local registry so a
   # Sovereign on a non-harbor.<fqdn> registry name overrides via 06a.
   rollAllExternalRegistryWorkloads: true
-  localRegistryHostSubstr: "harbor."
+  # #4975 (Refs #3379 #3695) — the substring that identifies the LOCAL Sovereign
+  # registry so the roll-set EXCLUDES local refs and INCLUDES the mothership
+  # tether. DEFAULT "" → step-08 DERIVES it at runtime from the host of
+  # sovereign.harborPublicURL (registry.<fqdn>) via the
+  # bp-self-sovereign-cutover.localRegistryHost helper.
+  #
+  # WHY the old value was doubly wrong. The chart default was "harbor." and the
+  # 06a overlay set "registry." — BOTH misclassify:
+  #   • "harbor." EXCLUDED harbor.openova.io/proxy-* workloads (the #4975 gitea
+  #     leg — the DOMINANT mothership tether) from the roll-set, so the tether
+  #     was never proven severed, AND it did NOT match the real local host
+  #     registry.<fqdn> so genuine local refs WERE needlessly rolled;
+  #   • "registry." matched registry.k8s.io (an EXTERNAL upstream that MUST be
+  #     rolled) as if it were local, so k8s-registry workloads were skipped.
+  # The FULL host registry.<fqdn> classifies correctly in every case. An
+  # operator on a non-registry.<fqdn> local registry name overrides here.
+  localRegistryHostSubstr: ""
   blockedDomains:
     - "github.com"
     - "ghcr.io"

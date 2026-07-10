@@ -111,8 +111,42 @@ data:
           # not one hand-picked openova-io Deployment.
           - name: ROLL_ALL_EXTERNAL
             value: {{ eq (toString .Values.egressTest.rollAllExternalRegistryWorkloads) "true" | quote }}
+          # #4975 (Refs #3379 #3695) — the local registry substr that
+          # classifies the roll-set. DERIVED from sovereign.harborPublicURL's
+          # host (registry.<fqdn>) unless the operator overrides
+          # egressTest.localRegistryHostSubstr. The FULL host is used (not
+          # "harbor." nor a bare "registry.") so it excludes ONLY the local
+          # registry — not the mothership harbor.openova.io tether (which MUST
+          # be rolled) and not registry.k8s.io (an external upstream).
           - name: LOCAL_REGISTRY_SUBSTR
-            value: {{ .Values.egressTest.localRegistryHostSubstr | default "harbor." | quote }}
+            value: {{ .Values.egressTest.localRegistryHostSubstr | default (include "bp-self-sovereign-cutover.localRegistryHost" .) | quote }}
+          # #4975 — the offline-mirror coverage map + hosts, for the pre-hold
+          # completeness gate (HEAD every workload image against local Harbor)
+          # and the roll-set exclusions. Same env step-03/step-04 read.
+          - name: HOST_PROJECT_MAP
+            value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
+          - name: EXCLUDED_HOSTS
+            value: {{ include "bp-self-sovereign-cutover.excludedHostsInline" . | quote }}
+          - name: EXCLUDED_SUBSTRINGS
+            value: {{ include "bp-self-sovereign-cutover.excludedSubstringsInline" . | quote }}
+          - name: LOCAL_REGISTRY_HOST
+            value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
+          - name: MIRROR_COMPLETENESS_GATE
+            value: {{ eq (toString .Values.offlineMirror.enabled) "true" | quote }}
+          - name: HARBOR_PUBLIC_URL
+            value: {{ .Values.sovereign.harborPublicURL | quote }}
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.usernameKey }}
+                optional: true
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+                optional: true
           # #3647 — fresh-pull-under-deny-egress proof knobs. See the
           # FRESH-PULL phase in the script below + values.yaml egressTest.
           # freshPullProof for the full rationale.
@@ -138,10 +172,31 @@ data:
           # /work is the one writable path; the manifest is written there.
           - name: work
             mountPath: /work
+          # #4975 — the shared offline-mirror resolver (same file step-03
+          # sources), so the pre-hold completeness gate maps each workload
+          # image to the local Harbor path step-03 pushed it to.
+          - name: offline-mirror-resolver
+            mountPath: /resolver
+            readOnly: true
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
+            : "${HARBOR_USERNAME:=admin}"
+
+            # #4975 — the offline-mirror image→local-path resolver (shared with
+            # step-03). Defines offlinemirror_local_paths over the SAME
+            # HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env, so the
+            # pre-hold completeness gate below HEADs the EXACT path step-03
+            # pushed each image to. Guard the source in case the resolver
+            # ConfigMap ever fails to mount (degrade to survival-poll, never
+            # wedge the cutover on a tooling gap).
+            if [ -r /resolver/resolver.sh ]; then
+              . /resolver/resolver.sh
+            else
+              echo "[egress-block-test] WARN /resolver/resolver.sh not mounted — offline-mirror completeness gate DISABLED this run"
+              MIRROR_COMPLETENESS_GATE="false"
+            fi
 
             # Architectural assertion phase — verifies the data-plane
             # pivots from Steps 5/6/7 are actually live BEFORE we begin
@@ -261,6 +316,75 @@ data:
             # skipped so intra-cluster traffic is never blocked. Fail-safe:
             # any resolve/apply error falls back to assertion-only and
             # NEVER wedges the cutover on a tooling failure.
+            # ── #4975 PRE-HOLD OFFLINE-MIRROR COMPLETENESS GATE ───────────
+            # BEFORE the deny-egress hold (egress still OPEN), HEAD every
+            # workload image against the LOCAL Harbor at the exact path the
+            # shared resolver maps it to. A missing manifest = an image that
+            # would ImagePullBackOff the moment its pod is rolled under the
+            # hold. FATAL-fast, NAMING the offender(s) — the systemic end of
+            # the per-prov whack-a-mole (an opaque mid-hold ImagePullBackOff
+            # becomes a clear "step-03 Phase A3 did not mirror <image>").
+            run_offline_mirror_completeness() {
+              echo "[egress-block-test] #4975: PRE-HOLD completeness — HEAD every workload image against local Harbor ${HARBOR_PUBLIC_URL}"
+              _base="${HARBOR_PUBLIC_URL}/v2"
+              _missing=""
+              _checked=0
+              _imgs=$(
+                for _kind in deployments daemonsets statefulsets; do
+                  kubectl get "${_kind}" -A -o jsonpath='{range .items[*]}{range .spec.template.spec.containers[*]}{.image}{"\n"}{end}{range .spec.template.spec.initContainers[*]}{.image}{"\n"}{end}{end}' 2>/dev/null
+                done | sort -u
+              )
+              for _img in ${_imgs}; do
+                [ -z "${_img}" ] && continue
+                _paths=$(offlinemirror_local_paths "${_img}")
+                case "${_paths}" in
+                  __UNMAPPED__*)
+                    _uh=$(printf '%s' "${_paths}" | awk '{print $2}')
+                    _missing="${_missing} UNMAPPED-HOST:${_uh}(${_img})"
+                    continue ;;
+                  "") continue ;;   # excluded by design — not mirrored
+                esac
+                for _lp in ${_paths}; do
+                  # Split "<repo>[:tag|@digest]" into repo + manifest ref.
+                  _repo="${_lp}"; _ref="latest"
+                  case "${_lp}" in
+                    *@*) _ref="${_lp##*@}"; _repo="${_lp%@*}"; case "${_repo##*/}" in *:*) _repo="${_repo%:*}" ;; esac ;;
+                    *) case "${_lp##*/}" in *:*) _ref="${_lp##*:}"; _repo="${_lp%:*}" ;; esac ;;
+                  esac
+                  # 3 attempts to absorb a transient Harbor blip (a genuine
+                  # 404/absent still FATALs — that is the whole point).
+                  _code=000
+                  _try=1
+                  while [ "${_try}" -le 3 ]; do
+                    _code=$(curl -sk -o /dev/null -w '%{http_code}' \
+                      -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                      -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+                      -I "${_base}/${_repo}/manifests/${_ref}" 2>/dev/null || echo 000)
+                    case "${_code}" in 200|301|302) break ;; esac
+                    _try=$((_try+1)); [ "${_try}" -le 3 ] && sleep 3
+                  done
+                  _checked=$((_checked+1))
+                  case "${_code}" in
+                    200|301|302) : ;;
+                    *) _missing="${_missing} ${_img}=>${_repo}/manifests/${_ref}(HTTP:${_code})" ;;
+                  esac
+                done
+              done
+              if [ -n "${_missing}" ]; then
+                echo "  FAIL — offline mirror INCOMPLETE; these workload image(s) are NOT pullable from local Harbor (would ImagePullBackOff under the deny-egress hold):"
+                for _m in ${_missing}; do echo "    MISSING ${_m}"; done
+                return 1
+              fi
+              echo "  PASS — all ${_checked} mapped local path(s) present in local Harbor — offline mirror COMPLETE (#4975)"
+              return 0
+            }
+            if [ "${MIRROR_COMPLETENESS_GATE}" = "true" ] && [ -n "${HOST_PROJECT_MAP:-}" ]; then
+              if ! run_offline_mirror_completeness; then
+                echo "[egress-block-test] offline-mirror completeness FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false; fix step-03 Phase A3 / offlineMirror.hostProjects)"
+                exit 1
+              fi
+            fi
+
             POLICY_APPLIED=""
             if [ "${ENFORCE_CIDR_BLOCK}" = "true" ]; then
               echo "[egress-block-test] enforce mode ON — resolving upstream hosts to CIDRs"
@@ -620,6 +744,15 @@ data:
                 | grep -vE "[=, ]${LOCAL_REGISTRY_SUBSTR}" \
                 | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE " ${FRESH_PULL_EXCLUDE}[^ ]*=" || cat; } \
                 || true)
+              # #4975 — never roll a workload the offline mirror deliberately
+              # does NOT cover: xpkg.upbound.io (step-11 crossplane), rancher/k3s
+              # (per-Org vcluster distro), loft-sh/vcluster (step-10). Rolling
+              # them under deny-egress would ImagePullBackOff on an image the
+              # mirror was never meant to hold and FAIL the proof spuriously.
+              for _x in ${EXCLUDED_HOSTS} ${EXCLUDED_SUBSTRINGS}; do
+                [ -z "${_x}" ] && continue
+                targets=$(printf '%s\n' "${targets}" | grep -vF "${_x}" || true)
+              done
               if [ -z "${targets}" ]; then
                 echo "  no external-registry workloads found — every workload already pulls from the local registry (PASS)"
                 return 0
@@ -905,3 +1038,9 @@ data:
       # dropped: the actual CCNP is generated inline + written here.)
       - name: work
         emptyDir: {}
+      - name: offline-mirror-resolver
+        configMap:
+          name: cutover-offline-mirror-resolver
+          items:
+            - key: resolver.sh
+              path: resolver.sh

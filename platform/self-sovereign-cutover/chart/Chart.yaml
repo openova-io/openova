@@ -1,5 +1,11 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.114 (#4975 Refs #3379 #3695 — generalizes/supersedes #4976 [0.1.113] + the
+# partial #4975): the SYSTEMIC end of the per-prov step-08 whack-a-mole. Layers
+# ON TOP of #4976's Recreate-strategy fresh-pull carve-out (kept intact in
+# roll_and_check_workload) the COMPLETE offline-mirror datapath so no residual
+# image tether can reach step-08 at all. See the 0.1.114-detail block below.
+# ── 0.1.113 (#4976) ──────────────────────────────────────────────────────────
 # 0.1.113 (#4975 Refs #3379 #3695): step-08 fresh-pull classifier no longer
 # MISREADS a Recreate-strategy slow-init workload as a mothership tether. Live
 # hw238 step-08 deny-egress roll FAILED `gitea did not roll out within 240s
@@ -24,6 +30,44 @@ name: bp-self-sovereign-cutover
 # (#4885/#4888) — so no chart change is needed for it. No step-count / job-mode
 # / RBAC change (still 11 steps). Slot-06a pin + blueprint.yaml + catalog-seed
 # source.version move to 0.1.113 in lockstep (Inviolable Principle #13).
+# ── 0.1.114 detail (offline-mirror datapath) ────────────────────────────────
+# 0.1.114 is the
+# SYSTEMIC end of the per-prov step-08 whack-a-mole (each fresh prov surfaced a
+# new residual image tether the deny-egress hold caught mid-window). Root cause:
+# the set of images the cutover makes locally-pullable came from THREE
+# independently hand-maintained lists that each drifted behind the growing chart
+# set — (a) step-03 Phase-A skopeo push was filtered to `^ghcr.io/openova-io/`
+# only, (b) prewarm.images was a hardcoded 11-image HEAD list, (c) step-07
+# imageRegistryPivot.additionalHRs was a hand-listed set — while the LOCAL Harbor
+# proxy-cache projects were COLD/unreachable under deny-egress. THE FIX makes the
+# local Harbor a COMPLETE, dynamically-derived OFFLINE MIRROR + per-host
+# containerd rewrite, retires the hand-lists, and adds a completeness gate + CI
+# guardrail. ALL from ONE coverage map (offlineMirror.hostProjects), the single
+# source of truth that three steps consume so they can never disagree:
+#   • step-03 Phase A3 (03-harbor-prewarm-job.yaml) — DROPS the ghcr.io/openova-io
+#     grep filter and skopeo-PUSHES every enumerated workload image (running Pods
+#     ∪ declared templates) into registry.<fqdn>/<project>/<path> via the shared
+#     resolver, with per-host --src-creds (ghcr PAT / mothership auth / anonymous);
+#   • step-04 (04-registry-pivot-daemonset.yaml) — REPLACES the single
+#     `_default/hosts.toml` dfdaemon catch-all with PER-UPSTREAM-HOST certs.d
+#     entries resolving each host DIRECTLY to the local Harbor project path
+#     (override_path), + a host-swap entry for the mothership; the v2 ack now
+#     gates on the LOCAL Harbor serving /v2/, not dfdaemon;
+#   • step-08 (08-egress-block-test-job.yaml) — a PRE-HOLD completeness gate HEADs
+#     every workload image against local Harbor and FATALs (naming the offender)
+#     if any is absent, turning an opaque mid-hold ImagePullBackOff into a
+#     fail-fast; also FIXES egressTest.localRegistryHostSubstr (was "harbor." →
+#     which excluded the mothership tether AND needlessly rolled local refs; the
+#     06a "registry." also matched registry.k8s.io) to DERIVE the full local host
+#     registry.<fqdn>, and excludes xpkg/rancher-k3s/loft-sh-vcluster from the roll-set.
+# The `proxy-*` local projects become PUBLIC push-mode offline mirrors (step-02
+# harbor.mirrorProjects; only proxy-xpkg stays proxy-cache for step-11). A shared
+# resolver ConfigMap (03a-offline-mirror-resolver.yaml) is the code half of the
+# retirement; the CI guardrail (tests/image-registry-coverage.sh) FAILs if any
+# bootstrap-kit slot introduces an image from an un-mapped registry host. NOT
+# merged with a live walk yet — pillar-5 deny-egress proof is verified on the walk.
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version move to 0.1.114 in
+# lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag the chart).
 # 0.1.112 (#4969 Refs #4967 #3379): REPUBLISH of the 0.1.111 payload — no chart
 # behavior change. 0.1.111's release FAILED at "Run chart integration tests" so
 # it never published to GHCR while slot-06a already pinned it → a fresh prov
@@ -1685,7 +1729,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.113
+version: 0.1.114
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

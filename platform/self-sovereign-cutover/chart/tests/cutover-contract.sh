@@ -1399,4 +1399,87 @@ if ! grep -Eq 'activeDeadlineSeconds:\s*2100' "$TMP/render-fire.yaml"; then
 fi
 echo "  PASS (auto-trigger POST is wrapped in a bounded while-loop that retries on HTTP 425 until the handover seals — no single give-up exit; activeDeadlineSeconds=2100 covers the wait)"
 
+# ── Case 30 (#4975 Refs #3379 #3695): OFFLINE-MIRROR coverage-map wiring ──────
+# The systemic end of the step-08 whack-a-mole: ONE coverage map
+# (offlineMirror.hostProjects) consumed by step-03 (push), step-04 (containerd
+# rewrite) AND step-08 (pre-hold completeness HEAD), + the shared resolver
+# ConfigMap, + the PUBLIC push-mode mirror projects, + the fail-fast completeness
+# gate. Lock in the wiring so a future edit can't silently drift a consumer back
+# to a hand-list.
+echo "[cutover-contract] Case 37: offline-mirror coverage map wired into steps 03/04/08 + shared resolver"
+# (a) the shared resolver ConfigMap renders and is NOT counted as a step.
+if ! grep -q 'name: cutover-offline-mirror-resolver' "$TMP/render.yaml"; then
+  echo "FAIL: shared offline-mirror resolver ConfigMap (cutover-offline-mirror-resolver) not rendered (#4975)" >&2
+  exit 1
+fi
+if ! grep -q 'offlinemirror_local_paths' "$TMP/render.yaml"; then
+  echo "FAIL: resolver ConfigMap missing the offlinemirror_local_paths function (#4975)" >&2
+  exit 1
+fi
+# (b) the map env is rendered in ALL THREE consuming steps (03/04/08). Count the
+#     HOST_PROJECT_MAP env occurrences — must be >=3 (one per consuming step).
+hpm_count=$(grep -c 'name: HOST_PROJECT_MAP' "$TMP/render.yaml")
+if [ "${hpm_count}" -lt 3 ]; then
+  echo "FAIL: HOST_PROJECT_MAP env present ${hpm_count}x, expected >=3 (steps 03/04/08 must all consume the SAME coverage map) (#4975)" >&2
+  exit 1
+fi
+# (c) the map value carries the mothership host-swap entry (empty project) AND a
+#     real upstream mapping — proving both shapes render.
+if ! grep -q 'harbor.openova.io:' "$TMP/render.yaml"; then
+  echo "FAIL: coverage map missing the mothership host-swap entry harbor.openova.io: (empty project) (#4975)" >&2
+  exit 1
+fi
+if ! grep -q 'ghcr.io:proxy-ghcr' "$TMP/render.yaml"; then
+  echo "FAIL: coverage map missing the ghcr.io:proxy-ghcr mapping (#4975)" >&2
+  exit 1
+fi
+# (d) step-02 creates the PUBLIC push-mode mirror projects (public:true) so
+#     anonymous pull works under the deny-egress hold.
+if ! grep -q 'ensuring public offline-mirror project' "$TMP/render.yaml"; then
+  echo "FAIL: step-02 does not create the public offline-mirror push projects (harbor.mirrorProjects) (#4975)" >&2
+  exit 1
+fi
+# (e) step-04 writes PER-UPSTREAM-HOST certs.d entries (NOT the _default dfdaemon
+#     catch-all) and removes the legacy _default.
+if ! grep -q 'write_offline_mirror_hosts' "$TMP/render.yaml"; then
+  echo "FAIL: step-04 registry-pivot does not write per-upstream-host certs.d entries (write_offline_mirror_hosts) (#4975)" >&2
+  exit 1
+fi
+# (f) step-08 runs the PRE-HOLD completeness gate.
+if ! grep -q 'run_offline_mirror_completeness' "$TMP/render.yaml"; then
+  echo "FAIL: step-08 missing the pre-hold offline-mirror completeness gate (#4975)" >&2
+  exit 1
+fi
+# (g) step-08 LOCAL_REGISTRY_SUBSTR is DERIVED from the local Harbor host, NOT
+#     the old literal "harbor." (which excluded the mothership tether).
+if grep -A1 'name: LOCAL_REGISTRY_SUBSTR' "$TMP/render.yaml" | grep -q 'value: "harbor."'; then
+  echo "FAIL: LOCAL_REGISTRY_SUBSTR still defaults to the buggy \"harbor.\" (excludes the mothership tether from the roll-set) (#4975)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: LOCAL_REGISTRY_SUBSTR' "$TMP/render.yaml" | grep -q 'value: "registry\.'; then
+  echo "FAIL: LOCAL_REGISTRY_SUBSTR is not derived from the local Harbor host (registry.<fqdn>) (#4975)" >&2
+  exit 1
+fi
+echo "  PASS (coverage map + shared resolver wired into steps 03/04/08; public mirror projects; completeness gate; LOCAL_REGISTRY_SUBSTR derived)"
+
+# ── Case 31 (#4975): image-registry coverage GUARDRAIL + negative test ───────
+# Every bootstrap-kit workload image host MUST be in the coverage map (or
+# excluded). The guardrail's --self-test proves an un-mapped host FAILS; the
+# real scan proves the current repo is 100% covered.
+echo "[cutover-contract] Case 38: image-registry coverage guardrail (+ negative test)"
+COVERAGE="$(dirname "$0")/image-registry-coverage.sh"
+if [ ! -x "${COVERAGE}" ] && [ ! -f "${COVERAGE}" ]; then
+  echo "FAIL: image-registry-coverage.sh guardrail missing (#4975)" >&2
+  exit 1
+fi
+if ! bash "${COVERAGE}" --self-test >/dev/null 2>&1; then
+  echo "FAIL: coverage guardrail --self-test did not catch an un-mapped registry host (guardrail is inert) (#4975)" >&2
+  exit 1
+fi
+if ! bash "${COVERAGE}" >/dev/null 2>&1; then
+  echo "FAIL: coverage guardrail found a bootstrap-kit image host NOT in the offline-mirror map — run tests/image-registry-coverage.sh for the offender (#4975)" >&2
+  exit 1
+fi
+echo "  PASS (guardrail negative test green; every scanned bootstrap-kit image host is covered)"
+
 echo "[cutover-contract] All gates green."

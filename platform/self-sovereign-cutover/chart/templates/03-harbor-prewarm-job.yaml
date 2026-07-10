@@ -143,12 +143,30 @@ data:
           # The SRC (ghcr.io) verification is ALWAYS true (external public host).
           - name: PREWARM_DEST_TLS_VERIFY
             value: {{ .Values.prewarm.destTLSVerify | default false | quote }}
+          # #4975 (Refs #3379 #3695) — the offline-mirror coverage map + the
+          # local/mothership hosts, rendered from .Values.offlineMirror by the
+          # shared helpers. Phase A3 resolves every enumerated image to its
+          # local Harbor push path(s) via /resolver/resolver.sh, which reads
+          # THESE — the SAME env step-08's completeness HEAD reads.
+          - name: HOST_PROJECT_MAP
+            value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
+          - name: EXCLUDED_HOSTS
+            value: {{ include "bp-self-sovereign-cutover.excludedHostsInline" . | quote }}
+          - name: EXCLUDED_SUBSTRINGS
+            value: {{ include "bp-self-sovereign-cutover.excludedSubstringsInline" . | quote }}
+          - name: LOCAL_REGISTRY_HOST
+            value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
+          - name: MOTHERSHIP_HOST
+            value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
             readOnly: true
           - name: chart-mirror-names
             mountPath: /chart-mirror
+            readOnly: true
+          - name: offline-mirror-resolver
+            mountPath: /resolver
             readOnly: true
           - name: tmp
             mountPath: /tmp
@@ -157,6 +175,13 @@ data:
           - |
             set -eu
             : "${HARBOR_USERNAME:=admin}"
+
+            # #4975 — the offline-mirror image→local-path resolver (shared with
+            # step-08). Defines offlinemirror_normalize_ref + offlinemirror_local_paths
+            # over the HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env.
+            . /resolver/resolver.sh
+            echo "[harbor-prewarm] offline-mirror map: ${HOST_PROJECT_MAP}"
+            echo "[harbor-prewarm] local registry host: ${LOCAL_REGISTRY_HOST}; excluded hosts: ${EXCLUDED_HOSTS:-<none>}"
 
             # ─── Phase A: skopeo native push of openova-io images ──────
             echo "[harbor-prewarm] Phase A: install skopeo + jq + enumerate openova-io images"
@@ -256,6 +281,34 @@ data:
             ghcr_pat=$(printf '%s' "${ghcr_auth_b64}" | base64 -d | awk -F: '{print $2}')
             echo "[harbor-prewarm] ghcr.io auth extracted: user=${ghcr_user} pat=${ghcr_pat:0:8}... (len=${#ghcr_pat})"
 
+            # #4975 — OPTIONAL mothership-Harbor source auth. Phase A3 mirrors
+            # `harbor.openova.io/proxy-<x>/...` refs (the dominant bootstrap-kit
+            # image shape) by host-swapping to the local Harbor; the SOURCE pull
+            # from the mothership uses THIS auth when the ghcr-pull dockerconfig
+            # carries it (it usually does — same Secret proxies both). Absent →
+            # anonymous mothership pull (the proxy-<x> projects are public).
+            moth_user=""
+            moth_pat=""
+            moth_auth_b64=$(printf '%s' "${dc_decoded}" | jq -r --arg h "${MOTHERSHIP_HOST}" '.auths[$h].auth // empty' 2>/dev/null || true)
+            if [ -n "${moth_auth_b64}" ]; then
+              moth_user=$(printf '%s' "${moth_auth_b64}" | base64 -d | awk -F: '{print $1}')
+              moth_pat=$(printf '%s' "${moth_auth_b64}" | base64 -d | cut -d: -f2-)
+              echo "[harbor-prewarm] ${MOTHERSHIP_HOST} auth extracted: user=${moth_user} (len=${#moth_pat})"
+            fi
+
+            # #4975 — choose skopeo --src-creds by SOURCE host: ghcr.io → the
+            # ghcr-pull PAT (private openova-io packages); the mothership →
+            # optional mothership auth; every anonymous upstream (docker.io,
+            # quay.io, registry.k8s.io, gcr.io, public.ecr.aws) → NO creds.
+            src_creds_for() {
+              case "$1" in
+                ghcr.io) printf '%s:%s' "${ghcr_user}" "${ghcr_pat}" ;;
+                "${MOTHERSHIP_HOST}")
+                  [ -n "${moth_user}" ] && printf '%s:%s' "${moth_user}" "${moth_pat}" || printf '' ;;
+                *) printf '' ;;
+              esac
+            }
+
             HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
 
             # Enumerate openova-io images cluster-wide.
@@ -285,25 +338,35 @@ data:
             # only WIDEN the prewarm list (every entry is still skopeo-pushed
             # idempotently), never narrow it — a strict superset of the prior
             # behaviour.
-            echo "[harbor-prewarm] enumerating openova-io images across cluster (running pods ∪ declared workload templates)"
+            #
+            # #4975 (Refs #3379 #3695) — GENERALIZED to ALL images, not just
+            # `ghcr.io/openova-io/*`. The `^ghcr.io/openova-io/` grep filter is
+            # DROPPED: the enumeration now unions EVERY container/init/ephemeral
+            # image across running Pods AND declared workload templates, so a
+            # COMPLETE offline mirror of every non-node-cached upstream lands in
+            # local Harbor before the deny-egress hold. copy_one below routes
+            # each image to its local project via the shared resolver
+            # (offlinemirror_local_paths): openova-io → host-drop openova-io/…
+            # (unchanged) + proxy-ghcr/openova-io/…; docker.io/quay.io/registry.
+            # k8s.io/gcr.io/public.ecr.aws → proxy-<host>/…; harbor.openova.io →
+            # host-swap (path preserved); xpkg.upbound.io + rancher/k3s +
+            # loft-sh/vcluster EXCLUDED (offlineMirror.excluded*). This is the
+            # generalization of the former #3944 running-∪-declared union.
+            echo "[harbor-prewarm] enumerating ALL images across cluster (running pods ∪ declared workload templates)"
             running_images=$(kubectl get pods -A -o json | \
-              jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' 2>/dev/null | \
-              grep '^ghcr.io/openova-io/' || true)
+              jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' 2>/dev/null || true)
             declared_images=$(kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null | \
-              jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null | \
-              grep '^ghcr.io/openova-io/' || true)
+              jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
             cronjob_images=$(kubectl get cronjobs -A -o json 2>/dev/null | \
-              jq -r '.items[].spec.jobTemplate.spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null | \
-              grep '^ghcr.io/openova-io/' || true)
+              jq -r '.items[].spec.jobTemplate.spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
             job_images=$(kubectl get jobs -A -o json 2>/dev/null | \
-              jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null | \
-              grep '^ghcr.io/openova-io/' || true)
+              jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
             openova_images=$(printf '%s\n%s\n%s\n%s\n' \
               "${running_images}" "${declared_images}" "${cronjob_images}" "${job_images}" | \
-              grep '^ghcr.io/openova-io/' | sort -u || true)
+              grep -E '^[^[:space:]]+$' | grep -v '^null$' | sort -u || true)
             run_count=$(printf '%s\n' "${running_images}" | grep -c . || true)
             count=$(printf '%s\n' "${openova_images}" | grep -c . || true)
-            echo "[harbor-prewarm] running-Pod openova-io images=${run_count}; union with declared templates=${count} unique image(s) to native-push"
+            echo "[harbor-prewarm] running-Pod images=${run_count}; union with declared templates=${count} unique image(s) to mirror"
 
             # Native push each via skopeo copy, run in PARALLEL with a
             # bounded fan-out.
@@ -393,70 +456,113 @@ data:
               esac
             }
 
+            # #4975 — copy ONE upstream image to ALL of its local Harbor
+            # destination path(s) (usually one; TWO for a ghcr.io/openova-io/*
+            # ref — the host-drop openova-io/… convention + proxy-ghcr/openova-io/…).
+            # Destinations come from the shared resolver (offlinemirror_local_paths)
+            # so step-03 push and step-08 completeness HEAD agree byte-for-byte.
+            # The per-image record is .ok only if EVERY dest copy succeeded.
             copy_one() {
-              up=$(normalize_ref "$1")
-              # Convert ghcr.io/X/Y:tag → HARBOR_HOST/X/Y:tag
-              # (drop ghcr.io/ prefix, keep rest identical)
-              lref="${HARBOR_HOST}/${up#ghcr.io/}"
-              # Slug for the per-image sentinel/log file names.
+              up=$(offlinemirror_normalize_ref "$1")
               slug=$(printf '%s' "${up}" | tr -c 'A-Za-z0-9._-' '_')
-              # OUTER per-image retry loop: `--retry-times 5` self-heals a
-              # transient blob fetch inside ONE copy, but a Harbor-side reset
-              # that closes the dest connection can abort the whole copy (hw146
-              # large-image FATAL, see comment above). Re-attempt the full
-              # `skopeo copy` up to PREWARM_COPY_ATTEMPTS times before counting a
-              # push_fail. The per-attempt log is APPENDED so the final captured
-              # log shows every try.
-              attempt=1
-              rc=1
               : >"${cpdir}/${slug}.log"
-              while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
-                echo "[harbor-prewarm] copy ${up} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
-                # #3944: `--command-timeout` is a skopeo GLOBAL flag (must
-                # precede the `copy` subcommand) — it bounds the whole copy so a
-                # silently-stalled connection can't hang the worker forever.
-                # #4529: --dest-tls-verify is PREWARM_DEST_TLS_VERIFY (default
-                # false) — the dest is the in-cluster Harbor over the pod
-                # network (LE-STAGING/untrusted cert on a fresh prov, no node
-                # trust store in a Job Pod). --src-tls-verify stays true (ghcr.io
-                # is an external public-CA host that MUST be authenticated).
-                if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-                  --insecure-policy \
-                  --retry-times 5 \
-                  --src-creds="${ghcr_user}:${ghcr_pat}" \
-                  --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                  --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
-                  --src-tls-verify=true \
-                  "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
-                  rc=0
-                  break
-                else
-                  # Capture skopeo's REAL exit status INSIDE the else branch —
-                  # `rc=$?` placed AFTER the `fi` would read the if-construct's
-                  # status (0 when the condition is false with no else), the same
-                  # always-0 trap the #3379 hw138 real-exit-status fix called out.
-                  rc=$?
-                fi
-                echo "[harbor-prewarm] copy ${up} attempt ${attempt} failed (exit=${rc}); retrying after backoff" >>"${cpdir}/${slug}.log"
-                attempt=$((attempt+1))
-                # Short backoff lets a Harbor-side reset settle before the
-                # next full copy; skip the sleep after the final attempt.
-                [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
+              dests=$(offlinemirror_local_paths "${up}")
+              if [ -z "${dests}" ]; then
+                # Excluded at copy time (belt to the pre-pass filter).
+                printf '%s (excluded)' "${up}" >"${cpdir}/${slug}.ok"
+                return 0
+              fi
+              # SOURCE host → src-creds selection (bare official image = docker.io).
+              srchost="${up%%/*}"
+              case "${srchost}" in *.*|*:*|localhost) : ;; *) srchost="docker.io" ;; esac
+              sc=$(src_creds_for "${srchost}")
+              if [ -n "${sc}" ]; then set -- --src-creds="${sc}"; else set --; fi
+              all_ok=1
+              last_rc=0
+              for dpath in ${dests}; do
+                lref="${HARBOR_HOST}/${dpath}"
+                # OUTER per-dest retry loop: `--retry-times 5` self-heals a
+                # transient blob fetch inside ONE copy; a Harbor-side reset that
+                # closes the dest connection can still abort the whole copy
+                # (hw146 large-image FATAL), so re-attempt the full copy up to
+                # PREWARM_COPY_ATTEMPTS times. FATAL-on-any-failure preserved:
+                # the image is .fail unless every dest copy eventually succeeds.
+                attempt=1
+                rc=1
+                while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
+                  echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
+                  # #3944 --command-timeout (GLOBAL flag before `copy`) bounds a
+                  # stalled connection. #4529 --dest-tls-verify=PREWARM_DEST_TLS_VERIFY
+                  # (default false: in-cluster LE-staging Harbor). --src-tls-verify
+                  # stays true (external public-CA source). "$@" is the optional
+                  # --src-creds selected by host (empty for anonymous upstreams).
+                  if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+                    --insecure-policy \
+                    --retry-times 5 \
+                    "$@" \
+                    --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                    --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
+                    --src-tls-verify=true \
+                    "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
+                    rc=0
+                    break
+                  else
+                    # Capture skopeo's REAL exit status INSIDE the else branch
+                    # (the #3379 hw138 always-0 trap).
+                    rc=$?
+                  fi
+                  echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt} failed (exit=${rc}); retrying after backoff" >>"${cpdir}/${slug}.log"
+                  attempt=$((attempt+1))
+                  [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
+                done
+                [ "${rc}" -eq 0 ] || { all_ok=0; last_rc="${rc}"; }
               done
-              if [ "${rc}" -eq 0 ]; then
+              if [ "${all_ok}" -eq 1 ]; then
                 printf '%s' "${up}" >"${cpdir}/${slug}.ok"
               else
-                printf '%s exit=%s' "${up}" "${rc}" >"${cpdir}/${slug}.fail"
+                printf '%s exit=%s' "${up}" "${last_rc}" >"${cpdir}/${slug}.fail"
               fi
             }
+
+            # #4975 PRE-PASS — resolve every enumerated image through the shared
+            # coverage map BEFORE the parallel fan-out. Excluded images (xpkg /
+            # rancher-k3s / loft-sh-vcluster) are dropped; an image from a
+            # registry host NOT in offlineMirror.hostProjects is UNMAPPED →
+            # FATAL fail-fast (naming the offender). This is the whack-a-mole
+            # trap closing at step-03: a new chart's un-covered registry host
+            # fails the cutover HERE (egress still open, clear message) instead
+            # of surfacing as an opaque ImagePullBackOff mid deny-egress hold.
+            mirror_work=""
+            unmapped=""
+            for img in ${openova_images}; do
+              [ -z "${img}" ] && continue
+              paths=$(offlinemirror_local_paths "${img}")
+              case "${paths}" in
+                __UNMAPPED__*)
+                  uh=$(printf '%s' "${paths}" | awk '{print $2}')
+                  unmapped="${unmapped} ${uh}(${img})"
+                  ;;
+                "")
+                  : ;;  # excluded — skip
+                *)
+                  mirror_work="${mirror_work} ${img}"
+                  ;;
+              esac
+            done
+            if [ -n "${unmapped}" ]; then
+              echo "[harbor-prewarm] FATAL: image(s) from registry host(s) NOT in the offline-mirror coverage map (offlineMirror.hostProjects). Add the host→project (or exclude it) and re-run:"
+              for u in ${unmapped}; do echo "  UNMAPPED ${u}"; done
+              exit 1
+            fi
+            count=$(printf '%s\n' ${mirror_work} | grep -c . || true)
+            echo "[harbor-prewarm] ${count} mapped image(s) to mirror after resolver filter (parallelism=${PREWARM_PARALLELISM})"
 
             # Track live worker PIDs explicitly — POSIX sh's `jobs -p` is
             # unreliable in a non-interactive shell, so we count by polling
             # `kill -0 <pid>` against the PIDs we launched.
             pids=""
-            for upstream in ${openova_images}; do
-              local_ref="${HARBOR_HOST}/${upstream#ghcr.io/}"
-              echo "[harbor-prewarm] queue ${upstream} → ${local_ref}"
+            for upstream in ${mirror_work}; do
+              echo "[harbor-prewarm] queue ${upstream}"
               copy_one "${upstream}" &
               pids="${pids} $!"
               # Throttle: block launching the next copy while
@@ -803,5 +909,11 @@ data:
           items:
             - key: chart-mirror-names.txt
               path: chart-mirror-names.txt
+      - name: offline-mirror-resolver
+        configMap:
+          name: cutover-offline-mirror-resolver
+          items:
+            - key: resolver.sh
+              path: resolver.sh
       - name: tmp
         emptyDir: {}

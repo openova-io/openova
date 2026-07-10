@@ -1,0 +1,117 @@
+{{- /*
+#4975 (Refs #3379 #3695) — the OFFLINE-MIRROR image→local-path resolver.
+
+This ConfigMap carries ONE shell library, sourced by BOTH step-03
+(harbor-prewarm, skopeo push destination) AND step-08 (egress-block-test,
+pre-hold completeness HEAD) so the two consumers derive IDENTICAL local Harbor
+paths from the SAME coverage map (.Values.offlineMirror). It is the code half
+of "retire the three hand-lists": the DATA half is the env the helpers render
+(HOST_PROJECT_MAP / EXCLUDED_HOSTS / EXCLUDED_SUBSTRINGS / LOCAL_REGISTRY_HOST),
+this file is the mapping FUNCTION — neither consumer forks the logic.
+
+NOT a cutover-step ConfigMap: no bp.openova.io/cutover-order label, so it does
+not count toward the 11-step contract (tests/cutover-contract.sh Case 2/4).
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-offline-mirror-resolver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-offline-mirror
+data:
+  resolver.sh: |
+    # POSIX sh. Requires env: HOST_PROJECT_MAP EXCLUDED_HOSTS
+    # EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST. No side effects — pure functions.
+
+    # offlinemirror_normalize_ref REF -> REF with a tag-and-digest collapsed to
+    # digest-only (skopeo rejects `name:tag@digest`; the digest is authoritative
+    # and is exactly what containerd pulls by).
+    offlinemirror_normalize_ref() {
+      _nr="$1"
+      case "${_nr}" in
+        *@*)
+          _nr_digest="${_nr##*@}"
+          _nr_name="${_nr%@*}"
+          case "${_nr_name##*/}" in
+            *:*) _nr_name="${_nr_name%:*}" ;;
+          esac
+          printf '%s@%s' "${_nr_name}" "${_nr_digest}"
+          ;;
+        *) printf '%s' "${_nr}" ;;
+      esac
+    }
+
+    # offlinemirror_local_paths REF -> the local Harbor path(s) this image must
+    # be reachable at (relative to the local registry host), ONE PER LINE:
+    #   excluded host/substring        -> (nothing) SKIP
+    #   already on the local registry  -> the path verbatim
+    #   host in coverage map, proj P   -> "P/<rest>"  (or "<rest>" when P empty = mothership host-swap)
+    #   ghcr.io/openova-io/*           -> ALSO "<rest>" (the host-drop pivoted-ref path)
+    #   host NOT mapped, not excluded  -> "__UNMAPPED__ <host>"  (caller FATALs, naming the offender)
+    offlinemirror_local_paths() {
+      _u=$(offlinemirror_normalize_ref "$1")
+      # Split into host + rest. A registry host exists ONLY when the ref has a
+      # `/` AND the first segment looks like a host (contains `.` or `:port` or
+      # is localhost). A bare `name[:tag]` has NO `/` — the colon is the TAG, NOT
+      # a host:port — so it is a Docker Hub official image (docker.io/library/…).
+      case "${_u}" in
+        */*)
+          _host="${_u%%/*}"
+          case "${_host}" in
+            *.*|*:*|localhost) _rest="${_u#*/}" ;;
+            *) _host="docker.io"; _rest="${_u}" ;;   # docker.io namespaced (e.g. grafana/loki)
+          esac
+          ;;
+        *)
+          _host="docker.io"; _rest="${_u}"           # bare official image
+          ;;
+      esac
+      # Docker Hub official image: bare "name[:tag]" -> "library/name[:tag]".
+      case "${_host}" in
+        docker.io|registry-1.docker.io|index.docker.io)
+          case "${_rest}" in
+            */*) : ;;
+            *) _rest="library/${_rest}" ;;
+          esac
+          ;;
+      esac
+      # Excluded host.
+      for _eh in ${EXCLUDED_HOSTS}; do
+        [ "${_host}" = "${_eh}" ] && return 0
+      done
+      # Excluded image-path substring.
+      for _es in ${EXCLUDED_SUBSTRINGS}; do
+        case "${_u}" in *"${_es}"*) return 0 ;; esac
+      done
+      # Already on the local registry (openova-io host-drop pivoted refs, etc.).
+      if [ "${_host}" = "${LOCAL_REGISTRY_HOST}" ]; then
+        printf '%s\n' "${_rest}"
+        return 0
+      fi
+      # Coverage-map lookup.
+      _proj="__NOMATCH__"
+      for _pair in ${HOST_PROJECT_MAP}; do
+        _ph="${_pair%%:*}"
+        case "${_pair}" in *:*) _pp="${_pair#*:}" ;; *) _pp="" ;; esac
+        if [ "${_ph}" = "${_host}" ]; then _proj="${_pp}"; break; fi
+      done
+      if [ "${_proj}" = "__NOMATCH__" ]; then
+        printf '__UNMAPPED__ %s\n' "${_host}"
+        return 0
+      fi
+      if [ -z "${_proj}" ]; then
+        printf '%s\n' "${_rest}"
+      else
+        printf '%s/%s\n' "${_proj}" "${_rest}"
+      fi
+      # openova-io host-drop DUAL dest: an un-pivoted ghcr.io/openova-io/* ref
+      # resolves to proxy-ghcr/openova-io/<path> (above) AND the step-06/07
+      # pivoted registry.<fqdn>/openova-io/<path> convention — both must exist.
+      if [ "${_host}" = "ghcr.io" ]; then
+        case "${_rest}" in
+          openova-io/*) printf '%s\n' "${_rest}" ;;
+        esac
+      fi
+    }

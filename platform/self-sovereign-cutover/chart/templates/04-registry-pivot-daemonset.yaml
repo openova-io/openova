@@ -99,6 +99,15 @@ spec:
           env:
             - name: HARBOR_PUBLIC_URL
               value: {{ .Values.sovereign.harborPublicURL | quote }}
+            # #4975 (Refs #3379 #3695) — the offline-mirror coverage map + the
+            # local registry host. The pivot writes PER-UPSTREAM-HOST containerd
+            # certs.d entries pointing at registry.<fqdn>/<project> (the exact
+            # path step-03 Phase A3 pushed to), replacing the single _default
+            # dfdaemon catch-all. Same map step-03/step-08 read.
+            - name: HOST_PROJECT_MAP
+              value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
+            - name: LOCAL_REGISTRY_HOST
+              value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
             - name: STATUS_CONFIGMAP_NAME
               value: {{ .Values.status.configMapName | quote }}
             - name: STATUS_CONFIGMAP_NAMESPACE
@@ -295,53 +304,83 @@ data:
     fqdn_dashed=$(printf '%s' "${SOVEREIGN_FQDN}" | tr '.' '-')
     wildcard_secret="${HARBOR_CA_SRC_NAME_PREFIX}${fqdn_dashed}"
 
-    # Write (v2) or remove (v1) the containerd `_default/hosts.toml` catch-all
-    # that mirrors every registry namespace through the node-local dfdaemon
-    # proxy. `_default` is the containerd wildcard host-config dir — it applies
-    # to ANY registry that has no explicit certs.d/<host> dir, so a single file
-    # routes ghcr.io / docker.io / registry.k8s.io / … all through dfdaemon.
-    # skip_verify is moot (the endpoint is plain-HTTP loopback) but harmless.
-    write_default_mirror() {
-      mkdir -p "${certs_d}/_default"
-      {
-        echo "# managed by bp-self-sovereign-cutover registry-pivot (#4639) — DO NOT EDIT"
-        echo "[host.\"${df_proxy}\"]"
-        echo "  capabilities = [\"pull\", \"resolve\"]"
-        echo "  skip_verify = true"
-      } > "${certs_d}/_default/hosts.toml.new"
-      mv "${certs_d}/_default/hosts.toml.new" "${certs_d}/_default/hosts.toml"
-      echo "[registry-pivot]   wrote _default/hosts.toml -> ${df_proxy} (dfdaemon) on ${NODE_NAME}"
-      # #4637 (live-PROVEN on hw202): containerd's `_default` FALLBACK does NOT
-      # honor the http:// scheme of the [host] key — for an https-origin registry
-      # (registry.<fqdn>, :443) it dials `https://127.0.0.1:4001` and the dfdaemon,
-      # which serves PLAIN HTTP at :4001, EOFs the TLS handshake → step-07
-      # catalyst-api image pull ImagePullBackOff → cutover wedges at 54%. An
-      # EXPLICIT per-host certs.d/<registry-host>/hosts.toml DOES honor the http
-      # scheme, so write one for the pivoted in-cluster Harbor host. Confirmed:
-      # writing this + restarting catalyst-api → image pulled, pod Running.
-      if [ -n "${harbor_host:-}" ]; then
-        mkdir -p "${certs_d}/${harbor_host}"
+    # #4975 (Refs #3379 #3695) — PER-UPSTREAM-HOST containerd certs.d rewrite.
+    #
+    # REPLACES the single `_default/hosts.toml` dfdaemon catch-all. Under the
+    # step-08 deny-egress hold a dfdaemon back-to-source to the flipped upstream
+    # only serves images the dfdaemon already fetched; a workload image that was
+    # never node-cached ImagePullBackOffs. The systemic fix is a COMPLETE local
+    # Harbor mirror (step-03 Phase A3 pushes every image) + per-host containerd
+    # entries that resolve each upstream host DIRECTLY to the exact local path:
+    #   • host with project P → mirror https://<local>/v2/<P> + override_path=true
+    #     so a pull of `<host>/<repo>` resolves to `<local>/v2/<P>/<repo>` (the
+    #     Phase-A3 push dest);
+    #   • MOTHERSHIP host (empty project) → mirror https://<local> WITHOUT
+    #     override_path so the path (which already carries the proxy-<x> segment,
+    #     e.g. proxy-ghcr/cloudnative-pg/postgresql) is PRESERVED — a pure host
+    #     swap harbor.openova.io → registry.<fqdn>.
+    # This OVERRIDES the boot-time per-host `harbor.openova.io` mirror k3s wrote.
+    # Every entry skip_verify=true (the local Harbor serves an LE-staging /
+    # node-untrusted wildcard on a fresh prov — same trust-the-cluster-network
+    # rationale as #4529/#4557). The openova-io host-drop pull path is preserved
+    # by the local-registry self-entry (direct pulls of registry.<fqdn>/openova-io/…).
+    write_offline_mirror_hosts() {
+      # Retire the legacy dfdaemon catch-all (superseded by the per-host entries).
+      rm -f "${certs_d}/_default/hosts.toml" 2>/dev/null || true
+      # Self-entry: trust the local Harbor's cert for DIRECT openova-io host-drop
+      # pulls (registry.<fqdn>/openova-io/…), the pivoted-ref path step-06/07 set.
+      if [ -n "${LOCAL_REGISTRY_HOST:-}" ]; then
+        mkdir -p "${certs_d}/${LOCAL_REGISTRY_HOST}"
         {
-          echo "# managed by bp-self-sovereign-cutover registry-pivot (#4637) — DO NOT EDIT"
-          # The `server` line is LOAD-BEARING: without it containerd's host-dir
-          # falls back to the origin scheme (https) for the dfdaemon hop and
-          # TLS-handshakes the plain-HTTP :4001 proxy → EOF. The proven
-          # harbor.openova.io / 212.72.24.20:5000 certs.d entries on this same node
-          # ALL pair `server = "https://<host>/v2"` with an `[host."http://..."]`
-          # mirror — mirror that exact shape so the http dfdaemon hop is honored.
-          echo "server = \"https://${harbor_host}\""
-          echo "[host.\"${df_proxy}\"]"
+          echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
+          echo "server = \"https://${LOCAL_REGISTRY_HOST}\""
+          echo "[host.\"https://${LOCAL_REGISTRY_HOST}\"]"
           echo "  capabilities = [\"pull\", \"resolve\"]"
           echo "  skip_verify = true"
-        } > "${certs_d}/${harbor_host}/hosts.toml.new"
-        mv "${certs_d}/${harbor_host}/hosts.toml.new" "${certs_d}/${harbor_host}/hosts.toml"
-        echo "[registry-pivot]   wrote ${harbor_host}/hosts.toml -> ${df_proxy} (explicit http, #4637) on ${NODE_NAME}"
+        } > "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml.new"
+        mv "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml.new" "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml"
+        echo "[registry-pivot]   wrote ${LOCAL_REGISTRY_HOST}/hosts.toml (local self-trust) on ${NODE_NAME}"
       fi
+      # Per-upstream-host mirror → the local Harbor project path.
+      for pair in ${HOST_PROJECT_MAP}; do
+        h="${pair%%:*}"
+        case "${pair}" in *:*) p="${pair#*:}" ;; *) p="" ;; esac
+        [ -z "${h}" ] && continue
+        [ "${h}" = "${LOCAL_REGISTRY_HOST}" ] && continue
+        mkdir -p "${certs_d}/${h}"
+        if [ -z "${p}" ]; then
+          # Mothership host-swap: path preserved (no override_path).
+          {
+            echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
+            echo "server = \"https://${h}\""
+            echo "[host.\"https://${LOCAL_REGISTRY_HOST}\"]"
+            echo "  capabilities = [\"pull\", \"resolve\"]"
+            echo "  skip_verify = true"
+          } > "${certs_d}/${h}/hosts.toml.new"
+        else
+          # Upstream host → local Harbor project (override_path so containerd
+          # uses the URL path as the API root instead of appending its own /v2).
+          {
+            echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
+            echo "server = \"https://${h}\""
+            echo "[host.\"https://${LOCAL_REGISTRY_HOST}/v2/${p}\"]"
+            echo "  capabilities = [\"pull\", \"resolve\"]"
+            echo "  override_path = true"
+            echo "  skip_verify = true"
+          } > "${certs_d}/${h}/hosts.toml.new"
+        fi
+        mv "${certs_d}/${h}/hosts.toml.new" "${certs_d}/${h}/hosts.toml"
+        echo "[registry-pivot]   wrote ${h}/hosts.toml -> https://${LOCAL_REGISTRY_HOST}${p:+/v2/${p}} on ${NODE_NAME}"
+      done
     }
-    remove_default_mirror() {
-      rm -f "${certs_d}/_default/hosts.toml" 2>/dev/null || true
-      [ -n "${harbor_host:-}" ] && rm -f "${certs_d}/${harbor_host}/hosts.toml" 2>/dev/null || true
-      echo "[registry-pivot]   removed _default + ${harbor_host} hosts.toml (rollback) on ${NODE_NAME}"
+    remove_offline_mirror_hosts() {
+      [ -n "${LOCAL_REGISTRY_HOST:-}" ] && rm -f "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml" 2>/dev/null || true
+      for pair in ${HOST_PROJECT_MAP}; do
+        h="${pair%%:*}"
+        [ -z "${h}" ] && continue
+        rm -f "${certs_d}/${h}/hosts.toml" 2>/dev/null || true
+      done
+      echo "[registry-pivot]   removed offline-mirror per-host hosts.toml (rollback) on ${NODE_NAME}"
     }
 
     # #4652 (the x509 fix) — materialise the in-cluster Harbor trust anchor in
@@ -596,6 +635,24 @@ data:
       esac
     }
 
+    # #4975 — the step-07 catalyst-api re-pull GATE for the DIRECT path. Post
+    # #4975 containerd resolves each upstream host DIRECTLY to the local Harbor
+    # (registry.<fqdn>), NOT through the node-local dfdaemon, so the ack gate is
+    # "is the LOCAL Harbor serving /v2/" — not "is dfdaemon serving". Probe the
+    # local Harbor external host over :443 (reachable in-cluster via the gateway
+    # LB hairpin, #4682; -k tolerates the LE-staging wildcard). ANY HTTP status
+    # (200 or a 401/403/404 registry challenge) proves the listener is up; a
+    # connection-refused/timeout returns 000 → defer the v2 ack so the
+    # daemonset-wait keeps blocking until the local registry answers.
+    local_registry_serving() {
+      code=$(curl -s -o /dev/null -w '%{http_code}' ${CT} -k \
+        "https://${LOCAL_REGISTRY_HOST}/v2/" 2>/dev/null || true)
+      case "${code}" in
+        [1-5][0-9][0-9]) return 0 ;;
+        *) return 1 ;;
+      esac
+    }
+
     # #3671: per-node ack the daemonset-wait counts (proves EVERY node swapped
     # its containerd to the dfdaemon mirror, not merely that the DS Pods are
     # Ready). Key node.<NODE>.registriesYaml. Best-effort; retried each sweep.
@@ -613,23 +670,27 @@ data:
       desired="$1"
       case "${desired}" in
         v2)
-          # Per-node: point this node's containerd at the local dfdaemon.
-          write_default_mirror
-          # Cluster-wide (guarded): flip the dfdaemon upstream to the local Harbor.
+          # #4975 — per-node: write the PER-UPSTREAM-HOST containerd certs.d
+          # entries that resolve each upstream DIRECTLY to the local Harbor.
+          write_offline_mirror_hosts
+          # Cluster-wide (guarded): flip the dfdaemon upstream to the local
+          # Harbor too — BEST-EFFORT residual cover for any pull that still
+          # transits dfdaemon (e.g. a host bp-dragonfly dfinit mirrored that
+          # our per-host entries did not override). Not on the critical path.
           df_flip_to_local || true
-          # #4637 — ack v2 ONLY once the node-local dfdaemon is actually
-          # serving its registry endpoint. Acking while 127.0.0.1:${DF_PROXY_PORT}
-          # is dead would green the daemonset-wait → step-07 catalyst-api pull
-          # `connection refused`. Defer (no ack) so the wait keeps blocking; the
-          # reconcile loop re-probes every sweep (see the v2-ack retry guard).
-          if dfdaemon_serving; then
+          # #4975 — ack v2 ONLY once the LOCAL Harbor is actually serving /v2/
+          # (the DIRECT path containerd now uses). Acking while registry.<fqdn>
+          # is unreachable would green the daemonset-wait → step-07 catalyst-api
+          # pull fails. Defer (no ack) so the wait keeps blocking; the reconcile
+          # loop re-probes every sweep (see the v2-ack retry guard).
+          if local_registry_serving; then
             write_node_ack v2
           else
-            echo "[registry-pivot]   WARN node-local dfdaemon http://127.0.0.1:${DF_PROXY_PORT}/v2/ not serving yet on ${NODE_NAME}; DEFERRING v2 ack (step-07 must not pull into a dead mirror) — retry next sweep"
+            echo "[registry-pivot]   WARN local Harbor https://${LOCAL_REGISTRY_HOST}/v2/ not serving yet on ${NODE_NAME}; DEFERRING v2 ack (step-07 must not pull into a dead mirror) — retry next sweep"
           fi
           ;;
         v1|rollback|*)
-          remove_default_mirror
+          remove_offline_mirror_hosts
           df_revert_to_ghcr || true
           write_node_ack v1
           ;;
