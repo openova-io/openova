@@ -53,6 +53,20 @@ type Handler struct {
 	// when the event bus is unavailable.
 	ProvisioningURL string
 
+	// AppsParentDomain is the Sovereign's EFFECTIVE org-pool apps zone
+	// (env TENANT_PARENT_DOMAIN, e.g. "omani.homes") — the SAME value the
+	// provisioning service + org-controller key off. #4821 Finding-2: when
+	// non-empty it WINS over the funnel-selected `parent_domain`, so the
+	// server-authoritative `console_host` this service returns (and the
+	// `parent_domain` it persists + emits on `tenant.created`) matches the pool
+	// the org-controller actually provisions the per-Org DNS / TLS / HTTPRoute
+	// under. See resolveOrgParentDomain below + the identical #4421 apps-pool-wins
+	// invariant on the provisioning door (core/services/provisioning/handlers/
+	// organization_create.go::resolveOrgParentDomain, which the org-controller CR
+	// then honours). Empty preserves the legacy behaviour: honour the funnel pick
+	// verbatim (single-domain / degenerate Sovereigns with no apps pool wired).
+	AppsParentDomain string
+
 	// DayTwoLocks serializes day-2 install/uninstall on a given tenant so
 	// concurrent callers see consistent tenant.Apps reads. Issue #110.
 	// Callers MUST pre-populate via NewTenantLocks(); nil is not safe.
@@ -182,7 +196,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		// CreateOrg publishes an extra `tenant.sandbox_requested`
 		// event the sandbox-controller consumes to mint a Sandbox CR
 		// with `spec.agentCatalogue` = these slugs. Tolerated empty.
-		Agents   []string `json:"agents"`
+		Agents []string `json:"agents"`
 		// TBD-V18-D follow-up to PR #2038 — per-app configSchema
 		// values, keyed by app SLUG. Each inner map is `ConfigField.Key`
 		// → field-typed primitive (int / string / bool). Persisted on
@@ -229,7 +243,27 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	// #4176/#4179: normalize the chosen org-pool parent apex. Strip any
 	// leading dot the marketplace TLD <select> may carry (".omani.works")
 	// and lowercase so deriveConsoleHost composes a clean RFC-1123 host.
-	parentDomain := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(body.ParentDomain, ".")))
+	funnelParentDomain := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(body.ParentDomain, ".")))
+
+	// #4821 Finding-2: the Sovereign's apps pool WINS over the funnel pick.
+	// The org-controller stamps spec.tenantPublic.parentDomain via the SAME
+	// apps-pool-wins rule (organization_create.go::resolveOrgParentDomain, #4421)
+	// and writes the per-Org DNS / TLS / HTTPRoute under THAT zone. If this
+	// service persisted (and returned as console_host) the raw funnel pick
+	// instead, a Sovereign that serves a single apps pool (`omani.homes`) but
+	// whose funnel offered `omani.rest` would return console.<slug>.omani.rest —
+	// an NXDOMAIN host the org-controller never provisions — so the post-Launch
+	// redirect 404s (the reported #4821 Finding-2). Resolving to the apps pool
+	// here keeps the returned/persisted/emitted host in lockstep with what the
+	// org-controller actually provisions. Empty AppsParentDomain (legacy /
+	// single-domain Sovereign) falls back to the funnel pick, unchanged.
+	parentDomain := resolveOrgParentDomain(h.AppsParentDomain, funnelParentDomain)
+	if funnelParentDomain != "" && parentDomain != funnelParentDomain {
+		slog.Warn("CreateOrg: funnel-selected parent_domain overridden by the Sovereign apps pool to keep console_host aligned with the org-controller's provisioned pool (#4821 Finding-2 / #4421)",
+			"slug", body.Slug,
+			"funnel_parent_domain", funnelParentDomain,
+			"apps_parent_domain", parentDomain)
+	}
 
 	tenant := &store.Tenant{
 		Slug:         body.Slug,
@@ -476,6 +510,27 @@ func (h *Handler) dispatchFunnelCartInstall(ctx context.Context, t *store.Tenant
 		slog.Info("funnel cart-install: dispatched cart app",
 			"tenant_id", t.ID, "slug", t.Subdomain, "app", slug)
 	}
+}
+
+// resolveOrgParentDomain picks the org-pool parent zone the Tenant's
+// ParentDomain (→ console_host + tenant.created payload) is stamped with.
+// #4821 Finding-2: it MIRRORS the provisioning door's resolver of the same name
+// (core/services/provisioning/handlers/organization_create.go) so BOTH doors —
+// and the org-controller CR they mint — agree on the pool.
+//
+// THE INVARIANT (#4421): the pool this service returns as the customer's
+// console_host MUST equal the pool the org-controller writes the per-Org DNS
+// A-record + console TLS cert + HTTPRoute under. appsParentDomain is the
+// Sovereign's EFFECTIVE apps pool (env TENANT_PARENT_DOMAIN); it is non-empty on
+// any real Sovereign, so it WINS. The per-customer funnel pick is honoured only
+// as a last-resort fallback on a degenerate Sovereign with no apps pool wired
+// (which then matches the org-controller's own empty-appsPool fallback).
+// Returns lowercased/trimmed.
+func resolveOrgParentDomain(appsParentDomain, funnelParentDomain string) string {
+	if pd := strings.ToLower(strings.TrimSpace(appsParentDomain)); pd != "" {
+		return pd
+	}
+	return strings.ToLower(strings.TrimSpace(funnelParentDomain))
 }
 
 // deriveTenantConsoleHost composes the per-Org customer console host:

@@ -43,6 +43,14 @@ func main() {
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
 	provisioningURL := getEnv("PROVISIONING_URL", "http://provisioning.org-services.svc.cluster.local:8084")
+	// TENANT_PARENT_DOMAIN — the Sovereign's EFFECTIVE org-pool apps zone
+	// (e.g. "omani.homes"), the SAME env the provisioning service reads. #4821
+	// Finding-2: CreateOrg resolves the server-authoritative console_host
+	// (`console.<slug>.<parentDomain>`) against THIS value (apps pool wins over
+	// the funnel-selected TLD) so the returned/persisted/emitted host matches the
+	// pool the org-controller actually provisions the per-Org DNS/TLS/HTTPRoute
+	// under. Empty preserves the legacy behaviour (honour the funnel pick).
+	appsParentDomain := getEnv("TENANT_PARENT_DOMAIN", "")
 	port := getEnv("PORT", "8083")
 
 	// Connect to MongoDB (FerretDB).
@@ -103,14 +111,17 @@ func main() {
 	tenantStore := store.New(client, mongoDBName)
 	catalogClient := catalog.New(catalogURL)
 	h := &handlers.Handler{
-		Store:           tenantStore,
-		Producer:        producer,
-		Catalog:         catalogClient,
-		ProvisioningURL: provisioningURL,
-		DayTwoLocks:     handlers.NewTenantLocks(),
+		Store:            tenantStore,
+		Producer:         producer,
+		Catalog:          catalogClient,
+		ProvisioningURL:  provisioningURL,
+		AppsParentDomain: appsParentDomain,
+		DayTwoLocks:      handlers.NewTenantLocks(),
 	}
 	slog.Info("catalog client configured", "url", catalogURL)
 	slog.Info("provisioning URL configured", "url", provisioningURL)
+	slog.Info("apps parent domain configured (console_host pool)",
+		"tenant_parent_domain", appsParentDomain, "enabled", appsParentDomain != "")
 
 	// Provision-events consumer drives the tenant state machine when
 	// provisioning publishes provision.completed / .failed / .app_ready

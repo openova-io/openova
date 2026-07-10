@@ -73,6 +73,18 @@ spec:
                 configMapKeyRef:
                   name: org-services-config
                   key: PROVISIONING_URL
+            # #4821 Finding-2: the Sovereign's EFFECTIVE org-pool apps zone —
+            # the SAME value wired onto the provisioning Deployment (provisioning.yaml
+            # TENANT_PARENT_DOMAIN). CreateOrg resolves the server-authoritative
+            # console_host (`console.<slug>.<parentDomain>`) against this pool so the
+            # returned/persisted/emitted host matches the pool the org-controller
+            # provisions the per-Org DNS/TLS/HTTPRoute under (apps pool WINS over the
+            # funnel-selected TLD, the #4421 invariant). Sourced from the same
+            # `.Values.orgServices.provisioning.tenantParentDomain` so the tenant +
+            # provisioning services can NEVER drift. Empty preserves the legacy
+            # behaviour (honour the funnel pick verbatim).
+            - name: TENANT_PARENT_DOMAIN
+              value: {{ .Values.orgServices.provisioning.tenantParentDomain | default "" | quote }}
           resources:
             requests:
               cpu: 25m
