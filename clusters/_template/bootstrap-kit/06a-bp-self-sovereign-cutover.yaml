@@ -742,7 +742,11 @@ spec:
       # durably rewrites their clusters/<fqdn>/org-tenants/**.yaml Gitea source — so the
       # step-08 deny-egress PRE-CHECK no longer wedges on tenant HRs still on ghcr.io
       # (proven hw232). No step-count / job-mode / RBAC change.
-      version: 0.1.108
+      # 0.1.109 (#4955 Refs #3379): step-03 harbor-prewarm normalize_ref() strips the
+      # tag from a `name:tag@sha256:…` source ref so skopeo can mirror openova-io
+      # images pinned by BOTH tag and digest (wordpress-tenant-pg) — the FATAL that
+      # wedged the hw235 finale at step-03 (push_ok=31 push_fail=1) before step-04.
+      version: 0.1.109
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

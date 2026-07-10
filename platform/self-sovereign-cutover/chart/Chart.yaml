@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.109 (#4955 Refs #3379, hw235 finale — step-03 harbor-prewarm FATALed on the
+# FIRST openova-io image ever pinned by BOTH a tag AND a digest): the Phase-A
+# skopeo mirror ran `skopeo copy docker://ghcr.io/openova-io/openova/
+# wordpress-tenant-pg:b513b45@sha256:4c80…` verbatim, and skopeo rejects a source
+# reference carrying a tag AND a digest ("Docker references with both a tag and
+# digest are currently not supported"). push_ok=31 push_fail=1 → the step's
+# fail-closed contract (any un-mirrored openova-io image cannot survive the step-08
+# ghcr.io deny-egress) FATALed the whole cutover before step-04, live on hw235
+# (a3818d29c833ab1e). The bp-wordpress-tenant chart pins its Postgres image by
+# tag@digest; no prior openova-io image did, so this reference shape was never
+# exercised. FIX (chart-only, template 03): a new normalize_ref() helper strips the
+# tag from any `name:tag@sha256:…` source ref (the digest is authoritative +
+# immutable and is exactly what containerd pulls by for an image:tag@digest pod
+# ref) → skopeo copies the manifest into local Harbor addressable by digest, the
+# post-pivot pull resolves, and the fail-closed contract is preserved for genuine
+# mirror failures. Tag-only / digest-only refs pass through unchanged; only the
+# final path segment's tag is stripped (host:port refs safe). Phase A2 (helm
+# charts, plain semver) unaffected. NO step-count / job-mode / RBAC change (still
+# 11 steps). Lockstep w/ blueprint.yaml + 06a slot pin + catalog seed. Refs #4955
+# #3379.
 # 0.1.108 (#4885 Refs #3379 #4888, the tenant-HelmRepo cutover-pivot gap — hw232
 # step-08 deny-egress PRE-CHECK wedged on 4 tenant/catalog HRs still on ghcr.io):
 # step-06 (helmrepository-patches) previously pivoted ONLY the curated
@@ -1592,7 +1612,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.108
+version: 0.1.109
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
