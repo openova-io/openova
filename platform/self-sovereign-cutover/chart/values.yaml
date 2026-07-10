@@ -174,6 +174,41 @@ gitea:
     usernameKey: "username"
     passwordKey: "password"
 
+  # #4967 (Refs #3379 #4885) — self-healing re-assert of the Gitea admin
+  # password before step-06's authenticated Gitea-API calls (the demirror
+  # PATCH + the git clone/push).
+  #
+  # ROOT CAUSE (hw236 live cutover step-06 demirror 401). step-06 authenticates
+  # to Gitea with BasicAuth gitea_admin:<gitea-admin-secret.password>. step-04
+  # registry-pivot rolls the gitea image ~minutes earlier; on a gitea Pod
+  # restart the init container re-seeds the admin password from the Secret via
+  # GITEA_ADMIN_PASSWORD_MODE=keepUpdated. If that re-sync races / no-ops / is
+  # reverted by a CNPG restore, the LIVE DB password DRIFTS from the Secret and
+  # EVERY admin-API auth 401s `user's password is invalid [uid:1 name:
+  # gitea_admin]`. bp-gitea's admin-secret Helm-lookup pin + the #4885
+  # bp-reloader roll SHRINK the drift window but do not CLOSE it.
+  #
+  # FIX. Phase-1.4 of 06-helmrepository-patches-job.yaml execs
+  # `gitea admin user change-password` in the live gitea Pod to force the DB row
+  # to match the Secret BEFORE the first authenticated call. The CLI writes the
+  # users table directly (no admin session needed) so it heals even while the
+  # API is 401ing. Best-effort: if the Pod can't be resolved it logs and falls
+  # through to the PATCH (either succeeds — no drift — or fails the same clear
+  # 401 as before; no regression). The cutover runner already has pods/exec.
+  adminPasswordReassert:
+    # Flip false only where the cutover runner is barred from execing the gitea
+    # Pod (then the demirror relies on keepUpdated + reloader having converged).
+    enabled: true
+    # Host namespace where bp-gitea runs. Post-#4325 de-vcluster gitea lives in
+    # the native host `gitea` namespace.
+    namespace: "gitea"
+    # Label selector for the live gitea Pod. Upstream gitea 10.5.0 renders a
+    # Deployment (pod name gitea-<hash>-<id>), so we select by label, not an
+    # index. Release name is `gitea` on Sovereigns (matches sso-configure #2818).
+    podSelector: "app.kubernetes.io/name=gitea,app.kubernetes.io/instance=gitea"
+    # Container inside the gitea Pod that carries the `gitea` CLI.
+    containerName: "gitea"
+
 # #4557 (Refs #3379 #3642 #3811): durable host bridge of `gitea-admin-secret`
 # into THIS chart's release namespace (`catalyst`).
 #

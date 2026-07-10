@@ -94,6 +94,22 @@ data:
             value: {{ .Values.gitea.org | quote }}
           - name: GITEA_REPO
             value: {{ .Values.gitea.repo | quote }}
+          # #4967 (Refs #3379 #4885) — self-healing re-assert of the Gitea
+          # admin password before the demirror PATCH + git push. The live DB
+          # password can DRIFT from gitea-admin-secret when step-04 rolls the
+          # gitea image and the init container's keepUpdated re-sync races /
+          # no-ops (hw236 wedge: demirror 401 `user's password is invalid
+          # [uid:1 name:gitea_admin]`). The Phase-1.4 block execs
+          # `gitea admin user change-password` in the live gitea Pod to force
+          # the DB row to match the Secret. See .Values.gitea.adminPasswordReassert.
+          - name: GITEA_ADMIN_PASSWORD_REASSERT
+            value: {{ .Values.gitea.adminPasswordReassert.enabled | default true | quote }}
+          - name: GITEA_NAMESPACE
+            value: {{ .Values.gitea.adminPasswordReassert.namespace | default "gitea" | quote }}
+          - name: GITEA_POD_SELECTOR
+            value: {{ .Values.gitea.adminPasswordReassert.podSelector | default "app.kubernetes.io/name=gitea,app.kubernetes.io/instance=gitea" | quote }}
+          - name: GITEA_CONTAINER
+            value: {{ .Values.gitea.adminPasswordReassert.containerName | default "gitea" | quote }}
           # Phase 0 (#1184) — harbor.<sov-fqdn> auth merge into ghcr-pull.
           # HARBOR_PASSWORD comes from the Reflector-mirrored
           # harbor-admin Secret in this namespace (bp-harbor 1.2.14+
@@ -721,6 +737,67 @@ data:
               if nslookup "${gitea_host}" >/dev/null 2>&1; then break; fi
               sleep 5
             done
+
+            # ---- Phase 1.4 (#4967, Refs #3379 #4885): RE-ASSERT gitea admin ----
+            #                password BEFORE any authenticated Gitea call
+            #
+            # Root cause (hw236 live cutover step-06 demirror 401): the demirror
+            # PATCH and the git clone/push below authenticate to Gitea with
+            # BasicAuth gitea_admin:<gitea-admin-secret.password>. step-04
+            # registry-pivot rolls the gitea image ~minutes earlier; on any gitea
+            # Pod restart the init container is SUPPOSED to re-seed the admin
+            # password from gitea-admin-secret (GITEA_ADMIN_PASSWORD_MODE=
+            # keepUpdated). If that re-sync races / no-ops / is reverted by a CNPG
+            # restore, the LIVE DB password DRIFTS from the Secret and EVERY
+            # admin-API auth 401s `user's password is invalid [uid:1 name:
+            # gitea_admin]` — the exact fault that wedged the hw236 cutover here.
+            # The bp-gitea admin-secret Helm-lookup pin + bp-reloader annotation
+            # (#4885) SHRINK the drift window but do NOT close it (a roll can
+            # complete with the DB row still stale).
+            #
+            # Self-heal: force the DB row to match the Secret by execing
+            # `gitea admin user change-password` in the live gitea Pod. The CLI
+            # writes the users table directly (no admin session needed) so it
+            # works even while the API is 401ing. Idempotent — re-setting to the
+            # same value is harmless. Best-effort: if the gitea Pod cannot be
+            # resolved we log + fall through to the PATCH, which either succeeds
+            # (no drift) or fails with the same clear 401 as before — no
+            # regression. RBAC already grants pods/exec (rbac.yaml #4652 leg).
+            if [ "${GITEA_ADMIN_PASSWORD_REASSERT:-true}" = "true" ]; then
+              echo "[helmrepository-patches] re-asserting gitea admin password (drift-heal, Refs #3379 #4885)"
+              # Upstream gitea 10.5.0 renders a Deployment (pod gitea-<hash>-<id>),
+              # so resolve by label selector, not a StatefulSet index. Take the
+              # first Running+Ready Pod (same idiom as bp-gitea sso-configure #2818).
+              reassert_pod="$(kubectl get pod -n "${GITEA_NAMESPACE}" \
+                -l "${GITEA_POD_SELECTOR}" \
+                -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
+                2>/dev/null \
+                | awk -F '\t' '$2=="True" {print $1; exit}' || true)"
+              if [ -n "${reassert_pod}" ]; then
+                # --must-change-password=false so the admin user is NOT forced
+                # into a change-on-next-login flow (this credential is only ever
+                # used non-interactively). The password is passed as an in-Pod CLI
+                # arg and never echoed to this Job's stdout; stderr is redacted.
+                if kubectl exec -n "${GITEA_NAMESPACE}" "${reassert_pod}" -c "${GITEA_CONTAINER}" -- \
+                     gitea admin user change-password \
+                     --username "${GITEA_USERNAME}" \
+                     --password "${GITEA_PASSWORD}" \
+                     --must-change-password=false >/tmp/.reassert.log 2>&1; then
+                  echo "[helmrepository-patches] gitea admin password re-asserted on pod ${reassert_pod}"
+                elif kubectl exec -n "${GITEA_NAMESPACE}" "${reassert_pod}" -c "${GITEA_CONTAINER}" -- \
+                     gitea admin user change-password \
+                     --username "${GITEA_USERNAME}" \
+                     --password "${GITEA_PASSWORD}" >/tmp/.reassert.log 2>&1; then
+                  # Older gitea builds lack --must-change-password on this subcommand.
+                  echo "[helmrepository-patches] gitea admin password re-asserted on pod ${reassert_pod} (legacy flag set)"
+                else
+                  echo "[helmrepository-patches] WARN: gitea admin password re-assert failed; continuing to PATCH (may still 401 if drifted):" >&2
+                  sed -E 's/(--password[ =])[^ ]+/\1***/g' /tmp/.reassert.log >&2 || true
+                fi
+              else
+                echo "[helmrepository-patches] WARN: no Running gitea Pod matched '${GITEA_POD_SELECTOR}' in ns '${GITEA_NAMESPACE}' — skipping re-assert, continuing" >&2
+              fi
+            fi
 
             # URL with embedded basic auth — credential goes to git via
             # URL only, never echoed to stdout.

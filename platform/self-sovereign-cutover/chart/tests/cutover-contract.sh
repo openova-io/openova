@@ -473,6 +473,32 @@ if ! grep -q 'clusters/_template/bootstrap-kit' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-06 pushes YAML edit to local Gitea)"
 
+echo "[cutover-contract] Case 16c: Step-06 re-asserts the Gitea admin password before the demirror PATCH (#4967)"
+# hw236 (#4967 live): step-04 registry-pivot rolls the gitea image ~minutes
+# before step-06. If the init container's keepUpdated re-sync races / no-ops, the
+# LIVE DB password drifts from gitea-admin-secret and the demirror PATCH 401s
+# `user's password is invalid [uid:1 name:gitea_admin]` (all live-K8s HR URL
+# patches succeed; only the Gitea-API auth fails). step-06 now execs
+# `gitea admin user change-password` in the live gitea Pod BEFORE the first
+# authenticated Gitea call to force the DB row to match the Secret (self-heal).
+# Lock the re-assert in AND lock its ordering ahead of the demirror.
+STEP06_S=$(awk '/name: cutover-step-06-helmrepository-patches/,/^---$/' "$TMP/render.yaml")
+if ! printf '%s' "$STEP06_S" | grep -q 'gitea admin user change-password'; then
+  echo "FAIL: Step-06 never execs 'gitea admin user change-password' — a drifted gitea DB password 401s the demirror PATCH (#4967)" >&2
+  exit 1
+fi
+if ! printf '%s' "$STEP06_S" | grep -q 'GITEA_ADMIN_PASSWORD_REASSERT'; then
+  echo "FAIL: Step-06 missing the GITEA_ADMIN_PASSWORD_REASSERT gate env — the re-assert is not wired (#4967)" >&2
+  exit 1
+fi
+reassert_ln=$(printf '%s\n' "$STEP06_S" | grep -n 'gitea admin user change-password' | head -1 | cut -d: -f1)
+demirror_ln=$(printf '%s\n' "$STEP06_S" | grep -n 'demirror_code=' | head -1 | cut -d: -f1)
+if [ -z "$reassert_ln" ] || [ -z "$demirror_ln" ] || [ "$reassert_ln" -ge "$demirror_ln" ]; then
+  echo "FAIL: Step-06 password re-assert (line ${reassert_ln:-?}) does not run BEFORE the demirror PATCH (line ${demirror_ln:-?}) — drift would still 401 the PATCH (#4967)" >&2
+  exit 1
+fi
+echo "  PASS (Step-06 re-asserts the gitea admin password before the demirror PATCH)"
+
 echo "[cutover-contract] Case 16b: Step-06 pivots the per-Org TENANT HelmRepositories (#4885)"
 # hw232 (#4885 10:36 residual): step-06 pivoted ONLY the curated
 # .Values.helmRepositories.names set, which NEVER lists the per-Org / marketplace

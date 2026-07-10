@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.111 (#4967 Refs #4885 #3379): step-06 now RE-ASSERTS the Gitea admin
+# password before the demirror PATCH + git push. Root cause (hw236 live): the
+# demirror authenticates gitea_admin:<gitea-admin-secret.password>, but step-04
+# registry-pivot rolls the gitea image ~minutes earlier and on that restart the
+# init container's keepUpdated re-sync can race / no-op, leaving the LIVE DB
+# password DRIFTED from the Secret → EVERY admin-API auth 401s `user's password
+# is invalid [uid:1 name:gitea_admin]` (all 62 live-K8s HR URL patches succeeded;
+# only the Gitea-API auth failed). bp-gitea's admin-secret Helm-lookup pin +
+# #4885 reloader roll SHRINK but do not CLOSE the drift window. New Phase-1.4
+# (gated on .Values.gitea.adminPasswordReassert.enabled, default true) resolves
+# the live gitea Pod by label selector and execs `gitea admin user
+# change-password` to force the DB row to match the Secret — self-healing, the
+# CLI writes users directly so it heals even while the API 401s. Best-effort:
+# Pod-not-found logs + falls through to the PATCH (no regression). RBAC already
+# grants pods/exec; NO step-count / job-mode / RBAC change (still 11 steps).
 # 0.1.110 (#4961 Refs #4885 #3379, the LAST step-07 image-pivot residual — two
 # un-pivoted bootstrap-kit DaemonSets wedge the step-08 deny-egress hold): step-07
 # pivoted global.imageRegistry on 7 HRs but left bp-openova-flow-emitter (slot 57,
@@ -1633,7 +1648,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.110
+version: 0.1.111
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
