@@ -3473,7 +3473,7 @@ name: bp-catalyst-platform
 #   footprint to fit the 4-CPU `plan-quota` (the 0.4.21 oidc-config post-install
 #   hook requested a 500m CPU limit into a namespace with only 250m of quota
 #   headroom → the hook pod was NEVER created → HR timeout → no HTTPRoute → 404).
-version: 1.4.1084
+version: 1.4.1085
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
 #   canonical Sovereign-IAM ClusterRoles (openova:tier-{viewer,developer,operator,
 #   admin,owner} + openova:application-{admin,editor,viewer}). The controller
