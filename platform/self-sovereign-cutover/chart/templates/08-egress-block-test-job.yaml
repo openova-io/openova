@@ -560,6 +560,38 @@ data:
                 echo "    PASS — ${kind}/${name} pulled a fresh image from the local registry under deny-egress (rollout status incomplete = leader-election readiness artifact under maxUnavailable=0; workload still serving) (#4674)"
                 return 0
               fi
+              # #4975 (Refs #3379 #3695) — a Recreate-strategy single-replica
+              # stateful workload (bp-gitea sets strategy.type=Recreate for
+              # RWO-PVC/LevelDB-lock safety, #3188) tears its OLD Pod down FIRST,
+              # so during a roll readyReplicas is transiently 0 — the #4674
+              # serving-check above CANNOT fire (no old Pod is left serving) — and
+              # the new Pod sits PodInitializing while its embedded init /
+              # DB-migration runs (live hw238: `gitea did not roll out within 240s
+              # (PodInitializing x4)`). That is NOT a mothership tether: the image
+              # ALREADY pulled from the local registry — any pull failure would
+              # have surfaced as ImagePullBackOff/ErrImagePull and been caught by
+              # the strict-FAIL image-pull check ABOVE (untouched, still the hard
+              # security gate). The fresh-pull proof's job is narrowly "did this
+              # workload pull its image from the LOCAL registry under deny-egress";
+              # a slow readiness (init/migration) is judged by the survival-window
+              # HR-readiness poll below, not this roll. So when a NEW-revision Pod
+              # (updatedReplicas>=1) has POSITIVELY pulled + STARTED at least one
+              # container (an init or main container in running/terminated state),
+              # the local-registry pull is PROVEN and the proof PASSES. A Pod that
+              # is stuck Pending / never started a container (nothing pulled) has
+              # NO started-container evidence and still falls through to the strict
+              # FAIL below. DaemonSets expose numberReady/updatedNumberScheduled
+              # (not updatedReplicas) so `updated` is empty → this carve-out never
+              # fires for them; they keep the strict FAIL, unchanged.
+              started_evidence=""
+              if [ -n "${sel}" ]; then
+                started_evidence=$(kubectl get pods -n "${ns}" -l "${sel}" \
+                  -o jsonpath='{range .items[*]}{range .status.initContainerStatuses[*]}{.state.running.startedAt}{.state.terminated.startedAt}{end}{range .status.containerStatuses[*]}{.state.running.startedAt}{.state.terminated.startedAt}{end}{end}' 2>/dev/null || echo "")
+              fi
+              if [ "${updated:-0}" -ge 1 ] && [ -n "${started_evidence}" ]; then
+                echo "    PASS — ${kind}/${name} pulled a fresh image from the local registry under deny-egress (new-revision Pod started a container; rollout status incomplete = slow init/DB-migration on a Recreate single-replica stateful workload, e.g. bp-gitea #3188 — readiness lag is judged by the survival-window HR poll, not a mothership tether) (#4975)"
+                return 0
+              fi
               echo "    FAIL — ${kind}/${name} did not roll out within ${FRESH_PULL_TIMEOUT}s under deny-egress (reasons:${reasons:-<none>})"
               return 1
             }

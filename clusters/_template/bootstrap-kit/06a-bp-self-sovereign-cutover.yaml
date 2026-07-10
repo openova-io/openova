@@ -763,7 +763,13 @@ spec:
       # in tests/cutover-contract.sh Case 16c, not a chart defect), so this pin would
       # have wedged slot-06a at HelmChart artifact-not-found. Case 16c now asserts the
       # self-heal against a file (no printf|grep SIGPIPE). No chart behavior change.
-      version: 0.1.112
+      # 0.1.113 (#4975 Refs #3379 #3695): step-08 fresh-pull classifier stops
+      # MISREADING a Recreate-strategy slow-init workload (bp-gitea, #3188) as a
+      # mothership tether — a new-revision Pod that pulled its image from the local
+      # registry but sits PodInitializing (readyReplicas transiently 0) now PASSES
+      # via a #4975 carve-out (the strict ImagePullBackOff FAIL is untouched). No
+      # chart behavior change for any other workload.
+      version: 0.1.113
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
