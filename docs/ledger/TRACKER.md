@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T23:00:02Z` |
+| Last refreshed | `2026-07-10T23:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -284,6 +284,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T23:00 | [#4978](https://github.com/openova-io/openova/pull/4978) | #4977 | fix(#4975): cutover-contract Case 38 resolves coverage scrip |
 | 2026-07-10T22:33 | [#4977](https://github.com/openova-io/openova/pull/4977) | #3379 | fix(#4975): complete offline-mirror + per-host containerd re |
 | 2026-07-10T22:20 | [#4976](https://github.com/openova-io/openova/pull/4976) | #3379 | fix(#4975): cutover step-08 stops misreading a Recreate slow |
 | 2026-07-10T09:47 | [#4974](https://github.com/openova-io/openova/pull/4974) | #4973 | fix(#4973): pivot Huawei EVS CSI sidecar images through loca |
@@ -313,7 +314,6 @@ flowchart LR
 | 2026-07-09T20:18 | [#4933](https://github.com/openova-io/openova/pull/4933) | #944 | test(#4932): await phase1-watch goroutine so it stops writin |
 | 2026-07-09T20:39 | [#4931](https://github.com/openova-io/openova/pull/4931) | #4927 | fix(#4930): DR switchover-history/quorum/settings drop synth |
 | 2026-07-09T18:32 | [#4929](https://github.com/openova-io/openova/pull/4929) | #4322 | fix(#4920): drop per-Org bp-cnpg operator; platform operator |
-| 2026-07-09T18:11 | [#4928](https://github.com/openova-io/openova/pull/4928) | #934 | fix(#4919): signup PIN never sends — org-services SMTP auto- |
 
 ---
 
