@@ -3453,12 +3453,6 @@ name: bp-catalyst-platform
 #   namespace and Helm install failed `namespaces "org-example" not found` (×2).
 #   0.2.17 defaults it to "" so the helper falls back to .Release.Namespace.
 #   Bootstrap-kit slot-13 pin bumped in lockstep (pin-sync gate).
-# 1.4.1072 — #4951: lockstep the catalog-seed bp-wordpress-tenant Blueprint pin
-#   (spec.version + source.version, canonical entry + alias) 0.4.21 → 0.4.22 so
-#   every Sovereign pulls the chart that right-sizes the per-Org WordPress
-#   footprint to fit the 4-CPU `plan-quota` (the 0.4.21 oidc-config post-install
-#   hook requested a 500m CPU limit into a namespace with only 250m of quota
-#   headroom → the hook pod was NEVER created → HR timeout → no HTTPRoute → 404).
 version: 1.4.1073
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
 #   canonical Sovereign-IAM ClusterRoles (openova:tier-{viewer,developer,operator,
