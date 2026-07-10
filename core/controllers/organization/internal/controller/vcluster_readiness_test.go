@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -201,6 +202,37 @@ func TestVClusterReadiness_HostTierDoesNotWaitOnVclusterHR(t *testing.T) {
 	// still waiting on the vcluster HR that has not reconciled yet.
 	if _, ready, _ := r.vclusterReadiness(context.Background(), slug, "m"); ready {
 		t.Errorf("vcluster-tier plan \"m\" must wait on the vcluster HR; got Ready with only the namespace present")
+	}
+}
+
+// TestReadyOrgMessage_TierHonesty locks #4813 (status honesty): the Org's
+// Ready=True message must name the boundary that ACTUALLY backs the Org. A
+// host-tier (""/s/free) Org authors NO vCluster HelmRelease — its host `<slug>`
+// namespace is the boundary — so the message must NOT assert "vCluster
+// HelmRelease Ready" for it (the Ready-over-absent-backing false-green the issue
+// flagged). Only the vcluster tier (m/l/xl/flexi) may claim the HR is Ready. The
+// helper keys off the SAME gitops.BoundaryIsVcluster tier gate vclusterReadiness
+// uses, so the message can never diverge from the boundary it reports.
+func TestReadyOrgMessage_TierHonesty(t *testing.T) {
+	// Host-tier plans: no vCluster HR is ever authored — the message must not
+	// claim one is Ready.
+	for _, plan := range []string{"", "s", "free"} {
+		msg := readyOrgMessage(plan)
+		if strings.Contains(msg, "vCluster HelmRelease") {
+			t.Errorf("host-tier plan %q Ready message must NOT assert a vCluster HelmRelease (false green over absent backing); got %q", plan, msg)
+		}
+		if !strings.Contains(msg, "host namespace") {
+			t.Errorf("host-tier plan %q Ready message should name the host namespace boundary that actually backs the Org; got %q", plan, msg)
+		}
+	}
+
+	// vcluster-tier plans: a real vCluster HR was authored + is Ready — the
+	// message names it.
+	for _, plan := range []string{"m", "l", "xl", "flexi"} {
+		msg := readyOrgMessage(plan)
+		if !strings.Contains(msg, "vCluster HelmRelease Ready") {
+			t.Errorf("vcluster-tier plan %q Ready message should name the vCluster HelmRelease that backs the Org; got %q", plan, msg)
+		}
 	}
 }
 

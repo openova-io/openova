@@ -748,7 +748,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if vcReady {
 		readyCond.Status = "True"
 		readyCond.Reason = "Reconciled"
-		readyCond.Message = "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
+		// #4813 (status honesty): word the Ready message off the SAME
+		// #4292/#4339 tier gate vclusterReadiness used, so it names the
+		// boundary that ACTUALLY backs the Org. A host-tier (""/s/free) Org
+		// authors NO vCluster HelmRelease — its host `<slug>` namespace IS the
+		// boundary — so asserting "vCluster HelmRelease Ready" for it is a
+		// false green over absent backing (Ready-over-absent-backing
+		// anti-pattern, cf. #3687 / #856). Only the vcluster tier
+		// (m/l/xl/flexi) authors + waits on the HR, so only it may claim it.
+		readyCond.Message = readyOrgMessage(org.Spec.PlanSlug)
 	} else {
 		readyCond.Status = "False"
 		readyCond.Reason = "VClusterProvisioning"
@@ -801,6 +809,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// readyOrgMessage words the Organization's Ready=True condition message off the
+// SAME #4292/#4339 tier gate that decides the boundary primitive
+// (gitops.BoundaryIsVcluster) + that vclusterReadiness keys off. This keeps the
+// human-readable status HONEST about what actually backs the Org (#4813):
+//
+//   - vcluster tier (m/l/xl/flexi): a real vCluster HelmRelease was authored +
+//     is Ready, so the message names it.
+//   - host tier (""/s/free): NO vCluster HR is ever authored — the host `<slug>`
+//     namespace IS the boundary. vclusterReadiness returns Ready as soon as that
+//     namespace is Active (no HR to wait on), so claiming "vCluster HelmRelease
+//     Ready" here would be a false green over absent backing (the
+//     Ready-over-absent-backing anti-pattern flagged in #4813, cf. #3687 / #856).
+//     The message instead names the host namespace boundary that truly exists.
+func readyOrgMessage(planSlug string) string {
+	if gitops.BoundaryIsVcluster(planSlug) {
+		return "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
+	}
+	return "host namespace Active + Keycloak group + Gitea Org reconciled (namespace-isolated tier — no vCluster authored)"
 }
 
 // vclusterReadiness reads back the vCluster HelmRelease the controller
