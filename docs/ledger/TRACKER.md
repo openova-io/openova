@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T00:45:04Z` |
+| Last refreshed | `2026-07-10T01:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 96 |
+| Open issues | 99 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 96 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 99 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 96 open items (clickable table)
+### All 99 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -296,6 +296,9 @@ flowchart LR
 | [#4936](https://github.com/openova-io/openova/issues/4936) | bp-wordpress-tenant@0.4.20: per-Org WordPress never serves — dialog omits orgD | Other |
 | [#4937](https://github.com/openova-io/openova/issues/4937) | Customer self-service app install fails 403 — marketplace HS256 member session | Other |
 | [#4942](https://github.com/openova-io/openova/issues/4942) | Cross-region host-network→remote-pod black-holed on Huawei VPC (residual #4656 | Other |
+| [#4950](https://github.com/openova-io/openova/issues/4950) | G10 placement Edit-Apply STILL 400 'placement.mode is required' despite #4840 fo | Other |
+| [#4951](https://github.com/openova-io/openova/issues/4951) | Per-Org WordPress never serves externally: bp-wordpress-tenant@0.4.21 oidc-confi | Other |
+| [#4952](https://github.com/openova-io/openova/issues/4952) | bp-openclaw@0.2.16 per-Org install fails: namespaces 'org-example' not found (ha | Other |
 
 ---
 
@@ -303,6 +306,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T00:48 | [#4949](https://github.com/openova-io/openova/pull/4949) | #4632 | test(bp-self-sovereign-cutover): regression guard for auto-t |
 | 2026-07-10T00:22 | [#4948](https://github.com/openova-io/openova/pull/4948) | #4902 | fix(#4902): cascade-delete host-flux GitRepository + Kustomi |
 | 2026-07-10T00:11 | [#4947](https://github.com/openova-io/openova/pull/4947) | #4821 | fix(#4821): tenant console_host honours Sovereign apps pool, |
 | 2026-07-10T00:05 | [#4946](https://github.com/openova-io/openova/pull/4946) | #4339 | fix(org-controller): tier-honest Org Ready message — no fals |
@@ -332,7 +336,6 @@ flowchart LR
 | 2026-07-09T13:23 | [#4907](https://github.com/openova-io/openova/pull/4907) | #4765 | docs(cilium): retire stale clustermesh NodePort-32379 commen |
 | 2026-07-09T13:19 | [#4906](https://github.com/openova-io/openova/pull/4906) | #3998 | fix(#4820): cloud-list kind aliases hijack HTTPRoutes/Networ |
 | 2026-07-09T13:23 | [#4905](https://github.com/openova-io/openova/pull/4905) | #4901 | fix(#4901): surface cnpg-pair Continuum standby-absent condi |
-| 2026-07-09T13:23 | [#4904](https://github.com/openova-io/openova/pull/4904) | #4573 | fix(#4885): step-06 pivots per-Org tenant HelmRepositories a |
 
 ---
 
