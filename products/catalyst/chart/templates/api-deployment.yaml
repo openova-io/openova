@@ -179,9 +179,32 @@ spec:
       {{- with .Values.catalystApi.nodeName }}
       nodeName: {{ . | quote }}
       {{- end }}
-      {{- with .Values.catalystApi.affinity }}
+      {{- if .Values.catalystApi.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.catalystApi.affinity | nindent 8 }}
+      {{- else if .Values.catalystApi.avoidControlPlane }}
+      # ── Keep catalyst-api OFF the driverless control-plane node (#4971) ────
+      # The two RWO Huawei-EVS PVCs mounted above are served by the
+      # evs.csi.huaweicloud.com CSI node-plugin, whose DaemonSet runs ONLY on
+      # workers — the control-plane node has NO CSINode entry for that driver.
+      # With strategy: Recreate, a roll (e.g. cutover step-07's
+      # catalyst-api-env-patch) could otherwise land the replacement Pod on the
+      # control-plane node, where AttachVolume.Attach fails forever ("CSINode
+      # <cp1> does not contain driver evs.csi.huaweicloud.com") → the Pod hangs
+      # ContainerCreating, step-07's rollout wait times out, and the cutover
+      # wedges (live on hw237, 2026-07-10). This hard worker-only nodeAffinity
+      # forces every roll onto a worker that runs the EVS node plugin. Gated by
+      # catalystApi.avoidControlPlane (default false in values.yaml so
+      # mothership / catalyst-zero on contabo is unaffected; the Sovereign
+      # bootstrap-kit turns it on). An explicit catalystApi.affinity wins over
+      # this default — that is the `if` branch above; this is the `else`.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
       {{- end }}
       imagePullSecrets:
         - name: ghcr-pull

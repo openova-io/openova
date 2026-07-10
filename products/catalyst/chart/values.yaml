@@ -1284,6 +1284,25 @@ catalystApi:
   # affinity — optional passthrough for operators who prefer a soft/zone
   # nodeAffinity over a hard nodeName pin above. Default empty (no affinity).
   affinity: {}
+  # ── Keep catalyst-api OFF the driverless control-plane node (#4971) ──────
+  # catalyst-api mounts two RWO Huawei-EVS PVCs (catalyst-api-deployments,
+  # catalyst-api-cache) whose CSI node-plugin DaemonSet (evs.csi.huaweicloud.com)
+  # runs ONLY on workers — the control-plane node carries no CSINode entry for
+  # that driver. With strategy: Recreate a roll (e.g. cutover step-07's
+  # catalyst-api-env-patch) can place the replacement Pod on the control-plane
+  # node, where AttachVolume.Attach fails forever ("CSINode <cp1> does not
+  # contain driver evs.csi.huaweicloud.com") → the Pod hangs ContainerCreating,
+  # the step-07 rollout wait times out, and the cutover wedges (live on hw237,
+  # 2026-07-10). When true, the chart emits a hard worker-only nodeAffinity
+  # (node-role.kubernetes.io/control-plane DoesNotExist) so every roll lands on
+  # a worker that runs the EVS node plugin.
+  #
+  # Default false preserves mothership / catalyst-zero (contabo) behaviour,
+  # where there is no such driverless control-plane concern; the Sovereign
+  # bootstrap-kit (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml)
+  # turns it on so every fresh Sovereign is zero-touch-correct. An explicit
+  # catalystApi.affinity above still wins over this default.
+  avoidControlPlane: false
   # ── Survive a co-tenant disk/memory-pressure storm (#4231) ──────────────
   # catalyst-api is pinned to its EVS node (nodeName above, #4102) so it CANNOT
   # reschedule off a pressured node. With the default priority (0) it competed
