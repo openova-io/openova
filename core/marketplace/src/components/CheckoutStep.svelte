@@ -319,7 +319,7 @@
         throw e;
       }
     }
-    throw lastErr || new Error('tenant name is taken — please choose a different subdomain');
+    throw lastErr || new Error('Organization name is taken — please choose a different subdomain');
   }
 
   async function handleCheckout() {
@@ -415,7 +415,7 @@
       clearCart();
       redirectToConsole(tenant.slug);
     } catch (e: any) {
-      provisionError = e.message || 'Failed to create tenant';
+      provisionError = e.message || 'Failed to create Organization';
       checkoutLoading = false;
     }
   }
@@ -473,9 +473,9 @@
       {#if !user}
         Sign in to complete your order
       {:else if provision}
-        Setting up your tenant...
+        Setting up your Organization...
       {:else}
-        Review and launch your tenant
+        Review and launch your Organization
       {/if}
     </p>
   </div>
@@ -814,7 +814,7 @@
             <div class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
             Processing…
           {:else if totalCost === 0 || creditCovers}
-            Launch my tenant
+            Launch my Organization
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
             </svg>
@@ -826,7 +826,7 @@
           {/if}
         </button>
         <p class="mt-3 text-center text-[11px] text-[var(--color-text-dimmer)]">
-          After payment is confirmed, your tenant will be created automatically.
+          After payment is confirmed, your Organization will be created automatically.
         </p>
       </div>
     {/if}

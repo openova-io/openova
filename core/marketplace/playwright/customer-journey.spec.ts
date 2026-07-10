@@ -480,8 +480,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     await page.goto('/checkout')
 
     // Wait for the launch CTA (label is "Purchase · OMR …" when cost > 0,
-    // or "Launch my tenant" when cost == 0). Either text is acceptable.
-    const launch = page.getByRole('button', { name: /Launch my tenant|Purchase/i }).first()
+    // or "Launch my Organization" when cost == 0). Either text is acceptable.
+    const launch = page.getByRole('button', { name: /Launch my Organization|Purchase/i }).first()
     await expect(launch).toBeVisible({ timeout: 10_000 })
 
     // The provisioning panel renders the user's profile + order summary.
@@ -543,7 +543,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     await seedCart(page)
     await page.goto('/checkout')
 
-    const launch = page.getByRole('button', { name: /Launch my tenant|Purchase/i }).first()
+    const launch = page.getByRole('button', { name: /Launch my Organization|Purchase/i }).first()
     await expect(launch).toBeVisible({ timeout: 10_000 })
 
     // Click triggers the chain. CheckoutStep.handleCheckout calls them in
@@ -638,7 +638,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     })
     await page.goto('/checkout')
 
-    const launch = page.getByRole('button', { name: /Launch my tenant|Purchase/i }).first()
+    const launch = page.getByRole('button', { name: /Launch my Organization|Purchase/i }).first()
     await expect(launch).toBeVisible({ timeout: 10_000 })
     await Promise.all([
       page.waitForURL(/console\.openova\.io|console\..*\.(works|homes|rest|trade)/, { timeout: 15_000 }).catch(() => null),
@@ -781,7 +781,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     await seedCart(page)
     await page.goto('/checkout')
 
-    const launch = page.getByRole('button', { name: /Launch my tenant|Purchase/i }).first()
+    const launch = page.getByRole('button', { name: /Launch my Organization|Purchase/i }).first()
     await expect(launch).toBeVisible({ timeout: 10_000 })
 
     const [request] = await Promise.all([
