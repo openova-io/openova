@@ -746,7 +746,14 @@ spec:
       # tag from a `name:tag@sha256:…` source ref so skopeo can mirror openova-io
       # images pinned by BOTH tag and digest (wordpress-tenant-pg) — the FATAL that
       # wedged the hw235 finale at step-03 (push_ok=31 push_fail=1) before step-04.
-      version: 0.1.109
+      # 0.1.110 (#4961 Refs #4885 #3379): step-07 now ALSO pivots the two remaining
+      # un-pivoted bootstrap-kit DaemonSets bp-openova-flow-emitter (slot 57) +
+      # bp-k8s-ws-proxy (slot 51) — their image helpers are now registry-aware and
+      # their HRs are in .Values.imageRegistryPivot.additionalHRs — so under the
+      # step-08 deny-egress hold no openova-io image is left on ghcr.io (the #4885
+      # residual after #4899 closed org-services). No step-count / job-mode / RBAC
+      # change (still 11 steps).
+      version: 0.1.110
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

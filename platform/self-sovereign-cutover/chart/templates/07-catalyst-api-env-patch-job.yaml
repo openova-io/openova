@@ -298,11 +298,13 @@ data:
             # pivoted here with the SAME live-HR-patch + durable-Gitea-edit
             # pattern as the two blocks above. ONLY charts VERIFIED to template
             # their images through global.imageRegistry are listed (values.yaml
-            # carries the excluded-offenders list + rationale) — patching an HR
-            # whose chart ignores the value is a SILENT NO-OP, so the offenders
-            # that need a separate per-chart templating fix (bp-guacamole,
-            # bp-huawei-evs-csi, bp-newapi, bp-sandbox, org-services marketplace/
-            # auth) are deliberately NOT in the default list (#4885 residual).
+            # carries the set + rationale) — patching an HR whose chart ignores
+            # the value is a SILENT NO-OP. bp-guacamole / bp-huawei-evs-csi /
+            # bp-newapi / bp-sandbox were made registry-aware in #4892;
+            # org-services marketplace/auth in #4899; and the last two offenders
+            # bp-openova-flow-emitter (slot 57) + bp-k8s-ws-proxy (slot 51) in
+            # #4961 — so the default additionalHRs set now covers every
+            # openova-io-image HR and NO residual remains (was the #4885 wedge).
             pivot_extra_hr() {
               _hr_name="$1"; _hr_ns="$2"; _slot="$3"
               if ! kubectl get hr "${_hr_name}" -n "${_hr_ns}" >/dev/null 2>&1; then

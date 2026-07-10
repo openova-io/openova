@@ -5,7 +5,17 @@ name: bp-openova-flow-emitter
 # Opt out of the hollow-chart guard per docs/BLUEPRINT-AUTHORING.md §11.1.
 annotations:
   catalyst.openova.io/no-upstream: "true"
-version: 0.1.1
+# 0.1.2 (#4961 Refs #4885 #3379): the image helper (_helpers.tpl
+# bp-openova-flow-emitter.image) now honours global.imageRegistry —
+# host-swaps the leading registry segment (ghcr.io → registry.<sov-fqdn>)
+# when set, verbatim ghcr.io ref when empty (byte-identical pre-cutover).
+# Required so the self-sovereign-cutover step-07 registry pivot (which patches
+# this HR's spec.values.global.imageRegistry) actually reaches the DaemonSet
+# image — without it the literal ghcr.io ref 401s under the step-08 deny-egress
+# hold and cutoverComplete stays false. Mirrors the sibling
+# bp-openova-flow-server.image (#4563) idiom. Slot-57 pin + catalog seed move in
+# lockstep.
+version: 0.1.2
 appVersion: "0.1.0"
 description: |
   Catalyst Blueprint chart for the openova-flow-adapter-flux emitter
