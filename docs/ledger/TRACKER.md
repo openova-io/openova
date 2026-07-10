@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T01:30:12Z` |
+| Last refreshed | `2026-07-10T01:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T01:36 | [#4959](https://github.com/openova-io/openova/pull/4959) | #4956 | fix(#4956): gate funnel Org launch on billing settlement + a |
+| 2026-07-10T01:40 | [#4958](https://github.com/openova-io/openova/pull/4958) | #4840 | fix(#4950): keep placement.targets[] through decode so conso |
+| 2026-07-10T01:35 | [#4957](https://github.com/openova-io/openova/pull/4957) | #4955 | fix(#4955 Refs #3379): cutover step-03 harbor-prewarm handle |
 | 2026-07-10T01:29 | [#4954](https://github.com/openova-io/openova/pull/4954) | #4951 | fix(#4951): right-size per-Org WordPress footprint so oidc-c |
 | 2026-07-10T01:25 | [#4953](https://github.com/openova-io/openova/pull/4953) | #4952 | fix(bp-openclaw): per-Org install targets the release namesp |
 | 2026-07-10T00:48 | [#4949](https://github.com/openova-io/openova/pull/4949) | #4632 | test(bp-self-sovereign-cutover): regression guard for auto-t |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-07-09T14:25 | [#4912](https://github.com/openova-io/openova/pull/4912) | #4758 | fix(provisioning): thread funnel-door apps Kustomization sou |
 | 2026-07-09T14:14 | [#4911](https://github.com/openova-io/openova/pull/4911) | #4764 | fix(catalyst-api): wipe DNS teardown retries the derived tai |
 | 2026-07-09T14:02 | [#4910](https://github.com/openova-io/openova/pull/4910) | #4746 | fix(#4746): gate phase-1 ready on the console backend so a s |
-| 2026-07-09T13:55 | [#4909](https://github.com/openova-io/openova/pull/4909) | #4872 | fix(#4872): project-wide OBS-bucket orphan sweep so wiped pr |
-| 2026-07-09T14:10 | [#4908](https://github.com/openova-io/openova/pull/4908) | #4862 | fix(#4860): map apiserver Forbidden to 403 in Blueprint Edit |
-| 2026-07-09T13:23 | [#4907](https://github.com/openova-io/openova/pull/4907) | #4765 | docs(cilium): retire stale clustermesh NodePort-32379 commen |
 
 ---
 
