@@ -186,7 +186,18 @@ spec:
       # the same `managed-by: flux` label so the kyverno policy admits BOTH the
       # pre- and post- hooks — without it the 1.0.6 upgrade rolled back on the
       # post-upgrade phase and the HR stayed Stalled.
-      version: 1.0.8
+      # 1.0.8 (#4885): the openova-io EVS driver image honours global.imageRegistry
+      # so the step-07 cutover image pivot reaches the controller + node driver
+      # Pods (the imageRegistry:'' seam below is what step-07 patches).
+      # 1.0.9 (#4973 Refs #3379): the six sig-storage CSI sidecar images ALSO
+      # honour global.imageRegistry. 1.0.8 pivoted only the driver; the sidecars
+      # stayed on harbor.openova.io/proxy-k8s/*, the MOTHERSHIP Harbor — a residual
+      # tether the step-08 deny-egress hold blocks, so a controller/node roll under
+      # the hold could not pull them and the EVS attach/provision path broke on any
+      # pod restart (live hw237 step-08). Now all images host-swap through the same
+      # seam. This HR is already in the step-07 imageRegistryPivot.additionalHRs
+      # set, so no cutover-side change is needed.
+      version: 1.0.9
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi
