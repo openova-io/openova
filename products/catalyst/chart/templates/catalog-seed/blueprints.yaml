@@ -57,7 +57,12 @@ spec:
   # #4936: →0.4.21 — direct CNPG-secret DB-password bind (kills the reflector
   # race vs Helm --wait) + orgDomain/adminUser made non-required (controller-
   # derived). Lockstep with platform/wordpress-tenant/blueprint.yaml.
-  version: "0.4.21"
+  # #4951: →0.4.22 — right-size the per-Org footprint (runtime CPU limit
+  # 1→500m; oidc-config + admin-user hook Jobs 500m→250m) so the post-install
+  # hook pod fits the 4-CPU `plan-quota` headroom and actually schedules; the
+  # 0.4.21 hook was rejected `exceeded quota: plan-quota` → never created → HR
+  # timeout → no external HTTPRoute → host 404.
+  version: "0.4.22"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -86,7 +91,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.21"
+    version: "0.4.22"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -221,7 +226,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.21"
+    version: "0.4.22"
   # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
   # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
   topology:

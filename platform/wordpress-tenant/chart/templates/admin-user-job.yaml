@@ -184,6 +184,12 @@ spec:
               cpu: 50m
               memory: 128Mi
             limits:
-              cpu: 500m
+              # #4951: same per-Org `plan-quota` headroom constraint as the
+              # oidc-config hook (weight 10). This admin-user hook (weight 15)
+              # runs AFTER oidc-config self-deletes; a 500m CPU LIMIT would
+              # equally be rejected `exceeded quota: plan-quota`. It is a
+              # short one-shot PHP seed of the Organization admin's wp_users
+              # row — a 250m ceiling is ample and fits the quota headroom.
+              cpu: 250m
               memory: 256Mi
 {{- end }}

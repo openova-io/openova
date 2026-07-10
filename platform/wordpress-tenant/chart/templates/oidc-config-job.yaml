@@ -191,7 +191,11 @@ spec:
                 # omantel.biz region-a). GitHub still extracts the archive to
                 # `postgresql-for-wordpress-3.3.1` (the `v` is stripped from the
                 # top-level directory name), so the cp paths below are unchanged.
-                curl -fsSL -o /tmp/pg4wp.zip \
+                # --max-time bounds the fetch (mirrors the OIDC-plugin
+                # vendor in step 4): a black-holed GitHub egress route can
+                # then only FAIL FAST (→ OnFailure retry within backoffLimit)
+                # instead of hanging the hook indefinitely → Helm timeout.
+                curl -fsSL --max-time 120 -o /tmp/pg4wp.zip \
                   https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.3.1.zip
                 # wp-cli's bundled PHP can unzip without a system `unzip`.
                 php -r '$z=new ZipArchive();$z->open("/tmp/pg4wp.zip");$z->extractTo("/tmp/");$z->close();'
@@ -410,7 +414,17 @@ spec:
               cpu: 50m
               memory: 128Mi
             limits:
-              cpu: 500m
+              # #4951: the per-Org `plan-quota` (4 CPU limit for the whole
+              # namespace) is nearly exhausted by vcluster overhead + the
+              # running WordPress site + CNPG. A 500m CPU LIMIT here left
+              # this transient post-install hook's pod unschedulable
+              # (`exceeded quota: plan-quota, requested: limits.cpu=500m`)
+              # → the pod was NEVER created → the Job stuck Running 0/1 →
+              # Helm post-install timed out → HR Failed → no HTTPRoute → 404.
+              # This is a short, IO-bound wp-cli bootstrap (self-deletes on
+              # success via hook-delete-policy) — a 250m ceiling is ample and
+              # fits the quota headroom alongside the running Deployment.
+              cpu: 250m
               memory: 256Mi
       volumes:
         # #4220 (Refs #4155): ALWAYS an emptyDir — never the runtime
