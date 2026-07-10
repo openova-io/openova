@@ -1242,7 +1242,10 @@ spec:
       #   creates pass the apiserver escalation-prevention gate (owner + customer-Org
       #   UserAccess CRs were phase=Failed / 0 grants on every fresh prov).
       #   Lockstep w/ Chart.yaml.
-      version: 1.4.1071
+      # 1.4.1072 — #4952: catalog-seed bp-openclaw pin 0.2.16 -> 0.2.17 so the
+      #   per-Org-namespace fix (tenant.namespace default "" -> falls back to
+      #   .Release.Namespace) reaches fresh funnel Orgs. Lockstep w/ Chart.yaml.
+      version: 1.4.1072
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
