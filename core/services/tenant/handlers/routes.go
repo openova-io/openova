@@ -76,6 +76,12 @@ func (h *Handler) Routes() http.Handler {
 	// replicas/disk_gb/backups_enabled values were dropped between the
 	// store (PR #2043) and the rendered manifest.
 	mux.HandleFunc("GET /tenant/internal/tenants/{id}/app-configs", h.InternalGetAppConfigs)
+	// #4956 — billing calls this after a checkout settles (credit-only or
+	// Stripe webhook) to launch a DEFERRED (pending_payment) funnel Org. Gated
+	// to in-cluster callers by the gateway 401 on /tenant/internal/* (same
+	// posture as the two GETs above), so the browser can never self-launch to
+	// skip payment. Idempotent.
+	mux.HandleFunc("POST /tenant/internal/tenants/{id}/launch", h.InternalLaunchTenant)
 
 	// Admin — tenant management (superadmin only).
 	mux.HandleFunc("GET /tenant/admin/tenants", h.AdminListTenants)
