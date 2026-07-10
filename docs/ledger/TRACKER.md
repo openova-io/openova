@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T03:00:04Z` |
+| Last refreshed | `2026-07-10T03:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 83 |
 | Open DoD gates | 0 / 41 |
@@ -290,6 +290,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T03:05 | [#4962](https://github.com/openova-io/openova/pull/4962) | #4885 | fix(#4961 Refs #4885): registry-aware helpers pivot the last |
 | 2026-07-10T02:46 | [#4960](https://github.com/openova-io/openova/pull/4960) | #4552 | feat(console #4552): arm the per-app Topology Switchover wit |
 | 2026-07-10T01:36 | [#4959](https://github.com/openova-io/openova/pull/4959) | #4956 | fix(#4956): gate funnel Org launch on billing settlement + a |
 | 2026-07-10T01:40 | [#4958](https://github.com/openova-io/openova/pull/4958) | #4840 | fix(#4950): keep placement.targets[] through decode so conso |
@@ -319,7 +320,6 @@ flowchart LR
 | 2026-07-09T17:11 | [#4917](https://github.com/openova-io/openova/pull/4917) | #4913 | fix(#4913): serve Harbor UI on harbor.<fqdn> alias, not just |
 | 2026-07-09T17:11 | [#4916](https://github.com/openova-io/openova/pull/4916) | #3376 | fix(billing): enforce voucher-code strength on catalyst-api  |
 | 2026-07-09T14:25 | [#4912](https://github.com/openova-io/openova/pull/4912) | #4758 | fix(provisioning): thread funnel-door apps Kustomization sou |
-| 2026-07-09T14:14 | [#4911](https://github.com/openova-io/openova/pull/4911) | #4764 | fix(catalyst-api): wipe DNS teardown retries the derived tai |
 
 ---
 
