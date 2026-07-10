@@ -753,7 +753,12 @@ spec:
       # step-08 deny-egress hold no openova-io image is left on ghcr.io (the #4885
       # residual after #4899 closed org-services). No step-count / job-mode / RBAC
       # change (still 11 steps).
-      version: 0.1.110
+      # 0.1.111 (#4967 Refs #4885 #3379): step-06 RE-ASSERTS the Gitea admin
+      # password (execs `gitea admin user change-password` in the live gitea Pod)
+      # before the demirror PATCH + git push, so a step-04 gitea-image roll that
+      # left the DB password drifted from gitea-admin-secret no longer 401s the
+      # demirror (hw236 wedge). Self-healing, best-effort; no step-count / RBAC change.
+      version: 0.1.111
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
