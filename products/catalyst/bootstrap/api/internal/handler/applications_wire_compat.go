@@ -62,6 +62,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 )
 
 // osGetenv is a tiny indirection so tests can stub the env lookup.
@@ -175,13 +177,16 @@ func (s applicationSimplifiedInstall) promoteToCanonicalInstall() (applicationIn
 	// Promote placement — accept either the simplified string-form OR
 	// the canonical object-form OR neither (default single-region).
 	if len(s.PlacementRaw) > 0 {
-		mode, regions, err := decodePlacementValue(s.PlacementRaw)
+		mode, regions, targets, err := decodePlacementValue(s.PlacementRaw)
 		if err != nil {
 			return out, fmt.Errorf("placement: %w", err)
 		}
 		out.Placement.Mode = mode
 		if len(regions) > 0 {
 			out.Placement.Regions = regions
+		}
+		if len(targets) > 0 {
+			out.Placement.Targets = targets
 		}
 	}
 	if len(out.Placement.Regions) == 0 && len(s.Regions) > 0 {
@@ -232,11 +237,11 @@ func (s applicationSimplifiedInstall) promoteToCanonicalUpdate() (applicationUpd
 	}
 
 	if len(s.PlacementRaw) > 0 {
-		mode, regions, err := decodePlacementValue(s.PlacementRaw)
+		mode, regions, targets, err := decodePlacementValue(s.PlacementRaw)
 		if err != nil {
 			return out, fmt.Errorf("placement: %w", err)
 		}
-		out.Placement = &applicationPlacement{Mode: mode, Regions: regions}
+		out.Placement = &applicationPlacement{Mode: mode, Regions: regions, Targets: targets}
 	}
 	if out.Placement != nil && len(s.Regions) > 0 && len(out.Placement.Regions) == 0 {
 		out.Placement.Regions = append(out.Placement.Regions, s.Regions...)
@@ -252,27 +257,34 @@ func (s applicationSimplifiedInstall) promoteToCanonicalUpdate() (applicationUpd
 
 // decodePlacementValue handles BOTH the simplified string-form
 // (`"placement": "single-region"`) AND the canonical object-form
-// (`"placement": {"mode":"single-region","regions":[...]}`).
-func decodePlacementValue(raw json.RawMessage) (mode string, regions []string, err error) {
+// (`"placement": {"mode":"single-region","regions":[...],"targets":[...]}`).
+//
+// #4950 — the object form now carries `targets` back to the caller. The
+// console PlacementEditor PUTs the #3969 per-region targets[] model with no
+// mode/regions; when this lenient fallback decoder is reached (the strict
+// canonical decode rejected the body for any reason) it MUST preserve
+// targets[] so the update handler's targets[]→mode fold can still fire.
+// Dropping targets here was the silent-decode arm of the #4950 400.
+func decodePlacementValue(raw json.RawMessage) (mode string, regions []string, targets []bpv1.PlacementTarget, err error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return "", nil, nil
+		return "", nil, nil, nil
 	}
 	if trimmed[0] == '"' {
 		var s string
 		if err := json.Unmarshal(trimmed, &s); err != nil {
-			return "", nil, fmt.Errorf("placement: %w", err)
+			return "", nil, nil, fmt.Errorf("placement: %w", err)
 		}
-		return strings.TrimSpace(s), nil, nil
+		return strings.TrimSpace(s), nil, nil, nil
 	}
 	if trimmed[0] == '{' {
 		var p applicationPlacement
 		if err := json.Unmarshal(trimmed, &p); err != nil {
-			return "", nil, fmt.Errorf("placement: %w", err)
+			return "", nil, nil, fmt.Errorf("placement: %w", err)
 		}
-		return strings.TrimSpace(p.Mode), p.Regions, nil
+		return strings.TrimSpace(p.Mode), p.Regions, p.Targets, nil
 	}
-	return "", nil, fmt.Errorf("placement: must be a string mode or {mode,regions} object")
+	return "", nil, nil, fmt.Errorf("placement: must be a string mode or {mode,regions,targets} object")
 }
 
 // mergeMaps copies entries from a, then overlays b. Used to merge the
@@ -406,11 +418,11 @@ func decodeApplicationChangePreviewBody(raw []byte) (applicationChangePreviewReq
 		out.Parameters = merged
 	}
 	if len(simple.PlacementRaw) > 0 {
-		mode, regions, err := decodePlacementValue(simple.PlacementRaw)
+		mode, regions, targets, err := decodePlacementValue(simple.PlacementRaw)
 		if err != nil {
 			return out, fmt.Errorf("placement: %w", err)
 		}
-		out.Placement = &applicationPlacement{Mode: mode, Regions: regions}
+		out.Placement = &applicationPlacement{Mode: mode, Regions: regions, Targets: targets}
 	}
 	if out.Placement != nil && len(simple.Regions) > 0 && len(out.Placement.Regions) == 0 {
 		out.Placement.Regions = append(out.Placement.Regions, simple.Regions...)
