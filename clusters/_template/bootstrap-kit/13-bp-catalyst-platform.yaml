@@ -1245,7 +1245,7 @@ spec:
       # 1.4.1072 — #4952: catalog-seed bp-openclaw pin 0.2.16 -> 0.2.17 so the
       #   per-Org-namespace fix (tenant.namespace default "" -> falls back to
       #   .Release.Namespace) reaches fresh funnel Orgs. Lockstep w/ Chart.yaml.
-      version: 1.4.1082
+      version: 1.4.1083
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1572,6 +1572,18 @@ spec:
     # browser-trusted Sovereign reaches cutoverComplete with ZERO manual steps.
     catalystApi:
       fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}
+      # #4971 — keep catalyst-api OFF the driverless control-plane node on every
+      # fresh Sovereign. catalyst-api mounts two RWO Huawei-EVS PVCs whose CSI
+      # node-plugin (evs.csi.huaweicloud.com) runs ONLY on workers; with
+      # strategy: Recreate a roll (e.g. cutover step-07's catalyst-api-env-patch)
+      # could otherwise place the replacement Pod on the control-plane node,
+      # where the EVS volumes can never attach ("CSINode <cp1> does not contain
+      # driver evs.csi.huaweicloud.com") → ContainerCreating deadlock → step-07
+      # times out → cutover wedges (live on hw237, 2026-07-10). Setting this true
+      # makes the chart emit a hard worker-only nodeAffinity. Sovereign-only:
+      # values.yaml defaults it false so mothership / catalyst-zero on contabo is
+      # unaffected.
+      avoidControlPlane: true
       # #4784 — the etcd port catalyst-api dials for a peer's
       # clustermesh-apiserver (CLUSTERMESH_APISERVER_DIAL_PORT env →
       # clustermesh.go clusterMeshDialPort). Default 2379 (Hetzner hcloud-ccm

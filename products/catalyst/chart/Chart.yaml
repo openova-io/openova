@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1083 — #4971 (Pillar-5 cutover): keep catalyst-api OFF the driverless
+#   control-plane node during a Recreate roll. catalyst-api mounts two RWO
+#   Huawei-EVS PVCs (catalyst-api-deployments, catalyst-api-cache) whose CSI
+#   node-plugin (evs.csi.huaweicloud.com) runs ONLY on workers. On hw237
+#   (2026-07-10) sovereignty-cutover step-07 (catalyst-api-env-patch) rolled the
+#   Pod onto the control-plane node (cp1), where AttachVolume.Attach failed x30
+#   over 45m ("CSINode cp1 does not contain driver evs.csi.huaweicloud.com") →
+#   ContainerCreating deadlock → step-07 rollout wait timed out → cutover wedged.
+#   New gated knob catalystApi.avoidControlPlane (values.yaml default FALSE —
+#   mothership / catalyst-zero on contabo unaffected); when true, api-deployment
+#   .yaml emits a hard worker-only nodeAffinity (node-role.kubernetes.io/
+#   control-plane DoesNotExist). An explicit catalystApi.affinity still wins. The
+#   Sovereign bootstrap-kit slot 13 sets avoidControlPlane: true so every fresh
+#   Sovereign is zero-touch-correct. Lockstep w/ Chart.yaml.
 # 1.4.1058 — #4919 (Refs #4749): the REAL hw233 funnel row-84 fix (Pillar-1) —
 #   deterministically roll org-services/{auth,notification} onto the SMTP relay when
 #   the seed lands. Those Pods read SMTP_* from org-services-secrets via secretKeyRef,
@@ -3459,7 +3473,7 @@ name: bp-catalyst-platform
 #   footprint to fit the 4-CPU `plan-quota` (the 0.4.21 oidc-config post-install
 #   hook requested a 500m CPU limit into a namespace with only 250m of quota
 #   headroom → the hook pod was NEVER created → HR timeout → no HTTPRoute → 404).
-version: 1.4.1082
+version: 1.4.1083
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
 #   canonical Sovereign-IAM ClusterRoles (openova:tier-{viewer,developer,operator,
 #   admin,owner} + openova:application-{admin,editor,viewer}). The controller
