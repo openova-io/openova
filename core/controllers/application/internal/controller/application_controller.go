@@ -205,6 +205,20 @@ const FinalizerName = "application.apps.openova.io/finalizer"
 // ownerRefs only resolve inside a single namespace; see #4902).
 const LabelAppUID = "catalyst.openova.io/app-uid"
 
+// LabelHostFluxApp / LabelHostFluxAppNamespace are the back-pointer labels
+// ensureHostFluxBootstrap stamps on the host-cluster Flux GitRepository +
+// per-region Kustomization CRs it imperatively upserts (those CRs ALSO carry
+// LabelAppUID). handleDeletion() cascades on LabelAppUID for these too — the
+// CRs live in HostFluxNamespace (flux-system), a DIFFERENT namespace than the
+// Application CR, so an ownerReference would be hard-GC'd the instant it is
+// created (same cross-namespace-GC trap as the fan-out HRs; see #4902). The
+// name+namespace pair is the uid-absent fallback selector (disambiguates
+// same-named Applications across Orgs).
+const (
+	LabelHostFluxApp          = "catalyst.openova.io/application"
+	LabelHostFluxAppNamespace = "catalyst.openova.io/app-namespace"
+)
+
 // Gitea is the subset of the gitea.Client surface the reconciler needs.
 // Defining it as an interface here lets tests swap in a fake without a
 // real HTTP server. The production gitea.Client satisfies this
@@ -1903,20 +1917,22 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 	// controller log says "ensured" but `kubectl get` shows nothing.
 	// First version of Fix #42 hit this exact bug live on omantel.
 	//
-	// Cleanup on Application delete is handled by handleDeletion()
-	// which deletes the Gitea-side files; Flux then GCs the workload
-	// via prune=true on the Kustomization. The host-cluster Flux CRs
-	// themselves are removed by an explicit Delete call in
-	// handleDeletion (separate Fix #42 follow-up — TODO).
+	// Cleanup on Application delete is handled by handleDeletion(): it
+	// deletes the Gitea-side files (Flux then GCs the workload via
+	// prune=true on the Kustomization) AND — via
+	// cascadeDeleteHostFluxBootstrap (#4902 follow-on) — issues explicit
+	// Delete calls on these host-cluster GitRepository + Kustomization CRs
+	// themselves, keyed off the app-uid back-pointer label below, so they
+	// no longer orphan on delete.
 	commonLabels := map[string]interface{}{
 		"app.kubernetes.io/managed-by":     "application-controller",
-		"catalyst.openova.io/application":  app.GetName(),
+		LabelHostFluxApp:                   app.GetName(),
 		"catalyst.openova.io/organization": envSpec.OrganizationRef,
 		"catalyst.openova.io/env-type":     envSpec.EnvType,
 		// Reference labels for cascade-delete (replaces ownerRef which
 		// can't span namespaces). handleDeletion() looks these up.
-		"catalyst.openova.io/app-namespace": app.GetNamespace(),
-		"catalyst.openova.io/app-uid":       string(app.GetUID()),
+		LabelHostFluxAppNamespace: app.GetNamespace(),
+		LabelAppUID:               string(app.GetUID()),
 	}
 
 	// --- GitRepository ---
@@ -2105,6 +2121,27 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 		return fmt.Errorf("delete per-cluster HelmReleases: %w", err)
 	}
 
+	// #4902 (follow-on) — cascade-delete the host-cluster Flux
+	// GitRepository + per-region Kustomization CRs that
+	// ensureHostFluxBootstrap imperatively upserted for this Application
+	// (`catalyst-app-<org>-<app>` + `…-<region>`). Like the fan-out HRs
+	// these carry NO ownerReferences (they live in HostFluxNamespace —
+	// flux-system — a DIFFERENT namespace than the Application CR, so a
+	// cross-namespace ownerRef would be hard-GC'd on creation), so K8s GC
+	// never reaps them. The Gitea-file cleanup below only removes the
+	// per-region manifests (Flux then prunes the WORKLOAD via the
+	// Kustomization's prune=true) — it does NOT remove these source/sync
+	// CRs themselves, so without this they orphan on every delete (the
+	// GitRepository keeps polling a now-empty Gitea repo; the Kustomization
+	// keeps reconciling). Closes the explicit TODO on ensureHostFluxBootstrap.
+	// Runs BEFORE the spec/env resolution below so the cleanup happens even
+	// when the spec is unparseable or the parent Environment is already gone
+	// — it keys off the app-uid back-pointer label + the fixed
+	// HostFluxNamespace alone.
+	if err := r.cascadeDeleteHostFluxBootstrap(ctx, app); err != nil {
+		return fmt.Errorf("delete host-flux bootstrap CRs: %w", err)
+	}
+
 	spec, err := parseSpec(app)
 	if err != nil {
 		// Spec is unparseable — nothing we can do but release the
@@ -2236,6 +2273,77 @@ func (r *Reconciler) cascadeDeleteFanoutHelmReleases(ctx context.Context, app *u
 		r.Log.Info("cascade-deleted per-cluster HelmRelease on Application delete (#4902)",
 			"namespace", ns, "name", hrName,
 			"cluster", labels[topo.LabelCluster], "app", name)
+	}
+	return nil
+}
+
+// cascadeDeleteHostFluxBootstrap removes the host-cluster Flux
+// GitRepository + per-region Kustomization CRs that ensureHostFluxBootstrap
+// imperatively upserted for this Application (#4902 follow-on — closes the
+// TODO left on that function). Like the fan-out HelmReleases, these CRs live
+// in HostFluxNamespace (flux-system) — a DIFFERENT namespace than the
+// Application CR — so they deliberately carry NO ownerReferences (a
+// cross-namespace ownerRef would be hard-GC'd the instant it is created) and
+// the K8s garbage collector never reaps them. handleDeletion's Gitea cleanup
+// only removes the per-region manifests (so Flux prunes the workload via the
+// Kustomization's prune=true), NOT these source/sync CRs themselves — so
+// without this they orphan on every Application delete.
+//
+// Selection mirrors cascadeDeleteFanoutHelmReleases: prefer the
+// globally-unique app-uid back-pointer label; fall back to the
+// application-name + app-namespace label pair when the CR carries no UID
+// (disambiguates same-named Applications across Orgs). Scoped to
+// HostFluxNamespace because that is the only namespace ensureHostFluxBootstrap
+// ever writes these CRs into. Kustomizations are deleted before their
+// GitRepository source (delete the sync that references the source first).
+// The controller ClusterRole grants list+delete on gitrepositories +
+// kustomizations.
+func (r *Reconciler) cascadeDeleteHostFluxBootstrap(ctx context.Context, app *unstructured.Unstructured) error {
+	uid := string(app.GetUID())
+	name := app.GetName()
+	appNS := app.GetNamespace()
+	ns := r.Cfg.HostFluxNamespace
+
+	selector := fmt.Sprintf("%s=%s", LabelAppUID, uid)
+	if uid == "" {
+		selector = fmt.Sprintf("%s=%s,%s=%s",
+			LabelHostFluxApp, name, LabelHostFluxAppNamespace, appNS)
+	}
+
+	// Kustomizations first, then the GitRepository they source from.
+	for _, gvr := range []schema.GroupVersionResource{
+		FluxKustomizationGVR,
+		FluxGitRepositoryGVR,
+	} {
+		list, err := r.Dynamic.Resource(gvr).Namespace(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: selector,
+		})
+		if err != nil {
+			return fmt.Errorf("list host-flux %s: %w", gvr.Resource, err)
+		}
+		for i := range list.Items {
+			obj := &list.Items[i]
+			labels := obj.GetLabels()
+			// Client-side re-verify so a List that ignored the server-side
+			// selector can never over-delete another Application's CRs.
+			if uid != "" {
+				if labels[LabelAppUID] != uid {
+					continue
+				}
+			} else if labels[LabelHostFluxApp] != name || labels[LabelHostFluxAppNamespace] != appNS {
+				continue
+			}
+			objName := obj.GetName()
+			if derr := r.Dynamic.Resource(gvr).Namespace(ns).
+				Delete(ctx, objName, metav1.DeleteOptions{}); derr != nil {
+				if apierrors.IsNotFound(derr) {
+					continue
+				}
+				return fmt.Errorf("delete host-flux %s %s/%s: %w", gvr.Resource, ns, objName, derr)
+			}
+			r.Log.Info("cascade-deleted host-flux bootstrap CR on Application delete (#4902)",
+				"kind", obj.GetKind(), "namespace", ns, "name", objName, "app", name)
+		}
 	}
 	return nil
 }
