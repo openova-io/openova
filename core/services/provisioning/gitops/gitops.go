@@ -2104,8 +2104,22 @@ rules:
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch", "patch", "delete"]
   - apiGroups: [""]
+    # #3376 — the #4785 dual-namespace kubeconfig mirror
+    # (mirrorVClusterKubeconfig, handlers.go) POSTs the
+    # tenant-<slug>-kubeconfig Secret into BOTH flux-system AND this tenant
+    # namespace, because the per-Org application HelmReleases carry a
+    # namespace-less kubeConfig.secretRef that Flux resolves in the HR's OWN
+    # (tenant) namespace. flux-system write is granted by the chart Role
+    # org-provisioning-fluxsystem; the tenant-NS write was missing here, so
+    # 'create secrets -n <slug>' 403'd -> "create mirror secret (<slug>) 403"
+    # -> provisioning failed at the vcluster step and no per-Org app ever
+    # reconciled (WordPress never Ready). create/update/patch are the minimum
+    # for the upsert (POST, then PUT-on-409). NO delete — the mirror never
+    # removes a tenant secret; teardown drops only the flux-system copy
+    # (deleteVClusterKubeconfigMirror) and the tenant-NS copy is GC'd with the
+    # namespace. Least-privilege + namespaced.
     resources: ["secrets"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: [""]
     # delete needed so waitForVclusterDNSOrKick can bounce vcluster-0 when
     # the syncer's initial DNS reconciliation doesn't publish the
