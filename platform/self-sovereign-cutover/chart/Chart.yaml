@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.110 (#4961 Refs #4885 #3379, the LAST step-07 image-pivot residual — two
+# un-pivoted bootstrap-kit DaemonSets wedge the step-08 deny-egress hold): step-07
+# pivoted global.imageRegistry on 7 HRs but left bp-openova-flow-emitter (slot 57,
+# image ghcr.io/openova-io/openova/openova-flow-adapter-flux) and bp-k8s-ws-proxy
+# (slot 51, image ghcr.io/openova-io/openova/k8s-ws-proxy) on ghcr.io — their image
+# helpers hard-coded `printf "%s:%s" repository tag` and ignored global.imageRegistry.
+# Step-08's generalized fresh-pull (egressTest.rollAllExternalRegistryWorkloads)
+# rolls every workload whose image host isn't registry.<fqdn>, so these two
+# DaemonSets rolled under the ghcr.io deny-egress → 401 ImagePullBackOff → step-08
+# exit 1 → cutoverComplete stayed false (the #4885 residual after #4899 closed the
+# org-services leg). THREE changes: (1) both component charts' _helpers.tpl image
+# refs now host-swap the leading registry segment when global.imageRegistry is set
+# (verbatim ghcr.io when empty, byte-identical pre-cutover — the proven #4563/#4892
+# idiom); (2) both HRs added to .Values.imageRegistryPivot.additionalHRs so step-07
+# pivots them with the IDENTICAL live-HR-patch + durable-Gitea-edit pattern; (3)
+# their bootstrap-kit slot files (57 / 51) gain the 6-space `global.imageRegistry: ''`
+# seam so the durable Gitea edit persists. With this, NO openova-io-image HR is left
+# un-pivoted — there is no remaining residual. NO step-count / job-mode / RBAC change
+# (still 11 steps; the pivot is additive shell in step-07). Lockstep w/ blueprint.yaml
+# + 06a slot pin + component-chart bumps (bp-openova-flow-emitter 0.1.2 /
+# bp-k8s-ws-proxy 0.1.15) + their slot pins (57 / 51). Refs #4961 #4885 #3379.
 # 0.1.109 (#4955 Refs #3379, hw235 finale — step-03 harbor-prewarm FATALed on the
 # FIRST openova-io image ever pinned by BOTH a tag AND a digest): the Phase-A
 # skopeo mirror ran `skopeo copy docker://ghcr.io/openova-io/openova/
@@ -1612,7 +1633,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.109
+version: 0.1.110
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

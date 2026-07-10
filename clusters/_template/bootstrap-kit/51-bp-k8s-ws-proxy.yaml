@@ -82,7 +82,12 @@ spec:
       # because the Job (weight -10, lower=earlier in Helm) was
       # applied before its SA (weight 0). Bumps Chart.yaml 0.1.7 ->
       # 0.1.8; CI promote auto-bumps to 0.1.9 with new image SHA.
-      version: 0.1.14
+      # 0.1.15 (#4961 Refs #4885 #3379): image helper honours global.imageRegistry
+      # so the cutover step-07 pivot reaches the DaemonSet image (see the
+      # `values.global.imageRegistry: ''` seam below). CI promote auto-bumps this
+      # to 0.1.16 with the new image SHA on merge; blueprint-release (TBD-A6) then
+      # lifts this pin to the published version in lockstep.
+      version: 0.1.15
       sourceRef:
         kind: HelmRepository
         name: bp-k8s-ws-proxy
@@ -98,6 +103,21 @@ spec:
     remediation:
       retries: 3
   values:
+    # #4885 (Refs #3379): imageRegistry override seam — same pattern as slot 13
+    # bp-catalyst-platform / slot 56 bp-openova-flow-server / slot 62 bp-continuum.
+    # Empty literal at Phase 1 (pre-cutover) → the chart helper
+    # (bp-k8s-ws-proxy.image) falls back to the literal ghcr.io repository. Cutover
+    # step-07 (via .Values.imageRegistryPivot.additionalHRs) patches this HR's
+    # spec.values.global.imageRegistry live AND durably sed-edits THIS file in
+    # local Gitea, replacing the empty string with the local Harbor host so the
+    # k8s-ws-proxy DaemonSet pulls
+    # registry.<sov-fqdn>/openova-io/openova/k8s-ws-proxy under the step-08
+    # deny-egress hold (image native-pushed by cutover step-03). Without this seam
+    # the live HR patch is reverted by the next Flux Kustomization reconcile.
+    # 6-space indent on `imageRegistry:` is REQUIRED — step-07's sed matches
+    # `^      imageRegistry:`.
+    global:
+      imageRegistry: ''
     k8sWsProxy:
       # Default-OFF gate flipped ON by the bootstrap-kit slot. Operator
       # opts out per-Sovereign by removing this slot from

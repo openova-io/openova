@@ -51,7 +51,10 @@ spec:
   chart:
     spec:
       chart: bp-openova-flow-emitter
-      version: 0.1.1
+      # 0.1.2 (#4961 Refs #4885 #3379): image helper honours global.imageRegistry
+      # so the cutover step-07 pivot reaches the DaemonSet image (see the
+      # `values.global.imageRegistry: ''` seam below).
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-openova-flow-emitter
@@ -82,6 +85,21 @@ spec:
   # the canvas groups bubbles into per-region super-bubbles via
   # `contains` relationships.
   values:
+    # #4885 (Refs #3379): imageRegistry override seam — same pattern as slot 13
+    # bp-catalyst-platform / slot 56 bp-openova-flow-server / slot 62 bp-continuum.
+    # Empty literal at Phase 1 (pre-cutover) → the chart helper
+    # (bp-openova-flow-emitter.image) falls back to the literal ghcr.io repository.
+    # Cutover step-07 (via .Values.imageRegistryPivot.additionalHRs) patches this
+    # HR's spec.values.global.imageRegistry live AND durably sed-edits THIS file in
+    # local Gitea, replacing the empty string with the local Harbor host so the
+    # openova-flow-adapter-flux DaemonSet pulls
+    # registry.<sov-fqdn>/openova-io/openova/openova-flow-adapter-flux under the
+    # step-08 deny-egress hold (image native-pushed by cutover step-03). Without
+    # this seam the live HR patch is reverted by the next Flux Kustomization
+    # reconcile. 6-space indent on `imageRegistry:` is REQUIRED — step-07's sed
+    # matches `^      imageRegistry:`.
+    global:
+      imageRegistry: ''
     flowEmitter:
       enabled: true
       # In-cluster Service URL — the emitter DaemonSet lives in the same

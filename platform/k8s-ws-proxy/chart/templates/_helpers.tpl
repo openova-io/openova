@@ -54,13 +54,43 @@ ADR-0001 §11).
 
 {{/*
 Image-tag fail-fast — INVIOLABLE-PRINCIPLES #4a.
+
+#4885 (Refs #3379 #4563): honour `global.imageRegistry`. The repository is
+the full ghcr.io path (ghcr.io/openova-io/openova/k8s-ws-proxy). The
+self-sovereign-cutover step-07 registry pivot patches this HR's
+spec.values.global.imageRegistry = registry.<sovereign-fqdn>; when set, swap
+ONLY the leading registry host so the image resolves to
+registry.<fqdn>/openova-io/openova/k8s-ws-proxy — the path the cutover
+step-03 harbor-prewarm natively pushes the image to. Without the override the
+literal ghcr.io ref is unreachable under the step-08 600s deny-egress hold
+(anonymous-token fetch blocked → 401 ImagePullBackOff) and the fresh-pull
+proof FATALs (cutoverComplete stays false). Empty/unset = byte-identical
+ghcr.io ref (pre-cutover default). Mirrors the sibling
+bp-openova-flow-server.image helper.
 */}}
 {{- define "bp-k8s-ws-proxy.image" -}}
 {{- $tag := .Values.k8sWsProxy.image.tag -}}
 {{- if not $tag -}}
 {{- fail "bp-k8s-ws-proxy: .Values.k8sWsProxy.image.tag is empty — SHA-pinned image required (CI populates this)" -}}
 {{- end -}}
-{{- printf "%s:%s" .Values.k8sWsProxy.image.repository $tag -}}
+{{- $repo := .Values.k8sWsProxy.image.repository -}}
+{{- $registry := "" -}}
+{{- if .Values.global -}}
+{{- $registry = .Values.global.imageRegistry | default "" -}}
+{{- end -}}
+{{- if $registry -}}
+{{/* Strip the leading registry host (first path segment, e.g. ghcr.io) and
+     re-prefix with the pivot registry. A repository with no "/" (bare image
+     name) is kept whole under the new registry. */}}
+{{- $parts := splitList "/" $repo -}}
+{{- $rest := $repo -}}
+{{- if gt (len $parts) 1 -}}
+{{- $rest = rest $parts | join "/" -}}
+{{- end -}}
+{{- printf "%s/%s:%s" (trimSuffix "/" $registry) $rest $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
 {{- end }}
 
 {{/*

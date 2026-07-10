@@ -691,17 +691,20 @@ catalystAPI:
 # `global.imageRegistry: ''` seam at 6-space indent (added in lockstep with this
 # chart bump) so the durable Gitea edit sticks.
 #
-# STILL DELIBERATELY EXCLUDED — the residual offender a plain global.imageRegistry
-# prefix cannot fix (needs a SEPARATE change before it can be added here):
-#   - org-services        (products/catalyst/chart/templates/org-services:
-#                          marketplace.yaml + auth.yaml carry concrete
-#                          `image: ghcr.io/...:tag` strings the marketplace-build /
-#                          services-build deploybots sed-bump — templating them
-#                          would break those image-pin bumps. The 7 sibling
-#                          org-services templates already honour global.imageRegistry
-#                          and pivot via the bp-catalyst-platform HR patch. Needs a
-#                          coordinated deploybot change; tracked in #4885 as the
-#                          residual cutover blocker.)
+# #4899 (Refs #4885, commit af60a2438): org-services marketplace.yaml + auth.yaml
+# — FORMERLY the residual offender listed here — now template their image through
+# `{{ if .Values.global.imageRegistry }}…{{ end }}`, so they pivot via the
+# bp-catalyst-platform HR patch step-07 already applies. That residual is CLOSED;
+# no org-services entry is needed here.
+#
+# #4961 (Refs #4885): the LAST residual — the two bootstrap-kit DaemonSets
+# bp-openova-flow-emitter (slot 57) + bp-k8s-ws-proxy (slot 51) — carried literal
+# ghcr.io images because their image helpers ignored global.imageRegistry. Under
+# the step-08 generalized fresh-pull they rolled under the ghcr.io deny-egress →
+# 401 → cutoverComplete stayed false (hw235). This bump makes both helpers
+# registry-aware AND lists their HRs in additionalHRs below, so step-07 pivots
+# them with the identical live-HR-patch + durable-Gitea-edit pattern. With that,
+# NO openova-io-image HR is left un-pivoted — there is no remaining residual.
 imageRegistryPivot:
   additionalHRs:
     - name: bp-continuum
@@ -723,6 +726,21 @@ imageRegistryPivot:
     - name: bp-sandbox
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/19a-bp-sandbox.yaml
+    # #4961 (Refs #4885): the two remaining un-pivoted bootstrap-kit DaemonSets.
+    # Both carried a literal ghcr.io image (their image helpers ignored
+    # global.imageRegistry), so under the step-08 generalized fresh-pull
+    # (egressTest.rollAllExternalRegistryWorkloads) they rolled under the ghcr.io
+    # deny-egress → 401 → step-08 exited 1 → cutoverComplete stayed false (the
+    # #4885 residual, hw235). Each image helper now host-swaps the leading registry
+    # segment when global.imageRegistry is set (verbatim ghcr.io when empty), so
+    # their HRs pivot cleanly. Each slotFile carries the 6-space
+    # `global.imageRegistry: ''` seam so the durable Gitea edit sticks.
+    - name: bp-openova-flow-emitter
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml
+    - name: bp-k8s-ws-proxy
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml
 
 # Step container images. The first three steps (01..03) + the
 # registry-pivot DaemonSet use upstream-public images because they run

@@ -43,7 +43,18 @@ name: bp-k8s-ws-proxy
 # hook image switched from curlimages/curl:8.10.1 to
 # harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
 # inviolable rule.
-version: 0.1.14
+# 0.1.15 (#4961 Refs #4885 #3379): the image helper (_helpers.tpl
+# bp-k8s-ws-proxy.image) now honours global.imageRegistry — host-swaps the
+# leading registry segment (ghcr.io → registry.<sov-fqdn>) when set, verbatim
+# ghcr.io ref when empty (byte-identical pre-cutover). Required so the
+# self-sovereign-cutover step-07 registry pivot (which patches this HR's
+# spec.values.global.imageRegistry) actually reaches the DaemonSet image —
+# without it the literal ghcr.io ref 401s under the step-08 deny-egress hold and
+# cutoverComplete stays false. Mirrors the bp-openova-flow-server.image (#4563)
+# idiom. Slot-51 pin moves in lockstep. NB: build-k8s-ws-proxy.yaml's promote job
+# auto-bumps this patch +1 (→ 0.1.16) with the new image SHA on merge; the slot
+# pin is auto-lifted to the published version by blueprint-release (TBD-A6 hook).
+version: 0.1.15
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —
