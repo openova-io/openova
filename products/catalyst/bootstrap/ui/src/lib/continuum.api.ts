@@ -66,6 +66,31 @@ export interface ContinuumSwitchoverResponse {
   httpStatus?: number
 }
 
+/**
+ * ContinuumSwitchoverPreview — body of
+ * POST /api/v1/sovereigns/{id}/continuum/{name}/switchover/preview
+ * (continuum_extras.go::HandleContinuumSwitchoverPreview).
+ *
+ * The READ-ONLY RPO/health preflight the confirm dialog runs BEFORE it
+ * arms the [ Confirm Switchover ] button. `promotable` is the gate: it is
+ * true only when `blockingChecks` is empty (target is not already primary,
+ * WAL lag is within 4× RTO, and the Continuum is not mid-switchover /
+ * Failed). `currentLagSec` is the live replication lag the operator sees
+ * before committing. Nothing is mutated by this call.
+ */
+export interface ContinuumSwitchoverPreview {
+  continuum: string
+  namespace: string
+  targetRegion: string
+  currentPrimary: string
+  currentLagSec: number
+  estimatedDurationSec: number
+  estimatedDuration: string
+  blockingChecks: string[]
+  promotable: boolean
+  message: string
+}
+
 /** ContinuumFailbackRequest — body of POST .../failback. */
 export interface ContinuumFailbackRequest {
   reason?: string
@@ -274,6 +299,38 @@ export async function requestSwitchover(
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`switchover: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+/**
+ * getSwitchoverPreview — run the read-only RPO/health preflight for a
+ * Continuum CR (POST .../continuum/{name}/switchover/preview). The confirm
+ * dialog calls this before arming its [ Confirm Switchover ] button so the
+ * operator sees the live lag + any blocking checks and can only proceed
+ * when `promotable` is true. Read-only — mutates nothing on the cluster.
+ *
+ * The singular `/continuum/` path is used (the preview endpoint lives only
+ * under the singular alias — see continuum_extras.go).
+ */
+export async function getSwitchoverPreview(
+  sovereignId: string,
+  name: string,
+  body: { targetRegion?: string } = {},
+  opts: { namespace?: string } = {},
+): Promise<ContinuumSwitchoverPreview> {
+  const params = new URLSearchParams()
+  if (opts.namespace) params.set('namespace', opts.namespace)
+  const qs = params.toString()
+  const url = `${continuumSingularBase(sovereignId)}/${encodeURIComponent(name)}/switchover/preview${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`switchover preview: HTTP ${res.status} ${detail}`)
   }
   return res.json()
 }
