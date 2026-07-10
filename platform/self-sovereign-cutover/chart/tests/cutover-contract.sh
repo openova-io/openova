@@ -1313,4 +1313,53 @@ if ! grep -Eq '^[[:space:]]+enabled:[[:space:]]*true' <<<"$HRT_BLOCK"; then
 fi
 echo "  PASS (step-06 builds a ca.crt trust Secret from the in-cluster Harbor wildcard cert + wires every pivoted HelmRepository's certSecretRef to it; helmRepositoryTrust.enabled defaults true)"
 
+echo "[cutover-contract] Case 36: auto-trigger RETRIES on HTTP 425 until the handover seals — never a single give-up exit (#4632, Refs #3379)"
+# THE #4632 425-NO-RETRY RACE. On a FRESH prov the auto-trigger hook Job fires
+# at slot-06a install time — BEFORE bp-catalyst-platform reaches Ready and the
+# handover post-install hook seals secret/catalyst/tofu-phase0-archive — so
+# catalyst-api correctly refuses with HTTP 425 ("handover not complete"). The
+# pre-#4632 handler did a single bare `exit 0` on 425 and GAVE UP; because the
+# hook is then deleted (hook-succeeded), nothing ever re-POSTed and the cutover
+# NEVER auto-fired (live proof dep 8fd457a8: seal at 13:56:41, lone POST 425'd
+# at 13:54:48 → progressPercent=0 forever). The fix (PR #4633) wraps the POST in
+# a bounded retry loop that keeps re-POSTing on 425 until the gate opens.
+#
+# This gate is the sibling of Case 13 (/healthz probe regression) and Case 14
+# (cutoverComplete pre-read regression): it locks in the retry behaviour so a
+# future edit cannot silently regress the 425 branch back to a single exit 0.
+#
+# (a) the POST must live inside a retry loop (`while :`), not a one-shot POST.
+if ! grep -Eq '^\s*while :' "$TMP/render-fire.yaml"; then
+  echo "FAIL: auto-trigger Job has no while-loop retry around the trigger POST — a single 425 would give up and the cutover never auto-fires (#4632)" >&2
+  exit 1
+fi
+# (b) the retry must be bounded by a handover-wait deadline wired from the
+#     HANDOVER_WAIT_SECONDS env (values.trigger.autoHandoverWaitSeconds).
+if ! grep -q 'HANDOVER_WAIT_SECONDS' "$TMP/render-fire.yaml"; then
+  echo "FAIL: auto-trigger Job never references HANDOVER_WAIT_SECONDS — the 425 retry has no bounded handover-wait deadline (#4632)" >&2
+  exit 1
+fi
+if ! grep -Eq 'hdeadline=' "$TMP/render-fire.yaml"; then
+  echo "FAIL: auto-trigger Job computes no hdeadline for the 425 retry loop (#4632)" >&2
+  exit 1
+fi
+# (c) the 425 branch must actually retry (sleep + re-loop), not just exit. The
+#     retry log line + the sleep together prove the branch loops back rather
+#     than giving up on the first 425.
+if ! grep -q 'Retrying in 15s until handover seals' "$TMP/render-fire.yaml"; then
+  echo "FAIL: auto-trigger Job's 425 branch has no retry log line — it appears to give up on the first 425 instead of waiting for the handover seal (#4632)" >&2
+  exit 1
+fi
+if ! grep -Eq '^\s*sleep 15' "$TMP/render-fire.yaml"; then
+  echo "FAIL: auto-trigger Job's 425 branch never sleeps+retries — a bare exit on 425 is the exact pre-#4632 give-up bug" >&2
+  exit 1
+fi
+# (d) the Job's activeDeadlineSeconds must cover /healthz wait + handover wait +
+#     buffer (default 2100s) so the retry loop is not killed before the seal.
+if ! grep -Eq 'activeDeadlineSeconds:\s*2100' "$TMP/render-fire.yaml"; then
+  echo "FAIL: auto-trigger Job activeDeadlineSeconds is not the #4632 default 2100 — the retry loop could be reaped before the handover seals" >&2
+  exit 1
+fi
+echo "  PASS (auto-trigger POST is wrapped in a bounded while-loop that retries on HTTP 425 until the handover seals — no single give-up exit; activeDeadlineSeconds=2100 covers the wait)"
+
 echo "[cutover-contract] All gates green."
