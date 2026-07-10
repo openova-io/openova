@@ -37,23 +37,53 @@ func TestGenerateProvisioningTenantRBAC(t *testing.T) {
 		t.Fatalf("expected SA binding to org-services/provisioning, got: %s", got)
 	}
 
-	// Must NOT grant write on secrets in-tenant — only read. Writing tenant
-	// secrets via the provisioning SA was never needed and only expanded
-	// blast radius.
-	if strings.Contains(got, `resources: ["secrets"]`) {
-		// Allowed as long as verbs are read-only.
-		lines := strings.Split(got, "\n")
-		for i, line := range lines {
-			if strings.Contains(line, `resources: ["secrets"]`) && i+1 < len(lines) {
-				verbs := lines[i+1]
-				for _, v := range []string{"create", "update", "patch", "delete"} {
-					if strings.Contains(verbs, `"`+v+`"`) {
-						t.Fatalf("secrets rule must be read-only, got verb %q in: %s", v, verbs)
-					}
+	// #3376: the secrets rule MUST grant create+get+update+patch so the
+	// #4785 dual-namespace kubeconfig mirror (mirrorVClusterKubeconfig) can
+	// upsert tenant-<slug>-kubeconfig INTO this tenant NS (POST, then PUT on
+	// 409). Before this, secrets was read-only here → `create secrets -n
+	// <slug>` 403'd → provisioning failed → no per-Org app ever reconciled.
+	// It must still be least-privilege: NO delete on secrets (the mirror
+	// never removes a tenant secret; teardown deletes only the flux-system
+	// copy, and the tenant-NS copy is GC'd with the namespace).
+	secretsVerbs := verbsForResource(got, `resources: ["secrets"]`)
+	if secretsVerbs == "" {
+		t.Fatalf("expected a secrets rule, got: %s", got)
+	}
+	for _, v := range []string{"create", "get", "update", "patch"} {
+		if !strings.Contains(secretsVerbs, `"`+v+`"`) {
+			t.Fatalf("secrets rule must grant %q for the kubeconfig mirror, got: %s", v, secretsVerbs)
+		}
+	}
+	if strings.Contains(secretsVerbs, `"delete"`) {
+		t.Fatalf("secrets rule must NOT grant delete (least-privilege), got: %s", secretsVerbs)
+	}
+
+	// The vcluster-dns-kick (waitForVclusterDNSOrKick) deletes vcluster-0, so
+	// the pods rule MUST grant delete. Without it `delete pods -n <slug>`
+	// 403s and the DNS kick can't recover a stuck syncer.
+	podsVerbs := verbsForResource(got, `resources: ["pods"]`)
+	if podsVerbs == "" {
+		t.Fatalf("expected a pods rule, got: %s", got)
+	}
+	if !strings.Contains(podsVerbs, `"delete"`) {
+		t.Fatalf("pods rule must grant delete for the vcluster-dns-kick, got: %s", podsVerbs)
+	}
+}
+
+// verbsForResource returns the `verbs:` line that immediately follows the
+// first line matching `resourceLine` in the rendered RBAC, or "" if not found.
+func verbsForResource(rendered, resourceLine string) string {
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, resourceLine) {
+			for j := i + 1; j < len(lines); j++ {
+				if strings.Contains(lines[j], "verbs:") {
+					return lines[j]
 				}
 			}
 		}
 	}
+	return ""
 }
 
 func TestGenerateAllIncludesTenantRBAC(t *testing.T) {
