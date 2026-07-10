@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T02:45:06Z` |
+| Last refreshed | `2026-07-10T03:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 82 |
+| Open issues | 83 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 82 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 83 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 82 open items (clickable table)
+### All 83 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -282,6 +282,7 @@ flowchart LR
 | [#4921](https://github.com/openova-io/openova/issues/4921) | Per-Org cilium-gateway-console Programmed=False AddressNotAssigned → all per-O | Other |
 | [#4922](https://github.com/openova-io/openova/issues/4922) | bp-agenity:0.9.7 malformed OCI chart artifact (1 descriptor, needs 2) → pull e | Other |
 | [#4923](https://github.com/openova-io/openova/issues/4923) | DR replication-status endpoint returns SYNTHESIZED Hetzner placeholder, not live | Other |
+| [#4961](https://github.com/openova-io/openova/issues/4961) | cutover step-08 wedges on un-pivoted bp-openova-flow-emitter + bp-k8s-ws-proxy D | Other |
 
 ---
 
@@ -289,6 +290,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T02:46 | [#4960](https://github.com/openova-io/openova/pull/4960) | #4552 | feat(console #4552): arm the per-app Topology Switchover wit |
 | 2026-07-10T01:36 | [#4959](https://github.com/openova-io/openova/pull/4959) | #4956 | fix(#4956): gate funnel Org launch on billing settlement + a |
 | 2026-07-10T01:40 | [#4958](https://github.com/openova-io/openova/pull/4958) | #4840 | fix(#4950): keep placement.targets[] through decode so conso |
 | 2026-07-10T01:35 | [#4957](https://github.com/openova-io/openova/pull/4957) | #4955 | fix(#4955 Refs #3379): cutover step-03 harbor-prewarm handle |
@@ -318,7 +320,6 @@ flowchart LR
 | 2026-07-09T17:11 | [#4916](https://github.com/openova-io/openova/pull/4916) | #3376 | fix(billing): enforce voucher-code strength on catalyst-api  |
 | 2026-07-09T14:25 | [#4912](https://github.com/openova-io/openova/pull/4912) | #4758 | fix(provisioning): thread funnel-door apps Kustomization sou |
 | 2026-07-09T14:14 | [#4911](https://github.com/openova-io/openova/pull/4911) | #4764 | fix(catalyst-api): wipe DNS teardown retries the derived tai |
-| 2026-07-09T14:02 | [#4910](https://github.com/openova-io/openova/pull/4910) | #4746 | fix(#4746): gate phase-1 ready on the console backend so a s |
 
 ---
 
