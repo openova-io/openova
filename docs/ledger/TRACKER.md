@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T02:30:04Z` |
+| Last refreshed | `2026-07-10T02:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 100 |
+| Open issues | 82 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 82 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,17 +196,17 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 100 open items (clickable table)
+### All 82 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
+| [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns a durable, revert-immune cutoverComplete=true under a | Other |
 | [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (targets[] · Primary/Standby·Hot/Cold · c | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity North Star (chat→provision, Pillar 4): mechanism merged+wired — B | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — DR/spine half LIVE-Healthy (spine Applica | Other |
 | [#4275](https://github.com/openova-io/openova/issues/4275) | PILLAR-3 ACCEPTANCE: region-kill failover counter-test (D31) — kill region-a,  | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
 | [#4541](https://github.com/openova-io/openova/issues/4541) | fix(harbor): create the missing proxy-xpkg/proxy-ecr proxy-cache projects on the | Other |
-| [#4546](https://github.com/openova-io/openova/issues/4546) | fix(marketplace): authed owner on /redeem must not see the public funnel — own | Other |
 | [#4552](https://github.com/openova-io/openova/issues/4552) | Per-app Topology tab: arm the deferred manual Switchover with a confirm + RPO/he | Other |
 | [#4569](https://github.com/openova-io/openova/issues/4569) | Funnel TLD choice (omani.rest/.trade) is silently overridden to the single Sover | Other |
 | [#4600](https://github.com/openova-io/openova/issues/4600) | fix(crossplane): remove artificial bastion-Harbor (harbor.openova.io/proxy-xpkg) | Other |
@@ -250,17 +250,13 @@ flowchart LR
 | [#4785](https://github.com/openova-io/openova/issues/4785) | Per-Org vcluster CNP bootstrap deadlock — coredns + flux denied reaching vclus | Other |
 | [#4788](https://github.com/openova-io/openova/issues/4788) | Crossplane ProviderConfig on dead tf.upbound.io group — adopt-* Workspaces can | Other |
 | [#4811](https://github.com/openova-io/openova/issues/4811) | region-b clustermesh dead: #4765 dials :2379 on shared CP-EIP where k3s embedded | Other |
-| [#4813](https://github.com/openova-io/openova/issues/4813) | Funnel-provisioned customer Org lands namespace-isolated, not vcluster (+ false  | Other |
 | [#4814](https://github.com/openova-io/openova/issues/4814) | Cloud graph renders WorkerNode 24/24 + Region 2/2 as healthy while region-b is a | Other |
 | [#4817](https://github.com/openova-io/openova/issues/4817) | hw228 fresh-prov anomalies on a0478e3 train: kubeconfig-PUT-back never fires (40 | Other |
 | [#4818](https://github.com/openova-io/openova/issues/4818) | Cloud-view LB 'Front door' mislabels the §854-compliant hostPort datapath as '( | Other |
 | [#4820](https://github.com/openova-io/openova/issues/4820) | Cloud list: selecting HTTPRoutes/NetworkPolicies/CiliumNetworkPolicies redirects | Other |
-| [#4821](https://github.com/openova-io/openova/issues/4821) | Funnel customer-Org provisioning stalls at dns:pending + console_host ignores fu | Other |
 | [#4827](https://github.com/openova-io/openova/issues/4827) | WordPress per-Org app pod churns (~3-min rollout loop) → intermittent HTTP 500 | Other |
 | [#4833](https://github.com/openova-io/openova/issues/4833) | bp-stalwart-tenant requests a guaranteed 1 CPU core → starves bp-openclaw on t | Other |
 | [#4836](https://github.com/openova-io/openova/issues/4836) | Console PlacementEditor targets[] model rejected by HandleApplicationUpdate lega | Other |
-| [#4838](https://github.com/openova-io/openova/issues/4838) | Flaky TestSnapshot_HydrateStaleThenRelist — Factory.Stop() doesn't wait for sn | Other |
-| [#4841](https://github.com/openova-io/openova/issues/4841) | SSO walk flags on hw228: owner UserAccess CRs Failed/0-grants + stray ratelimit- | Other |
 | [#4843](https://github.com/openova-io/openova/issues/4843) | Edit-IaC editor seeds uncommittable YAML for any Blueprint whose live CR carries | Other |
 | [#4845](https://github.com/openova-io/openova/issues/4845) | Jobs Re-run 502s for aggregate/operator-managed reconcilers (trivy scan) — ret | Other |
 | [#4846](https://github.com/openova-io/openova/issues/4846) | Cross-region DR broken: shared-pg NetworkPolicies don't allow ClusterMesh remote | Other |
@@ -275,12 +271,9 @@ flowchart LR
 | [#4879](https://github.com/openova-io/openova/issues/4879) | openbao-snapshot-fetch (region-b secondary) NoSuchBucket — save writes region- | Other |
 | [#4881](https://github.com/openova-io/openova/issues/4881) | Blueprint Release CI fails for bp-self-sovereign-cutover 0.1.104 — stale cutov | Other |
 | [#4885](https://github.com/openova-io/openova/issues/4885) | Cutover hardening: 3 Pillar-5 defects block cutoverComplete on fresh 2-region pr | Other |
-| [#4886](https://github.com/openova-io/openova/issues/4886) | Per-app Topology DR tab doesn't surface live Continuum state for bootstrap-HelmR | Other |
 | [#4889](https://github.com/openova-io/openova/issues/4889) | Apps grid + AppDetail header show spine/bootstrap apps FAILED (source: Applicati | Other |
 | [#4896](https://github.com/openova-io/openova/issues/4896) | Catalog Edit-IaC YamlEditor Commit broken: dry-run 400 name-mismatch (metadata.n | Other |
-| [#4897](https://github.com/openova-io/openova/issues/4897) | Apps-grid topology badge missing for New-instance active-hot-standby apps (place | Other |
 | [#4901](https://github.com/openova-io/openova/issues/4901) | cnpg-pair Continuum doesn't surface standby-absent condition (health/lag stay gr | Other |
-| [#4902](https://github.com/openova-io/openova/issues/4902) | Application delete does not cascade-clean imperatively-created per-region HelmRe | Other |
 | [#4913](https://github.com/openova-io/openova/issues/4913) | Harbor front-door 404 (no HTTPRoute at gateway) despite bp-harbor HR Reconciled  | Other |
 | [#4914](https://github.com/openova-io/openova/issues/4914) | Weak voucher code not rejected on console BSS issue path (strength check missing | Other |
 | [#4915](https://github.com/openova-io/openova/issues/4915) | Region-b keycloak config-cli 401 on fresh 2-region prov — admin-pw divergence  | Other |
@@ -289,17 +282,6 @@ flowchart LR
 | [#4921](https://github.com/openova-io/openova/issues/4921) | Per-Org cilium-gateway-console Programmed=False AddressNotAssigned → all per-O | Other |
 | [#4922](https://github.com/openova-io/openova/issues/4922) | bp-agenity:0.9.7 malformed OCI chart artifact (1 descriptor, needs 2) → pull e | Other |
 | [#4923](https://github.com/openova-io/openova/issues/4923) | DR replication-status endpoint returns SYNTHESIZED Hetzner placeholder, not live | Other |
-| [#4930](https://github.com/openova-io/openova/issues/4930) | DR switchover-history/quorum/settings endpoints still render synthesized Hetzner | Other |
-| [#4932](https://github.com/openova-io/openova/issues/4932) | Flaky TestGetKubeconfig_ReadsFromPathPointer — phase1-watch goroutine writes i | Other |
-| [#4934](https://github.com/openova-io/openova/issues/4934) | Flaky handler test: leaked post-handover goroutines outlive phase1-watch, race t | Other |
-| [#4936](https://github.com/openova-io/openova/issues/4936) | bp-wordpress-tenant@0.4.20: per-Org WordPress never serves — dialog omits orgD | Other |
-| [#4937](https://github.com/openova-io/openova/issues/4937) | Customer self-service app install fails 403 — marketplace HS256 member session | Other |
-| [#4942](https://github.com/openova-io/openova/issues/4942) | Cross-region host-network→remote-pod black-holed on Huawei VPC (residual #4656 | Other |
-| [#4950](https://github.com/openova-io/openova/issues/4950) | G10 placement Edit-Apply STILL 400 'placement.mode is required' despite #4840 fo | Other |
-| [#4951](https://github.com/openova-io/openova/issues/4951) | Per-Org WordPress never serves externally: bp-wordpress-tenant@0.4.21 oidc-confi | Other |
-| [#4952](https://github.com/openova-io/openova/issues/4952) | bp-openclaw@0.2.16 per-Org install fails: namespaces 'org-example' not found (ha | Other |
-| [#4955](https://github.com/openova-io/openova/issues/4955) | fix(cutover): step-03 harbor-prewarm FATALs on openova-io images pinned by tag@d | Other |
-| [#4956](https://github.com/openova-io/openova/issues/4956) | Funnel checkout launches Org with failed/skipped billing settlement and no purch | Other |
 
 ---
 
