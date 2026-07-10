@@ -362,8 +362,39 @@ data:
             rm -rf "${cpdir}"; mkdir -p "${cpdir}"
             echo "[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}"
 
+            # #4955 (Refs #3379): normalize a `name:tag@sha256:...` reference to
+            # digest-only (`name@sha256:...`) before handing it to skopeo.
+            # `skopeo copy docker://name:tag@digest` FATALs with "Docker
+            # references with both a tag and digest are currently not supported",
+            # which fail-closed the WHOLE step on the first openova-io image ever
+            # pinned by BOTH a tag and a digest (`wordpress-tenant-pg` from
+            # bp-wordpress-tenant — live hw235 a3818d29c833ab1e, push_ok=31
+            # push_fail=1 → cutover never reached step-04+). The digest is
+            # authoritative + immutable and is exactly what containerd pulls by
+            # for an `image:tag@digest` pod ref, so dropping the tag preserves the
+            # post-pivot pull (the manifest lands in Harbor addressable by digest).
+            # Tag-only and digest-only refs pass through unchanged. Only the FINAL
+            # path segment's tag is stripped, so a `host:port/...` registry ref is
+            # left intact.
+            normalize_ref() {
+              _nr="$1"
+              case "${_nr}" in
+                *@*)
+                  _nr_digest="${_nr##*@}"   # sha256:...
+                  _nr_name="${_nr%@*}"      # name[:tag]
+                  case "${_nr_name##*/}" in
+                    *:*) _nr_name="${_nr_name%:*}" ;;  # strip tag from last path segment
+                  esac
+                  printf '%s@%s' "${_nr_name}" "${_nr_digest}"
+                  ;;
+                *)
+                  printf '%s' "${_nr}"
+                  ;;
+              esac
+            }
+
             copy_one() {
-              up="$1"
+              up=$(normalize_ref "$1")
               # Convert ghcr.io/X/Y:tag → HARBOR_HOST/X/Y:tag
               # (drop ghcr.io/ prefix, keep rest identical)
               lref="${HARBOR_HOST}/${up#ghcr.io/}"
