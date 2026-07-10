@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T01:15:01Z` |
+| Last refreshed | `2026-07-10T01:30:12Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 99 |
+| Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 99 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,11 +196,10 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 99 open items (clickable table)
+### All 100 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns a durable, revert-immune cutoverComplete=true under a | Other |
 | [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (targets[] · Primary/Standby·Hot/Cold · c | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity North Star (chat→provision, Pillar 4): mechanism merged+wired — B | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — DR/spine half LIVE-Healthy (spine Applica | Other |
@@ -299,6 +298,8 @@ flowchart LR
 | [#4950](https://github.com/openova-io/openova/issues/4950) | G10 placement Edit-Apply STILL 400 'placement.mode is required' despite #4840 fo | Other |
 | [#4951](https://github.com/openova-io/openova/issues/4951) | Per-Org WordPress never serves externally: bp-wordpress-tenant@0.4.21 oidc-confi | Other |
 | [#4952](https://github.com/openova-io/openova/issues/4952) | bp-openclaw@0.2.16 per-Org install fails: namespaces 'org-example' not found (ha | Other |
+| [#4955](https://github.com/openova-io/openova/issues/4955) | fix(cutover): step-03 harbor-prewarm FATALs on openova-io images pinned by tag@d | Other |
+| [#4956](https://github.com/openova-io/openova/issues/4956) | Funnel checkout launches Org with failed/skipped billing settlement and no purch | Other |
 
 ---
 
@@ -306,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T01:29 | [#4954](https://github.com/openova-io/openova/pull/4954) | #4951 | fix(#4951): right-size per-Org WordPress footprint so oidc-c |
+| 2026-07-10T01:25 | [#4953](https://github.com/openova-io/openova/pull/4953) | #4952 | fix(bp-openclaw): per-Org install targets the release namesp |
 | 2026-07-10T00:48 | [#4949](https://github.com/openova-io/openova/pull/4949) | #4632 | test(bp-self-sovereign-cutover): regression guard for auto-t |
 | 2026-07-10T00:22 | [#4948](https://github.com/openova-io/openova/pull/4948) | #4902 | fix(#4902): cascade-delete host-flux GitRepository + Kustomi |
 | 2026-07-10T00:11 | [#4947](https://github.com/openova-io/openova/pull/4947) | #4821 | fix(#4821): tenant console_host honours Sovereign apps pool, |
@@ -334,8 +337,6 @@ flowchart LR
 | 2026-07-09T13:55 | [#4909](https://github.com/openova-io/openova/pull/4909) | #4872 | fix(#4872): project-wide OBS-bucket orphan sweep so wiped pr |
 | 2026-07-09T14:10 | [#4908](https://github.com/openova-io/openova/pull/4908) | #4862 | fix(#4860): map apiserver Forbidden to 403 in Blueprint Edit |
 | 2026-07-09T13:23 | [#4907](https://github.com/openova-io/openova/pull/4907) | #4765 | docs(cilium): retire stale clustermesh NodePort-32379 commen |
-| 2026-07-09T13:19 | [#4906](https://github.com/openova-io/openova/pull/4906) | #3998 | fix(#4820): cloud-list kind aliases hijack HTTPRoutes/Networ |
-| 2026-07-09T13:23 | [#4905](https://github.com/openova-io/openova/pull/4905) | #4901 | fix(#4901): surface cnpg-pair Continuum standby-absent condi |
 
 ---
 
