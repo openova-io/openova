@@ -5058,7 +5058,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.112"
+    version: "0.1.113"
   topology:
     supported:
       - singleton

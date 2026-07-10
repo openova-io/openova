@@ -1,5 +1,29 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.113 (#4975 Refs #3379 #3695): step-08 fresh-pull classifier no longer
+# MISREADS a Recreate-strategy slow-init workload as a mothership tether. Live
+# hw238 step-08 deny-egress roll FAILED `gitea did not roll out within 240s
+# (PodInitializing x4)` even though gitea pulled its image from the LOCAL
+# registry fine — bp-gitea sets strategy.type=Recreate (#3188, RWO-PVC/LevelDB
+# lock safety), so its roll tears the OLD Pod down FIRST → readyReplicas is
+# transiently 0 (the #4674 serving-check can't fire, no old Pod serving) → the
+# new Pod sits PodInitializing running its embedded init/DB-migration. The
+# #4674 carve-out only covered RollingUpdate leader-election singletons
+# (readyReplicas>=1); a Recreate single-replica stateful workload fell through
+# to the strict FAIL. roll_and_check_workload now adds a #4975 carve-out: after
+# the (untouched) strict ImagePullBackOff/ErrImagePull check, if a new-revision
+# Pod (updatedReplicas>=1) has POSITIVELY started a container (init/main in
+# running/terminated state → image PROVEN pulled from local registry under
+# deny-egress), the fresh-pull proof PASSES; a slow readiness is judged by the
+# survival-window HR poll, not this roll. Security-preserving: a real image-pull
+# tether still shows ImagePullBackOff → strict FAIL, and a Pod stuck Pending
+# with no started container has no evidence → strict FAIL. The continuum-
+# controller residual of #4975 was ALREADY closed on main — bp-continuum's
+# templates/_helpers.tpl `continuum.image` honours global.imageRegistry (since
+# #1101) and bp-continuum is already in imageRegistryPivot.additionalHRs
+# (#4885/#4888) — so no chart change is needed for it. No step-count / job-mode
+# / RBAC change (still 11 steps). Slot-06a pin + blueprint.yaml + catalog-seed
+# source.version move to 0.1.113 in lockstep (Inviolable Principle #13).
 # 0.1.112 (#4969 Refs #4967 #3379): REPUBLISH of the 0.1.111 payload — no chart
 # behavior change. 0.1.111's release FAILED at "Run chart integration tests" so
 # it never published to GHCR while slot-06a already pinned it → a fresh prov
@@ -1661,7 +1685,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.112
+version: 0.1.113
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
