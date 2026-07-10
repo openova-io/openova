@@ -14,18 +14,33 @@ import (
 
 // Tenant represents an organization on the platform.
 type Tenant struct {
-	ID            string    `bson:"_id" json:"id"`
-	Slug          string    `bson:"slug" json:"slug"`
-	Name          string    `bson:"name" json:"name"`
-	OrgType       string    `bson:"org_type" json:"org_type"`
-	Industry      string    `bson:"industry" json:"industry"`
-	OwnerID       string    `bson:"owner_id" json:"owner_id"`
-	PlanID        string    `bson:"plan_id" json:"plan_id"`
-	Apps          []string  `bson:"apps" json:"apps"`
+	ID       string `bson:"_id" json:"id"`
+	Slug     string `bson:"slug" json:"slug"`
+	Name     string `bson:"name" json:"name"`
+	OrgType  string `bson:"org_type" json:"org_type"`
+	Industry string `bson:"industry" json:"industry"`
+	OwnerID  string `bson:"owner_id" json:"owner_id"`
+	// OwnerEmail is the owner's email captured at CreateOrg from the caller's
+	// JWT claim. It is persisted so the DEFERRED-launch path (#4956) can emit
+	// the `tenant.created` event — which the provisioning consumer requires an
+	// owner_email on to mint the Organization CR — long after the original HTTP
+	// request's claims are gone (the launch is triggered server-to-server by
+	// billing on settlement, with no user context). Empty on legacy records /
+	// callers whose JWT lacked the claim (the immediate path still derives it
+	// from claims inline).
+	OwnerEmail string   `bson:"owner_email,omitempty" json:"owner_email,omitempty"`
+	PlanID     string   `bson:"plan_id" json:"plan_id"`
+	Apps       []string `bson:"apps" json:"apps"`
+	// Agents carries the Sandbox coding-agent picks from the marketplace
+	// AppDetail surface. Persisted (#4956) so the deferred-launch path can emit
+	// `tenant.sandbox_requested` with the chosen catalogue on settlement — the
+	// request-body Agents list is otherwise gone by launch time. Only acted on
+	// when Apps contains "sandbox". Tolerated empty.
+	Agents []string `bson:"agents,omitempty" json:"agents,omitempty"`
 	// AppStates tracks per-app lifecycle (keyed by app ID). Values:
 	// "installing" | "uninstalling" | "failed". Absent means the app is in
 	// its steady state (installed when the ID is in Apps; gone otherwise).
-	AppStates     map[string]string `bson:"app_states,omitempty" json:"app_states,omitempty"`
+	AppStates map[string]string `bson:"app_states,omitempty" json:"app_states,omitempty"`
 	// AppConfigs carries per-instance configSchema values chosen by
 	// the customer on the marketplace AppDetail surface, keyed by app
 	// SLUG (e.g. "postgres" or "wordpress"). The inner map keys are
@@ -39,9 +54,9 @@ type Tenant struct {
 	// TBD-V26 (#2040) Path A/B decision; this field threads the
 	// SHAPE end-to-end so the binding lights up without a second
 	// upstream change.
-	AppConfigs    map[string]map[string]any `bson:"app_configs,omitempty" json:"app_configs,omitempty"`
-	AddOns        []string  `bson:"addons" json:"addons"`
-	Subdomain     string    `bson:"subdomain" json:"subdomain"`
+	AppConfigs map[string]map[string]any `bson:"app_configs,omitempty" json:"app_configs,omitempty"`
+	AddOns     []string                  `bson:"addons" json:"addons"`
+	Subdomain  string                    `bson:"subdomain" json:"subdomain"`
 	// ParentDomain — the org-pool parent apex the customer chose at the
 	// /addons step (e.g. "omani.works"). #4176/#4179: the per-Org console
 	// lives at `console.<subdomain>.<parent_domain>`. On a Sovereign whose
@@ -150,6 +165,27 @@ func (s *Store) UpdateTenantStatus(ctx context.Context, id, status string) error
 		return fmt.Errorf("store: tenant %s not found", id)
 	}
 	return nil
+}
+
+// TryTransitionTenantStatus atomically flips a tenant's status from `from` to
+// `to`, but ONLY if it currently equals `from`. It returns true iff the row was
+// matched-and-updated (i.e. this caller won the transition), false if the
+// tenant's status was not `from` (already transitioned by a concurrent caller,
+// or never in that state). This is the idempotency + race guard for the #4956
+// deferred launch: the settlement trigger flips `pending_payment → provisioning`
+// exactly once even if billing dispatches order.placed more than once (credit +
+// Stripe-retry), so the Org CR / cart-install fire a single time.
+func (s *Store) TryTransitionTenantStatus(ctx context.Context, id, from, to string) (bool, error) {
+	update := bson.D{{Key: "$set", Value: bson.D{
+		{Key: "status", Value: to},
+		{Key: "updated_at", Value: time.Now().UTC()},
+	}}}
+	res, err := s.tenants().UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: id}, {Key: "status", Value: from}}, update)
+	if err != nil {
+		return false, fmt.Errorf("store: transition tenant status %s (%s→%s): %w", id, from, to, err)
+	}
+	return res.ModifiedCount > 0, nil
 }
 
 // SetAppState sets AppStates[appID] = state on the given tenant.

@@ -300,6 +300,16 @@
           // Empty record when no app in the cart exposes a
           // configSchema (Ghost / Nextcloud / Sandbox today).
           app_configs: cart.appConfigs || {},
+          // #4956 — DEFER the Org launch until billing settles. The tenant
+          // service persists the Org shell (so billing can reference its id)
+          // but does NOT mint the Organization CR / dispatch the cart apps
+          // until /billing/checkout succeeds and calls the internal launch
+          // endpoint. This closes the funnel integrity gap where a checkout
+          // that 400'd on a bad voucher still left a provisioned Org with no
+          // purchased apps. The purchased app stack attaches on settlement
+          // (from the persisted cart), so it lands regardless of the re-nav
+          // path that previously skipped createTenant's inline dispatch.
+          defer_launch: true,
         });
         return { id: t.id, slug: t.slug || s, console_host: t.console_host };
       } catch (e: any) {

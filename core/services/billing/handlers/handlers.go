@@ -1186,6 +1186,52 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	if err := h.Producer.Publish(ctx, "org.order.events", evt); err != nil {
 		slog.Warn("dispatch order.placed", "error", err)
 	}
+
+	// #4956 — settlement gate. dispatchOrderPlaced is the SINGLE point both
+	// settlement paths (credit-only checkout AND the Stripe checkout.session
+	// .completed webhook) converge on, so this is where a funnel Org that was
+	// parked at `pending_payment` (defer_launch) is finally launched. Without
+	// this the marketplace funnel would never provision a paid Org, since on a
+	// Sovereign the order.placed event above is only a no-op observer. No-op for
+	// tenants that already launched immediately (non-funnel callers) — the
+	// endpoint is idempotent. This is the ONLY caller that can launch a deferred
+	// Org (the endpoint 401s externally), so a failed/abandoned checkout — which
+	// never reaches this function — leaves the Org un-provisioned.
+	h.launchTenant(tenantID)
+}
+
+// launchTenant asks the tenant service to launch a DEFERRED (pending_payment)
+// Org once its checkout has settled (#4956). Server-to-server POST to the
+// cluster-internal launch endpoint — the same in-cluster tenant URL + path
+// family lookupTenantSubdomain already uses. Best-effort with a short timeout:
+// a transient tenant-service blip logs loud (the paid Org would be left parked)
+// but does not fail the settlement, and the operator can re-drive via the
+// tenant's day-2 surface. Idempotent on the tenant side.
+func (h *Handler) launchTenant(tenantID string) {
+	if h.TenantURL == "" || tenantID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	url := h.TenantURL + "/tenant/internal/tenants/" + tenantID + "/launch"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		slog.Error("launchTenant: build request", "tenant_id", tenantID, "error", err)
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Error("launchTenant: tenant launch call failed — paid Org may be left parked at pending_payment (#4956)",
+			"tenant_id", tenantID, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		slog.Error("launchTenant: tenant launch non-200 — paid Org may be left parked at pending_payment (#4956)",
+			"tenant_id", tenantID, "status", resp.StatusCode)
+		return
+	}
+	slog.Info("launchTenant: settlement launch dispatched", "tenant_id", tenantID)
 }
 
 // lookupTenantAppConfigs fetches the tenant's per-app configSchema values

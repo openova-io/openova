@@ -517,6 +517,14 @@ export interface CreateTenantRequest {
   // round-trips on the `tenant.created` event payload — see
   // `tenant_created_wire_test.go`.
   app_configs?: Record<string, Record<string, number | string | boolean>>;
+  // #4956 — when true, the tenant-service persists the Org shell but does NOT
+  // fire the provisioning triggers (Organization CR, cart-install, sandbox).
+  // The Org stays `pending_payment` until billing settlement launches it, so a
+  // checkout that 400s (bad/unseeded voucher, declined card) can never leave a
+  // provisioned Org with no purchased apps behind. The funnel checkout sets
+  // this; omitting it preserves the immediate-launch behaviour for every other
+  // caller.
+  defer_launch?: boolean;
 }
 
 export interface Tenant {

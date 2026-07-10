@@ -164,6 +164,13 @@ func (h *Handler) callProvisioning(ctx context.Context, path string, payload any
 // Tenant CRUD
 // ---------------------------------------------------------------------------
 
+// statusPendingPayment is the state a DEFERRED-launch funnel Org sits in
+// between CreateOrg (shell persisted) and billing settlement (which calls the
+// internal launch endpoint). No provisioning triggers fire while a tenant is in
+// this state, so a checkout that 400s / is abandoned never leaves a provisioned
+// Org behind (#4956). The launch endpoint transitions it to "provisioning".
+const statusPendingPayment = "pending_payment"
+
 // CreateOrg creates a new organization for the authenticated user.
 func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(r.Context())
@@ -207,6 +214,16 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		// threads the SHAPE end-to-end so flipping the binding switch
 		// works without a second upstream change. Tolerated empty.
 		AppConfigs map[string]map[string]any `json:"app_configs"`
+		// DeferLaunch (#4956) — when true, CreateOrg persists the Org shell
+		// but does NOT fire the provisioning triggers (tenant.created →
+		// Organization CR, funnel cart-install, sandbox request). The Org
+		// stays `pending_payment` until billing settlement calls the internal
+		// launch endpoint. The marketplace funnel sets this so a checkout that
+		// 400s (bad/unseeded voucher, payment declined) can NEVER leave a
+		// provisioned Org behind — the integrity gap from the hw235 walk. All
+		// other callers (BSS door, direct API) omit it and keep launching
+		// immediately, so this change is inert for every non-funnel path.
+		DeferLaunch bool `json:"defer_launch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
@@ -265,19 +282,37 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 			"apps_parent_domain", parentDomain)
 	}
 
+	// Owner email is derived from the caller's JWT claim and persisted on the
+	// tenant so the DEFERRED-launch path (#4956) can emit tenant.created with a
+	// non-empty owner_email once billing settles — the launch is triggered
+	// server-to-server by billing, long after these request claims are gone.
+	claims, _ := middleware.ClaimsFromContext(r.Context())
+	ownerEmail, _ := claims["email"].(string)
+
+	// #4956 — a deferred (funnel) Org is parked at `pending_payment`; the
+	// provisioning triggers only fire once billing settlement calls the internal
+	// launch endpoint. Every non-funnel caller keeps the immediate
+	// "provisioning" status + inline launch below.
+	initialStatus := "provisioning"
+	if body.DeferLaunch {
+		initialStatus = statusPendingPayment
+	}
+
 	tenant := &store.Tenant{
 		Slug:         body.Slug,
 		Name:         body.Name,
 		OrgType:      body.OrgType,
 		Industry:     body.Industry,
 		OwnerID:      userID,
+		OwnerEmail:   ownerEmail,
 		PlanID:       body.PlanID,
 		Apps:         body.Apps,
+		Agents:       body.Agents,
 		AddOns:       body.AddOns,
 		AppConfigs:   body.AppConfigs,
 		Subdomain:    body.Slug,
 		ParentDomain: parentDomain,
-		Status:       "provisioning",
+		Status:       initialStatus,
 	}
 
 	if err := h.Store.CreateTenant(r.Context(), tenant); err != nil {
@@ -297,96 +332,17 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		// Tenant was created; don't fail the response, but log the error.
 	}
 
-	// Publish tenant.created event (non-blocking — don't let broker outage delay the response).
-	//
-	// Per TBD-C16 (#1722) we enrich the wire payload with the JWT-derived
-	// owner_email so the provisioning consumer can mint an Organization CR
-	// without a second round trip to the user store. The wrapper struct
-	// embeds *store.Tenant so every existing decoder (which decodes a flat
-	// Tenant) keeps working — owner_email is a sibling field, not a
-	// shape-breaking nesting. Empty when the caller's JWT lacks the claim
-	// (the org-create consumer falls back to publishing an error event
-	// rather than minting a half-populated Organization CR).
-	claims, _ := middleware.ClaimsFromContext(r.Context())
-	ownerEmail, _ := claims["email"].(string)
-	// #3687 (fold #3690/#3673): emit the ONE canonical
-	// events.TenantCreatedPayload — the same struct the provisioning
-	// consumer decodes into and the bootstrap-API funnel maps onto —
-	// instead of a per-service anonymous struct embedding *store.Tenant
-	// (which flattened a dozen unused fields onto the wire). Tier /
-	// BillingMode stay empty here (the Organization-pool wizard default);
-	// the consumer applies the canonical defaults (tier→"org",
-	// billing→"real"), so every door defaults identically.
-	//
-	// #4176/#4179: ParentDomain is now carried through — the provisioning
-	// consumer needs the chosen pool apex to create the per-Org
-	// `console.<slug>.<parent_domain>` PowerDNS record + HTTPRoute. Empty
-	// when the caller omitted it (single-domain Sovereign back-compat).
-	tenantCreatedPayload := events.NewTenantCreatedPayload(
-		tenant.ID, tenant.Slug, tenant.Name, tenant.OwnerID, ownerEmail,
-		tenant.PlanID, "", "", tenant.ParentDomain)
-	evt, err := events.NewEvent("tenant.created", "tenant-service", tenant.ID, tenantCreatedPayload)
-	if err == nil {
-		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer pubCancel()
-		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
-			slog.Error("failed to publish tenant.created event", "tenant_id", tenant.ID, "error", pubErr)
-		}
-	}
-
-	// #4360 funnel cart-placement (Refs #4272 #4307 #4322 #4179): the
-	// marketplace funnel persists the selected cart `Apps` on the Tenant +
-	// emits `tenant.created` (which mints ONLY the Organization CR — the
-	// org-controller renders the boundary ns + vCluster + network policies,
-	// but NO cart Applications). Without an explicit install dispatch the
-	// customer's purchased apps NEVER land in the per-Org gitops tree (the
-	// `vcluster/apps/` tree carried only networkpolicy.yaml) — the exact
-	// BSS-vs-funnel divergence #4179 catalogs, this time for cart placement
-	// (the BSS door's Step-6 renders the cart; the funnel door skipped it).
-	//
-	// Mirror the day-2 InstallApp path: for each deployable cart app, fire
-	// `tenant.app_install_requested` + the HTTP `/provisioning/apps/install`
-	// so the provisioning service renders the Applications into the per-Org
-	// gitops tree (same applyTenantChange → GenerateAllWithPassword path Flux
-	// reconciles once the org-controller boundary is up). Best-effort: a
-	// dispatch failure logs loud but does NOT fail Org creation (the shell is
-	// already minted; the day-2 page can re-install). `sandbox` is excluded
-	// here — it has its own `tenant.sandbox_requested` path below.
-	h.dispatchFunnelCartInstall(r.Context(), tenant)
-
-	// Wave 4 — Sandbox: when the cart contains the sandbox product,
-	// emit a sibling `tenant.sandbox_requested` event so the
-	// sandbox-controller (or its upstream orchestrator) can mint a
-	// Sandbox CR with `spec.agentCatalogue` matching the picks. The
-	// event carries enough to materialize the CR without re-reading
-	// the tenant doc: org slug + owner email + agent list. Subscriber
-	// is responsible for de-dup (sandbox CR name = sanitized email).
-	if containsSlug(body.Apps, "sandbox") {
-		sandboxPayload := map[string]any{
-			"tenant_id": tenant.ID,
-			"org_slug":  tenant.Slug,
-			"owner_id":  userID,
-			"agents":    body.Agents,
-			"sovereign": "", // populated by the consumer from its env / cluster context
-			// plan_id carries the customer-picked Sandbox tier
-			// (sandbox-free | sandbox-pro | sandbox-ent). The
-			// sandbox-orchestrator stamps it onto the Sandbox CR's
-			// openova.io/plan-id annotation so the controller can
-			// derive spec.quota from the catalog plan's
-			// IncludedQuotas. Empty plan_id falls through to the
-			// orchestrator's default quota (Wave 1 baseline) which
-			// matches sandbox-free, the safe-by-default tier.
-			"plan_id":      body.PlanID,
-			"requested_at": time.Now().UTC().Format(time.RFC3339),
-		}
-		sbEvt, sbErr := events.NewEvent("tenant.sandbox_requested", "tenant-service", tenant.ID, sandboxPayload)
-		if sbErr == nil {
-			pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer pubCancel()
-			if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", sbEvt); pubErr != nil {
-				slog.Error("failed to publish tenant.sandbox_requested event", "tenant_id", tenant.ID, "error", pubErr)
-			}
-		}
+	// #4956 — fire the provisioning triggers (tenant.created → Organization CR,
+	// funnel cart-install, sandbox request) INLINE only when the caller did NOT
+	// request a deferred launch. The marketplace funnel sets defer_launch=true
+	// so nothing provisions until billing settlement calls the internal launch
+	// endpoint; every non-funnel caller (BSS door, direct API) leaves it false
+	// and launches immediately, exactly as before.
+	if !body.DeferLaunch {
+		h.launchTenant(r.Context(), tenant)
+	} else {
+		slog.Info("CreateOrg: deferred launch — Org parked at pending_payment until billing settles (#4956)",
+			"tenant_id", tenant.ID, "slug", tenant.Slug, "apps", tenant.Apps)
 	}
 
 	// #4176/#4179: return the server-authoritative customer console host so
@@ -510,6 +466,133 @@ func (h *Handler) dispatchFunnelCartInstall(ctx context.Context, t *store.Tenant
 		slog.Info("funnel cart-install: dispatched cart app",
 			"tenant_id", t.ID, "slug", t.Subdomain, "app", slug)
 	}
+}
+
+// launchTenant fires the provisioning triggers for a tenant: the
+// `tenant.created` event (→ provisioning mints the Organization CR → the
+// org-controller renders the boundary ns + vCluster + network policies), the
+// funnel cart-install (→ the customer's purchased Applications land in the
+// per-Org gitops tree), and the Sandbox request (when the cart holds sandbox).
+//
+// #4956 — this is the SINGLE place the funnel Org is provisioned. On the
+// immediate path (defer_launch=false) CreateOrg calls it inline; on the
+// deferred path it is called by InternalLaunchTenant ONLY after billing
+// settlement, so a checkout that 400s / is abandoned can never leave a
+// provisioned Org behind. owner_email + agents are read off the persisted
+// tenant (not the request), so the deferred call — which runs server-to-server
+// with no user context — still emits a complete tenant.created / sandbox
+// request. Best-effort + non-blocking: broker outages log loud but never fail
+// the caller (the Org shell already exists; the day-2 page / redelivery
+// recover).
+func (h *Handler) launchTenant(ctx context.Context, t *store.Tenant) {
+	if t == nil {
+		return
+	}
+	// #3687 (fold #3690/#3673): emit the ONE canonical
+	// events.TenantCreatedPayload — the same struct the provisioning consumer
+	// decodes into and the bootstrap-API funnel maps onto. Tier / BillingMode
+	// stay empty here (the Organization-pool wizard default); the consumer
+	// applies the canonical defaults (tier→"org", billing→"real").
+	//
+	// #4176/#4179: ParentDomain is carried through so the provisioning consumer
+	// can create the per-Org `console.<slug>.<parent_domain>` record + HTTPRoute.
+	tenantCreatedPayload := events.NewTenantCreatedPayload(
+		t.ID, t.Slug, t.Name, t.OwnerID, t.OwnerEmail,
+		t.PlanID, "", "", t.ParentDomain)
+	if evt, err := events.NewEvent("tenant.created", "tenant-service", t.ID, tenantCreatedPayload); err == nil {
+		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
+			slog.Error("failed to publish tenant.created event", "tenant_id", t.ID, "error", pubErr)
+		}
+		pubCancel()
+	}
+
+	// Funnel cart-placement (#4360): render each deployable cart app into the
+	// per-Org gitops tree. Absent here, the customer's purchased apps never land
+	// (the vcluster/apps tree carried only networkpolicy.yaml).
+	h.dispatchFunnelCartInstall(ctx, t)
+
+	// Wave 4 — Sandbox: when the cart contains the sandbox product, emit
+	// `tenant.sandbox_requested` so the sandbox-orchestrator can mint a Sandbox
+	// CR with `spec.agentCatalogue` matching the persisted picks (t.Agents).
+	if containsSlug(t.Apps, "sandbox") {
+		sandboxPayload := map[string]any{
+			"tenant_id":    t.ID,
+			"org_slug":     t.Slug,
+			"owner_id":     t.OwnerID,
+			"agents":       t.Agents,
+			"sovereign":    "", // populated by the consumer from its env / cluster context
+			"plan_id":      t.PlanID,
+			"requested_at": time.Now().UTC().Format(time.RFC3339),
+		}
+		if sbEvt, sbErr := events.NewEvent("tenant.sandbox_requested", "tenant-service", t.ID, sandboxPayload); sbErr == nil {
+			pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", sbEvt); pubErr != nil {
+				slog.Error("failed to publish tenant.sandbox_requested event", "tenant_id", t.ID, "error", pubErr)
+			}
+			pubCancel()
+		}
+	}
+}
+
+// InternalLaunchTenant transitions a DEFERRED (pending_payment) Org to
+// provisioning and fires its launch — the settlement gate for #4956. It is
+// called SERVER-TO-SERVER by the billing service from dispatchOrderPlaced once a
+// checkout settles (credit-only OR Stripe webhook), so an Org launches iff its
+// order was actually placed.
+//
+// Security: this lives under `/tenant/internal/*`, which both edge gateways 401
+// externally (see main.go's JWT-bypass note) — it is reachable only by
+// in-cluster callers, never the browser. So the customer CANNOT self-launch to
+// skip payment; only billing (post-settlement) can.
+//
+// Idempotent + race-safe: the pending_payment→provisioning transition is a
+// conditional atomic store update, so repeated settlement dispatches (credit +
+// Stripe retry) launch exactly once. A tenant already past pending_payment
+// (immediate-launch caller, or a second settlement) is a benign 200 no-op. The
+// downstream tenant.created (409 AlreadyExists) + cart-install (idempotency-key)
+// dedups are the defence-in-depth backstop.
+func (h *Handler) InternalLaunchTenant(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respond.Error(w, http.StatusBadRequest, "tenant id is required")
+		return
+	}
+	t, err := h.Store.GetTenant(r.Context(), id)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "failed to fetch tenant")
+		return
+	}
+	if t == nil {
+		respond.Error(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+
+	// Only a pending_payment Org is launchable here. Win the atomic transition
+	// before firing the triggers so a concurrent settlement dispatch can't
+	// double-launch.
+	won, err := h.Store.TryTransitionTenantStatus(r.Context(), id, statusPendingPayment, "provisioning")
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "failed to transition tenant status")
+		return
+	}
+	if !won {
+		// Already launched (immediate caller or a prior settlement) — benign.
+		slog.Info("internal launch: tenant not in pending_payment — no-op",
+			"tenant_id", id, "status", t.Status)
+		respond.JSON(w, http.StatusOK, map[string]any{
+			"id": id, "launched": false, "status": t.Status,
+		})
+		return
+	}
+
+	t.Status = "provisioning"
+	slog.Info("internal launch: billing settlement — launching deferred Org (#4956)",
+		"tenant_id", id, "slug", t.Slug, "apps", t.Apps)
+	h.launchTenant(r.Context(), t)
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"id": id, "launched": true, "status": "provisioning",
+	})
 }
 
 // resolveOrgParentDomain picks the org-pool parent zone the Tenant's
