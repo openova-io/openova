@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-10T00:15:03Z` |
+| Last refreshed | `2026-07-10T00:30:11Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 96 |
 | Open DoD gates | 0 / 41 |
@@ -303,6 +303,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-10T00:22 | [#4948](https://github.com/openova-io/openova/pull/4948) | #4902 | fix(#4902): cascade-delete host-flux GitRepository + Kustomi |
 | 2026-07-10T00:11 | [#4947](https://github.com/openova-io/openova/pull/4947) | #4821 | fix(#4821): tenant console_host honours Sovereign apps pool, |
 | 2026-07-10T00:05 | [#4946](https://github.com/openova-io/openova/pull/4946) | #4339 | fix(org-controller): tier-honest Org Ready message — no fals |
 | 2026-07-09T23:18 | [#4944](https://github.com/openova-io/openova/pull/4944) | #4758 | test(provisioning): lock the no-duplicate per-Org apps Kusto |
@@ -332,7 +333,6 @@ flowchart LR
 | 2026-07-09T13:19 | [#4906](https://github.com/openova-io/openova/pull/4906) | #3998 | fix(#4820): cloud-list kind aliases hijack HTTPRoutes/Networ |
 | 2026-07-09T13:23 | [#4905](https://github.com/openova-io/openova/pull/4905) | #4901 | fix(#4901): surface cnpg-pair Continuum standby-absent condi |
 | 2026-07-09T13:23 | [#4904](https://github.com/openova-io/openova/pull/4904) | #4573 | fix(#4885): step-06 pivots per-Org tenant HelmRepositories a |
-| 2026-07-09T13:23 | [#4903](https://github.com/openova-io/openova/pull/4903) | #4897 | fix(#4902): cascade-delete fan-out per-region HelmReleases o |
 
 ---
 
