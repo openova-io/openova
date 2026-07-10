@@ -96,7 +96,23 @@ name: bp-huawei-evs-csi
 # otherwise). New global.imageRegistry:"" seam. The six CSI sidecar images are
 # public harbor.openova.io proxy-k8s mirrors (3rd-party) and are NOT rewritten.
 # Lockstep: 55b-bp-huawei-evs-csi.yaml pin + blueprint.yaml → 1.0.8. Refs #4885.
-version: 1.0.8
+# 1.0.9 (#4973 Refs #3379): ALSO honour global.imageRegistry for the six
+# sig-storage CSI sidecar images. 1.0.8 pivoted only the openova-io driver; the
+# sidecars stayed on harbor.openova.io/proxy-k8s/*, the MOTHERSHIP Harbor. The
+# self-sovereign-cutover step-08 deny-egress hold blocks harbor.openova.io, so a
+# controller/node roll under the hold could not pull the sidecars → the EVS
+# attach/provision path broke on any pod restart (residual mothership tether,
+# found live on hw237 step-08). New templates/_helpers.tpl sidecarImage helper
+# host-swaps the leading registry host for global.imageRegistry (same logic as
+# driverImage), preserving the proxy-k8s/sig-storage/<name> path + tag verbatim
+# (→ registry.<sovereign-fqdn>/proxy-k8s/sig-storage/*, the LOCAL Harbor's own
+# proxy-k8s cache). Empty default = byte-identical pre-cutover render. Applied to
+# all sidecar refs in controller-deployment.yaml + node-daemonset.yaml.
+# bp-huawei-evs-csi is ALREADY in the cutover imageRegistryPivot.additionalHRs
+# set (#4885/#4892), so the HR's global.imageRegistry is already patched at
+# cutover — this chart-templating change alone completes the fix. Lockstep:
+# 55b-bp-huawei-evs-csi.yaml pin + blueprint.yaml → 1.0.9. Refs #4973 #3379.
+version: 1.0.9
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable

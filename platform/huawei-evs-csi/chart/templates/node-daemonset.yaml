@@ -58,7 +58,9 @@ spec:
         - operator: Exists
       containers:
         - name: evs-driver-registrar
-          image: "{{ $img.sidecars.nodeDriverRegistrar.repository }}:{{ $img.sidecars.nodeDriverRegistrar.tag }}"
+          # #4973: honour global.imageRegistry so step-07 cutover pivot reaches
+          # the sidecar too (post-cutover deny-egress blocks harbor.openova.io).
+          image: "{{ include "bp-huawei-evs-csi.sidecarImage" (dict "repository" $img.sidecars.nodeDriverRegistrar.repository "tag" $img.sidecars.nodeDriverRegistrar.tag "global" .Values.global) }}"
           imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
           args:
             - "--v=2"
@@ -83,7 +85,8 @@ spec:
             capabilities: { drop: [ALL] }
             seccompProfile: { type: RuntimeDefault }
         - name: liveness-probe
-          image: "{{ $img.sidecars.livenessProbe.repository }}:{{ $img.sidecars.livenessProbe.tag }}"
+          # #4973: honour global.imageRegistry (see evs-driver-registrar above).
+          image: "{{ include "bp-huawei-evs-csi.sidecarImage" (dict "repository" $img.sidecars.livenessProbe.repository "tag" $img.sidecars.livenessProbe.tag "global" .Values.global) }}"
           imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
           args:
             - "--csi-address=/csi/csi.sock"
