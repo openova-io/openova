@@ -884,9 +884,11 @@ func generateHostIngress(ns, slug string, appSlugs []string) string {
 	//
 	// Observed live on tenant emrah5: ingress paths pointed at
 	// wordpress-x-apps-x-vcluster → 404. Actual service name was
-	// wordpress-x-tenant-emrah5-x-vcluster. Issue #117.
+	// wordpress-x-tenant-emrah5-x-vcluster. Issue #117. Delegates to the ONE
+	// canonical synced-name derivation (hostSyncedServiceName) the #4993
+	// host-native app route also uses, so the two stay in lockstep.
 	syncedName := func(app string) string {
-		return fmt.Sprintf("%s-x-%s-x-vcluster", app, ns)
+		return hostSyncedServiceName(app, ns)
 	}
 
 	var paths string
@@ -2071,6 +2073,77 @@ spec:
 `, appSlug, ns, appSlug, slug,
 		appsGatewayName, appsGatewayNamespace,
 		host, appSlug)
+}
+
+// hostSyncedServiceName is the name the vCluster syncer reflects an in-vcluster
+// Service to on the HOST cluster: `<svc>-x-<host-ns>-x-vcluster`. The host ns is
+// the org-controller-owned `<slug>` boundary (the apps Kustomization's
+// targetNamespace), so a WordPress Service authored inside the vcluster surfaces
+// host-side as `wordpress-x-<slug>-x-vcluster`. Live-confirmed on hw240 acme:
+// `wordpress-x-acme-x-vcluster`. Kept in lockstep with generateHostIngress's
+// inline `syncedName` (issue #117) — the ONE canonical synced-name derivation.
+func hostSyncedServiceName(appSlug, hostNS string) string {
+	return fmt.Sprintf("%s-x-%s-x-vcluster", appSlug, hostNS)
+}
+
+// generateHostNativeAppRoute emits a HOST-NATIVE Gateway-API HTTPRoute (in the
+// host `<slug>` ns) that routes a VCLUSTER-tier app's public host
+// (`<app>.<slug>.<parentDomain>`) to the SYNCED Service the vcluster syncer
+// reflects host-side (`<app>-x-<slug>-x-vcluster:80`).
+//
+// #4993 — the DURABLE FIX for the vcluster-tier 404. generateAppHTTPRoute
+// co-locates the app's HTTPRoute with the Deployment+Service INSIDE the Org
+// vcluster (the apps tree is kubeConfig-targeted into the vcluster for paid M+
+// tiers). That in-vcluster route was expected to reach the host via
+// `sync.toHost.customResources.httproutes`, but loft vcluster 0.33.4 registers
+// NO httproute reflecting controller (only the CRD import + a quota evaluator —
+// proven live on hw240: `vcluster-0 -c syncer` logs "Created service/…/networkpolicy
+// syncer" but never "Created httproute syncer"), so the route never reaches the
+// host Cilium Gateway and the app 404s even with pods Running. This host-native
+// route lives in the ALWAYS-host-applied `vcluster/host-apps/` tree (like the
+// org-controller CNP) and binds the SYNCED Service directly on the host — the
+// SAME host-native model the per-Org console route already uses (tenant_route.go,
+// `catalyst-ui-console-<slug>-…` in catalyst-system), never relying on vcluster
+// sync. Live-proven shape on hw240 acme (`app-wordpress-hostnative-4991proof`:
+// Accepted+ResolvedRefs, serves 200/302 at wordpress.acme.omani.homes).
+//
+// Parents to the dedicated console Gateway (appsGatewayName/appsGatewayNamespace)
+// whose `*.<pool>` wildcard TLS listener terminates TLS — no per-host cert. The
+// gateway→pod reserved-entity hop is admitted namespace-wide by the
+// org-controller's ciliumNetworkPolicyTemplate (endpointSelector:{},
+// fromEntities:[ingress,host,remote-node]) on `<slug>`, so no per-app CNP is
+// needed. Emitted ONLY for the vcluster tier — the host tier (free/S) runs the
+// app + its plain Service in the host `<slug>` ns directly, where the co-located
+// generateAppHTTPRoute already routes and no synced name exists.
+func generateHostNativeAppRoute(hostNS, slug, appSlug, parentDomain string) string {
+	host := fmt.Sprintf("%s.%s.%s", appSlug, slug, parentDomain)
+	synced := hostSyncedServiceName(appSlug, hostNS)
+	return fmt.Sprintf(`apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app-%s-hostroute
+  namespace: %s
+  labels:
+    app: %s
+    openova.io/tenant: "%s"
+    catalyst.openova.io/component: per-org-app-hostroute
+spec:
+  parentRefs:
+    - name: %s
+      namespace: %s
+  hostnames:
+    - %s
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: %s
+          port: 80
+`, appSlug, hostNS, appSlug, slug,
+		appsGatewayName, appsGatewayNamespace,
+		host, synced)
 }
 
 // generateProvisioningTenantRBAC emits a Role + RoleBinding that gives the
