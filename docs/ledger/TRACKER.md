@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T17:15:02Z` |
+| Last refreshed | `2026-07-11T17:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 89 |
 | Open DoD gates | 0 / 41 |
@@ -296,6 +296,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T17:15 | [#5008](https://github.com/openova-io/openova/pull/5008) | #5007 | fix(#5007): cutover pins registry.<fqdn> on nodes + pdm reap |
 | 2026-07-11T16:11 | [#5006](https://github.com/openova-io/openova/pull/5006) | #3668 | docs(uat): hw241 catalog 126/128/131/133/134 ✅ (67%) |
 | 2026-07-11T15:55 | [#5005](https://github.com/openova-io/openova/pull/5005) | #4896 | docs(uat): hw241 operator-console re-walk — 29 rows ✅ (65% g |
 | 2026-07-11T15:06 | [#5004](https://github.com/openova-io/openova/pull/5004) | #5003 | fix(#5003): per-Org vcluster HelmRelease self-heals cold Har |
@@ -325,7 +326,6 @@ flowchart LR
 | 2026-07-10T01:36 | [#4959](https://github.com/openova-io/openova/pull/4959) | #4956 | fix(#4956): gate funnel Org launch on billing settlement + a |
 | 2026-07-10T01:40 | [#4958](https://github.com/openova-io/openova/pull/4958) | #4840 | fix(#4950): keep placement.targets[] through decode so conso |
 | 2026-07-10T01:35 | [#4957](https://github.com/openova-io/openova/pull/4957) | #4955 | fix(#4955 Refs #3379): cutover step-03 harbor-prewarm handle |
-| 2026-07-10T01:29 | [#4954](https://github.com/openova-io/openova/pull/4954) | #4951 | fix(#4951): right-size per-Org WordPress footprint so oidc-c |
 
 ---
 
