@@ -575,6 +575,26 @@ prewarm:
   # trust store may set this true via overlay; default false is the correct
   # fresh-prov behaviour.
   destTLSVerify: false
+  # #4982 (Refs #3379) — settled-roll pre-flight. step-03 harbor-prewarm mirrors
+  # the RUNNING / declared-template image tags. If any HelmRelease or
+  # Deployment/StatefulSet is MID-ROLL when the mirror is built (a bootstrap-kit
+  # pin bumped but not yet reconciled, or an in-flight helm upgrade), running !=
+  # desired: the cutover then rolls those workloads (registry-pivot step-04 /
+  # catalyst-api env-patch step-07) to the DESIRED chart-pinned tags that were
+  # never mirrored → step-06 readiness sample + step-08 pre-hold completeness HEAD
+  # 404 on the un-mirrored desired tag (live hw239: umbrella bp-catalyst-platform
+  # running 1.4.1086 but pin 1.4.1088; catalyst-api/ui running :3412183 but desired
+  # :00b6cfe). Once step-05 pivots Flux to the local Gitea the GitRepository
+  # freezes at the cutover-start sha, so the workloads can never roll to the
+  # desired tag during the cutover — a running != mirrored deadlock the deny-egress
+  # hold then trips on. This gate (Phase A0) REFUSES to build the mirror on an
+  # unsettled host cluster — still PRE-PIVOT, nothing destructive has run — and
+  # names every offender so the operator waits for the roll to settle and
+  # re-triggers. The "settled-roll pre-flight" STONE principle. Default true; set
+  # false ONLY as an emergency override on an env you have manually confirmed
+  # settled.
+  settledRollPreflight:
+    enabled: true
   # #4975 (Refs #3379 #3695) — RETIRED. This hand-maintained 11-image HEAD list
   # (the old Phase B "warm the proxy-cache" pass) was one of the three drifting
   # lists that caused the per-prov whack-a-mole: any upstream image a chart added

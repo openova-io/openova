@@ -158,6 +158,18 @@ data:
             value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
           - name: MOTHERSHIP_HOST
             value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
+          # #4982 (Refs #3379) — settled-roll pre-flight toggle. When true
+          # (default) Phase A0 REFUSES to build the mirror while any HelmRelease
+          # or Deployment/StatefulSet on the host cluster is mid-roll, so the
+          # mirror can never capture running tags the cutover then rolls away
+          # from (running != desired → step-06/step-08 404 under the deny-egress
+          # hold). Set false only as an emergency override on a manually
+          # confirmed-settled env.
+          # NB: no `| default true` — Sprig `default` treats bool false as empty
+          # (`false | default true` → true), which would silently break the
+          # disable override. The key is always present in values.yaml.
+          - name: SETTLED_ROLL_PREFLIGHT
+            value: {{ .Values.prewarm.settledRollPreflight.enabled | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -206,6 +218,73 @@ data:
               echo "[harbor-prewarm] FATAL: kubectl missing from image"
               exit 1
             fi
+
+            # ─── Phase A0: settled-roll pre-flight (#4982, Refs #3379) ─────────
+            # harbor-prewarm mirrors the RUNNING / declared-template image tags
+            # (Phase A below). If any HelmRelease or Deployment/StatefulSet on the
+            # HOST cluster is MID-ROLL — a bootstrap-kit pin bumped but not yet
+            # reconciled, or an in-flight helm upgrade — then running != desired:
+            # the cutover would later roll those workloads (registry-pivot step-04
+            # / catalyst-api env-patch step-07) to the DESIRED chart-pinned tags
+            # that were NEVER mirrored here, and step-06's readiness sample +
+            # step-08's pre-hold completeness HEAD 404 on the un-mirrored desired
+            # tag (live hw239, dep f5fa3f08d8c3234f: umbrella HR bp-catalyst-platform
+            # running 1.4.1086 but pin 1.4.1088; catalyst-api/ui running :3412183
+            # but desired :00b6cfe — harbor-prewarm mirrored the running side of
+            # the drift). Once step-05 pivots Flux to the local Gitea the
+            # GitRepository freezes at the cutover-start sha, so the workloads can
+            # NEVER roll to the desired tag during the cutover — a running !=
+            # mirrored deadlock the deny-egress hold then trips on. REFUSE to build
+            # the mirror on an unsettled env (still PRE-PIVOT: steps 01/02 only
+            # mirrored git + created Harbor projects, both idempotent — nothing
+            # destructive has run), naming every offender so the operator waits for
+            # the roll to settle and re-triggers. The "settled-roll pre-flight"
+            # STONE principle. The complementary durable fix — mirror the DESIRED
+            # chart-pinned tags, not just running — is the #4982 follow-up (needs
+            # rendering the desired chart version off each HelmRelease spec); this
+            # gate prevents the whole class today with no render dependency. Runs
+            # BEFORE the ~5-min skopeo static-binary download so it fails fast.
+            if [ "${SETTLED_ROLL_PREFLIGHT:-true}" = "true" ]; then
+              echo "[harbor-prewarm] Phase A0: settled-roll pre-flight — no HelmRelease/workload may be mid-roll before the mirror is built"
+              # HelmReleases: a SUSPENDED HR is intentionally frozen (it will NOT
+              # roll during the cutover, so its running IS its desired) → skip it.
+              # Otherwise flag when the spec out-ran the controller
+              # (observedGeneration < generation — the pin-bump case) OR Ready !=
+              # True (mid-reconcile / failed upgrade).
+              hr_pending=$(kubectl get helmreleases -A -o json 2>/dev/null | jq -r '
+                .items[]
+                | select((.spec.suspend // false) | not)
+                | select(
+                    ((.status.observedGeneration // -1) < (.metadata.generation // 0))
+                    or (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) != "True")
+                  )
+                | "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null || true)
+              # Deployments + StatefulSets: a pending rollout — observedGeneration
+              # behind the spec, or updated/ready replicas short of desired. Skip
+              # intentionally scaled-to-zero (spec.replicas == 0). DaemonSets are
+              # deliberately NOT gated: cordoned / control-plane-tainted nodes skew
+              # desired-vs-ready legitimately and would false-positive the gate.
+              wl_pending=$(kubectl get deployments,statefulsets -A -o json 2>/dev/null | jq -r '
+                .items[]
+                | select((.spec.replicas // 1) > 0)
+                | select(
+                    ((.status.observedGeneration // -1) < (.metadata.generation // 0))
+                    or ((.status.updatedReplicas // 0) < (.spec.replicas // 1))
+                    or ((.status.readyReplicas // 0) < (.spec.replicas // 1))
+                  )
+                | "\(.kind // "Workload")/\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null || true)
+              unsettled=$(printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep -c . || true)
+              if [ "${unsettled}" -gt 0 ]; then
+                echo "[harbor-prewarm] FATAL: env NOT settled — ${unsettled} release(s)/workload(s) are mid-roll; harbor-prewarm would mirror running tags the cutover then rolls away from (running != desired). Wait for these to settle (HelmRelease Ready=True + observedGeneration==generation; workloads updated==ready==desired replicas), then re-trigger the cutover:"
+                printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep . | sed 's/^/  mid-roll: /'
+                echo "[harbor-prewarm] (settled-roll pre-flight #4982; emergency override for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
+                exit 1
+              fi
+              echo "[harbor-prewarm] Phase A0: env settled — no HelmRelease/Deployment/StatefulSet mid-roll; building the mirror from running == desired tags"
+            else
+              echo "[harbor-prewarm] Phase A0: settled-roll pre-flight DISABLED (prewarm.settledRollPreflight.enabled=false) — mirroring running tags without a settle check"
+            fi
+
             if ! command -v skopeo >/dev/null 2>&1; then
               echo "[harbor-prewarm] skopeo not on PATH; downloading static binary"
               # skopeo static binaries published by lework on GitHub releases
