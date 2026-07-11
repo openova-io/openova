@@ -218,10 +218,19 @@ data:
               echo "[gitea-mirror] empty repo created"
             fi
 
-            # 3. Bare-clone upstream and push to local Gitea. --mirror
-            #    pushes ALL refs (every branch + tag), --force makes
-            #    re-runs idempotent (the upstream may have rewritten
-            #    history; we want local to match exactly).
+            # 3. Bare-clone upstream and push to local Gitea via EXPLICIT
+            #    refspecs — refs/heads/* + refs/tags/* — NEVER mirror mode
+            #    (#5011). Mirror mode makes the remote EXACTLY match the
+            #    clone, DELETING refs absent upstream; on hw242 (2026-07-12,
+            #    dep f05b0718dac62fe9) it pruned the sovereign-LOCAL branches
+            #    `catalog-sovereign` (catalyst-api catalog seed) and
+            #    `org-tenants` (org-controller per-Org GitOps tree) — both
+            #    exist ONLY in the local Gitea, never on GitHub — breaking
+            #    the flux GitRepositories openova-catalog-sovereign +
+            #    openova-org-tenants mid-cutover. The explicit refspecs
+            #    force-update/create every GitHub-derived branch + tag
+            #    (--force keeps re-runs idempotent even after an upstream
+            #    history rewrite) but never touch remote-only refs.
             export HOME=/tmp
             git config --global user.name "self-sovereign-cutover"
             git config --global user.email "cutover@${gitea_host}"
@@ -233,15 +242,15 @@ data:
             echo "[gitea-mirror] cloning ${UPSTREAM_REPO_URL} (bare)"
             git clone --bare "${UPSTREAM_REPO_URL}" upstream.git >/dev/null 2>&1
             cd upstream.git
-            echo "[gitea-mirror] pushing all refs to ${redacted_url}"
-            push_err=$(git push --mirror --force "${local_url}" 2>&1) || {
+            echo "[gitea-mirror] pushing upstream branches + tags (explicit refspecs, never prunes sovereign-local refs) to ${redacted_url}"
+            push_err=$(git push --force "${local_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
               echo "[gitea-mirror] FATAL: git push to local Gitea failed" >&2
               # Surface git stderr WITHOUT the embedded credential — git
               # redacts URLs in error messages by default but be defensive.
               printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
               exit 1
             }
-            echo "[gitea-mirror] pushed all refs successfully"
+            echo "[gitea-mirror] pushed all upstream branches + tags successfully (sovereign-local refs untouched)"
 
             # 4. Verify by reading back the default branch SHA and
             #    confirming non-empty (auto_init=false means a missing
@@ -261,7 +270,7 @@ data:
 
             # G75 #2622 (2026-05-31): SEVER UPSTREAM GIT TETHER (ADR-0002
             # Pillar 5 contract). gitea-mirror-resync CronJob runs every
-            # 5min doing `git push --mirror --force` from upstream → local
+            # 5min doing a mirror-mode force-push from upstream → local
             # Gitea, which CLOBBERS cutover Step 06+07 pushes. G62
             # "Gitea persist" pattern has been a no-op architecturally
             # because of this tether — Step 06+07 pushes survive ~5min

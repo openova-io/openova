@@ -811,7 +811,14 @@ spec:
       # global.imageRegistry (evs-csi CSI sidecars, continuum init/controller,
       # flow-emitter) no longer wedge step-08's deny-egress roll-set. Still 11
       # steps / 10 job-mode.
-      version: 0.1.120
+      # 0.1.121 (#5011 Refs #3379 #4991): step-01 gitea-mirror pushes EXPLICIT
+      # refspecs (refs/heads/* + refs/tags/*, --force) instead of a mirror-mode
+      # push — mirror mode deleted the sovereign-LOCAL branches catalog-sovereign
+      # (catalyst-api catalog seed) + org-tenants (org-controller per-Org GitOps
+      # tree) from the local Gitea mid-cutover (hw242), breaking both flux
+      # GitRepositories. Explicit refspecs never prune remote-only refs. Still 11
+      # steps / 10 job-mode.
+      version: 0.1.121
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
