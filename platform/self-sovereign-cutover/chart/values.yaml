@@ -1043,6 +1043,48 @@ registryPivot:
       certMountPath: "/etc/dragonfly-ca"
       certFileName: "tls.crt"
 
+  # ── #5007 (Refs #4682 #3379) — NODE /etc/hosts pin for the local registry ────
+  #
+  # ROOT CAUSE (hw241 live cutover, step-07 catalyst-api roll onto a fresh node):
+  # post-pivot every image ref is registry.<sov-fqdn>/... A NEW pod that must pull
+  # the image fresh (a roll onto a node that had not cached it) failed
+  #   Failed to pull "registry.hw241.omantel.biz/openova-io/openova/catalyst-api:
+  #   <tag>": dial tcp 49.12.16.160:443: connect: connection refused
+  # 49.12.16.160 is a DEAD Hetzner IP from a wiped Hetzner-era env that the public
+  # `*.omantel.biz` WILDCARD still points at. A specific `registry.<fqdn>` A record
+  # (the live gateway VIP) exists and SHOULD win over the wildcard at the
+  # authoritative NS, but the cluster NODES' resolver returns the dead wildcard IP
+  # for registry.<fqdn>, so containerd dials the dead IP → ImagePullBackOff → the
+  # step-07 roll (and every post-pivot fresh pull) wedges. The pod path is fine
+  # (CoreDNS resolves the specific record); only the NODE/containerd path breaks.
+  #
+  # THE FIX (robustness — eliminate DNS from the local-registry datapath). The
+  # registry-pivot DaemonSet already runs privileged on every node and writes the
+  # containerd certs.d. It now ALSO maintains a NODE `/etc/hosts` pin
+  # `<gateway-VIP> registry.<fqdn>` so containerd resolves the local registry
+  # DIRECTLY to the Harbor gateway VIP the platform already knows — NEVER via the
+  # public wildcard-vs-specific race. The VIP is derived AT RUNTIME (no hardcoded
+  # IP, Principle #4): the cilium-gateway `type=LoadBalancer` Service's
+  # status.loadBalancer.ingress[0].ip (the hcloud-ccm ExternalIP on Hetzner / the
+  # CiliumLoadBalancerIPPool VIP on no-CCM Huawei); on the hostNetwork-gateway
+  # provider (Huawei #4706 — cilium-envoy binds node:443 directly, so there is NO
+  # LB Service VIP) it falls back to the node's OWN IP (status.hostIP), which
+  # serves :443 locally. The Host header / SNI stay registry.<fqdn> so the Gateway
+  # HTTPRoute still matches — only DNS resolution is pinned. Idempotent, reconciled
+  # every sweep, removed on rollback (v1). Fail-OPEN: if NO VIP can be derived the
+  # pin is skipped (never wedges worse than the prior DNS-dependent behaviour).
+  localRegistryHostPin:
+    enabled: true
+    # The cilium-gateway LoadBalancer Service whose ingress VIP serves
+    # registry.<fqdn> (LB-Service gateway model — Hetzner hcloud-ccm / Huawei
+    # CiliumLoadBalancerIPPool). Cilium auto-creates it as
+    # `cilium-gateway-<gateway-name>` in kube-system; the Sovereign Gateway is
+    # named `cilium-gateway`, so the Service is `cilium-gateway-cilium-gateway`.
+    # Empty name disables the Service lookup — the pin then uses the node's own IP
+    # (status.hostIP), correct for the hostNetwork gateway model.
+    gatewayServiceName: "cilium-gateway-cilium-gateway"
+    gatewayServiceNamespace: "kube-system"
+
 # CiliumNetworkPolicy for step 08 (egress-block-test). Operator
 # overrides duration via overlay if 10 min isn't enough.
 egressTest:

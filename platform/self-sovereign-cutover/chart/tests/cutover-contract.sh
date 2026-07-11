@@ -1707,4 +1707,53 @@ if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resource
 fi
 echo "  PASS (Step-07 image-warmed gate pre-pivot + EVS detach-gate + broken-CSI cordon + deadlock-aware rollout wait; RBAC wired)"
 
+echo "[cutover-contract] Case 44: step-04 registry-pivot pins registry.<fqdn> on the NODE /etc/hosts to the gateway VIP so the local-registry pull never depends on public DNS (#5007, Refs #4682 #3379)"
+# hw241 live: post-pivot a fresh catalyst-api pull dialed the DEAD *.omantel.biz
+# wildcard IP (49.12.16.160) because the NODE resolver returned the wildcard for
+# registry.<fqdn>. The pivot now maintains a node /etc/hosts pin
+# `<gateway-VIP> registry.<fqdn>` (VIP derived at runtime from the cilium-gateway
+# LB Service ingress IP, HOST_IP fallback for the hostNetwork model) so containerd
+# resolves the local registry DIRECTLY — no public DNS wildcard-vs-specific race.
+pin_block="$(awk '/name: registry-pivot-script/{c=1} c{print} c&&/^---/{if(seen)exit; seen=1}' "$TMP/render.yaml")"
+# (1) the DaemonSet mounts the node /etc/hosts (hostPath File).
+if ! grep -q 'path: /etc/hosts' "$TMP/render.yaml"; then
+  echo "FAIL: step-04 registry-pivot does not mount the node /etc/hosts — can't pin registry.<fqdn> (#5007)" >&2
+  exit 1
+fi
+# (2) the pivot script derives the gateway VIP from the LB Service ingress IP (DNS-free).
+if ! grep -q 'resolve_gateway_vip()' <<<"$pin_block"; then
+  echo "FAIL: step-04 pivot script missing resolve_gateway_vip() — the DNS-free gateway VIP derivation (#5007)" >&2
+  exit 1
+fi
+if ! grep -qF 'loadBalancer.ingress[0].ip' <<<"$pin_block"; then
+  echo "FAIL: step-04 pivot script does not read the cilium-gateway LB Service ingress IP for the pin (#5007)" >&2
+  exit 1
+fi
+# (3) the pin is written to (and removed from, on rollback) the node /etc/hosts.
+if ! grep -q 'write_local_registry_pin' <<<"$pin_block"; then
+  echo "FAIL: step-04 pivot script missing write_local_registry_pin — the node /etc/hosts pin (#5007)" >&2
+  exit 1
+fi
+if ! grep -q 'remove_local_registry_pin' <<<"$pin_block"; then
+  echo "FAIL: step-04 pivot script does not remove the /etc/hosts pin on rollback (v1) (#5007)" >&2
+  exit 1
+fi
+# (4) the pin must NOT depend on DNS: no getent/nslookup/dig of registry.<fqdn> in
+# the VIP derivation. (The derivation is K8s-API + HOST_IP only.)
+if grep -Eq 'resolve_gateway_vip[^}]*(getent|nslookup|dig )' <<<"$pin_block"; then
+  echo "FAIL: step-04 gateway VIP derivation must be DNS-free (K8s-API + HOST_IP only) (#5007)" >&2
+  exit 1
+fi
+# (5) hostNetwork-gateway fallback to the node's own IP (status.hostIP → HOST_IP).
+if ! grep -q 'name: HOST_IP' "$TMP/render.yaml"; then
+  echo "FAIL: step-04 DaemonSet does not expose HOST_IP (status.hostIP) — the hostNetwork pin fallback (#5007)" >&2
+  exit 1
+fi
+# (6) default enabled (fail-safe robustness posture).
+if ! grep -A1 'name: LOCAL_REGISTRY_PIN_ENABLED' "$TMP/render.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: LOCAL_REGISTRY_PIN_ENABLED must DEFAULT to enabled (rendered value != \"true\") (#5007)" >&2
+  exit 1
+fi
+echo "  PASS (step-04 pins registry.<fqdn> to the gateway VIP on the node /etc/hosts; LB-ingress VIP with HOST_IP hostNetwork fallback; DNS-free; removed on rollback; default enabled)"
+
 echo "[cutover-contract] All gates green."

@@ -799,7 +799,12 @@ spec:
       # roll (#4972). Toggles prewarm.skipIfAlreadyPresent + catalystAPI.rollSafety
       # (both default on). RBAC adds volumeattachments/pvc read + delete + nodes
       # patch. Still 11 steps / 10 job-mode.
-      version: 0.1.118
+      # 0.1.119 (#5007 Refs #4682 #3379): step-04 registry-pivot pins registry.<fqdn>
+      # on the NODE /etc/hosts to the gateway VIP (LB-ingress IP / HOST_IP
+      # hostNetwork fallback) so a fresh-node local-registry pull never depends on
+      # the public DNS wildcard-vs-specific race (hw241 dead `*.omantel.biz`
+      # 49.12.16.160 ImagePullBackOff). Still 11 steps / 10 job-mode.
+      version: 0.1.119
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
