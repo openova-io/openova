@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.116 (#4975 Refs #3379 — step-03 harbor-prewarm mirrors multi-arch
+# manifest-LIST images by adding --multi-arch all to the Phase A container-image
+# `skopeo copy`. Live hw239 step-03 Phase A pushed 129 single-arch images OK but
+# all 8 multi-arch manifest-LIST images FAILED `digest invalid` (cilium/*,
+# hubble-*, sigstore/policy-controller, cilium/operator-generic): without the flag
+# skopeo defaults to `--multi-arch system` and copies ONLY the running platform's
+# sub-image out of a manifest LIST, while the copy is ADDRESSED by the list digest
+# (`@sha256:205b...`) — Harbor computes the digest of the single-arch manifest it
+# actually stored, which does NOT equal the list digest, so the manifest PUT is
+# rejected `digest invalid`. containerd pulls these pod images BY the list digest,
+# so Harbor must serve the FULL manifest list + every arch sub-manifest + blobs.
+# `--multi-arch all` copies the complete list so the destination is addressable by
+# the exact list digest (digest matches). Phase A2 (helm chart OCI = a single
+# manifest, never a list) is deliberately left alone; the mirror-resync CronJob is
+# a git mirror (no skopeo image copy) and the offline-mirror resolver is a pure
+# path library (no copy), so neither needs the flag. cutover-contract Case 39 locks
+# the flag onto the Phase A copy and asserts exactly one flag line (chart copy
+# stays single-manifest). NO step-count / job-mode / RBAC change (still 11 steps).
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version move
+# to 0.1.116 in lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag).
 # 0.1.115 (#4975 Refs #3379 #3695 #4977 — the LAST uncovered offline-mirror host,
 # named by the live hw239 step-03 harbor-prewarm completeness gate): the #4977
 # comprehensive completeness gate FATAL-failed fast on `mirror.gcr.io/aquasec/
@@ -1752,7 +1772,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.115
+version: 0.1.116
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

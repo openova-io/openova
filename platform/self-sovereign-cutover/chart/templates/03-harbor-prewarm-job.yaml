@@ -496,8 +496,22 @@ data:
                   # (default false: in-cluster LE-staging Harbor). --src-tls-verify
                   # stays true (external public-CA source). "$@" is the optional
                   # --src-creds selected by host (empty for anonymous upstreams).
+                  # #4975 --multi-arch all: WITHOUT it skopeo defaults to
+                  # `--multi-arch system`, copying ONLY the running platform's
+                  # sub-image out of a manifest LIST while the copy is ADDRESSED by
+                  # the list's digest (`@sha256:205b...`). Harbor computes the digest
+                  # of the single-arch manifest actually uploaded, which does NOT
+                  # equal the list digest → `digest invalid`, fail-closing step-03
+                  # (live hw239 Phase A: 129 single-arch images pushed OK, all 8
+                  # multi-arch manifest-list images FAILED — cilium/*, hubble-*,
+                  # policy-controller, operator-generic). containerd pulls these pod
+                  # images BY the list digest, so Harbor must serve the FULL manifest
+                  # list + ALL arch sub-manifests + blobs. `--multi-arch all` copies
+                  # the complete list so the dest is addressable by the exact list
+                  # digest (digest matches). Single-arch refs are unaffected.
                   if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
                     --insecure-policy \
+                    --multi-arch all \
                     --retry-times 5 \
                     "$@" \
                     --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \

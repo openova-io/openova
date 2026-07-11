@@ -773,7 +773,13 @@ spec:
       # step-03 pushes every workload image, step-04 rewrites containerd per-host,
       # step-08 pre-hold completeness gate + fixed localRegistryHostSubstr (below,
       # now the FULL registry.${SOVEREIGN_FQDN}). Builds on 0.1.113's carve-out.
-      version: 0.1.115
+      # 0.1.116 (#4975 Refs #3379): step-03 harbor-prewarm Phase A container-image
+      # skopeo copy gains --multi-arch all so multi-arch manifest-LIST images
+      # (cilium/*, hubble-*, policy-controller, operator-generic) mirror to local
+      # Harbor addressable by their list digest — without it skopeo copies only the
+      # running-arch sub-image and Harbor rejects the list-digest PUT `digest invalid`,
+      # fail-closing step-03 (live hw239). Phase A2 chart-OCI copy left single-manifest.
+      version: 0.1.116
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
