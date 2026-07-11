@@ -705,16 +705,51 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, appDocs)
 	}
 
+	// #4993 — for the VCLUSTER tier, also emit the HOST-NATIVE per-app HTTPRoutes
+	// into vcluster/host-apps/. The app's own HTTPRoute is co-located INSIDE the
+	// vcluster (apps tree, kubeConfig-targeted) but loft vcluster 0.33.4 registers
+	// no httproute reflecting controller, so it never reaches the host Cilium
+	// Gateway → 404 with pods Running. The host-native route binds the SYNCED
+	// Service (<app>-x-<slug>-x-vcluster) on the host `<slug>` ns directly — the
+	// same host-native model the per-Org console route uses. The org-controller
+	// SEEDS vcluster/host-apps/kustomization.yaml once and never clobbers it, so
+	// merge our route docs in (preserving the CNP + provisioning-rbac baseline),
+	// exactly as the apps kustomization above. Host-tier Orgs route via the
+	// co-located generateAppHTTPRoute (plain Service in the host ns), so
+	// GeneratePerOrgHostAppRoutes returns nothing and this block is a no-op.
+	if gitops.BoundaryIsVcluster(planSlug) {
+		hostRouteFiles, hostAppDocs := h.Generator.GeneratePerOrgHostAppRoutes(slug, planSlug, appSlugs)
+		for p, c := range hostRouteFiles {
+			appFiles[p] = c
+		}
+		hostKustPath := gitops.PerOrgHostAppsDir + "/kustomization.yaml"
+		existingHostKust := ""
+		if content, err := repoClient.ReadFile(ctx, branch, hostKustPath); err == nil {
+			existingHostKust = content
+		}
+		if action == "uninstall" {
+			// Rebuild from baseline + SURVIVING route docs only (drops the
+			// removed app's route from the index).
+			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization("", hostAppDocs)
+		} else {
+			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization(existingHostKust, hostAppDocs)
+		}
+	}
+
 	// Prune scope: ONLY the funnel-owned app docs (so uninstalled apps are
 	// removed), never the whole vcluster/apps tree — pruning the org-controller
 	// baseline (networkpolicy.yaml / ciliumnetworkpolicy.yaml) would tear down
 	// intra-Org isolation. CommitFilesWithPrune deletes blobs under a prune
 	// prefix that are NOT in the committed file set; we re-commit every funnel
 	// app doc each render, so a removed app's stale file is the only thing
-	// pruned. Scope the prefix to app-/db- files under the apps dir.
+	// pruned. Scope the prefix to app-/db- files under the apps dir + the
+	// host-native app-route files under host-apps (#4993) — the org-controller
+	// baseline there (ciliumnetworkpolicy.yaml / provisioning-rbac.yaml) does NOT
+	// start with `app-`, so it is never pruned.
 	prunePrefixes := []string{
 		gitops.PerOrgAppsDir + "/app-",
 		gitops.PerOrgAppsDir + "/db-",
+		gitops.PerOrgHostAppsDir + "/app-",
 	}
 
 	commitMsg := fmt.Sprintf("day-2: %s %s on Org %s (apps: %d) → vcluster/apps",

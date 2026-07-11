@@ -591,7 +591,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// moved to the host-applied `vcluster/host-apps/` tree, whose
 		// kustomization index the controller keeps current since the funnel does
 		// NOT merge into it.)
-		if path == "vcluster/apps/kustomization.yaml" {
+		//
+		// #4993 — `vcluster/host-apps/kustomization.yaml` is now SEED-ONLY for
+		// the SAME reason: the funnel merges the host-native per-app HTTPRoutes
+		// (app-<x>-hostroute.yaml, the durable fix for the vcluster-tier 404,
+		// since loft vcluster 0.33.4 syncs no httproutes) into this index
+		// alongside the CNP + provisioning-rbac baseline. If the controller kept
+		// force-overwriting it with its baseline-only list, Flux's
+		// `kustomize build ./vcluster/host-apps` would drop the app routes and
+		// the customer's app would 404 again on the next reconcile. The baseline
+		// docs (ciliumnetworkpolicy.yaml / provisioning-rbac.yaml) are still
+		// authored + kept current via their own PutFile entries, and the funnel's
+		// MergePerOrgHostAppsKustomization always re-includes them.
+		if path == "vcluster/apps/kustomization.yaml" ||
+			path == "vcluster/host-apps/kustomization.yaml" {
 			if _, gerr := r.GiteaClient.GetFile(ctx, gOrg.Username, repoName, branch, path); gerr == nil {
 				// Already present (seeded earlier, possibly funnel-merged) —
 				// leave it untouched so cart app entries survive.
