@@ -55,6 +55,34 @@ func TestGeneratePerOrgHostAppRoutes_VclusterTier_SyncedBackend(t *testing.T) {
 	}
 }
 
+// TestGeneratePerOrgHostAppRoutes_HonorsPerOrgPoolZone is the #4999 apps-side
+// proof: when a 2nd Org's honored pool zone is `omani.rest`, the per-Org app host
+// MUST render under that SAME zone — `<app>.<slug>.omani.rest` — not the
+// Sovereign's primary apps pool. consumer.go achieves this by rendering on a
+// scoped generator clone whose ParentDomain is the honored zone; this test
+// exercises that mechanism directly (a generator pinned to omani.rest), so the
+// app host stays in lockstep with the per-Org console DNS/TLS/route zone (no
+// stale-apex-wildcard dead IP — the #4421 invariant, upheld under the pick).
+func TestGeneratePerOrgHostAppRoutes_HonorsPerOrgPoolZone(t *testing.T) {
+	g := NewManifestGenerator("clusters/sov/org-tenants")
+	// The Sovereign's PRIMARY apps pool is omani.homes, but THIS Org chose
+	// omani.rest — consumer.go clones the generator with ParentDomain=omani.rest.
+	g.ParentDomain = "omani.rest"
+
+	files, _ := g.GeneratePerOrgHostAppRoutes("walk-stranger-two", "m", []string{"wordpress"})
+	doc, ok := files["vcluster/host-apps/app-wordpress-hostroute.yaml"]
+	if !ok {
+		t.Fatalf("host-native route not emitted (keys: %v)", keys(files))
+	}
+	if want := "- wordpress.walk-stranger-two.omani.rest"; !strings.Contains(doc, want) {
+		t.Errorf("app host must render under the honored pool zone %q:\n%s", want, doc)
+	}
+	// Regression guard: it must NOT collapse back to the primary apps pool.
+	if strings.Contains(doc, "wordpress.walk-stranger-two.omani.homes") {
+		t.Errorf("app host regressed to the primary apps pool (omani.homes) instead of the honored omani.rest:\n%s", doc)
+	}
+}
+
 // TestGeneratePerOrgHostAppRoutes_HostTier_NoRoute — free/S host-tier Orgs run the
 // app + its plain Service directly in the host <slug> ns, where the co-located
 // generateAppHTTPRoute already routes and no synced-service name exists. So NO

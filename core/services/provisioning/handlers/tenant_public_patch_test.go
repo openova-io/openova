@@ -81,13 +81,16 @@ func TestPatchOrgTenantPublic_EmptyHostNamespaceSkipped(t *testing.T) {
 // the wire bytes — so we construct the same shape ourselves and assert
 // json.Marshal of it round-trips to the expected map.
 func TestPatchOrgTenantPublic_PayloadShape(t *testing.T) {
-	// The fields the patch body MUST carry — exercised here so a
-	// regression that drops or renames one is caught in CI.
+	// #4999: the patch carries ONLY the product-install sub-fields. It MUST NOT
+	// carry parentDomain/subdomain — createOrganizationCR (tenant.created) owns
+	// the Org's pool zone (the honored funnel pick), and re-writing it from the
+	// Sovereign's single primary apps pool here would CLOBBER a 2nd Org's
+	// omani.rest back to omani.homes on product-ready. This mirrors the exact
+	// map literal patchOrgTenantPublic builds, so a regression that re-adds the
+	// clobbering fields is caught in CI.
 	body := map[string]any{
 		"spec": map[string]any{
 			"tenantPublic": map[string]any{
-				"parentDomain":   "omani.homes",
-				"subdomain":      "acme",
 				"backendService": "wordpress-x-tenant-acme-x-vcluster",
 				"backendPort":    int64(80),
 				"product":        "wordpress",
@@ -100,14 +103,18 @@ func TestPatchOrgTenantPublic_PayloadShape(t *testing.T) {
 	}
 	got := string(raw)
 	for _, must := range []string{
-		`"parentDomain":"omani.homes"`,
-		`"subdomain":"acme"`,
 		`"backendService":"wordpress-x-tenant-acme-x-vcluster"`,
 		`"backendPort":80`,
 		`"product":"wordpress"`,
 	} {
 		if !strings.Contains(got, must) {
 			t.Errorf("payload missing %q: %s", must, got)
+		}
+	}
+	// The #4999 no-clobber contract: parentDomain/subdomain must be ABSENT.
+	for _, mustNot := range []string{`"parentDomain"`, `"subdomain"`} {
+		if strings.Contains(got, mustNot) {
+			t.Errorf("patch body must NOT carry %s (createOrganizationCR owns the pool zone, #4999): %s", mustNot, got)
 		}
 	}
 }

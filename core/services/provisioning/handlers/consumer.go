@@ -117,6 +117,12 @@ type appChangeData struct {
 	DeploySlugs    []string          `json:"deploy_slugs"`
 	DepChoices     map[string]string `json:"dep_choices"`
 	Apps           []string          `json:"apps"` // final tenant.Apps IDs after the change
+	// ParentDomain is the Org's chosen (already tenant-service-resolved) pool
+	// zone (#4999). The per-Org apps generator renders app hosts under THIS zone
+	// (via applyTenantChangePerOrg's scoped generator clone) so they match the
+	// per-Org console's zone (console==apps invariant under the honored TLD).
+	// Empty → the apps fall back to the Sovereign's primary apps pool, unchanged.
+	ParentDomain string `json:"parent_domain"`
 }
 
 func (h *Handler) handleAppInstallRequested(ctx context.Context, event *events.Event) error {
@@ -671,7 +677,25 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 			"tenant", slug, "action", action, "repo", slug+"/"+h.perOrgRepoName())
 	}
 
-	appFiles, appDocs := h.Generator.GeneratePerOrgAppsTree(slug, planSlug, appSlugs, dbPassword)
+	// #4999: render the per-Org app hosts under the Org's CHOSEN (served) pool
+	// zone — the SAME zone resolveOrgParentDomain stamps on the Org CR's
+	// spec.tenantPublic.parentDomain (which drives the per-Org console DNS / TLS /
+	// route). Without this the apps render under the Sovereign's PRIMARY apps pool
+	// while the console lives on the honored TLD, so `<app>.<slug>.<primary>` has
+	// no per-Org A-record and dead-IPs on a stale apex wildcard (the #4421
+	// failure). Re-resolve the event's parent_domain through the SAME resolver the
+	// Org CR used, then render on a scoped generator clone — ManifestGenerator is
+	// read-only during render, so a shallow copy with an overridden ParentDomain
+	// is safe and confined to this Org. An empty/unserved pick resolves to the
+	// primary apps pool → byte-identical to pre-#4999 output (no regression).
+	gen := h.Generator
+	if zone := resolveOrgParentDomain(h.AppsParentDomain, h.PoolDomains, data.ParentDomain); zone != "" {
+		clone := *h.Generator
+		clone.ParentDomain = zone
+		gen = &clone
+	}
+
+	appFiles, appDocs := gen.GeneratePerOrgAppsTree(slug, planSlug, appSlugs, dbPassword)
 	if len(appFiles) == 0 && action == "install" {
 		// No deployable Application payload on an INSTALL (e.g. the cart held
 		// only HR-overlay apps the generic generator can't emit, or an empty
@@ -718,7 +742,7 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 	// co-located generateAppHTTPRoute (plain Service in the host ns), so
 	// GeneratePerOrgHostAppRoutes returns nothing and this block is a no-op.
 	if gitops.BoundaryIsVcluster(planSlug) {
-		hostRouteFiles, hostAppDocs := h.Generator.GeneratePerOrgHostAppRoutes(slug, planSlug, appSlugs)
+		hostRouteFiles, hostAppDocs := gen.GeneratePerOrgHostAppRoutes(slug, planSlug, appSlugs)
 		for p, c := range hostRouteFiles {
 			appFiles[p] = c
 		}
