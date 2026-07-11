@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T01:30:09Z` |
+| Last refreshed | `2026-07-11T01:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -284,6 +284,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T01:40 | [#4980](https://github.com/openova-io/openova/pull/4980) | #4975 | fix(#4975): skopeo --multi-arch all so manifest-list images  |
 | 2026-07-11T00:40 | [#4979](https://github.com/openova-io/openova/pull/4979) | #4977 | fix(#4975): map mirror.gcr.io (bp-trivy) into cutover offlin |
 | 2026-07-10T23:00 | [#4978](https://github.com/openova-io/openova/pull/4978) | #4977 | fix(#4975): cutover-contract Case 38 resolves coverage scrip |
 | 2026-07-10T22:33 | [#4977](https://github.com/openova-io/openova/pull/4977) | #3379 | fix(#4975): complete offline-mirror + per-host containerd re |
@@ -313,7 +314,6 @@ flowchart LR
 | 2026-07-09T21:05 | [#4938](https://github.com/openova-io/openova/pull/4938) | #4546 | fix(marketplace): redeem page owns the authed-owner→console  |
 | 2026-07-09T20:33 | [#4935](https://github.com/openova-io/openova/pull/4935) | #4925 | fix(#4841): grant useraccess-controller `bind` on the 8 cano |
 | 2026-07-09T20:18 | [#4933](https://github.com/openova-io/openova/pull/4933) | #944 | test(#4932): await phase1-watch goroutine so it stops writin |
-| 2026-07-09T20:39 | [#4931](https://github.com/openova-io/openova/pull/4931) | #4927 | fix(#4930): DR switchover-history/quorum/settings drop synth |
 
 ---
 
