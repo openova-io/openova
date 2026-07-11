@@ -1,6 +1,10 @@
 apiVersion: v2
 name: bp-external-dns
-version: 1.1.8
+# 1.1.9 (#5017 — route the external-dns image through the Sovereign-local
+# Harbor proxy: kyverno harbor-proxy-pull denies the raw registry.k8s.io ref
+# when cutover step-08's deny-egress roll recreates the pod; with
+# strategy: Recreate this took DNS sync fully down on hw242.)
+version: 1.1.9
 description: |
   Catalyst-curated Blueprint umbrella chart for ExternalDNS. Depends on the
   upstream `external-dns` chart (kubernetes-sigs) as a Helm subchart so

@@ -58,7 +58,10 @@ spec:
   chart:
     spec:
       chart: bp-opentelemetry-operator
-      version: 1.0.4
+      # 1.0.5: manager + kube-rbac-proxy images routed via Sovereign-local
+      # Harbor proxy (#5017 — kyverno harbor-proxy-pull denied the raw
+      # ghcr.io/quay.io refs under cutover step-08 deny-egress).
+      version: 1.0.5
       sourceRef:
         kind: HelmRepository
         name: bp-opentelemetry-operator

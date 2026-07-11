@@ -37,9 +37,29 @@ defaultInstrumentation:
   dotnet:
     enabled: false
 
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ───
+# webhook-gate hook Job (G38 #2593). The published 1.0.4 OCI artifact
+# predates the hook template — 1.0.5 is the FIRST release that ships it,
+# so its image must be proxy-routed from day one (#5017): the hook runs
+# post-install AND post-upgrade in the `opentelemetry` namespace, which
+# is NOT in the kyverno harbor-proxy-pull exclude list — a raw
+# `bitnamilegacy/kubectl` ref would be denied at admission and fail every
+# install/upgrade of this chart. Same MIRROR-EVERYTHING pattern as
+# platform/flux (Fix #163).
+webhookGate:
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+
 # ─── Upstream subchart values (subchart key: opentelemetry-operator) ──
 opentelemetry-operator:
   manager:
+    # Route the operator manager image through the Sovereign-local Harbor
+    # proxy (#5017): the kyverno `harbor-proxy-pull` ClusterPolicy only
+    # admits pod images matching `*/proxy-*/*` or `*/openova-io/*`; the
+    # upstream default raw ghcr.io ref was DENIED when cutover step-08's
+    # deny-egress roll recreated the pod on hw242, blocking cutoverComplete.
+    # Tag defaults to the upstream chart appVersion (0.101.0) — unchanged.
+    image:
+      repository: harbor.openova.io/proxy-ghcr/open-telemetry/opentelemetry-operator/opentelemetry-operator
     # The upstream chart REQUIRES manager.collectorImage.repository to
     # be set (the operator needs to know which collector image to deploy
     # when an OpenTelemetryCollector CR is created without an explicit
@@ -55,6 +75,13 @@ opentelemetry-operator:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { memory: 256Mi }
+  # Route the kube-rbac-proxy sidecar image through the Sovereign-local
+  # Harbor proxy (#5017) — same kyverno harbor-proxy-pull denial class as
+  # the manager image above (upstream default is a raw quay.io ref). Tag
+  # stays the upstream chart default (v0.15.0).
+  kubeRBACProxy:
+    image:
+      repository: harbor.openova.io/proxy-quay/brancz/kube-rbac-proxy
   admissionWebhooks:
     certManager:
       enabled: true

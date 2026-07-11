@@ -50,7 +50,10 @@ spec:
   chart:
     spec:
       chart: bp-reloader
-      version: 1.0.0
+      # 1.0.1: image routed via Sovereign-local Harbor proxy + fixes the
+      # inert chart-1.x image key (#5017 — kyverno harbor-proxy-pull denied
+      # the raw ghcr.io ref under cutover step-08 deny-egress).
+      version: 1.0.1
       sourceRef:
         kind: HelmRepository
         name: bp-reloader

@@ -4032,7 +4032,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.8"
+  version: "1.1.9"
   visibility: unlisted
   card:
     title: "ExternalDNS"
@@ -4049,7 +4049,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-external-dns
-    version: "1.1.8"
+    version: "1.1.9"
   topology:
     supported:
       - singleton
@@ -4708,7 +4708,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.4"
+  version: "1.0.5"
   visibility: unlisted
   card:
     title: "OpenTelemetry Operator"
@@ -4725,7 +4725,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-opentelemetry-operator
-    version: "1.0.4"
+    version: "1.0.5"
   topology:
     supported:
       - singleton
@@ -4944,7 +4944,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.1"
   visibility: unlisted
   card:
     title: "Reloader"
@@ -4961,7 +4961,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-reloader
-    version: "1.0.0"
+    version: "1.0.1"
   topology:
     supported:
       - singleton
@@ -5091,7 +5091,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.1"
   visibility: unlisted
   card:
     title: "Sigstore Policy Controller"
@@ -5110,7 +5110,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sigstore
-    version: "1.0.0"
+    version: "1.0.1"
   topology:
     supported:
       - singleton

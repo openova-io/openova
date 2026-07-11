@@ -57,12 +57,16 @@ spec:
   chart:
     spec:
       chart: bp-external-dns
+      # 1.1.9: image routed via Sovereign-local Harbor proxy (#5017 —
+      # kyverno harbor-proxy-pull denied the raw registry.k8s.io ref under
+      # cutover step-08 deny-egress; strategy Recreate took DNS sync to
+      # ZERO pods on hw242).
       # 1.1.7: companion CiliumNetworkPolicy with toEntities[kube-apiserver]
       # so external-dns can reach the kube-apiserver on Cilium clusters
       # (default policy-cidr-match-mode=""). Fixes #770 — the vanilla
       # NetworkPolicy 0.0.0.0/0 ipBlock does NOT match apiserver traffic
       # under Cilium's identity model.
-      version: 1.1.8
+      version: 1.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-external-dns

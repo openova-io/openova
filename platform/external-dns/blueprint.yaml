@@ -14,7 +14,7 @@ spec:
   # PowerDNS auth replica via the webhook provider; no cross-cluster
   # replication primitive — the source of truth is PowerDNS state
   # (replicated by bp-powerdns lua-records + PG-backed pair).
-  version: 1.1.8
+  version: 1.1.9
   card:
     title: ExternalDNS
     family: networking
