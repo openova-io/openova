@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T15:45:02Z` |
+| Last refreshed | `2026-07-11T16:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 88 |
 | Open DoD gates | 0 / 41 |
@@ -295,6 +295,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T15:55 | [#5005](https://github.com/openova-io/openova/pull/5005) | #4896 | docs(uat): hw241 operator-console re-walk — 29 rows ✅ (65% g |
 | 2026-07-11T15:06 | [#5004](https://github.com/openova-io/openova/pull/5004) | #5003 | fix(#5003): per-Org vcluster HelmRelease self-heals cold Har |
 | 2026-07-11T14:33 | [#5002](https://github.com/openova-io/openova/pull/5002) | #4999 | fix(#4999): funnel 2nd-Org honors chosen pool-TLD + console  |
 | 2026-07-11T14:13 | [#5001](https://github.com/openova-io/openova/pull/5001) | #5000 | fix(console #5000): sign-out menu on the sovereign sidebar u |
@@ -324,7 +325,6 @@ flowchart LR
 | 2026-07-10T01:35 | [#4957](https://github.com/openova-io/openova/pull/4957) | #4955 | fix(#4955 Refs #3379): cutover step-03 harbor-prewarm handle |
 | 2026-07-10T01:29 | [#4954](https://github.com/openova-io/openova/pull/4954) | #4951 | fix(#4951): right-size per-Org WordPress footprint so oidc-c |
 | 2026-07-10T01:25 | [#4953](https://github.com/openova-io/openova/pull/4953) | #4952 | fix(bp-openclaw): per-Org install targets the release namesp |
-| 2026-07-10T00:48 | [#4949](https://github.com/openova-io/openova/pull/4949) | #4632 | test(bp-self-sovereign-cutover): regression guard for auto-t |
 
 ---
 
