@@ -1,5 +1,36 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.119 (#5007 Refs #4682 #3379 — fresh-node local-registry pull breaks when the
+# public DNS wildcard shadows registry.<fqdn>; found LIVE on the hw241 cutover). After
+# the registry pivot the catalyst-api roll onto a fresh node failed
+#   Failed to pull "registry.hw241.omantel.biz/openova-io/openova/catalyst-api:<tag>":
+#   dial tcp 49.12.16.160:443: connect: connection refused
+# 49.12.16.160 is a DEAD Hetzner IP a wiped Hetzner-era env left on the public
+# `*.omantel.biz` WILDCARD. A specific `registry.<fqdn>` A record (the live gateway VIP)
+# exists and SHOULD win, but the cluster NODES' resolver returns the dead wildcard for
+# registry.<fqdn>, so containerd dials the dead IP → ImagePullBackOff → step-07 wedges.
+# The pod/CoreDNS path is fine (specific-wins); only the NODE/containerd path breaks.
+# FIX (template 04 + values): the step-04 registry-pivot DaemonSet now maintains a NODE
+# `/etc/hosts` pin `<gateway-VIP> registry.<fqdn>` so containerd resolves the local
+# registry DIRECTLY to the Harbor gateway VIP the platform already knows — NEVER via the
+# public wildcard-vs-specific race. The VIP is derived AT RUNTIME (no hardcoded IP,
+# Principle #4): the cilium-gateway `type=LoadBalancer` Service status.loadBalancer.
+# ingress[0].ip (hcloud-ccm ExternalIP on Hetzner / CiliumLoadBalancerIPPool VIP on
+# no-CCM Huawei), falling back to the node's OWN IP (status.hostIP) on the hostNetwork
+# gateway provider (Huawei #4706 — cilium-envoy binds node:443 directly, so there is no
+# LB Service VIP). Host header / SNI stay registry.<fqdn> so the Gateway HTTPRoute still
+# matches — only DNS resolution is pinned. Mounts the node /etc/hosts (hostPath File),
+# rewrites it IN PLACE (truncate, never mv — the single-file bind mount keeps its inode),
+# strips any stale line for the host (incl. a cloud-init r4() boot pin that baked the
+# dead wildcard), idempotent, reconciled every sweep, removed on rollback (v1),
+# FAIL-OPEN. New values.registryPivot.localRegistryHostPin.{enabled,gatewayServiceName,
+# gatewayServiceNamespace}; new DaemonSet envs LOCAL_REGISTRY_PIN_ENABLED /
+# GATEWAY_LB_SVC_NAME / GATEWAY_LB_SVC_NAMESPACE. RBAC already grants services get/list.
+# cutover-contract Case 44 locks it. NO step-count / job-mode change (still 11 steps).
+# Companion: core/pool-domain-manager reaps stale parent-pool wildcards so a wiped env
+# can never leave `*.<pool>` shadowing sibling children (the origin of the dead record).
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version move to
+# 0.1.119 in lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag).
 # 0.1.118 (#4994 + #4996 Refs #3379 #4972 #4885 — two cutover-hardening defects
 # found live on hw240 (dep 0f1aac5431e6a436) that BLOCK cutoverComplete on
 # kom4dc/Huawei Sovereigns).
@@ -1837,7 +1868,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.118
+version: 0.1.119
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

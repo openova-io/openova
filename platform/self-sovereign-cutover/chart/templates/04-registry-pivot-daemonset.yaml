@@ -168,6 +168,21 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
+            # ── #5007 (Refs #4682 #3379) — NODE /etc/hosts pin for the local
+            # registry. containerd resolves registry.<fqdn> via the NODE resolver,
+            # which on hw241 returned the DEAD `*.omantel.biz` wildcard IP
+            # (49.12.16.160) instead of the live specific record → post-pivot fresh
+            # pulls ImagePullBackOff. The pivot pins registry.<fqdn> DIRECTLY to the
+            # gateway VIP the platform already knows (derived at runtime, no
+            # hardcoded IP), so the local-registry datapath NEVER depends on public
+            # DNS. GATEWAY_LB_SVC_* is the cilium-gateway LoadBalancer Service whose
+            # ingress IP is the VIP (empty → node-own-IP hostNetwork fallback).
+            - name: LOCAL_REGISTRY_PIN_ENABLED
+              value: {{ .Values.registryPivot.localRegistryHostPin.enabled | quote }}
+            - name: GATEWAY_LB_SVC_NAME
+              value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceName | quote }}
+            - name: GATEWAY_LB_SVC_NAMESPACE
+              value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceNamespace | quote }}
           # readinessProbe: the script touches /tmp/ready after its first
           # successful reconcile pass. catalyst-api's daemonset-wait
           # then sees numberReady=desired and proceeds.
@@ -187,6 +202,13 @@ spec:
               mountPath: /usr/local/bin/pivot.sh
               subPath: pivot.sh
               readOnly: true
+            # #5007 — the node's /etc/hosts (single-file bind mount). The pivot
+            # maintains a managed `<gateway-VIP> registry.<fqdn>` line so
+            # containerd resolves the local registry DIRECTLY to the gateway VIP,
+            # never via the public DNS wildcard-vs-specific race (the hw241 dead
+            # `*.omantel.biz` 49.12.16.160 ImagePullBackOff).
+            - name: node-etc-hosts
+              mountPath: /host/etc/hosts
           command: ["/bin/sh", "/usr/local/bin/pivot.sh"]
           resources:
             requests: { cpu: 25m, memory: 32Mi }
@@ -205,6 +227,14 @@ spec:
           configMap:
             name: registry-pivot-script
             defaultMode: 0755
+        # #5007 — node /etc/hosts (type: File bind mount). The pivot rewrites it
+        # IN PLACE (truncate, never mv — a single-file bind mount keeps the inode)
+        # to pin registry.<fqdn> -> the gateway VIP the platform already knows, so
+        # the local-registry pull never depends on public DNS resolution.
+        - name: node-etc-hosts
+          hostPath:
+            path: /etc/hosts
+            type: File
 ---
 # Step ConfigMap for catalyst-api consumer (mode=daemonset-wait).
 # The handler resolves the DaemonSet name from the `bp.openova.io/cutover-daemonset`
@@ -280,6 +310,11 @@ data:
     certs_d=/host/var/lib/rancher/k3s/agent/etc/containerd/certs.d
     df_proxy="http://127.0.0.1:${DF_PROXY_PORT}"
     last_state=""
+    # #5007 — the node's /etc/hosts (bind-mounted from the host) + the marker that
+    # tags the pin line this pivot owns, so it is idempotently re-writeable and
+    # cleanly removable on rollback.
+    etc_hosts=/host/etc/hosts
+    pin_marker="# managed by bp-self-sovereign-cutover registry-pivot (#5007) — DO NOT EDIT"
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -381,6 +416,87 @@ data:
         rm -f "${certs_d}/${h}/hosts.toml" 2>/dev/null || true
       done
       echo "[registry-pivot]   removed offline-mirror per-host hosts.toml (rollback) on ${NODE_NAME}"
+    }
+
+    # #5007 — resolve the Harbor gateway VIP WITHOUT public DNS. The per-host
+    # certs.d entries above use `server = https://registry.<fqdn>`; containerd
+    # resolves that host via the NODE resolver, which on hw241 returned the DEAD
+    # `*.omantel.biz` wildcard IP → ImagePullBackOff. We instead pin registry.<fqdn>
+    # to the gateway VIP the platform already assigned. Priority (K8s-API only, no
+    # DNS): (1) the cilium-gateway `type=LoadBalancer` Service ingress IP (hcloud-ccm
+    # ExternalIP on Hetzner / CiliumLoadBalancerIPPool VIP on no-CCM Huawei); (2) on
+    # the hostNetwork-gateway provider (Huawei #4706 — cilium-envoy binds node:443
+    # directly, so the Service has NO ingress IP / does not exist) the node's OWN IP,
+    # which serves :443 locally. Echoes the VIP or empty (empty ONLY when the Service
+    # EXISTS but its VIP is still pending, or on a transient API miss → caller defers
+    # + retries; a 404 means hostNetwork → HOST_IP). Word-split $CT is intentional.
+    resolve_gateway_vip() {
+      # No LB Service configured → hostNetwork gateway model: node's own IP serves :443.
+      if [ -z "${GATEWAY_LB_SVC_NAME:-}" ]; then printf '%s' "${HOST_IP:-}"; return; fi
+      svc_url="${api}/api/v1/namespaces/${GATEWAY_LB_SVC_NAMESPACE}/services/${GATEWAY_LB_SVC_NAME}"
+      # -w appends the HTTP status on its own trailing line (NOT -f, so a 404 body is
+      # readable to distinguish "absent → hostNetwork" from "present but VIP pending").
+      resp=$(curl -sS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
+        -w '\n%{http_code}' "${svc_url}" 2>/dev/null || true)
+      code=$(printf '%s' "${resp}" | tail -n1)
+      json=$(printf '%s' "${resp}" | sed '$d')
+      case "${code}" in
+        200)
+          # Service present: use its ingress VIP (or spec.loadBalancerIP). Empty when
+          # the VIP is still pending → caller defers this sweep (do NOT fall back to
+          # HOST_IP here: in the LB model node:443 is NOT served by envoy).
+          printf '%s' "$(printf '%s' "${json}" | jq -r '.status.loadBalancer.ingress[0].ip // .spec.loadBalancerIP // empty' 2>/dev/null || true)"
+          ;;
+        404)
+          # Service absent → hostNetwork gateway model: cilium-envoy binds node:443.
+          printf '%s' "${HOST_IP:-}"
+          ;;
+        *)
+          # Transient (000 / 5xx / 401) → empty so the caller defers + retries.
+          printf '%s' ""
+          ;;
+      esac
+    }
+
+    # #5007 — write/refresh the managed `<VIP> registry.<fqdn>` line in the node's
+    # /etc/hosts, stripping ANY prior line for that host (a cloud-init r4() boot pin
+    # that may have baked the dead wildcard IP, or a stale managed line). In-place
+    # truncate-rewrite (NOT mv) so the single-file bind mount inode is preserved.
+    # Idempotent (grep -qxF no-op once pinned). Fail-OPEN on any error.
+    write_local_registry_pin() {
+      case "${LOCAL_REGISTRY_PIN_ENABLED}" in
+        true|True|TRUE|1|yes) : ;;
+        *) return 0 ;;
+      esac
+      [ -n "${LOCAL_REGISTRY_HOST:-}" ] || return 0
+      [ -f "${etc_hosts}" ] || return 0
+      vip=$(resolve_gateway_vip)
+      if [ -z "${vip}" ]; then
+        echo "[registry-pivot]   WARN could not derive gateway VIP for ${LOCAL_REGISTRY_HOST} (LB VIP pending / API miss); DEFERRING /etc/hosts pin this sweep on ${NODE_NAME}"
+        return 0
+      fi
+      want="${vip} ${LOCAL_REGISTRY_HOST} ${pin_marker}"
+      grep -qxF "${want}" "${etc_hosts}" 2>/dev/null && return 0
+      # Strip EVERY existing line whose host field == LOCAL_REGISTRY_HOST (any IP,
+      # managed or the cloud-init boot pin), then append the authoritative pin.
+      kept=$(awk -v h="${LOCAL_REGISTRY_HOST}" '{
+        drop=0
+        for (i=2; i<=NF; i++) if ($i==h) { drop=1; break }
+        if (!drop) print
+      }' "${etc_hosts}" 2>/dev/null)
+      { [ -n "${kept}" ] && printf '%s\n' "${kept}"; printf '%s\n' "${want}"; } > "${etc_hosts}" 2>/dev/null \
+        && echo "[registry-pivot]   pinned ${LOCAL_REGISTRY_HOST} -> ${vip} in ${etc_hosts} on ${NODE_NAME}" \
+        || echo "[registry-pivot]   WARN failed to write ${etc_hosts} pin on ${NODE_NAME} (will retry next sweep)"
+    }
+
+    # #5007 — rollback: drop the managed pin line so registry.<fqdn> reverts to the
+    # node's pre-pivot DNS resolution. In-place truncate-rewrite; idempotent.
+    remove_local_registry_pin() {
+      [ -f "${etc_hosts}" ] || return 0
+      grep -qF "${pin_marker}" "${etc_hosts}" 2>/dev/null || return 0
+      kept=$(grep -vF "${pin_marker}" "${etc_hosts}" 2>/dev/null)
+      { [ -n "${kept}" ] && printf '%s\n' "${kept}"; } > "${etc_hosts}" 2>/dev/null \
+        && echo "[registry-pivot]   removed ${LOCAL_REGISTRY_HOST} /etc/hosts pin (rollback) on ${NODE_NAME}"
     }
 
     # #4652 (the x509 fix) — materialise the in-cluster Harbor trust anchor in
@@ -691,6 +807,7 @@ data:
           ;;
         v1|rollback|*)
           remove_offline_mirror_hosts
+          remove_local_registry_pin
           df_revert_to_ghcr || true
           write_node_ack v1
           ;;
@@ -702,6 +819,12 @@ data:
         | jq -r '.data.registriesYamlActive // "v1"' 2>/dev/null \
         || echo "v1")
       desired=${desired:-v1}
+
+      # #5007 — reconcile the local-registry /etc/hosts pin every sweep while v2 is
+      # desired (idempotent; self-heals a node whose /etc/hosts was rewritten, and
+      # completes the pin once the gateway VIP is assigned after the first v2 sweep
+      # — a fast grep no-op once pinned). On v1/rollback apply_state removes it.
+      [ "${desired}" = "v2" ] && write_local_registry_pin
 
       # #4639 — re-apply v2 if the cluster-wide dfdaemon flip has not yet been
       # confirmed (guard dragonflyUpstream != local). apply_state fires only

@@ -32,6 +32,11 @@
 //	                              with an ip address" rejection (issue #1500).
 //	PDM_RESERVATION_TTL        — go duration string, default "10m"
 //	PDM_SWEEPER_INTERVAL       — go duration string, default "30s"
+//	PDM_REAP_STALE_PARENT_WILDCARDS — reap a foreign `*.<pool>` wildcard from each
+//	                              managed parent pool zone at bootstrap (#5007),
+//	                              default true. pdm never writes a parent wildcard,
+//	                              so this only removes stale/foreign leftovers that
+//	                              would shadow delegated child names.
 //	PDM_LOG_LEVEL              — debug | info | warn | error (default info)
 package main
 
@@ -88,8 +93,9 @@ func main() {
 	pdnsClient := pdns.New(cfg.PDNSBaseURL, cfg.PDNSServerID, cfg.PDNSAPIKey)
 
 	alloc := allocator.New(s, pdnsClient, log, allocator.Config{
-		Nameservers:    cfg.Nameservers,
-		ReservationTTL: cfg.ReservationTTL,
+		Nameservers:              cfg.Nameservers,
+		ReservationTTL:           cfg.ReservationTTL,
+		ReapStaleParentWildcards: cfg.ReapStaleParentWildcards,
 	})
 
 	// Bootstrap every managed pool zone before HTTP serves traffic. /reserve
@@ -197,6 +203,9 @@ type config struct {
 	Nameservers     []string
 	ReservationTTL  time.Duration
 	SweeperInterval time.Duration
+	// ReapStaleParentWildcards — reap a foreign `*.<pool>` wildcard from each
+	// managed parent pool zone at bootstrap (#5007). Default true.
+	ReapStaleParentWildcards bool
 }
 
 func loadConfig() (*config, error) {
@@ -244,6 +253,12 @@ func loadConfig() (*config, error) {
 	}
 	c.SweeperInterval = sw
 
+	// #5007 — reap a stale/foreign `*.<pool>` wildcard from each managed parent
+	// pool zone at bootstrap. Default true (pdm never writes a parent wildcard, so
+	// reaping one is always safe in its delegation model). Set false only where a
+	// deployment intentionally serves a flat parent wildcard managed elsewhere.
+	c.ReapStaleParentWildcards = envBool("PDM_REAP_STALE_PARENT_WILDCARDS", true)
+
 	return c, nil
 }
 
@@ -252,6 +267,23 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envBool reads a boolean env var, returning fallback when unset/blank.
+// Accepts the usual truthy/falsey spellings; an unparseable value falls back.
+func envBool(key string, fallback bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	switch strings.ToLower(v) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true
+	case "0", "f", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func parseNameservers(raw string) []string {
