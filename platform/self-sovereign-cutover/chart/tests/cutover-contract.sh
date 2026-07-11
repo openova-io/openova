@@ -1833,4 +1833,47 @@ if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resource
 fi
 echo "  PASS (Step-07 Phase 4 comprehensive pod-spec sweep: containers+initContainers, shared resolver, presence-gated, reversible annotation, default enabled; RBAC wired)"
 
+echo "[cutover-contract] Case 46: Step-01 gitea-mirror pushes EXPLICIT refspecs (refs/heads/* + refs/tags/*) — never mirror mode, never prunes sovereign-local branches (#5011, Refs #3379 #4991)"
+# hw242 live (dep f05b0718dac62fe9, 2026-07-12): step-01's mirror-mode force-push
+# made the local Gitea openova/openova EXACTLY match a fresh bare clone of GitHub,
+# DELETING the sovereign-LOCAL branches catalog-sovereign (catalyst-api catalog
+# seed) + org-tenants (org-controller per-Org GitOps tree) — both exist ONLY in
+# the local Gitea — so the flux GitRepositories openova-catalog-sovereign +
+# openova-org-tenants flipped ready=False ("couldn't find remote ref") mid-cutover.
+# The durable contract: the push must enumerate the refs the mirror OWNS
+# (upstream branches + tags, force so re-runs stay idempotent) and must NEVER run
+# in mirror mode, which prunes refs it did not create. Slice step-01's CM (same
+# pattern as Case 45's step-07 slice — from the CM name to the next step's order
+# label).
+awk '/cutover-step-01-gitea-mirror/{c=1} c{print} c&&/cutover-order: "2"/{exit}' "$TMP/render.yaml" > "$TMP/step01_mirror.txt"
+[ -s "$TMP/step01_mirror.txt" ] || cp "$TMP/render.yaml" "$TMP/step01_mirror.txt"
+# (1) the push uses the explicit refspec pair — updates/creates every
+# GitHub-derived branch + tag, deletes nothing.
+if ! grep -qF "git push --force" "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 missing the explicit-refspec force-push (git push --force) (#5011)" >&2
+  exit 1
+fi
+if ! grep -qF "'refs/heads/*:refs/heads/*'" "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 push missing the refs/heads/*:refs/heads/* refspec — upstream branches would not sync (#5011)" >&2
+  exit 1
+fi
+if ! grep -qF "'refs/tags/*:refs/tags/*'" "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 push missing the refs/tags/*:refs/tags/* refspec — upstream tags would not sync (#5011)" >&2
+  exit 1
+fi
+# (2) mirror mode is BANNED in step-01: --mirror makes the remote exactly match
+# the clone and DELETES refs absent upstream (the hw242 prune). Zero occurrences
+# allowed in the step-01 script — flag, comments, anywhere.
+if grep -qF -- '--mirror' "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 contains '--mirror' — mirror mode prunes sovereign-local branches (catalog-sovereign, org-tenants) (#5011)" >&2
+  exit 1
+fi
+# (3) both refspecs ride the SAME push invocation as --force (idempotent re-runs
+# after an upstream history rewrite) — not a separate non-force push.
+if ! grep -E 'git push --force .*refs/heads/\*:refs/heads/\*.*refs/tags/\*:refs/tags/\*' "$TMP/step01_mirror.txt" >/dev/null; then
+  echo "FAIL: Step-01 explicit refspecs must ride the single 'git push --force' invocation (#5011)" >&2
+  exit 1
+fi
+echo "  PASS (Step-01 pushes refs/heads/* + refs/tags/* explicitly with --force; mirror mode absent — sovereign-local branches survive)"
+
 echo "[cutover-contract] All gates green."

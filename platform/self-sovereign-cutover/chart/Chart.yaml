@@ -1,5 +1,27 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.121 (#5011 Refs #3379 #4991 — step-01 gitea-mirror's mirror-mode force-push
+# PRUNED sovereign-local Gitea branches; found LIVE on hw242, dep f05b0718dac62fe9,
+# 2026-07-12 — the first-ever post-step-01 GitOps observation: prior cycles walked
+# BEFORE cutover, so this class was structurally hidden). `git push --mirror` makes
+# the remote EXACTLY match the fresh bare clone of GitHub — it DELETES refs absent
+# upstream. The sovereign-LOCAL branches `catalog-sovereign` (catalyst-api catalog
+# seed) and `org-tenants` (org-controller per-Org GitOps tree) live ONLY in the
+# local Gitea openova/openova repo, never on GitHub → both pruned → the flux
+# GitRepositories openova-catalog-sovereign + openova-org-tenants flipped
+# ready=False ("couldn't find remote ref") mid-cutover, killing the per-Org GitOps
+# tree (funnel Launch → app serves, #4991 class) + the sovereign catalog leg while
+# steps 05/06 were about to patch/push those same sources.
+# FIX (template 01): the push now enumerates ONLY the refs the mirror OWNS —
+# `git push --force <local> 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'`
+# — force-updating/creating every GitHub-derived branch + tag (idempotent re-runs,
+# survives upstream history rewrites) while NEVER deleting remote-only refs. No
+# values change, no other template change (the default-off G75-severed
+# mirror-resync CronJob is a pre-existing separate surface). No step-count /
+# job-mode change (still 11 steps). cutover-contract Case 46 locks the explicit
+# refspecs + bans the mirror flag from the rendered step-01 script.
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version move
+# to 0.1.121 in lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag).
 # 0.1.120 (#4973 #4975 #4961 Refs #4885 #3379 #3695 — the registry pivot was
 # INCOMPLETE: the step-07 HR global.imageRegistry patch only reaches images a
 # chart renders THROUGH that value, so images pinned by full ref OUTSIDE it stayed
@@ -1903,7 +1925,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.120
+version: 0.1.121
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
