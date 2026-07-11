@@ -106,21 +106,23 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 		return h.failOrgCreate(ctx, data.ID, slug,
 			"missing owner_email — cannot mint Organization CR without an owner roster entry")
 	}
-	// Parent domain resolution (#4421) — see resolveOrgParentDomain. The Org
-	// CR's pool MUST equal the pool the per-Org apps-HTTPRoute renders under,
-	// else the app host falls through to a stale apex wildcard → dead IP.
-	parentDomain := resolveOrgParentDomain(h.AppsParentDomain, data.ParentDomain)
+	// Parent domain resolution (#4999) — see resolveOrgParentDomain. The Org CR's
+	// pool == the pool the per-Org apps-HTTPRoute renders under (the apps
+	// generator follows the SAME resolved zone via consumer.go's scoped clone),
+	// so honoring the customer's served pick keeps console==apps under the chosen
+	// TLD instead of collapsing both onto the primary apps pool.
+	parentDomain := resolveOrgParentDomain(h.AppsParentDomain, h.PoolDomains, data.ParentDomain)
 	if parentDomain == "" {
 		slog.Warn("tenant.created consumer: no parent domain configured — Organization will mint without TenantPublic HTTPRoute",
 			"slug", slug)
 	} else if pd := strings.ToLower(strings.TrimSpace(data.ParentDomain)); pd != "" && pd != parentDomain {
-		// The customer's funnel pick disagrees with the Sovereign's apps
-		// pool. We deliberately override it (the apps zone is the one that
-		// must win, else the app host falls through to a stale wildcard) —
-		// log loud so an operator notices the funnel is offering a pool the
-		// Sovereign doesn't actually serve.
-		slog.Warn("tenant.created consumer: payload parent_domain overridden by the Sovereign apps pool to keep the Org DNS pool aligned with the apps-HTTPRoute pool (#4421)",
-			"slug", slug, "payload_parent_domain", pd, "apps_parent_domain", parentDomain)
+		// The customer's funnel pick is NOT a served pool zone → we fell back to
+		// the apps pool (never provision under a zone the Sovereign can't serve,
+		// the #4421 dead-IP guard). Log loud so an operator notices the funnel is
+		// offering a pool the Sovereign doesn't serve (fix the offer or add the
+		// zone to TENANT_POOL_DOMAINS).
+		slog.Warn("tenant.created consumer: payload parent_domain is not a served pool zone — fell back to the Sovereign apps pool (#4999)",
+			"slug", slug, "payload_parent_domain", pd, "resolved_parent_domain", parentDomain)
 	}
 
 	tier := strings.TrimSpace(data.Tier)
@@ -236,30 +238,34 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 }
 
 // resolveOrgParentDomain picks the org-pool parent zone the Organization CR's
-// spec.tenantPublic.parentDomain is stamped with (#4421). It returns
-// lowercased/trimmed.
+// spec.tenantPublic.parentDomain is stamped with (#4999, superseding #4421).
+// Returns lowercased/trimmed. It MIRRORS the tenant-service resolver of the same
+// name so both doors + the apps generator agree on ONE zone per Org.
 //
-// THE INVARIANT it enforces: the pool the org-controller's DNS writer
+// THE INVARIANT (#4421) it upholds: the pool the org-controller's DNS writer
 // (tenant_dns.go) + console route (tenant_route.go) key off MUST equal the pool
-// the per-Org apps-HTTPRoute generator renders product hosts under. Otherwise
-// the per-Org A-records land in one zone (the customer's funnel pick) while the
-// app hosts `<app>.<slug>.<otherZone>` have no record and fall through to a
-// stale apex `*.<otherZone>` wildcard → a DEAD IP (the #4421 failure:
-// openclaw.<slug>.omani.homes → 49.12.16.160 when the Org's funnel pick was
-// omani.rest).
+// the per-Org apps-HTTPRoute generator renders product hosts under — else the
+// per-Org A-records land in one zone while `<app>.<slug>.<otherZone>` has no
+// record and dead-IPs on a stale apex wildcard. #4999 keeps that invariant but
+// no longer COLLAPSES both onto the single apps pool: it HONORS the customer's
+// served funnel pick (payloadParentDomain ∈ poolDomains) and the apps generator
+// follows the SAME resolved zone (consumer.go scoped clone), so the two Orgs can
+// live on two different served TLDs.
 //
-// appsParentDomain is the EFFECTIVE pool the apps generator renders under
-// (gitops.ResolveParentDomain(TENANT_PARENT_DOMAIN), defaulting to omani.homes),
-// resolved ONCE in main.go and handed to both the generator and this handler so
-// the two can never drift. It is non-empty on any real Sovereign (the apps
-// ALWAYS render under a zone), so it WINS — the per-customer payloadParentDomain
-// is honored only as a last-resort fallback on a degenerate Sovereign with no
-// apps pool wired at all.
-func resolveOrgParentDomain(appsParentDomain, payloadParentDomain string) string {
-	if pd := strings.ToLower(strings.TrimSpace(appsParentDomain)); pd != "" {
-		return pd
+// A pick outside the served set (or empty) falls back to appsParentDomain (the
+// EFFECTIVE pool, gitops.ResolveParentDomain(TENANT_PARENT_DOMAIN), non-empty on
+// any real Sovereign) so we NEVER provision under a zone the Sovereign can't
+// serve. Only a degenerate Sovereign with no apps pool wired falls through to the
+// raw pick. poolDomains defaults to the canonical four .omani.X zones when unset.
+func resolveOrgParentDomain(appsParentDomain string, poolDomains []string, payloadParentDomain string) string {
+	pick := normalizePoolZone(payloadParentDomain)
+	if pick != "" && isServedPoolDomain(pick, poolDomains) {
+		return pick
 	}
-	return strings.ToLower(strings.TrimSpace(payloadParentDomain))
+	if primary := normalizePoolZone(appsParentDomain); primary != "" {
+		return primary
+	}
+	return pick
 }
 
 // failOrgCreate logs + publishes a `provision.org_create_failed` event

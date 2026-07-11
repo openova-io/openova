@@ -188,6 +188,9 @@ func (h *Handler) InstallApp(w http.ResponseWriter, r *http.Request) {
 		"deploy_slugs":    deploySlugs,
 		"dep_choices":     body.DepChoices,
 		"apps":            tenant.Apps,
+		// #4999: the Org's chosen pool zone so day-2 app installs render under the
+		// same TLD as the per-Org console (console==apps invariant).
+		"parent_domain": tenant.ParentDomain,
 	}
 	if err := h.callProvisioning(r.Context(), "/provisioning/apps/install", payload); err != nil {
 		slog.Error("install: provisioning HTTP call", "error", err, "tenant_id", tenantID)

@@ -116,7 +116,11 @@ func main() {
 		Catalog:          catalogClient,
 		ProvisioningURL:  provisioningURL,
 		AppsParentDomain: appsParentDomain,
-		DayTwoLocks:      handlers.NewTenantLocks(),
+		// #4999: served org-pool TLD set (env TENANT_POOL_DOMAINS; nil → the
+		// canonical four .omani.X zones) so CreateOrg can HONOR the funnel's
+		// chosen pool TLD instead of dropping it to AppsParentDomain.
+		PoolDomains: handlers.PoolDomainsFromEnv(),
+		DayTwoLocks: handlers.NewTenantLocks(),
 	}
 	slog.Info("catalog client configured", "url", catalogURL)
 	slog.Info("provisioning URL configured", "url", provisioningURL)

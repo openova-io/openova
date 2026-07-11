@@ -100,14 +100,23 @@ func (h *Handler) patchOrgTenantPublic(ctx context.Context, tenantSlug, product,
 	}
 	backendService := fmt.Sprintf("%s-x-%s-x-vcluster", product, hostNS)
 
-	// Build the merge-patch body. We patch ONLY spec.tenantPublic
-	// (and stable sub-fields) so any operator-managed field elsewhere
-	// on the CR is untouched.
+	// Build the merge-patch body. We patch ONLY the product-install sub-fields
+	// (backendService / backendPort / product) so any operator-managed field
+	// elsewhere on the CR is untouched.
+	//
+	// #4999: DO NOT patch parentDomain/subdomain here. createOrganizationCR
+	// (tenant.created) is the SOLE owner of the Org's pool zone — it stamps the
+	// HONORED served pick on spec.tenantPublic.parentDomain. This day-2 patch
+	// runs LATER (on product-ready); re-writing parentDomain from the Sovereign's
+	// single primary apps pool (h.TenantParentDomain) would CLOBBER a 2nd Org's
+	// honored `omani.rest` back to `omani.homes` AFTER its console already came up
+	// on omani.rest — reverting the funnel TLD choice. A merge-patch that omits
+	// the field leaves the create-owned zone intact. `parent` above is still
+	// required as the feature-enabled gate (empty → the whole patch is skipped on
+	// a single-domain Sovereign, unchanged).
 	body := map[string]any{
 		"spec": map[string]any{
 			"tenantPublic": map[string]any{
-				"parentDomain":   parent,
-				"subdomain":      slug,
 				"backendService": backendService,
 				"backendPort":    int64(tenantPublicDefaultBackendPort),
 				"product":        product,

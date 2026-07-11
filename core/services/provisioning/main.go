@@ -290,7 +290,11 @@ func main() {
 		// Resolved here so the Org-CR DNS-writer pool the tenant.created handler
 		// stamps always equals the pool the apps-HTTPRoute renders under.
 		AppsParentDomain: gitops.ResolveParentDomain(tenantParentDomain),
-		PerOrgGitops:     perOrgGitops,
+		// #4999: served org-pool TLD set (env TENANT_POOL_DOMAINS; nil → the
+		// canonical four .omani.X zones) so createOrganizationCR + the apps
+		// generator HONOR the customer's chosen served pool TLD.
+		PoolDomains:    handlers.PoolDomainsFromEnv(),
+		PerOrgGitops:   perOrgGitops,
 		PerOrgRepoName:   perOrgRepoName,
 		PerOrgBranch:     perOrgBranch,
 	}

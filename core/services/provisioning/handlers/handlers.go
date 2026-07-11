@@ -72,6 +72,15 @@ type Handler struct {
 	// host fell through to a stale apex `*.omani.homes` wildcard → dead IP.
 	AppsParentDomain string
 
+	// PoolDomains is the served org-pool TLD set (#4999) — env
+	// TENANT_POOL_DOMAINS, defaulting to the canonical four .omani.X zones when
+	// empty (see pool_domains.go). resolveOrgParentDomain honors a customer's
+	// funnel pick only when it is in this set (else it falls back to
+	// AppsParentDomain), so a 2nd Org can provision under a DIFFERENT served TLD.
+	// The apps generator follows the SAME resolved zone (applyTenantChangePerOrg
+	// scoped clone), keeping console==apps under the honored TLD.
+	PoolDomains []string
+
 	// PerOrgGitops enables the Sovereign per-Org commit target (#4384). When
 	// true, the day-2 cart install commits the customer's purchased
 	// Applications into the per-Org `<slug>/catalyst-tenant` repo's
