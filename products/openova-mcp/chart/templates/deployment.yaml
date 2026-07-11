@@ -1,0 +1,99 @@
+{{- /*
+Deployment — the long-lived openova-mcp Service Pod.
+
+🛑 GATED on httpTransport.enabled (default FALSE). The first-slice binary is
+stdio-only: run with no stdin in a Deployment it hits EOF and exits, so a Pod
+would crash-loop. This template therefore renders ONLY once an HTTP/SSE serve
+mode exists in the binary (#3988 §5 / #899) and the operator asserts it by
+setting httpTransport.enabled=true. Until then the chart stands up only its
+identity + config (ServiceAccount + ConfigMap).
+*/ -}}
+{{- if .Values.httpTransport.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "bp-openova-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-openova-mcp.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "bp-openova-mcp.serviceAccountName" . }}
+      {{- with .Values.image.pullSecretName }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: openova-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.httpTransport.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "bp-openova-mcp.configMapName" . }}
+          env:
+            {{- if eq .Values.config.verify "rs256" }}
+            {{- with .Values.config.rs256PubkeySecret }}
+            - name: OPENOVA_MCP_RS256_PUBKEY_PEM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- else if eq .Values.config.verify "hs256" }}
+            {{- with .Values.config.hs256Secret }}
+            - name: OPENOVA_MCP_HS256_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.config.bearerSecret.name }}
+            - name: OPENOVA_MCP_BEARER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.bearerSecret.name }}
+                  key: {{ .Values.config.bearerSecret.key }}
+            {{- end }}
+          {{- if .Values.httpTransport.probes.enabled }}
+          # Probes target the future HTTP serve mode's /healthz on the listen
+          # port. If the transport is enabled without wiring /healthz the Pod
+          # correctly reports NotReady rather than silently green.
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.httpTransport.probes.path }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.httpTransport.probes.path }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+{{- end }}

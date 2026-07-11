@@ -1,0 +1,41 @@
+{{- /*
+Kubernetes RBAC — DEFAULT OFF (rbac.create=false).
+
+The openova-mcp thin facade makes NO kube-apiserver calls: every tool forwards
+the caller's bearer to the catalyst-api over HTTP and the endpoint's own authz
+is the final word. The "Org-scoped read/list/get + create" RBAC the UAT rows
+(211/212/213/221/222/223) describe is APPLICATION-TIER RBAC — JWT-claim-driven,
+enforced in internal/identity (context/tier/scope derivation) + internal/tools
+(the two-layer visible()/Call() gate) + the catalyst-api handler tier check.
+It is NOT expressible as, and does not need, a Kubernetes Role.
+
+This template exists only so a FUTURE transport that genuinely needs an
+in-cluster read can opt in (rbac.create=true + rbac.rules) without a chart
+fork. Emitting a Role with applications get/list/create verbs today would be
+theater — the process never calls those APIs.
+*/ -}}
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-openova-mcp.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-openova-mcp.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

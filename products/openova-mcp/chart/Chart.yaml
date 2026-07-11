@@ -1,0 +1,20 @@
+apiVersion: v2
+name: bp-openova-mcp
+description: >-
+  OpenOva MCP server — an RBAC-scoped-per-user thin facade that exposes the
+  OpenOva product surface (Applications, Environments, Organizations) as MCP
+  tools whose surface is identical to what the same user can do in the
+  Catalyst console. DRAFT design packaging (#899): every serving resource is
+  gated behind httpTransport.enabled until the streamable-HTTP/SSE transport
+  (#3988 §5) lands in the binary — the first slice speaks stdio only.
+type: application
+version: 0.1.0
+appVersion: "0.1.0-slice1"
+
+# Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
+# this chart legitimately ships only Catalyst-authored resources (Deployment +
+# Service + ServiceAccount + HTTPRoute + NetworkPolicy + ConfigMap). It is a
+# product chart with NO upstream Helm subchart to bundle — same shape as
+# bp-axon (products/axon/chart) and bp-oidc-gate.
+annotations:
+  catalyst.openova.io/no-upstream: "true"

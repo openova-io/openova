@@ -1,0 +1,129 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-openova-mcp
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-7-org-tenant
+spec:
+  # 0.1.0 (#899): DRAFT design packaging of the openova-mcp server (#3988).
+  # 🛑 The first slice speaks stdio ONLY — no HTTP listener, no port. This
+  # Blueprint's chart gates every serving resource behind
+  # `httpTransport.enabled` (default false). It is NOT wired into the
+  # bootstrap-kit / catalog-seed here; that is the post-implementation step
+  # once the streamable-HTTP/SSE transport (#3988 §5) lands in the binary.
+  version: 0.1.0
+  card:
+    title: OpenOva MCP
+    summary: |
+      The OpenOva MCP server — an RBAC-scoped-per-user thin facade that
+      exposes the OpenOva product surface (Applications, Environments,
+      Organizations) as MCP tools whose surface is IDENTICAL to what the
+      same user can do in the Catalyst console. It reimplements nothing:
+      every tool forwards the caller's session bearer to the live
+      catalyst-api, so the endpoint's own authz is the final word. Org-scoped
+      by construction — an Org caller sees/acts only within their own
+      Organization; a cross-Org call returns 403.
+    category: ai-runtime
+    family: agent-runtime
+    tags: [openova-mcp, mcp, agent, catalyst-api, rbac, thin-facade]
+    documentation: https://github.com/openova-io/openova
+    license: Apache-2.0
+  visibility: unlisted              # supporting infra for the agentic runtime
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      httpTransport:
+        type: object
+        description: |
+          🛑 The openova-mcp first slice is stdio-only. Every serving resource
+          (Deployment/Service/HTTPRoute/NetworkPolicy) is gated behind
+          `enabled`; keep it false until the HTTP/SSE serve mode (#3988 §5)
+          lands in the binary.
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: |
+              true = render the serving topology (requires the binary's HTTP
+              serve mode). false (default) = render only ServiceAccount +
+              ConfigMap.
+          port:
+            type: integer
+            default: 8080
+            description: The design-target listen port the future HTTP serve mode binds.
+      config:
+        type: object
+        description: The OPENOVA_MCP_* env contract the binary reads.
+        properties:
+          catalystApiUrl:
+            type: string
+            default: ""
+            description: |
+              Base URL of the catalyst-api / gateway the thin facade forwards
+              the caller's bearer to (in-cluster Service URL or public console
+              host). Required for the data tools; whoami works without it.
+          context:
+            type: string
+            enum: [organization, sovereign]
+            default: organization
+            description: |
+              Pins the instance context. A per-Org instance pins
+              "organization" so even a Sovereign token cannot widen the surface
+              beyond that Org (defense in depth).
+          verify:
+            type: string
+            enum: [rs256, hs256, insecure]
+            default: rs256
+            description: |
+              Bearer verification mode. rs256 verifies against the Sovereign
+              handover-jwt public key. "insecure" is test-only — never on a
+              real Sovereign.
+          tenantHost:
+            type: string
+            default: ""
+            description: |
+              Organization console host passed as X-Tenant-Host on the
+              org-scoped install path (#4116). Empty = derived from the
+              catalyst-api URL host.
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cilium
+    - blueprint: bp-keycloak
+    - blueprint: bp-external-secrets-stores
+  upgrades:
+    from: ["0.x"]
+  observability:
+    logs: stdout
+  topology:
+    supported:
+      - singleton
+    defaults:
+      # Region-pinned stateless facade — it holds no state and does not
+      # replicate across regions, so both BCP defaults resolve to the single
+      # in-region instance (schema requires both keys; G116).
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          # Host-native, no vCluster pivot (mirrors bp-agenity #4325): a
+          # per-Org runtime facade lands on the HOST in its own Org namespace.
+          tier: ''
+          clusters:
+            - rtz-A
+          roles:
+            rtz-A: singleton
+  # Endpoint declaration is DEFERRED until the HTTP transport lands — with the
+  # stdio-only binary there is no reachable network endpoint to publish, so
+  # declaring one here would be fiction. It is enumerated as a follow-up on
+  # #899 / #3988 §5 alongside the transport work.
+  multiInstance:
+    enabled: false

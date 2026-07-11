@@ -1,0 +1,57 @@
+{{- /*
+CiliumNetworkPolicy — external-HTTPS egress to the catalyst-api / console.
+
+The thin facade forwards the caller's bearer to the catalyst-api (the public
+Sovereign console https://console.<fqdn> or the in-cluster catalyst-api). On a
+Cilium Sovereign the console is an off-cluster :443 hop to an external EIP that
+no Pod/namespace/ipBlock K8s selector can name — so `toEntities: [world]` is the
+canonical carve-out (mirrors bp-agenity's cilium-egress-networkpolicy.yaml,
+#4604). cluster/host/remote-node keep in-cluster legs alive under the
+default-deny egress posture a CNP egress rule introduces.
+
+🛑 DNS IS LOAD-BEARING: any CNP egress rule flips the endpoint to default-deny
+egress for everything else, so an explicit :53 allow to kube-dns is required or
+console.<fqdn> NXDOMAINs.
+
+Gated on httpTransport.enabled + networkPolicy.enabled + allowExternalHttps, and
+on the cilium.io/v2 Capabilities check so the chart still installs on CRD-less
+clusters (kind CI).
+*/ -}}
+{{- if and .Values.httpTransport.enabled .Values.networkPolicy.enabled .Values.networkPolicy.egress.allowExternalHttps (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}-external-egress
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+    catalyst.openova.io/component: openova-mcp-egress-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-openova-mcp.selectorLabels" . | nindent 6 }}
+  egress:
+    # External HTTPS — the catalyst-api / console the facade forwards to.
+    - toEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "{{ .Values.networkPolicy.egress.httpsPort }}"
+              protocol: TCP
+    # DNS — LOAD-BEARING (see header).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+{{- end }}

@@ -1,0 +1,57 @@
+{{- /*
+K8s NetworkPolicy — default-deny with the carve-outs the facade needs.
+Gated on httpTransport.enabled AND networkPolicy.enabled (a policy protecting a
+port only makes sense once a Pod binds one).
+
+Ingress: only the MCP http port, only from the allow-listed namespaces (Cilium
+Gateway ENTITY traffic is admitted separately by the CNP — see
+cilium-ingress-networkpolicy.yaml, since no K8s selector can name the reserved
+`ingress` entity). Egress: DNS + HTTPS to the catalyst-api / console. The
+external-EIP :443 hop is admitted by the CNP (cilium-egress-networkpolicy.yaml);
+the ipBlock rule here covers a non-Cilium overlay / in-cluster catalyst-api.
+*/ -}}
+{{- if and .Values.httpTransport.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-openova-mcp.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.ingress.allowedFromNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: http
+          protocol: TCP
+  egress:
+    # DNS resolution.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # HTTPS to the catalyst-api / console (in-cluster Service or the public
+    # gateway). The external-EIP hop is admitted by the egress CNP; this
+    # ipBlock rule keeps an in-cluster / non-Cilium path open too.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: {{ .Values.networkPolicy.egress.httpsPort }}
+          protocol: TCP
+{{- end }}

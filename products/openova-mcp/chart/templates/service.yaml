@@ -1,0 +1,24 @@
+{{- /*
+Service — ClusterIP front for the openova-mcp HTTP transport. Gated on
+httpTransport.enabled (the stdio binary binds no port; see deployment.yaml).
+
+🛑 NodePorts are ABSOLUTELY FORBIDDEN. type is ClusterIP; the external front
+door is the Cilium Gateway HTTPRoute (httproute.yaml), never a nodePort.
+*/ -}}
+{{- if .Values.httpTransport.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "bp-openova-mcp.selectorLabels" . | nindent 4 }}
+{{- end }}

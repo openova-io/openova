@@ -1,0 +1,169 @@
+# ─────────────────────────────────────────────────────────────────────────
+# bp-openova-mcp — DRAFT design packaging (#899).
+#
+# 🛑 TRANSPORT REALITY — READ BEFORE DEPLOYING
+# The openova-mcp first slice (#3988) speaks JSON-RPC 2.0 over **stdio only**
+# (cmd/openova-mcp reads os.Stdin / writes os.Stdout). It has NO HTTP listener
+# and binds NO port. Today it is consumed as a forked stdio child of an agent
+# (agenity bakes the binary + launches it per session via ~/.claude.json). A
+# long-lived, HTTPRoute-fronted, in-cluster Service needs the streamable-
+# HTTP/SSE transport that is an explicit #3988 §5 follow-up.
+#
+# Therefore every SERVING resource in this chart (Deployment, Service,
+# HTTPRoute, NetworkPolicy, CiliumNetworkPolicy) is gated behind
+# `httpTransport.enabled` and DEFAULTS TO FALSE. With the default values the
+# chart renders only its identity (ServiceAccount) + non-secret config
+# (ConfigMap) — it does NOT stand up a Pod that would crash-loop on stdin EOF.
+# Flip httpTransport.enabled=true ONLY once the binary gains an HTTP serve mode
+# (tracked on #3988 / #899). NodePorts are ABSOLUTELY FORBIDDEN — the Service
+# is ClusterIP-only and the front door is the Cilium Gateway HTTPRoute.
+# ─────────────────────────────────────────────────────────────────────────
+
+image:
+  repository: ghcr.io/openova-io/openova/openova-mcp
+  tag: latest
+  pullPolicy: IfNotPresent
+  pullSecretName: ghcr-pull-secret
+
+# ── HTTP transport gate ──────────────────────────────────────────────────
+# When false (default) the serving resources are NOT rendered — see the
+# banner above. `port` is the design-target listen port the future HTTP/SSE
+# serve mode is expected to bind (8080, matching the openova-flow server
+# convention); it is not honoured by the stdio binary today.
+httpTransport:
+  enabled: false
+  port: 8080
+  # Liveness/readiness probes for the future HTTP serve mode. They target
+  # /healthz on httpTransport.port — an endpoint the HTTP transport must
+  # provide. Kept as a values knob so the render stays honest: enabling the
+  # transport without wiring /healthz should surface as a NotReady Pod, not a
+  # silent green.
+  probes:
+    enabled: true
+    path: /healthz
+
+# ── openova-mcp env contract (see README.md) ─────────────────────────────
+# These map 1:1 onto the OPENOVA_MCP_* env the binary reads. Secrets (the
+# RS256 pubkey / HS256 secret / bearer) are projected from Kubernetes Secrets,
+# never inlined here.
+config:
+  # OPENOVA_MCP_CATALYST_API_URL — base URL of the catalyst-api / gateway the
+  # thin facade forwards the caller's bearer to. On a Sovereign this is the
+  # in-cluster catalyst-api Service URL or the public console host.
+  catalystApiUrl: ""
+  # OPENOVA_MCP_CONTEXT — "organization" | "sovereign". Pins the instance
+  # context per the #3988 §4.3 topology table (empty = derive per-token). A
+  # per-Org instance pins "organization" so even a Sovereign token cannot
+  # widen the surface beyond that Org.
+  context: organization
+  # OPENOVA_MCP_VERIFY — "rs256" (default) | "hs256" | "insecure". Selects
+  # bearer verification. "insecure" is test/trusted-transport only — never on
+  # a real Sovereign.
+  verify: rs256
+  # OPENOVA_MCP_TENANT_HOST — the Organization console host the org-scoped
+  # install path passes as X-Tenant-Host (#4116). Empty = derived from the
+  # catalyst-api URL host.
+  tenantHost: ""
+  # OPENOVA_MCP_RS256_PUBKEY_PEM — projected from this Secret when verify=rs256
+  # (the Sovereign handover-jwt public key). Default names the Secret the
+  # bp-catalyst-platform handover flow materialises.
+  rs256PubkeySecret:
+    name: catalyst-handover-jwt
+    key: OPENOVA_MCP_RS256_PUBKEY_PEM
+  # OPENOVA_MCP_HS256_SECRET — projected from this Secret when verify=hs256.
+  hs256Secret:
+    name: ""
+    key: OPENOVA_MCP_HS256_SECRET
+  # OPENOVA_MCP_BEARER — optional fallback bearer when a tools/call omits the
+  # _auth.token argument. Projected from this Secret when name is set. For a
+  # per-connection-identity HTTP transport this stays empty (each caller
+  # supplies their own bearer).
+  bearerSecret:
+    name: ""
+    key: OPENOVA_MCP_BEARER
+
+# ── Service (ClusterIP only — NodePorts are FORBIDDEN) ───────────────────
+service:
+  type: ClusterIP
+  port: 80
+
+# ── ServiceAccount ───────────────────────────────────────────────────────
+# The Pod's identity. NOTE: the openova-mcp facade makes NO Kubernetes API
+# calls — it forwards the caller's bearer to the catalyst-api over HTTP and
+# the endpoint's own authz is the final word. The "Org-scoped read/list/get +
+# create" RBAC the UAT rows describe is APPLICATION-TIER RBAC (JWT-claim-driven,
+# enforced in internal/identity + internal/tools + the catalyst-api), NOT
+# Kubernetes RBAC. So this SA needs NO Role/RoleBinding by default — see
+# `rbac` below.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ── Kubernetes RBAC ──────────────────────────────────────────────────────
+# Default OFF: the thin facade needs no kube-apiserver access (see the
+# ServiceAccount note above). This block exists only so a FUTURE transport
+# that genuinely needs an in-cluster read (it currently does not) can opt in
+# without a chart fork; leaving it false is the correct posture today.
+rbac:
+  create: false
+  rules: []
+
+# ── Ingress: Cilium Gateway HTTPRoute (front door) ───────────────────────
+ingress:
+  httpRoute:
+    enabled: false
+    # Hostname for the HTTPRoute. Defaults to "openova-mcp.<sovereignFQDN>"
+    # when empty AND .Values.sovereignFQDN is set; otherwise render skips.
+    host: ""
+    parentRef:
+      name: cilium-gateway
+      namespace: kube-system
+      # sectionName intentionally empty — multi-zone Sovereigns rename HTTPS
+      # listeners to https-<sanitised-zone>, so pinning sectionName: https
+      # breaks the route with NoMatchingListener. Cilium Gateway selects the
+      # listener by hostname when sectionName is omitted (PR #1888 / #1902).
+      sectionName: ""
+
+# ── NetworkPolicy (default-deny + carve-outs) ────────────────────────────
+networkPolicy:
+  enabled: true
+  ingress:
+    # Namespaces allowed to reach the MCP port directly (Pod-selector traffic).
+    # A per-Org agenity install in the same Org namespace, or the catalyst
+    # console, are the expected callers.
+    allowedFromNamespaces: []
+    # Admit Cilium Gateway API traffic. Gateway-proxied requests reach the Pod
+    # with the reserved `ingress` ENTITY identity, which no K8s NetworkPolicy
+    # selector can express — renders templates/cilium-ingress-networkpolicy.yaml
+    # (the #3374 idiom). Without it every external hit through the HTTPRoute
+    # times out.
+    allowGatewayEntity: true
+  egress:
+    # The facade reaches the catalyst-api / console over HTTPS. On a Cilium
+    # Sovereign that is an off-cluster :443 hop to an external EIP that no
+    # Pod/namespace/ipBlock selector can name — so the canonical expression is
+    # a CiliumNetworkPolicy `toEntities: [world]` carve-out (renders
+    # templates/cilium-egress-networkpolicy.yaml, the #4604 idiom). DNS is
+    # load-bearing under the default-deny flip and is always allowed.
+    allowExternalHttps: true
+    httpsPort: 443
+
+# ── Resources (Guaranteed QoS — requests == limits) ─────────────────────
+# Small stateless facade. Guaranteed QoS so the Pod is admissible under a
+# per-Org plan-limits LimitRange (cpu:1/mem:1 ratio), mirroring bp-agenity's
+# oidc-gate companion (#4553).
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 25m
+    memory: 64Mi
+
+# The Sovereign primary FQDN. Set by the bootstrap-kit overlay; used to derive
+# the default HTTPRoute host when ingress.httpRoute.host is empty.
+sovereignFQDN: ""
+
+nameOverride: ""
+fullnameOverride: ""

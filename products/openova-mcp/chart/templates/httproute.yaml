@@ -1,0 +1,54 @@
+{{- /*
+Cilium Gateway HTTPRoute — the public front door for openova-mcp.<fqdn>.
+
+Gated on httpTransport.enabled AND ingress.httpRoute.enabled. Same skip-render
++ host-derivation + parentRef pattern as bp-newapi's httproute.yaml. An exact
+`openova-mcp.<fqdn>` route wins over the marketplace `*.<fqdn>` wildcard
+(Gateway API prefers the most specific listener), so it restores reachability
+without touching the wildcard.
+
+sectionName is omitted when empty (multi-zone Sovereigns rename HTTPS listeners
+to https-<zone>; pinning `https` breaks with NoMatchingListener — PR #1888 /
+#1902). Gateway API attaches by hostname when sectionName is unset.
+
+NOTE on auth: openova-mcp validates the caller's BEARER in-process
+(internal/identity, RS256/HS256) — it is a machine-to-machine MCP endpoint, not
+a browser SPA, so it does NOT sit behind bp-oidc-gate (the oauth2-proxy
+browser-cookie flow). The HTTPRoute exposes it directly and the server is the
+auth authority for each tools/call.
+*/ -}}
+{{- if and .Values.httpTransport.enabled .Values.ingress.httpRoute.enabled -}}
+{{- $host := .Values.ingress.httpRoute.host -}}
+{{- if and (not $host) .Values.sovereignFQDN -}}
+{{- $host = printf "openova-mcp.%s" .Values.sovereignFQDN -}}
+{{- end -}}
+{{- if $host -}}
+{{- $parent := .Values.ingress.httpRoute.parentRef | default dict -}}
+{{- $parentName := default "cilium-gateway" $parent.name -}}
+{{- $parentNs := default "kube-system" $parent.namespace -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}-public
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+    catalyst.openova.io/component: openova-mcp-public-route
+spec:
+  parentRefs:
+    - name: {{ $parentName | quote }}
+      namespace: {{ $parentNs | quote }}
+      {{- with $parent.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: {{ include "bp-openova-mcp.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}
+{{- end }}

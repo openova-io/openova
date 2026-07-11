@@ -1,0 +1,20 @@
+{{- /*
+Non-secret OPENOVA_MCP_* env for the openova-mcp binary. The secret inputs
+(RS256 pubkey / HS256 secret / fallback bearer) are projected from Kubernetes
+Secrets by the Deployment, never placed here. Rendered always (even with the
+serving Deployment gated off) so the config surface is reviewable and a future
+transport flip has its config already in place.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-openova-mcp.configMapName" . }}
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+data:
+  OPENOVA_MCP_CATALYST_API_URL: {{ .Values.config.catalystApiUrl | quote }}
+  OPENOVA_MCP_CONTEXT: {{ .Values.config.context | quote }}
+  OPENOVA_MCP_VERIFY: {{ .Values.config.verify | quote }}
+  {{- with .Values.config.tenantHost }}
+  OPENOVA_MCP_TENANT_HOST: {{ . | quote }}
+  {{- end }}

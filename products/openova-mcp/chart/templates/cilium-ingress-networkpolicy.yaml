@@ -1,0 +1,34 @@
+{{- /*
+CiliumNetworkPolicy — admit Cilium Gateway API ingress.
+
+Gateway-proxied requests reach the backend Pod with the reserved `ingress`
+ENTITY identity (the Envoy proxy embedded in the cilium agent), which NO K8s
+NetworkPolicy selector (podSelector / namespaceSelector / ipBlock) can express
+(the #3374 lesson). `fromEntities: [ingress]` is the canonical expression. When
+both a K8s NetworkPolicy and a CNP select the same Pod the allow-sets union, so
+this is purely additive.
+
+Gated on httpTransport.enabled + networkPolicy.enabled + allowGatewayEntity, and
+on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the chart
+still installs on CRD-less clusters (kind CI).
+*/ -}}
+{{- if and .Values.httpTransport.enabled .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-openova-mcp.fullname" . }}-gateway-ingress
+  labels:
+    {{- include "bp-openova-mcp.labels" . | nindent 4 }}
+    catalyst.openova.io/component: openova-mcp-gateway-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-openova-mcp.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: {{ .Values.httpTransport.port | quote }}
+              protocol: TCP
+{{- end }}
