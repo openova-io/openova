@@ -339,6 +339,27 @@ func (c *Client) RemoveNSDelegation(ctx context.Context, parentZone, childName s
 	}})
 }
 
+// RemoveWildcardRecords deletes any A/AAAA wildcard RRset ("*.<zone>") at the
+// zone apex. Idempotent — a DELETE of an absent RRset is a PowerDNS no-op.
+//
+// #5007 — pdm's model (docs/PLATFORM-POWERDNS.md) is child-zone DELEGATION: the
+// PARENT pool zone (e.g. omantel.biz) holds ONLY NS delegations + apex SOA/NS,
+// and the per-Sovereign wildcard lives INSIDE the child zone (*.<sub>.<pool>).
+// pdm therefore NEVER writes a parent-level `*.<pool>` wildcard — so any
+// `*.<pool> A/AAAA` is a FOREIGN leftover, e.g. the dead `*.omantel.biz A
+// 49.12.16.160` a wiped Hetzner-era env left behind. A stale parent wildcard
+// SHADOWS every child name on a resolver/cache path (the node resolver returns
+// the wildcard instead of the delegated child's specific record) and black-holes
+// image pulls to a dead IP. Reaping it restores the pdm-intended parent-zone
+// shape (delegations only) so a wiped env can never shadow its siblings.
+func (c *Client) RemoveWildcardRecords(ctx context.Context, zone string) error {
+	wildcard := "*." + strings.TrimSuffix(canonicaliseZone(zone), ".")
+	return c.PatchRRSets(ctx, zone, []RRSet{
+		{Name: wildcard, Type: "A", ChangeType: "DELETE"},
+		{Name: wildcard, Type: "AAAA", ChangeType: "DELETE"},
+	})
+}
+
 // EnableDNSSEC turns on DNSSEC for the zone and generates a KSK + ZSK
 // key pair (algorithm 13, ECDSAP256SHA256, per docs/PLATFORM-POWERDNS.md).
 //

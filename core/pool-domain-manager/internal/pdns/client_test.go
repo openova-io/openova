@@ -287,6 +287,49 @@ func TestRemoveNSDelegation(t *testing.T) {
 	}
 }
 
+// #5007 — RemoveWildcardRecords issues a single PATCH DELETEing the `*.<zone>`
+// A and AAAA RRsets (the reap of a stale/foreign parent-pool wildcard). Assert
+// the wire shape: canonical `*.<zone>.` name, both types, ChangeType DELETE.
+func TestRemoveWildcardRecords(t *testing.T) {
+	var captured struct {
+		RRSets []RRSet `json:"rrsets"`
+	}
+	var gotPath string
+	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	if err := c.RemoveWildcardRecords(context.Background(), "omantel.biz"); err != nil {
+		t.Fatal(err)
+	}
+	if len(captured.RRSets) != 2 {
+		t.Fatalf("expected 2 RRsets (A + AAAA), got %d", len(captured.RRSets))
+	}
+	sawA, sawAAAA := false, false
+	for _, r := range captured.RRSets {
+		if r.Name != "*.omantel.biz." {
+			t.Errorf("wildcard name = %q, want *.omantel.biz.", r.Name)
+		}
+		if r.ChangeType != "DELETE" {
+			t.Errorf("changetype = %s, want DELETE", r.ChangeType)
+		}
+		switch r.Type {
+		case "A":
+			sawA = true
+		case "AAAA":
+			sawAAAA = true
+		}
+	}
+	if !sawA || !sawAAAA {
+		t.Errorf("expected both A (%v) and AAAA (%v) wildcard DELETEs", sawA, sawAAAA)
+	}
+	if !strings.HasSuffix(gotPath, "/zones/omantel.biz.") {
+		t.Errorf("PATCH path = %q, want a /zones/omantel.biz. target", gotPath)
+	}
+}
+
 func TestEnableDNSSECFullCycle(t *testing.T) {
 	// Track the sequence of API calls to verify the full PUT-flag,
 	// list-keys, create-KSK, create-ZSK, rectify path.

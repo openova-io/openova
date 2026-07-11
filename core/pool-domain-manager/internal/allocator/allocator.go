@@ -71,6 +71,10 @@ type DNSWriter interface {
 	AddNSDelegation(ctx context.Context, parentZone, childName string, nameservers []string, ttl int) error
 	// RemoveNSDelegation drops the delegation RRset (idempotent).
 	RemoveNSDelegation(ctx context.Context, parentZone, childName string) error
+	// RemoveWildcardRecords deletes any "*.<zone>" A/AAAA RRset (idempotent) —
+	// used by the parent-zone bootstrap to reap a stale/foreign parent wildcard
+	// that would shadow every delegated child (#5007).
+	RemoveWildcardRecords(ctx context.Context, zone string) error
 	// EnableDNSSEC turns on DNSSEC for the child zone and generates KSK+ZSK.
 	EnableDNSSEC(ctx context.Context, zone string) error
 }
@@ -97,6 +101,15 @@ type Allocator struct {
 	// reservationTTL — how long a /reserve holds the name before the
 	// sweeper reclaims it. Per the issue body this is 10 minutes.
 	reservationTTL time.Duration
+
+	// reapStaleParentWildcards — when true (default), BootstrapParentZones
+	// reaps any foreign `*.<pool>` A/AAAA wildcard from each managed parent
+	// pool zone so a wiped env can never leave a wildcard shadowing sibling
+	// child names (#5007). pdm never writes a parent-level wildcard, so this
+	// is always safe within pdm's delegation model; the flag is an operator
+	// escape hatch for a deployment that intentionally serves a flat parent
+	// wildcard managed by another system.
+	reapStaleParentWildcards bool
 }
 
 // Config bundles the runtime allocator configuration.
@@ -105,17 +118,21 @@ type Config struct {
 	Nameservers []string
 	// ReservationTTL — see Allocator.reservationTTL.
 	ReservationTTL time.Duration
+	// ReapStaleParentWildcards — see Allocator.reapStaleParentWildcards.
+	// Default true (wired from PDM_REAP_STALE_PARENT_WILDCARDS in main).
+	ReapStaleParentWildcards bool
 }
 
 // New constructs an Allocator. cfg.Nameservers must contain at least one
 // NS host; production passes the three openova.io NS FQDNs.
 func New(s *store.Store, d DNSWriter, log *slog.Logger, cfg Config) *Allocator {
 	return &Allocator{
-		store:          s,
-		dns:            d,
-		log:            log,
-		nameservers:    cfg.Nameservers,
-		reservationTTL: cfg.ReservationTTL,
+		store:                    s,
+		dns:                      d,
+		log:                      log,
+		nameservers:              cfg.Nameservers,
+		reservationTTL:           cfg.ReservationTTL,
+		reapStaleParentWildcards: cfg.ReapStaleParentWildcards,
 	}
 }
 
@@ -497,6 +514,24 @@ func (a *Allocator) BootstrapParentZones(ctx context.Context, poolDomains []stri
 			// DNSSEC enabled — EnableDNSSEC is idempotent. Log and continue.
 			a.log.Warn("DNSSEC enable for parent zone returned error (may be harmless if already on)",
 				"parent", parent, "err", err)
+		}
+		// #5007 — assert the pdm-intended parent-zone shape: delegations + apex
+		// only, NEVER a parent-level `*.<pool>` A/AAAA wildcard. pdm never writes
+		// one (the per-Sovereign wildcard lives in the delegated child zone), so a
+		// `*.<pool>` record is a FOREIGN leftover — e.g. the dead `*.omantel.biz A
+		// 49.12.16.160` a wiped Hetzner-era env left, which SHADOWED every child
+		// name on the node resolver and black-holed image pulls (hw241 #5007).
+		// Reap it so a wiped env can never shadow its siblings. Best-effort +
+		// idempotent (DELETE of an absent RRset is a no-op): a reap failure never
+		// blocks bootstrap. Gated (default on) for a deployment that intentionally
+		// serves a flat parent wildcard managed elsewhere.
+		if a.reapStaleParentWildcards {
+			if err := a.dns.RemoveWildcardRecords(ctx, parent); err != nil {
+				a.log.Warn("reap of stale parent-zone wildcard returned error (best-effort; may be harmless if none existed)",
+					"parent", parent, "err", err)
+			} else {
+				a.log.Info("parent pool zone wildcard reaped (asserted delegations-only shape)", "parent", parent)
+			}
 		}
 		a.log.Info("parent pool zone ensured", "parent", parent, "nameservers", a.nameservers)
 	}

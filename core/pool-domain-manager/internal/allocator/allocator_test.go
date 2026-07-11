@@ -26,6 +26,7 @@ type fakeDNS struct {
 	callsDelete       []string
 	callsAddNS        []string
 	callsRemoveNS     []string
+	callsRemoveWild   []string
 	callsEnableDNSSEC []string
 	callsPatch        int
 }
@@ -122,6 +123,23 @@ func (f *fakeDNS) RemoveNSDelegation(_ context.Context, parent, child string) er
 	if f.delegations[parent] != nil {
 		delete(f.delegations[parent], child)
 	}
+	return nil
+}
+
+func (f *fakeDNS) RemoveWildcardRecords(_ context.Context, zone string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failOn == "wildcard:"+zone {
+		f.failOn = ""
+		return errors.New("fake remove-wildcard failure")
+	}
+	f.callsRemoveWild = append(f.callsRemoveWild, zone)
+	// Record the DELETE RRsets so a test can assert the *.<zone> A/AAAA shape.
+	wildcard := "*." + zone
+	f.rrsets[zone] = append(f.rrsets[zone],
+		pdns.RRSet{Name: wildcard, Type: "A", ChangeType: "DELETE"},
+		pdns.RRSet{Name: wildcard, Type: "AAAA", ChangeType: "DELETE"},
+	)
 	return nil
 }
 
@@ -259,6 +277,87 @@ func TestBootstrapParentZonesNoNameserversFails(t *testing.T) {
 	err := a.BootstrapParentZones(context.Background(), []string{"omani.works"})
 	if err == nil {
 		t.Fatal("expected error when nameservers empty")
+	}
+}
+
+// #5007 — BootstrapParentZones reaps a foreign `*.<pool>` wildcard from every
+// managed parent pool zone when reapStaleParentWildcards is enabled, so a wiped
+// env can never leave a wildcard (e.g. the dead `*.omantel.biz A 49.12.16.160`)
+// shadowing delegated child names. Assert BOTH the per-pool call AND the DELETE
+// A+AAAA RRset shape.
+func TestBootstrapParentZonesReapsStaleWildcardWhenEnabled(t *testing.T) {
+	dns := newFakeDNS()
+	a := &Allocator{
+		dns:                      dns,
+		log:                      newSilentLogger(),
+		nameservers:              []string{"ns1.openova.io", "ns2.openova.io"},
+		reapStaleParentWildcards: true,
+	}
+	pools := []string{"omantel.biz", "omani.homes"}
+	if err := a.BootstrapParentZones(context.Background(), pools); err != nil {
+		t.Fatal(err)
+	}
+	if len(dns.callsRemoveWild) != len(pools) {
+		t.Fatalf("expected a wildcard reap per pool (%d), got %d: %v", len(pools), len(dns.callsRemoveWild), dns.callsRemoveWild)
+	}
+	for _, p := range pools {
+		var sawA, sawAAAA bool
+		for _, r := range dns.rrsets[p] {
+			if r.Name != "*."+p || r.ChangeType != "DELETE" {
+				continue
+			}
+			switch r.Type {
+			case "A":
+				sawA = true
+			case "AAAA":
+				sawAAAA = true
+			}
+		}
+		if !sawA || !sawAAAA {
+			t.Errorf("pool %s: expected DELETE of *.%s A (%v) and AAAA (%v)", p, p, sawA, sawAAAA)
+		}
+	}
+}
+
+// #5007 — the reap is gated: with reapStaleParentWildcards disabled the parent
+// zone is still ensured + DNSSEC-enabled but NO wildcard DELETE is issued (the
+// operator escape hatch for a deployment serving a flat parent wildcard).
+func TestBootstrapParentZonesSkipsWildcardReapWhenDisabled(t *testing.T) {
+	dns := newFakeDNS()
+	a := &Allocator{
+		dns:                      dns,
+		log:                      newSilentLogger(),
+		nameservers:              []string{"ns1.openova.io"},
+		reapStaleParentWildcards: false,
+	}
+	if err := a.BootstrapParentZones(context.Background(), []string{"omani.works"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dns.zones["omani.works"]; !ok {
+		t.Error("omani.works parent zone not created")
+	}
+	if len(dns.callsRemoveWild) != 0 {
+		t.Errorf("expected NO wildcard reap when disabled, got %v", dns.callsRemoveWild)
+	}
+}
+
+// #5007 — a wildcard-reap failure is best-effort: it must NOT fail bootstrap (the
+// zone + delegations still resolve; a lingering wildcard is a hygiene issue, not
+// a bootstrap blocker).
+func TestBootstrapParentZonesReapFailureIsBestEffort(t *testing.T) {
+	dns := newFakeDNS()
+	dns.failOn = "wildcard:omani.works"
+	a := &Allocator{
+		dns:                      dns,
+		log:                      newSilentLogger(),
+		nameservers:              []string{"ns1.openova.io"},
+		reapStaleParentWildcards: true,
+	}
+	if err := a.BootstrapParentZones(context.Background(), []string{"omani.works"}); err != nil {
+		t.Fatalf("wildcard reap failure must not fail bootstrap: %v", err)
+	}
+	if _, ok := dns.zones["omani.works"]; !ok {
+		t.Error("omani.works parent zone not created despite best-effort reap failure")
 	}
 }
 
