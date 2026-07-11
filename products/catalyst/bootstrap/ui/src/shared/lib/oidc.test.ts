@@ -8,12 +8,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   buildOIDCEndpoints,
   buildRedirectURI,
+  buildAuthorizeURL,
+  parseSilentAuthError,
   parseJWTClaims,
   getRequiredActions,
   saveTokens,
   loadTokens,
   clearTokens,
   isTokenExpired,
+  SILENT_AUTH_RECOVERABLE_ERRORS,
   REQUIRED_ACTION_UPDATE_PASSWORD,
   REQUIRED_ACTION_CONFIGURE_PASSKEY,
   REQUIRED_ACTION_CONFIGURE_TOTP,
@@ -55,6 +58,77 @@ describe('buildOIDCEndpoints()', () => {
 describe('buildRedirectURI()', () => {
   it('returns origin + /auth/callback', () => {
     expect(buildRedirectURI()).toBe(`${window.location.origin}/auth/callback`)
+  })
+})
+
+// ── buildAuthorizeURL (#3374 row 29 — silent prompt=none re-auth) ─────────────
+
+describe('buildAuthorizeURL()', () => {
+  const args = {
+    challenge: 'chal-abc',
+    state: 'state-xyz',
+    redirectURI: 'https://console.otech23.omani.works/auth/callback',
+  }
+
+  it('targets the Sovereign Keycloak authorization endpoint with a PKCE code request', () => {
+    const url = new URL(buildAuthorizeURL('otech23.omani.works', args))
+    expect(url.origin + url.pathname).toBe(
+      'https://auth.otech23.omani.works/realms/sovereign/protocol/openid-connect/auth',
+    )
+    expect(url.searchParams.get('response_type')).toBe('code')
+    expect(url.searchParams.get('client_id')).toBe('catalyst-ui')
+    expect(url.searchParams.get('code_challenge')).toBe('chal-abc')
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256')
+    expect(url.searchParams.get('state')).toBe('state-xyz')
+    expect(url.searchParams.get('redirect_uri')).toBe(args.redirectURI)
+  })
+
+  it('OMITS prompt for an ordinary interactive request', () => {
+    const url = new URL(buildAuthorizeURL('otech23.omani.works', args))
+    expect(url.searchParams.has('prompt')).toBe(false)
+  })
+
+  it('adds prompt=none for a silent re-auth request', () => {
+    const url = new URL(
+      buildAuthorizeURL('otech23.omani.works', { ...args, prompt: 'none' }),
+    )
+    expect(url.searchParams.get('prompt')).toBe('none')
+  })
+})
+
+// ── parseSilentAuthError (#3374 row 29) ───────────────────────────────────────
+
+describe('parseSilentAuthError()', () => {
+  it('returns the error code when a silent attempt bounces back with login_required and no code', () => {
+    const params = new URLSearchParams({ error: 'login_required', state: 's' })
+    expect(parseSilentAuthError(params)).toBe('login_required')
+  })
+
+  it.each(SILENT_AUTH_RECOVERABLE_ERRORS)(
+    'recognises the recoverable silent-auth error %s',
+    (code) => {
+      const params = new URLSearchParams({ error: code })
+      expect(parseSilentAuthError(params)).toBe(code)
+    },
+  )
+
+  it('returns null on the happy path (authorization code present)', () => {
+    const params = new URLSearchParams({ code: 'auth-code-123', state: 's' })
+    expect(parseSilentAuthError(params)).toBeNull()
+  })
+
+  it('returns null when a code is present even alongside an error param', () => {
+    const params = new URLSearchParams({ code: 'auth-code-123', error: 'login_required' })
+    expect(parseSilentAuthError(params)).toBeNull()
+  })
+
+  it('returns null for a non-recoverable error so a genuine failure still surfaces', () => {
+    const params = new URLSearchParams({ error: 'invalid_client' })
+    expect(parseSilentAuthError(params)).toBeNull()
+  })
+
+  it('returns null when neither code nor error is present', () => {
+    expect(parseSilentAuthError(new URLSearchParams())).toBeNull()
   })
 })
 

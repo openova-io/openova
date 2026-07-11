@@ -187,15 +187,69 @@ export function parseJWTClaims(jwt: string): JWTClaims {
 
 // ── Authorization code flow (PKCE) ───────────────────────────────────────────
 
+export interface InitiateLoginOptions {
+  /**
+   * OpenID Connect `prompt` parameter (OIDC Core §3.1.2.1).
+   *
+   * Pass `'none'` for a SILENT re-authentication attempt (#3374 row 29):
+   * Keycloak authenticates the visitor against an EXISTING SSO session
+   * without rendering any UI, and — when no reusable session exists —
+   * returns `error=login_required` to the redirect_uri INSTEAD of showing
+   * the interactive catalyst-pin PIN form. Omit for an ordinary
+   * interactive authorization request.
+   */
+  prompt?: 'none'
+}
+
+/**
+ * Build the Keycloak authorization-endpoint URL for the PKCE code flow.
+ *
+ * Pure + exported so the parameter set — including the silent
+ * `prompt=none` variant (#3374 row 29) — is unit-testable without
+ * navigating the browser away.
+ */
+export function buildAuthorizeURL(
+  sovereignFQDN: string,
+  args: {
+    challenge: string
+    state: string
+    redirectURI: string
+    prompt?: 'none'
+  },
+): string {
+  const { authEndpoint } = buildOIDCEndpoints(sovereignFQDN)
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: CLIENT_ID,
+    redirect_uri: args.redirectURI,
+    scope: SCOPE,
+    state: args.state,
+    code_challenge: args.challenge,
+    code_challenge_method: 'S256',
+  })
+  // A silent re-auth request must carry `prompt=none` so Keycloak returns
+  // login_required rather than rendering the interactive PIN form.
+  if (args.prompt === 'none') params.set('prompt', 'none')
+  return `${authEndpoint}?${params.toString()}`
+}
+
 /**
  * Initiate the PKCE authorization code flow.
  *
  * Stores the PKCE verifier + state nonce in sessionStorage, then
  * hard-navigates the browser to the Keycloak authorization endpoint.
  * Returns void — the page will unload.
+ *
+ * Pass `{ prompt: 'none' }` for a silent re-authentication (#3374 row 29):
+ * the request carries `prompt=none`, so Keycloak either issues a code
+ * against a live SSO session (→ /auth/callback?code, no UI) or bounces back
+ * with `?error=login_required` (→ AuthCallbackPage falls back to the PIN
+ * form), never showing an interactive login during the silent attempt.
  */
-export async function initiateLogin(sovereignFQDN: string): Promise<void> {
-  const { authEndpoint } = buildOIDCEndpoints(sovereignFQDN)
+export async function initiateLogin(
+  sovereignFQDN: string,
+  opts: InitiateLoginOptions = {},
+): Promise<void> {
   const verifier = await generateVerifier()
   const challenge = await generateChallenge(verifier)
   const state = generateState()
@@ -204,17 +258,47 @@ export async function initiateLogin(sovereignFQDN: string): Promise<void> {
   sessionStorage.setItem(SESSION_KEY_VERIFIER, verifier)
   sessionStorage.setItem(SESSION_KEY_STATE, state)
 
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: CLIENT_ID,
-    redirect_uri: redirectURI,
-    scope: SCOPE,
-    state,
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
-  })
+  window.location.replace(
+    buildAuthorizeURL(sovereignFQDN, {
+      challenge,
+      state,
+      redirectURI,
+      prompt: opts.prompt,
+    }),
+  )
+}
 
-  window.location.replace(`${authEndpoint}?${params.toString()}`)
+/**
+ * OIDC error codes a `prompt=none` silent-auth attempt returns to the
+ * redirect_uri when it cannot complete without user interaction (OpenID
+ * Connect Core §3.1.2.6). These are EXPECTED "no reusable session"
+ * outcomes — NOT failures: the caller falls back to the interactive PIN
+ * login instead of surfacing an error screen.
+ */
+export const SILENT_AUTH_RECOVERABLE_ERRORS = [
+  'login_required',
+  'interaction_required',
+  'consent_required',
+  'account_selection_required',
+] as const
+
+/**
+ * Inspect an OIDC callback query-string. Returns the recoverable
+ * silent-auth error code (login_required / interaction_required / …) when
+ * the callback carries such an `error` and NO authorization `code`;
+ * otherwise null.
+ *
+ * AuthCallbackPage uses this to distinguish a silent-SSO miss — where the
+ * correct response is a clean fall-back to the PIN form (#3374 row 29) —
+ * from a genuine token-exchange failure (which still surfaces an error).
+ */
+export function parseSilentAuthError(params: URLSearchParams): string | null {
+  if (params.get('code')) return null
+  const err = params.get('error')
+  if (!err) return null
+  return (SILENT_AUTH_RECOVERABLE_ERRORS as readonly string[]).includes(err)
+    ? err
+    : null
 }
 
 /**

@@ -370,7 +370,13 @@ async function attemptSilentSovereignSSO(): Promise<boolean> {
     // initiateLogin calls window.location.replace(authEndpoint) — the
     // browser navigates to Keycloak. Control does not return here in
     // practice; we still return true so the caller aborts the route.
-    await initiateLogin(fqdn)
+    //
+    // #3374 row 29 — the attempt MUST be truly silent: `prompt=none` tells
+    // Keycloak to reuse an existing SSO session (→ code, no UI) or return
+    // `error=login_required` WITHOUT rendering the interactive PIN form.
+    // Omitting it lets the realm's catalyst-pin redirector show a PIN wall
+    // during what is supposed to be an invisible re-auth on TTL expiry.
+    await initiateLogin(fqdn, { prompt: 'none' })
     return true
   } catch {
     // OIDC module failed to load / build the request — fall back.

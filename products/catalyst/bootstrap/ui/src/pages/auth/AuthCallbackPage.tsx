@@ -62,7 +62,7 @@ function SovereignCallbackPage() {
     async function exchange() {
       try {
         // Lazy-import oidc so Catalyst-Zero builds don't pay for unused code.
-        const { handleCallback } = await import('@/shared/lib/oidc')
+        const { handleCallback, parseSilentAuthError } = await import('@/shared/lib/oidc')
         const { DETECTED_MODE } = await import('@/shared/lib/detectMode')
 
         const sovereignFQDN = DETECTED_MODE.sovereignFQDN
@@ -75,6 +75,28 @@ function SovereignCallbackPage() {
         }
 
         const params = new URLSearchParams(window.location.search)
+
+        // #3374 row 29 — a `prompt=none` silent-SSO attempt (router.tsx
+        // attemptSilentSovereignSSO) that finds no reusable Keycloak
+        // session returns here with ?error=login_required (or
+        // interaction_required / consent_required / account_selection_
+        // required) and NO code. That is the EXPECTED "no live SSO session"
+        // outcome of a SILENT re-auth — not a failure. Fall back cleanly to
+        // the interactive /login PIN form instead of the hard "Sign-in
+        // failed" screen, and clear the one-shot silent-SSO guard so a LATER
+        // genuine session expiry re-arms the silent round-trip (the guard is
+        // otherwise only cleared on a successful exchange). /login is a
+        // public route, so this hard-nav cannot loop back through the gate.
+        if (parseSilentAuthError(params)) {
+          try {
+            sessionStorage.removeItem('catalyst:silent-sso-attempted')
+          } catch {
+            /* private browsing may throw */
+          }
+          window.location.replace(uiBase() + '/login')
+          return
+        }
+
         await handleCallback(sovereignFQDN, params)
         // #3374 Layer-B: clear the silent-SSO one-shot guard now that a
         // real session exists, so a LATER genuine expiry re-arms the
