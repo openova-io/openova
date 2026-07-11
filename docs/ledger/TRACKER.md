@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T06:30:04Z` |
+| Last refreshed | `2026-07-11T06:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 79 |
 | Open DoD gates | 0 / 41 |
@@ -286,6 +286,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T06:37 | [#4987](https://github.com/openova-io/openova/pull/4987) | #3375 | fix(#4986): bp-postgres emits dr-<instance> Continuum CR → s |
 | 2026-07-11T04:58 | [#4985](https://github.com/openova-io/openova/pull/4985) | #3374 | fix(#3374): console silent prompt=none re-auth on session-TT |
 | 2026-07-11T04:32 | [#4983](https://github.com/openova-io/openova/pull/4983) | #4982 | fix(#4982): cutover step-CMs re-render on upgrade + settled- |
 | 2026-07-11T01:40 | [#4980](https://github.com/openova-io/openova/pull/4980) | #4975 | fix(#4975): skopeo --multi-arch all so manifest-list images  |
@@ -315,7 +316,6 @@ flowchart LR
 | 2026-07-09T21:31 | [#4941](https://github.com/openova-io/openova/pull/4941) | #4932 | test(#4934): stop leaked phase1-watch + post-handover gorout |
 | 2026-07-09T21:28 | [#4940](https://github.com/openova-io/openova/pull/4940) | #4937 | fix(#4937): authorize a customer's own-Org session for app l |
 | 2026-07-09T21:16 | [#4939](https://github.com/openova-io/openova/pull/4939) | #4929 | fix(#4936): per-Org WordPress serves after funnel install —  |
-| 2026-07-09T21:05 | [#4938](https://github.com/openova-io/openova/pull/4938) | #4546 | fix(marketplace): redeem page owns the authed-owner→console  |
 
 ---
 
