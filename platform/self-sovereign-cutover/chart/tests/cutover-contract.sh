@@ -1489,4 +1489,32 @@ if ! bash "${COVERAGE}" >/dev/null 2>&1; then
 fi
 echo "  PASS (guardrail negative test green; every scanned bootstrap-kit image host is covered)"
 
+echo "[cutover-contract] Case 39: Step-03 Phase A container-image skopeo copy carries --multi-arch all so manifest-LIST images mirror addressable by their list digest (#4975, Refs #3379)"
+# live hw239: Phase A pushed 129 single-arch images OK but all 8 multi-arch
+# manifest-LIST images (cilium/*, hubble-*, policy-controller, operator-generic)
+# FAILED `digest invalid`. WITHOUT --multi-arch all skopeo defaults to
+# --multi-arch system: it copies ONLY the running platform's sub-image out of a
+# manifest LIST while the copy is ADDRESSED by the list digest, so Harbor computes
+# the single-arch digest != the list digest → `digest invalid` → step-03 fail-closes
+# and the cutover never reaches step-04+. containerd pulls these pod images BY the
+# list digest, so the FULL manifest list + ALL arch sub-manifests + blobs MUST land.
+# Phase A (container images) MUST carry --multi-arch all; Phase A2 (helm chart OCI =
+# a SINGLE manifest, never a list) MUST NOT — leave chart-artifact copies alone.
+awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml" > "$TMP/prewarm_ma_block.txt"
+[ -s "$TMP/prewarm_ma_block.txt" ] || cp "$TMP/render.yaml" "$TMP/prewarm_ma_block.txt"
+# Match the flag LINE (not the explanatory comment that also names the flag).
+if ! grep -Eq '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt"; then
+  echo "FAIL: Step-03 Phase A skopeo copy is missing --multi-arch all — a manifest-list image uploads only a single-arch manifest and Harbor rejects it 'digest invalid', fail-closing step-03 (#4975)" >&2
+  exit 1
+fi
+# EXACTLY ONE copy carries it: the Phase A container-image copy. The Phase A2
+# chart-OCI copy (a single manifest, never a list) is left alone, so the flag-line
+# count is 1 — this also proves the flag did not get sprinkled onto the chart copy.
+ma_lines=$(grep -Ec '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt" || true)
+if [ "${ma_lines}" -ne 1 ]; then
+  echo "FAIL: Step-03 has ${ma_lines} --multi-arch all flag line(s), expected exactly 1 (the container-image copy). The Phase A2 helm-chart-OCI copy must NOT carry it — chart artifacts are single manifests, not lists (#4975)" >&2
+  exit 1
+fi
+echo "  PASS (Step-03 Phase A container-image copy uses --multi-arch all; Phase A2 chart-OCI copy left single-manifest)"
+
 echo "[cutover-contract] All gates green."
