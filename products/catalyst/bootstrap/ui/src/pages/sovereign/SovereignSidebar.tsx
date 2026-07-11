@@ -22,7 +22,7 @@
  * Related: GitHub issue #607
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { loadTokens, parseJWTClaims } from '@/shared/lib/oidc'
@@ -303,6 +303,33 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   // tenant label surfaces the FQDN.)
   const [tenantOpen, setTenantOpen] = useState(false)
 
+  // User-menu open state (UAT row 27 / #5000). The footer identity card is
+  // the ONLY place the signed-in owner can sign out of the Sovereign Console.
+  // Clicking (or Enter/Space on) the card toggles a small dropdown that opens
+  // UPWARD (the card is pinned to the bottom of the rail) exposing a
+  // "Signed in as <owner>" label + a Sign out action. Closes on a second
+  // click, Escape, or a click outside the card — mirroring the click-outside/
+  // ESC dismissal pattern already used by the wizard-header ProfileMenu.
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!userMenuOpen) return
+    function onClick(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setUserMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [userMenuOpen])
+
   // Resolve the FQDN to display. The prop is the canonical source when
   // present; on the chroot Sovereign Console the deploymentId-bound
   // snapshot may not yet be loaded for newly-mounted pages, in which
@@ -493,12 +520,80 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
 
       {/* User card at the bottom — #4187: identity comes from /whoami
           (session.email), not the OIDC id_token, so the cookie/PIN-
-          authenticated owner renders by email instead of `User`. */}
+          authenticated owner renders by email instead of `User`.
+
+          UAT row 27 / #5000: the card is now the account MENU — the only
+          Sign-out affordance in the console. The avatar/name/FQDN layout is
+          unchanged (MUST-PRESERVE); we only wrap it in a menu trigger and add
+          an upward-opening dropdown with a "Signed in as <owner>" label + a
+          Sign out item wired to the shared two-hop `session.signOut()`. */}
       <div
-        className="border-t border-[var(--color-border)] p-3"
+        ref={userMenuRef}
+        className="relative border-t border-[var(--color-border)] p-3"
         data-testid="sov-console-user-card"
       >
-        <div className="flex items-center gap-2">
+        {/* Dropdown opens UPWARD — the card is pinned to the bottom of the
+            rail, so a downward menu would clip below the viewport. */}
+        {userMenuOpen ? (
+          <div
+            role="menu"
+            aria-label="Account"
+            id="sov-console-user-menu"
+            data-testid="sov-console-user-menu"
+            className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-1 shadow-lg shadow-black/30"
+          >
+            <div className="px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-[var(--color-text-dimmer)]">
+                Signed in as
+              </p>
+              <p
+                className="mt-0.5 truncate text-xs font-medium text-[var(--color-text)]"
+                data-testid="sov-console-user-menu-owner"
+                title={userName}
+              >
+                {userName}
+              </p>
+            </div>
+            <div className="border-t border-[var(--color-border)]" />
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="sov-console-user-signout"
+              onClick={() => {
+                setUserMenuOpen(false)
+                void session.signOut()
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:bg-[var(--color-surface-hover)] focus-visible:outline-none"
+            >
+              <svg
+                className="h-4 w-4 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
+              Sign out
+            </button>
+          </div>
+        ) : null}
+
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={userMenuOpen}
+          aria-controls="sov-console-user-menu"
+          onClick={() => setUserMenuOpen((v) => !v)}
+          data-testid="sov-console-user-trigger"
+          title={`${userName} — account menu`}
+          className="flex w-full items-center gap-2 rounded-lg text-left transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+        >
           <div
             className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-accent)]/20 text-xs font-bold text-[var(--color-accent)]"
             data-testid="sov-console-user-avatar"
@@ -514,7 +609,19 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
             </p>
             <p className="truncate text-[10px] text-[var(--color-text-dimmer)]">{resolvedFQDN}</p>
           </div>
-        </div>
+          <svg
+            className={`h-3 w-3 shrink-0 text-[var(--color-text-dim)] transition-transform ${
+              userMenuOpen ? 'rotate-180' : ''
+            }`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
       </div>
     </aside>
   )
