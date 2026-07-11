@@ -249,9 +249,21 @@ compliancePolicies:
     # legacy single-string `allowedImagePattern` is retained for backward
     # compatibility (used as fallback when list is empty).
     allowedImagePattern: "*/proxy-*/*"
+    # #5017 (hw242, 2026-07-12): a THIRD entry with Kyverno `|` alternation.
+    # Each anyPattern entry requires EVERY container in the pod to match
+    # that ONE glob — a pod that legitimately MIXES proxy-cache sidecars
+    # with a native-push openova-io image (e.g. huawei-evs-csi: 4x
+    # proxy-k8s sig-storage sidecars + 1x openova-io evs-csi-plugin,
+    # #4973 family) could NEVER be admitted: the all-proxy pattern fails
+    # on the plugin, the all-openova-io pattern fails on the sidecars.
+    # This wedged the CSI controller RS + node DS on hw242 and, through
+    # bp-huawei-evs-csi, a 24-HelmRelease dependency cascade. The OR entry
+    # admits mixed-source pods while still requiring every image to come
+    # from the local Harbor.
     allowedImagePatterns:
       - "*/proxy-*/*"           # proxy-cache mode (cilium, cert-manager, postgres, etc.)
       - "*/openova-io/*"        # native-push mode (catalyst-api + all openova-io services post-cutover)
+      - "*/proxy-*/* | */openova-io/*"  # mixed-source pods (proxy-cache sidecars + native-push plugin)
     # 2026-06-13: EXCLUDE the `powerdns` namespace from harbor-proxy-pull.
     # bp-powerdns's pdns-auth-50 + dnsdist-19 images pull from raw
     # `docker.io/powerdns/...` (see platform/powerdns/chart/values.yaml).

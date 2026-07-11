@@ -27,17 +27,41 @@ catalystBlueprint:
 # ─── Upstream chart values (subchart key: velero) ────────────────────────
 velero:
   # Pin upstream Velero image — DO NOT use floating tags.
+  #
+  # Routed through the Sovereign-local Harbor proxy (#5017): the kyverno
+  # `harbor-proxy-pull` ClusterPolicy only admits pod images matching
+  # `*/proxy-*/*` or `*/openova-io/*`; the raw docker.io ref was DENIED when
+  # cutover step-08's deny-egress roll recreated the pod on hw242 — and the
+  # velero Deployment is `strategy: Recreate` (upstream hardcoded), so the
+  # denial took Velero to ZERO pods. The pre-upgrade `upgrade-crds` hook Job
+  # runs this same image, so routing it also keeps the hook admissible.
   image:
-    repository: docker.io/velero/velero
+    repository: harbor.openova.io/proxy-dockerhub/velero/velero
     tag: "v1.18.0"
     pullPolicy: IfNotPresent
 
-  # kubectl image (used by upgradeCRDs Job) — pin to a known-stable
-  # registry.k8s.io/kubectl version. Per-Sovereign overlays MAY pin a
-  # specific tag.
+  # kubectl image (used by the label-namespace hook Job, rendered only when
+  # namespace.labels is set — NOT with Catalyst defaults) — routed through
+  # the Sovereign-local Harbor proxy (#5017) so any per-Sovereign overlay
+  # that enables namespace labelling stays kyverno-admissible. Per-Sovereign
+  # overlays MAY pin a specific tag.
   kubectl:
     image:
-      repository: registry.k8s.io/kubectl
+      repository: harbor.openova.io/proxy-k8s/kubectl
+
+  # upgrade-crds hook Job resources — REQUIRED (#5017): the kyverno
+  # `resource-requests` policy (Enforce) denies Job pods lacking
+  # requests.cpu+memory. Without this the pre-upgrade hook is denied at
+  # admission and — worse — helm's failed-upgrade auto-rollback re-renders
+  # the OLD release's hook (raw image, no resources), which can never pass,
+  # wedging the release (proven live on hw242).
+  upgradeJobResources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
 
   # Plugin init containers — REQUIRED for Velero to talk to ANY backup
   # backend. The AWS plugin (S3-compatible) is the Catalyst standard
@@ -45,9 +69,12 @@ velero:
   # store) exposes an S3 API. Per-Sovereign overlays append additional
   # plugin init containers if a CSI snapshotter / cloud-native plugin is
   # also needed.
+  #
+  # Image routed through the Sovereign-local Harbor proxy (#5017) — kyverno
+  # harbor-proxy-pull validates =(initContainers) images too.
   initContainers:
     - name: velero-plugin-for-aws
-      image: velero/velero-plugin-for-aws:v1.14.0
+      image: harbor.openova.io/proxy-dockerhub/velero/velero-plugin-for-aws:v1.14.0
       imagePullPolicy: IfNotPresent
       volumeMounts:
         - mountPath: /target

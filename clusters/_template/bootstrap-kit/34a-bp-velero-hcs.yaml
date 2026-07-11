@@ -83,7 +83,10 @@ spec:
       chart: bp-velero-hcs
       # 0.1.1 (#2847): checksumAlgorithm "" — OBS rejects aws-sdk-v2
       # flexible checksums (XAmzContentSHA256Mismatch on every write).
-      version: 0.1.1
+      # 0.1.2: velero + plugin images via Sovereign-local Harbor proxy +
+      # upgrade-crds hook resources (#5017 — kyverno harbor-proxy-pull /
+      # resource-requests denied the step-08-rolled pod + hook on hw242).
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-velero-hcs

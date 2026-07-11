@@ -1,5 +1,9 @@
 apiVersion: v2
 name: bp-opentelemetry
+# 1.2.2 (#5017 — route the Collector image through the Sovereign-local
+# Harbor proxy: kyverno harbor-proxy-pull denies the implicit-registry
+# `otel/...` (docker.io) ref the moment the pod is recreated, e.g. under
+# the cutover step-08 deny-egress roll on hw242.)
 description: |
   Catalyst Blueprint umbrella chart for the OpenTelemetry Collector.
   Depends on the upstream `opentelemetry-collector` chart
@@ -21,7 +25,7 @@ description: |
   moved to bp-opentelemetry-operator's chart (it depends on CRDs that
   ship there). Flux ordering: 19c (Operator+CRDs) → 20 (this chart).
 type: application
-version: 1.2.1
+version: 1.2.2
 appVersion: "0.150.1"
 keywords: [catalyst, blueprint, opentelemetry, otlp, observability, telemetry, collector]
 maintainers:

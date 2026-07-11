@@ -2583,7 +2583,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.1"
+  version: "1.2.2"
   visibility: listed
   card:
     title: "OpenTelemetry Collector"
@@ -2602,7 +2602,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-opentelemetry
-    version: "1.2.1"
+    version: "1.2.2"
   topology:
     supported:
     - singleton
@@ -3149,7 +3149,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.1"
+  version: "0.1.2"
   visibility: listed
   card:
     title: "Velero (HCS)"
@@ -3176,7 +3176,7 @@ backup-engine gap (#2847).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-velero-hcs
-    version: "0.1.1"
+    version: "0.1.2"
   topology:
     supported:
     - singleton
@@ -4591,7 +4591,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.45"
+  version: "1.0.46"
   visibility: unlisted
   card:
     title: "Kyverno Policy Library"
@@ -4608,7 +4608,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: "1.0.45"
+    version: "1.0.46"
   topology:
     supported:
       - singleton
@@ -5301,7 +5301,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.3"
+  version: "1.0.4"
   visibility: unlisted
   card:
     title: "Vertical Pod Autoscaler"
@@ -5318,7 +5318,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-vpa
-    version: "1.0.3"
+    version: "1.0.4"
   topology:
     supported:
       - singleton
