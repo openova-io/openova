@@ -72,7 +72,10 @@ func (s *Sovereign) fetch(ctx context.Context, name string) (*Blueprint, error) 
 			return ParseBlueprint(cached, s.Origin(), "", name)
 		}
 	}
-	data, err := readBlueprintYAML(ctx, s.GC, s.Org, name, "blueprint.yaml")
+	// #4990 — prefix-tolerant per-Blueprint lookup (see fetchBlueprintYAML):
+	// a bare-name request resolves against a catalog-seed-only `bp-<x>`
+	// repo and vice-versa. `repo` is the resolved repo name.
+	data, repo, err := fetchBlueprintYAML(ctx, s.GC, s.Org, name, "blueprint.yaml")
 	if err != nil && IsNotFound(err) {
 		// #2879 (2026-06-03) — monorepo-layout fallback. The
 		// bp-self-sovereign-cutover gitea-mirror Job actually mirrors
@@ -93,6 +96,7 @@ func (s *Sovereign) fetch(ctx context.Context, name string) (*Blueprint, error) 
 			if e2 == nil {
 				data = d2
 				err = nil
+				repo = bare
 				break
 			}
 			if !IsNotFound(e2) {
@@ -107,5 +111,5 @@ func (s *Sovereign) fetch(ctx context.Context, name string) (*Blueprint, error) 
 	if s.Cache != nil {
 		s.Cache.Put(key, data)
 	}
-	return ParseBlueprint(data, s.Origin(), "", name)
+	return ParseBlueprint(data, s.Origin(), "", repo)
 }
