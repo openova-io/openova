@@ -336,3 +336,55 @@ func IsNotFound(err error) bool {
 func trimBPPrefix(s string) string {
 	return strings.TrimPrefix(s, "bp-")
 }
+
+// altBPName returns the alternate "bp-" form of a Blueprint repo name:
+// the bare name when the input carries the "bp-" prefix, otherwise the
+// "bp-"prefixed form. Returns "" when there is no meaningful alternate
+// (empty input). #4990.
+//
+// The catalog frontend strips a leading "bp-" before requesting the
+// detail endpoint (CatalogDetail.tsx), so `GET /api/v1/catalog/{name}`
+// always arrives bare. Deployed Blueprints live in bare-named Gitea
+// repos (`agenity`) and resolve directly; catalog-SEED-ONLY entries that
+// were never deployed as a live Blueprint CR keep the raw `bp-<x>` repo
+// name (`bp-alloy`), so the bare-name lookup misses. Toggling the prefix
+// on a NotFound lets the bare request resolve against the seed repo (and
+// a `bp-`prefixed request resolve against a bare repo), with no effect on
+// the already-resolving deployed entries.
+func altBPName(name string) string {
+	if name == "" {
+		return ""
+	}
+	if strings.HasPrefix(name, "bp-") {
+		return strings.TrimPrefix(name, "bp-")
+	}
+	return "bp-" + name
+}
+
+// fetchBlueprintYAML reads a Blueprint's blueprint.yaml from a
+// conventional one-repo-per-Blueprint Org (public / sovereign), tolerating
+// the "bp-" prefix mismatch described on altBPName (#4990). It tries the
+// requested repo name first and, only on a typed NotFound, retries the
+// alternate "bp-" form. Returns the decoded bytes plus the repo name that
+// actually resolved (so the caller parses/keys under the real name). On a
+// double-miss the ORIGINAL NotFound is returned so callers' IsNotFound
+// branches still fire; genuine transport/parse errors are never masked.
+func fetchBlueprintYAML(ctx context.Context, gc *gitea.Client, org, name, path string) ([]byte, string, error) {
+	data, err := readBlueprintYAML(ctx, gc, org, name, path)
+	if err == nil {
+		return data, name, nil
+	}
+	if !IsNotFound(err) {
+		return nil, "", err
+	}
+	if alt := altBPName(name); alt != "" && alt != name {
+		d2, e2 := readBlueprintYAML(ctx, gc, org, alt, path)
+		if e2 == nil {
+			return d2, alt, nil
+		}
+		if !IsNotFound(e2) {
+			return nil, "", e2
+		}
+	}
+	return nil, "", err // preserve the original NotFound sentinel
+}

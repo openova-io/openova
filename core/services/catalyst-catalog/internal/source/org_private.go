@@ -81,13 +81,27 @@ func (s *OrgPrivate) fetch(ctx context.Context, name string) (*Blueprint, error)
 			return bp, err
 		}
 	}
-	relPath := path.Join(name, "blueprint.yaml")
-	data, err := readBlueprintYAML(ctx, s.GC, s.Org, s.RepoName, relPath)
+	// #4990 — prefix-tolerant per-Blueprint directory lookup: a bare-name
+	// request resolves against a `bp-<x>` directory and vice-versa (the
+	// per-Org repo is fixed, so the "bp-" toggle applies to the directory
+	// segment, not the repo name).
+	resolved := name
+	data, err := readBlueprintYAML(ctx, s.GC, s.Org, s.RepoName, path.Join(name, "blueprint.yaml"))
+	if err != nil && IsNotFound(err) {
+		if alt := altBPName(name); alt != "" && alt != name {
+			d2, e2 := readBlueprintYAML(ctx, s.GC, s.Org, s.RepoName, path.Join(alt, "blueprint.yaml"))
+			if e2 == nil {
+				data, err, resolved = d2, nil, alt
+			} else if !IsNotFound(e2) {
+				return nil, e2
+			}
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
 	if s.Cache != nil {
 		s.Cache.Put(key, data)
 	}
-	return ParseBlueprint(data, s.Origin(), s.Org, name)
+	return ParseBlueprint(data, s.Origin(), s.Org, resolved)
 }

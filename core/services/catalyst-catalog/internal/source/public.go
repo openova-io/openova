@@ -71,12 +71,16 @@ func (s *Public) fetch(ctx context.Context, name string) (*Blueprint, error) {
 			return ParseBlueprint(cached, s.Origin(), "", name)
 		}
 	}
-	data, err := readBlueprintYAML(ctx, s.GC, s.Org, name, "blueprint.yaml")
+	// #4990 — resolve prefix-tolerantly: a bare-name request (the
+	// frontend strips "^bp-") must still find a catalog-seed-only repo
+	// that carries the raw "bp-<x>" name, and vice-versa. `repo` is the
+	// name the blueprint actually resolved under.
+	data, repo, err := fetchBlueprintYAML(ctx, s.GC, s.Org, name, "blueprint.yaml")
 	if err != nil {
 		return nil, err
 	}
 	if s.Cache != nil {
 		s.Cache.Put(key, data)
 	}
-	return ParseBlueprint(data, s.Origin(), "", name)
+	return ParseBlueprint(data, s.Origin(), "", repo)
 }

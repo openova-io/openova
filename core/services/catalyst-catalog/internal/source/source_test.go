@@ -281,6 +281,88 @@ func TestPublic_ListAndGet(t *testing.T) {
 	}
 }
 
+// TestPublic_SeedOnlyEntryResolvesByBareName is the regression guard for
+// #4990. The catalog frontend strips a leading "bp-" and requests the
+// detail endpoint by BARE name. Deployed Blueprints live in bare-named
+// repos (`agenity`) and already resolve; catalog-SEED-ONLY entries that
+// were never deployed as a live Blueprint CR keep the raw `bp-<x>` repo
+// name (`bp-alloy`). Before the fix, `Get(ctx, "alloy", "")` 404'd. The
+// prefix-tolerant repo lookup must resolve the bare request against the
+// seed repo WITHOUT regressing bare-named deployed repos.
+func TestPublic_SeedOnlyEntryResolvesByBareName(t *testing.T) {
+	t.Parallel()
+	fake := newFakeGitea()
+	// Seed-only entry: repo carries the raw "bp-" prefix, no bare twin.
+	fake.AddFile("catalog", "bp-alloy", "blueprint.yaml", blueprintYAML("bp-alloy", "1.0.0", "Alloy"))
+	// Deployed entry: bare-named repo (as a live-CR-projected Blueprint).
+	fake.AddFile("catalog", "agenity", "blueprint.yaml", blueprintYAML("agenity", "2.0.0", "Agenity"))
+	gc := newGiteaClient(t, fake)
+	src := NewPublic(gc, "catalog", cache.New(64, 30*time.Second))
+
+	// Bare-name request must resolve the seed-only "bp-alloy" repo.
+	bp, err := src.Get(context.Background(), "alloy", "")
+	if err != nil || bp == nil {
+		t.Fatalf("Get(alloy) = (%v, %v), want the bp-alloy seed entry", bp, err)
+	}
+	if bp.Card.Title != "Alloy" {
+		t.Errorf("Get(alloy).Card.Title = %q, want Alloy", bp.Card.Title)
+	}
+
+	// The `bp-`prefixed form must still resolve (back-compat).
+	bp, err = src.Get(context.Background(), "bp-alloy", "")
+	if err != nil || bp == nil {
+		t.Fatalf("Get(bp-alloy) = (%v, %v)", bp, err)
+	}
+	if bp.Card.Title != "Alloy" {
+		t.Errorf("Get(bp-alloy).Card.Title = %q, want Alloy", bp.Card.Title)
+	}
+
+	// Deployed bare-named repo must still resolve directly (no regression).
+	bp, err = src.Get(context.Background(), "agenity", "")
+	if err != nil || bp == nil {
+		t.Fatalf("Get(agenity) = (%v, %v)", bp, err)
+	}
+	if bp.Card.Title != "Agenity" {
+		t.Errorf("Get(agenity).Card.Title = %q, want Agenity", bp.Card.Title)
+	}
+
+	// A genuinely-absent Blueprint must still miss (nil, nil) — the
+	// prefix toggle must not conjure a match, and the original NotFound
+	// sentinel must survive the double-miss.
+	bp, err = src.Get(context.Background(), "nonexistent", "")
+	if err != nil {
+		t.Fatalf("Get(nonexistent) err = %v, want nil", err)
+	}
+	if bp != nil {
+		t.Errorf("Get(nonexistent) = %+v, want nil", bp)
+	}
+}
+
+// TestResolver_SeedOnlyEntryResolvesByBareName exercises the same #4990
+// path end-to-end through the Resolver (the shape the HTTP handler uses),
+// proving a bare-name detail request no longer 404s for seed-only cards.
+func TestResolver_SeedOnlyEntryResolvesByBareName(t *testing.T) {
+	t.Parallel()
+	fake := newFakeGitea()
+	fake.AddFile("catalog", "bp-alloy", "blueprint.yaml", blueprintYAML("bp-alloy", "1.0.0", "Alloy"))
+	gc := newGiteaClient(t, fake)
+	r := NewResolver(gc, "catalog", "catalog-sovereign", "shared-blueprints", cache.New(64, 30*time.Second))
+
+	// Anonymous caller (no visible Orgs), bare name — as the frontend sends.
+	bp, err := r.Get(context.Background(), "alloy", "", nil)
+	if err != nil || bp == nil {
+		t.Fatalf("Resolver.Get(alloy) = (%v, %v), want the seed entry", bp, err)
+	}
+	if bp.Card.Title != "Alloy" {
+		t.Errorf("Resolver.Get(alloy).Card.Title = %q, want Alloy", bp.Card.Title)
+	}
+
+	// Unknown bare name still surfaces ErrBlueprintNotFound.
+	if _, err := r.Get(context.Background(), "ghost", "", nil); !errors.Is(err, ErrBlueprintNotFound) {
+		t.Errorf("Resolver.Get(ghost) err = %v, want ErrBlueprintNotFound", err)
+	}
+}
+
 func TestPublic_OrgNotProvisioned_ReturnsEmpty(t *testing.T) {
 	fake := newFakeGitea()
 	gc := newGiteaClient(t, fake)
