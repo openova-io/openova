@@ -788,7 +788,18 @@ spec:
       # mirrors RUNNING tags but the cutover rolls to DESIRED chart-pinned tags, so
       # an unsettled env 404s step-06/08 under the deny-egress hold (live hw239).
       # Toggle prewarm.settledRollPreflight.enabled (default true). Still 11 steps.
-      version: 0.1.117
+      # 0.1.118 (#4994 + #4996 Refs #3379 #4972 #4885): two hw240 cutover-hardening
+      # fixes. #4994 — step-03 harbor-prewarm gains content-digest idempotency
+      # (skip a copy when local Harbor already serves it; fail-open) + real-time
+      # per-image progress + a heartbeat so it can't silently hang re-pushing ~121
+      # mothership images for 68m. #4996 — step-07 gains pre-roll safety gates:
+      # image-warmed gate (no blind pivot onto an unpullable image), broken-CSI
+      # node cordon + drain, and a deadlock-aware rollout wait that force-detaches
+      # the STALE RWO-EVS VolumeAttachment that Multi-Attach-wedged the Recreate
+      # roll (#4972). Toggles prewarm.skipIfAlreadyPresent + catalystAPI.rollSafety
+      # (both default on). RBAC adds volumeattachments/pvc read + delete + nodes
+      # patch. Still 11 steps / 10 job-mode.
+      version: 0.1.118
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

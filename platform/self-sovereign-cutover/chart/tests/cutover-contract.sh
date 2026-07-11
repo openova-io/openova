@@ -1604,4 +1604,107 @@ if ! grep -A1 'name: SETTLED_ROLL_PREFLIGHT' "$TMP/prewarm_a0_block.txt" | grep 
 fi
 echo "  PASS (Step-03 Phase A0 settled-roll pre-flight fail-closes on a mid-roll env before the mirror is built; default enabled)"
 
+echo "[cutover-contract] Case 42: Step-03 harbor-prewarm is idempotent (skip-if-already-present) + streams real-time progress so it can't silently hang (#4994, Refs #3379)"
+# hw240 (#4994): step-03 sat Running 0/1 for 68m re-pushing ~121 proxy-* images
+# from the mothership, logging ONLY `queue` lines — the per-image copy logs were
+# file-buffered and only surfaced after the whole `wait`, so a slow-but-working
+# run was indistinguishable from a hang. 0.1.118 adds (1) a content-digest skip:
+# `skopeo inspect --raw | sha256sum` compares src vs dest manifest — a copy is
+# elided when local Harbor already serves byte-identical content (re-run /
+# pre-warmed), fail-OPEN so a partial/absent dest is still re-pushed; (2) a
+# real-time per-image `done`/`skip` line + a bounded background heartbeat that
+# prints "N/M settled" every 30s, drained via explicit worker PIDs (a bare `wait`
+# would block on the never-returning heartbeat). Slice step-03's CM.
+awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml" > "$TMP/prewarm_4994.txt"
+[ -s "$TMP/prewarm_4994.txt" ] || cp "$TMP/render.yaml" "$TMP/prewarm_4994.txt"
+if ! grep -q 'name: PREWARM_SKIP_IF_PRESENT' "$TMP/prewarm_4994.txt"; then
+  echo "FAIL: Step-03 missing the PREWARM_SKIP_IF_PRESENT toggle env — content-digest idempotency not wired (#4994)" >&2
+  exit 1
+fi
+if ! grep -q 'dest_already_current()' "$TMP/prewarm_4994.txt"; then
+  echo "FAIL: Step-03 missing dest_already_current() — the skip-if-already-present digest compare (#4994)" >&2
+  exit 1
+fi
+if ! grep -q 'inspect --raw' "$TMP/prewarm_4994.txt"; then
+  echo "FAIL: Step-03 idempotency does not use 'skopeo inspect --raw' (the no-blob-pull manifest-digest compare) (#4994)" >&2
+  exit 1
+fi
+if ! grep -q 'progress_heartbeat' "$TMP/prewarm_4994.txt"; then
+  echo "FAIL: Step-03 missing the progress_heartbeat — the step can still silently hang (#4994)" >&2
+  exit 1
+fi
+if ! grep -Eq '\[harbor-prewarm\] done ' "$TMP/prewarm_4994.txt"; then
+  echo "FAIL: Step-03 missing the real-time per-image 'done' progress line (#4994)" >&2
+  exit 1
+fi
+# The heartbeat must be drained via explicit worker PIDs, NOT a bare `wait` (which
+# would block on the heartbeat forever). Assert the sentinel-stop pattern.
+if ! grep -q 'touch "${cpdir}/.hb_stop"' "$TMP/prewarm_4994.txt"; then
+  echo "FAIL: Step-03 does not stop the heartbeat via the .hb_stop sentinel — a bare wait would deadlock on it (#4994)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: PREWARM_SKIP_IF_PRESENT' "$TMP/prewarm_4994.txt" | grep -q 'value: "true"'; then
+  echo "FAIL: PREWARM_SKIP_IF_PRESENT must DEFAULT to enabled (rendered value != \"true\") (#4994)" >&2
+  exit 1
+fi
+echo "  PASS (Step-03 skips already-present copies + streams real-time progress; heartbeat drained via sentinel; default enabled)"
+
+echo "[cutover-contract] Case 43: Step-07 has pre-roll safety gates — image-warmed gate + EVS detach-gate + broken-CSI cordon + deadlock-aware rollout wait (#4996, Refs #4972 #4885)"
+# hw240 (#4996): step-07 pivoted catalyst-api's imageRegistry then blind
+# `kubectl rollout status --timeout=300s` (Recreate). It WEDGED because (a) the
+# pivoted image was momentarily unpullable from local Harbor and (b) the old
+# pod's RWO-EVS PVCs didn't detach on a broken-CSI node → Multi-Attach. 0.1.118
+# adds: an image-warmed gate BEFORE the pivot (FATAL pre-pivot on a genuine
+# miss), a broken-CSI node cordon + drain-old-pod-first, and a deadlock-aware
+# rollout wait that force-detaches STALE catalyst-api VolumeAttachments while
+# tolerating a self-healing ImagePullBackOff. Slice step-07's CM.
+awk '/cutover-step-07-catalyst-api-env-patch/{c=1} c{print} c&&/cutover-order: "8"/{exit}' "$TMP/render.yaml" > "$TMP/step07_4996.txt"
+[ -s "$TMP/step07_4996.txt" ] || cp "$TMP/render.yaml" "$TMP/step07_4996.txt"
+if ! grep -q 'image_warmed_gate()' "$TMP/step07_4996.txt"; then
+  echo "FAIL: Step-07 missing image_warmed_gate() — catalyst-api can still be blind-pivoted onto an unpullable image (#4996)" >&2
+  exit 1
+fi
+# The image-warmed gate MUST run BEFORE the imageRegistry HR pivot (leaving the
+# env PRE-PIVOT on a genuine miss).
+gate_ln=$(awk 'index($0,"image_warmed_gate || exit 1"){print NR; exit}' "$TMP/step07_4996.txt")
+pivot_ln=$(awk 'index($0,"G61 HR patch"){print NR; exit}' "$TMP/step07_4996.txt")
+if [ -z "$gate_ln" ] || [ -z "$pivot_ln" ] || [ "$gate_ln" -ge "$pivot_ln" ]; then
+  echo "FAIL: Step-07 image-warmed gate (line ${gate_ln:-?}) must run BEFORE the imageRegistry pivot (line ${pivot_ln:-?}) so a miss leaves the env pre-pivot (#4996)" >&2
+  exit 1
+fi
+if ! grep -q 'roll_and_wait_catalyst_api' "$TMP/step07_4996.txt"; then
+  echo "FAIL: Step-07 still uses the blind rollout wait — missing roll_and_wait_catalyst_api (#4996)" >&2
+  exit 1
+fi
+if ! grep -q 'evs_detach_gate()' "$TMP/step07_4996.txt"; then
+  echo "FAIL: Step-07 missing evs_detach_gate() — the RWO-EVS Multi-Attach un-stick (#4972)" >&2
+  exit 1
+fi
+if ! grep -q 'preroll_node_prep()' "$TMP/step07_4996.txt"; then
+  echo "FAIL: Step-07 missing preroll_node_prep() — the broken-CSI node cordon/drain (#4996)" >&2
+  exit 1
+fi
+if ! grep -q 'kubectl cordon' "$TMP/step07_4996.txt"; then
+  echo "FAIL: Step-07 broken-CSI gate does not cordon the node (#4996)" >&2
+  exit 1
+fi
+if ! grep -q 'kubectl delete volumeattachment' "$TMP/step07_4996.txt"; then
+  echo "FAIL: Step-07 detach-gate does not force-delete the stale VolumeAttachment (#4996 / #4972)" >&2
+  exit 1
+fi
+if ! grep -q 'name: EVS_CSI_ZONE_LABEL' "$TMP/step07_4996.txt"; then
+  echo "FAIL: Step-07 missing EVS_CSI_ZONE_LABEL env — the broken-CSI node signal (#4996)" >&2
+  exit 1
+fi
+# RBAC: the runner must be able to delete VolumeAttachments + patch nodes (cordon).
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 '"volumeattachments"' | grep -q '"delete"'; then
+  echo "FAIL: ClusterRole missing storage.k8s.io/volumeattachments delete — the detach-gate will 403 (#4996)" >&2
+  exit 1
+fi
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resources: \["nodes"\]' | grep -q '"patch"'; then
+  echo "FAIL: ClusterRole missing nodes patch — kubectl cordon will 403 (#4996)" >&2
+  exit 1
+fi
+echo "  PASS (Step-07 image-warmed gate pre-pivot + EVS detach-gate + broken-CSI cordon + deadlock-aware rollout wait; RBAC wired)"
+
 echo "[cutover-contract] All gates green."

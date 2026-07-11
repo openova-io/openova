@@ -30,7 +30,10 @@ The cutover runner needs cluster-scope reach because:
     insecureSkipVerify — certSecretRef is the only trust mechanism). Both
     the cross-namespace Secret read and the Secret create/patch are already
     covered by the cluster-scoped secrets get/create/patch rules below.
-  - Step 07 patches Deployment in `catalyst-platform` namespace.
+  - Step 07 patches the catalyst-api Deployment in `catalyst-system` and
+    (#4996) runs pre-roll safety gates: reads node EVS zone labels + PVCs +
+    VolumeAttachments, cordons a broken-CSI node, and force-deletes the stale
+    RWO-EVS VolumeAttachment that Multi-Attach-deadlocks a Recreate roll (#4972).
   - Step 08 creates+deletes a CiliumNetworkPolicy cluster-wide, queries
     HelmRelease/Kustomization status across all namespaces, AND (#3526)
     force-reconciles the GitRepository + bootstrap-kit Kustomization so
@@ -124,8 +127,14 @@ rules:
     resources: ["ciliumnetworkpolicies"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap
+    resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap; step 07 (#4996) reads node EVS zone labels to spot a broken-CSI node
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]   # step 07 (#4996) maps catalyst-api's PVCs -> PV names to scope the EVS detach-gate to catalyst-api's OWN volumes
+    verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]   # step 07 (#4996) enumerates VolumeAttachments to find + clear the STALE RWO-EVS attachment that Multi-Attach-deadlocks a Recreate roll (#4972)
+    verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["services"]   # #4639 (Refs #4637): registry-pivot DaemonSet resolves the cilium-gateway Service ClusterIP (node-routable, serves registry.<fqdn> wildcard TLS + token realm) for the dfdaemon hostAlias instead of the un-hairpinnable public gateway EIP
     verbs: ["get", "list", "watch"]
@@ -150,7 +159,13 @@ rules:
     verbs: ["update", "patch"]   # step 06 phase-0 merges harbor.<sov-fqdn> auth into ghcr-pull (#1184)
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["delete"]   # step 08 (#3647) force-deletes ONE openova-io-imaged Pod under deny-egress to prove a fresh image pull resolves through local Harbor (the ReplicaSet recreates it; only a single Pod is bounced)
+    verbs: ["delete"]   # step 08 (#3647) force-deletes ONE openova-io-imaged Pod under deny-egress; step 07 (#4996) drains the catalyst-api pod off a broken-CSI node before the roll (drain-old-pod-first, #4972)
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["patch"]   # step 07 (#4996) cordons a broken-CSI node (missing the EVS zone label) so the Recreate roll can't place catalyst-api where RWO-EVS attach would Multi-Attach deadlock (#4972)
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["delete"]   # step 07 (#4996) force-detaches the STALE catalyst-api RWO-EVS attachment (its owning pod is gone) that deadlocks the new Recreate pod on Multi-Attach (#4972)
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["delete"]   # #4652 (Refs #4641): registry-pivot rollback (v1) deletes the dragonfly-namespace dragonfly-harbor-ca Secret it created for the dfdaemon registryMirror.cert trust anchor (best-effort, paired with the addr/cert revert)

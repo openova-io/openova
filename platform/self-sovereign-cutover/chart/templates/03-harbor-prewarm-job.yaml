@@ -170,6 +170,21 @@ data:
           # disable override. The key is always present in values.yaml.
           - name: SETTLED_ROLL_PREFLIGHT
             value: {{ .Values.prewarm.settledRollPreflight.enabled | quote }}
+          # #4994 (Refs #3379) — content-digest idempotency. When true (default)
+          # each skopeo copy first compares the SOURCE vs DEST manifest digest
+          # (`skopeo inspect --raw | sha256sum` — the sha256 of the exact manifest
+          # bytes IS the digest, for single-arch AND multi-arch LISTS, fetched
+          # WITHOUT pulling a single blob) and SKIPS the copy when local Harbor
+          # already serves byte-identical content. A prewarm RE-RUN (catalyst-api
+          # re-fires the step after a DeadlineExceeded) or an already-mirrored
+          # image then costs a cheap manifest HEAD instead of re-transferring
+          # every multi-hundred-MB blob from the mothership (the hw240 #4994
+          # "step-03 Running 0/1 for 68m" symptom). Fail-OPEN: any inspect miss
+          # (source or dest unreachable/absent/partial) FALLS THROUGH to the full
+          # copy, so the fail-closed completeness contract is preserved — a skip
+          # happens ONLY on a positive src==dst match. Set false to force re-copy.
+          - name: PREWARM_SKIP_IF_PRESENT
+            value: {{ .Values.prewarm.skipIfAlreadyPresent | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -535,6 +550,39 @@ data:
               esac
             }
 
+            # #4994 (Refs #3379) — content-digest idempotency probe. Returns 0
+            # (SKIP the copy) only when the local Harbor DEST already serves
+            # byte-identical manifest content as the SOURCE. `skopeo inspect --raw`
+            # streams the exact manifest (or manifest LIST) bytes the registry
+            # serves; their sha256 IS the manifest digest — correct for single-arch
+            # AND multi-arch, and it pulls NO blob. Comparing the two inspect-raw
+            # shas to each other (not to a precomputed digest) is robust to any
+            # consistent skopeo formatting. Fail-CLOSED to a full copy on ANY miss:
+            # an empty source sha (upstream unreachable) or a mismatched/empty dest
+            # sha (absent / partial / single-arch leftover from the pre-#4975 bug)
+            # both return non-zero → the caller does the real copy. So the
+            # fail-closed completeness contract is untouched; this only elides a
+            # redundant re-transfer.
+            dest_already_current() {
+              # $1 upstream ref  $2 local dest ref  $3 src creds (may be empty)
+              _dc_up="$1"; _dc_lref="$2"; _dc_sc="$3"
+              if [ -n "${_dc_sc}" ]; then
+                _dc_s=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
+                  --creds="${_dc_sc}" --tls-verify=true "docker://${_dc_up}" 2>/dev/null \
+                  | sha256sum 2>/dev/null | awk '{print $1}')
+              else
+                _dc_s=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
+                  --tls-verify=true "docker://${_dc_up}" 2>/dev/null \
+                  | sha256sum 2>/dev/null | awk '{print $1}')
+              fi
+              [ -z "${_dc_s}" ] && return 1
+              _dc_d=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
+                --creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                --tls-verify="${PREWARM_DEST_TLS_VERIFY}" "docker://${_dc_lref}" 2>/dev/null \
+                | sha256sum 2>/dev/null | awk '{print $1}')
+              [ -n "${_dc_d}" ] && [ "${_dc_s}" = "${_dc_d}" ]
+            }
+
             # #4975 — copy ONE upstream image to ALL of its local Harbor
             # destination path(s) (usually one; TWO for a ghcr.io/openova-io/*
             # ref — the host-drop openova-io/… convention + proxy-ghcr/openova-io/…).
@@ -560,6 +608,16 @@ data:
               last_rc=0
               for dpath in ${dests}; do
                 lref="${HARBOR_HOST}/${dpath}"
+                # #4994 — SKIP the (potentially multi-hundred-MB) copy when the
+                # dest already serves byte-identical content. Streams a real-time
+                # SKIP line to stdout so the operator sees instant forward progress
+                # for pre-warmed / re-run images instead of a silent 68m (hw240).
+                if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] \
+                   && dest_already_current "${up}" "${lref}" "${sc}"; then
+                  echo "[harbor-prewarm] skip ${up} -> ${lref} (dest already current)"
+                  echo "  SKIP ${up} -> ${lref} (dest already serves identical manifest; copy skipped)" >>"${cpdir}/${slug}.log"
+                  continue
+                fi
                 # OUTER per-dest retry loop: `--retry-times 5` self-heals a
                 # transient blob fetch inside ONE copy; a Harbor-side reset that
                 # closes the dest connection can still abort the whole copy
@@ -612,8 +670,13 @@ data:
               done
               if [ "${all_ok}" -eq 1 ]; then
                 printf '%s' "${up}" >"${cpdir}/${slug}.ok"
+                # #4994 — real-time per-image completion line to stdout (the worker
+                # runs async; without this the detailed .log is only surfaced after
+                # the whole `wait`, which is what made hw240 look hung for 68m).
+                echo "[harbor-prewarm] done ${up} (ok)"
               else
                 printf '%s exit=%s' "${up}" "${last_rc}" >"${cpdir}/${slug}.fail"
+                echo "[harbor-prewarm] done ${up} (FAIL exit=${last_rc})"
               fi
             }
 
@@ -650,14 +713,38 @@ data:
             count=$(printf '%s\n' ${mirror_work} | grep -c . || true)
             echo "[harbor-prewarm] ${count} mapped image(s) to mirror after resolver filter (parallelism=${PREWARM_PARALLELISM})"
 
+            # #4994 — real-time progress heartbeat. A bounded, self-stopping
+            # background loop prints "N/M settled" every 30s while the fan-out
+            # drains, so the step is NEVER a silent black box (hw240: "Running 0/1
+            # for 68m, only queue lines"). Combined with copy_one's per-image
+            # `done`/`skip` lines the operator always sees forward progress — and
+            # a genuine hang is now visibly bounded (settled count stops advancing)
+            # rather than indistinguishable from slow-but-working.
+            progress_heartbeat() {
+              _hb_tot="$1"; _hb_dir="$2"; _hb_label="$3"
+              while [ ! -f "${_hb_dir}/.hb_stop" ]; do
+                _hb_n=$( { ls "${_hb_dir}"/*.ok "${_hb_dir}"/*.fail 2>/dev/null || true; } | grep -c . || true)
+                echo "[harbor-prewarm] ${_hb_label} progress: ${_hb_n}/${_hb_tot} settled (still copying)"
+                _hb_i=0
+                while [ "${_hb_i}" -lt 30 ] && [ ! -f "${_hb_dir}/.hb_stop" ]; do sleep 1; _hb_i=$((_hb_i+1)); done
+              done
+            }
+            rm -f "${cpdir}/.hb_stop"
+            progress_heartbeat "${count}" "${cpdir}" "Phase A" &
+            hb_pid=$!
             # Track live worker PIDs explicitly — POSIX sh's `jobs -p` is
             # unreliable in a non-interactive shell, so we count by polling
-            # `kill -0 <pid>` against the PIDs we launched.
+            # `kill -0 <pid>` against the PIDs we launched. `allpids` accumulates
+            # EVERY worker so the final drain waits on the workers only (a bare
+            # `wait` would also block on the never-returning heartbeat #4994).
             pids=""
+            allpids=""
             for upstream in ${mirror_work}; do
               echo "[harbor-prewarm] queue ${upstream}"
               copy_one "${upstream}" &
-              pids="${pids} $!"
+              _newpid=$!
+              pids="${pids} ${_newpid}"
+              allpids="${allpids} ${_newpid}"
               # Throttle: block launching the next copy while
               # PREWARM_PARALLELISM workers are still alive.
               while : ; do
@@ -674,8 +761,11 @@ data:
                 sleep 2
               done
             done
-            # Drain the final batch.
-            wait
+            # Drain the workers explicitly (NOT a bare `wait` — that would also
+            # block on the heartbeat, which only stops on the sentinel below).
+            for _p in ${allpids}; do wait "${_p}" 2>/dev/null || true; done
+            touch "${cpdir}/.hb_stop"
+            wait "${hb_pid}" 2>/dev/null || true
 
             # Tally + surface each copy's captured log.
             push_ok=0
@@ -871,6 +961,15 @@ data:
               # as the Phase-B PREWARM_COPY_ATTEMPTS image path) turns a
               # transient dest 504 into a bounded retry instead of a cutover-
               # killing FATAL.
+              # #4994 idempotency: skip when local Harbor already serves this exact
+              # chart artifact (re-run / already-mirrored). The chart OCI is a single
+              # manifest; compare src vs dst raw-manifest sha (no blob pull).
+              if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] \
+                 && dest_already_current "${up_chart_prefix}/${cchart}:${cver}" "${HARBOR_HOST}/openova-io/${cchart}:${cver}" "${ghcr_user}:${ghcr_pat}"; then
+                echo "[harbor-prewarm] skip chart ${cchart}:${cver} (dest already current)"
+                printf '%s:%s (present)' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"
+                return 0
+              fi
               cattempt=0
               cmax="${PREWARM_COPY_ATTEMPTS:-4}"
               while : ; do
@@ -884,11 +983,13 @@ data:
                   --src-tls-verify=true \
                   "${csrc}" "${cdst}" >"${chart_cpdir}/${cslug}.log" 2>&1; then
                   printf '%s:%s' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"
+                  echo "[harbor-prewarm] done chart ${cchart}:${cver} (ok)"
                   return 0
                 fi
                 crc=$?
                 if [ "${cattempt}" -ge "${cmax}" ]; then
                   printf '%s:%s exit=%s attempts=%s' "${cchart}" "${cver}" "${crc}" "${cattempt}" >"${chart_cpdir}/${cslug}.fail"
+                  echo "[harbor-prewarm] done chart ${cchart}:${cver} (FAIL exit=${crc})"
                   return 0
                 fi
                 echo "[harbor-prewarm] chart ${cchart}:${cver} copy attempt ${cattempt}/${cmax} failed (rc=${crc}, transient e.g. 504) — retrying in $((cattempt*5))s" >>"${chart_cpdir}/${cslug}.log"
@@ -896,12 +997,20 @@ data:
               done
             }
 
+            # #4994 — Phase A2 gets the same real-time heartbeat + explicit drain
+            # as Phase A (the chart mirror shares the file-buffered-log silence).
+            rm -f "${chart_cpdir}/.hb_stop"
+            progress_heartbeat "${chart_count}" "${chart_cpdir}" "Phase A2" &
+            chart_hb_pid=$!
             chart_pids=""
+            chart_allpids=""
             while IFS="$(printf '\t')" read -r w_chart w_ver; do
               [ -z "${w_chart}" ] && continue
               echo "[harbor-prewarm] queue chart ${up_chart_prefix}/${w_chart}:${w_ver} → ${HARBOR_HOST}/openova-io/${w_chart}:${w_ver}"
               copy_chart "${w_chart}" "${w_ver}" &
-              chart_pids="${chart_pids} $!"
+              _cnp=$!
+              chart_pids="${chart_pids} ${_cnp}"
+              chart_allpids="${chart_allpids} ${_cnp}"
               # Throttle to PREWARM_PARALLELISM live workers (POSIX sh, no wait -n).
               while : ; do
                 clive=0
@@ -917,8 +1026,10 @@ data:
                 sleep 2
               done
             done < "${chart_work}"
-            # Drain.
-            wait
+            # Drain the chart workers explicitly, then stop + reap the heartbeat.
+            for _p in ${chart_allpids}; do wait "${_p}" 2>/dev/null || true; done
+            touch "${chart_cpdir}/.hb_stop"
+            wait "${chart_hb_pid}" 2>/dev/null || true
 
             chart_ok=0
             chart_fail=0
