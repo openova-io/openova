@@ -804,7 +804,14 @@ spec:
       # hostNetwork fallback) so a fresh-node local-registry pull never depends on
       # the public DNS wildcard-vs-specific race (hw241 dead `*.omantel.biz`
       # 49.12.16.160 ImagePullBackOff). Still 11 steps / 10 job-mode.
-      version: 0.1.119
+      # 0.1.120 (#4973 #4975 #4961 Refs #4885): step-07 Phase 4 comprehensive
+      # pod-spec image sweep — rewrites the registry host of EVERY container +
+      # initContainer of every external-registry workload to registry.<fqdn> (via
+      # the shared offline-mirror resolver) so images pinned by full ref OUTSIDE
+      # global.imageRegistry (evs-csi CSI sidecars, continuum init/controller,
+      # flow-emitter) no longer wedge step-08's deny-egress roll-set. Still 11
+      # steps / 10 job-mode.
+      version: 0.1.120
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

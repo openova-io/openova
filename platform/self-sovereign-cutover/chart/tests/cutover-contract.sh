@@ -1756,4 +1756,81 @@ if ! grep -A1 'name: LOCAL_REGISTRY_PIN_ENABLED' "$TMP/render.yaml" | grep -q 'v
 fi
 echo "  PASS (step-04 pins registry.<fqdn> to the gateway VIP on the node /etc/hosts; LB-ingress VIP with HOST_IP hostNetwork fallback; DNS-free; removed on rollback; default enabled)"
 
+echo "[cutover-contract] Case 45: Step-07 runs a COMPREHENSIVE pod-spec image sweep — every container + initContainer of every external-registry workload pivots to registry.<fqdn>, not just images honouring global.imageRegistry (#4973 #4975 #4961, Refs #4885 #3379)"
+# The HR global.imageRegistry patch only reaches images a chart renders THROUGH
+# that value; images pinned by full ref OUTSIDE it (evs-csi CSI sidecars #4973,
+# continuum's prerequisite-check initContainer #4975, flow-emitter #4961) stayed
+# tethered to a non-local host and wedged step-08's deny-egress roll-set. 0.1.120
+# adds a Phase-4 sweep that discovers external-registry workloads like step-08
+# does and rewrites EVERY container+initContainer image to the local Harbor path
+# via the SAME offline-mirror resolver. Slice step-07's CM.
+awk '/cutover-step-07-catalyst-api-env-patch/{c=1} c{print} c&&/cutover-order: "8"/{exit}' "$TMP/render.yaml" > "$TMP/step07_sweep.txt"
+[ -s "$TMP/step07_sweep.txt" ] || cp "$TMP/render.yaml" "$TMP/step07_sweep.txt"
+# (1) the sweep function + its call are present.
+if ! grep -q 'sweep_workload_podspec_images()' "$TMP/step07_sweep.txt"; then
+  echo "FAIL: Step-07 missing sweep_workload_podspec_images() — the comprehensive pod-spec pivot (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+if ! grep -q 'sweep_workload_podspec_images ||' "$TMP/step07_sweep.txt"; then
+  echo "FAIL: Step-07 never CALLS sweep_workload_podspec_images (fail-open) — the sweep would be dead code (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+# (2) the sweep must run AFTER the HR imageRegistry pivot (it is the suspenders to
+# the HR-pivot belt) — Phase 4 after Phase 1's G61 HR patch.
+sweep_ln=$(awk 'index($0,"sweep_workload_podspec_images ||"){print NR; exit}' "$TMP/step07_sweep.txt")
+hrpivot_ln=$(awk 'index($0,"G61 HR patch"){print NR; exit}' "$TMP/step07_sweep.txt")
+if [ -z "$sweep_ln" ] || [ -z "$hrpivot_ln" ] || [ "$sweep_ln" -le "$hrpivot_ln" ]; then
+  echo "FAIL: Step-07 pod-spec sweep (line ${sweep_ln:-?}) must run AFTER the HR imageRegistry pivot (line ${hrpivot_ln:-?}) (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+# (3) it sweeps BOTH containers AND initContainers (continuum #4975 is an initContainer).
+if ! grep -q 'initContainers' "$TMP/step07_sweep.txt"; then
+  echo "FAIL: Step-07 sweep does not cover initContainers — misses continuum's prerequisite-check init image (#4975)" >&2
+  exit 1
+fi
+# (4) it reuses the SHARED offline-mirror resolver (no forked mapping) — the CM is
+# mounted and offlinemirror_local_paths is used.
+if ! grep -q 'offlinemirror_local_paths' "$TMP/step07_sweep.txt"; then
+  echo "FAIL: Step-07 sweep does not use the shared offlinemirror_local_paths resolver — a forked mapping could target a path the mirror never held (#4975)" >&2
+  exit 1
+fi
+if ! grep -q 'name: cutover-offline-mirror-resolver' "$TMP/step07_sweep.txt"; then
+  echo "FAIL: Step-07 does not mount the shared cutover-offline-mirror-resolver ConfigMap — offlinemirror_local_paths would be undefined at runtime (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+# (5) presence-gated (never pivots onto an image the local Harbor cannot serve).
+if ! grep -q 'podspec_local_present' "$TMP/step07_sweep.txt"; then
+  echo "FAIL: Step-07 sweep missing the presence gate (podspec_local_present) — could induce an ImagePullBackOff by pivoting onto an unmirrored ref (#4975)" >&2
+  exit 1
+fi
+# (6) reversible — records the pre-sweep images in a pod-template annotation.
+if ! grep -q 'bp.openova.io/cutover-podspec-preimage' "$TMP/step07_sweep.txt"; then
+  echo "FAIL: Step-07 sweep does not record pre-sweep images (bp.openova.io/cutover-podspec-preimage) — not reversible (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+# (7) default enabled (fail-safe robustness posture — the deny-egress proof cannot
+# go green while any pod-spec still carries a non-local ref).
+if ! grep -A1 'name: PODSPEC_SWEEP$' "$TMP/step07_sweep.txt" | grep -q 'value: "true"'; then
+  echo "FAIL: PODSPEC_SWEEP must DEFAULT to enabled (rendered value != \"true\") (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+# (8) the resolver env the sweep needs is wired on step-07.
+for _e in HOST_PROJECT_MAP LOCAL_REGISTRY_HOST EXCLUDED_HOSTS EXCLUDED_SUBSTRINGS; do
+  if ! grep -q "name: ${_e}$" "$TMP/step07_sweep.txt"; then
+    echo "FAIL: Step-07 missing ${_e} env — the shared resolver needs it (#4973 #4975 #4961)" >&2
+    exit 1
+  fi
+done
+# (9) RBAC: the runner must patch deployments + daemonsets + statefulsets (the sweep
+# strategic-merges the pod-spec image). Already granted (step-08 rolls them).
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 '"daemonsets", "statefulsets"' | grep -q '"patch"'; then
+  echo "FAIL: ClusterRole missing apps/daemonsets+statefulsets patch — the pod-spec sweep will 403 (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resources: \["deployments"\]' | grep -q '"patch"'; then
+  echo "FAIL: ClusterRole missing apps/deployments patch — the pod-spec sweep will 403 (#4973 #4975 #4961)" >&2
+  exit 1
+fi
+echo "  PASS (Step-07 Phase 4 comprehensive pod-spec sweep: containers+initContainers, shared resolver, presence-gated, reversible annotation, default enabled; RBAC wired)"
+
 echo "[cutover-contract] All gates green."
