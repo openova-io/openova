@@ -28,10 +28,29 @@ policy-controller:
     replicaCount: 1
     # Pin upstream image — DO NOT use floating tags per
     # docs/INVIOLABLE-PRINCIPLES.md.
+    #
+    # Routed through the Sovereign-local Harbor proxy (#5017): the kyverno
+    # `harbor-proxy-pull` ClusterPolicy only admits pod images matching
+    # `*/proxy-*/*` or `*/openova-io/*`; the raw ghcr.io ref was DENIED when
+    # cutover step-08's deny-egress roll recreated the pod on hw242. The
+    # digest pin is preserved (`version` renders as `@sha256:...`).
     image:
-      repository: ghcr.io/sigstore/policy-controller/policy-controller
+      repository: harbor.openova.io/proxy-ghcr/sigstore/policy-controller/policy-controller
       version: "sha256:0bcd60beb93f4427c29cf3a669743caf58490e98ded4380c33c09f092734a6ab"
       pullPolicy: IfNotPresent
+
+    # disable-tuf (#5017, proven live on hw242): the webhook binary panics at
+    # startup fetching its TUF trust root from https://tuf-repo-cdn.sigstore.dev
+    # — impossible under the cutover step-08 deny-egress hold (CrashLoopBackOff
+    # → rollout never completes) and a sovereign-independence violation
+    # (Principle #11): a Sovereign must never phone home to sigstore's public
+    # CDN to boot. With TUF disabled, trust roots come from in-cluster
+    # TrustRoot/ClusterImagePolicy CRs — none are installed by default (see
+    # sigstoreOverlay.defaultClusterImagePolicy below), so the webhook stays
+    # healthy and inert. Per-Sovereign overlays that enable signature
+    # enforcement ship their own TrustRoot CR alongside the policy.
+    extraArgs:
+      disable-tuf: true
     # failurePolicy=Ignore on solo-Sovereign so a single-pod webhook
     # restart doesn't block all admission. Per-Sovereign overlays MAY flip
     # to Fail once 3-replica HA is in place.

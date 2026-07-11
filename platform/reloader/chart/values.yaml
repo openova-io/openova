@@ -14,20 +14,32 @@ catalystBlueprint:
 
 # ─── Upstream chart values (subchart key: reloader) ──────────────────────
 reloader:
+  # Pin upstream image — routed through the Sovereign-local Harbor proxy
+  # (#5017): the kyverno `harbor-proxy-pull` ClusterPolicy only admits pod
+  # images matching `*/proxy-*/*` or `*/openova-io/*`, and cutover step-08's
+  # deny-egress roll DENIED the raw `ghcr.io/stakater/reloader` ref on hw242
+  # (RS FailedCreate → rollout never completes → cutoverComplete blocked).
+  # Pre-cutover the containerd mirror rewrite resolves harbor.openova.io to
+  # the local Harbor; step-07's sweep pivots the host to registry.<fqdn> at
+  # cutover — the `*/proxy-*/*` glob matches both.
+  #
+  # NOTE: upstream reloader chart 2.2.x reads this TOP-LEVEL `image:` block
+  # (image.repository/image.tag). The previous pin at
+  # `reloader.deployment.image.name` was INERT (a chart 1.x key) — the
+  # rendered pod silently ran the upstream default ghcr.io image.
+  # DO NOT use floating tags per docs/INVIOLABLE-PRINCIPLES.md.
+  image:
+    repository: harbor.openova.io/proxy-ghcr/stakater/reloader
+    tag: "v1.4.16"
+    pullPolicy: IfNotPresent
+
   # Reloader controller — single replica (the upstream chart uses leader
   # election when scaled, but a single-pod restart only delays a rotation
   # by ≤30s in practice).
   reloader:
     replicaCount: 1
 
-    # Pin upstream image tag — DO NOT use floating tags per
-    # docs/INVIOLABLE-PRINCIPLES.md.
     deployment:
-      image:
-        name: ghcr.io/stakater/reloader
-        tag: "v1.4.16"
-        pullPolicy: IfNotPresent
-
       resources:
         requests:
           cpu: 50m

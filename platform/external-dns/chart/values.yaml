@@ -31,6 +31,16 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `external-dns:` key flow into that subchart unchanged.
 external-dns:
+  # Route the external-dns image through the Sovereign-local Harbor proxy
+  # (#5017): the kyverno `harbor-proxy-pull` ClusterPolicy only admits pod
+  # images matching `*/proxy-*/*` or `*/openova-io/*`; the upstream default
+  # `registry.k8s.io/external-dns/external-dns` matches neither, so cutover
+  # step-08's deny-egress roll left the Deployment (strategy: Recreate) at
+  # ZERO pods on hw242 — DNS record sync down until live-healed. Tag defaults
+  # to the chart appVersion (v0.15.1) — unchanged.
+  image:
+    repository: harbor.openova.io/proxy-k8s/external-dns/external-dns
+
   # Native PowerDNS provider — talks to the in-cluster bp-powerdns Service
   # (powerdns.openova-system.svc.cluster.local:8081) over the REST API.
   # Per the user-facing brief: PowerDNS webhook adapter or native `pdns`

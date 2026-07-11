@@ -1,5 +1,12 @@
 apiVersion: v2
 name: bp-sigstore
+# 1.0.1 (#5017 — two cutover step-08 fixes, both proven live on hw242:
+# (1) route the policy-controller webhook image through the Sovereign-local
+# Harbor proxy (kyverno harbor-proxy-pull denies the raw ghcr.io digest ref
+# on pod recreation; digest pin preserved); (2) webhook.extraArgs disable-tuf
+# — the webhook panics at startup fetching its TUF root from
+# tuf-repo-cdn.sigstore.dev, impossible under deny-egress and a Principle #11
+# sovereignty violation.)
 description: |
   Catalyst Blueprint umbrella chart for Sigstore Policy Controller.
   Depends on the upstream `policy-controller` chart (sigstore/helm-charts)
@@ -12,7 +19,7 @@ description: |
   admission time. Pairs with bp-harbor (registry) and the Catalyst
   build-pipeline that publishes signed bp-* OCI artifacts to GHCR.
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "0.13.1"
 keywords: [catalyst, blueprint, sigstore, cosign, supply-chain, admission, security]
 maintainers:
