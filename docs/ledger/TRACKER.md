@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T13:30:03Z` |
+| Last refreshed | `2026-07-11T13:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 85 |
 | Open DoD gates | 0 / 41 |
@@ -292,6 +292,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T13:40 | [#4997](https://github.com/openova-io/openova/pull/4997) | #3668 | fix(#4990): prefix-tolerant catalog Get — seed-only Blueprin |
 | 2026-07-11T12:48 | [#4995](https://github.com/openova-io/openova/pull/4995) | #4993 | fix(#4993): host-native app HTTPRoute for vcluster-tier Orgs |
 | 2026-07-11T10:58 | [#4992](https://github.com/openova-io/openova/pull/4992) | #4964 | fix(#4991): org-controller delivers per-Org provisioning RBA |
 | 2026-07-11T10:04 | [#4989](https://github.com/openova-io/openova/pull/4989) | #4987 | fix(#4988): lockstep catalog-seed bp-postgres spec.version 0 |
@@ -321,7 +322,6 @@ flowchart LR
 | 2026-07-10T00:11 | [#4947](https://github.com/openova-io/openova/pull/4947) | #4821 | fix(#4821): tenant console_host honours Sovereign apps pool, |
 | 2026-07-10T00:05 | [#4946](https://github.com/openova-io/openova/pull/4946) | #4339 | fix(org-controller): tier-honest Org Ready message — no fals |
 | 2026-07-09T23:18 | [#4944](https://github.com/openova-io/openova/pull/4944) | #4758 | test(provisioning): lock the no-duplicate per-Org apps Kusto |
-| 2026-07-09T22:03 | [#4943](https://github.com/openova-io/openova/pull/4943) | #4942 | fix(#4942): permit native cross-region CP cilium-health + po |
 
 ---
 
