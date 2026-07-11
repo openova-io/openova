@@ -773,7 +773,7 @@ spec:
       # step-03 pushes every workload image, step-04 rewrites containerd per-host,
       # step-08 pre-hold completeness gate + fixed localRegistryHostSubstr (below,
       # now the FULL registry.${SOVEREIGN_FQDN}). Builds on 0.1.113's carve-out.
-      version: 0.1.114
+      version: 0.1.115
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

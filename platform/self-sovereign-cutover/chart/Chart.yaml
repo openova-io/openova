@@ -1,5 +1,28 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.115 (#4975 Refs #3379 #3695 #4977 — the LAST uncovered offline-mirror host,
+# named by the live hw239 step-03 harbor-prewarm completeness gate): the #4977
+# comprehensive completeness gate FATAL-failed fast on `mirror.gcr.io/aquasec/
+# trivy-operator:0.30.1` + `mirror.gcr.io/aquasec/trivy:0.70.0` — Google's
+# pull-through Docker Hub / GCR mirror was NOT in offlineMirror.hostProjects.
+# Those trivy images are pinned INSIDE the bp-trivy sub-chart values
+# (platform/trivy/chart/values.yaml, slot 30), as the SPLIT `registry:
+# mirror.gcr.io` + `repository: aquasec/trivy*` shape, which the render-time
+# coverage guardrail (tests/image-registry-coverage.sh) was blind to (it saw only
+# `repository: aquasec/trivy*` and mis-read the host as the covered docker.io) —
+# so the runtime prewarm enumeration is what caught it. TWO fixes: (1) add
+# `host: mirror.gcr.io -> project: proxy-gcr` to offlineMirror.hostProjects
+# (mirror.gcr.io serves gcr.io/docker.io content, so the ref host-swaps to
+# registry.<fqdn>/proxy-gcr/aquasec/trivy with the path preserved; step-02 already
+# creates proxy-gcr, so no new project). All three consumers (step-03 resolver,
+# step-04 per-host containerd rewrite, step-08 completeness HEAD) read
+# hostProjects generically, so the one entry covers every leg. (2) the CI
+# guardrail now parses the split `registry:` + `repository:` sub-chart shape so
+# this whole class is caught at PR time, not runtime — with a positive self-test
+# asserting mirror.gcr.io/aquasec/trivy* is covered + the existing negative
+# self-test kept. NO step-count / job-mode / RBAC change (still 11 steps). Slot-06a
+# pin + blueprint.yaml + catalog-seed source.version move to 0.1.115 in lockstep
+# (Inviolable Principle #13; catalog-seed pin must NOT lag the chart).
 # 0.1.114 (#4975 Refs #3379 #3695 — generalizes/supersedes #4976 [0.1.113] + the
 # partial #4975): the SYSTEMIC end of the per-prov step-08 whack-a-mole. Layers
 # ON TOP of #4976's Recreate-strategy fresh-pull carve-out (kept intact in
@@ -1729,7 +1752,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.114
+version: 0.1.115
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
