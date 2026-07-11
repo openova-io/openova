@@ -5832,7 +5832,9 @@ metadata:
 spec:
   # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
   # cnpg-pair flip (region-B cross-region consumer DB host NXDOMAIN fix).
-  version: "0.2.10"
+  # 0.2.12 (#4987/#4988): continuum.yaml mints dr-<instance> for AHS DR panel;
+  # keep this display-version in lockstep with delivery source.version + blueprint.yaml.
+  version: "0.2.12"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
