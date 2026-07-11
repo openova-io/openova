@@ -167,7 +167,7 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.11
+version: 0.2.12
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable

@@ -224,6 +224,32 @@ topology:
     # CiliumNetworkPolicy (byte-identical single-region default).
     crossRegionPeerClusters: []
 
+# ── Continuum DR contract (#4986, #3375 rows 51/52/56/57/64) ─────────────
+# The per-app Continuum.dr.openova.io CR (`dr-<instance>`) that fronts the
+# active-hot-standby CNPG pair so the console per-app Topology DR panel renders
+# (catalyst-api /continuums/dr-<app>/replication-status discovers the pair by
+# the catalyst.openova.io/cnpg-pair label → source:live). templates/continuum.yaml
+# renders it ONLY on a 2-region active-hot-standby PRIMARY-side install (both
+# topology.primary.region + topology.replica.region non-empty). A singleton
+# emits nothing (byte-identical single-region default).
+continuum:
+  # enabled — opt-out for an operator running a 2-region pair WITHOUT the
+  # continuum-controller (no DR contract to reconcile). Default true: every
+  # active-hot-standby shared-pg gets its DR roster row + Topology DR panel.
+  enabled: true
+  # autoFailover false → the panel arms a MANUAL switchover (RPO/health
+  # preflight before confirm); no unattended promotion. Pillar-3 default.
+  autoFailover: false
+  # Recovery objectives surfaced on the CR (informational; the CRD validates
+  # the `^[0-9]+(s|m|h)$` form). rpo empty → omitted.
+  rto: "30s"
+  rpo: ""
+  # Lease witness backend — k8s-lease (a native coordination.k8s.io/v1 Lease)
+  # is the air-gappable, self-sovereign default (#3829). Enum:
+  # [k8s-lease, cloudflare-kv, dns-quorum].
+  leaseClient:
+    kind: k8s-lease
+
 # ── Bindings (the shareable part) ───────────────────────────────────────
 # Each entry binds ONE consumer to this instance. The chart renders a
 # Database CR + a managed role + (optionally) a reflected connection

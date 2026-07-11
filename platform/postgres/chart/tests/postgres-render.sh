@@ -802,4 +802,59 @@ if grep -qE 'gitea-database-secret-x-' "$TMP/mangled.yaml"; then
   fail "#3878 REGRESSION: a binding WITHOUT reflect.mangledTarget must NOT emit a mangled copy"
 fi
 
-echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked; #3878 reflect.mangledTarget vc-mgmt native DB-secret delivery locked)"
+# ── Case #4986: per-app Continuum DR contract (dr-<instance>) ────
+# active-hot-standby PRIMARY 2-region → the CR the console Topology DR panel
+# polls renders so catalyst-api resolves source:live (it discovers the CNPG
+# pair by the catalyst.openova.io/cnpg-pair label). Proven live on hw239:
+# without dr-shared-pg the panel 404'd/hid; with it the panel rendered
+# ● LIVE primary/standby + WAL lag + armed Switchover.
+echo "[render] Case #4986: AHS primary 2-region → dr-<instance> Continuum CR renders"
+helm template shared-pg . \
+  --set enabled=true --set instance.name=shared-pg --set instance.namespace=shared-data \
+  --set topology.mode=active-hot-standby --set topology.side=primary \
+  --set topology.primary.region=hw-me-east-215-a-rtz-prod \
+  --set topology.replica.region=hw-me-east-215-b-rtz-prod \
+  --api-versions dr.openova.io/v1 \
+  --show-only templates/continuum.yaml > "$TMP/cont.yaml" 2>&1 || { cat "$TMP/cont.yaml" >&2; fail "#4986 continuum render errored"; }
+grep -qE '^kind: Continuum$'                          "$TMP/cont.yaml" || fail "#4986: Continuum CR not rendered on AHS primary"
+grep -qE '^  name: dr-shared-pg$'                     "$TMP/cont.yaml" || fail "#4986: CR must be named dr-<instance> (dr-shared-pg) — the name TopologyTab.tsx polls"
+grep -qE 'catalyst.openova.io/cnpg-pair: "shared-pg"' "$TMP/cont.yaml" || fail "#4986: CR must carry the cnpg-pair label catalyst-api discovers the pair by"
+grep -qE 'applicationRef: "shared-data/shared-pg"'    "$TMP/cont.yaml" || fail "#4986: applicationRef missing/wrong"
+grep -qE 'primaryRegion: "hw-me-east-215-a-rtz-prod"' "$TMP/cont.yaml" || fail "#4986: primaryRegion missing"
+grep -qE '"hw-me-east-215-b-rtz-prod"'                "$TMP/cont.yaml" || fail "#4986: hotStandbyRegions must carry the replica region"
+grep -qE 'mechanism: cnpg-pair'                       "$TMP/cont.yaml" || fail "#4986: switchover.mechanism must be cnpg-pair"
+grep -qE 'kind: "k8s-lease"'                          "$TMP/cont.yaml" || fail "#4986: leaseClient.kind must default k8s-lease (air-gappable, self-sovereign)"
+grep -qE 'openova.io/scope: application'              "$TMP/cont.yaml" || fail "#4986: scope=application distinguishes the per-app producer from the cnpg-pair chart's platform CR"
+
+# ── Case #4986b: the DR contract is HONESTLY ABSENT where there is no live
+# pair — singleton, replica side, single-region (empty replica.region),
+# operator-disabled, and CRD-absent — so we never mint a phantom DR panel
+# against a region that isn't there (row 58).
+echo "[render] Case #4986b: Continuum ABSENT for singleton / replica / single-region / disabled / CRD-absent"
+assert_no_continuum() { # $1=label ; rest=helm --set flags (+ implicit --api-versions dr.openova.io/v1)
+  local label="$1"; shift
+  local out
+  out=$(helm template shared-pg . "$@" --api-versions dr.openova.io/v1 --show-only templates/continuum.yaml 2>&1 || true)
+  if echo "$out" | grep -qE '^kind: Continuum$'; then fail "#4986: Continuum MUST be absent — $label"; fi
+}
+assert_no_continuum "singleton" \
+  --set enabled=true --set instance.name=shared-pg --set topology.mode=singleton
+assert_no_continuum "AHS replica side" \
+  --set enabled=true --set instance.name=shared-pg --set topology.mode=active-hot-standby --set topology.side=replica \
+  --set topology.primary.region=hw-me-east-215-a-rtz-prod --set topology.replica.region=hw-me-east-215-b-rtz-prod
+assert_no_continuum "single-region (empty replica.region)" \
+  --set enabled=true --set instance.name=shared-pg --set topology.mode=active-hot-standby --set topology.side=primary \
+  --set topology.primary.region=hw-me-east-215-a-rtz-prod
+assert_no_continuum "continuum.enabled=false opt-out" \
+  --set enabled=true --set instance.name=shared-pg --set topology.mode=active-hot-standby --set topology.side=primary \
+  --set topology.primary.region=hw-me-east-215-a-rtz-prod --set topology.replica.region=hw-me-east-215-b-rtz-prod \
+  --set continuum.enabled=false
+# CRD-absent: the SAME AHS-primary flags but WITHOUT the dr.openova.io/v1
+# capability → a cold pre-CRD reconcile is a no-op, not an apply failure.
+cont_nocrd=$(helm template shared-pg . \
+  --set enabled=true --set instance.name=shared-pg --set topology.mode=active-hot-standby --set topology.side=primary \
+  --set topology.primary.region=hw-me-east-215-a-rtz-prod --set topology.replica.region=hw-me-east-215-b-rtz-prod \
+  --show-only templates/continuum.yaml 2>&1 || true)
+if echo "$cont_nocrd" | grep -qE '^kind: Continuum$'; then fail "#4986: Continuum MUST be absent when the dr.openova.io/v1 CRD is not registered"; fi
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked; #3878 reflect.mangledTarget vc-mgmt native DB-secret delivery locked; #4986 per-app Continuum DR contract renders on AHS-primary + absent for singleton/replica/single-region/disabled/CRD-absent)"

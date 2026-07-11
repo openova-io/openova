@@ -1,0 +1,106 @@
+{{- /*
+Per-app Continuum DR contract for the active-hot-standby shared Postgres pair
+(#4986 — live root-cause on hw239; #3375 rows 51/52/56/57/64, Refs #3969 #4212).
+
+WHY: bp-postgres in active-hot-standby renders a genuine 2-region CNPG pair —
+cluster.yaml (primary half) + replica-cluster.yaml (follower) — both carrying
+the `catalyst.openova.io/cnpg-pair=<instance>` + `openova.io/region` labels the
+DR read-path keys on. But UNLIKE the spine charts (platform/openbao,
+platform/cnpg-pair, each of which ships a continuum.yaml → that is why
+`dr-spine-gitea/harbor/keycloak/openbao` exist and their per-app Topology DR
+panels render), bp-postgres emitted NO Continuum.dr.openova.io CR. And the
+bootstrap-ADOPTED HelmRelease install path never runs the application-
+controller's per-app Continuum producer (core/controllers/application/
+internal/controller/continuum.go) — that runs only for wizard / Application-CR
+topology fan-outs, not adopted bootstrap HRs. So on a 2-region prov
+`kubectl get continuums.dr.openova.io -A` had `dr-spine-*` + the cnpg-pair CR
+but NO `dr-shared-pg`, and catalyst-api's /continuums/dr-<app>/replication-
+status 404'd → the console TopologyTab.tsx `showDR` gate stayed false → the DR
+panel was hidden even though a healthy region-a primary + region-b standby pair
+was streaming with 0.0s WAL lag.
+
+This template closes that gap the SAME way platform/cnpg-pair/chart/templates/
+continuum.yaml does — it mints the `dr-<instance>` Continuum CR the UI polls,
+keyed entirely off the pair the cluster templates already render (zero
+app-name literal). catalyst-api then discovers the two Cluster halves by the
+`catalyst.openova.io/cnpg-pair` label (continuum_live.go) → returns
+source:"live" → the DR panel renders the primary/standby regions + live WAL lag
++ the armed manual Switchover. Proven live on hw239: hand-applying dr-shared-pg
+(+ dr-shared-pg-b) made the panel render `● LIVE · PRIMARY me-east-215-a
+serves writes · STANDBY me-east-215-b streaming · Replication lag 0.0 s ·
+Switch over…` — this template makes that zero-touch on a fresh prov.
+
+GATING (strict + generic — the SAME preconditions cluster.yaml's mesh aliases
+already use, so the two can never disagree):
+  - .Values.enabled != false (the shared-pg master gate — an empty release
+    renders zero resources, same as cluster.yaml);
+  - continuum.enabled (default true) — operator opt-out;
+  - activeHotStandby (mode active-hot-standby OR crossRegion) — a singleton has
+    no standby, so no DR contract (honest: the panel stays hidden, row 58);
+  - PRIMARY side only (not renderReplicaHalf) — the continuum-controller runs
+    on the primary control-plane (its HR is suspended on secondary CPs), so the
+    CR it reconciles must live there too (mirrors cnpg-pair's isPrimarySide);
+  - the Continuum CRD is registered (dr.openova.io/v1 ships with bp-catalyst-
+    platform slot 13, sequenced before this slot — the capability gate mirrors
+    cluster.yaml's postgresql.cnpg.io/v1 gate so a cold pre-CRD reconcile is a
+    no-op rather than an apply failure);
+  - BOTH topology.primary.region AND topology.replica.region are non-empty — a
+    genuine 2-region prov. A single-region prov leaves replica.region "" so we
+    never mint a CR with an empty/phantom hotStandbyRegions[] (the #3698
+    standby-region integrity precondition).
+
+Status is NEVER seeded here — the running continuum-controller owns status
+(ADR-0001 §2.7). autoFailover defaults false: the panel arms a MANUAL
+switchover with an RPO/health preflight; no unattended promotion.
+*/ -}}
+{{- $ahs := eq (include "bp-postgres.activeHotStandby" .) "true" -}}
+{{- $primaryRegion := dig "primary" "region" "" (.Values.topology | default dict) -}}
+{{- $replicaRegion := dig "replica" "region" "" (.Values.topology | default dict) -}}
+{{- /* $continuum is a nested map (plain map[string]interface{}), so dig works;
+     .Values itself is chartutil.Values which dig rejects. */ -}}
+{{- $continuum := .Values.continuum | default dict -}}
+{{- $continuumOn := ne (toString (dig "enabled" true $continuum)) "false" -}}
+{{- if and
+      (ne (toString .Values.enabled) "false")
+      $continuumOn
+      $ahs
+      (not (include "bp-postgres.renderReplicaHalf" .))
+      (.Capabilities.APIVersions.Has "dr.openova.io/v1")
+      (ne (toString $primaryRegion) "")
+      (ne (toString $replicaRegion) "") }}
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: dr-{{ include "bp-postgres.instanceName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    # Back-pointer + pair join-key the DR read-path (catalyst-api
+    # continuum_live.go) + the console rollup key on. The cnpg-pair label ties
+    # this contract to the two Cluster halves cluster.yaml/replica-cluster.yaml
+    # already stamp; scope=application distinguishes the per-app producer from
+    # the cnpg-pair chart's openova.io/scope:platform CR.
+    openova.io/app: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    openova.io/scope: application
+spec:
+  applicationRef: {{ printf "%s/%s" (include "bp-postgres.namespace" .) (include "bp-postgres.instanceName" .) | quote }}
+  primaryRegion: {{ $primaryRegion | quote }}
+  hotStandbyRegions:
+    - {{ $replicaRegion | quote }}
+  autoFailover: {{ dig "autoFailover" false $continuum }}
+  {{- with dig "rto" "30s" $continuum }}
+  rto: {{ . | quote }}
+  {{- end }}
+  {{- with dig "rpo" "" $continuum }}
+  rpo: {{ . | quote }}
+  {{- end }}
+  switchover:
+    # cnpg-pair promotion (cordon + replica.enabled flip on the two Cluster
+    # halves) — the mechanism bp-postgres's active-hot-standby replication
+    # backend uses (blueprint.yaml topology.active-hot-standby.replication.
+    # backend: cnpg-pair).
+    mechanism: cnpg-pair
+  leaseClient:
+    kind: {{ dig "leaseClient" "kind" "k8s-lease" $continuum | quote }}
+{{- end }}
