@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T19:45:02Z` |
+| Last refreshed | `2026-07-11T20:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 88 |
+| Open issues | 90 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 88 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 90 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 88 open items (clickable table)
+### All 90 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -288,6 +288,8 @@ flowchart LR
 | [#5000](https://github.com/openova-io/openova/issues/5000) | Sovereign console sidebar user-card has no Sign-out menu (UAT row 27, hw240) | Other |
 | [#5003](https://github.com/openova-io/openova/issues/5003) | per-Org vcluster HelmRelease terminally stalls on cold Harbor pull (no install-r | Other |
 | [#5007](https://github.com/openova-io/openova/issues/5007) | cutover: fresh-node local-registry pull breaks when public DNS wildcard shadows  | Other |
+| [#5011](https://github.com/openova-io/openova/issues/5011) | P0 cutover step-01 'git push --mirror --force' PRUNES sovereign-local gitea bran | Other |
+| [#5012](https://github.com/openova-io/openova/issues/5012) | hw242: region-B bootstrap stalled after CNI (bare cluster) → mesh 0/0, shared- | Other |
 
 ---
 
