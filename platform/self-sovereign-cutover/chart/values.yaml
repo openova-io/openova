@@ -492,6 +492,17 @@ offlineMirror:
       project: "proxy-gcr"
     - host: "k8s.gcr.io"
       project: "proxy-gcr"
+    # #4975 (Refs #3379 #3695 #4977) — Google's pull-through mirror of Docker
+    # Hub / GCR. bp-trivy (slot 30) pins the trivy-operator + trivy scanner
+    # images at mirror.gcr.io/aquasec/trivy-operator + mirror.gcr.io/aquasec/
+    # trivy INSIDE the sub-chart values (platform/trivy/chart/values.yaml), so
+    # the runtime step-03 prewarm enumeration surfaced it as the last uncovered
+    # host on live hw239. Reuse proxy-gcr — mirror.gcr.io serves gcr.io/docker.io
+    # content, so `mirror.gcr.io/aquasec/trivy` host-swaps to
+    # registry.<fqdn>/proxy-gcr/aquasec/trivy with the path preserved. step-02
+    # already creates proxy-gcr (harbor.mirrorProjects), so no new project.
+    - host: "mirror.gcr.io"
+      project: "proxy-gcr"
     - host: "public.ecr.aws"
       project: "proxy-ecr"
     # MOTHERSHIP — host-swap, path preserved. Must equal the host of

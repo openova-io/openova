@@ -15,9 +15,16 @@
 # It reads the coverage map from the SAME chart values.yaml the runtime steps
 # render from (single source of truth) — nothing to keep in sync.
 #
+# SUB-CHART DESCENT (#4975 Refs #4977). The scan surface includes every
+# platform/<x>/chart/values.yaml + products/<x>/chart/values.yaml (where the
+# bootstrap-kit slots' referenced charts pin their image hosts), and it parses
+# the SPLIT `registry:` + `repository:` shape — so a sub-chart image from an
+# un-mapped host (mirror.gcr.io in platform/trivy) FAILS the build at PR time
+# instead of wedging a live cutover mid deny-egress hold (the hw239 finding).
+#
 # Usage:
 #   tests/image-registry-coverage.sh            # scan the repo's bootstrap-kit slots
-#   tests/image-registry-coverage.sh --self-test # negative test: an un-mapped host FAILS
+#   tests/image-registry-coverage.sh --self-test # negative + positive coverage self-tests
 #
 # Exit: 0 = every scanned host is covered (or excluded); 1 = at least one
 # un-mapped host (named); 2 = tool/input error.
@@ -64,7 +71,8 @@ is_excluded_substr() {
 }
 
 ref_host() {
-  # $1 = image ref. Prints its registry host, or "" to SKIP (templated/local).
+  # $1 = image ref (or a bare `registry:` field value). Prints its registry
+  # host, or "" to SKIP (templated/local).
   _r="$1"
   # Strip an oci:// scheme (chart repos); ghcr.io is mapped anyway.
   _r="${_r#oci://}"
@@ -78,16 +86,37 @@ ref_host() {
         *) printf 'docker.io' ;;    # docker.io namespaced (e.g. grafana/loki)
       esac
       ;;
-    *) printf 'docker.io' ;;        # bare official image
+    *)
+      # No slash. A bare `registry:` field value that LOOKS like a host
+      # (contains a `.`, e.g. mirror.gcr.io / harbor.openova.io) is a REGISTRY
+      # HOST — this is the split `registry:` + `repository:` shape (upstream
+      # Bitnami/trivy-operator idiom) the old scanner was blind to, so a
+      # sub-chart image on an un-mapped host (mirror.gcr.io in platform/trivy)
+      # slipped through as covered `docker.io`. A bare OFFICIAL image
+      # (busybox, nginx:1.25 — the colon is a TAG, not a host:port) has NO dot
+      # → docker.io. A non-host `registry:` value (external-dns `registry: txt`)
+      # has no dot → docker.io (covered, harmless).
+      case "${_r}" in
+        *.*) printf '%s' "${_r}" ;;   # bare registry host (mirror.gcr.io)
+        *)   printf 'docker.io' ;;    # bare official image / non-host token
+      esac
+      ;;
   esac
 }
 
 scan_refs() {
   # Emit candidate image refs (host-bearing) from the given files. Matches
-  # `image:`, `repository:`, `package:`, `spec.package:` values; strips quotes
-  # and inline comments; ignores comment-only lines.
-  grep -rhoE '^[[:space:]]*(image|repository|package):[[:space:]]*["'\'']?[A-Za-z0-9_./:$?{}%-]+' "$@" 2>/dev/null \
-    | sed -E 's/^[[:space:]]*(image|repository|package):[[:space:]]*["'\'']?//' \
+  # `image:`, `repository:`, `registry:`, `package:`, `spec.package:` values;
+  # strips quotes and inline comments; ignores comment-only lines.
+  #
+  # `registry:` is scanned so the SPLIT `registry:` + `repository:` sub-chart
+  # image shape (platform/trivy pins `registry: mirror.gcr.io` +
+  # `repository: aquasec/trivy` in the umbrella values) is caught — the old
+  # scanner only saw `repository: aquasec/trivy` and mis-classified the host as
+  # the covered `docker.io`, so an image from an un-mapped registry host slipped
+  # through (the live hw239 whack-a-mole this guardrail exists to close).
+  grep -rhoE '^[[:space:]]*(image|repository|registry|package):[[:space:]]*["'\'']?[A-Za-z0-9_./:$?{}%-]+' "$@" 2>/dev/null \
+    | sed -E 's/^[[:space:]]*(image|repository|registry|package):[[:space:]]*["'\'']?//' \
     | sed -E 's/["'\''].*$//' \
     | grep -vE '^[[:space:]]*$' \
     | sort -u
@@ -146,6 +175,24 @@ YAML
     exit 1
   fi
   echo "  PASS — un-mapped host correctly FAILED the guardrail (negative test green)."
+  # NEGATIVE TEST 2 (#4975): the SPLIT `registry:` + `repository:` sub-chart
+  # shape (platform/trivy idiom) on an UN-MAPPED host MUST fail — proving the
+  # scanner parses `registry:` and no longer mis-reads the host as docker.io.
+  cat > "${TMP}/slot-split.yaml" <<'YAML'
+spec:
+  values:
+    image:
+      registry: unmapped-split.example.net
+      repository: foo/bar
+      tag: "1.0"
+YAML
+  echo "[image-registry-coverage] --self-test: a SPLIT registry:/repository: image from 'unmapped-split.example.net' MUST fail the guardrail"
+  if run_scan "${TMP}" >/dev/null 2>&1; then
+    echo "SELF-TEST FAIL: a split registry:/repository: image on an un-mapped host was NOT caught — the scanner still ignores registry:." >&2
+    exit 1
+  fi
+  echo "  PASS — split-form un-mapped host correctly FAILED the guardrail (negative test 2 green)."
+  rm -f "${TMP}/slot.yaml" "${TMP}/slot-split.yaml"
   # And prove the covered case passes.
   cat > "${TMP}/slot-ok.yaml" <<'YAML'
 spec:
@@ -153,12 +200,35 @@ spec:
     image:
       repository: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
 YAML
-  rm -f "${TMP}/slot.yaml"
   if ! run_scan "${TMP}" >/dev/null 2>&1; then
     echo "SELF-TEST FAIL: a mapped host (harbor.openova.io) was wrongly rejected." >&2
     exit 1
   fi
   echo "  PASS — mapped host correctly ACCEPTED (positive control green)."
+  # POSITIVE TEST 2 (#4975): the platform/trivy SPLIT-form image
+  # `registry: mirror.gcr.io` + `repository: aquasec/trivy*` MUST now be COVERED
+  # (proves Fix 1's coverage-map entry + Fix 2's registry: parsing land together
+  # — the exact hw239 offender is caught AND resolved).
+  cat > "${TMP}/slot-trivy.yaml" <<'YAML'
+spec:
+  values:
+    trivy-operator:
+      image:
+        registry: mirror.gcr.io
+        repository: aquasec/trivy-operator
+        tag: "0.30.1"
+      trivy:
+        image:
+          registry: mirror.gcr.io
+          repository: aquasec/trivy
+          tag: "0.70.0"
+YAML
+  echo "[image-registry-coverage] --self-test: mirror.gcr.io/aquasec/trivy* (platform/trivy split form) MUST be covered"
+  if ! run_scan "${TMP}" >/dev/null 2>&1; then
+    echo "SELF-TEST FAIL: mirror.gcr.io/aquasec/trivy* is NOT covered — add host: mirror.gcr.io -> project: proxy-gcr to offlineMirror.hostProjects." >&2
+    exit 1
+  fi
+  echo "  PASS — mirror.gcr.io/aquasec/trivy* correctly ACCEPTED (positive test 2 green)."
   exit 0
 fi
 
@@ -168,10 +238,13 @@ if [ ! -d "${SLOT_DIR}" ]; then
 fi
 # Scan surface = every place a bootstrap-kit workload image host is statically
 # pinned in this repo: the slot overrides AND every platform/products chart
-# values.yaml (where bp-* charts pin image.repository hosts). The actual image
-# TAGS live in the OCI charts, but the HOST — the only thing this guardrail
-# checks — is pinned here. Templated refs (registry.${SOVEREIGN_FQDN},
-# ${REGISTRY_MIRROR:=…}) are skipped (dynamic/local).
+# values.yaml (where bp-* charts — including the bootstrap-kit slots' referenced
+# SUB-CHARTS, e.g. platform/trivy — pin image.repository / image.registry
+# hosts). The actual image TAGS live in the OCI charts, but the HOST — the only
+# thing this guardrail checks — is pinned here, whether as a single
+# `repository: host/path` or the split `registry: host` + `repository: path`
+# shape. Templated refs (registry.${SOVEREIGN_FQDN}, ${REGISTRY_MIRROR:=…}) are
+# skipped (dynamic/local).
 SCAN_FILES="$(
   find "${SLOT_DIR}" -maxdepth 1 -name '*.yaml' 2>/dev/null
   find "${REPO_ROOT}/platform" -path '*/chart/values.yaml' 2>/dev/null
