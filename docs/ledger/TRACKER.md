@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T22:30:03Z` |
+| Last refreshed | `2026-07-11T22:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 84 |
 | Open DoD gates | 0 / 41 |
@@ -291,6 +291,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T22:41 | [#5016](https://github.com/openova-io/openova/pull/5016) | #5011 | fix(#5011): step-01 gitea-mirror pushes explicit refspecs —  |
 | 2026-07-11T20:53 | [#5013](https://github.com/openova-io/openova/pull/5013) | #3379 | docs(sessions): 2026-07-12 completion matrix + month-cycle r |
 | 2026-07-11T19:13 | [#5010](https://github.com/openova-io/openova/pull/5010) | #4973 | fix(#4973 #4975 #4961): comprehensive pod-spec image sweep i |
 | 2026-07-11T19:02 | [#5009](https://github.com/openova-io/openova/pull/5009) | #4872 | fix(#4872): version-aware batched OBS bucket empty+delete so |
@@ -320,7 +321,6 @@ flowchart LR
 | 2026-07-10T06:01 | [#4966](https://github.com/openova-io/openova/pull/4966) | #4785 | fix(#4964): grant per-Org provisioning SA tenant-NS secrets  |
 | 2026-07-10T05:04 | [#4965](https://github.com/openova-io/openova/pull/4965) | #3383 | fix(marketplace): checkout renders "Organization" not banned |
 | 2026-07-10T03:05 | [#4962](https://github.com/openova-io/openova/pull/4962) | #4885 | fix(#4961 Refs #4885): registry-aware helpers pivot the last |
-| 2026-07-10T02:46 | [#4960](https://github.com/openova-io/openova/pull/4960) | #4552 | feat(console #4552): arm the per-app Topology Switchover wit |
 
 ---
 
