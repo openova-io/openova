@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.117 (#4982 Refs #3379 — two durable robustness fixes found driving hw239 to
+# the step-08 pre-hold completeness gate). Finding A: LOCK the invariant that the
+# offline-mirror resolver (03a) + every per-step script CM (cutover-step-0N-*)
+# re-render on a helm upgrade — they carry NO helm.sh/resource-policy: keep, so a
+# chart-version fix is NOT inert for a cutover in flight (the #4417 /
+# catalog_blueprint_resource_policy_keep_makes_bumps_inert class: keep EXCLUDES a
+# resource from the helm-upgrade UPDATE set). Only the status CM
+# self-sovereign-cutover-status keeps (preserve mid-cutover progress). These CMs
+# were ALREADY keep-free (git history: they never carried keep — the live hw239
+# 0.1.114 stickiness was the unsettled-env symptom, see Finding B); this bump adds
+# cutover-contract Case 40 as the regression guard so a future edit cannot
+# re-introduce keep on a step/resolver CM. Finding B: step-03 harbor-prewarm gains a
+# Phase A0 "settled-roll pre-flight" — it FAIL-CLOSES (exit 1) before building the
+# mirror if any host-cluster HelmRelease or Deployment/StatefulSet is mid-roll,
+# because harbor-prewarm mirrors RUNNING tags but the cutover then rolls workloads
+# to DESIRED chart-pinned tags (registry-pivot step-04 / env-patch step-07); on an
+# unsettled env running != desired and the un-mirrored desired tag 404s step-06/08
+# under the deny-egress hold (live hw239: umbrella 1.4.1086 vs pin 1.4.1088;
+# catalyst-api/ui :3412183 vs desired :00b6cfe). The gate names every offender and
+# leaves the env PRE-PIVOT/intact (steps 01/02 are idempotent). Toggle
+# prewarm.settledRollPreflight.enabled (default true). Mirror-the-desired-tags is
+# the documented #4982 follow-up. cutover-contract Case 41 locks the pre-flight.
+# NO step-count / job-mode / RBAC change (still 11 steps; Phase A0 reuses the
+# HelmRelease + Deployment/StatefulSet get/list RBAC the enumeration already has).
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version move to
+# 0.1.117 in lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag).
 # 0.1.116 (#4975 Refs #3379 — step-03 harbor-prewarm mirrors multi-arch
 # manifest-LIST images by adding --multi-arch all to the Phase A container-image
 # `skopeo copy`. Live hw239 step-03 Phase A pushed 129 single-arch images OK but
@@ -1772,7 +1798,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.116
+version: 0.1.117
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

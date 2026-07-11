@@ -1517,4 +1517,91 @@ if [ "${ma_lines}" -ne 1 ]; then
 fi
 echo "  PASS (Step-03 Phase A container-image copy uses --multi-arch all; Phase A2 chart-OCI copy left single-manifest)"
 
+echo "[cutover-contract] Case 40: cutover step + resolver ConfigMaps re-render on helm upgrade (NO resource-policy: keep); only the status ConfigMap keeps (#4982 Finding A, Refs #3379)"
+# #4982 Finding A: a cutover-step / resolver ConfigMap that carries
+# helm.sh/resource-policy: keep is EXCLUDED from the helm-upgrade UPDATE set
+# (catalog_blueprint_resource_policy_keep_makes_bumps_inert / #4417) — so a cutover
+# that STARTED on an older chart keeps its STALE step-CMs even after the HelmRelease
+# upgrades, making mid-cutover chart fixes (mirror.gcr.io mapping, --multi-arch)
+# INERT (live hw239: cutover-step-08-egress-block-test label stuck at 0.1.114; the
+# resolver had no mirror.gcr.io mapping despite the newer chart adding it). The
+# resolver + every per-step script CM are PURE chart-derived config and MUST
+# re-render on upgrade → they must NOT carry keep. ONLY the status CM
+# (self-sovereign-cutover-status) keeps, to preserve mid-cutover progress across a
+# chart uninstall (Case 6). This gate locks that invariant so a future edit cannot
+# re-introduce the inert-mid-cutover bug (the #3668/#3710 shape that seeded #4417).
+for cm in cutover-offline-mirror-resolver \
+          cutover-step-01-gitea-mirror cutover-step-02-harbor-projects \
+          cutover-step-03-harbor-prewarm cutover-step-04-registry-pivot \
+          cutover-step-05-flux-gitrepository-patch cutover-step-06-helmrepository-patches \
+          cutover-step-07-catalyst-api-env-patch cutover-step-08-egress-block-test \
+          cutover-step-09-gitea-token-mint cutover-step-10-vcluster-registry-pivot \
+          cutover-step-11-crossplane-provider-pivot; do
+  # The metadata name renders at exactly 2-space indent (`  name: <cm>`); the
+  # deep-indented volume/configMap refs inside podSpec do NOT match, so the awk
+  # range spans exactly this one ConfigMap document (name → next `---`).
+  if ! grep -q "^  name: ${cm}$" "$TMP/render.yaml"; then
+    echo "FAIL: expected ConfigMap ${cm} not found in render (Case 40 list drifted from the chart)" >&2
+    exit 1
+  fi
+  if awk "/^  name: ${cm}\$/,/^---\$/" "$TMP/render.yaml" | grep -q 'helm.sh/resource-policy: keep'; then
+    echo "FAIL: ConfigMap ${cm} carries helm.sh/resource-policy: keep — it will NOT re-render on a helm upgrade, so a mid-cutover chart fix is INERT (#4982 Finding A). Drop keep from step/resolver CMs; only self-sovereign-cutover-status keeps." >&2
+    exit 1
+  fi
+done
+# Positive half of the invariant: the status CM MUST keep (mirror of Case 6, kept
+# here so Case 40 fully specifies the keep policy across ALL cutover ConfigMaps).
+if ! awk '/^  name: self-sovereign-cutover-status$/,/^---$/' "$TMP/render.yaml" | grep -q 'helm.sh/resource-policy: keep'; then
+  echo "FAIL: self-sovereign-cutover-status ConfigMap must carry helm.sh/resource-policy: keep to preserve mid-cutover progress (#4982 Finding A / Case 6)" >&2
+  exit 1
+fi
+echo "  PASS (resolver + 11 step CMs re-render on upgrade; only the status CM keeps)"
+
+echo "[cutover-contract] Case 41: Step-03 harbor-prewarm has a settled-roll pre-flight (Phase A0) that fail-closes on a mid-roll env BEFORE building the mirror (#4982 Finding B, Refs #3379)"
+# #4982 Finding B: harbor-prewarm mirrors the RUNNING / declared-template image
+# tags; if a HelmRelease or Deployment/StatefulSet is mid-roll (a bootstrap-kit pin
+# bumped but not yet reconciled) the cutover later rolls those workloads to the
+# DESIRED chart-pinned tags that were NEVER mirrored → step-06 readiness sample +
+# step-08 pre-hold completeness HEAD 404 (live hw239: umbrella running 1.4.1086 vs
+# pin 1.4.1088; catalyst-api/ui running :3412183 vs desired :00b6cfe). Phase A0
+# REFUSES to build the mirror while the host cluster is unsettled, naming every
+# offender (env still PRE-PIVOT / intact). Slice step-03's CM (up to step-04's
+# cutover-order:"4") the same way Case 39 does.
+awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml" > "$TMP/prewarm_a0_block.txt"
+[ -s "$TMP/prewarm_a0_block.txt" ] || cp "$TMP/render.yaml" "$TMP/prewarm_a0_block.txt"
+if ! grep -q 'Phase A0: settled-roll pre-flight' "$TMP/prewarm_a0_block.txt"; then
+  echo "FAIL: Step-03 is missing the Phase A0 settled-roll pre-flight — harbor-prewarm would mirror running tags the cutover then rolls away from (#4982 Finding B)" >&2
+  exit 1
+fi
+# The gate MUST enumerate pending HelmReleases (the pin-bump drift source).
+if ! grep -q 'kubectl get helmreleases -A -o json' "$TMP/prewarm_a0_block.txt"; then
+  echo "FAIL: Phase A0 does not inspect HelmReleases for a pending roll (observedGeneration/Ready) — the pin-bump drift (running != desired) would slip through (#4982)" >&2
+  exit 1
+fi
+# ...AND pending Deployments/StatefulSets.
+if ! grep -q 'kubectl get deployments,statefulsets -A -o json' "$TMP/prewarm_a0_block.txt"; then
+  echo "FAIL: Phase A0 does not inspect Deployments/StatefulSets for a pending rollout (#4982)" >&2
+  exit 1
+fi
+# It MUST fail-CLOSED (exit 1) on an unsettled env, gated behind the
+# SETTLED_ROLL_PREFLIGHT toggle so an operator can override on a confirmed env.
+if ! grep -q 'name: SETTLED_ROLL_PREFLIGHT' "$TMP/prewarm_a0_block.txt"; then
+  echo "FAIL: Phase A0 is not gated behind the SETTLED_ROLL_PREFLIGHT toggle env (#4982)" >&2
+  exit 1
+fi
+# The pre-flight MUST run BEFORE the Phase A image enumeration so a fail leaves the
+# env pre-pivot (nothing mirrored/pivoted yet).
+a0_line=$(grep -n 'Phase A0: settled-roll pre-flight' "$TMP/prewarm_a0_block.txt" | head -1 | cut -d: -f1)
+enum_line=$(grep -n 'enumerating ALL images across cluster' "$TMP/prewarm_a0_block.txt" | head -1 | cut -d: -f1)
+if [ -z "${a0_line}" ] || [ -z "${enum_line}" ] || [ "${a0_line}" -ge "${enum_line}" ]; then
+  echo "FAIL: Phase A0 settled-roll pre-flight must run BEFORE Phase A image enumeration (fail-closed while still pre-pivot) (#4982)" >&2
+  exit 1
+fi
+# Default posture is ENABLED (fail-closed): the rendered toggle env is "true".
+if ! grep -A1 'name: SETTLED_ROLL_PREFLIGHT' "$TMP/prewarm_a0_block.txt" | grep -q 'value: "true"'; then
+  echo "FAIL: settled-roll pre-flight must DEFAULT to enabled (SETTLED_ROLL_PREFLIGHT rendered value != \"true\") (#4982)" >&2
+  exit 1
+fi
+echo "  PASS (Step-03 Phase A0 settled-roll pre-flight fail-closes on a mid-roll env before the mirror is built; default enabled)"
+
 echo "[cutover-contract] All gates green."

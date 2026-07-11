@@ -779,7 +779,16 @@ spec:
       # Harbor addressable by their list digest — without it skopeo copies only the
       # running-arch sub-image and Harbor rejects the list-digest PUT `digest invalid`,
       # fail-closing step-03 (live hw239). Phase A2 chart-OCI copy left single-manifest.
-      version: 0.1.116
+      # 0.1.117 (#4982 Refs #3379): two durable robustness fixes. (A) cutover-contract
+      # Case 40 LOCKS that the resolver (03a) + every per-step CM re-render on a helm
+      # upgrade (no resource-policy: keep — else a chart-version fix is inert
+      # mid-cutover, #4417 class); only the status CM keeps. (B) step-03 gains a
+      # Phase A0 settled-roll pre-flight that fail-closes before building the mirror
+      # if any host HelmRelease/Deployment/StatefulSet is mid-roll — harbor-prewarm
+      # mirrors RUNNING tags but the cutover rolls to DESIRED chart-pinned tags, so
+      # an unsettled env 404s step-06/08 under the deny-egress hold (live hw239).
+      # Toggle prewarm.settledRollPreflight.enabled (default true). Still 11 steps.
+      version: 0.1.117
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
