@@ -534,6 +534,63 @@ func TestRender_TierGate(t *testing.T) {
 	}
 }
 
+// TestRender_VclusterHRSelfHealsColdPull_5003 locks in the #5003 durable fix:
+// the per-Org vcluster HelmRelease MUST carry install/upgrade remediation
+// retries of -1 (retry indefinitely — never terminally Stalled) and a widened
+// spec.timeout so the FIRST cold Harbor proxy-ghcr pull of the vcluster init
+// images (~3m11s live on hw241) fits inside a single Helm-operation deadline.
+// Without both, a transient cold-pull "context deadline exceeded" marks the HR
+// Stalled=True/RetriesExceeded, the tenant-<slug>-kubeconfig secret is never
+// minted, and the customer funnel app 404s forever (the last zero-touch blocker).
+func TestRender_VclusterHRSelfHealsColdPull_5003(t *testing.T) {
+	t.Parallel()
+	out, err := Render(Inputs{
+		Slug: "acme", DisplayName: "Acme", Tier: "org", PlanSlug: "m",
+		SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	vcl := string(out["vcluster/vcluster.yaml"])
+
+	// (1) String surface — the fields are present in the rendered YAML.
+	for _, want := range []string{"timeout: 10m", "install:", "upgrade:", "remediation:", "retries: -1"} {
+		if !strings.Contains(vcl, want) {
+			t.Errorf("#5003: vcluster.yaml missing %q\nfull contents:\n%s", want, vcl)
+		}
+	}
+
+	// (2) Structural surface — parse the HR and assert the exact spec shape so a
+	// stray indentation/typo can't pass the string check while breaking Flux.
+	var hr struct {
+		Spec struct {
+			Timeout string `json:"timeout"`
+			Install struct {
+				Remediation struct {
+					Retries int `json:"retries"`
+				} `json:"remediation"`
+			} `json:"install"`
+			Upgrade struct {
+				Remediation struct {
+					Retries int `json:"retries"`
+				} `json:"remediation"`
+			} `json:"upgrade"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(vcl), &hr); err != nil {
+		t.Fatalf("#5003: vcluster.yaml is not valid HelmRelease YAML: %v\n%s", err, vcl)
+	}
+	if hr.Spec.Timeout != "10m" {
+		t.Errorf("#5003: spec.timeout = %q, want \"10m\" (cold proxy-ghcr pull ~3m11s must fit)", hr.Spec.Timeout)
+	}
+	if hr.Spec.Install.Remediation.Retries != -1 {
+		t.Errorf("#5003: spec.install.remediation.retries = %d, want -1 (retry forever, never terminally Stalled)", hr.Spec.Install.Remediation.Retries)
+	}
+	if hr.Spec.Upgrade.Remediation.Retries != -1 {
+		t.Errorf("#5003: spec.upgrade.remediation.retries = %d, want -1 (retry forever, never terminally Stalled)", hr.Spec.Upgrade.Remediation.Retries)
+	}
+}
+
 // TestBoundaryIsVcluster_FlippableGate documents the one-line Sovereign switch.
 func TestBoundaryIsVcluster_FlippableGate(t *testing.T) {
 	t.Parallel()
