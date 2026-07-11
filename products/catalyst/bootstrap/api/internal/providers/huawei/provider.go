@@ -2542,33 +2542,127 @@ func purgeOBSBuckets(ctx context.Context, endpoint string, hw hwCreds, region, s
 // account marches to the 100-bucket OBS quota, false-failing the next fresh
 // prov's Phase-0 `tofu apply` with `Code=TooManyBuckets`.
 //
-// Emptying has TWO parts, both required before DeleteBucket will succeed:
-//  1. every object (recursive), and
-//  2. every incomplete multipart upload — an interrupted tofu apply or CSI
-//     backup can leave dangling parts that keep the bucket non-empty even
-//     after all listable objects are gone, so RemoveBucket still fails with
-//     BucketNotEmpty.
+// This mirrors the battle-tested Hetzner purge (internal/hetzner/buckets.go
+// purgeBucket) exactly, because the earlier per-object serial implementation
+// kept leaking buckets in three ways the #4872 incident hit repeatedly:
+//
+//  1. Serial RemoveObject (one HTTP round-trip per key) could not drain a
+//     populated Harbor / Velero / CNPG backup bucket (thousands of blobs)
+//     inside the 5-minute wipe budget — the loop timed out half-empty and the
+//     terminal RemoveBucket 409'd BucketNotEmpty, so the bucket survived every
+//     wipe. Fix: stream every key into RemoveObjects, which batch-deletes
+//     1000 per request (~1000× fewer round-trips).
+//  2. ListObjects WITHOUT WithVersions enumerates only current versions, so on
+//     a versioned bucket the non-current versions + delete markers survived
+//     the empty and RemoveBucket failed with BucketNotEmpty. Fix:
+//     WithVersions:true + version-aware batch delete (RemoveObjects consumes
+//     ObjectInfo.VersionID).
+//  3. The per-object delete error was swallowed (`_ = RemoveObject(...)`), so
+//     a single stuck object silently left the bucket non-empty with no
+//     diagnostic AND the caller was told the delete succeeded. Fix: collect +
+//     return the delete errors so the caller logs them and does NOT skip on to
+//     RemoveBucket (which would only 409) or report a phantom success.
+//
+// Emptying still has TWO parts, both required before DeleteBucket succeeds:
+// every object version, and every incomplete multipart upload — an interrupted
+// tofu apply or CSI backup can leave dangling parts that keep the bucket
+// non-empty even after all listable objects are gone.
 //
 // Shared by the per-deployment wipe purge (purgeOBSBuckets) and the
 // project-wide janitor reclaim (SweepOrphanOBSBuckets). Idempotent: an
-// already-absent object/upload/bucket is a no-op (the caller only ever passes
-// bucket names ListBuckets just returned, so the terminal RemoveBucket sees a
-// bucket that exists; a re-run simply finds no such bucket in the next list).
+// already-absent bucket (fast 404 path) is a no-op nil, so a re-run after a
+// prior partial purge simply finds the bucket already gone.
 func emptyAndRemoveOBSBucket(ctx context.Context, client *minio.Client, bucket string) error {
-	objCh := client.ListObjects(ctx, bucket, minio.ListObjectsOptions{Recursive: true})
-	for o := range objCh {
-		if o.Err != nil {
-			continue
+	// Fast idempotent 404 path — an already-absent bucket is success.
+	exists, err := client.BucketExists(ctx, bucket)
+	if err != nil {
+		if isNoSuchBucket(err) {
+			return nil
 		}
-		_ = client.RemoveObject(ctx, bucket, o.Key, minio.RemoveObjectOptions{ForceDelete: true})
+		return fmt.Errorf("bucket-exists %s: %w", bucket, err)
 	}
+	if !exists {
+		return nil
+	}
+
+	// Step 1 — list every object version + delete marker and stream them
+	// into RemoveObjects (version-aware, batched at 1000 per request).
+	objectsCh := make(chan minio.ObjectInfo)
+	listCtx, listCancel := context.WithCancel(ctx)
+	defer listCancel()
+	listErrCh := make(chan error, 1)
+	go func() {
+		defer close(objectsCh)
+		for obj := range client.ListObjects(listCtx, bucket, minio.ListObjectsOptions{
+			WithVersions: true,
+			Recursive:    true,
+		}) {
+			if obj.Err != nil {
+				listErrCh <- obj.Err
+				return
+			}
+			select {
+			case objectsCh <- obj:
+			case <-listCtx.Done():
+				return
+			}
+		}
+		listErrCh <- nil
+	}()
+
+	var removeErrs []string
+	for re := range client.RemoveObjects(ctx, bucket, objectsCh, minio.RemoveObjectsOptions{}) {
+		if re.Err != nil {
+			removeErrs = append(removeErrs, fmt.Sprintf("%s@%s: %v", re.ObjectName, re.VersionID, re.Err))
+		}
+	}
+	if listErr := <-listErrCh; listErr != nil {
+		return fmt.Errorf("list versions in %s: %w", bucket, listErr)
+	}
+	if len(removeErrs) > 0 {
+		// Surface a bounded summary; the full list would flood the SSE log.
+		const maxHead = 5
+		head := removeErrs
+		suffix := ""
+		if len(head) > maxHead {
+			head = head[:maxHead]
+			suffix = fmt.Sprintf("; …and %d more", len(removeErrs)-maxHead)
+		}
+		return fmt.Errorf("delete %d object(s) in %s failed: %s%s",
+			len(removeErrs), bucket, strings.Join(head, "; "), suffix)
+	}
+
+	// Step 2 — abort every in-progress multipart upload; a dangling part
+	// keeps the bucket non-empty even after all objects are gone.
 	for up := range client.ListIncompleteUploads(ctx, bucket, "", true) {
 		if up.Err != nil {
-			continue
+			return fmt.Errorf("list incomplete uploads in %s: %w", bucket, up.Err)
 		}
-		_ = client.RemoveIncompleteUpload(ctx, bucket, up.Key)
+		if err := client.RemoveIncompleteUpload(ctx, bucket, up.Key); err != nil {
+			return fmt.Errorf("abort multipart %s in %s: %w", up.Key, bucket, err)
+		}
 	}
-	return client.RemoveBucket(ctx, bucket)
+
+	// Step 3 — delete the now-empty bucket; a 404 is idempotent success.
+	if err := client.RemoveBucket(ctx, bucket); err != nil {
+		if isNoSuchBucket(err) {
+			return nil
+		}
+		return fmt.Errorf("delete bucket %s: %w", bucket, err)
+	}
+	return nil
+}
+
+// isNoSuchBucket reports whether err is the canonical S3 "bucket does not
+// exist" signal (NoSuchBucket code or HTTP 404), so the empty+delete path can
+// treat an already-gone bucket as idempotent success. Mirrors the same guard
+// internal/hetzner/buckets.go uses.
+func isNoSuchBucket(err error) bool {
+	var errResp minio.ErrorResponse
+	if errors.As(err, &errResp) {
+		return errResp.Code == "NoSuchBucket" || errResp.StatusCode == http.StatusNotFound
+	}
+	return false
 }
 
 // isReclaimableOrphanOBSBucket is the pure match/protection predicate for the
