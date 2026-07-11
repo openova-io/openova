@@ -33,6 +33,18 @@ pattern. Charts that do NOT honour global.imageRegistry (bp-guacamole,
 bp-huawei-evs-csi, bp-newapi, bp-sandbox, org-services marketplace/auth)
 need a separate per-chart templating fix and are excluded (#4885 residual).
 
+#4973 #4975 #4961 (Phase 4, comprehensive pod-spec sweep): the HR
+global.imageRegistry patches above only reach images a chart renders
+THROUGH global.imageRegistry. Images pinned by full ref OUTSIDE that
+value stay tethered to a non-local host and wedge step-08's deny-egress
+roll-set — evs-csi CSI sidecars (#4973), continuum's prerequisite-check
+initContainer (#4975), flow-emitter (#4961). Phase 4 sweeps EVERY
+container + initContainer of every external-registry workload and
+rewrites its registry host to registry.<fqdn> using the SAME
+offline-mirror resolver step-03/04/08 share — no per-chart-helper /
+per-image allowlist to drift. Idempotent, presence-gated, fail-open,
+reversible (records pre-sweep images in a pod-template annotation).
+
 Phase 2 (pre-G61): kubectl set env CATALYST_GITOPS_REPO_URL pointing
 catalyst-api at the local Gitea mirror. Triggers another rolling
 restart (likely already in-flight from Phase 1's HR upgrade, but
@@ -137,11 +149,204 @@ data:
             value: {{ .Values.catalystAPI.rollSafety.evsGate.enabled | quote }}
           - name: EVS_CSI_ZONE_LABEL
             value: {{ .Values.catalystAPI.rollSafety.evsGate.zoneLabel | quote }}
+          # #4973 #4975 #4961 — pod-spec image sweep (COMPREHENSIVE registry pivot).
+          # The G61/#4563/#4885 HR patches above only reach images a chart routes
+          # THROUGH global.imageRegistry. Sidecar images pinned by full ref
+          # (evs-csi CSI sidecars #4973), controller/init images set OUTSIDE
+          # global.imageRegistry (continuum's prerequisite-check initContainer
+          # #4975), and emitter images (#4961) keep a NON-local pod-spec ref, which
+          # step-08's roll-set then rolls under deny-egress → ImagePullBackOff →
+          # cutoverComplete never sets. This sweep is the SUSPENDERS to the HR-pivot
+          # BELT: after the HR pivots, rewrite the registry host of EVERY container +
+          # initContainer of every external-registry workload to registry.<fqdn>
+          # using the SAME offline-mirror resolver step-03/04/08 share (no per-image
+          # / per-workload allowlist to drift). Same env the resolver needs.
+          - name: PODSPEC_SWEEP
+            value: {{ eq (toString .Values.imageRegistryPivot.podSpecSweep.enabled) "true" | quote }}
+          - name: PODSPEC_SWEEP_EXCLUDE
+            value: {{ .Values.imageRegistryPivot.podSpecSweep.excludeWorkloadSubstring | default "catalyst-api" | quote }}
+          - name: PODSPEC_SWEEP_PRESENCE_GATE
+            value: {{ eq (toString .Values.imageRegistryPivot.podSpecSweep.presenceGate) "true" | quote }}
+          - name: LOCAL_REGISTRY_HOST
+            value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
+          - name: HOST_PROJECT_MAP
+            value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
+          - name: EXCLUDED_HOSTS
+            value: {{ include "bp-self-sovereign-cutover.excludedHostsInline" . | quote }}
+          - name: EXCLUDED_SUBSTRINGS
+            value: {{ include "bp-self-sovereign-cutover.excludedSubstringsInline" . | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
             echo "[catalyst-api-env-patch] target=${DEPLOYMENT_NAMESPACE}/${DEPLOYMENT_NAME}"
+
+            # #4973 #4975 #4961 — the offline-mirror image→local-path resolver
+            # (shared with step-03/step-08). Defines offlinemirror_local_paths over
+            # the SAME HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env, so the
+            # pod-spec sweep (Phase 4 below) rewrites each container image to the EXACT
+            # local Harbor path step-03 pushed it to. Guard the source so a missing
+            # mount degrades to "sweep disabled" (fail-open), never a wedged step.
+            if [ -r /resolver/resolver.sh ]; then
+              . /resolver/resolver.sh
+            else
+              echo "[catalyst-api-env-patch] WARN /resolver/resolver.sh not mounted — pod-spec image sweep DISABLED this run"
+              PODSPEC_SWEEP="false"
+            fi
+
+            # ═══ #4973 #4975 #4961 pod-spec image sweep helpers ═══════════════
+            # The COMPREHENSIVE registry pivot. The HR global.imageRegistry patches
+            # below only reach images a chart routes through that value; these
+            # helpers rewrite the registry host of EVERY container + initContainer
+            # of every external-registry workload directly in its live pod-spec, so
+            # the fix does not depend on each chart helper being registry-aware
+            # (the recurring whack-a-mole: evs-csi CSI sidecars #4973, continuum's
+            # prerequisite-check initContainer #4975, flow-emitter #4961). Defined
+            # here; CALLED as Phase 4 after the HR pivots below.
+
+            # podspec_pivot_ref IMAGE -> the local-Harbor ref this image pivots to,
+            # or EMPTY to leave it alone (already local / excluded / unmapped). Reuses
+            # offlinemirror_local_paths so the target path is byte-identical to what
+            # step-03 pushed + step-08's completeness gate HEADs. For an openova-io
+            # ghcr ref the resolver returns BOTH the proxy-ghcr path AND the host-drop
+            # openova-io/<path>; we prefer the host-drop convention (what step-06/07
+            # produce, registry.<fqdn>/openova-io/…), else the single mapped path.
+            podspec_pivot_ref() {
+              _pi_img="$1"
+              [ -n "${_pi_img}" ] || { printf ''; return 0; }
+              # Already on the local registry → nothing to do (idempotent).
+              case "${_pi_img}" in
+                "${LOCAL_REGISTRY_HOST}"/*) printf ''; return 0 ;;
+              esac
+              # Only pivot images with an EXPLICIT external registry host (dotted /
+              # :port / localhost) — mirrors step-08's roll-set exactly. A bare
+              # `name[:tag]` or an implicit-docker.io `ns/name` (first segment has no
+              # dot) is NOT in step-08's roll-set and is already handled by the
+              # containerd mirror, so pivoting it would add needless rollout churn.
+              case "${_pi_img}" in
+                */*)
+                  _pi_host="${_pi_img%%/*}"
+                  case "${_pi_host}" in
+                    *.*|*:*|localhost) : ;;         # explicit registry host → eligible
+                    *) printf ''; return 0 ;;       # implicit docker.io (ns/name) → skip
+                  esac ;;
+                *) printf ''; return 0 ;;           # bare name[:tag] → implicit docker.io → skip
+              esac
+              _pi_paths=$(offlinemirror_local_paths "${_pi_img}" 2>/dev/null || true)
+              case "${_pi_paths}" in
+                __UNMAPPED__*) printf ''; return 0 ;;   # host not covered → leave; step-08 names it
+                "") printf ''; return 0 ;;               # excluded by design → skip
+              esac
+              _pi_chosen=""
+              for _pi_lp in ${_pi_paths}; do
+                case "${_pi_lp}" in
+                  openova-io/*) _pi_chosen="${_pi_lp}"; break ;;
+                esac
+                [ -z "${_pi_chosen}" ] && _pi_chosen="${_pi_lp}"
+              done
+              [ -n "${_pi_chosen}" ] || { printf ''; return 0; }
+              printf '%s/%s' "${LOCAL_REGISTRY_HOST}" "${_pi_chosen}"
+            }
+
+            # podspec_local_present LOCAL_REF -> 0 iff the local Harbor already serves
+            # this manifest. Never pivot a pod-spec onto an image the mirror cannot
+            # serve — leave it for step-08's completeness gate to name as the real
+            # offender rather than introducing a sweep-induced ImagePullBackOff.
+            # Handles both :tag and @digest refs (same split step-08 uses).
+            podspec_local_present() {
+              _pl_hp="${1#*/}"                       # drop the local host
+              case "${_pl_hp}" in
+                *@*) _pl_ref="${_pl_hp##*@}"; _pl_repo="${_pl_hp%@*}"; case "${_pl_repo##*/}" in *:*) _pl_repo="${_pl_repo%:*}" ;; esac ;;
+                *)   case "${_pl_hp##*/}" in *:*) _pl_ref="${_pl_hp##*:}"; _pl_repo="${_pl_hp%:*}" ;; *) _pl_ref="latest"; _pl_repo="${_pl_hp}" ;; esac ;;
+              esac
+              _pl_code=$(curl -sk -o /dev/null -w '%{http_code}' \
+                -u "${HARBOR_USERNAME:-admin}:${HARBOR_PASSWORD:-}" \
+                -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
+                -I "${HARBOR_PUBLIC_URL}/v2/${_pl_repo}/manifests/${_pl_ref}" 2>/dev/null || true)
+              case "${_pl_code}" in 200|301|302) return 0 ;; *) return 1 ;; esac
+            }
+
+            # sweep_one_workload KIND NS NAME — rewrite every container + initContainer
+            # image of ONE workload to its local-Harbor ref via a strategic-merge patch
+            # (merge key = container name → only .image changes). Records the pre-sweep
+            # images in the bp.openova.io/cutover-podspec-preimage annotation so the
+            # pivot is auditable + reversible on rollback. Best-effort/idempotent.
+            sweep_one_workload() {
+              _sw_kind="$1"; _sw_ns="$2"; _sw_name="$3"
+              _sw_json=$(kubectl get "${_sw_kind}" "${_sw_name}" -n "${_sw_ns}" -o json 2>/dev/null || true)
+              [ -n "${_sw_json}" ] || return 0
+              _sw_changes="/tmp/podspec-sweep-${_sw_kind}-${_sw_ns}-${_sw_name}.$$"
+              : > "${_sw_changes}"
+              # Rows: "<containers|initContainers>\t<name>\t<image>"
+              printf '%s' "${_sw_json}" | jq -r '
+                (.spec.template.spec.containers // [])[]     | "containers\t\(.name)\t\(.image)",
+                (.spec.template.spec.initContainers // [])[] | "initContainers\t\(.name)\t\(.image)"
+              ' 2>/dev/null | while IFS="$(printf '\t')" read -r _sw_ctype _sw_cname _sw_cimg; do
+                [ -n "${_sw_cname}" ] || continue
+                _sw_new=$(podspec_pivot_ref "${_sw_cimg}")
+                [ -n "${_sw_new}" ] || continue          # excluded/unmapped/already-local
+                [ "${_sw_new}" = "${_sw_cimg}" ] && continue
+                if [ "${PODSPEC_SWEEP_PRESENCE_GATE:-true}" = "true" ] && ! podspec_local_present "${_sw_new}"; then
+                  echo "[catalyst-api-env-patch]     SKIP ${_sw_kind}/${_sw_name} [${_sw_ctype}/${_sw_cname}] ${_sw_cimg} -> ${_sw_new} (not yet in local Harbor; step-08 completeness gate will name it if it is a real gap)"
+                  continue
+                fi
+                printf '%s\t%s\t%s\t%s\n' "${_sw_ctype}" "${_sw_cname}" "${_sw_cimg}" "${_sw_new}" >> "${_sw_changes}"
+              done
+              if [ ! -s "${_sw_changes}" ]; then rm -f "${_sw_changes}"; return 0; fi
+              # Build the strategic-merge patch + pre-image annotation from the changes.
+              _sw_patch=$(jq -Rn '
+                [inputs | split("\t") | {ctype: .[0], name: .[1], old: .[2], new: .[3]}]
+                | {
+                    spec: { template: {
+                      metadata: { annotations: {
+                        "bp.openova.io/cutover-podspec-preimage": ( map({(.name): .old}) | add | tojson )
+                      } },
+                      spec: (
+                        reduce (group_by(.ctype)[]) as $g ({};
+                          .[$g[0].ctype] = [ $g[] | {name: .name, image: .new} ])
+                      )
+                    } }
+                  }' "${_sw_changes}" 2>/dev/null || true)
+              if [ -z "${_sw_patch}" ]; then
+                echo "[catalyst-api-env-patch]     WARN could not build sweep patch for ${_sw_kind}/${_sw_name} (skipping)"
+                rm -f "${_sw_changes}"; return 0
+              fi
+              if kubectl patch "${_sw_kind}" "${_sw_name}" -n "${_sw_ns}" --type=strategic -p "${_sw_patch}" >/dev/null 2>&1; then
+                echo "[catalyst-api-env-patch]     PIVOTED ${_sw_kind}/${_sw_name} -n ${_sw_ns}:"
+                awk -F"$(printf '\t')" '{print "[catalyst-api-env-patch]       "$2": "$3" -> "$4}' "${_sw_changes}"
+              else
+                echo "[catalyst-api-env-patch]     WARN failed to patch ${_sw_kind}/${_sw_name} pod-spec images (best-effort; step-04 containerd rewrite still covers the pull)"
+              fi
+              rm -f "${_sw_changes}"
+            }
+
+            # sweep_workload_podspec_images — discover every external-registry workload
+            # (Deployment/DaemonSet/StatefulSet, any ns) EXACTLY as step-08's roll-set
+            # does, and pivot each one's pod-spec images to local. After this, step-08
+            # finds no external-registry workload left to roll (or every remaining one
+            # is a real un-mirrored offender its completeness gate already named). Not
+            # an allowlist — the discovery is generic; the exclusions mirror step-08's.
+            sweep_workload_podspec_images() {
+              [ "${PODSPEC_SWEEP:-true}" = "true" ] || { echo "[catalyst-api-env-patch] #4973/#4975/#4961 pod-spec image sweep DISABLED (PODSPEC_SWEEP=${PODSPEC_SWEEP:-})"; return 0; }
+              command -v offlinemirror_local_paths >/dev/null 2>&1 || { echo "[catalyst-api-env-patch] WARN resolver not sourced — pod-spec sweep skipped"; return 0; }
+              command -v jq >/dev/null 2>&1 || { echo "[catalyst-api-env-patch] WARN jq unavailable — pod-spec sweep skipped"; return 0; }
+              [ -n "${HOST_PROJECT_MAP:-}" ] || { echo "[catalyst-api-env-patch] WARN empty HOST_PROJECT_MAP (offline mirror off?) — pod-spec sweep skipped"; return 0; }
+              echo "[catalyst-api-env-patch] #4973/#4975/#4961 pod-spec image sweep: pivoting every container+initContainer of every external-registry workload to ${LOCAL_REGISTRY_HOST}"
+              for _sw_k in deployments daemonsets statefulsets; do
+                kubectl get "${_sw_k}" -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                | while IFS=' ' read -r _sw_ns _sw_name; do
+                    [ -n "${_sw_ns}" ] && [ -n "${_sw_name}" ] || continue
+                    # Never sweep the cutover engine's own catalyst-api (pivoted via
+                    # the bp-catalyst-platform HR + env roll below).
+                    if [ -n "${PODSPEC_SWEEP_EXCLUDE:-}" ]; then
+                      case "${_sw_name}" in *"${PODSPEC_SWEEP_EXCLUDE}"*) continue ;; esac
+                    fi
+                    sweep_one_workload "${_sw_k}" "${_sw_ns}" "${_sw_name}" || true
+                  done
+              done
+              echo "[catalyst-api-env-patch] #4973/#4975/#4961 pod-spec image sweep complete"
+            }
 
             # ═══ #4996 (Refs #4972 #4885) pre-roll safety gates ═══════════════
             # Step-07 pivots catalyst-api's imageRegistry → local Harbor then rolls
@@ -665,7 +870,21 @@ data:
               esac
               echo "[catalyst-api-env-patch] Phase 3 OK: ${VAR}=${LIVE}"
             done
-            echo "[catalyst-api-env-patch] done (Phases 1-3 complete)"
+
+            # ---- Phase 4 (#4973 #4975 #4961): comprehensive pod-spec image sweep ----
+            # The HR global.imageRegistry pivots above (Phases 1-2 + the additionalHRs
+            # loop) only reach images a chart renders THROUGH global.imageRegistry.
+            # Images pinned by full ref OUTSIDE that value stay tethered to a non-local
+            # host and would wedge step-08's roll-set: evs-csi CSI sidecars (#4973),
+            # continuum's prerequisite-check initContainer (#4975), flow-emitter (#4961).
+            # This sweep normalises EVERY container + initContainer of every
+            # external-registry workload to registry.<fqdn> so no pod-spec carries a
+            # non-local ref into the deny-egress hold. Fail-open (a tooling gap never
+            # wedges the cutover worse than the pre-sweep state; step-04's containerd
+            # rewrite is the durable steady-state safety net).
+            sweep_workload_podspec_images || echo "[catalyst-api-env-patch] #4973/#4975/#4961 WARN pod-spec image sweep incomplete (best-effort; step-04 containerd rewrite still covers pulls)"
+
+            echo "[catalyst-api-env-patch] done (Phases 1-4 complete)"
         resources:
           requests: { cpu: 50m, memory: 64Mi }
           limits:   { memory: 256Mi }
@@ -685,6 +904,19 @@ data:
         volumeMounts:
           - name: tmp
             mountPath: /tmp
+          # #4973 #4975 #4961 — the shared offline-mirror resolver (same file
+          # step-03/step-08 source), so the pod-spec sweep maps each image to the
+          # EXACT local Harbor path step-03 Phase A3 pushed it to (never a forked
+          # mapping that could target a path the mirror never held).
+          - name: offline-mirror-resolver
+            mountPath: /resolver
+            readOnly: true
     volumes:
       - name: tmp
         emptyDir: {}
+      - name: offline-mirror-resolver
+        configMap:
+          name: cutover-offline-mirror-resolver
+          items:
+            - key: resolver.sh
+              path: resolver.sh

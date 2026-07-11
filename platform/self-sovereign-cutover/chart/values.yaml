@@ -929,6 +929,41 @@ imageRegistryPivot:
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml
 
+  # #4973 #4975 #4961 — COMPREHENSIVE pod-spec image sweep (step-07 Phase 4).
+  #
+  # THE WHACK-A-MOLE, ROOTED. additionalHRs above pivots an HR's
+  # spec.values.global.imageRegistry — which only reaches images the chart
+  # renders THROUGH that value. Three classes slip through and keep a NON-local
+  # pod-spec ref, which step-08's roll-set then rolls under the deny-egress hold
+  # → ImagePullBackOff → cutoverComplete never sets:
+  #   • #4973 — evs-csi CSI SIDECARS (csi-provisioner/attacher/resizer/
+  #     snapshotter/livenessprobe/node-driver-registrar) pinned by full ref;
+  #   • #4975 — continuum's prerequisite-check INITCONTAINER, whose image is a
+  #     hardcoded harbor.openova.io/proxy-dockerhub/alpine/k8s ref set OUTSIDE
+  #     global.imageRegistry, AND the continuum-controller ghcr tether;
+  #   • #4961 — bp-openova-flow-emitter (+ siblings) whose helper ignores the
+  #     value on some paths.
+  # Rather than chase each chart-helper (the shallow per-workload allowlist that
+  # keeps missing the NEXT un-pivoted image), step-07 Phase 4 sweeps EVERY
+  # container + initContainer of every external-registry workload and rewrites
+  # its registry host to registry.<fqdn> using the SAME offline-mirror resolver
+  # step-03 (push) / step-04 (containerd) / step-08 (completeness gate) share —
+  # so the sweep target is byte-identical to where the image actually lives
+  # locally. This is the SUSPENDERS to the HR-pivot BELT and the step-04
+  # containerd-rewrite (which remains the durable steady-state safety net after a
+  # Flux reconcile reverts a non-honouring chart's pod-spec ref).
+  podSpecSweep:
+    # Default ON — the deny-egress proof cannot go green while any pod-spec still
+    # carries a non-local ref; disabling this re-opens the whack-a-mole.
+    enabled: true
+    # Never sweep the cutover engine's own catalyst-api (step-07 pivots it via the
+    # bp-catalyst-platform HR + env roll above). Substring match on workload name.
+    excludeWorkloadSubstring: "catalyst-api"
+    # Refuse to pivot a pod-spec image onto a ref the local Harbor does not yet
+    # serve — leave it as-is so step-08's completeness gate names the REAL offender
+    # instead of a sweep-induced ImagePullBackOff. Keep ON.
+    presenceGate: true
+
 # Step container images. The first three steps (01..03) + the
 # registry-pivot DaemonSet use upstream-public images because they run
 # BEFORE registries.yaml v2 takes effect on the node containerd.

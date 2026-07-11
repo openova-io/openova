@@ -1,5 +1,40 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.120 (#4973 #4975 #4961 Refs #4885 #3379 #3695 — the registry pivot was
+# INCOMPLETE: the step-07 HR global.imageRegistry patch only reaches images a
+# chart renders THROUGH that value, so images pinned by full ref OUTSIDE it stayed
+# tethered to a non-local host and wedged step-08's deny-egress roll-set →
+# ImagePullBackOff → cutoverComplete never set. Three open classes, one root:
+#   #4973 — evs-csi CSI SIDECARS (csi-provisioner/attacher/resizer/snapshotter/
+#           livenessprobe/node-driver-registrar) — confirmed live on hw241: a
+#           worker node's evs-csi-node driver couldn't pull post-pivot, so a fresh
+#           catalyst-api roll couldn't attach its RWO-EVS volume;
+#   #4975 — continuum's prerequisite-check INITCONTAINER (hardcoded
+#           harbor.openova.io/proxy-dockerhub/alpine/k8s ref set OUTSIDE
+#           global.imageRegistry) + the continuum-controller ghcr tether;
+#   #4961 — bp-openova-flow-emitter (+ possible siblings) under the step-08
+#           generalized fresh-pull.
+# FIX (template 07 Phase 4 + values): rather than chase each chart-helper (the
+# shallow per-workload allowlist that keeps missing the NEXT un-pivoted image),
+# step-07 now runs a COMPREHENSIVE pod-spec image sweep AFTER the HR pivots. It
+# discovers every external-registry workload (Deployment/DaemonSet/StatefulSet,
+# any ns) EXACTLY as step-08's roll-set does, and rewrites the registry host of
+# EVERY container + initContainer to registry.<fqdn> via the SAME offline-mirror
+# resolver step-03 (push) / step-04 (containerd) / step-08 (completeness gate)
+# share — so the sweep target is byte-identical to where the image lives locally.
+# Idempotent (skips already-local), presence-gated (never pivots onto an image the
+# local Harbor cannot serve — that stays for step-08 to name), fail-open (a tooling
+# gap never wedges the cutover; step-04's containerd rewrite is the durable
+# steady-state net), and reversible (records pre-sweep images in the
+# bp.openova.io/cutover-podspec-preimage pod-template annotation). New
+# values.imageRegistryPivot.podSpecSweep.{enabled,excludeWorkloadSubstring,
+# presenceGate}; new step-07 envs PODSPEC_SWEEP / PODSPEC_SWEEP_EXCLUDE /
+# PODSPEC_SWEEP_PRESENCE_GATE + the shared HOST_PROJECT_MAP / EXCLUDED_* /
+# LOCAL_REGISTRY_HOST + the cutover-offline-mirror-resolver mount. RBAC already
+# grants deployments/daemonsets/statefulsets patch (step-08 uses it). No
+# step-count / job-mode change (still 11 steps). cutover-contract Case 45 locks it.
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version move
+# to 0.1.120 in lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag).
 # 0.1.119 (#5007 Refs #4682 #3379 — fresh-node local-registry pull breaks when the
 # public DNS wildcard shadows registry.<fqdn>; found LIVE on the hw241 cutover). After
 # the registry pivot the catalyst-api roll onto a fresh node failed
@@ -1868,7 +1903,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.119
+version: 0.1.120
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
