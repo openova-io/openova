@@ -204,6 +204,37 @@ metadata:
     app.kubernetes.io/managed-by: flux
 spec:
   interval: 10m
+  # #5003 (Refs #3376): a FRESH funnel Org's FIRST vcluster install pulls the
+  # k8s-distro init image (proxy-ghcr/loft-sh/kubernetes:vX) through a COLD
+  # Sovereign-Harbor proxy-ghcr cache — ~3m11s live on hw241 — which blows past
+  # Flux's default 5m Helm-operation timeout as "context deadline exceeded".
+  # WORSE, with install.remediation.retries UNSET (=0) Flux marks the HR
+  # Stalled=True / RetriesExceeded ("terminal error: cannot remediate failed
+  # release") and it NEVER self-heals — even though vcluster-0 actually comes up
+  # 1/1 Running once the pull finally lands. That strands the org-controller
+  # (vcluster_ready:false forever) → the tenant-<slug>-kubeconfig secret is never
+  # minted → the per-Org apps Kustomization fails "unable to read KubeConfig
+  # secret" → WordPress/the customer app never deploys → the app FQDN 404s (the
+  # last terminal blocker for zero-touch marketplace-funnel app-serve).
+  #
+  # Durable fix, two parts:
+  #   (1) timeout: 10m — widen the Helm-operation deadline so the first cold
+  #       proxy-ghcr pull of the vcluster images (k8s-distro + vcluster-oss
+  #       syncer) fits inside a single install attempt.
+  #   (2) install/upgrade.remediation.retries: -1 — retry INDEFINITELY instead of
+  #       terminally stalling, so any residual transient cold-pull timeout
+  #       self-heals on the next reconcile rather than requiring an operator to
+  #       manually kick the wedged HR. Harbor warms after the first pull, so the
+  #       retry converges quickly. (-1 is Flux's "infinite retries" sentinel; the
+  #       vcluster boundary is load-bearing for the whole Org, so we never want it
+  #       to give up — unlike the day-2 app HRs which cap at 3.)
+  timeout: 10m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
   chart:
     spec:
       chart: vcluster
