@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-vpa
+# 1.0.4 (#5017 — cutover step-08 admissibility, proven live on hw242:
+# recommender/updater/admission-controller images routed via the
+# Sovereign-local Harbor proxy (kyverno harbor-proxy-pull denied the raw
+# registry.k8s.io refs on pod recreation); CRDs hook Job image routed
+# proxy-dockerhub + tag pinned to a mirrored tag + resources set (kyverno
+# resource-requests Enforce denies resource-less hook pods). Also replaces
+# the INERT crds.install/keep keys with the cowboysysop chart's real
+# crds.enabled knob.)
 description: |
   Catalyst Blueprint umbrella chart for the Kubernetes Vertical Pod
   Autoscaler. Depends on the upstream `vertical-pod-autoscaler` chart
@@ -26,7 +34,7 @@ type: application
 # defence-in-depth — bounds the same VPA-webhook hang in NON-kube-system
 # namespaces (cnpg initdb, keycloak, tenant vclusters) that the kube-system
 # exemption does not cover.
-version: 1.0.3
+version: 1.0.4
 appVersion: "1.5.0"
 keywords: [catalyst, blueprint, vpa, autoscaling, vertical-pod-autoscaler, right-sizing]
 maintainers:

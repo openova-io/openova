@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.46 (#5017 / #4973 family — harbor-proxy-pull learns mixed-source
+# pods: each anyPattern entry requires EVERY container to match ONE glob,
+# so a pod mixing proxy-cache sidecars with a native-push openova-io
+# plugin (huawei-evs-csi: 4x proxy-k8s sig-storage + 1x openova-io
+# evs-csi-plugin) could NEVER admit — wedging the CSI controller RS +
+# node DS and a 24-HelmRelease dependency cascade on hw242. Adds a third
+# `|`-alternation pattern that admits mixed-source pods while still
+# requiring every image to come from the local Harbor.)
 # 1.0.41 (#4329, proven live omantel.biz/kom4dc 2026-06-25): HARDEN the
 # flux-managed (10) carve-out for the per-Org vCluster CIDR-probe Service. The
 # #3859 exclusion only matched namespaces stamped `openova.io/organization`; the
@@ -302,7 +310,7 @@ type: application
 #   (helm.sh/hook annotation) — hooks get no Flux labels + Helm force-stamps
 #   managed-by:Helm, so a legit hook Job (bp-powerdns zone-bootstrap) was
 #   Enforce-denied on live upgrade, stranding the powerdns anycast NodePort.
-version: 1.0.45
+version: 1.0.46
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

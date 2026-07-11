@@ -59,7 +59,10 @@ spec:
   chart:
     spec:
       chart: bp-opentelemetry
-      version: 1.2.1
+      # 1.2.2: Collector image via Sovereign-local Harbor proxy (#5017 —
+      # kyverno harbor-proxy-pull denies the raw docker.io ref on pod
+      # recreation).
+      version: 1.2.2
       sourceRef:
         kind: HelmRepository
         name: bp-opentelemetry

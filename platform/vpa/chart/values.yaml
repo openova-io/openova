@@ -30,7 +30,14 @@ vertical-pod-autoscaler:
       # be `registry.k8s.io/registry.k8s.io/autoscaling/...` (doubled
       # prefix) and pulls fail with "image not found" (caught live on
       # otech26).
-      repository: autoscaling/vpa-recommender
+      #
+      # Routed through the Sovereign-local Harbor proxy (#5017): the kyverno
+      # `harbor-proxy-pull` ClusterPolicy only admits pod images matching
+      # `*/proxy-*/*` or `*/openova-io/*`; the raw registry.k8s.io refs were
+      # DENIED when cutover step-08's deny-egress roll recreated the three
+      # VPA pods on hw242.
+      registry: harbor.openova.io
+      repository: proxy-k8s/autoscaling/vpa-recommender
       tag: "1.5.0"
       pullPolicy: IfNotPresent
     resources:
@@ -59,7 +66,10 @@ vertical-pod-autoscaler:
     enabled: true
     replicaCount: 1
     image:
-      repository: autoscaling/vpa-updater
+      # Routed through the Sovereign-local Harbor proxy (#5017) — see the
+      # recommender image comment above.
+      registry: harbor.openova.io
+      repository: proxy-k8s/autoscaling/vpa-updater
       tag: "1.5.0"
       pullPolicy: IfNotPresent
     resources:
@@ -81,7 +91,10 @@ vertical-pod-autoscaler:
     enabled: true
     replicaCount: 1
     image:
-      repository: autoscaling/vpa-admission-controller
+      # Routed through the Sovereign-local Harbor proxy (#5017) — see the
+      # recommender image comment above.
+      registry: harbor.openova.io
+      repository: proxy-k8s/autoscaling/vpa-admission-controller
       tag: "1.5.0"
       pullPolicy: IfNotPresent
     resources:
@@ -158,9 +171,31 @@ vertical-pod-autoscaler:
   # the chart — Flux will surface CRD upgrade conflicts as
   # InstallFailed/UpgradeFailed events that the operator resolves
   # explicitly (no silent drift).
+  # NOTE (#5017): the previous `install:`/`keep:` keys here were INERT — the
+  # cowboysysop chart's knob is `crds.enabled` and its CRDs apply via a
+  # pre-install/pre-upgrade hook Job, not helm crds/ handling.
   crds:
-    install: true
-    keep: true
+    enabled: true
+    # The CRDs hook Job image + resources (#5017): the raw
+    # docker.io/bitnamilegacy/kubectl default is denied by kyverno
+    # harbor-proxy-pull, and a resource-less hook pod is denied by the
+    # resource-requests policy (Enforce) — either one fails every
+    # install/upgrade of this chart on a policy-enforcing Sovereign.
+    # Tag pinned to 1.30.7 — the tag mirrored on live Sovereigns
+    # (upstream default 1.29.3 is not, and cannot pull through under the
+    # cutover deny-egress hold). Same MIRROR-EVERYTHING pattern as
+    # platform/flux (Fix #163).
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/bitnamilegacy/kubectl
+      tag: "1.30.7"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
 
   # RBAC — chart manages its own ClusterRole + ServiceAccount.
   rbac:

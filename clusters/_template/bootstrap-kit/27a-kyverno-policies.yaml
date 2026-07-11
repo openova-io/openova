@@ -150,7 +150,11 @@ spec:
       # that span unbounded org-<uuid> namespaces the excludeNamespaces list can't
       # enumerate; without this the WordPress mysql Deployment was admission-blocked
       # → 0 pods → WordPress had no DB. Refs #4422 #3376.
-      version: 1.0.45
+      # 1.0.46: harbor-proxy-pull third `|`-alternation glob admits
+      # mixed-source pods (proxy-cache sidecars + openova-io plugin) —
+      # un-wedges huawei-evs-csi + its 24-HR dependency cascade (#5017,
+      # #4973 family).
+      version: 1.0.46
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

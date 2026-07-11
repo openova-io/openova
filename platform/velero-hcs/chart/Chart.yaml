@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-velero-hcs
+# 0.1.2 (#5017 — cutover step-08 admissibility, proven live on hw242:
+# (1) velero + velero-plugin-for-aws images routed via the Sovereign-local
+# Harbor proxy (kyverno harbor-proxy-pull denied the raw docker.io refs on
+# pod recreation; strategy=Recreate took Velero to ZERO pods);
+# (2) kubectl hook image routed proxy-k8s; (3) upgradeJobResources set —
+# kyverno resource-requests (Enforce) denies resource-less hook Job pods,
+# and helm's failed-upgrade auto-rollback re-renders the OLD raw hook,
+# wedging the release.)
 description: |
   Catalyst Blueprint umbrella chart for Velero on HCS (Huawei Cloud
   Sovereign) — mirrors platform/velero/chart but pre-targets Huawei
@@ -33,7 +41,7 @@ description: |
   bp-velero on HCS) → closes the resulting backup-engine gap on
   every HCS Sovereign. Refs #2847.
 type: application
-version: 0.1.1
+version: 0.1.2
 appVersion: "1.18.0"
 keywords: [catalyst, blueprint, velero, backup, disaster-recovery, huawei, hcs, obs]
 maintainers:
