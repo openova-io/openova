@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T19:00:04Z` |
+| Last refreshed | `2026-07-11T19:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 89 |
 | Open DoD gates | 0 / 41 |
@@ -296,6 +296,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T19:13 | [#5010](https://github.com/openova-io/openova/pull/5010) | #4973 | fix(#4973 #4975 #4961): comprehensive pod-spec image sweep i |
+| 2026-07-11T19:02 | [#5009](https://github.com/openova-io/openova/pull/5009) | #4872 | fix(#4872): version-aware batched OBS bucket empty+delete so |
 | 2026-07-11T17:15 | [#5008](https://github.com/openova-io/openova/pull/5008) | #5007 | fix(#5007): cutover pins registry.<fqdn> on nodes + pdm reap |
 | 2026-07-11T16:11 | [#5006](https://github.com/openova-io/openova/pull/5006) | #3668 | docs(uat): hw241 catalog 126/128/131/133/134 ✅ (67%) |
 | 2026-07-11T15:55 | [#5005](https://github.com/openova-io/openova/pull/5005) | #4896 | docs(uat): hw241 operator-console re-walk — 29 rows ✅ (65% g |
@@ -324,8 +326,6 @@ flowchart LR
 | 2026-07-10T03:05 | [#4962](https://github.com/openova-io/openova/pull/4962) | #4885 | fix(#4961 Refs #4885): registry-aware helpers pivot the last |
 | 2026-07-10T02:46 | [#4960](https://github.com/openova-io/openova/pull/4960) | #4552 | feat(console #4552): arm the per-app Topology Switchover wit |
 | 2026-07-10T01:36 | [#4959](https://github.com/openova-io/openova/pull/4959) | #4956 | fix(#4956): gate funnel Org launch on billing settlement + a |
-| 2026-07-10T01:40 | [#4958](https://github.com/openova-io/openova/pull/4958) | #4840 | fix(#4950): keep placement.targets[] through decode so conso |
-| 2026-07-10T01:35 | [#4957](https://github.com/openova-io/openova/pull/4957) | #4955 | fix(#4955 Refs #3379): cutover step-03 harbor-prewarm handle |
 
 ---
 
