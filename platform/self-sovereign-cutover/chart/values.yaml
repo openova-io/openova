@@ -595,6 +595,21 @@ prewarm:
   # settled.
   settledRollPreflight:
     enabled: true
+  # #4994 (Refs #3379) — content-digest idempotency for the step-03 skopeo
+  # mirror. When true (default) each container-image copy (Phase A) + chart-OCI
+  # copy (Phase A2) first compares the SOURCE vs local-Harbor DEST manifest
+  # digest (`skopeo inspect --raw | sha256sum`, no blob pull) and SKIPS the copy
+  # when the dest already serves byte-identical content. This makes a prewarm
+  # re-run (catalyst-api re-fires step-03 after a DeadlineExceeded) or an
+  # already-mirrored image cost a cheap manifest HEAD instead of re-transferring
+  # every multi-hundred-MB blob from the mothership — the hw240 #4994 symptom
+  # (step-03 Running 0/1 for 68m re-pushing ~121 images across the proxy-*
+  # projects). Fail-OPEN: any inspect miss (source unreachable, dest absent /
+  # partial / single-arch leftover) FALLS THROUGH to the full copy, so the
+  # fail-closed completeness contract (every workload image must land locally
+  # before the deny-egress hold) is preserved — a skip happens ONLY on a
+  # positive src==dst digest match. Set false to force an unconditional re-copy.
+  skipIfAlreadyPresent: true
   # #4975 (Refs #3379 #3695) — RETIRED. This hand-maintained 11-image HEAD list
   # (the old Phase B "warm the proxy-cache" pass) was one of the three drifting
   # lists that caused the per-prov whack-a-mole: any upstream image a chart added
@@ -777,6 +792,44 @@ catalystAPI:
   namespace: "catalyst-system"
   # The env var that catalyst-api reads for its GitOps source URL.
   envVar: "CATALYST_GITOPS_REPO_URL"
+
+  # #4996 (Refs #4972 #4885) — pre-roll safety gates. Step-07 pivots
+  # catalyst-api's imageRegistry to the local Harbor then rolls the Deployment
+  # (Recreate). On kom4dc that WEDGED the cutover two ways (hw240 dep
+  # 0f1aac5431e6a436): (a) the pivoted image was momentarily unpullable from the
+  # local Harbor during a transient gateway blip → ImagePullBackOff cascade; (b)
+  # the old Recreate pod's RWO-EVS PVCs did not detach — worse on a broken-CSI
+  # node with no topology.evs.csi.huaweicloud.com/zone (#4972 wd2ab90) — so the
+  # new pod hit Multi-Attach and never scheduled (succeeded=0 failed=4). These
+  # gates make the roll bounded + self-healing + idempotent, and never leave the
+  # Sovereign half-pivoted. All FAIL-OPEN (a tooling gap never wedges worse than
+  # the prior blind `kubectl rollout status --timeout=300s`).
+  rollSafety:
+    # Master switch. false = revert to the blind `rollout status --timeout=300s`.
+    enabled: true
+    # Total budget (seconds) for the deadlock-aware rollout wait, replacing the
+    # blind 300s. Covers image pull + EVS attach/detach on a slow Huawei prov.
+    rollBudgetSeconds: 600
+    # (a) image-warmed gate — before pivoting catalyst-api's imageRegistry,
+    # confirm the local-Harbor catalyst-api manifest is present + servable
+    # (authenticated HEAD, bounded poll). A genuine miss FATALs the step PRE-PIVOT
+    # (recoverable re-run) instead of a blind pivot onto an unpullable image.
+    imageWarmedGate:
+      enabled: true
+      pollSeconds: 240
+    # (b/c) EVS detach + broken-CSI node gate. On a Recreate roll of an RWO-EVS-
+    # backed catalyst-api, a stale VolumeAttachment / broken-CSI node deadlocks
+    # the new pod on Multi-Attach (#4972). The gate cordons every node MISSING the
+    # EVS zone label (broken CSI can't attach EVS) before the roll, drains
+    # catalyst-api off such a node, and force-deletes VolumeAttachments that bind
+    # catalyst-api's OWN PVs to a node with no live catalyst-api pod (provably
+    # stale). NO-OP off Huawei (no node carries zoneLabel → Hetzner hcloud-csi).
+    evsGate:
+      enabled: true
+      # The node label a correctly-registered Huawei EVS CSI publishes. A Ready
+      # node LACKING it (while others carry it) is broken-CSI and is cordoned.
+      # Empty disables the broken-CSI cordon (the detach-gate still runs).
+      zoneLabel: "topology.evs.csi.huaweicloud.com/zone"
 
 # #4885 (Refs #3379 #4563): step-07 image-registry pivot — the CURATED set of
 # ADDITIONAL openova-io HelmReleases whose chart HONOURS global.imageRegistry

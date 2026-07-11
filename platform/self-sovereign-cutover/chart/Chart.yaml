@@ -1,5 +1,44 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.118 (#4994 + #4996 Refs #3379 #4972 #4885 — two cutover-hardening defects
+# found live on hw240 (dep 0f1aac5431e6a436) that BLOCK cutoverComplete on
+# kom4dc/Huawei Sovereigns).
+#   #4994 (step-03 harbor-prewarm hangs/looks-hung): the skopeo mirror had (a) NO
+#     idempotency — a re-run (catalyst-api re-fires after a DeadlineExceeded) or an
+#     already-mirrored image re-transferred every multi-hundred-MB blob from the
+#     mothership; and (b) NO real-time progress — per-image copy logs were
+#     file-buffered and only surfaced after the whole `wait`, so a slow-but-working
+#     68m run (re-pushing ~121 proxy-* images) logged ONLY `queue` lines and was
+#     indistinguishable from a hang. FIX (template 03 + values): a content-digest
+#     skip (`skopeo inspect --raw | sha256sum` compares src vs dest manifest — no
+#     blob pull; works for single-arch AND multi-arch LISTS) elides a copy when
+#     local Harbor already serves byte-identical content, fail-OPEN so a
+#     partial/absent dest is still re-pushed (completeness contract preserved); a
+#     real-time per-image `done`/`skip` line + a bounded self-stopping heartbeat
+#     ("N/M settled" every 30s), drained via explicit worker PIDs (a bare `wait`
+#     would block on the never-returning heartbeat). New value
+#     prewarm.skipIfAlreadyPresent (default true). Applies to Phase A (container
+#     images) + Phase A2 (chart OCI). cutover-contract Case 42 locks it.
+#   #4996 (step-07 catalyst-api-env-patch wedges): step-07 pivoted catalyst-api's
+#     imageRegistry then blind `kubectl rollout status --timeout=300s` (Recreate).
+#     It WEDGED (succeeded=0 failed=4) because (a) the pivoted image was momentarily
+#     unpullable from local Harbor during a transient gateway blip →
+#     ImagePullBackOff cascade, and (b) the old Recreate pod's RWO-EVS PVCs didn't
+#     detach — worse on a broken-CSI node with no
+#     topology.evs.csi.huaweicloud.com/zone (#4972 wd2ab90) — so the new pod hit
+#     Multi-Attach and never scheduled. FIX (template 07 + values + rbac): three
+#     pre-roll gates, all toggle-able + FAIL-OPEN — (a) an image-warmed gate that
+#     confirms the local-Harbor catalyst-api manifest is servable BEFORE the pivot
+#     (FATAL pre-pivot on a genuine miss, so the env stays pre-pivot/recoverable);
+#     (c) a broken-CSI node cordon + drain-old-pod-first (no-op off Huawei); (b) a
+#     deadlock-aware rollout wait (roll_and_wait_catalyst_api) that force-detaches
+#     STALE catalyst-api VolumeAttachments (its owning pod is gone) while tolerating
+#     a self-healing ImagePullBackOff, replacing the blind 300s. New
+#     catalystAPI.rollSafety.* values; RBAC adds volumeattachments {get,list,delete}
+#     + persistentvolumeclaims {get,list} + nodes {patch}. cutover-contract Case 43
+#     locks it. NO step-count / job-mode change (still 11 steps / 10 job-mode).
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version move
+# to 0.1.118 in lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag).
 # 0.1.117 (#4982 Refs #3379 — two durable robustness fixes found driving hw239 to
 # the step-08 pre-hold completeness gate). Finding A: LOCK the invariant that the
 # offline-mirror resolver (03a) + every per-step script CM (cutover-step-0N-*)
@@ -1798,7 +1837,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.117
+version: 0.1.118
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

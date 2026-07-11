@@ -110,11 +110,238 @@ data:
           # sovereign.harborPublicURL / giteaPublicURL above).
           - name: CONSOLE_PUBLIC_URL
             value: {{ .Values.sovereign.consolePublicURL | quote }}
+          # #4996 (Refs #4972 #4885) — pre-roll safety gate inputs.
+          # Harbor admin creds so the image-warmed gate can HEAD the PRIVATE
+          # openova-io project manifest before pivoting catalyst-api's registry
+          # (same Reflector-mirrored harbor-admin Secret steps 02/03 already use).
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.usernameKey }}
+                optional: true
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+          - name: ROLL_SAFETY
+            value: {{ .Values.catalystAPI.rollSafety.enabled | quote }}
+          - name: ROLL_BUDGET_SECONDS
+            value: {{ .Values.catalystAPI.rollSafety.rollBudgetSeconds | quote }}
+          - name: IMAGE_WARMED_GATE
+            value: {{ .Values.catalystAPI.rollSafety.imageWarmedGate.enabled | quote }}
+          - name: IMAGE_WARMED_POLL_SECONDS
+            value: {{ .Values.catalystAPI.rollSafety.imageWarmedGate.pollSeconds | quote }}
+          - name: EVS_GATE
+            value: {{ .Values.catalystAPI.rollSafety.evsGate.enabled | quote }}
+          - name: EVS_CSI_ZONE_LABEL
+            value: {{ .Values.catalystAPI.rollSafety.evsGate.zoneLabel | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
             echo "[catalyst-api-env-patch] target=${DEPLOYMENT_NAMESPACE}/${DEPLOYMENT_NAME}"
+
+            # ═══ #4996 (Refs #4972 #4885) pre-roll safety gates ═══════════════
+            # Step-07 pivots catalyst-api's imageRegistry → local Harbor then rolls
+            # the Deployment (Recreate). On kom4dc that wedged TWO ways (hw240):
+            #   (a) the pivoted image wasn't cleanly pullable from local Harbor
+            #       during a transient gateway blip → ImagePullBackOff cascade;
+            #   (b) the old Recreate pod's RWO-EVS PVCs didn't detach (worse on a
+            #       broken-CSI node with no topology.evs.csi.huaweicloud.com/zone),
+            #       so the new pod hit Multi-Attach and never scheduled (#4972).
+            # These gates make the roll bounded + self-healing + idempotent. ALL
+            # are toggle-able + FAIL-OPEN: a tooling gap never wedges the cutover
+            # worse than the prior blind roll. They are DEFINED here and CALLED
+            # just before the imageRegistry pivot / around each rollout wait below.
+
+            # Newest live image the catalyst-api Deployment declares (chart-pinned;
+            # the pivot keeps the SAME tag, only the registry host changes).
+            ca_current_image() {
+              kubectl get deploy "${DEPLOYMENT_NAME}" -n "${DEPLOYMENT_NAMESPACE}" \
+                -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
+            }
+            # HEAD a manifest against local Harbor (authenticated — the openova-io
+            # project is PRIVATE). ANY 200/redirect = present. -k tolerates the
+            # LE-staging wildcard on a fresh prov.
+            harbor_manifest_present() {
+              _hm_ref="$1"; _hm_hp="${_hm_ref#*/}"; _hm_path="${_hm_hp%:*}"; _hm_tag="${_hm_hp##*:}"
+              _hm_code=$(curl -sk -o /dev/null -w '%{http_code}' \
+                -u "${HARBOR_USERNAME:-admin}:${HARBOR_PASSWORD:-}" \
+                -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
+                -I "${HARBOR_PUBLIC_URL}/v2/${_hm_path}/manifests/${_hm_tag}" 2>/dev/null || true)
+              case "${_hm_code}" in 200|301|302) return 0 ;; *) return 1 ;; esac
+            }
+            # (a) image-warmed gate: refuse to pivot catalyst-api onto an image the
+            # local Harbor cannot yet serve. Bounded poll (step-03 pushes it, so it
+            # is normally already present); FATAL loudly on a genuine miss so the
+            # cutover stays PRE-PIVOT/recoverable instead of half-pivoted+wedged.
+            image_warmed_gate() {
+              [ "${IMAGE_WARMED_GATE:-true}" = "true" ] || { echo "[catalyst-api-env-patch] #4996 image-warmed gate DISABLED"; return 0; }
+              _iw_img=$(ca_current_image)
+              [ -z "${_iw_img}" ] && { echo "[catalyst-api-env-patch] #4996 image-warmed gate: cannot read catalyst-api image — skipping (fail-open)"; return 0; }
+              # host-drop the registry prefix (the openova-io host-drop convention
+              # step-03 Phase A pushed to + the chart re-renders post-pivot).
+              _iw_rest="${_iw_img}"
+              case "${_iw_img%%/*}" in *.*|*:*|localhost) _iw_rest="${_iw_img#*/}" ;; esac
+              _iw_local="${HARBOR_HOST}/${_iw_rest}"
+              echo "[catalyst-api-env-patch] #4996 image-warmed gate: confirming ${_iw_local} is servable from local Harbor before the imageRegistry pivot"
+              _iw_deadline=$(( $(date +%s) + ${IMAGE_WARMED_POLL_SECONDS:-240} ))
+              while : ; do
+                if harbor_manifest_present "${_iw_local}"; then
+                  echo "[catalyst-api-env-patch] #4996 image-warmed gate OK: ${_iw_local} present in local Harbor"
+                  return 0
+                fi
+                if [ "$(date +%s)" -ge "${_iw_deadline}" ]; then
+                  echo "[catalyst-api-env-patch] #4996 FATAL image-warmed gate: ${_iw_local} NOT servable from local Harbor after ${IMAGE_WARMED_POLL_SECONDS:-240}s — REFUSING to pivot catalyst-api onto an unpullable image (step-03 harbor-prewarm must push it first). Cutover left PRE-PIVOT/intact; re-trigger after harbor-prewarm completes." >&2
+                  return 1
+                fi
+                echo "[catalyst-api-env-patch] #4996 image-warmed gate: ${_iw_local} not yet servable; retry in 10s"
+                sleep 10
+              done
+            }
+
+            # catalyst-api's PVC-backed volumes → the PV names a Recreate roll must
+            # re-attach (the RWO-EVS Multi-Attach surface).
+            ca_pv_names() {
+              for _c in $(kubectl get deploy "${DEPLOYMENT_NAME}" -n "${DEPLOYMENT_NAMESPACE}" \
+                  -o jsonpath='{range .spec.template.spec.volumes[*]}{.persistentVolumeClaim.claimName}{"\n"}{end}' 2>/dev/null); do
+                [ -z "${_c}" ] && continue
+                kubectl get pvc "${_c}" -n "${DEPLOYMENT_NAMESPACE}" -o jsonpath='{.spec.volumeName}' 2>/dev/null
+                echo
+              done | grep -v '^$' | sort -u || true
+            }
+            # (b) EVS detach-gate: force-delete VolumeAttachments that bind
+            # catalyst-api's OWN PVs to a node that NO LONGER runs a catalyst-api
+            # pod. Such an attachment is unambiguously STALE (the pod that needed it
+            # is gone) and is the Multi-Attach deadlock source (#4972). SAFE by
+            # construction — it never touches an attachment on a node with a live
+            # catalyst-api pod, nor any non-catalyst-api PV.
+            evs_detach_gate() {
+              [ "${EVS_GATE:-true}" = "true" ] || return 0
+              _dg_pvs=$(ca_pv_names)
+              [ -z "${_dg_pvs}" ] && { echo "[catalyst-api-env-patch] #4996 detach-gate: catalyst-api has no PVC-backed volumes; nothing to detach"; return 0; }
+              _dg_live=$(kubectl get pods -n "${DEPLOYMENT_NAMESPACE}" \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\n"}{end}' 2>/dev/null \
+                | grep -E "^${DEPLOYMENT_NAME}-" | awk -F'\t' '{print $2}' | grep -v '^$' | sort -u || true)
+              kubectl get volumeattachments \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\t"}{.spec.source.persistentVolumeName}{"\n"}{end}' 2>/dev/null \
+                | while IFS="$(printf '\t')" read -r _va _vanode _vapv; do
+                    [ -z "${_vapv}" ] && continue
+                    printf '%s\n' "${_dg_pvs}" | grep -Fxq "${_vapv}" || continue
+                    if printf '%s\n' "${_dg_live}" | grep -Fxq "${_vanode}"; then continue; fi
+                    echo "[catalyst-api-env-patch] #4996 detach-gate: force-deleting STALE VolumeAttachment ${_va} (pv ${_vapv} on ${_vanode}; no live catalyst-api pod there — the #4972 Multi-Attach source)"
+                    kubectl delete volumeattachment "${_va}" --wait=false >/dev/null 2>&1 \
+                      || echo "[catalyst-api-env-patch] #4996 WARN failed to delete VolumeAttachment ${_va} (best-effort)"
+                  done
+            }
+
+            # (c) broken-CSI node gate: on a Huawei-EVS cluster a node missing the
+            # EVS zone label cannot attach EVS volumes — a Recreate roll landing
+            # catalyst-api there Multi-Attach-deadlocks (#4972 wd2ab90). Cordon
+            # every such node BEFORE the roll so the scheduler places the new pod on
+            # a healthy node, and drain catalyst-api off a broken node first. No-op
+            # off Huawei (no node carries the zone label → Hetzner hcloud-csi path).
+            preroll_node_prep() {
+              [ "${EVS_GATE:-true}" = "true" ] || return 0
+              [ -n "${EVS_CSI_ZONE_LABEL:-}" ] || return 0
+              _np_healthy=$(kubectl get nodes -l "${EVS_CSI_ZONE_LABEL}" \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' | sort -u || true)
+              if [ -z "${_np_healthy}" ]; then
+                echo "[catalyst-api-env-patch] #4996 EVS gate: no node carries ${EVS_CSI_ZONE_LABEL} — not a Huawei-EVS cluster (or none healthy); skipping broken-CSI cordon"
+                return 0
+              fi
+              _np_all=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' | sort -u || true)
+              _np_broken=""
+              for _n in ${_np_all}; do
+                printf '%s\n' "${_np_healthy}" | grep -Fxq "${_n}" || _np_broken="${_np_broken} ${_n}"
+              done
+              if [ -z "${_np_broken}" ]; then
+                echo "[catalyst-api-env-patch] #4996 EVS gate: every node carries ${EVS_CSI_ZONE_LABEL} — no broken-CSI node to cordon"
+                return 0
+              fi
+              for _n in ${_np_broken}; do
+                echo "[catalyst-api-env-patch] #4996 EVS gate: cordoning broken-CSI node ${_n} (missing ${EVS_CSI_ZONE_LABEL}; RWO-EVS attach would Multi-Attach deadlock the roll — #4972)"
+                kubectl cordon "${_n}" >/dev/null 2>&1 || echo "[catalyst-api-env-patch] #4996 WARN cordon ${_n} failed (best-effort)"
+              done
+              # drain-old-pod-first: if the current catalyst-api pod is on a broken
+              # node, delete it now so its EVS detaches + it reschedules onto a
+              # healthy node BEFORE the Recreate roll (so its stale attachment can't
+              # then linger to Multi-Attach the new pod).
+              kubectl get pods -n "${DEPLOYMENT_NAMESPACE}" \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\n"}{end}' 2>/dev/null \
+                | grep -E "^${DEPLOYMENT_NAME}-" \
+                | while IFS="$(printf '\t')" read -r _op _onode; do
+                    [ -z "${_op}" ] && continue
+                    for _bn in ${_np_broken}; do
+                      if [ "${_onode}" = "${_bn}" ]; then
+                        echo "[catalyst-api-env-patch] #4996 EVS gate: draining catalyst-api pod ${_op} off broken-CSI node ${_onode} before the roll"
+                        kubectl delete pod "${_op}" -n "${DEPLOYMENT_NAMESPACE}" --wait=false >/dev/null 2>&1 \
+                          || echo "[catalyst-api-env-patch] #4996 WARN failed to delete pod ${_op} (best-effort)"
+                      fi
+                    done
+                  done
+              # a freshly-drained pod leaves a stale attachment for a beat — clear it.
+              evs_detach_gate
+            }
+
+            # Deadlock-aware replacement for the blind `kubectl rollout status
+            # --timeout=300s`. Distinguishes ImagePullBackOff (image is confirmed in
+            # local Harbor by the warmed gate → self-heals, keep waiting) from a
+            # volume-attach deadlock (run the safe detach-gate after a grace period).
+            # Bounded by ROLL_BUDGET_SECONDS; a final blocking status check drives
+            # the step's pass/fail so a genuine failure is a clean recoverable exit.
+            roll_and_wait_catalyst_api() {
+              _rw_why="$1"
+              if [ "${ROLL_SAFETY:-true}" != "true" ]; then
+                kubectl rollout status "deploy/${DEPLOYMENT_NAME}" -n "${DEPLOYMENT_NAMESPACE}" --timeout=300s
+                return $?
+              fi
+              echo "[catalyst-api-env-patch] #4996 rollout wait (${_rw_why}): budget=${ROLL_BUDGET_SECONDS:-600}s, EVS-detach + image-pull tolerant"
+              _rw_start=$(date +%s)
+              _rw_deadline=$(( _rw_start + ${ROLL_BUDGET_SECONDS:-600} ))
+              while : ; do
+                if kubectl rollout status "deploy/${DEPLOYMENT_NAME}" -n "${DEPLOYMENT_NAMESPACE}" --timeout=20s >/dev/null 2>&1; then
+                  echo "[catalyst-api-env-patch] #4996 rollout complete (${_rw_why})"
+                  return 0
+                fi
+                # newest catalyst-api pod (ISO8601 creationTimestamp sorts chrono).
+                _rw_pod=$(kubectl get pods -n "${DEPLOYMENT_NAMESPACE}" \
+                  -o jsonpath='{range .items[*]}{.metadata.creationTimestamp}{"\t"}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                  | grep -E "${DEPLOYMENT_NAME}-" | sort | tail -1 | awk -F'\t' '{print $2}')
+                if [ -n "${_rw_pod}" ]; then
+                  _rw_wait=$(kubectl get pod "${_rw_pod}" -n "${DEPLOYMENT_NAMESPACE}" \
+                    -o jsonpath='{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{" "}{end}' 2>/dev/null || true)
+                  case "${_rw_wait}" in
+                    *ImagePullBackOff*|*ErrImagePull*)
+                      echo "[catalyst-api-env-patch] #4996 rollout wait: ${_rw_pod} pulling image (${_rw_wait% }); image confirmed in local Harbor by the warmed gate — pull self-heals, keep waiting" ;;
+                    *)
+                      # Not an image-pull stall. After a grace period (so a HEALTHY
+                      # roll that completes in <grace is never touched), run the
+                      # safe detach-gate — it only deletes provably-stale
+                      # catalyst-api attachments (the #4972 Multi-Attach un-stick).
+                      if [ $(( $(date +%s) - _rw_start )) -gt "${ROLL_DETACH_GRACE:-60}" ]; then
+                        evs_detach_gate
+                      fi ;;
+                  esac
+                fi
+                if [ "$(date +%s)" -ge "${_rw_deadline}" ]; then
+                  echo "[catalyst-api-env-patch] #4996 rollout wait: budget exhausted (${_rw_why}) — final blocking status check" >&2
+                  kubectl rollout status "deploy/${DEPLOYMENT_NAME}" -n "${DEPLOYMENT_NAMESPACE}" --timeout=30s
+                  return $?
+                fi
+                sleep 10
+              done
+            }
+
+            # ─── #4996 gates fire BEFORE the imageRegistry pivot (which rolls
+            # catalyst-api via Flux) so nothing pivots onto an unpullable image or
+            # onto a broken-CSI node. image_warmed_gate FATALs pre-pivot on a
+            # genuine miss; preroll_node_prep is best-effort.
+            HARBOR_HOST=$(echo "${HARBOR_PUBLIC_URL}" | sed -e 's|^https\?://||' -e 's|/.*$||')
+            image_warmed_gate || exit 1
+            preroll_node_prep || true
 
             # G61 Phase 1: patch HR.spec.values.global.imageRegistry
             # so Flux helm-controller upgrades catalyst-api Deployment
@@ -370,9 +597,12 @@ data:
             kubectl set env "deploy/${DEPLOYMENT_NAME}" \
               -n "${DEPLOYMENT_NAMESPACE}" \
               "${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
-            kubectl rollout status "deploy/${DEPLOYMENT_NAME}" \
-              -n "${DEPLOYMENT_NAMESPACE}" \
-              --timeout=300s
+            # #4996: deadlock-aware wait (image-pull tolerant + EVS detach-gate)
+            # replaces the blind 300s rollout status that wedged hw240.
+            if ! roll_and_wait_catalyst_api "gitops-repo-url + image pivot"; then
+              echo "[catalyst-api-env-patch] #4996 FATAL: catalyst-api rollout did not converge (gitops-repo-url + image pivot) — see the EVS/image-pull diagnostics above; step exits for a clean recoverable re-run" >&2
+              exit 1
+            fi
 
             # ---- Phase 3 (#2940, 2026-06-03): pivot the remaining ----
             # catalyst-api mothership env seams. The VERIFIED-PARTIAL
@@ -406,9 +636,11 @@ data:
               -n "${DEPLOYMENT_NAMESPACE}" \
               "CATALYST_PIN_ISSUER=${CONSOLE_PUBLIC_URL}" \
               "CATALYST_HANDOVER_JWT_ISSUER=${CONSOLE_PUBLIC_URL}"
-            kubectl rollout status "deploy/${DEPLOYMENT_NAME}" \
-              -n "${DEPLOYMENT_NAMESPACE}" \
-              --timeout=300s
+            # #4996: deadlock-aware wait for the issuer-env roll too.
+            if ! roll_and_wait_catalyst_api "issuer envs"; then
+              echo "[catalyst-api-env-patch] #4996 FATAL: catalyst-api rollout did not converge (issuer envs) — see the EVS/image-pull diagnostics above; step exits for a clean recoverable re-run" >&2
+              exit 1
+            fi
 
             # 3c. Read-back asserts — live values, not intentions.
             for KEY in sovereign-console-url sovereign-api-public-url; do
