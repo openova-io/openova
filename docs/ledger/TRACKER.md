@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T12:45:02Z` |
+| Last refreshed | `2026-07-11T13:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 84 |
 | Open DoD gates | 0 / 41 |
@@ -291,6 +291,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T12:48 | [#4995](https://github.com/openova-io/openova/pull/4995) | #4993 | fix(#4993): host-native app HTTPRoute for vcluster-tier Orgs |
 | 2026-07-11T10:58 | [#4992](https://github.com/openova-io/openova/pull/4992) | #4964 | fix(#4991): org-controller delivers per-Org provisioning RBA |
 | 2026-07-11T10:04 | [#4989](https://github.com/openova-io/openova/pull/4989) | #4987 | fix(#4988): lockstep catalog-seed bp-postgres spec.version 0 |
 | 2026-07-11T06:37 | [#4987](https://github.com/openova-io/openova/pull/4987) | #3375 | fix(#4986): bp-postgres emits dr-<instance> Continuum CR → s |
@@ -320,7 +321,6 @@ flowchart LR
 | 2026-07-10T00:05 | [#4946](https://github.com/openova-io/openova/pull/4946) | #4339 | fix(org-controller): tier-honest Org Ready message — no fals |
 | 2026-07-09T23:18 | [#4944](https://github.com/openova-io/openova/pull/4944) | #4758 | test(provisioning): lock the no-duplicate per-Org apps Kusto |
 | 2026-07-09T22:03 | [#4943](https://github.com/openova-io/openova/pull/4943) | #4942 | fix(#4942): permit native cross-region CP cilium-health + po |
-| 2026-07-09T21:31 | [#4941](https://github.com/openova-io/openova/pull/4941) | #4932 | test(#4934): stop leaked phase1-watch + post-handover gorout |
 
 ---
 
