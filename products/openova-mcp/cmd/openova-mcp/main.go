@@ -6,13 +6,23 @@
 // UI. It is a THIN facade: every data tool forwards the caller's bearer to
 // the LIVE catalyst-api, so the endpoint's own authz is the final word.
 //
-// Wire model (this slice): JSON-RPC 2.0 over stdio (Content-Length-framed),
-// the same proven transport the sandbox MCP uses. The bearer is supplied
-// per `tools/call` (and `tools/list`) via the `_auth.token` argument OR the
-// OPENOVA_MCP_BEARER env fallback, validated into the shared
-// auth.Claims, and resolved into the (context, tier, scope) identity that
-// drives both RBAC layers. The streamable-HTTP/SSE transport + chepherd
-// injection are DEFERRED to follow-ups (#3988 §4.3, §5).
+// Wire model: JSON-RPC 2.0 over one of two transports that share the SAME
+// dispatch + auth core (see core.handle):
+//
+//   - stdio (DEFAULT): NDJSON- or Content-Length-framed on os.Stdin/os.Stdout,
+//     the same proven transport the sandbox MCP uses. The bearer is supplied
+//     per `tools/call` (and `tools/list`) via the `_auth.token` argument OR
+//     the OPENOVA_MCP_BEARER env fallback.
+//   - HTTP/SSE (opt-in, #3988 §5 / #899): the MCP Streamable-HTTP transport —
+//     a POST /mcp JSON-RPC endpoint + a GET /mcp server→client SSE stream,
+//     with the bearer in the `Authorization: Bearer` header, plus /healthz for
+//     the chart's probes. Selected by OPENOVA_MCP_HTTP_ADDR (or --http <addr>);
+//     when unset the binary runs stdio, byte-for-byte unaffected. This is what
+//     the bp-openova-mcp chart's httpTransport.enabled path serves.
+//
+// Either way the bearer is validated into the shared auth.Claims and resolved
+// into the (context, tier, scope) identity that drives both RBAC layers.
+// chepherd injection stays DEFERRED to a follow-up (#3988 §4.3).
 //
 // Env contract:
 //
@@ -29,6 +39,10 @@
 //	                              verify=rs256.
 //	OPENOVA_MCP_HS256_SECRET      HS256 shared secret when verify=hs256.
 //	OPENOVA_MCP_BEARER            fallback bearer when a call omits _auth.
+//	OPENOVA_MCP_HTTP_ADDR         when set (e.g. ":8080"), serve the HTTP/SSE
+//	                              transport on this address instead of stdio.
+//	                              Equivalent to the --http <addr> flag. Unset =
+//	                              stdio (default).
 package main
 
 import (
@@ -121,7 +135,7 @@ func main() {
 		}
 	}
 	reg := tools.NewRegistry(api)
-	srv := &server{reg: reg, resolver: resolver, fallbackBearer: os.Getenv("OPENOVA_MCP_BEARER"), out: os.Stdout}
+	c := &core{reg: reg, resolver: resolver, fallbackBearer: os.Getenv("OPENOVA_MCP_BEARER")}
 	tenantHostLog := ""
 	if api != nil {
 		tenantHostLog = api.TenantHost()
@@ -129,6 +143,28 @@ func main() {
 	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v tenant_host=%q",
 		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), os.Getenv("OPENOVA_MCP_BEARER") != "", tenantHostLog)
 
+	// Transport selection: HTTP/SSE when an address is configured (env or
+	// --http), else stdio (the DEFAULT — byte-for-byte unchanged from the
+	// forked-child path agenity bakes). Keeping stdio the default makes the
+	// HTTP transport strictly ADDITIVE and matches the chart's
+	// httpTransport.enabled opt-in gate.
+	if addr := resolveHTTPAddr(os.Args[1:]); addr != "" {
+		log.Printf("transport: HTTP/SSE on %s", addr)
+		if err := serveHTTP(addr, c); err != nil {
+			log.Fatalf("http transport: %v", err)
+		}
+		return
+	}
+
+	log.Printf("transport: stdio")
+	serveStdio(c)
+}
+
+// serveStdio runs the JSON-RPC-over-stdio loop (the default transport). It is
+// the original main loop, unchanged: read a frame, dispatch through the shared
+// core, reply in the same framing the peer used (#4111).
+func serveStdio(c *core) {
+	srv := &server{core: c, out: os.Stdout}
 	in := bufio.NewReader(os.Stdin)
 	for {
 		msg, lineMode, err := readFrame(in)
@@ -152,12 +188,14 @@ func main() {
 	}
 }
 
-// server handles a single MCP peer over stdio.
+// server adapts the shared core to the stdio transport: it owns only the
+// framing (the writer + the latched framing mode) and delegates every message
+// to core.handle. The auth/dispatch/RBAC logic lives in core so the HTTP
+// transport reuses it verbatim.
 type server struct {
-	reg            *tools.Registry
-	resolver       *identity.Resolver
-	fallbackBearer string
-	out            io.Writer
+	core *core
+
+	out io.Writer
 
 	// lineDelimited records the framing the most-recent inbound message
 	// used: true = newline-delimited JSON (the MCP stdio spec default),
@@ -167,100 +205,142 @@ type server struct {
 }
 
 func (s *server) dispatch(raw []byte) error {
+	// stdio supplies no out-of-band bearer, so core.handle falls back to the
+	// per-call _auth.token / OPENOVA_MCP_BEARER path exactly as before.
+	resp := s.core.handle(context.Background(), "", raw)
+	if resp == nil {
+		return nil // notification — no reply
+	}
+	return s.writeFrame(*resp)
+}
+
+// ── transport-agnostic dispatch + auth core ──────────────────────────────
+
+// core is the transport-agnostic MCP dispatch + auth engine. Both the stdio
+// transport (server) and the HTTP/SSE transport (httpTransport) call
+// core.handle, so the resolve→two-layer-RBAC→dispatch flow is IDENTICAL on
+// every wire (#3988). It holds no writer and no framing state.
+type core struct {
+	reg            *tools.Registry
+	resolver       *identity.Resolver
+	fallbackBearer string
+}
+
+// handle dispatches one raw JSON-RPC message and returns the response to send,
+// or nil for a notification (which takes no reply). headerBearer is an
+// out-of-band bearer (the HTTP Authorization header); it is "" for stdio, in
+// which case the bearer is taken from the per-call _auth.token argument or the
+// OPENOVA_MCP_BEARER fallback — preserving the stdio behaviour byte-for-byte.
+func (c *core) handle(ctx context.Context, headerBearer string, raw []byte) *rpcResponse {
 	var req rpcRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
-		return s.writeError(nil, -32700, "parse error", err.Error())
+		return errorResp(nil, -32700, "parse error", err.Error())
 	}
 	switch req.Method {
 	case "initialize":
-		return s.handleInitialize(req)
+		return c.handleInitialize(req)
 	case "tools/list":
-		return s.handleToolsList(req)
+		return c.handleToolsList(headerBearer, req)
 	case "tools/call":
-		return s.handleToolsCall(req)
+		return c.handleToolsCall(ctx, headerBearer, req)
 	case "ping":
-		return s.writeResult(req.ID, map[string]any{"pong": true})
+		return resultResp(req.ID, map[string]any{"pong": true})
 	case "notifications/initialized", "notifications/cancelled":
 		return nil
 	default:
-		return s.writeError(req.ID, -32601, "method not found", req.Method)
+		return errorResp(req.ID, -32601, "method not found", req.Method)
 	}
 }
 
-func (s *server) handleInitialize(req rpcRequest) error {
-	return s.writeResult(req.ID, map[string]any{
+func (c *core) handleInitialize(req rpcRequest) *rpcResponse {
+	return resultResp(req.ID, map[string]any{
 		"protocolVersion": protocolVersion,
 		"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
 		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 	})
 }
 
-// handleToolsList resolves the caller and returns ONLY the tools visible
-// to their (context, tier) — layer-1 RBAC. The bearer is read from the
-// `_meta._auth.token` param OR the env fallback. An unauthenticated
-// tools/list returns an empty surface (a caller with no identity sees
-// nothing).
-func (s *server) handleToolsList(req rpcRequest) error {
-	id, _ := s.resolveFromParams(req.Params)
-	return s.writeResult(req.ID, map[string]any{"tools": s.reg.List(id)})
+// handleToolsList resolves the caller and returns ONLY the tools visible to
+// their (context, tier) — layer-1 RBAC. The bearer is read from the out-of-band
+// header (HTTP), the `_auth.token` param (stdio), or the env fallback. An
+// unauthenticated tools/list returns an empty surface (no identity → no tools).
+func (c *core) handleToolsList(headerBearer string, req rpcRequest) *rpcResponse {
+	id, _ := c.resolveBearer(effectiveBearer(headerBearer, c.fallbackBearer, req.Params))
+	return resultResp(req.ID, map[string]any{"tools": c.reg.List(id)})
 }
 
-func (s *server) handleToolsCall(req rpcRequest) error {
+func (c *core) handleToolsCall(ctx context.Context, headerBearer string, req rpcRequest) *rpcResponse {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return s.writeError(req.ID, -32602, "invalid params", err.Error())
+		return errorResp(req.ID, -32602, "invalid params", err.Error())
 	}
 
-	id, err := s.resolveBearer(extractBearer(s.fallbackBearer, params.Arguments))
+	id, err := c.resolveBearer(effectiveBearer(headerBearer, c.fallbackBearer, params.Arguments))
 	if err != nil {
-		return s.writeError(req.ID, -32001, "unauthenticated", err.Error())
+		return errorResp(req.ID, -32001, "unauthenticated", err.Error())
 	}
 	args := stripAuthEnvelope(params.Arguments)
 
-	result, callErr := s.reg.Call(context.Background(), id, params.Name, args)
+	result, callErr := c.reg.Call(ctx, id, params.Name, args)
 	if callErr != nil {
-		return s.toolError(req.ID, callErr)
+		return c.toolError(req.ID, callErr)
 	}
 	body, _ := json.Marshal(result)
-	return s.writeResult(req.ID, map[string]any{
+	return resultResp(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": string(body)}},
 		"isError": false,
 	})
 }
 
 // toolError maps a Call error to the right MCP error code so the parity
-// semantics hold: a forbidden tool returns a distinct code carrying the
-// 403-equivalent, an upstream catalyst-api status is surfaced verbatim.
-func (s *server) toolError(id json.RawMessage, err error) error {
+// semantics hold on every transport: a forbidden tool returns a distinct code
+// carrying the 403-equivalent, an upstream catalyst-api status is surfaced
+// verbatim.
+func (c *core) toolError(id json.RawMessage, err error) *rpcResponse {
 	switch {
 	case errors.Is(err, tools.ErrForbidden):
-		return s.writeError(id, -32003, "forbidden", map[string]any{"status": 403, "detail": err.Error()})
+		return errorResp(id, -32003, "forbidden", map[string]any{"status": 403, "detail": err.Error()})
 	case errors.Is(err, tools.ErrUnknownTool):
-		return s.writeError(id, -32601, "unknown tool", err.Error())
+		return errorResp(id, -32601, "unknown tool", err.Error())
 	default:
 		var apiErr *catalystapi.APIError
 		if errors.As(err, &apiErr) {
-			return s.writeError(id, -32010, "upstream error",
+			return errorResp(id, -32010, "upstream error",
 				map[string]any{"status": apiErr.Status, "body": apiErr.Body})
 		}
-		return s.writeError(id, -32000, "tool error", err.Error())
+		return errorResp(id, -32000, "tool error", err.Error())
 	}
 }
 
-// resolveFromParams pulls a bearer out of a generic params blob (the
-// `_meta._auth.token` or `_auth.token` side-channel) for tools/list.
-func (s *server) resolveFromParams(params json.RawMessage) (*identity.Identity, error) {
-	return s.resolveBearer(extractBearer(s.fallbackBearer, params))
-}
-
-func (s *server) resolveBearer(bearer string) (*identity.Identity, error) {
+func (c *core) resolveBearer(bearer string) (*identity.Identity, error) {
 	if bearer == "" {
-		return nil, errors.New("no bearer (set _auth.token in arguments or OPENOVA_MCP_BEARER)")
+		return nil, errors.New("no bearer (set Authorization: Bearer, _auth.token in arguments, or OPENOVA_MCP_BEARER)")
 	}
-	return s.resolver.Resolve(bearer)
+	return c.resolver.Resolve(bearer)
+}
+
+// effectiveBearer selects the bearer for a call. An out-of-band headerBearer
+// (the HTTP Authorization header) wins; otherwise the per-call `_auth.token`
+// side-channel or the OPENOVA_MCP_BEARER fallback is used (the stdio path).
+// With headerBearer=="" this is identical to the original stdio extraction.
+func effectiveBearer(headerBearer, fallback string, raw json.RawMessage) string {
+	if h := strings.TrimSpace(strings.TrimPrefix(headerBearer, "Bearer ")); h != "" {
+		return h
+	}
+	return extractBearer(fallback, raw)
+}
+
+// resultResp / errorResp build the JSON-RPC response envelopes both transports
+// send. Split out so core.handle returns a value the caller frames for its wire.
+func resultResp(id json.RawMessage, result any) *rpcResponse {
+	return &rpcResponse{JSONRPC: "2.0", ID: id, Result: result}
+}
+
+func errorResp(id json.RawMessage, code int, msg string, data any) *rpcResponse {
+	return &rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: msg, Data: data}}
 }
 
 // ── bearer plumbing (mirrors the sandbox MCP _auth envelope) ─────────────

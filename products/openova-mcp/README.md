@@ -12,8 +12,10 @@ system.
 This module is the **first concrete, live-testable slice** of the EPIC. It
 ships:
 
-1. **The MCP server core** (`cmd/openova-mcp`) — JSON-RPC 2.0 over stdio,
-   the same proven transport the sandbox MCP uses.
+1. **The MCP server core** (`cmd/openova-mcp`) — JSON-RPC 2.0 over one of two
+   transports that share the SAME dispatch + auth core: **stdio** (default,
+   the same proven transport the sandbox MCP uses) and an opt-in **HTTP/SSE**
+   (Streamable-HTTP) transport (see [Transports](#transports) below).
 2. **Per-relevant-Keycloak identity resolution** (`internal/identity`) —
    parses the bearer into `auth.Claims`, derives the realm **context**
    (Organization vs Sovereign), the **tier** (viewer<developer<operator<
@@ -62,6 +64,41 @@ ships:
   caller's Org namespace (`<org>` / `<org>-<env_type>`), so a cross-Org
   leak cannot pass through even if the endpoint widened.
 
+## Transports
+
+The server speaks JSON-RPC 2.0 over one of two transports selected at startup.
+Both run the **identical** resolve → two-layer-RBAC → thin-facade flow
+(`core.handle` in `cmd/openova-mcp`) — the transport only owns the wire, never
+the auth or dispatch logic.
+
+- **stdio (default)** — NDJSON- or Content-Length-framed on stdin/stdout. This
+  is the path `agenity` bakes and forks per session. The bearer is supplied per
+  `tools/call`/`tools/list` via the `_auth.token` argument or `OPENOVA_MCP_BEARER`.
+  Runs whenever no HTTP address is configured — **byte-for-byte unaffected** by
+  the HTTP addition.
+- **HTTP/SSE (opt-in, #3988 §5 / #899)** — the MCP **Streamable-HTTP** transport,
+  enabled by setting `OPENOVA_MCP_HTTP_ADDR` (e.g. `:8080`) or passing
+  `--http :8080`. Endpoints:
+
+  | Method + path | Purpose |
+  |---|---|
+  | `POST /mcp` | a JSON-RPC request → JSON-RPC response (`application/json`); a notification → `202` |
+  | `GET /mcp` | server→client SSE stream (`text/event-stream`); keep-alive today (no server-initiated messages in this slice) |
+  | `GET /healthz`, `GET /readyz` | liveness/readiness for the chart probes |
+  | `GET /` | JSON descriptor of the surface |
+
+  **Auth:** every `/mcp` request MUST carry `Authorization: Bearer <jwt>`,
+  validated through the SAME resolver the stdio path uses. An absent/invalid
+  bearer is rejected at the transport with **HTTP 401** (+ `WWW-Authenticate`)
+  before any dispatch. Application-tier RBAC is unchanged: a `tools/list` scope
+  filter and a `tools/call` Org-scope re-auth (cross-Org `create`/`get` →
+  **MCP 403**, the JSON-RPC error `-32003` with `data.status: 403`, inside a
+  `200`) hold exactly as on stdio. The listener is a plain in-Pod address; the
+  front door is the Cilium Gateway HTTPRoute — **never a NodePort**.
+
+  This is the server the `bp-openova-mcp` chart's `httpTransport.enabled` path
+  (PR #4981) is built to serve: container port `8080`, probes on `/healthz`.
+
 ## Env contract (`cmd/openova-mcp`)
 
 | Env var | Purpose |
@@ -71,7 +108,8 @@ ships:
 | `OPENOVA_MCP_VERIFY` | `rs256` (default) \| `hs256` \| `insecure` — bearer verification mode |
 | `OPENOVA_MCP_RS256_PUBKEY_PEM` | PEM of the RS256 public key (Sovereign handover-jwt pubkey) when verify=rs256 |
 | `OPENOVA_MCP_HS256_SECRET` | HS256 shared secret when verify=hs256 |
-| `OPENOVA_MCP_BEARER` | fallback bearer when a `tools/call` omits the `_auth.token` argument |
+| `OPENOVA_MCP_BEARER` | fallback bearer when a `tools/call` omits the `_auth.token` argument (stdio); on HTTP, a server-token fallback when a request omits the `Authorization` header |
+| `OPENOVA_MCP_HTTP_ADDR` | when set (e.g. `:8080`), serve the HTTP/SSE transport on this address instead of stdio (equivalent to `--http <addr>`) |
 
 ## Live-acceptance (hw173)
 
@@ -82,7 +120,7 @@ server **inside hw173's catalyst-api pod** pointed at the real
 - A sovereign-admin `list_applications` returns the **real** Application CRs
   unfiltered.
 - An Org token (`org_id=acme`) sees **only** that Org's Applications.
-- An out-of-scope `get_application` for another Org returns **forbidden**.
+- A cross-Org `get_application` for another Org returns **forbidden**.
 
 See the walk evidence on issue #3988.
 
@@ -93,8 +131,10 @@ follow-ups:
 
 - **Agenity integration** — the `bp-openova-mcp dependsOn bp-agenity`
   Blueprint chart, the `openovaMCP.*` repoint, the `.mcp.json` injection.
-- **HTTP/SSE transport** — this slice uses stdio; the long-lived
-  per-Org/per-Sovereign Service needs streamable-HTTP/SSE + stable DNS.
+- **Bootstrap-kit / catalog-seed wiring** — the HTTP/SSE transport itself now
+  exists (see [Transports](#transports)), but flipping `httpTransport.enabled`
+  on a real Sovereign (the ConfigMap that sets `OPENOVA_MCP_HTTP_ADDR`, the
+  stable per-Org/per-Sovereign DNS + HTTPRoute host) is a post-SME follow-up.
 - **Per-realm JWKS validation** — this slice verifies against a single
   RS256/HS256 key; the full per-realm JWKS cache (Org realm vs Sovereign
   realm) is the production identity path.
