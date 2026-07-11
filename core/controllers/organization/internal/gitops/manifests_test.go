@@ -90,6 +90,72 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	}
 }
 
+// TestRender_ProvisioningRBACAndVclusterTargetNS_4991 locks in the two #4991
+// deliveries: (1) the provisioning-tenant Role+RoleBinding lands in the
+// ALWAYS-host-applied host-apps tree for BOTH tiers, and (2) the vcluster-tier
+// apps tree creates the target namespace INSIDE the vcluster (host tier must NOT
+// re-declare the boundary-owned host ns).
+func TestRender_ProvisioningRBACAndVclusterTargetNS_4991(t *testing.T) {
+	t.Parallel()
+
+	// --- vcluster tier (m) ---
+	vc, err := Render(Inputs{Slug: "acme", DisplayName: "ACME", Tier: "org",
+		PlanSlug: "m", SovereignFQDN: "omantel.omani.works", HostCluster: "hz"})
+	if err != nil {
+		t.Fatalf("Render(m): %v", err)
+	}
+	rbac, ok := vc["vcluster/host-apps/"+provisioningRBACDoc]
+	if !ok {
+		t.Fatalf("vcluster tier: missing vcluster/host-apps/%s — provisioning SA can't create the kubeconfig mirror Secret → mirror step 403s and the whole provision aborts (#4991)", provisioningRBACDoc)
+	}
+	for _, want := range []string{
+		"kind: Role", "kind: RoleBinding", "name: provisioning-tenant",
+		"namespace: acme", "name: provisioning", "namespace: org-services",
+		"create", "delete",
+	} {
+		if !strings.Contains(string(rbac), want) {
+			t.Errorf("provisioning-rbac.yaml missing %q\n%s", want, string(rbac))
+		}
+	}
+	// host-apps kustomization enumerates BOTH the CNP and the RBAC.
+	hk := string(vc["vcluster/host-apps/kustomization.yaml"])
+	for _, want := range []string{"- " + ciliumNetworkPolicyDoc, "- " + provisioningRBACDoc} {
+		if !strings.Contains(hk, want) {
+			t.Errorf("host-apps kustomization missing %q\n%s", want, hk)
+		}
+	}
+	// vcluster tier creates the vcluster-internal target ns + lists it.
+	tns, ok := vc["vcluster/apps/"+appsNamespaceDoc]
+	if !ok {
+		t.Fatalf("vcluster tier: missing vcluster/apps/%s — the kubeConfig-targeted apps Kustomization fails 'namespaces \"acme\" not found' and the app never deploys (#4991)", appsNamespaceDoc)
+	}
+	if !strings.Contains(string(tns), "name: acme") {
+		t.Errorf("apps namespace.yaml must be name: acme\n%s", string(tns))
+	}
+	ak := string(vc["vcluster/apps/kustomization.yaml"])
+	for _, want := range []string{"- " + networkPolicyDoc, "- " + appsNamespaceDoc} {
+		if !strings.Contains(ak, want) {
+			t.Errorf("vcluster-tier apps kustomization missing %q\n%s", want, ak)
+		}
+	}
+
+	// --- host tier (s): RBAC still delivered; NO apps target ns ---
+	hs, err := Render(Inputs{Slug: "bob", DisplayName: "Bob", Tier: "org",
+		PlanSlug: "s", SovereignFQDN: "omantel.omani.works", HostCluster: "hz"})
+	if err != nil {
+		t.Fatalf("Render(s): %v", err)
+	}
+	if _, ok := hs["vcluster/host-apps/"+provisioningRBACDoc]; !ok {
+		t.Errorf("host tier: provisioning RBAC must ALSO be delivered (the SA still mirrors/kicks in the host ns)")
+	}
+	if _, ok := hs["vcluster/apps/"+appsNamespaceDoc]; ok {
+		t.Errorf("host tier: must NOT emit vcluster/apps/namespace.yaml — the boundary already owns the host ns; a second Flux Kustomization managing the same Namespace fights it")
+	}
+	if strings.Contains(string(hs["vcluster/apps/kustomization.yaml"]), "- "+appsNamespaceDoc) {
+		t.Errorf("host tier: apps kustomization must not list namespace.yaml")
+	}
+}
+
 func TestRender_HelmRepoDefaults(t *testing.T) {
 	t.Parallel()
 	out, err := Render(Inputs{

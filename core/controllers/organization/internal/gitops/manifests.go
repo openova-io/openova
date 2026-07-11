@@ -665,10 +665,20 @@ resources:
 // apiserver — it lives in the host-apps/ tree instead. The funnel's app-install
 // tree (a DIFFERENT repo) carries the customer's purchased Applications. Keeping
 // an explicit index here makes `kustomize build ./vcluster/apps` deterministic.
+// appsKustomizationTemplate is the kustomize index for the apps/ tree. It ranges
+// over renderView.AppsResources so the file list is tier-aware: the vcluster tier
+// prepends namespace.yaml (#4991 — the kubeConfig-targeted apps Kustomization
+// applies INTO the Org vcluster with targetNamespace=<slug>, but NOTHING creates
+// that namespace INSIDE the vcluster, so Flux failed `namespaces "<slug>" not
+// found` and the customer's app never deployed; the host tier already has the
+// boundary-owned host `<slug>` ns so it must NOT re-declare it here — a second
+// Flux Kustomization managing the same host Namespace fights the boundary one).
 const appsKustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ` + networkPolicyDoc + `
+{{- range .AppsResources }}
+  - {{ . }}
+{{- end }}
 `
 
 // hostAppsKustomizationTemplate is the kustomize index for the host-apps/ tree —
@@ -676,14 +686,109 @@ resources:
 // per_org_flux.go) reconciles it ALWAYS host-side (never via kubeConfig). It
 // carries the reserved-entity CiliumNetworkPolicy, which cannot apply into a
 // vanilla vcluster apiserver (no cilium.io/v2 CRD, #4475 §1) and is not a
-// syncable workload object. Applied to the host `<slug>` ns, the CNP binds the
-// Org's pods directly (host tier) or the syncer-reflected vcluster pods (vcluster
-// tier). Keeping an explicit index makes `kustomize build ./vcluster/host-apps`
-// deterministic.
+// syncable workload object, AND (#4991) the per-Org provisioning-tenant RBAC the
+// org-services/provisioning SA needs to create the kubeconfig mirror Secret +
+// bounce vcluster-0 during DNS recovery. Both apply to the host `<slug>` ns.
+// Ranges over renderView.HostAppsResources so the index stays deterministic.
 const hostAppsKustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ` + ciliumNetworkPolicyDoc + `
+{{- range .HostAppsResources }}
+  - {{ . }}
+{{- end }}
+`
+
+// provisioningRBACDoc is the host-apps-tree filename for the per-Org
+// provisioning-tenant Role + RoleBinding (#4991).
+const provisioningRBACDoc = "provisioning-rbac.yaml"
+
+// appsNamespaceDoc is the apps-tree filename for the vcluster-internal target
+// Namespace (#4991, vcluster tier only).
+const appsNamespaceDoc = "namespace.yaml"
+
+// provisioningRBACTemplate grants the org-services/provisioning ServiceAccount
+// the minimum namespaced permissions it needs inside the Org `<slug>` ns during
+// provisioning + teardown (#4991). Root cause it fixes: on a Sovereign the
+// funnel's GeneratePerOrgAppsTree DELIBERATELY drops the provisioning-rbac.yaml
+// host-scaffolding file (it re-roots only the app workloads into vcluster/apps/),
+// and the org-controller emitted NO provisioning Role either — so
+// `provisioning` had NO create-secrets / delete-pods rights in `<slug>`. The
+// mirrorVClusterKubeconfig step POSTs the kubeconfig mirror into `<slug>` and
+// 403'd (`secrets is forbidden`), which is FATAL (failProvision) → the whole
+// provision aborted at the vcluster step → WordPress/customer apps never served
+// (#4964 added these verbs to the funnel's own generateProvisioningTenantRBAC,
+// but on a Sovereign that file is never committed — the Role must be delivered by
+// the boundary owner instead). Emitted into vcluster/host-apps/ so it is ALWAYS
+// applied host-side onto `<slug>` (never via kubeConfig) at Org-create — well
+// before the funnel's mirror step runs. Namespaced (Role, not ClusterRole) to
+// preserve the deliberate per-Org write scoping (#75).
+const provisioningRBACTemplate = `apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provisioning-tenant
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+rules:
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: [""]
+    # create/update/patch: the #4785 dual-namespace kubeconfig mirror
+    # (mirrorVClusterKubeconfig) upserts tenant-<slug>-kubeconfig into this ns.
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    # delete: waitForVclusterDNSOrKick bounces vcluster-0 when the syncer's
+    # initial DNS reconciliation doesn't publish kube-dns-x-kube-system-x-vcluster.
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificaterequests"]
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: provisioning-tenant
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: provisioning-tenant
+subjects:
+  - kind: ServiceAccount
+    name: provisioning
+    namespace: org-services
+`
+
+// appsNamespaceTemplate creates the vcluster-INTERNAL target namespace for the
+// vcluster tier (#4991). The apps Flux Kustomization applies via kubeConfig into
+// the Org vcluster with targetNamespace=<slug>; Flux does NOT auto-create the
+// target namespace, and nothing else did → `namespaces "<slug>" not found`.
+// A Namespace object is cluster-scoped so Flux's targetNamespace rewrite leaves
+// its name untouched, creating the virtual `<slug>` ns the workloads land in.
+const appsNamespaceTemplate = `apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+    catalyst.openova.io/component: per-org-apps-target-ns
 `
 
 // renderView is the data the templates execute against: the flat Inputs plus
@@ -708,6 +813,15 @@ type renderView struct {
 	// references — gated by the tier (vcluster.yaml only for paid tiers) and
 	// the plan (resourcequota.yaml skipped for soft-cap Flexi).
 	KustomizeResources []string
+	// AppsResources is the file list vcluster/apps/kustomization.yaml references
+	// (#4991) — networkpolicy.yaml always; namespace.yaml only for the vcluster
+	// tier (the kubeConfig-targeted apps Kustomization needs the target ns
+	// created INSIDE the vcluster; the host tier reuses the boundary-owned ns).
+	AppsResources []string
+	// HostAppsResources is the file list vcluster/host-apps/kustomization.yaml
+	// references (#4991) — ciliumnetworkpolicy.yaml + provisioning-rbac.yaml,
+	// both always applied host-side onto `<slug>`.
+	HostAppsResources []string
 }
 
 // limitRangeDefaults derives the per-container default request==limit for a
@@ -815,13 +929,30 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// 503s the Org's Application behind the Cilium Gateway and blocks egress to the
 	// cluster API (neither reachable via any K8s NP selector).
 	files["vcluster/host-apps/"+ciliumNetworkPolicyDoc] = ciliumNetworkPolicyTemplate
+	// #4991 — the per-Org provisioning-tenant Role+RoleBinding, delivered by the
+	// boundary owner into the ALWAYS-host-applied host-apps tree so the
+	// org-services/provisioning SA can create the kubeconfig mirror Secret +
+	// bounce vcluster-0 in `<slug>` BEFORE the funnel's mirror step 403s and
+	// aborts the whole provision.
+	files["vcluster/host-apps/"+provisioningRBACDoc] = provisioningRBACTemplate
+	appsResources := []string{networkPolicyDoc}
+	if boundaryIsVcluster(in.PlanSlug) {
+		// #4991 — the kubeConfig-targeted apps Kustomization applies INTO the Org
+		// vcluster with targetNamespace=<slug>; create that namespace INSIDE the
+		// vcluster (nothing else does → `namespaces "<slug>" not found`). Host
+		// tier reuses the boundary-owned host ns, so it is NOT re-declared there.
+		files["vcluster/apps/"+appsNamespaceDoc] = appsNamespaceTemplate
+		appsResources = append(appsResources, appsNamespaceDoc)
+	}
 	// Explicit apps/kustomization.yaml so the per-Org apps Flux Kustomization's
-	// `kustomize build ./vcluster/apps` enumerates the K8s NP deterministically
-	// (mirrors the funnel apps-tree, which also ships its own kustomization.yaml).
+	// `kustomize build ./vcluster/apps` enumerates the K8s NP (+ vcluster-tier
+	// target namespace) deterministically.
+	view.AppsResources = sortedResources(appsResources)
 	files["vcluster/apps/kustomization.yaml"] = appsKustomizationTemplate
 	// Explicit host-apps/kustomization.yaml so the per-Org host-apps Flux
 	// Kustomization's `kustomize build ./vcluster/host-apps` enumerates the CNP
-	// deterministically.
+	// + provisioning RBAC deterministically.
+	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc})
 	files["vcluster/host-apps/kustomization.yaml"] = hostAppsKustomizationTemplate
 
 	// Stable order for the kustomization resource list (map iteration above
