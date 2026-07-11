@@ -1005,6 +1005,87 @@ func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 	}
 }
 
+// TestReconcile_ConsoleServing_LandsEvenWhenAppProvisioningStepFails is the
+// #4999 regression guard. The per-Org console HTTPRoute (which wires
+// /auth/org-handover → catalyst-api, the zero-click owner sign-in) MUST land
+// even when a LATER app-provisioning step fatally fails, so the owner can
+// ALWAYS sign in. Before #4999 the console-serving trio ran at the END of
+// Reconcile, so an early `r.fail(...)` — here a per-Org Keycloak realm error,
+// the exact class of failure the hw240 2nd Org (walk-stranger-two) tripped —
+// aborted the reconcile BEFORE the route was ever written, so
+// /auth/org-handover 503'd. The trio now runs FIRST, so the route lands
+// regardless of the downstream app pipeline.
+func TestReconcile_ConsoleServing_LandsEvenWhenAppProvisioningStepFails(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	org.Spec.TenantPublic = orgapi.OrganizationTenantPublic{
+		ParentDomain: "omani.rest",
+		Subdomain:    "walk-stranger-two",
+	}
+
+	r, _, kc := makeReconciler(t, org)
+	// Enable the per-Org realm and make it FAIL — an EARLY fatal reconcile step
+	// (reconcilePerOrgRealm), well before the OLD console-route position.
+	r.PerOrgRealmEnabled = true
+	kc.realmEnsureErr = fmt.Errorf("keycloak realm create boom (simulated)")
+
+	scheme := r.Scheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
+	}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	}, &unstructured.UnstructuredList{})
+
+	// A fresh Org first requeues once per finalizer it needs (per-org-realm,
+	// then tenant-networking), then runs the up-path. Loop generously; every
+	// pass returns nil error (finalizer-add + r.fail both requeue without
+	// erroring), and the work pass is idempotent.
+	for i := 0; i < 5; i++ {
+		if _, err := r.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: "acme"},
+		}); err != nil {
+			t.Fatalf("reconcile pass %d returned error: %v", i+1, err)
+		}
+	}
+
+	// Prove we actually exercised the early-abort path (the realm step ran +
+	// failed), not a happy-path reconcile.
+	if kc.realmEnsureCalls == 0 {
+		t.Fatal("expected EnsureRealm to be attempted (the early fatal step)")
+	}
+
+	// The console HTTPRoute MUST exist despite the realm failure.
+	hr := unstructured.Unstructured{}
+	hr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
+	})
+	wantName := "catalyst-ui-console-walk-stranger-two-omani-rest"
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "catalyst-system", Name: wantName}, &hr); err != nil {
+		t.Fatalf("console HTTPRoute MUST land even when an app-provisioning step fails (#4999): get catalyst-system/%s: %v", wantName, err)
+	}
+	hostnames, _, _ := unstructured.NestedSlice(hr.Object, "spec", "hostnames")
+	if len(hostnames) != 1 || hostnames[0] != "console.walk-stranger-two.omani.rest" {
+		t.Errorf("hostnames: got %v, want [console.walk-stranger-two.omani.rest]", hostnames)
+	}
+	// The route wires /auth/org-handover → catalyst-api (the sign-in path).
+	rules, _, _ := unstructured.NestedSlice(hr.Object, "spec", "rules")
+	if len(rules) != 5 {
+		t.Fatalf("console route rules: got %d, want 5 (health/handover/api/catalyst/catch-all)", len(rules))
+	}
+	handoverMatches, _, _ := unstructured.NestedSlice(rules[1].(map[string]any), "matches")
+	var sawOrgHandover bool
+	for _, m := range handoverMatches {
+		p, _, _ := unstructured.NestedString(m.(map[string]any), "path", "value")
+		if p == "/auth/org-handover" {
+			sawOrgHandover = true
+		}
+	}
+	if !sawOrgHandover {
+		t.Errorf("console route MUST route /auth/org-handover to catalyst-api even when app provisioning fails (#4999), matches=%v", handoverMatches)
+	}
+}
+
 // TestReconcile_TenantPublic_DisabledByDefault covers the no-op path:
 // when spec.tenantPublic.parentDomain is empty (the default for every
 // existing Org CR), NO HTTPRoute MUST be written. Without this guard

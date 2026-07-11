@@ -509,6 +509,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
+	// ── Console-serving FIRST (issue #4999) ─────────────────────────────
+	// The per-Org customer console (console.<slug>.<parentDomain>) is HOW THE
+	// OWNER SIGNS IN — zero-click /auth/org-handover → catalyst_session cookie →
+	// /jobs. Per the tenant_route.go design intent it MUST come up as soon as the
+	// Org has a public hostname, INDEPENDENT of every app-provisioning step below
+	// (Keycloak realm, Gitea, per-Org Flux, Federation, the #4991/#4992
+	// provisioning-RBAC / vcluster-mirror gap) — any of which can `r.fail(...)`.
+	// Before #4999 the DNS + TLS + HTTPRoute trio ran at the END of Reconcile, so
+	// an earlier fatal step aborted BEFORE the console route was ever written and
+	// the customer's /auth/org-handover 503'd (the hw240 2nd-Org walk-stranger-two
+	// symptom: the 1st Org converged fully so its route landed, the 2nd tripped an
+	// earlier step and never got a console route). Running the trio FIRST +
+	// best-effort (log + requeue, never block) guarantees every funnel Org can
+	// sign in even while its purchased app is still converging or has failed.
+	// No-op when spec.tenantPublic.parentDomain is empty.
+	consoleServingDegraded := r.reconcileConsoleServing(ctx, &org)
+
 	// 1. Keycloak group (in the Sovereign realm).
 	kcAttrs := map[string][]string{
 		"org":  {org.Spec.Slug},
@@ -656,53 +673,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.fail(ctx, &org, idpCond.Reason, fedErr.Error())
 	}
 
-	// 5a-pre. Per-Org pool-DNS A-record (issue #4236 — the #4179 final layer).
-	// Write `console.<slug>.<parentDomain>` + `*.<slug>.<parentDomain>` to the
-	// CENTRAL PowerDNS so a fresh marketplace-funnel signup's console host
-	// RESOLVES (#4222's pool writer was wired only into the catalyst-api BSS
-	// pipeline, which the marketplace funnel never runs; the org-controller
-	// reconciles EVERY Org CR, so writing the record here covers both doors).
-	// Ordered BEFORE the TLS + HTTPRoute steps so the name resolves the moment
-	// the cert/route land. Failure is TRANSIENT (a PowerDNS hiccup) and must NOT
-	// fail the whole Org reconcile — we log and let the 30s requeue retry, so the
-	// Org still goes Ready while DNS converges. No-op when parentDomain is empty
-	// or the central-pdns writer / console IP is unconfigured (see tenant_dns.go).
-	if _, err := r.reconcileTenantDNS(ctx, &org); err != nil {
-		log.Error(err, "tenant pool-DNS reconcile (transient — requeue)",
-			"organization", org.Name)
-	}
-
-	// 5a-bis. Per-pool console TLS (issue #4075). When the Org picks a
-	// free-subdomain hostname under a pool parent zone, issue the
-	// `*.<parentDomain>` cert-manager Certificate AND append the matching
-	// `*.<parentDomain>` listener to the dedicated console Gateway, so the
-	// Gateway can terminate TLS for `console.<slug>.<parentDomain>`.
-	// Without these, the customer-Org console URL fails with
-	// ERR_CONNECTION_CLOSED (no SNI match → no cert → TLS handshake
-	// closed) even when the HTTPRoute below is present. Both writes are
-	// idempotent + strictly additive (never touch the apex `*.<sovFQDN>`
-	// listener). Failure here is TRANSIENT (DNS-01 issuance latency or a
-	// momentary Gateway-update conflict) and must NOT fail the whole Org
-	// reconcile — we log and let the 30s requeue retry, so the Org still
-	// goes Ready (Keycloak group + Gitea Org + vCluster already landed)
-	// while the cert finishes issuing. No-op when parentDomain is empty.
-	if _, err := r.reconcileTenantConsoleTLS(ctx, &org); err != nil {
-		log.Error(err, "tenant console TLS reconcile (transient — requeue)",
-			"organization", org.Name)
-	}
-
-	// 5b. Per-tenant public-hostname HTTPRoute (issue #1629 follow-up).
-	// When `spec.tenantPublic.parentDomain` is set, render a Gateway-API
-	// HTTPRoute attaching `<subdomain>.<parentDomain>` to the supplied
-	// backend Service on the dedicated console Gateway (#4075). No-op when
-	// the field is empty — Orgs that don't yet have a public hostname keep
-	// working via the Sovereign-wide `*.<sovFQDN>` tenant-wildcard
-	// route. Failure is non-fatal for the Org's other reconciliation
-	// outputs (Keycloak group + Gitea Org + vCluster manifests already
-	// landed) so we requeue instead of marking the whole Org Failed.
-	if _, err := r.reconcileTenantRoute(ctx, &org); err != nil {
-		return r.fail(ctx, &org, "TenantRouteFailed", err.Error())
-	}
+	// 5a/5b. Console-serving trio (pool DNS + console TLS + console HTTPRoute)
+	// moved to the TOP of Reconcile — see reconcileConsoleServing / the
+	// `consoleServingDegraded` call above (issue #4999). Landing it here (after
+	// the vCluster/Gitea/Flux/Federation steps that can `r.fail(...)`) meant a
+	// funnel Org that tripped any earlier step never got a console route → the
+	// owner's /auth/org-handover 503'd. It now runs first + best-effort so the
+	// customer can always sign in; a transient failure is folded into the
+	// end-of-Reconcile requeue via consoleServingDegraded.
 
 	// 5c. Per-Org IaC repo bootstrap (G117.3 / W2.C3 — ADR-0009).
 	// Provisions the canonical `<slug>/iac` repo, the `<slug>-iac-bot`
@@ -818,10 +796,45 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// the Organization watch re-triggers on spec changes; the HR's own
 	// Flux reconcile drives the cluster state. While provisioning we poll
 	// the readback every 30s (matching the fail() cadence).
-	if !vcReady {
+	// Requeue while the vCluster is still coming up OR the console-serving trio
+	// (#4999) reported a transient failure — so the console DNS/TLS/HTTPRoute
+	// retry on the 30s cadence even for an Org that is otherwise Ready (a
+	// host-tier Org goes Ready immediately, so without this a transient console
+	// route write would sit un-retried until the next spec change).
+	if !vcReady || consoleServingDegraded {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// reconcileConsoleServing brings up the per-Org customer console EDGE — the
+// pool DNS A-record (console.<slug>.<parent> + *.<slug>.<parent>), the console
+// Gateway per-Org TLS listener+cert, and the console HTTPRoute (which wires
+// /auth/org-handover → catalyst-api and / → catalyst-ui) — for an Org that has
+// a public pool hostname (spec.tenantPublic.parentDomain). It is called FIRST in
+// Reconcile (issue #4999) so the owner can SIGN IN regardless of the
+// app-provisioning steps' outcome. All three are best-effort: a failure is
+// logged and returned as degraded=true so the caller requeues, but NEVER aborts
+// the reconcile — the console edge must not gate on, nor be gated by, the
+// vCluster/app pipeline. DNS is ordered first so the name resolves the moment
+// the cert/route land. Every step is a no-op when parentDomain is empty (the Org
+// has no public hostname yet → it is reached via the Sovereign-wide
+// `*.<sovFQDN>` tenant-wildcard route), so degraded stays false.
+func (r *Reconciler) reconcileConsoleServing(ctx context.Context, org *orgapi.Organization) (degraded bool) {
+	log := r.Log.WithValues("organization", org.Name)
+	if _, err := r.reconcileTenantDNS(ctx, org); err != nil {
+		log.Error(err, "tenant pool-DNS reconcile (transient — requeue)")
+		degraded = true
+	}
+	if _, err := r.reconcileTenantConsoleTLS(ctx, org); err != nil {
+		log.Error(err, "tenant console TLS reconcile (transient — requeue)")
+		degraded = true
+	}
+	if _, err := r.reconcileTenantRoute(ctx, org); err != nil {
+		log.Error(err, "tenant console HTTPRoute reconcile (transient — requeue)")
+		degraded = true
+	}
+	return degraded
 }
 
 // readyOrgMessage words the Organization's Ready=True condition message off the
