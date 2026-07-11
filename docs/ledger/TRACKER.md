@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T15:00:03Z` |
+| Last refreshed | `2026-07-11T15:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 88 |
 | Open DoD gates | 0 / 41 |
@@ -295,6 +295,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T15:06 | [#5004](https://github.com/openova-io/openova/pull/5004) | #5003 | fix(#5003): per-Org vcluster HelmRelease self-heals cold Har |
 | 2026-07-11T14:33 | [#5002](https://github.com/openova-io/openova/pull/5002) | #4999 | fix(#4999): funnel 2nd-Org honors chosen pool-TLD + console  |
 | 2026-07-11T14:13 | [#5001](https://github.com/openova-io/openova/pull/5001) | #5000 | fix(console #5000): sign-out menu on the sovereign sidebar u |
 | 2026-07-11T14:06 | [#4998](https://github.com/openova-io/openova/pull/4998) | #4994 | fix(#4994 #4996): harden cutover step-03 harbor-prewarm + st |
@@ -324,7 +325,6 @@ flowchart LR
 | 2026-07-10T01:29 | [#4954](https://github.com/openova-io/openova/pull/4954) | #4951 | fix(#4951): right-size per-Org WordPress footprint so oidc-c |
 | 2026-07-10T01:25 | [#4953](https://github.com/openova-io/openova/pull/4953) | #4952 | fix(bp-openclaw): per-Org install targets the release namesp |
 | 2026-07-10T00:48 | [#4949](https://github.com/openova-io/openova/pull/4949) | #4632 | test(bp-self-sovereign-cutover): regression guard for auto-t |
-| 2026-07-10T00:22 | [#4948](https://github.com/openova-io/openova/pull/4948) | #4902 | fix(#4902): cascade-delete host-flux GitRepository + Kustomi |
 
 ---
 
