@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-11T10:45:03Z` |
+| Last refreshed | `2026-07-11T11:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 82 |
+| Open issues | 83 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 82 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 83 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 82 open items (clickable table)
+### All 83 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -282,6 +282,7 @@ flowchart LR
 | [#4988](https://github.com/openova-io/openova/issues/4988) | catalog-seed bp-postgres spec.version display-label lags delivery pin (0.2.10 vs | Other |
 | [#4990](https://github.com/openova-io/openova/issues/4990) | catalog-seed-only Blueprints 404 on detail (bp- prefix not trimmed for un-deploy | Other |
 | [#4991](https://github.com/openova-io/openova/issues/4991) | P0: per-Org provisioning RBAC + vcluster target-ns never delivered on Sovereign  | Other |
+| [#4993](https://github.com/openova-io/openova/issues/4993) | P0: vcluster-tier app HTTPRoute never reaches host Cilium Gateway (syncer regist | Other |
 
 ---
 
@@ -289,6 +290,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-11T10:58 | [#4992](https://github.com/openova-io/openova/pull/4992) | #4964 | fix(#4991): org-controller delivers per-Org provisioning RBA |
 | 2026-07-11T10:04 | [#4989](https://github.com/openova-io/openova/pull/4989) | #4987 | fix(#4988): lockstep catalog-seed bp-postgres spec.version 0 |
 | 2026-07-11T06:37 | [#4987](https://github.com/openova-io/openova/pull/4987) | #3375 | fix(#4986): bp-postgres emits dr-<instance> Continuum CR → s |
 | 2026-07-11T04:58 | [#4985](https://github.com/openova-io/openova/pull/4985) | #3374 | fix(#3374): console silent prompt=none re-auth on session-TT |
@@ -318,7 +320,6 @@ flowchart LR
 | 2026-07-09T23:18 | [#4944](https://github.com/openova-io/openova/pull/4944) | #4758 | test(provisioning): lock the no-duplicate per-Org apps Kusto |
 | 2026-07-09T22:03 | [#4943](https://github.com/openova-io/openova/pull/4943) | #4942 | fix(#4942): permit native cross-region CP cilium-health + po |
 | 2026-07-09T21:31 | [#4941](https://github.com/openova-io/openova/pull/4941) | #4932 | test(#4934): stop leaked phase1-watch + post-handover gorout |
-| 2026-07-09T21:28 | [#4940](https://github.com/openova-io/openova/pull/4940) | #4937 | fix(#4937): authorize a customer's own-Org session for app l |
 
 ---
 
