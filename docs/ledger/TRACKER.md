@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-12T11:15:02Z` |
+| Last refreshed | `2026-07-12T11:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 35 |
 | Open DoD gates | 0 / 41 |
@@ -242,6 +242,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-12T11:17 | [#5033](https://github.com/openova-io/openova/pull/5033) | #5030 | fix(ci): here-strings kill cutover-contract.sh SIGPIPE false |
 | 2026-07-12T10:59 | [#5031](https://github.com/openova-io/openova/pull/5031) | #4994 | fix(cutover): step-03 prewarm durable Harbor artifact-API de |
 | 2026-07-12T09:59 | [#5029](https://github.com/openova-io/openova/pull/5029) | #5028 | fix(catalyst-api): reap orphaned CSI/EVS volumes on wipe wit |
 | 2026-07-12T06:57 | [#5027](https://github.com/openova-io/openova/pull/5027) | #5008 | fix(#5026): guarantee mothership-Harbor host pivot + step-08 |
@@ -271,7 +272,6 @@ flowchart LR
 | 2026-07-11T01:40 | [#4980](https://github.com/openova-io/openova/pull/4980) | #4975 | fix(#4975): skopeo --multi-arch all so manifest-list images  |
 | 2026-07-11T00:40 | [#4979](https://github.com/openova-io/openova/pull/4979) | #4977 | fix(#4975): map mirror.gcr.io (bp-trivy) into cutover offlin |
 | 2026-07-10T23:00 | [#4978](https://github.com/openova-io/openova/pull/4978) | #4977 | fix(#4975): cutover-contract Case 38 resolves coverage scrip |
-| 2026-07-10T22:33 | [#4977](https://github.com/openova-io/openova/pull/4977) | #3379 | fix(#4975): complete offline-mirror + per-host containerd re |
 
 ---
 
