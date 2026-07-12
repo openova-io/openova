@@ -1128,9 +1128,12 @@ locals {
       primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
       replica_region_canonical_label = length(var.regions) > 1 ? "hw-${var.regions[1].code}-rtz-prod" : ""
       # #2940: per-Sovereign PDNS endpoint override (bootstrap-kit substitute).
-      pdns_api_host   = var.pdns_api_host
-      gitops_repo_url = var.gitops_repo_url
-      gitops_branch   = var.gitops_branch
+      pdns_api_host = var.pdns_api_host
+      # #5017 keystone — kom4dc provider API /24 for the step-08 deny-egress
+      # allow-list (egressTest.allowProviderCIDRs via PROVIDER_API_CIDRS_YAML).
+      provider_api_cidrs_yaml = jsonencode(var.provider_api_cidrs)
+      gitops_repo_url         = var.gitops_repo_url
+      gitops_branch           = var.gitops_branch
       parent_domains_yaml = coalesce(
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)

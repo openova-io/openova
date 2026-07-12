@@ -122,52 +122,81 @@ func sliceShellFn(t *testing.T, chartScript, name string) string {
 	return rest[:loc[1]] + "\n"
 }
 
-func TestRegistryPivotV2MirrorUsesNodeReachableClusterIP(t *testing.T) {
+// TestRegistryPivotOfflineMirrorPerHostRewrite asserts the CURRENT #4975/
+// #4977 offline-mirror contract: write_offline_mirror_hosts RETIRES the
+// legacy dfdaemon `_default/hosts.toml` catch-all and writes PER-UPSTREAM-
+// HOST certs.d entries — a project host (ghcr.io:proxy-ghcr) resolves to
+// the local Harbor project path with override_path, the mothership host
+// (empty project) is a pure host swap with the path preserved, and the
+// local registry gets a self-trust entry. The old contract this replaces
+// (write_default_mirror + node-local dfdaemon `_default` catch-all) died
+// in #4977: under the deny-egress hold a dfdaemon back-to-source only
+// serves node-cached images, so the catch-all was superseded by the
+// complete-local-mirror per-host rewrite — the pre-#4977 test sliced a
+// function that no longer exists and left main CI red (same shape as the
+// #4684 note on the flip test below).
+func TestRegistryPivotOfflineMirrorPerHostRewrite(t *testing.T) {
 	chart := pivotChartScript(t)
 
-	// The REAL containerd-pivot function from the chart. It writes the
-	// `_default/hosts.toml` catch-all that routes the node's containerd pulls
-	// (the step-07 catalyst-api image pin pull included) through the mirror.
-	writeDefaultMirror := sliceShellFn(t, chart, "write_default_mirror")
+	writeHosts := sliceShellFn(t, chart, "write_offline_mirror_hosts")
 
-	const proxyPort = "4001" // matches registryPivot.dragonfly.proxyPort in values.yaml
-	// The public host the node resolver pins to the un-hairpinnable PUBLIC
-	// gateway EIP — the endpoint the #4637 wedge dialed. It must NEVER appear in
-	// the generated containerd mirror.
-	const publicHost = "registry.omantel.biz"
-	nodeLocalProxy := "http://127.0.0.1:" + proxyPort
-
+	const localHost = "registry.t99.omani.works"
 	certsD := t.TempDir()
 
-	// Harness: set the env the function reads (certs_d, df_proxy, NODE_NAME),
-	// source the extracted chart function, then drive it exactly as apply_state
-	// does on the v2 path.
+	// Seed a legacy dfdaemon catch-all — the function MUST retire it.
+	if err := os.MkdirAll(filepath.Join(certsD, "_default"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(certsD, "_default", "hosts.toml"),
+		[]byte("# legacy dfdaemon catch-all\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Harness: env the function reads (certs_d, LOCAL_REGISTRY_HOST,
+	// HOST_PROJECT_MAP, NODE_NAME), source the sliced chart function, run it.
 	script := `set -u
 certs_d="` + certsD + `"
-DF_PROXY_PORT="` + proxyPort + `"
+LOCAL_REGISTRY_HOST="` + localHost + `"
+HOST_PROJECT_MAP="ghcr.io:proxy-ghcr harbor.openova.io"
 NODE_NAME=test-node
-df_proxy="http://127.0.0.1:${DF_PROXY_PORT}"
-` + writeDefaultMirror + `
-write_default_mirror
+` + writeHosts + `
+write_offline_mirror_hosts
 `
 	runShell(t, script)
 
-	// The `_default` catch-all hosts.toml is what containerd consults for ANY
-	// registry namespace with no explicit certs.d/<host> dir — so it governs the
-	// step-07 `registry.<fqdn>/...openova/catalyst-api` pull. Its `[host]` block
-	// MUST point at the node-LOCAL dfdaemon loopback proxy, never the public EIP.
-	defaultToml := readToml(t, filepath.Join(certsD, "_default", "hosts.toml"))
-	if !strings.Contains(defaultToml, "[host.\""+nodeLocalProxy+"\"]") {
-		t.Errorf("containerd _default/hosts.toml [host] must point at the node-local dfdaemon proxy %s; got:\n%s", nodeLocalProxy, defaultToml)
+	// (1) The legacy `_default` catch-all is retired.
+	if _, err := os.Stat(filepath.Join(certsD, "_default", "hosts.toml")); !os.IsNotExist(err) {
+		t.Errorf("_default/hosts.toml still present — the legacy dfdaemon catch-all must be retired (#4975)")
 	}
-	// #4637 regression guard: the public hairpin host must appear NOWHERE in the
-	// generated mirror (no https://registry.<fqdn> endpoint the kubelet would
-	// then dial via the un-hairpinnable public EIP).
-	if strings.Contains(defaultToml, publicHost) {
-		t.Errorf("containerd _default/hosts.toml references the PUBLIC host %s (the un-hairpinnable EIP) — #4637 regression:\n%s", publicHost, defaultToml)
+	// (2) Self-trust entry for direct openova-io host-drop pulls.
+	selfToml := readToml(t, filepath.Join(certsD, localHost, "hosts.toml"))
+	if !strings.Contains(selfToml, `server = "https://`+localHost+`"`) ||
+		!strings.Contains(selfToml, "skip_verify = true") {
+		t.Errorf("local self-trust hosts.toml wrong; got:\n%s", selfToml)
 	}
-	if strings.Contains(defaultToml, "https://") {
-		t.Errorf("containerd _default/hosts.toml routes via an https:// endpoint (must be the plain-HTTP loopback dfdaemon proxy):\n%s", defaultToml)
+	// (3) Project host: resolves to the local Harbor PROJECT path with
+	// override_path (a pull of ghcr.io/<repo> lands on /v2/proxy-ghcr/<repo>).
+	ghcrToml := readToml(t, filepath.Join(certsD, "ghcr.io", "hosts.toml"))
+	if !strings.Contains(ghcrToml, `[host."https://`+localHost+`/v2/proxy-ghcr"]`) {
+		t.Errorf("ghcr.io hosts.toml must mirror to the local Harbor project path; got:\n%s", ghcrToml)
+	}
+	if !strings.Contains(ghcrToml, "override_path = true") {
+		t.Errorf("ghcr.io hosts.toml missing override_path = true (containerd would append its own /v2); got:\n%s", ghcrToml)
+	}
+	// (4) Mothership host: pure host swap, path PRESERVED (no override_path —
+	// the pulled path already carries the proxy-<x> project segment).
+	moToml := readToml(t, filepath.Join(certsD, "harbor.openova.io", "hosts.toml"))
+	if !strings.Contains(moToml, `[host."https://`+localHost+`"]`) {
+		t.Errorf("harbor.openova.io hosts.toml must host-swap to the local registry; got:\n%s", moToml)
+	}
+	if strings.Contains(moToml, "override_path") {
+		t.Errorf("harbor.openova.io hosts.toml must NOT set override_path (path carries the proxy-<x> segment); got:\n%s", moToml)
+	}
+	// (5) §854 guard: no NodePort-range port anywhere in the generated mirrors.
+	for _, toml := range []string{selfToml, ghcrToml, moToml} {
+		if regexp.MustCompile(`:3[0-2][0-9]{3}`).MatchString(toml) {
+			t.Errorf("generated hosts.toml carries a NodePort-range port — forbidden (§854):\n%s", toml)
+		}
 	}
 }
 

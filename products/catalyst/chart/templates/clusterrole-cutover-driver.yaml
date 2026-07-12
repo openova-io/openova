@@ -498,6 +498,16 @@ rules:
       - "ciliumidentities"
       - "ciliumexternalworkloads"
     verbs: ["get", "list", "watch"]
+  # #5014 — driver-side deny-egress backstop: runCutoverStep reaps the
+  # step-08 hold policy on ANY step exit (success/fail/watch-loss/deadline)
+  # because the Job's TERM/EXIT trap cannot run on a SIGKILLed pod and a
+  # watch-loss abandons the Job — the leaked CCNP froze CSI attaches 3x on
+  # hw242 (2026-07-12). delete is resourceNames-scoped to the ONE hold
+  # policy object; the read-only posture above is otherwise unchanged.
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumclusterwidenetworkpolicies"]
+    resourceNames: ["cutover-egress-block"]
+    verbs: ["delete"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["gatewayclasses"]
     verbs: ["get", "list", "watch"]

@@ -1876,4 +1876,86 @@ if ! grep -E 'git push --force .*refs/heads/\*:refs/heads/\*.*refs/tags/\*:refs/
 fi
 echo "  PASS (Step-01 pushes refs/heads/* + refs/tags/* explicitly with --force; mirror mode absent — sovereign-local branches survive)"
 
+echo "[cutover-contract] Case 47: Step-08 deny-egress CCNP allows the IaaS provider API CIDRs — egressTest.allowProviderCIDRs threads into PROVIDER_API_CIDRS + the CCNP writer's toCIDR loop (#5017 keystone, Refs #4596 #3379)"
+# hw242 live (2026-07-12): the deny-egress hold omitted the Huawei kom4dc API
+# /24 (212.72.2.0/24) because egressTest.allowProviderCIDRs was EMPTY — the
+# #4596 comment claimed "cloud-init populates per region" but the population
+# site never existed. Every EVS attach froze for the whole hold, so the
+# step-08 force-rolls could never complete. This case locks the CHART half of
+# the population chain (infra provider_api_cidrs → cloudinit
+# PROVIDER_API_CIDRS_YAML → 06a slot → these values): the value must reach the
+# Job env AND the CCNP writer must emit each entry under the allow toCIDR.
+helm template smoke-providercidr . --set 'egressTest.allowProviderCIDRs={212.72.2.0/24}' > "$TMP/render-providercidr.yaml"
+# (1) the Job env carries the provider CIDR (space-joined list).
+if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render-providercidr.yaml" | grep -q 'value: "212.72.2.0/24"'; then
+  echo "FAIL: egressTest.allowProviderCIDRs does not reach the Step-08 Job env PROVIDER_API_CIDRS (#5017)" >&2
+  exit 1
+fi
+# (2) default render → env EMPTY (providers without a pinnable API range are a
+# no-op; the allow-list never silently widens).
+if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render.yaml" | grep -q 'value: ""'; then
+  echo "FAIL: PROVIDER_API_CIDRS must default to empty (chart default allowProviderCIDRs: []) (#5017)" >&2
+  exit 1
+fi
+# (3) the step-08 script writes each PROVIDER_API_CIDRS entry into the CCNP —
+# the writer loop must sit INSIDE the default-deny allow-list (toCIDR) section,
+# i.e. after the ALLOW_CIDRS loop and before the toEntities block.
+step08_block="$(awk '/name: cutover-egress-block-test-script|cutover-order: "8"/{c=1} c{print}' "$TMP/render-providercidr.yaml")"
+if ! grep -q 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block"; then
+  echo "FAIL: Step-08 CCNP writer has no PROVIDER_API_CIDRS loop — provider API CIDRs never reach the deny-egress allow-list (#5017)" >&2
+  exit 1
+fi
+# Line-order anchors: the PROVIDER loop must sit after the ALLOW_CIDRS loop
+# and before the EMITTED toEntities line (not a comment mention of it).
+a_ln="$(grep -n 'for cidr in ${ALLOW_CIDRS}' <<<"$step08_block" | head -1 | cut -d: -f1)"
+p_ln="$(grep -n 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block" | head -1 | cut -d: -f1)"
+e_ln="$(grep -n 'echo "    - toEntities:"' <<<"$step08_block" | head -1 | cut -d: -f1)"
+if [ -z "$a_ln" ] || [ -z "$p_ln" ] || [ -z "$e_ln" ] || [ "$a_ln" -ge "$p_ln" ] || [ "$p_ln" -ge "$e_ln" ]; then
+  echo "FAIL: PROVIDER_API_CIDRS loop must emit inside the CCNP toCIDR allow-list (after ALLOW_CIDRS at line ${a_ln:-?}, before the toEntities emit at line ${e_ln:-?}; got PROVIDER at line ${p_ln:-?}) (#5017)" >&2
+  exit 1
+fi
+echo "  PASS (allowProviderCIDRs → Job env → CCNP toCIDR allow-list; default empty)"
+
+echo "[cutover-contract] Case 48: Step-08 fresh-pull budget — 600s default + per-node DaemonSet scaling (#5022, hw242 run 3)"
+# A 6-node DaemonSet rolls per-node SEQUENTIALLY under RollingUpdate
+# (maxUnavailable:1); the flat 240s budget FAILed registry-pivot + falco
+# spuriously. Locks: (1) values default timeoutSeconds=600 reaches the Job
+# env; (2) the DS per-node budget env renders (default 120); (3) the script
+# computes a daemonset-scaled roll_timeout from desiredNumberScheduled and
+# uses it for `kubectl rollout status`.
+if ! grep -A1 'name: FRESH_PULL_TIMEOUT' "$TMP/render.yaml" | grep -q 'value: "600"'; then
+  echo "FAIL: freshPullProof.timeoutSeconds default must be 600 (multi-node DS sequential pulls blew 240s live) (#5022)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: FRESH_PULL_DS_PER_NODE' "$TMP/render.yaml" | grep -q 'value: "120"'; then
+  echo "FAIL: FRESH_PULL_DS_PER_NODE env missing or default != 120 (#5022)" >&2
+  exit 1
+fi
+step08_all="$(awk '/cutover-order: "8"/{c=1} c{print}' "$TMP/render.yaml")"
+if ! grep -q 'desiredNumberScheduled' <<<"$step08_all"; then
+  echo "FAIL: roll_and_check_workload does not scale the DaemonSet budget from desiredNumberScheduled (#5022)" >&2
+  exit 1
+fi
+if ! grep -q -- '--timeout="${roll_timeout}s"' <<<"$step08_all"; then
+  echo "FAIL: rollout status must use the computed \${roll_timeout} budget, not the flat FRESH_PULL_TIMEOUT (#5022)" >&2
+  exit 1
+fi
+echo "  PASS (600s default; DS budget = max(default, nodes x 120s); rollout status uses the computed budget)"
+
+echo "[cutover-contract] Case 49: Step-08 roll-set NEVER includes the registry-pivot DaemonSet — the pivot mechanism itself is excluded by name (#5022, hw242 run 3)"
+# Rolling catalyst/registry-pivot mid-hold is recursive: a mid-roll node
+# briefly loses the certs.d/hosts pivot exactly while other workloads'
+# fresh pulls are being proven on that node, and its readiness gate
+# (first-reconcile-pass) was already asserted by the step-04
+# daemonset-wait + per-node v2 ACKs.
+if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -q 'value: "catalyst/registry-pivot"'; then
+  echo "FAIL: FRESH_PULL_EXCLUDE_WORKLOADS default must carry catalyst/registry-pivot (#5022)" >&2
+  exit 1
+fi
+if ! grep -q 'for _w in ${FRESH_PULL_EXCLUDE_WORKLOADS}' <<<"$step08_all"; then
+  echo "FAIL: run_fresh_pull_all has no name-scoped workload-exclusion loop (#5022)" >&2
+  exit 1
+fi
+echo "  PASS (registry-pivot excluded from the roll-set by ns/name; values-overridable)"
+
 echo "[cutover-contract] All gates green."
