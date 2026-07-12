@@ -1221,15 +1221,15 @@ echo "[cutover-contract] Case 32: Step-07 ALSO pivots the bp-openova-flow-server
 # patch + durable Gitea edit) so the residual tether pivots to local Harbor.
 step07_block="$(awk '/cutover-step-07-catalyst-api-env-patch/{c=1} c{print} c&&/cutover-order: "8"/{exit}' "$TMP/render.yaml")"
 [ -n "$step07_block" ] || step07_block="$(cat "$TMP/render.yaml")"
-if ! printf '%s\n' "$step07_block" | grep -q 'FLOW_HR_NAME="bp-openova-flow-server"'; then
+if ! grep -q 'FLOW_HR_NAME="bp-openova-flow-server"' <<<"$step07_block"; then
   echo "FAIL: Step-07 does not define FLOW_HR_NAME=bp-openova-flow-server — the flow-server HR is never pivoted, its ghcr.io image 401s under deny-egress and step-08 fresh-pull FATALs (#4563)" >&2
   exit 1
 fi
-if ! printf '%s\n' "$step07_block" | grep -q 'kubectl patch hr "${FLOW_HR_NAME}"'; then
+if ! grep -q 'kubectl patch hr "${FLOW_HR_NAME}"' <<<"$step07_block"; then
   echo "FAIL: Step-07 does not kubectl-patch the flow-server HR spec.values.global.imageRegistry (#4563)" >&2
   exit 1
 fi
-if ! printf '%s\n' "$step07_block" | grep -q '56-bp-openova-flow-server.yaml'; then
+if ! grep -q '56-bp-openova-flow-server.yaml' <<<"$step07_block"; then
   echo "FAIL: Step-07 does not durably edit the slot-56 source-of-truth in local Gitea — the live HR patch is reverted on the next Flux reconcile (#4563)" >&2
   exit 1
 fi
@@ -2053,16 +2053,16 @@ _lint_fail_out=$(
   export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
   . "$_lintdir/lint.sh"; run_podspec_refhost_lint; echo "RC=$?"
 )
-if ! printf '%s' "$_lint_fail_out" | grep -q 'RC=1'; then
+if ! grep -q 'RC=1' <<<"$_lint_fail_out"; then
   echo "FAIL: ref-host lint did not FAIL on a residual harbor.openova.io ref; output:\n$_lint_fail_out" >&2; exit 1
 fi
-if ! printf '%s' "$_lint_fail_out" | grep -q 'UNPIVOTED velero/velero.*host:harbor.openova.io'; then
+if ! grep -q 'UNPIVOTED velero/velero.*host:harbor.openova.io' <<<"$_lint_fail_out"; then
   echo "FAIL: ref-host lint did not name the velero offender (#5026); output:\n$_lint_fail_out" >&2; exit 1
 fi
 # The excluded workload (registry-pivot), the implicit-docker.io ref (nginx), the
 # excluded substring (rancher/k3s), and the already-local ref (reloader) must NOT
 # be flagged.
-if printf '%s' "$_lint_fail_out" | grep -qE 'UNPIVOTED (catalyst/registry-pivot|orgns/myapp|reloader/)'; then
+if grep -qE 'UNPIVOTED (catalyst/registry-pivot|orgns/myapp|reloader/)' <<<"$_lint_fail_out"; then
   echo "FAIL: ref-host lint flagged an excluded / implicit-docker.io / already-local ref (false positive) (#5026); output:\n$_lint_fail_out" >&2; exit 1
 fi
 # PASS fixture: velero pivoted to local.
@@ -2089,7 +2089,7 @@ _lint_pass_out=$(
   export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
   . "$_lintdir/lint.sh"; run_podspec_refhost_lint; echo "RC=$?"
 )
-if ! printf '%s' "$_lint_pass_out" | grep -q 'RC=0'; then
+if ! grep -q 'RC=0' <<<"$_lint_pass_out"; then
   echo "FAIL: ref-host lint did not PASS when every ref is local; output:\n$_lint_pass_out" >&2; exit 1
 fi
 echo "  PASS (lint fails loud listing offenders on a tether ref; passes when all-local; skips excluded/implicit-docker.io)"
