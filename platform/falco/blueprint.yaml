@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
-  version: 1.0.1
+  version: 1.0.2
   card:
     title: Falco
     family: guardian

@@ -51,7 +51,10 @@ spec:
   chart:
     spec:
       chart: bp-falco
-      version: 1.0.1
+      # 1.0.2: falco + falcoctl images via Sovereign-local Harbor proxy
+      # (#5017-class — kyverno denied the raw docker.io refs on DS roll,
+      # freezing step-08's forced roll on hw242).
+      version: 1.0.2
       sourceRef:
         kind: HelmRepository
         name: bp-falco
