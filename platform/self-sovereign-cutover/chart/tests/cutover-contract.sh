@@ -1916,4 +1916,46 @@ if [ -z "$a_ln" ] || [ -z "$p_ln" ] || [ -z "$e_ln" ] || [ "$a_ln" -ge "$p_ln" ]
 fi
 echo "  PASS (allowProviderCIDRs → Job env → CCNP toCIDR allow-list; default empty)"
 
+echo "[cutover-contract] Case 48: Step-08 fresh-pull budget — 600s default + per-node DaemonSet scaling (#5022, hw242 run 3)"
+# A 6-node DaemonSet rolls per-node SEQUENTIALLY under RollingUpdate
+# (maxUnavailable:1); the flat 240s budget FAILed registry-pivot + falco
+# spuriously. Locks: (1) values default timeoutSeconds=600 reaches the Job
+# env; (2) the DS per-node budget env renders (default 120); (3) the script
+# computes a daemonset-scaled roll_timeout from desiredNumberScheduled and
+# uses it for `kubectl rollout status`.
+if ! grep -A1 'name: FRESH_PULL_TIMEOUT' "$TMP/render.yaml" | grep -q 'value: "600"'; then
+  echo "FAIL: freshPullProof.timeoutSeconds default must be 600 (multi-node DS sequential pulls blew 240s live) (#5022)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: FRESH_PULL_DS_PER_NODE' "$TMP/render.yaml" | grep -q 'value: "120"'; then
+  echo "FAIL: FRESH_PULL_DS_PER_NODE env missing or default != 120 (#5022)" >&2
+  exit 1
+fi
+step08_all="$(awk '/cutover-order: "8"/{c=1} c{print}' "$TMP/render.yaml")"
+if ! grep -q 'desiredNumberScheduled' <<<"$step08_all"; then
+  echo "FAIL: roll_and_check_workload does not scale the DaemonSet budget from desiredNumberScheduled (#5022)" >&2
+  exit 1
+fi
+if ! grep -q -- '--timeout="${roll_timeout}s"' <<<"$step08_all"; then
+  echo "FAIL: rollout status must use the computed \${roll_timeout} budget, not the flat FRESH_PULL_TIMEOUT (#5022)" >&2
+  exit 1
+fi
+echo "  PASS (600s default; DS budget = max(default, nodes x 120s); rollout status uses the computed budget)"
+
+echo "[cutover-contract] Case 49: Step-08 roll-set NEVER includes the registry-pivot DaemonSet — the pivot mechanism itself is excluded by name (#5022, hw242 run 3)"
+# Rolling catalyst/registry-pivot mid-hold is recursive: a mid-roll node
+# briefly loses the certs.d/hosts pivot exactly while other workloads'
+# fresh pulls are being proven on that node, and its readiness gate
+# (first-reconcile-pass) was already asserted by the step-04
+# daemonset-wait + per-node v2 ACKs.
+if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -q 'value: "catalyst/registry-pivot"'; then
+  echo "FAIL: FRESH_PULL_EXCLUDE_WORKLOADS default must carry catalyst/registry-pivot (#5022)" >&2
+  exit 1
+fi
+if ! grep -q 'for _w in ${FRESH_PULL_EXCLUDE_WORKLOADS}' <<<"$step08_all"; then
+  echo "FAIL: run_fresh_pull_all has no name-scoped workload-exclusion loop (#5022)" >&2
+  exit 1
+fi
+echo "  PASS (registry-pivot excluded from the roll-set by ns/name; values-overridable)"
+
 echo "[cutover-contract] All gates green."

@@ -1177,12 +1177,29 @@ egressTest:
     # Deployment name substring NEVER selected by auto-discovery (the
     # cutover runs inside catalyst-api; bouncing it mid-hold is unsafe).
     excludeDeploymentSubstring: "catalyst-api"
-    # How long to wait for the freshly-rolled Pod to reach Running with its
-    # image pulled. 240s is generous: the image is in local Harbor (Step-03
-    # prewarm / Step-04 mirror) so the pull is typically seconds; the extra
-    # headroom covers scheduler + container-create. A Pod still not Running
-    # at the deadline — or any ImagePull error observed — FAILS the proof.
-    timeoutSeconds: 240
+    # How long to wait for the freshly-rolled workload's rollout to settle.
+    # 240 → 600 (#5022, hw242 run 3): a Deployment's pull is seconds (local
+    # mirror), but `kubectl rollout status` on a MULTI-NODE DaemonSet under
+    # RollingUpdate(maxUnavailable:1) is SEQUENTIAL — 6 nodes x (pull +
+    # start + ready) blew the 240s budget and FAILed registry-pivot + falco
+    # spuriously. 600s covers a 6-node Sovereign; DaemonSets additionally
+    # get a per-node budget below. Any ImagePull error observed still FAILS
+    # immediately regardless of the budget.
+    timeoutSeconds: 600
+    # Per-node rollout budget for DaemonSets (#5022): the effective per-DS
+    # timeout is max(timeoutSeconds, desiredNumberScheduled x
+    # dsPerNodeSeconds), so a wide cluster scales its budget with node
+    # count instead of failing on a constant.
+    dsPerNodeSeconds: 120
+    # Workloads NEVER rolled by step-08's fresh-pull sweep, as "<ns>/<name>"
+    # pairs (#5022, hw242 run 3). catalyst/registry-pivot IS the pivot
+    # mechanism itself — the certs.d/hosts mirror every OTHER fresh pull
+    # depends on. Rolling it mid-hold is recursive: a mid-roll node briefly
+    # loses its registry pivot exactly while the proof pulls images on that
+    # node, and its readiness (first-reconcile-pass gate) was already
+    # proven by the step-04 daemonset-wait + per-node v2 ACK assertions.
+    excludeWorkloads:
+      - "catalyst/registry-pivot"
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated

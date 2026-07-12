@@ -168,6 +168,13 @@ const (
 	// registry-pivot DaemonSet-wait then asserts per-node v2 acks.
 	cutoverStepHarborPrewarm = "harbor-prewarm"
 	cutoverStepRegistryPivot = "registry-pivot"
+	// #5014: the step whose Job applies the 10-min deny-egress hold. The
+	// driver reaps its CiliumClusterwideNetworkPolicy on ANY step exit —
+	// the Job's own TERM/EXIT traps cover clean paths, but a SIGKILLed pod
+	// (activeDeadlineSeconds hard-kill after the grace window), a watch
+	// loss, or an engine error LEAKED the policy 3x on hw242 (2026-07-12),
+	// freezing every CSI volume attach until hand-healed.
+	cutoverStepEgressBlockTest = "egress-block-test"
 
 	// SSE phase names.
 	cutoverPhaseStepStarted  = "cutover-step-started"
@@ -1010,6 +1017,33 @@ func watchJobToCompletion(ctx context.Context, deps *cutoverDeps, jobName string
 
 // terminalJobCondition returns (Complete|Failed, true) if the Job has
 // a terminal condition with status=True; otherwise (_, false).
+// cutoverEgressBlockPolicyAbsPath is the REST path of the step-08 deny-egress
+// CiliumClusterwideNetworkPolicy (cluster-scoped CRD object; cutoverDeps only
+// carries a typed clientset, so the delete goes through the discovery
+// RESTClient rather than adding a dynamic-client dependency to every test).
+const cutoverEgressBlockPolicyAbsPath = "/apis/cilium.io/v2/ciliumclusterwidenetworkpolicies/cutover-egress-block"
+
+// reapCutoverEgressPolicy deletes the step-08 deny-egress hold policy.
+// #5014: called via defer on EVERY exit of the egress-block-test step —
+// success, Job-Failed, watch loss, deadline, engine error — so a leaked
+// cutover-egress-block CCNP can never outlive the step and freeze CSI
+// attaches cluster-wide (leaked 3x on hw242, 2026-07-12: the Job's own
+// TERM/EXIT trap does not run when the pod is SIGKILLed after the
+// termination grace window, and a driver watch-loss abandons the Job
+// entirely). NotFound is success (the Job's trap usually got there first).
+// Overridable seam for unit tests (fake clientsets expose no REST client).
+var reapCutoverEgressPolicy = func(ctx context.Context, deps *cutoverDeps) error {
+	rc := deps.core.Discovery().RESTClient()
+	if rc == nil {
+		// Fake clientsets (unit tests) have no discovery REST client.
+		return nil
+	}
+	if err := rc.Delete().AbsPath(cutoverEgressBlockPolicyAbsPath).Do(ctx).Error(); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
 func terminalJobCondition(job *batchv1.Job) (batchv1.JobConditionType, bool) {
 	for _, c := range job.Status.Conditions {
 		if c.Status != corev1.ConditionTrue {
@@ -1488,6 +1522,40 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 
 func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cutoverStep, runEpoch int64, operatorRetry bool) error {
 	bus := h.cutoverBusFor()
+
+	// ── #5014: deny-egress hold backstop ────────────────────────────────
+	// Whatever way the egress-block-test step exits — success, Job Failed,
+	// watch loss, step deadline, status-patch error — the cluster-wide
+	// cutover-egress-block CCNP MUST NOT outlive it: a leaked hold policy
+	// black-holes the IaaS provider API and freezes every CSI volume
+	// attach on the Sovereign (leaked 3x live on hw242, 2026-07-12). The
+	// Job's own TERM/EXIT traps cover the clean paths; this defer covers
+	// the SIGKILL/watch-loss/error paths the traps cannot. A fresh context
+	// is used deliberately: on watch-loss the step ctx is already dead —
+	// exactly the leak path this closes.
+	if step.stepName == cutoverStepEgressBlockTest {
+		defer func() {
+			rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := reapCutoverEgressPolicy(rctx, deps); err != nil {
+				h.publishCutoverEvent(bus, cutoverEvent{
+					Time:    time.Now().UTC().Format(time.RFC3339),
+					Phase:   cutoverPhaseStepFinished,
+					Level:   "warn",
+					Step:    step.stepName,
+					Message: fmt.Sprintf("deny-egress policy backstop reap FAILED (manual `kubectl delete ccnp cutover-egress-block` required or CSI attaches stay frozen): %v", err),
+				})
+				return
+			}
+			h.publishCutoverEvent(bus, cutoverEvent{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   cutoverPhaseStepFinished,
+				Level:   "info",
+				Step:    step.stepName,
+				Message: "deny-egress hold policy reaped on step exit (#5014 backstop; NotFound = Job trap already cleaned)",
+			})
+		}()
+	}
 
 	// ── Idempotency check (TBD-V56 / #2132) ─────────────────────────────
 	//

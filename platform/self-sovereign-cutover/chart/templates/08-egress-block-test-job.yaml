@@ -160,6 +160,14 @@ data:
             value: {{ .Values.egressTest.freshPullProof.excludeDeploymentSubstring | quote }}
           - name: FRESH_PULL_TIMEOUT
             value: {{ .Values.egressTest.freshPullProof.timeoutSeconds | quote }}
+          # #5022 — DaemonSet rollouts are per-node sequential under
+          # RollingUpdate(maxUnavailable:1); budget scales with node count.
+          - name: FRESH_PULL_DS_PER_NODE
+            value: {{ .Values.egressTest.freshPullProof.dsPerNodeSeconds | default 120 | quote }}
+          # #5022 — "<ns>/<name>" pairs never rolled by the sweep (the
+          # registry-pivot DS is the pivot mechanism itself — recursive).
+          - name: FRESH_PULL_EXCLUDE_WORKLOADS
+            value: {{ .Values.egressTest.freshPullProof.excludeWorkloads | default (list "catalyst/registry-pivot") | join " " | quote }}
         volumeMounts:
           # #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
           # container runs readOnlyRootFilesystem:true (securityContext
@@ -644,10 +652,20 @@ data:
             # errors (rollout status alone would just time out on a BackOff).
             roll_and_check_workload() {
               kind="$1"; ns="$2"; name="$3"
-              echo "  rolling ${kind}/${name} -n ${ns} (forces fresh pull from local registry)"
+              # #5022 — a multi-node DaemonSet rolls per-node SEQUENTIALLY
+              # under RollingUpdate(maxUnavailable:1): scale the budget with
+              # the node count (hw242 run 3: 6-node registry-pivot + falco
+              # blew the flat budget spuriously).
+              roll_timeout="${FRESH_PULL_TIMEOUT}"
+              if [ "${kind}" = "daemonset" ]; then
+                ds_nodes=$(kubectl get daemonset "${name}" -n "${ns}" -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 1)
+                ds_budget=$(( ${ds_nodes:-1} * ${FRESH_PULL_DS_PER_NODE:-120} ))
+                [ "${ds_budget}" -gt "${roll_timeout}" ] && roll_timeout="${ds_budget}"
+              fi
+              echo "  rolling ${kind}/${name} -n ${ns} (forces fresh pull from local registry; budget ${roll_timeout}s)"
               kubectl rollout restart "${kind}/${name}" -n "${ns}" >/dev/null 2>&1 || true
               # Bounded wait; rollout status returns non-zero on timeout.
-              if kubectl rollout status "${kind}/${name}" -n "${ns}" --timeout="${FRESH_PULL_TIMEOUT}s" >/dev/null 2>&1; then
+              if kubectl rollout status "${kind}/${name}" -n "${ns}" --timeout="${roll_timeout}s" >/dev/null 2>&1; then
                 echo "    PASS — ${kind}/${name} rolled out (images pulled from local registry under deny-egress)"
                 return 0
               fi
@@ -716,7 +734,7 @@ data:
                 echo "    PASS — ${kind}/${name} pulled a fresh image from the local registry under deny-egress (new-revision Pod started a container; rollout status incomplete = slow init/DB-migration on a Recreate single-replica stateful workload, e.g. bp-gitea #3188 — readiness lag is judged by the survival-window HR poll, not a mothership tether) (#4975)"
                 return 0
               fi
-              echo "    FAIL — ${kind}/${name} did not roll out within ${FRESH_PULL_TIMEOUT}s under deny-egress (reasons:${reasons:-<none>})"
+              echo "    FAIL — ${kind}/${name} did not roll out within ${roll_timeout}s under deny-egress (reasons:${reasons:-<none>})"
               return 1
             }
 
@@ -752,6 +770,16 @@ data:
               for _x in ${EXCLUDED_HOSTS} ${EXCLUDED_SUBSTRINGS}; do
                 [ -z "${_x}" ] && continue
                 targets=$(printf '%s\n' "${targets}" | grep -vF "${_x}" || true)
+              done
+              # #5022 — name-scoped exclusions ("<ns>/<name>"): the registry-
+              # pivot DS is the certs.d/hosts pivot mechanism every OTHER
+              # fresh pull depends on; rolling it mid-hold is recursive and
+              # its health is already asserted by the step-04 daemonset-wait
+              # + per-node v2 ACKs. Rows are "kind ns name=imgs".
+              for _w in ${FRESH_PULL_EXCLUDE_WORKLOADS}; do
+                [ -z "${_w}" ] && continue
+                _wns="${_w%%/*}"; _wname="${_w##*/}"
+                targets=$(printf '%s\n' "${targets}" | grep -vE "^[a-z]+ ${_wns} ${_wname}=" || true)
               done
               if [ -z "${targets}" ]; then
                 echo "  no external-registry workloads found — every workload already pulls from the local registry (PASS)"

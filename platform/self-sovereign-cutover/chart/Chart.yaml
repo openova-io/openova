@@ -8,7 +8,17 @@ name: bp-self-sovereign-cutover
 # never complete. Now populated end-to-end: infra provider_api_cidrs var →
 # cloudinit PROVIDER_API_CIDRS_YAML substitute → 06a slot
 # egressTest.allowProviderCIDRs; chart values document the [] default; contract
-# Case 47 asserts the env wiring + the CCNP writer's provider-CIDR loop.)
+# Case 47 asserts the env wiring + the CCNP writer's provider-CIDR loop.
+# ALSO in 0.1.122 (#5022 / #5014, hw242 run 3): (a) freshPullProof
+# timeoutSeconds 240 -> 600 + per-node DaemonSet budget (dsPerNodeSeconds,
+# 6-node DS sequential pulls blew the flat budget — Case 48); (b) the
+# registry-pivot DS is excluded from the step-08 roll-set by name
+# (freshPullProof.excludeWorkloads — rolling the pivot mechanism mid-hold is
+# recursive — Case 49); (c) driver-side backstop: catalyst-api's
+# runCutoverStep now reaps the cutover-egress-block CCNP on ANY
+# egress-block-test exit (success/fail/watch-loss/deadline — the Job's traps
+# can't run on SIGKILL; the leaked policy froze CSI 3x) with a
+# resourceNames-scoped delete added to clusterrole-cutover-driver.)
 # 0.1.121 (#5011 Refs #3379 #4991 — step-01 gitea-mirror's mirror-mode force-push
 # PRUNED sovereign-local Gitea branches; found LIVE on hw242, dep f05b0718dac62fe9,
 # 2026-07-12 — the first-ever post-step-01 GitOps observation: prior cycles walked
