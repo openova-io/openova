@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.125 (#5036 Refs #5007 #4688 — hw246, dep c38c437f, omani.works: the PRE-pivot
+# steps 02 (harbor-projects) + 03 (harbor-prewarm) dialed the local Harbor at its
+# EXTERNAL host registry.<fqdn> (#4688). But those steps run BEFORE step-04 pins
+# registry.<fqdn> in the node /etc/hosts (#5007), and the external host resolves
+# in-cluster ONLY if the Sovereign's split-horizon PowerDNS authoritatively serves a
+# registry.<fqdn> record — NOT guaranteed: on hw246 the powerdns-zone-bootstrap Job
+# flaked ("Failed to connect to powerdns port 8081"), leaving the omani.works zone
+# with only NS+SOA and NO registry.<fqdn> → the harbor-projects Job NXDOMAIN'd with
+# curl exit 6 on the FIRST /registries POST (proxy-xpkg), 4 retry Pods identical,
+# cutover wedged. FIX (reverts #4688): steps 02/03 now dial the IN-CLUSTER Harbor
+# Service harbor-core.harbor.svc.cluster.local (HARBOR_INTERNAL_URL) for the Harbor
+# control-plane API (registry/project create), the artifact-API idempotency probe,
+# the /v2 HEAD, AND the skopeo push destination (HARBOR_HOST). The Service name
+# ALWAYS resolves via the CoreDNS kubernetes plugin — independent of PowerDNS zone
+# state and the step-04 pin — and 00-mgmt-isolation-carveout already opens the
+# catalyst -> harbor-core.harbor.svc path (step-01 gitea dials gitea-http.gitea.svc
+# the same way). #4688's "DMZ/RTZ multi-cluster segregation" premise does not hold
+# post-#4325 de-vcluster: harbor + catalyst are co-located host namespaces in ONE
+# cluster (verified live hw246: catalyst-ns Pod curls
+# http://harbor-core.harbor.svc.cluster.local/api/v2.0/ping → HTTP 200). Pushed
+# blobs land in the same Harbor project/repo (host-independent), so post-cutover
+# pulls via registry.<fqdn> (step-04 containerd + step-08 completeness HEAD, which
+# target LOCAL_REGISTRY_HOST, UNCHANGED) resolve the identical artifacts. The
+# artifact-API probe flips DOUBLE-encode (%252F, needed for envoy's one-layer decode
+# on the gateway path) to SINGLE-encode (%2F) for the direct Service path (#5030's
+# "Harbor must receive %2F" preserved); fail-closed either way. --dest-tls-verify
+# =false (default) drives skopeo's http fallback for the plain-HTTP Service on :80.
+# ── prior ──
 # 0.1.124 (#5030 Refs #3379 #4994 #4975 #5026 — hw244, dep b16a43ac: step-03
 # harbor-prewarm's #4994 dest_already_current() idempotency probe used
 # `skopeo inspect --raw` against the DESTINATION registry endpoint — a
@@ -1978,7 +2006,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.124
+version: 0.1.125
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

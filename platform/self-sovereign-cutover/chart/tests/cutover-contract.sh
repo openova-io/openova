@@ -2094,4 +2094,80 @@ if ! grep -q 'RC=0' <<<"$_lint_pass_out"; then
 fi
 echo "  PASS (lint fails loud listing offenders on a tether ref; passes when all-local; skips excluded/implicit-docker.io)"
 
+echo "[cutover-contract] Case 52: PRE-pivot steps 02/03 dial the local Harbor at the IN-CLUSTER Service (HARBOR_INTERNAL_URL = harbor-core.harbor.svc), NOT the external registry.<fqdn> (HARBOR_PUBLIC_URL) — the external host NXDOMAINs in-cluster before the step-04 pin (#5036, reverts #4688, Refs #5007)"
+# hw246 (dep c38c437f, omani.works): steps 02 (harbor-projects) + 03 (harbor-prewarm)
+# run PRE-pivot, BEFORE step-04 pins registry.<fqdn> in the node /etc/hosts (#5007).
+# #4688 pointed their Harbor dials at the EXTERNAL host registry.<fqdn>, which resolves
+# in-cluster ONLY if the Sovereign's split-horizon PowerDNS authoritatively serves a
+# registry.<fqdn> record. On hw246 the powerdns-zone-bootstrap flaked → NO record →
+# the harbor-projects Job NXDOMAIN'd (curl exit 6) on the FIRST /registries POST. The
+# in-cluster Service name ALWAYS resolves via the CoreDNS kubernetes plugin (the
+# 00-mgmt-isolation-carveout NetworkPolicy — Case 29 — already opens the path), so
+# every pre-pivot Harbor dial MUST target HARBOR_INTERNAL_URL, never HARBOR_PUBLIC_URL.
+# SCOPE: only the PRE-pivot steps 02 + 03. Steps 07/08 run AFTER step-04's pivot and
+# INTENTIONALLY dial the external registry.<fqdn> (step-08's completeness HEAD validates
+# the exact gateway serving path containerd uses post-cutover) — out of scope here. Slice
+# each step's ConfigMap block from its name to the next step's name (render order is
+# filename order: 02 < 03 < 04).
+awk '/name: cutover-step-02-harbor-projects/{c=1} /name: cutover-step-03-harbor-prewarm/{c=0} c' "$TMP/render.yaml" > "$TMP/s02.yaml"
+awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03.yaml"
+if [ ! -s "$TMP/s02.yaml" ] || [ ! -s "$TMP/s03.yaml" ]; then
+  echo "FAIL: could not slice the step-02/03 ConfigMap blocks from the render (#5036)" >&2
+  exit 1
+fi
+# (a) HARBOR_INTERNAL_URL default MUST be the in-cluster Service form on BOTH steps, so a
+#     stray external override is caught.
+for blk in s02 s03; do
+  if ! grep -q 'value: "http://harbor-core.harbor.svc.cluster.local"' "$TMP/$blk.yaml"; then
+    echo "FAIL: step-${blk#s} HARBOR_INTERNAL_URL does not default to the in-cluster Harbor Service http://harbor-core.harbor.svc.cluster.local — pre-pivot Harbor dials would depend on external DNS (#5036)" >&2
+    exit 1
+  fi
+done
+# (b) Step-02 harbor-projects: the Harbor control-plane API base MUST be the internal Service.
+if ! grep -qF 'base="${HARBOR_INTERNAL_URL}/api/v2.0"' "$TMP/s02.yaml"; then
+  echo "FAIL: step-02 harbor-projects does not dial the Harbor API via HARBOR_INTERNAL_URL — the external registry.<fqdn> NXDOMAINs pre-pivot (#5036)" >&2
+  exit 1
+fi
+# (c) Step-03 harbor-prewarm: the skopeo PUSH host, the artifact-API idempotency probe,
+#     and the /v2 HEAD base MUST all derive from the internal Service.
+if ! grep -qF 'HARBOR_HOST=$(printf '"'"'%s'"'"' "${HARBOR_INTERNAL_URL}"' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 harbor-prewarm skopeo push HARBOR_HOST is not derived from HARBOR_INTERNAL_URL — the push target NXDOMAINs pre-pivot on a PowerDNS-flaked prov (#5036)" >&2
+  exit 1
+fi
+if ! grep -qF '"${HARBOR_INTERNAL_URL}/api/v2.0/projects/' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 dest_already_current() artifact-API probe does not dial HARBOR_INTERNAL_URL (#5036)" >&2
+  exit 1
+fi
+if ! grep -qF 'base="${HARBOR_INTERNAL_URL}/v2"' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 Phase B /v2 HEAD base does not dial HARBOR_INTERNAL_URL (#5036)" >&2
+  exit 1
+fi
+# (d) The direct-Service artifact-API probe MUST SINGLE-encode the nested repo `/` as
+#     %2F (harbor-core receives it directly — no gateway one-layer decode). The #4688
+#     gateway-path DOUBLE-encode (%252F) MUST be gone (it would 404 the direct route).
+if ! grep -qF "sed 's#/#%2F#g'" "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 dest_already_current() does not SINGLE-encode the nested repo (%2F) for the direct harbor-core path (#5036, Refs #5030)" >&2
+  exit 1
+fi
+if grep -qF "sed 's#/#%252F#g'" "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 still DOUBLE-encodes the nested repo (%252F) — that survives envoy's decode on the gateway path but 404s the direct harbor-core Service path (#5036)" >&2
+  exit 1
+fi
+# (e) REGRESSION GUARD: no pre-pivot step-02/03 Harbor DIAL target may reference
+#     HARBOR_PUBLIC_URL (the #4688 external-host regression). HARBOR_PUBLIC_URL may
+#     still be PROJECTED as an env for reference, but never used as a curl/skopeo host.
+for blk in s02 s03; do
+  for bad in \
+    'base="${HARBOR_PUBLIC_URL}/api/v2.0"' \
+    'base="${HARBOR_PUBLIC_URL}/v2"' \
+    '"${HARBOR_PUBLIC_URL}/api/v2.0/projects/' \
+    'HARBOR_HOST=$(printf '"'"'%s'"'"' "${HARBOR_PUBLIC_URL}"' ; do
+    if grep -qF "$bad" "$TMP/$blk.yaml"; then
+      echo "FAIL: step-${blk#s} still targets the external HARBOR_PUBLIC_URL ('$bad') — reintroduces the #4688 pre-pivot NXDOMAIN (#5036)" >&2
+      exit 1
+    fi
+  done
+done
+echo "  PASS (steps 02/03 dial the in-cluster harbor-core.harbor.svc for API + skopeo push; single-encode %2F for the direct path; no HARBOR_PUBLIC_URL dial target remains; steps 07/08 external-host validation untouched)"
+
 echo "[cutover-contract] All gates green."

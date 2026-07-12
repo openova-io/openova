@@ -31,15 +31,30 @@ data:
         image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.curl.repository "tag" .Values.images.curl.tag "cutoverPhase" "pre" "Values" .Values) }}
         imagePullPolicy: IfNotPresent
         env:
+          # #5036 (Refs #5007; reverts #4688) — the Harbor CONTROL-PLANE API
+          # (registry + project creation) is dialed via the IN-CLUSTER Service
+          # harbor-core.harbor.svc.cluster.local (HARBOR_INTERNAL_URL), NOT the
+          # external host registry.<fqdn>. step-02 runs PRE-pivot, BEFORE step-04
+          # pins registry.<fqdn> in the node /etc/hosts. The external host resolves
+          # in-cluster ONLY if the Sovereign's split-horizon PowerDNS authoritatively
+          # serves a registry.<fqdn> record — NOT guaranteed pre-pivot: on hw246
+          # (dep c38c437f, omani.works) the powerdns-zone-bootstrap flaked
+          # ("Failed to connect to powerdns port 8081"), leaving the zone with only
+          # NS+SOA and no registry.<fqdn> → the harbor-projects Job NXDOMAIN'd with
+          # curl exit 6 on the FIRST /registries POST (4 retry Pods identical). The
+          # in-cluster Service ALWAYS resolves via the CoreDNS kubernetes plugin,
+          # independent of PowerDNS zone state AND the step-04 pin, and
+          # 00-mgmt-isolation-carveout already opens the catalyst -> harbor-core.harbor.svc
+          # path (step-01 gitea dials gitea-http.gitea.svc the same way). #4688's
+          # "DMZ/RTZ multi-cluster segregation" premise does not hold post-#4325
+          # de-vcluster: harbor + catalyst are co-located host namespaces in ONE
+          # cluster (verified live hw246: a Pod in the catalyst ns curls
+          # http://harbor-core.harbor.svc.cluster.local/api/v2.0/ping → HTTP 200).
+          # The external registry.<fqdn> host stays the target of step-04 (containerd)
+          # + step-06 (Flux) — those resolve via node /etc/hosts + public DNS.
           - name: HARBOR_INTERNAL_URL
             value: {{ .Values.sovereign.harborInternalURL | quote }}
-          # #4688 — reach the local Harbor via its EXTERNAL host registry.<fqdn>
-          # (NOT the internal svc name harbor-core.harbor.svc) so cutover steps work
-          # under DMZ/RTZ multi-cluster segregation, where an in-cluster ClusterIP
-          # does not route across clusters. In-cluster-reachable via the gateway
-          # hairpin (verified 401 from a harbor pod on hw208). The `-k` on the curls
-          # below tolerates the local Harbor's LE-STAGING wildcard on qaTest provs
-          # (in-cluster access to the LOCAL Harbor's own cert; not MITM-exposed).
+          # Retained for reference; step-02 now dials HARBOR_INTERNAL_URL above.
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
           - name: HARBOR_USERNAME
@@ -67,7 +82,7 @@ data:
           - |
             set -eu
             : "${HARBOR_USERNAME:=admin}"
-            base="${HARBOR_PUBLIC_URL}/api/v2.0"  # #4688 external host, not harbor-core.harbor.svc
+            base="${HARBOR_INTERNAL_URL}/api/v2.0"  # #5036 in-cluster Harbor Service — always CoreDNS-resolvable pre-pivot (external registry.<fqdn> NXDOMAIN'd on hw246 before the step-04 pin)
 
             # 1. Decode GHCR creds (used by proxy-ghcr registry, authMode=credential).
             if [ -n "${GHCR_DOCKERCONFIG:-}" ]; then
