@@ -1246,7 +1246,7 @@ spec:
       #   per-Org-namespace fix (tenant.namespace default "" -> falls back to
       #   .Release.Namespace) reaches fresh funnel Orgs. Lockstep w/ Chart.yaml.
       # 1.4.1092 — #4988: catalog-seed bp-postgres spec.version 0.2.10 -> 0.2.12.
-      version: 1.4.1110
+      version: 1.4.1111
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
