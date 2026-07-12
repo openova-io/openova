@@ -565,17 +565,31 @@ func childZoneName(poolDomain, subdomain string) string {
 //	*            A   <lb>          (wildcard for ad-hoc subdomains)
 //	console      A   <consoleLB>   (#4053 — isolated console gateway)
 //	api          A   <consoleLB>   (#4053 — isolated console gateway)
+//	marketplace  A   <consoleLB>   (#4053/#5034 — isolated console gateway)
 //	gitea        A   <lb>
 //	harbor       A   <lb>
-//	marketplace  A   <lb>
 //
-// #4053 — the `console` and `api` names point at consoleLBIP (the dedicated
-// console LB → cilium-gateway-console) so a poisoned SHARED-gateway CEC can
-// never 404 the console. When consoleLBIP is empty (a provisioner or a
-// deployment record that pre-dates #4053), it falls back to lbIP for those two
-// names too — making the record set byte-identical to the legacy single-LB
-// payload. Every other name (apex, wildcard, gitea, harbor, marketplace) always
-// points at lbIP (the shared gateway) regardless.
+// #4053 — the console-gateway names point at consoleLBIP (the dedicated console
+// LB → cilium-gateway-console) so a poisoned SHARED-gateway CEC can never 404
+// the console front doors. When consoleLBIP is empty (a provisioner or a
+// deployment record that pre-dates #4053), they fall back to lbIP too — making
+// the record set byte-identical to the legacy single-LB payload.
+//
+// #5034 — the console-gateway set is console + api + MARKETPLACE. Marketplace's
+// HTTPRoute parents cilium-gateway-console (products/catalyst/chart/templates/
+// org-services/marketplace-routes.yaml inherits the console-gateway parentRef
+// default) exactly like console/api, so its A-record MUST ride consoleLBIP too.
+// This mirrors catalyst-api's authoritative ConsoleGatewaySubdomains =
+// {console, api, marketplace} in sovereign_dns_records.go — the two DNS writers
+// (catalyst-api's parent-zone upsert + PDM's delegated child zone) MUST agree,
+// and for a pool Sovereign the delegated child zone is the AUTHORITATIVE answer
+// (it occludes the parent-zone records below the zone cut). Before this, PDM
+// left marketplace on lbIP → marketplace.<fqdn> resolved the SHARED gateway and
+// 404'd on every console-isolated prov, and (with the pre-#4054 image that
+// dropped consoleLBIP entirely) console/api/marketplace ALL collapsed onto lbIP,
+// occluding the correct parent-zone records and failing the Phase-1 console
+// readiness gate so handover never fired. Every remaining name (apex, wildcard,
+// gitea, harbor) always points at lbIP (the shared gateway) regardless.
 //
 // Per docs/PLATFORM-POWERDNS.md these names mirror the canonical-record
 // contract and use TTL 300 for fast failover.
@@ -583,8 +597,8 @@ func canonicalRecordSet(childZone, lbIP, consoleLBIP string) []pdns.RRSet {
 	if consoleLBIP == "" {
 		consoleLBIP = lbIP
 	}
-	// Per-prefix target: the two console-control-plane names ride the console
-	// LB; everything else rides the shared LB.
+	// Per-prefix target: the console-gateway front-door names (console/api/
+	// marketplace) ride the console LB; everything else rides the shared LB.
 	prefixes := []struct {
 		name string
 		ip   string
@@ -593,9 +607,9 @@ func canonicalRecordSet(childZone, lbIP, consoleLBIP string) []pdns.RRSet {
 		{"*", lbIP},
 		{"console", consoleLBIP},
 		{"api", consoleLBIP},
+		{"marketplace", consoleLBIP},
 		{"gitea", lbIP},
 		{"harbor", lbIP},
-		{"marketplace", lbIP},
 	}
 	rrsets := make([]pdns.RRSet, 0, len(prefixes))
 	for _, p := range prefixes {

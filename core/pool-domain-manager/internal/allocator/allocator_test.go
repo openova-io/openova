@@ -214,11 +214,16 @@ func TestCanonicalRecordSet(t *testing.T) {
 	}
 }
 
-// TestCanonicalRecordSetConsoleSplit — #4053. When a console LB IP is supplied,
-// ONLY console + api ride it; every other name keeps the shared LB IP. This is
-// the DNS half of the poison-proof gateway isolation: console./api.<fqdn> reach
-// the dedicated cilium-gateway-console while *.<fqdn> (every volatile app) keeps
-// reaching the shared cilium-gateway.
+// TestCanonicalRecordSetConsoleSplit — #4053/#5034. When a console LB IP is
+// supplied, the console-gateway front doors (console + api + marketplace) ride
+// it; every other name keeps the shared LB IP. This is the DNS half of the
+// poison-proof gateway isolation: console./api./marketplace.<fqdn> reach the
+// dedicated cilium-gateway-console while *.<fqdn> (every volatile app) keeps
+// reaching the shared cilium-gateway. The console-gateway set MUST match
+// catalyst-api's ConsoleGatewaySubdomains = {console, api, marketplace}
+// (sovereign_dns_records.go) — for a pool Sovereign this delegated child zone
+// is the authoritative answer, so a marketplace record left on the shared LB
+// 404'd marketplace.<fqdn> on every console-isolated prov (#5034).
 func TestCanonicalRecordSetConsoleSplit(t *testing.T) {
 	const sharedIP = "1.2.3.4"
 	const consoleIP = "9.9.9.9"
@@ -231,9 +236,9 @@ func TestCanonicalRecordSetConsoleSplit(t *testing.T) {
 		"*.acme.openova.io":           sharedIP,
 		"console.acme.openova.io":     consoleIP,
 		"api.acme.openova.io":         consoleIP,
+		"marketplace.acme.openova.io": consoleIP,
 		"gitea.acme.openova.io":       sharedIP,
 		"harbor.acme.openova.io":      sharedIP,
-		"marketplace.acme.openova.io": sharedIP,
 	}
 	for _, r := range rrsets {
 		want, ok := wantIP[r.Name]
