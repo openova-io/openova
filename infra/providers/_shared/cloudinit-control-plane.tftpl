@@ -510,6 +510,14 @@ write_files:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             PROVIDER: ${provider}
+            # #5017 keystone (hw242) -- IaaS provider control-plane API CIDRs the
+            # cutover step-08 deny-egress hold must ALLOW so the CSI driver can
+            # still attach volumes mid-hold (Huawei kom4dc: the API /24 where
+            # ecs/evs/obs/iam/vpc/elb resolve). Inline-YAML array computed by
+            # each provider's main.tf from var.provider_api_cidrs (Huawei
+            # default ["212.72.2.0/24"], Hetzner default []). Threads into the
+            # 06a slot's egressTest.allowProviderCIDRs.
+            PROVIDER_API_CIDRS_YAML: '${provider_api_cidrs_yaml}'
             SOVEREIGN_DEPLOYMENT_ID: ${deployment_id}
             # #4236 console-ELB IPv4 → slot-13 sovereignConsoleLBIP (see that file).
             SOVEREIGN_CONSOLE_LB_IP: ${console_load_balancer_ipv4}

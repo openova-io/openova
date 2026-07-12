@@ -1051,3 +1051,23 @@ variable "handover_jwt_public_key" {
   sensitive   = true
   default     = ""
 }
+
+variable "provider_api_cidrs" {
+  description = <<-EOT
+    #5017 keystone — IaaS provider control-plane API CIDR allow-list for
+    the cutover step-08 deny-egress hold (see the Huawei twin for the
+    full rationale). Default EMPTY on Hetzner: api.hetzner.cloud sits on
+    changing public IPs that cannot be CIDR-pinned, and the hcloud CSI
+    tolerated the hold historically; operators MAY pin a range via
+    tfvars if Hetzner ever publishes stable API CIDRs. Threads through
+    cloudinit-control-plane.tftpl postBuild substitute
+    PROVIDER_API_CIDRS_YAML into the 06a bootstrap-kit slot
+    (egressTest.allowProviderCIDRs).
+  EOT
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for c in var.provider_api_cidrs : can(cidrhost(c, 0))])
+    error_message = "provider_api_cidrs entries must be valid CIDR blocks."
+  }
+}

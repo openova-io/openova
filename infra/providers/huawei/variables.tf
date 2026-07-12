@@ -656,3 +656,26 @@ variable "clustermesh_proxy_port" {
     error_message = "clustermesh_proxy_port must be a host port below the k8s NodePort range (30000-32767; §854) and NOT 2379/2380 (k3s embedded etcd on the CP-node host)."
   }
 }
+
+variable "provider_api_cidrs" {
+  description = <<-EOT
+    #5017 keystone (hw242, 2026-07-12) — IaaS provider control-plane API
+    CIDR allow-list for the cutover step-08 deny-egress hold. The hold
+    black-holes the mothership but must NOT deny the cloud the Sovereign
+    runs ON: the EVS CSI driver dials the provider API to attach volumes
+    for any pod that (re)schedules during the hold. On kom4dc every
+    provider API endpoint (ecs/evs/obs/iam/vpc/elb
+    .me-east-215.kom4dc.nationalcloud.om) resolves into 212.72.2.0/24 —
+    the API /24 ONLY: it excludes the bastion (.24.x) and the
+    GitHub/mothership ranges, which stay denied. Threads through
+    cloudinit-control-plane.tftpl postBuild substitute
+    PROVIDER_API_CIDRS_YAML into the 06a bootstrap-kit slot
+    (egressTest.allowProviderCIDRs).
+  EOT
+  type        = list(string)
+  default     = ["212.72.2.0/24"]
+  validation {
+    condition     = alltrue([for c in var.provider_api_cidrs : can(cidrhost(c, 0))])
+    error_message = "provider_api_cidrs entries must be valid CIDR blocks."
+  }
+}

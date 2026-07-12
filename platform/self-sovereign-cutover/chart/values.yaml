@@ -1208,6 +1208,24 @@ egressTest:
     - "10.42.0.0/16"   # k3s pod CIDR (Cilium cluster-pool default)
     - "10.43.0.0/16"   # k3s service CIDR
     - "10.96.0.0/12"   # k8s default service CIDR (apiserver 10.96.0.1, CoreDNS)
+  # #4596 / #5017 keystone (hw242, 2026-07-12) — IaaS PROVIDER control-plane
+  # API CIDR allow-list for the deny-egress hold. The hold must black-hole
+  # the MOTHERSHIP, NOT the cloud the Sovereign runs ON: the CSI driver
+  # needs the provider API (Huawei ECS/EVS, …) to attach volumes for any
+  # pod that (re)schedules DURING the hold — step-08's own force-roll
+  # guarantees such pods. On hw242 this list was EMPTY (the #4596 comment
+  # claimed "cloud-init populates per region" but the population site was
+  # never built) → the CCNP omitted the kom4dc API /24 (212.72.2.0/24,
+  # where ecs/evs/obs/iam/vpc/elb.me-east-215.kom4dc.nationalcloud.om all
+  # resolve) → every EVS attach froze for the whole hold. NOW POPULATED
+  # end-to-end: infra/providers/<cloud>/variables.tf `provider_api_cidrs`
+  # (Huawei default ["212.72.2.0/24"], Hetzner default []) → templatefile →
+  # cloud-init postBuild substitute PROVIDER_API_CIDRS_YAML → 06a slot
+  # `egressTest.allowProviderCIDRs`. Empty default here = no-op on
+  # providers whose CSI/control-plane rides the cluster/host paths. These
+  # are the provider API ranges ONLY — the mothership + bastion live in
+  # different ranges and stay denied.
+  allowProviderCIDRs: []
   # #3678 — active call-home assertion. During the hold, the Step-08 Job
   # curls each of these hosts FROM a pod under the policy; if ANY connects,
   # the deny-egress is leaky and the proof FAILS (cutoverComplete stays

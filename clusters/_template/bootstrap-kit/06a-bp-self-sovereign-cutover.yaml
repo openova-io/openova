@@ -818,7 +818,10 @@ spec:
       # tree) from the local Gitea mid-cutover (hw242), breaking both flux
       # GitRepositories. Explicit refspecs never prune remote-only refs. Still 11
       # steps / 10 job-mode.
-      version: 0.1.121
+      # 0.1.122 (#5017 keystone): egressTest.allowProviderCIDRs documented
+      # chart default + populated here from PROVIDER_API_CIDRS_YAML;
+      # cutover-contract Case 47 asserts the provider-CIDR wiring renders.
+      version: 0.1.122
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -934,6 +937,20 @@ spec:
     # a tether the preceding steps 01-07 already pivoted off.
     egressTest:
       enforceCIDRBlock: true
+      # #5017 keystone (hw242, 2026-07-12): the deny-egress hold must ALLOW
+      # the IaaS provider control-plane API so the CSI driver can attach
+      # volumes for pods that (re)schedule DURING the hold — step-08's own
+      # force-roll guarantees such pods. This was EMPTY on hw242 (the #4596
+      # chart comment claimed "cloud-init populates per region" but the
+      # population site never existed) → the CCNP omitted the kom4dc API /24
+      # (212.72.2.0/24 — ecs/evs/obs/iam/vpc/elb.me-east-215.kom4dc.
+      # nationalcloud.om all resolve there) → every EVS attach froze for the
+      # whole hold. PROVIDER_API_CIDRS_YAML is an inline-YAML array threaded
+      # from infra/providers/<cloud>/variables.tf provider_api_cidrs (Huawei
+      # default ["212.72.2.0/24"], Hetzner default []) via the cloud-init
+      # postBuild substitute map. Provider API ranges ONLY — the mothership
+      # + bastion live in different ranges and stay denied.
+      allowProviderCIDRs: ${PROVIDER_API_CIDRS_YAML:=[]}
       # #4975 (Refs #3379 #3695): the Sovereign-local registry host is the FULL
       # `registry.${SOVEREIGN_FQDN}` (bp-harbor's HTTPRoute, see 19-harbor.yaml +
       # harborPublicURL above). The step-08 roll-set classifies a workload as

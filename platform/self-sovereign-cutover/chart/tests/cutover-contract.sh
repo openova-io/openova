@@ -1876,4 +1876,44 @@ if ! grep -E 'git push --force .*refs/heads/\*:refs/heads/\*.*refs/tags/\*:refs/
 fi
 echo "  PASS (Step-01 pushes refs/heads/* + refs/tags/* explicitly with --force; mirror mode absent — sovereign-local branches survive)"
 
+echo "[cutover-contract] Case 47: Step-08 deny-egress CCNP allows the IaaS provider API CIDRs — egressTest.allowProviderCIDRs threads into PROVIDER_API_CIDRS + the CCNP writer's toCIDR loop (#5017 keystone, Refs #4596 #3379)"
+# hw242 live (2026-07-12): the deny-egress hold omitted the Huawei kom4dc API
+# /24 (212.72.2.0/24) because egressTest.allowProviderCIDRs was EMPTY — the
+# #4596 comment claimed "cloud-init populates per region" but the population
+# site never existed. Every EVS attach froze for the whole hold, so the
+# step-08 force-rolls could never complete. This case locks the CHART half of
+# the population chain (infra provider_api_cidrs → cloudinit
+# PROVIDER_API_CIDRS_YAML → 06a slot → these values): the value must reach the
+# Job env AND the CCNP writer must emit each entry under the allow toCIDR.
+helm template smoke-providercidr . --set 'egressTest.allowProviderCIDRs={212.72.2.0/24}' > "$TMP/render-providercidr.yaml"
+# (1) the Job env carries the provider CIDR (space-joined list).
+if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render-providercidr.yaml" | grep -q 'value: "212.72.2.0/24"'; then
+  echo "FAIL: egressTest.allowProviderCIDRs does not reach the Step-08 Job env PROVIDER_API_CIDRS (#5017)" >&2
+  exit 1
+fi
+# (2) default render → env EMPTY (providers without a pinnable API range are a
+# no-op; the allow-list never silently widens).
+if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render.yaml" | grep -q 'value: ""'; then
+  echo "FAIL: PROVIDER_API_CIDRS must default to empty (chart default allowProviderCIDRs: []) (#5017)" >&2
+  exit 1
+fi
+# (3) the step-08 script writes each PROVIDER_API_CIDRS entry into the CCNP —
+# the writer loop must sit INSIDE the default-deny allow-list (toCIDR) section,
+# i.e. after the ALLOW_CIDRS loop and before the toEntities block.
+step08_block="$(awk '/name: cutover-egress-block-test-script|cutover-order: "8"/{c=1} c{print}' "$TMP/render-providercidr.yaml")"
+if ! grep -q 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block"; then
+  echo "FAIL: Step-08 CCNP writer has no PROVIDER_API_CIDRS loop — provider API CIDRs never reach the deny-egress allow-list (#5017)" >&2
+  exit 1
+fi
+# Line-order anchors: the PROVIDER loop must sit after the ALLOW_CIDRS loop
+# and before the EMITTED toEntities line (not a comment mention of it).
+a_ln="$(grep -n 'for cidr in ${ALLOW_CIDRS}' <<<"$step08_block" | head -1 | cut -d: -f1)"
+p_ln="$(grep -n 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block" | head -1 | cut -d: -f1)"
+e_ln="$(grep -n 'echo "    - toEntities:"' <<<"$step08_block" | head -1 | cut -d: -f1)"
+if [ -z "$a_ln" ] || [ -z "$p_ln" ] || [ -z "$e_ln" ] || [ "$a_ln" -ge "$p_ln" ] || [ "$p_ln" -ge "$e_ln" ]; then
+  echo "FAIL: PROVIDER_API_CIDRS loop must emit inside the CCNP toCIDR allow-list (after ALLOW_CIDRS at line ${a_ln:-?}, before the toEntities emit at line ${e_ln:-?}; got PROVIDER at line ${p_ln:-?}) (#5017)" >&2
+  exit 1
+fi
+echo "  PASS (allowProviderCIDRs → Job env → CCNP toCIDR allow-list; default empty)"
+
 echo "[cutover-contract] All gates green."

@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.122 (#5017 keystone Refs #3379 — hw242, 2026-07-12: step-08's deny-egress
+# CCNP omitted the IaaS provider API CIDR because egressTest.allowProviderCIDRs
+# was EMPTY: the #4596 comment claimed "cloud-init populates per region" but the
+# population site never existed. The kom4dc API /24 (212.72.2.0/24) was denied →
+# every EVS attach froze for the whole hold → the step-08 force-rolls could
+# never complete. Now populated end-to-end: infra provider_api_cidrs var →
+# cloudinit PROVIDER_API_CIDRS_YAML substitute → 06a slot
+# egressTest.allowProviderCIDRs; chart values document the [] default; contract
+# Case 47 asserts the env wiring + the CCNP writer's provider-CIDR loop.)
 # 0.1.121 (#5011 Refs #3379 #4991 — step-01 gitea-mirror's mirror-mode force-push
 # PRUNED sovereign-local Gitea branches; found LIVE on hw242, dep f05b0718dac62fe9,
 # 2026-07-12 — the first-ever post-step-01 GitOps observation: prior cycles walked
@@ -1925,7 +1934,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.121
+version: 0.1.122
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

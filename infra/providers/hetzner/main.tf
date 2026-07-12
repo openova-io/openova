@@ -971,10 +971,13 @@ locals {
     # EXCEPT sovereign_region_role: it now feeds the SHARED
     # SOVEREIGN_REGION_ROLE substitute (bp-cnpg-pair split-side, slot 16b
     # `cnpgPair.side`), so the per-CP value is live on Hetzner too.
-    pdns_api_host          = ""
-    sovereign_region_role  = "primary"
-    node_external_ip_value = ""
-    clustermesh_proxy_port = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off; hcloud-ccm LB IP has no k3s-etcd :2379 host collision)
+    pdns_api_host = ""
+    # #5017 keystone — provider API CIDRs for the step-08 deny-egress
+    # allow-list (empty on Hetzner; see variables.tf provider_api_cidrs).
+    provider_api_cidrs_yaml = jsonencode(var.provider_api_cidrs)
+    sovereign_region_role   = "primary"
+    node_external_ip_value  = ""
+    clustermesh_proxy_port  = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off; hcloud-ccm LB IP has no k3s-etcd :2379 host collision)
 
     # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
     registry_mirror_yaml          = local.registry_mirror_yaml_hetzner
@@ -1515,10 +1518,13 @@ locals {
       # Huawei-branch substitute vars — inert on Hetzner (see primary call),
       # EXCEPT sovereign_region_role: live via the shared
       # SOVEREIGN_REGION_ROLE substitute (bp-cnpg-pair split-side).
-      pdns_api_host          = ""
-      sovereign_region_role  = "secondary"
-      node_external_ip_value = ""
-      clustermesh_proxy_port = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off)
+      pdns_api_host = ""
+      # #5017 keystone — provider API CIDRs for the step-08 deny-egress
+      # allow-list (empty on Hetzner; see variables.tf provider_api_cidrs).
+      provider_api_cidrs_yaml = jsonencode(var.provider_api_cidrs)
+      sovereign_region_role   = "secondary"
+      node_external_ip_value  = ""
+      clustermesh_proxy_port  = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off)
 
       # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
       registry_mirror_yaml     = local.registry_mirror_yaml_hetzner
