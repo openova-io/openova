@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-12T18:30:05Z` |
+| Last refreshed | `2026-07-12T18:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 37 |
 | Open DoD gates | 0 / 41 |
@@ -244,6 +244,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-12T18:31 | [#5038](https://github.com/openova-io/openova/pull/5038) | #5036 | fix(cutover): step-08 ref-host lint is redirect-aware — HOST |
 | 2026-07-12T18:11 | [#5037](https://github.com/openova-io/openova/pull/5037) | #4688 | fix(cutover): steps 02/03 dial in-cluster Harbor Service, no |
 | 2026-07-12T14:14 | [#5035](https://github.com/openova-io/openova/pull/5035) | #5034 | fix(pdm): route marketplace.<fqdn> at the console LB in the  |
 | 2026-07-12T11:17 | [#5033](https://github.com/openova-io/openova/pull/5033) | #5030 | fix(ci): here-strings kill cutover-contract.sh SIGPIPE false |
@@ -273,7 +274,6 @@ flowchart LR
 | 2026-07-11T06:37 | [#4987](https://github.com/openova-io/openova/pull/4987) | #3375 | fix(#4986): bp-postgres emits dr-<instance> Continuum CR → s |
 | 2026-07-11T04:58 | [#4985](https://github.com/openova-io/openova/pull/4985) | #3374 | fix(#3374): console silent prompt=none re-auth on session-TT |
 | 2026-07-11T04:32 | [#4983](https://github.com/openova-io/openova/pull/4983) | #4982 | fix(#4982): cutover step-CMs re-render on upgrade + settled- |
-| 2026-07-11T01:40 | [#4980](https://github.com/openova-io/openova/pull/4980) | #4975 | fix(#4975): skopeo --multi-arch all so manifest-list images  |
 
 ---
 
