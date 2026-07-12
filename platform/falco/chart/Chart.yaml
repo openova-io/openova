@@ -1,5 +1,12 @@
 apiVersion: v2
 name: bp-falco
+# 1.0.2 (#5017-class — route the falco + falcoctl (initContainer AND sidecar)
+# images through the Sovereign-local Harbor proxy: kyverno harbor-proxy-pull
+# denies the raw docker.io refs on any DaemonSet roll; one denied node pod
+# freezes the whole RollingUpdate(maxUnavailable:1) roll — caught live on
+# hw242 cutover step-08 run 3, DS wedged at 0 updated. The DS updateStrategy
+# itself was verified correct (RollingUpdate/maxUnavailable:1) — the denial,
+# not the strategy, froze the roll.)
 description: |
   Catalyst Blueprint umbrella chart for Falco. Depends on the upstream
   `falco` chart (falcosecurity/charts) as a Helm subchart so
@@ -12,7 +19,7 @@ description: |
   (static scanning) and feeds the SIEM pipeline via Falcosidekick into
   bp-opensearch.
 type: application
-version: 1.0.1
+version: 1.0.2
 appVersion: "0.43.1"
 keywords: [catalyst, blueprint, falco, security, runtime, ebpf, threat-detection]
 maintainers:

@@ -16,11 +16,27 @@ catalystBlueprint:
 falco:
   # Pin upstream image tag — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md.
+  #
+  # Routed through the Sovereign-local Harbor proxy (#5017-class, caught live
+  # on hw242 step-08 run 3): the kyverno `harbor-proxy-pull` ClusterPolicy
+  # only admits pod images matching `*/proxy-*/*` or `*/openova-io/*`; the
+  # raw docker.io refs are DENIED the moment the DaemonSet rolls — and one
+  # denied node pod freezes the whole RollingUpdate(maxUnavailable:1) roll,
+  # wedging step-08's forced roll (DS stuck at 0 updated).
   image:
-    registry: docker.io
-    repository: falcosecurity/falco
+    registry: harbor.openova.io
+    repository: proxy-dockerhub/falcosecurity/falco
     tag: "0.43.1"
     pullPolicy: IfNotPresent
+
+  # falcoctl — the artifact-install initContainer + artifact-follow sidecar
+  # run in EVERY falco pod; kyverno validates =(initContainers) too, so the
+  # raw docker.io/falcosecurity/falcoctl default is routed the same way
+  # (#5017-class). Tag stays the upstream chart default.
+  falcoctl:
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/falcosecurity/falcoctl
 
   # eBPF driver — modern-bpf is the default since Falco 0.35; runs in
   # kernel-space without compiling kernel modules. Per-Sovereign overlays

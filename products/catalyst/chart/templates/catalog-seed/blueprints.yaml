@@ -4180,7 +4180,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.1"
+  version: "1.0.2"
   visibility: unlisted
   card:
     title: "Falco"
@@ -4197,7 +4197,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-falco
-    version: "1.0.1"
+    version: "1.0.2"
   topology:
     supported:
       - singleton
