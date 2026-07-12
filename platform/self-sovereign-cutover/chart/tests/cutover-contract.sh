@@ -2010,7 +2010,7 @@ if ! grep -A1 'name: HOST_PROJECT_MAP' "$TMP/render.yaml" | grep -q 'harbor.open
 fi
 echo "  PASS (mothership harbor.openova.io/proxy-* pivots to registry.<fqdn>/proxy-*; coverage map guarantees the host)"
 
-echo "[cutover-contract] Case 51: step-08 pre-hold ref-host lint FAILS loud on a residual tether ref + PASSES when all-local (#5026 treadmill-breaker)"
+echo "[cutover-contract] Case 51: step-08 pre-hold ref-host lint is REDIRECT-AWARE — FAILS loud on an un-covered tether host, PASSES step-04 redirect-covered hosts (harbor.openova.io + ghcr.io) and the local registry (#5026 #5036 treadmill-breaker)"
 helm template smoke . --show-only templates/08-egress-block-test-job.yaml > "$TMP/r08.yaml"
 _slice_fn "$TMP/r08.yaml" run_podspec_refhost_lint > "$TMP/c_lint.sh"
 if ! grep -q 'run_podspec_refhost_lint() {' "$TMP/c_lint.sh"; then
@@ -2020,22 +2020,37 @@ fi
 if ! grep -q 'ref-host lint FAILED before the hold' "$TMP/render.yaml"; then
   echo "FAIL: run_podspec_refhost_lint is not invoked as a hard pre-hold gate (#5026)" >&2; exit 1
 fi
+# #5036 — the lint must derive its redirect-covered exemption set from HOST_PROJECT_MAP
+# (the SAME env step-04 loops over to write each certs.d/<host> redirect), NOT a
+# hardcoded literal. Assert the loop is present so a future refactor can't silently
+# drop redirect-awareness and reintroduce the harbor.openova.io false positive.
+if ! grep -qF 'for _rp in ${HOST_PROJECT_MAP' "$TMP/c_lint.sh"; then
+  echo "FAIL: ref-host lint is not redirect-aware — it does not exempt HOST_PROJECT_MAP hosts (#5036)" >&2; exit 1
+fi
 # Behavioral test with a mock kubectl. Local work dir so /work redirect is safe.
 _lintdir="$TMP/lint"; mkdir -p "$_lintdir/bin" "$_lintdir/work"
-# FAIL fixture: velero still on harbor.openova.io; reloader local; registry-pivot
-# excluded; nginx implicit-docker.io; rancher/k3s excluded substring.
+# HOST_PROJECT_MAP mirrors offlineMirror.hostProjects (values.yaml): every upstream
+# registry host is redirect-covered by step-04; github.com is deliberately ABSENT
+# (no containerd redirect → a genuine deny-egress tether).
+_HPM="ghcr.io:proxy-ghcr docker.io:proxy-dockerhub registry-1.docker.io:proxy-dockerhub quay.io:proxy-quay registry.k8s.io:proxy-k8s gcr.io:proxy-gcr harbor.openova.io:"
+# FAIL fixture: badapp on github.com (NO step-04 redirect → genuine tether → offender);
+# velero on harbor.openova.io + cnpg on ghcr.io (BOTH redirect-covered → sovereign, must
+# NOT flag — the #5036 core); reloader already-local; registry-pivot excluded workload;
+# nginx implicit-docker.io; rancher/k3s excluded substring.
 cat > "$_lintdir/bin/kubectl" <<'MOCK'
 #!/bin/sh
 kind="$2"
 if [ "$3" = "-A" ]; then
   case "$kind" in
-    deployments) printf 'velero velero\nreloader reloader-reloader\ncatalyst registry-pivot\norgns myapp\n' ;;
+    deployments) printf 'bad badapp\nvelero velero\ncnpg cnpg-controller\nreloader reloader-reloader\ncatalyst registry-pivot\norgns myapp\n' ;;
     daemonsets) printf '' ;; statefulsets) printf '' ;;
   esac
 else
   key="$kind/$5/$3"
   case "$key" in
+    deployments/bad/badapp) printf 'c=github.com/acme/tool:v1\n' ;;
     deployments/velero/velero) printf 'velero=harbor.openova.io/proxy-dockerhub/velero/velero:v1.18.0\n' ;;
+    deployments/cnpg/cnpg-controller) printf 'c=ghcr.io/cloudnative-pg/postgresql:16.4\n' ;;
     deployments/reloader/reloader-reloader) printf 'r=registry.t99.omani.works/proxy-ghcr/stakater/reloader:v1.4.16\n' ;;
     deployments/orgns/myapp) printf 'a=nginx:1.27\ns=rancher/k3s:v1\n' ;;
     deployments/catalyst/registry-pivot) printf 'p=harbor.openova.io/proxy-ghcr/x/y:z\n' ;;
@@ -2049,32 +2064,34 @@ _lint_fail_out=$(
   set +e; set -u
   export PATH="$_lintdir/bin:$PATH"
   export LOCAL_REGISTRY_HOST="registry.t99.omani.works"
+  export HOST_PROJECT_MAP="$_HPM"
   export EXCLUDED_HOSTS="xpkg.upbound.io"; export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
   export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
   . "$_lintdir/lint.sh"; run_podspec_refhost_lint; echo "RC=$?"
 )
 if ! grep -q 'RC=1' <<<"$_lint_fail_out"; then
-  echo "FAIL: ref-host lint did not FAIL on a residual harbor.openova.io ref; output:\n$_lint_fail_out" >&2; exit 1
+  echo "FAIL: ref-host lint did not FAIL on an un-covered github.com ref; output:\n$_lint_fail_out" >&2; exit 1
 fi
-if ! grep -q 'UNPIVOTED velero/velero.*host:harbor.openova.io' <<<"$_lint_fail_out"; then
-  echo "FAIL: ref-host lint did not name the velero offender (#5026); output:\n$_lint_fail_out" >&2; exit 1
+if ! grep -q 'UNCOVERED bad/badapp.*host:github.com' <<<"$_lint_fail_out"; then
+  echo "FAIL: ref-host lint did not name the github.com offender (#5036); output:\n$_lint_fail_out" >&2; exit 1
 fi
-# The excluded workload (registry-pivot), the implicit-docker.io ref (nginx), the
-# excluded substring (rancher/k3s), and the already-local ref (reloader) must NOT
-# be flagged.
-if grep -qE 'UNPIVOTED (catalyst/registry-pivot|orgns/myapp|reloader/)' <<<"$_lint_fail_out"; then
-  echo "FAIL: ref-host lint flagged an excluded / implicit-docker.io / already-local ref (false positive) (#5026); output:\n$_lint_fail_out" >&2; exit 1
+# #5036 CORE: the redirect-covered mothership (harbor.openova.io) + proxy-cache (ghcr.io)
+# refs, the excluded workload, the implicit-docker.io ref, the excluded substring, and
+# the already-local ref must NOT be flagged.
+if grep -qE 'UNCOVERED (velero/velero|cnpg/cnpg-controller|catalyst/registry-pivot|orgns/myapp|reloader/)' <<<"$_lint_fail_out"; then
+  echo "FAIL: ref-host lint flagged a redirect-covered / excluded / implicit-docker.io / already-local ref (false positive) (#5036); output:\n$_lint_fail_out" >&2; exit 1
 fi
-# PASS fixture: velero pivoted to local.
+# PASS fixture: every ref is the local registry OR redirect-covered.
 cat > "$_lintdir/bin/kubectl" <<'MOCK'
 #!/bin/sh
 kind="$2"
 if [ "$3" = "-A" ]; then
-  case "$kind" in deployments) printf 'velero velero\norgns myapp\n' ;; daemonsets) printf '' ;; statefulsets) printf '' ;; esac
+  case "$kind" in deployments) printf 'velero velero\ncnpg cnpg-controller\norgns myapp\n' ;; daemonsets) printf '' ;; statefulsets) printf '' ;; esac
 else
   key="$kind/$5/$3"
   case "$key" in
-    deployments/velero/velero) printf 'velero=registry.t99.omani.works/proxy-dockerhub/velero/velero:v1.18.0\n' ;;
+    deployments/velero/velero) printf 'velero=harbor.openova.io/proxy-dockerhub/velero/velero:v1.18.0\n' ;;
+    deployments/cnpg/cnpg-controller) printf 'c=registry.t99.omani.works/proxy-ghcr/cloudnative-pg/postgresql:16.4\n' ;;
     deployments/orgns/myapp) printf 'a=nginx:1.27\n' ;;
     *) printf '' ;;
   esac
@@ -2085,14 +2102,15 @@ _lint_pass_out=$(
   set +e; set -u
   export PATH="$_lintdir/bin:$PATH"
   export LOCAL_REGISTRY_HOST="registry.t99.omani.works"
+  export HOST_PROJECT_MAP="$_HPM"
   export EXCLUDED_HOSTS="xpkg.upbound.io"; export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
   export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
   . "$_lintdir/lint.sh"; run_podspec_refhost_lint; echo "RC=$?"
 )
 if ! grep -q 'RC=0' <<<"$_lint_pass_out"; then
-  echo "FAIL: ref-host lint did not PASS when every ref is local; output:\n$_lint_pass_out" >&2; exit 1
+  echo "FAIL: ref-host lint did not PASS when every ref is local or redirect-covered; output:\n$_lint_pass_out" >&2; exit 1
 fi
-echo "  PASS (lint fails loud listing offenders on a tether ref; passes when all-local; skips excluded/implicit-docker.io)"
+echo "  PASS (lint fails loud on an un-covered github.com tether; exempts redirect-covered harbor.openova.io + ghcr.io; skips excluded/implicit-docker.io/local)"
 
 echo "[cutover-contract] Case 52: PRE-pivot steps 02/03 dial the local Harbor at the IN-CLUSTER Service (HARBOR_INTERNAL_URL = harbor-core.harbor.svc), NOT the external registry.<fqdn> (HARBOR_PUBLIC_URL) — the external host NXDOMAINs in-cluster before the step-04 pin (#5036, reverts #4688, Refs #5007)"
 # hw246 (dep c38c437f, omani.works): steps 02 (harbor-projects) + 03 (harbor-prewarm)
@@ -2169,5 +2187,39 @@ for blk in s02 s03; do
   done
 done
 echo "  PASS (steps 02/03 dial the in-cluster harbor-core.harbor.svc for API + skopeo push; single-encode %2F for the direct path; no HARBOR_PUBLIC_URL dial target remains; steps 07/08 external-host validation untouched)"
+
+echo "[cutover-contract] Case 53: step-08 ref-host lint #5036 CONTRACT — a redirect-covered mothership ref (harbor.openova.io/proxy-*) is SOVEREIGN (PASS); an un-covered external ref (github.com/*) is an offender (FAIL). NB: ghcr.io is NOT a valid FAIL example — step-04 redirect-covers it (proxy-ghcr; verified live hw246), so it PASSES too."
+_c53="$TMP/lint53"; mkdir -p "$_c53/bin" "$_c53/work"
+_slice_fn "$TMP/r08.yaml" run_podspec_refhost_lint | sed 's#/work/#'"$_c53"'/work/#g' > "$_c53/lint.sh"
+_run53() { # $1 = mock kubectl body
+  cp "$1" "$_c53/bin/kubectl"; chmod +x "$_c53/bin/kubectl"
+  ( set +e; set -u
+    export PATH="$_c53/bin:$PATH"
+    export LOCAL_REGISTRY_HOST="registry.t99.omani.works"
+    export HOST_PROJECT_MAP="ghcr.io:proxy-ghcr harbor.openova.io:"
+    export EXCLUDED_HOSTS="xpkg.upbound.io"; export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
+    export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
+    . "$_c53/lint.sh"; run_podspec_refhost_lint; echo "RC=$?" )
+}
+# (a) redirect-covered mothership ref → SOVEREIGN → PASS (the exact ~40-workload case)
+cat > "$_c53/moth.sh" <<'MOCK'
+#!/bin/sh
+[ "$3" = "-A" ] && { [ "$2" = deployments ] && printf 'velero velero\n'; exit 0; }
+[ "$2/$5/$3" = "deployments/velero/velero" ] && printf 'v=harbor.openova.io/proxy-dockerhub/velero/velero:v1.18.0\n'
+exit 0
+MOCK
+_o=$(_run53 "$_c53/moth.sh")
+grep -q 'RC=0' <<<"$_o" || { printf 'FAIL: #5036 — a redirect-covered harbor.openova.io/proxy-* ref was NOT treated as sovereign; output:\n%s\n' "$_o" >&2; exit 1; }
+# (b) un-covered github.com ref → offender → FAIL, named UNCOVERED
+cat > "$_c53/gh.sh" <<'MOCK'
+#!/bin/sh
+[ "$3" = "-A" ] && { [ "$2" = deployments ] && printf 'bad badapp\n'; exit 0; }
+[ "$2/$5/$3" = "deployments/bad/badapp" ] && printf 'c=github.com/acme/tool:v1\n'
+exit 0
+MOCK
+_o=$(_run53 "$_c53/gh.sh")
+grep -q 'RC=1' <<<"$_o" || { printf 'FAIL: #5036 — an un-covered github.com ref did NOT fail the lint; output:\n%s\n' "$_o" >&2; exit 1; }
+grep -q 'UNCOVERED bad/badapp.*host:github.com' <<<"$_o" || { printf 'FAIL: #5036 — github.com offender not named UNCOVERED; output:\n%s\n' "$_o" >&2; exit 1; }
+echo "  PASS (#5036 contract: mothership redirect-covered ref sovereign; un-covered github.com ref is a named offender; ghcr.io documented as redirect-covered → not a FAIL example)"
 
 echo "[cutover-contract] All gates green."

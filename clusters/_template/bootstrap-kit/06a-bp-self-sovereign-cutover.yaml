@@ -835,7 +835,15 @@ spec:
       # Service (harbor-core.harbor.svc, always CoreDNS-resolvable pre-pivot) for the
       # control-plane API + skopeo push, not the external registry.<fqdn> — which
       # NXDOMAIN'd pre-pivot on hw246 (powerdns-zone-bootstrap flake) → curl exit 6.
-      version: 0.1.125
+      # 0.1.126 (#5036 Refs #5026 #5027 #4975): step-08 pre-hold ref-host lint is now
+      # REDIRECT-AWARE — a workload ref on a HOST_PROJECT_MAP host (harbor.openova.io
+      # host-swap + ghcr.io/docker.io/… proxy-cache) is exempt because step-04 writes a
+      # containerd certs.d redirect for it to registry.<fqdn>, so it pulls locally and
+      # never dials the mothership (already sovereign; live hw246). Only a host with NO
+      # redirect (raw github.com/…) is a genuine deny-egress offender. Unblocks the ~40
+      # harbor.openova.io/proxy-* chart-default refs step-07 doesn't textually pivot;
+      # the deny-egress hold + completeness gate (authoritative proof) are UNCHANGED.
+      version: 0.1.126
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

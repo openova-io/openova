@@ -398,14 +398,35 @@ data:
 
             # #5026 — PRE-HOLD REF-HOST LINT (treadmill-breaker). Complements the
             # content-completeness gate above: that proves the IMAGE is in local
-            # Harbor; this proves the pod-spec REF POINTS AT local Harbor. A ref
-            # still on a tether host (harbor.openova.io mothership, ghcr.io, …)
-            # that step-07's sweep missed is a latent deny-egress ImagePullBackOff
-            # AND was historically found one-host-per-prov. This lists EVERY
-            # offender at once and fails BEFORE the hold so the whole un-pivoted
-            # set surfaces in a single prov.
+            # Harbor; this proves the pod-spec REF RESOLVES to local Harbor. A ref
+            # on a host that is NEITHER the local registry NOR a step-04 redirect-
+            # covered host is a genuine deny-egress tether (a raw github.com/… ref
+            # with NO containerd redirect) → latent ImagePullBackOff under the hold.
+            # This lists EVERY such offender at once and fails BEFORE the hold so
+            # the whole un-covered set surfaces in a single prov.
+            #
+            # #5036 (Refs #5026 #5027 #4975 — hw246) — REDIRECT-AWARE. The premise
+            # is NOT "the ref host must be registry.<fqdn>". Step-04 (04-registry-
+            # pivot-daemonset.yaml, which PASSED before this step) writes a
+            # containerd certs.d/<host>/hosts.toml redirect to registry.<fqdn> for
+            # EVERY host in HOST_PROJECT_MAP — the mothership harbor.openova.io
+            # host-swap AND ghcr.io/docker.io/quay.io/registry.k8s.io/… (proxy-cache
+            # pull-through). So a pod-spec ref like harbor.openova.io/proxy-<x>/PATH
+            # pulls from the LOCAL Harbor via that redirect and NEVER dials the
+            # mothership — it is already sovereign (verified live hw246:
+            # certs.d/harbor.openova.io/hosts.toml → server="https://harbor.openova.io",
+            # host."https://registry.<fqdn>"). Requiring step-07 to TEXTUALLY rewrite
+            # those ~40 chart-default refs (Option B, deferred backlog) is
+            # belt-and-suspenders, not a sovereignty requirement. This lint therefore
+            # exempts a host if it is the local registry OR appears in HOST_PROJECT_MAP
+            # (the SAME single-source env step-04 reads — no fresh hardcoded literal).
+            # SOUNDNESS: the deny-egress hold below is the authoritative proof; a
+            # redirect-covered ref that could NOT actually pull locally would still
+            # ImagePullBackOff during the hold and fail the proof, so exempting it
+            # here removes only a false positive on an already-local ref, never a
+            # real tether. The completeness gate above independently proves content.
             run_podspec_refhost_lint() {
-              echo "[egress-block-test] #5026: PRE-HOLD ref-host lint — every rolled workload pod-spec image host must be ${LOCAL_REGISTRY_HOST} (tether refs must be pivoted by step-07)"
+              echo "[egress-block-test] #5026/#5036: PRE-HOLD ref-host lint — every rolled workload pod-spec image host must be ${LOCAL_REGISTRY_HOST} OR a step-04 redirect-covered host (HOST_PROJECT_MAP: harbor.openova.io/ghcr.io/…); genuine offenders are hosts with NO containerd redirect that deny-egress would block"
               _lint_off="/work/refhost-offenders.$$"; : > "${_lint_off}"
               for _lk in deployments daemonsets statefulsets; do
                 kubectl get "${_lk}" -A \
@@ -446,20 +467,32 @@ data:
                           [ "${_lh}" = "${_eh}" ] && { _sk=1; break; }
                         done
                         [ "${_sk}" = "1" ] && continue
-                        # The local registry host is the ONLY acceptable explicit host.
+                        # The local registry host is sovereign.
                         [ "${_lh}" = "${LOCAL_REGISTRY_HOST}" ] && continue
+                        # #5036 — a host that step-04's containerd registries redirect
+                        # maps to the local registry is ALSO sovereign. HOST_PROJECT_MAP
+                        # is the SAME space-separated `host:project` env step-04 loops
+                        # over to write each certs.d/<host>/hosts.toml redirect to
+                        # registry.<fqdn> (harbor.openova.io host-swap + ghcr.io/docker.io/
+                        # … proxy-cache), so a ref on any of those hosts pulls locally via
+                        # the redirect and never dials the mothership → not an offender.
+                        _redir=0
+                        for _rp in ${HOST_PROJECT_MAP:-}; do
+                          [ "${_lh}" = "${_rp%%:*}" ] && { _redir=1; break; }
+                        done
+                        [ "${_redir}" = "1" ] && continue
                         printf '%s/%s [%s] %s (host:%s)\n' "${_lns}" "${_lname}" "${_lcn}" "${_limg}" "${_lh}" >> "${_lint_off}"
                       done
                   done
               done
               if [ -s "${_lint_off}" ]; then
-                echo "  FAIL — these rolled workload pod-spec image(s) STILL reference a NON-LOCAL registry host after step-07's sweep (each is a deny-egress tether; fix = step-07 sweep coverage / the chart's default image host so it renders registry.<fqdn> or a proxy-* host the sweep pivots):"
-                sort -u "${_lint_off}" | while IFS= read -r _o; do echo "    UNPIVOTED ${_o}"; done
+                echo "  FAIL — these rolled workload pod-spec image(s) reference a registry host that is NEITHER the local registry NOR step-04 redirect-covered (each is a genuine deny-egress tether with NO containerd redirect; fix = add the host to offlineMirror.hostProjects so step-04 redirects it, OR pivot the chart's default image host to registry.<fqdn> / a HOST_PROJECT_MAP host):"
+                sort -u "${_lint_off}" | while IFS= read -r _o; do echo "    UNCOVERED ${_o}"; done
                 rm -f "${_lint_off}"
                 return 1
               fi
               rm -f "${_lint_off}"
-              echo "  PASS — every rolled workload pod-spec references the local registry ${LOCAL_REGISTRY_HOST} (or implicit docker.io / excluded) — no residual tether refs (#5026)"
+              echo "  PASS — every rolled workload pod-spec references the local registry ${LOCAL_REGISTRY_HOST}, a step-04 redirect-covered host (HOST_PROJECT_MAP: harbor.openova.io/ghcr.io/…), implicit docker.io, or an excluded host — no un-covered tether refs (#5026 #5036)"
               return 0
             }
             if [ "${PODSPEC_REFHOST_LINT}" = "true" ]; then

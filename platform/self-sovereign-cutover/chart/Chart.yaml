@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.126 (#5036 Refs #5026 #5027 #4975 — hw246, dep c38c437f, omani.works): the
+# step-08 PRE-HOLD ref-host lint (run_podspec_refhost_lint, added #5026/#5027) is now
+# REDIRECT-AWARE. It failed BEFORE the deny-egress hold on the ~40 workloads whose
+# chart-default image ref is harbor.openova.io/proxy-* — but step-04's registry-pivot
+# writes a containerd certs.d/<host>/hosts.toml redirect to registry.<fqdn> for EVERY
+# host in HOST_PROJECT_MAP (the mothership harbor.openova.io host-swap AND ghcr.io/
+# docker.io/quay.io/… proxy-cache pull-through), so those refs pull from the LOCAL
+# Harbor via the redirect and NEVER dial the mothership — already sovereign (verified
+# live hw246: certs.d/harbor.openova.io/hosts.toml → server="https://harbor.openova.io",
+# host."https://registry.hw246.omani.works"). The lint now exempts a host if it is
+# LOCAL_REGISTRY_HOST OR appears in HOST_PROJECT_MAP (the SAME single-source env step-04
+# reads — no fresh hardcoded literal); a GENUINE offender is a host with NO redirect
+# (e.g. a raw github.com/… ref) that deny-egress would actually block. The deny-egress
+# hold + the offline-mirror completeness gate are UNCHANGED and remain the authoritative
+# sovereignty proof (a redirect-covered ref that could NOT pull would still fail the
+# hold), so relaxing the pre-hold lint removes only a false positive, never a real
+# tether. Option B (make step-07 TEXTUALLY rewrite all such refs, belt-and-suspenders)
+# is deferred as backlog per the founder-pending sovereignty-posture decision.
+# ── prior ──
 # 0.1.125 (#5036 Refs #5007 #4688 — hw246, dep c38c437f, omani.works: the PRE-pivot
 # steps 02 (harbor-projects) + 03 (harbor-prewarm) dialed the local Harbor at its
 # EXTERNAL host registry.<fqdn> (#4688). But those steps run BEFORE step-04 pins
@@ -27,7 +46,6 @@ name: bp-self-sovereign-cutover
 # on the gateway path) to SINGLE-encode (%2F) for the direct Service path (#5030's
 # "Harbor must receive %2F" preserved); fail-closed either way. --dest-tls-verify
 # =false (default) drives skopeo's http fallback for the plain-HTTP Service on :80.
-# ── prior ──
 # 0.1.124 (#5030 Refs #3379 #4994 #4975 #5026 — hw244, dep b16a43ac: step-03
 # harbor-prewarm's #4994 dest_already_current() idempotency probe used
 # `skopeo inspect --raw` against the DESTINATION registry endpoint — a
@@ -2006,7 +2024,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.125
+version: 0.1.126
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
