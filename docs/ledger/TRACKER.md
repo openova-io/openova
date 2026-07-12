@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-12T09:45:02Z` |
+| Last refreshed | `2026-07-12T10:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 33 |
 | Open DoD gates | 0 / 41 |
@@ -240,6 +240,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-12T09:59 | [#5029](https://github.com/openova-io/openova/pull/5029) | #5028 | fix(catalyst-api): reap orphaned CSI/EVS volumes on wipe wit |
 | 2026-07-12T06:57 | [#5027](https://github.com/openova-io/openova/pull/5027) | #5008 | fix(#5026): guarantee mothership-Harbor host pivot + step-08 |
 | 2026-07-12T02:37 | [#5025](https://github.com/openova-io/openova/pull/5025) | #5017 | fix(#5017): bp-falco routes falco + falcoctl images via the  |
 | 2026-07-12T02:37 | [#5024](https://github.com/openova-io/openova/pull/5024) | #5017 | fix(#5017 #5022 #5014): provider-CIDR population + step-08 D |
@@ -269,7 +270,6 @@ flowchart LR
 | 2026-07-10T23:00 | [#4978](https://github.com/openova-io/openova/pull/4978) | #4977 | fix(#4975): cutover-contract Case 38 resolves coverage scrip |
 | 2026-07-10T22:33 | [#4977](https://github.com/openova-io/openova/pull/4977) | #3379 | fix(#4975): complete offline-mirror + per-host containerd re |
 | 2026-07-10T22:20 | [#4976](https://github.com/openova-io/openova/pull/4976) | #3379 | fix(#4975): cutover step-08 stops misreading a Recreate slow |
-| 2026-07-10T09:47 | [#4974](https://github.com/openova-io/openova/pull/4974) | #4973 | fix(#4973): pivot Huawei EVS CSI sidecar images through loca |
 
 ---
 
