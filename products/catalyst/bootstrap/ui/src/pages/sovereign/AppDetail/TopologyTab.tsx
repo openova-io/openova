@@ -311,6 +311,14 @@ export function TopologyTab({
   const hasLiveDR = drStatus?.source === 'live' && !!liveStandbyRegion
   const showDR = hasStandby || hasLiveDR
 
+  // #4923/#4901 — the EXPLICIT standby-absent condition. The backend verifies
+  // the standby leg off the live cnpg cluster-pair and reports the tri-state
+  // standbyAvailable verdict: false means the required hot-standby is
+  // unreachable (region-kill / outage) and MUST render as a fault — never as
+  // a calm "hot replica (follows WAL)" card. undefined = unverifiable
+  // (unknown), which renders the normal card without a false health claim.
+  const standbyAbsent = drStatus?.standbyAvailable === false
+
   // The switchover target — the standby region we would promote. Prefer the
   // placement Standby target, fall back to the live continuum standby region.
   const switchoverTarget = useMemo(
@@ -569,41 +577,80 @@ export function TopologyTab({
                   drStandbyRegions.map((region) => (
                     <div
                       key={region}
-                      className="min-w-[11rem] rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2"
+                      className={`min-w-[11rem] rounded-md border px-3 py-2 ${
+                        standbyAbsent
+                          ? 'border-red-500/40 bg-red-500/10'
+                          : 'border-yellow-500/40 bg-yellow-500/10'
+                      }`}
                       data-testid={`topology-tab-dr-standby-${region}`}
                     >
                       <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
                         Standby region
                       </div>
-                      <div className="mt-0.5 font-mono text-xs font-semibold text-yellow-400">
+                      <div
+                        className={`mt-0.5 font-mono text-xs font-semibold ${
+                          standbyAbsent ? 'text-red-400' : 'text-yellow-400'
+                        }`}
+                      >
                         {region}
                       </div>
-                      <div className="text-[10px] text-[var(--color-text-dim)]">
-                        {drStatus?.streamingState
-                          ? drStatus.streamingState
-                          : 'hot replica (follows WAL)'}
+                      <div
+                        className={`text-[10px] ${standbyAbsent ? 'text-red-400' : 'text-[var(--color-text-dim)]'}`}
+                      >
+                        {standbyAbsent
+                          ? 'standby unreachable — replication interrupted'
+                          : drStatus?.streamingState
+                            ? drStatus.streamingState
+                            : 'hot replica (follows WAL)'}
                       </div>
                     </div>
                   ))
                 ) : (
                   <div
-                    className="min-w-[11rem] rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2"
+                    className={`min-w-[11rem] rounded-md border px-3 py-2 ${
+                      standbyAbsent
+                        ? 'border-red-500/40 bg-red-500/10'
+                        : 'border-yellow-500/40 bg-yellow-500/10'
+                    }`}
                     data-testid="topology-tab-dr-standby"
                   >
                     <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
                       Standby region
                     </div>
-                    <div className="mt-0.5 font-mono text-xs font-semibold text-yellow-400">
+                    <div
+                      className={`mt-0.5 font-mono text-xs font-semibold ${
+                        standbyAbsent ? 'text-red-400' : 'text-yellow-400'
+                      }`}
+                    >
                       {liveStandbyRegion ||
                         drStatus?.replicas?.find((rep) => rep.role !== 'primary')?.region ||
                         '—'}
                     </div>
-                    <div className="text-[10px] text-[var(--color-text-dim)]">
-                      {drStatus?.streamingState || 'hot replica (follows WAL)'}
+                    <div
+                      className={`text-[10px] ${standbyAbsent ? 'text-red-400' : 'text-[var(--color-text-dim)]'}`}
+                    >
+                      {standbyAbsent
+                        ? 'standby unreachable — replication interrupted'
+                        : drStatus?.streamingState || 'hot replica (follows WAL)'}
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* #4923/#4901 — the explicit honest standby-absent condition.
+                  Rendered ONLY on a VERIFIED absent standby (backend cross-
+                  checked the live cnpg-pair replica half); never inferred
+                  from a small lag number or a stored-green CR phase. */}
+              {standbyAbsent ? (
+                <div
+                  className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-400"
+                  data-testid="topology-tab-dr-standby-absent"
+                >
+                  Standby absent — the required hot-standby is unreachable.
+                  Replication has no standby leg to acknowledge commits; RPO=0
+                  durability is at risk until the standby recovers.
+                </div>
+              ) : null}
 
               {/* Live replication lag in seconds (row 56) — never a hardcoded —. */}
               <div className="mt-3 flex items-center gap-2 text-xs" data-testid="topology-tab-dr-lag">

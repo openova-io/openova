@@ -143,6 +143,13 @@ type cnpgPairState struct {
 	// posture that makes CNPG render `synchronous_standby_names = FIRST N (...)`
 	// (sync_state=sync in pg_stat_replication). False for async/lab pairs. #4923.
 	SyncReplication bool
+
+	// StandbyAvailable is the cnpgStandbyAvailable verdict on the replica
+	// half: Ready=True AND (when reported) >=1 ready instance. Distinct from
+	// ReplicationHealthy — a promoted (post-switchover) standby is available
+	// but no longer following. False = the standby-absent condition the
+	// replication-status endpoint must surface explicitly (#4923/#4901).
+	StandbyAvailable bool
 }
 
 // findCNPGPairForApp discovers the cnpg cluster-pair backing an
@@ -269,6 +276,7 @@ func (h *Handler) findCNPGPairForApp(
 	st.ReplicaReady = cnpgClusterReady(hv.replica)
 	st.LagSeconds = cnpgClusterLag(hv.replica)
 	st.SyncReplication = cnpgClusterSynchronous(hv.primary)
+	st.StandbyAvailable = cnpgStandbyAvailable(hv.replica)
 	// Healthy = the standby half is Ready and still in replica mode
 	// (actively following WAL). If replica.enabled flipped to false the
 	// pair is mid/post-switchover — not "healthy steady-state".
@@ -615,7 +623,11 @@ func (h *Handler) deriveLiveContinuumRecord(
 			// the primary half's spec.postgresql.synchronous. Consumed by
 			// liveReplicationStatusFromCNPGPair to report syncState honestly.
 			"syncReplication": st.SyncReplication,
-			"observedAt":      h.continuumNow().UTC().Format(time.RFC3339),
+			// #4923/#4901 — the VERIFIED standby-leg availability (replica half
+			// Ready + >=1 ready instance). false = the explicit standby-absent
+			// condition; consumed by liveReplicationStatusFromCNPGPair.
+			"standbyAvailable": st.StandbyAvailable,
+			"observedAt":       h.continuumNow().UTC().Format(time.RFC3339),
 		},
 	}
 	return rec, true

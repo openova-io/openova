@@ -457,6 +457,61 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
     expect(btn.disabled).toBe(false)
   })
 
+  it('#4923: a VERIFIED-absent standby renders the explicit standby-absent condition, never a calm follower card', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    // The backend verified the standby leg off the live cnpg-pair replica
+    // half and reports it ABSENT (the #4901 region-kill shape) — lag stays 0
+    // during the outage, so the UI must key off standbyAvailable, not lag.
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0,
+      streamingState: 'interrupted',
+      standbyAvailable: false,
+      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    // The explicit honest condition banner renders.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-standby-absent').textContent).toContain('Standby absent')
+    })
+    // The standby card reads unreachable — NOT the calm 'hot replica' text.
+    const card = screen.getByTestId('topology-tab-dr-standby-me-east-215-b')
+    expect(card.textContent).toContain('standby unreachable')
+    expect(card.textContent).not.toContain('hot replica (follows WAL)')
+  })
+
+  it('#4923: an UNVERIFIABLE standby (standbyAvailable omitted) renders NO absent banner (unknown is not a fault claim)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0.4,
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('topology-tab-dr-standby-absent')).toBeNull()
+  })
+
   it('a SINGLETON app shows NO DR panel + NO Switchover (honestly hidden, row 58)', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     const initialApp = {
