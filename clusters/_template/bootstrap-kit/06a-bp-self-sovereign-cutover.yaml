@@ -825,7 +825,13 @@ spec:
       # offline-mirror coverage map + NEW step-08 pre-hold ref-host lint that
       # fails loud on ANY residual tether ref (velero-hcs/cnpg on hw243) —
       # surfaces the whole un-pivoted set in one prov (treadmill-breaker).
-      version: 0.1.123
+      # 0.1.124 (#5030): step-03 harbor-prewarm dest_already_current() now probes
+      # the DEST via the Harbor artifact API (durable, never pull-through) instead
+      # of `skopeo inspect --raw` — which pull-throughs on a proxy-cache dest and
+      # false-skipped an image step-08's completeness gate then 404'd (hw244
+      # otel-operator; hw243 velero/cnpg). prewarm skip can no longer diverge from
+      # the gate that judges it.
+      version: 0.1.124
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
