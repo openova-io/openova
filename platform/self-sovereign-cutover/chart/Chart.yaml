@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.124 (#5030 Refs #3379 #4994 #4975 #5026 — hw244, dep b16a43ac: step-03
+# harbor-prewarm's #4994 dest_already_current() idempotency probe used
+# `skopeo inspect --raw` against the DESTINATION registry endpoint — a
+# registry-protocol read that PULL-THROUGHS on a proxy-cache-reachable dest while
+# egress is still up during prewarm. It saw a byte-identical (pulled-through)
+# manifest for an image NEVER durably pushed, false-"current"-SKIPPED the real
+# `skopeo copy`, and logged (ok); after step-08's deny-egress hold the image 404'd
+# and the pre-hold completeness gate FAILED → cutoverComplete never reached (live
+# hw244 opentelemetry-operator:0.101.0; same class as hw243 velero/cnpg — #5026
+# fixed only the host-pivot leg). FIX: dest_already_current now probes the DEST
+# via the Harbor ARTIFACT API (GET /api/v2.0/projects/<proj>/repositories/<repo>/
+# artifacts/<ref>) — served by Harbor CORE against its DB, so it reflects ONLY
+# durably-stored artifacts and CANNOT pull through at any cutover phase — the SAME
+# durable presence step-08's gate asserts, so a prewarm skip can never diverge
+# from the gate. Src digest still from `skopeo inspect --raw` on the SOURCE; skip
+# ONLY on a real durable digest match; fail-CLOSED (404/absent/error → real copy).
+# Nested repo names double-encode `/`->%252F (in-cluster gateway decodes one URL
+# layer). Validated live hw244: artifact-API digest == registry-v2 == source for a
+# present image; 404 for the missing otel-operator.)
 # 0.1.123 (#5026 Refs #5010 #4977 #3379 — hw243, the FIRST run to reach step-08:
 # the pre-hold completeness gate correctly FAILED because velero-hcs + cnpg
 # pod-specs still referenced harbor.openova.io/proxy-* (the MOTHERSHIP Harbor, a
@@ -1959,7 +1978,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.123
+version: 0.1.124
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

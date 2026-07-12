@@ -1604,7 +1604,7 @@ if ! grep -A1 'name: SETTLED_ROLL_PREFLIGHT' "$TMP/prewarm_a0_block.txt" | grep 
 fi
 echo "  PASS (Step-03 Phase A0 settled-roll pre-flight fail-closes on a mid-roll env before the mirror is built; default enabled)"
 
-echo "[cutover-contract] Case 42: Step-03 harbor-prewarm is idempotent (skip-if-already-present) + streams real-time progress so it can't silently hang (#4994, Refs #3379)"
+echo "[cutover-contract] Case 42: Step-03 harbor-prewarm is idempotent (skip-if-already-present, #5030 DURABLE dest probe) + streams real-time progress so it can't silently hang (#4994, Refs #3379)"
 # hw240 (#4994): step-03 sat Running 0/1 for 68m re-pushing ~121 proxy-* images
 # from the mothership, logging ONLY `queue` lines — the per-image copy logs were
 # file-buffered and only surfaced after the whole `wait`, so a slow-but-working
@@ -1626,7 +1626,19 @@ if ! grep -q 'dest_already_current()' "$TMP/prewarm_4994.txt"; then
   exit 1
 fi
 if ! grep -q 'inspect --raw' "$TMP/prewarm_4994.txt"; then
-  echo "FAIL: Step-03 idempotency does not use 'skopeo inspect --raw' (the no-blob-pull manifest-digest compare) (#4994)" >&2
+  echo "FAIL: Step-03 idempotency does not use 'skopeo inspect --raw' (the no-blob-pull SOURCE manifest-digest compare) (#4994)" >&2
+  exit 1
+fi
+# #5030 — the DEST-side presence check MUST be the Harbor artifact API (served by
+# Harbor CORE against its DB — durable, NEVER pull-through), NOT `skopeo inspect
+# --raw` on the dest registry endpoint (which pull-throughs on a proxy-cache-
+# reachable dest while egress is still up during prewarm, sees a byte-identical
+# manifest for an image NEVER durably pushed, and false-"current"-SKIPs the real
+# copy → step-08's completeness gate then 404s it under the deny-egress hold →
+# cutoverComplete never reached; hw244 otel-operator, hw243 velero/cnpg). Lock the
+# durable probe in so a refactor can't silently revert to the pull-through inspect.
+if ! grep -Eq 'api/v2\.0/projects/.*/repositories/.*/artifacts/' "$TMP/prewarm_4994.txt"; then
+  echo "FAIL: Step-03 dest_already_current() does not probe the DEST via the durable Harbor artifact API (GET /api/v2.0/projects/<proj>/repositories/<repo>/artifacts/<ref>) — a proxy-cache pull-through can false-skip a copy the step-08 gate then 404s (#5030)" >&2
   exit 1
 fi
 if ! grep -q 'progress_heartbeat' "$TMP/prewarm_4994.txt"; then

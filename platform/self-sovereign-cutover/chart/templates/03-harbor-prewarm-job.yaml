@@ -170,19 +170,24 @@ data:
           # disable override. The key is always present in values.yaml.
           - name: SETTLED_ROLL_PREFLIGHT
             value: {{ .Values.prewarm.settledRollPreflight.enabled | quote }}
-          # #4994 (Refs #3379) — content-digest idempotency. When true (default)
-          # each skopeo copy first compares the SOURCE vs DEST manifest digest
-          # (`skopeo inspect --raw | sha256sum` — the sha256 of the exact manifest
-          # bytes IS the digest, for single-arch AND multi-arch LISTS, fetched
-          # WITHOUT pulling a single blob) and SKIPS the copy when local Harbor
-          # already serves byte-identical content. A prewarm RE-RUN (catalyst-api
-          # re-fires the step after a DeadlineExceeded) or an already-mirrored
-          # image then costs a cheap manifest HEAD instead of re-transferring
-          # every multi-hundred-MB blob from the mothership (the hw240 #4994
-          # "step-03 Running 0/1 for 68m" symptom). Fail-OPEN: any inspect miss
-          # (source or dest unreachable/absent/partial) FALLS THROUGH to the full
-          # copy, so the fail-closed completeness contract is preserved — a skip
-          # happens ONLY on a positive src==dst match. Set false to force re-copy.
+          # #4994 (Refs #3379), #5030 — content-digest idempotency. When true
+          # (default) each skopeo copy first compares the SOURCE manifest digest
+          # (`skopeo inspect --raw | sha256sum` on the SOURCE — the sha256 of the
+          # exact manifest bytes IS the digest, single-arch AND multi-arch LISTS,
+          # no blob pulled) against the DEST's DURABLE digest and SKIPS the copy
+          # only on a real match. #5030: the DEST digest now comes from the Harbor
+          # ARTIFACT API (GET /api/v2.0/.../artifacts/<ref>, served by Harbor CORE
+          # against its DB — NEVER pull-through), NOT `skopeo inspect --raw` on the
+          # dest registry endpoint, which pull-throughs on a proxy-cache-reachable
+          # dest and false-"current"-skipped an image the step-08 gate then 404'd
+          # (hw244 otel-operator; hw243 velero/cnpg). A prewarm RE-RUN (catalyst-api
+          # re-fires the step after a DeadlineExceeded) or an already-mirrored image
+          # then costs a cheap API GET instead of re-transferring every
+          # multi-hundred-MB blob from the mothership (the hw240 #4994 "step-03
+          # Running 0/1 for 68m" symptom). Fail-CLOSED: any miss (source
+          # unreachable, dest 404/absent/partial, API error, empty/mismatched dest
+          # digest) FALLS THROUGH to the full copy — a skip happens ONLY on a
+          # positive durable src==dst match. Set false to force re-copy.
           - name: PREWARM_SKIP_IF_PRESENT
             value: {{ .Values.prewarm.skipIfAlreadyPresent | quote }}
         volumeMounts:
@@ -550,22 +555,49 @@ data:
               esac
             }
 
-            # #4994 (Refs #3379) — content-digest idempotency probe. Returns 0
-            # (SKIP the copy) only when the local Harbor DEST already serves
-            # byte-identical manifest content as the SOURCE. `skopeo inspect --raw`
-            # streams the exact manifest (or manifest LIST) bytes the registry
-            # serves; their sha256 IS the manifest digest — correct for single-arch
-            # AND multi-arch, and it pulls NO blob. Comparing the two inspect-raw
-            # shas to each other (not to a precomputed digest) is robust to any
-            # consistent skopeo formatting. Fail-CLOSED to a full copy on ANY miss:
-            # an empty source sha (upstream unreachable) or a mismatched/empty dest
-            # sha (absent / partial / single-arch leftover from the pre-#4975 bug)
-            # both return non-zero → the caller does the real copy. So the
-            # fail-closed completeness contract is untouched; this only elides a
-            # redundant re-transfer.
+            # #5030 (Refs #3379 #4994 #4975) — DURABLE dest-presence idempotency
+            # probe. Returns 0 (SKIP the copy) ONLY when the local Harbor DEST
+            # already serves the SAME manifest DURABLY (pushed into Harbor's own
+            # store), never on a transient pull-through.
+            #
+            # WHY the #4994 shape was WRONG: it proved dest presence with
+            # `skopeo inspect --raw` on the DESTINATION registry endpoint — a
+            # REGISTRY-PROTOCOL read that returns whatever registry.<fqdn> serves
+            # for the ref AT THAT MOMENT. During prewarm (step-03) egress is still
+            # up and the dest ref resolves through a pull-through-reachable path
+            # (a Harbor proxy-cache leg / an upstream still auth'd), so that
+            # inspect PULLS THE MANIFEST THROUGH from upstream and returns
+            # byte-identical bytes for an image that was NEVER durably pushed →
+            # src==dst → false "current" → the real `skopeo copy` is SKIPPED and
+            # the image logs (ok). The pull-through persists only the manifest, no
+            # blobs; after step-08's deny-egress hold the image 404s and step-08's
+            # completeness gate FAILS → cutoverComplete is never reached. Live
+            # hw244: proxy-ghcr/open-telemetry/opentelemetry-operator:0.101.0
+            # (durable Harbor artifact API returned NOT_FOUND while the dest
+            # inspect pull-throughs). Same class killed hw243 (velero/cnpg; #5026
+            # fixed only the host-pivot leg).
+            #
+            # FIX: probe the DEST via the Harbor ARTIFACT API
+            # (GET /api/v2.0/projects/<proj>/repositories/<repo>/artifacts/<ref>) —
+            # served by Harbor CORE against its DATABASE, so it reflects ONLY
+            # durably-stored artifacts and CANNOT pull through at ANY cutover phase.
+            # This is the SAME durable-presence assertion step-08's completeness
+            # gate makes, so a step-03 skip can NEVER diverge from the gate that
+            # then judges it. The SOURCE digest still comes from `skopeo inspect
+            # --raw` on the SOURCE (source pull-through is irrelevant — that IS the
+            # manifest we mirror FROM; its sha256 IS the manifest/-list digest, no
+            # blob pulled, correct for single-arch AND multi-arch). Skip ONLY on a
+            # real durable digest MATCH. Fail-CLOSED on ANY ambiguity: empty source
+            # sha (upstream unreachable), 404/absent/partial dest, curl/API error,
+            # or empty/mismatched dest digest all return non-zero → the caller does
+            # the real copy. So the fail-closed completeness contract is UNTOUCHED;
+            # this only elides a genuinely-redundant re-transfer.
             dest_already_current() {
-              # $1 upstream ref  $2 local dest ref  $3 src creds (may be empty)
-              _dc_up="$1"; _dc_lref="$2"; _dc_sc="$3"
+              # $1 upstream ref  $2 local dest ref (either the resolver PATH
+              #    project/repo[:tag|@digest] OR a HARBOR_HOST-prefixed lref)
+              #    $3 src creds (may be empty)
+              _dc_up="$1"; _dc_dref="$2"; _dc_sc="$3"
+              # SOURCE manifest digest (sha256 of the raw manifest/-list bytes).
               if [ -n "${_dc_sc}" ]; then
                 _dc_s=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
                   --creds="${_dc_sc}" --tls-verify=true "docker://${_dc_up}" 2>/dev/null \
@@ -576,10 +608,38 @@ data:
                   | sha256sum 2>/dev/null | awk '{print $1}')
               fi
               [ -z "${_dc_s}" ] && return 1
-              _dc_d=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
-                --creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                --tls-verify="${PREWARM_DEST_TLS_VERIFY}" "docker://${_dc_lref}" 2>/dev/null \
-                | sha256sum 2>/dev/null | awk '{print $1}')
+              _dc_s="sha256:${_dc_s}"
+              # Accept either a bare resolver path or a HARBOR_HOST-prefixed lref.
+              _dc_pp="${_dc_dref#${HARBOR_HOST}/}"
+              # Split the local path into project / repository / reference.
+              _dc_ref="latest"
+              case "${_dc_pp}" in
+                *@*)
+                  _dc_ref="${_dc_pp##*@}"; _dc_pp="${_dc_pp%@*}"
+                  case "${_dc_pp##*/}" in *:*) _dc_pp="${_dc_pp%:*}" ;; esac ;;
+                *)
+                  case "${_dc_pp##*/}" in *:*) _dc_ref="${_dc_pp##*:}"; _dc_pp="${_dc_pp%:*}" ;; esac ;;
+              esac
+              # project = first path segment; repository = the (possibly nested) rest.
+              case "${_dc_pp}" in
+                */*) _dc_proj="${_dc_pp%%/*}"; _dc_repo="${_dc_pp#*/}" ;;
+                *)   _dc_proj="${_dc_pp}";     _dc_repo="" ;;
+              esac
+              # No repository segment → cannot address an artifact → fail-closed (copy).
+              [ -z "${_dc_repo}" ] && return 1
+              # Harbor's artifact API needs the nested repo name's `/` encoded as
+              # %2F. The in-cluster gateway decodes ONE URL layer before Harbor, so
+              # DOUBLE-encode (`/` -> %252F) so Harbor receives %2F and routes the
+              # nested repository correctly (validated live hw244 #5030: single-
+              # encoded 404s the route; double-encoded 200s with the durable digest).
+              _dc_repo_enc=$(printf '%s' "${_dc_repo}" | sed 's#/#%252F#g')
+              # Durable DEST digest from Harbor CORE (never pull-through). -k: the
+              # local Harbor cert is LE-staging/untrusted on a fresh prov (same
+              # rationale as step-08's `curl -sk` completeness HEAD).
+              _dc_d=$(curl -sk --max-time 30 \
+                -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                "${HARBOR_PUBLIC_URL}/api/v2.0/projects/${_dc_proj}/repositories/${_dc_repo_enc}/artifacts/${_dc_ref}" 2>/dev/null \
+                | jq -r '.digest // empty' 2>/dev/null)
               [ -n "${_dc_d}" ] && [ "${_dc_s}" = "${_dc_d}" ]
             }
 
@@ -961,9 +1021,12 @@ data:
               # as the Phase-B PREWARM_COPY_ATTEMPTS image path) turns a
               # transient dest 504 into a bounded retry instead of a cutover-
               # killing FATAL.
-              # #4994 idempotency: skip when local Harbor already serves this exact
-              # chart artifact (re-run / already-mirrored). The chart OCI is a single
-              # manifest; compare src vs dst raw-manifest sha (no blob pull).
+              # #4994 idempotency (#5030 durable): skip when local Harbor already
+              # serves this exact chart artifact (re-run / already-mirrored). The
+              # chart OCI is a single manifest; dest_already_current compares the
+              # SOURCE raw-manifest sha against the DEST's Harbor artifact-API digest
+              # (durable, never pull-through) — the HARBOR_HOST prefix is stripped
+              # inside the function, so the openova-io/<chart>:<ver> path resolves.
               if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] \
                  && dest_already_current "${up_chart_prefix}/${cchart}:${cver}" "${HARBOR_HOST}/openova-io/${cchart}:${cver}" "${ghcr_user}:${ghcr_pat}"; then
                 echo "[harbor-prewarm] skip chart ${cchart}:${cver} (dest already current)"
