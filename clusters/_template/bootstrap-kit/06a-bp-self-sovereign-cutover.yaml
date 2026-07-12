@@ -831,7 +831,11 @@ spec:
       # false-skipped an image step-08's completeness gate then 404'd (hw244
       # otel-operator; hw243 velero/cnpg). prewarm skip can no longer diverge from
       # the gate that judges it.
-      version: 0.1.124
+      # 0.1.125 (#5036 Refs #5007 #4688): steps 02/03 dial the IN-CLUSTER Harbor
+      # Service (harbor-core.harbor.svc, always CoreDNS-resolvable pre-pivot) for the
+      # control-plane API + skopeo push, not the external registry.<fqdn> — which
+      # NXDOMAIN'd pre-pivot on hw246 (powerdns-zone-bootstrap flake) → curl exit 6.
+      version: 0.1.125
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

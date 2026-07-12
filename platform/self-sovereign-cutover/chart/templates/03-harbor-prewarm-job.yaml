@@ -131,16 +131,19 @@ data:
           - name: PREWARM_SKOPEO_TIMEOUT
             value: {{ .Values.prewarm.skopeoCommandTimeout | default "1200s" | quote }}
           # #4529 (Refs #3379): TLS-verify on the skopeo copy DESTINATION (the
-          # in-cluster Harbor `registry.<sov-fqdn>` = HARBOR_HOST). DEFAULT
-          # false — the copy target is the Sovereign's OWN registry over the
-          # cluster pod network whose wildcard cert is LE-STAGING/untrusted on a
-          # fresh prov (and a Job-Pod skopeo has no node trust store even with
-          # production LE), so verifying the dest against the public CA x509-fails
-          # every push (live keystone 25aadcfc: push_ok=0 push_fail=30 → step-03 FATAL →
-          # cutover never reaches the deny-egress hold). Trust here is the
-          # cluster network, not a public CA — same rationale as
-          # registries.yaml v1's insecure_skip_verify for the bastion mirror.
-          # The SRC (ghcr.io) verification is ALWAYS true (external public host).
+          # in-cluster Harbor Service harbor-core.harbor.svc = HARBOR_HOST post-#5036).
+          # DEFAULT false — the copy target is the Sovereign's OWN registry over the
+          # cluster pod network. Pre-#5036 (HARBOR_HOST=registry.<fqdn>) the target's
+          # wildcard cert was LE-STAGING/untrusted on a fresh prov (and a Job-Pod
+          # skopeo has no node trust store even with production LE), so verifying the
+          # dest against the public CA x509-failed every push (live keystone
+          # 25aadcfc: push_ok=0 push_fail=30 → step-03 FATAL → cutover never reached
+          # the deny-egress hold). Post-#5036 the dest is the plain-HTTP in-cluster
+          # Service on :80; DEST_TLS_VERIFY=false ALSO drives skopeo's https->http
+          # ping fallback (containers/image retries http when InsecureSkipVerify is
+          # set), so the push lands over HTTP with no cert involved. Trust here is the
+          # cluster network, not a public CA. The SRC (ghcr.io) verification is
+          # ALWAYS true (external public host).
           - name: PREWARM_DEST_TLS_VERIFY
             value: {{ .Values.prewarm.destTLSVerify | default false | quote }}
           # #4975 (Refs #3379 #3695) — the offline-mirror coverage map + the
@@ -408,7 +411,19 @@ data:
               esac
             }
 
-            HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
+            # #5036 (reverts #4688): the skopeo PUSH destination + the Harbor
+            # artifact-API existence check dial the IN-CLUSTER Harbor Service
+            # (harbor-core.harbor.svc, always CoreDNS-resolvable pre-pivot), NOT the
+            # external registry.<fqdn> (which NXDOMAINs pre-pivot on a Sovereign whose
+            # split-horizon PowerDNS lacks the record — hw246 dep c38c437f). The pushed
+            # blobs land in the SAME Harbor project/repo (Harbor stores by project/repo,
+            # host-independent), so post-cutover pulls via registry.<fqdn> — step-04
+            # containerd + step-08 completeness HEAD, which target LOCAL_REGISTRY_HOST,
+            # unchanged — resolve the identical artifacts. HARBOR_HOST is step-03-local
+            # (the resolver returns host-LESS paths; the prefix is stripped in
+            # dest_already_current), so this does not touch step-04/08. --dest-tls-verify
+            # =false (default) drives skopeo's http fallback for the plain-HTTP Service.
+            HARBOR_HOST=$(printf '%s' "${HARBOR_INTERNAL_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
 
             # Enumerate openova-io images cluster-wide.
             #
@@ -628,17 +643,21 @@ data:
               # No repository segment → cannot address an artifact → fail-closed (copy).
               [ -z "${_dc_repo}" ] && return 1
               # Harbor's artifact API needs the nested repo name's `/` encoded as
-              # %2F. The in-cluster gateway decodes ONE URL layer before Harbor, so
-              # DOUBLE-encode (`/` -> %252F) so Harbor receives %2F and routes the
-              # nested repository correctly (validated live hw244 #5030: single-
-              # encoded 404s the route; double-encoded 200s with the durable digest).
-              _dc_repo_enc=$(printf '%s' "${_dc_repo}" | sed 's#/#%252F#g')
-              # Durable DEST digest from Harbor CORE (never pull-through). -k: the
-              # local Harbor cert is LE-staging/untrusted on a fresh prov (same
-              # rationale as step-08's `curl -sk` completeness HEAD).
+              # %2F. #5036: this check now dials the Harbor CORE Service DIRECTLY
+              # (HARBOR_INTERNAL_URL) with NO gateway in the path, so SINGLE-encode
+              # (`/` -> %2F) — harbor-core receives %2F and routes the nested repo.
+              # (Under #4688's gateway path this was DOUBLE-encoded `%252F` to survive
+              # envoy's one-layer decode before Harbor; the direct Service path has no
+              # such decode, so #5030's "Harbor must receive exactly %2F" is met with a
+              # single encode here.) Fail-closed: a wrong-encoding 404 (or any miss)
+              # falls through to a full re-copy — never a false "already current" skip.
+              _dc_repo_enc=$(printf '%s' "${_dc_repo}" | sed 's#/#%2F#g')
+              # Durable DEST digest from Harbor CORE (never pull-through) via the
+              # in-cluster Service (#5036). -k is harmless over the plain-HTTP Service;
+              # retained so an https harborInternalURL override still works.
               _dc_d=$(curl -sk --max-time 30 \
                 -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                "${HARBOR_PUBLIC_URL}/api/v2.0/projects/${_dc_proj}/repositories/${_dc_repo_enc}/artifacts/${_dc_ref}" 2>/dev/null \
+                "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_dc_proj}/repositories/${_dc_repo_enc}/artifacts/${_dc_ref}" 2>/dev/null \
                 | jq -r '.digest // empty' 2>/dev/null)
               [ -n "${_dc_d}" ] && [ "${_dc_s}" = "${_dc_d}" ]
             }
@@ -1120,7 +1139,7 @@ data:
 
             # ─── Phase B (legacy): HEAD against proxy-cache for non-openova-io ─
             echo "[harbor-prewarm] Phase B: HEAD against proxy-cache for upstream images"
-            base="${HARBOR_PUBLIC_URL}/v2"  # #4688 external host, not harbor-core.harbor.svc
+            base="${HARBOR_INTERNAL_URL}/v2"  # #5036 in-cluster Harbor Service — always resolves pre-pivot; the /v2 registry API uses literal-slash repo names (no gateway-decode nuance)
             ok=0
             fail=0
             while IFS= read -r line; do
