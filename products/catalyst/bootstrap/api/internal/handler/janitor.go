@@ -750,7 +750,13 @@ func (h *Handler) cleanOrphanEVSHuawei(tofuWorkDir string, activeIDs map[string]
 	if hp == nil {
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	// #5028 — the destructive reap now throttles deletes ≥~0.9s apart (the
+	// HCS EVS API rate-limits HARD → un-throttled bulk deletes 429 wholesale).
+	// A one-time backlog near the 400-volume quota therefore needs real
+	// wall-clock to drain, so widen the budget from 3m to 10m (≈600 deletes)
+	// — enough to clear a full backlog in a single pass. The next pass (5m
+	// later) continues anything still outstanding.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	activePrefixes := h.buildActivePrefixes()
 	deleted, err := hp.SweepOrphanEVS(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
