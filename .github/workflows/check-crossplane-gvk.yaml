@@ -1,0 +1,56 @@
+name: check — crossplane adoption-seam GVK pinned (#4788)
+
+# Permanent guard that the Crossplane adoption-seam GVKs stay on the group
+# the installed provider actually registers (opentofu.upbound.io).
+#
+# The dead tf.upbound.io group (frozen provider-terraform) bit twice:
+#   #4781/#4739 — cloudadoption Composition Workspace base GVK,
+#   #4788/PR #4789 — clusters/_template ProviderConfig/default → every
+#     adopt-* Workspace Synced=False "ProviderConfig ... default not found"
+#     (live-proven hw225, UAT rows 206/207/239).
+# A GVK on an unregistered group passes yaml lint but can never be served
+# live, so only a CI pairing check catches it pre-merge.
+#
+# scripts/check-crossplane-gvk.sh runs two phases: a live-line scan for any
+# non-allowlisted *.upbound.io API group, plus a pairing assertion between
+# the pinned Provider package and its two consumer call-sites. See the
+# script header for detail.
+#
+# Per docs/PRINCIPLES.md #4a, this workflow only inspects YAML — it does
+# not build images, deploy anything, or call cloud APIs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/**'
+      - 'infra/**'
+      - 'core/**'
+      - 'scripts/check-crossplane-gvk.sh'
+      - '.github/workflows/check-crossplane-gvk.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/**'
+      - 'infra/**'
+      - 'core/**'
+      - 'scripts/check-crossplane-gvk.sh'
+      - '.github/workflows/check-crossplane-gvk.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  crossplane-gvk:
+    name: Reject dead/mismatched upbound.io GVKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run crossplane GVK guard
+        run: bash scripts/check-crossplane-gvk.sh
