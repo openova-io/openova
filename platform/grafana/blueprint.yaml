@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.0.17  # lockstep with chart/Chart.yaml (#4347 grafana sidecar probes for host-ns Kyverno probes-present Enforce)
+  version: 1.0.18  # lockstep with chart/Chart.yaml (#5022 deploymentStrategy Recreate — RWO single-replica roll deadlock)
   card:
     title: Grafana
     family: insights

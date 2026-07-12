@@ -1,5 +1,9 @@
 apiVersion: v2
 name: bp-grafana
+# 1.0.18 (#5022 — deploymentStrategy: Recreate. Single-replica Deployment +
+# RWO PVC + RollingUpdate(maxUnavailable rounds to 0) deadlocks every forced
+# roll on Multi-Attach (hw242 cutover step-08 240s roll-timeout FAILed the
+# leg). Recreate detaches the old pod first — same class as bp-gitea #3188.)
 description: |
   Catalyst Blueprint umbrella chart for Grafana. Depends on the upstream
   `grafana` chart (grafana/helm-charts) as a Helm subchart so
@@ -77,7 +81,7 @@ type: application
 #   DEAD (every Grafana datasource health-check failed → empty dashboards).
 #   Now mimir-gateway.mimir.svc:80 / loki.loki.svc:3100 / tempo.tempo.svc:3200
 #   (g115-datasources-dashboards.sh updated to match). Refs #4347 #4325.
-version: 1.0.17
+version: 1.0.18
 appVersion: "12.3.1"
 # 1.0.14 (#3374, 2026-06-14): raise the sidecar memory limit 64Mi → 192Mi
 # (request 32Mi → 64Mi). The 1.0.13 limit was too low for the

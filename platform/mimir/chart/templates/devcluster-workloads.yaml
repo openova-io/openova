@@ -652,11 +652,17 @@ metadata:
     {{- include "bp-mimir.labels" . | nindent 4 }}
     app.kubernetes.io/component: minio
 spec:
+  # #5022 — single-replica Deployment backed by an RWO PVC (`export` →
+  # PVC <release>-minio, evs-ssd). RollingUpdate with maxUnavailable:0
+  # DEADLOCKS on any forced roll (cutover step-08, Day-2 upgrades): the
+  # old pod must stay Ready until the new pod is Ready, but the new pod
+  # can't attach the RWO volume until the old one detaches → both RS
+  # wedge ContainerCreating on Multi-Attach (proven live on hw242, step-08
+  # 240s roll-timeout FAILed the leg). Recreate terminates + detaches the
+  # old pod FIRST — the correct strategy for every single-replica
+  # RWO-backed workload (same fix class as bp-gitea #3188 / catalyst-api).
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 100%
-      maxUnavailable: 0
+    type: Recreate
   replicas: 1
   selector:
     matchLabels:

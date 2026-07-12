@@ -130,7 +130,9 @@ spec:
       # grafana instead of "n/a — bootstrap component, no Application CR".
       # 1.0.17 — #4347: grafana k8s-sidecar exec probes so the Pod clears the
       #   host-ns Kyverno probes-present Enforce policy (post-#4325). Refs #4347 #4325.
-      version: 1.0.17
+      # 1.0.18: deploymentStrategy Recreate — single-replica RWO grafana
+      # deadlocked cutover step-08's forced roll on Multi-Attach (#5022).
+      version: 1.0.18
       sourceRef:
         kind: HelmRepository
         name: bp-grafana

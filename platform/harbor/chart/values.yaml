@@ -380,8 +380,21 @@ harbor:
   logLevel: info
 
   # ─── Update strategy ──────────────────────────────────────────────────
+  # #5022 — Recreate, not RollingUpdate. The upstream harbor chart applies
+  # this strategy to its PERSISTENCE-BACKED Deployments (jobservice +
+  # registry — verified in the render; core/portal/nginx keep the k8s
+  # default RollingUpdate) and offers no per-component knob. harbor-
+  # jobservice is a single-replica Deployment backed by an RWO PVC (jobLog
+  # persistence): RollingUpdate (maxUnavailable rounds to 0 at replicas=1)
+  # DEADLOCKS any forced roll -- the new pod can't attach the RWO volume
+  # until the old one detaches, the old one must stay Ready until the new is
+  # Ready -> Multi-Attach wedge (proven live on hw242: cutover step-08 240s
+  # roll-timeout FAILed the leg; jobservice needed a manual scale-bounce).
+  # Upstream's own guidance: use Recreate whenever filesystem (RWO)
+  # persistence is enabled. Overlays running HA replicas + RWX/S3-only
+  # storage MAY flip back to RollingUpdate.
   updateStrategy:
-    type: RollingUpdate
+    type: Recreate
 
 # ─── Harbor admin credentials (issue #935) ────────────────────────────────
 # Catalyst-curated admin Secret that the umbrella chart materialises in

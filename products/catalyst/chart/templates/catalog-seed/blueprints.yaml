@@ -681,7 +681,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.17"
+  version: "1.0.18"
   visibility: listed
   card:
     title: "Grafana"
@@ -703,7 +703,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-grafana
-    version: "1.0.17"
+    version: "1.0.18"
   # G117.1+G117.6 #2745-followup (2026-06-03): application-controller
   # fan-out reads spec.topology.perTopology[choice].placement.clusters[]
   # to render per-cluster HelmReleases. Without this block the controller
@@ -2179,7 +2179,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.8"
+  version: "1.0.9"
   visibility: listed
   card:
     title: "Mimir"
@@ -2198,7 +2198,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-mimir
-    version: "1.0.8"
+    version: "1.0.9"
   topology:
     supported:
     - active-passive
@@ -3306,7 +3306,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.41"
+  version: "1.2.42"
   visibility: unlisted
   card:
     title: "Harbor"
@@ -3330,7 +3330,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-harbor
-    version: "1.2.41"
+    version: "1.2.42"
   topology:
     supported:
     - active-hot-standby

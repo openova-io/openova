@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.41  # lockstep with chart/Chart.yaml (#4913 harbor.<fqdn> HTTPRoute alias so the app-named host stops 404ing; UI stays canonical on registry.<fqdn>)
+  version: 1.2.42  # lockstep with chart/Chart.yaml (#5022 updateStrategy Recreate — jobservice RWO single-replica roll deadlock)
   card:
     title: Harbor
     family: foundation
