@@ -124,14 +124,7 @@ func catalogSovereignAggPath(sovereignFQDN, bpName string) string {
 // (openova/openova) is auto-init'd by the Organization repo-bootstrap hook, so the
 // branch always has a base commit to write onto.
 func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName string, merged []byte) (bool, error) {
-	if h.giteaClient == nil {
-		return false, nil // unwired — best-effort no-op (pre-cutover / CI)
-	}
-	sovereignFQDN := strings.TrimSpace(envOr("SOVEREIGN_FQDN", ""))
-	if sovereignFQDN == "" {
-		return false, nil // Catalyst-Zero mothership — no local catalog Flux
-	}
-	if strings.TrimSpace(bpName) == "" || len(merged) == 0 {
+	if len(merged) == 0 {
 		return false, nil
 	}
 	// #4415 — the Flux aggregator file SSA-applies (force:true) to the LIVE
@@ -142,7 +135,32 @@ func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName st
 	// instead of being pinned forever at the value frozen when the operator
 	// last edited the card. The operator's curated card / visibility /
 	// topology stay in the file and remain Flux-owned + revert-immune.
-	fluxBytes := stripDeliveryFieldsForFluxAggregator(merged)
+	//
+	// NOTE the #4415 strip applies to the IMPLICIT card-edit path only. The
+	// full-CR IaC editor (catalog_iac_edit.go) calls the Bytes variant below
+	// directly with the admin's verbatim document, because an EXPLICIT
+	// whole-CR commit legitimately edits spec.version (DoD §9.7; UAT row 154).
+	return h.writeCatalogSovereignAggregatorBytes(ctx, bpName, stripDeliveryFieldsForFluxAggregator(merged))
+}
+
+// writeCatalogSovereignAggregatorBytes commits the SUPPLIED final bytes to the
+// Flux-reconciled aggregator tree — the shared trunk of the card-edit path
+// (which pre-strips the #4415 chart-delivery fields) and the full-CR IaC edit
+// path (#4896/#5018 — which commits the admin's whole document verbatim, name
+// stamped to the live CR identity). Same no-op contract as the wrapper above:
+// (false, nil) when the Gitea client is unwired or SOVEREIGN_FQDN is empty
+// (Catalyst-Zero mothership — no local catalog Flux reconcile exists).
+func (h *Handler) writeCatalogSovereignAggregatorBytes(ctx context.Context, bpName string, fluxBytes []byte) (bool, error) {
+	if h.giteaClient == nil {
+		return false, nil // unwired — best-effort no-op (pre-cutover / CI)
+	}
+	sovereignFQDN := strings.TrimSpace(envOr("SOVEREIGN_FQDN", ""))
+	if sovereignFQDN == "" {
+		return false, nil // Catalyst-Zero mothership — no local catalog Flux
+	}
+	if strings.TrimSpace(bpName) == "" || len(fluxBytes) == 0 {
+		return false, nil
+	}
 	path := catalogSovereignAggPath(sovereignFQDN, bpName)
 	msg := fmt.Sprintf("catalog: reconcile %s into Blueprint CR via Flux (#3668)", bpName)
 	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignAggOrg, catalogSovereignAggRepo,

@@ -38,6 +38,13 @@ type fakeGiteaClient struct {
 	// unchanged behaviour for every existing caller.
 	putFileSleep time.Duration // when >0, PutFile blocks this long (honours ctx cancel)
 	putFileErr   error         // when non-nil, PutFile returns this error
+
+	// putFileErrFor — #4896 additive TARGETED injection: when non-nil it is
+	// consulted per PutFile target and a non-nil return fails ONLY that
+	// write. Lets the dual-write tests fail the Flux aggregator leg while
+	// the per-Blueprint source write succeeds. Default nil → unchanged
+	// behaviour for every existing caller.
+	putFileErrFor func(org, repo, branch, path string) error
 }
 
 func newFakeGitea() *fakeGiteaClient {
@@ -77,6 +84,7 @@ func (f *fakeGiteaClient) PutFile(ctx context.Context, org, repo, branch, path s
 	f.mu.Lock()
 	sleep := f.putFileSleep
 	putErr := f.putFileErr
+	errFor := f.putFileErrFor
 	f.mu.Unlock()
 	if sleep > 0 {
 		select {
@@ -87,6 +95,11 @@ func (f *fakeGiteaClient) PutFile(ctx context.Context, org, repo, branch, path s
 	}
 	if putErr != nil {
 		return gitea.File{}, false, putErr
+	}
+	if errFor != nil {
+		if e := errFor(org, repo, branch, path); e != nil {
+			return gitea.File{}, false, e
+		}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
