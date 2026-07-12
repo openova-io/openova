@@ -202,6 +202,18 @@ export interface ContinuumReplicaInfo {
  * returned a realistic-but-not-live shape. The UI MUST surface this so a
  * fallback is never passed off as live.
  */
+/**
+ * ContinuumHealthGate — one row of the DERIVED health-gate list (#4923).
+ * Never a hardcoded all-Pass wall: Pass requires positive evidence, Warn
+ * means unverified/over-threshold, Fail means a verified fault.
+ */
+export interface ContinuumHealthGate {
+  name: string
+  status: string // "Pass" | "Warn" | "Fail"
+  message?: string
+  severity?: string // "info" | "warning" | "critical"
+}
+
 export interface ContinuumReplicationStatus {
   continuum: string
   namespace: string
@@ -213,9 +225,18 @@ export interface ContinuumReplicationStatus {
   streamingState?: string
   syncState?: string
   lastHeartbeat?: string
+  /**
+   * Tri-state standby-leg verdict (#4923/#4901):
+   * true — verified reachable+following off the live cnpg cluster-pair;
+   * false — the required hot-standby is ABSENT (the explicit honest
+   * condition the DR panel must surface, never masked as healthy);
+   * undefined — unverifiable (no cnpg pair resolvable) — unknown, not green.
+   */
+  standbyAvailable?: boolean
+  healthGates?: ContinuumHealthGate[]
   replicas?: ContinuumReplicaInfo[]
   observedAt?: string
-  source: string // "live" | "synthesized"
+  source: string // "live" | "pending"
 }
 
 /* ── Endpoint helpers ────────────────────────────────────────────── */

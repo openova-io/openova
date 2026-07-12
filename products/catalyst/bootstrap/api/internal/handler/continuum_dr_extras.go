@@ -68,10 +68,19 @@ type continuumReplicationStatus struct {
 	StreamingState    string                  `json:"streamingState"`
 	SyncState         string                  `json:"syncState"`
 	LastHeartbeat     string                  `json:"lastHeartbeat"`
+	// StandbyAvailable is the TRI-STATE standby-leg verdict (#4923/#4901):
+	// true  — the standby half was verified reachable+following off the live
+	//         cnpg cluster-pair;
+	// false — the required hot-standby is ABSENT (region-kill / outage) —
+	//         the explicit honest condition, never masked by a green shape;
+	// nil (omitted) — no cnpg pair resolvable, so the standby leg cannot be
+	//         verified from live cluster state; reported as unknown, NOT as
+	//         a fabricated healthy.
+	StandbyAvailable *bool                   `json:"standbyAvailable,omitempty"`
 	Replicas          []continuumReplicaInfo  `json:"replicas"`
 	HealthGates       []continuumHealthGate   `json:"healthGates"`
 	ObservedAt        string                  `json:"observedAt"`
-	Source            string                  `json:"source"` // "live" | "synthesized"
+	Source            string                  `json:"source"` // "live" | "pending"
 }
 
 // continuumHealthGate — one row in the replication status health-gate list.
@@ -320,9 +329,89 @@ func (h *Handler) HandleContinuumReplicationStatus(w http.ResponseWriter, r *htt
 	// 2-region pair resolves (e.g. openbao-raft spine continuums).
 	h.augmentReplicationSyncFromLivePair(
 		r.Context(), client, appNameFromContinuumName(cr.GetName()), cr.GetNamespace(), &resp)
+	// #4923/#4901 — VERIFY the standby leg off the live cnpg cluster-pair and
+	// surface the tri-state verdict (available / ABSENT / unverifiable). The
+	// continuum-controller's stored status stays green through a hot-standby
+	// outage (it derives phase from lease-held-ness alone), so the endpoint
+	// must cross-check the replica half itself — never relay a fabricated
+	// Healthy.
+	h.augmentReplicationStandbyStatus(r.Context(), client, cr, &resp)
 	resp.Source = "live"
 	resp.ObservedAt = h.continuumNow().UTC().Format(time.RFC3339)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// augmentReplicationStandbyStatus cross-checks the LIVE standby leg for a
+// Continuum-CR-backed replication-status response and stamps the tri-state
+// standbyAvailable verdict + the standby-available health gate (#4923, the
+// replication-status sibling of #4901's augmentContinuumStandbyStatus):
+//
+//   - spec.cnpgPair present + replica half resolvable → verified verdict
+//     (cnpgPairStandbyForContinuum — the #4901 path).
+//   - otherwise, a cnpg pair resolvable for the APP (label-driven, tenant-
+//     isolation-safe findCNPGPairForApp) → verified verdict off its replica
+//     half.
+//   - no pair resolvable at all (dr-spine / openbao-raft continuums) → the
+//     verdict stays UNKNOWN (standbyAvailable omitted) and an explicit Warn
+//     gate says the standby leg is unverifiable — honest-unknown, NEVER a
+//     fabricated Pass.
+//
+// On an ABSENT standby the response is forced non-promotable and the
+// streaming state reads "interrupted" — a lost required standby must never
+// render as a promotable green pair (the #4901 outage shape).
+func (h *Handler) augmentReplicationStandbyStatus(
+	ctx context.Context,
+	client dynamic.Interface,
+	cr *unstructured.Unstructured,
+	resp *continuumReplicationStatus,
+) {
+	available := false
+	region := ""
+	determined := false
+	if st, ok := h.cnpgPairStandbyForContinuum(ctx, client, cr); ok {
+		available, region, determined = st.Available, st.ReplicaRegion, true
+	} else {
+		appName, _, _ := unstructured.NestedString(cr.Object, "spec", "applicationRef")
+		if strings.TrimSpace(appName) == "" {
+			appName = appNameFromContinuumName(cr.GetName())
+		}
+		if ps, err := h.findCNPGPairForApp(ctx, client, appName, cr.GetNamespace()); err == nil && ps != nil {
+			available, region, determined = ps.StandbyAvailable, ps.ReplicaRegion, true
+		}
+	}
+	if !determined {
+		upsertHealthGate(resp, continuumHealthGate{
+			Name: "standby-available", Status: "Warn", Severity: "warning",
+			Message: "standby leg not verifiable from live cluster state (no cnpg pair resolvable); reporting unknown, not healthy",
+		})
+		return
+	}
+	resp.StandbyAvailable = &available
+	if available {
+		upsertHealthGate(resp, continuumHealthGate{
+			Name: "standby-available", Status: "Pass", Severity: "info",
+			Message: fmt.Sprintf("hot-standby in %s is reachable", standbyRegionLabel(region)),
+		})
+		return
+	}
+	resp.ReplicaPromotable = false
+	resp.StreamingState = "interrupted"
+	upsertHealthGate(resp, continuumHealthGate{
+		Name: "standby-available", Status: "Fail", Severity: "critical",
+		Message: fmt.Sprintf("required hot-standby in %s is unreachable; replication has no standby leg and RPO=0 durability is at risk",
+			standbyRegionLabel(region)),
+	})
+}
+
+// upsertHealthGate replaces the gate of the same name or appends it.
+func upsertHealthGate(resp *continuumReplicationStatus, gate continuumHealthGate) {
+	for i := range resp.HealthGates {
+		if resp.HealthGates[i].Name == gate.Name {
+			resp.HealthGates[i] = gate
+			return
+		}
+	}
+	resp.HealthGates = append(resp.HealthGates, gate)
 }
 
 // HandleContinuumSwitchoverHistory — GET
@@ -599,6 +688,12 @@ func (h *Handler) HandleDRReplicationStatus(w http.ResponseWriter, r *http.Reque
 		ContinuumCount    int                          `json:"continuumCount"`
 		ReplicasHealthy   int                          `json:"replicasHealthy"`
 		ReplicasDegraded  int                          `json:"replicasDegraded"`
+		// ReplicasUnknown counts continuums whose standby leg could not be
+		// verified from live cluster state (no cnpg pair resolvable — e.g.
+		// dr-spine/raft continuums). Reported honestly as UNKNOWN instead of
+		// being folded into healthy (#4923 hw242 evidence: all four dr-spine-*
+		// read Healthy while region-B ran zero workloads).
+		ReplicasUnknown   int                          `json:"replicasUnknown"`
 		MaxWALLagSeconds  float64                      `json:"maxWalLagSeconds"`
 		Continuums        []continuumReplicationStatus `json:"continuums"`
 		ObservedAt        string                       `json:"observedAt"`
@@ -625,13 +720,20 @@ func (h *Handler) HandleDRReplicationStatus(w http.ResponseWriter, r *http.Reque
 	for i := range list.Items {
 		cr := &list.Items[i]
 		row := enrichReplicationStatus(cr)
+		// #4923 — verify the standby leg off the live cnpg pair per row (the
+		// stored CR status alone stays green through a standby outage). Rows
+		// whose standby cannot be verified count as UNKNOWN — never healthy.
+		h.augmentReplicationStandbyStatus(r.Context(), client, cr, &row)
 		row.Source = "live"
 		out.Continuums = append(out.Continuums, row)
 		out.ContinuumCount++
-		if row.ReplicaPromotable {
+		switch {
+		case row.StandbyAvailable != nil && *row.StandbyAvailable:
 			out.ReplicasHealthy++
-		} else {
+		case row.StandbyAvailable != nil:
 			out.ReplicasDegraded++
+		default:
+			out.ReplicasUnknown++
 		}
 		if row.WALLagSeconds > out.MaxWALLagSeconds {
 			out.MaxWALLagSeconds = row.WALLagSeconds
@@ -917,32 +1019,97 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 		out.WALLagSeconds = readNumericNested(cr.Object, "status", "replicationLagSeconds")
 	}
 	out.WALLagBytes = int64(readNumericNested(cr.Object, "status", "walLagBytes"))
-	if streaming, _, _ := unstructured.NestedString(cr.Object, "status", "streamingState"); streaming != "" {
-		out.StreamingState = streaming
-	} else {
-		out.StreamingState = "streaming"
-	}
-	if sync, _, _ := unstructured.NestedString(cr.Object, "status", "syncState"); sync != "" {
-		out.SyncState = sync
-	} else {
-		out.SyncState = "async"
-	}
-	out.ReplicaPromotable = out.WALLagSeconds <= 30
+	// #4923 — NO fabricated defaults. The prior code defaulted streamingState
+	// to "streaming" and syncState to "async" when the CR omitted them —
+	// synthesized telemetry the operator could not distinguish from a live
+	// reading (and flatly wrong on a synchronous RPO=0 pair). Empty = the CR
+	// does not report it; the live cnpg-pair augmentation fills syncState when
+	// a real pair resolves, and the UI renders "—" otherwise.
+	out.StreamingState, _, _ = unstructured.NestedString(cr.Object, "status", "streamingState")
+	out.SyncState, _, _ = unstructured.NestedString(cr.Object, "status", "syncState")
+	// #4923 — replicaPromotable needs POSITIVE evidence that a standby exists
+	// and follows (status.replicationHealthy), not just "lag number is small":
+	// an ABSENT standby also reads lag=0 (#4901 — health/lag stayed green for
+	// the whole hot-standby outage), so the old `lag <= 30` marked a lost
+	// standby promotable. The live-pair standby augmentation upgrades this
+	// when it verifies the standby off the cnpg cluster-pair.
+	replHealthy, replHealthyFound, _ := unstructured.NestedBool(cr.Object, "status", "replicationHealthy")
+	out.ReplicaPromotable = replHealthyFound && replHealthy && out.WALLagSeconds <= 30
+	// #4923 — health gates DERIVED from the observed CR status, never a
+	// hardcoded all-Pass wall (the prior shape reported "streaming-replication
+	// Pass" during a proven standby outage).
+	phase, _, _ := unstructured.NestedString(cr.Object, "status", "phase")
+	leaseHolder, _, _ := unstructured.NestedString(cr.Object, "status", "leaseHolder")
 	out.HealthGates = []continuumHealthGate{
-		{Name: "streaming-replication", Status: "Pass", Severity: "info"},
-		{Name: "wal-lag-under-rpo", Status: "Pass", Severity: "info"},
-		{Name: "lease-witness-quorum", Status: "Pass", Severity: "info"},
+		replicationHealthGate(replHealthy, replHealthyFound, phase),
+		walLagHealthGate(cr.Object, out.WALLagSeconds),
+		leaseWitnessHealthGate(leaseHolder),
 	}
+	// The configured standby regions from spec — placement config, labelled as
+	// such via the honest lastHeartbeat handling: only a heartbeat the CR
+	// actually reports is surfaced, never a fabricated now() stamp.
+	hb, _, _ := unstructured.NestedString(cr.Object, "status", "lastHeartbeat")
+	out.LastHeartbeat = hb
 	standbys, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
 	for _, region := range standbys {
 		out.Replicas = append(out.Replicas, continuumReplicaInfo{
 			Region:        region,
 			Role:          "replica",
 			LagSeconds:    out.WALLagSeconds,
-			LastHeartbeat: time.Now().UTC().Format(time.RFC3339),
+			LastHeartbeat: hb,
 		})
 	}
 	return out
+}
+
+// replicationHealthGate derives the streaming-replication gate from the
+// observed status. Tri-state honest: Pass only on a positive
+// replicationHealthy=true reading; Fail on an explicit false or a
+// Degraded/FailedOver phase; Warn (unverified) when the CR reports neither —
+// NEVER a default Pass. #4923.
+func replicationHealthGate(healthy, found bool, phase string) continuumHealthGate {
+	switch {
+	case found && healthy:
+		return continuumHealthGate{Name: "streaming-replication", Status: "Pass", Severity: "info"}
+	case found && !healthy:
+		return continuumHealthGate{Name: "streaming-replication", Status: "Fail", Severity: "critical",
+			Message: "replication reported unhealthy on the Continuum CR"}
+	case phase == "Degraded" || phase == "FailedOver":
+		return continuumHealthGate{Name: "streaming-replication", Status: "Fail", Severity: "critical",
+			Message: fmt.Sprintf("Continuum phase is %s", phase)}
+	default:
+		return continuumHealthGate{Name: "streaming-replication", Status: "Warn", Severity: "warning",
+			Message: "replication health not reported by the Continuum CR; unverified"}
+	}
+}
+
+// walLagHealthGate derives the wal-lag gate: Pass only when the CR actually
+// REPORTS a lag reading under the 30s promotability threshold; Warn when the
+// reading is over threshold or absent entirely (absent lag is unknown, not a
+// healthy zero — #4901's outage kept lag pinned at 0). #4923.
+func walLagHealthGate(obj map[string]interface{}, lag float64) continuumHealthGate {
+	_, foundWAL, _ := unstructured.NestedFieldNoCopy(obj, "status", "walLagSeconds")
+	_, foundRepl, _ := unstructured.NestedFieldNoCopy(obj, "status", "replicationLagSeconds")
+	if !foundWAL && !foundRepl {
+		return continuumHealthGate{Name: "wal-lag-under-rpo", Status: "Warn", Severity: "warning",
+			Message: "replication lag not reported by the Continuum CR; unverified"}
+	}
+	if lag > 30 {
+		return continuumHealthGate{Name: "wal-lag-under-rpo", Status: "Warn", Severity: "warning",
+			Message: fmt.Sprintf("replication lag %.0fs exceeds the 30s promotability threshold", lag)}
+	}
+	return continuumHealthGate{Name: "wal-lag-under-rpo", Status: "Pass", Severity: "info"}
+}
+
+// leaseWitnessHealthGate derives the witness-lease gate from the observed
+// lease holder: Pass when a region holds the lease, Warn when no lease is
+// observed. #4923.
+func leaseWitnessHealthGate(leaseHolder string) continuumHealthGate {
+	if strings.TrimSpace(leaseHolder) != "" {
+		return continuumHealthGate{Name: "lease-witness-quorum", Status: "Pass", Severity: "info"}
+	}
+	return continuumHealthGate{Name: "lease-witness-quorum", Status: "Warn", Severity: "warning",
+		Message: "no witness-lease holder observed on the Continuum CR"}
 }
 
 // findContinuumCRByApplicationRef lists every Continuum CR cluster-wide
@@ -1005,7 +1172,22 @@ func (h *Handler) liveReplicationStatusFromCNPGPair(
 	if sr, _ := rec.Status["syncReplication"].(bool); sr {
 		syncState = "sync"
 	}
-	if !healthy {
+	// #4923/#4901 — the VERIFIED standby-leg availability off the live pair
+	// (replica half Ready + >=1 ready instance). standbyAvailable=false is the
+	// explicit standby-absent condition: streaming honestly reads
+	// "interrupted", the standby-available gate FAILS critical, and the
+	// replica is never marked promotable — a lost required-sync standby must
+	// never render as a healthy green pair.
+	standbyAvailable, _ := rec.Status["standbyAvailable"].(bool)
+	standbyGate := continuumHealthGate{Name: "standby-available", Status: "Pass", Severity: "info",
+		Message: fmt.Sprintf("hot-standby in %s is reachable", standbyRegionLabel(replicaRegion))}
+	switch {
+	case !standbyAvailable:
+		streaming = "interrupted"
+		standbyGate = continuumHealthGate{Name: "standby-available", Status: "Fail", Severity: "critical",
+			Message: fmt.Sprintf("required hot-standby in %s is unreachable; replication has no standby leg and RPO=0 durability is at risk",
+				standbyRegionLabel(replicaRegion))}
+	case !healthy:
 		streaming = "catching-up"
 	}
 	out := continuumReplicationStatus{
@@ -1014,17 +1196,17 @@ func (h *Handler) liveReplicationStatusFromCNPGPair(
 		PrimaryRegion:     primaryRegion,
 		CurrentPrimary:    currentPrimary,
 		WALLagSeconds:     lag,
-		ReplicaPromotable: healthy && lag <= 30,
+		ReplicaPromotable: standbyAvailable && healthy && lag <= 30,
 		StreamingState:    streaming,
 		SyncState:         syncState,
+		StandbyAvailable:  &standbyAvailable,
 		Replicas: []continuumReplicaInfo{
-			{Region: replicaRegion, Role: "replica", LagSeconds: lag,
-				LastHeartbeat: h.continuumNow().UTC().Format(time.RFC3339)},
+			{Region: replicaRegion, Role: "replica", LagSeconds: lag},
 		},
 		HealthGates: []continuumHealthGate{
 			{Name: "streaming-replication", Status: gatePass(healthy), Severity: "info"},
 			{Name: "wal-lag-under-rpo", Status: gatePass(lag <= 30), Severity: "info"},
-			{Name: "lease-witness-quorum", Status: "Pass", Severity: "info"},
+			standbyGate,
 		},
 		Source: "live",
 	}
