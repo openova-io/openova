@@ -224,7 +224,9 @@ spec:
       #   auto-adds the harbor.-prefixed alias; the wildcard listener (01-cilium.yaml
       #   *.${SOVEREIGN_FQDN}:443) + wildcard TLS already cover it, so no per-Sovereign
       #   DNS/cert change. externalURL + OIDC redirect_uri stay on registry.<fqdn>.
-      version: 1.2.41
+      # 1.2.42: updateStrategy Recreate — single-replica RWO jobservice
+      # deadlocked cutover step-08's forced roll on Multi-Attach (#5022).
+      version: 1.2.42
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

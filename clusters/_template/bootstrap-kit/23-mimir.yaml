@@ -120,7 +120,9 @@ spec:
       # 1.0.6 — #4343: gateway.resources + MinIO cpu requests so every
       #   container clears the host-ns Kyverno resource-requests Enforce
       #   policy (post-#4325).
-      version: 1.0.8
+      # 1.0.9: Catalyst-owned MinIO Deployment strategy Recreate — RWO
+      # single-replica roll deadlock under cutover step-08 (#5022).
+      version: 1.0.9
       sourceRef:
         kind: HelmRepository
         name: bp-mimir

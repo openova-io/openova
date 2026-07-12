@@ -1,5 +1,8 @@
 apiVersion: v2
 name: bp-mimir
+# 1.0.9 (#5022 — Catalyst-owned MinIO Deployment strategy: Recreate (was
+# hardcoded RollingUpdate maxSurge:100%/maxUnavailable:0). Single-replica +
+# RWO PVC deadlocks every forced roll on Multi-Attach (hw242 step-08).)
 description: |
   Catalyst Blueprint umbrella chart for Grafana Mimir. Depends on the
   upstream `mimir-distributed` chart (grafana/helm-charts) as a Helm
@@ -31,7 +34,7 @@ type: application
 # every container satisfies the cluster-wide Kyverno `resource-requests`
 # Enforce policy. Post-#4325 this chart installs into the native host namespace
 # (not a vCluster) where the policy applies.
-version: 1.0.8
+version: 1.0.9
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:

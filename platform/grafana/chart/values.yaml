@@ -28,6 +28,21 @@ grafana:
   # for HA.
   replicas: 1
 
+  # #5022 — grafana is a single-replica Deployment backed by an RWO PVC
+  # (persistence below). The upstream default RollingUpdate (maxUnavailable
+  # rounds to 0 at replicas=1) DEADLOCKS any forced roll: the old pod must
+  # stay Ready until the new pod is Ready, but the new pod can't attach the
+  # RWO volume until the old one detaches -> both ReplicaSets wedge
+  # ContainerCreating on Multi-Attach (proven live on hw242 -- the cutover
+  # step-08 deny-egress roll timed out at 240s and FAILed the leg; also
+  # bites normal Day-2 chart rolls). Recreate terminates + detaches the old
+  # pod FIRST -- the correct strategy for every single-replica RWO-backed
+  # workload (same fix class as bp-gitea #3188 / catalyst-api). Overlays
+  # that scale replicas>1 MUST also move persistence to RWX or per-replica
+  # storage before reverting this to RollingUpdate.
+  deploymentStrategy:
+    type: Recreate
+
   # Pin upstream image tag — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md.
   # #3375 — proxy-glob ALL grafana images through the Sovereign's local
