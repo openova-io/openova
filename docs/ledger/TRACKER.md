@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-12T20:45:02Z` |
+| Last refreshed | `2026-07-12T21:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 37 |
+| Open issues | 38 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 37 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 38 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 37 open items (clickable table)
+### All 38 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -237,6 +237,7 @@ flowchart LR
 | [#5032](https://github.com/openova-io/openova/issues/5032) | cutover-contract.sh false-fails on CI: printf|grep SIGPIPE under set -o pipefail | Other |
 | [#5034](https://github.com/openova-io/openova/issues/5034) | console_isolation: console.<fqdn> DNS points to shared gateway EIP (404) not the | Other |
 | [#5036](https://github.com/openova-io/openova/issues/5036) | Cutover step-08 ref-host lint (#5027) fails on ~40 workloads' harbor.openova.io/ | Other |
+| [#5042](https://github.com/openova-io/openova/issues/5042) | Fresh-prov bootstrap wedge: cloud-init flux-install stage silently doesn't compl | Other |
 
 ---
 
@@ -244,6 +245,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-12T20:54 | [#5041](https://github.com/openova-io/openova/pull/5041) | #5018 | fix(#4896): Edit-IaC commit writes the repo the read path re |
+| 2026-07-12T20:54 | [#5040](https://github.com/openova-io/openova/pull/5040) | #4923 | fix(catalyst-api): replication-status reports verified stand |
 | 2026-07-12T19:00 | [#5039](https://github.com/openova-io/openova/pull/5039) | #4781 | test(crossplane): CI guard pins adoption-seam GVKs to opento |
 | 2026-07-12T18:31 | [#5038](https://github.com/openova-io/openova/pull/5038) | #5036 | fix(cutover): step-08 ref-host lint is redirect-aware — HOST |
 | 2026-07-12T18:11 | [#5037](https://github.com/openova-io/openova/pull/5037) | #4688 | fix(cutover): steps 02/03 dial in-cluster Harbor Service, no |
@@ -272,8 +275,6 @@ flowchart LR
 | 2026-07-11T12:48 | [#4995](https://github.com/openova-io/openova/pull/4995) | #4993 | fix(#4993): host-native app HTTPRoute for vcluster-tier Orgs |
 | 2026-07-11T10:58 | [#4992](https://github.com/openova-io/openova/pull/4992) | #4964 | fix(#4991): org-controller delivers per-Org provisioning RBA |
 | 2026-07-11T10:04 | [#4989](https://github.com/openova-io/openova/pull/4989) | #4987 | fix(#4988): lockstep catalog-seed bp-postgres spec.version 0 |
-| 2026-07-11T06:37 | [#4987](https://github.com/openova-io/openova/pull/4987) | #3375 | fix(#4986): bp-postgres emits dr-<instance> Continuum CR → s |
-| 2026-07-11T04:58 | [#4985](https://github.com/openova-io/openova/pull/4985) | #3374 | fix(#3374): console silent prompt=none re-auth on session-TT |
 
 ---
 
