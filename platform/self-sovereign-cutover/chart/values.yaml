@@ -1200,6 +1200,20 @@ egressTest:
     # proven by the step-04 daemonset-wait + per-node v2 ACK assertions.
     excludeWorkloads:
       - "catalyst/registry-pivot"
+  # #5026 — PRE-HOLD ref-host lint (treadmill-breaker). The completeness gate
+  # above proves image CONTENT is in local Harbor; this lint proves every
+  # rolled workload's pod-spec image REF HOST is the local registry
+  # (registry.<fqdn>). A ref still pointing at a tether host (harbor.openova.io
+  # mothership, ghcr.io, quay.io, …) that step-07's sweep failed to pivot is a
+  # latent deny-egress ImagePullBackOff — and, worse, discovered ONE HOST PER
+  # PROV (the serialized-discovery treadmill #5010/#5017/#5020-25 walked, 3
+  # provs tonight). This lint fails LOUD listing EVERY offender at once so the
+  # NEXT prov surfaces the whole un-pivoted set in one shot. Implicit-docker.io
+  # refs (bare name / ns/name with no dotted first segment) and the
+  # offlineMirror excluded hosts/substrings are NOT offenders (the sweep skips
+  # them by design). Default ON — the class-breaker for #5026.
+  podspecRefHostLint:
+    enabled: true
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated

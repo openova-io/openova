@@ -133,6 +133,9 @@ data:
             value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
           - name: MIRROR_COMPLETENESS_GATE
             value: {{ eq (toString .Values.offlineMirror.enabled) "true" | quote }}
+          # #5026 — pre-hold ref-host lint toggle (treadmill-breaker).
+          - name: PODSPEC_REFHOST_LINT
+            value: {{ eq (toString .Values.egressTest.podspecRefHostLint.enabled) "true" | quote }}
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
           - name: HARBOR_USERNAME
@@ -389,6 +392,79 @@ data:
             if [ "${MIRROR_COMPLETENESS_GATE}" = "true" ] && [ -n "${HOST_PROJECT_MAP:-}" ]; then
               if ! run_offline_mirror_completeness; then
                 echo "[egress-block-test] offline-mirror completeness FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false; fix step-03 Phase A3 / offlineMirror.hostProjects)"
+                exit 1
+              fi
+            fi
+
+            # #5026 — PRE-HOLD REF-HOST LINT (treadmill-breaker). Complements the
+            # content-completeness gate above: that proves the IMAGE is in local
+            # Harbor; this proves the pod-spec REF POINTS AT local Harbor. A ref
+            # still on a tether host (harbor.openova.io mothership, ghcr.io, …)
+            # that step-07's sweep missed is a latent deny-egress ImagePullBackOff
+            # AND was historically found one-host-per-prov. This lists EVERY
+            # offender at once and fails BEFORE the hold so the whole un-pivoted
+            # set surfaces in a single prov.
+            run_podspec_refhost_lint() {
+              echo "[egress-block-test] #5026: PRE-HOLD ref-host lint — every rolled workload pod-spec image host must be ${LOCAL_REGISTRY_HOST} (tether refs must be pivoted by step-07)"
+              _lint_off="/work/refhost-offenders.$$"; : > "${_lint_off}"
+              for _lk in deployments daemonsets statefulsets; do
+                kubectl get "${_lk}" -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                | while IFS=' ' read -r _lns _lname; do
+                    [ -n "${_lns}" ] && [ -n "${_lname}" ] || continue
+                    # roll-set workload exclusions (registry-pivot etc.) — never linted.
+                    _lex=0
+                    for _lw in ${FRESH_PULL_EXCLUDE_WORKLOADS}; do
+                      [ "${_lns}/${_lname}" = "${_lw}" ] && { _lex=1; break; }
+                    done
+                    [ "${_lex}" = "1" ] && continue
+                    kubectl get "${_lk}" "${_lname}" -n "${_lns}" \
+                      -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"="}{.image}{"\n"}{end}{range .spec.template.spec.initContainers[*]}{.name}{"="}{.image}{"\n"}{end}' 2>/dev/null \
+                    | while IFS='=' read -r _lcn _limg; do
+                        [ -n "${_limg}" ] || continue
+                        # Excluded image substrings (rancher/k3s, loft-sh/vcluster) → not an offender.
+                        _sk=0
+                        for _es in ${EXCLUDED_SUBSTRINGS}; do
+                          case "${_limg}" in *"${_es}"*) _sk=1; break ;; esac
+                        done
+                        [ "${_sk}" = "1" ] && continue
+                        # Host classification — mirrors step-08's roll-set + the sweep's
+                        # podspec_pivot_ref EXACTLY: a bare `name[:tag]` or an implicit
+                        # docker.io `ns/name` (first segment has NO dot/:port) is NOT a
+                        # tether (containerd default mirror covers it) → skip.
+                        case "${_limg}" in
+                          */*)
+                            _lh="${_limg%%/*}"
+                            case "${_lh}" in
+                              *.*|*:*|localhost) : ;;
+                              *) continue ;;
+                            esac ;;
+                          *) continue ;;
+                        esac
+                        # Excluded hosts (xpkg.upbound.io — step-11 owns it) → skip.
+                        for _eh in ${EXCLUDED_HOSTS}; do
+                          [ "${_lh}" = "${_eh}" ] && { _sk=1; break; }
+                        done
+                        [ "${_sk}" = "1" ] && continue
+                        # The local registry host is the ONLY acceptable explicit host.
+                        [ "${_lh}" = "${LOCAL_REGISTRY_HOST}" ] && continue
+                        printf '%s/%s [%s] %s (host:%s)\n' "${_lns}" "${_lname}" "${_lcn}" "${_limg}" "${_lh}" >> "${_lint_off}"
+                      done
+                  done
+              done
+              if [ -s "${_lint_off}" ]; then
+                echo "  FAIL — these rolled workload pod-spec image(s) STILL reference a NON-LOCAL registry host after step-07's sweep (each is a deny-egress tether; fix = step-07 sweep coverage / the chart's default image host so it renders registry.<fqdn> or a proxy-* host the sweep pivots):"
+                sort -u "${_lint_off}" | while IFS= read -r _o; do echo "    UNPIVOTED ${_o}"; done
+                rm -f "${_lint_off}"
+                return 1
+              fi
+              rm -f "${_lint_off}"
+              echo "  PASS — every rolled workload pod-spec references the local registry ${LOCAL_REGISTRY_HOST} (or implicit docker.io / excluded) — no residual tether refs (#5026)"
+              return 0
+            }
+            if [ "${PODSPEC_REFHOST_LINT}" = "true" ]; then
+              if ! run_podspec_refhost_lint; then
+                echo "[egress-block-test] ref-host lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false; every offender above must be pivoted to ${LOCAL_REGISTRY_HOST} — fix the step-07 sweep coverage or the workload chart's default image host)"
                 exit 1
               fi
             fi

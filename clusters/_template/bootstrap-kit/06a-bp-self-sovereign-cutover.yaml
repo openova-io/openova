@@ -821,7 +821,11 @@ spec:
       # 0.1.122 (#5017 keystone): egressTest.allowProviderCIDRs documented
       # chart default + populated here from PROVIDER_API_CIDRS_YAML;
       # cutover-contract Case 47 asserts the provider-CIDR wiring renders.
-      version: 0.1.122
+      # 0.1.123 (#5026): mothership harbor.openova.io host-swap guaranteed in the
+      # offline-mirror coverage map + NEW step-08 pre-hold ref-host lint that
+      # fails loud on ANY residual tether ref (velero-hcs/cnpg on hw243) —
+      # surfaces the whole un-pivoted set in one prov (treadmill-breaker).
+      version: 0.1.123
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
