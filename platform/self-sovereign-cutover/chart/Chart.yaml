@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.123 (#5026 Refs #5010 #4977 #3379 — hw243, the FIRST run to reach step-08:
+# the pre-hold completeness gate correctly FAILED because velero-hcs + cnpg
+# pod-specs still referenced harbor.openova.io/proxy-* (the MOTHERSHIP Harbor, a
+# deny-egress tether) that step-07's sweep had left unpivoted. THREE fixes:
+# (1) the mothership host is now GUARANTEED in the offline-mirror coverage map at
+# the TEMPLATE level (helpers.tpl hostProjectMapInline appends it if a values
+# overlay dropped it) so harbor.openova.io/proxy-* host-swaps to
+# registry.<fqdn>/proxy-* in the step-07 sweep + step-03/04/08 — regression-proof
+# at the single source all steps read; (2) NEW pre-hold REF-HOST LINT in step-08
+# (treadmill-breaker): scans EVERY rolled workload's container+initContainer image
+# hosts and FAILS LOUD listing ALL offenders whose host is not registry.<fqdn>
+# (excluding implicit-docker.io + the offlineMirror excludes) — so a future prov
+# surfaces the whole un-pivoted set in ONE shot instead of one-host-per-prov;
+# (3) cutover-contract Cases 50/51 assert the mothership pivot + the lint's
+# fail-loud/pass behaviour.)
 # 0.1.122 (#5017 keystone Refs #3379 — hw242, 2026-07-12: step-08's deny-egress
 # CCNP omitted the IaaS provider API CIDR because egressTest.allowProviderCIDRs
 # was EMPTY: the #4596 comment claimed "cloud-init populates per region" but the
@@ -1944,7 +1959,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.122
+version: 0.1.123
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

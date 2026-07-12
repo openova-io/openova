@@ -99,8 +99,25 @@ one declaration — this is the retirement of the three hand-maintained lists.
 */}}
 {{- define "bp-self-sovereign-cutover.hostProjectMapInline" -}}
 {{- $pairs := list -}}
+{{- $hosts := list -}}
 {{- range .Values.offlineMirror.hostProjects -}}
 {{- $pairs = append $pairs (printf "%s:%s" .host (.project | default "")) -}}
+{{- $hosts = append $hosts .host -}}
+{{- end -}}
+{{- /*
+   #5026 (Refs #5010 #4977) — REGRESSION-PROOF mothership coverage. The
+   mothership Harbor host (harbor.openova.io) is a sovereignty TETHER: its
+   `harbor.openova.io/proxy-<x>/PATH` pod-spec refs MUST host-swap to
+   `registry.<fqdn>/proxy-<x>/PATH` (path preserved) in the step-07 sweep +
+   step-08 completeness gate, or velero-hcs/cnpg/etc. fail the pre-hold
+   completeness gate (proven live hw243). offlineMirror.hostProjects already
+   carries it, but an operator overlay that rewrites hostProjects could drop
+   it — so GUARANTEE it here (empty project = host-swap) whenever it isn't
+   already present. The map is the single source both step-03/04/07/08 read,
+   so this one guard fixes the whole class at the source. */ -}}
+{{- $mo := (include "bp-self-sovereign-cutover.mothershipHost" .) -}}
+{{- if and $mo (not (has $mo $hosts)) -}}
+{{- $pairs = append $pairs (printf "%s:" $mo) -}}
 {{- end -}}
 {{- join " " $pairs -}}
 {{- end -}}

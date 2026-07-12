@@ -1958,4 +1958,128 @@ if ! grep -q 'for _w in ${FRESH_PULL_EXCLUDE_WORKLOADS}' <<<"$step08_all"; then
 fi
 echo "  PASS (registry-pivot excluded from the roll-set by ns/name; values-overridable)"
 
+echo "[cutover-contract] Case 50: step-07 sweep pivots the MOTHERSHIP Harbor host — harbor.openova.io/proxy-* -> registry.<fqdn>/proxy-* (path preserved) (#5026, hw243)"
+# The mothership Harbor (harbor.openova.io) is a sovereignty TETHER, not a local
+# host: velero-hcs + cnpg pin harbor.openova.io/proxy-* image refs that the
+# deny-egress hold blocks. Run the REAL resolver + podspec_pivot_ref (sliced
+# from the shipped chart) against a harbor.openova.io ref and assert it pivots.
+# awk slicer: dedents a `    <name>() { ... }` shell fn from a rendered template.
+_slice_fn() { awk -v fn="$2" '
+  !st && $0 ~ "^[[:space:]]*"fn"\\(\\) \\{" { match($0,/^[[:space:]]*/); ind=substr($0,1,RLENGTH); st=1 }
+  st { l=$0; sub("^"ind,"",l); print l; if (l=="}") exit }
+' "$1"; }
+helm template smoke . --show-only templates/03a-offline-mirror-resolver.yaml > "$TMP/r03a.yaml"
+helm template smoke . --show-only templates/07-catalyst-api-env-patch-job.yaml > "$TMP/r07.yaml"
+# resolver.sh is a data key body, not a function.
+awk '/resolver.sh: \|/{f=1;next} f{if(/^    /){sub(/^    /,"");print} else if(/^[^ ]/){exit}}' "$TMP/r03a.yaml" > "$TMP/c_resolver.sh"
+_slice_fn "$TMP/r07.yaml" podspec_pivot_ref > "$TMP/c_pivot.sh"
+if ! grep -q 'podspec_pivot_ref() {' "$TMP/c_pivot.sh"; then
+  echo "FAIL: could not slice podspec_pivot_ref from step-07 (#5026)" >&2; exit 1
+fi
+_pivot_out=$(
+  set -u
+  export LOCAL_REGISTRY_HOST="registry.t99.omani.works"
+  # The rendered coverage map MUST carry harbor.openova.io (empty project = host-swap).
+  export HOST_PROJECT_MAP="ghcr.io:proxy-ghcr docker.io:proxy-dockerhub quay.io:proxy-quay registry.k8s.io:proxy-k8s harbor.openova.io:"
+  export EXCLUDED_HOSTS="xpkg.upbound.io"
+  export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
+  . "$TMP/c_resolver.sh"; . "$TMP/c_pivot.sh"
+  podspec_pivot_ref "harbor.openova.io/proxy-dockerhub/velero/velero:v1.18.0"
+)
+if [ "$_pivot_out" != "registry.t99.omani.works/proxy-dockerhub/velero/velero:v1.18.0" ]; then
+  echo "FAIL: step-07 sweep did not pivot the mothership ref; got '$_pivot_out' (want registry.t99.omani.works/proxy-dockerhub/velero/velero:v1.18.0) (#5026)" >&2
+  exit 1
+fi
+# The rendered HOST_PROJECT_MAP env in step-08 MUST carry harbor.openova.io so
+# the guarantee (helpers.tpl) is regression-proof against a values-overlay drop.
+if ! grep -A1 'name: HOST_PROJECT_MAP' "$TMP/render.yaml" | grep -q 'harbor.openova.io:'; then
+  echo "FAIL: rendered HOST_PROJECT_MAP does not carry the mothership host harbor.openova.io: (host-swap) (#5026)" >&2
+  exit 1
+fi
+echo "  PASS (mothership harbor.openova.io/proxy-* pivots to registry.<fqdn>/proxy-*; coverage map guarantees the host)"
+
+echo "[cutover-contract] Case 51: step-08 pre-hold ref-host lint FAILS loud on a residual tether ref + PASSES when all-local (#5026 treadmill-breaker)"
+helm template smoke . --show-only templates/08-egress-block-test-job.yaml > "$TMP/r08.yaml"
+_slice_fn "$TMP/r08.yaml" run_podspec_refhost_lint > "$TMP/c_lint.sh"
+if ! grep -q 'run_podspec_refhost_lint() {' "$TMP/c_lint.sh"; then
+  echo "FAIL: could not slice run_podspec_refhost_lint from step-08 (#5026)" >&2; exit 1
+fi
+# The lint must be wired as a HARD gate (exit 1 on failure), not fail-open.
+if ! grep -q 'ref-host lint FAILED before the hold' "$TMP/render.yaml"; then
+  echo "FAIL: run_podspec_refhost_lint is not invoked as a hard pre-hold gate (#5026)" >&2; exit 1
+fi
+# Behavioral test with a mock kubectl. Local work dir so /work redirect is safe.
+_lintdir="$TMP/lint"; mkdir -p "$_lintdir/bin" "$_lintdir/work"
+# FAIL fixture: velero still on harbor.openova.io; reloader local; registry-pivot
+# excluded; nginx implicit-docker.io; rancher/k3s excluded substring.
+cat > "$_lintdir/bin/kubectl" <<'MOCK'
+#!/bin/sh
+kind="$2"
+if [ "$3" = "-A" ]; then
+  case "$kind" in
+    deployments) printf 'velero velero\nreloader reloader-reloader\ncatalyst registry-pivot\norgns myapp\n' ;;
+    daemonsets) printf '' ;; statefulsets) printf '' ;;
+  esac
+else
+  key="$kind/$5/$3"
+  case "$key" in
+    deployments/velero/velero) printf 'velero=harbor.openova.io/proxy-dockerhub/velero/velero:v1.18.0\n' ;;
+    deployments/reloader/reloader-reloader) printf 'r=registry.t99.omani.works/proxy-ghcr/stakater/reloader:v1.4.16\n' ;;
+    deployments/orgns/myapp) printf 'a=nginx:1.27\ns=rancher/k3s:v1\n' ;;
+    deployments/catalyst/registry-pivot) printf 'p=harbor.openova.io/proxy-ghcr/x/y:z\n' ;;
+    *) printf '' ;;
+  esac
+fi
+MOCK
+chmod +x "$_lintdir/bin/kubectl"
+sed 's#/work/#'"$_lintdir"'/work/#g' "$TMP/c_lint.sh" > "$_lintdir/lint.sh"
+_lint_fail_out=$(
+  set +e; set -u
+  export PATH="$_lintdir/bin:$PATH"
+  export LOCAL_REGISTRY_HOST="registry.t99.omani.works"
+  export EXCLUDED_HOSTS="xpkg.upbound.io"; export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
+  export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
+  . "$_lintdir/lint.sh"; run_podspec_refhost_lint; echo "RC=$?"
+)
+if ! printf '%s' "$_lint_fail_out" | grep -q 'RC=1'; then
+  echo "FAIL: ref-host lint did not FAIL on a residual harbor.openova.io ref; output:\n$_lint_fail_out" >&2; exit 1
+fi
+if ! printf '%s' "$_lint_fail_out" | grep -q 'UNPIVOTED velero/velero.*host:harbor.openova.io'; then
+  echo "FAIL: ref-host lint did not name the velero offender (#5026); output:\n$_lint_fail_out" >&2; exit 1
+fi
+# The excluded workload (registry-pivot), the implicit-docker.io ref (nginx), the
+# excluded substring (rancher/k3s), and the already-local ref (reloader) must NOT
+# be flagged.
+if printf '%s' "$_lint_fail_out" | grep -qE 'UNPIVOTED (catalyst/registry-pivot|orgns/myapp|reloader/)'; then
+  echo "FAIL: ref-host lint flagged an excluded / implicit-docker.io / already-local ref (false positive) (#5026); output:\n$_lint_fail_out" >&2; exit 1
+fi
+# PASS fixture: velero pivoted to local.
+cat > "$_lintdir/bin/kubectl" <<'MOCK'
+#!/bin/sh
+kind="$2"
+if [ "$3" = "-A" ]; then
+  case "$kind" in deployments) printf 'velero velero\norgns myapp\n' ;; daemonsets) printf '' ;; statefulsets) printf '' ;; esac
+else
+  key="$kind/$5/$3"
+  case "$key" in
+    deployments/velero/velero) printf 'velero=registry.t99.omani.works/proxy-dockerhub/velero/velero:v1.18.0\n' ;;
+    deployments/orgns/myapp) printf 'a=nginx:1.27\n' ;;
+    *) printf '' ;;
+  esac
+fi
+MOCK
+chmod +x "$_lintdir/bin/kubectl"
+_lint_pass_out=$(
+  set +e; set -u
+  export PATH="$_lintdir/bin:$PATH"
+  export LOCAL_REGISTRY_HOST="registry.t99.omani.works"
+  export EXCLUDED_HOSTS="xpkg.upbound.io"; export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
+  export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
+  . "$_lintdir/lint.sh"; run_podspec_refhost_lint; echo "RC=$?"
+)
+if ! printf '%s' "$_lint_pass_out" | grep -q 'RC=0'; then
+  echo "FAIL: ref-host lint did not PASS when every ref is local; output:\n$_lint_pass_out" >&2; exit 1
+fi
+echo "  PASS (lint fails loud listing offenders on a tether ref; passes when all-local; skips excluded/implicit-docker.io)"
+
 echo "[cutover-contract] All gates green."
