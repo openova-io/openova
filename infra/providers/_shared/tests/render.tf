@@ -72,6 +72,9 @@ locals {
     node_external_ip_cmd              = "echo 203.0.113.10"
     node_external_ip_value            = "203.0.113.10"
     clustermesh_proxy_port            = 12379
+    # #5017 keystone — provider API CIDRs (inline-YAML array) for the step-08
+    # deny-egress allow-list; every real templatefile() map supplies it.
+    provider_api_cidrs_yaml           = "[]"
     k3s_extra_args                    = ""
     registry_mirror_yaml              = "mirrors: {}"
     catalyst_api_url                  = "https://console.example.test"

@@ -155,6 +155,9 @@ fixture_cp_common() {
     # (primary + secondary-region); keep the size-check fixture in lockstep
     # or tofu errors "vars map does not contain key clustermesh_proxy_port".
     clustermesh_proxy_port            = 12379
+    # #5017 keystone — provider API CIDRs (inline-YAML array) for the step-08
+    # deny-egress allow-list; every real templatefile() map supplies it.
+    provider_api_cidrs_yaml           = "[]"
 HCL
 }
 
