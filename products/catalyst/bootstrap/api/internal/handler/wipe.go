@@ -583,6 +583,29 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 				report.Errors = append(report.Errors, wipeRes.Errors...)
 			}
 		}
+
+		// #5028 — POST-DESTROY EVS BACKSTOP. tofu destroy + the provider
+		// orphan-purge remove IaC-declared infra, but NOT the CSI-provisioned
+		// `pvc-*` EVS volumes (no dep name → invisible to the name-prefix
+		// purge). The #4677 drain releases them only when the cluster was
+		// still reachable; on an already-dead env it no-ops and the volumes
+		// strand as status=available, filling the HCS 400-volume quota after
+		// ~3 wipes and hard-blocking the next fresh prov's PVCs (413
+		// VolumeLimitExceeded). This is the "post-destroy cloud-GC backstop"
+		// wipe_drain.go promised: reap THIS dep's detached `pvc-*` volumes
+		// (throttled + 429-backoff), protecting every OTHER live dep.
+		if strings.EqualFold(providerName, "huawei") {
+			if hp := h.huaweiProvider("post-wipe-EVS"); hp != nil {
+				if creds, ok := huaweiSweepCredsFromRaw(credsRaw); ok {
+					reaped := h.reapDeploymentEVSBackstop(tofuCtx, hp, id, creds, func(msg string) {
+						emit("wipe", "info", "huawei: post-destroy EVS backstop: "+msg)
+					})
+					if reaped > 0 {
+						emit("wipe", "info", "huawei: post-destroy EVS backstop reaped "+itoa(reaped)+" detached CSI volume(s) tofu destroy left orphaned (#5028)")
+					}
+				}
+			}
+		}
 	}
 
 	if providerPurgeTotal(report.ProviderPurge) > 0 {

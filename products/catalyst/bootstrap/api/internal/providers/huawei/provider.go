@@ -2188,6 +2188,55 @@ func isReclaimableOrphanEVS(name, status string, attachmentCount int, metadata m
 	return true
 }
 
+// evsDeleteSpacing throttles consecutive EVS DELETE calls in the orphan
+// sweep. The HCS EVS API rate-limits HARD — deletes fired faster than
+// ~0.8s apart trip 429 ("too many 429 error responses") and a large backlog
+// (the 332-volume hw244 heal, #5028) fails wholesale. 900ms leaves margin
+// over the observed ~0.8s floor. Package var so tests run instantly.
+var evsDeleteSpacing = 900 * time.Millisecond
+
+// evsDelete429MaxRetries / evsDelete429BaseBackoff bound the per-volume
+// retry when a single DELETE still 429s despite the inter-call spacing (a
+// burst from a concurrent janitor pass, say). Exponential, ctx-interruptible.
+// Package vars so tests run instantly.
+var (
+	evsDelete429MaxRetries  = 5
+	evsDelete429BaseBackoff = 1 * time.Second
+)
+
+// deleteEVSVolume issues DELETE /v2/{project}/cloudvolumes/{id} with
+// retry-with-backoff on HTTP 429 (the HCS EVS hard rate-limit, #5028).
+// Returns the final HTTP status. A transport error aborts immediately; a
+// non-429 status (incl. 404 already-gone) returns straight away. Honours ctx
+// cancellation between retries so a wipe/janitor deadline is respected.
+func deleteEVSVolume(ctx context.Context, client *http.Client, hw hwCreds, region, projectID, volID string) (int, error) {
+	delURL := fmt.Sprintf("%s/v2/%s/cloudvolumes/%s", endpointFor("evs", region), projectID, volID)
+	backoff := evsDelete429BaseBackoff
+	var status int
+	var err error
+	for attempt := 0; ; attempt++ {
+		_, status, err = doSignedRequest(client, hw, http.MethodDelete, delURL, nil)
+		if err != nil {
+			return status, err
+		}
+		if status != http.StatusTooManyRequests {
+			return status, nil
+		}
+		// 429 — the rate-limit the un-throttled bulk reap tripped. Back off
+		// (exponential) and retry, unless we've exhausted the budget (the
+		// caller logs the residual 429; the periodic janitor retries later).
+		if attempt >= evsDelete429MaxRetries {
+			return status, nil
+		}
+		select {
+		case <-ctx.Done():
+			return status, ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+}
+
 // SweepOrphanEVS lists every EVS volume in the HCS project and reclaims
 // detached CSI `pvc-*` volumes that belong to no in-flight deployment
 // (#4466). It is the volume-tier sibling of SweepOrphanEIPs / Keypairs /
@@ -2238,10 +2287,24 @@ func (p *Provider) SweepOrphanEVS(ctx context.Context, ak, sk, projectID, region
 			deleted++
 			continue
 		}
-		delURL := fmt.Sprintf("%s/v2/%s/cloudvolumes/%s", endpointFor("evs", region), projectID, v.ID)
-		_, dstatus, derr := doSignedRequest(client, hw, http.MethodDelete, delURL, nil)
+		// #5028 — THROTTLE. The HCS EVS API rate-limits HARD: firing DELETEs
+		// back-to-back on a large backlog trips 429 ("too many 429 error
+		// responses") and the reap fails wholesale (live: the 332-volume
+		// hw244 heal could not run un-throttled). Space consecutive deletes
+		// ≥evsDeleteSpacing apart, ctx-interruptible so a wipe/janitor
+		// deadline still bounds the pass.
+		select {
+		case <-ctx.Done():
+			return deleted, ctx.Err()
+		case <-time.After(evsDeleteSpacing):
+		}
+		dstatus, derr := deleteEVSVolume(ctx, client, hw, region, projectID, v.ID)
 		if derr != nil {
 			progress(fmt.Sprintf("sweep orphan EVS %s: DELETE failed: %v", v.Name, derr))
+			continue
+		}
+		if dstatus == http.StatusTooManyRequests {
+			progress(fmt.Sprintf("sweep orphan EVS %s: still 429 after %d backoff retries — leaving for the next pass", v.Name, evsDelete429MaxRetries))
 			continue
 		}
 		if dstatus >= 400 && dstatus != http.StatusNotFound {

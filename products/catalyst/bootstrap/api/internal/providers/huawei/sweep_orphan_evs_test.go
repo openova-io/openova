@@ -7,8 +7,28 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
+
+// neutralizeEVSThrottle zeroes the inter-delete spacing + backoff so the
+// destructive-path tests run instantly. #5028 added a ≥~0.9s spacing and a
+// 1s-base 429 backoff to protect against the HCS EVS hard rate-limit; tests
+// exercise the LOGIC, not the wall-clock, so we drive both to ~0 and restore.
+func neutralizeEVSThrottle(t *testing.T) {
+	t.Helper()
+	origSpacing, origBackoff, origRetries := evsDeleteSpacing, evsDelete429BaseBackoff, evsDelete429MaxRetries
+	evsDeleteSpacing = 0
+	evsDelete429BaseBackoff = 0
+	t.Cleanup(func() {
+		evsDeleteSpacing = origSpacing
+		evsDelete429BaseBackoff = origBackoff
+		evsDelete429MaxRetries = origRetries
+	})
+}
 
 // fakeHCSEVS stands up a httptest server that mimics the EVS detail-list +
 // per-volume DELETE endpoints, overrides the package `endpointFor` to route
@@ -76,6 +96,7 @@ func TestSweepOrphanEVS_LogOnlyReapsNothing(t *testing.T) {
 // sweep deletes ONLY the genuine orphan; the in-use + bastion volumes are
 // never touched.
 func TestSweepOrphanEVS_DestructiveReapsOrphanOnly(t *testing.T) {
+	neutralizeEVSThrottle(t)
 	var deleted []string
 	restore := fakeHCSEVS(t, evsListFixture, &deleted)
 	defer restore()
@@ -95,6 +116,7 @@ func TestSweepOrphanEVS_DestructiveReapsOrphanOnly(t *testing.T) {
 // metadata carries an in-flight deployment-ID prefix is protected EVEN with
 // the destructive flag set.
 func TestSweepOrphanEVS_ActiveDepNeverReaped(t *testing.T) {
+	neutralizeEVSThrottle(t)
 	listBody := fmt.Sprintf(`{"volumes":[
 	  {"id":"vol-live-1","name":"pvc-live","status":"available","attachments":[],"metadata":{"cluster_id":"catalyst-x-%s-cluster"}}
 	]}`, "5b413990")
@@ -241,5 +263,148 @@ func TestIsReclaimableOrphanEVS_NoActiveProvs(t *testing.T) {
 	}
 	if isReclaimableOrphanEVS("bastion-openova-root", "available", 0, nil, empty) {
 		t.Fatal("a bastion disk must stay protected even with an empty active set")
+	}
+}
+
+// fakeHCS429EVS stands up an EVS DELETE endpoint that returns HTTP 429 for the
+// first `fail429` DELETE calls (any volume), then 202. Records the attempt
+// count so a test can assert the #5028 backoff retried the right number of
+// times. Returns a restore func.
+func fakeHCS429EVS(t *testing.T, fail429 int, attempts *int32) func() {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/cloudvolumes/") {
+			n := atomic.AddInt32(attempts, 1)
+			if int(n) <= fail429 {
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	host := strings.TrimPrefix(srv.URL, "https://")
+	orig := endpointFor
+	endpointFor = func(service, region string) string { return "https://" + host }
+	return func() {
+		endpointFor = orig
+		srv.Close()
+	}
+}
+
+// TestDeleteEVSVolume_429Backoff — #5028 core: the HCS EVS API rate-limits
+// HARD (429). deleteEVSVolume MUST retry-with-backoff on 429 up to the budget
+// and give up gracefully (returning the residual 429) rather than treating the
+// first 429 as a fatal failure. Table-tests the attempt accounting with the
+// wall-clock backoff neutralised.
+func TestDeleteEVSVolume_429Backoff(t *testing.T) {
+	cases := []struct {
+		name         string
+		fail429      int
+		maxRetries   int
+		wantAttempts int32
+		wantStatus   int
+	}{
+		{"succeeds on first try", 0, 5, 1, http.StatusAccepted},
+		{"429 twice then 202 (retries succeed)", 2, 5, 3, http.StatusAccepted},
+		{"429 forever exhausts the budget", 99, 3, 4 /*1 initial + 3 retries*/, http.StatusTooManyRequests},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			origBackoff, origRetries := evsDelete429BaseBackoff, evsDelete429MaxRetries
+			evsDelete429BaseBackoff = 0 // no wall-clock in tests
+			evsDelete429MaxRetries = tc.maxRetries
+			defer func() {
+				evsDelete429BaseBackoff = origBackoff
+				evsDelete429MaxRetries = origRetries
+			}()
+
+			var attempts int32
+			restore := fakeHCS429EVS(t, tc.fail429, &attempts)
+			defer restore()
+
+			client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": "me-east-215"}})
+			status, err := deleteEVSVolume(context.Background(), client,
+				hwCreds{AccessKey: "ak", SecretKey: "sk", ProjectID: "proj"}, "me-east-215", "proj", "vol-x")
+			if err != nil {
+				t.Fatalf("deleteEVSVolume: %v", err)
+			}
+			if status != tc.wantStatus {
+				t.Fatalf("final status = %d, want %d", status, tc.wantStatus)
+			}
+			if got := atomic.LoadInt32(&attempts); got != tc.wantAttempts {
+				t.Fatalf("DELETE attempts = %d, want %d (429-retry budget not honoured)", got, tc.wantAttempts)
+			}
+		})
+	}
+}
+
+// TestSweepOrphanEVS_ThrottlesConsecutiveDeletes proves the #5028 throttle is
+// actually applied on the destructive path: two genuine orphans reaped with a
+// 50ms spacing must take at least one spacing interval (un-throttled the two
+// DELETEs are sub-millisecond). Without the throttle a 332-volume backlog
+// 429s wholesale — this is the regression guard for that.
+func TestSweepOrphanEVS_ThrottlesConsecutiveDeletes(t *testing.T) {
+	origSpacing, origBackoff := evsDeleteSpacing, evsDelete429BaseBackoff
+	evsDeleteSpacing = 50 * time.Millisecond
+	evsDelete429BaseBackoff = 0
+	defer func() {
+		evsDeleteSpacing = origSpacing
+		evsDelete429BaseBackoff = origBackoff
+	}()
+
+	listBody := `{"volumes":[
+	  {"id":"vol-o1","name":"pvc-o1","status":"available","attachments":[],"metadata":{}},
+	  {"id":"vol-o2","name":"pvc-o2","status":"available","attachments":[],"metadata":{}}
+	]}`
+	var deleted []string
+	restore := fakeHCSEVS(t, listBody, &deleted)
+	defer restore()
+
+	p := New()
+	start := time.Now()
+	n, err := p.SweepOrphanEVS(context.Background(), "ak", "sk", "proj", "me-east-215",
+		map[string]struct{}{}, true /*destructive*/, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("SweepOrphanEVS: %v", err)
+	}
+	if n != 2 || len(deleted) != 2 {
+		t.Fatalf("reaped n=%d deleted=%v, want exactly 2", n, deleted)
+	}
+	if elapsed < evsDeleteSpacing {
+		t.Fatalf("2-delete sweep took %s — the #5028 throttle was not applied (want ≥ %s)", elapsed, evsDeleteSpacing)
+	}
+}
+
+// TestSweepOrphanEVS_ThrottleRespectsContext proves the throttle honours the
+// wipe/janitor deadline: with a long spacing and an already-cancelled context,
+// the sweep returns ctx.Err() immediately without deleting anything (rather
+// than blocking the whole spacing interval).
+func TestSweepOrphanEVS_ThrottleRespectsContext(t *testing.T) {
+	origSpacing := evsDeleteSpacing
+	evsDeleteSpacing = time.Hour // would block forever if the ctx weren't honoured
+	defer func() { evsDeleteSpacing = origSpacing }()
+
+	listBody := `{"volumes":[
+	  {"id":"vol-o1","name":"pvc-o1","status":"available","attachments":[],"metadata":{}}
+	]}`
+	var deleted []string
+	restore := fakeHCSEVS(t, listBody, &deleted)
+	defer restore()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled
+
+	p := New()
+	_, err := p.SweepOrphanEVS(ctx, "ak", "sk", "proj", "me-east-215",
+		map[string]struct{}{}, true /*destructive*/, nil)
+	if err == nil {
+		t.Fatal("expected ctx.Err() from the throttle wait, got nil")
+	}
+	if len(deleted) != 0 {
+		t.Fatalf("cancelled sweep deleted %v — must stop before the DELETE", deleted)
 	}
 }
