@@ -13,8 +13,25 @@
 // the admin supplies directly to catalog-sovereign/<bp>/blueprint.yaml —
 // validated as a Blueprint CR first (reusing validateBlueprintYAML), under
 // the dedicated catalogEditGitBudget (NOT the commerce probe budget), with
-// the git verdict surfaced (committed / reason). It is the IaC source write;
-// Flux reconciles that file into the in-cluster Blueprint CR.
+// the git verdict surfaced (committed / reason).
+//
+// #4896 / #5018 — the commit is a DUAL write, exactly like the card path:
+//
+//  1. catalog-sovereign/<repo>/blueprint.yaml — the UI read source. <repo> is
+//     the repo the READ path actually resolves (resolveCatalogEditRepo —
+//     mirrors the catalyst-catalog resolver's bare↔bp- toggle, #4990/#4997),
+//     so a resource loaded by the read path always commits back to the SAME
+//     file it was loaded from, never a divergent freshly-minted twin repo.
+//  2. openova/openova @ catalog-sovereign :
+//     clusters/<fqdn>/catalog-sovereign/<bp>.yaml — the Flux-reconciled
+//     aggregator leg (writeCatalogSovereignAggregatorBytes). This is what
+//     actually reaches the LIVE in-cluster Blueprint CR; without it the
+//     commit is silently inert (the exact hw242 #5018 finding — UAT rows
+//     148/154). Unlike the card path there is NO #4415 delivery-field strip:
+//     an explicit whole-CR commit legitimately edits spec.version (DoD §9.7).
+//     A failure of this leg is SURFACED (502 committed:false), never
+//     swallowed — "Committed ✓" on an unreconciled edit is the false-green
+//     #5018 called out.
 //
 // Auth: the same tier-admin gate the existing /blueprints/edit-pr uses
 // (applicationInstallCallerAuthorized) — this ticket adds no new
@@ -119,7 +136,7 @@ func (h *Handler) HandleCatalogBlueprintIaCEdit(w http.ResponseWriter, r *http.R
 	ctx, cancel := context.WithTimeout(r.Context(), catalogEditGitBudgetDuration())
 	defer cancel()
 
-	committed, err := h.writeCatalogFullBlueprintToGit(ctx, bpName, yamlBytes)
+	repo, committed, err := h.writeCatalogFullBlueprintToGit(ctx, bpName, yamlBytes)
 	if err != nil {
 		if h.log != nil {
 			h.log.Warn("catalog-iac-edit: commit to catalog-sovereign failed",
@@ -127,18 +144,49 @@ func (h *Handler) HandleCatalogBlueprintIaCEdit(w http.ResponseWriter, r *http.R
 		}
 		writeJSON(w, http.StatusBadGateway, catalogIaCEditResponse{
 			Slug:      normalizeCatalogKey(bpName),
-			Path:      catalogSovereignOrg + "/" + bpName + "/" + catalogEditBlueprintPath,
+			Path:      catalogSovereignOrg + "/" + repo + "/" + catalogEditBlueprintPath,
 			Committed: false,
 			Reason:    "IaC commit failed: " + err.Error(),
 		})
 		return
 	}
 
+	// #4896 / #5018 — leg 2: mirror the committed document into the Flux-
+	// reconciled aggregator tree so the edit actually reaches the LIVE
+	// in-cluster Blueprint CR. metadata.name is stamped to the canonical CR
+	// identity (bp-<slug> — the same bridge reconcileBlueprintBareName applies
+	// on the dry-run path, #4898) so Flux SSA-patches the existing CR instead
+	// of minting a bare-named duplicate; no #4415 delivery-field strip — the
+	// admin's explicit full-CR edit owns spec.version/spec.source (DoD §9.7).
+	var aggCommitted bool
+	var aggErr error
+	if aggBytes := stampBlueprintCRForFluxAggregator(yamlBytes, bpName); len(aggBytes) == 0 {
+		// Unreachable after validateCatalogBlueprintYAML parsed these same
+		// bytes — but never silently skip the reconcile leg on a render miss.
+		aggErr = fmt.Errorf("render Flux aggregator payload for %s: document did not re-parse", bpName)
+	} else {
+		aggCommitted, aggErr = h.writeCatalogSovereignAggregatorBytes(ctx, bpName, aggBytes)
+	}
+	if aggErr != nil {
+		if h.log != nil {
+			h.log.Warn("catalog-iac-edit: Flux aggregator mirror failed — edit committed to source but will NOT reach the live Blueprint CR",
+				"blueprint", bpName, "repo", repo, "err", aggErr)
+		}
+		writeJSON(w, http.StatusBadGateway, catalogIaCEditResponse{
+			Slug:      normalizeCatalogKey(bpName),
+			Path:      catalogSovereignOrg + "/" + repo + "/" + catalogEditBlueprintPath,
+			Committed: false,
+			Reason: "IaC source committed to " + catalogSovereignOrg + "/" + repo +
+				" but the Flux reconcile leg failed (the edit will not reach the live Blueprint CR): " + aggErr.Error(),
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, catalogIaCEditResponse{
 		Slug:      normalizeCatalogKey(bpName),
-		Path:      catalogSovereignOrg + "/" + bpName + "/" + catalogEditBlueprintPath,
+		Path:      catalogSovereignOrg + "/" + repo + "/" + catalogEditBlueprintPath,
 		Committed: true,
-		Reason:    iaCEditDurableReason(committed),
+		Reason:    iaCEditDurableReason(committed || aggCommitted),
 	})
 }
 
@@ -152,35 +200,103 @@ func iaCEditDurableReason(wroteBytes bool) string {
 }
 
 // writeCatalogFullBlueprintToGit commits the FULL supplied blueprint.yaml to
-// catalog-sovereign/<bpName>/blueprint.yaml — the same file + repo the
-// card-edit path (writeCatalogEditToGit) writes, so both editors drive the
-// SAME Gitea source of truth (§6). Unlike the card path this is NOT a card
+// catalog-sovereign/<repo>/blueprint.yaml — the same file + repo the read
+// path resolves (resolveCatalogEditRepo), so both editors drive the SAME
+// Gitea source of truth (§6). Unlike the card path this is NOT a card
 // merge: the admin owns the whole document, so it is committed verbatim
 // (after the caller's validateBlueprintYAML).
 //
-// Returns (wroteBytes, err): wroteBytes=false + err=nil when PutFile's
-// byte-equal short-circuit fired (the file already carried these exact bytes
-// — still durable). A non-nil err is a genuine transport/API failure.
-func (h *Handler) writeCatalogFullBlueprintToGit(ctx context.Context, bpName string, blueprintYAML []byte) (bool, error) {
+// Returns (repo, wroteBytes, err): repo is the per-Blueprint repo actually
+// written (bare or bp-prefixed — whichever the read path resolves);
+// wroteBytes=false + err=nil when PutFile's byte-equal short-circuit fired
+// (the file already carried these exact bytes — still durable). A non-nil
+// err is a genuine transport/API failure.
+func (h *Handler) writeCatalogFullBlueprintToGit(ctx context.Context, bpName string, blueprintYAML []byte) (string, bool, error) {
 	if h.giteaClient == nil {
-		return false, fmt.Errorf("gitea client unwired")
+		return bpName, false, fmt.Errorf("gitea client unwired")
 	}
 	if _, err := h.giteaClient.EnsureOrg(ctx, catalogSovereignOrg,
 		"Sovereign-curated catalog",
 		"Curated Blueprints visible to every Org", "public"); err != nil {
-		return false, fmt.Errorf("ensure org %q: %w", catalogSovereignOrg, err)
+		return bpName, false, fmt.Errorf("ensure org %q: %w", catalogSovereignOrg, err)
 	}
-	if _, err := h.giteaClient.EnsureRepo(ctx, catalogSovereignOrg, bpName,
+	repo := h.resolveCatalogEditRepo(ctx, bpName)
+	if _, err := h.giteaClient.EnsureRepo(ctx, catalogSovereignOrg, repo,
 		"Sovereign-curated Blueprint", false); err != nil {
-		return false, fmt.Errorf("ensure repo %s/%s: %w", catalogSovereignOrg, bpName, err)
+		return repo, false, fmt.Errorf("ensure repo %s/%s: %w", catalogSovereignOrg, repo, err)
 	}
 	msg := fmt.Sprintf("catalog: edit %s full IaC via catalyst-api (#3668)", bpName)
-	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignOrg, bpName,
+	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignOrg, repo,
 		catalogEditGitBranch, catalogEditBlueprintPath, blueprintYAML, msg, catalogEditCommitAuthor())
 	if err != nil {
-		return false, fmt.Errorf("put %s/%s/%s: %w", catalogSovereignOrg, bpName, catalogEditBlueprintPath, err)
+		return repo, false, fmt.Errorf("put %s/%s/%s: %w", catalogSovereignOrg, repo, catalogEditBlueprintPath, err)
 	}
-	return committed, nil
+	return repo, committed, nil
+}
+
+// resolveCatalogEditRepo returns the catalog-sovereign per-Blueprint repo the
+// READ path resolves for this blueprint, so the full-CR write lands in the
+// SAME file the editor loaded (#4896 — single naming source of truth shared
+// by read+write).
+//
+// The catalyst-catalog resolver (core/services/catalyst-catalog/internal/
+// source, fetchBlueprintYAML/altBPName — #4990/#4997) serves the UI's GET
+// with a bare↔bp- prefix toggle: the frontend strips a leading `bp-`
+// (CatalogDetail.tsx), so the resolver tries the BARE repo first (deployed
+// Blueprints live in bare-named repos, e.g. `agenity`) and falls back to the
+// `bp-` form (catalog-seed-only entries keep the raw `bp-<x>` repo name,
+// e.g. `bp-alloy`). That package is module-internal, so the convention is
+// MIRRORED here — probe in the resolver's order and write to the first repo
+// whose blueprint.yaml exists:
+//
+//  1. bare  <slug>    — matches a deployed Blueprint's repo (read hit #1);
+//  2. bp-<slug>       — matches a seed-only / curated repo (read hit #2);
+//  3. neither exists  — default to the canonical bp-<slug> (fresh curate,
+//     same repo the card-edit path mints).
+//
+// Before this resolution the write unconditionally minted `bp-<slug>`, so a
+// commit against a bare-repo blueprint created a divergent twin the read
+// path never consults — half of the #5018 "commit is inert" split-brain.
+func (h *Handler) resolveCatalogEditRepo(ctx context.Context, bpName string) string {
+	bare := strings.TrimPrefix(bpName, "bp-")
+	for _, repo := range []string{bare, bpName} {
+		if repo == "" {
+			continue
+		}
+		if _, err := h.giteaClient.GetFile(ctx, catalogSovereignOrg, repo,
+			catalogEditGitBranch, catalogEditBlueprintPath); err == nil {
+			return repo
+		}
+	}
+	return bpName
+}
+
+// stampBlueprintCRForFluxAggregator renders the admin's full-CR document as
+// the Flux aggregator payload (#4896/#5018): metadata.name is FORCED to the
+// canonical live-CR identity (bp-<slug>) so the catalog-sovereign
+// Kustomization's force:true SSA patches the existing Blueprint CR instead of
+// creating a bare-named duplicate — the same identity bridge the dry-run/apply
+// path applies via reconcileBlueprintBareName (#4898). Server-managed +
+// ownership metadata and status are dropped (stripBlueprintCRMapForGit);
+// spec.version/spec.source are deliberately KEPT — the #4415 strip covers the
+// implicit card-edit only, while an explicit whole-CR commit owns its
+// delivery fields (DoD §9.7; UAT row 154's version round-trip).
+//
+// Returns nil on an unparsable document — unreachable in practice because the
+// caller validated the same bytes (validateCatalogBlueprintYAML); the
+// aggregator writer treats empty bytes as a no-op, and the caller surfaces
+// that as a skipped reconcile leg rather than committing a wrong-named CR.
+func stampBlueprintCRForFluxAggregator(raw []byte, bpName string) []byte {
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return nil
+	}
+	if meta, ok := doc["metadata"].(map[string]interface{}); ok {
+		meta["name"] = bpName
+	} else {
+		doc["metadata"] = map[string]interface{}{"name": bpName}
+	}
+	return stripBlueprintCRMapForGit(doc, bpName)
 }
 
 // validateCatalogBlueprintYAML enforces the structural Blueprint invariants
