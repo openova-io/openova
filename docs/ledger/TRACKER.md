@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-13T23:30:08Z` |
+| Last refreshed | `2026-07-13T23:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -245,6 +245,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-13T23:39 | [#5050](https://github.com/openova-io/openova/pull/5050) | #5049 | fix(scripts): preflight check-3 false-orphan on ELB-bound EI |
 | 2026-07-13T23:21 | [#5049](https://github.com/openova-io/openova/pull/5049) | #5046 | fix(scripts): wire MANDATORY prov-preflight gate into fire() |
 | 2026-07-13T23:13 | [#5048](https://github.com/openova-io/openova/pull/5048) | #3370 | docs(align): PROTOCOL.md execution protocol + durable-surfac |
 | 2026-07-13T23:13 | [#5047](https://github.com/openova-io/openova/pull/5047) | #4690 | docs(iac): retire stale nodePort wording — gateway ELB targe |
@@ -274,7 +275,6 @@ flowchart LR
 | 2026-07-11T14:33 | [#5002](https://github.com/openova-io/openova/pull/5002) | #4999 | fix(#4999): funnel 2nd-Org honors chosen pool-TLD + console  |
 | 2026-07-11T14:13 | [#5001](https://github.com/openova-io/openova/pull/5001) | #5000 | fix(console #5000): sign-out menu on the sovereign sidebar u |
 | 2026-07-11T14:06 | [#4998](https://github.com/openova-io/openova/pull/4998) | #4994 | fix(#4994 #4996): harden cutover step-03 harbor-prewarm + st |
-| 2026-07-11T13:40 | [#4997](https://github.com/openova-io/openova/pull/4997) | #3668 | fix(#4990): prefix-tolerant catalog Get — seed-only Blueprin |
 
 ---
 
