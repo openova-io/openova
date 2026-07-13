@@ -2,7 +2,8 @@
 # Canonical Sovereign prov lifecycle — MECHANICAL enforcement of the two founder
 # rules (2026-06-08). NEVER call POST /deployments or POST /wipe directly; go
 # through this so the wrong order is impossible:
-#   * fire  -> runs scripts/reset-uat.py FIRST, then POST /deployments
+#   * fire  -> runs the MANDATORY scripts/prov-preflight.sh gate (fail-closed,
+#             docs/PROTOCOL.md §5), then scripts/reset-uat.py, then POST /deployments
 #   * wipe  -> CAPTURES the cloud-init log FIRST (GET /cloudinit-log, #3132),
 #             then POST /wipe   <-- debug-before-wipe
 # The capture relies on the control-plane self-uploading its log (#3132); on
@@ -48,6 +49,25 @@ wipe() {
 # fire <subdomain> [pool] — RESET-UAT-ON-FIRE: reset first, ALWAYS, then fire.
 fire() {
   local sub="$1" pool="${2:-omani.works}" pub body
+  # MANDATORY pre-flight gate (docs/PROTOCOL.md §5; founder mandate 2026-06-30:
+  # never fire blind). Fail-closed, no bypass. Runs BEFORE reset_uat so a
+  # refused fire never flushes ledger evidence. HW_TFVARS auto-fetched from the
+  # mothership catalyst-api PVC when unset (the only durable cred cache — L1).
+  if [ -z "${HW_TFVARS:-}" ]; then
+    local apod tfsrc
+    apod=$(kubectl -n catalyst get pods -o name 2>/dev/null | grep -m1 catalyst-api | cut -d/ -f2)
+    if [ -n "$apod" ]; then
+      tfsrc=$(kubectl -n catalyst exec "$apod" --request-timeout=25s -- sh -c 'ls -t /var/lib/catalyst/tofu/*/tofu.auto.tfvars.json /deps/tofu/*/tofu.auto.tfvars.json 2>/dev/null | head -1' 2>/dev/null)
+      if [ -n "$tfsrc" ]; then
+        kubectl -n catalyst exec "$apod" --request-timeout=25s -- cat "$tfsrc" > /tmp/preflight-tfvars.json 2>/dev/null
+        export HW_TFVARS=/tmp/preflight-tfvars.json
+      fi
+    fi
+  fi
+  echo "== MANDATORY prov-preflight gate (docs/PROTOCOL.md §5) =="
+  if ! BEARER="$(_tok)" bash "${REPO_ROOT}/scripts/prov-preflight.sh" "${sub}.${pool}" "auto-${sub}" "false" "true"; then
+    echo "!! PRE-FLIGHT FAIL — fire ABORTED (fix the ❌ items; never fire blind, never wipe protect-list envs to make room)"; return 1
+  fi
   echo "== reset-UAT-on-fire (founder rule 2026-06-08) =="; reset_uat "$sub"
   pub=$(cat /home/openova/.ssh/*.pub 2>/dev/null | grep -E "^ssh-" | head -1)
   # SHARED_PG=true opts the prov into the ADR-0010 reusable shared-Postgres
