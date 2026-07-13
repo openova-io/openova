@@ -1,12 +1,12 @@
 # Catalyst Implementation Status
 
-**Status:** Authoritative. Living document. **Updated:** 2026-05-20.
+**Status:** Authoritative. Living document. **Updated:** 2026-07-14 (re-stamped to hw24x/hw25x truth: Huawei kom4dc substrate, 11-step cutover chain, Pillar-4 = Agenity + `bp-openova-mcp`). **Staleness rule:** if this stamp is more than 14 days old, treat this file as drifted — re-derive live state before trusting any row (see §11 Re-stamp cadence).
 
 This document is the **bridge** between the target architecture (described in [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SECURITY.md`](SECURITY.md), [`RUNBOOKS.md`](RUNBOOKS.md) §3 Blueprint authoring, etc.) and the current state of the code in this repository.
 
 The other architecture docs describe the **target**: where Catalyst is going. This document records **what exists today** and **what is design-only**. When in doubt, read this file before making any claim about Catalyst's capabilities.
 
-> If you find a claim elsewhere in this repo that contradicts this file, this file wins until either (a) the code catches up to the claim or (b) the claim is corrected.
+> If you find a claim elsewhere in this repo that contradicts this file, this file wins until either (a) the code catches up to the claim or (b) the claim is corrected — **unless (c) the `Updated:` stamp above is more than 14 days old**, in which case this file's precedence is VOID until it is re-stamped against live state. (This file once sat frozen for ~8 weeks while still claiming to "win" — the staleness clause exists so that can never happen again.)
 
 ---
 
@@ -26,7 +26,7 @@ Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **
 
 ## 1. Repository structure
 
-*(Section dated 2026-05-20.)*
+*(Section re-stamped 2026-07-14.)*
 
 | Item | Status | Notes |
 |---|---|---|
@@ -35,6 +35,7 @@ Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **
 | `bp-<name>:<semver>` OCI artifacts in `ghcr.io/openova-io/` | ✅ | `.github/workflows/blueprint-release.yaml` fans out per-Blueprint to signed OCI artifacts with SBOM + cosign signature. |
 | `core/{console,admin,marketplace,marketplace-api}/` | 🚧 | Consolidated 2026-04-28 from `openova-private`. Astro+Svelte UIs + Go backend. Deployed on Catalyst-Zero. |
 | `products/axon/` | ✅ | Real implementation (chart/, src/, scripts/). |
+| `products/agenity/` + `products/openova-mcp/` | 🟦 | The **Pillar 4 pair** (re-scoped — see §2.2 and §9): `bp-agenity` (chart 0.5.20 — per-Org multi-agent runtime + dashboard) + `openova-mcp` (Go MCP server: RBAC-scoped thin facade over live catalyst-api, JSON-RPC over stdio). |
 | `products/catalyst/` umbrella (`bp-catalyst-platform`) | 🟦 | Has `bootstrap/{ui,api}/` (React SPA wizard + Go bootstrap API) + `chart/` with Chart.yaml + Helm templates for the full Catalyst-Zero deployment + `crds/` with the 13 CRDs enumerated in §4. Canonical Helm chart for Catalyst-Zero and every franchised Sovereign. |
 | `products/{cortex,fabric,fingate,relay}/` | 📐 | README only. No charts or manifests. (`products/specter/` does not exist — Specter is a deliverable service, not a Blueprint in this layout, per `README.md` §"What's in this repo".) |
 
@@ -42,7 +43,7 @@ Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **
 
 ## 2. Catalyst control plane components (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2)
 
-*(Section dated 2026-05-20.)*
+*(Section re-stamped 2026-07-14.)*
 
 These run **per-Sovereign** on the management cluster.
 
@@ -71,18 +72,18 @@ These run **per-Sovereign** on the management cluster.
 | NATS JetStream (per Sovereign) | 🚧 | Chart + blueprint.yaml shipped. Per-Org Account isolation pending. |
 | OpenBao (per region, independent Raft) | 🚧 | Chart + blueprint.yaml shipped. Multi-region replication semantics agreed; not yet wired in topology. |
 | Keycloak (per-Org SME / per-Sovereign corporate) | 🚧 | Chart + blueprint.yaml shipped. Topology choice is a Catalyst-level concern not yet wired. |
-| Sandbox controller (Pillar 4 — `openova-sandbox-mcp` auto-mount) | 🟦 | **CODE-COMPLETE.** Sandbox CRD ships in `products/catalyst/chart/crds/sandbox.yaml`. Controller + MCP auto-mount chain landed: PRs [#1615](https://github.com/openova-io/openova/pull/1615), [#1618](https://github.com/openova-io/openova/pull/1618), [#1621](https://github.com/openova-io/openova/pull/1621), [#1622](https://github.com/openova-io/openova/pull/1622), [#1626](https://github.com/openova-io/openova/pull/1626), [#1631](https://github.com/openova-io/openova/pull/1631), [#1632](https://github.com/openova-io/openova/pull/1632). Agent is `claude-code` with full Org knowledge mounted via `openova-sandbox-mcp`. |
+| Agenity workspace + `bp-openova-mcp` (Pillar 4 — re-scoped) | 🟦 | **Pillar 4 is Agenity + `bp-openova-mcp`** per [`DOD.md`](DOD.md) §Pillar-4 (founder re-scope; the Sandbox surface is REMOVED from Pillar 4). `bp-agenity` ([`products/agenity/`](../products/agenity/), chart 0.5.20): per-Org multi-agent runtime + dashboard whose solo agent drives the RBAC-scoped [`products/openova-mcp/`](../products/openova-mcp/) facade over live catalyst-api to provision Applications in the User's own Organization. Proven live twice (dep 91dc0591, omantel.biz, 2026-06-28; zero-touch hw220, 2026-07-03). Outstanding: durable per-Sovereign Anthropic credential + credential-propagation design call (founder-gated — #4111/#4277) and `bp-agenity` auto-install on clean provs. The legacy Sandbox controller + `openova-sandbox-mcp` auto-mount chain (PRs #1615/#1618/#1621/#1622/#1626/#1631/#1632) is retained as **internal machinery only**, exempt from pillar DoD (see §4). |
 | SPIRE server + agent | ⏸ | **DEFERRED — opt-in only.** PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03) dropped bp-spire from the canonical bootstrap-kit. `clusters/_template/bootstrap-kit/06-spire.yaml` deleted; bp-spire `dependsOn` removed from `07-nats-jetstream.yaml` and `08-openbao.yaml`. Doc-alignment sweeps: PRs [#2056](https://github.com/openova-io/openova/pull/2056), [#2061](https://github.com/openova-io/openova/pull/2061) (Refs [#2055](https://github.com/openova-io/openova/issues/2055), TBD-V29). The `platform/spire/` chart is retained as opt-in. Workload identity today: Cilium WireGuard (kernel-layer east-west encryption, 100% mesh coverage) + K8s ServiceAccount TokenReview (audience-scoped 1h projected bound-tokens via the OpenBao `kubernetes` auth method). Re-enable triggers per [`SECURITY.md`](SECURITY.md) §2: (a) cross-Sovereign workload federation, (b) compliance audit requiring sub-hour cryptographic workload attestation (SOC2/PCI-DSS/FedRAMP), (c) per-workload-fingerprint authorization beyond `(namespace, ServiceAccount)`. Re-introduction roadmap sketched in TBD-V29. |
 | Continuum (failover orchestrator, Pillar 3) | 🟦 | **CODE-COMPLETE.** `bp-continuum` wired into bootstrap-kit by PR [#2072](https://github.com/openova-io/openova/pull/2072). Continuum CRD ships in `products/catalyst/chart/crds/continuum.yaml`. Used by Pillar 3 region-kill recovery walk. |
 | cnpg-pair (Pillar 3) | 🟦 | **CODE-COMPLETE.** `bp-cnpg-pair` ships synchronous replication (`remote_apply`) for zero-tx-loss (PR [#2071](https://github.com/openova-io/openova/pull/2071)). CRD ships in `products/catalyst/chart/crds/cnpgpair.yaml`. D31 acceptance test harness landed: PR [#2075](https://github.com/openova-io/openova/pull/2075). |
-| bp-self-sovereign-cutover (Pillar 5) | 🚧 | Dormant slot 06a in bootstrap-kit. Eight sequential Jobs post-handover pivot all 8 mothership tethers; final step is a 10-minute deny-egress NetworkPolicy hold against `github.com`, `ghcr.io`, `harbor.openova.io`. `cutoverComplete=true` only if the cluster reconciles green during the hold. See ADR-0002. |
+| bp-self-sovereign-cutover (Pillar 5) | 🚧 | Dormant slot 06a in bootstrap-kit. **11-step post-handover chain** ([`platform/self-sovereign-cutover/chart`](../platform/self-sovereign-cutover/chart/), currently **0.1.126**) pivots every mothership tether — step Jobs 01–11: gitea-mirror, harbor-projects, harbor-prewarm (+ offline-mirror-resolver), containerd registry-pivot DaemonSet, flux-gitrepository-patch, helmrepository-patches, catalyst-api-env-patch, egress-block-test, cutover-status + gitea-token-mint, vcluster-registry-pivot + auto-trigger, crossplane-provider-pivot + mirror-resync CronJob. The sovereignty proof is the **10-minute deny-egress hold** against `github.com`, `ghcr.io`, `harbor.openova.io`; `cutoverComplete=true` only if the cluster reconciles green during the hold. **Keystone — zero-touch `cutoverComplete=true` on a fresh 2-region kom4dc prov — is PENDING**: furthest ever hw246 (green through step-7, died at the step-8 pre-hold ref-host lint); the redirect-aware lint ruling merged as #5038 (2026-07-12), not yet proven live. ADR-0002's original "eight sequential Jobs" spec is superseded by this shipped 11-step chain. |
 | Catalyst observability (Grafana stack) | 🚧 | Per-component READMEs exist; not yet wired as a Catalyst-level umbrella. |
 
 ---
 
 ## 3. Per-host-cluster infrastructure (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §3)
 
-*(Section dated 2026-05-20.)*
+*(Section re-stamped 2026-07-14.)*
 
 These run on **every host cluster** (mgt, rtz, dmz).
 
@@ -95,7 +96,7 @@ These run on **every host cluster** (mgt, rtz, dmz).
 | Coraza | 🚧 | README only. |
 | Flux | 🚧 | Chart + blueprint.yaml shipped. Per-vcluster Flux convention is Catalyst-managed; not yet implemented. |
 | Crossplane | 🚧 | Chart + blueprint.yaml shipped. Compositions live in product folders. |
-| OpenTofu (bootstrap IaC) | ✅ | `infra/hetzner/` canonical module — runs at Phase 0 from catalyst-api wrapper. |
+| OpenTofu (bootstrap IaC) | ✅ | Provider-split modules at `infra/providers/{huawei,hetzner,_shared}` — **Huawei kom4dc is the delivery target** (HCS region `me-east-215`; 2-region topology via fake-regions `me-east-215-a`/`-b` with per-region VPC isolation). Runs at Phase 0 from the catalyst-api wrapper. Pre-fire quota gates (VPC 5-total/2-per-prov, EVS 400-volume cap, ~15-min wipe-release lag): [`docs/runbooks/preflight-sovereign-provision.md`](runbooks/preflight-sovereign-provision.md). |
 | cert-manager | 🚧 | Chart + blueprint.yaml shipped. ClusterIssuer rendered by Catalyst overlay. |
 | External Secrets Operator | 🚧 | README only. |
 | Kyverno | 🚧 | README only. |
@@ -111,7 +112,7 @@ These run on **every host cluster** (mgt, rtz, dmz).
 
 ## 4. CRDs
 
-*(Section dated 2026-05-20.)*
+*(Section re-stamped 2026-07-14.)*
 
 All canonical CRD schemas now ship in `products/catalyst/chart/crds/`. Go types + reconciliation controllers (Group C of #1095) land per pillar work.
 
@@ -129,7 +130,7 @@ All canonical CRD schemas now ship in `products/catalyst/chart/crds/`. Go types 
 | `ProvisioningState` | 🚧 | Schema in `provisioningstate.yaml` (slice H3, PR #1104). Writer is `internal/store/crd_store.go`. |
 | `CNPGPair` *(Pillar 3, new 2026-05-20)* | 🟦 | Schema in `cnpgpair.yaml`. Group `dr.openova.io/v1`. Defines a paired CNPG cluster across two regions over Cilium ClusterMesh with synchronous replication (`remote_apply`, `ReplicaCluster`). Used by `bp-cnpg-pair` (PR [#2071](https://github.com/openova-io/openova/pull/2071)) for zero-tx-loss Pillar 3 walk. D31 acceptance test PR [#2075](https://github.com/openova-io/openova/pull/2075). |
 | `PDM` *(Pool Domain Manager allocations, new 2026-05-20)* | 🚧 | Schema in `pdm.yaml`. Tracks per-Sovereign pool subdomain allocation, parent-zone NS delegation state, and registrar-adapter flow (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot). Consumed by PDM service at `core/pool-domain-manager/`. |
-| `Sandbox` *(Pillar 4, new 2026-05-20)* | 🟦 | Schema in `sandbox.yaml`. **CODE-COMPLETE** — Sandbox controller + auto-mounted `openova-sandbox-mcp` chain. PRs [#1615](https://github.com/openova-io/openova/pull/1615) (scaffold), [#1618](https://github.com/openova-io/openova/pull/1618), [#1621](https://github.com/openova-io/openova/pull/1621), [#1622](https://github.com/openova-io/openova/pull/1622), [#1626](https://github.com/openova-io/openova/pull/1626), [#1631](https://github.com/openova-io/openova/pull/1631), [#1632](https://github.com/openova-io/openova/pull/1632). Agent is `claude-code`; MCP exposes full Org knowledge (Apps, Envs, Vouchers, Org membership). |
+| `Sandbox` *(internal — REMOVED from Pillar 4 scope)* | 🟦 | Schema in `sandbox.yaml`. Controller + auto-mounted `openova-sandbox-mcp` chain landed (PRs #1615 scaffold, #1618, #1621, #1622, #1626, #1631, #1632) — but per the founder Pillar-4 re-scope the Sandbox surface is **no longer a pillar surface**: Pillar 4 = Agenity + `bp-openova-mcp` (§2.2, §9, [`DOD.md`](DOD.md) §Pillar-4). The CRD + controller are retained as internal machinery, exempt from pillar DoD. |
 
 Go types live at `core/pkg/apis/<group>/v1alpha1/` (e.g. `application/v1alpha1/application_types.go`, `blueprint/v1alpha1/topology_types.go`) and at `core/controllers/pkg/apis/`; further types are added as control-plane services are scaffolded (slice C1..C5 of #1095).
 
@@ -169,28 +170,28 @@ Every guard listed here is a pre-merge check that fails the PR if violated. This
 
 ## 7. Sovereigns running today
 
-*(Section dated 2026-05-20.)*
+*(Section re-stamped 2026-07-14. Env names below are a snapshot — re-derive the live inventory from the owner-scoped deployments API + the highest `uat-hw<NNN>` branch before acting on any row.)*
 
 | Sovereign | Status | Notes |
 |---|---|---|
-| `openova` Catalyst-Zero (mothership) | 🚧 | Running on Contabo k3s today in namespaces `catalyst`, `sme`, `marketplace`, `website`. Pods include catalyst-{ui,api}, console, admin, marketplace, marketplace-api. The mothership IS the catalyst-provisioner that provisions every other Sovereign. |
-| Per-PR test Sovereigns | 🚧 | Convention: `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited). Provisioned fresh per session for the deterministic 2-phase walk. Forbidden test domains: `openova.io`, `omantel.openova.io`, `Nova Cloud`, `eventforge.io`. |
-| `omantel` (first franchised Sovereign, target: `omantel.omani.works` on Hetzner) | 📐 | To be provisioned via the canonical wizard from mothership. |
+| `openova` Catalyst-Zero (mothership) | 🚧 | Serves `console.openova.io` (namespaces `catalyst`, `sme`, `marketplace`, `website`; pods include catalyst-{ui,api}, console, admin, marketplace, marketplace-api). The mothership IS the catalyst-provisioner that provisions every other Sovereign — canonical lifecycle API: owner-scoped `POST /sovereign/api/v1/deployments` (create) / `POST .../deployments/{id}/wipe` (destroy). The 2026-05 "Contabo k3s" substrate claim is superseded; re-derive the mothership's live substrate from the deployments API + cluster before relying on it. |
+| Test/walk Sovereigns (`hw<NNN>` series) | 🚧 | Convention: `hw<NNN>.omani.works` ↔ `hw<NNN>.omantel.biz` (TLD rotation when LE-rate-limited), provisioned on **Huawei kom4dc** — the delivery substrate: 2-region `me-east-215-a`/`-b`, one VPC per region (quota 5 total), EVS 400-volume cap, ~15-min wipe-release lag ([`docs/runbooks/preflight-sovereign-provision.md`](runbooks/preflight-sovereign-provision.md)). Fired per release-train, never for one passenger. Latest walked env = the highest `uat-hw<NNN>` branch (hw250 as of 2026-07-14; furthest cutover ever = hw246). Forbidden test domains unchanged: `openova.io`, `omantel.openova.io`, `Nova Cloud`, `eventforge.io`. |
+| `omantel` production Sovereign (`omantel.biz`) | ✅ | **PERMANENT production Sovereign, live on Huawei kom4dc** — hw240 as of this stamp (re-verify against the live deployments API before relying on the name; production was destroyed twice by in-band quota reclaim — #4614, #4675 dep 2c3f7c34). On the never-touch protect-list: never a wipe target, never a cutover re-fire target, never an in-band reclaim victim. (The only other founder-protected shared resource is the bastion node `bastion-openova`, EIP 212.72.24.20.) |
 | Customer-hosted Sovereigns | 📐 | Customers run their own Sovereigns under their own private agreements. Partner identities are intentionally not surfaced in this public catalog. |
 
 ---
 
 ## 8. Catalyst provisioner
 
-*(Section dated 2026-05-20.)*
+*(Section re-stamped 2026-07-14.)*
 
 | Item | Status | Notes |
 |---|---|---|
-| `catalyst-provisioner.<mothership-fqdn>` always-on service | 🚧 | Designed in [`ARCHITECTURE.md`](ARCHITECTURE.md). Mothership (Contabo k3s, namespace `catalyst`) IS the catalyst-provisioner today. Real Go provisioning code lives at [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) — a thin wrapper around `tofu` that writes `tofu.auto.tfvars.json` from wizard input, runs `tofu init && tofu plan && tofu apply` against [`infra/hetzner/`](../infra/hetzner/), and streams events back to the wizard via SSE. Per Inviolable Principle #3, no cloud APIs called from Go code; OpenTofu does Phase 0, Crossplane adopts day-2 at Phase 1 hand-off. End-to-end DoD against a real Hetzner project pending Group M (#43 waterfall). |
-| Hetzner OpenTofu modules | ✅ | Canonical module at [`infra/hetzner/`](../infra/hetzner/) — `main.tf` provisions VPC + subnet + firewall + SSH key + control-plane and worker servers (variable count, ha_enabled toggle) + load balancer + DNS. `cloudinit-control-plane.tftpl` installs k3s and bootstraps Flux pointing at `clusters/<sovereign-fqdn>/`. All values are runtime variables — no hardcoded region, sizes, or k3s flags. |
+| `catalyst-provisioner.<mothership-fqdn>` always-on service | ✅ | Live at `console.openova.io` — the mothership IS the catalyst-provisioner. Real Go provisioning code lives at [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) — a thin wrapper around `tofu` that writes `tofu.auto.tfvars.json` from wizard input, runs `tofu init && tofu plan && tofu apply` against [`infra/providers/`](../infra/providers/)`<provider>/` (**Huawei kom4dc = delivery target**; Hetzner retained), and streams events back to the wizard via SSE. Per Inviolable Principle #3, no cloud APIs called from Go code; OpenTofu does Phase 0, Crossplane adopts day-2 at Phase 1 hand-off. End-to-end zero-touch provisioning **through handover is proven repeatedly** on the hw2xx series (e.g. hw235/hw236 conclusion provs, 2026-07-10); the outstanding keystone is zero-touch `cutoverComplete=true` (§9 Pillar 5). |
+| Provider OpenTofu modules | ✅ | Provider-split layout at [`infra/providers/`](../infra/providers/): `huawei/` (**delivery target** — kom4dc HCS, region `me-east-215`, fake-regions `me-east-215-a`/`-b` via per-region VPC isolation), `hetzner/` (retained — VPC + subnet + firewall + servers + LB + DNS), `_shared/` (`cloudinit-control-plane.tftpl` installs k3s and bootstraps Flux pointing at `clusters/<sovereign-fqdn>/`). Provider contract: [`infra/providers/PROVIDER-INTERFACE.md`](../infra/providers/PROVIDER-INTERFACE.md). All values are runtime variables — no hardcoded region, sizes, or k3s flags. |
 | Bootstrap kit (cilium → cert-manager → flux → crossplane → sealed-secrets → nats-jetstream → openbao → keycloak → gitea → powerdns → bp-catalyst-platform) | 🚧 | G2 wrapper Helm charts exist under `platform/<x>/chart/`. Each carries blueprint.yaml, values.yaml, Chart.yaml, published as `bp-<name>:<semver>` OCI artifact. `platform/spire/` retained as opt-in but NOT in the bootstrap chain (PR #665, 2026-05-03). Steady-state DoD pending real Hetzner provisioning (Group M). |
 | `bp-continuum` (Pillar 3 failover orchestrator) | 🟦 | Wired into bootstrap-kit by PR #2072. Used by Continuum CR to coordinate multi-region failover with lease witness. |
-| `bp-self-sovereign-cutover` (Pillar 5 sovereignty cutover) | 🚧 | Dormant slot 06a. Eight sequential post-handover Jobs pivot all 8 mothership tethers; final 10-min deny-egress hold proves sovereignty. ADR-0002. |
+| `bp-self-sovereign-cutover` (Pillar 5 sovereignty cutover) | 🚧 | Dormant slot 06a. **11-step** post-handover chain at chart **0.1.126** — full step map + keystone state in the §2.2 row (furthest ever hw246, died at the step-8 pre-hold ref-host lint; #5038 redirect-aware ruling merged 2026-07-12, unproven live). ADR-0002's "eight sequential Jobs" wording is superseded by the shipped chain. |
 | Per-Org Keycloak realm + 2-hop SSO federation to sovereign realm (G117.5 W2.C4 [#2744](https://github.com/openova-io/openova/issues/2744)) | 🟦 CODE-COMPLETE | bp-keycloak 1.4.12 ships `templates/configmap-per-org-realms.yaml` rendering one ConfigMap per `.Values.tenantRealms[]` entry, each carrying a full per-Org realm-import JSON with `sovereign-broker` keycloak-oidc IdP federating into the sovereign realm + IDR `defaultProvider=sovereign-broker` binding (no KC login form) + `first broker login auto link` flow (G113 Bug-6 carryover, bypasses SMTP) + `groups` clientScope (G91 manual recovery mandate). New `bp-keycloak.tenantBrokerClientSecret` helper derives per-Org broker secrets deterministically. bp-sso-bridge 0.2.2 adds `provision_org_realm` + `reconcile_per_org_realms` shell functions in the reconcile loop: discovers ConfigMaps with `catalyst.openova.io/per-org-realm=true`, POSTs `/admin/realms` (idempotent on 409), POST/PUTs matching `<slug>-broker` Client in sovereign realm with same secret, persists in OpenBao `kv/org/<slug>/keycloak/sovereign-broker-secret`. Cross-Org isolation invariant: each realm issues id_tokens with distinct `iss=https://auth.<sov>/realms/<slug>` so Org-A tokens are rejected at OIDC discovery by Org-B applications. 11 chart-test cases + 12 reconciler-shape test cases all green. Playwright `tests/e2e/playwright/tests/g117-2hop-sso-cross-org-isolation.spec.ts` (5 tests, SOV_FQDN+ORG_A+ORG_B-gated) awaits fresh prov with ≥2 Orgs for ✅. |
 | Tier-1 silent SSO across grafana / gitea / harbor / openbao (G117.5 [#2744](https://github.com/openova-io/openova/issues/2744)) | 🟦 CODE-COMPLETE | bp-keycloak 1.4.10 codifies all 4 OIDC clients in the sovereign realm-import with stable derived secrets via `bp-keycloak.tier1ClientSecret` helper. bp-grafana 1.0.5 / bp-gitea 1.2.13 / bp-harbor 1.2.23 wire `kc_idp_hint=catalyst-pin` defense-in-depth at the per-app layer (Grafana env-override, Gitea `--use-custom-url-mapping`, Harbor `oidc_extra_redirect_parms`). bp-openbao 1.2.23 omits the hint (architectural limitation: hashicorp/cap library has no auth_url query-param knob); silent SSO for openbao is delivered EXCLUSIVELY by the realm-config IDR `defaultProvider` binding shipped in 1.4.9. Awaits fresh-prov 4-hop curl walk (`tests/e2e/playwright/tests/g117-5-silent-sso-tier1.spec.ts` gated on SOV_FQDN) for ✅. |
 | Grafana fresh-install data population (G115 [#2744](https://github.com/openova-io/openova/issues/2744)) | 🟦 CODE-COMPLETE | bp-grafana 1.0.5 ships `templates/datasource-configmaps.yaml` (Prometheus/Loki/Tempo via canonical in-cluster Service DNS) + `templates/dashboard-configmaps.yaml` (5-dashboard starter pack: cluster-overview, node-exporter, kube-state, openbao-audit, flux-reconcile-health). `grafana.sidecar.{datasources,dashboards}.enabled: true` so the upstream kiwigrid/k8s-sidecar auto-discovers cluster-wide. Per-Sovereign overlay may opt-out individual datasources/dashboards via `observabilityStack.*` knobs. Awaits fresh-prov walk (Playwright spec asserts `/api/datasources` returns ≥3 entries) for ✅. |
@@ -200,17 +201,19 @@ Every guard listed here is a pre-merge check that fails the PR if violated. This
 
 ## 9. Pillar status (5-pillar DoD — per [`DOD.md`](DOD.md))
 
-*(Section dated 2026-05-20.)*
+*(Section re-stamped 2026-07-14.)*
 
 | Pillar | Status | Anchoring evidence |
 |---|---|---|
 | **Pillar 1** — Marketplace + voucher onboarding | 🟦 CODE-COMPLETE | configSchema fields render on AppDetail (PR [#2038](https://github.com/openova-io/openova/pull/2038), TBD-V18); form values thread into install POST (PR [#2043](https://github.com/openova-io/openova/pull/2043), TBD-V18-D). Awaits fresh-prov walk for ✅. |
 | **Pillar 2** — Multi-region BCP topology choice at signup | 🟦 CODE-COMPLETE | Wizard surfaces region picker + BCP mode (PR [#2029](https://github.com/openova-io/openova/pull/2029), TBD-V20). Awaits fresh-prov walk for ✅. |
 | **Pillar 3** — Two independent CNPG clusters + region-kill failover (zero-tx-loss) | 🟦 CODE-COMPLETE | bp-cnpg-pair synchronous replication via `remote_apply` (PR [#2071](https://github.com/openova-io/openova/pull/2071)); bp-continuum wired (PR [#2072](https://github.com/openova-io/openova/pull/2072)); provisioning generalised beyond WP-only (PR [#2073](https://github.com/openova-io/openova/pull/2073)); the `SMETenantGitOpsWriter` (Go code path) emits a Continuum CR per multi-region Organization Application (PR [#2074](https://github.com/openova-io/openova/pull/2074)); D31 acceptance test harness (PR [#2075](https://github.com/openova-io/openova/pull/2075)); AppConfigs thread into rendered manifests (PR [#2053](https://github.com/openova-io/openova/pull/2053), TBD-V27). Awaits fresh-prov region-kill walk for ✅. |
-| **Pillar 4** — Sandbox + auto-mounted `openova-sandbox-mcp` with full Org knowledge | 🟦 CODE-COMPLETE | Sandbox CRD + controller + MCP auto-mount chain: PRs [#1615](https://github.com/openova-io/openova/pull/1615), [#1618](https://github.com/openova-io/openova/pull/1618), [#1621](https://github.com/openova-io/openova/pull/1621), [#1622](https://github.com/openova-io/openova/pull/1622), [#1626](https://github.com/openova-io/openova/pull/1626), [#1631](https://github.com/openova-io/openova/pull/1631), [#1632](https://github.com/openova-io/openova/pull/1632). Awaits fresh-prov walk for ✅. |
-| **Pillar 5** — Sovereign independence post-`bp-self-sovereign-cutover` | 🚧 | Dormant slot 06a + 8 sequential Jobs + 10-min deny-egress hold against `github.com`/`ghcr.io`/`harbor.openova.io`. ADR-0002. Awaits fresh-prov + cutover walk for ✅. |
+| **Pillar 4** — Agenity + `bp-openova-mcp` (re-scoped; Sandbox surface REMOVED from pillar scope) | 🟦 CODE-COMPLETE | `bp-agenity` (chart 0.5.20) + `openova-mcp` RBAC-scoped MCP facade over live catalyst-api; the pillar walk is an application provisioned end-to-end THROUGH Agenity. Proven live twice (dep 91dc0591, 2026-06-28; zero-touch hw220, 2026-07-03). Blocked-on-founder: durable per-Sovereign Anthropic credential + credential-propagation design (#4111/#4277). The walk fires on ANY converged env — it is never keystone-gated. Legacy Sandbox CRD/controller: internal machinery, exempt (§4). |
+| **Pillar 5** — Sovereign independence post-`bp-self-sovereign-cutover` | 🚧 | **11-step chain** at chart **0.1.126** + 10-min deny-egress hold against `github.com`/`ghcr.io`/`harbor.openova.io`. **Keystone — zero-touch `cutoverComplete=true` on a fresh 2-region Huawei kom4dc prov — is PENDING**: furthest ever hw246 (green through step-7, died at the step-8 pre-hold ref-host lint); the redirect-aware ruling merged as #5038 (2026-07-12) and awaits (1) a converged-env cutover re-fire proving it live, then (2) the fresh-prov zero-touch keystone walk for ✅. |
 
 The 5 pillars are inseparable — DoD claim requires all 5 walked on the same fresh prov with screenshot + non-empty wire-capture + working downstream artifact.
+
+Live per-row walk state lives in [`docs/ledger/UAT.md`](ledger/UAT.md) (~281 rows, all row-ID formats counted; best-ever 67% on hw241; latest conclusion walks hw235/hw236 on 2026-07-10, reset pending hw250) and [`docs/ledger/TRUST.md`](ledger/TRUST.md). The "Anchoring evidence" column above records the code-complete genealogy — the ledgers, not this table, carry the current walk stamps.
 
 ---
 
@@ -239,3 +242,11 @@ This file is updated whenever a status changes:
 Per [`DOD.md`](DOD.md): 🟦 means "all controllers + CRDs + tests landed". It is the **maximum** state achievable from code review alone. ✅ requires the operator walk.
 
 Keeping this honest is the only way to prevent the kind of doc/code drift that makes the architecture text unreliable.
+
+### Re-stamp cadence (added 2026-07-14)
+
+This file self-declares that it "wins" over every other doc — yet it once sat frozen at *Updated: 2026-05-20* for ~8 weeks while the platform moved to the Huawei kom4dc substrate, the 11-step cutover chain, and the Agenity Pillar-4 re-scope. A stale winner is worse than no winner. Standing rules:
+
+1. **Weekly re-stamp check**: [`docs/ledger/TRACKER.md`](ledger/TRACKER.md) must carry a weekly checklist row asserting `STATUS.md re-stamped ≤7 days` — the tracker refresh script greps this file's `**Updated:**` date and flips the row red past 7 days (wire this into the DoD-dashboard renderer when it moves into `scripts/`; until then the row is maintained by hand in the weekly sweep).
+2. **Same-commit date bump**: any PR that changes a status in this file updates the header `**Updated:**` date in the same commit.
+3. **>14 days = precedence void**: per the header rule, a stamp older than 14 days suspends this file's "wins over other docs" clause. A session that finds it stale must re-derive live state first (current `uat-hw<NNN>` branch, `gh issue list`/`gh pr list`, the owner-scoped deployments API, `docs/ledger/` heads) and re-stamp this file in the same session.

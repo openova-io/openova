@@ -2,7 +2,7 @@
 
 > **What this is:** operator how-tos for OpenOva. Provisioning, chart bumps, Blueprint authoring, failover recovery, troubleshooting.
 > **Authority:** PERMANENT canon. Reviewed PRs only.
-> **Updated:** 2026-05-20.
+> **Updated:** 2026-07-14 — added §0 (Huawei kom4dc canonical provisioning chapter: protect-list, quota gates, pre-fire sequence, cutover re-fire, debug-before-wipe, fire-cadence cap); Hetzner sections explicitly demoted to the alternate-provider path.
 > **Pointers:** see [`DOD.md`](DOD.md) for fresh-prov verification, [`ARCHITECTURE.md`](ARCHITECTURE.md) for system shape, [`PRINCIPLES.md`](PRINCIPLES.md) for what NOT to do.
 
 This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `CHART-AUTHORING.md`, `DEMO-RUNBOOK.md`, `RUNBOOK-OPERATIONS.md`, `RUNBOOK-PROVISIONING.md`) per the lean-doc strategy. Section anchors are stable; older docs are deleted by the orchestrator after this lands.
@@ -11,8 +11,9 @@ This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `
 
 ## Table of contents
 
-- [§1 — Fresh provisioning](#1--fresh-provisioning)
-- [§2 — Day-2 operations](#2--day-2-operations)
+- [§0 — Provisioning on Huawei kom4dc (CANONICAL substrate)](#0--provisioning-on-huawei-kom4dc-canonical-substrate)
+- [§1 — Fresh provisioning](#1--fresh-provisioning) — *Hetzner, alternate-provider path*
+- [§2 — Day-2 operations](#2--day-2-operations) — *§2.1–2.3 Hetzner-specific*
 - [§3 — Blueprint authoring](#3--blueprint-authoring)
 - [§4 — Chart-level conventions](#4--chart-level-conventions)
 - [§5 — Demo / operator walks](#5--demo--operator-walks)
@@ -26,7 +27,88 @@ This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `
 
 ---
 
+## §0 — Provisioning on Huawei kom4dc (CANONICAL substrate)
+
+> **This is the production provisioning path.** Every fresh Sovereign prov today fires on **Huawei kom4dc** (region `me-east-215`; a "2-region" prov is mimicked as **2 VPCs in the one physical region**). The Hetzner mechanics in §1 / §2.1–2.3 / §5.1 / §9 are an **alternate-provider path** — their quota model, wipe behavior, orphan sweeps, and pre-fire gates DO NOT apply here. A session that executes Hetzner mechanics against the Huawei estate is running the wrong runbook.
+>
+> Companion GO/NO-GO checklist (promoted into the canonical read path by this chapter): [`docs/runbooks/preflight-sovereign-provision.md`](runbooks/preflight-sovereign-provision.md) (#4485).
+
+### 0.1 Never-touch protect-list (read BEFORE any wipe, fire, quota reclaim, or cutover re-fire)
+
+Production was deleted TWICE by automation (#4614 on 2026-06-28; #4675 on 2026-07-01 — a false-empty in-memory deployments store cleared a fire into a project still hosting the live Sovereign, and the in-band VPC-quota reclaim reaped it). This list is the durable, repo-tracked guard — it must never live only in session memory or code constants:
+
+| Resource | Identity | Rule |
+|---|---|---|
+| Bastion node | `bastion-openova`, EIP `212.72.24.20` | NEVER wipe/scale/modify without explicit founder say-so (the one founder-protected Huawei resource) |
+| Current production Sovereign | as of 2026-07-14: **hw240** (re-verify against live inventory before acting; #4675's victim was production omantel.biz, dep `2c3f7c34`) | NEVER a wipe target, NEVER a converged-env cutover re-fire target (§0.5), NEVER an in-band quota-reclaim victim |
+| Any Sovereign serving a real Organization / shared infra the platform did not create | per live cloud inventory | protect-by-default — never infra-delete on CI-green; goal-first, walk incrementally |
+
+**Maintenance rule:** when production is promoted to a new env, **updating this table is part of the promotion checklist** — the promotion is not complete until the production row names the new env (keep the execution protocol's copy, `docs/PROTOCOL.md` §5.0, in lockstep). Code-level protect sets (e.g. the provisioner reclaim hook) seed from THIS table and cross-check **live cloud inventory** (Huawei ECS/VPC API) — never the in-memory deployments store alone (#4675).
+
+### 0.2 kom4dc quota table (the numbers that repeatedly cost hours)
+
+| Resource | Limit | Consumption | Rule |
+|---|---|---|---|
+| VPC | **5 total** (hard project limit) | **2 per 2-region prov** | ≥2 free before fire; at 3+ used with a live prod present, wipe-first is MANDATORY |
+| EVS | **400 volumes** | hw244 wedged at 332 (#5028: `413 VolumeLimitExceeded`) | ≥100 headroom before fire |
+| EIP | pool-limited | shared with any coexisting env | wipe the old env BEFORE fire (hw182 lesson) |
+| Wipe-release lag | **~15 min** | quota frees AFTER the wipe returns | **poll-until-headroom — never fire on assumed headroom** (hw96/97) |
+
+### 0.3 Pre-fire sequence (mandatory, in order)
+
+1. **Increment the env number** — a NEW `hw<NNN>.<tld>`, never reuse a failed number. Pick the TLD per LE-rate-limit rotation (`omani.works` ↔ `omantel.biz`).
+2. **Reset UAT evidence** — `python3 scripts/reset-uat.py hw<NNN>` (founder rule 2026-06-08, reinforced 2026-06-14: every new env flushes ALL prior walk-evidence; `docs/ledger/UAT.md` must never carry evidence from a wiped env).
+3. **Run the pre-flight gate** — `scripts/prov-preflight.sh <FQDN> <BUCKET> [<qaTestEnabled>] [<fireCutoverOnHandover>]` with `COOK` (owner-scoped `catalyst_session` cookie) and `HW_TFVARS` (path to a `tofu.auto.tfvars.json` carrying Huawei AK/SK) exported. It checks: incremented FQDN, zero active deployments, EIP-orphan headroom, and the ground-truth **no-foreign-Sovereign** gate (live Huawei ECS query — the #4675 guard). Confirm §0.2 headroom (VPC ≥2 free, EVS ≥100 free) as part of the same pass. **Non-zero exit = NO fire.** If headroom is missing after a wipe, poll until the ~15-min wipe-release lag clears — never fire on assumed headroom.
+4. **Write the evidence line** into the session log under `docs/sessions/<date>/`: `PRE-FLIGHT PASS vpc=X/5 evs=Y/400 eip=Z free`. A fire with no such line in `docs/sessions/` is a protocol violation (grep-auditable).
+5. **Fire** via the canonical endpoint only: `POST https://console.openova.io/sovereign/api/v1/deployments`. Never raw cloud CLIs/APIs for lifecycle operations.
+
+### 0.4 Fire-cadence cap — max 2 fires per day
+
+Hard cap: **at most 2 prov fires per day** (2026-07-10's five same-day resets is the named anti-pattern). Batch fixes release-train style — never fire a fresh prov for one passenger; exploit the best converged env first (§0.5). Every live patch made on a running env becomes a merged PR in the same session.
+
+### 0.5 Converged-env cutover re-fire (verify cutover fixes WITHOUT a fresh prov)
+
+Proven path (hw231, 2026-07-09). Use this to prove merged cutover fixes live on an existing converged env before spending a fresh fire.
+
+**RT-10 walk-before-refire gate (mandatory):** a cutover re-fire is potentially destructive to the host env — treat it with wipe-grade discipline. Before the trigger:
+
+- (a) the target env is **NAMED** in a train manifest at `docs/sessions/<date>/train-<env>.md`;
+- (b) all walkable UAT evidence on that env is **extracted and committed FIRST** — the manifest carries the line `LANE-B-EXTRACTED: <UAT commit SHA>`; its absence makes the trigger a protocol violation;
+- (c) the target is **NOT on the §0.1 protect-list** (the production Sovereign is never a re-fire target).
+
+Then, against the target Sovereign:
+
+```bash
+# 1. Mint the runner-SA token (namespace catalyst)
+TOK=$(kubectl -n catalyst create token bp-self-sovereign-cutover-runner)
+
+# 2. Fire the internal trigger (re-POST resumes a partial chain; 409 = already in flight)
+curl -s -X POST "https://api.<sovereign-fqdn>/api/v1/internal/cutover/trigger" \
+  -H "Authorization: Bearer ${TOK}"
+
+# 3. Poll the step Jobs + status ConfigMap (the Harbor prewarm step takes ~16 min — normal)
+kubectl -n catalyst get jobs -l app.kubernetes.io/part-of=self-sovereign-cutover
+kubectl -n catalyst get cm self-sovereign-cutover-status -o yaml   # cutoverComplete: "true" = done
+```
+
+### 0.6 Debug-before-wipe (founder rule, #3132)
+
+If an env FAILED, **first** fetch its cloud-init log and extract the diagnostic value — only then wipe:
+
+```bash
+curl -s -H "Cookie: catalyst_session=${COOK}" \
+  "https://console.openova.io/sovereign/api/v1/deployments/{id}/cloudinit-log"
+```
+
+On kom4dc the pushed cloud-init log is the **ONLY** Phase-1 forensic (no sshd, no console-output API). Auto-wiping a failed env before reading the log destroys the fire's entire diagnostic value — the exact mistake the founder called out. A 404 from this endpoint on a failed prov is itself a P0 defect, not a shrug.
+
+Wipe via the canonical endpoint only — `POST https://console.openova.io/sovereign/api/v1/deployments/{id}/wipe` — and **never wipe a converged env while it retains verification value**: walk everything walkable and commit the evidence before any wipe (§0.5 gate (b) applies to wipes too).
+
+---
+
 ## §1 — Fresh provisioning
+
+> **⚠ ALTERNATE-PROVIDER PATH (Hetzner).** The canonical provisioning substrate is **Huawei kom4dc — see [§0](#0--provisioning-on-huawei-kom4dc-canonical-substrate)**, whose protect-list, quota gates, pre-fire sequence, and fire-cadence cap are mandatory for every live fire. This section documents the Hetzner wizard path and is retained for the alternate-provider case only. Do NOT execute these mechanics against the Huawei estate.
 
 Operator-level procedure for provisioning a new Sovereign end-to-end via the wizard at `console.<sovereign-fqdn>/sovereign`. Read with [`ARCHITECTURE.md`](ARCHITECTURE.md) (the architectural contract).
 
@@ -227,6 +309,8 @@ For partial-state recovery, see §2.2 and the `operator-recover-sovereign.sh` sc
 ---
 
 ## §2 — Day-2 operations
+
+> **Provider note:** §2.1–§2.3 are **Hetzner-specific (alternate-provider path)**. On the canonical Huawei kom4dc estate, decommissioning follows §0: protect-list check (§0.1), debug-before-wipe (§0.6), the canonical wipe endpoint, and the ~15-min wipe-release-lag poll (§0.2). Hetzner `hcloud_token` wipe bodies and Hetzner orphan sweeps do not apply there.
 
 ### 2.1 Decommissioning
 
@@ -870,6 +954,8 @@ The canonical deterministic 2-phase walk operator follows. Driven by [`DOD.md`](
 
 ### 5.1 Pre-flight
 
+> **Hetzner-path table (alternate provider).** For any live fire on the canonical Huawei kom4dc substrate, the mandatory pre-fire sequence is §0.3 (`reset-uat.py` → `prov-preflight.sh` gate → `PRE-FLIGHT PASS` evidence line), governed by the §0.1 protect-list and §0.2 quota table — not this table.
+
 | Item | Notes |
 |---|---|
 | **Hetzner Cloud project** + API token (Read+Write) + project ID | ~€31/mo at hourly billing, ~€0.05/h while up |
@@ -1221,7 +1307,7 @@ Commit message format: `docs(pass-N): <target-doc> <ordinal>-cycle + <component>
 
 > Source: previously `docs/SOVEREIGN-PROVISIONING.md` (merged here on 2026-05-20).
 
-How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst — from inputs to Day-2 steady state. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model. The operator wizard procedure for the most-tested (Hetzner) path is in §1 above; this section is the **complete provider-agnostic phase narrative** with multi-region, air-gap, migration, and decommission.
+How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst — from inputs to Day-2 steady state. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model. The canonical Huawei kom4dc provisioning gates (protect-list, quotas, pre-fire sequence, cadence cap) are in §0; the operator wizard procedure for the alternate (Hetzner) path is in §1 above; this section is the **complete provider-agnostic phase narrative** with multi-region, air-gap, migration, and decommission.
 
 The implementation reflects the deployed shape — the Go provisioner, OpenTofu module, 12 G2 wrapper Helm charts (the original 11 plus bp-powerdns at [#167](https://github.com/openova-io/openova/issues/167)), the per-Sovereign PowerDNS zone model ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168)), and the pool-domain-manager (PDM) with registrar adapters ([#163](https://github.com/openova-io/openova/issues/163)/[#170](https://github.com/openova-io/openova/issues/170)) all exist in this monorepo today (per [`STATUS.md`](STATUS.md) §7). End-to-end DoD against a real Hetzner project tracks Group M of §11 below. Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
 
@@ -1229,7 +1315,7 @@ The implementation reflects the deployed shape — the Go provisioner, OpenTofu 
 
 | Input | Required | Notes |
 |---|---|---|
-| Cloud provider | Hetzner / AWS / GCP / Azure / OCI / Huawei | Hetzner is the most-tested path. |
+| Cloud provider | Huawei (kom4dc) / Hetzner / AWS / GCP / Azure / OCI | Huawei kom4dc is the canonical production path (§0). Hetzner is the alternate, most-tested wizard path. |
 | Cloud credentials | Provider API token | Used by OpenTofu (one-shot bootstrap) and Crossplane (ongoing). |
 | Sovereign name | e.g. `omantel`, `acmebank` | Slug, lowercase, 3–32 chars. |
 | Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes ([#169](https://github.com/openova-io/openova/issues/169)): **pool** (subdomain under `omani.works` / `openova.io`, allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot ([#170](https://github.com/openova-io/openova/issues/170)). |
@@ -1553,6 +1639,7 @@ The companion E2E suite agent ([#184](https://github.com/openova-io/openova/issu
 ## §11 — Phase-by-phase provisioning plan (Catalyst-Zero waterfall)
 
 > Source: previously `docs/PROVISIONING-PLAN.md` (merged here on 2026-05-20).
+> **Historical (Hetzner-era).** This waterfall predates the Huawei kom4dc pivot; it is retained as history. Current provisioning is §0.
 
 The agreed plan for consolidating the existing nova/console/admin/marketplace code into the public OpenOva Catalyst monorepo, deploying it as **Catalyst-Zero** (the first Catalyst Sovereign — running on Contabo, the chicken in the chicken-and-egg problem), and then provisioning the first **franchised Sovereign** on Hetzner via the wizard at `console.openova.io/sovereign`.
 
@@ -1929,4 +2016,7 @@ If the `roleRef` is weaker than `cluster-admin` (no `secrets/{get,list,update,de
 - [`BUSINESS-STRATEGY.md` §10.8](BUSINESS-STRATEGY.md#108-franchise-model--end-to-end-mechanics) — franchise model + voucher mechanism (folded from `FRANCHISE-MODEL.md` 2026-05-20)
 - [`TRUST.md`](ledger/TRUST.md) — verification ledger
 - `tests/dod/dod_test.go` — Go test that drives the §5 walk non-interactively
-- `scripts/operator-recover-sovereign.sh` — §2.2 idempotent recovery
+- `scripts/operator-recover-sovereign.sh` — §2.2 idempotent recovery (Hetzner alternate path)
+- [`docs/runbooks/preflight-sovereign-provision.md`](runbooks/preflight-sovereign-provision.md) — §0 companion GO/NO-GO checklist (#4485)
+- `scripts/prov-preflight.sh` — §0.3 mandatory pre-fire gate (VPC/EIP/foreign-Sovereign checks)
+- `scripts/reset-uat.py` — §0.3 UAT-evidence flush before every fire (founder rule 2026-06-08)
