@@ -1,13 +1,14 @@
 > **Scope of this file**: repository structure, Catalyst terminology, OpenOva-platform-specific rules, and per-component dev workflow specific to this monorepo.
 >
-> **Generic engineering principles** for active developer sessions — anti-theater discipline, sub-agent dispatch rules, GitHub disciplines, TBD-V## ticketing, microservice patterns — live in user-global `~/.claude/CLAUDE.md` (auto-loaded by Claude Code in every session).
+> **Generic engineering principles** for active developer sessions — anti-theater discipline, sub-agent dispatch rules, GitHub disciplines, TBD-V## ticketing, microservice patterns — live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III and [`docs/PROTOCOL.md`](docs/PROTOCOL.md). (The user-global `~/.claude/CLAUDE.md` may be regenerated per session by the hosting runtime and must NEVER be treated as the anchor for these rules — the repo-tracked surfaces above are the durable source.)
 >
-> **OpenOva-platform specifics** — the 5-pillar Definition of Done, the Phase 0 / 1 / 2 deterministic test, domain canon, the anti-pattern catalog, `bp-self-sovereign-cutover`, and `openova-sandbox-mcp` auto-mount — live in `docs/` of this repo, consolidated under the lean doc strategy into 7 canonical documents + 3 subdirs (per user-global `~/.claude/CLAUDE.md` §11). External readers without the user-global file can rely on:
+> **OpenOva-platform specifics** — the 5-pillar Definition of Done, the Phase 0 / 1 / 2 deterministic test, domain canon, the anti-pattern catalog, `bp-self-sovereign-cutover`, and the per-Org **Agenity** workspace + `bp-openova-mcp` attach — live in `docs/` of this repo, consolidated under the lean doc strategy into 7 canonical documents + subdirs (founder direction 2026-05-20). All readers can rely on:
 > - [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terms + banned-terms (single source of truth)
 > - [`docs/STATUS.md`](docs/STATUS.md) — what's actually built today vs design
 > - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst architecture + stack + naming + EPICs + bootstrap-kit slots
 > - [`docs/DOD.md`](docs/DOD.md) — 5-pillar + Multi-Region DoD + domains canon + personas/journeys
 > - [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) — 15 Inviolable Principles + anti-pattern catalog
+> - [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — canonical execution protocol: release-train, janitor/pre-flight gates + protect-list, dispatch-ticket template, model-continuity map
 > - [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — Blueprint authoring + chart authoring + demo/operations/provisioning runbooks
 > - [`docs/SECURITY.md`](docs/SECURITY.md) — security posture + threat model
 
@@ -23,11 +24,11 @@ Proprietary content (website source, deployment configs, infra secrets, the runn
 
 ## Lean documentation strategy
 
-Per founder direction 2026-05-20 + user-global `~/.claude/CLAUDE.md` §11, this repo's docs are consolidated into **7 canonical files + 3 subdirs**:
+Per founder direction 2026-05-20, this repo's docs are consolidated into **7 canonical files + 3 subdirs**, plus [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — the canonical execution protocol, part of the mandatory read order below:
 
 - **7 canonical docs** (the only source of truth): `GLOSSARY.md`, `STATUS.md`, `ARCHITECTURE.md`, `DOD.md`, `PRINCIPLES.md`, `RUNBOOKS.md`, `SECURITY.md`.
 - **`docs/adr/`** — immutable Architecture Decision Records (numbered, additive-only).
-- **`docs/ledger/`** — cron-refreshed live state (`TRUST.md`, `TRACKER.md`).
+- **`docs/ledger/`** — cron-refreshed live state (`TRUST.md`, `TRACKER.md`, `UAT.md` — the ~281-row acceptance-walk ledger, `PATH-TO-100.md` — per-row fix map).
 - **`docs/sessions/`** — date-stamped transient session reports + walk runbooks.
 - **`docs/archive/`** — historical / superseded / one-off documents.
 
@@ -42,12 +43,13 @@ In order:
 3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst target architecture (incl. naming, stack, EPICs, bootstrap-kit slots).
 4. [`docs/DOD.md`](docs/DOD.md) — the 5-pillar + Multi-Region Definition of Done, domains canon, personas/journeys. Every dispatch must move at least one pillar.
 5. [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) — the 15 inviolable engineering principles + anti-pattern catalog.
-6. [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — Blueprint authoring, chart authoring, demo / operations / provisioning runbooks.
-7. [`docs/SECURITY.md`](docs/SECURITY.md) — security posture + threat model.
+6. [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — the canonical execution protocol: Step-0 live-state re-verification, release-train checklist (RT-1..RT-10), janitor/pre-flight gates + never-touch protect-list, perfect-ticket template, parallel-lanes map, model-continuity table.
+7. [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — Blueprint authoring, chart authoring, demo / operations / provisioning runbooks.
+8. [`docs/SECURITY.md`](docs/SECURITY.md) — security posture + threat model.
 
 Plus subdirs:
 - [`docs/adr/`](docs/adr/) — Architecture Decision Records (start at `README.md` index).
-- [`docs/ledger/`](docs/ledger/) — `TRUST.md` (per-surface verification ledger) + `TRACKER.md` (open work).
+- [`docs/ledger/`](docs/ledger/) — `TRUST.md` (per-surface verification ledger) + `TRACKER.md` (open work) + `UAT.md` (the ~281-row Sovereign acceptance-walk ledger — the north-star evidence deliverable; every stamp carries env + date + evidence) + `PATH-TO-100.md` (maps every non-green UAT row to its exact fix: issue + code path + owner).
 - [`docs/sessions/`](docs/sessions/) — date-stamped walk runbooks and session reports.
 - [`docs/archive/`](docs/archive/) — historical / superseded.
 
@@ -58,7 +60,8 @@ These define the model + implementation reality + the rules of engagement. Any c
 ## Platform-specific rules (OpenOva-only)
 
 These rules are specific to the OpenOva platform and supplement the
-**generic engineering rules** in user-global `~/.claude/CLAUDE.md`.
+**generic engineering rules** in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III
+and the execution protocol in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
 ### Definition of Done — 5-pillar end-user contract
 
@@ -68,7 +71,7 @@ deterministic step in Phase 0 / 1 / 2 of [`docs/DOD.md`](docs/DOD.md):
 1. Marketplace + voucher onboarding (Phase 0 + Phase 1 a–c)
 2. Multi-region BCP topology choice at signup (Phase 1 b)
 3. Two independent CNPG clusters + region-kill failover (Phase 1 b + orthogonal D31)
-4. Sandbox + auto-mounted `openova-sandbox-mcp` with full org knowledge (Phase 2 a–e)
+4. Per-Org **Agenity** workspace (`products/agenity/`) + `bp-openova-mcp` with full org knowledge and mutating MCP tools (e.g. `create_application`) (Phase 2 a–e, [`docs/DOD.md`](docs/DOD.md) D32/D33; the Sandbox concept + menu are removed — founder 2026-06-30)
 5. Sovereign independence post-`bp-self-sovereign-cutover` (Principle #11 + ADR-0002)
 
 Operator-console polish, cosmetic-guard re-enables, treemap drill-down quality,
@@ -192,10 +195,26 @@ A franchised Sovereign is tethered to the OpenOva mothership in 8 places (full
 list in [`docs/DOD.md`](docs/DOD.md) §Pillar 5 and
 [`docs/adr/0002-post-handover-sovereignty-cutover.md`](docs/adr/0002-post-handover-sovereignty-cutover.md)).
 `bp-self-sovereign-cutover` installs dormant at bootstrap-kit slot 06a during
-Phase 1 and runs eight sequential Jobs post-handover that pivot all 8 tethers.
-The final step is a **10-minute deny-egress NetworkPolicy hold** against
-`github.com`, `ghcr.io`, and `harbor.openova.io`. `cutoverComplete=true` is set
-only if the cluster reconciles green during this hold. No cutover claim
+Phase 1 and runs an **11-step chain** post-handover that pivots all 8 tethers
+(ADR-0002 originally specified eight sequential Jobs; the shipped chart —
+`platform/self-sovereign-cutover/chart` — runs the 11 steps below, tracked
+per-step in the `self-sovereign-cutover-status` ConfigMap):
+
+1. `gitea-mirror` — mirror the public catalog into the local Gitea
+2. `harbor-projects` — create the local Harbor projects
+3. `harbor-prewarm` — skopeo-push every workload image + Helm chart into the local Harbor
+4. `registry-pivot` — DaemonSet rewrites node containerd `certs.d` to the local registry
+5. `flux-gitrepository-patch` — Flux `GitRepository.url` → local Gitea
+6. `helmrepository-patches` — OCI `HelmRepository` URLs → local Harbor
+7. `catalyst-api-env-patch` — catalyst-api env fallbacks → local endpoints
+8. `egress-block-test` — the **10-minute deny-egress NetworkPolicy hold** against
+   `github.com`, `ghcr.io`, and `harbor.openova.io` (the sovereignty proof)
+9. `gitea-token-mint` — mint the local Gitea token for the host GitOps loop
+10. `vcluster-registry-pivot` — pivot vcluster control-plane images to the local registry
+11. `crossplane-provider-pivot` — pivot Crossplane provider packages off `xpkg.upbound.io`
+
+`cutoverComplete=true` is set only if all 11 steps succeed AND the cluster
+reconciles green during the step-08 deny-egress hold. No cutover claim
 without the egress-block proof.
 
 ### Customer-sync — Gitea mirroring
@@ -213,7 +232,10 @@ Every PR against a surface flips it back to UNVERIFIED until re-walked.
 Verification agents are READ-ONLY — they may not ship PRs to make their own walks pass.
 
 The companion live ledger of open work is [`docs/ledger/TRACKER.md`](docs/ledger/TRACKER.md).
-Both files are cron-refreshed.
+The acceptance-walk evidence ledger is [`docs/ledger/UAT.md`](docs/ledger/UAT.md) (~281 rows —
+the north-star deliverable; every stamp carries env + date + evidence), with
+[`docs/ledger/PATH-TO-100.md`](docs/ledger/PATH-TO-100.md) mapping each non-green row to its
+exact fix. All are cron-/walk-refreshed.
 
 ---
 
@@ -243,16 +265,23 @@ openova/
 ├── platform/               # Component Blueprint folders — one folder per upstream OSS project
 │   ├── cilium/  cnpg/  flux/  gitea/  keycloak/  openbao/  ...
 │   └── ...                 # ~56 folders; some chart-bearing, others README-only
-├── products/               # Composite Blueprint folders OpenOva ships
-│   ├── catalyst/           # bp-catalyst-platform umbrella + bp-* sub-charts
-│   ├── cortex/             # AI Hub                          (scaffold)
+├── products/               # Composite Blueprint folders OpenOva ships (13 dirs)
+│   ├── agenity/            # bp-agenity — per-Org Agenity workspace (Pillar 4; chart/ + Containerfile)
 │   ├── axon/               # SaaS LLM Gateway                (real code: chart/ src/ scripts/)
-│   ├── fingate/            # Open Banking                    (scaffold)
+│   ├── catalyst/           # bp-catalyst-platform umbrella + bp-* sub-charts + bootstrap/ + console/
+│   ├── catalyst-migrator/  # one-shot Catalyst schema-migration Job image
+│   ├── continuum/          # bp-continuum DR/BCP chart + cloudflare-worker
+│   ├── cortex/             # AI Hub                          (scaffold)
+│   ├── dmz-vcluster/       # DMZ vcluster chart
 │   ├── fabric/             # Data & Integration              (scaffold)
-│   └── relay/              # Communication                   (scaffold)
+│   ├── fingate/            # Open Banking                    (scaffold)
+│   ├── openova-flow/       # flow graph engine (server/ canvas/ core/ adapter-flux/)
+│   ├── openova-mcp/        # bp-openova-mcp — RBAC-scoped OpenOva MCP server (Pillar 4; Go)
+│   ├── relay/              # Communication                   (scaffold)
+│   └── sandbox/            # LEGACY — Sandbox concept removed 2026-06-30; superseded by agenity/ + openova-mcp/
 └── docs/                   # Canonical platform documentation (lean strategy — see above)
     ├── adr/                # Architecture Decision Records (immutable, numbered)
-    ├── ledger/             # TRUST.md + TRACKER.md (cron-refreshed)
+    ├── ledger/             # TRUST.md + TRACKER.md + UAT.md + PATH-TO-100.md (cron/walk-refreshed)
     ├── sessions/           # date-stamped walk runbooks + session reports
     └── archive/            # historical / superseded (legacy proposals/runbooks/lessons-learned folded into the 7 canonical docs)
 ```
@@ -291,7 +320,7 @@ When in doubt: defer to [`docs/GLOSSARY.md`](docs/GLOSSARY.md).
 - Sign every commit. Default identity for this repo: `hatiyildiz` (`269457768+hatiyildiz@users.noreply.github.com`). Switch to `alierenbaysal` (`269455083+alierenbaysal@users.noreply.github.com`) only when the user explicitly directs.
 - No git config global; pass `-c user.name=… -c user.email=…` per commit.
 - Reference issues/PRs by number where applicable.
-- Per `~/.claude/CLAUDE.md`: every issue lifecycles through `status/in-progress` → `status/uat` → `status/completed`. Open an issue before code changes. **The agent owns the full cycle including `gh issue close` once the work is verified** (founder repealed the former "only the user closes" rule on 2026-06-05 — close verified items yourself rather than parking them at `status/completed`).
+- Per [`docs/PROTOCOL.md`](docs/PROTOCOL.md): every issue lifecycles through `status/in-progress` → `status/uat` → `status/completed`. Open an issue before code changes. **The agent owns the full cycle including `gh issue close` once the work is verified** (founder repealed the former "only the user closes" rule on 2026-06-05 — close verified items yourself rather than parking them at `status/completed`).
 
 ---
 
@@ -346,16 +375,18 @@ cd platform/<component>/
 # tagged release → OCI publish + signature → blueprint-controller picks up
 ```
 
-For Catalyst control-plane code (`core/`):
+For Catalyst control-plane code (`core/`) — there is no root `go.mod`; each
+component is its own Go module (`core/controllers/`, `core/marketplace-api/`,
+`core/pool-domain-manager/`, `core/services/<x>/`, `core/cmd/<x>/`):
 
 ```bash
-cd core/
+cd core/controllers/     # or any other Go module dir
 go test ./...
-go build ./apps/...
-# UI in core/ui/: npm install, npm run dev
+go build ./...
+# Operator-console UI in core/console/ (Astro + Svelte): npm install, npm run dev
 ```
 
-CRD types live in `core/pkg/apis/`. Add new types here, regenerate clients, then update the controller in `core/internal/`.
+CRD types live in `core/pkg/apis/<kind>/v1alpha1/` (one Go module per kind, mirrored into `core/controllers/pkg/apis/`). Add new types there, then update the matching reconciler in `core/controllers/<kind>/`.
 
 ---
 
@@ -383,7 +414,7 @@ curl -s -H "Authorization: Bearer ${HCLOUD_TOKEN}" 'https://api.hetzner.cloud/v1
 
 **What happened**: Proposed "wipe t38 entirely via `hcloud server delete`" as a valid option.
 
-**What was already documented**: Memory `feedback_canonical_wipe_endpoints.md` + user-global CLAUDE.md §9 explicitly: *"Use canonical wipe endpoints for cluster lifecycle (e.g., per-platform `POST /…/deployments/{id}/wipe`). Never call cloud-provider CLIs directly to clean up shared infra."*
+**What was already documented**: Memory `feedback_canonical_wipe_endpoints.md` + the wipe canon (now [`docs/PROTOCOL.md`](docs/PROTOCOL.md) §5 janitor/hygiene) explicitly: *"Use canonical wipe endpoints for cluster lifecycle (e.g., per-platform `POST /…/deployments/{id}/wipe`). Never call cloud-provider CLIs directly to clean up shared infra."*
 
 **Correct path**: Canonical destructive wipe is `POST https://console.openova.io/sovereign/api/v1/deployments/{id}/wipe` — runs `tofu destroy` against the workdir + cleans Hetzner servers + LBs + S3 bucket + DNS records atomically. Canonical create is `POST https://console.openova.io/sovereign/api/v1/deployments` (with parent-domains pool body for LE-rotation).
 
@@ -405,7 +436,7 @@ Secondary fallback: switch `ClusterIssuer/wildcard-issuer.acme.server` to `letse
 
 **What happened**: Founder said "only 1 Sovereign is real, others are rubbish". Wiped 9 dep-IDs from mothership cache+registry. Founder corrected: "keep only 2 most-recent". Wiped 7 more. Then user said the real Sovereign was **t38** (the one we had at risk of wiping all along). Did not ask WHICH was real before wiping. Each dispatched agent reported "kept the safest-looking one" using heuristics (most-recent file mtime, status=ready) but never confirmed against IaC or Hetzner.
 
-**What was already documented**: User-global CLAUDE.md §3 anti-theater rule + per-CLAUDE.md "NEVER SPECULATE — verify before assuming". The truth-source for which Sovereign is canonical was sitting in the IaC + Hetzner — `hcloud server list` (now possible via L1) + the `parent_domains_yaml` / `org_name` fields in tofu.auto.tfvars.json show real vs throwaway.
+**What was already documented**: The anti-theater rules (now [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III) + per-CLAUDE.md "NEVER SPECULATE — verify before assuming". The truth-source for which Sovereign is canonical was sitting in the IaC + Hetzner — `hcloud server list` (now possible via L1) + the `parent_domains_yaml` / `org_name` fields in tofu.auto.tfvars.json show real vs throwaway.
 
 **Correct path** when asked to wipe "rubbish" Sovereigns:
 1. Query `https://api.hetzner.cloud/v1/servers` (token via L1) — every Sovereign with live Hetzner infra is REAL until proven otherwise.
@@ -419,7 +450,7 @@ Secondary fallback: switch `ClusterIssuer/wildcard-issuer.acme.server` to `letse
 
 **What happened**: When `console.<orgslug>.omani.homes` was unreachable, proposed "stand up Sandbox + qwen-code locally on bastion against a Kind cluster" as an option. The actual production canonical-path (an alive 3-region Hetzner Sovereign with the BSS-menu + Sandbox UI) was already in front of me but degraded.
 
-**What was already documented**: User-global CLAUDE.md §0 + Inviolable Principle #11. The WHOLE POINT of `bp-self-sovereign-cutover` is that production Sovereigns ARE the canonical test environment. Local-on-bastion isn't an end-to-end DoD walk — it's an isolated unit-test surface.
+**What was already documented**: The dispatch grounding rules (now [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III) + Inviolable Principle #11. The WHOLE POINT of `bp-self-sovereign-cutover` is that production Sovereigns ARE the canonical test environment. Local-on-bastion isn't an end-to-end DoD walk — it's an isolated unit-test surface.
 
 **Correct path**: First, REPAIR the canonical environment (t38 catalyst-api OOM here matches the mothership OOM root cause — apply the same in-cluster cache-wipe procedure to t38). If unrepairable, canonical wipe + fresh prov via L2's endpoint. Local-on-bastion is for unit-test isolation, NOT pillar verification.
 
@@ -429,7 +460,7 @@ Secondary fallback: switch `ClusterIssuer/wildcard-issuer.acme.server` to `letse
 
 **What happened**: Tonight dispatched ~25 sub-agents. Zero of them advanced a 5-pillar DoD step. All were docs / CI / right-sizing / cleanup. Each was justifiable individually. Collectively = avoidance.
 
-**What was already documented**: User-global CLAUDE.md §0 dispatch grounding test: *"Before launching any agent: answer 'Which of the 5 pillars does this work move forward, and how?' + 'Which deterministic step does this advance?' If you can't answer either — the work is wrong, pick differently."*
+**What was already documented**: The dispatch grounding test (now [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III): *"Before launching any agent: answer 'Which of the 5 pillars does this work move forward, and how?' + 'Which deterministic step does this advance?' If you can't answer either — the work is wrong, pick differently."*
 
 **Correct path**: Hard gate every dispatch on the grounding test. Cleanup work is allowed ONLY when (a) it's a SHORT precondition for a pillar walk (e.g., right-sizing requests to unblock catalyst-api scheduling), AND (b) is followed immediately by the walk itself. Substrate work that doesn't lead to a walk within 1 cycle is theater.
 
@@ -439,7 +470,7 @@ Secondary fallback: switch `ClusterIssuer/wildcard-issuer.acme.server` to `letse
 
 **What happened**: Multiple agents (acf9ca0f, a95bbda4, a1309f36) reported "wipe complete, sovereigns=N". I propagated those claims to the user. Reality was different (OOM kept happening because the bug was inside the remaining Sovereigns too). The agent's report was honest about what it did — but I treated it as ground-truth on what's WORKING.
 
-**What was already documented**: User-global CLAUDE.md §3 anti-theater rule 6: *"Verification agents are READ-ONLY. Output = evidence (screenshot + log line + commit SHA) only."* And rule 7: *"The metric is 'PRs verified on a fresh prov', not 'PRs merged'."*
+**What was already documented**: Anti-theater rule 6 (now [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III): *"Verification agents are READ-ONLY. Output = evidence (screenshot + log line + commit SHA) only."* And rule 7: *"The metric is 'PRs verified on a fresh prov', not 'PRs merged'."*
 
 **Correct path**: After every "done" claim by a sub-agent, re-query live state DIRECTLY (kubectl, curl healthz, gh issue view). Only then propagate the result. The agent's report is a CLAIM, not a verification.
 
@@ -449,7 +480,7 @@ Secondary fallback: switch `ClusterIssuer/wildcard-issuer.acme.server` to `letse
 
 **What happened**: Audit work surfaced N gaps → I filed N TBDs (TBD-V36 / V37 / V38 / V40 / V44 etc.). Open issue count went UP, not down. Founder: "I start losing my hope this is going to be completed."
 
-**What was already documented**: User-global CLAUDE.md §0 + §3 rule 8: *"PRs verified on a fresh prov"* is the metric. Filing a TBD = "this is broken too" — it does NOT count as progress against the canonical DoD.
+**What was already documented**: The grounding + anti-theater rules (now [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III), rule 8: *"PRs verified on a fresh prov"* is the metric. Filing a TBD = "this is broken too" — it does NOT count as progress against the canonical DoD.
 
 **Correct path**: Each audit / sweep that surfaces gaps should produce AT MOST ONE shippable PR + one tracking TBD per shippable PR. Audits that surface multiple gaps consolidate into a single follow-up issue with a checklist, NOT N separate issues. Verify the actual end-user surface FIRST.
 
@@ -476,7 +507,7 @@ spec:
 
 **What happened**: Earlier in the session "migrated" auto-memory from openova-private context to openova context (rsync'd 170 files). Then continued operating as if running in openova-private context (no re-read of MEMORY.md after migration). Result: same amnesia, even though the answers were in the freshly-copied files.
 
-**What was already documented**: Implicit in the auto-memory section of user-global CLAUDE.md. Memory loads at session start; mid-session file additions don't reload automatically.
+**What was already documented**: The model-continuity rules (now [`docs/PROTOCOL.md`](docs/PROTOCOL.md) §7). Memory loads at session start; mid-session file additions don't reload automatically.
 
 **Correct path**: After any auto-memory file write/copy, re-read the new `MEMORY.md` + the specific feedback files BEFORE continuing the session. If the rule changed, the in-context behavior must reflect the new rule explicitly.
 
@@ -491,10 +522,10 @@ Before any of these operations, run the matching checklist explicitly in the cha
 | Operation | Checklist |
 |---|---|
 | **Wipe / scale / destroy a Sovereign/deployment you created** | **AUTONOMOUS — no founder approval** (HARD PRINCIPLE, founder 2026-06-04: "you never need my approval for any resources you created in Huawei other than the bastion node"). Just use the canonical wipe endpoint (`POST /sovereign/api/v1/deployments/{id}/wipe`) or the Huawei AK/SK API. The ONLY guard: confirm the target is NOT the **bastion node** (`bastion-openova` / EIP `212.72.24.20`) or shared infra you didn't create. No table, no asking. **🛑 DEBUG-BEFORE-WIPE (founder 2026-06-08): if the env FAILED, FIRST fetch its cloud-init log — `GET /api/v1/deployments/{id}/cloudinit-log` (#3132) — and wipe only after extracting the diagnostic value. On kom4dc the pushed log is the ONLY Phase-1 forensic (no sshd, no console-output API). Auto-wiping a failed env before reading the log is the exact mistake the founder called out.** |
-| **Claim a credential is missing** | (1) Enumerate `/deps/tofu/*/tofu.auto.tfvars.json` (PVC `catalyst-api-deployments`). (2) Enumerate `/deps/kubeconfigs/`. (3) Check Stalwart admin creds in user-global CLAUDE.md §13. (4) Only after all 3 return empty → claim missing. |
+| **Claim a credential is missing** | (1) Enumerate `/deps/tofu/*/tofu.auto.tfvars.json` (PVC `catalyst-api-deployments`). (2) Enumerate `/deps/kubeconfigs/`. (3) Check Stalwart admin creds in auto-memory (`~/.claude/projects/-home-openova-repos-openova/memory/` Stalwart refs — the former user-global §13 anchor is dead; secrets never live in this public repo). (4) Only after all 3 return empty → claim missing. |
 | **Provision fresh Sovereign** | **(0) 🛑 RESET UAT FIRST (founder 2026-06-08): `python3 scripts/reset-uat.py <env>` so `docs/ledger/UAT.md` never carries walk-evidence from a wiped env (#3132).** (1) `gh api /repos/openova-io/openova/packages/container/<bp-*>/versions` for active chart pins. (2) Pick `parent_domains_yaml` TLD per L3 rotation. (3) POST `/sovereign/api/v1/deployments` with auth (handover JWT from `/deps/handover-jwt-private.pem`). |
-| **Dispatch a sub-agent** | (1) Pre-dispatch briefing per user-global §5 (🤖 Dispatching / Problem / Remediation / Expected). (2) Pillar+step grounding test per user-global §0. (3) `isolation: worktree` if parallel + touching same files. (4) After return, re-query live state — agent report is a CLAIM. |
+| **Dispatch a sub-agent** | (1) Pre-dispatch briefing per [`docs/PROTOCOL.md`](docs/PROTOCOL.md) §6 perfect-ticket template (🤖 Dispatching / Problem / Remediation / Expected). (2) Pillar+step grounding test per [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) Part III. (3) `isolation: worktree` if parallel + touching same files. (4) After return, re-query live state — agent report is a CLAIM. |
 | **Believe something is "fixed"** | (1) Re-query live state directly (kubectl / curl / gh). (2) Cite specific evidence (log line / HTTP code / file:line). (3) Founder closes issues — do NOT close yourself. |
 | **File a new TBD** | (1) Answer: "Does this block the next pillar walk?" If no — note in audit doc, don't file. (2) Cite canonical doc reference (does the gap-target exist in `docs/`?). (3) Use `Refs #N` not `Closes #N` unless docs-only with `ci-gate-exception` label. |
 
-When in doubt, the answer is in user-global `~/.claude/CLAUDE.md` or in `~/.claude/projects/-home-openova-repos-openova/memory/` — **read it first, ask second, act third**.
+When in doubt, the answer is in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md), [`docs/PROTOCOL.md`](docs/PROTOCOL.md), or `~/.claude/projects/-home-openova-repos-openova/memory/` — **read it first, ask second, act third**.
