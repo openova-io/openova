@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-13T23:00:04Z` |
+| Last refreshed | `2026-07-13T23:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 39 |
 | Open DoD gates | 0 / 41 |
@@ -246,6 +246,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-13T23:13 | [#5048](https://github.com/openova-io/openova/pull/5048) | #3370 | docs(align): PROTOCOL.md execution protocol + durable-surfac |
+| 2026-07-13T23:13 | [#5047](https://github.com/openova-io/openova/pull/5047) | #4690 | docs(iac): retire stale nodePort wording — gateway ELB targe |
 | 2026-07-12T20:54 | [#5041](https://github.com/openova-io/openova/pull/5041) | #5018 | fix(#4896): Edit-IaC commit writes the repo the read path re |
 | 2026-07-12T20:54 | [#5040](https://github.com/openova-io/openova/pull/5040) | #4923 | fix(catalyst-api): replication-status reports verified stand |
 | 2026-07-12T19:00 | [#5039](https://github.com/openova-io/openova/pull/5039) | #4781 | test(crossplane): CI guard pins adoption-seam GVKs to opento |
@@ -274,8 +276,6 @@ flowchart LR
 | 2026-07-11T14:06 | [#4998](https://github.com/openova-io/openova/pull/4998) | #4994 | fix(#4994 #4996): harden cutover step-03 harbor-prewarm + st |
 | 2026-07-11T13:40 | [#4997](https://github.com/openova-io/openova/pull/4997) | #3668 | fix(#4990): prefix-tolerant catalog Get — seed-only Blueprin |
 | 2026-07-11T12:48 | [#4995](https://github.com/openova-io/openova/pull/4995) | #4993 | fix(#4993): host-native app HTTPRoute for vcluster-tier Orgs |
-| 2026-07-11T10:58 | [#4992](https://github.com/openova-io/openova/pull/4992) | #4964 | fix(#4991): org-controller delivers per-Org provisioning RBA |
-| 2026-07-11T10:04 | [#4989](https://github.com/openova-io/openova/pull/4989) | #4987 | fix(#4988): lockstep catalog-seed bp-postgres spec.version 0 |
 
 ---
 
