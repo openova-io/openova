@@ -9,7 +9,7 @@ output "control_plane_ip" {
 }
 
 output "load_balancer_ip" {
-  description = "Public EIP the wildcard *.<fqdn> + app DNS A-records point at. #4690 / #4686 foundation-fix — this is the RESTORED gateway ELB's OWN routable EIP (huaweicloud_vpc_eip.elb_primary). The ELB forwards public :443/:80 → the gateway LoadBalancer Service's auto-allocated nodePort (the Service TYPE stays LoadBalancer, #4682). It is DISTINCT from control_plane_ip above (the CP-node EIP, a Huawei 1:1 NAT that is externally unreachable — the #4687 option-B wrongly pointed DNS there, verified hw208). catalyst-api reconciles the ELB members to the live nodePort post-convergence (post_handover_gateway_elb.go)."
+  description = "Public EIP the wildcard *.<fqdn> + app DNS A-records point at. #4690 / #4686 foundation-fix — this is the RESTORED gateway ELB's OWN routable EIP (huaweicloud_vpc_eip.elb_primary). The ELB does TCP passthrough public :443/:80 → node:443/:80, the durable cilium-envoy hostNetwork host ports (§854 — NodePorts FORBIDDEN; the former ELB→nodePort shape of #4690/#4691 was retired by the cilium 1.19.3 bump). It is DISTINCT from control_plane_ip above (the CP-node EIP, a Huawei 1:1 NAT that is externally unreachable — the #4687 option-B wrongly pointed DNS there, verified hw208). tofu seeds correct members at Phase-0; catalyst-api only heals member-set drift from node churn post-convergence (post_handover_gateway_elb.go) — ports never change."
   value       = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
 }
 

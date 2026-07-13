@@ -1163,16 +1163,18 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// object-model surface). See post_handover_spine_apps.go.
 		h.spawnPostHandoverHook(func() { h.runPostHandoverSpineApplications(dep) })
 
-		// #4690 / #4686: on the CCM-less Huawei provider, discover the Sovereign
-		// gateway LoadBalancer Service's live auto-allocated nodePort and
-		// reconcile the Huawei gateway ELB's pool members to it (public :443/:80
-		// → node:<nodePort>). Without this the restored gateway ELB members stay
-		// at the tofu placeholder port and the wildcard *.<fqdn> front door never
-		// serves. Background goroutine + internal retry budget: the gateway
-		// Service may still be settling at first OutcomeReady, so this must NOT
-		// block the terminate path. No-op on Hetzner (hcloud-ccm programs
-		// node:443 directly). Failures log + emit SSE warn but never fail the
-		// handover. See post_handover_gateway_elb.go.
+		// #4690 / #4686: on the CCM-less Huawei provider, reconcile the Huawei
+		// gateway ELB's pool MEMBER SET to the live cluster's node IPs at the
+		// durable ports (public :443/:80 → node:443/:80, the cilium-envoy
+		// hostNetwork host ports — §854, no nodePort anywhere; the former
+		// discover-nodePort shape of #4690/#4691 was retired by the cilium
+		// 1.19.3 bump). Without this, autoscaler-added nodes are missing from
+		// the pools and replaced/removed nodes leave stale members. Background
+		// goroutine + internal retry budget: the node set may still be settling
+		// at first OutcomeReady, so this must NOT block the terminate path.
+		// No-op on Hetzner (hcloud-ccm programs node:443 directly). Failures
+		// log + emit SSE warn but never fail the handover. See
+		// post_handover_gateway_elb.go.
 		h.spawnPostHandoverHook(func() { h.runPostHandoverGatewayELB(dep) })
 	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
 		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
