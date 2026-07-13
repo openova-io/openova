@@ -41,7 +41,11 @@ def protected(x):
 print(len([x for x in live if not protected(x)]))' 2>/dev/null)
 [ "${act:-x}" = "0" ] && pass "2. 0 active non-protected deployments (capacity free; protect-list: ${PREFLIGHT_PROTECTED:-hw240})" || bad "2. ${act:-unknown} active non-protected deployment(s) — wipe first (sequential; NEVER wipe protect-list envs to make room)"
 
-# 3. EIP headroom: only the bastion may remain; no DOWN/unbound orphans
+# 3. EIP headroom: no genuinely-orphaned EIPs (status=DOWN + no port binding).
+#    ELB-type EIPs report NO port_id even when serving a live gateway/console
+#    ELB (their binding is to the ELB, status=ELB) — a port_id-only heuristic
+#    flags a healthy prov's front-door EIPs as orphans and invites deleting the
+#    live gateway (near-miss on hw250, 2026-07-13). Only status=DOWN counts.
 if [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ]; then
   orph=$(python3 - "$HW_TFVARS" "$BASTION_EIP" <<'PY' 2>/dev/null
 import sys,json,hashlib,hmac,datetime,urllib.request,ssl
@@ -55,10 +59,10 @@ sig=hmac.new(sk.encode(),sts.encode(),hashlib.sha256).hexdigest()
 ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
 req=urllib.request.Request(f"https://{host}{uri}",headers={"X-Sdk-Date":now,"Authorization":f"SDK-HMAC-SHA256 Access={ak}, SignedHeaders={sh}, Signature={sig}","host":host})
 eips=json.load(urllib.request.urlopen(req,timeout=20,context=ctx)).get("publicips",[])
-print(len([e for e in eips if e.get("public_ip_address")!=bastion and not e.get("port_id")]))
+print(len([e for e in eips if e.get("public_ip_address")!=bastion and not e.get("port_id") and e.get("status")=="DOWN"]))
 PY
 )
-  [ "${orph:-x}" = "0" ] && pass "3. EIP headroom: 0 orphaned EIPs (only bastion)" || bad "3. ${orph} orphaned/unbound EIP(s) — delete them first (exclude bastion ${BASTION_EIP})"
+  [ "${orph:-x}" = "0" ] && pass "3. EIP headroom: 0 orphaned EIPs (status=DOWN; ELB-bound excluded)" || bad "3. ${orph} orphaned EIP(s) (status=DOWN, unbound) — delete them first (NEVER touch status=ELB/ACTIVE or bastion ${BASTION_EIP})"
 
   # 3b. GROUND-TRUTH no-foreign-Sovereign gate (#4675 — the omantel.biz-loss root cause).
   #     Check #2 above trusts GET /deployments, which returns a FALSE 0 when the
