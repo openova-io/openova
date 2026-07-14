@@ -73,6 +73,26 @@ spec:
             - --http-address=0.0.0.0:4180
             - --provider=keycloak-oidc
             - --oidc-issuer-url=https://auth.{{ $sovFQDN }}/realms/sovereign
+            {{- /* #5059: when keycloakInternalURL is set, run OIDC DISCOVERY +
+               the jwks/redeem backchannel legs against the in-cluster keycloak
+               Service instead of the PUBLIC issuer. oauth2-proxy's default
+               boot-time discovery dials --oidc-issuer-url (auth.<fqdn>), which
+               hairpins pod->gateway EIP->keycloak; under the step-08 deny-egress
+               hold that round-trip exceeds the 30s discovery timeout on a
+               freshly-rolled pod -> CrashLoop (hw250 live, #5059). --oidc-issuer-url
+               stays PUBLIC (iss-claim validation must match the token's iss) and
+               --login-url stays PUBLIC (browser redirect); only the machine
+               backchannel goes internal. Same #3844 seam bp-gitea/oidc-gate use;
+               verified live: http://keycloak.keycloak.svc.cluster.local/realms/
+               sovereign/.well-known/openid-configuration -> 200 in-cluster.
+               Empty (default) -> current public-discovery behavior, unchanged. */}}
+            {{- $kcInternal := ($proxy.keycloakInternalURL) | default "" }}
+            {{- if $kcInternal }}
+            {{- $realm := printf "%s/realms/sovereign" (trimSuffix "/" $kcInternal) }}
+            - --skip-oidc-discovery=true
+            - --oidc-jwks-url={{ $realm }}/protocol/openid-connect/certs
+            - --redeem-url={{ $realm }}/protocol/openid-connect/token
+            {{- end }}
             - --client-id=hubble-ui
             - --redirect-url=https://{{ $hostname }}/oauth2/callback
             # Reverse-proxy authenticated requests to the upstream Hubble UI.

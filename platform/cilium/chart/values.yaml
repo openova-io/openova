@@ -437,6 +437,15 @@ catalystOverlay:
     # G117.5 #2744 — oauth2-proxy sidecar config (only consumed when
     # auth=oidc). Renders into the same namespace as serviceRef.
     oauth2Proxy:
+      # #5059 — in-cluster OIDC discovery/backchannel URL. When set, oauth2-proxy
+      # runs OIDC discovery + jwks/redeem against this in-cluster keycloak Service
+      # instead of hairpinning to the public issuer (which CrashLoops on a forced
+      # roll under the step-08 deny-egress hold). --oidc-issuer-url + --login-url
+      # stay PUBLIC. Verified live: http://keycloak.keycloak.svc.cluster.local
+      # answers /realms/sovereign/.well-known/openid-configuration -> 200. Empty
+      # (default) preserves current public-discovery behavior; the Catalyst
+      # sovereign overlay sets it to the in-cluster keycloak URL.
+      keycloakInternalURL: ""
       # When true (default), the chart manages the OIDC client-secret +
       # cookie-secret Secret via lookup-or-generate (see
       # templates/hubble-ui-oauth2-proxy-secret.yaml). Set false to bring
