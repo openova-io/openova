@@ -977,8 +977,14 @@ locals {
       if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ -n "${var.catalyst_api_url}" ]; then
         nohup sh -c '
           n=0
-          while [ "$${n}" -lt 40 ]; do
-            curl -sk -X PUT \
+          # #5042: -4 forces IPv4. This loop runs in the prelude BEFORE the
+          # IPv4-pin step, so on the IPv4-only kom4dc VPC curl otherwise resolves
+          # catalyst_api_url to AAAA, tries IPv6 first -> "network unreachable" ->
+          # every push fails silently (|| true) -> a mid-run cloud-init death is
+          # forensic-blind (hw247 GET cloudinit-log 404). 60 iters (~50min) covers
+          # a slow 2-region bootstrap.
+          while [ "$${n}" -lt 60 ]; do
+            curl -4 -sk -X PUT \
               -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
               -H "Content-Type: text/plain" \
               --data-binary @/var/log/cloud-init-output.log \
