@@ -135,6 +135,17 @@ compliancePolicies:
       # per-workload annotation. Code-reviewer agent surfaced this gap
       # 2026-06-01T13:35Z (G109 review verdict PASS-with-caveats).
       - sso-bridge
+      # falco (#5063, hw250 2026-07-14): host-eBPF runtime-security DaemonSet.
+      # Its falcoctl sidecars carry no resources.requests and the main container
+      # legitimately needs host root + a writable rootfs (kernel/eBPF access), so
+      # it CANNOT satisfy resource-requests / runAsNonRoot / readOnlyRootFilesystem.
+      # Original pods admit at prov time, but the self-sovereign-cutover deny-egress
+      # fresh-pull proof ROLLS the DaemonSet → the recycled pod is DENIED by the
+      # resource-requests Enforce policy → DS stuck 5/6 → egress-block-test FAIL
+      # (step-08 wedged, exactly the #4640 dragonfly shape one tier up). A node
+      # replacement / region-kill hits the identical block → general robustness,
+      # not cutover-only. Same privileged trust tier as cilium/dragonfly: exempt.
+      - falco
 
   pdb:
     enabled: true

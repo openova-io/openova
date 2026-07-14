@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
-  version: 1.0.3
+  version: 1.0.4
   card:
     title: Trivy
     family: guardian

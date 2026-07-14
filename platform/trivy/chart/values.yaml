@@ -108,14 +108,19 @@ trivy-operator:
   # Resources for the operator pod itself.
   # 256Mi was too tight — operator manages scan jobs across 80+ pods and
   # each watch cache grows with cluster size. OOMKilled (exit 137) on otech22.
-  # 512Mi is the stable floor for a 38-HR Sovereign per handover testing.
+  # 512Mi held for a 38-HR Sovereign, but OOMKilled again (exit 137, restarts=10)
+  # on the larger hw250 2-region prov (#5063): under the self-sovereign-cutover
+  # deny-egress fresh-pull roll the recreated operator never reached Ready within
+  # the 600s budget → step-08 egress-block-test FAIL. 1Gi is the stable floor for
+  # a 60+ HR multi-region Sovereign; a node replacement / region-kill hits the
+  # same recreate, so this is general robustness, not cutover-only.
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
 
   # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
   # (Catalyst provides bp-grafana / kube-prometheus-stack separately).
