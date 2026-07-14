@@ -1574,11 +1574,11 @@ runcmd:
   - |
     nohup sh -c '
       log=/var/lib/catalyst/prepull.log
-      echo "[prepull] $(date -u +%FT%TZ) background image pre-pull start (#4049)" >> "$log" 2>&1
+      echo "[prepull] $(date -u +%FT%TZ) image pre-pull start (#4049)" >> "$log" 2>&1
       CRICTL="$(command -v crictl || echo /usr/local/bin/crictl)"
       HELM="$(command -v helm || echo /usr/local/bin/helm)"
       if [ ! -x "$CRICTL" ] || [ ! -x "$HELM" ]; then
-        echo "[prepull] crictl ($CRICTL) or helm ($HELM) not executable — skipping (kubelet pulls on demand)" >> "$log" 2>&1
+        echo "[prepull] crictl ($CRICTL)/helm ($HELM) not exec — skip" >> "$log" 2>&1
         exit 0
       fi
       workdir="$(mktemp -d /tmp/catalyst-prepull.XXXXXX 2>/dev/null || echo /tmp/catalyst-prepull)"
@@ -1608,7 +1608,7 @@ runcmd:
           | sort -u)"
       fi
       if [ -z "$images" ]; then
-        echo "[prepull] no images resolved — skip (kubelet pulls on demand)" >> "$log" 2>&1
+        echo "[prepull] no images resolved — skip" >> "$log" 2>&1
         rm -rf "$workdir" 2>/dev/null || true
         exit 0
       fi
@@ -1620,7 +1620,7 @@ runcmd:
           || echo "[prepull] WARN pull failed (non-fatal): $img" >> "$log" 2>&1
       done
       rm -rf "$workdir" 2>/dev/null || true
-      echo "[prepull] $(date -u +%FT%TZ) background pre-pull finished ($n image(s) attempted)" >> "$log" 2>&1
+      echo "[prepull] $(date -u +%FT%TZ) pre-pull done ($n img)" >> "$log" 2>&1
     ' >/dev/null 2>&1 &
 
 %{ if provider_id_cmd != "" ~}
