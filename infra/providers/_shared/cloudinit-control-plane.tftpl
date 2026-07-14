@@ -1179,24 +1179,8 @@ runcmd:
   # giving every IPv4-only cloud the harbor pin. No hardcoded IP: r4() derives
   # the A record at boot and self-heals if harbor's address ever changes.
   #
-  # #4049 (2026-06-21) — the IMAGE-host /etc/hosts pins are REMOVED. Per the
-  # founder principle "every image download must be Huawei→Huawei", every
-  # container-registry pull on Huawei now routes through the bastion registry
-  # by IP LITERAL (212.72.24.20 in registries.yaml), so the NODE never resolves
-  # any image-registry hostname at all. The former Huawei-gated pins for the
-  # ghcr image-blob CDN `pkg-containers.githubusercontent.com` (#3835) and
-  # `harbor.openova.io` (#3735) are therefore dead weight and are dropped. They
-  # were ALSO already redundant on Huawei since #3840 disables IPv6 at the
-  # kernel (no AAAA path → no "Try again" wedge). KEPT: the git hosts
-  # (github.com / raw / codeload / api.github.com / objects.githubusercontent.com)
-  # — Flux source-controller git-clones the gitops repo + the node fetches
-  # github RELEASE ARTIFACTS (gateway-api install.yaml, the get-helm-3 script)
-  # which the image-only bastion mirror does NOT serve; helm.cilium.io /
-  # get.helm.sh — helm chart-repo + binary fetches, not image pulls, also not
-  # bastion-served; registry.${sovereign_fqdn} — the POST-CUTOVER local Harbor,
-  # reached directly (not via the bastion) after sovereignty cutover. Git
-  # localization is a separate follow-up; until then those direct-reach hosts
-  # keep their pins.
+  # #4049: image-host pins REMOVED (pulls route via bastion IP 212.72.24.20;
+  # #3840 disables IPv6). KEPT: git + helm-repo hosts + registry.<fqdn>.
   #
   # #3714 (2026-06-18 — the kom4dc 0-HR wedge): the /etc/hosts pin below fixes
   # the NODE Go resolvers (helm/kubectl/git/containerd) but does NOT reach the
