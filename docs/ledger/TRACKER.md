@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T03:15:02Z` |
+| Last refreshed | `2026-07-14T03:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 38 |
+| Open issues | 34 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 38 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 34 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 38 open items (clickable table)
+### All 34 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -212,13 +212,11 @@ flowchart LR
 | [#4677](https://github.com/openova-io/openova/issues/4677) | ROOT CAUSE: wipe=tofu-destroy leaks ALL runtime CSI EVS volumes (315 orphan / ~5 | Other |
 | [#4682](https://github.com/openova-io/openova/issues/4682) | Sovereign Cilium Gateway serves :30443 NodePort-range + ClusterIP, not :443 Load | Other |
 | [#4683](https://github.com/openova-io/openova/issues/4683) | Operator console /sovereign/deployments is owner-scoped by session email — a s | Other |
-| [#4686](https://github.com/openova-io/openova/issues/4686) | #4682 Wave-D3 gap: gateway CiliumLoadBalancerIPPool not wired on Huawei — gate | Other |
 | [#4688](https://github.com/openova-io/openova/issues/4688) | cutover steps 02/03 still reach Harbor via internal svc name (harbor-core.harbor | Other |
 | [#4752](https://github.com/openova-io/openova/issues/4752) | Intermittent fresh-prov 0-HR wedge ROOT-CAUSED: cloud-init aborts (runcmd exit 9 | Other |
 | [#4764](https://github.com/openova-io/openova/issues/4764) | wipe: canonical destroy leaves a dangling console/tenant DNS record (console.<fq | Other |
 | [#4765](https://github.com/openova-io/openova/issues/4765) | Zero NodePorts: kill powerdns-anycast NodePort + clustermesh nodePort dial (LB-I | Other |
 | [#4773](https://github.com/openova-io/openova/issues/4773) | P1: 5,726 orphaned XUserAccess composites leaking on hw224 — Claims still crea | Other |
-| [#4788](https://github.com/openova-io/openova/issues/4788) | Crossplane ProviderConfig on dead tf.upbound.io group — adopt-* Workspaces can | Other |
 | [#4858](https://github.com/openova-io/openova/issues/4858) | fix: mothership self-hosting image deadlock — DiskPressure image-GC + harbor.o | Other |
 | [#4889](https://github.com/openova-io/openova/issues/4889) | Apps grid + AppDetail header show spine/bootstrap apps FAILED (source: Applicati | Other |
 | [#4896](https://github.com/openova-io/openova/issues/4896) | Catalog Edit-IaC YamlEditor Commit broken: dry-run 400 name-mismatch (metadata.n | Other |
@@ -233,8 +231,6 @@ flowchart LR
 | [#5019](https://github.com/openova-io/openova/issues/5019) | Jobs surface gaps: /jobs omits all 65 bootstrap-kit install rows (no install kin | Other |
 | [#5026](https://github.com/openova-io/openova/issues/5026) | Cutover step-07 pod-spec sweep leaves harbor.openova.io (mothership Harbor = den | Other |
 | [#5028](https://github.com/openova-io/openova/issues/5028) | Wipe leaks runtime CSI/EVS volumes → kom4dc 400-volume quota fills after ~3 pr | Other |
-| [#5032](https://github.com/openova-io/openova/issues/5032) | cutover-contract.sh false-fails on CI: printf|grep SIGPIPE under set -o pipefail | Other |
-| [#5034](https://github.com/openova-io/openova/issues/5034) | console_isolation: console.<fqdn> DNS points to shared gateway EIP (404) not the | Other |
 | [#5036](https://github.com/openova-io/openova/issues/5036) | Cutover step-08 ref-host lint (#5027) fails on ~40 workloads' harbor.openova.io/ | Other |
 | [#5042](https://github.com/openova-io/openova/issues/5042) | Fresh-prov bootstrap wedge: cloud-init flux-install stage silently doesn't compl | Other |
 | [#5051](https://github.com/openova-io/openova/issues/5051) | cutover step-03 prewarm: post-#5037 in-cluster dest breaks skopeo token flow (ht | Other |
