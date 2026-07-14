@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T20:30:06Z` |
+| Last refreshed | `2026-07-14T20:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 38 |
 | Open DoD gates | 0 / 41 |
@@ -245,6 +245,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T20:33 | [#5083](https://github.com/openova-io/openova/pull/5083) | #5042 | fix(cloud-init): #5042 prevention — flux-install gated on se |
+| 2026-07-14T20:34 | [#5082](https://github.com/openova-io/openova/pull/5082) | #4858 | fix(cloudinit): kubelet image-GC guard against the self-host |
+| 2026-07-14T20:33 | [#5081](https://github.com/openova-io/openova/pull/5081) | #5059 | fix(cutover): step-08 roll-set minimization — rollSetMode mi |
 | 2026-07-14T19:21 | [#5076](https://github.com/openova-io/openova/pull/5076) | #5014 | fix(cutover): re-check Job state on watch-channel loss inste |
 | 2026-07-14T18:12 | [#5075](https://github.com/openova-io/openova/pull/5075) | #5022 | fix(cutover): exclude CSI driver from step-08 fresh-pull swe |
 | 2026-07-14T18:11 | [#5073](https://github.com/openova-io/openova/pull/5073) | #5042 | fix(bootstrap): flux-crds-absent Phase-1 terminal state (Ref |
@@ -272,9 +275,6 @@ flowchart LR
 | 2026-07-12T18:31 | [#5038](https://github.com/openova-io/openova/pull/5038) | #5036 | fix(cutover): step-08 ref-host lint is redirect-aware — HOST |
 | 2026-07-12T18:11 | [#5037](https://github.com/openova-io/openova/pull/5037) | #4688 | fix(cutover): steps 02/03 dial in-cluster Harbor Service, no |
 | 2026-07-12T14:14 | [#5035](https://github.com/openova-io/openova/pull/5035) | #5034 | fix(pdm): route marketplace.<fqdn> at the console LB in the  |
-| 2026-07-12T11:17 | [#5033](https://github.com/openova-io/openova/pull/5033) | #5030 | fix(ci): here-strings kill cutover-contract.sh SIGPIPE false |
-| 2026-07-12T10:59 | [#5031](https://github.com/openova-io/openova/pull/5031) | #4994 | fix(cutover): step-03 prewarm durable Harbor artifact-API de |
-| 2026-07-12T09:59 | [#5029](https://github.com/openova-io/openova/pull/5029) | #5028 | fix(catalyst-api): reap orphaned CSI/EVS volumes on wipe wit |
 
 ---
 
