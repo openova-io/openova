@@ -384,6 +384,40 @@ write_files:
       type: Opaque
       data:
         public.jwk: ${base64encode(handover_jwt_public_key)}
+%{ if provider == "huawei" ~}
+
+  # ── #5042(b): fail-loud sentinel + cloud-init-log push helper — CALLED on
+  # every post-PUT fail-loud runcmd exit (91/92/93/94/95) + once on success
+  # after the cloud-init-complete marker. Touches the named sentinel, echoes
+  # it into the log, then PUSHES /var/log/cloud-init-output.log to the
+  # mothership. kom4dc CPs have NO console-output API and no reachable sshd,
+  # so a runcmd leg that died AFTER the huawei prelude's ~50-min background-
+  # uploader window (main.tf provider_prelude_huawei, #3132/#5068) was
+  # forensic-blind — hw247: flux CRDs absent, GET cloudinit-log 404.
+  # The sentinel arg is echoed BEFORE the upload so the pushed log NAMES the
+  # dead leg; sleep 1 lets the runcmd tee flush that line into
+  # cloud-init-output.log before the upload reads the file. -4: the IPv4-only
+  # kom4dc VPC would otherwise dial the AAAA and the push dies silently
+  # (#5068). 0700 root-only — the body embeds the bearer token. Callers append
+  # `||true` so a helper failure can never mask the leg's own fail-loud exit
+  # code (no `|| true` inside — the caller guards). WHOLLY HUAWEI-GATED — a
+  # hard cloud dependency, same class as the prelude uploader: Hetzner keeps
+  # sshd + a console API for forensics AND its three_region CP render sits
+  # ~200 B under the 32512 guardrail — these bytes would tip it (the 32768
+  # hard cap bricks the prov, so cut, never raise). The fail sites below keep
+  # their plain `touch` sentinel on Hetzner. The pre-PUT exits (86/87, minute
+  # ~2) intentionally do NOT call mark: they always land inside the huawei
+  # background-uploader window, which starts BEFORE k3s and pushes every 30s.
+  - path: /var/lib/catalyst/mark
+    permissions: '0700'
+    content: |
+      touch "/var/lib/catalyst/$1"
+      echo "CLOUDINIT-SENTINEL: $1"
+%{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
+      sleep 1
+      curl -4 -sk -X PUT -H "Authorization: Bearer ${kubeconfig_bearer_token}" -H "Content-Type: text/plain" --data-binary @/var/log/cloud-init-output.log --max-time 20 "${catalyst_api_url}/api/v1/deployments/${deployment_id}/cloudinit-log" >/dev/null 2>&1
+%{ endif ~}
+%{ endif ~}
 
   # ── Cilium Helm values (one structured file; same on every cloud) ─────
   # kubeProxyReplacement + gateway-api + envoy + wireguard node-encryption.
@@ -1307,7 +1341,7 @@ runcmd:
   # ONE shell so KUBECONFIG is exported once — keeps the byte-tight Hetzner render.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    for i in 1 2 3 4 5; do kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && break; [ "$i" = 5 ] && { touch /var/lib/catalyst/gwapi-apply-FAILED; exit 95; }; sleep 15; done
+    for i in 1 2 3 4 5; do kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && break; [ "$i" = 5 ] && { %{ if provider == "huawei" }sh /var/lib/catalyst/mark gwapi-apply-FAILED||true%{ else }touch /var/lib/catalyst/gwapi-apply-FAILED%{ endif }; exit 95; }; sleep 15; done
     kubectl wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s
 
   # ── Cilium CNI: helm upgrade --install + retry/fail-fast (#4503) ───────
@@ -1333,7 +1367,7 @@ runcmd:
     rt helm repo add cilium https://helm.cilium.io/
     rt helm repo update
     rt helm upgrade --install cilium cilium/cilium --version 1.19.3 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
-    rt kubectl -n kube-system rollout status ds/cilium --timeout=240s || { echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;exit 91;}
+    rt kubectl -n kube-system rollout status ds/cilium --timeout=240s || { %{ if provider == "huawei" }sh /var/lib/catalyst/mark cilium-bootstrap-FAILED||true;%{ else }echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;%{ endif }exit 91;}
 %{ if provider == "huawei" ~}
   # #4503 root cause (Huawei-gated note; the byte budget is Hetzner-only): on
   # the IPv4-only kom4dc path a single transient failure of get-helm-3 /
@@ -1564,7 +1598,16 @@ runcmd:
 %{ endif ~}
 
   # ── Flux install + the apiserver-side bootstrap secrets ───────────────
-  # #5042: flux legs retried+sentinel'd (were single-shot -> a CDN miss wedged bootstrap forensically-blind, hw247/hw249; mirrors #4503/#4513)
+  # #5042(a): the install leg is IDEMPOTENT and gated on the flux CRDs being
+  # SERVABLE (kubectl get crd helmreleases.helm.toolkit.fluxcd.io) — NOT on a
+  # single kubectl-apply exit 0. hw247 proved the wedge mode: cilium up, flux
+  # CRDs absent, phase1-watching forever. The apply retries with bounded
+  # linear backoff (10 tries, sleep n*10s ≈ 9m10s of sleep + curl --max-time 60
+  # per try, ~20m worst case) to ride out the #3232/#3829 github/ghcr
+  # transient-DNS class instead of the old 5x15s ~75s window; a re-run of
+  # cloud-init short-circuits on the first CRD probe. Exhaustion stays
+  # fail-loud (the mark helper touches the sentinel + exit 93) and now ALSO
+  # pushes the cloud-init log (#5042(b)) — never forensic-blind on kom4dc.
   # flux install creates deny-world NetworkPolicies that block source-controller
   # → github.com; delete them (bp-network-policies slot 30 provides the proper
   # zero-trust posture via CCNPs with flux-system allowlisted). ONE shell for the
@@ -1572,9 +1615,14 @@ runcmd:
   # under the 32256B cap; explicit exit 93/94 still halt runcmd fail-loud (#5042).
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    for i in 1 2 3 4 5; do curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl apply -f - && break; [ "$i" = 5 ] && { touch /var/lib/catalyst/flux-install-FAILED; exit 93; }; sleep 15; done
+    n=0
+    until kubectl get crd helmreleases.helm.toolkit.fluxcd.io >/dev/null 2>&1; do
+     n=$((n+1)); [ "$n" -gt 10 ] && { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-install-FAILED||true%{ else }touch /var/lib/catalyst/flux-install-FAILED%{ endif }; exit 93; }
+     curl -fsSL --max-time 60 https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl apply -f - || true
+     sleep $((n*10))
+    done
     kubectl -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true
-    for j in 1 2; do kubectl -n flux-system wait --for=condition=Available --timeout=300s deployment --all && break; [ "$j" = 2 ] && { touch /var/lib/catalyst/flux-wait-FAILED; exit 94; }; done
+    for j in 1 2; do kubectl -n flux-system wait --for=condition=Available --timeout=300s deployment --all && break; [ "$j" = 2 ] && { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-wait-FAILED||true%{ else }touch /var/lib/catalyst/flux-wait-FAILED%{ endif }; exit 94; }; done
 
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
@@ -1632,7 +1680,7 @@ runcmd:
 %{ if crossplane_provider_yaml != "" ~}
     kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml || true
 %{ endif ~}
-    kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { touch /var/lib/catalyst/flux-bootstrap-FAILED; exit 92; }
+    kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-bootstrap-FAILED||true%{ else }touch /var/lib/catalyst/flux-bootstrap-FAILED%{ endif }; exit 92; }
 %{ if crossplane_provider_yaml != "" ~}
     nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &
 %{ endif ~}
@@ -1640,5 +1688,13 @@ runcmd:
   # Marker for the catalyst-api provisioner to detect cloud-init is done.
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
+%{ if provider == "huawei" ~}
+  # #5042(b): deterministic FINAL log push on the success path too — the huawei
+  # background uploader (main.tf provider_prelude_huawei) caps at ~50 min and
+  # can expire before a slow 2-region bootstrap finishes, leaving a truncated
+  # log with no completion line. The mark re-touch of cloud-init-complete is an
+  # idempotent no-op. Huawei-gated with the whole mark helper (see its header).
+  - sh /var/lib/catalyst/mark cloud-init-complete||true
+%{ endif ~}
 
 final_message: "Catalyst CP bootstrap done; Flux reconciling ${sovereign_fqdn}"
