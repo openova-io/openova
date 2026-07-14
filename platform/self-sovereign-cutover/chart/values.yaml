@@ -1200,6 +1200,28 @@ egressTest:
     # proven by the step-04 daemonset-wait + per-node v2 ACK assertions.
     excludeWorkloads:
       - "catalyst/registry-pivot"
+      # #5059 — oauth2-proxy sidecars do a BLOCKING OIDC discovery against the
+      # PUBLIC issuer (auth.<fqdn>) at boot; under the hold that hairpin (pod ->
+      # gateway EIP -> keycloak) intermittently exceeds oauth2-proxy's 30s
+      # discovery timeout -> CrashLoopBackOff -> a freshly-rolled pod misses the
+      # 600s roll budget -> step-08 FAILS and restarts the WHOLE sweep (hw250
+      # looped ~5x/3h on this). A fresh-pull-roll of an oauth2-proxy proves
+      # NOTHING about offline-mirror completeness (its image already pulled +
+      # was completeness-HEAD'd); rolling it only re-triggers the slow OIDC
+      # boot. Exclude the known instances (the durable in-cluster-discovery
+      # fix for the OIDC hairpin is tracked separately in #5059).
+      - "kube-system/hubble-ui-oauth2-proxy"
+      # #5059 — oauth2-proxy sidecars do a BLOCKING OIDC discovery against the
+      # PUBLIC issuer (auth.<fqdn>) at boot; under the hold that hairpin (pod →
+      # gateway EIP → keycloak) intermittently exceeds oauth2-proxy's 30s
+      # discovery timeout → CrashLoopBackOff → a freshly-rolled pod misses the
+      # 600s roll budget → step-08 FAILS and restarts the WHOLE sweep (hw250
+      # looped ~5x/3h on this). A fresh-pull-roll of an oauth2-proxy proves
+      # NOTHING about offline-mirror completeness (its image already pulled +
+      # was completeness-HEAD'd); rolling it only re-triggers the slow OIDC
+      # boot. Exclude the known instances (the durable in-cluster-discovery
+      # fix for the OIDC hairpin is tracked separately in #5059).
+      - "kube-system/hubble-ui-oauth2-proxy"
   # #5026 — PRE-HOLD ref-host lint (treadmill-breaker). The completeness gate
   # above proves image CONTENT is in local Harbor; this lint proves every
   # rolled workload's pod-spec image REF HOST is the local registry

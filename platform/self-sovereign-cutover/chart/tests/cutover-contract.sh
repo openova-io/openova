@@ -1960,7 +1960,7 @@ echo "[cutover-contract] Case 49: Step-08 roll-set NEVER includes the registry-p
 # fresh pulls are being proven on that node, and its readiness gate
 # (first-reconcile-pass) was already asserted by the step-04
 # daemonset-wait + per-node v2 ACKs.
-if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -q 'value: "catalyst/registry-pivot"'; then
+if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -qE 'value: "[^"]*\bcatalyst/registry-pivot\b'; then
   echo "FAIL: FRESH_PULL_EXCLUDE_WORKLOADS default must carry catalyst/registry-pivot (#5022)" >&2
   exit 1
 fi
@@ -2243,5 +2243,18 @@ if ! grep -qF 'never became ready after 40 probes' "$TMP/s03.yaml"; then
   exit 1
 fi
 echo "  PASS (#5051 contract: skopeo dest is the public host; readiness probe bounded + fail-loud; in-cluster dest derivation gone)"
+
+# ── Case 56 (#5059): step-08 excludes oauth2-proxy sidecars from the roll ─────
+# oauth2-proxy does a blocking OIDC discovery to the PUBLIC issuer at boot; under
+# the deny-egress hold that hairpin intermittently exceeds its 30s timeout ->
+# CrashLoop -> a freshly-rolled pod blows step-08's 600s roll budget -> the whole
+# sweep restarts (hw250 looped ~5x/3h). Rolling it proves nothing about mirror
+# completeness (image already pulled + HEAD'd), so it is excluded by ns/name.
+echo "[cutover-contract] Case 56: step-08 excludes oauth2-proxy from the forced roll (#5059)"
+if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -qE 'value: "[^"]*oauth2-proxy'; then
+  echo "FAIL: FRESH_PULL_EXCLUDE_WORKLOADS must exclude the oauth2-proxy sidecar — its OIDC-discovery CrashLoop blows the roll budget and restarts the sweep (#5059)" >&2
+  exit 1
+fi
+echo "  PASS (#5059 contract: oauth2-proxy sidecar excluded from the step-08 forced-roll set)"
 
 echo "[cutover-contract] All gates green."

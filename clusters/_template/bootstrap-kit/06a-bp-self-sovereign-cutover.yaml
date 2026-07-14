@@ -856,7 +856,11 @@ spec:
       # flow. skopeo dest reverts to HARBOR_PUBLIC_URL (registry.<fqdn>) with a
       # bounded 40x15s readiness probe covering the #5037 pre-pivot DNS flake;
       # Harbor REST API dials stay on HARBOR_INTERNAL_URL. Cases 52/54 amended.
-      version: 0.1.128
+      # 0.1.130 (#5059): step-08 excludes oauth2-proxy sidecars from the forced
+      # fresh-pull roll — their blocking OIDC discovery to the public issuer
+      # CrashLoops under the hold and blows the 600s roll budget, restarting the
+      # whole sweep (hw250 looped ~5x/3h). Durable OIDC-hairpin fix in #5059.
+      version: 0.1.130
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

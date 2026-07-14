@@ -2024,7 +2024,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.128
+version: 0.1.130
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
