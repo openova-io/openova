@@ -148,7 +148,56 @@ PY
   eq="${PREFLIGHT_EVS_QUOTA:-400}"; eh="${PREFLIGHT_EVS_HEADROOM:-120}"
   if [ -n "${eused:-}" ] && [ "$eused" -le $((eq-eh)) ] 2>/dev/null; then pass "3d. EVS headroom: ${eused}/${eq} volumes used (>=${eh} free for the fresh prov's CSI volumes)"
   else bad "3d. EVS headroom insufficient: used=${eused:-unknown}/${eq}, need >=${eh} free — wipe stale envs (drain #4678 + backstop #5029 reclaim their volumes) BEFORE firing (#5028 hw244 413-wedge)"; fi
-else bad "3. HW_TFVARS unset — cannot verify EIP/VPC/EVS headroom or foreign-Sovereign ground truth"; fi
+
+  # 3e. OBS bucket-quota headroom (#5078 fire-side gate): kom4dc caps 100 OBS
+  #     buckets project-wide; every fire creates 1 (the Velero archive bucket)
+  #     and tofu-destroy deliberately leaves it (no force_destroy — it holds
+  #     the backup archive) → every wiped env orphans a bucket until the
+  #     project saturates. hw252 (dep 281715eb) died at Phase-0 with
+  #     `Code=TooManyBuckets` at 100/100 (80 catalyst-hw* orphans). Require
+  #     PREFLIGHT_OBS_HEADROOM (default 3) free of PREFLIGHT_OBS_QUOTA
+  #     (default 100). NOTE: OBS is NOT the SDK-HMAC-SHA256 plane the
+  #     EVS/VPC/ECS checks use — it takes S3-style OBS SigV2 auth
+  #     (`Authorization: OBS <ak>:<base64(hmac-sha1(sk, StringToSign))>`;
+  #     idiom shared with scripts/reclaim-obs-orphans.sh). The endpoint
+  #     (obs.<region>.kom4dc.nationalcloud.om, private CA) is private HCS —
+  #     resolvable from the mothership, NOT from dev sandboxes — so
+  #     unreachability only WARNS (⚠ SKIPPED): the gate fails solely on a
+  #     positive over-quota observation or an authenticated error reply.
+  oused=$(python3 - "$HW_TFVARS" <<'PY' 2>/dev/null
+import sys,json,os,base64,hmac,hashlib,ssl,socket,urllib.request,urllib.error
+from email.utils import formatdate
+t=json.load(open(sys.argv[1]))
+ak=t.get('huawei_access_key') or t.get('access_key') or t.get('huawei_ak'); sk=t.get('huawei_secret_key') or t.get('secret_key') or t.get('huawei_sk')
+region=t.get('huawei_region') or 'me-east-215'
+stub=os.environ.get("OBS_STUB_FILE")  # test hook (#5078): canned ListAllMyBuckets XML, no network
+if stub:
+    body=open(stub,'rb').read()
+else:
+    host=f"obs.{region}.kom4dc.nationalcloud.om"
+    date=formatdate(usegmt=True)
+    sts=f"GET\n\n\n{date}\n/"
+    sig=base64.b64encode(hmac.new(sk.encode(),sts.encode(),hashlib.sha1).digest()).decode()
+    ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+    req=urllib.request.Request(f"https://{host}/",headers={"Date":date,"Authorization":f"OBS {ak}:{sig}","Host":host})
+    try:
+        body=urllib.request.urlopen(req,timeout=20,context=ctx).read()
+    except urllib.error.HTTPError as e:
+        print(f"ERR HTTP {e.code}"); sys.exit(0)
+    except (urllib.error.URLError,socket.timeout,OSError) as e:
+        print(f"SKIP {getattr(e,'reason',e)}"); sys.exit(0)
+print(body.count(b"<Bucket>"))
+PY
+)
+  oq="${PREFLIGHT_OBS_QUOTA:-100}"; oh="${PREFLIGHT_OBS_HEADROOM:-3}"
+  case "${oused:-}" in
+    SKIP*)
+      echo "  ⚠ 3e SKIPPED (OBS endpoint unreachable from here — ${oused#SKIP }); private HCS plane — re-run from the mothership for the authoritative bucket count" ;;
+    *)
+      if [ -n "${oused:-}" ] && [ "$oused" -le $((oq-oh)) ] 2>/dev/null; then pass "3e. OBS bucket headroom: ${oused}/${oq} buckets used (>=${oh} free; a fire creates 1)"
+      else bad "3e. OBS bucket headroom insufficient: used=${oused:-unknown}/${oq}, need >=${oh} free — reclaim orphaned catalyst-hw* buckets first (version-aware: scripts/reclaim-obs-orphans.sh; #5078 hw252 Phase-0 TooManyBuckets wedge)"; fi ;;
+  esac
+else bad "3. HW_TFVARS unset — cannot verify EIP/VPC/EVS/OBS headroom or foreign-Sovereign ground truth"; fi
 
 # 4. mothership catalyst-api rollout settled
 if kubectl -n catalyst rollout status deploy/catalyst-api --timeout=8s >/dev/null 2>&1; then
