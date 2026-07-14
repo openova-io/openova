@@ -1960,7 +1960,7 @@ echo "[cutover-contract] Case 49: Step-08 roll-set NEVER includes the registry-p
 # fresh pulls are being proven on that node, and its readiness gate
 # (first-reconcile-pass) was already asserted by the step-04
 # daemonset-wait + per-node v2 ACKs.
-if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -q 'value: "catalyst/registry-pivot"'; then
+if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -qE 'value: "[^"]*catalyst/registry-pivot'; then
   echo "FAIL: FRESH_PULL_EXCLUDE_WORKLOADS default must carry catalyst/registry-pivot (#5022)" >&2
   exit 1
 fi
