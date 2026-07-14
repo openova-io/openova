@@ -1215,6 +1215,19 @@ egressTest:
       # recreatable (Kyverno resource-requests exempt) for real node-replace /
       # region-kill.
       - "falco/falco"
+      # CSI drivers (#5074): rolling the CSI DRIVER mid-hold is self-defeating —
+      # the csi-evs-node DaemonSet restart desyncs NodeStage/NodePublish, so every
+      # OTHER stateful EVS/PV-backed workload rolled in the same sweep (gitea,
+      # grafana, …) gets NodePublishVolume against a globalmount the restarted
+      # plugin never re-staged → `special device .../globalmount does not exist`
+      # (exit 32) → blows the roll budget → step-08 FAILs. Recursive, exactly like
+      # registry-pivot: never bounce the mechanism every other stateful mount
+      # depends on. CSI image-locality is already proven (running from local
+      # post-pivot + the completeness HEAD gate). Caught live hw251 step-08.
+      - "huawei-evs-csi/csi-evs-node"
+      - "huawei-evs-csi/csi-evs-controller"
+      - "kube-system/hcloud-csi-node"
+      - "kube-system/hcloud-csi-controller"
   # #5026 — PRE-HOLD ref-host lint (treadmill-breaker). The completeness gate
   # above proves image CONTENT is in local Harbor; this lint proves every
   # rolled workload's pod-spec image REF HOST is the local registry

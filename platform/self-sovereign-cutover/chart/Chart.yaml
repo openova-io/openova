@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.132 (#5074 Refs #5014 #3379 — step-08 fresh-pull sweep rolled the EVS CSI
+# DRIVER itself and self-defeated the hold; caught live hw251): freshPullProof
+# (step-08's deny-egress fresh-pull sweep) rolled the Huawei EVS CSI driver
+# (csi-evs-node DaemonSet + csi-evs-controller). Restarting the csi-evs-node
+# plugin mid-hold desyncs NodeStage/NodePublish, so every OTHER stateful EVS-PVC
+# workload rolled in the SAME sweep (gitea, grafana, …) gets NodePublishVolume
+# against a `globalmount` the restarted plugin never re-staged → `mount: special
+# device .../globalmount does not exist` (exit 32) → blows the 600s roll budget →
+# step-08 FAILs. Same recursive/self-defeating class already excluded for
+# catalyst/registry-pivot (#5022), kube-system/hubble-ui-oauth2-proxy (#5059) and
+# falco/falco (#5065): never bounce the mechanism every other stateful mount
+# depends on. FIX (values-only): append csi-evs-node/csi-evs-controller (+ the
+# Hetzner hcloud-csi provider-parity names, harmless no-op when absent) to
+# freshPullProof.excludeWorkloads. CSI image-locality is ALREADY proven (running
+# from local post-pivot + the step-08 completeness HEAD gate + the ref-host lint),
+# so skipping the synthetic roll removes no sovereignty proof. Case 49 is a
+# contains-check (#5069), so the grown exclude list passes unchanged. NO
+# step-count / job-mode / RBAC change (still 11 steps). Slot-06a pin +
+# blueprint.yaml + catalog-seed source.version + spec.version move to 0.1.132 in
+# lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag the chart).
+# ── prior ──
 # 0.1.126 (#5036 Refs #5026 #5027 #4975 — hw246, dep c38c437f, omani.works): the
 # step-08 PRE-HOLD ref-host lint (run_podspec_refhost_lint, added #5026/#5027) is now
 # REDIRECT-AWARE. It failed BEFORE the deny-egress hold on the ~40 workloads whose
@@ -2024,7 +2045,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.131
+version: 0.1.132
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
