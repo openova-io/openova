@@ -114,7 +114,41 @@ PY
   vq="${PREFLIGHT_VPC_QUOTA:-5}"
   if [ -n "${vused:-}" ] && [ "$vused" -le $((vq-2)) ] 2>/dev/null; then pass "3c. VPC headroom: ${vused}/${vq} used (>=2 free for a 2-region fire)"
   else bad "3c. VPC headroom insufficient: used=${vused:-unknown}/${vq} — need >=2 free (wipe stale envs + wait ~15min release lag; NEVER reclaim live VPCs)"; fi
-else bad "3. HW_TFVARS unset — cannot verify EIP/VPC headroom or foreign-Sovereign ground truth"; fi
+
+  # 3d. EVS volume headroom (#5028 fire-side gate): kom4dc caps 400 EVS volumes
+  #     project-wide; a fresh 2-region prov dynamically provisions ~70-100 CSI
+  #     pvc-* volumes on top of its IaC disks. hw244 wedged mid-convergence at
+  #     332/400 (HTTP 413 VolumeLimitExceeded, keycloak CrashLoop, 8 PVCs
+  #     Pending). Wipe-side legs landed (#4678 drain, #5029 backstop); this is
+  #     the refuse-to-fire half: require PREFLIGHT_EVS_HEADROOM (default 120)
+  #     free of PREFLIGHT_EVS_QUOTA (default 400).
+  eused=$(python3 - "$HW_TFVARS" <<'PY' 2>/dev/null
+import sys,json,hashlib,hmac,datetime,urllib.request,ssl
+t=json.load(open(sys.argv[1]))
+ak=t.get('huawei_access_key') or t.get('access_key') or t.get('huawei_ak'); sk=t.get('huawei_secret_key') or t.get('secret_key') or t.get('huawei_sk')
+proj=t.get('huawei_project_id') or t.get('project_id'); region=t.get('huawei_region') or 'me-east-215'
+host=f"evs.{region}.kom4dc.nationalcloud.om"
+total=0; marker=""
+for _ in range(10):
+    uri=f"/v2/{proj}/cloudvolumes"; q=f"?limit=500{('&marker='+marker) if marker else ''}"
+    now=datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ'); ch=f"host:{host}\nx-sdk-date:{now}\n"; sh="host;x-sdk-date"
+    cr=f"GET\n{uri}/\n{q[1:] if q else ''}\n{ch}\n{sh}\n"+hashlib.sha256(b'').hexdigest()
+    sts=f"SDK-HMAC-SHA256\n{now}\n"+hashlib.sha256(cr.encode()).hexdigest()
+    sig=hmac.new(sk.encode(),sts.encode(),hashlib.sha256).hexdigest()
+    ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+    req=urllib.request.Request(f"https://{host}{uri}{q}",headers={"X-Sdk-Date":now,"Authorization":f"SDK-HMAC-SHA256 Access={ak}, SignedHeaders={sh}, Signature={sig}","host":host})
+    vols=json.load(urllib.request.urlopen(req,timeout=25,context=ctx)).get("volumes",[])
+    total+=len(vols)
+    if len(vols)<500: break
+    marker=vols[-1].get("id","")
+    if not marker: break
+print(total)
+PY
+)
+  eq="${PREFLIGHT_EVS_QUOTA:-400}"; eh="${PREFLIGHT_EVS_HEADROOM:-120}"
+  if [ -n "${eused:-}" ] && [ "$eused" -le $((eq-eh)) ] 2>/dev/null; then pass "3d. EVS headroom: ${eused}/${eq} volumes used (>=${eh} free for the fresh prov's CSI volumes)"
+  else bad "3d. EVS headroom insufficient: used=${eused:-unknown}/${eq}, need >=${eh} free — wipe stale envs (drain #4678 + backstop #5029 reclaim their volumes) BEFORE firing (#5028 hw244 413-wedge)"; fi
+else bad "3. HW_TFVARS unset — cannot verify EIP/VPC/EVS headroom or foreign-Sovereign ground truth"; fi
 
 # 4. mothership catalyst-api rollout settled
 if kubectl -n catalyst rollout status deploy/catalyst-api --timeout=8s >/dev/null 2>&1; then
