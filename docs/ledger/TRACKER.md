@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T00:30:06Z` |
+| Last refreshed | `2026-07-14T00:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 39 |
 | Open DoD gates | 0 / 41 |
@@ -246,6 +246,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T00:30 | [#5053](https://github.com/openova-io/openova/pull/5053) | #5051 | fix(cutover): step-03 skopeo dest = HARBOR_PUBLIC_URL behind |
 | 2026-07-14T00:10 | [#5052](https://github.com/openova-io/openova/pull/5052) | #5051 | fix(cutover): step-03 HARBOR_HOST explicit port — bare in-cl |
 | 2026-07-13T23:39 | [#5050](https://github.com/openova-io/openova/pull/5050) | #5049 | fix(scripts): preflight check-3 false-orphan on ELB-bound EI |
 | 2026-07-13T23:21 | [#5049](https://github.com/openova-io/openova/pull/5049) | #5046 | fix(scripts): wire MANDATORY prov-preflight gate into fire() |
@@ -275,7 +276,6 @@ flowchart LR
 | 2026-07-11T15:55 | [#5005](https://github.com/openova-io/openova/pull/5005) | #4896 | docs(uat): hw241 operator-console re-walk — 29 rows ✅ (65% g |
 | 2026-07-11T15:06 | [#5004](https://github.com/openova-io/openova/pull/5004) | #5003 | fix(#5003): per-Org vcluster HelmRelease self-heals cold Har |
 | 2026-07-11T14:33 | [#5002](https://github.com/openova-io/openova/pull/5002) | #4999 | fix(#4999): funnel 2nd-Org honors chosen pool-TLD + console  |
-| 2026-07-11T14:13 | [#5001](https://github.com/openova-io/openova/pull/5001) | #5000 | fix(console #5000): sign-out menu on the sovereign sidebar u |
 
 ---
 
