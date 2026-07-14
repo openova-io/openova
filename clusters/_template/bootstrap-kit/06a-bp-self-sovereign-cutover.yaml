@@ -849,7 +849,14 @@ spec:
       # https-first onto ClusterIP:443 — unexposed by the harbor-core Service —
       # and unbacked ClusterIP ports black-hole (no RST): hw250 live step-03 ran
       # 40+ min at 0/136 with per-blob token GETs timing out. Contract Case 54.
-      version: 0.1.127
+      # 0.1.128 (#5051 round 2): the :80 attempt was PARTIAL — Harbor's bearer
+      # realm is https://<request-host>/service/token (host echoed, scheme
+      # HARD-https, probed live on hw250 across core/nginx/public) and nothing
+      # in-cluster terminates TLS, so NO in-cluster dest can complete the token
+      # flow. skopeo dest reverts to HARBOR_PUBLIC_URL (registry.<fqdn>) with a
+      # bounded 40x15s readiness probe covering the #5037 pre-pivot DNS flake;
+      # Harbor REST API dials stay on HARBOR_INTERNAL_URL. Cases 52/54 amended.
+      version: 0.1.128
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
