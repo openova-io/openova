@@ -33,9 +33,11 @@ name: RT-11 cutover merge-hold
 #
 # MARKER GRAMMAR
 # --------------
-# Case-insensitive match on `RT-11` on the same line as one of HOLD / MERGE
-# HOLD / MERGE-HOLD / DO NOT MERGE. Mirrors how the PROTOCOL PRs phrase it
-# ("🛑 RT-11 MERGE HOLD ... do NOT merge while ...'s cutover is in flight").
+# The author opts in with an EXACT sentinel token on its own:
+#     RT-11-HOLD: ACTIVE
+# A precise token (not fuzzy 'RT-11 + HOLD' matching) so a PR that merely
+# DESCRIBES the RT-11 mechanism — like the one that introduced this gate —
+# does not trip its own guard. Only a deliberate declaration holds the merge.
 
 on:
   pull_request:
@@ -61,9 +63,10 @@ jobs:
           echo "PR #${PR_NUMBER}"
           echo "Labels: ${PR_LABELS}"
 
-          # RT-11 hold marker: 'RT-11' on a line that also says HOLD / MERGE HOLD /
-          # MERGE-HOLD / DO NOT MERGE (case-insensitive).
-          MARKER='RT-?11.*(MERGE[ -]?HOLD|HOLD|DO NOT MERGE)'
+          # RT-11 hold marker: the EXACT opt-in sentinel token (case-insensitive
+          # on ACTIVE, exact on the key). Descriptive prose about RT-11 does NOT
+          # match — only a deliberate 'RT-11-HOLD: ACTIVE' declaration.
+          MARKER='RT-11-HOLD:[[:space:]]*ACTIVE'
 
           if ! printf '%s' "${PR_BODY:-}" | grep -iqE "${MARKER}"; then
             echo "OK — no RT-11 cutover hold declared in this PR body; guard is a no-op."
