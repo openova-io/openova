@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T13:30:06Z` |
+| Last refreshed | `2026-07-14T13:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 33 |
 | Open DoD gates | 0 / 41 |
@@ -240,6 +240,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T13:40 | [#5069](https://github.com/openova-io/openova/pull/5069) | #5059 | fix(cutover-contract): Case 49 exact-match → contains-check  |
 | 2026-07-14T13:26 | [#5068](https://github.com/openova-io/openova/pull/5068) | #5042 | fix(cloud-init): force IPv4 on Huawei log-self-upload → mid- |
 | 2026-07-14T12:42 | [#5067](https://github.com/openova-io/openova/pull/5067) | #5060 | fix(cutover): consolidate step-08 hardening (oauth2-proxy+fa |
 | 2026-07-14T12:37 | [#5064](https://github.com/openova-io/openova/pull/5064) | #4640 | fix(cutover): exempt falco from Kyverno resource-requests En |
@@ -269,7 +270,6 @@ flowchart LR
 | 2026-07-12T02:37 | [#5025](https://github.com/openova-io/openova/pull/5025) | #5017 | fix(#5017): bp-falco routes falco + falcoctl images via the  |
 | 2026-07-12T02:37 | [#5024](https://github.com/openova-io/openova/pull/5024) | #5017 | fix(#5017 #5022 #5014): provider-CIDR population + step-08 D |
 | 2026-07-12T02:37 | [#5023](https://github.com/openova-io/openova/pull/5023) | #3188 | fix(#5022): strategy Recreate for single-replica RWO-backed  |
-| 2026-07-11T23:46 | [#5021](https://github.com/openova-io/openova/pull/5021) | #5020 | fix(#5017): residual raw-ref images via Harbor proxy + harbo |
 
 ---
 
