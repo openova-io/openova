@@ -191,7 +191,14 @@ resource "hcloud_firewall" "main" {
   # forwards :53 → node:53 on the standard port — §854 / #4765: the
   # powerdns-anycast Service is type=LoadBalancer with
   # allocateLoadBalancerNodePorts:false (bp-powerdns ≥1.2.18 fails render on
-  # NodePort), so no node:3xxxx hop exists to forward to.
+  # NodePort), so no node:3xxxx hop exists to forward to. ⚠️ node:53 does NOT
+  # yet BIND on Hetzner (#5086): the anycast Service takes its ingress from the
+  # Cilium LB-IPAM sovereign-vip VIP, which is gated OFF on Hetzner (hcloud-ccm
+  # path), and hcloud-ccm cannot materialise the anycast Service either (no
+  # nodePort target, no location annotation). So this rule + the dns LB forward
+  # are §854-clean but INERT until #5086 restores a node:53 listener on
+  # Hetzner. Not a regression — node:30053 was equally dead since the
+  # bp-powerdns 1.2.18 §854 flip.
   rule {
     direction  = "in"
     protocol   = "tcp"
@@ -1178,8 +1185,16 @@ resource "hcloud_load_balancer_service" "dns" {
   # anycast-endpoint ServiceType=NodePort overlay that #4766 eradicated from
   # 11-powerdns.yaml (now type=LoadBalancer + lbipam.cilium.io/sharing-key,
   # allocateLoadBalancerNodePorts:false — bp-powerdns ≥1.2.18 hard-fails on
-  # NodePort), so node:30053 can never be bound again. Same DIRECT
-  # standard-port shape as the http/https services above (80→80, 443→443).
+  # NodePort), so node:30053 can never be bound again. §854-clean, BUT ⚠️ INERT
+  # on Hetzner today (#5086): unlike the http/https legs above — whose Cilium
+  # Gateway Service IS materialised by hcloud-ccm (its own hcloud LB), so those
+  # legs limp along — the anycast Service has NO hcloud-ccm fallback (no
+  # location annotation, no nodePort) AND Cilium LB-IPAM is gated OFF on
+  # Hetzner, so nothing binds node:53. This forward resolves Sovereign DNS only
+  # after #5086 restores a node:53 listener on Hetzner (enable the Cilium
+  # LB-IPAM sovereign-vip pool as on Huawei, or hostPort:53 on dnsdist). Not a
+  # regression — node:30053 has been equally dead since the bp-powerdns 1.2.18
+  # §854 flip. Do NOT read this as "DNS works on Hetzner".
   # lb11 supports TCP only; UDP :53 is handled via the Hetzner Firewall
   # opening UDP/53 directly to the node's public IP. The LB TCP path handles
   # zone transfers and ACME challenge TXT queries; UDP is used for regular
@@ -1783,9 +1798,10 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
   protocol         = "tcp"
   listen_port      = 53
   # :53 → node:53 — §854 / #4765: NodePorts are ABSOLUTELY FORBIDDEN; same
-  # DIRECT standard-port shape as hcloud_load_balancer_service.dns above
-  # (the :30053 nodePort it used to target can never be bound again —
-  # bp-powerdns ≥1.2.18 renders allocateLoadBalancerNodePorts:false).
+  # §854-clean-but-INERT shape as hcloud_load_balancer_service.dns above (the
+  # :30053 nodePort it used to target can never be bound again — bp-powerdns
+  # ≥1.2.18 renders allocateLoadBalancerNodePorts:false). ⚠️ node:53 does not
+  # bind on Hetzner until #5086 lands (see the dns service comment above).
   destination_port = 53
   health_check {
     protocol = "tcp"
