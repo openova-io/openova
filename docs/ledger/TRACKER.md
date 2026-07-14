@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T00:00:03Z` |
+| Last refreshed | `2026-07-14T00:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 38 |
+| Open issues | 39 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 38 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 39 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 38 open items (clickable table)
+### All 39 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -238,6 +238,7 @@ flowchart LR
 | [#5034](https://github.com/openova-io/openova/issues/5034) | console_isolation: console.<fqdn> DNS points to shared gateway EIP (404) not the | Other |
 | [#5036](https://github.com/openova-io/openova/issues/5036) | Cutover step-08 ref-host lint (#5027) fails on ~40 workloads' harbor.openova.io/ | Other |
 | [#5042](https://github.com/openova-io/openova/issues/5042) | Fresh-prov bootstrap wedge: cloud-init flux-install stage silently doesn't compl | Other |
+| [#5051](https://github.com/openova-io/openova/issues/5051) | cutover step-03 prewarm: post-#5037 in-cluster dest breaks skopeo token flow (ht | Other |
 
 ---
 
@@ -245,6 +246,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T00:10 | [#5052](https://github.com/openova-io/openova/pull/5052) | #5051 | fix(cutover): step-03 HARBOR_HOST explicit port — bare in-cl |
 | 2026-07-13T23:39 | [#5050](https://github.com/openova-io/openova/pull/5050) | #5049 | fix(scripts): preflight check-3 false-orphan on ELB-bound EI |
 | 2026-07-13T23:21 | [#5049](https://github.com/openova-io/openova/pull/5049) | #5046 | fix(scripts): wire MANDATORY prov-preflight gate into fire() |
 | 2026-07-13T23:13 | [#5048](https://github.com/openova-io/openova/pull/5048) | #3370 | docs(align): PROTOCOL.md execution protocol + durable-surfac |
@@ -274,7 +276,6 @@ flowchart LR
 | 2026-07-11T15:06 | [#5004](https://github.com/openova-io/openova/pull/5004) | #5003 | fix(#5003): per-Org vcluster HelmRelease self-heals cold Har |
 | 2026-07-11T14:33 | [#5002](https://github.com/openova-io/openova/pull/5002) | #4999 | fix(#4999): funnel 2nd-Org honors chosen pool-TLD + console  |
 | 2026-07-11T14:13 | [#5001](https://github.com/openova-io/openova/pull/5001) | #5000 | fix(console #5000): sign-out menu on the sovereign sidebar u |
-| 2026-07-11T14:06 | [#4998](https://github.com/openova-io/openova/pull/4998) | #4994 | fix(#4994 #4996): harden cutover step-03 harbor-prewarm + st |
 
 ---
 
