@@ -2222,4 +2222,18 @@ grep -q 'RC=1' <<<"$_o" || { printf 'FAIL: #5036 — an un-covered github.com re
 grep -q 'UNCOVERED bad/badapp.*host:github.com' <<<"$_o" || { printf 'FAIL: #5036 — github.com offender not named UNCOVERED; output:\n%s\n' "$_o" >&2; exit 1; }
 echo "  PASS (#5036 contract: mothership redirect-covered ref sovereign; un-covered github.com ref is a named offender; ghcr.io documented as redirect-covered → not a FAIL example)"
 
+# ── Case 54 (#5051): step-03 HARBOR_HOST must carry an EXPLICIT PORT ─────────
+# A bare in-cluster host makes containers/image resolve the Harbor auth-token /
+# blob-reuse endpoints https-first onto ClusterIP:443 — a port the harbor-core
+# Service does not expose — and an unbacked ClusterIP port BLACK-HOLES (no
+# RST), so every copy burns its full timeout (hw250 live: 0/136 ok, cutover
+# blocked at step-03). The template must append :80/:443 (scheme-derived) when
+# HARBOR_INTERNAL_URL carries no port.
+echo "[cutover-contract] Case 54: step-03 HARBOR_HOST explicit port (#5051)"
+if ! grep -qF 'HARBOR_HOST="${HARBOR_HOST}:80"' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 does not append an explicit :80 to a port-less HARBOR_INTERNAL_URL — the skopeo token flow black-holes on ClusterIP:443 (#5051)" >&2
+  exit 1
+fi
+echo "  PASS (#5051 contract: HARBOR_HOST carries an explicit port — registry+token flow pinned to the plain-HTTP Service port)"
+
 echo "[cutover-contract] All gates green."

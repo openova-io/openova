@@ -424,6 +424,20 @@ data:
             # dest_already_current), so this does not touch step-04/08. --dest-tls-verify
             # =false (default) drives skopeo's http fallback for the plain-HTTP Service.
             HARBOR_HOST=$(printf '%s' "${HARBOR_INTERNAL_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
+            # #5051: EXPLICIT PORT is mandatory. With a bare in-cluster host,
+            # containers/image resolves the auth-token/blob-reuse endpoints
+            # https-first onto ClusterIP:443 — a port the harbor-core Service
+            # does not expose — and an unbacked ClusterIP port BLACK-HOLES
+            # (no RST), so every copy burned its full timeout (hw250 live:
+            # 0/136 ok, cutover step-03 blocked). host:80 pins the entire
+            # registry+token flow to the plain-HTTP Service port.
+            case "${HARBOR_HOST}" in
+              *:*) : ;;
+              *) case "${HARBOR_INTERNAL_URL}" in
+                   https://*) HARBOR_HOST="${HARBOR_HOST}:443" ;;
+                   *)         HARBOR_HOST="${HARBOR_HOST}:80" ;;
+                 esac ;;
+            esac
 
             # Enumerate openova-io images cluster-wide.
             #

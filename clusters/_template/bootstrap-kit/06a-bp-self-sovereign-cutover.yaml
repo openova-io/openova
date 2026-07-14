@@ -843,7 +843,13 @@ spec:
       # redirect (raw github.com/…) is a genuine deny-egress offender. Unblocks the ~40
       # harbor.openova.io/proxy-* chart-default refs step-07 doesn't textually pivot;
       # the deny-egress hold + completeness gate (authoritative proof) are UNCHANGED.
-      version: 0.1.126
+      # 0.1.127 (#5051 Refs #5037 #5036): step-03 HARBOR_HOST carries an EXPLICIT
+      # scheme-derived port (:80 http / :443 https). A bare in-cluster host made
+      # containers/image resolve the Harbor auth-token/blob-reuse endpoints
+      # https-first onto ClusterIP:443 — unexposed by the harbor-core Service —
+      # and unbacked ClusterIP ports black-hole (no RST): hw250 live step-03 ran
+      # 40+ min at 0/136 with per-blob token GETs timing out. Contract Case 54.
+      version: 0.1.127
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

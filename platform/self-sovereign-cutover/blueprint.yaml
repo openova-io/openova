@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.1.126
+  version: 0.1.127
   card:
     title: self-sovereignty-cutover
     summary: |
