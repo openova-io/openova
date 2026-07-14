@@ -861,7 +861,7 @@ spec:
       # as ClusterIP (no VIP ever), so the pin deferred FOREVER on every
       # ELB-direct prov (hw250 all night); ClusterIP now pins HOST_IP like the
       # absent-Service hostNetwork branch. LoadBalancer semantics unchanged.
-      version: 0.1.131
+      version: 0.1.132
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
