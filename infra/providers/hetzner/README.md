@@ -18,7 +18,7 @@ This module is the implementation of [`docs/SOVEREIGN-PROVISIONING.md`](../../do
 | `hcloud_server.worker[*]` (primary) | `worker_count` nodes (default **2** — issue #733 multi-node Sovereign). Set to 0 explicitly for solo dev/POC. |
 | `hcloud_server.secondary_control_plane[*]` | One per secondary region, single-CP. Attaches to its own region's `hcloud_network.region[<key>]`. |
 | `hcloud_server.secondary_worker[*]` | Per-region worker fleet, sized by `regions[i].workerCount`. |
-| `hcloud_load_balancer.main` (`lb11`) | Public IPv4 in the primary region; forwards 80→80, 443→443 (to the Cilium Gateway Service type=LoadBalancer — hostNetwork off, no NodePort; #4682) and 53→30053 (powerdns NodePort). |
+| `hcloud_load_balancer.main` (`lb11`) | Public IPv4 in the primary region; forwards 80→80, 443→443 (to the Cilium Gateway Service type=LoadBalancer — hostNetwork off, no NodePort; #4682) and 53→53 (powerdns-anycast Service type=LoadBalancer, `allocateLoadBalancerNodePorts: false` — §854 / #4765: NodePorts are ABSOLUTELY FORBIDDEN). |
 | `hcloud_load_balancer.secondary[*]` | One `lb11` per secondary region. PowerDNS lua-records aggregate every LB IP behind the Sovereign FQDN with `ifurlup` health probes. |
 
 After Phase 0, the cluster's Flux pulls `clusters/<sovereign_fqdn>/` from the public OpenOva monorepo and installs the 11-component bootstrap kit (Cilium → cert-manager → Crossplane → ESO → SPIRE → NATS → OpenBao → Keycloak → Gitea → catalyst-platform). Hetzner adoption by Crossplane happens once `provider-hcloud` is up.

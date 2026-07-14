@@ -95,6 +95,51 @@ else
   echo "OK — no NodePort field/literal in ${SCAN_ROOTS[*]} sources."
 fi
 
+# ─── Phase 1b — IaC nodePort-range port literals (30000-32767) ───────────
+#
+# #4765 residue class this phase eradicates: Phase 1 catches the FIELD
+# shapes (`type: NodePort`, `nodePort:`, `serviceType: NodePort`,
+# `type = "NodePort"`) but MISSED the Hetzner provider's LB→node:nodePort
+# pool members (`destination_port = 30053`, health_check `port = 30053`)
+# and nodePort firewall rules (`port = "30053"` / `port = "32379"`).
+# An LB/firewall/listener targeting ANY port inside the k8s NodePort range
+# (30000-32767) IS the forbidden §854 shape "LB pool member pointing at
+# node-IP:nodePort" — nothing legitimate listens in that range in a
+# §854-clean world (gateway = node:443/:80 direct, clustermesh = VIP:2379,
+# clustermesh-proxy = host :12379, DNS = :53). Scan infra/ HCL for
+# port-assignment literals inside the range.
+echo ""
+echo "== Phase 1b: IaC nodePort-range (30000-32767) port-literal scan =="
+RAW_1B="$(grep -rnIE '(^|[[:space:]])(port|destination_port|listen_port|protocol_port|port_range_min|port_range_max|default)[[:space:]]*=[[:space:]]*"?[0-9]+"?' \
+  --include='*.tf' --include='*.tftpl' infra 2>/dev/null || true)"
+
+VIOLATIONS_1B=""
+if [ -n "${RAW_1B}" ]; then
+  while IFS= read -r line; do
+    [ -z "${line}" ] && continue
+    content="${line#*:}"; content="${content#*:}"
+    trimmed="${content#"${content%%[![:space:]]*}"}"
+    # Skip comment lines and lines that document the ban.
+    case "${trimmed:0:1}" in '#') continue ;; esac
+    if printf '%s' "${content}" | grep -qE "${BAN_MARKERS}"; then
+      continue
+    fi
+    # Extract the assigned number (first numeric literal after the `=`).
+    num="$(printf '%s' "${trimmed}" | sed -nE 's/^[A-Za-z_]+[[:space:]]*=[[:space:]]*"?([0-9]+)"?.*/\1/p')"
+    [ -z "${num}" ] && continue
+    if [ "${num}" -ge 30000 ] && [ "${num}" -le 32767 ]; then
+      VIOLATIONS_1B="${VIOLATIONS_1B}${line}"$'\n'
+    fi
+  done <<< "${RAW_1B}"
+fi
+
+if [ -n "${VIOLATIONS_1B}" ]; then
+  fail "an IaC port literal inside the k8s NodePort range (30000-32767) reappeared (#4765 §854 — LB/firewall→node:nodePort is FORBIDDEN):"
+  printf '%s' "${VIOLATIONS_1B}" >&2
+else
+  echo "OK — no nodePort-range port literal in infra HCL."
+fi
+
 # ─── Phase 2 — rendered-chart scan (best-effort) ─────────────────────────
 echo ""
 echo "== Phase 2: rendered-chart NodePort scan =="

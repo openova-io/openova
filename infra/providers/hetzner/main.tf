@@ -188,8 +188,10 @@ resource "hcloud_firewall" "main" {
   # from the public internet for subdomain NS delegation. Both TCP and UDP
   # are required: TCP for zone transfers and large responses, UDP for
   # standard query traffic. The LB service (hcloud_load_balancer_service.dns)
-  # forwards :53 → NodePort 30053 on the control-plane node where k3s exposes
-  # the powerdns Service.
+  # forwards :53 → node:53 on the standard port — §854 / #4765: the
+  # powerdns-anycast Service is type=LoadBalancer with
+  # allocateLoadBalancerNodePorts:false (bp-powerdns ≥1.2.18 fails render on
+  # NodePort), so no node:3xxxx hop exists to forward to.
   rule {
     direction  = "in"
     protocol   = "tcp"
@@ -202,65 +204,47 @@ resource "hcloud_firewall" "main" {
     port       = "53"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
-  # powerdns NodePort (30053) — the dns LB service forwards public
-  # :53 → node:30053, so the LB→node hop needs this port reachable.
-  # Formerly covered by the 30000-32767 NodePort range that #4682
-  # narrowed to clustermesh 32379; broken out here explicitly.
-  rule {
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "30053"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "powerdns NodePort — dns LB service :53 → node:30053"
-  }
-  rule {
-    direction   = "in"
-    protocol    = "udp"
-    port        = "30053"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "powerdns NodePort — dns LB service :53 → node:30053 (UDP)"
-  }
+  # 🛑 #4765 (founder 2026-07-03, "FUCK THE NODEPORTS!!!") — the former
+  # :30053 "powerdns NodePort" TCP+UDP rules are ERADICATED. bp-powerdns
+  # ≥1.2.18 hard-fails on anycast serviceType=NodePort and renders
+  # allocateLoadBalancerNodePorts:false, so node:30053 can never exist on a
+  # fresh prov. Public DNS rides the standard :53 rules above.
 
-  # Cilium clustermesh-apiserver NodePort (32379) — required so:
+  # Cilium clustermesh-apiserver dial :2379 (#4765 — replaces the forbidden
+  # :32379 NodePort rule; mirrors infra/providers/huawei
+  # `ingress_clustermesh_2379`). Cross-region ClusterMesh peers dial the
+  # clustermesh-apiserver Service VIP on :2379 directly — the nodePort
+  # fallback in catalyst-api's clustermesh connect was DELETED in #4766
+  # (hard-fail), and the slot-01 bootstrap-kit postRenderer suppresses
+  # nodePort allocation on the Service unconditionally, so :32379 can never
+  # be bound on any fresh prov.
   #
-  # 1. Hetzner LB → backend health checks can probe the NodePort the
-  #    clustermesh-apiserver Service binds (each region's LB probes
-  #    `<node-public-ip>:32379`; without this rule the probe is
-  #    dropped → LB marks target unhealthy → external clustermesh
-  #    clients see "unexpected eof while reading" at TLS handshake →
-  #    cilium-dbg status reports `0/N remote clusters ready`).
-  # 2. Cross-region peer agents can connect to the remote
-  #    clustermesh-apiserver via the LB. Hetzner LB use-private-ip is
-  #    not viable because the per-region LB has no private-network
-  #    attachment by default and our network topology pins one
-  #    private /24 per region; the LB->backend hop must transit the
-  #    public path. The cross-region case is by design public per
-  #    DoD A2 (inter-region link = WireGuard over public IPs ALWAYS).
-  #
-  # Narrowed from the former 30000-32767 range (#4682): the Cilium
-  # Gateway now serves :80/:443 as a LoadBalancer Service on the
-  # standard ports (hostNetwork OFF, no gateway NodePort), so the only
-  # NodePorts that must transit the public LB→node hop are this
-  # clustermesh-apiserver port and the powerdns :53 NodePort (30053,
-  # opened via the dedicated :53 rules above + the dns LB service).
+  # 1. Hetzner LB → backend health checks probe the standard :2379 the
+  #    Service serves; without this rule the probe is dropped → LB marks
+  #    target unhealthy → external clustermesh clients see "unexpected eof
+  #    while reading" at TLS handshake → cilium-dbg status reports
+  #    `0/N remote clusters ready`.
+  # 2. Cross-region peer agents connect to the remote clustermesh-apiserver
+  #    via the LB. Hetzner LB use-private-ip is not viable because the
+  #    per-region LB has no private-network attachment by default and our
+  #    network topology pins one private /24 per region; the LB->backend hop
+  #    must transit the public path. The cross-region case is by design
+  #    public per DoD A2 (inter-region link = WireGuard over public IPs
+  #    ALWAYS).
   #
   # Security: clustermesh-apiserver requires mTLS — peer agents present
   # a client cert signed by the peer cluster's cilium-ca. Anonymous
   # connections are immediately rejected at TLS handshake. The
   # firewall is therefore not the security boundary here; mTLS is.
-  #
-  # Caught on t129 (6cddff7ef4432bdc, 2026-05-16) — completes the D11
-  # chain that began with PR #1525 (regionKeyFromSpec) and continued
-  # through #1528 (clusterName derivation), #1530 (peer cert with
-  # peer's CA), #1536 (hostAlias pattern). With this firewall rule
-  # landed AND all the earlier fixes, the chain becomes end-to-end
-  # working on a fresh prov.
+  # (History: the D11 chain — PR #1525 regionKeyFromSpec, #1528 clusterName
+  # derivation, #1530 peer cert with peer's CA, #1536 hostAlias pattern —
+  # was proven on t129 with the pre-#4765 :32379 shape.)
   rule {
     direction   = "in"
     protocol    = "tcp"
-    port        = "32379"
+    port        = "2379"
     source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "Cilium clustermesh-apiserver NodePort — LB health + cross-region traffic (mTLS-protected)"
+    description = "Cilium clustermesh-apiserver VIP dial :2379 (mTLS-protected; #4765 — replaces the forbidden NodePort)"
   }
 
   # Cilium WireGuard inter-region node encryption (DMZ-WG). Per DoD A2
@@ -1139,7 +1123,8 @@ resource "hcloud_load_balancer_target" "control_plane" {
 # ── LB targets: workers ────────────────────────────────────────────────
 # Cilium Gateway runs as a DaemonSet on every node
 # (clusters/_template/sovereign-tls/cilium-gateway.yaml), so any node can
-# serve ingress traffic on its NodePort. Adding workers as LB targets
+# serve ingress traffic on the standard :80/:443 (§854 — never a
+# NodePort). Adding workers as LB targets
 # gives the Hetzner LB N+1 healthy endpoints (1 CP + N workers) for the
 # public 80/443/53 services — node failure on any single node no longer
 # breaks the front door, and inbound traffic is round-robin'd across
@@ -1188,16 +1173,21 @@ resource "hcloud_load_balancer_service" "dns" {
   load_balancer_id = hcloud_load_balancer.main.id
   protocol         = "tcp"
   listen_port      = 53
-  # NodePort 30053 — the powerdns Service exposes DNS on this NodePort via
-  # the anycast-endpoint ServiceType=NodePort overlay in 11-powerdns.yaml.
+  # destination_port=53 — §854 / #4765: NodePorts are ABSOLUTELY FORBIDDEN
+  # (founder 2026-07-03). The former :53 → node:30053 forward targeted the
+  # anycast-endpoint ServiceType=NodePort overlay that #4766 eradicated from
+  # 11-powerdns.yaml (now type=LoadBalancer + lbipam.cilium.io/sharing-key,
+  # allocateLoadBalancerNodePorts:false — bp-powerdns ≥1.2.18 hard-fails on
+  # NodePort), so node:30053 can never be bound again. Same DIRECT
+  # standard-port shape as the http/https services above (80→80, 443→443).
   # lb11 supports TCP only; UDP :53 is handled via the Hetzner Firewall
-  # opening UDP/53 directly to the node's public IP (k3s NodePort handles
-  # UDP natively via iptables DNAT). The LB TCP path handles zone transfers
-  # and ACME challenge TXT queries; UDP is used for regular resolution.
-  destination_port = 30053
+  # opening UDP/53 directly to the node's public IP. The LB TCP path handles
+  # zone transfers and ACME challenge TXT queries; UDP is used for regular
+  # resolution.
+  destination_port = 53
   health_check {
     protocol = "tcp"
-    port     = 30053
+    port     = 53
     interval = 15
     timeout  = 10
     retries  = 3
@@ -1792,10 +1782,14 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
   load_balancer_id = hcloud_load_balancer.secondary[each.key].id
   protocol         = "tcp"
   listen_port      = 53
-  destination_port = 30053
+  # :53 → node:53 — §854 / #4765: NodePorts are ABSOLUTELY FORBIDDEN; same
+  # DIRECT standard-port shape as hcloud_load_balancer_service.dns above
+  # (the :30053 nodePort it used to target can never be bound again —
+  # bp-powerdns ≥1.2.18 renders allocateLoadBalancerNodePorts:false).
+  destination_port = 53
   health_check {
     protocol = "tcp"
-    port     = 30053
+    port     = 53
     interval = 15
     timeout  = 10
     retries  = 3
