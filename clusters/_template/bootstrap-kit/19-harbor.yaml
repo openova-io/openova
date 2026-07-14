@@ -226,7 +226,7 @@ spec:
       #   DNS/cert change. externalURL + OIDC redirect_uri stay on registry.<fqdn>.
       # 1.2.42: updateStrategy Recreate — single-replica RWO jobservice
       # deadlocked cutover step-08's forced roll on Multi-Attach (#5022).
-      version: 1.2.42
+      version: 1.2.43
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

@@ -170,7 +170,7 @@ type: application
 #   sign-in->/c/oidc/login redirect keeps its canonical hostname), so entry via
 #   harbor.<fqdn> lands on the canonical host with no loop. Also adds
 #   gateway.extraHosts (arbitrary aliases) + tests/httproute-render.sh Case 6.
-version: 1.2.42
+version: 1.2.43
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

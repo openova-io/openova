@@ -53,9 +53,13 @@ self-links on registry.<fqdn>, so an entry via harbor.<fqdn> lands on the
 canonical host after login (no redirect loop). Disable via
 gateway.aliasHarborHost=false; add arbitrary aliases via gateway.extraHosts.
 */}}
-{{- if and .Values.gateway.aliasHarborHost (hasPrefix "registry." .Values.gateway.host) }}
-    - {{ printf "harbor.%s" (trimPrefix "registry." .Values.gateway.host) | quote }}
-{{- end }}
+{{- /* #5015: harbor.<fqdn> is NO LONGER co-served on this route. Co-serving
+   started the OIDC flow on the alias origin (state/nonce cookie set on
+   harbor.<fqdn>) but Harbor's redirect_uri/externalURL is registry.<fqdn>, so
+   the callback landed cross-host with no state cookie → HTTP 400 (hw242 live).
+   When gateway.aliasHarborHost is true, a SEPARATE redirect-only HTTPRoute
+   below 301s harbor.<fqdn>/* → registry.<fqdn>/* so the ENTIRE flow is
+   single-origin — keeping #4913's no-bare-404 discoverability. */}}
 {{- range $h := .Values.gateway.extraHosts }}
 {{- if and $h (ne $h $.Values.gateway.host) }}
     - {{ $h | quote }}
@@ -128,5 +132,36 @@ port (e.g. 30443) into Location, which nothing serves externally (the
       backendRefs:
         - name: {{ .Values.gateway.backendService | default (printf "%s-core" (ternary .Release.Name (printf "%s-harbor" .Release.Name) (contains "harbor" .Release.Name))) | quote }}
           port: {{ .Values.gateway.backendPort | default 80 }}
+{{- end }}
+---
+{{- /* #5015 — dedicated redirect-only HTTPRoute: harbor.<fqdn> → 301 →
+   registry.<fqdn>, path preserved. Fires BEFORE any OIDC flow starts, so the
+   whole auth flow is single-origin on the canonical host (no cross-host state
+   cookie 400). Only when aliasHarborHost=true AND gateway.host is a registry.*
+   host (so the harbor.* alias is derivable). Set aliasHarborHost=false to serve
+   ONLY gateway.host with no alias at all. */}}
+{{- if and .Values.gateway.host .Values.gateway.aliasHarborHost (hasPrefix "registry." .Values.gateway.host) }}
+{{- $aliasHost := printf "harbor.%s" (trimPrefix "registry." .Values.gateway.host) }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "bp-harbor.fullname" . }}-alias-redirect
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name | default "cilium-gateway" }}
+      namespace: {{ .Values.gateway.namespace | default "kube-system" }}
+      sectionName: {{ .Values.gateway.sectionName | default "https" | quote }}
+  hostnames:
+    - {{ $aliasHost | quote }}
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ .Values.gateway.host | quote }}
+            port: 443
+            statusCode: 301
 {{- end }}
 {{- end }}
