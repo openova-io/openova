@@ -856,7 +856,12 @@ spec:
       # flow. skopeo dest reverts to HARBOR_PUBLIC_URL (registry.<fqdn>) with a
       # bounded 40x15s readiness probe covering the #5037 pre-pivot DNS flake;
       # Harbor REST API dials stay on HARBOR_INTERNAL_URL. Cases 52/54 amended.
-      version: 0.1.128
+      # 0.1.129 (#5007 round 2): step-04 registry-pin VIP derivation splits on
+      # Service .spec.type — the §854 ELB-direct model keeps the gateway Service
+      # as ClusterIP (no VIP ever), so the pin deferred FOREVER on every
+      # ELB-direct prov (hw250 all night); ClusterIP now pins HOST_IP like the
+      # absent-Service hostNetwork branch. LoadBalancer semantics unchanged.
+      version: 0.1.129
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
