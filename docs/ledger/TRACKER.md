@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T22:30:03Z` |
+| Last refreshed | `2026-07-14T22:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 39 |
 | Open DoD gates | 0 / 41 |
@@ -246,6 +246,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T22:41 | [#5085](https://github.com/openova-io/openova/pull/5085) | #5082 | fix(cloudinit): repair #5082 build-failure — CP cloud-init b |
 | 2026-07-14T20:33 | [#5083](https://github.com/openova-io/openova/pull/5083) | #5042 | fix(cloud-init): #5042 prevention — flux-install gated on se |
 | 2026-07-14T20:34 | [#5082](https://github.com/openova-io/openova/pull/5082) | #4858 | fix(cloudinit): kubelet image-GC guard against the self-host |
 | 2026-07-14T20:33 | [#5081](https://github.com/openova-io/openova/pull/5081) | #5059 | fix(cutover): step-08 roll-set minimization — rollSetMode mi |
@@ -275,7 +276,6 @@ flowchart LR
 | 2026-07-12T20:54 | [#5040](https://github.com/openova-io/openova/pull/5040) | #4923 | fix(catalyst-api): replication-status reports verified stand |
 | 2026-07-12T19:00 | [#5039](https://github.com/openova-io/openova/pull/5039) | #4781 | test(crossplane): CI guard pins adoption-seam GVKs to opento |
 | 2026-07-12T18:31 | [#5038](https://github.com/openova-io/openova/pull/5038) | #5036 | fix(cutover): step-08 ref-host lint is redirect-aware — HOST |
-| 2026-07-12T18:11 | [#5037](https://github.com/openova-io/openova/pull/5037) | #4688 | fix(cutover): steps 02/03 dial in-cluster Harbor Service, no |
 
 ---
 
