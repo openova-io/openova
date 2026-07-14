@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T17:30:04Z` |
+| Last refreshed | `2026-07-14T17:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 35 |
 | Open DoD gates | 0 / 41 |
@@ -242,6 +242,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T17:34 | [#5071](https://github.com/openova-io/openova/pull/5071) | #4765 | docs(§854): eradicate stale NodePort references in Huawei pr |
 | 2026-07-14T13:40 | [#5069](https://github.com/openova-io/openova/pull/5069) | #5059 | fix(cutover-contract): Case 49 exact-match → contains-check  |
 | 2026-07-14T13:26 | [#5068](https://github.com/openova-io/openova/pull/5068) | #5042 | fix(cloud-init): force IPv4 on Huawei log-self-upload → mid- |
 | 2026-07-14T12:42 | [#5067](https://github.com/openova-io/openova/pull/5067) | #5060 | fix(cutover): consolidate step-08 hardening (oauth2-proxy+fa |
@@ -271,7 +272,6 @@ flowchart LR
 | 2026-07-12T06:57 | [#5027](https://github.com/openova-io/openova/pull/5027) | #5008 | fix(#5026): guarantee mothership-Harbor host pivot + step-08 |
 | 2026-07-12T02:37 | [#5025](https://github.com/openova-io/openova/pull/5025) | #5017 | fix(#5017): bp-falco routes falco + falcoctl images via the  |
 | 2026-07-12T02:37 | [#5024](https://github.com/openova-io/openova/pull/5024) | #5017 | fix(#5017 #5022 #5014): provider-CIDR population + step-08 D |
-| 2026-07-12T02:37 | [#5023](https://github.com/openova-io/openova/pull/5023) | #3188 | fix(#5022): strategy Recreate for single-replica RWO-backed  |
 
 ---
 
