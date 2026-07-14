@@ -856,7 +856,7 @@ spec:
       # flow. skopeo dest reverts to HARBOR_PUBLIC_URL (registry.<fqdn>) with a
       # bounded 40x15s readiness probe covering the #5037 pre-pivot DNS flake;
       # Harbor REST API dials stay on HARBOR_INTERNAL_URL. Cases 52/54 amended.
-      version: 0.1.128
+      version: 0.1.131
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -1200,6 +1200,14 @@ egressTest:
     # proven by the step-04 daemonset-wait + per-node v2 ACK assertions.
     excludeWorkloads:
       - "catalyst/registry-pivot"
+      # falco/falco (#5065, live hw250): the falcoctl-artifact-install init pulls
+      # the rules OCI artifact per-pod, so a 6-node DaemonSet roll takes ~9min
+      # under deny-egress — it blows the step deadline for ZERO added sovereignty
+      # (the completeness HEAD gate + ref-host lint already prove falco's image is
+      # in local Harbor). Skip the synthetic roll; #5063 keeps falco genuinely
+      # recreatable (Kyverno resource-requests exempt) for real node-replace /
+      # region-kill. Same class as kube-system/hubble-ui-oauth2-proxy (#5059).
+      - "falco/falco"
   # #5026 — PRE-HOLD ref-host lint (treadmill-breaker). The completeness gate
   # above proves image CONTENT is in local Harbor; this lint proves every
   # rolled workload's pod-spec image REF HOST is the local registry
@@ -1554,7 +1562,12 @@ stepTimeouts:
   # DeadlineExceeded at exactly +1200s mid-proof (NOT an egress failure)
   # and the engine looped 20-minute failures. 3600s gives the proof room;
   # the deny-egress window itself stays 600s.
-  egressBlockTestSeconds: 3600
+  # #5065 (2026-07-14, live hw250): 3600s ALSO too short on a larger 2-region
+  # prov — full ~130-workload roll (~45min) + 600s hold + one engine sweep-
+  # restart > 60min → DeadlineExceeded ×2 (NOT an egress failure). 7200s covers
+  # roll+hold+one restart; paired with the falco excludeWorkloads entry (its
+  # per-pod falcoctl rules-pull roll alone ate ~9min).
+  egressBlockTestSeconds: 7200
   # Step 09 (gitea-token-mint, TBD-C18) — short-lived: a single
   # Gitea API mint + validate + Secret patch + best-effort rollout.
   # 600s leaves generous headroom for the provisioning Deployment
