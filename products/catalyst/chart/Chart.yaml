@@ -3473,7 +3473,7 @@ name: bp-catalyst-platform
 #   footprint to fit the 4-CPU `plan-quota` (the 0.4.21 oidc-config post-install
 #   hook requested a 500m CPU limit into a namespace with only 250m of quota
 #   headroom → the hook pod was NEVER created → HR timeout → no HTTPRoute → 404).
-version: 1.4.1117
+version: 1.4.1118
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
