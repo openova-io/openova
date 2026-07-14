@@ -1594,8 +1594,13 @@ runcmd:
   # the render under Hetzner's 32256B cap. (powerdns-api-credentials no longer
   # needs `cert-manager` created here — #3888 evicted it to the Flux
   # sovereign-tls Kustomization.)
-  - 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done'
-  - 'cd /var/lib/catalyst; kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml'
+  # #5057: ONE shell so KUBECONFIG exports once + every kubectl drops the
+  # 38-B --kubeconfig flag — reclaims bytes the #5042 retry loops consumed.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
+    cd /var/lib/catalyst
+    kubectl apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.
@@ -1612,22 +1617,24 @@ runcmd:
     # object-storage-secret + cloud-credentials-secret are applied above in the
     # single folded `kubectl apply -f … -f …` (no namespace dependency on the
     # openbao seed), so they are intentionally not re-applied here.
-%{ if crossplane_provider_yaml != "" ~}
-  # Crossplane Provider CR — the Provider CRD lands later via bp-crossplane,
-  # so apply with || true now + a detached background retry once core CRDs
-  # register. Crossplane is platform plumbing, never on the bootstrap path.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider.yaml || true'
-%{ endif ~}
-
   # Hand the cluster to Flux. From here it pulls clusters/_template/ and
   # installs bp-cilium, bp-cert-manager, …, bp-catalyst-platform. #4513: this
   # is THE critical handoff — a silent failure here leaves the cluster at
   # 0 GitRepository/0 HR forever with no recorded symptom. Fail-fast with a
-  # sentinel (mirrors the #4503 cilium block) so an apply failure is its OWN
-  # loud fault, not a masqueraded "0 HelmReleases" phase-1-watcher timeout.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml || { touch /var/lib/catalyst/flux-bootstrap-FAILED; exit 92; }'
+  # sentinel (mirrors the #4503 cilium block) so a flux-bootstrap apply failure
+  # is its OWN loud fault (exit 92), not a masqueraded "0 HelmReleases" timeout.
+  # Crossplane Provider CR (gated): apply with || true + a detached background
+  # retry once core CRDs register — platform plumbing, never on the boot path.
+  # #5057: ONE shell so KUBECONFIG exports once + each kubectl drops the 38-B
+  # --kubeconfig flag; the exit 92 fail-loud is unchanged. Reclaims #5042 bytes.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 %{ if crossplane_provider_yaml != "" ~}
-  - 'nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &'
+    kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml || true
+%{ endif ~}
+    kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { touch /var/lib/catalyst/flux-bootstrap-FAILED; exit 92; }
+%{ if crossplane_provider_yaml != "" ~}
+    nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &
 %{ endif ~}
 
   # Marker for the catalyst-api provisioner to detect cloud-init is done.

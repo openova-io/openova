@@ -1022,21 +1022,31 @@ resource "hcloud_server" "control_plane" {
 
   # Issue #966 — Hetzner Cloud HARD limit on user_data is 32768 bytes.
   # Fail at plan-time (not at apply-time after the network/LB/firewall are
-  # already created) if the rendered cloud-init exceeds 32256 bytes (32 KiB
-  # minus 512 B safety buffer under the Hetzner hard cap of 32768). PR #1981
+  # already created) if the rendered cloud-init exceeds the guardrail (which
+  # keeps a 256 B safety buffer under the Hetzner hard cap of 32768). PR #1981
   # repackaged TBD-A50 Layer 3 (#1979) into write_files (~770 B savings) and
   # bumped the guardrail from 31744 to 32256 so the ExternalIP reconciler
   # ships with a healthy headroom in front of the hard cap.
+  # #5057 / #5042 (2026-07-14): the #5042 forensic fail-loud retry loops (the
+  # gateway-api / flux-install / cilium `for i in 1..5 … exit 93/94/95` blocks)
+  # and their sentinels legitimately consumed the prior margin. Every safe
+  # byte reclaim was applied first (kubectl `--kubeconfig` flags factored into
+  # single-`export KUBECONFIG` shell blocks in cloudinit-control-plane.tftpl,
+  # ~101 B), leaving the three-region render at 32306 B. The remaining gap is
+  # not cuttable without either razor-thin (<2 B) fail-loud-eroding merges or
+  # behavior-risky config trims, so the guardrail is raised to 32512 — still
+  # 256 B below the 32768 hard cap. Prefer cutting; only raise for #5042-class
+  # fail-loud features that must not be silently truncated.
   lifecycle {
     precondition {
-      condition = length(local.control_plane_cloud_init) <= 32256
+      condition = length(local.control_plane_cloud_init) <= 32512
       # G107 #2702 (2026-06-01): wrap length() with nonsensitive() so the
       # byte count shows in the error_message. Without it tofu redacts the
       # entire message because the local references hcloud_token / ssh_key
       # marked sensitive. Operators iterating on cloud-init slim-downs
       # cannot target their cuts without knowing the actual overshoot;
       # nonsensitive() leaks only the integer length, not any token bytes.
-      error_message = "Rendered control-plane cloud-init is ${nonsensitive(length(local.control_plane_cloud_init))} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issues #966 / #1981."
+      error_message = "Rendered control-plane cloud-init is ${nonsensitive(length(local.control_plane_cloud_init))} bytes, exceeds 32512 (256 B below the Hetzner 32768 hard cap) guardrail. Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issues #966 / #1981 / #5057 / #5042."
     }
     precondition {
       condition     = length(local.worker_cloud_init) <= 30720
