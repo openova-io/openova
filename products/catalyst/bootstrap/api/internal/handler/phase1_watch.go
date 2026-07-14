@@ -40,6 +40,8 @@ import (
 	"sync"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -133,6 +135,45 @@ const DefaultKubeconfigArrivalTimeout = 15 * time.Minute
 // DefaultKubeconfigArrivalPollInterval — production default for the
 // kubeconfig-arrival poll cadence. Issue #538.
 const DefaultKubeconfigArrivalPollInterval = 15 * time.Second
+
+// fluxCRDProbeBudgetEnv — env var override for the overall budget of
+// the bounded Flux-CRD-presence probe (#5042). AFTER the kubeconfig
+// lands and BEFORE the helmwatch informer is built, runPhase1Watch
+// probes whether the Flux HelmRelease CRD
+// (helmreleases.helm.toolkit.fluxcd.io) is servable on the new
+// Sovereign. On an intermittent bootstrap wedge the cluster is
+// HEALTHY (nodes Ready, CNI up, kubeconfig PUT) but cloud-init's
+// flux-install stage never landed, so the CRD is ABSENT — without this
+// probe the deployment idles "phase1-watching" for the full
+// WatchTimeout (120m) with no fast, named diagnostic. The probe polls
+// until the CRD becomes servable (→ proceed to the watcher) or the
+// budget elapses with the CRD still positively absent (→
+// OutcomeFluxCRDsAbsent, a fast actionable failure). Per
+// docs/INVIOLABLE-PRINCIPLES.md #4 this is runtime-configurable; tests
+// inject a sub-second value via Handler.fluxCRDProbeBudget.
+const fluxCRDProbeBudgetEnv = "CATALYST_PHASE1_FLUX_CRD_PROBE_BUDGET"
+
+// fluxCRDProbePollIntervalEnv — env var override for the cadence at
+// which the Flux-CRD-presence probe re-checks the CRD (#5042). 15s
+// keeps the wizard log pane responsive without hammering the new
+// Sovereign's apiserver. Tests inject a sub-second value via
+// Handler.fluxCRDProbePollInterval.
+const fluxCRDProbePollIntervalEnv = "CATALYST_PHASE1_FLUX_CRD_PROBE_POLL_INTERVAL"
+
+// DefaultFluxCRDProbeBudget — production default for the Flux-CRD-
+// presence probe budget (#5042). 5 minutes is generous headroom: on a
+// HEALTHY prov the flux-install manifest lands seconds after the k3s
+// apiserver is up (well before the kubeconfig is even PUT back), so a
+// CRD still absent 5 minutes after the kubeconfig arrives is a
+// high-confidence signal that cloud-init's flux-install stage failed.
+// The probe is CONSERVATIVE — it only classifies OutcomeFluxCRDsAbsent
+// on a POSITIVE "CRD absent + apiserver answered" observation at
+// budget end, never on a transient probe error (see probeFluxCRDAbsent).
+const DefaultFluxCRDProbeBudget = 5 * time.Minute
+
+// DefaultFluxCRDProbePollInterval — production default for the Flux-
+// CRD-presence probe poll cadence (#5042).
+const DefaultFluxCRDProbePollInterval = 15 * time.Second
 
 // handoverCertWaitTimeoutEnv — env var override for how long the
 // handover auto-fire waits for the new Sovereign's wildcard TLS
@@ -228,6 +269,25 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 		// The warn event was emitted by waitForKubeconfig at the
 		// final tick.
 		h.markPhase1Done(dep, nil, helmwatch.OutcomeKubeconfigMissing)
+		return
+	}
+
+	// #5042 — bounded Flux-CRD-presence probe. On an intermittent
+	// fresh-prov bootstrap wedge the new Sovereign is HEALTHY (kubeconfig
+	// PUT, nodes Ready, CNI up) but cloud-init's flux-install stage never
+	// landed, so the Flux HelmRelease CRD
+	// (helmreleases.helm.toolkit.fluxcd.io) is ABSENT. Without this probe
+	// the helmwatch informer below would attach and simply observe zero
+	// HelmReleases until the 120m WatchTimeout — the deployment idles
+	// "phase1-watching" for hours with no fast, named diagnostic (the
+	// #5042 forensic gap). probeFluxCRDAbsent polls until the CRD becomes
+	// servable (→ proceed to the watcher as normal) or its budget elapses
+	// with the CRD still POSITIVELY absent (→ OutcomeFluxCRDsAbsent, a
+	// fast actionable failure). It is CONSERVATIVE: a transient probe
+	// error (apiserver blip, client-build failure) falls through to the
+	// watcher so a flake never invents a failure.
+	if h.probeFluxCRDAbsent(dep, kubeconfig) {
+		h.markPhase1Done(dep, nil, helmwatch.OutcomeFluxCRDsAbsent)
 		return
 	}
 
@@ -844,6 +904,19 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// flux-system before any retry.
 		dep.Status = "failed"
 		dep.Error = "Phase 1 watch saw zero HelmReleases — the bootstrap-kit Kustomization on the new Sovereign is not reconciling. Operator: inspect `flux get kustomization -n flux-system` and `kubectl describe kustomization -n flux-system` on the new cluster (see docs/RUNBOOK-PROVISIONING.md §\"Phase 1 watch shows 0 HelmReleases\")."
+	case outcome == helmwatch.OutcomeFluxCRDsAbsent:
+		// #5042 — the new Sovereign PUT its kubeconfig and its CNI is
+		// healthy (the pre-flight probe reached the apiserver), but the
+		// Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) was
+		// never installed — cloud-init's flux-install stage did not land.
+		// Distinct from OutcomeFluxNotReconciling (CRD present, Flux
+		// installed, but zero HelmReleases reconciled): here Flux itself
+		// is absent, so the corrective action is on cloud-init's install
+		// stage, not the bootstrap-kit Kustomization. Surfaced as a fast,
+		// named failure instead of idling "phase1-watching" to the 120m
+		// WatchTimeout (the #5042 forensic gap).
+		dep.Status = "failed"
+		dep.Error = "Phase 1 could not start: the new Sovereign has its kubeconfig and a healthy CNI, but Flux (helmreleases.helm.toolkit.fluxcd.io CRD) was never installed — cloud-init's flux-install stage did not land. Operator: SSH the control-plane and inspect `/var/log/cloud-init-output.log` for the flux-install step + `ls /var/lib/rancher/k3s/server/manifests/` for the flux manifest (see docs/RUNBOOK-PROVISIONING.md). Refs #5042."
 	case failed > 0:
 		dep.Status = "failed"
 		dep.Error = fmt.Sprintf("Phase 1 finished with %d failed component(s); see ComponentStates for the per-component breakdown", failed)
@@ -2080,6 +2153,149 @@ func (h *Handler) waitForKubeconfig(dep *Deployment) (string, bool) {
 				Message: fmt.Sprintf("Phase-1 watch: timed out after %s waiting for cloud-init kubeconfig postback. The new Sovereign's cloud-init never PUT its kubeconfig to /api/v1/deployments/{id}/kubeconfig — either Phase 0 failed, the LB never routed to the cloud-init endpoint, or cloud-init crashed. Operator can fetch the kubeconfig via SSH (see docs/RUNBOOK-PROVISIONING.md §Fetch kubeconfig via SSH) and re-run the deployment.", timeout),
 			})
 			return "", false
+		}
+
+		time.Sleep(pollEvery)
+	}
+}
+
+// probeFluxCRDAbsent runs the #5042 bounded Flux-CRD-presence probe.
+// It is called AFTER waitForKubeconfig succeeds and BEFORE the
+// helmwatch informer is built. It returns true ONLY on a POSITIVE
+// "the Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) is
+// absent AND the apiserver answered" observation that persists to the
+// end of the probe budget — the signal that cloud-init's flux-install
+// stage never landed on an otherwise-healthy fresh Sovereign. In every
+// other case (CRD servable, or the probe never got a clean absent
+// answer) it returns false so runPhase1Watch proceeds to the watcher
+// exactly as before.
+//
+// Conservatism (surface-not-gate discipline, mirrors the #3971 storage
+// gate and the #4706 console probe): the probe classifies "absent" ONLY
+// on a clean NotFound / no-resource-match from a reachable apiserver.
+// A dynamic-client build failure, a connection error, a timeout, or any
+// other ambiguous/transient error is NEVER treated as a positive absent
+// observation — it falls through (returns false) so a flake cannot
+// invent a failure. When the CRD really is absent, the dynamic client's
+// List against HelmReleaseGVR gets an HTTP 404 the apiserver returns for
+// an unserved resource path (apierrors.IsNotFound); a discovery-mapped
+// path would surface meta.IsNoMatchError — both count as a positive
+// "reachable apiserver says the resource type does not exist".
+//
+// Budget + poll cadence are runtime-configurable per
+// docs/INVIOLABLE-PRINCIPLES.md #4 — see fluxCRDProbeBudgetEnv /
+// fluxCRDProbePollIntervalEnv. Tests inject sub-second values via
+// Handler.fluxCRDProbeBudget / Handler.fluxCRDProbePollInterval and a
+// fake dynamic client (via Handler.dynamicFactory) whose List reactor
+// returns the desired error.
+func (h *Handler) probeFluxCRDAbsent(dep *Deployment, kubeconfig string) bool {
+	budget := h.fluxCRDProbeBudget
+	if budget == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(fluxCRDProbeBudgetEnv)); v > 0 {
+			budget = v
+		} else {
+			budget = DefaultFluxCRDProbeBudget
+		}
+	}
+	pollEvery := h.fluxCRDProbePollInterval
+	if pollEvery == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(fluxCRDProbePollIntervalEnv)); v > 0 {
+			pollEvery = v
+		} else {
+			pollEvery = DefaultFluxCRDProbePollInterval
+		}
+	}
+
+	// Build the dynamic client the same way the cert-wait path does:
+	// the test-only h.dynamicFactory when wired, else the production
+	// kubeconfig→dynamic.Interface factory. A build error is NOT a
+	// positive absent observation — fall through so NewWatcher (which
+	// runs next in runPhase1Watch) surfaces OutcomeWatcherStartFailed
+	// with its own diagnostic. Never invent OutcomeFluxCRDsAbsent from a
+	// client-construction failure.
+	var (
+		dyn dynamic.Interface
+		err error
+	)
+	if h.dynamicFactory != nil {
+		dyn, err = h.dynamicFactory(kubeconfig)
+	} else {
+		dyn, err = helmwatch.NewDynamicClientFromKubeconfig(kubeconfig)
+	}
+	if err != nil || dyn == nil {
+		h.log.Warn("flux-crd probe: could not build dynamic client; skipping probe (falling through to watcher)",
+			"id", dep.ID,
+			"err", err,
+		)
+		return false
+	}
+
+	h.emitWatchEvent(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   helmwatch.PhaseComponent,
+		Level:   "info",
+		Message: fmt.Sprintf("Phase-1 watch: probing for the Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) before starting the per-component watch (budget %s, polling every %s). Issue #5042.", budget, pollEvery),
+	})
+
+	deadline := time.Now().Add(budget)
+	// lastAbsent records whether the MOST RECENT probe was a clean
+	// "CRD absent + apiserver reachable" answer. It gates the terminal
+	// classification: at deadline we return true only if the last
+	// observation was a positive absent — an ambiguous/transient error
+	// at deadline leaves lastAbsent false → fall through (fail-open).
+	lastAbsent := false
+	for {
+		getCtx, cancelGet := context.WithTimeout(context.Background(), pollEvery)
+		_, listErr := dyn.Resource(helmwatch.HelmReleaseGVR).
+			Namespace(helmwatch.FluxNamespace).
+			List(getCtx, metav1.ListOptions{Limit: 1})
+		cancelGet()
+
+		switch {
+		case listErr == nil:
+			// The CRD is servable — Flux is installed. Proceed to the
+			// watcher exactly as before.
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "info",
+				Message: "Phase-1 watch: Flux HelmRelease CRD is present; starting the per-component HelmRelease watch.",
+			})
+			return false
+		case apierrors.IsNotFound(listErr) || meta.IsNoMatchError(listErr):
+			// POSITIVE absent observation: the apiserver answered that
+			// the resource type does not exist. Keep polling — the
+			// flux-install manifest may still land within the budget.
+			lastAbsent = true
+		default:
+			// Ambiguous/transient (connection refused, TLS flap, timeout,
+			// forbidden, …). Do NOT let this drive a false absent
+			// classification. If the budget elapses while the last
+			// observation is ambiguous we fall through (fail-open).
+			lastAbsent = false
+		}
+
+		if time.Now().After(deadline) {
+			if lastAbsent {
+				h.emitWatchEvent(dep, provisioner.Event{
+					Time:    time.Now().UTC().Format(time.RFC3339),
+					Phase:   helmwatch.PhaseComponent,
+					Level:   "warn",
+					Message: fmt.Sprintf("Phase-1 watch: the Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) was still absent after %s — cloud-init's flux-install stage did not land. Classifying flux-crds-absent. Issue #5042.", budget),
+				})
+				return true
+			}
+			// Ambiguous at deadline — fail-open: proceed to the watcher
+			// so a transient apiserver blip never invents a failure. The
+			// watcher's own reachability probe + WatchTimeout path will
+			// classify honestly if the cluster is genuinely unreachable.
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "info",
+				Message: fmt.Sprintf("Phase-1 watch: Flux HelmRelease CRD probe inconclusive after %s (last observation was a transient error, not a clean absent) — proceeding to the per-component watch. Issue #5042.", budget),
+			})
+			return false
 		}
 
 		time.Sleep(pollEvery)
