@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T12:15:02Z` |
+| Last refreshed | `2026-07-14T12:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 32 |
+| Open issues | 33 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 32 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 33 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 32 open items (clickable table)
+### All 33 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -232,6 +232,7 @@ flowchart LR
 | [#5051](https://github.com/openova-io/openova/issues/5051) | cutover step-03 prewarm: post-#5037 in-cluster dest breaks skopeo token flow (ht | Other |
 | [#5059](https://github.com/openova-io/openova/issues/5059) | cutover step-08 loops for hours: hubble-ui-oauth2-proxy OIDC discovery to EXTERN | Other |
 | [#5063](https://github.com/openova-io/openova/issues/5063) | Cutover step-08 wedges: falco DS pod denied by Kyverno resource-requests Enforce | Other |
+| [#5065](https://github.com/openova-io/openova/issues/5065) | Cutover step-08 DeadlineExceeded ×2 on hw250: 3600s egress deadline too short f | Other |
 
 ---
 
