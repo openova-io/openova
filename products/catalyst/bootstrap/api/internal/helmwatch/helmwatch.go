@@ -306,6 +306,23 @@ const (
 	// same reason as OutcomeKubeconfigMissing — without an informer,
 	// no per-component state can be observed.
 	OutcomeWatcherStartFailed = "watcher-start-failed"
+
+	// OutcomeFluxCRDsAbsent — the new Sovereign PUT its kubeconfig and
+	// its CNI is healthy (apiserver reachable, nodes Ready), but the
+	// Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) was
+	// never installed: cloud-init's flux-install stage did not land.
+	// Without that CRD there is nothing for the Phase-1 watcher to
+	// observe — the deployment would otherwise idle "phase1-watching"
+	// for the full WatchTimeout with no fast, named diagnostic. The
+	// handler's bounded Flux-CRD-presence probe (runPhase1Watch, before
+	// NewWatcher) classifies this on a POSITIVE "CRD absent + cluster
+	// reachable" observation after its budget elapses, so the operator
+	// gets an immediate, actionable failure instead of a multi-hour
+	// hang. Issue #5042. Operator playbook: SSH the control-plane and
+	// inspect /var/log/cloud-init-output.log for the flux-install step
+	// + ls /var/lib/rancher/k3s/server/manifests/ for the flux
+	// manifest (docs/RUNBOOK-PROVISIONING.md).
+	OutcomeFluxCRDsAbsent = "flux-crds-absent"
 )
 
 // State enums — kept as constants so callers (handler, tests) compare

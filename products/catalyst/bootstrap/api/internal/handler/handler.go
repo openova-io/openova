@@ -223,6 +223,20 @@ type Handler struct {
 	kubeconfigArrivalTimeout      time.Duration
 	kubeconfigArrivalPollInterval time.Duration
 
+	// fluxCRDProbeBudget / fluxCRDProbePollInterval — runtime knobs for
+	// the bounded Flux-CRD-presence probe runPhase1Watch runs AFTER the
+	// kubeconfig lands and BEFORE the helmwatch informer is built (#5042).
+	// The probe classifies OutcomeFluxCRDsAbsent when the new Sovereign is
+	// healthy (kubeconfig PUT, CNI up) but cloud-init's flux-install stage
+	// never installed the helmreleases.helm.toolkit.fluxcd.io CRD — so the
+	// deployment fails fast with an actionable diagnostic instead of idling
+	// "phase1-watching" to the 120m WatchTimeout. Zero falls back to the
+	// env var → DefaultFluxCRDProbeBudget / DefaultFluxCRDProbePollInterval.
+	// Tests inject tiny values (e.g. 200ms / 50ms) plus a fake dynamic
+	// client so the probe path is exercised in milliseconds.
+	fluxCRDProbeBudget       time.Duration
+	fluxCRDProbePollInterval time.Duration
+
 	// phase1StorageGate — test-only override for the #3971 default-
 	// StorageClass durability gate run at the end of markPhase1Done.
 	// Production uses helmwatch.DefaultStorageClassFromKubeconfig
