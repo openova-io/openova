@@ -1319,7 +1319,9 @@ runcmd:
 
   # ── gateway-api CRDs: ONE official bundle apply (Flux's bp-gateway-api
   # re-applies post-bootstrap; this just unblocks the Cilium gateway-controller).
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml'
+  # #5042: retried — a single-shot github-CDN miss here previously killed the
+  # whole remaining runcmd (same class as the flux legs below).
+  - 'for i in 1 2 3 4 5; do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && break; [ "$i" = 5 ] && { touch /var/lib/catalyst/gwapi-apply-FAILED; exit 95; }; sleep 15; done'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s'
 
   # ── Cilium CNI: helm upgrade --install + retry/fail-fast (#4503) ───────
@@ -1576,12 +1578,19 @@ runcmd:
 %{ endif ~}
 
   # ── Flux install + the apiserver-side bootstrap secrets ───────────────
-  - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  # #5042 (3rd recurrence of the #4513/#4752 class): BOTH flux legs were
+  # single-shot — one transient github/ghcr-CDN miss or slow controller pull
+  # aborted the whole runcmd (Flux never installed → permanent 0-HR wedge,
+  # forensically blind: hw247/hw249 wiped with zero diagnostic value).
+  # Bounded retries (install 5x15s covers CDN flakes; wait 2x300s covers slow
+  # controller image pulls), sentinel + distinct exit on exhaust so the wedge
+  # is its OWN loud recorded fault (mirrors the #4503/#4513 sentinel pattern).
+  - 'for i in 1 2 3 4 5; do curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f - && break; [ "$i" = 5 ] && { touch /var/lib/catalyst/flux-install-FAILED; exit 93; }; sleep 15; done'
   # flux install creates deny-world NetworkPolicies that block source-controller
   # → github.com; delete them (bp-network-policies slot 30 provides the proper
   # zero-trust posture via CCNPs with flux-system allowlisted).
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all || kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all || { touch /var/lib/catalyst/flux-wait-FAILED; exit 94; }'
 
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
