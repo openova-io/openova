@@ -1,0 +1,94 @@
+name: RT-11 cutover merge-hold
+
+# Pre-merge guard: a PR that publishes a chart/image the Sovereign consumes
+# and declares an RT-11 hold in its own body is BLOCKED from merging until an
+# operator removes the hold, by adding the `cutover-hold-cleared` label.
+#
+# WHY THIS GUARD EXISTS
+# ---------------------
+# Live on hw250 (2026-07-14): three separate merges to catalyst-api /
+# bp-self-sovereign-cutover / catalog-seed landed WHILE a cutover was between
+# step-03 (harbor-prewarm mirrors the image set) and step-08 (deny-egress
+# hold). Each publish advanced the HR / pod-spec versions PAST what step-03
+# had mirrored, so step-06 Phase-3a, step-07's #4996 image-warmed gate, and
+# step-08's completeness gate each fail-closed on the version gap
+# (bp-catalyst-platform:1.4.1111, catalyst-api:e960e04, catalyst-ui:e960e04).
+# ~2h of live cutover time was lost to skopeo-heal + re-POST retries.
+#
+# docs/PROTOCOL.md §4 RT-11 codifies the rule ("HOLD chart/image-publishing
+# merges between cutover step-03 and step-08"). Prose alone is exactly the
+# "memory-only enforcement" root cause the 30-day retrospective CONFIRMED —
+# so this makes the hold a mechanical pre-merge red check, self-declared by
+# the author in the PR body and cleared only by an operator label.
+#
+# HOW IT WORKS
+# ------------
+# The author who knows a cutover is in flight writes an RT-11 hold marker in
+# the PR body (the exact string the PROTOCOL prescribes). This guard fails
+# the merge while that marker is present AND the `cutover-hold-cleared` label
+# is absent. When the cutover reaches cutoverComplete (or its failure is
+# dispositioned), the operator adds `cutover-hold-cleared`; the `labeled`
+# trigger re-runs the check and it flips green. No marker in the body → this
+# guard is a no-op (the common case).
+#
+# MARKER GRAMMAR
+# --------------
+# Case-insensitive match on `RT-11` on the same line as one of HOLD / MERGE
+# HOLD / MERGE-HOLD / DO NOT MERGE. Mirrors how the PROTOCOL PRs phrase it
+# ("🛑 RT-11 MERGE HOLD ... do NOT merge while ...'s cutover is in flight").
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  rt11-hold:
+    name: RT-11 cutover merge-hold (blocked until cutover-hold-cleared)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce RT-11 hold marker
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -u
+          echo "PR #${PR_NUMBER}"
+          echo "Labels: ${PR_LABELS}"
+
+          # RT-11 hold marker: 'RT-11' on a line that also says HOLD / MERGE HOLD /
+          # MERGE-HOLD / DO NOT MERGE (case-insensitive).
+          MARKER='RT-?11.*(MERGE[ -]?HOLD|HOLD|DO NOT MERGE)'
+
+          if ! printf '%s' "${PR_BODY:-}" | grep -iqE "${MARKER}"; then
+            echo "OK — no RT-11 cutover hold declared in this PR body; guard is a no-op."
+            exit 0
+          fi
+
+          echo "RT-11 cutover merge-hold marker present in PR body."
+          if printf '%s' "${PR_LABELS}" | tr ',' '\n' | grep -qx "cutover-hold-cleared"; then
+            echo "Label 'cutover-hold-cleared' present — an operator has cleared the hold; guard ALLOWS merge."
+            exit 0
+          fi
+
+          echo "::error::RT-11 cutover merge-hold is active on this PR and the 'cutover-hold-cleared' label is absent."
+          echo ""
+          echo "Per docs/PROTOCOL.md §4 RT-11: a PR that publishes a chart/image the"
+          echo "Sovereign consumes must NOT merge while a cutover is between step-03"
+          echo "(harbor-prewarm) and step-08 (deny-egress) — the publish outruns the"
+          echo "step-03 mirror and fail-closes steps 06/07/08 (hw250 live, 2026-07-14)."
+          echo ""
+          echo "How to clear:"
+          echo "  1. Wait until the in-flight cutover reaches cutoverComplete (or its"
+          echo "     failure is dispositioned and no cutover is between step-03/08)."
+          echo "  2. An operator adds the 'cutover-hold-cleared' label. The 'labeled'"
+          echo "     trigger re-runs this check and flips it green."
+          echo ""
+          echo "If no cutover is actually in flight, remove the RT-11 hold marker from"
+          echo "the PR body (the 'edited' trigger re-runs this check)."
+          exit 1
