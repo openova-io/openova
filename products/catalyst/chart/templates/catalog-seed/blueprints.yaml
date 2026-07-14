@@ -4608,7 +4608,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: "1.0.46"
+    version: "1.0.47"
   topology:
     supported:
       - singleton
@@ -5272,7 +5272,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-trivy
-    version: "1.0.3"
+    version: "1.0.4"
   topology:
     supported:
       - singleton
