@@ -442,10 +442,22 @@ data:
       json=$(printf '%s' "${resp}" | sed '$d')
       case "${code}" in
         200)
-          # Service present: use its ingress VIP (or spec.loadBalancerIP). Empty when
-          # the VIP is still pending → caller defers this sweep (do NOT fall back to
-          # HOST_IP here: in the LB model node:443 is NOT served by envoy).
-          printf '%s' "$(printf '%s' "${json}" | jq -r '.status.loadBalancer.ingress[0].ip // .spec.loadBalancerIP // empty' 2>/dev/null || true)"
+          # Service present. Split on .spec.type (#5007 round 2, hw250 live):
+          # - LoadBalancer: use its ingress VIP (or spec.loadBalancerIP); empty =
+          #   VIP pending → caller defers (do NOT fall back to HOST_IP: in the LB
+          #   model node:443 is NOT served by envoy).
+          # - ClusterIP (the §854 ELB-direct model keeps the gateway Service but
+          #   cilium assigns NO VIP EVER): hostNetwork envoy serves node:443 —
+          #   identical serving shape to the 404/absent branch — so pin HOST_IP.
+          #   Without this split the pin DEFERRED FOREVER on every ELB-direct
+          #   prov (hw250: 'LB VIP pending / API miss' on all sweeps all night),
+          #   leaving nodes exposed to the #5007 stale-wildcard defect.
+          svc_type=$(printf '%s' "${json}" | jq -r '.spec.type // empty' 2>/dev/null || true)
+          if [ "${svc_type}" = "LoadBalancer" ]; then
+            printf '%s' "$(printf '%s' "${json}" | jq -r '.status.loadBalancer.ingress[0].ip // .spec.loadBalancerIP // empty' 2>/dev/null || true)"
+          else
+            printf '%s' "${HOST_IP:-}"
+          fi
           ;;
         404)
           # Service absent → hostNetwork gateway model: cilium-envoy binds node:443.

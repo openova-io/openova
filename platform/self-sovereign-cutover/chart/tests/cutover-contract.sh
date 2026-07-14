@@ -2244,4 +2244,24 @@ if ! grep -qF 'never became ready after 40 probes' "$TMP/s03.yaml"; then
 fi
 echo "  PASS (#5051 contract: skopeo dest is the public host; readiness probe bounded + fail-loud; in-cluster dest derivation gone)"
 
+# ── Case 55 (#5007 round 2): step-04 pin derivation handles ClusterIP gateway ─
+# The §854 ELB-direct model keeps the gateway Service present as type=ClusterIP
+# (cilium assigns NO VIP ever) while hostNetwork envoy serves node:443. The
+# resolve_gateway_vip 200-branch must split on .spec.type and pin HOST_IP for
+# non-LoadBalancer Services — else the /etc/hosts registry pin defers forever
+# (hw250 live: 'LB VIP pending / API miss' on every sweep) and nodes stay
+# exposed to the #5007 stale-wildcard defect.
+echo "[cutover-contract] Case 55: step-04 pin derivation splits on Service type (#5007)"
+awk '/name: cutover-step-04-registry-pivot/{c=1} /name: cutover-step-05/{c=0} c' "$TMP/render.yaml" > "$TMP/s04.yaml" || true
+[ -s "$TMP/s04.yaml" ] || cp "$TMP/render.yaml" "$TMP/s04.yaml"
+if ! grep -qF 'svc_type=$(printf' "$TMP/s04.yaml"; then
+  echo "FAIL: step-04 resolve_gateway_vip does not inspect Service .spec.type — ClusterIP gateway (ELB-direct §854) defers the registry pin forever (#5007)" >&2
+  exit 1
+fi
+if ! grep -qF '"${svc_type}" = "LoadBalancer"' "$TMP/s04.yaml"; then
+  echo "FAIL: step-04 pin derivation lacks the LoadBalancer/ClusterIP split (#5007)" >&2
+  exit 1
+fi
+echo "  PASS (#5007 contract: 200-branch splits on .spec.type — LB uses VIP-or-defer, non-LB pins HOST_IP like the hostNetwork branch)"
+
 echo "[cutover-contract] All gates green."
