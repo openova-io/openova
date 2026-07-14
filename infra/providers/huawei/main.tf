@@ -306,15 +306,19 @@ resource "huaweicloud_vpc_subnet" "region" {
 #   - TCP 6443 — k3s apiserver from 0/0 (fail-closed by k8s RBAC,
 #                not by firewall — same shape Hetzner module ships)
 #   - UDP 51820 — Cilium WireGuard inter-region (DMZ-WG)
-#   - TCP 30000-32767 — k8s NodePort range. Retained for the Cilium
-#                clustermesh-apiserver NodePort (mTLS LB, cross-region).
-#                NOTE (#4706): the Sovereign Gateway NO LONGER uses this
-#                range — with cilium 1.19.3's gateway-api hostNetwork mode,
-#                cilium-envoy binds node:443/:80 directly and the gateway
-#                ELB (elb_primary) targets those host ports (covered by the
-#                TCP 443/80 rules above). The 1.16.5-era ELB→node:<nodePort>
-#                forwarding (#4690/#4691) is retired. Same range shape
-#                Hetzner ships (firewall opens 30000-32767, PR #1538).
+#   - TCP 2379  — Cilium clustermesh-apiserver VIP dial (mTLS-protected,
+#                cross-region). #4765 ERADICATED the former 30000-32767
+#                k8s NodePort-range rule; peers now dial the VIP :2379 directly.
+#   - TCP 12379 — Cilium clustermesh-proxy host-socket dial (#4784) — a
+#                hostNetwork socket BELOW the NodePort range that
+#                TCP-passthroughs to the clustermesh-apiserver etcd, dodging
+#                the CP-node k3s-etcd :2379 host collision.
+#   §854 (NodePorts absolutely forbidden): NO 30000-32767 rule is opened
+#                anywhere. The Sovereign Gateway uses cilium 1.19.3 gateway-api
+#                hostNetwork mode — cilium-envoy binds node:443/:80 directly and
+#                the gateway ELB targets those host ports (covered by the TCP
+#                443/80 rules above). The 1.16.5-era ELB→node:<nodePort>
+#                forwarding (#4690/#4691) is retired — no nodePort remains.
 #   - TCP 22  — only when ssh_allowed_cidrs is non-empty
 #   - ICMP    — for path-MTU + ping diagnostics
 #

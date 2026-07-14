@@ -15,7 +15,7 @@ discovery):
 |---|---|---|
 | VPC | 2 | `10.20.0.0/16`, `10.30.0.0/16` (no peering) |
 | Subnet | 2 | 1 per VPC, anchored in `me-east-215a` |
-| Security Group | 2 | 1 per VPC; ingress 443/80/6443/32379 (clustermesh NodePort)/UDP 51820/ICMP |
+| Security Group | 2 | 1 per VPC; ingress 443/80/6443/2379+12379 (clustermesh-apiserver VIP + host-socket proxy — host ports, §854: NO NodePort)/UDP 51820/ICMP |
 | ECS — control-plane | 6 | 3 × `s7n.large.4` (2 vCPU / 8 GB) per region |
 | ECS — worker | 4 | 2 × `m7n.xlarge.8` (4 vCPU / 32 GB) per region |
 | EIP | 6 | 1 per CP node (workers have NO EIP) |
