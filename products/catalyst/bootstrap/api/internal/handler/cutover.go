@@ -142,6 +142,16 @@ const (
 	// public openova repo). 15 minutes is a generous worst case.
 	defaultCutoverStepTimeout = 15 * time.Minute
 
+	// #5014: on a Job-watch channel close (or watch-establish failure) the
+	// engine re-checks the Job's ACTUAL state and re-establishes the watch
+	// rather than failing the step — a closed watch is NORMAL k8s behaviour
+	// (watch expiry, apiserver churn) and the catalyst-api Pod itself ROLLS
+	// mid-cutover at step-07, which closes the engine's watch on a Job that
+	// may already be Complete. These bound that re-watch loop so a Job that
+	// genuinely never terminates cannot spin forever.
+	defaultCutoverJobWatchRewatchMax     = 10
+	defaultCutoverJobWatchRewatchBackoff = 2 * time.Second
+
 	// DaemonSet ready-wait timeout. registry-pivot rolls in seconds on
 	// a small Sovereign and a few minutes on a large one.
 	defaultDaemonSetReadyTimeout = 10 * time.Minute
@@ -190,6 +200,11 @@ const (
 	envCutoverStatusCM      = "CATALYST_CUTOVER_STATUS_CONFIGMAP"
 	envCutoverStepTimeout   = "CATALYST_CUTOVER_STEP_TIMEOUT"
 	envCutoverDaemonSetWait = "CATALYST_CUTOVER_DAEMONSET_TIMEOUT"
+	// #5014 re-watch tuning: max number of times watchJobToCompletion
+	// re-establishes a Job watch after a transient channel-close /
+	// establish-error before it gives up, and the backoff between attempts.
+	envCutoverJobWatchRewatchMax     = "CATALYST_CUTOVER_JOBWATCH_REWATCH_MAX"
+	envCutoverJobWatchRewatchBackoff = "CATALYST_CUTOVER_JOBWATCH_REWATCH_BACKOFF"
 )
 
 // ── In-process state ────────────────────────────────────────────────────────
@@ -356,6 +371,33 @@ func cutoverStepTimeout() time.Duration {
 		return v
 	}
 	return defaultCutoverStepTimeout
+}
+
+// cutoverJobWatchRewatchMax is the #5014 re-watch budget: the maximum number
+// of times watchJobToCompletion re-establishes a Job watch after a transient
+// channel-close / watch-establish failure before it gives up. The overall
+// step deadline (wctx) still caps wall-clock time; this bound additionally
+// guards against a tight re-close loop (a chronically flaky apiserver, or a
+// fake in a unit test) spinning forever without ever making progress.
+// Runtime-overridable per Inviolable-Principle #4; malformed / non-positive
+// values fall back to the default.
+func cutoverJobWatchRewatchMax() int {
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(envCutoverJobWatchRewatchMax))); err == nil && v > 0 {
+		return v
+	}
+	return defaultCutoverJobWatchRewatchMax
+}
+
+// cutoverJobWatchRewatchBackoff is the pause between re-watch attempts. A
+// small delay keeps a synchronous re-close (e.g. an apiserver returning an
+// immediately-closed watch, or a fake clientset in tests) from busy-spinning
+// the CPU. Bounded by wctx so the overall step deadline still wins. Non-
+// positive / malformed → default.
+func cutoverJobWatchRewatchBackoff() time.Duration {
+	if v, _ := time.ParseDuration(strings.TrimSpace(os.Getenv(envCutoverJobWatchRewatchBackoff))); v > 0 {
+		return v
+	}
+	return defaultCutoverJobWatchRewatchBackoff
 }
 
 // cutoverStepDeadline returns the wall-clock budget for a single step's
@@ -958,9 +1000,29 @@ func createCutoverJob(ctx context.Context, deps *cutoverDeps, step cutoverStep, 
 
 // watchJobToCompletion blocks until the Job reports a terminal
 // condition (Complete or Failed). Returns the terminal condition type
-// or an error on watch / context failure. Uses a single Watch call
-// against the Job by name so we get an event-driven completion signal
-// rather than polling.
+// or an error on genuine failure / context end. It watches the Job by
+// name for an event-driven completion signal, but the step outcome is a
+// function of the Job's ACTUAL state — never the watch channel's
+// liveness.
+//
+// #5014 (hw242 step-03 harbor-prewarm, hw251 egress-block-test): a watch
+// channel CLOSE is normal k8s behaviour — server-side watches expire /
+// time out periodically, AND the catalyst-api Pod (which hosts this
+// engine) ROLLS mid-cutover at step-07 (catalyst-api-env-patch), which
+// restarts the engine and closes its Job watch. The Job itself may have
+// already SUCCEEDED or may still be Running. The pre-fix code failed the
+// STEP on any channel close whose immediate one-shot Get didn't yet show
+// a terminal condition — a false-negative that halted a cutover which
+// would otherwise reach cutoverComplete (harbor-prewarm ran ~80 min and
+// its watch churned; the manual recovery was a single re-POST of the
+// internal trigger that simply re-read the already-Complete Job).
+//
+// Post-fix: on a channel close OR a watch-establish error we RE-POLL the
+// Job's real condition via Get and, if it is not yet terminal, RE-WATCH.
+// This loops until the Job is genuinely terminal, the context ends
+// (deadline / cancel), or the bounded re-watch budget is exhausted —
+// only then does the step fail. A real JobFailed still fails the step; a
+// cancelled/expired ctx still returns ctx.Err().
 func watchJobToCompletion(ctx context.Context, deps *cutoverDeps, jobName string, timeout time.Duration) (batchv1.JobConditionType, error) {
 	if timeout <= 0 {
 		timeout = cutoverStepTimeout()
@@ -968,50 +1030,108 @@ func watchJobToCompletion(ctx context.Context, deps *cutoverDeps, jobName string
 	wctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Sanity-check the current state up front so a Job that completed
-	// between Create and Watch (rare but possible on a small cluster)
-	// is recognised without waiting for the next event.
-	if existing, err := deps.core.BatchV1().Jobs(deps.ns).Get(wctx, jobName, metav1.GetOptions{}); err == nil {
-		if t, ok := terminalJobCondition(existing); ok {
-			return t, nil
+	rewatchBudget := cutoverJobWatchRewatchMax()
+	rewatches := 0
+
+	for {
+		// (Re-)poll the Job's ACTUAL state before (re-)establishing the
+		// watch. Recognises a Job that completed between Create and Watch
+		// (small clusters) OR during a watch gap after the channel closed
+		// (the #5014 case) without waiting for a fresh event.
+		if existing, err := deps.core.BatchV1().Jobs(deps.ns).Get(wctx, jobName, metav1.GetOptions{}); err == nil {
+			if t, ok := terminalJobCondition(existing); ok {
+				return t, nil
+			}
+		}
+
+		w, err := deps.core.BatchV1().Jobs(deps.ns).Watch(wctx, metav1.ListOptions{
+			FieldSelector: "metadata.name=" + jobName,
+		})
+		if err != nil {
+			// #5014: a watch-establish failure is transient (apiserver
+			// flake, or the catalyst-api Pod restarting mid-cutover). The
+			// Job's real state was just polled above; retry establishing
+			// the watch within budget instead of failing the step.
+			retry, rerr := cutoverJobWatchRewatch(wctx, &rewatches, rewatchBudget, deps.ns, jobName,
+				fmt.Errorf("establish watch: %w", err))
+			if !retry {
+				return "", rerr
+			}
+			continue
+		}
+
+		cond, closed, loopErr := awaitTerminalJobEvent(wctx, w, deps.ns, jobName)
+		switch {
+		case loopErr != nil:
+			// ctx end (deadline/cancel) or a genuine watch.Error event.
+			return "", loopErr
+		case cond != "":
+			// Terminal condition observed on the wire (Complete or Failed).
+			return cond, nil
+		case closed:
+			// #5014: transient channel close. Loop back to re-Get + re-watch,
+			// bounded by the re-watch budget.
+			retry, rerr := cutoverJobWatchRewatch(wctx, &rewatches, rewatchBudget, deps.ns, jobName,
+				fmt.Errorf("watch channel closed before terminal condition"))
+			if !retry {
+				return "", rerr
+			}
+			continue
 		}
 	}
+}
 
-	w, err := deps.core.BatchV1().Jobs(deps.ns).Watch(wctx, metav1.ListOptions{
-		FieldSelector: "metadata.name=" + jobName,
-	})
-	if err != nil {
-		return "", fmt.Errorf("watch Job %s/%s: %w", deps.ns, jobName, err)
-	}
+// awaitTerminalJobEvent drains a single Job watch until it observes a
+// terminal condition, the channel closes, the context ends, or a
+// watch.Error event arrives. It Stops the watcher before returning.
+//
+// Returns exactly one of:
+//   - (cond, false, nil)  — the Job reached a terminal condition (Complete|Failed)
+//   - ("",   true,  nil)  — the watch channel closed (caller re-watches per #5014)
+//   - ("",   false, err)  — the context ended, or a genuine watch.Error event
+func awaitTerminalJobEvent(wctx context.Context, w watch.Interface, ns, jobName string) (batchv1.JobConditionType, bool, error) {
 	defer w.Stop()
-
 	for {
 		select {
 		case <-wctx.Done():
-			return "", fmt.Errorf("watch Job %s/%s: %w", deps.ns, jobName, wctx.Err())
+			return "", false, fmt.Errorf("watch Job %s/%s: %w", ns, jobName, wctx.Err())
 		case ev, ok := <-w.ResultChan():
 			if !ok {
-				// Watch closed (resource version expired, server
-				// flake). Fall back to a one-shot Get + retry the
-				// watch up to the deadline.
-				if existing, err := deps.core.BatchV1().Jobs(deps.ns).Get(wctx, jobName, metav1.GetOptions{}); err == nil {
-					if t, ok := terminalJobCondition(existing); ok {
-						return t, nil
-					}
-				}
-				return "", fmt.Errorf("watch Job %s/%s: channel closed before terminal condition", deps.ns, jobName)
+				return "", true, nil
 			}
 			if ev.Type == watch.Error {
-				return "", fmt.Errorf("watch Job %s/%s: error event: %#v", deps.ns, jobName, ev.Object)
+				return "", false, fmt.Errorf("watch Job %s/%s: error event: %#v", ns, jobName, ev.Object)
 			}
 			job, ok := ev.Object.(*batchv1.Job)
 			if !ok {
 				continue
 			}
 			if t, ok := terminalJobCondition(job); ok {
-				return t, nil
+				return t, false, nil
 			}
 		}
+	}
+}
+
+// cutoverJobWatchRewatch decides whether watchJobToCompletion should
+// re-establish its Job watch after a transient failure (#5014). It
+// increments the re-watch counter, enforces the budget, and applies a
+// bounded backoff. Returns (true, nil) to signal "retry the watch"; on
+// budget exhaustion or context end it returns (false, err) with a clear,
+// operator-legible message that names the transient cause.
+func cutoverJobWatchRewatch(wctx context.Context, rewatches *int, budget int, ns, jobName string, cause error) (bool, error) {
+	if *rewatches >= budget {
+		return false, fmt.Errorf(
+			"watch Job %s/%s: %v; re-watch budget of %d exhausted without a terminal Job condition",
+			ns, jobName, cause, budget)
+	}
+	*rewatches++
+	select {
+	case <-wctx.Done():
+		// Overall step deadline / cancel wins over a re-watch attempt.
+		return false, fmt.Errorf("watch Job %s/%s: %w", ns, jobName, wctx.Err())
+	case <-time.After(cutoverJobWatchRewatchBackoff()):
+		return true, nil
 	}
 }
 
