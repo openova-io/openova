@@ -185,7 +185,14 @@ runcmd:
   # 45-HR install chain → Helm hooks → bp-* runtime pods). Caught on
   # prov #63 (cpx52 × 3): CP at 110/110 pods, bp-catalyst-platform's
   # catalyst-api pod stuck "Too many pods" → install hook timed out.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --kubelet-arg=max-pods=220 --node-label catalyst.openova.io/role=worker" sh -'
+  #
+  # #4858 kubelet image-GC guard (image-gc 70/60 + image TTL 2h): start
+  # periodic image-GC 15 points before the DiskPressure eviction wall so the
+  # eviction manager's mass image-purge — which reaps the locally-hosted
+  # Harbor's OWN images and deadlocks every harbor-prefixed re-pull — can
+  # never fire. Post-cutover Harbor/PowerDNS operands schedule on workers
+  # too. Full rationale in _shared/cloudinit-control-plane.tftpl (k3s leg).
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --node-label catalyst.openova.io/role=worker" sh -'
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
 final_message: "Catalyst worker bootstrap complete after $UPTIME seconds"
