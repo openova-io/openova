@@ -1179,24 +1179,8 @@ runcmd:
   # giving every IPv4-only cloud the harbor pin. No hardcoded IP: r4() derives
   # the A record at boot and self-heals if harbor's address ever changes.
   #
-  # #4049 (2026-06-21) — the IMAGE-host /etc/hosts pins are REMOVED. Per the
-  # founder principle "every image download must be Huawei→Huawei", every
-  # container-registry pull on Huawei now routes through the bastion registry
-  # by IP LITERAL (212.72.24.20 in registries.yaml), so the NODE never resolves
-  # any image-registry hostname at all. The former Huawei-gated pins for the
-  # ghcr image-blob CDN `pkg-containers.githubusercontent.com` (#3835) and
-  # `harbor.openova.io` (#3735) are therefore dead weight and are dropped. They
-  # were ALSO already redundant on Huawei since #3840 disables IPv6 at the
-  # kernel (no AAAA path → no "Try again" wedge). KEPT: the git hosts
-  # (github.com / raw / codeload / api.github.com / objects.githubusercontent.com)
-  # — Flux source-controller git-clones the gitops repo + the node fetches
-  # github RELEASE ARTIFACTS (gateway-api install.yaml, the get-helm-3 script)
-  # which the image-only bastion mirror does NOT serve; helm.cilium.io /
-  # get.helm.sh — helm chart-repo + binary fetches, not image pulls, also not
-  # bastion-served; registry.${sovereign_fqdn} — the POST-CUTOVER local Harbor,
-  # reached directly (not via the bastion) after sovereignty cutover. Git
-  # localization is a separate follow-up; until then those direct-reach hosts
-  # keep their pins.
+  # #4049: image-host pins REMOVED (pulls route via bastion IP 212.72.24.20;
+  # #3840 disables IPv6). KEPT: git + helm-repo hosts + registry.<fqdn>.
   #
   # #3714 (2026-06-18 — the kom4dc 0-HR wedge): the /etc/hosts pin below fixes
   # the NODE Go resolvers (helm/kubectl/git/containerd) but does NOT reach the
@@ -1319,8 +1303,12 @@ runcmd:
 
   # ── gateway-api CRDs: ONE official bundle apply (Flux's bp-gateway-api
   # re-applies post-bootstrap; this just unblocks the Cilium gateway-controller).
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s'
+  # #5042: retried (a single-shot CDN miss killed the whole remaining runcmd).
+  # ONE shell so KUBECONFIG is exported once — keeps the byte-tight Hetzner render.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    for i in 1 2 3 4 5; do kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && break; [ "$i" = 5 ] && { touch /var/lib/catalyst/gwapi-apply-FAILED; exit 95; }; sleep 15; done
+    kubectl wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s
 
   # ── Cilium CNI: helm upgrade --install + retry/fail-fast (#4503) ───────
   # rt() retries each network step 5x/10s; `helm upgrade --install` is
@@ -1576,12 +1564,17 @@ runcmd:
 %{ endif ~}
 
   # ── Flux install + the apiserver-side bootstrap secrets ───────────────
-  - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  # #5042: flux legs retried+sentinel'd (were single-shot -> a CDN miss wedged bootstrap forensically-blind, hw247/hw249; mirrors #4503/#4513)
   # flux install creates deny-world NetworkPolicies that block source-controller
   # → github.com; delete them (bp-network-policies slot 30 provides the proper
-  # zero-trust posture via CCNPs with flux-system allowlisted).
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
+  # zero-trust posture via CCNPs with flux-system allowlisted). ONE shell for the
+  # whole leg so KUBECONFIG is exported once — keeps the byte-tight Hetzner render
+  # under the 32256B cap; explicit exit 93/94 still halt runcmd fail-loud (#5042).
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    for i in 1 2 3 4 5; do curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl apply -f - && break; [ "$i" = 5 ] && { touch /var/lib/catalyst/flux-install-FAILED; exit 93; }; sleep 15; done
+    kubectl -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true
+    for j in 1 2; do kubectl -n flux-system wait --for=condition=Available --timeout=300s deployment --all && break; [ "$j" = 2 ] && { touch /var/lib/catalyst/flux-wait-FAILED; exit 94; }; done
 
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
@@ -1601,39 +1594,47 @@ runcmd:
   # the render under Hetzner's 32256B cap. (powerdns-api-credentials no longer
   # needs `cert-manager` created here — #3888 evicted it to the Flux
   # sovereign-tls Kustomization.)
-  - 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done'
-  - 'cd /var/lib/catalyst; kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml'
+  # #5057: ONE shell so KUBECONFIG exports once + every kubectl drops the
+  # 38-B --kubeconfig flag — reclaims bytes the #5042 retry loops consumed.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
+    cd /var/lib/catalyst
+    kubectl apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.
   - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     OPENBAO_SEED=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
-    kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n openbao create secret generic openbao-recovery-seed \
+    kubectl -n openbao create secret generic openbao-recovery-seed \
       --from-literal=recovery-seed="$OPENBAO_SEED" \
       --dry-run=client -o yaml \
-      | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml annotate --local -f - \
+      | kubectl annotate --local -f - \
         openbao.openova.io/single-use=true -o yaml \
-      | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
+      | kubectl apply -f -
     unset OPENBAO_SEED
     # object-storage-secret + cloud-credentials-secret are applied above in the
     # single folded `kubectl apply -f … -f …` (no namespace dependency on the
     # openbao seed), so they are intentionally not re-applied here.
-%{ if crossplane_provider_yaml != "" ~}
-  # Crossplane Provider CR — the Provider CRD lands later via bp-crossplane,
-  # so apply with || true now + a detached background retry once core CRDs
-  # register. Crossplane is platform plumbing, never on the bootstrap path.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider.yaml || true'
-%{ endif ~}
-
   # Hand the cluster to Flux. From here it pulls clusters/_template/ and
   # installs bp-cilium, bp-cert-manager, …, bp-catalyst-platform. #4513: this
   # is THE critical handoff — a silent failure here leaves the cluster at
   # 0 GitRepository/0 HR forever with no recorded symptom. Fail-fast with a
-  # sentinel (mirrors the #4503 cilium block) so an apply failure is its OWN
-  # loud fault, not a masqueraded "0 HelmReleases" phase-1-watcher timeout.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml || { touch /var/lib/catalyst/flux-bootstrap-FAILED; exit 92; }'
+  # sentinel (mirrors the #4503 cilium block) so a flux-bootstrap apply failure
+  # is its OWN loud fault (exit 92), not a masqueraded "0 HelmReleases" timeout.
+  # Crossplane Provider CR (gated): apply with || true + a detached background
+  # retry once core CRDs register — platform plumbing, never on the boot path.
+  # #5057: ONE shell so KUBECONFIG exports once + each kubectl drops the 38-B
+  # --kubeconfig flag; the exit 92 fail-loud is unchanged. Reclaims #5042 bytes.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 %{ if crossplane_provider_yaml != "" ~}
-  - 'nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &'
+    kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml || true
+%{ endif ~}
+    kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { touch /var/lib/catalyst/flux-bootstrap-FAILED; exit 92; }
+%{ if crossplane_provider_yaml != "" ~}
+    nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &
 %{ endif ~}
 
   # Marker for the catalyst-api provisioner to detect cloud-init is done.
