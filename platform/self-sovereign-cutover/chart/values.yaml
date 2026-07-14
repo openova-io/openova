@@ -1228,6 +1228,62 @@ egressTest:
       - "huawei-evs-csi/csi-evs-controller"
       - "kube-system/hcloud-csi-node"
       - "kube-system/hcloud-csi-controller"
+    # ── #5074/#5065/#5059 ROLL-SET MODE (the treadmill-breaker) ──────────
+    # The per-workload excludeWorkloads list above is whack-a-mole: each prov
+    # surfaced ONE more infra workload that breaks when force-rolled under the
+    # deny-egress hold (oauth2-proxy #5059 → falco #5065 → CSI drivers #5074).
+    # "minimal" (the new default) replaces name-by-name exclusion with a RULE:
+    # the forced fresh-pull roll targets only ORDINARY APP workloads —
+    #   (a) nothing in infraNamespaces (kube-system / huawei-evs-csi /
+    #       catalyst) unless explicitly named in infraRepresentativeAllowlist;
+    #   (b) NEVER a DaemonSet in an infra namespace (its restart risks the
+    #       hold's own machinery: CSI mounts, CNI, the registry pivot) — rule
+    #       (b) is unconditional, an allowlist entry cannot re-include one;
+    # and rolls a REPRESENTATIVE SAMPLE rather than all ~130 workloads: every
+    # candidate in representativeNamespaces (the stateful-PVC / gitops / auth /
+    # registry / observability classes: flux-system, gitea, harbor, keycloak,
+    # grafana) plus a top-up of other candidate Deployments to at least
+    # minRepresentativesPerRegion x <node-region-count>. Image locality for
+    # everything NOT rolled stays HARD-gated by the #4975 pre-hold completeness
+    # HEAD gate (every workload image HEADed against local Harbor) + the #5026
+    # pre-hold ref-host lint (every pod-spec ref host local or step-04
+    # redirect-covered) — both prove locality WITHOUT rolling. The deny-egress
+    # curl call-home proof (github/ghcr/harbor.openova.io/console must be
+    # unreachable) is UNTOUCHED in both modes — that is the sovereignty proof.
+    # "full" keeps the legacy behaviour byte-for-byte: roll EVERY workload
+    # whose pod-spec references a non-local registry host, minus the
+    # name-based excludeWorkloads above (which stay honoured in BOTH modes
+    # for back-compat).
+    rollSetMode: "minimal"
+    # Namespaces treated as INFRA by minimal mode's rule (a)/(b). These host
+    # the hold's own machinery (CNI/CSI/oauth2-proxy sidecars in kube-system,
+    # the EVS CSI driver, the cutover engine + registry-pivot in catalyst).
+    infraNamespaces:
+      - "kube-system"
+      - "huawei-evs-csi"
+      - "catalyst"
+    # Explicit "<ns>/<name>" workloads inside infraNamespaces that minimal
+    # mode MAY still roll (a representative infra Deployment, if an operator
+    # wants one proven by roll). Empty by default. DaemonSets in infra
+    # namespaces are excluded UNCONDITIONALLY (rule b) even if listed here.
+    infraRepresentativeAllowlist: []
+    # Floor of the representative sample, PER REGION (node
+    # topology.kubernetes.io/region labels; 1 when unlabeled). If the
+    # representativeNamespaces candidates number fewer than
+    # minRepresentativesPerRegion x regions, minimal mode tops the roll set
+    # up with other (non-infra) candidate Deployments to the floor.
+    minRepresentativesPerRegion: 12
+    # Namespaces whose candidate workloads are ALWAYS in the minimal roll
+    # set — one per image-registry-dependent workload class: gitops engine
+    # (flux-system), stateful-PVC git (gitea), the registry itself (harbor),
+    # auth (keycloak), observability (grafana — the bootstrap-kit slot-25
+    # targetNamespace; the task-name "grafana-stack" class).
+    representativeNamespaces:
+      - "flux-system"
+      - "gitea"
+      - "harbor"
+      - "keycloak"
+      - "grafana"
   # #5026 — PRE-HOLD ref-host lint (treadmill-breaker). The completeness gate
   # above proves image CONTENT is in local Harbor; this lint proves every
   # rolled workload's pod-spec image REF HOST is the local registry

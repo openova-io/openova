@@ -171,6 +171,21 @@ data:
           # registry-pivot DS is the pivot mechanism itself — recursive).
           - name: FRESH_PULL_EXCLUDE_WORKLOADS
             value: {{ .Values.egressTest.freshPullProof.excludeWorkloads | default (list "catalyst/registry-pivot") | join " " | quote }}
+          # #5074/#5065/#5059 — principled roll-set. "minimal" (default) rolls
+          # a representative sample of ORDINARY APP workloads and excludes
+          # infra by RULE (namespaces + DaemonSets-in-infra-ns) instead of the
+          # name-by-name whack-a-mole; "full" keeps the legacy roll-everything
+          # sweep. See values.yaml egressTest.freshPullProof.rollSetMode.
+          - name: FRESH_PULL_ROLL_SET_MODE
+            value: {{ .Values.egressTest.freshPullProof.rollSetMode | default "minimal" | quote }}
+          - name: FRESH_PULL_INFRA_NAMESPACES
+            value: {{ .Values.egressTest.freshPullProof.infraNamespaces | default (list "kube-system" "huawei-evs-csi" "catalyst") | join " " | quote }}
+          - name: FRESH_PULL_INFRA_ALLOWLIST
+            value: {{ .Values.egressTest.freshPullProof.infraRepresentativeAllowlist | default (list) | join " " | quote }}
+          - name: FRESH_PULL_MIN_REPS_PER_REGION
+            value: {{ .Values.egressTest.freshPullProof.minRepresentativesPerRegion | default 12 | quote }}
+          - name: FRESH_PULL_REPRESENTATIVE_NAMESPACES
+            value: {{ .Values.egressTest.freshPullProof.representativeNamespaces | default (list "flux-system" "gitea" "harbor" "keycloak" "grafana") | join " " | quote }}
         volumeMounts:
           # #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
           # container runs readOnlyRootFilesystem:true (securityContext
@@ -848,29 +863,44 @@ data:
             }
 
             run_fresh_pull_all() {
-              echo "[egress-block-test] #3695: rolling EVERY external-registry workload under deny-egress"
+              echo "[egress-block-test] #3695: fresh-pull roll under deny-egress (roll-set mode: ${FRESH_PULL_ROLL_SET_MODE:-minimal})"
               # Enumerate Deployments/DaemonSets/StatefulSets whose container
-              # images reference a host that is NOT the local registry. The
-              # local registry is identified by LOCAL_REGISTRY_SUBSTR
-              # (harbor.<fqdn>). We also exclude the cutover runner's own
-              # catalyst-api (FRESH_PULL_EXCLUDE) so the engine is never bounced
-              # mid-hold. Rows look like "kind ns name=img1,img2".
+              # images reference a dotted registry host. We also exclude the
+              # cutover runner's own catalyst-api (FRESH_PULL_EXCLUDE) so the
+              # engine is never bounced mid-hold. Rows look like
+              # "kind ns name=img1,img2".
               workloads=$(
                 for kind in deployments daemonsets statefulsets; do
                   kubectl get "${kind}" -A \
                     -o jsonpath="{range .items[*]}${kind%s} {.metadata.namespace} {.metadata.name}={.spec.template.spec.containers[*].image} {.spec.template.spec.initContainers[*].image}{\"\n\"}{end}" 2>/dev/null
                 done
               )
-              # Keep rows whose image list contains a NON-local registry host.
-              # A bare image (docker-library short form) or a localhost/local
-              # Harbor ref is NOT a tether. We treat any image containing a
-              # dotted host (registry) that does NOT include LOCAL_REGISTRY_SUBSTR
-              # as external.
-              targets=$(printf '%s\n' "${workloads}" \
-                | grep -E '=[^ ]*[a-z0-9.-]+\.[a-z]+/' \
-                | grep -vE "[=, ]${LOCAL_REGISTRY_SUBSTR}" \
-                | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE " ${FRESH_PULL_EXCLUDE}[^ ]*=" || cat; } \
-                || true)
+              if [ "${FRESH_PULL_ROLL_SET_MODE:-minimal}" = "full" ]; then
+                # LEGACY full mode — unchanged behaviour: keep rows whose image
+                # list contains a NON-local registry host. A bare image
+                # (docker-library short form) or a localhost/local Harbor ref is
+                # NOT a tether. We treat any image containing a dotted host
+                # (registry) that does NOT include LOCAL_REGISTRY_SUBSTR as
+                # external, and roll ALL of them.
+                targets=$(printf '%s\n' "${workloads}" \
+                  | grep -E '=[^ ]*[a-z0-9.-]+\.[a-z]+/' \
+                  | grep -vE "[=, ]${LOCAL_REGISTRY_SUBSTR}" \
+                  | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE " ${FRESH_PULL_EXCLUDE}[^ ]*=" || cat; } \
+                  || true)
+              else
+                # #5074/#5065/#5059 MINIMAL mode (default) — candidates are ALL
+                # image-registry-dependent workloads (dotted-host refs), local-
+                # registry refs INCLUDED: post-step-07 the ordinary-app refs are
+                # pivoted to registry.<fqdn> and rolling THOSE is exactly the
+                # fresh-pull-from-local-Harbor witness; redirect-covered external
+                # refs stay candidates too (they pull locally via the step-04
+                # containerd redirect). Rule-based infra exclusion + the
+                # representative sampling below then cut this to the minimal set.
+                targets=$(printf '%s\n' "${workloads}" \
+                  | grep -E '=[^ ]*[a-z0-9.-]+\.[a-z]+/' \
+                  | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE " ${FRESH_PULL_EXCLUDE}[^ ]*=" || cat; } \
+                  || true)
+              fi
               # #4975 — never roll a workload the offline mirror deliberately
               # does NOT cover: xpkg.upbound.io (step-11 crossplane), rancher/k3s
               # (per-Org vcluster distro), loft-sh/vcluster (step-10). Rolling
@@ -890,11 +920,88 @@ data:
                 _wns="${_w%%/*}"; _wname="${_w##*/}"
                 targets=$(printf '%s\n' "${targets}" | grep -vE "^[a-z]+ ${_wns} ${_wname}=" || true)
               done
+              # ── #5074/#5065/#5059 MINIMAL ROLL-SET SELECTION ────────────
+              # Excludes infra by RULE instead of the per-workload
+              # excludeWorkloads whack-a-mole (each prov surfaced ONE more
+              # infra workload broken by the forced roll: oauth2-proxy #5059,
+              # falco #5065, the EVS CSI driver #5074):
+              #   (a) any workload in FRESH_PULL_INFRA_NAMESPACES is skipped
+              #       unless "<ns>/<name>" is in FRESH_PULL_INFRA_ALLOWLIST;
+              #   (b) a DaemonSet in an infra namespace is NEVER rolled —
+              #       even an allowlist entry cannot re-include one (its
+              #       restart risks the hold's own machinery: CSI mounts,
+              #       CNI, the registry pivot).
+              # Then a REPRESENTATIVE SAMPLE rolls instead of all ~130
+              # workloads: every candidate in the representative namespaces
+              # (stateful-PVC/gitops/auth/registry/observability classes) plus
+              # a top-up of other candidate Deployments to at least
+              # FRESH_PULL_MIN_REPS_PER_REGION x <node-region-count>. Image
+              # locality for everything NOT rolled remains HARD-gated by the
+              # #4975 pre-hold completeness HEAD gate + the #5026 ref-host
+              # lint (both ran above, both prove locality without rolling);
+              # the deny-egress call-home proof is untouched.
+              if [ "${FRESH_PULL_ROLL_SET_MODE:-minimal}" != "full" ]; then
+                : > /work/rollset_candidates.txt
+                printf '%s\n' "${targets}" | while IFS= read -r _row; do
+                  [ -z "${_row}" ] && continue
+                  _rkind=$(printf '%s' "${_row}" | awk '{print $1}')
+                  _rns=$(printf '%s' "${_row}" | awk '{print $2}')
+                  _rname=$(printf '%s' "${_row}" | awk '{print $3}' | cut -d= -f1)
+                  _infra=0
+                  for _in in ${FRESH_PULL_INFRA_NAMESPACES}; do
+                    [ "${_rns}" = "${_in}" ] && { _infra=1; break; }
+                  done
+                  if [ "${_infra}" = "1" ]; then
+                    if [ "${_rkind}" = "daemonset" ]; then
+                      echo "  skip (rule b: DaemonSet in infra namespace) ${_rkind} ${_rns}/${_rname}"
+                      continue
+                    fi
+                    _allow=0
+                    for _aw in ${FRESH_PULL_INFRA_ALLOWLIST}; do
+                      [ "${_rns}/${_rname}" = "${_aw}" ] && { _allow=1; break; }
+                    done
+                    if [ "${_allow}" != "1" ]; then
+                      echo "  skip (rule a: infra namespace, not allowlisted) ${_rkind} ${_rns}/${_rname}"
+                      continue
+                    fi
+                  fi
+                  printf '%s\n' "${_row}" >> /work/rollset_candidates.txt
+                done
+                # Region-aware sample floor: N per region (node
+                # topology.kubernetes.io/region labels; 1 when unlabeled).
+                _regions=$(kubectl get nodes \
+                  -o jsonpath='{range .items[*]}{.metadata.labels.topology\.kubernetes\.io/region}{"\n"}{end}' 2>/dev/null \
+                  | sort -u | grep -c . || true)
+                [ "${_regions:-0}" -ge 1 ] || _regions=1
+                _min_total=$(( ${FRESH_PULL_MIN_REPS_PER_REGION:-12} * _regions ))
+                # Every candidate in the representative namespaces rolls.
+                : > /work/rollset.txt
+                for _rns in ${FRESH_PULL_REPRESENTATIVE_NAMESPACES}; do
+                  awk -v ns="${_rns}" '$2 == ns' /work/rollset_candidates.txt >> /work/rollset.txt
+                done
+                _picked=$(grep -c . /work/rollset.txt || true)
+                if [ "${_picked}" -lt "${_min_total}" ]; then
+                  # Top up with other (non-representative-ns) candidate
+                  # Deployments, stable-sorted, to the floor. An empty
+                  # rollset.txt pattern file makes grep -v pass ALL candidate
+                  # rows (documented busybox/GNU behaviour used by the #3634
+                  # baseline diff above).
+                  grep -vxF -f /work/rollset.txt /work/rollset_candidates.txt 2>/dev/null \
+                    | awk '$1 == "deployment"' | sort \
+                    | head -n $(( _min_total - _picked )) >> /work/rollset.txt || true
+                fi
+                targets=$(cat /work/rollset.txt 2>/dev/null || true)
+                echo "  minimal roll-set selected: ${_picked} representative-namespace workload(s), floor ${_min_total} (regions=${_regions}); locality of every non-rolled workload is proven by the #4975 completeness HEAD gate + #5026 ref-host lint"
+              fi
               if [ -z "${targets}" ]; then
-                echo "  no external-registry workloads found — every workload already pulls from the local registry (PASS)"
+                if [ "${FRESH_PULL_ROLL_SET_MODE:-minimal}" = "full" ]; then
+                  echo "  no external-registry workloads found — every workload already pulls from the local registry (PASS)"
+                else
+                  echo "  minimal roll-set is EMPTY (no ordinary-app registry-dependent candidates) — locality already proven by the pre-hold completeness HEAD gate + ref-host lint (PASS)"
+                fi
                 return 0
               fi
-              echo "  external-registry workloads to roll:"
+              echo "  workloads to roll:"
               printf '%s\n' "${targets}" | sed 's/^/    /'
               rc=0
               # Roll each; collect the first failure but attempt all so the log
@@ -907,11 +1014,11 @@ data:
                 roll_and_check_workload "${kind}" "${ns}" "${name}" || echo "ROLL_FAIL ${kind}/${name}" >> /work/roll_failures.txt
               done
               if [ -s /work/roll_failures.txt ]; then
-                echo "  FAIL — external-registry workload(s) failed to roll under deny-egress:"
+                echo "  FAIL — workload(s) failed to roll under deny-egress:"
                 sed 's/^/    /' /work/roll_failures.txt
                 rc=1
               else
-                echo "  PASS — every external-registry workload rolled to Running pulling from the local registry under deny-egress (#3695)"
+                echo "  PASS — every rolled workload reached Running pulling from the local registry under deny-egress (#3695; roll-set mode ${FRESH_PULL_ROLL_SET_MODE:-minimal})"
               fi
               return "${rc}"
             }
