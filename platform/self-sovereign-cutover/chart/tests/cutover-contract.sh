@@ -2112,7 +2112,7 @@ if ! grep -q 'RC=0' <<<"$_lint_pass_out"; then
 fi
 echo "  PASS (lint fails loud on an un-covered github.com tether; exempts redirect-covered harbor.openova.io + ghcr.io; skips excluded/implicit-docker.io/local)"
 
-echo "[cutover-contract] Case 52: PRE-pivot steps 02/03 dial the local Harbor at the IN-CLUSTER Service (HARBOR_INTERNAL_URL = harbor-core.harbor.svc), NOT the external registry.<fqdn> (HARBOR_PUBLIC_URL) — the external host NXDOMAINs in-cluster before the step-04 pin (#5036, reverts #4688, Refs #5007)"
+echo "[cutover-contract] Case 52: PRE-pivot steps 02/03 Harbor REST API dials use the IN-CLUSTER Service (HARBOR_INTERNAL_URL); the step-03 skopeo PUSH DEST uses HARBOR_PUBLIC_URL behind a readiness probe — Harbor bearer realm is hard-https on the echoed host, so no in-cluster dest can complete the token flow (#5036 amended by #5051)"
 # hw246 (dep c38c437f, omani.works): steps 02 (harbor-projects) + 03 (harbor-prewarm)
 # run PRE-pivot, BEFORE step-04 pins registry.<fqdn> in the node /etc/hosts (#5007).
 # #4688 pointed their Harbor dials at the EXTERNAL host registry.<fqdn>, which resolves
@@ -2148,8 +2148,12 @@ if ! grep -qF 'base="${HARBOR_INTERNAL_URL}/api/v2.0"' "$TMP/s02.yaml"; then
 fi
 # (c) Step-03 harbor-prewarm: the skopeo PUSH host, the artifact-API idempotency probe,
 #     and the /v2 HEAD base MUST all derive from the internal Service.
-if ! grep -qF 'HARBOR_HOST=$(printf '"'"'%s'"'"' "${HARBOR_INTERNAL_URL}"' "$TMP/s03.yaml"; then
-  echo "FAIL: step-03 harbor-prewarm skopeo push HARBOR_HOST is not derived from HARBOR_INTERNAL_URL — the push target NXDOMAINs pre-pivot on a PowerDNS-flaked prov (#5036)" >&2
+if ! grep -qF 'HARBOR_HOST=$(printf '"'"'%s'"'"' "${HARBOR_PUBLIC_URL}"' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 harbor-prewarm skopeo push HARBOR_HOST is not derived from HARBOR_PUBLIC_URL — Harbor advertises its bearer-token realm as https://<request-host>/service/token and nothing in-cluster terminates TLS, so an in-cluster push dest can NEVER complete the token flow (hw250 0/136 twice; #5051)" >&2
+  exit 1
+fi
+if ! grep -qF 'public-dest readiness probe' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 lacks the bounded public-dest readiness probe — without it a pre-pivot DNS flake (hw246 #5037) fails copies blind instead of waiting/failing loud (#5051)" >&2
   exit 1
 fi
 if ! grep -qF '"${HARBOR_INTERNAL_URL}/api/v2.0/projects/' "$TMP/s03.yaml"; then
@@ -2178,15 +2182,14 @@ for blk in s02 s03; do
   for bad in \
     'base="${HARBOR_PUBLIC_URL}/api/v2.0"' \
     'base="${HARBOR_PUBLIC_URL}/v2"' \
-    '"${HARBOR_PUBLIC_URL}/api/v2.0/projects/' \
-    'HARBOR_HOST=$(printf '"'"'%s'"'"' "${HARBOR_PUBLIC_URL}"' ; do
+    '"${HARBOR_PUBLIC_URL}/api/v2.0/projects/' ; do
     if grep -qF "$bad" "$TMP/$blk.yaml"; then
       echo "FAIL: step-${blk#s} still targets the external HARBOR_PUBLIC_URL ('$bad') — reintroduces the #4688 pre-pivot NXDOMAIN (#5036)" >&2
       exit 1
     fi
   done
 done
-echo "  PASS (steps 02/03 dial the in-cluster harbor-core.harbor.svc for API + skopeo push; single-encode %2F for the direct path; no HARBOR_PUBLIC_URL dial target remains; steps 07/08 external-host validation untouched)"
+echo "  PASS (steps 02/03 REST API dials stay in-cluster; step-03 skopeo dest is HARBOR_PUBLIC_URL behind a readiness probe per the #5051 realm invariant; single-encode %2F for the direct API path; steps 07/08 external-host validation untouched)"
 
 echo "[cutover-contract] Case 53: step-08 ref-host lint #5036 CONTRACT — a redirect-covered mothership ref (harbor.openova.io/proxy-*) is SOVEREIGN (PASS); an un-covered external ref (github.com/*) is an offender (FAIL). NB: ghcr.io is NOT a valid FAIL example — step-04 redirect-covers it (proxy-ghcr; verified live hw246), so it PASSES too."
 _c53="$TMP/lint53"; mkdir -p "$_c53/bin" "$_c53/work"
@@ -2222,18 +2225,23 @@ grep -q 'RC=1' <<<"$_o" || { printf 'FAIL: #5036 — an un-covered github.com re
 grep -q 'UNCOVERED bad/badapp.*host:github.com' <<<"$_o" || { printf 'FAIL: #5036 — github.com offender not named UNCOVERED; output:\n%s\n' "$_o" >&2; exit 1; }
 echo "  PASS (#5036 contract: mothership redirect-covered ref sovereign; un-covered github.com ref is a named offender; ghcr.io documented as redirect-covered → not a FAIL example)"
 
-# ── Case 54 (#5051): step-03 HARBOR_HOST must carry an EXPLICIT PORT ─────────
-# A bare in-cluster host makes containers/image resolve the Harbor auth-token /
-# blob-reuse endpoints https-first onto ClusterIP:443 — a port the harbor-core
-# Service does not expose — and an unbacked ClusterIP port BLACK-HOLES (no
-# RST), so every copy burns its full timeout (hw250 live: 0/136 ok, cutover
-# blocked at step-03). The template must append :80/:443 (scheme-derived) when
-# HARBOR_INTERNAL_URL carries no port.
-echo "[cutover-contract] Case 54: step-03 HARBOR_HOST explicit port (#5051)"
-if ! grep -qF 'HARBOR_HOST="${HARBOR_HOST}:80"' "$TMP/s03.yaml"; then
-  echo "FAIL: step-03 does not append an explicit :80 to a port-less HARBOR_INTERNAL_URL — the skopeo token flow black-holes on ClusterIP:443 (#5051)" >&2
+# ── Case 54 (#5051 round 2): step-03 push dest = PUBLIC host + fail-loud probe ─
+# Harbor builds its bearer-token realm as https://<request-host>/service/token
+# (host echoed, scheme HARD-https — probed live on hw250 across harbor-core:80,
+# nginx harbor:80, and the public URL) and NO in-cluster harbor Service
+# terminates TLS. An in-cluster skopeo dest therefore can NEVER complete the
+# token flow (0/136 twice on hw250: bare host → :443 black-hole; :80 host →
+# https-on-plaintext). The dest MUST be the public host; the pre-pivot DNS
+# flake (#5037/hw246) is covered by a bounded readiness probe that fails LOUD.
+echo "[cutover-contract] Case 54: step-03 push dest is PUBLIC + probe fails loud (#5051)"
+if grep -qF 'HARBOR_HOST=$(printf '"'"'%s'"'"' "${HARBOR_INTERNAL_URL}"' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 derives the skopeo push HARBOR_HOST from HARBOR_INTERNAL_URL — the in-cluster token flow is structurally broken (#5051)" >&2
   exit 1
 fi
-echo "  PASS (#5051 contract: HARBOR_HOST carries an explicit port — registry+token flow pinned to the plain-HTTP Service port)"
+if ! grep -qF 'never became ready after 40 probes' "$TMP/s03.yaml"; then
+  echo "FAIL: step-03 public-dest probe does not fail loud after its bounded window (#5051)" >&2
+  exit 1
+fi
+echo "  PASS (#5051 contract: skopeo dest is the public host; readiness probe bounded + fail-loud; in-cluster dest derivation gone)"
 
 echo "[cutover-contract] All gates green."

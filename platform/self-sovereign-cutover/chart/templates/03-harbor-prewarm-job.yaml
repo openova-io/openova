@@ -131,9 +131,10 @@ data:
           - name: PREWARM_SKOPEO_TIMEOUT
             value: {{ .Values.prewarm.skopeoCommandTimeout | default "1200s" | quote }}
           # #4529 (Refs #3379): TLS-verify on the skopeo copy DESTINATION (the
-          # in-cluster Harbor Service harbor-core.harbor.svc = HARBOR_HOST post-#5036).
-          # DEFAULT false — the copy target is the Sovereign's OWN registry over the
-          # cluster pod network. Pre-#5036 (HARBOR_HOST=registry.<fqdn>) the target's
+          # PUBLIC registry.<fqdn> = HARBOR_HOST — restored by #5051 round 2; the
+          # #5036/#5037 in-cluster dest is unusable for pushes because Harbor's
+          # bearer-token realm is hard-https on the echoed host and nothing
+          # in-cluster terminates TLS). DEFAULT false — the target's
           # wildcard cert was LE-STAGING/untrusted on a fresh prov (and a Job-Pod
           # skopeo has no node trust store even with production LE), so verifying the
           # dest against the public CA x509-failed every push (live keystone
@@ -421,23 +422,40 @@ data:
             # containerd + step-08 completeness HEAD, which target LOCAL_REGISTRY_HOST,
             # unchanged — resolve the identical artifacts. HARBOR_HOST is step-03-local
             # (the resolver returns host-LESS paths; the prefix is stripped in
-            # dest_already_current), so this does not touch step-04/08. --dest-tls-verify
-            # =false (default) drives skopeo's http fallback for the plain-HTTP Service.
-            HARBOR_HOST=$(printf '%s' "${HARBOR_INTERNAL_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
-            # #5051: EXPLICIT PORT is mandatory. With a bare in-cluster host,
-            # containers/image resolves the auth-token/blob-reuse endpoints
-            # https-first onto ClusterIP:443 — a port the harbor-core Service
-            # does not expose — and an unbacked ClusterIP port BLACK-HOLES
-            # (no RST), so every copy burned its full timeout (hw250 live:
-            # 0/136 ok, cutover step-03 blocked). host:80 pins the entire
-            # registry+token flow to the plain-HTTP Service port.
-            case "${HARBOR_HOST}" in
-              *:*) : ;;
-              *) case "${HARBOR_INTERNAL_URL}" in
-                   https://*) HARBOR_HOST="${HARBOR_HOST}:443" ;;
-                   *)         HARBOR_HOST="${HARBOR_HOST}:80" ;;
-                 esac ;;
-            esac
+            # dest_already_current), so this does not touch step-04/08.
+            #
+            # #5051 (round 2 — supersedes the 0.1.127 :80 attempt): the skopeo
+            # PUSH DEST must be the PUBLIC host. Harbor builds its bearer-token
+            # realm as https://<request-host>/service/token — request host
+            # echoed, scheme HARD-https (probed empirically on hw250 across
+            # harbor-core:80, nginx harbor:80, and the public URL) — and NO
+            # in-cluster harbor Service terminates TLS (all http/80; TLS ends
+            # at the gateway). An in-cluster dest therefore can NEVER complete
+            # the token flow: hw250 went 0/136 twice (bare host → :443
+            # black-hole; :80 host → https-on-plaintext). Only the public host
+            # yields a realm that is actually reachable (gateway + cert). The
+            # #5037 motivation (hw246 pre-pivot NXDOMAIN flake) is handled by
+            # the bounded readiness probe below, NOT by a dest pivot. Harbor
+            # REST API dials (projects, artifact idempotency probe, Phase B
+            # /v2 HEAD — basic auth, no token dance) STAY on
+            # HARBOR_INTERNAL_URL, which step-02 proved works in-cluster.
+            HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
+            echo "[harbor-prewarm] public-dest readiness probe: https://${HARBOR_HOST}/v2/ (want 401/200)"
+            _pr_ok=0
+            for _pr_i in $(seq 1 40); do
+              _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null)
+              if [ "${_pr_code}" = "401" ] || [ "${_pr_code}" = "200" ]; then
+                _pr_ok=1
+                echo "[harbor-prewarm] public dest ready (HTTP ${_pr_code}, probe ${_pr_i})"
+                break
+              fi
+              echo "[harbor-prewarm] public dest not ready (HTTP ${_pr_code:-none}, probe ${_pr_i}/40) — pre-pivot DNS/gateway may still be settling (#5037 hw246 flake); retry in 15s"
+              sleep 15
+            done
+            if [ "${_pr_ok}" != "1" ]; then
+              echo "[harbor-prewarm] FATAL: public dest https://${HARBOR_HOST}/v2/ never became ready after 40 probes — cannot push. The in-cluster fallback is NOT usable (Harbor token realm is hard-https on the echoed host; #5051). Fix DNS/gateway, then re-trigger."
+              exit 1
+            fi
 
             # Enumerate openova-io images cluster-wide.
             #
