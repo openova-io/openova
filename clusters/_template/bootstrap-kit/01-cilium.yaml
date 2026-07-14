@@ -141,7 +141,7 @@ spec:
       # 1370 → 1420 (WG-only). Layers on the 1.4.9/1.4.10 zero-nodeport +
       # authMode=legacy work. Cross-region ClusterMesh pod path needs a fresh
       # 2-region prov to verify (datapath change). Refs #4656.
-      version: 1.4.14
+      version: 1.4.15
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -517,6 +517,15 @@ spec:
           name: hubble-ui
           namespace: kube-system
           port: 80
+        oauth2Proxy:
+          # #5059 — run the oauth2-proxy OIDC discovery + jwks/redeem
+          # backchannel against the in-cluster keycloak Service. The default
+          # public-issuer discovery hairpins pod->gateway EIP->keycloak, which
+          # exceeds the 30s discovery timeout on a freshly-rolled pod under the
+          # cutover step-08 deny-egress hold -> CrashLoop -> step-08 sweep
+          # restart (hw250 #5059). --oidc-issuer-url + --login-url stay PUBLIC.
+          # Verified live: this URL answers the discovery doc 200 in-cluster.
+          keycloakInternalURL: http://keycloak.keycloak.svc.cluster.local
 
       # ── #4656/#4854 — per-node pod-CIDR VPC route reconciler ───────────
       # #4807's whole-/16 pod-CIDR peering routes only carry native-routed
