@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T12:30:05Z` |
+| Last refreshed | `2026-07-14T12:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 33 |
 | Open DoD gates | 0 / 41 |
@@ -240,8 +240,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T12:42 | [#5067](https://github.com/openova-io/openova/pull/5067) | #5060 | fix(cutover): consolidate step-08 hardening (oauth2-proxy+fa |
+| 2026-07-14T12:37 | [#5064](https://github.com/openova-io/openova/pull/5064) | #4640 | fix(cutover): exempt falco from Kyverno resource-requests En |
+| 2026-07-14T12:37 | [#5062](https://github.com/openova-io/openova/pull/5062) | #5059 | fix(hubble): oauth2-proxy OIDC discovery via in-cluster keyc |
+| 2026-07-14T12:37 | [#5061](https://github.com/openova-io/openova/pull/5061) | #5015 | fix(harbor): alias host 301-redirects to canonical instead o |
 | 2026-07-14T07:26 | [#5058](https://github.com/openova-io/openova/pull/5058) | #5054 | feat(reliability): RT-11 CI merge-hold gate + canonical scri |
+| 2026-07-14T12:37 | [#5057](https://github.com/openova-io/openova/pull/5057) | #5042 | fix(cloud-init): retry + fail-loud sentinels on flux/gateway |
 | 2026-07-14T05:51 | [#5056](https://github.com/openova-io/openova/pull/5056) | #5028 | feat(scripts): preflight check 3d — EVS volume headroom fire |
+| 2026-07-14T12:38 | [#5055](https://github.com/openova-io/openova/pull/5055) | #5007 | fix(cutover): step-04 registry-pin VIP derivation splits on  |
+| 2026-07-14T12:34 | [#5054](https://github.com/openova-io/openova/pull/5054) | #4996 | docs(protocol): RT-11 mid-cutover merge-hold + runner-wedge  |
 | 2026-07-14T00:30 | [#5053](https://github.com/openova-io/openova/pull/5053) | #5051 | fix(cutover): step-03 skopeo dest = HARBOR_PUBLIC_URL behind |
 | 2026-07-14T00:10 | [#5052](https://github.com/openova-io/openova/pull/5052) | #5051 | fix(cutover): step-03 HARBOR_HOST explicit port — bare in-cl |
 | 2026-07-13T23:39 | [#5050](https://github.com/openova-io/openova/pull/5050) | #5049 | fix(scripts): preflight check-3 false-orphan on ELB-bound EI |
@@ -263,13 +270,6 @@ flowchart LR
 | 2026-07-12T02:37 | [#5023](https://github.com/openova-io/openova/pull/5023) | #3188 | fix(#5022): strategy Recreate for single-replica RWO-backed  |
 | 2026-07-11T23:46 | [#5021](https://github.com/openova-io/openova/pull/5021) | #5020 | fix(#5017): residual raw-ref images via Harbor proxy + harbo |
 | 2026-07-11T23:10 | [#5020](https://github.com/openova-io/openova/pull/5020) | #11 | fix(#5017): route 4 residual raw-external-ref Blueprint imag |
-| 2026-07-11T22:41 | [#5016](https://github.com/openova-io/openova/pull/5016) | #5011 | fix(#5011): step-01 gitea-mirror pushes explicit refspecs —  |
-| 2026-07-11T20:53 | [#5013](https://github.com/openova-io/openova/pull/5013) | #3379 | docs(sessions): 2026-07-12 completion matrix + month-cycle r |
-| 2026-07-11T19:13 | [#5010](https://github.com/openova-io/openova/pull/5010) | #4973 | fix(#4973 #4975 #4961): comprehensive pod-spec image sweep i |
-| 2026-07-11T19:02 | [#5009](https://github.com/openova-io/openova/pull/5009) | #4872 | fix(#4872): version-aware batched OBS bucket empty+delete so |
-| 2026-07-11T17:15 | [#5008](https://github.com/openova-io/openova/pull/5008) | #5007 | fix(#5007): cutover pins registry.<fqdn> on nodes + pdm reap |
-| 2026-07-11T16:11 | [#5006](https://github.com/openova-io/openova/pull/5006) | #3668 | docs(uat): hw241 catalog 126/128/131/133/134 ✅ (67%) |
-| 2026-07-11T15:55 | [#5005](https://github.com/openova-io/openova/pull/5005) | #4896 | docs(uat): hw241 operator-console re-walk — 29 rows ✅ (65% g |
 
 ---
 
