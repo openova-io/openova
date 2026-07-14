@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T23:15:02Z` |
+| Last refreshed | `2026-07-14T23:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 39 |
 | Open DoD gates | 0 / 41 |
@@ -250,6 +250,7 @@ flowchart LR
 | 2026-07-14T20:33 | [#5083](https://github.com/openova-io/openova/pull/5083) | #5042 | fix(cloud-init): #5042 prevention — flux-install gated on se |
 | 2026-07-14T20:34 | [#5082](https://github.com/openova-io/openova/pull/5082) | #4858 | fix(cloudinit): kubelet image-GC guard against the self-host |
 | 2026-07-14T20:33 | [#5081](https://github.com/openova-io/openova/pull/5081) | #5059 | fix(cutover): step-08 roll-set minimization — rollSetMode mi |
+| 2026-07-14T23:27 | [#5080](https://github.com/openova-io/openova/pull/5080) | #4765 | fix(infra,ci): eradicate the Hetzner provider's last LB→node |
 | 2026-07-14T20:57 | [#5079](https://github.com/openova-io/openova/pull/5079) | #5078 | fix(scripts): prov-preflight OBS bucket-quota gate (3e) + ve |
 | 2026-07-14T19:21 | [#5076](https://github.com/openova-io/openova/pull/5076) | #5014 | fix(cutover): re-check Job state on watch-channel loss inste |
 | 2026-07-14T18:12 | [#5075](https://github.com/openova-io/openova/pull/5075) | #5022 | fix(cutover): exclude CSI driver from step-08 fresh-pull swe |
@@ -275,7 +276,6 @@ flowchart LR
 | 2026-07-12T20:54 | [#5041](https://github.com/openova-io/openova/pull/5041) | #5018 | fix(#4896): Edit-IaC commit writes the repo the read path re |
 | 2026-07-12T20:54 | [#5040](https://github.com/openova-io/openova/pull/5040) | #4923 | fix(catalyst-api): replication-status reports verified stand |
 | 2026-07-12T19:00 | [#5039](https://github.com/openova-io/openova/pull/5039) | #4781 | test(crossplane): CI guard pins adoption-seam GVKs to opento |
-| 2026-07-12T18:31 | [#5038](https://github.com/openova-io/openova/pull/5038) | #5036 | fix(cutover): step-08 ref-host lint is redirect-aware — HOST |
 
 ---
 
