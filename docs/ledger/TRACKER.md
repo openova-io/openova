@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-14T18:00:02Z` |
+| Last refreshed | `2026-07-14T18:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 35 |
+| Open issues | 36 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 35 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 36 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 35 open items (clickable table)
+### All 36 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -235,6 +235,7 @@ flowchart LR
 | [#5065](https://github.com/openova-io/openova/issues/5065) | Cutover step-08 DeadlineExceeded ×2 on hw250: 3600s egress deadline too short f | Other |
 | [#5070](https://github.com/openova-io/openova/issues/5070) | docs(§854): eradicate stale NodePort references in Huawei provider (README + SG | Other |
 | [#5072](https://github.com/openova-io/openova/issues/5072) | §854 VIOLATION: Hetzner provider uses live NodePorts (powerdns :53→node:30053 | Other |
+| [#5074](https://github.com/openova-io/openova/issues/5074) | Cutover step-08 rolls the CSI driver → NodeStage desync → stateful EVS-PVC w | Other |
 
 ---
 
@@ -242,6 +243,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-14T18:12 | [#5075](https://github.com/openova-io/openova/pull/5075) | #5022 | fix(cutover): exclude CSI driver from step-08 fresh-pull swe |
+| 2026-07-14T18:11 | [#5073](https://github.com/openova-io/openova/pull/5073) | #5042 | fix(bootstrap): flux-crds-absent Phase-1 terminal state (Ref |
 | 2026-07-14T17:34 | [#5071](https://github.com/openova-io/openova/pull/5071) | #4765 | docs(§854): eradicate stale NodePort references in Huawei pr |
 | 2026-07-14T13:40 | [#5069](https://github.com/openova-io/openova/pull/5069) | #5059 | fix(cutover-contract): Case 49 exact-match → contains-check  |
 | 2026-07-14T13:26 | [#5068](https://github.com/openova-io/openova/pull/5068) | #5042 | fix(cloud-init): force IPv4 on Huawei log-self-upload → mid- |
@@ -270,8 +273,6 @@ flowchart LR
 | 2026-07-12T10:59 | [#5031](https://github.com/openova-io/openova/pull/5031) | #4994 | fix(cutover): step-03 prewarm durable Harbor artifact-API de |
 | 2026-07-12T09:59 | [#5029](https://github.com/openova-io/openova/pull/5029) | #5028 | fix(catalyst-api): reap orphaned CSI/EVS volumes on wipe wit |
 | 2026-07-12T06:57 | [#5027](https://github.com/openova-io/openova/pull/5027) | #5008 | fix(#5026): guarantee mothership-Harbor host pivot + step-08 |
-| 2026-07-12T02:37 | [#5025](https://github.com/openova-io/openova/pull/5025) | #5017 | fix(#5017): bp-falco routes falco + falcoctl images via the  |
-| 2026-07-12T02:37 | [#5024](https://github.com/openova-io/openova/pull/5024) | #5017 | fix(#5017 #5022 #5014): provider-CIDR population + step-08 D |
 
 ---
 
