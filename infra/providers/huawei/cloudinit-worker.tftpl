@@ -215,6 +215,8 @@ runcmd:
       echo "openova-k3s-agent-install: k3s-agent already active; nothing to do"
       exit 0
     fi
+    # #4858 image-GC guard flags (70/60 + TTL 2h) — rationale in
+    # _shared/cloudinit-control-plane.tftpl (k3s leg).
     # Install via canonical k3s installer (resolves get.k3s.io → fetches
     # binary → systemd unit). Each attempt exits 0 only if both curl|sh
     # and the post-install agent registration succeed.
@@ -222,7 +224,7 @@ runcmd:
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
       K3S_URL=https://${cp_private_ip}:6443 \
-      INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei --node-label=openova.io/region=hw-${region}-rtz-prod --node-label=topology.kubernetes.io/region=${region} --node-label=topology.kubernetes.io/zone=${region}" \
+      INSTALL_K3S_EXEC="agent --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --node-label=catalyst.openova.io/provider=huawei --node-label=openova.io/region=hw-${region}-rtz-prod --node-label=topology.kubernetes.io/region=${region} --node-label=topology.kubernetes.io/zone=${region}" \
       sh -; then
       echo "openova-k3s-agent-install: get.k3s.io install step failed; exiting nonzero for systemd retry"
       exit 1

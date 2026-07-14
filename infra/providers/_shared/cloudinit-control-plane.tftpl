@@ -1293,11 +1293,42 @@ runcmd:
   # deadlocks. A belt-and-braces Kyverno ENFORCE policy (bp-kyverno-policies
   # K23 forbid-local-path-storage) additionally DENIES any PVC/StorageClass/PV
   # that references local-path. (founder: "local path never ever ALLOWED".)
+  #
+  # #4858 kubelet image-GC guard — the self-hosting image deadlock. On the
+  # mothership (2026-07-08) DiskPressure pushed the node to the kubelet
+  # eviction wall (imagefs.available<15%), where the eviction manager purges
+  # EVERY unused image — including the locally-hosted Harbor's OWN component
+  # images — so all harbor.openova.io-prefixed workloads (Harbor itself +
+  # pdns-pg → PowerDNS → global sovereign DNS SERVFAIL) went ImagePullBackOff
+  # with nothing left to serve the re-pull. Post-cutover every Sovereign
+  # serves its workload images from its LOCAL Harbor (step 03 harbor-prewarm
+  # + step 04 registry-pivot), so every node here carries the same circular
+  # dependency. Guard, in the k3s kubelet leg (kubelet defaults in parens):
+  #   image-gc-high-threshold=70 (85) — periodic image-GC starts at 70% disk,
+  #     15 points BEFORE the eviction wall, so reclamation is early and
+  #     incremental (LRU order, stops at the low threshold) instead of a
+  #     pressure-driven mass purge. In-use images are never GC'd, and a
+  #     briefly-bouncing bootstrap-critical pod's image is at the BACK of the
+  #     LRU line — unlike eviction reclaim, which takes everything unused.
+  #   image-gc-low-threshold=60 (80) — reclaim down to 60%, real headroom for
+  #     the image-pull churn of a catalyst-api/platform roll (the #4858
+  #     DiskPressure source) instead of the default 5-point shave.
+  #   minimum-image-ttl-duration=2h (2m) — a JUST-PULLED image (age counted
+  #     from first detection) can't be reaped before its pod starts, so a
+  #     roll on a filling disk can't pull→GC→re-pull thrash. Long-resident
+  #     unused layers are past the TTL and stay reclaimable, so a genuinely
+  #     filling disk still frees space at the 70% trigger.
+  # Same guard on the worker templates (both providers) — Harbor/PowerDNS
+  # operands schedule on workers too. Refs #4849 (same disk-fill class).
+  # BYTE BUDGET: the 3-region Hetzner render sat 34 B under the 32512
+  # guardrail, so the ~123 B of kubelet args are paid for by shortening
+  # log-only strings (the two k3s FATAL echoes below + two prepull log
+  # lines) — exit codes 86/87 and every sentinel file are unchanged.
   - |
     NODE_EXTERNAL_IP=$(${node_external_ip_cmd})
-    [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: could not determine node external IP" >&2; exit 87; }
+    [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: no external IP" >&2; exit 87; }
     NODE_IP=$(${node_ip_cmd})
-    [ -n "$${NODE_IP}" ] || { echo "[k3s] FATAL: could not determine node private IP" >&2; exit 86; }
+    [ -n "$${NODE_IP}" ] || { echo "[k3s] FATAL: no private IP" >&2; exit 86; }
     # Substitute the runtime-detected private IP into the cilium values +
     # bootstrap-kit substitute map (the NODE_IP_PLACEHOLDER sentinel) so Cilium
     # reaches its OWN apiserver on a real address on every cloud.
@@ -1305,7 +1336,7 @@ runcmd:
     curl -sfL https://get.k3s.io | \
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
-      INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
+      INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
       sh -
 
   # Wait for the API server to be reachable (Cilium comes up later, so we
@@ -1543,7 +1574,7 @@ runcmd:
   - |
     nohup sh -c '
       log=/var/lib/catalyst/prepull.log
-      echo "[prepull] $(date -u +%FT%TZ) starting background openova-io image pre-pull (#4049 fallback — warm path is primary)" >> "$log" 2>&1
+      echo "[prepull] $(date -u +%FT%TZ) background image pre-pull start (#4049)" >> "$log" 2>&1
       CRICTL="$(command -v crictl || echo /usr/local/bin/crictl)"
       HELM="$(command -v helm || echo /usr/local/bin/helm)"
       if [ ! -x "$CRICTL" ] || [ ! -x "$HELM" ]; then
@@ -1577,7 +1608,7 @@ runcmd:
           | sort -u)"
       fi
       if [ -z "$images" ]; then
-        echo "[prepull] no openova-io images resolved from chart render — nothing to pre-pull (kubelet pulls on demand)" >> "$log" 2>&1
+        echo "[prepull] no images resolved — skip (kubelet pulls on demand)" >> "$log" 2>&1
         rm -rf "$workdir" 2>/dev/null || true
         exit 0
       fi
