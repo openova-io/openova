@@ -2264,4 +2264,123 @@ if ! grep -qF '"${svc_type}" = "LoadBalancer"' "$TMP/s04.yaml"; then
 fi
 echo "  PASS (#5007 contract: 200-branch splits on .spec.type — LB uses VIP-or-defer, non-LB pins HOST_IP like the hostNetwork branch)"
 
+# ── Case 56 (#5074 #5065 #5059): step-08 roll-set minimization ─────────────
+# The per-workload excludeWorkloads list was whack-a-mole (oauth2-proxy #5059
+# → falco #5065 → CSI drivers #5074). rollSetMode=minimal (NEW DEFAULT) must
+# exclude infra by RULE: (a) infra namespaces (kube-system/huawei-evs-csi/
+# catalyst) skip unless allowlisted, (b) DaemonSets in infra namespaces are
+# NEVER rolled — even when NOT in the name-based exclude list. It rolls a
+# representative sample (representativeNamespaces + Deployment top-up to the
+# per-region floor). rollSetMode=full must keep the LEGACY sweep unchanged:
+# every non-local-registry workload rolls, including infra DaemonSets.
+echo "[cutover-contract] Case 56: step-08 roll-set mode — minimal excludes infra-ns DaemonSets by RULE + rolls the representative sample; full mode legacy-unchanged (#5074 #5065 #5059)"
+# Static: the mode + rule knobs must reach the Job env with the new defaults.
+if ! grep -A1 'name: FRESH_PULL_ROLL_SET_MODE' "$TMP/render.yaml" | grep -q 'value: "minimal"'; then
+  echo "FAIL: freshPullProof.rollSetMode default must be \"minimal\" (#5074 #5065 #5059)" >&2
+  exit 1
+fi
+_infra_env=$(grep -A1 'name: FRESH_PULL_INFRA_NAMESPACES' "$TMP/render.yaml" | tail -1)
+for _ns in kube-system huawei-evs-csi catalyst; do
+  if ! grep -q "$_ns" <<<"$_infra_env"; then
+    echo "FAIL: FRESH_PULL_INFRA_NAMESPACES default must carry $_ns (#5074)" >&2
+    exit 1
+  fi
+done
+if ! grep -A1 'name: FRESH_PULL_MIN_REPS_PER_REGION' "$TMP/render.yaml" | grep -q 'value: "12"'; then
+  echo "FAIL: freshPullProof.minRepresentativesPerRegion default must be 12 (#5065)" >&2
+  exit 1
+fi
+_reps_env=$(grep -A1 'name: FRESH_PULL_REPRESENTATIVE_NAMESPACES' "$TMP/render.yaml" | tail -1)
+for _ns in flux-system gitea harbor keycloak grafana; do
+  if ! grep -q "$_ns" <<<"$_reps_env"; then
+    echo "FAIL: FRESH_PULL_REPRESENTATIVE_NAMESPACES default must span $_ns (#5065)" >&2
+    exit 1
+  fi
+done
+# Behavioral: slice run_fresh_pull_all, stub roll_and_check_workload, mock
+# kubectl enumeration. Fixture (all classes): local-ref ordinary apps in the
+# representative namespaces (gitea/flux-system/harbor/keycloak) + a non-rep
+# local-ref Deployment (orgapp/web, the top-up) + infra-namespace workloads
+# that are NOT name-excluded (the whole point: the RULE must catch them) —
+# huawei-evs-csi/csi-evs-node DS, kube-system/hcloud-csi-node DS,
+# kube-system/hubble-ui-oauth2-proxy Deploy, catalyst/some-operator Deploy —
+# + a non-infra DaemonSet (falco/falco) that minimal's Deployment-only top-up
+# must not add.
+_c56="$TMP/rollset56"; mkdir -p "$_c56/bin" "$_c56/work"
+helm template smoke . --show-only templates/08-egress-block-test-job.yaml > "$TMP/r08c56.yaml"
+_slice_fn "$TMP/r08c56.yaml" run_fresh_pull_all | sed 's#/work/#'"$_c56"'/work/#g' > "$_c56/sweep.sh"
+if ! grep -q 'run_fresh_pull_all() {' "$_c56/sweep.sh"; then
+  echo "FAIL: could not slice run_fresh_pull_all from step-08 (#5074)" >&2; exit 1
+fi
+cat > "$_c56/bin/kubectl" <<'MOCK'
+#!/bin/sh
+if [ "$2" = "nodes" ]; then printf 'af-north-1\naf-north-1\n'; exit 0; fi
+if [ "$3" = "-A" ]; then
+  case "$2" in
+    deployments)
+      printf 'deployment gitea gitea=registry.t99.omani.works/proxy-ghcr/go-gitea/gitea:1.22 \n'
+      printf 'deployment flux-system source-controller=registry.t99.omani.works/proxy-ghcr/fluxcd/source-controller:v1.3 \n'
+      printf 'deployment harbor harbor-core=registry.t99.omani.works/proxy-dockerhub/goharbor/harbor-core:v2.11 \n'
+      printf 'deployment kube-system hubble-ui-oauth2-proxy=quay.io/oauth2_proxy/oauth2-proxy:v7.6 \n'
+      printf 'deployment catalyst some-operator=registry.t99.omani.works/openova-io/op:1.0 \n'
+      printf 'deployment orgapp web=registry.t99.omani.works/proxy-dockerhub/library/nginx:1.27 \n'
+      ;;
+    daemonsets)
+      printf 'daemonset huawei-evs-csi csi-evs-node=harbor.openova.io/proxy-swr/csi-evs:v2.1 \n'
+      printf 'daemonset kube-system hcloud-csi-node=registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9 \n'
+      printf 'daemonset falco falco=registry.t99.omani.works/proxy-dockerhub/falcosecurity/falco:0.38 \n'
+      ;;
+    statefulsets)
+      printf 'statefulset keycloak keycloak=registry.t99.omani.works/proxy-quay/keycloak/keycloak:26.0 \n'
+      ;;
+  esac
+  exit 0
+fi
+exit 0
+MOCK
+chmod +x "$_c56/bin/kubectl"
+_run56() { # $1 = FRESH_PULL_ROLL_SET_MODE
+  ( set +e; set -u
+    export PATH="$_c56/bin:$PATH"
+    export FRESH_PULL_ROLL_SET_MODE="$1"
+    export LOCAL_REGISTRY_SUBSTR="registry.t99.omani.works"
+    export FRESH_PULL_EXCLUDE="catalyst-api"
+    export EXCLUDED_HOSTS="xpkg.upbound.io"
+    export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
+    # Deliberately ONLY the historic default — the infra CSI/oauth2-proxy
+    # fixtures are NOT name-excluded, so only the minimal-mode RULE can skip
+    # them (the whole Case).
+    export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
+    export FRESH_PULL_INFRA_NAMESPACES="kube-system huawei-evs-csi catalyst"
+    export FRESH_PULL_INFRA_ALLOWLIST=""
+    export FRESH_PULL_MIN_REPS_PER_REGION="12"
+    export FRESH_PULL_REPRESENTATIVE_NAMESPACES="flux-system gitea harbor keycloak grafana"
+    . "$_c56/sweep.sh"
+    roll_and_check_workload() { echo "ROLLED $1 $2/$3"; return 0; }
+    : > "$_c56/work/roll_failures.txt"
+    run_fresh_pull_all; echo "RC=$?" )
+}
+# (i) minimal mode — infra excluded by RULE, representative sample rolled.
+_min_out=$(_run56 minimal)
+grep -q 'RC=0' <<<"$_min_out" || { printf 'FAIL: minimal-mode sweep did not PASS; output:\n%s\n' "$_min_out" >&2; exit 1; }
+for _want in 'ROLLED deployment gitea/gitea' 'ROLLED deployment flux-system/source-controller' 'ROLLED deployment harbor/harbor-core' 'ROLLED statefulset keycloak/keycloak' 'ROLLED deployment orgapp/web'; do
+  grep -qF "$_want" <<<"$_min_out" || { printf 'FAIL: minimal mode did not roll the representative workload (%s); output:\n%s\n' "$_want" "$_min_out" >&2; exit 1; }
+done
+for _never in 'ROLLED daemonset huawei-evs-csi/csi-evs-node' 'ROLLED daemonset kube-system/hcloud-csi-node' 'ROLLED deployment kube-system/hubble-ui-oauth2-proxy' 'ROLLED deployment catalyst/some-operator' 'ROLLED daemonset falco/falco'; do
+  grep -qF "$_never" <<<"$_min_out" && { printf 'FAIL: minimal mode rolled an infra/non-representative workload it must exclude by RULE (%s) (#5074 #5065 #5059); output:\n%s\n' "$_never" "$_min_out" >&2; exit 1; }
+done
+grep -q 'skip (rule b: DaemonSet in infra namespace) daemonset huawei-evs-csi/csi-evs-node' <<<"$_min_out" \
+  || { printf 'FAIL: minimal mode did not name the rule-b skip for the infra-ns CSI DaemonSet; output:\n%s\n' "$_min_out" >&2; exit 1; }
+# (ii) full mode — LEGACY unchanged: every non-local-registry workload rolls
+# (including the infra DaemonSets the minimal rule excludes); local-registry
+# refs are NOT rolled.
+_full_out=$(_run56 full)
+grep -q 'RC=0' <<<"$_full_out" || { printf 'FAIL: full-mode sweep did not PASS; output:\n%s\n' "$_full_out" >&2; exit 1; }
+for _want in 'ROLLED daemonset huawei-evs-csi/csi-evs-node' 'ROLLED daemonset kube-system/hcloud-csi-node' 'ROLLED deployment kube-system/hubble-ui-oauth2-proxy'; do
+  grep -qF "$_want" <<<"$_full_out" || { printf 'FAIL: full (legacy) mode no longer rolls every external-registry workload (%s missing — legacy behaviour changed); output:\n%s\n' "$_want" "$_full_out" >&2; exit 1; }
+done
+grep -qF 'ROLLED deployment flux-system/source-controller' <<<"$_full_out" \
+  && { printf 'FAIL: full (legacy) mode rolled a LOCAL-registry-ref workload — legacy external-only selection changed; output:\n%s\n' "$_full_out" >&2; exit 1; }
+echo "  PASS (minimal: infra-ns DaemonSets + non-allowlisted infra workloads excluded by rule, representative sample rolled incl. Deployment top-up; full: legacy external-registry sweep byte-identical)"
+
 echo "[cutover-contract] All gates green."

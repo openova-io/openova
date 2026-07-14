@@ -1,5 +1,37 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.133 (#5074 #5065 #5059 Refs #3379 — step-08 ROLL-SET MINIMIZATION, the
+# root treadmill-breaker): the per-workload freshPullProof.excludeWorkloads list
+# was whack-a-mole — each prov surfaced ONE more infra workload broken by the
+# forced fresh-pull roll under the deny-egress hold (oauth2-proxy #5059 → falco
+# #5065 → the EVS CSI driver #5074). NEW: freshPullProof.rollSetMode="minimal"
+# (default; "full" keeps the legacy roll-everything sweep byte-for-byte).
+# Minimal mode excludes by RULE, not by name: (a) any workload in
+# freshPullProof.infraNamespaces (kube-system / huawei-evs-csi / catalyst)
+# unless explicitly named in infraRepresentativeAllowlist; (b) UNCONDITIONALLY
+# every DaemonSet in an infra namespace (its restart risks the hold's own
+# machinery: CSI mounts, CNI, the registry pivot — even an allowlist entry
+# cannot re-include one). It then rolls a REPRESENTATIVE SAMPLE instead of all
+# ~130 workloads: every candidate in representativeNamespaces (flux-system /
+# gitea / harbor / keycloak / grafana — one per registry-dependent workload
+# class: gitops, stateful-PVC git, the registry itself, auth, observability;
+# local-registry refs are candidates too, post-step-07 they are the pivoted
+# ordinary-app set) topped up with other candidate Deployments to at least
+# minRepresentativesPerRegion (default 12) x <node-region-count>. Image
+# locality for everything NOT rolled remains HARD-gated by the #4975 pre-hold
+# completeness HEAD gate + the #5026 pre-hold ref-host lint — both prove
+# locality WITHOUT rolling. The deny-egress curl call-home proof (github.com /
+# ghcr.io / harbor.openova.io / console must be 000) is UNTOUCHED in both
+# modes — that IS the sovereignty proof. The name-based excludeWorkloads list
+# stays honoured in BOTH modes for back-compat. New contract Case 56 locks the
+# behaviour (minimal excludes infra-ns DaemonSets + rolls the representative
+# set; full mode unchanged). NO step-count / job-mode / RBAC change (still 11
+# steps). NOTE #4982 Finding A (step-CMs resource-policy keep) was ALREADY
+# fixed in 0.1.117 (step/resolver CMs never carried keep; Case 40 guards it;
+# only the status CM self-sovereign-cutover-status keeps) — no change here.
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version
+# move to 0.1.133 in lockstep (Inviolable Principle #13).
+# ── prior ──
 # 0.1.132 (#5074 Refs #5014 #3379 — step-08 fresh-pull sweep rolled the EVS CSI
 # DRIVER itself and self-defeated the hold; caught live hw251): freshPullProof
 # (step-08's deny-egress fresh-pull sweep) rolled the Huawei EVS CSI driver
@@ -2045,7 +2077,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.132
+version: 0.1.133
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
