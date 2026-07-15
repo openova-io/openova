@@ -228,9 +228,9 @@ write_files:
         namespace: flux-system
         annotations:
           reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi,huawei-evs-csi,org-.*,[a-z][a-z0-9-]*"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,flux-system,org-.*,[a-z][a-z0-9-]*"
           reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi,huawei-evs-csi,org-.*,[a-z][a-z0-9-]*"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,org-.*,[a-z][a-z0-9-]*"
       type: kubernetes.io/dockerconfigjson
       data:
         .dockerconfigjson: ${base64encode(jsonencode({
