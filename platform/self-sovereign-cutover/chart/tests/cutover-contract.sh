@@ -2393,7 +2393,7 @@ grep -qF 'ROLLED deployment flux-system/source-controller' <<<"$_full_out" \
   && { printf 'FAIL: full (legacy) mode rolled a LOCAL-registry-ref workload — legacy external-only selection changed; output:\n%s\n' "$_full_out" >&2; exit 1; }
 echo "  PASS (minimal: infra-ns DaemonSets + non-allowlisted infra workloads excluded by rule, representative sample rolled incl. Deployment top-up; full: legacy external-registry sweep byte-identical)"
 
-# ── Case 57 (#5091 Refs #5081 #4975): step-08 roll-set RULE C ───────────────
+# ── Case 59 (#5091 Refs #5081 #4975): step-08 roll-set RULE C ───────────────
 # The #5081 minimal roll-set (rule a/b) still selected deployment/gitea — a
 # REPRESENTATIVE-namespace stateful RWO-EVS singleton — and force-rolled it under
 # the deny-egress hold, tripping the unrecoverable CSI NodeStage/VolumeAttachment
@@ -2404,7 +2404,7 @@ echo "  PASS (minimal: infra-ns DaemonSets + non-allowlisted infra workloads exc
 # ≥minRepresentativesPerRegion floor stays met from the stateless pool (rule c
 # filters candidates BEFORE the representative selection AND the Deployment
 # top-up, so the top-up draws only stateless workloads).
-echo "[cutover-contract] Case 57: step-08 rule c — a stateful RWO-EVS singleton (gitea evs-ssd / keycloak-postgresql evs.csi driver) is SKIPPED; stateless representatives still roll; floor met from the stateless pool (#5091 Refs #5081 #4975)"
+echo "[cutover-contract] Case 59: step-08 rule c — a stateful RWO-EVS singleton (gitea evs-ssd / keycloak-postgresql evs.csi driver) is SKIPPED; stateless representatives still roll; floor met from the stateless pool (#5091 Refs #5081 #4975)"
 # Static: the rule-c knobs must reach the Job env with the new defaults.
 if ! grep -A1 'name: FRESH_PULL_RWO_EVS_EXCLUDE' "$TMP/render.yaml" | grep -q 'value: "true"'; then
   echo "FAIL: freshPullProof.rwoEvsExclusion.enabled default must be true (#5091)" >&2
@@ -2429,17 +2429,17 @@ fi
 # storageClass leg) + keycloak-postgresql (RWO, empty SC, bound-PV driver
 # evs.csi.huaweicloud.com → skip via driver leg); stateless source-controller /
 # harbor-core (representative ns, no PVC → roll) + orgapp/web (top-up → roll).
-_c57="$TMP/rollset57"; mkdir -p "$_c57/bin" "$_c57/work"
-helm template smoke . --show-only templates/08-egress-block-test-job.yaml > "$TMP/r08c57.yaml"
-_slice_fn "$TMP/r08c57.yaml" run_fresh_pull_all | sed 's#/work/#'"$_c57"'/work/#g' > "$_c57/sweep.sh"
-_slice_fn "$TMP/r08c57.yaml" workload_rwo_evs_reason > "$_c57/rwo.sh"
-if ! grep -q 'run_fresh_pull_all() {' "$_c57/sweep.sh"; then
+_c59="$TMP/rollset59"; mkdir -p "$_c59/bin" "$_c59/work"
+helm template smoke . --show-only templates/08-egress-block-test-job.yaml > "$TMP/r08c59.yaml"
+_slice_fn "$TMP/r08c59.yaml" run_fresh_pull_all | sed 's#/work/#'"$_c59"'/work/#g' > "$_c59/sweep.sh"
+_slice_fn "$TMP/r08c59.yaml" workload_rwo_evs_reason > "$_c59/rwo.sh"
+if ! grep -q 'run_fresh_pull_all() {' "$_c59/sweep.sh"; then
   echo "FAIL: could not slice run_fresh_pull_all from step-08 (#5091)" >&2; exit 1
 fi
-if ! grep -q 'workload_rwo_evs_reason() {' "$_c57/rwo.sh"; then
+if ! grep -q 'workload_rwo_evs_reason() {' "$_c59/rwo.sh"; then
   echo "FAIL: could not slice workload_rwo_evs_reason from step-08 (#5091)" >&2; exit 1
 fi
-cat > "$_c57/bin/kubectl" <<'MOCK'
+cat > "$_c59/bin/kubectl" <<'MOCK'
 #!/bin/sh
 # $1 is always "get".
 case "$2" in nodes) printf 'af-north-1\n'; exit 0 ;; esac
@@ -2487,10 +2487,10 @@ case "$2" in
 esac
 exit 0
 MOCK
-chmod +x "$_c57/bin/kubectl"
-_run57() { # $1 = FRESH_PULL_RWO_EVS_EXCLUDE
+chmod +x "$_c59/bin/kubectl"
+_run59() { # $1 = FRESH_PULL_RWO_EVS_EXCLUDE
   ( set +e; set -u
-    export PATH="$_c57/bin:$PATH"
+    export PATH="$_c59/bin:$PATH"
     export FRESH_PULL_ROLL_SET_MODE="minimal"
     export FRESH_PULL_RWO_EVS_EXCLUDE="$1"
     export FRESH_PULL_RWO_EVS_STORAGECLASSES="evs-ssd"
@@ -2504,14 +2504,14 @@ _run57() { # $1 = FRESH_PULL_RWO_EVS_EXCLUDE
     export FRESH_PULL_INFRA_ALLOWLIST=""
     export FRESH_PULL_MIN_REPS_PER_REGION="12"
     export FRESH_PULL_REPRESENTATIVE_NAMESPACES="flux-system gitea harbor keycloak grafana"
-    . "$_c57/rwo.sh"
-    . "$_c57/sweep.sh"
+    . "$_c59/rwo.sh"
+    . "$_c59/sweep.sh"
     roll_and_check_workload() { echo "ROLLED $1 $2/$3"; return 0; }
-    : > "$_c57/work/roll_failures.txt"
+    : > "$_c59/work/roll_failures.txt"
     run_fresh_pull_all; echo "RC=$?" )
 }
 # (i) exclusion ON (the fix) — RWO-EVS singletons skipped, stateless rolled.
-_on_out=$(_run57 true)
+_on_out=$(_run59 true)
 grep -q 'RC=0' <<<"$_on_out" || { printf 'FAIL: rule-c sweep did not PASS; output:\n%s\n' "$_on_out" >&2; exit 1; }
 # gitea (storageClass leg) + keycloak-postgresql (bound-PV driver leg) SKIPPED by rule c.
 grep 'skip (rule c: RWO-EVS stateful singleton' <<<"$_on_out" | grep -q 'deployment gitea/gitea' \
@@ -2534,11 +2534,110 @@ for _want in 'ROLLED deployment flux-system/source-controller' 'ROLLED deploymen
 done
 # (ii) exclusion OFF — the toggle reverts to the pre-#5091 behaviour: the RWO-EVS
 # gitea is force-rolled again (proves rule c is exactly what skips it).
-_off_out=$(_run57 false)
+_off_out=$(_run59 false)
 grep -qF 'ROLLED deployment gitea/gitea' <<<"$_off_out" \
   || { printf 'FAIL: with rwoEvsExclusion off, gitea should roll (pre-#5091 behaviour) — the toggle is inert; output:\n%s\n' "$_off_out" >&2; exit 1; }
 grep -q 'skip (rule c' <<<"$_off_out" \
   && { printf 'FAIL: rule c fired while FRESH_PULL_RWO_EVS_EXCLUDE=false — the switch does not gate it; output:\n%s\n' "$_off_out" >&2; exit 1; }
 echo "  PASS (rule c skips gitea [evs-ssd] + keycloak-postgresql [evs.csi driver], names the offending claim; stateless source-controller/harbor-core/web still roll; toggle-off reverts to force-roll)"
+
+# ── Case 57 (#5007 round 3): step-03 pins registry.<fqdn> to the gateway ClusterIP
+# via a coredns-custom override (the hardened non-root pod can't write /etc/hosts) ─
+# #5051 round 2 (Case 54) correctly forced the step-03 skopeo push DEST back to the
+# PUBLIC host registry.<fqdn> (only the TLS-terminating gateway serves Harbor's
+# hard-https bearer realm), but left it resolving via PUBLIC DNS — still broken by a
+# stale `*.<pool>` wildcard shadow (hw241 dead 49.12.16.160) or a mid-push NXDOMAIN
+# flap (hw252: push_ok=131 push_fail=7). harbor-prewarm runs runAsNonRoot + readOnly-
+# RootFilesystem + drop-ALL, so it can't write its own /etc/hosts; it instead installs
+# a kube-system coredns-custom `.server` override (registry.<fqdn> -> the gateway
+# Service ClusterIP, always allocated incl. the §854 ELB-direct TYPE=ClusterIP model)
+# BEFORE the readiness probe, and FAILS LOUD (never silently push over the flaky
+# public path) if the ClusterIP can't be resolved. Request host / SNI stay
+# registry.<fqdn> (bearer realm + HTTPRoute + wildcard cert still match) — only
+# resolution is pinned. A `.server` block (NOT `.override`, which would put two
+# `hosts` plugins in `.:53` and crash CoreDNS — the #3804 trap).
+echo "[cutover-contract] Case 57: step-03 pins registry.<fqdn> to the gateway ClusterIP via coredns-custom before pushing — DNS-independent + fail-loud (#5007)"
+awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml" || true
+[ -s "$TMP/s03pin.yaml" ] || cp "$TMP/render.yaml" "$TMP/s03pin.yaml"
+# (a) the pin toggle + gateway-Service envs are wired from the SAME values PR #5008
+#     added for the step-04 node pin.
+if ! grep -qF 'name: LOCAL_REGISTRY_PIN_ENABLED' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not carry LOCAL_REGISTRY_PIN_ENABLED — the local-registry CoreDNS pin is not wired (#5007)" >&2
+  exit 1
+fi
+if ! grep -qF 'name: GATEWAY_LB_SVC_NAME' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not carry GATEWAY_LB_SVC_NAME — the pin cannot resolve the gateway Service (#5007)" >&2
+  exit 1
+fi
+# (b) the pin resolves the gateway Service CLUSTERIP (not the LB VIP) — the robust
+#     in-cluster target present in BOTH the LB and the ELB-direct gateway models.
+if ! grep -qF "jsonpath='{.spec.clusterIP}'" "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 pin does not read the gateway Service .spec.clusterIP — the CoreDNS override must point at the ClusterIP (always allocated, incl. ELB-direct), not the LB VIP (#5007)" >&2
+  exit 1
+fi
+# (c) the pin installs a kube-system coredns-custom `.server` override (NOT .override,
+#     which crashes CoreDNS) and MERGE-patches so a co-resident github-ipv4 key survives.
+if ! grep -qF 'configmap coredns-custom -n kube-system --type merge' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 pin does not MERGE-patch kube-system/coredns-custom — registry.<fqdn> is not pinned in-cluster (or a replace would clobber the github-ipv4 override) (#5007)" >&2
+  exit 1
+fi
+if ! grep -qF 'cutover-registry-pin.server' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 pin does not use a dedicated .server key — a .override merges into .:53 (two hosts plugins) and crashes CoreDNS (#3804 trap) (#5007)" >&2
+  exit 1
+fi
+if grep -qF 'cutover-registry-pin.override' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 pin uses a .override key — it would add a second hosts plugin to .:53 and crash CoreDNS cluster-wide (#3804) (#5007)" >&2
+  exit 1
+fi
+# (c2) the pin is invoked BEFORE the public-dest readiness probe (the probe is the
+#      CoreDNS-reload sync-confirm; a push must never race an unpinned registry.<fqdn>).
+_pin_ln=$(grep -n '            install_coredns_registry_pin$' "$TMP/s03pin.yaml" | tail -1 | cut -d: -f1)
+_probe_ln=$(grep -n 'public-dest readiness probe' "$TMP/s03pin.yaml" | head -1 | cut -d: -f1)
+if [ -z "$_pin_ln" ] || [ -z "$_probe_ln" ] || [ "$_pin_ln" -ge "$_probe_ln" ]; then
+  echo "FAIL: step-03 install_coredns_registry_pin is not invoked BEFORE the public-dest readiness probe (pin@${_pin_ln:-none} probe@${_probe_ln:-none}) — a push could race an unpinned registry.<fqdn> (#5007)" >&2
+  exit 1
+fi
+# (d) FAIL-LOUD: an enabled pin that cannot resolve the gateway ClusterIP exits
+#     non-zero instead of silently pushing over the flaky public path.
+if ! grep -qF 'Refusing to push over the flaky public DNS path' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 pin does not fail loud when the gateway ClusterIP can't be resolved — it could silently fall back to public DNS (#5007)" >&2
+  exit 1
+fi
+echo "  PASS (#5007 contract: step-03 installs a coredns-custom .server pin registry.<fqdn> -> gateway ClusterIP before the readiness probe; merge-patch preserves github-ipv4; fail-loud; skopeo dest host unchanged so the bearer realm still matches)"
+
+# ── Case 58 (#5007 round 3 / Facet C): Phase A2 mirrors the UNION of deployed +
+# desired chart versions, so a mid-cutover publish drift can't wedge step-06 ─────
+# step-06 (helmrepository-patches Phase-3a) reads the SAME
+# `.status.history[0].chartVersion // .spec.chart.spec.version` resolution as
+# step-03, but at a LATER instant. Two OPPOSITE drifts each wedge it: mirroring
+# only the DESIRED breaks on a deploybot oscillation (#4870); mirroring only the
+# DEPLOYED breaks when a PR re-publishes a chart mid-cutover (hw252: prewarm warmed
+# the just-published 1.4.1121 while the flux pin settled back to 1.4.1120). Phase A2
+# must warm BOTH (the union), and the existing chart_fail>0 FATAL is the fail-loud
+# guard for a pinned tag that can't be pulled.
+echo "[cutover-contract] Case 58: step-03 Phase A2 warms the UNION of deployed + desired chart versions + reports drift (#5007 Facet C)"
+[ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
+# (a) the tuple jq enumerates BOTH history[0].chartVersion AND spec.version into a
+#     unique-d set (not a single `history // spec` pick).
+if ! grep -qF '[ (.status.history[0].chartVersion), $cs.version ]' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A2 does not build the {deployed, desired} chart-version set — a mid-cutover publish drift (deployed ahead of the flux pin) wedges step-06 (#5007 Facet C)" >&2
+  exit 1
+fi
+if ! grep -qF '| map(select(. != null and . != "")) | unique ) as $vers' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A2 does not unique the deployed+desired versions before emitting one row each — the union is not warmed (#5007 Facet C)" >&2
+  exit 1
+fi
+# (b) the informational drift report is present (deployed != desired named, not silent).
+if ! grep -qF 'Phase A2 DRIFT (#5007)' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A2 does not report deployed!=desired chart-version drift — a mid-cutover publish is invisible until step-06 hangs (#5007 Facet C)" >&2
+  exit 1
+fi
+# (c) the FATAL guard still fires on any un-mirrorable chart (the fail-loud contract:
+#     a pinned tag that can't be pulled fails step-03, not step-06's deny-egress hold).
+if ! grep -qF 'openova-io chart(s) failed to mirror' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A2 lost the chart_fail>0 FATAL — an un-mirrorable pinned chart would silently wedge step-06 (#5007 Facet C)" >&2
+  exit 1
+fi
+echo "  PASS (#5007 Facet C: Phase A2 warms the deployed+desired union, reports drift, and keeps the fail-loud chart_fail FATAL so a pinned tag that can't be pulled fails at step-03 with egress open)"
 
 echo "[cutover-contract] All gates green."

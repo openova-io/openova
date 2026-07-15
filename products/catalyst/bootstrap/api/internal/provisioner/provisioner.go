@@ -1456,6 +1456,24 @@ type Result struct {
 	// the condition at Phase-1 termination. Always false for a single-
 	// region prov.
 	SecondaryDegraded bool `json:"secondaryDegraded,omitempty"`
+
+	// SecondaryFluxCRDAbsentRegions — the region keys of SECONDARY control
+	// planes whose cloud-init flux-install stage silently did not land: the
+	// cluster is HEALTHY (its kubeconfig was PUT back) but the Flux
+	// HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) is ABSENT, so a
+	// helmwatch informer there would observe zero HelmReleases until
+	// stopSecondaries cancels it — an invisible 0/0 with no named diagnostic
+	// (#5012, the secondary-region mirror of the primary's #5042
+	// OutcomeFluxCRDsAbsent). Populated by spawnSecondaryRegionWatchers'
+	// per-region probe. This is a NAMED, greppable, surface-only signal: like
+	// SecondaryDegraded it NEVER gates "ready" (a broken/absent secondary must
+	// never hang or fail the whole prov — the surface-not-gate discipline), it
+	// only lets the operator console + catalyst-api logs name the exact region
+	// + root cause (cloud-init's flux-install stage) instead of the prov
+	// silently idling. Empty on a healthy prov. The region also surfaces in
+	// the #3611 Regions census as a 0/0 degraded secondary because the probe
+	// registers a nil watcher slot for it (skipping the doomed real watcher).
+	SecondaryFluxCRDAbsentRegions []string `json:"secondaryFluxCRDAbsentRegions,omitempty"`
 }
 
 // PartialRegionMaterialisationError is returned by Provision when

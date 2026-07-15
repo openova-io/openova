@@ -530,99 +530,145 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 			mu.Unlock()
 			return
 		}
-		raw, err := os.ReadFile(kcPath)
-		if err != nil {
-			mu.Unlock()
-			h.log.Warn("secondary kubeconfig read failed",
-				"id", dep.ID, "region", region, "path", kcPath, "err", err)
-			return
-		}
-		cfg := h.phase1WatchConfigForDeployment(dep, string(raw))
-		// #4746 — the ready sentinel (catalyst-platform) is a PRIMARY-region
-		// concept: the console backend runs only in the primary region, so a
-		// secondary-region watcher must NOT wait on catalyst-platform (it
-		// would never observe it and could not self-terminate). Secondary
-		// watchers do not contribute to markPhase1Done's terminal outcome
-		// anyway (see the func doc), so clearing the gate here only lets a
-		// converged secondary self-terminate cleanly instead of idling until
-		// stopSecondaries cancels it.
-		cfg.ReadySentinelComponent = ""
-		watcher, err := helmwatch.NewWatcher(cfg, func(ev provisioner.Event) {
-			// Region-tag the component events so the SSE consumer
-			// can group them per region. Bare bp-* names from
-			// secondary regions would otherwise collide with the
-			// primary's events in the wizard's per-component view.
-			// Separator is ":" not "/" so URLs of the form
-			// /jobs/install-<region>:<chart> survive TanStack
-			// Router's decode (the router decodes %2F→/ and then
-			// the `$jobId` param fails to match the multi-segment
-			// path → 404). "/" was the legacy separator caught by
-			// the founder on prov #73 (install-hel1-2/newapi route
-			// 404'd from the JobsTable click). Canonical rule per
-			// feedback_natural_view_is_canon.md: "Node id separator
-			// `:` not `/`".
-			ev.Component = region + ":" + ev.Component
-			// Region-prefix the sibling DependsOn entries so the
-			// install-<region>:<chart> Jobs get intra-region edges
-			// (e.g. install-hel1-2:catalyst-platform depends on
-			// install-hel1-2:gitea, NOT install:gitea). Without
-			// this, every secondary HR's DependsOn list ends up
-			// pointing at the PRIMARY region's bare-named jobs,
-			// and the canvas fan-out collapses cross-region edges
-			// that aren't real. helmwatch.processEvent populated
-			// ev.DependsOn from the live spec.dependsOn (bare chart
-			// names like "gitea"); we both region-prefix AND inject
-			// the canonical "install-" prefix so the stored Job
-			// row's DependsOn matches the JobName scheme exactly.
-			//
-			// Why "install-<region>:<chart>" not "<region>:<chart>":
-			// the FE canvas adapter looks up node ids by exact match;
-			// node ids are `<dep>:install-<region>:<chart>` for
-			// install Jobs. Storing "<region>:<chart>" as a dep
-			// produces a `<dep>:<region>:<chart>` fromId in the
-			// finish-to-start relationship, which matches no node →
-			// edge invisible. Caught on prov t103.omani.works
-			// (005080699326a7ac, 2026-05-15): openova-flow snapshot
-			// had 224 finish-to-start rels emitted but their fromIds
-			// were `<dep>:hel1-2:seaweedfs` etc., missing "install-"
-			// → canvas rendered every secondary HR with no sibling
-			// edges despite the rel count being non-zero.
-			if len(ev.DependsOn) > 0 {
-				rescoped := make([]string, 0, len(ev.DependsOn))
-				for _, d := range ev.DependsOn {
-					rescoped = append(rescoped, "install-"+region+":"+d)
-				}
-				ev.DependsOn = rescoped
-			}
-			h.emitWatchEvent(dep, ev)
-		})
-		if err != nil {
-			mu.Unlock()
-			h.log.Error("secondary helmwatch.NewWatcher failed",
-				"id", dep.ID, "region", region, "err", err)
-			return
-		}
-		// Attach the region-aware seeder hook so SeedJobsFromInformerList
-		// runs against this secondary's informer cache and writes
-		// `install-<region>/<chart>` Jobs with region-prefixed DependsOn.
-		// Without this the secondary install-* Jobs are only created via
-		// the per-event OnHelmReleaseEvent path (DependsOn=[]) and the
-		// canvas dep graph stays flat for the entire secondary region.
-		// Caught on prov #73 (8cd1ff1a80430dc5, 2026-05-14).
-		h.attachSecondaryBridgeSeederHook(dep, watcher, region)
+		// Reserve the region slot up front, then run the (potentially long)
+		// flux-CRD probe + watcher build OFF the closure lock in a goroutine.
+		// #5012: the per-region probe can poll for the full
+		// CATALYST_PHASE1_FLUX_CRD_PROBE_BUDGET when a secondary's flux never
+		// installs; holding mu (or blocking the synchronous scan loop) for that
+		// whole budget would serialise every OTHER region's spawn AND block
+		// stopSecondaries (which needs mu to cancel watchers). The placeholder
+		// cancel registered here both guards an overlapping 15s scan from
+		// double-spawning this region and lets stopSecondaries abort an
+		// in-flight probe.
 		wctx, wcancel := context.WithCancel(ctx)
 		stopWatchers[region] = wcancel
-		dep.mu.Lock()
-		if dep.secondaryWatchers == nil {
-			dep.secondaryWatchers = make(map[string]*helmwatch.Watcher)
-		}
-		dep.secondaryWatchers[region] = watcher
-		dep.mu.Unlock()
 		mu.Unlock()
+
+		// releaseSlot frees the reservation so a LATER scan can retry this
+		// region (its kubeconfig only just became readable, or NewWatcher
+		// flaked). Deliberately NOT called on the flux-absent path — there the
+		// slot stays reserved so a doomed region is probed ONCE, not re-probed
+		// every 15s scan.
+		releaseSlot := func() {
+			// The top-of-spawn guard blocks any concurrent re-reservation of
+			// this region while our slot is present, and a fresh spawn for the
+			// region can only run AFTER this delete + unlock — so deleting our
+			// own reservation unconditionally is safe.
+			mu.Lock()
+			delete(stopWatchers, region)
+			mu.Unlock()
+			wcancel()
+		}
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
+			raw, err := os.ReadFile(kcPath)
+			if err != nil {
+				h.log.Warn("secondary kubeconfig read failed",
+					"id", dep.ID, "region", region, "path", kcPath, "err", err)
+				releaseSlot()
+				return
+			}
+
+			// #5012 — per-secondary-region flux-CRD-absent detection, the
+			// mirror of the primary's #5042 probe. A secondary whose cloud-init
+			// flux-install stage silently didn't land has a HEALTHY cluster (its
+			// kubeconfig was PUT) but NO helmreleases.helm.toolkit.fluxcd.io
+			// CRD, so a helmwatch informer here would observe zero HelmReleases
+			// until stopSecondaries cancels it — an invisible 0/0 with no named
+			// diagnostic. Unlike the primary probe, a secondary must NEVER
+			// fail/hang the whole prov (surface-not-gate discipline), so a
+			// positive absent verdict records a NAMED, greppable degraded signal
+			// (recordSecondaryFluxCRDAbsent: a loud region-tagged warn +
+			// Result.SecondaryFluxCRDAbsentRegions + a nil census slot) and
+			// skips spinning the doomed watcher. The slot stays reserved.
+			if h.probeFluxCRDAbsentForRegion(wctx, dep, region, string(raw)) {
+				h.recordSecondaryFluxCRDAbsent(dep, region)
+				return
+			}
+
+			cfg := h.phase1WatchConfigForDeployment(dep, string(raw))
+			// #4746 — the ready sentinel (catalyst-platform) is a PRIMARY-region
+			// concept: the console backend runs only in the primary region, so a
+			// secondary-region watcher must NOT wait on catalyst-platform (it
+			// would never observe it and could not self-terminate). Secondary
+			// watchers do not contribute to markPhase1Done's terminal outcome
+			// anyway (see the func doc), so clearing the gate here only lets a
+			// converged secondary self-terminate cleanly instead of idling until
+			// stopSecondaries cancels it.
+			cfg.ReadySentinelComponent = ""
+			watcher, err := helmwatch.NewWatcher(cfg, func(ev provisioner.Event) {
+				// Region-tag the component events so the SSE consumer
+				// can group them per region. Bare bp-* names from
+				// secondary regions would otherwise collide with the
+				// primary's events in the wizard's per-component view.
+				// Separator is ":" not "/" so URLs of the form
+				// /jobs/install-<region>:<chart> survive TanStack
+				// Router's decode (the router decodes %2F→/ and then
+				// the `$jobId` param fails to match the multi-segment
+				// path → 404). "/" was the legacy separator caught by
+				// the founder on prov #73 (install-hel1-2/newapi route
+				// 404'd from the JobsTable click). Canonical rule per
+				// feedback_natural_view_is_canon.md: "Node id separator
+				// `:` not `/`".
+				ev.Component = region + ":" + ev.Component
+				// Region-prefix the sibling DependsOn entries so the
+				// install-<region>:<chart> Jobs get intra-region edges
+				// (e.g. install-hel1-2:catalyst-platform depends on
+				// install-hel1-2:gitea, NOT install:gitea). Without
+				// this, every secondary HR's DependsOn list ends up
+				// pointing at the PRIMARY region's bare-named jobs,
+				// and the canvas fan-out collapses cross-region edges
+				// that aren't real. helmwatch.processEvent populated
+				// ev.DependsOn from the live spec.dependsOn (bare chart
+				// names like "gitea"); we both region-prefix AND inject
+				// the canonical "install-" prefix so the stored Job
+				// row's DependsOn matches the JobName scheme exactly.
+				//
+				// Why "install-<region>:<chart>" not "<region>:<chart>":
+				// the FE canvas adapter looks up node ids by exact match;
+				// node ids are `<dep>:install-<region>:<chart>` for
+				// install Jobs. Storing "<region>:<chart>" as a dep
+				// produces a `<dep>:<region>:<chart>` fromId in the
+				// finish-to-start relationship, which matches no node →
+				// edge invisible. Caught on prov t103.omani.works
+				// (005080699326a7ac, 2026-05-15): openova-flow snapshot
+				// had 224 finish-to-start rels emitted but their fromIds
+				// were `<dep>:hel1-2:seaweedfs` etc., missing "install-"
+				// → canvas rendered every secondary HR with no sibling
+				// edges despite the rel count being non-zero.
+				if len(ev.DependsOn) > 0 {
+					rescoped := make([]string, 0, len(ev.DependsOn))
+					for _, d := range ev.DependsOn {
+						rescoped = append(rescoped, "install-"+region+":"+d)
+					}
+					ev.DependsOn = rescoped
+				}
+				h.emitWatchEvent(dep, ev)
+			})
+			if err != nil {
+				h.log.Error("secondary helmwatch.NewWatcher failed",
+					"id", dep.ID, "region", region, "err", err)
+				releaseSlot()
+				return
+			}
+			// Attach the region-aware seeder hook so SeedJobsFromInformerList
+			// runs against this secondary's informer cache and writes
+			// `install-<region>/<chart>` Jobs with region-prefixed DependsOn.
+			// Without this the secondary install-* Jobs are only created via
+			// the per-event OnHelmReleaseEvent path (DependsOn=[]) and the
+			// canvas dep graph stays flat for the entire secondary region.
+			// Caught on prov #73 (8cd1ff1a80430dc5, 2026-05-14).
+			h.attachSecondaryBridgeSeederHook(dep, watcher, region)
+			dep.mu.Lock()
+			if dep.secondaryWatchers == nil {
+				dep.secondaryWatchers = make(map[string]*helmwatch.Watcher)
+			}
+			dep.secondaryWatchers[region] = watcher
+			dep.mu.Unlock()
+
 			h.log.Info("secondary phase1 watch starting", "id", dep.ID, "region", region)
 			_, werr := watcher.Watch(wctx)
 			if werr != nil && wctx.Err() == nil {
@@ -2189,22 +2235,7 @@ func (h *Handler) waitForKubeconfig(dep *Deployment) (string, bool) {
 // fake dynamic client (via Handler.dynamicFactory) whose List reactor
 // returns the desired error.
 func (h *Handler) probeFluxCRDAbsent(dep *Deployment, kubeconfig string) bool {
-	budget := h.fluxCRDProbeBudget
-	if budget == 0 {
-		if v, _ := time.ParseDuration(envOrEmpty(fluxCRDProbeBudgetEnv)); v > 0 {
-			budget = v
-		} else {
-			budget = DefaultFluxCRDProbeBudget
-		}
-	}
-	pollEvery := h.fluxCRDProbePollInterval
-	if pollEvery == 0 {
-		if v, _ := time.ParseDuration(envOrEmpty(fluxCRDProbePollIntervalEnv)); v > 0 {
-			pollEvery = v
-		} else {
-			pollEvery = DefaultFluxCRDProbePollInterval
-		}
-	}
+	budget, pollEvery := h.fluxCRDProbeBudgets()
 
 	// Build the dynamic client the same way the cert-wait path does:
 	// the test-only h.dynamicFactory when wired, else the production
@@ -2213,15 +2244,7 @@ func (h *Handler) probeFluxCRDAbsent(dep *Deployment, kubeconfig string) bool {
 	// runs next in runPhase1Watch) surfaces OutcomeWatcherStartFailed
 	// with its own diagnostic. Never invent OutcomeFluxCRDsAbsent from a
 	// client-construction failure.
-	var (
-		dyn dynamic.Interface
-		err error
-	)
-	if h.dynamicFactory != nil {
-		dyn, err = h.dynamicFactory(kubeconfig)
-	} else {
-		dyn, err = helmwatch.NewDynamicClientFromKubeconfig(kubeconfig)
-	}
+	dyn, err := h.buildFluxProbeDynamicClient(kubeconfig)
 	if err != nil || dyn == nil {
 		h.log.Warn("flux-crd probe: could not build dynamic client; skipping probe (falling through to watcher)",
 			"id", dep.ID,
@@ -2300,6 +2323,202 @@ func (h *Handler) probeFluxCRDAbsent(dep *Deployment, kubeconfig string) bool {
 
 		time.Sleep(pollEvery)
 	}
+}
+
+// fluxCRDProbeBudgets resolves the Flux-CRD-presence probe's overall budget +
+// poll cadence from the test-only Handler overrides, the
+// CATALYST_PHASE1_FLUX_CRD_PROBE_* env knobs, or the production defaults, in
+// that precedence. Shared by the PRIMARY-region probe (probeFluxCRDAbsent,
+// #5042) and the per-SECONDARY-region probe (probeFluxCRDAbsentForRegion,
+// #5012) so both honour the exact same runtime knobs (Inviolable Principle #4)
+// — a secondary never invents its own budget.
+func (h *Handler) fluxCRDProbeBudgets() (budget, pollEvery time.Duration) {
+	budget = h.fluxCRDProbeBudget
+	if budget == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(fluxCRDProbeBudgetEnv)); v > 0 {
+			budget = v
+		} else {
+			budget = DefaultFluxCRDProbeBudget
+		}
+	}
+	pollEvery = h.fluxCRDProbePollInterval
+	if pollEvery == 0 {
+		if v, _ := time.ParseDuration(envOrEmpty(fluxCRDProbePollIntervalEnv)); v > 0 {
+			pollEvery = v
+		} else {
+			pollEvery = DefaultFluxCRDProbePollInterval
+		}
+	}
+	return budget, pollEvery
+}
+
+// buildFluxProbeDynamicClient builds the dynamic.Interface both Flux-CRD probes
+// List through: the test-only h.dynamicFactory when wired, else the production
+// kubeconfig→dynamic.Interface factory. Extracted so the primary (#5042) and
+// per-secondary-region (#5012) probes construct their client identically.
+func (h *Handler) buildFluxProbeDynamicClient(kubeconfig string) (dynamic.Interface, error) {
+	if h.dynamicFactory != nil {
+		return h.dynamicFactory(kubeconfig)
+	}
+	return helmwatch.NewDynamicClientFromKubeconfig(kubeconfig)
+}
+
+// probeFluxCRDAbsentForRegion is the per-SECONDARY-region mirror of the
+// primary's #5042 probeFluxCRDAbsent (#5012). spawnSecondaryRegionWatchers runs
+// it against each secondary control-plane's kubeconfig BEFORE building that
+// region's helmwatch informer. It returns true ONLY on a POSITIVE "the Flux
+// HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) is absent AND the
+// apiserver answered" observation that persists to the end of the probe budget
+// — the signal that this secondary's cloud-init flux-install stage never
+// landed even though its cluster is healthy (its kubeconfig was PUT). In every
+// other case (CRD servable, transient/ambiguous error, client-build failure,
+// or ctx cancelled) it returns false so the caller proceeds to build the
+// watcher exactly as before.
+//
+// CRUCIAL difference from the primary: a positive verdict here NEVER fails or
+// hangs the whole deployment (surface-not-gate discipline — a slow/broken
+// secondary must never gate the prov, mirroring #3611/#4486). The caller turns
+// a true verdict into a LOUD, region-tagged, NAMED signal via
+// recordSecondaryFluxCRDAbsent and skips the doomed watcher — it does NOT call
+// markPhase1Done.
+//
+// Conservatism is identical to the primary probe: only a clean NotFound /
+// no-resource-match from a reachable apiserver counts as absent; a client-build
+// failure, connection error, timeout, or ctx cancellation is NEVER a positive
+// absent observation. Budget + cadence reuse the same
+// CATALYST_PHASE1_FLUX_CRD_PROBE_* knobs via fluxCRDProbeBudgets(). The passed
+// ctx is the region watcher's context, so stopSecondaries aborts an in-flight
+// probe promptly (fail-open on cancellation).
+func (h *Handler) probeFluxCRDAbsentForRegion(ctx context.Context, dep *Deployment, region, kubeconfig string) bool {
+	budget, pollEvery := h.fluxCRDProbeBudgets()
+
+	dyn, err := h.buildFluxProbeDynamicClient(kubeconfig)
+	if err != nil || dyn == nil {
+		// A client-build failure is not a positive absent observation — fall
+		// through so the caller's NewWatcher surfaces its own error path.
+		h.log.Warn("secondary flux-crd probe: could not build dynamic client; skipping probe (falling through to watcher)",
+			"id", dep.ID, "region", region, "err", err)
+		return false
+	}
+
+	h.emitWatchEvent(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   helmwatch.PhaseComponent,
+		Level:   "info",
+		Message: fmt.Sprintf("Phase-1 watch [region %s]: probing for the Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) before starting the secondary per-component watch (budget %s, polling every %s). Issue #5012.", region, budget, pollEvery),
+	})
+
+	deadline := time.Now().Add(budget)
+	// lastAbsent records whether the MOST RECENT probe was a clean "CRD absent
+	// + apiserver reachable" answer — same gate as the primary probe.
+	lastAbsent := false
+	for {
+		getCtx, cancelGet := context.WithTimeout(ctx, pollEvery)
+		_, listErr := dyn.Resource(helmwatch.HelmReleaseGVR).
+			Namespace(helmwatch.FluxNamespace).
+			List(getCtx, metav1.ListOptions{Limit: 1})
+		cancelGet()
+
+		switch {
+		case listErr == nil:
+			// CRD servable — Flux is installed in this region. Proceed to the
+			// secondary watcher exactly as before.
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "info",
+				Message: fmt.Sprintf("Phase-1 watch [region %s]: Flux HelmRelease CRD is present; starting the secondary per-component watch.", region),
+			})
+			return false
+		case apierrors.IsNotFound(listErr) || meta.IsNoMatchError(listErr):
+			// POSITIVE absent observation. Keep polling — the flux-install
+			// manifest may still land within the budget.
+			lastAbsent = true
+		default:
+			// Ambiguous/transient (connection refused, TLS flap, timeout,
+			// forbidden, per-poll ctx deadline). Never drive a false absent.
+			lastAbsent = false
+		}
+
+		if time.Now().After(deadline) {
+			if lastAbsent {
+				// The caller (recordSecondaryFluxCRDAbsent) emits the LOUD warn
+				// + records the NAMED degraded signal.
+				return true
+			}
+			// Ambiguous at deadline — fail-open: proceed to the watcher so a
+			// transient blip never invents a degraded secondary.
+			h.emitWatchEvent(dep, provisioner.Event{
+				Time:    time.Now().UTC().Format(time.RFC3339),
+				Phase:   helmwatch.PhaseComponent,
+				Level:   "info",
+				Message: fmt.Sprintf("Phase-1 watch [region %s]: Flux HelmRelease CRD probe inconclusive after %s (last observation was a transient error, not a clean absent) — proceeding to the secondary per-component watch. Issue #5012.", region, budget),
+			})
+			return false
+		}
+
+		// Respect the region watcher's context so stopSecondaries aborts an
+		// in-flight probe promptly (fail-open on cancellation — a cancelled
+		// probe never invents an absent verdict).
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(pollEvery):
+		}
+	}
+}
+
+// recordSecondaryFluxCRDAbsent turns a positive per-secondary-region
+// flux-CRD-absent verdict (#5012) into a NAMED, greppable, NON-FATAL signal:
+//
+//   - a LOUD region-tagged WARN event on the wizard log pane + a structured
+//     WARN log (both greppable), naming cloud-init's flux-install stage as the
+//     root cause for THAT region — the secondary mirror of the primary's #5042
+//     OutcomeFluxCRDsAbsent diagnostic;
+//   - the region appended (deduped) to Result.SecondaryFluxCRDAbsentRegions so
+//     the condition is durable on the deployment record;
+//   - a nil watcher slot registered in dep.secondaryWatchers[region] so the
+//     EXISTING #3611 census (snapshotSecondaryStatesLocked emits a 0/0 map for
+//     a nil slot → regionDegraded against a populated primary) surfaces the
+//     region as a degraded secondary and lights SecondaryDegraded — WITHOUT any
+//     change to markPhase1Done's census/classification logic.
+//
+// It NEVER touches dep.Status and NEVER calls markPhase1Done: a secondary whose
+// flux never installed must not fail or hang the whole prov. The caller skips
+// spinning a doomed no-CRD watcher for the region.
+func (h *Handler) recordSecondaryFluxCRDAbsent(dep *Deployment, region string) {
+	dep.mu.Lock()
+	if dep.Result != nil {
+		already := false
+		for _, r := range dep.Result.SecondaryFluxCRDAbsentRegions {
+			if r == region {
+				already = true
+				break
+			}
+		}
+		if !already {
+			dep.Result.SecondaryFluxCRDAbsentRegions = append(dep.Result.SecondaryFluxCRDAbsentRegions, region)
+		}
+	}
+	// Register a nil watcher slot so the #3611 census surfaces this region as a
+	// 0/0 degraded secondary via snapshotSecondaryStatesLocked's existing
+	// nil-slot handling. Only claim the slot when no real watcher is present.
+	if dep.secondaryWatchers == nil {
+		dep.secondaryWatchers = make(map[string]*helmwatch.Watcher)
+	}
+	if _, exists := dep.secondaryWatchers[region]; !exists {
+		dep.secondaryWatchers[region] = nil
+	}
+	dep.mu.Unlock()
+
+	h.emitWatchEvent(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   helmwatch.PhaseComponent,
+		Level:   "warn",
+		Message: fmt.Sprintf("Phase-1 watch [region %s]: the Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) was still ABSENT after the probe budget — this SECONDARY region's cloud-init flux-install stage did not land. Recording it DEGRADED (secondary-flux-crds-absent) and skipping its doomed no-CRD watcher; the PRIMARY region is unaffected and the deployment is NOT failed on account of this secondary (surface-not-gate). Operator: SSH region %s's control-plane and inspect /var/log/cloud-init-output.log for the flux-install step. Refs #5012 #5042.", region, region),
+	})
+	h.log.Warn("secondary region flux HelmRelease CRD absent after probe budget — recording degraded, skipping doomed watcher (non-fatal, surface-not-gate)",
+		"id", dep.ID, "region", region)
 }
 
 // certificateGVR — GroupVersionResource for cert-manager.io/v1.Certificate.
