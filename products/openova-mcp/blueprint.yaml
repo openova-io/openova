@@ -6,6 +6,13 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-7-agentic-workspace
 spec:
+  # 0.1.2 (#5114 hw258 CHAIN-BLOCKER): appVersion 0.2.2 — the binary degrades
+  # instead of CrashLooping when verify=rs256 but the OPTIONAL pubkey Secret
+  # is absent/unparseable (the sovereign-mode slot-13d case: the PEM Secret
+  # `catalyst-handover-jwt` is not created on a Sovereign, only the JWK mirror
+  # `catalyst-handover-jwt-public`, #4228). The 0.2.1 pod FATALed → tripped
+  # the harbor-prewarm cutover settle-gate (#4982) at step-3. 0.2.2 reaches
+  # Ready (empty unauthenticated surface; tools/call 401) so cutover settles.
   # 0.1.1 (#5114 hw256 fixes): numeric runAsUser/runAsGroup 65532 beside
   # runAsNonRoot (image 0.2.0's string USER `nonroot` wedged the hw256 pod
   # at CreateContainerConfigError) + appVersion 0.2.1 (numeric USER in the
@@ -14,9 +21,9 @@ spec:
   # 0.1.0 (#5114, Refs #3988): first release — the Pillar-4 install path
   # for the OpenOva MCP server (Deployment + ClusterIP Service + Gateway-API
   # HTTPRoute + zero-RBAC ServiceAccount + Cilium CNPs). Lockstep with
-  # products/openova-mcp/chart/Chart.yaml 0.1.1 + bootstrap-kit slot 13d pin
+  # products/openova-mcp/chart/Chart.yaml 0.1.2 + bootstrap-kit slot 13d pin
   # + the catalog-seed (blueprints.json) entry.
-  version: 0.1.1
+  version: 0.1.2
   card:
     title: OpenOva MCP
     summary: |

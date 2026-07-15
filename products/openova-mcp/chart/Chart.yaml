@@ -13,6 +13,19 @@ description: |
   catalyst-api, whose own authz is the final word — the server holds NO
   privileged token and reads NOTHING from the Kubernetes API.
 type: application
+# 0.1.2 (#5114 hw258 live-proven, CHAIN-BLOCKER): the openova-mcp binary
+# no longer CrashLoops when verify=rs256 but the OPTIONAL pubkey Secret is
+# ABSENT. The chart already wires OPENOVA_MCP_RS256_PUBKEY_PEM from
+# `catalyst-handover-jwt`/`handover-jwt-public.pem` (optional:true) — but
+# that PEM Secret is NOT created on a Sovereign (only the JWK mirror
+# `catalyst-handover-jwt-public` exists in catalyst-system, #4228), so the
+# optional ref resolves to unset and the 0.2.1 binary FATALed
+# (`verify=rs256 requires OPENOVA_MCP_RS256_PUBKEY_PEM`). The 0/1 Deployment
+# tripped the harbor-prewarm cutover settle-gate (#4982) and FATALed the
+# sovereignty cutover at step-3. appVersion 0.2.2 degrades instead: the pod
+# reaches Ready, serves /healthz + /readyz + the empty unauthenticated
+# tools/list, and rejects tools/call 401 until the verify key is wired — a
+# missing OPTIONAL verify key must NEVER CrashLoop the pod.
 # 0.1.1 (#5114 hw256 live-proven fixes): pod securityContext gains NUMERIC
 # runAsUser/runAsGroup 65532 beside runAsNonRoot — image 0.2.0 declared
 # the STRING `USER nonroot`, which the kubelet cannot prove non-root, so
@@ -36,16 +49,19 @@ type: application
 # catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.1
+version: 0.1.2
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
-# 0.2.1 rebuilds 0.2.0 with a NUMERIC USER (65532:65532) — see the 0.1.1
-# note above; the binary is unchanged. 0.2.0 is the FIRST image with the
+# 0.2.2 (#5114): buildResolver degrades instead of exiting when the rs256
+# verify pubkey (or the hs256 secret) is absent/unparseable — see the 0.1.2
+# note above. 0.2.1 rebuilds 0.2.0 with a NUMERIC USER (65532:65532) — see
+# the 0.1.1 note above; that binary was unchanged. 0.2.0 is the FIRST image
+# with the
 # streamable-HTTP transport
 # (OPENOVA_MCP_LISTEN + /healthz + /readyz + Authorization-header bearer +
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.1"
+appVersion: "0.2.2"
 keywords:
   - mcp
   - agent

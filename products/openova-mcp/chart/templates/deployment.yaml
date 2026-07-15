@@ -5,11 +5,20 @@ knob is a values→env passthrough of the binary's REAL env contract
 (products/openova-mcp/cmd/openova-mcp/main.go) — nothing here names an env
 the binary does not read.
 
-Secret refs are optional:true (#4228 lesson): the rs256 pubkey Secret
-(catalyst-handover-jwt) lives in catalyst-system — present for the
-sovereign-mode slot install, absent on an Org install — and a non-optional
-ref would wedge the pod at CreateContainerConfigError. Absent → the env is
-unset and the binary falls back to its inherited process env.
+Secret refs are optional:true (#4228 lesson): the rs256 pubkey Secret is the
+aspirational PEM `catalyst-handover-jwt`/`handover-jwt-public.pem` (the same
+name+key bp-agenity uses) — but that PEM Secret is NOT created on a Sovereign
+(cloud-init only publishes the JWK mirror `catalyst-handover-jwt-public` in
+catalyst-system), and it is absent on an Org install too, so the optional ref
+resolves to UNSET. A non-optional ref would wedge the pod at
+CreateContainerConfigError; even with optional:true the 0.2.1 binary FATALed
+on the unset env (`verify=rs256 requires OPENOVA_MCP_RS256_PUBKEY_PEM`),
+CrashLooping the pod and tripping the harbor-prewarm cutover settle-gate
+(#4982). The 0.2.2 binary (#5114) DEGRADES on the absent/unparseable key
+instead: the pod reaches Ready (empty unauthenticated tools/list; tools/call
+401) so the cutover settles. Wiring an actual PEM Secret here (the per-Org
+ExternalSecret seam, or a future sovereign-mode PEM producer) upgrades the
+instance to full rs256 verify without any chart change.
 */ -}}
 apiVersion: apps/v1
 kind: Deployment
