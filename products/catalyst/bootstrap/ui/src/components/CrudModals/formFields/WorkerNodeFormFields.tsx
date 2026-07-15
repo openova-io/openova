@@ -106,11 +106,11 @@ export function WorkerNodeFormFields({
           />
         )}
       </FormRow>
-      <FormRow label="Taints" hint="Comma-separated key=value:effect — e.g. tenant=dmz:NoSchedule.">
+      <FormRow label="Taints" hint="Comma-separated key=value:effect — e.g. org=dmz:NoSchedule.">
         <TextInput
           value={values.taints}
           onChange={(v) => onChange({ ...values, taints: v })}
-          placeholder="tenant=dmz:NoSchedule"
+          placeholder="org=dmz:NoSchedule"
           testId="worker-node-form-taints"
         />
       </FormRow>
