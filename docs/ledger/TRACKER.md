@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T14:30:06Z` |
+| Last refreshed | `2026-07-15T14:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T14:38 | [#5116](https://github.com/openova-io/openova/pull/5116) | #5104 | fix(mail): RFC 5322 Date header on PIN + notification mails  |
+| 2026-07-15T14:36 | [#5115](https://github.com/openova-io/openova/pull/5115) | #5113 | fix(catalyst-api): catalog card-save commit leg — canonical  |
 | 2026-07-15T13:05 | [#5112](https://github.com/openova-io/openova/pull/5112) | #2 | fix(preflight): ONE-environment-at-a-time fail-closed gate ( |
 | 2026-07-15T13:23 | [#5110](https://github.com/openova-io/openova/pull/5110) | #5088 | docs(5088): §854 mothership NodePort forensics + clean repla |
 | 2026-07-15T09:44 | [#5109](https://github.com/openova-io/openova/pull/5109) | #5104 | fix(#5104): funnel purchased app never deploys — plan-aware  |
@@ -255,8 +257,6 @@ flowchart LR
 | 2026-07-14T18:12 | [#5075](https://github.com/openova-io/openova/pull/5075) | #5022 | fix(cutover): exclude CSI driver from step-08 fresh-pull swe |
 | 2026-07-14T18:11 | [#5073](https://github.com/openova-io/openova/pull/5073) | #5042 | fix(bootstrap): flux-crds-absent Phase-1 terminal state (Ref |
 | 2026-07-14T17:34 | [#5071](https://github.com/openova-io/openova/pull/5071) | #4765 | docs(§854): eradicate stale NodePort references in Huawei pr |
-| 2026-07-14T13:40 | [#5069](https://github.com/openova-io/openova/pull/5069) | #5059 | fix(cutover-contract): Case 49 exact-match → contains-check  |
-| 2026-07-14T13:26 | [#5068](https://github.com/openova-io/openova/pull/5068) | #5042 | fix(cloud-init): force IPv4 on Huawei log-self-upload → mid- |
 
 ---
 
