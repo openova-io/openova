@@ -395,8 +395,9 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 
 	// #3668 — ALSO mirror the curated CR into the Flux-reconciled aggregator
 	// tree so curate (not just the console edit) reaches the LIVE in-cluster
-	// Blueprint CR and survives `helm upgrade`. Ownership-strip first so the
-	// committed source is helm-upgrade-immune (DoD §9.4). Best-effort: a
+	// Blueprint CR and survives `helm upgrade`. The bytes go through the
+	// canonical commit serializer (server-side metadata stripped, canonical
+	// bp- name stamped, spec.version kept — #5113). Best-effort: a
 	// failure is logged + swallowed — the per-Blueprint write above already
 	// succeeded for the read overlay.
 	if _, aggErr := h.writeCatalogSovereignAggregator(

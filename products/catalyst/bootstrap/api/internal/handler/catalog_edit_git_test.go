@@ -497,11 +497,12 @@ func TestCommitCatalogAppEditToGit_ByteIdenticalIsDurable(t *testing.T) {
 // ALSO writes the merged CR into the Flux-reconciled aggregator tree
 // `openova/openova @ catalog-sovereign : clusters/<fqdn>/catalog-
 // sovereign/<bp>.yaml`, so the openova-catalog-sovereign Kustomization can
-// reconcile it into the LIVE in-cluster Blueprint CR. The per-Blueprint repo
-// write (the UI read source) carries the FULL merged CR; the Flux write
-// carries the same CURATION fields but — per #4415 — DROPS the chart-delivery
-// fields spec.version / spec.source so a catalog-seed version bump is never
-// pinned-over by Flux's force:true SSA.
+// reconcile it into the LIVE in-cluster Blueprint CR. Per #5113 Facet A the
+// Flux write carries the FULL canonical CR INCLUDING the CRD-required
+// spec.version — the former #4415 delivery-field strip made the file
+// rejected by kustomize-controller's dry-run whenever the named CR did not
+// already exist (`spec.version: Required value`), wedging the whole
+// catalog-sovereign Kustomization (hw255 walk).
 func TestWriteCatalogEditToGit_MirrorsToFluxAggregator(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
 	h := NewWithPDM(silentLogger(), &fakePDM{})
@@ -556,19 +557,22 @@ func TestWriteCatalogEditToGit_MirrorsToFluxAggregator(t *testing.T) {
 	if aggSpec == nil {
 		t.Fatalf("aggregator CR has no spec; doc=%v", aggDoc)
 	}
-	// #4415 — the Flux file must NOT carry the chart-delivery fields, so
-	// catalog-seed (Helm) stays the sole owner of spec.version + spec.source
-	// and a merged seed bump reaches the live CR zero-touch.
-	if _, leaked := aggSpec["version"]; leaked {
-		t.Errorf("aggregator (Flux SSA) CR must NOT carry spec.version (#4415); spec=%v", aggSpec)
+	// #5113 Facet A — the Flux file MUST carry the CRD-required spec.version
+	// (chart/crds/blueprint.yaml `required: [version, card]`): a version-less
+	// file is rejected by the kustomize-controller dry-run whenever the named
+	// CR does not already exist, wedging the whole Kustomization.
+	if asString(aggSpec["version"]) != "1.2.3" {
+		t.Errorf("aggregator (Flux SSA) CR must carry the real spec.version (#5113 Facet A); got %v", aggSpec["version"])
 	}
-	if _, leaked := aggSpec["source"]; leaked {
-		t.Errorf("aggregator (Flux SSA) CR must NOT carry spec.source (#4415); spec=%v", aggSpec)
+	// #5113 Facet B — the aggregator CR is stamped to the canonical live-CR
+	// identity, never a bare name whose inventory swap prunes the live CR.
+	aggMeta, _ := aggDoc["metadata"].(map[string]interface{})
+	if aggMeta == nil || aggMeta["name"] != "bp-wordpress" {
+		t.Errorf("aggregator CR name must be the canonical bp-wordpress (#5113 Facet B); meta=%v", aggMeta)
 	}
-	// The curation fields the operator legitimately owns DO survive into the
-	// Flux file (it is the field set Flux owns + must keep revert-immune).
+	// Every other spec field survives too.
 	if _, ok := aggSpec["manifests"].(map[string]interface{}); !ok {
-		t.Errorf("aggregator CR must keep non-delivery spec fields (e.g. manifests); spec=%v", aggSpec)
+		t.Errorf("aggregator CR must keep the full spec (e.g. manifests); spec=%v", aggSpec)
 	}
 	if !strings.Contains(string(aggRaw), "RECONCILE-PROOF") {
 		t.Errorf("aggregator CR must carry the edited summary; got:\n%s", aggRaw)
@@ -622,79 +626,255 @@ func TestWriteCatalogSovereignAggregator_BestEffortGuards(t *testing.T) {
 		t.Errorf("no-FQDN must write nothing; keys=%v", fileKeys(fg))
 	}
 
-	// Wired + FQDN + erroring PutFile → err returned (caller logs+swallows).
+	// Wired + FQDN + erroring PutFile → err returned (caller logs/surfaces).
 	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
 	fgErr := newFakeGitea()
 	fgErr.putFileErr = errors.New("gitea: 500")
 	h.SetGiteaClient(fgErr)
-	if _, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); err == nil {
+	validCR := []byte("apiVersion: catalyst.openova.io/v1\nkind: Blueprint\nmetadata:\n  name: bp-alloy\nspec:\n  version: \"1.0.0\"\n")
+	if _, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", validCR); err == nil {
 		t.Errorf("erroring PutFile must return a non-nil err for the caller to log")
+	}
+
+	// Wired + FQDN + UNPARSABLE payload → err surfaced, nothing committed —
+	// an unparsable file in the Flux tree is the Kustomization-wide wedge
+	// class (#5113), never a best-effort write.
+	fgOK := newFakeGitea()
+	h.SetGiteaClient(fgOK)
+	if _, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("\t::not yaml::\t")); err == nil {
+		t.Errorf("an unparsable aggregator payload must surface an error, not commit")
+	}
+	if len(fgOK.files) != 0 {
+		t.Errorf("an unparsable aggregator payload must not be committed; keys=%v", fileKeys(fgOK))
 	}
 }
 
-// TestStripDeliveryFieldsForFluxAggregator — #4415 unit. The Flux aggregator
-// file must drop the chart-delivery fields spec.version + spec.source (both
-// the top-level spec.source AND its nested source.version) so catalog-seed
-// (Helm) stays their sole owner and a seed version bump reaches the live CR
-// zero-touch. Every OTHER spec field (card, visibility, topology, manifests)
-// is preserved — those are the curation fields Flux legitimately owns.
-func TestStripDeliveryFieldsForFluxAggregator(t *testing.T) {
+// TestStampBlueprintCRForFluxAggregator_RoundTripsLiveCRFaithfully — #5113
+// Facets A+B+C+E unit on the canonical commit serializer, fed the exact
+// hw255 failure shape: a live CR dump with a BARE metadata.name, the full
+// server-side metadata (uid / resourceVersion / generation /
+// creationTimestamp / managedFields / status / last-applied), AND the Helm
+// ownership + catalog-seed labels/annotations. The committed YAML must:
+//   - stamp the canonical bp-<slug> name (Facet B — bare `name: wordpress`
+//     made Flux prune the live bp-wordpress CR);
+//   - keep spec.version + every spec field (Facet A — a version-less file is
+//     CRD-rejected on create, wedging the Kustomization);
+//   - drop ONLY the server-side fields (Facet C — a pinned uid produced the
+//     stale-uid Conflict wedge);
+//   - PRESERVE the Helm ownership labels/annotations (Facet E — without them
+//     a prune-recreated CR breaks the next `helm upgrade` with no console
+//     repair path).
+func TestStampBlueprintCRForFluxAggregator_RoundTripsLiveCRFaithfully(t *testing.T) {
 	in := []byte(`apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-openclaw
+  name: wordpress
+  uid: 6d1f7f2e-dead-beef-a5b0-3c1de1a2b3c4
+  resourceVersion: "123456"
+  generation: 7
+  creationTimestamp: "2026-07-10T08:00:00Z"
+  managedFields:
+    - manager: helm
+      operation: Update
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    catalyst.openova.io/catalog-seed: "true"
+  annotations:
+    meta.helm.sh/release-name: catalyst-platform
+    meta.helm.sh/release-namespace: catalyst
+    catalyst.openova.io/alias-of: wordpress
+    kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"catalyst.openova.io/v1"}'
 spec:
-  version: "0.2.11"
+  version: "0.4.12"
   visibility: listed
+  card:
+    title: WordPress Turnkey
+    summary: curated summary
   source:
     kind: HelmRepository
     type: oci
     url: oci://ghcr.io/openova-io
-    chart: bp-openclaw
-    version: 0.2.11
+    chart: bp-wordpress
+    version: 0.4.12
   manifests:
-    chart: bp-openclaw
-  card:
-    title: OpenClaw
-    summary: edited-by-operator
+    chart: bp-wordpress
+status:
+  observedGeneration: 7
 `)
-	out := stripDeliveryFieldsForFluxAggregator(in)
+	out := stampBlueprintCRForFluxAggregator(in, "bp-wordpress")
+	if len(out) == 0 {
+		t.Fatal("canonical serializer returned empty output for a valid CR")
+	}
 	var doc map[string]interface{}
 	if err := yamlv3.Unmarshal(out, &doc); err != nil {
-		t.Fatalf("unmarshal stripped: %v", err)
+		t.Fatalf("unmarshal canonical CR: %v", err)
 	}
+
+	// Facet B — canonical name.
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil || meta["name"] != "bp-wordpress" {
+		t.Errorf("metadata.name must be stamped to bp-wordpress; meta=%v", meta)
+	}
+
+	// Facet C — server-side fields gone.
+	for _, k := range []string{"uid", "resourceVersion", "generation", "creationTimestamp", "managedFields"} {
+		if _, leaked := meta[k]; leaked {
+			t.Errorf("metadata.%s must be stripped from the committed source; meta=%v", k, meta)
+		}
+	}
+	if _, leaked := doc["status"]; leaked {
+		t.Errorf("status must be stripped from the committed source")
+	}
+
+	// Facet E — Helm ownership + catalog labels/annotations preserved.
+	lbl, _ := meta["labels"].(map[string]interface{})
+	if lbl == nil || lbl["app.kubernetes.io/managed-by"] != "Helm" || lbl["catalyst.openova.io/catalog-seed"] != "true" {
+		t.Errorf("Helm/catalog-seed labels must be preserved; labels=%v", lbl)
+	}
+	ann, _ := meta["annotations"].(map[string]interface{})
+	if ann == nil || ann["meta.helm.sh/release-name"] != "catalyst-platform" ||
+		ann["meta.helm.sh/release-namespace"] != "catalyst" ||
+		ann["catalyst.openova.io/alias-of"] != "wordpress" {
+		t.Errorf("Helm ownership + alias-of annotations must be preserved; annotations=%v", ann)
+	}
+	if _, leaked := ann["kubectl.kubernetes.io/last-applied-configuration"]; leaked {
+		t.Errorf("last-applied-configuration is apply bookkeeping and must be stripped; annotations=%v", ann)
+	}
+
+	// Facet A — spec round-trips in full, version included.
 	spec, _ := doc["spec"].(map[string]interface{})
 	if spec == nil {
-		t.Fatalf("stripped CR lost its spec; doc=%v", doc)
+		t.Fatalf("canonical CR lost its spec; doc=%v", doc)
 	}
-	if _, leaked := spec["version"]; leaked {
-		t.Errorf("spec.version must be stripped; spec=%v", spec)
+	if asString(spec["version"]) != "0.4.12" {
+		t.Errorf("spec.version (CRD-required) must survive; got %v", spec["version"])
 	}
-	if _, leaked := spec["source"]; leaked {
-		t.Errorf("spec.source must be stripped (incl. nested source.version); spec=%v", spec)
-	}
-	// Curation fields survive.
-	if asString(spec["visibility"]) != "listed" {
-		t.Errorf("spec.visibility must survive; got %v", spec["visibility"])
+	if _, ok := spec["source"].(map[string]interface{}); !ok {
+		t.Errorf("spec.source must survive; spec=%v", spec)
 	}
 	if _, ok := spec["manifests"].(map[string]interface{}); !ok {
 		t.Errorf("spec.manifests must survive; spec=%v", spec)
 	}
 	card, _ := spec["card"].(map[string]interface{})
-	if card == nil || card["summary"] != "edited-by-operator" {
-		t.Errorf("spec.card edit must survive; card=%v", card)
-	}
-	// metadata.name survives so the Kustomization keys the right CR.
-	meta, _ := doc["metadata"].(map[string]interface{})
-	if meta == nil || meta["name"] != "bp-openclaw" {
-		t.Errorf("metadata.name must survive; meta=%v", meta)
+	if card == nil || card["summary"] != "curated summary" {
+		t.Errorf("spec.card must survive; card=%v", card)
 	}
 
-	// Best-effort: un-parseable input is returned unchanged so a strip never
-	// blocks the reconcile.
-	garbage := []byte("\t::not yaml::\t")
-	if got := stripDeliveryFieldsForFluxAggregator(garbage); string(got) != string(garbage) {
-		t.Errorf("un-parseable input must be returned unchanged; got %q", got)
+	// Un-parseable input renders nil — the callers surface that instead of
+	// committing a wedge-class file.
+	if got := stampBlueprintCRForFluxAggregator([]byte("\t::not yaml::\t"), "bp-x"); got != nil {
+		t.Errorf("un-parseable input must render nil; got %q", got)
+	}
+}
+
+// TestWriteCatalogEditToGit_CanonicalizesLegacyServerMetadata — #5113 Facets
+// B+C on the card-save leg end-to-end: when the EXISTING per-Blueprint Gitea
+// file carries the legacy hw255 shape (bare name + uid + resourceVersion +
+// Helm annotations, committed by an older build), the next card edit must
+// commit BOTH files (per-Blueprint + Flux aggregator) with the canonical
+// bp- name, the server junk scrubbed, spec.version intact, and the Helm
+// ownership annotations preserved.
+func TestWriteCatalogEditToGit_CanonicalizesLegacyServerMetadata(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	// Seed the legacy per-Blueprint file exactly as an older build left it.
+	legacy := []byte(`apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: wordpress
+  uid: 6d1f7f2e-dead-beef-a5b0-3c1de1a2b3c4
+  resourceVersion: "123456"
+  creationTimestamp: "2026-07-10T08:00:00Z"
+  annotations:
+    meta.helm.sh/release-name: catalyst-platform
+spec:
+  version: "0.4.12"
+  visibility: listed
+  card:
+    title: WordPress Turnkey
+    summary: curated summary
+`)
+	perBPKey := giteaKey(catalogSovereignOrg, "bp-wordpress", catalogEditGitBranch, catalogEditBlueprintPath)
+	fg.files[perBPKey] = legacy
+	fg.repos[catalogSovereignOrg+"/bp-wordpress"] = true
+	fg.orgs[catalogSovereignOrg] = true
+
+	edit := catalogEdit{Slug: "wordpress", IconLight: "new-icon.svg"}
+	if _, err := h.writeCatalogEditToGit(context.Background(), edit); err != nil {
+		t.Fatalf("writeCatalogEditToGit: %v", err)
+	}
+
+	aggKey := giteaKey(catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch,
+		catalogSovereignAggPath("t99.omani.works", "bp-wordpress"))
+	for _, tc := range []struct{ leg, key string }{
+		{"per-Blueprint", perBPKey},
+		{"Flux aggregator", aggKey},
+	} {
+		raw, ok := fg.files[tc.key]
+		if !ok {
+			t.Fatalf("%s write missing at %s; keys=%v", tc.leg, tc.key, fileKeys(fg))
+		}
+		var doc map[string]interface{}
+		if err := yamlv3.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("%s: unmarshal committed CR: %v", tc.leg, err)
+		}
+		meta, _ := doc["metadata"].(map[string]interface{})
+		if meta == nil || meta["name"] != "bp-wordpress" {
+			t.Errorf("%s: name must be canonical bp-wordpress (Facet B); meta=%v", tc.leg, meta)
+		}
+		for _, k := range []string{"uid", "resourceVersion", "creationTimestamp"} {
+			if _, leaked := meta[k]; leaked {
+				t.Errorf("%s: metadata.%s must be scrubbed (Facet C); meta=%v", tc.leg, k, meta)
+			}
+		}
+		ann, _ := meta["annotations"].(map[string]interface{})
+		if ann == nil || ann["meta.helm.sh/release-name"] != "catalyst-platform" {
+			t.Errorf("%s: Helm ownership annotation must be preserved (Facet E); annotations=%v", tc.leg, ann)
+		}
+		spec, _ := doc["spec"].(map[string]interface{})
+		if spec == nil || asString(spec["version"]) != "0.4.12" {
+			t.Errorf("%s: spec.version must survive (Facet A); spec=%v", tc.leg, spec)
+		}
+		card, _ := spec["card"].(map[string]interface{})
+		if card == nil || card["iconLight"] != "new-icon.svg" {
+			t.Errorf("%s: the card edit must land; card=%v", tc.leg, card)
+		}
+		if card["summary"] != "curated summary" {
+			t.Errorf("%s: the untouched curated summary must survive; card=%v", tc.leg, card)
+		}
+	}
+}
+
+// TestCommitCatalogAppEditToGit_AggregatorFailureSurfaced — #5113 Facet D on
+// the card-save leg: when the per-Blueprint source write lands but the Flux
+// aggregator leg (the write that actually reaches the live CR) fails, the
+// verdict must be committed=false with a reason — never the silent
+// store/IaC split-brain `committed:true` the hw255 walk caught. Mirrors the
+// #5018 honesty fix already shipped on the full-CR /iac leg.
+func TestCommitCatalogAppEditToGit_AggregatorFailureSurfaced(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	// Fail ONLY the aggregator write (openova/openova @ catalog-sovereign);
+	// the per-Blueprint source write succeeds.
+	fg.putFileErrFor = func(org, repo, branch, _ string) error {
+		if org == catalogSovereignAggOrg && repo == catalogSovereignAggRepo && branch == catalogSovereignAggBranch {
+			return errors.New("gitea: 500 on aggregator")
+		}
+		return nil
+	}
+	h.SetGiteaClient(fg)
+
+	body := []byte(`{"slug":"wordpress","name":"WordPress","tagline":"edited"}`)
+	committed, reason := h.commitCatalogAppEditToGit(context.Background(), body)
+	if committed {
+		t.Fatalf("a failed Flux reconcile leg must report committed=false (the edit never reaches the live CR)")
+	}
+	if !strings.Contains(reason, "Flux reconcile leg failed") {
+		t.Errorf("the reason must name the failed reconcile leg; got %q", reason)
 	}
 }
 

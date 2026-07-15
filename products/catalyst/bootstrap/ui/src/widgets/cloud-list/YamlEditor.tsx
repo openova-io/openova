@@ -248,7 +248,12 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride, on
           managed-by: <span className={flux ? 'text-emerald-300' : 'text-amber-300'}>{flux ? 'flux' : 'manual'}</span>
         </span>
         <span className="text-[var(--color-text-dim)]">
-          {dirty ? '• unsaved changes' : '• in sync'}
+          {/* #5113 Facet D — this is a LOCAL dirty-state indicator only. It
+              formerly read "• in sync", fabricating reconcile state: on hw255
+              it showed "in sync" while the catalog-sovereign Kustomization
+              was Ready=False on this exact file. Do not claim sync here
+              unless it is read from the Kustomization/apply status. */}
+          {dirty ? '• unsaved changes' : '• no unsaved edits'}
         </span>
         <button
           type="button"

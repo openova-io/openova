@@ -106,12 +106,13 @@ func catalogSovereignAggPath(sovereignFQDN, bpName string) string {
 	return fmt.Sprintf("clusters/%s/catalog-sovereign/%s.yaml", sovereignFQDN, bpName)
 }
 
-// writeCatalogSovereignAggregator mirrors one Blueprint's full, ownership-
-// stripped CR bytes into the Flux-reconciled aggregator tree (#3668). It is
+// writeCatalogSovereignAggregator mirrors one Blueprint's full, canonical
+// CR bytes into the Flux-reconciled aggregator tree (#3668). It is
 // best-effort + additive, exactly like the per-Blueprint write: a failure is
-// returned for the caller to log + swallow (the UI round-trip already
+// returned for the caller to log or surface (the UI round-trip already
 // succeeded via the per-Blueprint repo; the aggregator is what makes the CR
-// reconcile, but its absence must never fail the edit/curate API call).
+// reconcile — the card-edit path now SURFACES a failure of this leg per
+// #5113 Facet D, mirroring the #5018 honesty fix on the full-CR leg).
 //
 // No-ops (returns committed=false, err=nil) when:
 //   - the Gitea client is unwired (chroot pre-cutover / CI), OR
@@ -124,23 +125,34 @@ func catalogSovereignAggPath(sovereignFQDN, bpName string) string {
 // (openova/openova) is auto-init'd by the Organization repo-bootstrap hook, so the
 // branch always has a base commit to write onto.
 func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName string, merged []byte) (bool, error) {
-	if len(merged) == 0 {
+	// Same no-op contract as the Bytes trunk, checked BEFORE the canonical
+	// render so an unwired client / mothership never turns into an error.
+	if len(merged) == 0 || h.giteaClient == nil ||
+		strings.TrimSpace(envOr("SOVEREIGN_FQDN", "")) == "" {
 		return false, nil
 	}
-	// #4415 — the Flux aggregator file SSA-applies (force:true) to the LIVE
-	// Blueprint CR, so any field it carries becomes Flux-owned. Strip the
-	// chart-delivery fields spec.version + spec.source so they stay
-	// exclusively catalog-seed (Helm)-owned: a merged catalog-seed version
-	// bump then reaches the live CR zero-touch on the next `helm upgrade`,
-	// instead of being pinned forever at the value frozen when the operator
-	// last edited the card. The operator's curated card / visibility /
-	// topology stay in the file and remain Flux-owned + revert-immune.
+	// #5113 Facets A+B — the payload goes through the SAME canonical
+	// serializer as the full-CR IaC leg (stampBlueprintCRForFluxAggregator):
+	// metadata.name stamped to the canonical bp-<slug> live-CR identity and
+	// spec.version/spec.source KEPT.
 	//
-	// NOTE the #4415 strip applies to the IMPLICIT card-edit path only. The
-	// full-CR IaC editor (catalog_iac_edit.go) calls the Bytes variant below
-	// directly with the admin's verbatim document, because an EXPLICIT
-	// whole-CR commit legitimately edits spec.version (DoD §9.7; UAT row 154).
-	return h.writeCatalogSovereignAggregatorBytes(ctx, bpName, stripDeliveryFieldsForFluxAggregator(merged))
+	// This supersedes the former #4415 delivery-field strip: spec.version is
+	// CRD-required (chart/crds/blueprint.yaml `required: [version, card]`),
+	// so a version-less aggregator file is REJECTED by kustomize-controller's
+	// server-side dry-run whenever the named CR does not already exist (bare-
+	// name mismatch, post-prune, curate of a non-seed blueprint) — wedging the
+	// ENTIRE catalog-sovereign Kustomization (hw255 walk, gitea commits
+	// d030078f/552a556c: `Blueprint "alloy" is invalid: spec.version: Required
+	// value`). The #4415 zero-touch seed-bump property is traded away: a
+	// catalog-seed version bump on a card-edited blueprint is now pinned until
+	// the next card edit refreshes the file (noted on #5113).
+	stamped := stampBlueprintCRForFluxAggregator(merged, bpName)
+	if len(stamped) == 0 {
+		// An unparsable document must never land in the Flux tree — that is
+		// the same Kustomization-wide wedge class. Surface it instead.
+		return false, fmt.Errorf("render Flux aggregator payload for %s: document did not parse", bpName)
+	}
+	return h.writeCatalogSovereignAggregatorBytes(ctx, bpName, stamped)
 }
 
 // writeCatalogSovereignAggregatorBytes commits the SUPPLIED final bytes to the
@@ -170,42 +182,6 @@ func (h *Handler) writeCatalogSovereignAggregatorBytes(ctx context.Context, bpNa
 			catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch, path, err)
 	}
 	return committed, nil
-}
-
-// stripDeliveryFieldsForFluxAggregator removes the chart-delivery fields
-// (spec.version + spec.source) from a Blueprint CR's YAML bytes before they
-// are committed to the Flux-reconciled catalog-sovereign aggregator tree
-// (#4415). Those fields are owned exclusively by catalog-seed (Helm) so a
-// seed version bump reaches the live CR with no human kubectl patch; the
-// Flux Kustomization applies this file with force:true SSA, which would
-// otherwise steal version/source ownership and pin them at the operator's
-// last-edit value, fighting every catalog-seed bump in a per-reconcile
-// ping-pong.
-//
-// The resulting partial CR is only ever consumed by kustomize-controller
-// SSA against the same-named CR catalog-seed already seeded WITH a version,
-// so the merged in-cluster object still satisfies the CRD's required
-// spec.version — SSA owns only the fields the applied config carries.
-//
-// Best-effort: on any decode/encode failure the input bytes are returned
-// unchanged so the reconcile (which already round-trips the per-Blueprint
-// UI read source) is never blocked by a strip.
-func stripDeliveryFieldsForFluxAggregator(merged []byte) []byte {
-	var doc map[string]interface{}
-	if err := yamlv3.Unmarshal(merged, &doc); err != nil || doc == nil {
-		return merged
-	}
-	spec, ok := doc["spec"].(map[string]interface{})
-	if !ok {
-		return merged
-	}
-	delete(spec, "version")
-	delete(spec, "source")
-	out, err := yamlv3.Marshal(doc)
-	if err != nil || len(out) == 0 {
-		return merged
-	}
-	return out
 }
 
 // catalogEditCommitAuthor / Email stamp the commit so a sovereign-admin
@@ -309,22 +285,41 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 		return false, fmt.Errorf("merge blueprint.yaml: %w", err)
 	}
 
+	// #5113 Facets B+C — canonicalize BEFORE committing, through the SAME
+	// serializer the full-CR IaC leg (#5041) uses: metadata.name stamped to
+	// the canonical bp-<slug> live-CR identity (a bare `name: wordpress` from
+	// a bare-named seed / legacy file made Flux swap its inventory entry and
+	// PRUNE the live bp-wordpress CR on hw255), and cluster-populated
+	// metadata scrubbed (uid/resourceVersion/… leaked via legacy Gitea files
+	// survived the read-modify-write and produced the stale-uid Conflict
+	// wedge, gitea commit 7516c865). Both the per-Blueprint read source and
+	// the Flux aggregator get the SAME canonical bytes.
+	canonical := stampBlueprintCRForFluxAggregator(merged, bpName)
+	if len(canonical) == 0 {
+		// Unreachable in practice — merged was just produced by yaml.Marshal —
+		// but never commit a document the canonical serializer cannot parse.
+		return false, fmt.Errorf("canonicalize blueprint.yaml for %s: document did not re-parse", bpName)
+	}
+
 	msg := fmt.Sprintf("catalog: edit %s card via catalyst-api (#3648)", bpName)
 	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignOrg, bpName,
-		catalogEditGitBranch, catalogEditBlueprintPath, merged, msg, catalogEditCommitAuthor())
+		catalogEditGitBranch, catalogEditBlueprintPath, canonical, msg, catalogEditCommitAuthor())
 	if err != nil {
 		return false, fmt.Errorf("put %s/%s/%s: %w", catalogSovereignOrg, bpName, catalogEditBlueprintPath, err)
 	}
 
-	// #3668 — ALSO mirror the SAME merged CR bytes into the Flux-reconciled
-	// aggregator tree so the edit reaches the LIVE in-cluster Blueprint CR
-	// (the per-Blueprint write above is only the UI read source). Best-
-	// effort + additive: an aggregator failure is logged + swallowed so the
-	// edit API call still reports the per-Blueprint commit result (the
-	// reconcile catches up on the next successful write / out-of-band push).
-	if _, aggErr := h.writeCatalogSovereignAggregator(ctx, bpName, merged); aggErr != nil {
-		h.log.Warn("catalog-edit-git: aggregator mirror failed (Blueprint CR will not reconcile until next write)",
-			"blueprint", bpName, "err", aggErr)
+	// #3668 — ALSO mirror the SAME canonical CR bytes into the Flux-
+	// reconciled aggregator tree so the edit reaches the LIVE in-cluster
+	// Blueprint CR (the per-Blueprint write above is only the UI read
+	// source). #5113 Facet D — a failure of this leg is SURFACED, not
+	// swallowed: the aggregator is what actually applies, so reporting
+	// committed=true while it failed is the silent store/IaC split-brain the
+	// hw255 walk caught (same class the #5018 fix closed on the full-CR leg).
+	// The genuine no-op cases (unwired client / mothership) still return
+	// (false, nil) and do not fail the edit.
+	if _, aggErr := h.writeCatalogSovereignAggregatorBytes(ctx, bpName, canonical); aggErr != nil {
+		return false, fmt.Errorf("IaC source committed to %s/%s but the Flux reconcile leg failed (the edit will not reach the live Blueprint CR): %w",
+			catalogSovereignOrg, bpName, aggErr)
 	}
 
 	return committed, nil
@@ -390,13 +385,13 @@ const catalogEditBlueprintPath = "blueprint.yaml"
 // edit from a lossy stub to a full CR when the source is available, and never
 // fails the edit when it isn't.
 //
-// Server-managed + ownership metadata is stripped so the committed file is a
-// clean, hand-authorable source of truth that a later `helm upgrade` will not
-// fight over: status, resourceVersion, uid, generation, creationTimestamp,
-// managedFields, and the Helm/Flux ownership labels+annotations
-// (`app.kubernetes.io/managed-by: Helm`, `helm.toolkit.fluxcd.io/*`, the
-// release-tracking annotations) — leaving apiVersion/kind/metadata.name + the
-// full spec that the Blueprint projector and validateBlueprintYAML accept.
+// Server-side metadata is stripped so the committed file is a clean,
+// hand-authorable source of truth: status, resourceVersion, uid, generation,
+// creationTimestamp, managedFields, last-applied — while the Helm ownership
+// labels+annotations are PRESERVED (#5113 Facet E; see
+// stripBlueprintCRMapForGit) — leaving apiVersion/kind/metadata (name,
+// labels, annotations) + the full spec that the Blueprint projector and
+// validateBlueprintYAML accept.
 func (h *Handler) seedBlueprintYAMLFromLiveCR(ctx context.Context, bpName string) []byte {
 	if h.catalogClient == nil {
 		return nil
@@ -408,16 +403,37 @@ func (h *Handler) seedBlueprintYAMLFromLiveCR(ctx context.Context, bpName string
 	return stripBlueprintCRMapForGit(deepCopyYAMLMap(bp.Raw), bpName)
 }
 
-// stripBlueprintCRMapForGit renders a decoded Blueprint CR map as the
-// ownership-clean YAML source committed to Gitea (the catalog-sovereign
-// per-Blueprint repo AND the Flux aggregator tree). It keeps apiVersion/
-// kind/metadata.name + the full spec, and DROPS every server-managed +
-// ownership field (status + all metadata except name — resourceVersion,
-// uid, generation, creationTimestamp, managedFields, and the Helm/Flux
-// ownership labels+annotations `app.kubernetes.io/managed-by: Helm`,
-// `helm.toolkit.fluxcd.io/*`) so a later `helm upgrade` cannot claim the
-// committed file and the Flux Kustomization can SSA-adopt the live CR
-// (DoD §9.4). Returns nil on a nil/un-marshalable map.
+// blueprintCRServerSideMetadataFields are the cluster-populated metadata
+// fields that must NEVER land in a committed Blueprint source file: they are
+// minted by the API server per live object, so pinning them in git either
+// wedges the next apply (a pruned-then-recreated CR makes the pinned uid a
+// `dry-run failed (Conflict): uid mismatch` — hw255 walk, #5113 Facet C) or
+// is plain noise (managedFields / generation / creationTimestamp / …).
+var blueprintCRServerSideMetadataFields = []string{
+	"uid", "resourceVersion", "generation", "creationTimestamp",
+	"managedFields", "selfLink", "finalizers", "ownerReferences",
+	// Blueprint is a CLUSTER-scoped CRD (chart/crds/blueprint.yaml
+	// scope: Cluster) — a namespace on the committed file is invalid.
+	"namespace",
+}
+
+// stripBlueprintCRMapForGit renders a decoded Blueprint CR map as the clean
+// YAML source committed to Gitea (the catalog-sovereign per-Blueprint repo
+// AND the Flux aggregator tree). It keeps apiVersion/kind + the full spec +
+// the user/ownership metadata (name, labels, annotations), and DROPS ONLY
+// the server-side fields: status, plus the cluster-populated metadata listed
+// in blueprintCRServerSideMetadataFields and the apply-bookkeeping
+// `kubectl.kubernetes.io/last-applied-configuration` annotation.
+//
+// #5113 Facet E (supersedes the former strip-all-metadata behavior): the
+// Helm ownership labels+annotations (`app.kubernetes.io/managed-by: Helm`,
+// `meta.helm.sh/*`) and the catalog-seed/alias labels are PRESERVED. When
+// Flux prunes-and-recreates a CR from a file that lost them, the recreated
+// CR carries no Helm ownership and the next `helm upgrade` of catalyst-
+// platform hits an ownership conflict with NO console repair path (hw255
+// repair needed direct gitea commits 956574c1/ba06d510). With them in the
+// file, a Flux-materialized CR stays helm-adoptable. Returns nil on a
+// nil/un-marshalable map.
 func stripBlueprintCRMapForGit(doc map[string]interface{}, bpName string) []byte {
 	if doc == nil {
 		return nil
@@ -428,16 +444,27 @@ func stripBlueprintCRMapForGit(doc map[string]interface{}, bpName string) []byte
 	setIfAbsent(doc, "apiVersion", "catalyst.openova.io/v1")
 	setIfAbsent(doc, "kind", "Blueprint")
 
-	// metadata: keep only name; drop server-managed + ownership fields.
-	if meta, ok := doc["metadata"].(map[string]interface{}); ok {
-		name := asString(meta["name"])
-		if strings.TrimSpace(name) == "" {
-			name = bpName
-		}
-		doc["metadata"] = map[string]interface{}{"name": name}
-	} else {
-		doc["metadata"] = map[string]interface{}{"name": bpName}
+	// metadata: keep name + labels + annotations; drop server-side fields.
+	meta, ok := doc["metadata"].(map[string]interface{})
+	if !ok {
+		meta = map[string]interface{}{}
 	}
+	if strings.TrimSpace(asString(meta["name"])) == "" {
+		meta["name"] = bpName
+	}
+	for _, k := range blueprintCRServerSideMetadataFields {
+		delete(meta, k)
+	}
+	if ann, ok := meta["annotations"].(map[string]interface{}); ok {
+		delete(ann, "kubectl.kubernetes.io/last-applied-configuration")
+		if len(ann) == 0 {
+			delete(meta, "annotations")
+		}
+	}
+	if lbl, ok := meta["labels"].(map[string]interface{}); ok && len(lbl) == 0 {
+		delete(meta, "labels")
+	}
+	doc["metadata"] = meta
 
 	// status is server-derived — never part of the source file.
 	delete(doc, "status")
