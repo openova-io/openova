@@ -1,0 +1,26 @@
+# #5088 corrected Service for cinova/catalog-svc — for a FUTURE catalog redeploy only.
+#
+# The live NodePort (8765:30341, 114d) is a `kubectl expose` artifact whose selector
+# pins a stale pod-template-hash (7b8488b969); it has had zero endpoints (cinova
+# namespace runs zero pods) — it is a dead door and is simply deleted (README step 4).
+#
+# If cinova-metro's catalog ever redeploys and needs an in-cluster Service, this is
+# the correct shape: ClusterIP, selector WITHOUT the ReplicaSet hash. External
+# exposure, if ever needed, goes through the existing traefik entrypoints
+# (metro :8081 TLS / bolt :7687) — never a NodePort (§854).
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-svc
+  namespace: cinova
+  labels:
+    app: cinova-metro
+spec:
+  type: ClusterIP
+  selector:
+    app: cinova-metro
+  ports:
+    - name: catalog
+      port: 8765
+      targetPort: 8765
+      protocol: TCP

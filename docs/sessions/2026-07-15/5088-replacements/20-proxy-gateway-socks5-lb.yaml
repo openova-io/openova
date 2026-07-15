@@ -1,0 +1,32 @@
+# #5088 §854-clean replacement for iogrid/proxy-gateway-socks5 (NodePort 1080:31080).
+#
+# Apply ONLY if the consumer audit (README step 3) shows external plain-SOCKS5
+# clients that cannot move to the live proxy.iogrid.org:443 TLS-passthrough.
+#
+# Mechanism (same as console.openova.io:443 today): k3s ServiceLB (klipper) spawns an
+# svclb pod holding hostPort 1080 on the node and forwards to this Service's ClusterIP.
+# - allocateLoadBalancerNodePorts: false  → kube-proxy opens NO nodePort (§854).
+# - externalTrafficPolicy MUST stay Cluster → klipper targets the ClusterIP; with
+#   Local it would target a nodePort that no longer exists (see README appendix).
+# External endpoint becomes 45.151.123.50:1080 (proxy.iogrid.org:1080) — consumers
+# change :31080 → :1080 once.
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy-gateway-socks5-lb
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: proxy-gateway
+    app.kubernetes.io/part-of: iogrid
+    catalyst.openova.io/purpose: socks5-external-854-clean
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  externalTrafficPolicy: Cluster
+  selector:
+    app.kubernetes.io/name: proxy-gateway
+  ports:
+    - name: socks5
+      port: 1080
+      targetPort: 1080
+      protocol: TCP
