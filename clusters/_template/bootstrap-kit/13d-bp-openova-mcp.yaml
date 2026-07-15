@@ -1,0 +1,122 @@
+# bp-openova-mcp — Catalyst bootstrap-kit Blueprint slot 13d
+# (catalyst-platform cohort / Pillar-4 agent access).
+#
+# The SOVEREIGN-mode instance of the OpenOva MCP server (#3988 / #5114):
+# an RBAC-scoped-per-user THIN facade that exposes the OpenOva product
+# surface as MCP tools with UI=MCP parity. Streamable-HTTP Service at
+# mcp.${SOVEREIGN_FQDN} (Gateway-API HTTPRoute on the canonical Sovereign
+# Gateway — never a Traefik Ingress, never a NodePort, §854). Every data
+# tool forwards the CALLER's bearer to the live catalyst-api, whose own
+# authz is the final word — the pod carries ZERO k8s RBAC and no token
+# mount. Per-Org (organization-mode) instances are NOT this slot: they
+# arrive via the org pipeline (follow-up on #5114); today the per-Org
+# path is the agenity-bundled stdio child (products/agenity).
+#
+# Slot 13d — the catalyst-platform cohort (13 umbrella / 13b sso-bridge /
+# 13c oidc-gate): the facade is meaningless before catalyst-api exists,
+# and the bearers it verifies are minted by catalyst-api's handover
+# signer against Keycloak-backed sessions (slot 09). It REPLACES the
+# retired Sandbox slot 19a (bp-sandbox — Sandbox concept removed by the
+# founder 2026-06-30; see kustomization.yaml tombstone).
+#
+# dependsOn:
+#   - bp-catalyst-platform — catalyst-api is the facade's upstream AND
+#     the publisher of the catalyst-handover-jwt Secret (the RS256 verify
+#     pubkey the chart's deployment reads, #4114). Installing before it
+#     would just CrashLoop-wait; the dep edge keeps bootstrap convergence
+#     honest.
+#   - bp-keycloak — session identity is Keycloak-backed (the Sovereign
+#     realm mints the sessions whose bearers this instance verifies).
+#     bp-catalyst-platform already gates on bp-keycloak (slot 13 #512),
+#     so this edge is belt-and-suspenders documentation of the real
+#     dependency.
+#   Namespace-pinned to flux-system on every edge (hw91: a namespace-less
+#   dependsOn resolves in the HR's OWN namespace — the #3191 dangling-dep
+#   wedge shape).
+#
+# Post-cutover: the bp-openova-mcp HelmRepository is repointed by the
+# step-06 live-discovery union (static names ∪ live openova-io
+# HelmRepositories, #4573 F4) and the workload image is pivoted by the
+# step-07 Phase-4 comprehensive pod-spec sweep (#4973/#4975/#4961) — the
+# chart's image helper ALSO honours global.imageRegistry and this slot
+# carries the 6-space `imageRegistry: ''` seam for the durable Gitea edit.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-openova-mcp
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-openova-mcp
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  labels:
+    catalyst.openova.io/slot: "13d"
+    catalyst.openova.io/component: openova-mcp
+spec:
+  interval: 1m
+  releaseName: openova-mcp
+  # Lands in catalyst-system co-located with catalyst-api (its facade
+  # upstream + the catalyst-handover-jwt verify-pubkey Secret the
+  # deployment's optional secretKeyRef reads — a cross-namespace ref is
+  # impossible, so co-location IS the wiring).
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-catalyst-platform
+      namespace: flux-system
+    - name: bp-keycloak
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-openova-mcp
+      # 0.1.0 (#5114, Refs #3988): first release — Deployment (streamable-
+      # HTTP transport) + ClusterIP Service + HTTPRoute mcp.<fqdn> +
+      # zero-RBAC ServiceAccount + Cilium ingress/egress CNPs. Lockstep:
+      # products/openova-mcp/chart/Chart.yaml + blueprint.yaml +
+      # catalog-seed (blueprints.json).
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-openova-mcp
+        namespace: flux-system
+  # Event-driven install: a single stateless Deployment + Service —
+  # manifests apply fast; readiness is signalled via Flux dependsOn,
+  # never via spec.timeout watchdogs.
+  install:
+    timeout: 10m
+    disableWait: true
+    remediation:
+      retries: 5
+      remediateLastFailure: true
+  upgrade:
+    timeout: 10m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface. ${SOVEREIGN_FQDN} is interpolated at
+  # Flux apply time via the bootstrap-kit Kustomization's
+  # postBuild.substitute hook.
+  values:
+    # #4885 / #4892: global.imageRegistry override seam for the step-07
+    # cutover image-registry pivot. step-07 patches this HR's
+    # spec.values.global.imageRegistry live AND durably sed-edits THIS
+    # file — the sed matches `^      imageRegistry:`, so the 6-space
+    # indent is REQUIRED. Empty default = verbatim ghcr.io
+    # (byte-identical pre-cutover).
+    global:
+      imageRegistry: ''
+    sovereignFqdn: ${SOVEREIGN_FQDN}
+    # The sovereign-mode topology pin (#3988 §4.3): full surface for
+    # sovereign-admin bearers, in-cluster catalyst-api upstream (derived
+    # by the chart), HTTPRoute mcp.${SOVEREIGN_FQDN} on the canonical
+    # kube-system/cilium-gateway (chart defaults).
+    mode: sovereign

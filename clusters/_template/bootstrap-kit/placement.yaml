@@ -221,11 +221,19 @@ spec:
     # ── #4291 DE-VCLUSTER — coraza (the lone dmz plane) → native host ns ──
     - {file: 35-coraza.yaml, hr: bp-coraza, vcluster: host, target: host, namespace: coraza,
        justification: "#4291 DE-VCLUSTER §C — WAF is a platform plane, not a tenant boundary; native host ns + per-component default-deny CNP (Refs #4293)"}
-    # ── #4291 DE-VCLUSTER — sandbox-controller (rtz plane) → its OWN host ns ──
-    # Was `catalyst-system` inside vc-rtz (collides with host catalyst-system
-    # workloads once de-vclustered) → dedicated host ns `sandbox`.
-    - {file: 19a-bp-sandbox.yaml, hr: bp-sandbox, vcluster: host, target: host, namespace: sandbox,
-       justification: "#4291 DE-VCLUSTER §C — sandbox-controller is a platform plane, not a tenant boundary; dedicated host ns `sandbox` (was catalyst-system in vc-rtz) + per-component default-deny CNP (Refs #4293)"}
+    # ── bp-sandbox (19a) RETIRED 2026-07-15 (#5114, Refs #3988) — the Sandbox
+    # concept was removed by the founder 2026-06-30; slot file deleted (see
+    # kustomization.yaml tombstone). Superseded by bp-openova-mcp (13d) +
+    # bp-agenity.
+    # ── bp-openova-mcp (13d, #5114 Refs #3988) — sovereign-mode MCP facade ──
+    # Co-located with catalyst-api in catalyst-system: catalyst-api is the
+    # facade's upstream AND publishes the catalyst-handover-jwt verify-pubkey
+    # Secret the deployment's optional secretKeyRef reads (#4114) — a
+    # cross-namespace secretKeyRef is impossible, so co-location IS the wiring
+    # (same catalyst-system placement rationale as openova-flow-server, 56).
+    - {file: 13d-bp-openova-mcp.yaml, hr: bp-openova-mcp, vcluster: host, target: host,
+       namespace: catalyst-system,
+       justification: "#5114 Refs #3988 — thin facade over catalyst-api; co-located in catalyst-system for the in-cluster upstream + the catalyst-handover-jwt verify-pubkey Secret (#4114); zero-RBAC pod, per-component CNPs in-chart"}
 
     # ── §4 PLACEMENT EXCEPTION — host-staying on the pure-OSS Sovereign
     #    stack (a SOVEREIGNTY decision, NOT an unfinished task) ──────────
