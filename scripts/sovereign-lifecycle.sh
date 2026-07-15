@@ -47,8 +47,15 @@ wipe() {
 }
 
 # fire <subdomain> [pool] — RESET-UAT-ON-FIRE: reset first, ALWAYS, then fire.
+# QATEST / FIRECUT env vars parameterize qaTestEnabled / fireCutoverOnHandover
+# (defaults false/true = the North-Star combo). #5119: these MUST reach the
+# POST body — the script used to echo them in the preflight banner while the
+# body omitted both, so the server default (fireCutoverOnHandover=false)
+# silently disarmed the zero-touch cutover on every fire (hw256: chain sat
+# dormant, child logged 'operator-gated Sovereign', fired via RT-10 instead).
 fire() {
   local sub="$1" pool="${2:-omani.works}" pub body
+  local qatest="${QATEST:-false}" firecut="${FIRECUT:-true}"
   # MANDATORY pre-flight gate (docs/PROTOCOL.md §5; founder mandate 2026-06-30:
   # never fire blind). Fail-closed, no bypass. Runs BEFORE reset_uat so a
   # refused fire never flushes ledger evidence. HW_TFVARS auto-fetched from the
@@ -65,7 +72,9 @@ fire() {
     fi
   fi
   echo "== MANDATORY prov-preflight gate (docs/PROTOCOL.md §5) =="
-  if ! BEARER="$(_tok)" bash "${REPO_ROOT}/scripts/prov-preflight.sh" "${sub}.${pool}" "auto-${sub}" "false" "true"; then
+  # Preflight banner MUST echo the SAME values the body will carry (#5119:
+  # echo-vs-body drift is what hid the disarmed cutover).
+  if ! BEARER="$(_tok)" bash "${REPO_ROOT}/scripts/prov-preflight.sh" "${sub}.${pool}" "auto-${sub}" "$qatest" "$firecut"; then
     echo "!! PRE-FLIGHT FAIL — fire ABORTED (fix the ❌ items; never fire blind. ONE environment at a time: completely wipe the existing env FIRST — #5111)"; return 1
   fi
   echo "== reset-UAT-on-fire (founder rule 2026-06-08) =="; reset_uat "$sub"
@@ -96,10 +105,10 @@ fire() {
   # RCA 2026-05-27 — s7n.large.4 exhausted -> Ecs.0219 No-valid-host, 11 wasted debug
   # waves). Only m7n.large.8 (CP) and m7n.xlarge.8 (worker) are verified-ACTIVE; verify
   # any other flavor via direct HCS API (sub_jobs[0].error_code) BEFORE firing.
-  body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-true}" \
+  body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-true}" QATEST="$qatest" FIRECUT="$firecut" \
     CP_SIZE="${CP_SIZE:-m7n.large.8}" WORKER_SIZE="${WORKER_SIZE:-m7n.xlarge.8}" WORKER_COUNT="${WORKER_COUNT:-3}" \
-    python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];c=os.environ["CP_SIZE"];w=os.environ["WORKER_SIZE"];wc=int(os.environ["WORKER_COUNT"]);print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":c,"workerSize":w,"workerCount":wc},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":c,"workerSize":w,"workerCount":wc}]}))')
-  echo "== firing ${sub}.${pool} (CP=${CP_SIZE:-m7n.large.8} worker=${WORKER_SIZE:-m7n.xlarge.8}x${WORKER_COUNT:-3}/region sharedPG=${SHARED_PG:-true}) =="
+    python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];c=os.environ["CP_SIZE"];w=os.environ["WORKER_SIZE"];wc=int(os.environ["WORKER_COUNT"]);print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","qaTestEnabled":os.environ.get("QATEST")=="true","fireCutoverOnHandover":os.environ.get("FIRECUT")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":c,"workerSize":w,"workerCount":wc},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":c,"workerSize":w,"workerCount":wc}]}))')
+  echo "== firing ${sub}.${pool} (CP=${CP_SIZE:-m7n.large.8} worker=${WORKER_SIZE:-m7n.xlarge.8}x${WORKER_COUNT:-3}/region sharedPG=${SHARED_PG:-true} qaTest=${qatest} fireCutover=${firecut}) =="
   curl -sk -X POST -H "Authorization: Bearer $(_tok)" -H "Content-Type: application/json" -d "$body" "${API}"; echo
 }
 
