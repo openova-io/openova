@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T08:30:05Z` |
+| Last refreshed | `2026-07-15T08:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 32 |
+| Open issues | 27 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 32 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 27 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,11 +196,10 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 32 open items (clickable table)
+### All 27 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3379](https://github.com/openova-io/openova/issues/3379) | SOVEREIGNTY: cutover earns a durable, revert-immune cutoverComplete=true under a | Other |
 | [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (targets[] · Primary/Standby·Hot/Cold · c | Other |
 | [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity North Star (chat→provision, Pillar 4): mechanism merged+wired — B | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — DR/spine half LIVE-Healthy (spine Applica | Other |
@@ -214,7 +213,6 @@ flowchart LR
 | [#4765](https://github.com/openova-io/openova/issues/4765) | Zero NodePorts: kill powerdns-anycast NodePort + clustermesh nodePort dial (LB-I | Other |
 | [#4896](https://github.com/openova-io/openova/issues/4896) | Catalog Edit-IaC YamlEditor Commit broken: dry-run 400 name-mismatch (metadata.n | Other |
 | [#4901](https://github.com/openova-io/openova/issues/4901) | cnpg-pair Continuum doesn't surface standby-absent condition (health/lag stay gr | Other |
-| [#5007](https://github.com/openova-io/openova/issues/5007) | cutover: fresh-node local-registry pull breaks when public DNS wildcard shadows  | Other |
 | [#5012](https://github.com/openova-io/openova/issues/5012) | hw242: region-B bootstrap stalled after CNI (bare cluster) → mesh 0/0, shared- | Other |
 | [#5014](https://github.com/openova-io/openova/issues/5014) | cutover driver: Job-watch channel loss marks a SUCCEEDED step failed and halts t | Other |
 | [#5018](https://github.com/openova-io/openova/issues/5018) | Edit-IaC commits are silently inert: full-CR editor writes only the unwatched pe | Other |
@@ -222,12 +220,9 @@ flowchart LR
 | [#5042](https://github.com/openova-io/openova/issues/5042) | Fresh-prov bootstrap wedge: cloud-init flux-install stage silently doesn't compl | Other |
 | [#5063](https://github.com/openova-io/openova/issues/5063) | Cutover step-08 wedges: falco DS pod denied by Kyverno resource-requests Enforce | Other |
 | [#5070](https://github.com/openova-io/openova/issues/5070) | docs(§854): eradicate stale NodePort references in Huawei provider (README + SG | Other |
-| [#5072](https://github.com/openova-io/openova/issues/5072) | §854 VIOLATION: Hetzner provider uses live NodePorts (powerdns :53→node:30053 | Other |
-| [#5074](https://github.com/openova-io/openova/issues/5074) | Cutover step-08 rolls the CSI driver → NodeStage desync → stateful EVS-PVC w | Other |
 | [#5077](https://github.com/openova-io/openova/issues/5077) | marketplace.openova.io returns 503 (persistent) — backend marketplace-api 1/1  | Other |
 | [#5086](https://github.com/openova-io/openova/issues/5086) | Hetzner Sovereign DNS has no working front door since bp-powerdns 1.2.18 §854 f | Other |
 | [#5088](https://github.com/openova-io/openova/issues/5088) | §854: 4 live NodePort Services on the mothership cluster (founder #1 ban) — s | Other |
-| [#5091](https://github.com/openova-io/openova/issues/5091) | cutover step-08 minimal-roll-set rolls stateful RWO-EVS singletons (gitea) → C | Other |
 | [#5093](https://github.com/openova-io/openova/issues/5093) | ops: mothership prefix 45.151.123.0/24 black-holed from Omantel egress (Cogent l | Other |
 | [#5095](https://github.com/openova-io/openova/issues/5095) | cutover step-03: prewarm hard-depends on mothership harbor proxy (harbor.openova | Other |
 | [#5099](https://github.com/openova-io/openova/issues/5099) | shared-pg trio: HelmReleases Ready ('upgrade succeeded shared-pg.v2') but ZERO r | Other |
@@ -239,7 +234,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T08:44 | [#5102](https://github.com/openova-io/openova/pull/5102) | #5100 | fix(console): purge rendered tenant-term copy; refute rows 1 |
+| 2026-07-15T08:43 | [#5101](https://github.com/openova-io/openova/pull/5101) | #5099 | fix(#5099): fire script defaults SHARED_PG=true — explicit e |
+| 2026-07-15T08:31 | [#5098](https://github.com/openova-io/openova/pull/5098) | #4765 | fix(#4765): cross-namespace grant for the sovereign-vip VIP  |
+| 2026-07-15T08:31 | [#5097](https://github.com/openova-io/openova/pull/5097) | #5019 | fix(jobs): surface the 65 bootstrap-kit install rows on /job |
+| 2026-07-15T08:31 | [#5096](https://github.com/openova-io/openova/pull/5096) | #4683 | fix(catalyst-api): sovereign-admin fleet visibility on /sove |
+| 2026-07-15T08:31 | [#5094](https://github.com/openova-io/openova/pull/5094) | #4901 | fix(continuum): cnpg-pair Continuum CR surfaces standby-abse |
 | 2026-07-15T03:47 | [#5092](https://github.com/openova-io/openova/pull/5092) | #5081 | fix(cutover): step-08 rule c — never roll stateful RWO-EVS s |
+| 2026-07-15T08:31 | [#5090](https://github.com/openova-io/openova/pull/5090) | #5086 | fix(powerdns): Hetzner DNS front door via dnsdist hostPort:5 |
 | 2026-07-15T03:09 | [#5089](https://github.com/openova-io/openova/pull/5089) | #5088 | feat(kyverno-policies): §854 NodePort audit guard |
 | 2026-07-15T03:09 | [#5087](https://github.com/openova-io/openova/pull/5087) | #5007 | fix(cutover): step-03 prewarm — in-cluster CoreDNS pin for r |
 | 2026-07-14T22:41 | [#5085](https://github.com/openova-io/openova/pull/5085) | #5082 | fix(cloudinit): repair #5082 build-failure — CP cloud-init b |
@@ -262,13 +264,6 @@ flowchart LR
 | 2026-07-14T07:26 | [#5058](https://github.com/openova-io/openova/pull/5058) | #5054 | feat(reliability): RT-11 CI merge-hold gate + canonical scri |
 | 2026-07-14T12:37 | [#5057](https://github.com/openova-io/openova/pull/5057) | #5042 | fix(cloud-init): retry + fail-loud sentinels on flux/gateway |
 | 2026-07-14T05:51 | [#5056](https://github.com/openova-io/openova/pull/5056) | #5028 | feat(scripts): preflight check 3d — EVS volume headroom fire |
-| 2026-07-14T12:38 | [#5055](https://github.com/openova-io/openova/pull/5055) | #5007 | fix(cutover): step-04 registry-pin VIP derivation splits on  |
-| 2026-07-14T12:34 | [#5054](https://github.com/openova-io/openova/pull/5054) | #4996 | docs(protocol): RT-11 mid-cutover merge-hold + runner-wedge  |
-| 2026-07-14T00:30 | [#5053](https://github.com/openova-io/openova/pull/5053) | #5051 | fix(cutover): step-03 skopeo dest = HARBOR_PUBLIC_URL behind |
-| 2026-07-14T00:10 | [#5052](https://github.com/openova-io/openova/pull/5052) | #5051 | fix(cutover): step-03 HARBOR_HOST explicit port — bare in-cl |
-| 2026-07-13T23:39 | [#5050](https://github.com/openova-io/openova/pull/5050) | #5049 | fix(scripts): preflight check-3 false-orphan on ELB-bound EI |
-| 2026-07-13T23:21 | [#5049](https://github.com/openova-io/openova/pull/5049) | #5046 | fix(scripts): wire MANDATORY prov-preflight gate into fire() |
-| 2026-07-13T23:13 | [#5048](https://github.com/openova-io/openova/pull/5048) | #3370 | docs(align): PROTOCOL.md execution protocol + durable-surfac |
 
 ---
 
