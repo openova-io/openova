@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T13:00:06Z` |
+| Last refreshed | `2026-07-15T13:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 18 |
+| Open issues | 19 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 18 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 18 open items (clickable table)
+### All 19 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,6 +218,7 @@ flowchart LR
 | [#5099](https://github.com/openova-io/openova/issues/5099) | shared-pg trio: HelmReleases Ready ('upgrade succeeded shared-pg.v2') but ZERO r | Other |
 | [#5100](https://github.com/openova-io/openova/issues/5100) | console deployed bundle regressions found by hw255 fleet walk: Reconcile/Suspend | Other |
 | [#5104](https://github.com/openova-io/openova/issues/5104) | P0: funnel purchased app never deploys — cart-install kustomization merge drop | Other |
+| [#5113](https://github.com/openova-io/openova/issues/5113) | catalog card-form Save commit-leg writes invalid/destructive Blueprint YAML —  | Other |
 
 ---
 
@@ -225,6 +226,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T13:05 | [#5112](https://github.com/openova-io/openova/pull/5112) | #2 | fix(preflight): ONE-environment-at-a-time fail-closed gate ( |
 | 2026-07-15T09:44 | [#5109](https://github.com/openova-io/openova/pull/5109) | #5104 | fix(#5104): funnel purchased app never deploys — plan-aware  |
 | 2026-07-15T09:35 | [#5108](https://github.com/openova-io/openova/pull/5108) | #3997 | fix(cloud): Networking lens chips read 0/0 — adapt Gateway/H |
 | 2026-07-15T09:35 | [#5107](https://github.com/openova-io/openova/pull/5107) | #5012 | fix(catalyst-api): stop freezing a healthy secondary at 0/0  |
@@ -254,7 +256,6 @@ flowchart LR
 | 2026-07-14T13:40 | [#5069](https://github.com/openova-io/openova/pull/5069) | #5059 | fix(cutover-contract): Case 49 exact-match → contains-check  |
 | 2026-07-14T13:26 | [#5068](https://github.com/openova-io/openova/pull/5068) | #5042 | fix(cloud-init): force IPv4 on Huawei log-self-upload → mid- |
 | 2026-07-14T12:42 | [#5067](https://github.com/openova-io/openova/pull/5067) | #5060 | fix(cutover): consolidate step-08 hardening (oauth2-proxy+fa |
-| 2026-07-14T12:37 | [#5064](https://github.com/openova-io/openova/pull/5064) | #4640 | fix(cutover): exempt falco from Kyverno resource-requests En |
 
 ---
 
