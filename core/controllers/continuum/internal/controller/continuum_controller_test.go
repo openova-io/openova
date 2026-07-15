@@ -416,7 +416,7 @@ func TestPatchStatusFromCR_HealthyWhenHolderMatchesPrimary_NoEnv(t *testing.T) {
 		Holder:    primary,
 		ExpiresAt: now.Add(30 * time.Second),
 	}
-	if err := r.patchStatusFromCR(context.Background(), cr, spec, lease, cnpg.Status{}, cnpg.Status{}, false, ""); err != nil {
+	if err := r.patchStatusFromCR(context.Background(), cr, spec, lease, cnpg.Status{}, cnpg.Status{}, cnpg.StandbyObservation{}, false, ""); err != nil {
 		t.Fatalf("patchStatusFromCR: %v", err)
 	}
 

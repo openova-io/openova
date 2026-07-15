@@ -81,6 +81,47 @@ type Status struct {
 	// Ready reports whether the Cluster is operationally Ready as
 	// surfaced by the conditions array (type=Ready, status=True).
 	Ready bool
+
+	// ReadyInstances is status.readyInstances — the count of the
+	// Cluster's Pods currently Ready. CNPG drops it to 0 when every
+	// instance is down (the #4901 region-kill state: nodes cordoned,
+	// replica Pods deleted). HasReadyInstances reports whether the
+	// field was present at all — an absent field means the Cluster
+	// status is too old/partial to judge on this axis.
+	ReadyInstances    int
+	HasReadyInstances bool
+}
+
+// StandbyAvailable reports whether the replica (standby) half of a
+// cnpg cluster-pair is genuinely serving as a hot-standby: its Cluster
+// reports Ready=True AND (when the field is present) at least one
+// instance is Ready (#4901).
+//
+// A Ready-but-LAGGING standby is still AVAILABLE — replication lag is
+// a separate axis (status.replicationLagSeconds) and must NEVER raise
+// a standby-absent alarm. Only an unreachable / down standby (not
+// Ready, or zero ready instances) counts as absent.
+func StandbyAvailable(replica Status) bool {
+	if !replica.Ready {
+		return false
+	}
+	if replica.HasReadyInstances {
+		return replica.ReadyInstances >= 1
+	}
+	return true
+}
+
+// StandbyObservation is one reconcile pass's determination of the
+// required synchronous hot-standby's availability (#4901). Known=false
+// means no determination could be made this pass (the CR names no
+// cnpg pair — dr-spine/raft continuums — or the replica half was not
+// resolvable, e.g. provisioning in flight); the controller then leaves
+// any prior StandbyAvailable condition untouched instead of
+// false-alarming.
+type StandbyObservation struct {
+	Known          bool
+	Available      bool
+	ReplicaCluster string
 }
 
 // Reader reads + writes CNPG Cluster CRs via the dynamic client.
@@ -244,6 +285,19 @@ func parseStatus(cr *unstructured.Unstructured) Status {
 		s.LagSeconds = int(lag)
 	} else if lag, found, _ := unstructured.NestedInt64(cr.Object, "status", "replication", "lagSeconds"); found {
 		s.LagSeconds = int(lag)
+	}
+
+	// readyInstances — tolerate the int64/int/float64 encodings the
+	// dynamic client + fakes produce (#4901).
+	if v, found, _ := unstructured.NestedFieldNoCopy(cr.Object, "status", "readyInstances"); found {
+		switch n := v.(type) {
+		case int64:
+			s.ReadyInstances, s.HasReadyInstances = int(n), true
+		case int:
+			s.ReadyInstances, s.HasReadyInstances = n, true
+		case float64:
+			s.ReadyInstances, s.HasReadyInstances = int(n), true
+		}
 	}
 
 	conds, _, _ := unstructured.NestedSlice(cr.Object, "status", "conditions")

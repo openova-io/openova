@@ -5368,7 +5368,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-continuum
-    version: "0.1.9"
+    version: "0.1.10"
   topology:
     supported:
       - active-hot-standby

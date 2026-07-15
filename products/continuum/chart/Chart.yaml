@@ -77,7 +77,24 @@ type: application
 # Degraded/leaseHolder-empty -> Topology DR undeliverable. Bumping to
 # 0.1.9 (image still 9c91a7e) forces the re-pull. Slot-62 pin moves to
 # 0.1.9 in lockstep (Inviolable Principle #13).
-version: 0.1.9
+# 0.1.10 (#4901): the continuum-controller now surfaces a lost REQUIRED
+# synchronous hot-standby on the cnpg-pair Continuum CR status it owns:
+# phase Healthy->Degraded, status.standbyAvailable=false,
+# status.hotStandbyAbsent=true, and a StandbyAvailable=False /
+# StandbyUnreachable condition when the pair's replica-role Cluster
+# half is not Ready (or reports readyInstances=0 — the proven G12
+# region-kill state on hw232 where the CR sat phase=Healthy /
+# replicationLagSeconds=0 for the whole outage while writes stalled on
+# SyncRep). Field + condition naming matches the catalyst-api DR-panel
+# projection (#4905) so the stored and observed statuses agree. A
+# Ready-but-lagging standby is NEVER flagged (lag rides its own field);
+# dr-spine/raft continuums (no spec.cnpgPair) and unresolvable pairs
+# are left untouched — no false alarms. Chart templates unchanged
+# (controller-image change); the version bump forces the Flux re-pull
+# once the deploy-bot stamps the new image SHA (the 0.1.9 lesson).
+# Slot-62 pin + catalog-seed source.version move to 0.1.10 in lockstep
+# (Inviolable Principle #13).
+version: 0.1.10
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
