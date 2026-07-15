@@ -1336,15 +1336,44 @@ runcmd:
     # bootstrap-kit substitute map (the NODE_IP_PLACEHOLDER sentinel) so Cilium
     # reaches its OWN apiserver on a real address on every cloud.
     sed -i "s|NODE_IP_PLACEHOLDER|$${NODE_IP}|g" /var/lib/catalyst/cilium-values.yaml /var/lib/catalyst/flux-bootstrap.yaml
-    curl -sfL https://get.k3s.io | \
-      INSTALL_K3S_VERSION=${k3s_version} \
-      K3S_TOKEN=${k3s_token} \
-      INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
-      sh -
+    # #5042: k3s install is the bootstrap FOUNDATION. The old single-shot
+    # `curl https://get.k3s.io | ... sh -` silently no-ops on a transient
+    # DNS/CDN miss — the pipe masks curl's exit and an empty stdin makes
+    # `sh -` exit 0, so a failed download "succeeds", k3s never installs, the
+    # apiserver never comes up, and the healthz wait below spins forever (hw247
+    # class, forensic-blind). Fix: download the installer to a FILE first (so a
+    # failed fetch is VISIBLE, not masked by the pipe), then run it; retry the
+    # whole unit 5x with linear backoff (sleep i*10s) to ride out the
+    # #3232/#3829 github/ghcr transient-DNS class instead of a one-shot dice-
+    # roll. Exhaustion is fail-loud — the sentinel + exit 88 halts runcmd and,
+    # on Huawei, the mark helper pushes the cloud-init log so the foundation
+    # failure is diagnosable, never blind. Re-running the k3s installer is
+    # idempotent (rewrites the unit + restarts), so a retry after a partial
+    # install recovers cleanly.
+    for i in 1 2 3 4 5; do
+      curl -fsSL --max-time 60 https://get.k3s.io -o /var/lib/catalyst/k3s-install.sh \
+        && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} \
+           INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
+           sh /var/lib/catalyst/k3s-install.sh \
+        && break
+      [ "$i" = 5 ] && { echo "[k3s] FATAL: install failed after 5 attempts" >&2; %{ if provider == "huawei" }sh /var/lib/catalyst/mark k3s-install-FAILED||true%{ else }touch /var/lib/catalyst/k3s-install-FAILED%{ endif }; exit 88; }
+      sleep $((i*10))
+    done
 
   # Wait for the API server to be reachable (Cilium comes up later, so we
   # wait specifically for the apiserver /healthz endpoint, not node-Ready).
-  - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
+  # #5042: BOUNDED. This was an UNBOUNDED `until ...; do sleep 5; done` that
+  # hung forever AND silently if the apiserver never came healthy — the exact
+  # latent defect the RCA flagged (a dead apiserver masqueraded as a downstream
+  # flux wedge, forensic-blind). Now 120x5s = 10m budget, then fail-loud: FATAL
+  # + sentinel + exit 89 (halts runcmd) and, on Huawei, the mark helper pushes
+  # the cloud-init log so a dead apiserver is fast-and-diagnosable.
+  - |
+    n=0
+    until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz >/dev/null 2>&1; do
+      n=$((n+1)); [ "$n" -ge 120 ] && { echo "[healthz] FATAL: apiserver never healthy after 120 tries (10m)" >&2; %{ if provider == "huawei" }sh /var/lib/catalyst/mark apiserver-healthz-FAILED||true%{ else }touch /var/lib/catalyst/apiserver-healthz-FAILED%{ endif }; exit 89; }
+      sleep 5
+    done
 
   # #3971 — NO StorageClass is provisioned here. k3s ran with
   # `--disable=local-storage` (above) so the ephemeral local-path provisioner
