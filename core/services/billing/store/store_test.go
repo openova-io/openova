@@ -241,8 +241,9 @@ func TestCreateOrder_DerivesBaisaFromOMR(t *testing.T) {
 		WithArgs(
 			"cust", "tenant", "plan",
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
-			42,           // amount_omr
-			int64(42000), // amount_baisa
+			"single-region", // topology (default when unset)
+			42,              // amount_omr
+			int64(42000),    // amount_baisa
 			"pending",
 			sqlmock.AnyArg(), // stripe_session_id
 			sqlmock.AnyArg(), // promo_code (#91)
@@ -375,6 +376,7 @@ func TestCreditOnlyCheckout_CommitsAllThreeWrites(t *testing.T) {
 		WithArgs(
 			"cust", "tenant", "plan",
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // apps, addons
+			sqlmock.AnyArg(), // topology
 			9, int64(9000), // amount_omr, amount_baisa
 			"completed",
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // stripe_session_id (nil), promo_code (nil)

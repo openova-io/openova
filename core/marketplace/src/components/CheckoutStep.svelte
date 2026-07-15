@@ -12,7 +12,15 @@
   const selectedAddons = $derived(addons.filter(a => cart.addons.includes(a.id)));
   const planCost = $derived(selectedPlan?.monthly_price ?? 0);
   const addonCost = $derived(selectedAddons.reduce((sum, a) => sum + a.monthly_price, 0));
-  const totalCost = $derived(planCost + addonCost);
+  // #5104 facet B — the BCP step stores the choice at
+  // cart.appConfigs.postgres.active_hot_standby; it must be a priced line
+  // item HERE too, or the checkout total silently under-states what /review
+  // showed and (before the billing fix) under-billed the order. 5000 baisa
+  // mirrors billing's activeHotStandbyPriceOMR — the server remains the
+  // authority; this is display only.
+  const hotStandby = $derived(Boolean((cart.appConfigs ?? {})['postgres']?.['active_hot_standby']));
+  const topologyCost = $derived(hotStandby ? 5000 : 0);
+  const totalCost = $derived(planCost + addonCost + topologyCost);
 
   $effect(() => {
     getPlans().then(p => { plans = p; }).catch(() => {});
@@ -369,6 +377,10 @@
         plan_id: cart.plan || '',
         apps: cart.apps,
         addons: cart.addons,
+        // #5104 facet B — the topology must reach billing explicitly; it
+        // used to travel only inside the tenant-create app_configs, so the
+        // order billed the plan alone while the Org got hot-standby free.
+        topology: hotStandby ? 'active-hot-standby' : 'single-region',
         tenant_id: tenant.id,
         promo_code: trimmedPromo || undefined,
       });
@@ -699,6 +711,12 @@
                 <span class="text-[var(--color-text)]">{formatOMR(a.monthly_price)}</span>
               </div>
             {/each}
+            {#if hotStandby}
+              <div class="flex justify-between">
+                <span class="text-[var(--color-text-dim)]">+ Active hot-standby (BCP)</span>
+                <span class="text-[var(--color-text)]">{formatOMR(topologyCost)}</span>
+              </div>
+            {/if}
             <div class="mt-1 flex justify-between border-t border-dashed border-[var(--color-border)] pt-2 font-semibold">
               <span class="text-[var(--color-text-strong)]">Total (monthly)</span>
               <span class="text-[var(--color-text-strong)]">{formatOMR(totalCost)}</span>

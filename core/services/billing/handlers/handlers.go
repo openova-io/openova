@@ -155,6 +155,13 @@ type checkoutRequest struct {
 	Addons    []string `json:"addons"`
 	TenantID  string   `json:"tenant_id"`
 	PromoCode string   `json:"promo_code"`
+	// Topology is the BCP topology chosen on the marketplace /bcp step, in
+	// the canonical vocabulary ("single-region" | "active-hot-standby").
+	// Empty = single-region. Priced server-side in computeOrderTotal —
+	// #5104 facet B: the choice used to travel ONLY via the tenant-create
+	// app_configs, so the review page showed plan+surcharge while the order
+	// billed the plan alone and the customer received hot-standby unbilled.
+	Topology string `json:"topology"`
 }
 
 type checkoutResponse struct {
@@ -226,7 +233,13 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	// New order: compute total → validate → then redeem. If catalog fails,
 	// the promo stays untouched. The admin's redemption cap accounting
 	// matches the number of orders that actually exist.
-	totalOMR, err := h.computeOrderTotal(ctx, req.PlanID, req.Apps, req.Addons)
+	topology, err := normalizeTopology(req.Topology)
+	if err != nil {
+		slog.Error("checkout: invalid topology", "error", err, "topology", req.Topology)
+		respond.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	totalOMR, err := h.computeOrderTotal(ctx, req.PlanID, req.Apps, req.Addons, topology)
 	if err != nil {
 		slog.Error("checkout: compute total", "error", err)
 		respond.Error(w, http.StatusBadRequest, "failed to compute order total: "+err.Error())
@@ -303,7 +316,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	if remainingOMR <= 0 {
 		order := &store.Order{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
-			Apps: appsJSON, Addons: addonsJSON,
+			Apps: appsJSON, Addons: addonsJSON, Topology: topology,
 			AmountOMR: totalOMR, Status: "completed",
 			PromoCode: req.PromoCode,
 		}
@@ -354,7 +367,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	// Pending order for Stripe.
 	order := &store.Order{
 		CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
-		Apps: appsJSON, Addons: addonsJSON,
+		Apps: appsJSON, Addons: addonsJSON, Topology: topology,
 		AmountOMR: totalOMR, Status: "pending",
 		PromoCode: req.PromoCode,
 	}
@@ -1066,7 +1079,32 @@ type catalogAddon struct {
 	PriceOMR int    `json:"price_omr"`
 }
 
-func (h *Handler) computeOrderTotal(ctx context.Context, planID string, apps, addons []string) (int, error) {
+// Canonical BCP topology vocabulary (docs/GLOSSARY + catalog store.go #3648)
+// and the billing-side price authority for the topology surcharge. The
+// marketplace BCPStep.svelte "+OMR 5.000 / mo" label MUST match this value;
+// moving the price into the catalog service (so FE + billing read one source)
+// is the follow-up tracked on #5104.
+const (
+	topologySingleRegion     = "single-region"
+	topologyActiveHotStandby = "active-hot-standby"
+	activeHotStandbyPriceOMR = 5
+)
+
+// normalizeTopology maps the request field to the canonical vocabulary,
+// fail-closed: empty means single-region (free), anything unrecognized is an
+// error — a typo must never grant an unbilled paid topology (#5104 facet B).
+func normalizeTopology(t string) (string, error) {
+	switch t {
+	case "", topologySingleRegion:
+		return topologySingleRegion, nil
+	case topologyActiveHotStandby:
+		return topologyActiveHotStandby, nil
+	default:
+		return "", fmt.Errorf("unknown topology %q (want %q or %q)", t, topologySingleRegion, topologyActiveHotStandby)
+	}
+}
+
+func (h *Handler) computeOrderTotal(ctx context.Context, planID string, apps, addons []string, topology string) (int, error) {
 	if h.CatalogURL == "" {
 		return 0, fmt.Errorf("catalog URL not configured")
 	}
@@ -1102,7 +1140,14 @@ func (h *Handler) computeOrderTotal(ctx context.Context, planID string, apps, ad
 	}
 	// Apps are free for now (catalog app records have no price field).
 	_ = apps
-	return planPrice + addonTotal, nil
+
+	// BCP topology surcharge (#5104 facet B) — priced here, the server
+	// authority, never trusted from the client-side review total.
+	topologyTotal := 0
+	if topology == topologyActiveHotStandby {
+		topologyTotal = activeHotStandbyPriceOMR
+	}
+	return planPrice + addonTotal + topologyTotal, nil
 }
 
 func (h *Handler) resolvePlanStripePriceID(ctx context.Context, planID string) (string, error) {
@@ -1171,6 +1216,7 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 		"plan_id":          order.PlanID,
 		"apps":             order.Apps,
 		"addons":           order.Addons,
+		"topology":         order.Topology,
 		"amount_omr":       order.AmountOMR,
 		"amount_baisa":     order.AmountBaisa,
 		"status":           order.Status,

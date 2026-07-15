@@ -549,6 +549,10 @@ export interface CheckoutRequest {
   addons: string[];
   tenant_id: string;
   promo_code?: string;
+  // #5104 facet B — BCP topology chosen on /bcp, canonical vocabulary
+  // ('single-region' | 'active-hot-standby'). Billing prices the
+  // hot-standby surcharge server-side; omitting it bills single-region.
+  topology?: string;
 }
 
 export interface CheckoutResponse {

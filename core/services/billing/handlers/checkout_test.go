@@ -13,6 +13,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -436,5 +437,57 @@ func TestCheckoutRateLimiter_2941(t *testing.T) {
 	// Empty userID — should pass (auth middleware handles 401).
 	if !rl.Allow("") {
 		t.Errorf("empty userID should pass through (handled by auth layer)")
+	}
+}
+
+// TestComputeOrderTotal_TopologySurcharge guards #5104 facet B: the hw255
+// funnel walk proved a plan-M + active-hot-standby cart showed OMR 14 on
+// /review but billed OMR 9 — the topology never reached the pricing seam.
+// The surcharge must be priced server-side, and an unknown topology value
+// must fail closed (a typo can never grant an unbilled paid topology).
+func TestComputeOrderTotal_TopologySurcharge(t *testing.T) {
+	catalog := fakeCatalogServer(t, "plan-m", 9)
+	defer catalog.Close()
+	h := &Handler{CatalogURL: catalog.URL}
+
+	got, err := h.computeOrderTotal(context.Background(), "plan-m", nil, nil, topologyActiveHotStandby)
+	if err != nil {
+		t.Fatalf("computeOrderTotal(active-hot-standby): %v", err)
+	}
+	if want := 9 + activeHotStandbyPriceOMR; got != want {
+		t.Errorf("total = %d, want %d (plan 9 + hot-standby surcharge %d)", got, want, activeHotStandbyPriceOMR)
+	}
+
+	got, err = h.computeOrderTotal(context.Background(), "plan-m", nil, nil, topologySingleRegion)
+	if err != nil {
+		t.Fatalf("computeOrderTotal(single-region): %v", err)
+	}
+	if got != 9 {
+		t.Errorf("single-region total = %d, want 9 (no surcharge)", got)
+	}
+}
+
+// TestNormalizeTopology covers the canonical vocabulary + fail-closed default.
+func TestNormalizeTopology(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+		wantErr  bool
+	}{
+		{"", topologySingleRegion, false},
+		{topologySingleRegion, topologySingleRegion, false},
+		{topologyActiveHotStandby, topologyActiveHotStandby, false},
+		{"active_hot_standby", "", true}, // wrong dialect must NOT pass silently
+		{"multi-region", "", true},
+	} {
+		got, err := normalizeTopology(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("normalizeTopology(%q) = %q, want error", tc.in, got)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("normalizeTopology(%q) = %q,%v want %q", tc.in, got, err, tc.want)
+		}
 	}
 }
