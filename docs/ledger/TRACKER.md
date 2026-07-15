@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T09:30:09Z` |
+| Last refreshed | `2026-07-15T09:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 18 |
 | Open DoD gates | 0 / 41 |
@@ -225,6 +225,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T09:44 | [#5109](https://github.com/openova-io/openova/pull/5109) | #5104 | fix(#5104): funnel purchased app never deploys — plan-aware  |
+| 2026-07-15T09:35 | [#5108](https://github.com/openova-io/openova/pull/5108) | #3997 | fix(cloud): Networking lens chips read 0/0 — adapt Gateway/H |
+| 2026-07-15T09:35 | [#5107](https://github.com/openova-io/openova/pull/5107) | #5012 | fix(catalyst-api): stop freezing a healthy secondary at 0/0  |
+| 2026-07-15T09:32 | [#5105](https://github.com/openova-io/openova/pull/5105) | #4985 | fix(console): silent-SSO handoff — stop cancelling the promp |
 | 2026-07-15T09:13 | [#5103](https://github.com/openova-io/openova/pull/5103) | #5095 | fix(cutover): step-03 harbor-prewarm — direct-source fallbac |
 | 2026-07-15T08:44 | [#5102](https://github.com/openova-io/openova/pull/5102) | #5100 | fix(console): purge rendered tenant-term copy; refute rows 1 |
 | 2026-07-15T08:43 | [#5101](https://github.com/openova-io/openova/pull/5101) | #5099 | fix(#5099): fire script defaults SHARED_PG=true — explicit e |
@@ -251,10 +255,6 @@ flowchart LR
 | 2026-07-14T13:26 | [#5068](https://github.com/openova-io/openova/pull/5068) | #5042 | fix(cloud-init): force IPv4 on Huawei log-self-upload → mid- |
 | 2026-07-14T12:42 | [#5067](https://github.com/openova-io/openova/pull/5067) | #5060 | fix(cutover): consolidate step-08 hardening (oauth2-proxy+fa |
 | 2026-07-14T12:37 | [#5064](https://github.com/openova-io/openova/pull/5064) | #4640 | fix(cutover): exempt falco from Kyverno resource-requests En |
-| 2026-07-14T12:37 | [#5062](https://github.com/openova-io/openova/pull/5062) | #5059 | fix(hubble): oauth2-proxy OIDC discovery via in-cluster keyc |
-| 2026-07-14T12:37 | [#5061](https://github.com/openova-io/openova/pull/5061) | #5015 | fix(harbor): alias host 301-redirects to canonical instead o |
-| 2026-07-14T07:26 | [#5058](https://github.com/openova-io/openova/pull/5058) | #5054 | feat(reliability): RT-11 CI merge-hold gate + canonical scri |
-| 2026-07-14T12:37 | [#5057](https://github.com/openova-io/openova/pull/5057) | #5042 | fix(cloud-init): retry + fail-loud sentinels on flux/gateway |
 
 ---
 
