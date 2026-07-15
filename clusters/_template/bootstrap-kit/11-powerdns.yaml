@@ -230,6 +230,17 @@ spec:
       serviceType: LoadBalancer
       annotations:
         lbipam.cilium.io/sharing-key: sovereign-vip
+        # #4765 residue (live-proven hw255, 2026-07-15): the sharing-key
+        # alone is NOT sufficient — Cilium LB-IPAM only shares a VIP
+        # across namespaces when BOTH Services carry
+        # `lbipam.cilium.io/sharing-cross-namespace` allowing the peer's
+        # namespace (docs.cilium.io lb-ipam, Cilium ≥1.16). Without it
+        # the clustermesh-apiserver (kube-system) takes the single /32
+        # and this Service starves: IPAMRequestSatisfied=False
+        # reason=out_of_ips, EXTERNAL-IP=<pending> forever. Explicit
+        # namespace (never "*") so tenant/Org LB Services can never
+        # co-locate onto the sovereign EIP by annotation hijack.
+        lbipam.cilium.io/sharing-cross-namespace: "kube-system"
       ports:
         - name: dns-udp
           port: 53

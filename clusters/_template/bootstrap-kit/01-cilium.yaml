@@ -141,7 +141,7 @@ spec:
       # 1370 → 1420 (WG-only). Layers on the 1.4.9/1.4.10 zero-nodeport +
       # authMode=legacy work. Cross-region ClusterMesh pod path needs a fresh
       # 2-region prov to verify (datapath change). Refs #4656.
-      version: 1.4.15
+      version: 1.4.16
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -420,6 +420,17 @@ spec:
               # Load-bearing on no-CCM Huawei; inert on Hetzner (LB-IPAM
               # disabled → hcloud-ccm reads its own annotations below).
               lbipam.cilium.io/sharing-key: sovereign-vip
+              # #4765 residue (live-proven hw255, 2026-07-15): the sharing-key
+              # alone is NOT sufficient across namespaces — Cilium LB-IPAM
+              # (≥1.16) only co-locates two Services on one VIP when BOTH carry
+              # `lbipam.cilium.io/sharing-cross-namespace` allowing the peer's
+              # namespace (docs.cilium.io lb-ipam). Without this, THIS Service
+              # (kube-system) takes the single sovereign-vip /32 and
+              # powerdns-anycast (ns powerdns, :53) starves forever:
+              # IPAMRequestSatisfied=False reason=out_of_ips, EXTERNAL-IP
+              # <pending>. Explicit peer namespace, never "*", so tenant/Org
+              # LB Services can never hijack the sovereign EIP by annotation.
+              lbipam.cilium.io/sharing-cross-namespace: "powerdns"
               load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
               load-balancer.hetzner.cloud/type: "lb11"
               # use-private-ip: false — LB→backend connection transits
