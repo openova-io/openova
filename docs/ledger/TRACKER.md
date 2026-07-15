@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T17:45:03Z` |
+| Last refreshed | `2026-07-15T18:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 22 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 22 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -221,6 +221,7 @@ flowchart LR
 | [#5113](https://github.com/openova-io/openova/issues/5113) | catalog card-form Save commit-leg writes invalid/destructive Blueprint YAML —  | Other |
 | [#5114](https://github.com/openova-io/openova/issues/5114) | bp-openova-mcp has no chart/blueprint — Pillar-4 MCP server cannot install; le | Other |
 | [#5119](https://github.com/openova-io/openova/issues/5119) | sovereign-lifecycle.sh fire body omits fireCutoverOnHandover/qaTestEnabled — p | Other |
+| [#5123](https://github.com/openova-io/openova/issues/5123) | per-Org console never lists funnel-purchased apps — /api/v1/org/applications p | Other |
 
 ---
 
@@ -228,6 +229,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T17:56 | [#5122](https://github.com/openova-io/openova/pull/5122) | #5116 | fix(auth): Date header on the funnel customer's login-code m |
 | 2026-07-15T17:28 | [#5121](https://github.com/openova-io/openova/pull/5121) | #5114 | fix(openova-mcp): hw256 defects — numeric runAsUser 65532 +  |
 | 2026-07-15T17:28 | [#5120](https://github.com/openova-io/openova/pull/5120) | #5119 | fix(lifecycle): fire body carries fireCutoverOnHandover + qa |
 | 2026-07-15T15:05 | [#5118](https://github.com/openova-io/openova/pull/5118) | #5104 | fix(billing): price the BCP topology surcharge at checkout ( |
@@ -257,7 +259,6 @@ flowchart LR
 | 2026-07-14T20:34 | [#5082](https://github.com/openova-io/openova/pull/5082) | #4858 | fix(cloudinit): kubelet image-GC guard against the self-host |
 | 2026-07-14T20:33 | [#5081](https://github.com/openova-io/openova/pull/5081) | #5059 | fix(cutover): step-08 roll-set minimization — rollSetMode mi |
 | 2026-07-14T23:27 | [#5080](https://github.com/openova-io/openova/pull/5080) | #4765 | fix(infra,ci): eradicate the Hetzner provider's last LB→node |
-| 2026-07-14T20:57 | [#5079](https://github.com/openova-io/openova/pull/5079) | #5078 | fix(scripts): prov-preflight OBS bucket-quota gate (3e) + ve |
 
 ---
 
