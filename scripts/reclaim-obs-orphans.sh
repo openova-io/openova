@@ -18,15 +18,17 @@
 # Refs #5078.
 #
 # Usage:
-#   PROTECT="hw240,hw250" HW_TFVARS=/deps/tofu/<dep-id>/tofu.auto.tfvars.json \
+#   PROTECT="hw255" HW_TFVARS=/deps/tofu/<dep-id>/tofu.auto.tfvars.json \
 #     bash scripts/reclaim-obs-orphans.sh [--dry-run]
 #
 #   --dry-run   list the buckets that WOULD be deleted; delete NOTHING.
 #   PROTECT     comma/space-separated env stems to protect (matched as a
 #               hyphen-delimited segment of the bucket name, so hw24 never
-#               protects hw240 and vice versa). hw240 is ALWAYS protected
-#               (founder protect-list, docs/PROTOCOL.md §5.0) even when
-#               PROTECT is unset or omits it — PROTECT can only ADD.
+#               protects hw240 and vice versa). ALWAYS pass the CURRENT single
+#               live env's stem explicitly. There is no hard-coded default:
+#               one environment at a time (founder 2026-07-15, #5111) means
+#               the live env changes every cycle — a baked-in stem (the old
+#               hw240 hard-code) goes stale and protects a dead env's buckets.
 #   HW_TFVARS   tofu.auto.tfvars.json carrying Huawei AK/SK (+ region).
 #
 # SCOPE GUARD: only buckets matching ^catalyst-hw are EVER candidates; every
@@ -44,7 +46,7 @@ DRY_RUN=0
 for a in "$@"; do case "$a" in
   --dry-run) DRY_RUN=1 ;;
   *) echo "unknown arg: $a" >&2
-     echo "usage: PROTECT=\"hw240,...\" HW_TFVARS=/path/tofu.auto.tfvars.json bash $0 [--dry-run]" >&2
+     echo "usage: PROTECT=\"<live-env-stem>\" HW_TFVARS=/path/tofu.auto.tfvars.json bash $0 [--dry-run]" >&2
      exit 2 ;;
 esac; done
 
@@ -53,9 +55,14 @@ if [ -z "${HW_TFVARS:-}" ] || [ ! -s "${HW_TFVARS}" ]; then
   exit 2
 fi
 
-# hw240 is HARD-CODED into the protect union (founder protect-list) — the env
-# var can only add stems, never remove hw240.
-PROTECT_UNION="hw240 ${PROTECT:-}"
+# Protect-set comes ONLY from the explicit PROTECT env var (one env at a time,
+# #5111 — no stale hard-coded stems). Refuse to run without it: an empty
+# protect-set on a live project would reclaim the current env's archive bucket.
+if [ -z "${PROTECT:-}" ]; then
+  echo "PROTECT unset — pass the CURRENT live env stem (e.g. PROTECT=\"hw255\"); refusing to run with an empty protect-set" >&2
+  exit 2
+fi
+PROTECT_UNION="${PROTECT}"
 
 DRY_RUN="$DRY_RUN" PROTECT_UNION="$PROTECT_UNION" python3 - "$HW_TFVARS" <<'PY'
 import sys, os, re, json, ssl, hmac, base64, hashlib, socket
@@ -209,7 +216,7 @@ for b in buckets:
     candidates.append(b)
 
 print(f"OBS endpoint: {ENDPOINT} (total buckets: {len(buckets)}; non-catalyst-hw ignored: {ignored})")
-print(f"protect-list (hw240 always included): {', '.join(PROT)}")
+print(f"protect-list (explicit only, #5111): {', '.join(PROT)}")
 for b in protected_skip:
     print(f"  PROTECTED (skip): {b}")
 if not candidates:

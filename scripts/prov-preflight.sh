@@ -9,9 +9,15 @@
 #
 # Requires: COOK (catalyst_session cookie) OR BEARER (owner RS256 JWT) for the
 # deployments check, + HW_TFVARS (path to tofu.auto.tfvars.json with Huawei
-# AK/SK). PREFLIGHT_PROTECTED (comma-separated env stems, default hw240) names
-# Sovereigns that legitimately coexist — never counted against capacity and
-# NEVER to be wiped to make room (docs/PROTOCOL.md §5.0 protect-list).
+# AK/SK).
+#
+# 🛑 ONE ENVIRONMENT AT A TIME (founder, 2026-07-15, #5111): "You are allowed
+# to create 1 environment at a time and that is the exact definition of flight
+# checklist." NO Sovereign may coexist with the one being fired — the existing
+# env must be COMPLETELY wiped first. PREFLIGHT_PROTECTED defaults to EMPTY:
+# there is no standing protect-list of coexisting Sovereigns (the old hw240
+# default was the mechanical enabler of the hw240+hw255 dual-env violation).
+# The only protected resource is the bastion, which is not a deployment.
 set -uo pipefail
 FQDN="${1:?need FQDN}"; BUCKET="${2:?need BUCKET}"
 QATEST="${3:-false}"; FIRECUT="${4:-true}"
@@ -25,12 +31,12 @@ echo "═══ PROV PRE-FLIGHT for ${FQDN} ═══"
 case "$FQDN" in hw[0-9]*) pass "1. FQDN is hw-numbered: $FQDN (caller must confirm it is a NEW number, never a failed one)";;
   *) bad "1. FQDN '$FQDN' is not hw<NNN>.<tld> — increment the env number";; esac
 
-# 2. zero other active deployments beyond the protect-list (kom4dc fits ONE
-#    working prov alongside the protected production Sovereign: VPC quota 5,
-#    2 VPCs per 2-region prov). Auth: BEARER (owner JWT) preferred, else COOK —
-#    the list is owner-scoped either way (mint as emrah.baysal@openova.io).
+# 2. ZERO other active deployments — one environment at a time, NO exceptions
+#    (founder 2026-07-15, #5111): the existing env must be COMPLETELY wiped
+#    before any fire. Auth: BEARER (owner JWT) preferred, else COOK — the list
+#    is owner-scoped either way (mint as emrah.baysal@openova.io).
 if [ -n "${BEARER:-}" ]; then AUTH_HDR="Authorization: Bearer ${BEARER}"; else AUTH_HDR="Cookie: catalyst_session=${COOK:-}"; fi
-act=$(curl -s -H "$AUTH_HDR" "${CONSOLE}/deployments" 2>/dev/null | PROT="${PREFLIGHT_PROTECTED:-hw240}" python3 -c '
+act=$(curl -s -H "$AUTH_HDR" "${CONSOLE}/deployments" 2>/dev/null | PROT="${PREFLIGHT_PROTECTED:-}" python3 -c '
 import sys,json,os
 prot=[p.strip() for p in os.environ.get("PROT","").split(",") if p.strip()]
 d=json.load(sys.stdin); deps=d if isinstance(d,list) else d.get("deployments",d.get("items",[]))
@@ -39,7 +45,7 @@ def protected(x):
     f=str(x.get("sovereignFQDN") or x.get("fqdn") or x.get("sovereignSubdomain") or "")
     return any(f.startswith(p) for p in prot)
 print(len([x for x in live if not protected(x)]))' 2>/dev/null)
-[ "${act:-x}" = "0" ] && pass "2. 0 active non-protected deployments (capacity free; protect-list: ${PREFLIGHT_PROTECTED:-hw240})" || bad "2. ${act:-unknown} active non-protected deployment(s) — wipe first (sequential; NEVER wipe protect-list envs to make room)"
+[ "${act:-x}" = "0" ] && pass "2. 0 other active deployments (one-env-at-a-time holds)" || bad "2. ${act:-unknown} active deployment(s) still live — COMPLETELY wipe the existing env first (ONE environment at a time, founder 2026-07-15; #5111)"
 
 # 3. EIP headroom: no genuinely-orphaned EIPs (status=DOWN + no port binding).
 #    ELB-type EIPs report NO port_id even when serving a live gateway/console
@@ -72,7 +78,7 @@ PY
   #     Huawei ECS in the target project and FAIL if ANY node's name prefix is NOT this
   #     FQDN and NOT bastion-*. A foreign live Sovereign in the project = DO NOT FIRE.
   stem=$(printf '%s' "$FQDN" | tr '.' '-')
-  foreign=$(python3 - "$HW_TFVARS" "$stem" "${PREFLIGHT_PROTECTED:-hw240}" <<'PY' 2>/dev/null
+  foreign=$(python3 - "$HW_TFVARS" "$stem" "${PREFLIGHT_PROTECTED:-}" <<'PY' 2>/dev/null
 import sys,json,hashlib,hmac,datetime,urllib.request,ssl
 t=json.load(open(sys.argv[1])); stem=sys.argv[2]
 prot=[p.strip() for p in sys.argv[3].split(",") if p.strip()]
@@ -85,13 +91,13 @@ sig=hmac.new(sk.encode(),sts.encode(),hashlib.sha256).hexdigest()
 ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
 req=urllib.request.Request(f"https://{host}{uri}",headers={"X-Sdk-Date":now,"Authorization":f"SDK-HMAC-SHA256 Access={ak}, SignedHeaders={sh}, Signature={sig}","host":host})
 servers=json.load(urllib.request.urlopen(req,timeout=25,context=ctx)).get("servers",[])
-# foreign = any ECS not part of THIS prov's stem, not the bastion, and not a
-# protect-listed Sovereign (which legitimately coexists — never wipe it).
+# foreign = any ECS not part of THIS prov's stem and not the bastion. One env
+# at a time (#5111): another Sovereign's nodes here mean wipe-first was skipped.
 foreign=[s.get('name','') for s in servers if stem not in s.get('name','') and not s.get('name','').startswith('bastion') and not any(s.get('name','').startswith(p) for p in prot)]
 print("\n".join(foreign) if foreign else "0")
 PY
 )
-  if [ "${foreign:-x}" = "0" ]; then pass "3b. no foreign Sovereign in project (live Huawei ECS ground-truth; protect-list excluded)"
+  if [ "${foreign:-x}" = "0" ]; then pass "3b. no foreign Sovereign in project (live Huawei ECS ground-truth)"
   else bad "3b. FOREIGN live ECS in target project (a live Sovereign shares it — firing WILL risk #4614 VPC-reclaim): $(printf '%s' "$foreign" | tr '\n' ' ' | cut -c1-160)"; fi
 
   # 3c. VPC headroom (the ACTUAL #4614 reclaim trigger): a 2-region prov
