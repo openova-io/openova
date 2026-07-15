@@ -29,6 +29,20 @@
 //	                              verify=rs256.
 //	OPENOVA_MCP_HS256_SECRET      HS256 shared secret when verify=hs256.
 //	OPENOVA_MCP_BEARER            fallback bearer when a call omits _auth.
+//	OPENOVA_MCP_EXPECTED_ISSUER   optional exact `iss` claim pin — the
+//	                              instance-level trusted-realm boundary
+//	                              (#3988 §4.3). Empty = no issuer pin.
+//	OPENOVA_MCP_ORG_SCOPE         optional Organization slug pin for a
+//	                              per-Org instance — a token minted for a
+//	                              different Org is rejected outright.
+//	OPENOVA_MCP_LISTEN            optional listen address (e.g. ":8080").
+//	                              When set the server serves the
+//	                              streamable-HTTP transport (#3988 §4.3):
+//	                              POST /mcp (JSON-RPC request → JSON
+//	                              response, bearer via Authorization) plus
+//	                              GET /healthz + /readyz. Empty (default) =
+//	                              the stdio transport below — the agenity
+//	                              in-pod child contract is unchanged.
 package main
 
 import (
@@ -126,8 +140,20 @@ func main() {
 	if api != nil {
 		tenantHostLog = api.TenantHost()
 	}
-	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v tenant_host=%q",
-		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), os.Getenv("OPENOVA_MCP_BEARER") != "", tenantHostLog)
+	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v tenant_host=%q issuer_pin=%q org_scope=%q listen=%q",
+		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), os.Getenv("OPENOVA_MCP_BEARER") != "", tenantHostLog,
+		os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER"), os.Getenv("OPENOVA_MCP_ORG_SCOPE"), os.Getenv("OPENOVA_MCP_LISTEN"))
+
+	// ── Streamable-HTTP transport (#3988 §4.3, the standalone Service
+	// topology bp-openova-mcp deploys) — selected by OPENOVA_MCP_LISTEN.
+	// Stdio below stays the default so the agenity in-pod child contract
+	// (#4010/#4097) is byte-identical when the env is unset.
+	if listen := strings.TrimSpace(os.Getenv("OPENOVA_MCP_LISTEN")); listen != "" {
+		if err := serveHTTP(listen, reg, resolver, os.Getenv("OPENOVA_MCP_BEARER")); err != nil {
+			log.Fatalf("http: %v", err)
+		}
+		return
+	}
 
 	in := bufio.NewReader(os.Stdin)
 	for {
@@ -332,6 +358,7 @@ func contextPin() identity.Context {
 
 func buildResolver() (*identity.Resolver, error) {
 	pin := contextPin()
+	var r *identity.Resolver
 	switch verifyMode() {
 	case "rs256":
 		pemStr := os.Getenv("OPENOVA_MCP_RS256_PUBKEY_PEM")
@@ -342,19 +369,23 @@ func buildResolver() (*identity.Resolver, error) {
 		if err != nil {
 			return nil, err
 		}
-		return identity.NewRS256Resolver(pub, pin), nil
+		r = identity.NewRS256Resolver(pub, pin)
 	case "hs256":
 		secret := os.Getenv("OPENOVA_MCP_HS256_SECRET")
 		if secret == "" {
 			return nil, errors.New("verify=hs256 requires OPENOVA_MCP_HS256_SECRET")
 		}
-		return identity.NewHS256Resolver([]byte(secret), pin), nil
+		r = identity.NewHS256Resolver([]byte(secret), pin)
 	case "insecure":
 		log.Printf("WARNING: verify=insecure — signatures NOT verified (test/trusted-transport only)")
-		return identity.NewInsecureResolver(pin), nil
+		r = identity.NewInsecureResolver(pin)
 	default:
 		return nil, fmt.Errorf("unknown OPENOVA_MCP_VERIFY=%q", verifyMode())
 	}
+	// Instance-level trust pins (#3988 §4.3): the exact issuer this
+	// instance trusts + the Org scope a per-Org instance is confined to.
+	return r.WithExpectedIssuer(os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER")).
+		WithOrgPin(os.Getenv("OPENOVA_MCP_ORG_SCOPE")), nil
 }
 
 func parseRSAPublicKeyPEM(pemStr string) (*rsa.PublicKey, error) {

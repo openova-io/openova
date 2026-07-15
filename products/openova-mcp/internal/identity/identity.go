@@ -158,6 +158,34 @@ type Resolver struct {
 	rsaPub    *rsa.PublicKey
 	hmacKey   []byte
 	pinnedCtx Context // when non-empty, forces the connection context (per-Org-MCP vs Sovereign-MCP topology).
+
+	// expectedIssuer — when non-empty, the bearer's `iss` claim MUST equal
+	// it exactly or Resolve rejects. This is the instance-level realm pin
+	// of #3988 §4.3 ("mode selects the TRUSTED realm"): a per-Org instance
+	// pins its own realm issuer URL; the Sovereign instance pins the
+	// Sovereign issuer. The full per-realm JWKS cache remains the §4.2
+	// follow-up — this pin is the slice-level issuer trust boundary.
+	expectedIssuer string
+
+	// orgPin — when non-empty, the resolved OrgID MUST equal it or Resolve
+	// rejects. A per-Org MCP instance sets this so a token minted for a
+	// DIFFERENT Organization (same signer, same realm shape) cannot reach
+	// this instance's surface at all (#3988 §4.3 "pinned scope").
+	orgPin string
+}
+
+// WithExpectedIssuer pins the exact `iss` claim value this resolver trusts.
+// Empty = no issuer pin (any issuer the signature verifies for).
+func (r *Resolver) WithExpectedIssuer(iss string) *Resolver {
+	r.expectedIssuer = strings.TrimSpace(iss)
+	return r
+}
+
+// WithOrgPin pins the exact Organization scope this resolver serves.
+// Empty = no org pin (the token's own org_id is the scope).
+func (r *Resolver) WithOrgPin(org string) *Resolver {
+	r.orgPin = strings.TrimSpace(org)
+	return r
 }
 
 // NewRS256Resolver builds a resolver that verifies bearers against the
@@ -217,6 +245,13 @@ func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
 		return nil, fmt.Errorf("identity: bearer rejected: %w", err)
 	}
 
+	if r.expectedIssuer != "" {
+		iss, _ := claims.GetIssuer()
+		if strings.TrimSpace(iss) != r.expectedIssuer {
+			return nil, fmt.Errorf("identity: issuer %q not trusted by this instance (want %q)", iss, r.expectedIssuer)
+		}
+	}
+
 	id, err := r.fromClaims(claims)
 	if err != nil {
 		return nil, err
@@ -256,6 +291,13 @@ func (r *Resolver) fromClaims(claims *sharedauth.Claims) (*Identity, error) {
 
 	if id.Context == ContextOrganization && id.OrgID == "" {
 		return nil, errors.New("identity: organization context requires an org_id claim")
+	}
+
+	// A per-Org instance's org pin is the final scope word: a token minted
+	// for a DIFFERENT Org (even by the same trusted signer) is rejected
+	// outright — it never sees this instance's tool surface (#3988 §4.3).
+	if r.orgPin != "" && id.OrgID != r.orgPin {
+		return nil, fmt.Errorf("identity: token org scope %q does not match this instance's pinned org %q", id.OrgID, r.orgPin)
 	}
 	return id, nil
 }
