@@ -186,6 +186,28 @@ data:
             value: {{ .Values.egressTest.freshPullProof.minRepresentativesPerRegion | default 12 | quote }}
           - name: FRESH_PULL_REPRESENTATIVE_NAMESPACES
             value: {{ .Values.egressTest.freshPullProof.representativeNamespaces | default (list "flux-system" "gitea" "harbor" "keycloak" "grafana") | join " " | quote }}
+          # #5091 — MINIMAL-mode rule c: NEVER force-roll a stateful RWO-EVS
+          # singleton (gitea, keycloak-postgresql, harbor-database/redis, cnpg,
+          # …). Its image locality is ALREADY proven by the #4975 pre-hold
+          # completeness HEAD gate + the #5026 ref-host lint (both prove locality
+          # WITHOUT rolling); the synthetic roll adds NO image-proof value and
+          # triggers the UNRECOVERABLE CSI NodeStage/VolumeAttachment desync — a
+          # Recreate roll's NodeUnstage removes the CSI globalmount, the
+          # VolumeAttachment persists unchanged, so NodeStage never re-fires and
+          # NodePublish then fails on the missing globalmount → the replacement
+          # pod hangs Init:0/3 past the roll budget → ROLL_FAIL → step-08 fails
+          # forever (proven live hw253 gitea, #5091). Detection = an RWO PVC whose
+          # storageClass is in rwoEvsExclusion.storageClasses OR whose bound-PV
+          # CSI driver is in rwoEvsExclusion.csiDrivers. This ONLY narrows the
+          # ROLL set — rule a/b, the #4975 completeness gate, the #5026 ref-host
+          # lint, the 600s deny-egress hold + the curl call-home proof are all
+          # untouched.
+          - name: FRESH_PULL_RWO_EVS_EXCLUDE
+            value: {{ eq (toString .Values.egressTest.freshPullProof.rwoEvsExclusion.enabled) "true" | quote }}
+          - name: FRESH_PULL_RWO_EVS_STORAGECLASSES
+            value: {{ .Values.egressTest.freshPullProof.rwoEvsExclusion.storageClasses | default (list "evs-ssd") | join " " | quote }}
+          - name: FRESH_PULL_RWO_EVS_CSIDRIVERS
+            value: {{ .Values.egressTest.freshPullProof.rwoEvsExclusion.csiDrivers | default (list "evs.csi.huaweicloud.com") | join " " | quote }}
         volumeMounts:
           # #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
           # container runs readOnlyRootFilesystem:true (securityContext
@@ -862,6 +884,56 @@ data:
               return 1
             }
 
+            # ── #5091 rule-c detection: is a workload a stateful RWO-EVS singleton? ─
+            # Echoes a human reason "<claim> sc=<sc> driver=<driver> modes=<modes>"
+            # for the FIRST pod-template volume whose PVC is ReadWriteOnce AND
+            # backed by EVS (storageClass in FRESH_PULL_RWO_EVS_STORAGECLASSES OR
+            # the BOUND-PV CSI driver in FRESH_PULL_RWO_EVS_CSIDRIVERS); empty
+            # output = NOT an RWO-EVS stateful singleton → safe to roll. Only
+            # single-writer (RWO) volumes hit the NodeStage/VolumeAttachment desync
+            # (#5091) — a RWX shared-fs volume has no per-node globalmount hand-off
+            # to lose, so it is never matched. FAIL-OPEN: any kubectl/jq gap yields
+            # empty (the workload STAYS a roll candidate — its image locality is
+            # still HARD-proven by the #4975 completeness HEAD gate either way, so a
+            # missing RBAC/tooling read can never silently weaken the sovereignty
+            # proof, only over-roll).
+            workload_rwo_evs_reason() {
+              _wek="$1"; _wens="$2"; _wenm="$3"
+              _we_scs="${FRESH_PULL_RWO_EVS_STORAGECLASSES:-evs-ssd}"
+              _we_drivers="${FRESH_PULL_RWO_EVS_CSIDRIVERS:-evs.csi.huaweicloud.com}"
+              _we_claims=$(kubectl get "${_wek}" "${_wenm}" -n "${_wens}" \
+                -o jsonpath='{range .spec.template.spec.volumes[*]}{.persistentVolumeClaim.claimName}{"\n"}{end}' 2>/dev/null \
+                | grep -v '^[[:space:]]*$' | sort -u || true)
+              [ -z "${_we_claims}" ] && return 0
+              for _we_c in ${_we_claims}; do
+                _we_pvc=$(kubectl get pvc "${_we_c}" -n "${_wens}" -o json 2>/dev/null || true)
+                [ -z "${_we_pvc}" ] && continue
+                _we_modes=$(printf '%s' "${_we_pvc}" | jq -r '.spec.accessModes // [] | join(",")' 2>/dev/null || echo "")
+                case ",${_we_modes}," in
+                  *,ReadWriteOnce,*) : ;;
+                  *) continue ;;
+                esac
+                _we_sc=$(printf '%s' "${_we_pvc}" | jq -r '.spec.storageClassName // ""' 2>/dev/null || echo "")
+                _we_pv=$(printf '%s' "${_we_pvc}" | jq -r '.spec.volumeName // ""' 2>/dev/null || echo "")
+                _we_driver=""
+                [ -n "${_we_pv}" ] && _we_driver=$(kubectl get pv "${_we_pv}" -o jsonpath='{.spec.csi.driver}' 2>/dev/null || echo "")
+                _we_hit=0
+                for _we_want in ${_we_scs}; do
+                  [ "${_we_sc}" = "${_we_want}" ] && { _we_hit=1; break; }
+                done
+                if [ "${_we_hit}" != "1" ]; then
+                  for _we_want in ${_we_drivers}; do
+                    [ "${_we_driver}" = "${_we_want}" ] && { _we_hit=1; break; }
+                  done
+                fi
+                if [ "${_we_hit}" = "1" ]; then
+                  printf '%s sc=%s driver=%s modes=%s' "${_we_c}" "${_we_sc:-<none>}" "${_we_driver:-<none>}" "${_we_modes}"
+                  return 0
+                fi
+              done
+              return 0
+            }
+
             run_fresh_pull_all() {
               echo "[egress-block-test] #3695: fresh-pull roll under deny-egress (roll-set mode: ${FRESH_PULL_ROLL_SET_MODE:-minimal})"
               # Enumerate Deployments/DaemonSets/StatefulSets whose container
@@ -962,6 +1034,28 @@ data:
                     done
                     if [ "${_allow}" != "1" ]; then
                       echo "  skip (rule a: infra namespace, not allowlisted) ${_rkind} ${_rns}/${_rname}"
+                      continue
+                    fi
+                  fi
+                  # ── #5091 rule c: skip stateful RWO-EVS singletons ──────────
+                  # A Deployment/StatefulSet whose pod template mounts an RWO PVC
+                  # backed by EVS is a stateful singleton whose forced roll under
+                  # the deny-egress hold triggers the UNRECOVERABLE NodeStage/
+                  # VolumeAttachment desync (globalmount removed on NodeUnstage,
+                  # the VA persists, NodeStage never re-fires → NodePublish fails
+                  # on the missing globalmount → the replacement pod hangs
+                  # Init:0/3 → ROLL_FAIL → step-08 fails forever; live hw253
+                  # gitea, #5091). Its image locality is ALREADY HEAD-proven by
+                  # the #4975 pre-hold completeness gate, so the synthetic roll
+                  # adds NO image-proof value — the fresh-pull ROLL proof rolls
+                  # STATELESS representative workloads only. Applied to
+                  # deployment/statefulset (a DaemonSet cannot mount an RWO PVC
+                  # across nodes; rule b already covers infra-ns DaemonSets).
+                  if [ "${FRESH_PULL_RWO_EVS_EXCLUDE:-true}" = "true" ] \
+                     && { [ "${_rkind}" = "deployment" ] || [ "${_rkind}" = "statefulset" ]; }; then
+                    _rwo_reason=$(workload_rwo_evs_reason "${_rkind}" "${_rns}" "${_rname}")
+                    if [ -n "${_rwo_reason}" ]; then
+                      echo "  skip (rule c: RWO-EVS stateful singleton — image locality is HEAD-proven, roll triggers NodeStage/VA desync) ${_rkind} ${_rns}/${_rname} [${_rwo_reason}]"
                       continue
                     fi
                   fi

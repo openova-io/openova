@@ -1284,6 +1284,46 @@ egressTest:
       - "harbor"
       - "keycloak"
       - "grafana"
+    # ── #5091 rule c: exclude stateful RWO-EVS singletons from the ROLL set ─
+    # The #5081 minimal roll-set (rules a/b) correctly excludes the infra
+    # namespaces + infra DaemonSets, but a REPRESENTATIVE-namespace stateful
+    # singleton — gitea (RWO evs-ssd 20Gi, Recreate strategy), keycloak-
+    # postgresql, harbor-database/redis, cnpg, … — is still selected and
+    # force-rolled. Rolling such a workload under the deny-egress hold triggers
+    # the UNRECOVERABLE CSI NodeStage/VolumeAttachment desync: the Recreate
+    # roll's NodeUnstage removes the EVS globalmount, the VolumeAttachment
+    # persists unchanged, so the CSI node driver never re-fires NodeStage and
+    # NodePublish then fails `special device .../globalmount does not exist`
+    # (exit 32) → the replacement pod hangs Init:0/3 past the roll budget →
+    # ROLL_FAIL → step-08 fails forever (proven LIVE on hw253 gitea, #5091).
+    # The image locality of every such workload is ALREADY proven by the #4975
+    # pre-hold completeness HEAD gate + the #5026 ref-host lint (both prove
+    # locality WITHOUT rolling), so the synthetic roll adds ZERO image-proof
+    # value. rule c therefore SKIPS any Deployment/StatefulSet mounting an RWO
+    # PVC whose storageClass is in storageClasses OR whose bound-PV CSI driver
+    # is in csiDrivers. This ONLY narrows the ROLL set — the fresh-pull ROLL
+    # proof rolls STATELESS representative workloads only; rule a/b, the
+    # completeness gate, the ref-host lint, the 600s deny-egress hold and the
+    # curl call-home proof are all untouched. The ≥minRepresentativesPerRegion
+    # floor is still met from the STATELESS pool: rule c filters the candidate
+    # universe BEFORE both the representative selection AND the Deployment
+    # top-up, so the top-up naturally draws only stateless workloads (a real
+    # Sovereign has dozens of stateless non-infra Deployments — far above the
+    # 12/region floor).
+    rwoEvsExclusion:
+      # Master switch (default true — the keystone cc=true path needs it).
+      enabled: true
+      # StorageClass names treated as EVS-backed RWO block storage. Huawei EVS
+      # by default; add hcloud-volumes (Hetzner) or another block CSI's class
+      # via overlay for provider parity (matches the excludeWorkloads pattern
+      # that carries hcloud-csi names as a harmless no-op when absent).
+      storageClasses:
+        - "evs-ssd"
+      # Bound-PV CSI driver names treated as EVS-backed RWO block storage —
+      # the second, storageClass-independent detection leg (a PVC with an empty
+      # storageClassName but a bound PV on this driver is still caught).
+      csiDrivers:
+        - "evs.csi.huaweicloud.com"
   # #5026 — PRE-HOLD ref-host lint (treadmill-breaker). The completeness gate
   # above proves image CONTENT is in local Harbor; this lint proves every
   # rolled workload's pod-spec image REF HOST is the local registry

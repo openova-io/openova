@@ -1,5 +1,40 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.134 (#5091 Refs #5081 #4975 — step-08 minimal roll-set RULE C: never
+# force-roll a stateful RWO-EVS singleton). The #5081 minimal roll-set (rule a:
+# skip infra namespaces; rule b: skip infra-ns DaemonSets) correctly excludes the
+# CSI driver / cilium / hubble, but it STILL selected deployment/gitea — a
+# REPRESENTATIVE-namespace (gitea) stateful RWO-EVS singleton (gitea-shared-storage
+# evs-ssd 20Gi, Recreate strategy) — as a fresh-pull representative and force-rolled
+# it under the deny-egress hold. That roll's NodeUnstage removed the CSI globalmount
+# while the VolumeAttachment persisted unchanged, so the EVS CSI node driver never
+# re-fired NodeStage → NodePublish failed `special device .../globalmount does not
+# exist` (exit 32) → the replacement pod hung Init:0/3 past the 600s roll budget →
+# ROLL_FAIL deployment/gitea → step-08 FRESH-PULL proof FAILED → cutoverComplete
+# stayed false forever (proven LIVE on hw253, dep 8a0f810a, 2026-07-15). The CSI
+# driver is healthy — this is a NodeStage-not-retriggered-when-VA-persists desync
+# with no zero-touch recovery. FIX (template 08 + values + rbac): add RULE C to the
+# minimal roll-set filter — skip any Deployment/StatefulSet whose pod template mounts
+# an RWO PVC backed by EVS (storageClass in
+# freshPullProof.rwoEvsExclusion.storageClasses [evs-ssd] OR bound-PV CSI driver in
+# rwoEvsExclusion.csiDrivers [evs.csi.huaweicloud.com]). Their image locality is
+# ALREADY proven by the #4975 pre-hold completeness HEAD gate + the #5026 ref-host
+# lint (both prove locality WITHOUT rolling), so the synthetic roll adds NO
+# image-proof value — the fresh-pull ROLL proof rolls STATELESS representative
+# workloads only. Rule c filters the candidate universe BEFORE both the
+# representative-namespace selection AND the Deployment top-up, so the
+# minRepresentativesPerRegion (12) floor is still met from the STATELESS pool (a real
+# Sovereign has dozens of stateless non-infra Deployments). New step-08 envs
+# FRESH_PULL_RWO_EVS_EXCLUDE / _STORAGECLASSES / _CSIDRIVERS + a workload_rwo_evs_reason()
+# detector; RBAC adds persistentvolumes {get,list} (the bound-PV CSI-driver leg;
+# persistentvolumeclaims get/list already present from #4996). NOT weakened: rule a/b,
+# the #4975 completeness gate, the 600s deny-egress hold, the curl-000 call-home proof
+# — rule c ONLY narrows the ROLL set. New cutover-contract Case 57 proves an
+# RWO-EVS-mounting workload is skipped (rule c) while a stateless one still rolls. NO
+# step-count / job-mode change (still 11 steps). Slot-06a pin + blueprint.yaml +
+# catalog-seed source.version + spec.version move to 0.1.134 in lockstep (Inviolable
+# Principle #13; catalog-seed pin must NOT lag the chart).
+# ── prior ──
 # 0.1.133 (#5074 #5065 #5059 Refs #3379 — step-08 ROLL-SET MINIMIZATION, the
 # root treadmill-breaker): the per-workload freshPullProof.excludeWorkloads list
 # was whack-a-mole — each prov surfaced ONE more infra workload broken by the
@@ -2077,7 +2112,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.133
+version: 0.1.134
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
