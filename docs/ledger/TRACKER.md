@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T14:45:07Z` |
+| Last refreshed | `2026-07-15T15:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T14:53 | [#5117](https://github.com/openova-io/openova/pull/5117) | #3988 | feat: bp-openova-mcp chart + blueprint + bootstrap-kit slot  |
 | 2026-07-15T14:38 | [#5116](https://github.com/openova-io/openova/pull/5116) | #5104 | fix(mail): RFC 5322 Date header on PIN + notification mails  |
 | 2026-07-15T14:36 | [#5115](https://github.com/openova-io/openova/pull/5115) | #5113 | fix(catalyst-api): catalog card-save commit leg — canonical  |
 | 2026-07-15T13:05 | [#5112](https://github.com/openova-io/openova/pull/5112) | #2 | fix(preflight): ONE-environment-at-a-time fail-closed gate ( |
@@ -256,7 +257,6 @@ flowchart LR
 | 2026-07-14T19:21 | [#5076](https://github.com/openova-io/openova/pull/5076) | #5014 | fix(cutover): re-check Job state on watch-channel loss inste |
 | 2026-07-14T18:12 | [#5075](https://github.com/openova-io/openova/pull/5075) | #5022 | fix(cutover): exclude CSI driver from step-08 fresh-pull swe |
 | 2026-07-14T18:11 | [#5073](https://github.com/openova-io/openova/pull/5073) | #5042 | fix(bootstrap): flux-crds-absent Phase-1 terminal state (Ref |
-| 2026-07-14T17:34 | [#5071](https://github.com/openova-io/openova/pull/5071) | #4765 | docs(§854): eradicate stale NodePort references in Huawei pr |
 
 ---
 
