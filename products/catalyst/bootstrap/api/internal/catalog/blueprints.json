@@ -3693,7 +3693,7 @@
         "pillar-4"
       ],
       "visibility": "unlisted",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "section": "pts-4-7-agentic-workspace",
       "depends": [],
       "shareable": false,

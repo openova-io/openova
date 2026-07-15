@@ -31,7 +31,16 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" \
 # Static Go binary + CA bundle (the facade dials catalyst-api over HTTPS in
 # org mode) — distroless static, runs as nonroot (uid 65532). No shell, no
 # package manager: the server needs nothing but the binary and certs.
+#
+# USER must be NUMERIC (#5114 hw256 defect 1): a string USER (`nonroot`)
+# cannot be proven non-root by the kubelet when the pod spec sets
+# runAsNonRoot, and image 0.2.0 died on arrival with
+# `CreateContainerConfigError: container has runAsNonRoot and image has
+# non-numeric user (nonroot)`. 65532:65532 is the distroless nonroot
+# uid:gid — same identity, numerically stated; the chart's pod
+# securityContext pins the identical runAsUser/runAsGroup (belt and
+# braces — either surface alone now satisfies the runAsNonRoot check).
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /out/openova-mcp /usr/local/bin/openova-mcp
-USER nonroot
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/openova-mcp"]

@@ -62,7 +62,20 @@ metadata:
   labels:
     catalyst.openova.io/slot: "13d"
     catalyst.openova.io/component: openova-mcp
+    catalyst.openova.io/region-role: primary
 spec:
+  # #5114 hw256 defect 2: PRIMARY-ONLY HR — the same G2 split (#2574) as
+  # its cohort's primary-side siblings (13 bp-catalyst-platform / 06a
+  # bp-self-sovereign-cutover / 62 bp-continuum). The facade's upstream
+  # (catalyst-api) and its dependsOn edge (bp-catalyst-platform) exist
+  # only on the primary — bp-catalyst-platform is suspended on secondary
+  # CPs by design, so on a secondary this HR could never leave
+  # `dependency 'flux-system/bp-catalyst-platform' is not ready`
+  # (permanently-False HR fan-out, hw256 region-b). SECONDARY_HR_SUSPEND
+  # renders "true" on every secondary CP's cloud-init
+  # (sovereign_region_role != "primary") and "false" on the primary,
+  # suspending this HR cluster-side without touching the chart catalog.
+  suspend: ${SECONDARY_HR_SUSPEND:=false}
   interval: 1m
   releaseName: openova-mcp
   # Lands in catalyst-system co-located with catalyst-api (its facade
@@ -78,12 +91,17 @@ spec:
   chart:
     spec:
       chart: bp-openova-mcp
+      # 0.1.1 (#5114 hw256 fixes): numeric runAsUser/runAsGroup 65532
+      # beside runAsNonRoot (image 0.2.0's string USER `nonroot` wedged
+      # the pod at CreateContainerConfigError on hw256) + appVersion
+      # 0.2.1 (numeric USER 65532:65532 in the Containerfile) + this
+      # slot goes primary-only via SECONDARY_HR_SUSPEND (defect 2).
       # 0.1.0 (#5114, Refs #3988): first release — Deployment (streamable-
       # HTTP transport) + ClusterIP Service + HTTPRoute mcp.<fqdn> +
       # zero-RBAC ServiceAccount + Cilium ingress/egress CNPs. Lockstep:
       # products/openova-mcp/chart/Chart.yaml + blueprint.yaml +
       # catalog-seed (blueprints.json).
-      version: 0.1.0
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-openova-mcp

@@ -36,6 +36,16 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
+        # NUMERIC uid/gid are REQUIRED next to runAsNonRoot (#5114 hw256
+        # defect 1): the image's USER is resolved by the kubelet at
+        # container-create, and a NON-numeric USER (the distroless
+        # `nonroot` string of image 0.2.0) cannot prove non-rootness →
+        # `CreateContainerConfigError: container has runAsNonRoot and
+        # image has non-numeric user (nonroot)` — pod dead on arrival.
+        # 65532 is the distroless static-debian12 nonroot uid/gid; the
+        # Containerfile pins the same numerically (USER 65532:65532).
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
