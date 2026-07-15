@@ -67,6 +67,14 @@ VIOLATIONS=""
 if [ -n "${RAW}" ]; then
   while IFS= read -r line; do
     [ -z "${line}" ] && continue
+    # Skip the Kyverno forbid-NodePort TEST FIXTURES: they INTENTIONALLY contain
+    # `type: NodePort` / `nodePort: <n>` as the "bad" inputs that prove the §854
+    # audit ClusterPolicy actually CATCHES a NodePort (#5088/#5089). They are
+    # kyverno-cli test resources, never deployed Services — excluding them is
+    # correct, not a §854 weakening.
+    case "${line%%:*}" in
+      platform/kyverno-policies/chart/tests/*) continue ;;
+    esac
     # line == path:lineno:content — strip the path:lineno: prefix for the
     # comment/marker tests.
     content="${line#*:}"; content="${content#*:}"
