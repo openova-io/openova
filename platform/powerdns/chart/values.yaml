@@ -333,6 +333,20 @@ postgres:
 # PowerDNS replica. Defaults: 100 qps per source IP, configurable.
 dnsdist:
   enabled: true
+  # ─── Hetzner DNS front door (#5086, Refs #4765) ─────────────────────────
+  # DEFAULT false ⇒ dnsdist is a Deployment fronted by the Cilium LB-IPAM
+  # anycast VIP (the working path on Huawei / kom4dc / contabo — UNTOUCHED).
+  # On Hetzner the LB-IPAM `sovereign-vip` pool is gated OFF and hcloud-ccm
+  # cannot materialise the anycast Service (no location annotation, no
+  # nodePort), so node:53 never binds via the VIP path and the tofu `dns`
+  # LB :53->node:53 forward is inert. Set true (ONLY by the Hetzner
+  # cloud-init substitute POWERDNS_DNSDIST_HOSTPORT) to make dnsdist a
+  # DaemonSet whose container claims hostPort:53 on every node — a
+  # §854-clean node:53 listener (hostPort ONLY, NEVER a NodePort). No
+  # hostNetwork: dnsdist binds :53 in the pod netns (Cilium
+  # kube-proxy-replacement DNATs node:53->pod) so it never collides with the
+  # Ubuntu-24.04 systemd-resolved stub on 127.0.0.53:53.
+  hostPortMode: false
   image:
     # Official dnsdist image. Repo `powerdns/dnsdist-19` carries the 1.9.x
     # line (matches Authoritative 5.0.x release cadence). Pin a concrete

@@ -790,6 +790,9 @@ write_files:
             # variable validation rejects "" and "local-path", so this substitute
             # can never render an empty or ephemeral class.
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
+            # #5086 Hetzner DNS front door: dnsdist hostPort:53 DaemonSet binds
+            # node:53 (LB-IPAM anycast VIP dead here). hostPort, NEVER nodePort.
+            POWERDNS_DNSDIST_HOSTPORT: "true"
 %{ endif ~}
 %{ if provider == "huawei" ~}
             # Huawei: no cloud CCM. Cilium LB-IPAM assigns the ExternalIP

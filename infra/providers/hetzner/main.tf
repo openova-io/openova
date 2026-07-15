@@ -191,14 +191,13 @@ resource "hcloud_firewall" "main" {
   # forwards :53 → node:53 on the standard port — §854 / #4765: the
   # powerdns-anycast Service is type=LoadBalancer with
   # allocateLoadBalancerNodePorts:false (bp-powerdns ≥1.2.18 fails render on
-  # NodePort), so no node:3xxxx hop exists to forward to. ⚠️ node:53 does NOT
-  # yet BIND on Hetzner (#5086): the anycast Service takes its ingress from the
-  # Cilium LB-IPAM sovereign-vip VIP, which is gated OFF on Hetzner (hcloud-ccm
-  # path), and hcloud-ccm cannot materialise the anycast Service either (no
-  # nodePort target, no location annotation). So this rule + the dns LB forward
-  # are §854-clean but INERT until #5086 restores a node:53 listener on
-  # Hetzner. Not a regression — node:30053 was equally dead since the
-  # bp-powerdns 1.2.18 §854 flip.
+  # NodePort), so no node:3xxxx hop exists to forward to. The node:53 LISTENER
+  # on Hetzner is the bp-powerdns ≥1.2.21 dnsdist DaemonSet (hostPortMode, gated
+  # ON via the Hetzner cloud-init POWERDNS_DNSDIST_HOSTPORT substitute): it binds
+  # hostPort:53 on every node (§854 hostPort, NEVER a nodePort). The Cilium
+  # LB-IPAM sovereign-vip anycast VIP stays dead on Hetzner (gated OFF; no
+  # hcloud-ccm fallback) — hostPort is the front door. LIVE-GATED (#5086):
+  # unproven until a real Hetzner prov confirms `dig @<node> <fqdn>` resolves.
   rule {
     direction  = "in"
     protocol   = "tcp"
@@ -1028,16 +1027,23 @@ resource "hcloud_server" "control_plane" {
   # behavior-risky config trims, so the guardrail is raised to 32512 — still
   # 256 B below the 32768 hard cap. Prefer cutting; only raise for #5042-class
   # fail-loud features that must not be silently truncated.
+  # #5086 (2026-07-15): +1 substitute var POWERDNS_DNSDIST_HOSTPORT (~46 B) —
+  # the Hetzner DNS-front-door gate (flips dnsdist to a hostPort:53 DaemonSet).
+  # It's a config value that must NOT be silently truncated (else node:53 never
+  # binds and Sovereign DNS stays dead). Comments are stripped pre-measure (the
+  # replace() regex above), so no comment cull can offset it AND the render is
+  # already at its documented floor — guardrail raised 32512 → 32576, still
+  # 192 B below the 32768 hard cap.
   lifecycle {
     precondition {
-      condition = length(local.control_plane_cloud_init) <= 32512
+      condition = length(local.control_plane_cloud_init) <= 32576
       # G107 #2702 (2026-06-01): wrap length() with nonsensitive() so the
       # byte count shows in the error_message. Without it tofu redacts the
       # entire message because the local references hcloud_token / ssh_key
       # marked sensitive. Operators iterating on cloud-init slim-downs
       # cannot target their cuts without knowing the actual overshoot;
       # nonsensitive() leaks only the integer length, not any token bytes.
-      error_message = "Rendered control-plane cloud-init is ${nonsensitive(length(local.control_plane_cloud_init))} bytes, exceeds 32512 (256 B below the Hetzner 32768 hard cap) guardrail. Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issues #966 / #1981 / #5057 / #5042."
+      error_message = "Rendered control-plane cloud-init is ${nonsensitive(length(local.control_plane_cloud_init))} bytes, exceeds 32576 (192 B below the Hetzner 32768 hard cap) guardrail. Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issues #966 / #1981 / #5057 / #5042 / #5086."
     }
     precondition {
       condition     = length(local.worker_cloud_init) <= 30720
@@ -1185,16 +1191,15 @@ resource "hcloud_load_balancer_service" "dns" {
   # anycast-endpoint ServiceType=NodePort overlay that #4766 eradicated from
   # 11-powerdns.yaml (now type=LoadBalancer + lbipam.cilium.io/sharing-key,
   # allocateLoadBalancerNodePorts:false — bp-powerdns ≥1.2.18 hard-fails on
-  # NodePort), so node:30053 can never be bound again. §854-clean, BUT ⚠️ INERT
-  # on Hetzner today (#5086): unlike the http/https legs above — whose Cilium
-  # Gateway Service IS materialised by hcloud-ccm (its own hcloud LB), so those
-  # legs limp along — the anycast Service has NO hcloud-ccm fallback (no
-  # location annotation, no nodePort) AND Cilium LB-IPAM is gated OFF on
-  # Hetzner, so nothing binds node:53. This forward resolves Sovereign DNS only
-  # after #5086 restores a node:53 listener on Hetzner (enable the Cilium
-  # LB-IPAM sovereign-vip pool as on Huawei, or hostPort:53 on dnsdist). Not a
-  # regression — node:30053 has been equally dead since the bp-powerdns 1.2.18
-  # §854 flip. Do NOT read this as "DNS works on Hetzner".
+  # NodePort), so node:30053 can never be bound again. §854-clean.
+  # #5086: the node:53 LISTENER on Hetzner is now the bp-powerdns ≥1.2.21
+  # dnsdist DaemonSet (hostPortMode, gated ON via the Hetzner cloud-init
+  # POWERDNS_DNSDIST_HOSTPORT substitute) — it binds hostPort:53 on every node
+  # (§854 hostPort, NEVER a nodePort), so this LB forward reaches a real
+  # listener. (The Cilium LB-IPAM sovereign-vip anycast VIP path stays dead on
+  # Hetzner: no hcloud-ccm fallback, LB-IPAM gated OFF — hostPort is the front
+  # door here.) LIVE-GATED: unproven until a real Hetzner prov confirms
+  # `dig @<node> <fqdn>` resolves; no Hetzner env is currently up.
   # lb11 supports TCP only; UDP :53 is handled via the Hetzner Firewall
   # opening UDP/53 directly to the node's public IP. The LB TCP path handles
   # zone transfers and ACME challenge TXT queries; UDP is used for regular

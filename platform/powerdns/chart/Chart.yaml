@@ -56,7 +56,15 @@ name: bp-powerdns
 #   Service as the forbidden NodePort.
 # 1.2.20 (#4765): hook-Job labels spelled out so managed-by=flux actually
 #   renders — the 1.2.19 duplicate-key override was inert (first key wins).
-version: 1.2.20
+# 1.2.21 (#5086, Refs #4765): Hetzner DNS front door. New dnsdist.hostPortMode
+#   (default false — Huawei/kom4dc anycast-VIP path UNCHANGED). When true (set
+#   ONLY by the Hetzner cloud-init substitute), dnsdist becomes a DaemonSet
+#   whose container binds hostPort:53 on every node so the tofu `dns` LB
+#   :53->node:53 forward has a real listener. §854-clean: hostPort ONLY, NEVER
+#   a NodePort. No hostNetwork (pod-netns :53 bind dodges the Ubuntu-24.04
+#   systemd-resolved 127.0.0.53:53 stub). Live-gated: proven on a real Hetzner
+#   prov (dig @<node> <fqdn>), no Hetzner env currently up.
+version: 1.2.21
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist
