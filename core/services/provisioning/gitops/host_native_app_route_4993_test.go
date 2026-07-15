@@ -130,7 +130,7 @@ func TestGeneratePerOrgHostAppRoutes_SkipsHelmReleaseAndDB(t *testing.T) {
 // removed app on rebuild, and is idempotent + byte-stable.
 func TestMergePerOrgHostAppsKustomization(t *testing.T) {
 	// Fresh seed from the org-controller baseline + one app route.
-	fresh := MergePerOrgHostAppsKustomization("", []string{"app-wordpress-hostroute.yaml"})
+	fresh := MergePerOrgHostAppsKustomization("", nil, []string{"app-wordpress-hostroute.yaml"})
 	for _, want := range []string{
 		"ciliumnetworkpolicy.yaml",
 		"provisioning-rbac.yaml",
@@ -142,7 +142,7 @@ func TestMergePerOrgHostAppsKustomization(t *testing.T) {
 	}
 
 	// A second cart install (nextcloud) is additive; the baseline + prior app survive.
-	second := MergePerOrgHostAppsKustomization(fresh, []string{"app-wordpress-hostroute.yaml", "app-nextcloud-hostroute.yaml"})
+	second := MergePerOrgHostAppsKustomization(fresh, nil, []string{"app-wordpress-hostroute.yaml", "app-nextcloud-hostroute.yaml"})
 	for _, want := range []string{
 		"ciliumnetworkpolicy.yaml", "provisioning-rbac.yaml",
 		"app-wordpress-hostroute.yaml", "app-nextcloud-hostroute.yaml",
@@ -153,20 +153,35 @@ func TestMergePerOrgHostAppsKustomization(t *testing.T) {
 	}
 
 	// Idempotent + byte-stable.
-	again := MergePerOrgHostAppsKustomization(second, []string{"app-wordpress-hostroute.yaml", "app-nextcloud-hostroute.yaml"})
+	again := MergePerOrgHostAppsKustomization(second, nil, []string{"app-wordpress-hostroute.yaml", "app-nextcloud-hostroute.yaml"})
 	if again != second {
 		t.Errorf("merge not idempotent:\n--- first ---\n%s\n--- second ---\n%s", second, again)
 	}
 
 	// Uninstall rebuild (existing="" + surviving docs only) drops the removed app
 	// but ALWAYS keeps the baseline.
-	rebuilt := MergePerOrgHostAppsKustomization("", []string{"app-nextcloud-hostroute.yaml"})
+	rebuilt := MergePerOrgHostAppsKustomization("", nil, []string{"app-nextcloud-hostroute.yaml"})
 	if strings.Contains(rebuilt, "app-wordpress-hostroute.yaml") {
 		t.Errorf("uninstall rebuild kept the removed app route:\n%s", rebuilt)
 	}
 	for _, want := range []string{"ciliumnetworkpolicy.yaml", "provisioning-rbac.yaml", "app-nextcloud-hostroute.yaml"} {
 		if !strings.Contains(rebuilt, want) {
 			t.Errorf("uninstall rebuild dropped %q:\n%s", want, rebuilt)
+		}
+	}
+
+	// #5104 structural completeness: a FUTURE org-controller baseline doc
+	// actually committed under vcluster/host-apps/ survives the merge via the
+	// tree listing, while funnel-owned route docs (pruned by this very commit)
+	// and the index itself are never derived from the tree.
+	treeDocs := []string{"ciliumnetworkpolicy.yaml", "provisioning-rbac.yaml", "gateway-policy.yaml", "app-stale-hostroute.yaml", "kustomization.yaml"}
+	derived := MergePerOrgHostAppsKustomization("", treeDocs, []string{"app-wordpress-hostroute.yaml"})
+	if !strings.Contains(derived, "- gateway-policy.yaml") {
+		t.Errorf("tree-derived merge dropped a future baseline doc (the #5104 orphan class):\n%s", derived)
+	}
+	for _, bad := range []string{"- app-stale-hostroute.yaml", "- kustomization.yaml"} {
+		if strings.Contains(derived, bad) {
+			t.Errorf("tree-derived merge must not index %q:\n%s", bad, derived)
 		}
 	}
 }

@@ -715,18 +715,32 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 	// surviving app docs (appDocs no longer lists the removed app) plus the
 	// baseline. Empty existing → MergePerOrgAppsKustomization seeds the
 	// baseline + the current docs.
+	//
+	// #5104 — the merge is plan-aware AND tree-derived: it force-includes the
+	// org-controller baseline for this plan (networkpolicy.yaml; plus the #4992
+	// vcluster target-ns namespace.yaml for the vcluster tier) and every
+	// baseline-shaped doc ACTUALLY committed under vcluster/apps/ (best-effort
+	// dir listing — nil on error, the plan-aware list still covers the known
+	// docs). Before this, the merge knew only networkpolicy.yaml, so the funnel
+	// index dropped namespace.yaml → the target ns never existed inside the
+	// vcluster → the apps Flux Kustomization wedged on `namespaces "<slug>"
+	// not found` and the purchased app never deployed (2/2 Orgs, hw255).
 	kustPath := gitops.PerOrgAppsDir + "/kustomization.yaml"
 	existingKust := ""
 	if content, err := repoClient.ReadFile(ctx, branch, kustPath); err == nil {
 		existingKust = content
 	}
+	appsTreeDocs, err := repoClient.ListDir(ctx, branch, gitops.PerOrgAppsDir)
+	if err != nil {
+		appsTreeDocs = nil // best-effort — plan-aware baseline still applies
+	}
 	if action == "uninstall" {
 		// Rebuild from the baseline + the SURVIVING app docs only, so the
 		// removed app is dropped from resources (a plain merge would preserve
 		// it because it's still listed in the existing kustomization).
-		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization("", appDocs)
+		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization("", planSlug, appsTreeDocs, appDocs)
 	} else {
-		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, appDocs)
+		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, planSlug, appsTreeDocs, appDocs)
 	}
 
 	// #4993 — for the VCLUSTER tier, also emit the HOST-NATIVE per-app HTTPRoutes
@@ -751,12 +765,19 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 		if content, err := repoClient.ReadFile(ctx, branch, hostKustPath); err == nil {
 			existingHostKust = content
 		}
+		// #5104 — same tree-derived baseline preservation as the apps merge
+		// above: any baseline-shaped doc the org-controller committed under
+		// vcluster/host-apps/ survives the merge even if this build predates it.
+		hostTreeDocs, err := repoClient.ListDir(ctx, branch, gitops.PerOrgHostAppsDir)
+		if err != nil {
+			hostTreeDocs = nil // best-effort
+		}
 		if action == "uninstall" {
 			// Rebuild from baseline + SURVIVING route docs only (drops the
 			// removed app's route from the index).
-			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization("", hostAppDocs)
+			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization("", hostTreeDocs, hostAppDocs)
 		} else {
-			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization(existingHostKust, hostAppDocs)
+			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization(existingHostKust, hostTreeDocs, hostAppDocs)
 		}
 	}
 

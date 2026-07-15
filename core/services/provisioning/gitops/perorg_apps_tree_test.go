@@ -118,7 +118,7 @@ resources:
   - networkpolicy.yaml
   - ciliumnetworkpolicy.yaml
 `
-	out := MergePerOrgAppsKustomization(existing, []string{"app-wordpress.yaml", "db-mysql.yaml"})
+	out := MergePerOrgAppsKustomization(existing, "s", nil, []string{"app-wordpress.yaml", "db-mysql.yaml"})
 
 	for _, want := range []string{"networkpolicy.yaml", "app-wordpress.yaml", "db-mysql.yaml"} {
 		if !strings.Contains(out, "- "+want) {
@@ -130,15 +130,20 @@ resources:
 	if strings.Contains(out, "- ciliumnetworkpolicy.yaml") {
 		t.Errorf("ciliumnetworkpolicy.yaml leaked into vcluster/apps/kustomization.yaml — it lives in host-apps/, so this breaks the kustomize build:\n%s", out)
 	}
+	// Host tier (plan s): namespace.yaml does not exist in the tree — indexing
+	// it would be a #4567-class "no such file" kustomize build failure.
+	if strings.Contains(out, "- namespace.yaml") {
+		t.Errorf("namespace.yaml must NOT be indexed for a host-tier plan (file doesn't exist there):\n%s", out)
+	}
 
 	// Idempotent: merging the same docs into the produced output is byte-stable.
-	out2 := MergePerOrgAppsKustomization(out, []string{"app-wordpress.yaml", "db-mysql.yaml"})
+	out2 := MergePerOrgAppsKustomization(out, "s", nil, []string{"app-wordpress.yaml", "db-mysql.yaml"})
 	if out != out2 {
 		t.Errorf("MergePerOrgAppsKustomization not idempotent:\n--- first ---\n%s\n--- second ---\n%s", out, out2)
 	}
 
 	// Empty existing seeds the baseline from scratch — networkpolicy.yaml only.
-	fresh := MergePerOrgAppsKustomization("", []string{"app-wordpress.yaml"})
+	fresh := MergePerOrgAppsKustomization("", "s", nil, []string{"app-wordpress.yaml"})
 	if !strings.Contains(fresh, "- networkpolicy.yaml") {
 		t.Errorf("empty-existing merge must seed the networkpolicy baseline:\n%s", fresh)
 	}
@@ -147,6 +152,78 @@ resources:
 	}
 	if !strings.Contains(fresh, "- app-wordpress.yaml") {
 		t.Errorf("empty-existing merge must include the new app doc:\n%s", fresh)
+	}
+}
+
+// TestMergePerOrgAppsKustomization_VclusterNamespace_5104 locks the exact hw255
+// regression class: for a VCLUSTER-tier plan the merged apps index MUST carry
+// the #4992 vcluster target-ns `namespace.yaml`, even when the existing
+// (funnel-first) index does not list it — otherwise the org-controller keeps
+// committing the file while nothing ever applies it, the target namespace never
+// exists inside the vcluster, and the apps Flux Kustomization wedges
+// permanently on `namespaces "<slug>" not found` (purchased app never deploys).
+func TestMergePerOrgAppsKustomization_VclusterNamespace_5104(t *testing.T) {
+	// The exact index shape found on hw255 (acme255 / acme-255b): app docs +
+	// NP baseline, namespace.yaml file committed to the tree but NOT indexed.
+	existing := `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - app-umami.yaml
+  - db-postgres.yaml
+  - networkpolicy.yaml
+`
+	out := MergePerOrgAppsKustomization(existing, "m", nil, []string{"app-umami.yaml", "db-postgres.yaml"})
+	for _, want := range []string{"namespace.yaml", "networkpolicy.yaml", "app-umami.yaml", "db-postgres.yaml"} {
+		if !strings.Contains(out, "- "+want) {
+			t.Errorf("vcluster-tier merged apps index missing %q (the #5104 wedge):\n%s", want, out)
+		}
+	}
+
+	// Uninstall shape (existing dropped, only surviving docs merged): the
+	// plan-aware baseline must STILL carry namespace.yaml — a plain
+	// baseline+survivors rebuild used to drop it.
+	uninstall := MergePerOrgAppsKustomization("", "m", nil, []string{"app-umami.yaml"})
+	if !strings.Contains(uninstall, "- namespace.yaml") {
+		t.Errorf("uninstall rebuild dropped namespace.yaml for a vcluster-tier plan:\n%s", uninstall)
+	}
+
+	// Every vcluster-tier plan slug carries the target-ns; host-tier plans must not.
+	for plan, want := range map[string]bool{"m": true, "l": true, "xl": true, "flexi": true, "s": false, "free": false, "": false} {
+		got := contains(PerOrgAppsBaselineDocs(plan), "namespace.yaml")
+		if got != want {
+			t.Errorf("PerOrgAppsBaselineDocs(%q) namespace.yaml = %v, want %v", plan, got, want)
+		}
+	}
+}
+
+// TestMergePerOrgAppsKustomization_TreeDerivedBaseline_5104 locks the
+// structural half of #5104: baseline docs are derived from the files ACTUALLY
+// committed in the tree, so a future org-controller boundary doc survives the
+// funnel merge without a funnel code change — while funnel-owned docs
+// (app-*/db-*, committed AND pruned by this very commit), the index itself,
+// and #4567-excluded docs are never derived from the tree.
+func TestMergePerOrgAppsKustomization_TreeDerivedBaseline_5104(t *testing.T) {
+	treeDocs := []string{
+		"namespace.yaml",           // #4992 baseline — must be indexed
+		"networkpolicy.yaml",       // baseline — must be indexed
+		"quota-override.yaml",      // hypothetical FUTURE baseline doc — must be indexed
+		"ciliumnetworkpolicy.yaml", // #4567 — lives in host-apps/, must NOT be indexed
+		"kustomization.yaml",       // the index itself — never a resource
+		"app-stale.yaml",           // funnel-owned — pruned by this commit, must NOT be derived
+		"db-old.yaml",              // funnel-owned — pruned by this commit, must NOT be derived
+		"README.md",                // not a manifest
+	}
+	out := MergePerOrgAppsKustomization("", "m", treeDocs, []string{"app-wordpress.yaml"})
+
+	for _, want := range []string{"namespace.yaml", "networkpolicy.yaml", "quota-override.yaml", "app-wordpress.yaml"} {
+		if !strings.Contains(out, "- "+want) {
+			t.Errorf("tree-derived merge missing %q:\n%s", want, out)
+		}
+	}
+	for _, bad := range []string{"- ciliumnetworkpolicy.yaml", "- kustomization.yaml", "- app-stale.yaml", "- db-old.yaml", "- README.md"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("tree-derived merge must not index %q:\n%s", bad, out)
+		}
 	}
 }
 

@@ -598,39 +598,55 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// kept overwriting that index with its baseline-only list on every
 		// reconcile, it would CLOBBER the funnel's app entries → Flux's
 		// `kustomize build ./vcluster/apps` would drop the customer's apps and
-		// the wordpress HelmRelease would never land. So the apps
-		// kustomization is SEED-ONLY here: the controller creates it once (so a
-		// fresh Org has a valid index before any cart install) and never
-		// overwrites it thereafter. The K8s NetworkPolicy doc it references
-		// (networkpolicy.yaml) is still authored + kept current via its own
-		// PutFile entry, and the funnel's merge always re-includes it, so the
-		// baseline stays live. (#4475 §1: the CNP no longer lives in apps/ — it
-		// moved to the host-applied `vcluster/host-apps/` tree, whose
-		// kustomization index the controller keeps current since the funnel does
-		// NOT merge into it.)
+		// the wordpress HelmRelease would never land.
 		//
-		// #4993 — `vcluster/host-apps/kustomization.yaml` is now SEED-ONLY for
-		// the SAME reason: the funnel merges the host-native per-app HTTPRoutes
+		// #4993 — `vcluster/host-apps/kustomization.yaml` has the same
+		// contract: the funnel merges the host-native per-app HTTPRoutes
 		// (app-<x>-hostroute.yaml, the durable fix for the vcluster-tier 404,
-		// since loft vcluster 0.33.4 syncs no httproutes) into this index
-		// alongside the CNP + provisioning-rbac baseline. If the controller kept
-		// force-overwriting it with its baseline-only list, Flux's
-		// `kustomize build ./vcluster/host-apps` would drop the app routes and
-		// the customer's app would 404 again on the next reconcile. The baseline
-		// docs (ciliumnetworkpolicy.yaml / provisioning-rbac.yaml) are still
-		// authored + kept current via their own PutFile entries, and the funnel's
-		// MergePerOrgHostAppsKustomization always re-includes them.
+		// since loft vcluster 0.33.4 syncs no httproutes) into that index
+		// alongside the CNP + provisioning-rbac baseline.
+		//
+		// #5104 — both indexes are RECONCILING MERGE-WRITES now, not the former
+		// seed-only skip. Pure seed-only left the #4992 vcluster target-ns
+		// `namespace.yaml` structurally dead for every vcluster-tier funnel
+		// Org: the funnel committed its merged index FIRST (without
+		// namespace.yaml — its merge didn't know the doc), the controller then
+		// saw the index present and never re-added its baseline entry, while
+		// still committing the (now orphaned) namespace.yaml file on every
+		// reconcile → Flux wedged permanently on `namespaces "<slug>" not
+		// found` and the purchased app never deployed (hw255, 2/2 Orgs). The
+		// merge unions the controller's rendered baseline INTO the existing
+		// index, NEVER pruning funnel entries, strips #4567-class stale
+		// entries (a CNP listed in apps/), and skips the write when the
+		// resource set is already complete — steady state stays write-free and
+		// already-wedged Orgs self-heal on their next reconcile.
 		if path == "vcluster/apps/kustomization.yaml" ||
 			path == "vcluster/host-apps/kustomization.yaml" {
-			if _, gerr := r.GiteaClient.GetFile(ctx, gOrg.Username, repoName, branch, path); gerr == nil {
-				// Already present (seeded earlier, possibly funnel-merged) —
-				// leave it untouched so cart app entries survive.
-				continue
-			} else if !errors.Is(gerr, gitea.ErrFileNotFound) {
+			existing, gerr := r.GiteaClient.GetFile(ctx, gOrg.Username, repoName, branch, path)
+			switch {
+			case gerr == nil:
+				existingBytes, derr := existing.Decoded()
+				if derr != nil {
+					return r.fail(ctx, &org, "GitopsWriteFailed",
+						fmt.Sprintf("decode %s: %s", path, derr))
+				}
+				merge := gitops.MergeHostAppsKustomizationIndex
+				if path == "vcluster/apps/kustomization.yaml" {
+					merge = gitops.MergeAppsKustomizationIndex
+				}
+				merged, changed := merge(string(existingBytes), string(data))
+				if !changed {
+					// Index already carries every baseline entry (and nothing
+					// to strip) — leave the funnel-authored bytes untouched.
+					continue
+				}
+				data = []byte(merged)
+			case errors.Is(gerr, gitea.ErrFileNotFound):
+				// Genuinely absent → fall through to seed the rendered index.
+			default:
 				return r.fail(ctx, &org, "GitopsWriteFailed",
 					fmt.Sprintf("probe %s: %s", path, gerr))
 			}
-			// Genuinely absent → fall through to create it.
 		}
 		if _, _, err := r.GiteaClient.PutFile(ctx,
 			gOrg.Username, repoName, branch, path, data,

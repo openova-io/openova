@@ -974,6 +974,57 @@ func (c *Client) updateRef(ctx context.Context, branch, commitSHA string) error 
 	return err
 }
 
+// ListDir returns the basenames of the FILES directly under dir on the given
+// branch, via the GitHub/Gitea-compatible repository contents API (a GET on a
+// directory path returns a JSON array of entries on both providers). Returns
+// a wrapped ErrFileNotFound when the directory does not exist on the branch
+// (a fresh per-Org repo before the org-controller seeded the tree). Used by
+// the funnel cart install (#5104) to derive the org-controller baseline docs
+// actually committed in `vcluster/apps/` / `vcluster/host-apps/` so the
+// kustomization merge never orphans a boundary file it doesn't know by name.
+func (c *Client) ListDir(ctx context.Context, branch, dir string) ([]string, error) {
+	url := c.apiURL(fmt.Sprintf("/contents/%s?ref=%s", dir, branch))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		return nil, fmt.Errorf("%w: %s", ErrFileNotFound, dir)
+	}
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API: %d %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var entries []struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, fmt.Errorf("decode contents listing %s: %w", dir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Type != "file" {
+			continue
+		}
+		names = append(names, e.Name)
+	}
+	return names, nil
+}
+
 // ReadFile reads a file's content from the repository at the given branch.
 func (c *Client) ReadFile(ctx context.Context, branch, path string) (string, error) {
 	url := c.apiURL(fmt.Sprintf("/contents/%s?ref=%s", path, branch))
