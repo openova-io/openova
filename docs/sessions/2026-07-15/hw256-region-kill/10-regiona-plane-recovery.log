@@ -1,0 +1,43 @@
+## §4e region-a plane recovery — 2026-07-15T18:45:28.072Z
+--- continuum CRs ---
+NAMESPACE     NAME                               APPLICATION               PRIMARY                     LEASE                       PHASE     AGE
+catalyst      dr-spine-gitea                     catalyst/spine-gitea      me-east-215-a               me-east-215-a               Healthy   125m
+catalyst      dr-spine-harbor                    catalyst/spine-harbor     me-east-215-a               me-east-215-a               Healthy   125m
+catalyst      dr-spine-keycloak                  catalyst/spine-keycloak   me-east-215-a               me-east-215-a               Healthy   125m
+catalyst      dr-spine-openbao                   catalyst/spine-openbao    me-east-215-a               me-east-215-a               Healthy   125m
+cnpg          cnpg-pair-bp-cnpg-pair-continuum   catalyst-platform         hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   125m
+shared-data   dr-shared-pg                       shared-data/shared-pg     hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   125m
+shared-data   dr-shared-pg-b                     shared-data/shared-pg-b   hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   125m
+shared-data   dr-shared-pg-c                     shared-data/shared-pg-c   hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   125m
+--- flux not-ready HRs (region-a) ---
+flux-system   bp-cluster-autoscaler-hcloud       156m          
+flux-system   bp-hcloud-ccm                      156m          
+flux-system   bp-velero                          156m          
+--- flux gitrepo/kustomizations ---
+NAMESPACE     NAME                                URL                                                                                    AGE    READY   STATUS
+flux-system   catalyst-tenant-acme256             http://gitea-http.gitea.svc.cluster.local:3000/acme256/catalyst-tenant.git             65m    True    stored artifact for revision 'main@sha1:57cd9c6f848b0be1238263f17b0268e52fe19372'
+flux-system   catalyst-tenant-hw256-omani-works   http://gitea-http.gitea.svc.cluster.local:3000/hw256-omani-works/catalyst-tenant.git   125m   True    stored artifact for revision 'main@sha1:381d47bc7e36d2f473b2b725f560f19672568404'
+flux-system   openova                             https://github.com/openova-io/openova                                                  157m   True    stored artifact for revision 'main@sha1:ab9b6f57bab8dacb87a8884f9d21177f5d923548'
+flux-system   openova-catalog-sovereign           http://gitea-http.gitea.svc.cluster.local:3000/openova/openova                         129m   True    stored artifact for revision 'catalog-sovereign@sha1:be4b00528af6a1aa1c41693e48070f8247e7451c'
+--- not-running pods (region-a, excluding Completed) ---
+catalyst-system           openova-mcp-bp-openova-mcp-6597558d4-nbg7r                        0/1   CreateContainerConfigError   0                128m
+catalyst-system           openova-mcp-bp-openova-mcp-85899f5fb6-z57hb                       0/1   CrashLoopBackOff             22 (2m30s ago)   76m
+catalyst                  cutover-harbor-prewarm-1784135369-4jdq7                           0/1   Error                        0                90m
+catalyst                  cutover-harbor-prewarm-1784135369-76jl4                           0/1   Error                        0                89m
+catalyst                  cutover-harbor-prewarm-1784135369-9g899                           0/1   Error                        0                90m
+catalyst                  cutover-harbor-prewarm-1784135369-c2x88                           0/1   Error                        0                90m
+kube-system               vpc-podcidr-route-reconciler-29735670-rx6r9                       0/1   Error                        0                15m
+openbao                   openbao-snapshot-save-29735680-6lfth                              0/1   Error                        0                2m7s
+openbao                   openbao-snapshot-save-29735680-7847p                              0/1   Error                        0                3m4s
+openbao                   openbao-snapshot-save-29735680-nvvxp                              0/1   Error                        0                3m24s
+openbao                   openbao-snapshot-save-29735680-xgdnr                              0/1   Error                        0                5m35s
+trivy-system              scan-vulnerabilityreport-54787c9ffd-6mhf4                         0/1   Init:0/1                     0                13s
+trivy-system              scan-vulnerabilityreport-6dbf544b5c-jq9ts                         1/2   Error                        0                41s
+trivy-system              scan-vulnerabilityreport-75f8794cf-9rwrx                          0/1   Init:0/1                     0                13s
+trivy-system              scan-vulnerabilityreport-7cdb7dfb6b-j6682                         0/1   Init:0/1                     0                13s
+trivy-system              scan-vulnerabilityreport-7fd9ff5bfd-28469                         0/1   Init:0/1                     0                9s
+trivy-system              scan-vulnerabilityreport-866f4fbfc-x7gr6                          1/2   Error                        0                3m44s
+trivy-system              scan-vulnerabilityreport-cb57548df-r2btx                          1/2   Error                        0                3m11s
+--- front-door recheck ---
+  https://console.hw256.omani.works -> 200 ip=212.72.24.43
+  https://keycloak.hw256.omani.works/realms/sovereign -> 404 ip=212.72.24.1

@@ -1,0 +1,32 @@
+## §1 SEED — 2026-07-15T18:28:27.002Z
+--- shared-pg (shared-data, primary=shared-pg-2, db=postgres) ---
+CREATE TABLE
+TRUNCATE TABLE
+INSERT 0 1000
+INSERT 0 1
+--- cnpg-pair (cnpg, primary=...-primary-1, db=app) ---
+CREATE TABLE
+TRUNCATE TABLE
+INSERT 0 1000
+INSERT 0 1
+--- region-b pre-kill verification (2026-07-15T18:28:32.318Z) ---
+shared-pg-replica count|max|sentinel: 1001|100000|g12-sentinel-prekill-2026-07-15 18:28:27.120084+00
+cnpg-pair-replica count|max|sentinel: 1001|100000|g12-sentinel-prekill-2026-07-15 18:28:27.288837+00
+--- pre-kill pg_stat_replication (region-a primaries) ---
+ application_name  |   state   | sync_state | replay_lsn | replay_lag 
+-------------------+-----------+------------+------------+------------
+ shared-pg-replica | streaming | async      | 0/1D0A7CA8 | 
+ shared-pg-3       | streaming | potential  | 0/1D0A7CA8 | 
+ shared-pg-1       | streaming | sync       | 0/1D0A7CA8 | 
+(3 rows)
+
+         application_name         |   state   | sync_state | replay_lsn | replay_lag 
+----------------------------------+-----------+------------+------------+------------
+ cnpg-pair-bp-cnpg-pair-replica   | streaming | sync       | 0/A04F350  | 
+ cnpg-pair-bp-cnpg-pair-primary-2 | streaming | async      | 0/A04F350  | 
+ cnpg-pair-bp-cnpg-pair-primary-3 | streaming | async      | 0/A04F350  | 
+(3 rows)
+
+--- region-b recovery states ---
+shared-pg-replica-1 in_recovery: t
+cnpg-pair-replica-1 in_recovery: t

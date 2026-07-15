@@ -1,0 +1,10 @@
+## §4 RESTORE — batch os-start region-a
+TR0_UTC=2026-07-15T18:32:45.507Z
+job_id=8a868c3f9f44cbda019f670d7f1408ad
+--- polling region-a apiserver return ---
+2026-07-15T18:33:34.861Z region-a apiserver BACK
+NAME                                                           STATUS   ROLES                       AGE    VERSION
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-cp1-b871ba   Ready    control-plane,etcd,master   150m   v1.31.4+k3s1
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-w166536      Ready    <none>                      149m   v1.31.4+k3s1
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-w52357d      Ready    <none>                      148m   v1.31.4+k3s1
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-wa8572e      Ready    <none>                      148m   v1.31.4+k3s1

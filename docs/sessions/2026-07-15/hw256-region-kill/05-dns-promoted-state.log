@@ -1,0 +1,24 @@
+## §3d DNS + promoted-cluster state — 2026-07-15T18:31:58.052Z
+--- DNS resolution ---
+  hw256.omani.works: 212.72.24.1 
+  console.hw256.omani.works: 212.72.24.43 
+  keycloak.hw256.omani.works: 212.72.24.1 
+  NS omani.works: ns1.openova.io. ns3.openova.io. ns2.openova.io. 
+  @212.72.24.12 (region-b powerdns) console.hw256: ;; communications error to 212.72.24.12#53: timed out ;; no servers could be reached  
+--- promoted clusters status (region-b) ---
+NAMESPACE         NAME                             AGE    INSTANCES   READY   STATUS                     PRIMARY
+catalyst-system   openova-flow-pg                  131m   2           2       Cluster in healthy state   openova-flow-pg-1
+cnpg              cnpg-pair-bp-cnpg-pair-replica   109m   3           3       Cluster in healthy state   cnpg-pair-bp-cnpg-pair-replica-1
+guacamole         guacamole-pg                     125m   1           1       Cluster in healthy state   guacamole-pg-1
+newapi            newapi-bp-newapi-newapi-pg       125m   2           2       Cluster in healthy state   newapi-bp-newapi-newapi-pg-1
+powerdns          pdns-pg                          131m   2           2       Cluster in healthy state   pdns-pg-1
+shared-data       shared-pg-b-replica              109m   3           3       Cluster in healthy state   shared-pg-b-replica-1
+shared-data       shared-pg-c-replica              109m   3           3       Cluster in healthy state   shared-pg-c-replica-1
+shared-data       shared-pg-replica                109m   3           3       Cluster in healthy state   shared-pg-replica-1
+--- promoted shared-pg pg_stat_replication (local standbys) ---
+  application_name   |   state   | sync_state 
+---------------------+-----------+------------
+ shared-pg-replica-3 | streaming | async
+ shared-pg-replica-2 | streaming | async
+(2 rows)
+

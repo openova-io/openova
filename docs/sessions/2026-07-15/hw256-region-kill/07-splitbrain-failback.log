@@ -1,0 +1,17 @@
+## §4b split-brain window evidence — 2026-07-15T18:44:46.772Z
+region-a shared-pg-2 in_recovery: f
+region-a cnpg-pair-primary-2 (new in-region primary) in_recovery: f
+region-b shared-pg-replica-1 in_recovery: f
+region-b cnpg-pair-replica-1 in_recovery: t
+--- divergence: ---
+region-a g12_marker count (expect 1001, no post-kill row): 1001
+region-b g12_marker count (expect 1002, has post-kill row): 1002
+region-a d31_counter count: 1001
+region-b d31_counter count: 1002
+
+## §4c SPLIT-BRAIN GUARD: demote region-b back to replica (declared topology: region-a primary) — 2026-07-15T18:44:49.033Z
+cluster.postgresql.cnpg.io/shared-pg-replica patched
+cluster.postgresql.cnpg.io/cnpg-pair-bp-cnpg-pair-replica patched (no change)
+cluster.postgresql.cnpg.io/shared-pg-b-replica patched
+cluster.postgresql.cnpg.io/shared-pg-c-replica patched
+2026-07-15T18:44:49.384Z demote patches issued (post-kill writes on region-b will be discarded on rewind/re-clone — recorded)

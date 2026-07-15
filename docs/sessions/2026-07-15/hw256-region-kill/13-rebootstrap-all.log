@@ -1,0 +1,29 @@
+## §4h canary verification — 2026-07-15T18:52:25.669Z
+region-a sees shared-pg-replica: shared-pg-replica streaming async
+region-b g12_marker count (expect 1001 — re-cloned, post-kill row discarded): 1001
+region-b in_recovery: t
+
+## §4i re-bootstrap remaining three — 2026-07-15T18:52:26.126Z
+cluster.postgresql.cnpg.io "shared-pg-b-replica" deleted
+cluster.postgresql.cnpg.io "shared-pg-c-replica" deleted
+cluster.postgresql.cnpg.io "cnpg-pair-bp-cnpg-pair-replica" deleted
+cluster.postgresql.cnpg.io/shared-pg-b-replica created
+cluster.postgresql.cnpg.io/shared-pg-c-replica created
+cluster.postgresql.cnpg.io/cnpg-pair-bp-cnpg-pair-replica created
+2026-07-15T18:52:31.670Z all three re-applied; watching (max 10 min)
+2026-07-15T18:52:41.874Z b=/3 c=/3 cnpg-pair=/3
+2026-07-15T18:52:52.086Z b=/3 c=/3 cnpg-pair=/3
+2026-07-15T18:53:02.299Z b=/3 c=/3 cnpg-pair=/3
+2026-07-15T18:53:13.108Z b=/3 c=/3 cnpg-pair=1/3
+2026-07-15T18:53:23.308Z b=/3 c=1/3 cnpg-pair=1/3
+2026-07-15T18:53:33.512Z b=/3 c=1/3 cnpg-pair=1/3
+2026-07-15T18:53:43.717Z b=1/3 c=1/3 cnpg-pair=2/3
+2026-07-15T18:53:54.921Z b=1/3 c=2/3 cnpg-pair=2/3
+2026-07-15T18:54:06.188Z b=1/3 c=2/3 cnpg-pair=2/3
+2026-07-15T18:54:16.989Z b=1/3 c=2/3 cnpg-pair=3/3
+2026-07-15T18:54:27.199Z b=2/3 c=2/3 cnpg-pair=3/3
+2026-07-15T18:54:37.404Z b=2/3 c=3/3 cnpg-pair=3/3
+2026-07-15T18:54:48.056Z b=2/3 c=3/3 cnpg-pair=3/3
+2026-07-15T18:54:58.265Z b=2/3 c=3/3 cnpg-pair=3/3
+2026-07-15T18:55:08.470Z b=3/3 c=3/3 cnpg-pair=3/3
+ALL REPLICA CLUSTERS HEALED

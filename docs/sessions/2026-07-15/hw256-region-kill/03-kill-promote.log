@@ -1,0 +1,25 @@
+=== §2 KILL: batch HARD-stop 4 region-a ECS — 2026-07-15T18:30:33.336Z ===
+T0_EPOCH_MS=1784140233498
+T0_UTC=2026-07-15T18:30:33.498Z
+job_id=8a868c3f9f44cbda019f670b7b6d086a
+--- polling region-a apiserver death ---
+2026-07-15T18:30:37.929Z region-a apiserver DEAD (T_apidead-T0 = 4.430s)
+=== §3 PROMOTE region-b (all 4 replica clusters) — 2026-07-15T18:30:37.930Z ===
+cluster.postgresql.cnpg.io/shared-pg-replica patched
+cluster.postgresql.cnpg.io/cnpg-pair-bp-cnpg-pair-replica patched
+cluster.postgresql.cnpg.io/shared-pg-b-replica patched
+cluster.postgresql.cnpg.io/shared-pg-c-replica patched
+2026-07-15T18:30:38.308Z patches issued (T_patch-T0 = 4.433s)
+2026-07-15T18:30:39.184Z cnpg-pair-replica PROMOTED in_recovery=f  RTO_from_T0=5.685s  RTO_from_patch=1.252s
+2026-07-15T18:30:39.640Z shared-pg-replica PROMOTED in_recovery=f  RTO_from_T0=6.141s  RTO_from_patch=1.708s
+2026-07-15T18:30:40.242Z shared-pg-b-replica PROMOTED in_recovery=f  RTO_from_T0=6.743s  RTO_from_patch=2.310s
+2026-07-15T18:30:40.653Z shared-pg-c-replica PROMOTED in_recovery=f  RTO_from_T0=7.154s  RTO_from_patch=2.721s
+=== §3b RPO proof + post-kill writes — 2026-07-15T18:30:40.654Z ===
+shared-pg promoted count|max|sentinel: 1001|100000|g12-sentinel-prekill-2026-07-15 18:28:27.120084+00
+cnpg-pair promoted count|max|sentinel: 1001|100000|g12-sentinel-prekill-2026-07-15 18:28:27.288837+00
+INSERT 0 1
+2026-07-15T18:30:41.633Z shared-pg post-kill WRITE ACCEPTED
+INSERT 0 1
+2026-07-15T18:30:41.764Z cnpg-pair post-kill WRITE ACCEPTED
+keycloak realms on promoted shared-pg: sovereign,master
+=== kill+promote phase complete — 2026-07-15T18:30:41.917Z ===

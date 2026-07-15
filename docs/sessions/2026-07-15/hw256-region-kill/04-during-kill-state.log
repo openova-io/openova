@@ -1,0 +1,32 @@
+## §3c during-kill state — 2026-07-15T18:31:13.854Z
+--- ECS states ---
+  catalyst-hw256-omani-works-ea60815a-me-east-215-b-wbc0ea1  ACTIVE
+  catalyst-hw256-omani-works-ea60815a-me-east-215-a-wa8572e  SHUTOFF
+  catalyst-hw256-omani-works-ea60815a-me-east-215-a-w52357d  SHUTOFF
+  catalyst-hw256-omani-works-ea60815a-me-east-215-b-w6c8a37  ACTIVE
+  catalyst-hw256-omani-works-ea60815a-me-east-215-a-w166536  SHUTOFF
+  catalyst-hw256-omani-works-ea60815a-me-east-215-b-w5da1eb  ACTIVE
+  catalyst-hw256-omani-works-ea60815a-me-east-215-a-cp1-b871ba  SHUTOFF
+  catalyst-hw256-omani-works-ea60815a-me-east-215-b-cp1-7d2960  ACTIVE
+--- region-a kubectl (expect dead) ---
+--- read-availability log (last 8 ticks) ---
+2026-07-15T18:30:33.487Z regionb-read shared-pg max=100000
+2026-07-15T18:30:36.632Z regionb-read shared-pg max=100000
+2026-07-15T18:30:40.148Z regionb-read shared-pg max=100000
+--- region-b front-door checks (structural, pre-cutover) ---
+  https://console.hw256.omani.works -> 000 
+  https://keycloak.hw256.omani.works/realms/sovereign -> 000 
+--- region-b pods not-running count ---
+shared-data               shared-pg-replica-2                                               0/1   PodInitializing   0              26s
+trivy-system              scan-vulnerabilityreport-56d8ccb8dc-8wms5                         0/2   Init:0/1          0              25s
+trivy-system              scan-vulnerabilityreport-65ccbbdd8c-s9pjn                         0/2   PodInitializing   0              32s
+trivy-system              scan-vulnerabilityreport-6b58fc88f5-l2b86                         1/2   Error             0              55s
+trivy-system              scan-vulnerabilityreport-6df94fc587-kb7px                         1/2   Error             0              55s
+trivy-system              scan-vulnerabilityreport-7758658bbb-tch8w                         0/2   Init:0/1          0              26s
+trivy-system              scan-vulnerabilityreport-7c7d5576b6-sjnd6                         1/2   Error             0              54s
+trivy-system              scan-vulnerabilityreport-7dcfd4ff9d-zrbkz                         1/2   Error             0              54s
+trivy-system              scan-vulnerabilityreport-7df765dbbd-9sssf                         0/3   PodInitializing   0              31s
+trivy-system              scan-vulnerabilityreport-7fccf8748f-9bjb7                         0/2   Init:0/1          0              4s
+trivy-system              scan-vulnerabilityreport-8668dc5596-w6l6s                         0/2   Init:0/1          0              29s
+--- region-b cilium clustermesh view of dead peer ---
+ClusterMesh:             1/1 remote clusters ready

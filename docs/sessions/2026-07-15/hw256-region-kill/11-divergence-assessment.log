@@ -1,0 +1,20 @@
+## §4f divergence assessment — 2026-07-15T18:48:39.570Z
+--- shared-pg-replica-1 ---
+     36 highest timeline 2 of the primary is behind recovery timeline 3
+  in_recovery: t
+  wal_receiver status: NOT-RUNNING
+--- shared-pg-b-replica-1 ---
+     36 highest timeline 2 of the primary is behind recovery timeline 3
+  in_recovery: t
+  wal_receiver status: NOT-RUNNING
+--- shared-pg-c-replica-1 ---
+     36 started streaming WAL from primary at 0/10000000 on timeline 3
+  in_recovery: t
+  wal_receiver status: NOT-RUNNING
+--- cnpg-pair-bp-cnpg-pair-replica-1 ---
+     34 started streaming WAL from primary at 0/D000000 on timeline 2
+  in_recovery: t
+  wal_receiver status: NOT-RUNNING
+--- region-a primaries timelines ---
+  shared-pg-2 timeline: 2
+  cnpg-pair-bp-cnpg-pair-primary-2 timeline: 2

@@ -1,0 +1,37 @@
+## §1b region-b spine baseline — 2026-07-15T18:29:36.293Z
+keycloak realm count (via region-b replica, keycloak db): 2
+keycloak realms: sovereign,master
+--- region-b workload inventory (spine surfaces) ---
+     21 kube-system
+     14 mimir
+     12 dragonfly
+     11 catalyst-system
+      9 shared-data
+      8 flux-system
+      7 seaweedfs
+      7 powerdns
+      7 harbor
+      6 kyverno
+      6 huawei-evs-csi
+      5 openbao
+      5 nats-system
+      4 newapi
+      4 guacamole
+      4 falco
+      4 cnpg
+      4 cert-manager
+      4 alloy
+      3 vpa
+      3 external-secrets-system
+      2 opentelemetry
+      2 oidc-gate
+      2 gitea
+      2 crossplane-system
+--- region-b gateway/console services ---
+kube-system               cilium-gateway-cilium-gateway                                    ClusterIP      10.97.156.213   <none>         80/TCP,443/TCP                                                                                            143m
+kube-system               clustermesh-apiserver                                            LoadBalancer   10.97.148.211   212.72.24.12   2379/TCP                                                                                                  142m
+mimir                     mimir-gateway                                                    ClusterIP      10.97.114.130   <none>         80/TCP,8080/TCP                                                                                           142m
+mimir                     mimir-minio-console                                              ClusterIP      10.97.148.78    <none>         9001/TCP                                                                                                  142m
+mimir                     mimir-store-gateway                                              ClusterIP      10.97.47.103    <none>         8080/TCP,9095/TCP                                                                                         142m
+mimir                     mimir-store-gateway-headless                                     ClusterIP      None            <none>         8080/TCP,9095/TCP                                                                                         142m
+powerdns                  powerdns-anycast                                                 LoadBalancer   10.97.224.120   212.72.24.12   53/UDP,53/TCP                                                                                             129m

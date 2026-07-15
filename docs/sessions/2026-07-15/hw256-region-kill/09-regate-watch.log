@@ -1,0 +1,18 @@
+## §4d re-gate watch — 2026-07-15T18:45:15.629Z
+2026-07-15T18:45:45.632Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:46:16.242Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:46:46.924Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:47:17.538Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:47:48.236Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:48:18.860Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:48:49.425Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:49:20.044Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:49:50.649Z sharedpg-b-in_rec= cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:50:21.150Z sharedpg-b-in_rec= cnpgpair-b-in_rec=t a-sees-sharedpg-replica=0 a-sees-cnpgpair-replica=0
+2026-07-15T18:50:51.648Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=1 a-sees-cnpgpair-replica=0
+2026-07-15T18:51:22.276Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=1 a-sees-cnpgpair-replica=0
+2026-07-15T18:51:52.878Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=1 a-sees-cnpgpair-replica=0
+2026-07-15T18:52:23.453Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=1 a-sees-cnpgpair-replica=0
+2026-07-15T18:52:54.048Z sharedpg-b-in_rec=t cnpgpair-b-in_rec= a-sees-sharedpg-replica=1 a-sees-cnpgpair-replica=0
+2026-07-15T18:53:24.548Z sharedpg-b-in_rec=t cnpgpair-b-in_rec=t a-sees-sharedpg-replica=1 a-sees-cnpgpair-replica=1
+2026-07-15T18:53:24.548Z RE-GATE: region-b back to streaming replica on both pairs

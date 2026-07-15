@@ -1,0 +1,72 @@
+## §5 FINAL RE-GATE — 2026-07-15T18:55:33.638Z
+--- region-a primaries: replication (cross-region replicas back) ---
+ application_name  |   state   | sync_state 
+-------------------+-----------+------------
+ shared-pg-3       | streaming | potential
+ shared-pg-1       | streaming | sync
+ shared-pg-replica | streaming | async
+(3 rows)
+
+         application_name         |   state   | sync_state 
+----------------------------------+-----------+------------
+ cnpg-pair-bp-cnpg-pair-primary-3 | streaming | async
+ cnpg-pair-bp-cnpg-pair-primary-1 | streaming | async
+ cnpg-pair-bp-cnpg-pair-replica   | streaming | sync
+(3 rows)
+
+cnpg-pair synchronous_standby_names: FIRST 1 ("cnpg-pair-bp-cnpg-pair-replica")
+--- final data convergence ---
+region-a g12_marker: 1001|100000
+region-b g12_marker: 1001|100000
+region-a d31_counter: 1001|100000
+region-b d31_counter: 1001|100000
+--- write-then-replicate proof (post-restore) ---
+region-b sees post-restore row 200000: g12-postrestore-2026-07-15 18:55:34.781783+00
+--- clusters both regions ---
+NAMESPACE         NAME                             AGE    INSTANCES   READY   STATUS                                                       PRIMARY
+catalyst-system   openova-flow-pg                  145m   2           2       Instance Status Extraction Error: HTTP communication issue   openova-flow-pg-1
+cnpg              cnpg-pair-bp-cnpg-pair-primary   135m   3           3       Cluster in healthy state                                     cnpg-pair-bp-cnpg-pair-primary-2
+guacamole         guacamole-pg                     141m   1           1       Cluster in healthy state                                     guacamole-pg-1
+newapi            newapi-bp-newapi-newapi-pg       141m   2           2       Cluster in healthy state                                     newapi-bp-newapi-newapi-pg-1
+org-services      org-pg                           139m   2           2       Cluster in healthy state                                     org-pg-1
+powerdns          pdns-pg                          145m   2           2       Cluster in healthy state                                     pdns-pg-1
+shared-data       shared-pg                        145m   3           3       Cluster in healthy state                                     shared-pg-2
+shared-data       shared-pg-b                      145m   3           3       Cluster in healthy state                                     shared-pg-b-2
+shared-data       shared-pg-c                      145m   3           3       Cluster in healthy state                                     shared-pg-c-1
+NAMESPACE         NAME                             AGE     INSTANCES   READY   STATUS                     PRIMARY
+catalyst-system   openova-flow-pg                  155m    2           2       Cluster in healthy state   openova-flow-pg-1
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3m8s    3           3       Cluster in healthy state   cnpg-pair-bp-cnpg-pair-replica-1
+guacamole         guacamole-pg                     148m    1           1       Cluster in healthy state   guacamole-pg-1
+newapi            newapi-bp-newapi-newapi-pg       148m    2           2       Cluster in healthy state   newapi-bp-newapi-newapi-pg-1
+powerdns          pdns-pg                          155m    2           2       Cluster in healthy state   pdns-pg-1
+shared-data       shared-pg-b-replica              3m8s    3           3       Cluster in healthy state   shared-pg-b-replica-1
+shared-data       shared-pg-c-replica              3m8s    3           3       Cluster in healthy state   shared-pg-c-replica-1
+shared-data       shared-pg-replica                5m46s   3           3       Cluster in healthy state   shared-pg-replica-1
+--- continuum ---
+NAMESPACE     NAME                               APPLICATION               PRIMARY                     LEASE                       PHASE     AGE
+catalyst      dr-spine-gitea                     catalyst/spine-gitea      me-east-215-a               me-east-215-a               Healthy   135m
+catalyst      dr-spine-harbor                    catalyst/spine-harbor     me-east-215-a               me-east-215-a               Healthy   135m
+catalyst      dr-spine-keycloak                  catalyst/spine-keycloak   me-east-215-a               me-east-215-a               Healthy   135m
+catalyst      dr-spine-openbao                   catalyst/spine-openbao    me-east-215-a               me-east-215-a               Healthy   135m
+cnpg          cnpg-pair-bp-cnpg-pair-continuum   catalyst-platform         hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   135m
+shared-data   dr-shared-pg                       shared-data/shared-pg     hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   135m
+shared-data   dr-shared-pg-b                     shared-data/shared-pg-b   hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   135m
+shared-data   dr-shared-pg-c                     shared-data/shared-pg-c   hw-me-east-215-a-rtz-prod   hw-me-east-215-a-rtz-prod   Healthy   135m
+--- nodes ---
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-cp1-b871ba Ready
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-w166536 Ready
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-w52357d Ready
+catalyst-hw256-omani-works-ea60815a-me-east-215-a-wa8572e Ready
+catalyst-hw256-omani-works-ea60815a-me-east-215-b-cp1-7d2960 Ready
+catalyst-hw256-omani-works-ea60815a-me-east-215-b-w5da1eb Ready
+catalyst-hw256-omani-works-ea60815a-me-east-215-b-w6c8a37 Ready
+catalyst-hw256-omani-works-ea60815a-me-east-215-b-wbc0ea1 Ready
+--- clustermesh ---
+ClusterMesh:             1/1 remote clusters ready
+ClusterMesh:             1/1 remote clusters ready
+--- flux (region-a) suspended/not-ready HRs ---
+flux-system bp-cluster-autoscaler-hcloud  
+flux-system bp-hcloud-ccm  
+flux-system bp-velero  
+--- front-door ---
+console.hw256.omani.works -> 200
