@@ -102,7 +102,7 @@ runtime:
   # .github/workflows/build-sandbox-mcp-server.yaml. 1b0e86c is the
   # last pre-#1658 green build; the rebuilt workflow (repo-root context)
   # will land the next real SHA on the next push to main.
-  mcpImage: "ghcr.io/openova-io/openova/sandbox-mcp-server:35783eb"
+  mcpImage: "ghcr.io/openova-io/openova/sandbox-mcp-server:5a758ab"
   # Sovereign LLM gateway endpoint (newapi-proxy-contract.md §1).
   # Bootstrap-kit overlay sets `https://newapi.${SOVEREIGN_FQDN}/v1`.
   newapiURL: ""
