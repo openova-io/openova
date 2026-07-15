@@ -1,0 +1,58 @@
+2026-07-15T17:06:54Z === watcher start (hw256 ea60815abb0cc186, read-only) ===
+2026-07-15T17:06:54Z CM-CHANGE:
+idx=0 cur= pct=0 complete=false failed= err= started= finished=
+2026-07-15T17:11:54Z CM-CHANGE:
+idx=0 cur=gitea-mirror pct=0 complete=false failed= err= started=2026-07-15T17:09:29Z finished=
+  gitea-mirror: result=running job=cutover-gitea-mirror-1784135369 start=2026-07-15T17:09:29Z finish=
+2026-07-15T17:11:54Z JOBS:
+bp-self-sovereign-cutover-gitea-secret-bridge   Complete   1/1   103s    37m
+cutover-gitea-mirror-1784135369                 Running    0/1   2m24s   2m24s
+2026-07-15T17:11:54Z ABNORMAL-PODS:
+catalyst-system           openova-mcp-bp-openova-mcp-6597558d4-nbg7r                        0/1   CreateContainerConfigError   0             35m
+openbao                   openbao-snapshot-save-29735560-j7ssf                              0/1   Terminating                  0             31m
+trivy-system              scan-vulnerabilityreport-5589dbfdd8-x86f9                         1/1   Terminating                  0             5m20s
+trivy-system              scan-vulnerabilityreport-5ffcdc8688-25rrb                         0/1   Init:0/1                     0             46s
+trivy-system              scan-vulnerabilityreport-799c66865b-qd2st                         0/1   Init:0/1                     0             45s
+trivy-system              scan-vulnerabilityreport-7fccf8748f-jrgv8                         1/2   Error                        0             3m43s
+trivy-system              scan-vulnerabilityreport-8674b9d4d5-wdvg6                         0/1   Init:0/1                     0             46s
+2026-07-15T17:13:54Z JOBS:
+bp-self-sovereign-cutover-gitea-secret-bridge   Complete   1/1   103s    39m
+cutover-gitea-mirror-1784135369                 Running    0/1   4m24s   4m24s
+2026-07-15T17:13:55Z ABNORMAL-PODS:
+catalyst-system           openova-mcp-bp-openova-mcp-6597558d4-nbg7r                        0/1   CreateContainerConfigError   0             37m
+openbao                   openbao-snapshot-save-29735560-j7ssf                              0/1   Terminating                  0             33m
+2026-07-15T17:15:55Z CM-CHANGE:
+idx=2 cur=harbor-prewarm pct=18 complete=false failed= err= started=2026-07-15T17:09:29Z finished=
+  gitea-mirror: result=success job=cutover-gitea-mirror-1784135369 start=2026-07-15T17:09:29Z finish=2026-07-15T17:14:55Z
+  harbor-projects: result=success job=cutover-harbor-projects-1784135369 start=2026-07-15T17:14:55Z finish=2026-07-15T17:15:00Z
+  harbor-prewarm: result=running job=cutover-harbor-prewarm-1784135369 start=2026-07-15T17:15:00Z finish=
+2026-07-15T17:15:55Z JOBS:
+bp-self-sovereign-cutover-gitea-secret-bridge   Complete   1/1   103s    41m
+cutover-gitea-mirror-1784135369                 Complete   1/1   5m25s   6m25s
+cutover-harbor-prewarm-1784135369               Running    0/1   55s     55s
+cutover-harbor-projects-1784135369              Complete   1/1   5s      60s
+2026-07-15T17:15:55Z ABNORMAL-PODS:
+catalyst-system           openova-mcp-bp-openova-mcp-6597558d4-nbg7r                        0/1   CreateContainerConfigError   0             39m
+catalyst                  cutover-harbor-prewarm-1784135369-4jdq7                           0/1   Error                        0             55s
+catalyst                  cutover-harbor-prewarm-1784135369-9g899                           0/1   Error                        0             21s
+catalyst                  cutover-harbor-prewarm-1784135369-c2x88                           0/1   Error                        0             42s
+openbao                   openbao-snapshot-save-29735560-j7ssf                              0/1   Terminating                  0             35m
+2026-07-15T17:17:55Z CM-CHANGE:
+idx=2 cur= pct=18 complete=false failed=harbor-prewarm err=Job catalyst/cutover-harbor-prewarm-1784135369 reported Failed condition started=2026-07-15T17:09:29Z finished=
+  gitea-mirror: result=success job=cutover-gitea-mirror-1784135369 start=2026-07-15T17:09:29Z finish=2026-07-15T17:14:55Z
+  harbor-projects: result=success job=cutover-harbor-projects-1784135369 start=2026-07-15T17:14:55Z finish=2026-07-15T17:15:00Z
+  harbor-prewarm: result=failed job=cutover-harbor-prewarm-1784135369 start=2026-07-15T17:15:00Z finish=2026-07-15T17:16:18Z
+2026-07-15T17:17:55Z TERMINAL: failedStep=harbor-prewarm
+2026-07-15T17:17:55Z --- failing job=cutover-harbor-prewarm-1784135369 logs tail 30 ---
+[harbor-prewarm] offline-mirror map: ghcr.io:proxy-ghcr docker.io:proxy-dockerhub registry-1.docker.io:proxy-dockerhub index.docker.io:proxy-dockerhub quay.io:proxy-quay registry.k8s.io:proxy-k8s gcr.io:proxy-gcr k8s.gcr.io:proxy-gcr mirror.gcr.io:proxy-gcr public.ecr.aws:proxy-ecr harbor.openova.io:
+[harbor-prewarm] local registry host: registry.hw256.omani.works; excluded hosts: xpkg.upbound.io
+[harbor-prewarm] Phase A: install skopeo + jq + enumerate openova-io images
+[harbor-prewarm] Phase A0: settled-roll pre-flight — no HelmRelease/workload may be mid-roll before the mirror is built
+[harbor-prewarm] FATAL: env NOT settled — 1 release(s)/workload(s) are mid-roll; harbor-prewarm would mirror running tags the cutover then rolls away from (running != desired). Wait for these to settle (HelmRelease Ready=True + observedGeneration==generation; workloads updated==ready==desired replicas), then re-trigger the cutover:
+  mid-roll: Deployment/catalyst-system/openova-mcp-bp-openova-mcp
+[harbor-prewarm] (settled-roll pre-flight #4982; emergency override for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)
+bp-self-sovereign-cutover-gitea-secret-bridge   Complete   1/1           103s       43m
+cutover-gitea-mirror-1784135369                 Complete   1/1           5m25s      8m25s
+cutover-harbor-prewarm-1784135369               Failed     0/1           2m55s      2m55s
+cutover-harbor-projects-1784135369              Complete   1/1           5s         3m
+2026-07-15T17:17:55Z === watcher end ===
