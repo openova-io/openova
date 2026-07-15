@@ -1533,6 +1533,17 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 //     only filter and an empty ?owner= returns every deployment —
 //     same passthrough policy as checkOwnership() to keep existing
 //     tests working unchanged.
+//  4. Issue #4683 — a session that holds the catalyst-owner realm
+//     role (or the flattened tier=owner claim) is a sovereign-admin
+//     with FLEET-WIDE visibility: the session-email boundary of
+//     rule 2 does not apply. Owner-scoping is a marketplace-CUSTOMER
+//     concern; the operator console must show every deployment
+//     (including legacy rows with empty OwnerEmail) or the page
+//     renders empty the moment a prov was fired under a different
+//     operator identity — caught live on hw206 (console.openova.io
+//     /sovereign/deployments rendered empty for the operator). For
+//     such a session ?owner= becomes a genuine filter over ANY
+//     owner instead of a self-assertion.
 //
 // Adopted deployments (AdoptedAt != nil) are EXCLUDED from the list —
 // post-handover the customer's Sovereign is operationally self-
@@ -1551,13 +1562,18 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	// claims first (auth.RequireSession injects them), falling back to
 	// X-User-Email so existing tests that build a Handler{} directly
 	// continue to exercise the session-bound filter without rewiring.
+	claims := auth.ClaimsFromContext(r.Context())
 	sessionEmail := ""
-	if c := auth.ClaimsFromContext(r.Context()); c != nil {
-		sessionEmail = strings.TrimSpace(strings.ToLower(c.Email))
+	if claims != nil {
+		sessionEmail = strings.TrimSpace(strings.ToLower(claims.Email))
 	}
 	if sessionEmail == "" {
 		sessionEmail = strings.TrimSpace(strings.ToLower(r.Header.Get("X-User-Email")))
 	}
+
+	// Issue #4683 — sovereign-admin fleet visibility. A catalyst-owner
+	// session is not owner-scoped: rule 4 of the filtering table above.
+	fleetVisible := deploymentsListFleetVisible(claims)
 
 	// Issue #748 — when a session is present AND a ?owner= query param
 	// is also supplied AND ?owner != session.email, return an empty list
@@ -1567,8 +1583,9 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	// makes the boundary explicit without leaking existence (we don't
 	// emit 403 — the response shape MUST NOT differentiate "exists but
 	// not yours" from "doesn't exist", same posture as the issue #689
-	// 404-not-403 rule on /deployments/{id}).
-	if sessionEmail != "" && ownerFilter != "" && ownerFilter != sessionEmail {
+	// 404-not-403 rule on /deployments/{id}). Does not apply to a
+	// fleet-visible session (#4683) — there ?owner= is a real filter.
+	if !fleetVisible && sessionEmail != "" && ownerFilter != "" && ownerFilter != sessionEmail {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"deployments": []any{},
 		})
@@ -1578,9 +1595,11 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	// Effective owner filter — when the session is set (production behind
 	// RequireSession), it always defines the boundary so the ?owner=
 	// query is at most a redundant assertion. In tests / CI without the
-	// middleware, fall back to whatever the caller passed.
+	// middleware, fall back to whatever the caller passed. A fleet-
+	// visible session (#4683) has no session boundary: the ?owner=
+	// query alone decides (empty ?owner= → every deployment).
 	effectiveOwner := sessionEmail
-	if effectiveOwner == "" {
+	if fleetVisible || effectiveOwner == "" {
 		effectiveOwner = ownerFilter
 	}
 
@@ -1670,6 +1689,37 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"deployments": out,
 	})
+}
+
+// deploymentsListFleetVisible reports whether the authenticated session
+// may list EVERY deployment regardless of OwnerEmail (issue #4683).
+//
+// True for the sovereign-admin/operator tier only: the catalyst-owner
+// realm role (canonical, stamped by Keycloak realm config or the G97
+// operator enrichment in auth.RequireSession) OR the flattened
+// tier=owner claim. Both signals project the SAME owner tier — the
+// dual check absorbs the documented session-shape drift where some
+// mint paths carry only one of the two (hw86 2026-06-01: OIDC session
+// with empty realm_access.roles; PIN sessions carry tier only).
+//
+// An Org-scoped customer session (tier=org-admin, #4110) is NEVER
+// fleet-visible — checked first so realm-config drift that leaks a
+// privileged role onto a customer token cannot widen their view.
+//
+// nil claims (middleware bypassed: CI / tests / catalyst-api without
+// CATALYST_KC_ADDR) → false, preserving the legacy ?owner= passthrough
+// semantics unchanged.
+func deploymentsListFleetVisible(claims *auth.Claims) bool {
+	if claims == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(claims.Tier), orgScopedTier) {
+		return false
+	}
+	if claims.HasRealmRole("catalyst-owner") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(claims.Tier), "owner")
 }
 
 // GetDeployment returns the current state of a deployment for polling.
