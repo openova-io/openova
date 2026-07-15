@@ -632,9 +632,15 @@ func generateCode() (string, error) {
 // and authenticates with PLAIN when SMTP_USER/SMTP_PASS are configured.
 func (h *Handler) sendCodeEmail(to, code string) error {
 	addr := h.SMTPHost + ":" + h.SMTPPort
+	// RFC 5322 §3.6.1: Date is a REQUIRED originator field; Stalwart relays
+	// as-composed. #5116 stamped the other two composers (billing Mailer +
+	// catalyst-api PIN mail) but missed this one — the mail every funnel
+	// customer receives arrived with no Date header (hw256 walk:
+	// msg.get('Date')==None on 2/2 samples), breaking client sorting and
+	// feeding spam scoring.
 	msg := fmt.Sprintf(
-		"From: %s\r\nTo: %s\r\nSubject: Your login code\r\n\r\nYour login code: %s\r\n",
-		h.FromEmail, to, code,
+		"Date: %s\r\nFrom: %s\r\nTo: %s\r\nSubject: Your login code\r\n\r\nYour login code: %s\r\n",
+		time.Now().Format(time.RFC1123Z), h.FromEmail, to, code,
 	)
 
 	conn, err := smtp.Dial(addr)
