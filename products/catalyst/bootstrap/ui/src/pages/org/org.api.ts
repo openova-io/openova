@@ -253,7 +253,7 @@ export async function createOrgTenant(
   })
   if (!res.ok && res.status !== 202) {
     const detail = await res.text().catch(() => '')
-    throw new Error(`create org tenant: HTTP ${res.status} ${detail}`)
+    throw new Error(`create organization: HTTP ${res.status} ${detail}`)
   }
   return (await res.json()) as OrgTenant
 }
@@ -265,7 +265,7 @@ export async function listOrgTenants(): Promise<OrgTenant[]> {
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) {
-    throw new Error(`list org tenants: HTTP ${res.status}`)
+    throw new Error(`list organizations: HTTP ${res.status}`)
   }
   const body = (await res.json()) as { items?: OrgTenant[] }
   return body.items ?? []
