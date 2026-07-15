@@ -66,7 +66,7 @@ fire() {
   fi
   echo "== MANDATORY prov-preflight gate (docs/PROTOCOL.md §5) =="
   if ! BEARER="$(_tok)" bash "${REPO_ROOT}/scripts/prov-preflight.sh" "${sub}.${pool}" "auto-${sub}" "false" "true"; then
-    echo "!! PRE-FLIGHT FAIL — fire ABORTED (fix the ❌ items; never fire blind, never wipe protect-list envs to make room)"; return 1
+    echo "!! PRE-FLIGHT FAIL — fire ABORTED (fix the ❌ items; never fire blind. ONE environment at a time: completely wipe the existing env FIRST — #5111)"; return 1
   fi
   echo "== reset-UAT-on-fire (founder rule 2026-06-08) =="; reset_uat "$sub"
   pub=$(cat /home/openova/.ssh/*.pub 2>/dev/null | grep -E "^ssh-" | head -1)
