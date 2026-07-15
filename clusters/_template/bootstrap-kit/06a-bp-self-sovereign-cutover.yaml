@@ -884,7 +884,20 @@ spec:
       # (freshPullProof.rwoEvsExclusion) BEFORE representative selection + Deployment
       # top-up; locality already proven by the #4975 completeness gate + #5026 ref-host
       # lint, so no image-proof value lost. Contract Case 59.
-      version: 0.1.135
+      # 0.1.136 (#5095 Refs #5093): step-03 harbor-prewarm — direct-source fallback
+      # + flap-tolerant pacing for MOTHERSHIP-PROXY-sourced copies. The hw255
+      # 2026-07-15 Omantel→Cogent per-prefix transit flap toward the mothership /24
+      # FAILed every harbor.openova.io/proxy-dockerhub/* copy exit=1 (ghcr.io fine)
+      # and the shared 3×5s per-image budget exhausted inside the 35-min window →
+      # push_fail=6 → FATAL → a full extra Job re-run. Proxy-sourced refs now (1)
+      # retry the SAME image from its canonical direct upstream (docker.io/...,
+      # derived mechanically from the proxy path via the #4975 coverage-map inverse)
+      # before an attempt counts as failed, and (2) get their own attempts budget
+      # (prewarm.proxyCopyAttempts=6) with exponential backoff spanning ≥15 min
+      # (prewarm.proxyBackoffBaseSeconds=30, doubling). FATAL-on-any-failure, the
+      # #5030 dest-check skip, the #4975 pre-pass + multi-arch handling all
+      # preserved. Contract Case 60.
+      version: 0.1.136
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

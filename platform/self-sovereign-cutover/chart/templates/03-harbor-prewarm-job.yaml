@@ -217,6 +217,32 @@ data:
           # positive durable src==dst match. Set false to force re-copy.
           - name: PREWARM_SKIP_IF_PRESENT
             value: {{ .Values.prewarm.skipIfAlreadyPresent | quote }}
+          # #5095 (Refs #5093 #3379) — flap-tolerant pacing for MOTHERSHIP-
+          # PROXY-sourced copies. Docker-Hub-sourced bootstrap images route
+          # through the mothership Harbor proxy-cache (harbor.openova.io/
+          # proxy-dockerhub/...), so step-03 has a hard PRE-cutover tether to
+          # mothership reachability from the Sovereign. During the 2026-07-15
+          # 05:20–05:55Z Omantel→Cogent transit black-hole toward the
+          # mothership /24 (hw255 dep 5762118f, #5093 — the server was healthy
+          # worldwide, only the path was dead) EVERY proxy-sourced copy FAILed
+          # exit=1 while the ghcr.io copies were fine, and the shared
+          # PREWARM_COPY_ATTEMPTS=3 / fixed-5s budget exhausted INSIDE the
+          # 35-min flap → Phase A push_fail=6 → FATAL → a full extra Job
+          # re-run (~30-40 min on the keystone clock). Proxy-sourced refs now
+          # get their OWN attempts budget (default 6) with EXPONENTIAL
+          # backoff (base 30s doubling: 30+60+120+240+480 = 930s ≥ 15 min of
+          # inter-attempt spacing) so a routine per-prefix transit flap is
+          # ridden out instead of FATALing the step; copy_one ALSO retries the
+          # SAME image from its canonical DIRECT upstream (derived
+          # mechanically from the proxy path via the #4975 coverage map)
+          # before an attempt counts as failed. Non-proxy sources keep the
+          # existing 3×5s discipline unchanged. FATAL-on-any-failure (the
+          # sovereignty guarantee) is PRESERVED — this only widens the
+          # transient window the step can survive.
+          - name: PREWARM_PROXY_COPY_ATTEMPTS
+            value: {{ .Values.prewarm.proxyCopyAttempts | default 6 | quote }}
+          - name: PREWARM_PROXY_BACKOFF_BASE_SECONDS
+            value: {{ .Values.prewarm.proxyBackoffBaseSeconds | default 30 | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -685,6 +711,11 @@ data:
             # made every fatal copy miscount as success.
             : "${PREWARM_PARALLELISM:=6}"
             : "${PREWARM_COPY_ATTEMPTS:=3}"
+            # #5095 — separate, wider budget for MOTHERSHIP-PROXY-sourced
+            # copies (exponential backoff spans ≥15 min at the defaults so a
+            # short transit flap toward the mothership can't exhaust it).
+            : "${PREWARM_PROXY_COPY_ATTEMPTS:=6}"
+            : "${PREWARM_PROXY_BACKOFF_BASE_SECONDS:=30}"
             cpdir="/tmp/prewarm-copies"
             rm -rf "${cpdir}"; mkdir -p "${cpdir}"
             echo "[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}"
@@ -812,6 +843,43 @@ data:
               [ -n "${_dc_d}" ] && [ "${_dc_s}" = "${_dc_d}" ]
             }
 
+            # #5095 — ONE bounded skopeo image copy SRC → LREF with optional
+            # src creds; output appended to LOGFILE. Factored out of copy_one
+            # so the proxy-source attempt and the #5095 direct-upstream
+            # fallback attempt share ONE invocation. The function's exit
+            # status is skopeo's REAL status (the #3379 hw138 always-0 trap
+            # stays closed: callers branch on it inside an if/else, never a
+            # pipeline). All prior flags are preserved:
+            #   • #3944 --command-timeout (GLOBAL flag before `copy`) bounds a
+            #     stalled-but-alive connection so it FAILS FAST and the outer
+            #     per-image retry loop can self-heal.
+            #   • #4529 --dest-tls-verify=${PREWARM_DEST_TLS_VERIFY} (default
+            #     false — in-cluster/LE-staging Harbor dest); --src-tls-verify
+            #     stays true (external public-CA sources).
+            #   • #4975 --multi-arch all: skopeo's default `--multi-arch
+            #     system` copies ONLY the running platform's sub-image out of
+            #     a manifest LIST while the copy is ADDRESSED by the list's
+            #     digest — Harbor computes the single-arch digest ≠ list
+            #     digest → `digest invalid` (live hw239: all 8 multi-arch
+            #     images FAILED). containerd pulls BY the list digest, so the
+            #     FULL list + all arch sub-manifests + blobs must land.
+            #     Single-arch refs are unaffected.
+            prewarm_skopeo_copy() {
+              _pc_src="$1"; _pc_creds="$2"; _pc_lref="$3"; _pc_log="$4"
+              # Optional --src-creds via the function's OWN positional params
+              # (empty for anonymous upstreams).
+              if [ -n "${_pc_creds}" ]; then set -- --src-creds="${_pc_creds}"; else set --; fi
+              skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+                --insecure-policy \
+                --multi-arch all \
+                --retry-times 5 \
+                "$@" \
+                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
+                --src-tls-verify=true \
+                "docker://${_pc_src}" "docker://${_pc_lref}" >>"${_pc_log}" 2>&1
+            }
+
             # #4975 — copy ONE upstream image to ALL of its local Harbor
             # destination path(s) (usually one; TWO for a ghcr.io/openova-io/*
             # ref — the host-drop openova-io/… convention + proxy-ghcr/openova-io/…).
@@ -832,7 +900,49 @@ data:
               srchost="${up%%/*}"
               case "${srchost}" in *.*|*:*|localhost) : ;; *) srchost="docker.io" ;; esac
               sc=$(src_creds_for "${srchost}")
-              if [ -n "${sc}" ]; then set -- --src-creds="${sc}"; else set --; fi
+              # #5095 (Refs #5093) — direct-source fallback derivation for a
+              # MOTHERSHIP-PROXY-sourced ref. A `harbor.openova.io/proxy-<x>/
+              # <path>` source is a hard PRE-cutover tether to mothership
+              # reachability: a routine per-prefix transit flap (hw255
+              # 2026-07-15 05:20–05:55Z, #5093 — mothership healthy worldwide,
+              # only the path black-holed) FAILs every such copy while direct
+              # upstream copies stay fine. Derive the canonical upstream ref
+              # MECHANICALLY from the proxy path via an INVERSE coverage-map
+              # lookup — the FIRST HOST_PROJECT_MAP host whose project equals
+              # the ref's proxy-<x> segment (proxy-dockerhub → docker.io,
+              # proxy-quay → quay.io, proxy-k8s → registry.k8s.io, proxy-gcr →
+              # gcr.io, proxy-ghcr → ghcr.io) — so NO second hand-list exists.
+              # The fallback fires ONLY after the proxy-source copy fails
+              # inside an attempt; the DEST path (host-swap, path preserved)
+              # is untouched, so step-04/07/08 resolve the identical local
+              # artifact. Upstream rate-limit exposure is bounded: ~10-20
+              # images, and only while the proxy path is failing. src-creds
+              # for the fallback host go through the SAME src_creds_for
+              # selector (ghcr.io → PAT; anonymous elsewhere).
+              proxy_src=0
+              fb_up=""
+              fb_creds=""
+              if [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${srchost}" = "${MOTHERSHIP_HOST}" ]; then
+                proxy_src=1
+                _fb_rest="${up#*/}"
+                case "${_fb_rest}" in
+                  */*)
+                    _fb_proj="${_fb_rest%%/*}"
+                    _fb_path="${_fb_rest#*/}"
+                    _fb_host=""
+                    for _fb_pair in ${HOST_PROJECT_MAP}; do
+                      _fb_h="${_fb_pair%%:*}"
+                      case "${_fb_pair}" in *:*) _fb_p="${_fb_pair#*:}" ;; *) _fb_p="" ;; esac
+                      if [ -n "${_fb_p}" ] && [ "${_fb_p}" = "${_fb_proj}" ]; then _fb_host="${_fb_h}"; break; fi
+                    done
+                    if [ -n "${_fb_host}" ]; then
+                      fb_up="${_fb_host}/${_fb_path}"
+                      fb_creds=$(src_creds_for "${_fb_host}")
+                      echo "[harbor-prewarm] mothership-proxy source ${up}: direct-source fallback available (${fb_up}; #5095)" >>"${cpdir}/${slug}.log"
+                    fi
+                    ;;
+                esac
+              fi
               all_ok=1
               last_rc=0
               for dpath in ${dests}; do
@@ -851,50 +961,79 @@ data:
                 # transient blob fetch inside ONE copy; a Harbor-side reset that
                 # closes the dest connection can still abort the whole copy
                 # (hw146 large-image FATAL), so re-attempt the full copy up to
-                # PREWARM_COPY_ATTEMPTS times. FATAL-on-any-failure preserved:
-                # the image is .fail unless every dest copy eventually succeeds.
+                # PREWARM_COPY_ATTEMPTS times — or, for a MOTHERSHIP-PROXY-
+                # sourced ref, PREWARM_PROXY_COPY_ATTEMPTS with EXPONENTIAL
+                # backoff (#5095: the fixed 3×5s budget exhausted inside the
+                # hw255 35-min transit flap). The skopeo invocation itself
+                # (with all the #3944/#4529/#4975 flags) lives in
+                # prewarm_skopeo_copy above; the caller branches on its REAL
+                # exit status (the #3379 hw138 always-0 trap stays closed).
+                # FATAL-on-any-failure preserved: the image is .fail unless
+                # every dest copy eventually succeeds from SOME source.
                 attempt=1
                 rc=1
-                while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
-                  echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
-                  # #3944 --command-timeout (GLOBAL flag before `copy`) bounds a
-                  # stalled connection. #4529 --dest-tls-verify=PREWARM_DEST_TLS_VERIFY
-                  # (default false: in-cluster LE-staging Harbor). --src-tls-verify
-                  # stays true (external public-CA source). "$@" is the optional
-                  # --src-creds selected by host (empty for anonymous upstreams).
-                  # #4975 --multi-arch all: WITHOUT it skopeo defaults to
-                  # `--multi-arch system`, copying ONLY the running platform's
-                  # sub-image out of a manifest LIST while the copy is ADDRESSED by
-                  # the list's digest (`@sha256:205b...`). Harbor computes the digest
-                  # of the single-arch manifest actually uploaded, which does NOT
-                  # equal the list digest → `digest invalid`, fail-closing step-03
-                  # (live hw239 Phase A: 129 single-arch images pushed OK, all 8
-                  # multi-arch manifest-list images FAILED — cilium/*, hubble-*,
-                  # policy-controller, operator-generic). containerd pulls these pod
-                  # images BY the list digest, so Harbor must serve the FULL manifest
-                  # list + ALL arch sub-manifests + blobs. `--multi-arch all` copies
-                  # the complete list so the dest is addressable by the exact list
-                  # digest (digest matches). Single-arch refs are unaffected.
-                  if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-                    --insecure-policy \
-                    --multi-arch all \
-                    --retry-times 5 \
-                    "$@" \
-                    --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                    --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
-                    --src-tls-verify=true \
-                    "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
+                src_used=""
+                if [ "${proxy_src}" -eq 1 ]; then
+                  max_attempts="${PREWARM_PROXY_COPY_ATTEMPTS}"
+                else
+                  max_attempts="${PREWARM_COPY_ATTEMPTS}"
+                fi
+                while [ "${attempt}" -le "${max_attempts}" ]; do
+                  echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt}/${max_attempts}" >>"${cpdir}/${slug}.log"
+                  if prewarm_skopeo_copy "${up}" "${sc}" "${lref}" "${cpdir}/${slug}.log"; then
                     rc=0
+                    src_used="${up}"
                     break
                   else
                     # Capture skopeo's REAL exit status INSIDE the else branch
                     # (the #3379 hw138 always-0 trap).
                     rc=$?
                   fi
+                  # #5095 — direct-source fallback: BEFORE counting this
+                  # attempt failed, retry the SAME image from its canonical
+                  # upstream (same dest ref, same attempt) when the failed
+                  # source was the mothership proxy. A per-prefix transit flap
+                  # toward the mothership leaves the direct upstream fully
+                  # reachable (proven hw255: ghcr.io copies all ok while every
+                  # harbor.openova.io copy FAILed exit=1).
+                  if [ -n "${fb_up}" ]; then
+                    echo "[harbor-prewarm] proxy source failed (exit=${rc}); direct-source fallback ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095)" >>"${cpdir}/${slug}.log"
+                    if prewarm_skopeo_copy "${fb_up}" "${fb_creds}" "${lref}" "${cpdir}/${slug}.log"; then
+                      rc=0
+                      src_used="${fb_up}"
+                      break
+                    else
+                      rc=$?
+                    fi
+                  fi
                   echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt} failed (exit=${rc}); retrying after backoff" >>"${cpdir}/${slug}.log"
                   attempt=$((attempt+1))
-                  [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
+                  if [ "${attempt}" -le "${max_attempts}" ]; then
+                    if [ "${proxy_src}" -eq 1 ]; then
+                      # #5095 flap-tolerant pacing: exponential backoff
+                      # base*2^(n-2) before attempt n → 30,60,120,240,480s =
+                      # 930s (≥15 min) of spacing across the default 6-attempt
+                      # budget, so a short transit flap toward the mothership
+                      # cannot exhaust it. Comfortably inside the 5400s step
+                      # deadline; a flap-failure is fast (reset/refused), not a
+                      # stall, so the #3944 --command-timeout stays the stall
+                      # bound.
+                      _bo="${PREWARM_PROXY_BACKOFF_BASE_SECONDS}"
+                      _bi=2
+                      while [ "${_bi}" -lt "${attempt}" ]; do _bo=$((_bo*2)); _bi=$((_bi+1)); done
+                      echo "[harbor-prewarm] proxy-source backoff ${_bo}s before attempt ${attempt}/${max_attempts} for ${up} (#5095 flap-tolerant pacing)" >>"${cpdir}/${slug}.log"
+                      sleep "${_bo}"
+                    else
+                      sleep 5
+                    fi
+                  fi
                 done
+                # #5095 — log which source ultimately succeeded (stdout, real
+                # time, next to the done/skip lines + the per-image log).
+                if [ "${rc}" -eq 0 ] && [ -n "${src_used}" ] && [ "${src_used}" != "${up}" ]; then
+                  echo "[harbor-prewarm] ${up} -> ${lref} succeeded via DIRECT upstream ${src_used} (mothership proxy path failing; #5095)"
+                  echo "  succeeded via direct upstream ${src_used} (mothership proxy path failing)" >>"${cpdir}/${slug}.log"
+                fi
                 [ "${rc}" -eq 0 ] || { all_ok=0; last_rc="${rc}"; }
               done
               if [ "${all_ok}" -eq 1 ]; then

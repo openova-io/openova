@@ -610,6 +610,34 @@ prewarm:
   # before the deny-egress hold) is preserved — a skip happens ONLY on a
   # positive src==dst digest match. Set false to force an unconditional re-copy.
   skipIfAlreadyPresent: true
+  # #5095 (Refs #5093 #3379) — flap-tolerant pacing for MOTHERSHIP-PROXY-sourced
+  # copies. Docker-Hub-sourced bootstrap images route through the mothership
+  # Harbor proxy-cache (harbor.openova.io/proxy-dockerhub/...), giving step-03 a
+  # hard PRE-cutover tether to mothership reachability from the Sovereign. A
+  # routine per-prefix transit flap (hw255 2026-07-15 05:20–05:55Z, #5093:
+  # Omantel→Cogent black-hole toward the mothership /24 — the server was healthy
+  # worldwide, only the path was dead) FAILed every proxy-sourced copy exit=1
+  # while the ghcr.io copies were fine; the shared 3-attempt / fixed-5s budget
+  # exhausted INSIDE the 35-min flap → Phase A push_fail=6 → FATAL → a full
+  # extra Job re-run (~30-40 min on the keystone clock). Proxy-sourced refs
+  # therefore get:
+  #   (a) their OWN attempts budget with EXPONENTIAL backoff — base doubling
+  #       (30+60+120+240+480 = 930s ≥ 15 min of inter-attempt spacing at the
+  #       defaults, comfortably inside the 5400s step deadline) so a short
+  #       transit flap is ridden out instead of FATALing the step; and
+  #   (b) a DIRECT-SOURCE fallback: on a proxy-source copy failure the SAME
+  #       image is retried from its canonical upstream (docker.io/... etc.,
+  #       derived MECHANICALLY from the proxy path via the offlineMirror
+  #       coverage map's inverse — no second hand-list) BEFORE the attempt
+  #       counts as failed. The dest path is untouched (host-swap, path
+  #       preserved), so step-04/07/08 resolve the identical local artifact;
+  #       upstream rate-limit exposure is bounded (~10-20 images, only while
+  #       the proxy path is failing).
+  # FATAL-on-any-failure (the sovereignty guarantee) is PRESERVED — these only
+  # widen the transient window the step can survive. Non-proxy sources keep the
+  # existing 3×5s discipline (PREWARM_COPY_ATTEMPTS) unchanged.
+  proxyCopyAttempts: 6
+  proxyBackoffBaseSeconds: 30
   # #4975 (Refs #3379 #3695) — RETIRED. This hand-maintained 11-image HEAD list
   # (the old Phase B "warm the proxy-cache" pass) was one of the three drifting
   # lists that caused the per-prov whack-a-mole: any upstream image a chart added
