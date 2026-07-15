@@ -1336,20 +1336,12 @@ runcmd:
     # bootstrap-kit substitute map (the NODE_IP_PLACEHOLDER sentinel) so Cilium
     # reaches its OWN apiserver on a real address on every cloud.
     sed -i "s|NODE_IP_PLACEHOLDER|$${NODE_IP}|g" /var/lib/catalyst/cilium-values.yaml /var/lib/catalyst/flux-bootstrap.yaml
-    # #5042: k3s install is the bootstrap FOUNDATION. The old single-shot
-    # `curl https://get.k3s.io | ... sh -` silently no-ops on a transient
-    # DNS/CDN miss — the pipe masks curl's exit and an empty stdin makes
-    # `sh -` exit 0, so a failed download "succeeds", k3s never installs, the
-    # apiserver never comes up, and the healthz wait below spins forever (hw247
-    # class, forensic-blind). Fix: download the installer to a FILE first (so a
-    # failed fetch is VISIBLE, not masked by the pipe), then run it; retry the
-    # whole unit 5x with linear backoff (sleep i*10s) to ride out the
-    # #3232/#3829 github/ghcr transient-DNS class instead of a one-shot dice-
-    # roll. Exhaustion is fail-loud — the sentinel + exit 88 halts runcmd and,
-    # on Huawei, the mark helper pushes the cloud-init log so the foundation
-    # failure is diagnosable, never blind. Re-running the k3s installer is
-    # idempotent (rewrites the unit + restarts), so a retry after a partial
-    # install recovers cleanly.
+    # #5042: k3s is the bootstrap foundation. Old `curl get.k3s.io | ... sh -`
+    # silently no-ops on a transient DNS/CDN miss (pipe masks curl's exit; empty
+    # stdin → `sh -` exit 0 → k3s never installs → healthz spins forever, hw247
+    # forensic-blind). Fix: download-to-FILE (failure visible) then run; 5x
+    # linear backoff for the #3232/#3829 class; exhaustion fail-loud (sentinel +
+    # exit 88, huawei log-push). Re-run is idempotent.
     for i in 1 2 3 4 5; do
       curl -fsSL --max-time 60 https://get.k3s.io -o /var/lib/catalyst/k3s-install.sh \
         && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} \
@@ -1362,12 +1354,9 @@ runcmd:
 
   # Wait for the API server to be reachable (Cilium comes up later, so we
   # wait specifically for the apiserver /healthz endpoint, not node-Ready).
-  # #5042: BOUNDED. This was an UNBOUNDED `until ...; do sleep 5; done` that
-  # hung forever AND silently if the apiserver never came healthy — the exact
-  # latent defect the RCA flagged (a dead apiserver masqueraded as a downstream
-  # flux wedge, forensic-blind). Now 120x5s = 10m budget, then fail-loud: FATAL
-  # + sentinel + exit 89 (halts runcmd) and, on Huawei, the mark helper pushes
-  # the cloud-init log so a dead apiserver is fast-and-diagnosable.
+  # #5042: BOUNDED (was unbounded `until ...; sleep 5` — a dead apiserver hung
+  # forever + silently, masquerading as a downstream flux wedge). 120x5s=10m
+  # then fail-loud (sentinel + exit 89, huawei log-push).
   - |
     n=0
     until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz >/dev/null 2>&1; do
