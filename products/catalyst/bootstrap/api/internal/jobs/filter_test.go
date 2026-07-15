@@ -5,12 +5,14 @@ import (
 	"time"
 )
 
-// TestFilterFiniteJobs_DropsContinuousKeepsFinite asserts the /jobs
-// FINITE-work view (#3996 follow-up): the continuous reconcilers (install /
-// reconcile / reconciler leaves) are dropped, finite kinds (step / task /
-// cron / mutation / lifecycle) are kept, and a group left with no surviving
-// descendant is pruned while a group with a surviving finite child stays
-// with a correct rollup.
+// TestFilterFiniteJobs_DropsContinuousKeepsFinite asserts the /jobs view
+// selector (#3996 follow-up + #5019 install lens): the open-ended
+// reconciler leaves (reconcile / reconciler) are dropped, install leaves
+// are KEPT along with their bootstrap-kit group (issue #5019 — the ~65
+// bootstrap-kit install rows must be walkable on /jobs), finite kinds
+// (step / task / cron / mutation / lifecycle) are kept, and a group left
+// with no surviving descendant is pruned while a group with surviving
+// children stays with a correct rollup.
 func TestFilterFiniteJobs_DropsContinuousKeepsFinite(t *testing.T) {
 	dep := "dep-x"
 	t0 := time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)
@@ -19,7 +21,7 @@ func TestFilterFiniteJobs_DropsContinuousKeepsFinite(t *testing.T) {
 	prov := JobID(dep, GroupProvisioner)
 
 	in := []Job{
-		// bootstrap-kit holds only continuous install leaves → group pruned.
+		// bootstrap-kit holds install leaves → group + leaves KEPT (#5019).
 		{ID: bk, DeploymentID: dep, JobName: GroupBootstrapKit, Type: JobTypeGroup, Kind: KindGroup},
 		{ID: JobID(dep, "install-cilium"), DeploymentID: dep, JobName: "install-cilium", Kind: KindInstall, Type: JobTypeInstall, ParentID: bk, Status: StatusSucceeded},
 		{ID: JobID(dep, "install-flux"), DeploymentID: dep, JobName: "install-flux", Kind: KindInstall, Type: JobTypeInstall, ParentID: bk, Status: StatusRunning},
@@ -40,26 +42,40 @@ func TestFilterFiniteJobs_DropsContinuousKeepsFinite(t *testing.T) {
 
 	out := FilterFiniteJobs(in)
 
-	// Survivors: provisioner group + 4 finite leaves = 5.
-	if len(out) != 5 {
-		t.Fatalf("want 5 survivors (group + 4 finite leaves), got %d: %+v", len(out), names(out))
+	// Survivors: bootstrap-kit group + 2 install leaves + provisioner
+	// group + 4 finite leaves = 8.
+	if len(out) != 8 {
+		t.Fatalf("want 8 survivors (bk group + 2 installs + prov group + 4 finite leaves), got %d: %+v", len(out), names(out))
 	}
-	for _, j := range out {
-		if IsContinuousReconciler(j.Kind) {
-			t.Errorf("continuous reconciler survived: %q (kind=%q)", j.JobName, j.Kind)
-		}
-		if j.JobName == GroupBootstrapKit || j.JobName == GroupReconcilers {
-			t.Errorf("empty group %q should be pruned", j.JobName)
-		}
-	}
-	var g *Job
+	byName := map[string]*Job{}
 	for i := range out {
-		if out[i].Type == JobTypeGroup {
-			g = &out[i]
+		if IsContinuousReconciler(out[i].Kind) {
+			t.Errorf("continuous reconciler survived: %q (kind=%q)", out[i].JobName, out[i].Kind)
+		}
+		if out[i].JobName == GroupReconcilers {
+			t.Errorf("empty group %q should be pruned", out[i].JobName)
+		}
+		byName[out[i].JobName] = &out[i]
+	}
+	// #5019 — the install lens: install leaves + their group survive.
+	for _, want := range []string{GroupBootstrapKit, "install-cilium", "install-flux"} {
+		if byName[want] == nil {
+			t.Errorf("install row %q missing from /jobs view (#5019)", want)
 		}
 	}
-	if g == nil || g.JobName != GroupProvisioner {
-		t.Fatalf("provisioner group missing/wrong: %+v", out)
+	bkGroup := byName[GroupBootstrapKit]
+	if bkGroup != nil {
+		if len(bkGroup.ChildIDs) != 2 {
+			t.Errorf("bootstrap-kit ChildIDs: want 2, got %d (%v)", len(bkGroup.ChildIDs), bkGroup.ChildIDs)
+		}
+		// succeeded + running → running rollup.
+		if bkGroup.Status != StatusRunning {
+			t.Errorf("bootstrap-kit rollup status: want running, got %q", bkGroup.Status)
+		}
+	}
+	g := byName[GroupProvisioner]
+	if g == nil {
+		t.Fatalf("provisioner group missing: %+v", names(out))
 	}
 	if len(g.ChildIDs) != 4 {
 		t.Errorf("provisioner ChildIDs: want 4, got %d (%v)", len(g.ChildIDs), g.ChildIDs)
@@ -71,29 +87,38 @@ func TestFilterFiniteJobs_DropsContinuousKeepsFinite(t *testing.T) {
 }
 
 // TestFilterFiniteJobs_LegacyKindBackfill asserts a row persisted before
-// the Kind field existed (Kind == "") is classified by JobName so an
-// "install-*" legacy leaf is still recognised as continuous and dropped,
-// while a "task-*" legacy leaf survives.
+// the Kind field existed (Kind == "") is classified by JobName: an
+// "install-*" legacy leaf survives (installs are /jobs rows per #5019), a
+// "reconcile-*" legacy leaf is recognised as continuous and dropped, and a
+// "task-*" legacy leaf survives.
 func TestFilterFiniteJobs_LegacyKindBackfill(t *testing.T) {
 	dep := "dep-legacy"
 	in := []Job{
 		{ID: JobID(dep, "install-legacy"), DeploymentID: dep, JobName: "install-legacy", Type: JobTypeInstall, Status: StatusSucceeded},
+		{ID: JobID(dep, "reconcile-legacy"), DeploymentID: dep, JobName: "reconcile-legacy", Type: JobTypeInstall, Status: StatusRunning},
 		{ID: JobID(dep, "task-legacy"), DeploymentID: dep, JobName: "task-legacy", Type: JobTypeInstall, Status: StatusSucceeded},
 	}
 	out := FilterFiniteJobs(in)
-	if len(out) != 1 || out[0].JobName != "task-legacy" {
-		t.Fatalf("legacy backfill: want only task-legacy, got %v", names(out))
+	got := map[string]bool{}
+	for _, j := range out {
+		got[j.JobName] = true
+	}
+	if len(out) != 2 || !got["install-legacy"] || !got["task-legacy"] {
+		t.Fatalf("legacy backfill: want install-legacy + task-legacy, got %v", names(out))
+	}
+	if got["reconcile-legacy"] {
+		t.Fatalf("legacy reconcile leaf must be dropped, got %v", names(out))
 	}
 }
 
 // TestFilterFiniteJobs_AllContinuousYieldsEmpty asserts a deployment whose
-// /jobs store is nothing but continuous reconcilers returns an empty list
+// /jobs store is nothing but open-ended reconcilers returns an empty list
 // (never nil — the handler marshals []).
 func TestFilterFiniteJobs_AllContinuousYieldsEmpty(t *testing.T) {
 	dep := "dep-all-recon"
 	in := []Job{
-		{ID: JobID(dep, "install-a"), DeploymentID: dep, JobName: "install-a", Kind: KindInstall, Type: JobTypeInstall},
 		{ID: JobID(dep, "reconcile-b"), DeploymentID: dep, JobName: "reconcile-b", Kind: KindReconcile, Type: JobTypeInstall},
+		{ID: JobID(dep, "reconciler-c"), DeploymentID: dep, JobName: "reconciler-c", Kind: KindReconciler, Type: JobTypeInstall},
 	}
 	out := FilterFiniteJobs(in)
 	if len(out) != 0 {

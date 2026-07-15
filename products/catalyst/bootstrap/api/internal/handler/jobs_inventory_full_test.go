@@ -10,12 +10,13 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 )
 
-// TestHandler_ListJobs_InventoryFull pins the #4731 amendment: the default
-// /jobs view stays the #3996 FINITE list (continuous install / reconcile /
-// reconciler leaves dropped), but ?inventory=full returns the COMPLETE
-// platform inventory the Dashboard treemap needs so a converged Sovereign
-// renders every HelmRelease install, Flux Kustomization, and reconciler
-// Deployment — not just the ~14 finite rows the founder saw.
+// TestHandler_ListJobs_InventoryFull pins the #4731 amendment as amended
+// by #5019: the default /jobs view drops the open-ended reconcile /
+// reconciler leaves but KEEPS the bootstrap-kit install leaves (#5019
+// install lens), while ?inventory=full returns the COMPLETE platform
+// inventory the Dashboard treemap needs so a converged Sovereign renders
+// every HelmRelease install, Flux Kustomization, and reconciler
+// Deployment.
 func TestHandler_ListJobs_InventoryFull(t *testing.T) {
 	r, st, _ := newJobsAPIRouter(t)
 	depID := "dep-inventory"
@@ -65,16 +66,23 @@ func TestHandler_ListJobs_InventoryFull(t *testing.T) {
 		return out
 	}
 
-	// Default (finite) view: continuous install/reconcile/reconciler leaves
-	// are gone; only the finite cutover step + cron survive.
+	// Default view: open-ended reconcile/reconciler leaves are gone; the
+	// install leaves (#5019), the finite cutover step, and the cron survive.
 	finite := names("/api/v1/deployments/" + depID + "/jobs")
-	for _, dropped := range []string{"install-cilium", "install-keycloak", "reconcile-flux-system", "reconciler-pool-domain-manager"} {
+	for _, dropped := range []string{"reconcile-flux-system", "reconciler-pool-domain-manager"} {
 		if _, ok := finite[dropped]; ok {
-			t.Errorf("finite /jobs leaked continuous reconciler %q", dropped)
+			t.Errorf("default /jobs leaked continuous reconciler %q", dropped)
+		}
+	}
+	for _, kept := range []string{"install-cilium", "install-keycloak"} {
+		if got, ok := finite[kept]; !ok {
+			t.Errorf("default /jobs dropped install row %q (#5019)", kept)
+		} else if got != jobs.KindInstall {
+			t.Errorf("default /jobs %q kind = %q, want %q", kept, got, jobs.KindInstall)
 		}
 	}
 	if _, ok := finite["cutover-step-01-gitea"]; !ok {
-		t.Errorf("finite /jobs dropped the finite cutover step")
+		t.Errorf("default /jobs dropped the finite cutover step")
 	}
 
 	// Full inventory: every leaf present — the 2 installs, the Kustomization,
@@ -94,9 +102,9 @@ func TestHandler_ListJobs_InventoryFull(t *testing.T) {
 			t.Errorf("inventory=full %q kind = %q, want %q", want.name, got, want.kind)
 		}
 	}
-	// The install leaves that the finite view dropped now outnumber it —
-	// full inventory is strictly a superset.
+	// Full inventory is strictly a superset — it carries the open-ended
+	// reconcile/reconciler leaves the default view drops.
 	if len(full) <= len(finite) {
-		t.Errorf("inventory=full (%d leaves) should exceed finite (%d)", len(full), len(finite))
+		t.Errorf("inventory=full (%d leaves) should exceed default (%d)", len(full), len(finite))
 	}
 }

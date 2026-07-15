@@ -1127,6 +1127,7 @@ const JOBS_TABLE_CSS = `
   border: 1px solid rgba(148,163,184,0.25);
 }
 .jobs-kind-cron       { color: #C084FC; border-color: rgba(192,132,252,0.35); background: rgba(192,132,252,0.08); }
+.jobs-kind-install    { color: #818CF8; border-color: rgba(129,140,248,0.35); background: rgba(129,140,248,0.08); }
 .jobs-kind-reconcile  { color: #38BDF8; border-color: rgba(56,189,248,0.35);  background: rgba(56,189,248,0.08); }
 .jobs-kind-reconciler { color: #2DD4BF; border-color: rgba(45,212,191,0.35);  background: rgba(45,212,191,0.08); }
 .jobs-kind-step       { color: #FBBF24; border-color: rgba(251,191,36,0.35);  background: rgba(251,191,36,0.08); }
