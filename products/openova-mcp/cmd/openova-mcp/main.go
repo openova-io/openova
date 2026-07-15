@@ -361,21 +361,36 @@ func buildResolver() (*identity.Resolver, error) {
 	var r *identity.Resolver
 	switch verifyMode() {
 	case "rs256":
-		pemStr := os.Getenv("OPENOVA_MCP_RS256_PUBKEY_PEM")
+		// The RS256 verify pubkey rides an OPTIONAL secretKeyRef in the chart
+		// (#4228): the source PEM Secret (`catalyst-handover-jwt`) is absent
+		// in sovereign-mode catalyst-system (only the JWK mirror
+		// `catalyst-handover-jwt-public` exists there) and in an Org namespace
+		// without the per-Org seed. An absent OR unparseable key must NEVER
+		// crash the pod (#5114): a CrashLoop here trips the harbor-prewarm
+		// cutover settle-gate (#4982) and FATALs the whole sovereignty
+		// cutover at step-3. Degrade instead — the pod reaches Ready, serves
+		// /healthz + /readyz + the empty unauthenticated tools/list, and
+		// rejects tools/call 401 — until the key is wired.
+		pemStr := strings.TrimSpace(os.Getenv("OPENOVA_MCP_RS256_PUBKEY_PEM"))
 		if pemStr == "" {
-			return nil, errors.New("verify=rs256 requires OPENOVA_MCP_RS256_PUBKEY_PEM")
+			log.Printf("WARNING: verify=rs256 but OPENOVA_MCP_RS256_PUBKEY_PEM is empty/absent — starting in DEGRADED mode: /healthz + /readyz serve, tools/list is the empty unauthenticated surface, tools/call is rejected 401. Wire the Sovereign handover verify pubkey (PKIX PEM) into OPENOVA_MCP_RS256_PUBKEY_PEM to enable authenticated tools. A missing OPTIONAL verify Secret must never CrashLoop the pod — the cutover settle-gate needs Ready.")
+			r = identity.NewDegradedResolver("verify=rs256 but OPENOVA_MCP_RS256_PUBKEY_PEM is absent", pin)
+		} else if pub, perr := parseRSAPublicKeyPEM(pemStr); perr != nil {
+			log.Printf("WARNING: verify=rs256 pubkey present but unparseable (%v) — starting in DEGRADED mode (see the absent-key note). The value must be a PKIX/PKCS1 RSA public-key PEM, NOT a JWK (the `catalyst-handover-jwt-public` mirror holds a JWK — #4228).", perr)
+			r = identity.NewDegradedResolver("verify=rs256 pubkey present but unparseable", pin)
+		} else {
+			r = identity.NewRS256Resolver(pub, pin)
 		}
-		pub, err := parseRSAPublicKeyPEM(pemStr)
-		if err != nil {
-			return nil, err
-		}
-		r = identity.NewRS256Resolver(pub, pin)
 	case "hs256":
+		// Same #5114 degrade posture: the hs256 secret also rides an OPTIONAL
+		// secretKeyRef, so an absent secret must degrade — never crash.
 		secret := os.Getenv("OPENOVA_MCP_HS256_SECRET")
-		if secret == "" {
-			return nil, errors.New("verify=hs256 requires OPENOVA_MCP_HS256_SECRET")
+		if strings.TrimSpace(secret) == "" {
+			log.Printf("WARNING: verify=hs256 but OPENOVA_MCP_HS256_SECRET is empty/absent — starting in DEGRADED mode (see the verify=rs256 note): the pod stays Ready, authenticated tools are unavailable until the secret is wired.")
+			r = identity.NewDegradedResolver("verify=hs256 but OPENOVA_MCP_HS256_SECRET is absent", pin)
+		} else {
+			r = identity.NewHS256Resolver([]byte(secret), pin)
 		}
-		r = identity.NewHS256Resolver([]byte(secret), pin)
 	case "insecure":
 		log.Printf("WARNING: verify=insecure — signatures NOT verified (test/trusted-transport only)")
 		r = identity.NewInsecureResolver(pin)

@@ -149,6 +149,19 @@ const (
 	// trusted in-cluster transport that already terminated auth upstream.
 	// Production binaries MUST NOT select this.
 	VerifyInsecureNoSignature
+
+	// VerifyDegradedNoKey is the fail-OPEN-for-liveness / fail-CLOSED-for-auth
+	// posture the server falls into when its selected verify mode has NO
+	// usable key (e.g. verify=rs256 but the OPTIONAL RS256 pubkey Secret is
+	// absent — the #5114 sovereign-mode slot-13d case: the aspirational PEM
+	// Secret `catalyst-handover-jwt` is not created on a Sovereign, only the
+	// JWK mirror `catalyst-handover-jwt-public` is). A degraded resolver
+	// REJECTS every bearer (so tools/list returns the empty unauthenticated
+	// surface and tools/call is a clean 401) but the PROCESS STAYS UP — the
+	// pod reaches Ready so the harbor-prewarm cutover settle-gate (#4982) can
+	// pass instead of the pod CrashLooping the whole sovereignty cutover at
+	// step-3. A missing OPTIONAL verify key must NEVER crash the pod.
+	VerifyDegradedNoKey
 )
 
 // Resolver turns a raw bearer into a resolved Identity. Constructed once
@@ -172,6 +185,11 @@ type Resolver struct {
 	// DIFFERENT Organization (same signer, same realm shape) cannot reach
 	// this instance's surface at all (#3988 §4.3 "pinned scope").
 	orgPin string
+
+	// degradedReason — a human-readable explanation of WHY this resolver is
+	// in VerifyDegradedNoKey mode (surfaced in the 401 detail + the startup
+	// WARN). Set only by NewDegradedResolver.
+	degradedReason string
 }
 
 // WithExpectedIssuer pins the exact `iss` claim value this resolver trusts.
@@ -208,10 +226,35 @@ func NewInsecureResolver(pinnedCtx Context) *Resolver {
 	return &Resolver{mode: VerifyInsecureNoSignature, pinnedCtx: pinnedCtx}
 }
 
+// NewDegradedResolver builds a resolver that REJECTS every bearer with the
+// supplied reason — the fail-closed-for-auth half of the #5114 degrade
+// posture. The process stays up (the pod reaches Ready) while authenticated
+// tools are unavailable until the verify key is configured. reason is echoed
+// in the rejection so an operator sees exactly why the surface is empty.
+func NewDegradedResolver(reason string, pinnedCtx Context) *Resolver {
+	return &Resolver{mode: VerifyDegradedNoKey, degradedReason: reason, pinnedCtx: pinnedCtx}
+}
+
+// Degraded reports whether this resolver is running key-less (verify mode
+// selected but no usable key) and, if so, why. Callers use it for a loud
+// startup log; Resolve enforces the rejection.
+func (r *Resolver) Degraded() (bool, string) {
+	return r.mode == VerifyDegradedNoKey, r.degradedReason
+}
+
 // Resolve parses + verifies the bearer and derives the Identity. Returns
 // an error (→ MCP 401) when the bearer is missing, malformed, or its
 // signature/expiry fails.
 func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
+	// Degraded posture (#5114): no usable verify key was configured, so the
+	// server cannot trust ANY bearer. Reject every call (→ empty tools/list,
+	// 401 tools/call) WITHOUT ever crashing — the pod stays Ready so the
+	// cutover settle-gate passes. The reason is surfaced so the emptiness is
+	// self-explanatory in the logs / MCP error detail.
+	if r.mode == VerifyDegradedNoKey {
+		return nil, fmt.Errorf("identity: MCP server is in DEGRADED mode (%s) — authenticated tools are unavailable until the verify key is configured", r.degradedReason)
+	}
+
 	raw := strings.TrimSpace(strings.TrimPrefix(rawBearer, "Bearer "))
 	if raw == "" {
 		return nil, errors.New("identity: empty bearer")
