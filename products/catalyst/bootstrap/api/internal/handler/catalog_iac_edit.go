@@ -271,21 +271,28 @@ func (h *Handler) resolveCatalogEditRepo(ctx context.Context, bpName string) str
 	return bpName
 }
 
-// stampBlueprintCRForFluxAggregator renders the admin's full-CR document as
-// the Flux aggregator payload (#4896/#5018): metadata.name is FORCED to the
-// canonical live-CR identity (bp-<slug>) so the catalog-sovereign
-// Kustomization's force:true SSA patches the existing Blueprint CR instead of
-// creating a bare-named duplicate — the same identity bridge the dry-run/apply
-// path applies via reconcileBlueprintBareName (#4898). Server-managed +
-// ownership metadata and status are dropped (stripBlueprintCRMapForGit);
-// spec.version/spec.source are deliberately KEPT — the #4415 strip covers the
-// implicit card-edit only, while an explicit whole-CR commit owns its
-// delivery fields (DoD §9.7; UAT row 154's version round-trip).
+// stampBlueprintCRForFluxAggregator is the CANONICAL Blueprint-CR commit
+// serializer, shared by ALL THREE catalog commit legs — the full-CR IaC
+// editor (this file), the card-form save (writeCatalogEditToGit), and the
+// curate mirror (writeCatalogSovereignAggregator) — per #5113's "card-save
+// must reuse the SAME canonical serializer as the Edit-IaC leg (#5041)".
 //
-// Returns nil on an unparsable document — unreachable in practice because the
-// caller validated the same bytes (validateCatalogBlueprintYAML); the
-// aggregator writer treats empty bytes as a no-op, and the caller surfaces
-// that as a skipped reconcile leg rather than committing a wrong-named CR.
+// It renders a Blueprint document as the committed payload (#4896/#5018):
+// metadata.name is FORCED to the canonical live-CR identity (bp-<slug>) so
+// the catalog-sovereign Kustomization's force:true SSA patches the existing
+// Blueprint CR instead of creating a bare-named duplicate whose inventory
+// swap PRUNES the live CR (#5113 Facet B — the hw255 bp-wordpress deletion);
+// the same identity bridge the dry-run/apply path applies via
+// reconcileBlueprintBareName (#4898). Server-side metadata and status are
+// dropped while Helm ownership labels/annotations are preserved
+// (stripBlueprintCRMapForGit); spec.version/spec.source are KEPT —
+// spec.version is CRD-required, so a version-less file wedges the whole
+// Kustomization whenever the CR doesn't already exist (#5113 Facet A), and
+// an explicit whole-CR commit owns its delivery fields anyway (DoD §9.7;
+// UAT row 154's version round-trip).
+//
+// Returns nil on an unparsable document — the callers surface that as a
+// failed render rather than committing a wrong-named/unparsable CR.
 func stampBlueprintCRForFluxAggregator(raw []byte, bpName string) []byte {
 	var doc map[string]interface{}
 	if err := yamlv3.Unmarshal(raw, &doc); err != nil || doc == nil {
