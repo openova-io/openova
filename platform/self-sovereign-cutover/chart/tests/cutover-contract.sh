@@ -2640,4 +2640,71 @@ if ! grep -qF 'openova-io chart(s) failed to mirror' "$TMP/s03pin.yaml"; then
 fi
 echo "  PASS (#5007 Facet C: Phase A2 warms the deployed+desired union, reports drift, and keeps the fail-loud chart_fail FATAL so a pinned tag that can't be pulled fails at step-03 with egress open)"
 
+# ── Case 60 (#5095, Refs #5093): step-03 Phase A rides out a mothership-proxy
+# transit flap — direct-source fallback + flap-tolerant exponential pacing ─────
+# hw255 (dep 5762118f, 2026-07-15): during the 05:20–05:55Z Omantel→Cogent
+# per-prefix black-hole toward the mothership /24, EVERY
+# harbor.openova.io/proxy-dockerhub/* copy FAILed exit=1 while every ghcr.io
+# copy was fine — the mothership was healthy worldwide, only the path was dead.
+# The shared PREWARM_COPY_ATTEMPTS=3 / fixed-5s budget exhausted INSIDE the
+# 35-min flap → Phase A push_fail=6 → FATAL → a full extra Job re-run. Step-03
+# must (1) retry a proxy-sourced image from its canonical DIRECT upstream
+# (derived mechanically from the proxy path via the #4975 coverage-map inverse)
+# before an attempt counts as failed, and (2) pace proxy-sourced retries with a
+# WIDER exponential budget (default 6 attempts, base-30s doubling ≥ 15 min of
+# spacing) — while keeping FATAL-on-any-failure (the sovereignty guarantee).
+echo "[cutover-contract] Case 60: step-03 Phase A proxy-sourced copies get a direct-source fallback + exponential flap-tolerant pacing (#5095)"
+[ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
+# (a) the separate proxy knobs are projected from values with the right defaults.
+if ! grep -qF 'name: PREWARM_PROXY_COPY_ATTEMPTS' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not project PREWARM_PROXY_COPY_ATTEMPTS (from .Values.prewarm.proxyCopyAttempts) — proxy-sourced copies share the narrow 3-attempt budget a 35-min transit flap exhausts (#5095)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: PREWARM_PROXY_COPY_ATTEMPTS' "$TMP/s03pin.yaml" | grep -q 'value: "6"'; then
+  echo "FAIL: PREWARM_PROXY_COPY_ATTEMPTS does not default to \"6\" — the proxy budget cannot span a routine transit flap (#5095)" >&2
+  exit 1
+fi
+if ! grep -qF 'name: PREWARM_PROXY_BACKOFF_BASE_SECONDS' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not project PREWARM_PROXY_BACKOFF_BASE_SECONDS — proxy retries keep the fixed 5s spacing that burned all attempts in ~10s of flap (#5095)" >&2
+  exit 1
+fi
+# (b) the fallback ref is derived via the INVERSE coverage-map lookup (no second
+#     hand-list may exist) and fires only for the mothership source host.
+if ! grep -qF '"${srchost}" = "${MOTHERSHIP_HOST}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one does not gate the direct-source fallback on the MOTHERSHIP_HOST source — either it never fires or it fires for non-proxy sources (#5095)" >&2
+  exit 1
+fi
+if ! grep -qF '[ -n "${_fb_p}" ] && [ "${_fb_p}" = "${_fb_proj}" ]' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one does not derive the fallback host via the inverse HOST_PROJECT_MAP lookup — the canonical upstream would come from a second hand-list that drifts (#5095)" >&2
+  exit 1
+fi
+# (c) the fallback RE-COPIES the same image from the direct upstream inside the
+#     attempt loop (before the attempt counts as failed), and the winning source
+#     is named in the log.
+if ! grep -qF 'prewarm_skopeo_copy "${fb_up}" "${fb_creds}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one never invokes the direct-source fallback copy — a proxy flap still FATALs images whose upstream is fully reachable (#5095)" >&2
+  exit 1
+fi
+if ! grep -qF 'succeeded via DIRECT upstream' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not log which source ultimately succeeded — a silent fallback hides the mothership-path degradation from the operator (#5095)" >&2
+  exit 1
+fi
+# (d) exponential pacing for proxy-sourced refs (doubling backoff), while the
+#     non-proxy 5s discipline survives.
+if ! grep -qF '_bo=$((_bo*2))' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 proxy retries are not exponentially paced — a fixed backoff cannot span a >=15-min transit flap within any sane attempt count (#5095)" >&2
+  exit 1
+fi
+if ! grep -qF 'sleep 5' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 lost the non-proxy 5s retry backoff — ghcr.io-sourced copies must keep the existing tight pacing (#5095)" >&2
+  exit 1
+fi
+# (e) the sovereignty guarantee is untouched: Phase A still FATALs on any
+#     un-pushed image after both sources + all attempts are exhausted.
+if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A lost the push_fail>0 FATAL — the flap tolerance must widen the transient window, never waive the completeness guarantee (#5095)" >&2
+  exit 1
+fi
+echo "  PASS (#5095 contract: proxy-sourced copies fall back to the mechanically-derived direct upstream before an attempt fails, pace retries exponentially over >=15 min via values-exposed knobs, name the winning source, and keep the Phase A FATAL)"
+
 echo "[cutover-contract] All gates green."

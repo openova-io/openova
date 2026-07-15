@@ -1,5 +1,52 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.136 (#5095 Refs #5093 #3379 — step-03 harbor-prewarm: direct-source
+# fallback + flap-tolerant pacing for MOTHERSHIP-PROXY-sourced copies).
+# Docker-Hub-sourced bootstrap images route through the mothership Harbor
+# proxy-cache (harbor.openova.io/proxy-dockerhub/...), so step-03 has a hard
+# PRE-cutover tether to mothership reachability from the Sovereign. During the
+# 2026-07-15 05:20–05:55Z Omantel→Cogent transit black-hole toward the
+# mothership /24 (hw255 dep 5762118f, cutover 0.1.135 — the server was healthy
+# worldwide, only the path was dead) EVERY harbor.openova.io/proxy-dockerhub
+# copy FAILed exit=1 (keycloak, alpine/k8s ×3, alpine:3.20, aws-cli + the
+# queued bitnamilegacy wave) while every ghcr.io copy was fine. The shared
+# per-image budget (PREWARM_COPY_ATTEMPTS=3, fixed 5s backoff ≈ 10s of spacing)
+# exhausted INSIDE the 35-min flap → Phase A push_fail=6 → FATAL → zero-touch
+# recovery only via a FULL extra Job re-run (~30-40 min on the keystone clock;
+# the #5030 dest-check made the re-run cheap but the wall-clock was still
+# burned). TWO surgical fixes, template 03 + values only:
+#   (1) DIRECT-SOURCE FALLBACK — copy_one derives the canonical upstream ref
+#       MECHANICALLY from the proxy path via an INVERSE #4975 coverage-map
+#       lookup (first HOST_PROJECT_MAP host whose project == the ref's
+#       proxy-<x> segment: proxy-dockerhub → docker.io, proxy-quay → quay.io,
+#       proxy-k8s → registry.k8s.io, proxy-gcr → gcr.io, proxy-ghcr → ghcr.io
+#       — no second hand-list). On a proxy-source copy failure the SAME image
+#       is retried from that direct upstream BEFORE the attempt counts as
+#       failed; the DEST path (host-swap, path preserved) is untouched so
+#       step-04/07/08 resolve the identical local artifact, and the log names
+#       which source ultimately succeeded. src-creds go through the SAME
+#       src_creds_for selector (ghcr.io → PAT; anonymous elsewhere); upstream
+#       rate-limit exposure is bounded (~10-20 images, only while the proxy
+#       path is failing).
+#   (2) FLAP-TOLERANT PACING — proxy-sourced refs get their OWN attempts knob
+#       (PREWARM_PROXY_COPY_ATTEMPTS, .Values.prewarm.proxyCopyAttempts,
+#       default 6) with EXPONENTIAL backoff (prewarm.proxyBackoffBaseSeconds,
+#       default 30, doubling: 30+60+120+240+480 = 930s ≥ 15 min of
+#       inter-attempt spacing, inside the 5400s step deadline) so a routine
+#       per-prefix transit flap can't exhaust the budget. Non-proxy sources
+#       keep the existing 3×5s discipline unchanged.
+# The Phase A skopeo invocation is factored into prewarm_skopeo_copy() so both
+# attempts share ONE flag set — #3944 --command-timeout, #4529
+# --dest-tls-verify=${PREWARM_DEST_TLS_VERIFY} (src stays true), #4975
+# --multi-arch all, and the #3379 real-exit-status capture all preserved
+# (contract Cases 27/30 still count ≥2 bound copies). NOT weakened:
+# FATAL-on-any-failure (Phase A push_fail>0 → exit 1, the sovereignty
+# guarantee), the #5030 durable dest-check skip, the #4975 coverage-map
+# pre-pass, the #4982 settled-roll pre-flight, the #5007 coredns pin. New
+# contract Case 60 locks the wiring. NO step-count / RBAC / job-mode change
+# (still 11 steps). Slot-06a pin + blueprint.yaml + catalog-seed
+# source.version move to 0.1.136 in lockstep (Inviolable Principle #13).
+# ── prior ──
 # 0.1.135 (#5091 Refs #5081 #4975 — step-08 minimal roll-set RULE C: never
 # force-roll a stateful RWO-EVS singleton). The #5081 minimal roll-set (rule a:
 # skip infra namespaces; rule b: skip infra-ns DaemonSets) correctly excludes the
@@ -2155,7 +2202,7 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.135
+version: 0.1.136
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
