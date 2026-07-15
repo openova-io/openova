@@ -161,15 +161,27 @@ const fluxCRDProbeBudgetEnv = "CATALYST_PHASE1_FLUX_CRD_PROBE_BUDGET"
 const fluxCRDProbePollIntervalEnv = "CATALYST_PHASE1_FLUX_CRD_PROBE_POLL_INTERVAL"
 
 // DefaultFluxCRDProbeBudget — production default for the Flux-CRD-
-// presence probe budget (#5042). 5 minutes is generous headroom: on a
-// HEALTHY prov the flux-install manifest lands seconds after the k3s
-// apiserver is up (well before the kubeconfig is even PUT back), so a
-// CRD still absent 5 minutes after the kubeconfig arrives is a
-// high-confidence signal that cloud-init's flux-install stage failed.
+// presence probe budget (#5042).
+//
+// 15 minutes, NOT less — the original 5m default rested on an inverted
+// premise ("flux lands before the kubeconfig is even PUT back"). Since the
+// #3129 PUT-early invariant (cloudinit-control-plane.tftpl header), the
+// kubeconfig PUT-back runs RIGHT AFTER the k3s apiserver is healthy, and
+// flux-install only runs AFTER gateway-api CRDs + the helm binary download +
+// the cilium helm install + the FULL cilium DaemonSet rollout across every
+// node in the region. On a healthy Huawei 6-node region that is ~6-9 minutes
+// of legitimate bootstrap AFTER the kubeconfig arrives. hw255 (#5012
+// recurrence, dep 5762118f63abef96, 2026-07-15): region-b PUT ~04:13 UTC,
+// flux CRDs landed ~04:21 UTC — a healthy 8-minute gap that the 5m budget
+// classified as a positive flux-CRD-absent, permanently freezing the region's
+// census at 0/0 degraded while it actually converged to 58/65 HRs Ready.
+// 15 minutes still terminates a genuine #5042 wedge ~8x faster than the 120m
+// WatchTimeout it exists to shortcut.
+//
 // The probe is CONSERVATIVE — it only classifies OutcomeFluxCRDsAbsent
 // on a POSITIVE "CRD absent + apiserver answered" observation at
 // budget end, never on a transient probe error (see probeFluxCRDAbsent).
-const DefaultFluxCRDProbeBudget = 5 * time.Minute
+const DefaultFluxCRDProbeBudget = 15 * time.Minute
 
 // DefaultFluxCRDProbePollInterval — production default for the Flux-
 // CRD-presence probe poll cadence (#5042).
@@ -582,11 +594,28 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 			// fail/hang the whole prov (surface-not-gate discipline), so a
 			// positive absent verdict records a NAMED, greppable degraded signal
 			// (recordSecondaryFluxCRDAbsent: a loud region-tagged warn +
-			// Result.SecondaryFluxCRDAbsentRegions + a nil census slot) and
-			// skips spinning the doomed watcher. The slot stays reserved.
+			// Result.SecondaryFluxCRDAbsentRegions + a nil census slot). The
+			// slot stays reserved.
+			//
+			// hw255 recurrence (#5012, dep 5762118f63abef96): the verdict must
+			// be a SURFACE, not a terminal — the #3129 PUT-early invariant puts
+			// the kubeconfig on the mothership minutes BEFORE the secondary's
+			// cloud-init reaches flux-install (gateway-api CRDs + helm download
+			// + full cilium DaemonSet rollout sit in between), so flux can land
+			// AFTER the probe budget on a perfectly healthy region. Keep
+			// waiting (bounded only by this watcher's ctx — phase-1 lifetime);
+			// when the CRD lands, clear the degraded record and fall through to
+			// spin the real watcher so the #3611 census reports the region's
+			// true HR counts instead of a frozen 0/0. A region whose flux never
+			// lands keeps the recorded signal and spins no watcher, as before.
 			if h.probeFluxCRDAbsentForRegion(wctx, dep, region, string(raw)) {
 				h.recordSecondaryFluxCRDAbsent(dep, region)
-				return
+				if !h.waitFluxCRDServableForRegion(wctx, dep, region, string(raw)) {
+					// Phase-1 ended (ctx cancelled) with the CRD still absent —
+					// the recorded degraded signal stands.
+					return
+				}
+				h.clearSecondaryFluxCRDAbsent(dep, region)
 			}
 
 			cfg := h.phase1WatchConfigForDeployment(dep, string(raw))
@@ -2518,6 +2547,83 @@ func (h *Handler) recordSecondaryFluxCRDAbsent(dep *Deployment, region string) {
 		Message: fmt.Sprintf("Phase-1 watch [region %s]: the Flux HelmRelease CRD (helmreleases.helm.toolkit.fluxcd.io) was still ABSENT after the probe budget — this SECONDARY region's cloud-init flux-install stage did not land. Recording it DEGRADED (secondary-flux-crds-absent) and skipping its doomed no-CRD watcher; the PRIMARY region is unaffected and the deployment is NOT failed on account of this secondary (surface-not-gate). Operator: SSH region %s's control-plane and inspect /var/log/cloud-init-output.log for the flux-install step. Refs #5012 #5042.", region, region),
 	})
 	h.log.Warn("secondary region flux HelmRelease CRD absent after probe budget — recording degraded, skipping doomed watcher (non-fatal, surface-not-gate)",
+		"id", dep.ID, "region", region)
+}
+
+// waitFluxCRDServableForRegion keeps polling a SECONDARY region's apiserver for
+// the Flux HelmRelease CRD AFTER probeFluxCRDAbsentForRegion classified it
+// absent-at-budget (#5012, hw255 recurrence). Under the #3129 PUT-early
+// invariant a healthy secondary legitimately installs flux minutes after its
+// kubeconfig lands on the mothership (gateway-api CRDs + helm download + the
+// full cilium DaemonSet rollout run in between), so an absent-at-budget verdict
+// must not permanently freeze the region's census at 0/0. Bounded only by ctx
+// (the region watcher's context — phase-1 lifetime): returns true the moment a
+// List against HelmReleaseGVR succeeds (flux landed; caller clears the degraded
+// record and spins the real watcher), false when ctx is cancelled first (the
+// recorded degraded signal stands). Any error — absent or transient — just
+// keeps polling; this waiter never invents a verdict of its own.
+func (h *Handler) waitFluxCRDServableForRegion(ctx context.Context, dep *Deployment, region, kubeconfig string) bool {
+	_, pollEvery := h.fluxCRDProbeBudgets()
+
+	dyn, err := h.buildFluxProbeDynamicClient(kubeconfig)
+	if err != nil || dyn == nil {
+		h.log.Warn("secondary flux-crd late-landing wait: could not build dynamic client; leaving region recorded degraded",
+			"id", dep.ID, "region", region, "err", err)
+		return false
+	}
+
+	for {
+		getCtx, cancelGet := context.WithTimeout(ctx, pollEvery)
+		_, listErr := dyn.Resource(helmwatch.HelmReleaseGVR).
+			Namespace(helmwatch.FluxNamespace).
+			List(getCtx, metav1.ListOptions{Limit: 1})
+		cancelGet()
+		if listErr == nil {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(pollEvery):
+		}
+	}
+}
+
+// clearSecondaryFluxCRDAbsent reverses recordSecondaryFluxCRDAbsent for a
+// SECONDARY region whose Flux CRD landed after the probe budget (#5012, hw255
+// recurrence): removes the region from Result.SecondaryFluxCRDAbsentRegions,
+// releases the nil census slot (the caller registers the REAL watcher next, so
+// the #3611 census reports true HR counts instead of a frozen 0/0), and emits
+// an info event so the wizard log shows the recovery next to the earlier warn.
+func (h *Handler) clearSecondaryFluxCRDAbsent(dep *Deployment, region string) {
+	dep.mu.Lock()
+	if dep.Result != nil && len(dep.Result.SecondaryFluxCRDAbsentRegions) > 0 {
+		kept := dep.Result.SecondaryFluxCRDAbsentRegions[:0]
+		for _, r := range dep.Result.SecondaryFluxCRDAbsentRegions {
+			if r != region {
+				kept = append(kept, r)
+			}
+		}
+		if len(kept) == 0 {
+			dep.Result.SecondaryFluxCRDAbsentRegions = nil
+		} else {
+			dep.Result.SecondaryFluxCRDAbsentRegions = kept
+		}
+	}
+	// Only release the slot recordSecondaryFluxCRDAbsent registered (nil); a
+	// real watcher registered concurrently must never be dropped.
+	if w, ok := dep.secondaryWatchers[region]; ok && w == nil {
+		delete(dep.secondaryWatchers, region)
+	}
+	dep.mu.Unlock()
+
+	h.emitWatchEvent(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   helmwatch.PhaseComponent,
+		Level:   "info",
+		Message: fmt.Sprintf("Phase-1 watch [region %s]: the Flux HelmRelease CRD landed AFTER the probe budget — this secondary's flux-install was slow, not missing. Clearing the degraded (secondary-flux-crds-absent) record and starting its per-component watch. Refs #5012.", region),
+	})
+	h.log.Info("secondary region flux HelmRelease CRD landed after probe budget — clearing degraded record, starting watcher",
 		"id", dep.ID, "region", region)
 }
 

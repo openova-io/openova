@@ -23,6 +23,14 @@
 //     watcher, and NEVER fails the deployment (Status stays phase1-watching).
 //  3. spawnSecondaryRegionWatchers against a present-CRD secondary spins a
 //     normal real watcher and records nothing absent — no regression.
+//  4. hw255 recurrence (#5012, dep 5762118f63abef96): an absent-at-budget
+//     verdict is a SURFACE, not a terminal. Under the #3129 PUT-early
+//     invariant a healthy secondary installs flux MINUTES after its
+//     kubeconfig lands (gateway-api CRDs + helm download + the full cilium
+//     DaemonSet rollout run in between), so when the CRD lands AFTER the
+//     probe budget the spawn must clear Result.SecondaryFluxCRDAbsentRegions,
+//     release the nil census slot, and spin the REAL watcher — instead of
+//     freezing the region's census at 0/0 degraded for the whole prov.
 package handler
 
 import (
@@ -31,9 +39,44 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	clienttesting "k8s.io/client-go/testing"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 )
+
+// fakeDynamicFactoryHRListErrorUntil — closure that returns fake dynamic
+// clients whose List against the HelmRelease GVR fails with listErr for the
+// first `failCalls` List invocations ACROSS ALL clients it builds, then
+// succeeds (empty list). Simulates the hw255 #5012 shape: the CRD is cleanly
+// absent while the probe runs (cloud-init is still mid cilium-rollout), then
+// flux-install lands and the CRD becomes servable. The counter is shared
+// across client builds because the probe, the late-landing waiter, and the
+// real watcher each build their own client through the same factory.
+func fakeDynamicFactoryHRListErrorUntil(listErr error, failCalls int64) func(string) (dynamic.Interface, error) {
+	var calls atomic.Int64
+	return func(_ string) (dynamic.Interface, error) {
+		scheme := newFakeSchemeForHandler()
+		client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+			scheme,
+			map[schema.GroupVersionResource]string{helmwatch.HelmReleaseGVR: "HelmReleaseList"},
+		)
+		client.PrependReactor("list", "helmreleases", func(_ clienttesting.Action) (bool, runtime.Object, error) {
+			if calls.Add(1) <= failCalls {
+				return true, nil, listErr
+			}
+			return false, nil, nil // fall through to the default (empty-list) reactor
+		})
+		return client, nil
+	}
+}
 
 // TestProbeFluxCRDAbsentForRegion covers the secondary probe verdicts in
 // isolation, exactly mirroring TestProbeFluxCRDAbsent for the primary.
@@ -213,6 +256,74 @@ func TestSpawnSecondaryRegionWatchers_FluxCRDPresent(t *testing.T) {
 	defer dep.mu.Unlock()
 	if containsStr(dep.Result.SecondaryFluxCRDAbsentRegions, region) {
 		t.Errorf("region %q recorded flux-crd-absent on a CRD-PRESENT prov — the probe false-positived", region)
+	}
+}
+
+// TestSpawnSecondaryRegionWatchers_FluxCRDLandsLate drives the hw255 #5012
+// recurrence end-to-end: the secondary's CRD is cleanly absent PAST the probe
+// budget (probe classifies absent → region recorded degraded), then flux lands
+// (the #3129 PUT-early gap closing). The spawn must then CLEAR the recorded
+// degraded signal and register a REAL watcher so the census reports true HR
+// counts — the region must not stay frozen at 0/0 degraded.
+func TestSpawnSecondaryRegionWatchers_FluxCRDLandsLate(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// The probe polls ~6 times inside its 150ms budget; 30 failing List calls
+	// comfortably outlast the budget (positive absent verdict) and then keep
+	// the late-landing waiter polling for a few more rounds before the CRD
+	// becomes servable.
+	h.dynamicFactory = fakeDynamicFactoryHRListErrorUntil(hrCRDNotFound(), 30)
+	h.fluxCRDProbeBudget = 150 * time.Millisecond
+	h.fluxCRDProbePollInterval = 10 * time.Millisecond
+	h.phase1WatchTimeout = 5 * time.Second
+
+	kcDir := t.TempDir()
+	h.kubeconfigsDir = kcDir
+	depID := "sec-flux-lands-late"
+	region := "me-east-215-b-1"
+
+	dep := makeDeploymentWithKubeconfig(t, h, depID, "primary-kubeconfig: yaml")
+	if err := os.WriteFile(filepath.Join(kcDir, depID+"-"+region+".yaml"), []byte("secondary-kubeconfig: yaml"), 0o600); err != nil {
+		t.Fatalf("write secondary kubeconfig: %v", err)
+	}
+
+	stop := h.spawnSecondaryRegionWatchers(dep)
+	defer stop()
+
+	// Phase A — the probe must first classify absent and record the region
+	// degraded (the surface fires while flux genuinely isn't there yet).
+	if !waitUntil(2*time.Second, func() bool {
+		dep.mu.Lock()
+		recorded := containsStr(dep.Result.SecondaryFluxCRDAbsentRegions, region)
+		dep.mu.Unlock()
+		return recorded
+	}) {
+		t.Fatalf("timed out waiting for region %q to first be recorded flux-crd-absent", region)
+	}
+
+	// Phase B — once the CRD lands, the record must clear and a REAL watcher
+	// must be registered.
+	if !waitUntil(3*time.Second, func() bool {
+		dep.mu.Lock()
+		cleared := !containsStr(dep.Result.SecondaryFluxCRDAbsentRegions, region)
+		sw, exists := dep.secondaryWatchers[region]
+		dep.mu.Unlock()
+		return cleared && exists && sw != nil
+	}) {
+		dep.mu.Lock()
+		gotAbsent := append([]string(nil), dep.Result.SecondaryFluxCRDAbsentRegions...)
+		sw, exists := dep.secondaryWatchers[region]
+		dep.mu.Unlock()
+		t.Fatalf("timed out waiting for late-landing recovery: SecondaryFluxCRDAbsentRegions=%v, watcherSlot(exists=%v,nil=%v) — the region stayed frozen degraded", gotAbsent, exists, sw == nil)
+	}
+
+	// The recovery must never have flipped the deployment terminal.
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	if dep.Status == "failed" {
+		t.Errorf("Status = %q — a late-landing secondary must never fail the prov", dep.Status)
+	}
+	if dep.Result.Phase1Outcome != "" {
+		t.Errorf("Phase1Outcome = %q — the secondary path must not touch the primary's terminal outcome", dep.Result.Phase1Outcome)
 	}
 }
 
