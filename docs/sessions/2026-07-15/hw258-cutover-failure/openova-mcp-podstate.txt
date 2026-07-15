@@ -1,0 +1,17 @@
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Thu, 16 Jul 2026 04:39:59 +0800
+      Finished:     Thu, 16 Jul 2026 04:39:59 +0800
+    Ready:          False
+    Restart Count:  12
+    Limits:
+      cpu:     100m
+--
+
+CRASH: resolver: verify=rs256 requires OPENOVA_MCP_RS256_PUBKEY_PEM (image 0.2.1)
+CUTOVER: auto-armed 20:19:04Z (zero-touch, #5120/#4635 PROVEN), steps 1-2 success,
+FATAL step-3 harbor-prewarm 20:42:27Z — #4982 settle-gate on the 0/1 openova-mcp Deployment.
+Same failure SHAPE as hw256 (mid-roll non-spine app wedges cutover); new root cause.
