@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"bytes"
 	"errors"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"strings"
@@ -14,14 +16,16 @@ import (
 // the i-th call (saturating to the last entry if calls > len(errs)),
 // and records every invocation under the mutex.
 type fakeSendMail struct {
-	mu    sync.Mutex
-	calls int
-	errs  []error
+	mu      sync.Mutex
+	calls   int
+	errs    []error
+	lastMsg []byte
 }
 
 func (f *fakeSendMail) send(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastMsg = append([]byte(nil), msg...)
 	i := f.calls
 	f.calls++
 	if i >= len(f.errs) {
@@ -413,4 +417,25 @@ func TestBuildAuth(t *testing.T) {
 	t.Run("user-only", func(t *testing.T) { withEnv(t, "u", "", false) })
 	t.Run("pass-only", func(t *testing.T) { withEnv(t, "", "p", false) })
 	t.Run("both", func(t *testing.T) { withEnv(t, "u", "p", true) })
+}
+
+// TestMailerSend_IncludesRFC5322DateHeader guards #5104 facet C: Stalwart
+// relays messages as-composed, so Send must stamp the mandatory RFC 5322
+// Date originator field itself — its absence breaks client sorting and
+// feeds spam scoring.
+func TestMailerSend_IncludesRFC5322DateHeader(t *testing.T) {
+	fs := &fakeSendMail{errs: []error{nil}}
+	now, _, _ := fixedNow()
+	m := newTestMailer(fs, &recordingSleep{}, now)
+
+	if err := m.Send("to@example.com", "subject", "<p>hi</p>"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(fs.lastMsg))
+	if err != nil {
+		t.Fatalf("composed message does not parse as RFC 5322: %v", err)
+	}
+	if _, err := parsed.Header.Date(); err != nil {
+		t.Errorf("Date header missing or unparseable: %v (got %q)", err, parsed.Header.Get("Date"))
+	}
 }

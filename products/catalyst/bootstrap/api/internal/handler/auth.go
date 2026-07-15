@@ -615,6 +615,40 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 // via Stalwart per smtpAddr().
 var sendPinEmail = sendPinEmailDefault
 
+// pinEmailMessage assembles the full RFC 5322 message (headers + RFC
+// 2046 multipart/alternative body) for a sign-in-code mail. Factored
+// out of sendPinEmailDefault so tests can assert on the wire format
+// without an SMTP dial.
+func pinEmailMessage(from, to, subject, plain, html, boundary string) string {
+	headers := strings.Join([]string{
+		// RFC 5322 §3.6.1: Date is a REQUIRED originator field; Stalwart
+		// relays as-is, so its absence breaks client sorting/threading
+		// and feeds spam scoring (#5104 facet C).
+		"Date: " + time.Now().Format(time.RFC1123Z),
+		"From: OpenOva Platform <" + from + ">",
+		"To: " + to,
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"",
+	}, "\r\n")
+	body := strings.Join([]string{
+		"",
+		"--" + boundary,
+		"Content-Type: text/plain; charset=utf-8",
+		"Content-Transfer-Encoding: 7bit",
+		"",
+		plain,
+		"--" + boundary,
+		"Content-Type: text/html; charset=utf-8",
+		"Content-Transfer-Encoding: 7bit",
+		"",
+		html,
+		"--" + boundary + "--",
+		"",
+	}, "\r\n")
+	return headers + "\r\n" + body
+}
+
 // sendPinEmailDefault sends a multipart MIME email (text + HTML) with
 // the 6-digit code rendered as a polished one-time-code card. iCloud /
 // Stripe parity — large monospaced digit groups, brand mark, expiration
@@ -640,29 +674,7 @@ func sendPinEmailDefault(to, pin string) error {
 	// support it, fall back to plain otherwise. Boundary is a UUID so it
 	// can never collide with body content.
 	boundary := strings.ReplaceAll(uuid.NewString(), "-", "")
-	headers := strings.Join([]string{
-		"From: OpenOva Platform <" + from + ">",
-		"To: " + to,
-		"Subject: " + subject,
-		"MIME-Version: 1.0",
-		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"",
-	}, "\r\n")
-	body := strings.Join([]string{
-		"",
-		"--" + boundary,
-		"Content-Type: text/plain; charset=utf-8",
-		"Content-Transfer-Encoding: 7bit",
-		"",
-		plain,
-		"--" + boundary,
-		"Content-Type: text/html; charset=utf-8",
-		"Content-Transfer-Encoding: 7bit",
-		"",
-		html,
-		"--" + boundary + "--",
-		"",
-	}, "\r\n")
-	msg := headers + "\r\n" + body
+	msg := pinEmailMessage(from, to, subject, plain, html, boundary)
 
 	smtpUser := os.Getenv("CATALYST_SMTP_USER")
 	smtpPass := os.Getenv("CATALYST_SMTP_PASS")

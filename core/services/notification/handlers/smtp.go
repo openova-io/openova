@@ -248,6 +248,10 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 	headers := []string{
 		"MIME-Version: 1.0",
 		"Content-Type: text/html; charset=UTF-8",
+		// RFC 5322 §3.6.1: Date is a REQUIRED originator field. Stalwart
+		// relays the message as-is, so without it clients sort/thread the
+		// mail badly and some spam filters score on the absence (#5104 C).
+		fmt.Sprintf("Date: %s", time.Now().Format(time.RFC1123Z)),
 		fmt.Sprintf("From: OpenOva <%s>", m.From),
 		fmt.Sprintf("To: %s", to),
 		fmt.Sprintf("Subject: %s", subject),
