@@ -336,7 +336,7 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 				} else {
 					log.Info("lease lost; new holder in charge", "err", err)
 				}
-				_ = r.patchStatusFromCR(ctx, cr, spec, witness.State{}, cnpg.Status{}, cnpg.Status{}, false, "")
+				_ = r.patchStatusFromCR(ctx, cr, spec, witness.State{}, cnpg.Status{}, cnpg.Status{}, cnpg.StandbyObservation{}, false, "")
 				continue
 			}
 			_ = r.publishLeaseAcquired(ctx, nn, spec, newState)
@@ -346,12 +346,27 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		}
 		leaseState = newState
 
+		// #4901 — resolve the required synchronous hot-standby's
+		// availability alongside lag. standby.Known stays false when the
+		// CR names no cnpg pair (dr-spine/raft continuums) or the pair's
+		// replica half is unresolvable (provisioning in flight) — the
+		// status patch then preserves any prior StandbyAvailable
+		// condition instead of false-alarming.
 		var primaryStatus, replicaStatus cnpg.Status
-		if cr := r.cnpgReader(); cr != nil && spec.CNPGNamespace != "" && spec.CNPGPair != "" {
-			primary, replica, fErr := cr.FindPair(ctx, spec.CNPGNamespace, spec.CNPGPair)
+		var standby cnpg.StandbyObservation
+		if reader := r.cnpgReader(); reader != nil && spec.CNPGNamespace != "" && spec.CNPGPair != "" {
+			primary, replica, fErr := reader.FindPair(ctx, spec.CNPGNamespace, spec.CNPGPair)
 			if fErr == nil {
-				primaryStatus, _, _ = cr.Get(ctx, primary.GetNamespace(), primary.GetName())
-				replicaStatus, _, _ = cr.Get(ctx, replica.GetNamespace(), replica.GetName())
+				primaryStatus, _, _ = reader.Get(ctx, primary.GetNamespace(), primary.GetName())
+				var gErr error
+				replicaStatus, _, gErr = reader.Get(ctx, replica.GetNamespace(), replica.GetName())
+				if gErr == nil {
+					standby = cnpg.StandbyObservation{
+						Known:          true,
+						Available:      cnpg.StandbyAvailable(replicaStatus),
+						ReplicaCluster: replica.GetName(),
+					}
+				}
 			}
 		}
 
@@ -369,7 +384,7 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 			_ = r.publishLagBreach(ctx, nn, spec, maxLag)
 			r.runSwitchover(ctx, cr, spec, toRegion, "lag-breach", maxLag, w)
 		default:
-			_ = r.patchStatusFromCR(ctx, cr, spec, leaseState, primaryStatus, replicaStatus, false, "")
+			_ = r.patchStatusFromCR(ctx, cr, spec, leaseState, primaryStatus, replicaStatus, standby, false, "")
 			_ = r.publishReconcileSuccess(ctx, nn, spec, maxLag)
 		}
 	}
@@ -761,6 +776,7 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 	spec ContinuumSpec,
 	lease witness.State,
 	primaryStatus, replicaStatus cnpg.Status,
+	standby cnpg.StandbyObservation,
 	switchoverInProgress bool,
 	stepLabel string,
 ) error {
@@ -772,6 +788,15 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 	if !heldByUs {
 		phase = PhaseDegraded
 	}
+	// #4901 — a lost REQUIRED synchronous hot-standby degrades the
+	// Continuum even while the lease is held correctly: an absent
+	// standby also reads lag=0 (nothing is following), so without this
+	// branch the CR stays phase=Healthy / replicationLagSeconds=0 for
+	// the whole outage while writes stall on SyncRep (proven in the
+	// G12 region-kill drill on hw232).
+	if standby.Known && !standby.Available && phase == PhaseHealthy {
+		phase = PhaseDegraded
+	}
 	su := statusUpdate{
 		Phase:                 phase,
 		PrimaryRegion:         spec.PrimaryRegion,
@@ -780,6 +805,11 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 		ReplicationLagSeconds: maxLag,
 		SwitchoverInProgress:  switchoverInProgress,
 		Step:                  stepLabel,
+	}
+	if standby.Known {
+		avail := standby.Available
+		su.StandbyAvailable = &avail
+		su.StandbyReplicaCluster = standby.ReplicaCluster
 	}
 	if !lease.ExpiresAt.IsZero() {
 		su.LeaseExpiresAt = lease.ExpiresAt.Format(time.RFC3339)
@@ -831,6 +861,18 @@ type statusUpdate struct {
 	// observed transition time, not the request time.
 	LastLuaRecord   map[string]interface{}
 	LastLuaRecordAt string
+
+	// StandbyAvailable — tri-state (#4901). nil = no determination this
+	// pass (non-cnpg-pair CRs, or replica half unresolvable): any prior
+	// StandbyAvailable condition is preserved and the standbyAvailable /
+	// hotStandbyAbsent status fields are left untouched. Non-nil = write
+	// status.standbyAvailable + status.hotStandbyAbsent and upsert the
+	// StandbyAvailable condition (True/StandbyReachable or
+	// False/StandbyUnreachable). Field + condition naming matches the
+	// catalyst-api DR-panel projection (#4905) so the stored status and
+	// the OBSERVED status agree.
+	StandbyAvailable      *bool
+	StandbyReplicaCluster string
 
 	Reason  string
 	Message string
@@ -909,6 +951,13 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			if t == "LastSwitchoverHealthy" && su.LastSwitchoverHealthy != "" {
 				continue
 			}
+			// #4901: same preserve-unless-rewriting contract for the
+			// StandbyAvailable condition — a pass with no determination
+			// (lease-lost patches, switchover step patches) keeps the
+			// last observed standby posture visible.
+			if t == "StandbyAvailable" && su.StandbyAvailable != nil {
+				continue
+			}
 			conds = append(conds, c)
 		}
 	}
@@ -942,6 +991,26 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			"message":            firstNonEmpty(su.LastSwitchoverHealthyDetail, su.Message),
 			"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
 		})
+	}
+	// #4901 — surface the required synchronous hot-standby's
+	// availability on the CR the controller owns, mirroring the
+	// catalyst-api DR-panel projection's naming (#4905) so the two
+	// surfaces agree. Only written when this pass made a determination.
+	if su.StandbyAvailable != nil {
+		status["standbyAvailable"] = *su.StandbyAvailable
+		status["hotStandbyAbsent"] = !*su.StandbyAvailable
+		cond := map[string]interface{}{
+			"type":               "StandbyAvailable",
+			"status":             boolToCondStatus(*su.StandbyAvailable),
+			"reason":             "StandbyReachable",
+			"message":            fmt.Sprintf("required synchronous hot-standby (cnpg-pair replica cluster %q) is reachable and following the primary", su.StandbyReplicaCluster),
+			"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
+		}
+		if !*su.StandbyAvailable {
+			cond["reason"] = "StandbyUnreachable"
+			cond["message"] = fmt.Sprintf("required synchronous hot-standby (cnpg-pair replica cluster %q) is unreachable; synchronous replication has no standby to acknowledge commits so writes stall and RPO=0 durability is at risk", su.StandbyReplicaCluster)
+		}
+		conds = append(conds, cond)
 	}
 	status["conditions"] = conds
 	latest.Object["status"] = status

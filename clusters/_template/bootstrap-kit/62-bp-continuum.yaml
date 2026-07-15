@@ -140,7 +140,16 @@ spec:
       # 0.1.9 (#4257): pure version bump (image still 9c91a7e) to force
       # Flux to re-pull — the 0.1.8 deploy-bot image-tag overwrite did not
       # change the version so the #4254 k8s-lease controller never rolled.
-      version: 0.1.9
+      # 0.1.10 (#4901): controller surfaces a lost REQUIRED synchronous
+      # hot-standby on the cnpg-pair Continuum CR status it owns — phase
+      # Healthy->Degraded + standbyAvailable/hotStandbyAbsent fields + a
+      # StandbyAvailable=False/StandbyUnreachable condition when the
+      # pair's replica-role Cluster half is not Ready or readyInstances=0
+      # (the G12 region-kill drill posture; before this the CR stayed
+      # Healthy/lag=0 through the whole outage). Naming mirrors the
+      # catalyst-api DR-panel projection (#4905). Pin moves in lockstep
+      # (Inviolable Principle #13).
+      version: 0.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
