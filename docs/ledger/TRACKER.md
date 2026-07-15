@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T09:00:05Z` |
+| Last refreshed | `2026-07-15T09:15:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 17 |
 | Open DoD gates | 0 / 41 |
@@ -224,6 +224,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T09:13 | [#5103](https://github.com/openova-io/openova/pull/5103) | #5095 | fix(cutover): step-03 harbor-prewarm — direct-source fallbac |
 | 2026-07-15T08:44 | [#5102](https://github.com/openova-io/openova/pull/5102) | #5100 | fix(console): purge rendered tenant-term copy; refute rows 1 |
 | 2026-07-15T08:43 | [#5101](https://github.com/openova-io/openova/pull/5101) | #5099 | fix(#5099): fire script defaults SHARED_PG=true — explicit e |
 | 2026-07-15T08:31 | [#5098](https://github.com/openova-io/openova/pull/5098) | #4765 | fix(#4765): cross-namespace grant for the sovereign-vip VIP  |
@@ -253,7 +254,6 @@ flowchart LR
 | 2026-07-14T12:37 | [#5061](https://github.com/openova-io/openova/pull/5061) | #5015 | fix(harbor): alias host 301-redirects to canonical instead o |
 | 2026-07-14T07:26 | [#5058](https://github.com/openova-io/openova/pull/5058) | #5054 | feat(reliability): RT-11 CI merge-hold gate + canonical scri |
 | 2026-07-14T12:37 | [#5057](https://github.com/openova-io/openova/pull/5057) | #5042 | fix(cloud-init): retry + fail-loud sentinels on flux/gateway |
-| 2026-07-14T05:51 | [#5056](https://github.com/openova-io/openova/pull/5056) | #5028 | feat(scripts): preflight check 3d — EVS volume headroom fire |
 
 ---
 
