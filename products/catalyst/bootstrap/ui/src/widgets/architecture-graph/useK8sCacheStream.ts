@@ -55,6 +55,15 @@ export const GRAPH_K8S_KINDS = [
   'persistentvolumeclaim',
   'configmap',
   'endpointslice',
+  // Gateway-API + NetworkPolicy (#3987 UAT row 200) — the graph draws
+  // Gateway / HTTPRoute / NetworkPolicy nodes (Networking lens), so the
+  // widget's self-sufficient fallback stream must watch them too. The
+  // CloudPage's shared subscription already covers them via
+  // CLOUD_PAGE_K8S_KINDS; without these the standalone graph rendered
+  // the Networking chips as 0/0 against a cluster full of routes.
+  'gateway',
+  'httproute',
+  'networkpolicy',
   // Crossplane bridge — the cloud-side counterpart to PV via volume.hcloud
   'server.hcloud',
   'volume.hcloud',

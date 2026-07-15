@@ -337,6 +337,135 @@ describe('k8sToGraph', () => {
       }),
     )
   })
+
+  /* ── #3987 (UAT row 200) — Gateway-API + NetworkPolicy projection.
+   * The snapshot carried gateway:/httproute:/networkpolicy: keys but
+   * the adapter had no section for them, so the Networking lens chips
+   * rendered 0/0 against a cluster full of live routes. */
+
+  it('#3987: emits a Gateway node with Programmed-condition status + Namespace edge', () => {
+    const s = snap(
+      ['namespace:kube-system', { metadata: { name: 'kube-system' } }],
+      [
+        'gateway:kube-system/cilium-gateway',
+        {
+          apiVersion: 'gateway.networking.k8s.io/v1',
+          kind: 'Gateway',
+          metadata: { namespace: 'kube-system', name: 'cilium-gateway' },
+          spec: { gatewayClassName: 'cilium' },
+          status: { conditions: [{ type: 'Programmed', status: 'True' }] },
+        },
+      ],
+    )
+    const { nodes, edges } = k8sToGraph(s)
+    const gw = nodes.find((n) => n.id === 'Gateway:kube-system/cilium-gateway')
+    expect(gw).toBeDefined()
+    expect(gw?.type).toBe('Gateway')
+    expect(gw?.status).toBe('healthy')
+    expect(gw?.metadata?.['gatewayClassName']).toBe('cilium')
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: 'Gateway:kube-system/cilium-gateway',
+        target: 'Namespace:kube-system',
+        type: 'member-of',
+      }),
+    )
+  })
+
+  it('#3987: emits HTTPRoute node + flows-to Gateway (parentRefs) + routes-to Service (backendRefs)', () => {
+    const s = snap(
+      ['namespace:catalyst-system', { metadata: { name: 'catalyst-system' } }],
+      [
+        'gateway:kube-system/cilium-gateway',
+        {
+          apiVersion: 'gateway.networking.k8s.io/v1',
+          kind: 'Gateway',
+          metadata: { namespace: 'kube-system', name: 'cilium-gateway' },
+          spec: { gatewayClassName: 'cilium' },
+        },
+      ],
+      [
+        'httproute:catalyst-system/console',
+        {
+          apiVersion: 'gateway.networking.k8s.io/v1',
+          kind: 'HTTPRoute',
+          metadata: { namespace: 'catalyst-system', name: 'console' },
+          spec: {
+            hostnames: ['console.hw255.omani.works'],
+            parentRefs: [{ name: 'cilium-gateway', namespace: 'kube-system' }],
+            rules: [{ backendRefs: [{ name: 'catalyst-console', port: 80 }] }],
+          },
+          status: {
+            parents: [{ conditions: [{ type: 'Accepted', status: 'True' }] }],
+          },
+        },
+      ],
+    )
+    const { nodes, edges } = k8sToGraph(s)
+    const route = nodes.find((n) => n.id === 'HTTPRoute:catalyst-system/console')
+    expect(route).toBeDefined()
+    expect(route?.type).toBe('HTTPRoute')
+    expect(route?.status).toBe('healthy')
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: 'HTTPRoute:catalyst-system/console',
+        target: 'Gateway:kube-system/cilium-gateway',
+        type: 'flows-to',
+      }),
+    )
+    // backendRef without namespace defaults to the route's own ns.
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: 'HTTPRoute:catalyst-system/console',
+        target: 'Service:catalyst-system/catalyst-console',
+        type: 'routes-to',
+      }),
+    )
+  })
+
+  it('#3987: HTTPRoute with no accepted parent renders degraded', () => {
+    const s = snap([
+      'httproute:foo/r1',
+      {
+        apiVersion: 'gateway.networking.k8s.io/v1',
+        kind: 'HTTPRoute',
+        metadata: { namespace: 'foo', name: 'r1' },
+        spec: {},
+        status: {
+          parents: [{ conditions: [{ type: 'Accepted', status: 'False' }] }],
+        },
+      },
+    ])
+    const { nodes } = k8sToGraph(s)
+    expect(nodes.find((n) => n.id === 'HTTPRoute:foo/r1')?.status).toBe('degraded')
+  })
+
+  it('#3987: emits a NetworkPolicy node + Namespace edge', () => {
+    const s = snap(
+      ['namespace:catalyst-system', { metadata: { name: 'catalyst-system' } }],
+      [
+        'networkpolicy:catalyst-system/plane-isolation',
+        {
+          apiVersion: 'networking.k8s.io/v1',
+          kind: 'NetworkPolicy',
+          metadata: { namespace: 'catalyst-system', name: 'plane-isolation' },
+          spec: { podSelector: {} },
+        },
+      ],
+    )
+    const { nodes, edges } = k8sToGraph(s)
+    const np = nodes.find((n) => n.id === 'NetworkPolicy:catalyst-system/plane-isolation')
+    expect(np).toBeDefined()
+    expect(np?.type).toBe('NetworkPolicy')
+    expect(np?.status).toBe('healthy')
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: 'NetworkPolicy:catalyst-system/plane-isolation',
+        target: 'Namespace:catalyst-system',
+        type: 'member-of',
+      }),
+    )
+  })
 })
 
 describe('mergeGraphs', () => {

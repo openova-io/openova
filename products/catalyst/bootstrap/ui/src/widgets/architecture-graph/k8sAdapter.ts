@@ -23,6 +23,9 @@
  *                                        membership when present)
  *     - Ingress → Service `flows-to`    via spec.rules[].http.paths[]
  *                                       .backend.service.name
+ *     - HTTPRoute → Gateway `flows-to`  via spec.parentRefs (#3987)
+ *     - HTTPRoute → Service `routes-to` via spec.rules[].backendRefs
+ *     - Gateway / NetworkPolicy → Namespace `member-of`
  *     - Pod → PVC         `attached-to` via spec.volumes[]
  *                                       .persistentVolumeClaim.claimName
  *     - PVC → Volume(.hcloud) `realizes` via PV csi.volumeAttributes
@@ -428,6 +431,120 @@ export function k8sToGraph(snapshot: K8sSnapshot): AdaptResult {
     }
   }
 
+  // 6b. Gateway-API Gateways (#3987 UAT row 200). The SSE snapshot
+  //     carries `gateway:` keys (CLOUD_PAGE_K8S_KINDS ∪ GRAPH_K8S_KINDS)
+  //     but no adapter section consumed them, so the Networking lens
+  //     chips read 0/0 while the cluster served real Gateways / routes.
+  //     Status from the Gateway's Programmed (fallback Accepted)
+  //     condition.
+  for (const [, gw] of iterByKind(snapshot, 'gateway')) {
+    const ns = gw.metadata?.namespace ?? ''
+    const name = gw.metadata?.name ?? ''
+    if (!ns || !name) continue
+    const id = compositeId('Gateway', ns, name)
+    addNode({
+      id,
+      type: 'Gateway',
+      label: name,
+      sublabel: ns,
+      status: gatewayStatus(gw),
+      metadata: {
+        namespace: ns,
+        gatewayClassName: (gw.spec?.['gatewayClassName'] as string | undefined) ?? '',
+      },
+    })
+    addEdge({
+      id: `e:${id}->Namespace:${ns}`,
+      source: id,
+      target: compositeId('Namespace', '', ns),
+      type: 'member-of',
+    })
+  }
+
+  // 6c. HTTPRoutes — status from status.parents[].conditions Accepted.
+  //     Edges: HTTPRoute → Gateway `flows-to` via spec.parentRefs
+  //     (parent namespace defaults to the route's own), and
+  //     HTTPRoute → Service `routes-to` via spec.rules[].backendRefs
+  //     (kind omitted = Service per the Gateway-API default).
+  for (const [, route] of iterByKind(snapshot, 'httproute')) {
+    const ns = route.metadata?.namespace ?? ''
+    const name = route.metadata?.name ?? ''
+    if (!ns || !name) continue
+    const id = compositeId('HTTPRoute', ns, name)
+    addNode({
+      id,
+      type: 'HTTPRoute',
+      label: name,
+      sublabel: ns,
+      status: httpRouteStatus(route),
+      metadata: {
+        namespace: ns,
+        hostnames: ((route.spec?.['hostnames'] as string[] | undefined) ?? []).join(', '),
+      },
+    })
+    addEdge({
+      id: `e:${id}->Namespace:${ns}`,
+      source: id,
+      target: compositeId('Namespace', '', ns),
+      type: 'member-of',
+    })
+    const parentRefs = (route.spec?.['parentRefs'] as Array<Record<string, unknown>> | undefined) ?? []
+    for (const p of parentRefs) {
+      const kind = (p['kind'] as string | undefined) ?? 'Gateway'
+      if (kind !== 'Gateway') continue
+      const pName = (p['name'] as string | undefined) ?? ''
+      if (!pName) continue
+      const pNs = (p['namespace'] as string | undefined) ?? ns
+      addEdge({
+        id: `e:${id}->Gateway:${pNs}/${pName}`,
+        source: id,
+        target: compositeId('Gateway', pNs, pName),
+        type: 'flows-to',
+      })
+    }
+    const routeRules = (route.spec?.['rules'] as Array<Record<string, unknown>> | undefined) ?? []
+    for (const rule of routeRules) {
+      const backends = (rule['backendRefs'] as Array<Record<string, unknown>> | undefined) ?? []
+      for (const b of backends) {
+        const kind = (b['kind'] as string | undefined) ?? 'Service'
+        if (kind !== 'Service') continue
+        const bName = (b['name'] as string | undefined) ?? ''
+        if (!bName) continue
+        const bNs = (b['namespace'] as string | undefined) ?? ns
+        addEdge({
+          id: `e:${id}->Service:${bNs}/${bName}`,
+          source: id,
+          target: compositeId('Service', bNs, bName),
+          type: 'routes-to',
+        })
+      }
+    }
+  }
+
+  // 6d. NetworkPolicies (networking.k8s.io) — no status subresource on
+  //     the API; an existing policy is an enforced policy, so presence
+  //     renders healthy. Edge: → Namespace.
+  for (const [, np] of iterByKind(snapshot, 'networkpolicy')) {
+    const ns = np.metadata?.namespace ?? ''
+    const name = np.metadata?.name ?? ''
+    if (!ns || !name) continue
+    const id = compositeId('NetworkPolicy', ns, name)
+    addNode({
+      id,
+      type: 'NetworkPolicy',
+      label: name,
+      sublabel: ns,
+      status: 'healthy',
+      metadata: { namespace: ns },
+    })
+    addEdge({
+      id: `e:${id}->Namespace:${ns}`,
+      source: id,
+      target: compositeId('Namespace', '', ns),
+      type: 'member-of',
+    })
+  }
+
   // 7. PVCs.
   for (const [, pvc] of iterByKind(snapshot, 'persistentvolumeclaim')) {
     const ns = pvc.metadata?.namespace ?? ''
@@ -499,6 +616,39 @@ function nodeStatus(o: K8sObject): ArchStatus {
     }
   }
   return 'unknown'
+}
+
+/**
+ * Gateway readiness — the Gateway-API status carries `Programmed`
+ * (the implementation wired dataplane config) with `Accepted` as the
+ * weaker fallback on older conditions sets.
+ */
+function gatewayStatus(o: K8sObject): ArchStatus {
+  const conds = (o.status?.['conditions'] as Array<{ type?: string; status?: string }> | undefined) ?? []
+  for (const want of ['Programmed', 'Accepted']) {
+    const c = conds.find((x) => x.type === want)
+    if (c) return c.status === 'True' ? 'healthy' : 'degraded'
+  }
+  return 'unknown'
+}
+
+/**
+ * HTTPRoute readiness — per-parent `Accepted` conditions under
+ * status.parents[]. Any accepted parent = the route is serving.
+ */
+function httpRouteStatus(o: K8sObject): ArchStatus {
+  const parents = (o.status?.['parents'] as Array<Record<string, unknown>> | undefined) ?? []
+  if (parents.length === 0) return 'unknown'
+  let sawAcceptedCondition = false
+  for (const p of parents) {
+    const conds = (p['conditions'] as Array<{ type?: string; status?: string }> | undefined) ?? []
+    const accepted = conds.find((c) => c.type === 'Accepted')
+    if (accepted) {
+      sawAcceptedCondition = true
+      if (accepted.status === 'True') return 'healthy'
+    }
+  }
+  return sawAcceptedCondition ? 'degraded' : 'unknown'
 }
 
 function kindToArchType(kind: 'deployment' | 'statefulset' | 'daemonset'): ArchNodeType {
