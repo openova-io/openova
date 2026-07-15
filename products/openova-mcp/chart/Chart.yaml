@@ -13,6 +13,16 @@ description: |
   catalyst-api, whose own authz is the final word — the server holds NO
   privileged token and reads NOTHING from the Kubernetes API.
 type: application
+# 0.1.1 (#5114 hw256 live-proven fixes): pod securityContext gains NUMERIC
+# runAsUser/runAsGroup 65532 beside runAsNonRoot — image 0.2.0 declared
+# the STRING `USER nonroot`, which the kubelet cannot prove non-root, so
+# the hw256 pod died at `CreateContainerConfigError: container has
+# runAsNonRoot and image has non-numeric user (nonroot)`. appVersion
+# 0.2.1: the Containerfile states the same identity numerically
+# (USER 65532:65532 — belt and braces). Companion (same train, not a chart
+# change): bootstrap-kit slot 13d goes primary-only via
+# SECONDARY_HR_SUSPEND so secondaries stop fanning out a permanently-False
+# HR behind the suspended bp-catalyst-platform dependency.
 # 0.1.0 (#5114, Refs #3988): first release — the Pillar-4 install path.
 # Deployment (streamable-HTTP transport, OPENOVA_MCP_LISTEN) + ClusterIP
 # Service + Gateway-API HTTPRoute (mcp.<sovereign-fqdn>; never a Traefik
@@ -22,18 +32,20 @@ type: application
 # load-bearing DNS carve-out) + an optional values-gated chepherd-attach
 # ConfigMap (#3988 §4.4 deviation: no bp-chepherd exists in this kit, so
 # the dependency is an OPTIONAL seam and the chart is standalone-capable).
-# Lockstep: blueprint.yaml 0.1.0 + bootstrap-kit slot 13d pin 0.1.0 +
-# catalog-seed (blueprints.json) 0.1.0. Image = ghcr.io/openova-io/
+# Lockstep: blueprint.yaml 0.1.1 + bootstrap-kit slot 13d pin 0.1.1 +
+# catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.0
+version: 0.1.1
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
-# 0.2.0 is the FIRST image with the streamable-HTTP transport
+# 0.2.1 rebuilds 0.2.0 with a NUMERIC USER (65532:65532) — see the 0.1.1
+# note above; the binary is unchanged. 0.2.0 is the FIRST image with the
+# streamable-HTTP transport
 # (OPENOVA_MCP_LISTEN + /healthz + /readyz + Authorization-header bearer +
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.0"
+appVersion: "0.2.1"
 keywords:
   - mcp
   - agent

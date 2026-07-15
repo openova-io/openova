@@ -6,12 +6,17 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-7-agentic-workspace
 spec:
+  # 0.1.1 (#5114 hw256 fixes): numeric runAsUser/runAsGroup 65532 beside
+  # runAsNonRoot (image 0.2.0's string USER `nonroot` wedged the hw256 pod
+  # at CreateContainerConfigError) + appVersion 0.2.1 (numeric USER in the
+  # Containerfile) + bootstrap-kit slot 13d goes primary-only
+  # (SECONDARY_HR_SUSPEND).
   # 0.1.0 (#5114, Refs #3988): first release — the Pillar-4 install path
   # for the OpenOva MCP server (Deployment + ClusterIP Service + Gateway-API
   # HTTPRoute + zero-RBAC ServiceAccount + Cilium CNPs). Lockstep with
-  # products/openova-mcp/chart/Chart.yaml 0.1.0 + bootstrap-kit slot 13d pin
+  # products/openova-mcp/chart/Chart.yaml 0.1.1 + bootstrap-kit slot 13d pin
   # + the catalog-seed (blueprints.json) entry.
-  version: 0.1.0
+  version: 0.1.1
   card:
     title: OpenOva MCP
     summary: |
