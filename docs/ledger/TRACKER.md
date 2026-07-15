@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T03:45:05Z` |
+| Last refreshed | `2026-07-15T04:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 41 |
 | Open DoD gates | 0 / 41 |
@@ -248,6 +248,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T03:47 | [#5092](https://github.com/openova-io/openova/pull/5092) | #5081 | fix(cutover): step-08 rule c — never roll stateful RWO-EVS s |
 | 2026-07-15T03:09 | [#5089](https://github.com/openova-io/openova/pull/5089) | #5088 | feat(kyverno-policies): §854 NodePort audit guard |
 | 2026-07-15T03:09 | [#5087](https://github.com/openova-io/openova/pull/5087) | #5007 | fix(cutover): step-03 prewarm — in-cluster CoreDNS pin for r |
 | 2026-07-14T22:41 | [#5085](https://github.com/openova-io/openova/pull/5085) | #5082 | fix(cloudinit): repair #5082 build-failure — CP cloud-init b |
@@ -277,7 +278,6 @@ flowchart LR
 | 2026-07-13T23:39 | [#5050](https://github.com/openova-io/openova/pull/5050) | #5049 | fix(scripts): preflight check-3 false-orphan on ELB-bound EI |
 | 2026-07-13T23:21 | [#5049](https://github.com/openova-io/openova/pull/5049) | #5046 | fix(scripts): wire MANDATORY prov-preflight gate into fire() |
 | 2026-07-13T23:13 | [#5048](https://github.com/openova-io/openova/pull/5048) | #3370 | docs(align): PROTOCOL.md execution protocol + durable-surfac |
-| 2026-07-13T23:13 | [#5047](https://github.com/openova-io/openova/pull/5047) | #4690 | docs(iac): retire stale nodePort wording — gateway ELB targe |
 
 ---
 
