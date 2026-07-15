@@ -53,6 +53,10 @@ type Order struct {
 	PlanID          string          `json:"plan_id"`
 	Apps            json.RawMessage `json:"apps"`
 	Addons          json.RawMessage `json:"addons"`
+	// Topology is the billed BCP topology ("single-region" |
+	// "active-hot-standby") — a priced order dimension, persisted so
+	// invoices/BSS views show what the surcharge bought (#5104 facet B).
+	Topology        string          `json:"topology"`
 	AmountOMR       int             `json:"amount_omr"`
 	AmountBaisa     int64           `json:"amount_baisa"`
 	Status          string          `json:"status"`
@@ -209,6 +213,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		// the admin order list can show it even after the promo is retired.
 		// The column is nullable because most orders have no promo.
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code TEXT`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS topology TEXT NOT NULL DEFAULT 'single-region'`,
 		`CREATE TABLE IF NOT EXISTS invoices (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			customer_id UUID NOT NULL REFERENCES customers(id),
@@ -402,10 +407,10 @@ func (s *Store) CreateOrder(ctx context.Context, o *Order) error {
 		o.AmountBaisa = OMRToBaisa(o.AmountOMR)
 	}
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, amount_omr, amount_baisa, status, stripe_session_id, promo_code)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING id, created_at`,
-		o.CustomerID, o.TenantID, o.PlanID, o.Apps, o.Addons, o.AmountOMR, o.AmountBaisa, o.Status, nilIfEmpty(o.StripeSessionID), nilIfEmpty(o.PromoCode),
+		o.CustomerID, o.TenantID, o.PlanID, o.Apps, o.Addons, orderTopology(o.Topology), o.AmountOMR, o.AmountBaisa, o.Status, nilIfEmpty(o.StripeSessionID), nilIfEmpty(o.PromoCode),
 	).Scan(&o.ID, &o.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("store: create order: %w", err)
@@ -424,13 +429,13 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 	var promoCode sql.NullString
 	var promoDeletedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx,
-		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons,
+		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
 		        o.promo_code, pc.deleted_at
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  WHERE o.id = $1`, id,
-	).Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons,
+	).Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 		&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
 		&promoCode, &promoDeletedAt)
 	if err == sql.ErrNoRows {
@@ -467,7 +472,7 @@ func (s *Store) UpdateOrderStatus(ctx context.Context, id, status, stripeSession
 // whether it has been soft-deleted, without a per-row extra query.
 func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons,
+		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
 		        o.promo_code, pc.deleted_at
 		   FROM orders o
@@ -485,7 +490,7 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 		var sessionID sql.NullString
 		var promoCode sql.NullString
 		var promoDeletedAt sql.NullTime
-		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons,
+		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
 			&promoCode, &promoDeletedAt); err != nil {
 			return nil, fmt.Errorf("store: scan order: %w", err)
@@ -1349,11 +1354,11 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 
 	// 1. Persist the order.
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, amount_omr, amount_baisa, status, stripe_session_id, promo_code)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING id, created_at`,
 		order.CustomerID, order.TenantID, order.PlanID, order.Apps, order.Addons,
-		order.AmountOMR, order.AmountBaisa, order.Status,
+		orderTopology(order.Topology), order.AmountOMR, order.AmountBaisa, order.Status,
 		nilIfEmpty(order.StripeSessionID), nilIfEmpty(order.PromoCode),
 	).Scan(&order.ID, &order.CreatedAt); err != nil {
 		return fmt.Errorf("store: credit-only create order: %w", err)
@@ -1446,6 +1451,15 @@ func (s *Store) DeleteWebhookEvent(ctx context.Context, eventID string) error {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// orderTopology defends the orders.topology NOT NULL invariant: an empty
+// struct field persists as the canonical default, never as ''.
+func orderTopology(t string) string {
+	if t == "" {
+		return "single-region"
+	}
+	return t
+}
 
 func nilIfEmpty(s string) *string {
 	if s == "" {
