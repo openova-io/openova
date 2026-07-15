@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T20:00:02Z` |
+| Last refreshed | `2026-07-15T20:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 25 |
 | Open DoD gates | 0 / 41 |
@@ -232,6 +232,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-15T20:04 | [#5127](https://github.com/openova-io/openova/pull/5127) | #5042 | fix(cloud-init): harden the bootstrap layer — retry k3s inst |
 | 2026-07-15T17:56 | [#5122](https://github.com/openova-io/openova/pull/5122) | #5116 | fix(auth): Date header on the funnel customer's login-code m |
 | 2026-07-15T17:28 | [#5121](https://github.com/openova-io/openova/pull/5121) | #5114 | fix(openova-mcp): hw256 defects — numeric runAsUser 65532 +  |
 | 2026-07-15T17:28 | [#5120](https://github.com/openova-io/openova/pull/5120) | #5119 | fix(lifecycle): fire body carries fireCutoverOnHandover + qa |
@@ -261,7 +262,6 @@ flowchart LR
 | 2026-07-14T20:33 | [#5083](https://github.com/openova-io/openova/pull/5083) | #5042 | fix(cloud-init): #5042 prevention — flux-install gated on se |
 | 2026-07-14T20:34 | [#5082](https://github.com/openova-io/openova/pull/5082) | #4858 | fix(cloudinit): kubelet image-GC guard against the self-host |
 | 2026-07-14T20:33 | [#5081](https://github.com/openova-io/openova/pull/5081) | #5059 | fix(cutover): step-08 roll-set minimization — rollSetMode mi |
-| 2026-07-14T23:27 | [#5080](https://github.com/openova-io/openova/pull/5080) | #4765 | fix(infra,ci): eradicate the Hetzner provider's last LB→node |
 
 ---
 
