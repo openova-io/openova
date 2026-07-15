@@ -162,6 +162,29 @@ data:
             value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
           - name: MOTHERSHIP_HOST
             value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
+          # #5007 (Refs #5051 #5036 #4652 #4682) — in-cluster CoreDNS pin of the
+          # local registry host for the PRE-pivot prewarm phase. #5051 round 2
+          # settled that the skopeo push DEST must be the PUBLIC host registry.<fqdn>
+          # (only the TLS-terminating gateway serves Harbor's hard-https bearer
+          # realm), but it was left resolving via PUBLIC DNS → still breaks on a
+          # stale `*.<pool>` wildcard shadow (hw241 dead 49.12.16.160) or a mid-push
+          # NXDOMAIN flap (hw252). harbor-prewarm runs runAsNonRoot(1000) +
+          # readOnlyRootFilesystem + drop-ALL, so it CANNOT write its own /etc/hosts;
+          # instead it installs a kube-system `coredns-custom` `.server` override
+          # (registry.<fqdn> -> the cilium-gateway Service ClusterIP) so CoreDNS —
+          # which every pod already queries — answers registry.<fqdn> in-cluster,
+          # independent of the Sovereign zone / public wildcard. The ClusterIP is
+          # ALWAYS allocated (even TYPE=ClusterIP with no VIP on the §854 ELB-direct
+          # model, #5007 round 2 / 0.1.129) and ClusterIP:443 terminates the wildcard
+          # TLS + serves the /service/token realm (proven #4637). Reuses the SAME
+          # gateway-Service values PR #5008 added for the step-04 node pin + the
+          # configmaps create/get/patch RBAC the runner SA already holds cluster-wide.
+          - name: LOCAL_REGISTRY_PIN_ENABLED
+            value: {{ .Values.registryPivot.localRegistryHostPin.enabled | quote }}
+          - name: GATEWAY_LB_SVC_NAME
+            value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceName | quote }}
+          - name: GATEWAY_LB_SVC_NAMESPACE
+            value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceNamespace | quote }}
           # #4982 (Refs #3379) — settled-roll pre-flight toggle. When true
           # (default) Phase A0 REFUSES to build the mirror while any HelmRelease
           # or Deployment/StatefulSet on the host cluster is mid-roll, so the
@@ -440,7 +463,102 @@ data:
             # /v2 HEAD — basic auth, no token dance) STAY on
             # HARBOR_INTERNAL_URL, which step-02 proved works in-cluster.
             HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
-            echo "[harbor-prewarm] public-dest readiness probe: https://${HARBOR_HOST}/v2/ (want 401/200)"
+
+            # ── #5007 (Refs #5051 #5036 #4652 #4682) — install a kube-system
+            # `coredns-custom` override so registry.<fqdn> resolves IN-CLUSTER to the
+            # cilium-gateway Service ClusterIP, BEFORE the readiness probe + every
+            # skopeo push, making the local-registry datapath INDEPENDENT of public
+            # DNS. #5051 round 2 correctly forced the push DEST back to the PUBLIC host
+            # (only the TLS-terminating gateway serves Harbor's hard-https bearer realm
+            # https://registry.<fqdn>/service/token — no in-cluster :80 Service can
+            # complete the token flow), but that dest was left resolving via PUBLIC
+            # DNS, so it still breaks when the Sovereign zone flakes or a wiped-env
+            # `*.<pool>` wildcard shadows the specific record: hw241's dead
+            # `*.omantel.biz` 49.12.16.160 → readiness probe connection-refused →
+            # 10-min FATAL; hw252's intermittent NXDOMAIN (`lookup registry.hw252.
+            # omani.works on 10.96.0.10:53: no such host`) flapped MID-PUSH →
+            # push_ok=131 push_fail=7 (survived only on a backoffLimit retry).
+            #
+            # WHY CoreDNS, not /etc/hosts: harbor-prewarm runs runAsNonRoot(uid 1000)
+            # + readOnlyRootFilesystem + drop-ALL, so it CANNOT write its own (root-
+            # owned) /etc/hosts, and a pod `hostAliases` can't take a runtime IP. It
+            # instead patches the k3s-native `coredns-custom` ConfigMap — the same
+            # extension point cloud-init uses for the github-ipv4 pin — with a
+            # SEPARATE `.server` block (registry.<fqdn> -> the gateway ClusterIP), so
+            # CoreDNS (which every pod already queries at 10.96.0.10) answers
+            # registry.<fqdn> authoritatively in-cluster. The ClusterIP is ALWAYS
+            # allocated (even TYPE=ClusterIP with no VIP on the §854 ELB-direct model,
+            # #5007 round 2 / 0.1.129); ClusterIP:443 terminates the wildcard TLS and
+            # serves BOTH the /v2 challenge AND the /service/token realm (proven
+            # #4637). Request host / SNI stay registry.<fqdn> so the bearer realm +
+            # gateway HTTPRoute + wildcard cert all still match — ONLY resolution is
+            # pinned. This reverses #4682's public-DNS assumption ONLY for the primary
+            # cluster's CoreDNS + ONLY for the local registry name (a dedicated
+            # `.server` block, never a `.override` — two `hosts` plugins in one block
+            # crash CoreDNS, the #3804 trap); the NODE/containerd path is untouched
+            # (step-04's /etc/hosts pin). FAIL-LOUD: if the pin is enabled but the
+            # gateway ClusterIP can't be resolved, EXIT NON-ZERO rather than silently
+            # push over the flaky public path. The existing readiness probe below is
+            # the sync-confirm — it blocks until CoreDNS actually serves the override.
+            install_coredns_registry_pin() {
+              case "${LOCAL_REGISTRY_PIN_ENABLED:-true}" in
+                true|True|TRUE|1|yes) : ;;
+                *) echo "[harbor-prewarm] local-registry CoreDNS pin DISABLED (LOCAL_REGISTRY_PIN_ENABLED=${LOCAL_REGISTRY_PIN_ENABLED:-}) — ${HARBOR_HOST} resolves via cluster DNS (public path)"; return 0 ;;
+              esac
+              [ -n "${HARBOR_HOST}" ] || { echo "[harbor-prewarm] FATAL: HARBOR_PUBLIC_URL yielded an empty registry host — cannot pin (#5007)"; exit 1; }
+              _cip=""
+              if [ -n "${GATEWAY_LB_SVC_NAME:-}" ]; then
+                _pin_attempt=1
+                while [ "${_pin_attempt}" -le 5 ]; do
+                  # ClusterIP is allocated the moment the gateway Service exists (well
+                  # before step-03) in BOTH the LB and the §854 ELB-direct (TYPE=
+                  # ClusterIP) gateway models. `services get` RBAC is already granted.
+                  _c=$(kubectl get svc "${GATEWAY_LB_SVC_NAME}" -n "${GATEWAY_LB_SVC_NAMESPACE}" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+                  case "${_c}" in
+                    ""|None) : ;;
+                    *) _cip="${_c}"; break ;;
+                  esac
+                  echo "[harbor-prewarm] gateway Service ${GATEWAY_LB_SVC_NAMESPACE}/${GATEWAY_LB_SVC_NAME} ClusterIP not resolved yet (attempt ${_pin_attempt}/5); retry in 3s"
+                  _pin_attempt=$((_pin_attempt+1))
+                  sleep 3
+                done
+              fi
+              if [ -z "${_cip}" ]; then
+                echo "[harbor-prewarm] FATAL: could not resolve the cilium-gateway Service ClusterIP (${GATEWAY_LB_SVC_NAMESPACE:-}/${GATEWAY_LB_SVC_NAME:-<unset>}). Refusing to push over the flaky public DNS path (#5007). Fix/name the gateway Service (registryPivot.localRegistryHostPin.gatewayServiceName), then re-trigger."
+                exit 1
+              fi
+              # A SEPARATE `.server` block (NEVER `.override`): a single `hosts` plugin
+              # scoped to the registry zone, mirroring cloud-init's github-ipv4 pin.
+              _cdns_key="cutover-registry-pin.server"
+              _cdns_block=$(printf '%s {\n    hosts {\n        %s %s\n        fallthrough\n    }\n    forward . /etc/resolv.conf\n}\n' "${HARBOR_HOST}" "${_cip}" "${HARBOR_HOST}")
+              # Idempotent: if kube-system/coredns-custom already carries our key with
+              # THIS ClusterIP, nothing to do (avoids a needless CoreDNS reload on a
+              # step re-run).
+              _cdns_cur=$(kubectl get cm coredns-custom -n kube-system -o json 2>/dev/null | jq -r --arg k "${_cdns_key}" '.data[$k] // ""' 2>/dev/null || true)
+              case "${_cdns_cur}" in
+                *"${_cip} ${HARBOR_HOST}"*)
+                  echo "[harbor-prewarm] coredns-custom already pins ${HARBOR_HOST} -> ${_cip} (#5007)"
+                  return 0 ;;
+              esac
+              _cdns_patch=$(jq -cn --arg k "${_cdns_key}" --arg v "${_cdns_block}" '{data: {($k): $v}}')
+              # MERGE-patch (never replace) so a co-resident github-ipv4.server key is
+              # preserved; create the CM if it does not exist yet (Hetzner renders no
+              # coredns-custom at boot); re-patch on a create race.
+              if kubectl patch configmap coredns-custom -n kube-system --type merge -p "${_cdns_patch}" >/dev/null 2>&1; then
+                :
+              elif kubectl create configmap coredns-custom -n kube-system --from-literal="${_cdns_key}=${_cdns_block}" >/dev/null 2>&1; then
+                :
+              elif kubectl patch configmap coredns-custom -n kube-system --type merge -p "${_cdns_patch}" >/dev/null 2>&1; then
+                :
+              else
+                echo "[harbor-prewarm] FATAL: could not install the coredns-custom ${HARBOR_HOST} -> ${_cip} override (kube-system/coredns-custom patch+create both failed). Refusing to push over the flaky public DNS path (#5007)."
+                exit 1
+              fi
+              echo "[harbor-prewarm] installed coredns-custom pin ${HARBOR_HOST} -> ${_cip} (in-cluster; step-03 pushes + bearer-token flow bypass public DNS; #5007). Waiting for CoreDNS reload via the readiness probe below."
+            }
+            install_coredns_registry_pin
+
+            echo "[harbor-prewarm] public-dest readiness probe: https://${HARBOR_HOST}/v2/ (want 401/200; registry.<fqdn> resolves via the in-cluster CoreDNS gateway-ClusterIP pin once CoreDNS reloads, #5007)"
             _pr_ok=0
             for _pr_i in $(seq 1 40); do
               _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null)
@@ -453,7 +571,7 @@ data:
               sleep 15
             done
             if [ "${_pr_ok}" != "1" ]; then
-              echo "[harbor-prewarm] FATAL: public dest https://${HARBOR_HOST}/v2/ never became ready after 40 probes — cannot push. The in-cluster fallback is NOT usable (Harbor token realm is hard-https on the echoed host; #5051). Fix DNS/gateway, then re-trigger."
+              echo "[harbor-prewarm] FATAL: https://${HARBOR_HOST}/v2/ never became ready after 40 probes (10 min) — cannot push. With the #5007 coredns-custom pin, registry.<fqdn> resolves to the in-cluster gateway ClusterIP once CoreDNS reloads; a persistent failure means either CoreDNS did not pick up the override (check kube-system/coredns-custom + the coredns Pod logs) OR the gateway is not serving the registry (Harbor down / HTTPRoute not Programmed / wildcard TLS not issued) — NOT a public-DNS flake. (If the pin is disabled via LOCAL_REGISTRY_PIN_ENABLED=false, also check the Sovereign DNS zone for registry.<fqdn>.)"
               exit 1
             fi
 
@@ -1007,23 +1125,58 @@ data:
             # Enumerate (chart, version, sourceRef.kind, sourceRef.name) from
             # every HelmRelease cluster-wide. Tab-separated; a HR with no
             # explicit chart.spec is skipped (empty fields).
-            # #4870-followup: mirror the DEPLOYED chart version
-            # (.status.history[0].chartVersion), NOT the mutable desired
-            # .spec.chart.spec.version. During a cutover the gitea-mirror step
-            # can pull a deploybot-bumped catalog pin into the env, so
-            # .spec.chart.spec.version can transiently oscillate (e.g. an env
-            # DEPLOYED on 1.4.1038 briefly shows spec 1.4.1039 then settles
-            # back). If prewarm mirrors the transient desired (1.4.1039) but
-            # step-06 later checks the settled deployed (1.4.1038), the pivot
-            # wedges forever ("chart not yet pullable"). The deployed version
-            # is immutable for the running release — mirror THAT so the release
-            # keeps reconciling from local Harbor post-pivot.
+            #
+            # #5007 round 3 (Refs #4870 #4982) — mirror the UNION of the DEPLOYED
+            # and the DESIRED chart versions per HR. Two OPPOSITE drifts wedge
+            # step-06 (helmrepository-patches Phase-3a), which reads the SAME
+            # `.status.history[0].chartVersion // .spec.chart.spec.version`
+            # resolution (06-…-job.yaml L1199-1207) — but at a LATER instant:
+            #   • #4870: mirroring ONLY the desired (`.spec.chart.spec.version`)
+            #     breaks when a deploybot catalog bump transiently oscillates the
+            #     desired ahead of the settled deployed → prewarm mirrors 1.4.1039,
+            #     step-06 checks the settled deployed 1.4.1038 → wedge.
+            #   • #5007 round 3 (hw252): mirroring ONLY the deployed
+            #     (`.status.history[0].chartVersion`) breaks when a PR merges +
+            #     re-publishes a chart DURING the cutover — the live HR briefly
+            #     DEPLOYS the just-published 1.4.1121 (so history[0]=1.4.1121),
+            #     while the flux/bootstrap-kit PIN the Sovereign settles back to
+            #     post-step-05 is 1.4.1120 (`.spec.chart.spec.version`). prewarm
+            #     warmed 1.4.1121, step-06 waited FOREVER for the pinned 1.4.1120.
+            # Mirroring the UNION warms BOTH the pinned/desired AND the deployed
+            # tag, so step-06 finds its version locally regardless of which the HR
+            # settles on between the two steps. The union is a strict SUPERSET (an
+            # extra skopeo copy is idempotent + #4994 skip-if-present makes it
+            # cheap), never narrows the set, and the Phase A2 chart_fail>0 FATAL
+            # below is the FAIL-LOUD guard: a PINNED version whose OCI artifact
+            # cannot be pulled fails the cutover HERE (egress still open, named)
+            # instead of silently wedging step-06 under the deny-egress hold.
             chart_tuples=$(kubectl get helmreleases -A -o json | \
               jq -r '.items[]
                 | .spec.chart.spec as $cs
                 | select($cs.chart != null and $cs.sourceRef != null)
-                | [ $cs.chart, ((.status.history[0].chartVersion) // $cs.version // ""), ($cs.sourceRef.kind // ""), ($cs.sourceRef.name // "") ]
+                | ( [ (.status.history[0].chartVersion), $cs.version ]
+                    | map(select(. != null and . != "")) | unique ) as $vers
+                | ( if ($vers | length) == 0 then [""] else $vers end )[]
+                | . as $v
+                | [ $cs.chart, $v, ($cs.sourceRef.kind // ""), ($cs.sourceRef.name // "") ]
                 | @tsv' 2>/dev/null | sort -u || true)
+
+            # #5007 round 3 — informational DRIFT report: name every pivot-set HR
+            # whose DEPLOYED (history[0]) and DESIRED (spec) chart versions differ.
+            # Both are warmed by the union above, so this NEVER wedges — it makes a
+            # mid-cutover publish visible in the step-03 log instead of surfacing as
+            # an opaque step-06 "chart not yet pullable" hang.
+            chart_drift=$(kubectl get helmreleases -A -o json 2>/dev/null | \
+              jq -r '.items[]
+                | .spec.chart.spec as $cs
+                | select($cs.chart != null and $cs.sourceRef != null)
+                | select((.status.history[0].chartVersion) != null and $cs.version != null
+                         and (.status.history[0].chartVersion) != $cs.version)
+                | "\($cs.chart): deployed=\(.status.history[0].chartVersion) desired=\($cs.version)"' 2>/dev/null | sort -u || true)
+            if [ -n "${chart_drift}" ]; then
+              echo "[harbor-prewarm] Phase A2 DRIFT (#5007): HelmRelease(s) with deployed != desired chart version — warming BOTH so step-06 finds its pinned version regardless:"
+              printf '%s\n' "${chart_drift}" | sed 's/^/  drift: /'
+            fi
 
             # Resolve the UPSTREAM chart-OCI host/project prefix from the same
             # value step-06 pivots FROM (oci://ghcr.io/openova-io → host
@@ -1041,6 +1194,16 @@ data:
                 echo "[harbor-prewarm] Phase A2 WARN: HelmRelease chart ${c_chart} (source ${c_name}) has no pinned version — skipping (cannot mirror a floating tag deterministically)"
                 continue
               fi
+              # #5007 round 3 — the union may surface a DESIRED spec.version that is
+              # a semver RANGE (a `<`, `>`, `~`, `^`, `|`, `*` or space) rather than a
+              # concrete OCI tag; a range can't be skopeo-copied deterministically, so
+              # skip it with a clear WARN instead of FATALing on an invalid tag. The
+              # concrete deployed/desired tag(s) for the same chart still mirror.
+              case "${c_ver}" in
+                *[\<\>~^\|\ ]*|*'*'*)
+                  echo "[harbor-prewarm] Phase A2 WARN: HelmRelease chart ${c_chart} (source ${c_name}) version '${c_ver}' is a semver range, not a concrete tag — skipping (cannot mirror deterministically)"
+                  continue ;;
+              esac
               printf '%s\t%s\n' "${c_chart}" "${c_ver}" >> "${chart_work}"
             done
             sort -u "${chart_work}" -o "${chart_work}"
@@ -1165,7 +1328,7 @@ data:
             done
             echo "[harbor-prewarm] Phase A2 complete: chart_ok=${chart_ok} chart_fail=${chart_fail}"
             if [ "${chart_fail}" -gt 0 ]; then
-              echo "[harbor-prewarm] FATAL: ${chart_fail} openova-io chart(s) failed to mirror — step-06 cannot strip ghcr.io safely (post-cutover chart (re)pulls would 404)"
+              echo "[harbor-prewarm] FATAL: ${chart_fail} openova-io chart(s) failed to mirror (named above) — step-06 cannot strip ghcr.io safely (post-cutover chart (re)pulls would 404). #5007: this INCLUDES any pinned/desired chart version the union added — a pinned tag that cannot be pulled fails LOUD here (egress open, recoverable) instead of silently wedging step-06 under the deny-egress hold."
               exit 1
             fi
 

@@ -861,7 +861,21 @@ spec:
       # as ClusterIP (no VIP ever), so the pin deferred FOREVER on every
       # ELB-direct prov (hw250 all night); ClusterIP now pins HOST_IP like the
       # absent-Service hostNetwork branch. LoadBalancer semantics unchanged.
-      version: 0.1.133
+      # 0.1.134 (#5007 round 3): TWO step-03 harbor-prewarm durability fixes.
+      # (A/DNS) the skopeo push to registry.<fqdn> (dest MUST stay the public host
+      # for Harbor's hard-https bearer realm, #5051) was still resolved via PUBLIC
+      # DNS behind only a readiness probe — broken by a stale `*.<pool>` wildcard
+      # shadow (hw241) or a mid-push NXDOMAIN flap (hw252 push_ok=131/fail=7). The
+      # hardened non-root pod can't write /etc/hosts, so it installs a kube-system
+      # coredns-custom `.server` override (registry.<fqdn> -> gateway ClusterIP,
+      # merge-patched, NOT .override) before the probe so CoreDNS answers in-cluster;
+      # fail-loud if the ClusterIP can't be resolved.
+      # (C/version-drift) Phase A2 warms the UNION of deployed + desired chart
+      # versions so a PR re-publishing a chart mid-cutover can't leave prewarm's
+      # warmed version (deployed 1.4.1121) diverged from the flux pin step-06
+      # checks (1.4.1120) → step-06 wedge; chart_fail>0 stays the fail-loud guard.
+      # Cases 57/58. Facet B (step-04 ELB-direct node pin) was closed in 0.1.129.
+      version: 0.1.134
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
