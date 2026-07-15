@@ -65,10 +65,20 @@ sig=hmac.new(sk.encode(),sts.encode(),hashlib.sha256).hexdigest()
 ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
 req=urllib.request.Request(f"https://{host}{uri}",headers={"X-Sdk-Date":now,"Authorization":f"SDK-HMAC-SHA256 Access={ak}, SignedHeaders={sh}, Signature={sig}","host":host})
 eips=json.load(urllib.request.urlopen(req,timeout=20,context=ctx)).get("publicips",[])
-print(len([e for e in eips if e.get("public_ip_address")!=bastion and not e.get("port_id") and e.get("status")=="DOWN"]))
+orphaned=len([e for e in eips if e.get("public_ip_address")!=bastion and not e.get("port_id") and e.get("status")=="DOWN"])
+# 3f (#5126): ANY non-bastion EIP still allocated in the project means the
+# prior env's EIPs have NOT fully released to the shared kom4dc pool. Firing
+# now risks VPC.0532 'EIP pool sold out' on tofu apply (hw257 Phase-0 death,
+# 2026-07-15): check 3's orphan-only count passed clean while hw256's
+# releasing EIPs starved the pool. Emit both counts so the caller sees the
+# release-lag distinctly from a genuine orphan.
+nonbastion=len([e for e in eips if e.get("public_ip_address")!=bastion])
+print(f"{orphaned} {nonbastion}")
 PY
 )
+  read -r orph nonbastion <<<"${orph:-x x}"
   [ "${orph:-x}" = "0" ] && pass "3. EIP headroom: 0 orphaned EIPs (status=DOWN; ELB-bound excluded)" || bad "3. ${orph} orphaned EIP(s) (status=DOWN, unbound) — delete them first (NEVER touch status=ELB/ACTIVE or bastion ${BASTION_EIP})"
+  [ "${nonbastion:-x}" = "0" ] && pass "3f. EIP pool recovered: project holds ONLY the bastion EIP (no wipe→fire release lag)" || bad "3f. ${nonbastion:-unknown} non-bastion EIP(s) still allocated — prior env's EIPs not fully released to the shared pool; firing risks VPC.0532 'EIP pool sold out' (#5126). Wait ~10-15min for release."
 
   # 3b. GROUND-TRUTH no-foreign-Sovereign gate (#4675 — the omantel.biz-loss root cause).
   #     Check #2 above trusts GET /deployments, which returns a FALSE 0 when the
