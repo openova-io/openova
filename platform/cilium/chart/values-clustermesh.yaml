@@ -91,6 +91,19 @@ cilium:
           # (:2379) makes the share with powerdns :53 / gateway :443/:80
           # collision-free. Inert on Hetzner (LB-IPAM disabled → hcloud-ccm).
           lbipam.cilium.io/sharing-key: sovereign-vip
+          # #4765 residue (live-proven hw255, 2026-07-15): the sharing-key
+          # alone does NOT share a VIP across namespaces — Cilium LB-IPAM
+          # (≥1.16) additionally requires BOTH Services to carry
+          # `lbipam.cilium.io/sharing-cross-namespace` allowing the peer's
+          # namespace. Without it this Service (kube-system) takes the
+          # single sovereign-vip /32 and powerdns-anycast (ns powerdns)
+          # starves: out_of_ips, EXTERNAL-IP <pending>. Explicit peer
+          # namespace, never "*" (annotation-hijack guard). Must stay in
+          # lockstep with the slot-01 overlay
+          # (clusters/_template/bootstrap-kit/01-cilium.yaml) and the
+          # powerdns side (bootstrap-kit 11-powerdns.yaml
+          # anycast.annotations → sharing-cross-namespace: kube-system).
+          lbipam.cilium.io/sharing-cross-namespace: "powerdns"
       tls:
         # Mutual cert auth between Cilium peers — every peer's
         # clustermesh-apiserver verifies the other's cert against the

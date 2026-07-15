@@ -1506,3 +1506,81 @@ func TestCatalogSeed_DeliveryPinsNotBehindComponentCharts(t *testing.T) {
 	}
 	t.Logf("catalog-seed drift guard: compared %d in-repo delivery pins against component chart versions; none behind", checked)
 }
+
+// TestBootstrapKit_LbIpamSharingCrossNamespace guards the #4765 residue
+// fixed in bp-cilium 1.4.16 (live-proven hw255, 2026-07-15): Cilium
+// LB-IPAM (≥1.16) only lets two LoadBalancer Services share one VIP
+// ACROSS namespaces when BOTH carry
+// `lbipam.cilium.io/sharing-cross-namespace` allowing the peer's
+// namespace — the `lbipam.cilium.io/sharing-key` alone is same-namespace
+// only (docs.cilium.io lb-ipam: "The annotation must be present on both
+// services"). The sovereign-vip riders live in kube-system
+// (clustermesh-apiserver :2379) and powerdns (powerdns-anycast :53), so
+// any annotation block that opts into the shared EIP via the sharing-key
+// MUST also carry the cross-namespace grant, or the first-created rider
+// takes the single /32 and every later rider starves forever
+// (IPAMRequestSatisfied=False reason=out_of_ips, EXTERNAL-IP <pending>).
+// The grant must be an explicit namespace list — never "*", which would
+// let ANY tenant/Org LoadBalancer Service co-locate onto the sovereign
+// EIP by annotation hijack.
+func TestBootstrapKit_LbIpamSharingCrossNamespace(t *testing.T) {
+	root := repoRoot(t)
+
+	// Every file that participates in the sovereign-vip sharing contract.
+	// filepath.Glob over clusters/*/bootstrap-kit/*.yaml covers _template
+	// plus every per-Sovereign copy; values-clustermesh.yaml is the
+	// chart-side reference for the clustermesh Service annotations.
+	var files []string
+	for _, pat := range []string{
+		filepath.Join(root, "clusters", "*", "bootstrap-kit", "*.yaml"),
+		filepath.Join(root, "platform", "cilium", "chart", "values-clustermesh.yaml"),
+	} {
+		matches, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatalf("glob %s: %v", pat, err)
+		}
+		files = append(files, matches...)
+	}
+
+	const (
+		keyAnno   = "lbipam.cilium.io/sharing-key:"
+		crossAnno = "lbipam.cilium.io/sharing-cross-namespace:"
+	)
+
+	checked := 0
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		var keys, crosses, wildcards int
+		for i, line := range strings.Split(string(raw), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") {
+				continue // prose about the annotation, not the annotation
+			}
+			switch {
+			case strings.HasPrefix(trimmed, keyAnno):
+				keys++
+			case strings.HasPrefix(trimmed, crossAnno):
+				crosses++
+				val := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, crossAnno)), `"'`)
+				if val == "*" {
+					wildcards++
+					t.Errorf("%s:%d: lbipam.cilium.io/sharing-cross-namespace is %q — the wildcard grant lets ANY namespace's LB Service co-locate onto the sovereign EIP (annotation hijack); list the peer namespace explicitly", f, i+1, "*")
+				}
+			}
+		}
+		if keys > 0 {
+			checked++
+			if crosses < keys {
+				t.Errorf("%s: %d `%s sovereign-vip` annotation(s) but only %d `%s` grant(s) — without the cross-namespace grant on BOTH riders Cilium refuses the share and the later Service starves (out_of_ips, EXTERNAL-IP <pending>; #4765 residue, hw255 2026-07-15). Add `%s \"<peer-namespace>\"` next to each sharing-key.",
+					f, keys, keyAnno, crosses, crossAnno, crossAnno)
+			}
+		}
+	}
+	if checked < 4 {
+		t.Fatalf("only %d files carry the sovereign-vip sharing-key — expected ≥4 (template 01-cilium + template 11-powerdns + per-Sovereign copies + values-clustermesh.yaml); the guard's file enumeration is broken", checked)
+	}
+	t.Logf("sovereign-vip sharing contract: %d files checked, every sharing-key has its cross-namespace grant, zero wildcard grants", checked)
+}

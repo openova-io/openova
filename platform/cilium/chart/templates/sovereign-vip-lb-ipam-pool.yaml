@@ -38,6 +38,18 @@ CANONICAL FIX — one pool, one CIDR, no conflict:
   IP and leave the rest Pending — pool exhausted; the sharing-key is what
   lets them coexist on the one address.)
 
+  🛑 CROSS-NAMESPACE REQUIREMENT (#4765 residue, live-proven hw255
+  2026-07-15): the sharing-key alone only shares WITHIN one namespace.
+  Cilium LB-IPAM (≥1.16) refuses a cross-namespace share unless BOTH
+  Services also carry `lbipam.cilium.io/sharing-cross-namespace` listing
+  the peer's namespace (docs.cilium.io lb-ipam). The riders live in
+  different namespaces (clustermesh-apiserver → kube-system,
+  powerdns-anycast → powerdns), so each must allow the other explicitly
+  — never "*", or any tenant/Org LB Service could hijack a port on the
+  sovereign EIP. Symptom when missing: the first-created Service takes
+  the /32 and every later rider reports IPAMRequestSatisfied=False
+  reason=out_of_ips with EXTERNAL-IP <pending> forever.
+
 OPERATOR GATE:
   Enabled per-provider via the HelmRelease overlay substitute
   CILIUM_LB_IPAM_ENABLED (true on no-CCM Huawei, unset on Hetzner where

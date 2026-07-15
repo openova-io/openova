@@ -116,6 +116,14 @@ spec:
       serviceType: LoadBalancer
       annotations:
         lbipam.cilium.io/sharing-key: sovereign-vip
+        # #4765 residue (live-proven hw255, 2026-07-15): Cilium LB-IPAM
+        # only shares a VIP across namespaces when BOTH Services carry
+        # `lbipam.cilium.io/sharing-cross-namespace` allowing the peer's
+        # namespace (Cilium >=1.16). Without it the clustermesh-apiserver
+        # (kube-system) takes the single /32 and this Service starves
+        # (out_of_ips, EXTERNAL-IP <pending>). Explicit namespace, never
+        # "*". Mirrors clusters/_template/bootstrap-kit/11-powerdns.yaml.
+        lbipam.cilium.io/sharing-cross-namespace: "kube-system"
       ports:
         - name: dns-udp
           port: 53

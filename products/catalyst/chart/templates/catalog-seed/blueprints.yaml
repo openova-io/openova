@@ -3807,7 +3807,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cilium
-    version: "1.4.15"
+    version: "1.4.16"
   topology:
     supported:
       - singleton

@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.16 (#4765 residue, 2026-07-15): cross-namespace VIP sharing on the
+# sovereign-vip pool actually works now. 1.4.9 put `lbipam.cilium.io/
+# sharing-key: sovereign-vip` on both riders (clustermesh-apiserver :2379,
+# powerdns-anycast :53) but Cilium LB-IPAM (≥1.16) only shares a VIP
+# ACROSS namespaces when BOTH Services also carry `lbipam.cilium.io/
+# sharing-cross-namespace` allowing the peer's namespace — the riders live
+# in kube-system vs powerdns, so the share was silently refused: the
+# clustermesh-apiserver took the single /32 and powerdns-anycast starved
+# forever (IPAMRequestSatisfied=False reason=out_of_ips, EXTERNAL-IP
+# <pending> — live-proven hw255 dep 5762118f63abef96, 2026-07-15; upstream
+# semantics: docs.cilium.io lb-ipam "The annotation must be present on
+# both services"). Fix: values-clustermesh.yaml adds
+# sharing-cross-namespace: "powerdns" on the clustermesh-apiserver Service
+# annotations; the powerdns side (bootstrap-kit 11-powerdns.yaml overlays,
+# all 3 copies) adds sharing-cross-namespace: "kube-system". Explicit peer
+# namespaces, never "*", so tenant/Org LB Services can never co-locate
+# onto the sovereign EIP by annotation hijack. Zero NodePorts throughout
+# (§854; allocateLoadBalancerNodePorts stays false). Inert on Hetzner
+# (LB-IPAM disabled → hcloud-ccm). Lockstep: blueprint.yaml 1.4.16 +
+# 01-cilium.yaml slot pin 1.4.16 + catalog-seed 1.4.16. Refs #4765.
 # 1.4.13 (#4656 #4854, 2026-07-09): vpc-podcidr-route-reconciler — per-node
 # pod-CIDR VPC routes on no-CCM Huawei. #4807's whole-/16 pod-CIDR peering
 # routes only carry native-routed pod traffic INTO the peer VPC; each VPC's
@@ -279,7 +299,7 @@ name: bp-cilium
 #   Layers ON TOP of the 1.4.9/1.4.10 zero-nodeport + authMode=legacy work.
 #   Needs a fresh 2-region prov to verify the cross-region ClusterMesh pod
 #   path end-to-end (datapath change, not CI-provable). Refs #4656.
-version: 1.4.15
+version: 1.4.16
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
