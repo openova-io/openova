@@ -21,15 +21,33 @@ data:
   dnsdist.conf: |
     {{- tpl .Values.dnsdist.config . | nindent 4 }}
 ---
+{{- /*
+Workload kind is Hetzner-gated (#5086, Refs #4765). DEFAULT
+(Huawei / kom4dc / contabo): a Deployment fronted by the Cilium LB-IPAM
+anycast VIP (anycast-endpoint.yaml) — this path is UNCHANGED. On Hetzner the
+LB-IPAM `sovereign-vip` pool is gated OFF and hcloud-ccm cannot materialise the
+anycast Service (no location annotation, no nodePort), so node:53 never binds
+via the VIP path and the tofu `dns` LB :53 -> node:53 forward is inert.
+`dnsdist.hostPortMode: true` (set ONLY by the Hetzner cloud-init substitute)
+flips dnsdist to a DaemonSet whose container claims hostPort:53 on EVERY node
+(the Hetzner DNS LB targets all nodes — CP + workers), giving that forward a
+real listener. §854-clean: hostPort ONLY, NEVER a NodePort (#4765). Deliberately
+NO hostNetwork — dnsdist binds :53 inside the pod netns (Cilium
+kube-proxy-replacement DNATs node:53 -> pod), so it never collides with the
+Ubuntu-24.04 systemd-resolved stub already holding 127.0.0.53:53 on the host.
+*/}}
+{{- $hostPort := .Values.dnsdist.hostPortMode | default false }}
 apiVersion: apps/v1
-kind: Deployment
+kind: {{ if $hostPort }}DaemonSet{{ else }}Deployment{{ end }}
 metadata:
   name: dnsdist
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-powerdns.dnsdistLabels" . | nindent 4 }}
 spec:
+  {{- if not $hostPort }}
   replicas: {{ .Values.dnsdist.replicaCount | default 1 }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: dnsdist
@@ -40,10 +58,17 @@ spec:
         {{- include "bp-powerdns.dnsdistLabels" . | nindent 8 }}
       annotations:
         # Hash the rendered dnsdist.conf (post-tpl) so a values change rolls
-        # the Deployment automatically. Avoid `include "<this file>"` —
+        # the workload automatically. Avoid `include "<this file>"` —
         # that's a recursive template self-reference and Helm rejects it.
         checksum/config: {{ tpl .Values.dnsdist.config . | sha256sum }}
     spec:
+      {{- if $hostPort }}
+      # DNS front door on EVERY node the Hetzner LB targets (CP + workers).
+      # Tolerate all taints so the CP node (an LB :53 target) is covered too —
+      # mirrors bp-cilium's every-node clustermesh-proxy host-socket DaemonSet.
+      tolerations:
+        - operator: Exists
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 953
@@ -61,9 +86,15 @@ spec:
           ports:
             - name: dns-udp
               containerPort: 53
+              {{- if $hostPort }}
+              hostPort: 53          # §854 node:53 direct bind — NEVER a NodePort (#4765)
+              {{- end }}
               protocol: UDP
             - name: dns-tcp
               containerPort: 53
+              {{- if $hostPort }}
+              hostPort: 53          # §854 node:53 direct bind — NEVER a NodePort (#4765)
+              {{- end }}
               protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false

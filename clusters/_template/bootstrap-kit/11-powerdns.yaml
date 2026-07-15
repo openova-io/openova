@@ -150,7 +150,12 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve powerdns (no more "no Application CR").
-      version: 1.2.20
+      # 1.2.21 (#5086, Refs #4765): dnsdist.hostPortMode — on Hetzner (only)
+      # dnsdist becomes a DaemonSet binding hostPort:53 on every node so the
+      # tofu dns LB :53->node:53 forward reaches a real listener (the LB-IPAM
+      # anycast VIP path is dead on Hetzner). §854-clean: hostPort, NEVER a
+      # NodePort. Driven below by ${POWERDNS_DNSDIST_HOSTPORT} (Hetzner-only).
+      version: 1.2.21
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
@@ -215,6 +220,16 @@ spec:
       uiRedirectHost: pdns-admin.${SOVEREIGN_FQDN}
       gateway:
         enabled: true
+    # ── Hetzner DNS front door (#5086, Refs #4765) ─────────────────────────
+    # On Hetzner the Cilium LB-IPAM sovereign-vip pool is gated OFF and
+    # hcloud-ccm cannot materialise the anycast Service, so node:53 never binds
+    # via the VIP path (below) and the tofu `dns` LB :53->node:53 forward is
+    # inert. hostPortMode flips dnsdist to a hostPort:53 DaemonSet that binds
+    # node:53 directly (§854-clean — hostPort, NEVER a NodePort). The Hetzner
+    # cloud-init sets POWERDNS_DNSDIST_HOSTPORT=true; on Huawei/kom4dc the var
+    # is UNSET → default false → the LB-IPAM anycast path stays UNTOUCHED.
+    dnsdist:
+      hostPortMode: ${POWERDNS_DNSDIST_HOSTPORT:=false}
     # DNS-01 wildcard cert: expose PowerDNS :53 as a Cilium LB-IPAM
     # LoadBalancer VIP sharing the Sovereign EIP (§854 DIRECT,
     # lbipam.cilium.io/sharing-key). This is the NS-delegated endpoint
