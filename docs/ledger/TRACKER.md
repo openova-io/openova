@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-15T14:00:05Z` |
+| Last refreshed | `2026-07-15T14:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 19 |
 | Open DoD gates | 0 / 41 |
@@ -216,7 +216,7 @@ flowchart LR
 | [#5088](https://github.com/openova-io/openova/issues/5088) | §854: 4 live NodePort Services on the mothership cluster (founder #1 ban) — s | Other |
 | [#5095](https://github.com/openova-io/openova/issues/5095) | cutover step-03: prewarm hard-depends on mothership harbor proxy (harbor.openova | Other |
 | [#5099](https://github.com/openova-io/openova/issues/5099) | shared-pg trio: HelmReleases Ready ('upgrade succeeded shared-pg.v2') but ZERO r | Other |
-| [#5100](https://github.com/openova-io/openova/issues/5100) | console deployed bundle regressions found by hw255 fleet walk: Reconcile/Suspend | Other |
+| [#5100](https://github.com/openova-io/openova/issues/5100) | console bundle: tenant-string residue in user-visible strings (row 214) — Reco | Other |
 | [#5104](https://github.com/openova-io/openova/issues/5104) | P0: funnel purchased app never deploys — cart-install kustomization merge drop | Other |
 | [#5113](https://github.com/openova-io/openova/issues/5113) | catalog card-form Save commit-leg writes invalid/destructive Blueprint YAML —  | Other |
 
