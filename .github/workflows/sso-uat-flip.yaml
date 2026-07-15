@@ -27,9 +27,27 @@ on:
       - "platform/oidc-gate/**"
       - "platform/openova-flow-server/**"
       - "products/catalyst/bootstrap/api/**"
-      - "products/catalyst/chart/**"
       - "core/console/**"
-      - "clusters/_template/bootstrap-kit/**"
+      # SSO-component bootstrap-kit slots ONLY — never the whole kit. The former
+      # broad patterns (products/catalyst/chart/** + bootstrap-kit/**) are
+      # 4-surface-lockstep shared surfaces: EVERY blueprint version bump touches
+      # them, so every merge re-flipped freshly-walked SSO rows (#5106 — a
+      # cutover-chart merge wiped 14 wave-2 stamps). Any REAL SSO chart change
+      # always also touches its platform/<component>/** (Chart.yaml/blueprint.yaml
+      # live there per the lockstep), which the patterns above already catch.
+      - "clusters/_template/bootstrap-kit/01-cilium.yaml"
+      - "clusters/_template/bootstrap-kit/08-openbao.yaml"
+      - "clusters/_template/bootstrap-kit/09-keycloak.yaml"
+      - "clusters/_template/bootstrap-kit/10-gitea.yaml"
+      - "clusters/_template/bootstrap-kit/11-powerdns.yaml"
+      - "clusters/_template/bootstrap-kit/11a-bp-powerdns-admin.yaml"
+      - "clusters/_template/bootstrap-kit/13b-bp-sso-bridge.yaml"
+      - "clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml"
+      - "clusters/_template/bootstrap-kit/19-harbor.yaml"
+      - "clusters/_template/bootstrap-kit/25-grafana.yaml"
+      - "clusters/_template/bootstrap-kit/52-bp-guacamole.yaml"
+      - "clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml"
+      - "clusters/_template/bootstrap-kit/80-newapi.yaml"
 
 permissions:
   contents: write
