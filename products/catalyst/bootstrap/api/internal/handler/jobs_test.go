@@ -72,26 +72,30 @@ func TestHandler_ListJobs_Empty(t *testing.T) {
 	}
 }
 
-// TestHandler_ListJobs_Populated asserts the FINITE-work view (#3996
-// follow-up): the continuous-reconciler install leaves (KindInstall) are
-// dropped from /jobs and surface only on the Cloud Reconciliation lens,
-// while genuinely finite work (provision steps, batch Jobs, CronJob runs,
-// Day-2 mutations) still renders. A finite-work group with surviving
-// children keeps its rolled-up status + ChildIDs; the bootstrap-kit group,
-// left with only install leaves, is pruned entirely.
+// TestHandler_ListJobs_Populated asserts the /jobs view selector (#3996
+// follow-up + #5019 install lens): the open-ended reconciler leaves
+// (KindReconcile / KindReconciler) are dropped from /jobs and surface only
+// on the Cloud Reconciliation lens, while the bootstrap-kit HelmRelease
+// install leaves (KindInstall, issue #5019) AND genuinely finite work
+// (provision steps, batch Jobs, CronJob runs, Day-2 mutations) render.
+// Groups with surviving children keep their rolled-up status + ChildIDs;
+// the reconcilers group, left with only reconcile/reconciler leaves, is
+// pruned entirely.
 func TestHandler_ListJobs_Populated(t *testing.T) {
 	r, st, _ := newJobsAPIRouter(t)
 	depID := "dep-populated"
 
 	t0 := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
-	// bootstrap-kit group holds ONLY install leaves (continuous Flux
-	// HelmReleases) — it must be pruned from /jobs after filtering.
+	// bootstrap-kit group holds install leaves — kept on /jobs (#5019).
 	bkParent := jobs.JobID(depID, jobs.GroupBootstrapKit)
-	// reconcilers group holds finite work (provisioner steps, a batch
+	// provisioner group holds finite work (provisioner steps, a batch
 	// task) that MUST still render on /jobs.
 	finiteParent := jobs.JobID(depID, jobs.GroupProvisioner)
+	// reconcilers group holds ONLY open-ended reconcile/reconciler leaves
+	// — it must be pruned from /jobs after filtering.
+	reconParent := jobs.JobID(depID, jobs.GroupReconcilers)
 	jobsToSeed := []jobs.Job{
-		// bootstrap-kit group + its continuous install leaves → all dropped.
+		// bootstrap-kit group + its install leaves → all kept (#5019).
 		{DeploymentID: depID, JobName: jobs.GroupBootstrapKit, DisplayName: jobs.GroupBootstrapKitDisplay, Type: jobs.JobTypeGroup, Status: jobs.StatusPending},
 		{DeploymentID: depID, JobName: "install-cilium", AppID: "cilium", Kind: jobs.KindInstall, Type: jobs.JobTypeInstall, ParentID: bkParent, Status: jobs.StatusSucceeded, StartedAt: &t0, FinishedAt: ptrTime(t0.Add(20 * time.Second))},
 		{DeploymentID: depID, JobName: "install-flux", AppID: "flux", Kind: jobs.KindInstall, Type: jobs.JobTypeInstall, ParentID: bkParent, Status: jobs.StatusRunning, StartedAt: ptrTime(t0.Add(time.Minute))},
@@ -100,6 +104,10 @@ func TestHandler_ListJobs_Populated(t *testing.T) {
 		{DeploymentID: depID, JobName: jobs.GroupProvisioner, Type: jobs.JobTypeGroup, Status: jobs.StatusPending},
 		{DeploymentID: depID, JobName: "provisioner-step-tofu-init", Kind: jobs.KindStep, Type: jobs.JobTypeInstall, ParentID: finiteParent, Status: jobs.StatusSucceeded, StartedAt: &t0, FinishedAt: ptrTime(t0.Add(10 * time.Second))},
 		{DeploymentID: depID, JobName: "task-snapshot-once", Kind: jobs.KindTask, Type: jobs.JobTypeInstall, ParentID: finiteParent, Status: jobs.StatusRunning, StartedAt: ptrTime(t0.Add(time.Minute))},
+		// Reconcilers group + its open-ended leaves → all dropped.
+		{DeploymentID: depID, JobName: jobs.GroupReconcilers, DisplayName: jobs.GroupReconcilersDisplay, Type: jobs.JobTypeGroup, Status: jobs.StatusPending},
+		{DeploymentID: depID, JobName: "reconcile-apps", Kind: jobs.KindReconcile, Type: jobs.JobTypeInstall, ParentID: reconParent, Status: jobs.StatusRunning},
+		{DeploymentID: depID, JobName: "reconciler-sso-bridge", Kind: jobs.KindReconciler, Type: jobs.JobTypeInstall, ParentID: reconParent, Status: jobs.StatusHealthy},
 	}
 	for _, j := range jobsToSeed {
 		if err := st.UpsertJob(j); err != nil {
@@ -117,32 +125,50 @@ func TestHandler_ListJobs_Populated(t *testing.T) {
 	}
 	decodeJSON(t, rec.Body, &resp)
 
-	// Expect the finite group + its 2 finite leaves; bootstrap-kit + the 2
-	// install leaves are gone.
-	if len(resp.Jobs) != 3 {
-		t.Fatalf("expected 3 jobs (finite group + 2 finite leaves), got %d: %+v", len(resp.Jobs), resp.Jobs)
+	// Expect bootstrap-kit group + 2 install leaves + finite group + its 2
+	// finite leaves = 6; the reconcilers group + its 2 open-ended leaves
+	// are gone.
+	if len(resp.Jobs) != 6 {
+		t.Fatalf("expected 6 jobs (bk group + 2 installs + finite group + 2 finite leaves), got %d: %+v", len(resp.Jobs), resp.Jobs)
 	}
-	for _, j := range resp.Jobs {
+	byName := map[string]*jobs.Job{}
+	for i := range resp.Jobs {
+		j := &resp.Jobs[i]
 		if jobs.IsContinuousReconciler(j.Kind) {
 			t.Errorf("continuous reconciler leaked into /jobs: %q (kind=%q)", j.JobName, j.Kind)
 		}
-		if j.JobName == jobs.GroupBootstrapKit {
-			t.Errorf("empty bootstrap-kit group should have been pruned, still present")
+		if j.JobName == jobs.GroupReconcilers {
+			t.Errorf("empty reconcilers group should have been pruned, still present")
 		}
+		byName[j.JobName] = j
+	}
+	// #5019 — the install rows render on /jobs with the typed install Kind
+	// so the JobsTable Kind filter offers the install lens.
+	for _, want := range []string{"install-cilium", "install-flux"} {
+		ij := byName[want]
+		if ij == nil {
+			t.Fatalf("install row %q missing from /jobs (#5019): %+v", want, resp.Jobs)
+		}
+		if ij.Kind != jobs.KindInstall {
+			t.Errorf("install row %q Kind: want %q, got %q", want, jobs.KindInstall, ij.Kind)
+		}
+	}
+	// The bootstrap-kit group survives with both install children and a
+	// running rollup (succeeded + running → running).
+	bk := byName[jobs.GroupBootstrapKit]
+	if bk == nil {
+		t.Fatalf("bootstrap-kit group missing in response (#5019): %+v", resp.Jobs)
+	}
+	if len(bk.ChildIDs) != 2 {
+		t.Errorf("bootstrap-kit ChildIDs: want 2, got %d (%v)", len(bk.ChildIDs), bk.ChildIDs)
+	}
+	if bk.Status != jobs.StatusRunning {
+		t.Errorf("bootstrap-kit rolled-up Status: want running, got %q", bk.Status)
 	}
 	// The finite group survives with both finite children + a running rollup.
-	var group *jobs.Job
-	for i := range resp.Jobs {
-		if resp.Jobs[i].Type == jobs.JobTypeGroup {
-			group = &resp.Jobs[i]
-			break
-		}
-	}
+	group := byName[jobs.GroupProvisioner]
 	if group == nil {
 		t.Fatalf("finite group job missing in response: %+v", resp.Jobs)
-	}
-	if group.JobName != jobs.GroupProvisioner {
-		t.Errorf("surviving group: want %q, got %q", jobs.GroupProvisioner, group.JobName)
 	}
 	// Children: succeeded step + running task → rolled-up running.
 	if group.Status != jobs.StatusRunning {

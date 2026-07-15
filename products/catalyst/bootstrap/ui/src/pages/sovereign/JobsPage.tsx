@@ -5,18 +5,21 @@
  *   • Header: <h1>Jobs</h1> + tagline + back-to-apps link.
  *   • <JobsTable /> — table view with search/sort/filter + per-row Retry.
  *
- * # FINITE work only (#3996 follow-up)
+ * # Which rows render here (#3996 follow-up, install lens per #5019)
  *
- * /jobs is the list of FINITE work — things that start, run, and END:
- * provision steps, cutover steps, batch Jobs, CronJob runs, and one-shot
- * Day-2 mutations. The CONTINUOUS reconcilers — Flux HelmRelease installs,
- * Flux Kustomization reconciles, and long-running reconciler Deployments —
- * are NOT finite work; they run forever by design. They are now EXCLUDED
- * from `/jobs` by the catalyst-api `ListJobs` handler
- * (`jobs.FilterFiniteJobs`) and surface ONLY on the Cloud surface's
- * Reconciliation lens + the ArgoCD-like reconciler-management surface
- * (#3996), which reads them LIVE from the cluster. So this page no longer
- * drowns its finite rows in an ever-growing wall of "running" reconcilers.
+ * /jobs lists work with a completion semantics — things that start, run,
+ * and reach a result: provision steps, cutover steps, batch Jobs, CronJob
+ * runs, one-shot Day-2 mutations, AND the bootstrap-kit HelmRelease
+ * install rows (issue #5019 — the ~65 `install-*` leaves are a BOUNDED
+ * catalog set with a real Ready result, so "install-openbao green" is
+ * walkable here; the Kind filter offers the `install` lens). The truly
+ * OPEN-ENDED reconcilers — Flux Kustomization reconciles and long-running
+ * reconciler Deployments — run forever by design and stay EXCLUDED from
+ * `/jobs` by the catalyst-api `ListJobs` handler (`jobs.FilterFiniteJobs`);
+ * they surface ONLY on the Cloud surface's Reconciliation lens + the
+ * ArgoCD-like reconciler-management surface (#3996), which reads them LIVE
+ * from the cluster. So this page still never drowns in an ever-growing
+ * wall of "running" reconcilers.
  *
  * # One honest list — no client-side mashup (issue #3646)
  *
