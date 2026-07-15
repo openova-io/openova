@@ -4771,7 +4771,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: "1.2.20"
+    version: "1.2.21"
   topology:
     supported:
       - singleton
