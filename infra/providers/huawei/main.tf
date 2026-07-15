@@ -1260,7 +1260,7 @@ locals {
                 --max-time 15 \
                 "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig" || echo "000")
               echo "primary kubeconfig PUT-back attempt $${attempt} -> HTTP $${HTTP_CODE}"
-              if [ "$${HTTP_CODE}" = "204" ] || [ "$${HTTP_CODE}" = "200" ]; then break; fi
+              case "$${HTTP_CODE}" in 2*) break;; esac
               sleep 30
             done
           fi
@@ -1289,7 +1289,11 @@ locals {
                 --max-time 15 \
                 "${var.catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig" || echo "000")
               echo "secondary kubeconfig PUT-back attempt $${attempt} -> HTTP $${HTTP_CODE}"
-              if [ "$${HTTP_CODE}" = "204" ] || [ "$${HTTP_CODE}" = "200" ]; then break; fi
+              # #5012 hw255: the secondary endpoint answers 201 Created — the old
+              # 204|200-only check never broke, so every healthy secondary burned
+              # 12 attempts x sleep 30 (~6 min) HERE, pushing flux-install past the
+              # mothership's flux-CRD probe budget. Accept ANY 2xx.
+              case "$${HTTP_CODE}" in 2*) break;; esac
               sleep 30
             done
             rm -f /tmp/secondary-kubeconfig-body.json
