@@ -70,8 +70,21 @@ fire() {
   fi
   echo "== reset-UAT-on-fire (founder rule 2026-06-08) =="; reset_uat "$sub"
   pub=$(cat /home/openova/.ssh/*.pub 2>/dev/null | grep -E "^ssh-" | head -1)
-  # SHARED_PG=true opts the prov into the ADR-0010 reusable shared-Postgres
-  # model (#3188 -> SOVEREIGN_ENABLE_SHARED_PG, fire-body wired in #3275). Off by default.
+  # SHARED_PG drives the ADR-0010 reusable shared-Postgres model (#3188 ->
+  # SOVEREIGN_ENABLE_SHARED_PG, fire-body wired in #3275). Default TRUE (#5099):
+  # the platform canon is default-true everywhere else — provisioner Request
+  # (deployments.go CreateDeployment pre-decode default, Refs #3370) and tofu
+  # var enable_shared_pg (variables.tf default "true") — because the shared
+  # trio (slots 16a/16c/16d) is founder North-Star-2 AND the only path that
+  # self-registers the 3 shared-pg Application CRs on a fresh prov. This script
+  # used to default SHARED_PG=false and stamp an EXPLICIT
+  # `"enableSharedPostgres": false` into the POST body, which (by the
+  # pointer-bool-emulation contract) OVERRIDES the server's default-true — on
+  # hw255 that cascaded to SOVEREIGN_ENABLE_SHARED_PG="false" -> the slot-16a/
+  # 16c/16d master gate off -> 3 HRs Ready over ZERO rendered resources (no
+  # shared-pg Cluster, no Application CRs, ns shared-data empty; 5 Application
+  # CRs where prior envs had 8). Set SHARED_PG=false explicitly for the
+  # dedicated-per-consumer-cluster path.
   #
   # Node sizing is overridable per-fire (#3952 capacity verdict, 2026-06-20): the
   # default m7n.xlarge.8 x3 worker tier runs ~99% CPU once the full #3642 vc-mgmt
@@ -83,10 +96,10 @@ fire() {
   # RCA 2026-05-27 — s7n.large.4 exhausted -> Ecs.0219 No-valid-host, 11 wasted debug
   # waves). Only m7n.large.8 (CP) and m7n.xlarge.8 (worker) are verified-ACTIVE; verify
   # any other flavor via direct HCS API (sub_jobs[0].error_code) BEFORE firing.
-  body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-false}" \
+  body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-true}" \
     CP_SIZE="${CP_SIZE:-m7n.large.8}" WORKER_SIZE="${WORKER_SIZE:-m7n.xlarge.8}" WORKER_COUNT="${WORKER_COUNT:-3}" \
     python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];c=os.environ["CP_SIZE"];w=os.environ["WORKER_SIZE"];wc=int(os.environ["WORKER_COUNT"]);print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":c,"workerSize":w,"workerCount":wc},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":c,"workerSize":w,"workerCount":wc}]}))')
-  echo "== firing ${sub}.${pool} (CP=${CP_SIZE:-m7n.large.8} worker=${WORKER_SIZE:-m7n.xlarge.8}x${WORKER_COUNT:-3}/region) =="
+  echo "== firing ${sub}.${pool} (CP=${CP_SIZE:-m7n.large.8} worker=${WORKER_SIZE:-m7n.xlarge.8}x${WORKER_COUNT:-3}/region sharedPG=${SHARED_PG:-true}) =="
   curl -sk -X POST -H "Authorization: Bearer $(_tok)" -H "Content-Type: application/json" -d "$body" "${API}"; echo
 }
 
