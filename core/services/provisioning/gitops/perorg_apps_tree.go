@@ -28,26 +28,39 @@ const PerOrgAppsDir = "vcluster/apps"
 // uses — never an in-vcluster route that has to sync out.
 const PerOrgHostAppsDir = "vcluster/host-apps"
 
-// perOrgAppsBaselineDocs are the boundary files the org-controller authored
-// into `vcluster/apps/` on Org create (#4292 boundary set). The funnel MUST
-// preserve them in the apps kustomization (they enforce intra-Org isolation),
-// so MergePerOrgAppsKustomization keeps them in the resources list even though
-// the funnel does not own/regenerate them.
+// PerOrgAppsBaselineDocs returns the boundary files the org-controller authors
+// into `vcluster/apps/` on Org create for the given plan (#4292 boundary set +
+// #4991/#4992 vcluster target-ns). The funnel MUST preserve them in the apps
+// kustomization (they enforce intra-Org isolation + create the Flux
+// targetNamespace), so MergePerOrgAppsKustomization keeps them in the
+// resources list even though the funnel does not own/regenerate them.
 //
-// #4567: ONLY `networkpolicy.yaml` lives in `vcluster/apps/`. The Cilium
-// `ciliumnetworkpolicy.yaml` lives in `vcluster/host-apps/` (NOT `apps/`) — the
-// #4292 split deliberately keeps the CNP out of the apps tree because a
-// `cilium.io/v2` doc in the kubeConfig-targeted `vcluster/apps` Kustomization
-// wedges the vcluster-tier reconcile (no Cilium CRD inside the vcluster). The
-// org-controller's own `vcluster/host-apps` Kustomization delivers the CNP.
-// Listing it here made the funnel emit a `vcluster/apps/kustomization.yaml`
-// that references a non-existent `vcluster/apps/ciliumnetworkpolicy.yaml` →
-// `kustomize build failed: …: no such file or directory` → the ENTIRE apps
-// Kustomization failed → the purchased app + its db dependency never deployed
-// (host-tier S/free funnel Orgs). The CNP must NOT be re-listed in the apps
-// tree by the funnel.
-var perOrgAppsBaselineDocs = []string{
-	"networkpolicy.yaml",
+// The list is PLAN-AWARE (#5104): `namespace.yaml` (the #4992 vcluster-internal
+// target Namespace) exists ONLY for the vcluster tier — the kubeConfig-targeted
+// apps Kustomization applies INTO the Org vcluster with targetNamespace=<slug>
+// and Flux does NOT auto-create it. When the funnel's merge did not know about
+// it, the merged index dropped it (the file was committed but never applied) and
+// Flux wedged permanently on `namespaces "<slug>" not found` — the purchased app
+// never deployed (hw255, 2/2 customer Orgs). It must NOT be listed for the host
+// tier, where the file does not exist (#4567-class kustomize build failure).
+//
+// #4567: the Cilium `ciliumnetworkpolicy.yaml` lives in `vcluster/host-apps/`
+// (NOT `apps/`) — the #4292 split deliberately keeps the CNP out of the apps
+// tree because a `cilium.io/v2` doc in the kubeConfig-targeted `vcluster/apps`
+// Kustomization wedges the vcluster-tier reconcile (no Cilium CRD inside the
+// vcluster). The org-controller's own `vcluster/host-apps` Kustomization
+// delivers the CNP. Listing it here made the funnel emit a
+// `vcluster/apps/kustomization.yaml` that references a non-existent
+// `vcluster/apps/ciliumnetworkpolicy.yaml` → `kustomize build failed: …: no
+// such file or directory` → the ENTIRE apps Kustomization failed → the
+// purchased app + its db dependency never deployed (host-tier S/free funnel
+// Orgs). The CNP must NOT be re-listed in the apps tree by the funnel.
+func PerOrgAppsBaselineDocs(planSlug string) []string {
+	docs := []string{"networkpolicy.yaml"}
+	if BoundaryIsVcluster(planSlug) {
+		docs = append(docs, "namespace.yaml")
+	}
+	return docs
 }
 
 // perOrgHostAppsBaselineDocs are the boundary files the org-controller authored
@@ -175,21 +188,68 @@ func (g *ManifestGenerator) GeneratePerOrgHostAppRoutes(slug, planSlug string, a
 	return out, docs
 }
 
+// baselineDocsFromTree derives the org-controller-owned baseline docs from the
+// files ACTUALLY committed in the merge target dir of the per-Org repo (#5104).
+// This is the structural companion to the static baseline lists: when the
+// org-controller grows a NEW boundary doc, the funnel's merge preserves it in
+// the index automatically instead of silently orphaning the file (the exact
+// #4992-drop regression class this function closes).
+//
+// Only baseline-shaped docs qualify:
+//   - plain `.yaml`/`.yml` basenames (no nested paths — the index lists
+//     siblings only), never the index itself;
+//   - NEVER funnel-owned docs (`app-*` / `db-*`): those are committed AND
+//     pruned by the very cart-install commit this merge is part of, so deriving
+//     them from the (pre-commit) tree would re-index a file the same commit
+//     deletes — a dangling reference that breaks the whole kustomize build;
+//   - never a doc from the tree's excluded set (#4567 — a stale
+//     ciliumnetworkpolicy.yaml blob in apps/ must not be re-indexed).
+func baselineDocsFromTree(treeDocs []string, excluded map[string]struct{}) []string {
+	out := make([]string, 0, len(treeDocs))
+	for _, name := range treeDocs {
+		name = strings.TrimSpace(name)
+		if name == "" || strings.Contains(name, "/") {
+			continue
+		}
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			continue
+		}
+		if name == "kustomization.yaml" {
+			continue
+		}
+		if strings.HasPrefix(name, "app-") || strings.HasPrefix(name, "db-") {
+			continue
+		}
+		if _, bad := excluded[name]; bad {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
 // MergePerOrgHostAppsKustomization rebuilds `vcluster/host-apps/kustomization.yaml`
 // so it enumerates the org-controller host-apps baseline
-// (ciliumnetworkpolicy.yaml + provisioning-rbac.yaml) AND the funnel's
-// host-native app-route docs (#4993). Symmetric with MergePerOrgAppsKustomization:
-// any resource already listed in `existing` is preserved (a second cart install
-// is additive), the baseline is force-included, and the new hostAppDocs are
-// unioned in. The result is deterministic (sorted) so a re-render is byte-stable
-// and the commit short-circuits when nothing changed.
+// (ciliumnetworkpolicy.yaml + provisioning-rbac.yaml), any further baseline doc
+// ACTUALLY present in the tree (`treeDocs` — the dir listing of
+// `vcluster/host-apps/`, nil when unavailable; #5104 structural completeness),
+// AND the funnel's host-native app-route docs (#4993). Symmetric with
+// MergePerOrgAppsKustomization: any resource already listed in `existing` is
+// preserved (a second cart install is additive), the baseline is
+// force-included, and the new hostAppDocs are unioned in. The result is
+// deterministic (sorted) so a re-render is byte-stable and the commit
+// short-circuits when nothing changed.
 //
-// The org-controller SEEDS this index once (create-if-absent, #4993) and never
-// clobbers it thereafter — exactly like the apps kustomization — so the funnel's
-// route entries survive every subsequent Org reconcile.
-func MergePerOrgHostAppsKustomization(existing string, hostAppDocs []string) string {
+// The org-controller seeds this index and merge-heals its baseline entries on
+// reconcile (#5104 — formerly create-if-absent only, #4993) without ever
+// pruning funnel entries, so the funnel's route entries survive every
+// subsequent Org reconcile.
+func MergePerOrgHostAppsKustomization(existing string, treeDocs, hostAppDocs []string) string {
 	resources := map[string]struct{}{}
 	for _, d := range perOrgHostAppsBaselineDocs {
+		resources[d] = struct{}{}
+	}
+	for _, d := range baselineDocsFromTree(treeDocs, nil) {
 		resources[d] = struct{}{}
 	}
 	for _, line := range strings.Split(existing, "\n") {
@@ -242,9 +302,11 @@ func isHostHelmReleaseAppFile(path, hostPrefix string) bool {
 }
 
 // MergePerOrgAppsKustomization rebuilds the `vcluster/apps/kustomization.yaml`
-// resources list so it enumerates the org-controller boundary baseline
-// (networkpolicy.yaml — the ONLY baseline that lives in `vcluster/apps/`) AND
-// the funnel's app docs.
+// resources list so it enumerates the org-controller boundary baseline for the
+// Org's plan (networkpolicy.yaml always; namespace.yaml — the #4992 vcluster
+// target-ns — for the vcluster tier, #5104), any further baseline doc ACTUALLY
+// present in the tree (`treeDocs` — the dir listing of `vcluster/apps/`, nil
+// when unavailable), AND the funnel's app docs.
 //
 // `existing` is the current kustomization.yaml content read from the per-Org
 // repo (empty if absent). Any resource already listed there is preserved
@@ -253,13 +315,20 @@ func isHostHelmReleaseAppFile(path, hostPrefix string) bool {
 // deterministic (sorted) so a re-render is byte-stable and the PutFile/commit
 // short-circuits when nothing changed.
 //
+// #5104: before the merge was plan-aware, it preserved ONLY networkpolicy.yaml
+// — so for a vcluster-tier funnel Org whose index the funnel committed first,
+// the #4992 `namespace.yaml` was authored to the tree but never indexed, the
+// target namespace never existed inside the vcluster, and the apps Flux
+// Kustomization wedged permanently on `namespaces "<slug>" not found` (hw255,
+// 2/2 customer Orgs; the purchased app never deployed).
+//
 // #4567: `ciliumnetworkpolicy.yaml` is force-EXCLUDED here even if a prior
 // (buggy) commit listed it in `existing` — the CNP file only ever exists in
 // `vcluster/host-apps/`, so referencing it from the apps kustomization breaks
 // the kustomize build for the WHOLE apps tree (→ purchased app never deploys).
 // Stripping it on every merge self-heals an already-broken per-Org repo on the
 // next cart install / reconcile.
-func MergePerOrgAppsKustomization(existing string, appDocs []string) string {
+func MergePerOrgAppsKustomization(existing, planSlug string, treeDocs, appDocs []string) string {
 	// excludedFromAppsTree are docs that must NEVER appear in
 	// `vcluster/apps/kustomization.yaml` because their file does not live in
 	// `vcluster/apps/` (the org-controller authors them under
@@ -270,7 +339,10 @@ func MergePerOrgAppsKustomization(existing string, appDocs []string) string {
 	}
 
 	resources := map[string]struct{}{}
-	for _, d := range perOrgAppsBaselineDocs {
+	for _, d := range PerOrgAppsBaselineDocs(planSlug) {
+		resources[d] = struct{}{}
+	}
+	for _, d := range baselineDocsFromTree(treeDocs, excludedFromAppsTree) {
 		resources[d] = struct{}{}
 	}
 	for _, line := range strings.Split(existing, "\n") {
