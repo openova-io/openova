@@ -1,0 +1,79 @@
+# #5088 — INPUT fixtures for the §854 forbid-nodeport-service (Enforce) policy.
+# Six Services exercise both rules + the cert-manager solver carve-out.
+
+# 1. VIOLATION: a plain type=NodePort Service → DENIED by rule 1 (§854).
+apiVersion: v1
+kind: Service
+metadata:
+  name: powerdns-api-ext
+  namespace: openova-system
+spec:
+  type: NodePort
+  ports:
+    - port: 8081
+      nodePort: 30853
+---
+# 2. CLEAN: a ClusterIP Service → ADMITTED (neither rule fires).
+apiVersion: v1
+kind: Service
+metadata:
+  name: powerdns-api
+  namespace: openova-system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8081
+---
+# 3. VIOLATION: a type=LoadBalancer Service that does NOT set
+#    allocateLoadBalancerNodePorts:false → silently allocates nodePorts →
+#    DENIED by rule 2 (§854 subtlety).
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-lb-leaky
+  namespace: cilium-gateway
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 443
+---
+# 4. CLEAN: a type=LoadBalancer Service that explicitly disables nodePort
+#    allocation → ADMITTED (the §854-compliant LoadBalancer shape).
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-lb-clean
+  namespace: cilium-gateway
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  ports:
+    - port: 443
+---
+# 5. CARVE-OUT (by label): cert-manager HTTP-01 solver Service — type=NodePort
+#    but labelled acme.cert-manager.io/http01-solver → EXCLUDED from rule 1.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cm-acme-http-solver-by-label
+  namespace: iogrid
+  labels:
+    acme.cert-manager.io/http01-solver: "true"
+spec:
+  type: NodePort
+  ports:
+    - port: 8089
+      nodePort: 30633
+---
+# 6. CARVE-OUT (by name): cert-manager HTTP-01 solver Service — type=NodePort,
+#    no solver label but name matches cm-acme-http-solver-* → EXCLUDED from rule 1.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cm-acme-http-solver-9xk2p
+  namespace: iogrid
+spec:
+  type: NodePort
+  ports:
+    - port: 8089
+      nodePort: 30634

@@ -1,0 +1,80 @@
+# #5088 — Kyverno conformance test for the §854 forbid-nodeport-service policy.
+#
+# Run with the Kyverno CLI:
+#   cd platform/kyverno-policies/chart
+#   # re-render the policy if the template/values changed:
+#   helm template . --set compliancePolicies.bootstrapMode=false \
+#     --set compliancePolicies.forbidNodePortService.action=Enforce \
+#     --show-only templates/baseline/24-forbid-nodeport-service.yaml \
+#     | grep -v '^# Source:' | sed '/^---$/d' \
+#     > tests/forbid-nodeport-service/policy.yaml
+#   kyverno test tests/forbid-nodeport-service/
+#
+# `policy.yaml` is the rendered ClusterPolicy at action=Enforce (committed so the
+# test is self-contained + CI-runnable without a Helm pass in the test step —
+# Enforce so the deny rules produce fail/pass verdicts the CLI can assert).
+#
+# SIX fixtures prove both rules + the cert-manager carve-out:
+#   Rule 1 (service-type-not-nodeport):
+#     - powerdns-api-ext (type=NodePort)                → DENIED  (the #5088 shape)
+#     - powerdns-api (type=ClusterIP)                   → admitted
+#     - gateway-lb-leaky / gateway-lb-clean (LB)        → admitted (not NodePort)
+#     - cm-acme-http-solver-by-label (NodePort+label)   → SKIPPED (carve-out)
+#     - cm-acme-http-solver-9xk2p (NodePort, name only) → SKIPPED (carve-out)
+#   Rule 2 (loadbalancer-must-disable-nodeport-allocation):
+#     - gateway-lb-leaky (LB, no allocateLoadBalancerNodePorts) → DENIED (§854 subtlety)
+#     - gateway-lb-clean (LB, allocateLoadBalancerNodePorts:false) → admitted
+#     - every non-LoadBalancer Service                          → admitted
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: forbid-nodeport-service-test
+policies:
+  - policy.yaml
+resources:
+  - resource-services.yaml
+results:
+  # ── Rule 1: service-type-not-nodeport ──────────────────────────────────
+  # NodePort Service → DENIED (§854).
+  - policy: forbid-nodeport-service
+    rule: service-type-not-nodeport
+    resources:
+      - openova-system/powerdns-api-ext
+    kind: Service
+    result: fail
+  # ClusterIP / LoadBalancer Services → not NodePort → admitted by rule 1.
+  - policy: forbid-nodeport-service
+    rule: service-type-not-nodeport
+    resources:
+      - openova-system/powerdns-api
+      - cilium-gateway/gateway-lb-leaky
+      - cilium-gateway/gateway-lb-clean
+    kind: Service
+    result: pass
+  # cert-manager HTTP-01 solver Services (type=NodePort) → EXCLUDED → skipped.
+  - policy: forbid-nodeport-service
+    rule: service-type-not-nodeport
+    resources:
+      - iogrid/cm-acme-http-solver-by-label
+      - iogrid/cm-acme-http-solver-9xk2p
+    kind: Service
+    result: skip
+  # ── Rule 2: loadbalancer-must-disable-nodeport-allocation ──────────────
+  # LoadBalancer WITHOUT allocateLoadBalancerNodePorts:false → DENIED (§854 subtlety).
+  - policy: forbid-nodeport-service
+    rule: loadbalancer-must-disable-nodeport-allocation
+    resources:
+      - cilium-gateway/gateway-lb-leaky
+    kind: Service
+    result: fail
+  # Non-LoadBalancer Services + the explicitly-disabled LoadBalancer → admitted.
+  - policy: forbid-nodeport-service
+    rule: loadbalancer-must-disable-nodeport-allocation
+    resources:
+      - openova-system/powerdns-api-ext
+      - openova-system/powerdns-api
+      - cilium-gateway/gateway-lb-clean
+      - iogrid/cm-acme-http-solver-by-label
+      - iogrid/cm-acme-http-solver-9xk2p
+    kind: Service
+    result: pass

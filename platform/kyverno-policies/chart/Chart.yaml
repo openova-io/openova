@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.48 (#5088): NEW baseline policy `forbid-nodeport-service` (24) — the
+#   systemic §854 AUDIT guard. §854 was enforced ONLY at chart-render time
+#   (per-chart `fail` guards); nothing caught a runtime / non-chart NodePort
+#   applied straight to a live cluster. A live §854 walk (#5088) found 4
+#   pre-existing NodePort Services on the mothership. This ClusterPolicy flags
+#   every `type=NodePort` Service AND every `type=LoadBalancer` Service that does
+#   not set `allocateLoadBalancerNodePorts:false` (unset silently allocates
+#   nodePorts), cluster-wide, at admission + background scans. Ships action=Audit
+#   (report-only) deliberately — 4 live violations exist + cert-manager's HTTP-01
+#   solver auto-creates NodePort Services; Enforce is the deliberate follow-up
+#   once the violations clear and the Audit report shows zero false positives.
+#   cert-manager `cm-acme-http-solver-*` solver Services (label
+#   acme.cert-manager.io/http01-solver) are carved out. New
+#   `kyverno test tests/forbid-nodeport-service/` (12/12 pass): NodePort DENIED,
+#   leaky LoadBalancer DENIED, ClusterIP + disabled-nodePort LoadBalancer +
+#   both solver Services ADMITTED. Template + values only. Refs #5088 #4765.
 # 1.0.46 (#5017 / #4973 family — harbor-proxy-pull learns mixed-source
 # pods: each anyPattern entry requires EVERY container to match ONE glob,
 # so a pod mixing proxy-cache sidecars with a native-push openova-io
@@ -310,7 +326,7 @@ type: application
 #   (helm.sh/hook annotation) — hooks get no Flux labels + Helm force-stamps
 #   managed-by:Helm, so a legit hook Job (bp-powerdns zone-bootstrap) was
 #   Enforce-denied on live upgrade, stranding the powerdns anycast NodePort.
-version: 1.0.47
+version: 1.0.48
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

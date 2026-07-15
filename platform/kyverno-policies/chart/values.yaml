@@ -483,6 +483,39 @@ compliancePolicies:
     # default — local-path is forbidden EVERYWHERE, including kube-system).
     excludeNamespaces: []
 
+  # #5088 — §854 NodePort AUDIT guard. §854 (founder #1 ABSOLUTE ban) forbids
+  # NodePort Services everywhere: "YOU CAN NEVER EVER USE NODEPORT EVEN FOR
+  # TESTING PURPOSE!!!" The gateway is served DIRECT (cilium LB-IPAM VIP /
+  # shared-EIP, or Local-ETP + hostPort), never a nodePort. Previously §854 was
+  # only enforced at chart-render time (per-chart `fail` guards) — nothing caught
+  # a runtime / non-chart NodePort applied straight to a live cluster. A live
+  # §854 walk (#5088) found 4 pre-existing NodePort Services on the mothership.
+  # This policy flags every `type=NodePort` Service AND every `type=LoadBalancer`
+  # Service that does not explicitly set `allocateLoadBalancerNodePorts: false`
+  # (an unset value silently allocates nodePorts), cluster-wide, at admission +
+  # in background scans.
+  #
+  # action DEFAULTS to Audit (report-only, not fail-closed) deliberately: four
+  # §854 violations already exist live (#5088), and cert-manager's HTTP-01 solver
+  # auto-creates `type=NodePort` Services — Audit-first confirms the signal is
+  # actionable (only the real violations, with the solver carve-out below) before
+  # any Enforce flip. Enforce is the DELIBERATE FOLLOW-UP once the 4 live
+  # violations are cleared and the Audit PolicyReport shows zero false positives:
+  # `--set compliancePolicies.forbidNodePortService.action=Enforce`. (The
+  # bootstrapMode helper still forces Audit during Phase-1 regardless.)
+  #
+  # cert-manager ACME HTTP-01 solver Services (`cm-acme-http-solver-*`, label
+  # `acme.cert-manager.io/http01-solver: "true"`) are carved out in the template
+  # — they are auto-created type=NodePort by cert-manager's default solver and GC
+  # on challenge completion (a known-accepted transient class).
+  forbidNodePortService:
+    enabled: true
+    action: Audit
+    # NodePorts are forbidden EVERYWHERE (including kube-system) per §854 —
+    # default empty. Operators add per-namespace escapes here only for a
+    # deliberate, documented exception.
+    excludeNamespaces: []
+
   # G98 (Refs #2644, 2026-06-01) — MUTATE policy that auto-stamps
   # `catalyst.openova.io/application` label on Pods cluster-wide.
   # Without this label, the Compliance scorecard's per-Application
