@@ -755,44 +755,27 @@ slots:
     depends_on: [bp-flux]
     wave: present
 
-  # ---- Slot 19a — bp-sandbox sandbox-controller (PR #1622, originally slot 61).
-  # Renumbered 61 → 19a in Wave 11 convergence fix (PR #1652, 2026-05-18)
-  # to sequence AFTER bp-harbor (slot 19). Reconciles
-  # `sandbox.openova.io/v1.Sandbox` CRs into per-Sandbox manifests written
-  # to the per-Org `catalyst-tenant` Gitea repo (sister of organization-
-  # controller). Without this slot, Sandbox CRs sit unhandled — the
-  # controller never deploys on Sovereigns. Gated default-OFF via
-  # ${SANDBOX_ENABLED:-false} on the bootstrap-kit Kustomization substitute.
+  # ---- Slot 19a — bp-sandbox RETIRED 2026-07-15 (#5114, Refs #3988).
+  # The founder removed the Sandbox concept 2026-06-30; the slot file +
+  # kustomization entry + placement row are deleted in lockstep. Superseded
+  # by bp-openova-mcp (slot 13d) + bp-agenity. Never reuse the 19a number.
+
+  # ---- Slot 13d — bp-openova-mcp (#5114, Refs #3988) — the SOVEREIGN-mode
+  # OpenOva MCP server: RBAC-scoped-per-user thin facade over catalyst-api
+  # (UI=MCP parity, Pillar 4), streamable-HTTP Service at
+  # mcp.<sovereign-fqdn>. Catalyst-platform cohort (13/13b/13c).
   # dependsOn:
-  #   - bp-vcluster-helmrepo (slot 60) — Wave 2 wires per-Sandbox
-  #     HelmReleases that resolve through this Flux source.
-  #   - bp-catalyst-platform (slot 13) — provides `catalyst-system`
-  #     Namespace + the `catalyst-gitea-token` Secret the controller's
-  #     CATALYST_GITEA_TOKEN env reads via secretKeyRef.
-  #   - bp-harbor (slot 19) — Wave 11 convergence fix (PR #1652).
-  #     After bp-self-sovereign-cutover Step-06 phase-1 rewrites every
-  #     HelmRepository URL `oci://ghcr.io/openova-io` →
-  #     `oci://harbor.<sov-fqdn>/openova-io`, source-controller fetches
-  #     the sandbox chart through harbor.<sov-fqdn>. Without this edge,
-  #     bp-sandbox tries to resolve before bp-harbor is Ready and sits
-  #     Reconciling for the full bootstrap-kit timeout. Chicken-and-egg
-  #     same shape as Wave 7 #1610 (bp-hcloud-csi REMOVED), resolved by
-  #     sequencing rather than removal so the slot remains available.
-  - slot: "19a"
-    name: bp-sandbox
-    # G92.5 #2664 (2026-06-01): RTZ vCluster placement adds
-    # bp-rtz-vcluster as a new edge — vc-rtz Secret + the
-    # sync.toHost.customResources policy both materialise from that
-    # release before sandbox's helm-controller pivot can succeed.
+  #   - bp-catalyst-platform (slot 13) — catalyst-api is the facade's
+  #     upstream AND publishes the catalyst-handover-jwt verify-pubkey
+  #     Secret the deployment reads (#4114).
+  #   - bp-keycloak (slot 09) — session identity is Keycloak-backed (the
+  #     Sovereign realm mints the sessions this instance verifies);
+  #     belt-and-suspenders over slot 13's own keycloak edge (#512).
+  - slot: "13d"
+    name: bp-openova-mcp
     depends_on:
-      - bp-vcluster-helmrepo
       - bp-catalyst-platform
-      - bp-harbor
-      # #3102/#3104 (2026-06-08): sandbox renders an ExternalSecret; the HR's
-      # dependsOn gained bp-external-secrets (ESO CRD/webhook ready first) — this
-      # edge was added to the HR in #3102 but not declared here, causing the
-      # dependency-graph-audit drift that's been red on main (#3104).
-      - bp-external-secrets
+      - bp-keycloak
     wave: present
 
   # ---- Slot 62 — bp-continuum DR orchestrator (Pillar-3 unblock).

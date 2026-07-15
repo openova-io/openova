@@ -1,0 +1,54 @@
+apiVersion: v2
+name: bp-openova-mcp
+description: |
+  OpenOva MCP server — the RBAC-scoped-per-user thin facade that exposes
+  the OpenOva product surface (Applications, Environments, Organizations)
+  as MCP tools whose surface is IDENTICAL to what the same user can do in
+  the Catalyst console UI (#3988). Same binary in every context; the
+  chart's `mode` value selects the trusted realm + pinned scope + tool
+  subset per the #3988 §4.3 topology table: mode=sovereign (the
+  bootstrap-kit slot 13d instance, full Sovereign surface) or
+  mode=organization (a per-Org instance, Org-pinned subset). It is a THIN
+  facade: every data tool forwards the caller's bearer to the live
+  catalyst-api, whose own authz is the final word — the server holds NO
+  privileged token and reads NOTHING from the Kubernetes API.
+type: application
+# 0.1.0 (#5114, Refs #3988): first release — the Pillar-4 install path.
+# Deployment (streamable-HTTP transport, OPENOVA_MCP_LISTEN) + ClusterIP
+# Service + Gateway-API HTTPRoute (mcp.<sovereign-fqdn>; never a Traefik
+# Ingress, never a NodePort — §854) + ServiceAccount (automount OFF — the
+# server needs zero k8s API access, so it carries zero RBAC) + Cilium
+# ingress/egress CNPs (gateway-entity admit + default-deny-safe egress with
+# load-bearing DNS carve-out) + an optional values-gated chepherd-attach
+# ConfigMap (#3988 §4.4 deviation: no bp-chepherd exists in this kit, so
+# the dependency is an OPTIONAL seam and the chart is standalone-capable).
+# Lockstep: blueprint.yaml 0.1.0 + bootstrap-kit slot 13d pin 0.1.0 +
+# catalog-seed (blueprints.json) 0.1.0. Image = ghcr.io/openova-io/
+# openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
+# the #4706 chart-repo-collision lesson).
+version: 0.1.0
+# appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
+# 0.2.0 is the FIRST image with the streamable-HTTP transport
+# (OPENOVA_MCP_LISTEN + /healthz + /readyz + Authorization-header bearer +
+# the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
+# the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
+# and cannot back a Service.
+appVersion: "0.2.0"
+keywords:
+  - mcp
+  - agent
+  - rbac
+  - thin-facade
+  - openova-blueprint
+maintainers:
+  - name: OpenOva
+    url: https://github.com/openova-io/openova
+sources:
+  - https://github.com/openova-io/openova
+# Opt out of the hollow-chart guard (Blueprint-Release workflow / #181):
+# this is a first-party product chart deploying a single Go service image
+# with Catalyst-authored resources (Deployment + Service + HTTPRoute +
+# ServiceAccount + CNPs). No bundled upstream Helm subchart — same shape as
+# products/agenity, bp-continuum, bp-kyverno-policies.
+annotations:
+  catalyst.openova.io/no-upstream: "true"

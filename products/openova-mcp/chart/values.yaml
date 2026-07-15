@@ -1,0 +1,194 @@
+# bp-openova-mcp — default values (#5114, Refs #3988).
+#
+# Same binary in every context; `mode` selects the trusted realm + pinned
+# scope + tool subset (#3988 §4.3 topology table):
+#
+#   mode=sovereign     the bootstrap-kit slot 13d instance. Validates the
+#                      Sovereign-signed session bearers, full surface for a
+#                      sovereign-admin, dials catalyst-api in-cluster.
+#   mode=organization  a per-Org instance. Org-context pin + optional
+#                      orgSlug scope pin; Org tool subset only; dials the
+#                      public Sovereign console URL (an Org install cannot
+#                      resolve the host catalyst-api Service).
+#
+# Inviolable Principle #4: no hardcoded secrets — verify keys and fallback
+# bearers come from Secrets; nothing sensitive is a literal here.
+
+# Sovereign primary FQDN (e.g. hw255.omani.works). The bootstrap-kit slot
+# stamps ${SOVEREIGN_FQDN}. Used to derive the HTTPRoute hostname
+# (mcp.<fqdn>) and, in organization mode, the public console URL fallback.
+sovereignFqdn: ""
+
+# "sovereign" | "organization" — maps to OPENOVA_MCP_CONTEXT (the instance
+# context pin; a wider token presented to an organization-pinned instance
+# cannot widen the surface — internal/identity pinnedCtx).
+mode: sovereign
+
+# ── Image ───────────────────────────────────────────────────────────────
+# Built by .github/workflows/build-openova-mcp.yaml; tag defaults to
+# .Chart.AppVersion (the workflow derives the pushed tag from the chart so
+# they can never drift). Plain image repo per the #4706 lesson — never the
+# bp-openova-mcp chart OCI repo.
+image:
+  repository: ghcr.io/openova-io/openova-mcp
+  tag: ""                 # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# Cutover step-07 image-registry pivot seam (#4885/#4892): when the
+# post-handover cutover pivots the Sovereign onto its local Harbor it
+# patches global.imageRegistry; the image helper re-prefixes the repository
+# with it. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
+global:
+  imageRegistry: ""
+
+# ghcr.io/openova-io/* packages are PRIVATE — a reflected/pre-created
+# `ghcr-pull` dockerconfigjson Secret must be REFERENCED by the pod spec or
+# the pull 401s (the reflected-secret-is-inert trap, #4111).
+imagePullSecrets:
+  - name: ghcr-pull
+
+replicaCount: 1
+
+# ── catalyst-api facade target ───────────────────────────────────────────
+catalystApi:
+  # Base URL the thin facade forwards every data tool to. Empty = derived:
+  #   mode=sovereign     http://catalyst-api.catalyst-system.svc.cluster.local:8080
+  #                      (the real in-cluster Service — products/catalyst/
+  #                      chart/templates/api-service.yaml)
+  #   mode=organization  https://console.<sovereignFqdn> (the Cilium
+  #                      Gateway routes /api/v1/* to catalyst-api; an Org
+  #                      namespace cannot resolve the host Service name)
+  url: ""
+
+# ── Organization-mode scope pins ─────────────────────────────────────────
+organization:
+  # Org slug this instance is confined to (OPENOVA_MCP_ORG_SCOPE): a token
+  # minted for a DIFFERENT Org is rejected outright (#3988 §4.3 pinned
+  # scope). Empty = the token's own org_id is the scope (context pin still
+  # requires an org-scoped token in organization mode).
+  orgSlug: ""
+  # Organization console host (console.<slug>.<pool>) forwarded as
+  # X-Tenant-Host on the org-scoped install path (#4116/#4610) so the
+  # catalyst-api resolves the caller's OWN Org. Empty = the binary derives
+  # it from the catalyst-api URL host.
+  tenantHost: ""
+
+# ── Bearer verification ──────────────────────────────────────────────────
+auth:
+  # "rs256" (default) | "hs256". ("insecure" exists in the binary for unit
+  # tests ONLY — never set it on a cluster.)
+  verify: rs256
+  # Exact `iss` claim this instance trusts (OPENOVA_MCP_EXPECTED_ISSUER) —
+  # the instance-level realm/issuer pin of #3988 §4.3. Empty = no issuer
+  # pin (any issuer the signature verifies for). NOTE: catalyst-api-minted
+  # session bearers carry the CATALYST_PIN_ISSUER issuer, NOT a Keycloak
+  # realm URL — pin whichever issuer mints the sessions this instance
+  # serves. Per-realm JWKS resolution is the #3988 §4.2 follow-up.
+  expectedIssuer: ""
+  # RS256 verify pubkey (PKIX PEM) — the public half of the Sovereign
+  # handover signer that MINTS catalyst-api session bearers (#4114). The
+  # default names the `catalyst-handover-jwt` Secret in the install
+  # namespace, which exists in catalyst-system (where the sovereign-mode
+  # slot lands). The ref is rendered optional:true so an install where the
+  # Secret is absent (e.g. an Org namespace) still schedules — the binary
+  # then falls back to its inherited process env. Never Helm-seed a
+  # placeholder value (reflector empty-seed trap).
+  rs256PubkeySecret:
+    name: catalyst-handover-jwt
+    key: handover-jwt-public.pem
+  # HS256 shared secret (verify=hs256 only).
+  hs256Secret:
+    name: ""
+    key: secret
+  # Optional fallback bearer (OPENOVA_MCP_BEARER) for installs where the
+  # caller cannot attach per-call auth. Production callers attach the
+  # user's session bearer per call (Authorization header / _auth.token);
+  # leave empty unless an operator wires an interim bearer Secret (the
+  # same seam as bp-agenity openovaMCP.bearerSecret).
+  bearerSecret:
+    name: ""
+    key: bearer
+
+# ── Service (ClusterIP — NEVER NodePort, §854) ───────────────────────────
+service:
+  type: ClusterIP
+  port: 8080
+
+# Container listen address (OPENOVA_MCP_LISTEN). Must agree with
+# service targetPort (the deployment names the container port `http`).
+listen: ":8080"
+
+# ── HTTPRoute (Cilium Gateway — the ONLY external door; no Traefik
+# Ingress, no NodePort) ───────────────────────────────────────────────────
+httpRoute:
+  enabled: true
+  # Empty → derived mcp.<sovereignFqdn>. No hostname resolvable → the
+  # route renders NOTHING (fail-closed, Inviolable #4).
+  hostnames: []
+  # The sovereign-mode host (mcp.<sovereign-fqdn>) rides the canonical
+  # Sovereign Gateway (kube-system/cilium-gateway — the same parent every
+  # control-plane HTTPRoute attaches to, TBD-G6/C12-004). A per-Org install
+  # (mcp.<slug>.<pool>) overrides to the console gateway
+  # (cilium-gateway-console, #4054) via its install values.
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+
+# ── Network policy (Cilium) ──────────────────────────────────────────────
+# Rendered only when the cilium.io/v2 CRD is present (kind CI still
+# installs). Gateway traffic reaches the pod as the reserved `ingress`
+# ENTITY that no K8s NetworkPolicy selector can express (#3374/#4180) —
+# the CNP fromEntities carve-out is the canonical admit.
+networkPolicy:
+  enabled: true
+  ingress:
+    # Admit the Cilium Gateway (external callers via the HTTPRoute).
+    allowGatewayEntity: true
+    # Admit in-cluster callers (agenity/chepherd-hosted agents in other
+    # namespaces dialing the ClusterIP Service).
+    allowClusterEntity: true
+  egress:
+    # The facade's outbound legs. `cluster` covers the in-cluster
+    # catalyst-api (sovereign mode); `world:443` covers the public console
+    # URL (organization mode). DNS to kube-dns is LOAD-BEARING: any CNP
+    # egress rule flips the pod to default-deny egress (#4604).
+    enabled: true
+    allowExternalHttps: true
+    httpsPort: 443
+
+# ── Optional chepherd attach (#3988 §4.4 — DEVIATION, recorded) ──────────
+# The #3988 design says `bp-openova-mcp dependsOn bp-chepherd`, but NO
+# bp-chepherd blueprint/slot exists in this kit today. The attach is
+# therefore an OPTIONAL values-gated seam and the chart is
+# standalone-capable: when enabled, render a ConfigMap carrying the
+# mcpServers JSON stanza a chepherd deployment mounts into
+# CHEPHERD_EXTRA_MCP_JSON so every spawned agent discovers this MCP.
+chepherd:
+  attach:
+    enabled: false
+    # MCP URL advertised to agents. Empty = the in-cluster Service URL
+    # (http://<fullname>.<ns>.svc.cluster.local:<port>/mcp).
+    url: ""
+
+# ── ServiceAccount ────────────────────────────────────────────────────────
+# The server reads NOTHING from the Kubernetes API (it is an HTTP facade
+# over catalyst-api), so the ServiceAccount carries ZERO RBAC and the
+# token is NOT mounted. Dedicated SA (not `default`) so a future policy
+# can name the workload.
+serviceAccount:
+  create: true
+  name: ""
+
+# requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
+# install: the per-Org namespace's plan `plan-limits` LimitRange
+# (maxLimitRequestRatio cpu:1/mem:1) rejects Burstable specs at admission
+# (#4362/#4553). A single stateless Go facade needs little.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+nameOverride: ""

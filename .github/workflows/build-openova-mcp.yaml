@@ -1,0 +1,124 @@
+name: Build openova-mcp
+
+# Builds the STANDALONE openova-mcp Service image (#3988 §4.3 / #5114) —
+# the per-context MCP instance the bp-openova-mcp chart deploys
+# (products/openova-mcp/chart). The agenity image keeps bundling the same
+# binary as its stdio child (agenity-build.yaml); this image is the
+# HTTP-serving standalone.
+#
+# The build context is the repo root because the openova-mcp module imports
+# core/services/shared/auth from this repo (replace directive in
+# products/openova-mcp/go.mod).
+#
+# Image tag contract: the chart's image helper resolves to
+# repository:<Chart.AppVersion> (openova-mcp.image in _helpers.tpl), so the
+# published image MUST carry that exact tag — derived from the chart below
+# so the tag can never drift from what the chart references (the
+# agenity-build.yaml pattern).
+#
+# Per the #4706 chart-repo-collision lesson the image repo is the PLAIN
+# name ghcr.io/openova-io/openova-mcp — never the bp-openova-mcp CHART OCI
+# repo (an image tag there out-semvers the chart and every `version: "*"`
+# HelmRelease resolve dies with "manifest does not contain minimum number
+# of descriptors").
+
+on:
+  push:
+    paths:
+      - 'products/openova-mcp/**'
+      - 'core/services/shared/auth/**'
+      - '.github/workflows/build-openova-mcp.yaml'
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova-mcp
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-openova-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the module tests (transport + RBAC gates)
+        run: |
+          set -euo pipefail
+          cd products/openova-mcp
+          go test ./...
+
+      - name: Set short SHA + chart appVersion
+        id: vars
+        run: |
+          echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+          APPVER=$(grep -E '^appVersion:' products/openova-mcp/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
+          echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build to the LOCAL daemon first (load, no push) so the smoke gate
+      # below inspects the exact bytes that would be pushed (#4118 lesson).
+      - name: Build image (load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: products/openova-mcp/Containerfile
+          load: true
+          push: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+
+      # Smoke gate: the HTTP transport must come up and serve /healthz —
+      # the exact contract the chart's probes and Service depend on. A
+      # binary that regressed to stdio-only (or that exits on a missing
+      # env) fails HERE, before push.
+      - name: Smoke-gate the built image (HTTP transport serves /healthz)
+        run: |
+          set -euo pipefail
+          IMG="${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}"
+          docker run -d --name mcp-smoke -p 18080:8080 \
+            -e OPENOVA_MCP_LISTEN=":8080" \
+            -e OPENOVA_MCP_VERIFY=insecure \
+            "$IMG"
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/healthz | grep -q ok; then
+              echo "healthz OK"
+              # readyz + an unauthenticated tools/list must return an EMPTY
+              # surface (layer-1 RBAC), not an error.
+              curl -fsS http://127.0.0.1:18080/readyz | grep -q ok
+              curl -fsS -X POST http://127.0.0.1:18080/mcp \
+                -H 'Content-Type: application/json' \
+                -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+                | grep -q '"tools":\[\]'
+              docker rm -f mcp-smoke
+              echo "smoke gate PASSED"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "FAIL: /healthz never served"; docker logs mcp-smoke; docker rm -f mcp-smoke; exit 1
+
+      - name: Push image (only after smoke gate is green)
+        run: |
+          set -euo pipefail
+          for TAG in \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}" \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}" \
+            "${{ env.IMAGE }}:latest"; do
+            echo "pushing $TAG"
+            docker push "$TAG"
+          done

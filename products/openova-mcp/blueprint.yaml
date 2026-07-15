@@ -1,0 +1,147 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-openova-mcp
+  labels:
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-7-agentic-workspace
+spec:
+  # 0.1.0 (#5114, Refs #3988): first release — the Pillar-4 install path
+  # for the OpenOva MCP server (Deployment + ClusterIP Service + Gateway-API
+  # HTTPRoute + zero-RBAC ServiceAccount + Cilium CNPs). Lockstep with
+  # products/openova-mcp/chart/Chart.yaml 0.1.0 + bootstrap-kit slot 13d pin
+  # + the catalog-seed (blueprints.json) entry.
+  version: 0.1.0
+  card:
+    title: OpenOva MCP
+    summary: |
+      The OpenOva MCP server — exposes your OpenOva surface (Applications,
+      Environments, Organizations) as MCP tools for AI agents, RBAC-scoped
+      per user so an agent can do exactly what YOU can do in the console —
+      nothing more. A thin facade over the live catalyst-api: every call
+      forwards your own session, so the platform's authz is the final word.
+    icon: openova-mcp.svg
+    category: ai-runtime
+    family: agent-runtime
+    tags: [mcp, agent, rbac, thin-facade, pillar-4]
+    documentation: https://github.com/openova-io/openova
+    license: MIT
+  # unlisted — infrastructure component: the sovereign-mode instance is
+  # auto-installed by bootstrap-kit slot 13d; the per-Org instance arrives
+  # via the org pipeline (follow-up on #5114), not a marketplace card. The
+  # USER-facing Pillar-4 card is bp-agenity, which consumes this MCP.
+  visibility: unlisted
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      mode:
+        type: string
+        enum: [sovereign, organization]
+        default: sovereign
+        description: |
+          Instance context per the #3988 §4.3 topology table. sovereign =
+          full Sovereign surface for sovereign-admins (the bootstrap-kit
+          instance); organization = a per-Org instance pinned to one
+          Organization's scope and tool subset.
+      organization:
+        type: object
+        description: Organization-mode scope pins.
+        properties:
+          orgSlug:
+            type: string
+            default: ""
+            description: |
+              Org slug this instance is confined to — a token minted for a
+              different Org is rejected outright (#3988 §4.3 pinned scope).
+          tenantHost:
+            type: string
+            default: ""
+            description: |
+              Organization console host (console.<slug>.<pool>) forwarded
+              as X-Tenant-Host on the org-scoped install path (#4116).
+      auth:
+        type: object
+        properties:
+          verify:
+            type: string
+            enum: [rs256, hs256]
+            default: rs256
+            description: |
+              Bearer verification mode. rs256 verifies against the
+              Sovereign handover-signer public key (the key catalyst-api
+              signs session bearers with, #4114).
+          expectedIssuer:
+            type: string
+            default: ""
+            description: |
+              Exact `iss` claim this instance trusts — the instance-level
+              realm/issuer pin. Empty = no issuer pin.
+      catalystApi:
+        type: object
+        properties:
+          url:
+            type: string
+            default: ""
+            description: |
+              catalyst-api base URL the facade forwards to. Empty = derived
+              per mode (in-cluster Service in sovereign mode; the public
+              console URL in organization mode).
+      chepherd:
+        type: object
+        description: |
+          Optional chepherd attach (#3988 §4.4 — recorded deviation: no
+          bp-chepherd exists in this kit, so the dependency is a
+          values-gated seam and the server is standalone-capable).
+        properties:
+          attach:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: ./chart
+  # #3988 §4.4 declares dependsOn bp-chepherd — DEVIATION (recorded on
+  # #5114): no bp-chepherd Blueprint exists in this catalog; the chepherd
+  # runtime ships bundled inside bp-agenity. Standalone-capable — zero
+  # Blueprint dependencies. Add bp-chepherd here when it lands.
+  depends: []
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: none
+    logs: stdout
+  topology:
+    supported:
+      - singleton
+    defaults:
+      # A stateless per-context facade — region-pinned singleton; both BCP
+      # defaults resolve to the single in-region instance (schema requires
+      # both keys; G116).
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          # Host-native (#4325 de-vcluster): tier MUST be '' — a per-Org
+          # install lands in the Org's own namespace on the host; the
+          # sovereign-mode instance lands in catalyst-system via the
+          # bootstrap-kit slot. `rtz-A` is the region-cluster designator
+          # (region pin), NOT a vCluster name.
+          tier: ''
+          clusters:
+            - rtz-A
+          roles:
+            rtz-A: singleton
+  # No `endpoints:` — the MCP is an agent-facing JSON-RPC API, not a
+  # browser UI; there is nothing for the console's Launch button to open.
+  # Agents reach it at https://mcp.<sovereign-fqdn>/mcp (sovereign mode)
+  # with their caller's bearer.
+  multiInstance:
+    enabled: false

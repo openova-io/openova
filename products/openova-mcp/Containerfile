@@ -1,0 +1,37 @@
+# openova-mcp standalone image — the bp-openova-mcp Service instance
+# (#3988 §4.3 / #5114).
+#
+# This is the STANDALONE per-context MCP Service (Sovereign MCP / per-Org
+# MCP) the bp-openova-mcp chart deploys: the same binary the agenity image
+# bundles as a stdio child (products/agenity/Containerfile stage 3), here
+# run with OPENOVA_MCP_LISTEN so it serves the streamable-HTTP transport
+# (POST /mcp + /healthz + /readyz).
+#
+# Build context = the REPO ROOT (never this directory): the openova-mcp
+# module imports core/services/shared/auth via the replace directive in
+# products/openova-mcp/go.mod, so the build needs both module trees.
+#
+#   docker build -f products/openova-mcp/Containerfile .
+#
+# Published by .github/workflows/build-openova-mcp.yaml to
+# ghcr.io/openova-io/openova-mcp:<chart appVersion>. Per the #4706 lesson
+# the IMAGE repo is the plain name (openova-mcp) — NEVER the bp-openova-mcp
+# CHART OCI repo (an image tag on the chart repo out-semvers the chart and
+# breaks every `version: "*"` HelmRelease resolve).
+
+# ─── Stage 1: build the static binary ──────────────────────────────────────
+FROM golang:1.25-alpine AS builder
+WORKDIR /build
+COPY . .
+WORKDIR /build/products/openova-mcp
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" \
+    -o /out/openova-mcp ./cmd/openova-mcp
+
+# ─── Stage 2: minimal runtime ───────────────────────────────────────────────
+# Static Go binary + CA bundle (the facade dials catalyst-api over HTTPS in
+# org mode) — distroless static, runs as nonroot (uid 65532). No shell, no
+# package manager: the server needs nothing but the binary and certs.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /out/openova-mcp /usr/local/bin/openova-mcp
+USER nonroot
+ENTRYPOINT ["/usr/local/bin/openova-mcp"]

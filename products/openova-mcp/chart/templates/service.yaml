@@ -1,0 +1,20 @@
+{{- /*
+ClusterIP only — NodePorts are ABSOLUTELY FORBIDDEN (§854, founder
+2026-07-03), and the external door is the Gateway-API HTTPRoute
+(templates/httproute.yaml), never a Service type flip.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openova-mcp.fullname" . }}
+  labels:
+    {{- include "openova-mcp.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "openova-mcp.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

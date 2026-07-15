@@ -1,0 +1,61 @@
+{{- /*
+Egress for the thin facade's outbound legs (mirrors bp-agenity #4604):
+
+  - `cluster`/`host`/`remote-node` :{httpsPort,8080} — the in-cluster
+    catalyst-api Service (sovereign mode dials
+    http://catalyst-api.catalyst-system.svc:8080) and any in-cluster
+    HTTPS hop.
+  - `world` :443 (gated) — the PUBLIC Sovereign console URL an
+    organization-mode instance forwards to (an Org namespace cannot
+    resolve the host Service name; no Pod/ipBlock selector can name an
+    external EIP → toEntities:[world] is the canonical carve-out).
+
+🛑 DNS IS LOAD-BEARING: a CiliumNetworkPolicy with ANY egress rule flips
+the pod to default-deny egress — without the explicit :53 allow to
+kube-dns, console.<fqdn> NXDOMAINs and every forward dies (#4604).
+
+Gated on the cilium.io/v2 Capabilities check (kind CI still renders the
+chart) and networkPolicy.egress.enabled for non-Cilium overlays.
+*/ -}}
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.egress.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "openova-mcp.fullname" . }}-egress
+  labels:
+    {{- include "openova-mcp.labels" . | nindent 4 }}
+    catalyst.openova.io/component: openova-mcp-egress-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "openova-mcp.selectorLabels" . | nindent 6 }}
+  egress:
+    - toEntities:
+        {{- if .Values.networkPolicy.egress.allowExternalHttps }}
+        - world
+        {{- end }}
+        - cluster
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: {{ .Values.networkPolicy.egress.httpsPort | quote }}
+              protocol: TCP
+            # the in-cluster catalyst-api Service port (sovereign mode).
+            - port: "8080"
+              protocol: TCP
+    # DNS — LOAD-BEARING (see header).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+{{- end }}

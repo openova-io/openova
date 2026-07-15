@@ -3678,6 +3678,52 @@
       "hasUserUIEndpoint": true
     },
     {
+      "id": "bp-openova-mcp",
+      "slug": "openova-mcp",
+      "title": "OpenOva MCP",
+      "summary": "OpenOva MCP server — exposes the OpenOva surface (Applications, Environments, Organizations) as MCP tools for AI agents, RBAC-scoped per user so an agent can do exactly what that user can do in the console (thin facade over the live catalyst-api; #3988).",
+      "icon": "openova-mcp.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [
+        "mcp",
+        "agent",
+        "rbac",
+        "thin-facade",
+        "pillar-4"
+      ],
+      "visibility": "unlisted",
+      "version": "0.1.0",
+      "section": "pts-4-7-agentic-workspace",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "producesInstances": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      },
+      "hasUserUIEndpoint": false
+    },
+    {
       "id": "bp-opensearch",
       "slug": "opensearch",
       "title": "Opensearch",

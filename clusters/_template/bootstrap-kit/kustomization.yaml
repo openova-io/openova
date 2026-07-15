@@ -66,6 +66,15 @@ resources:
   # 13c (#3374): the ONE generic OIDC gate (oauth2-proxy instance set) —
   # zero-click SSO front for login-less external apps (first: openova-flow).
   - 13c-bp-oidc-gate.yaml
+  # bp-openova-mcp (slot 13d, #5114 Refs #3988) — the SOVEREIGN-mode
+  # OpenOva MCP server: RBAC-scoped-per-user thin facade over catalyst-api
+  # (UI=MCP parity, Pillar 4), streamable-HTTP Service at
+  # mcp.<sovereign-fqdn>. Catalyst-platform cohort: dependsOn
+  # bp-catalyst-platform (facade upstream + handover-jwt verify pubkey) +
+  # bp-keycloak (session identity). REPLACES the retired Sandbox slot 19a
+  # (tombstone below). MUST be registered here or Flux never creates the
+  # HR (the #3191 forgotten-slot wedge class).
+  - 13d-bp-openova-mcp.yaml
   - 14-crossplane-claims.yaml
   - 15-external-secrets.yaml
   - 15a-external-secrets-stores.yaml
@@ -150,32 +159,21 @@ resources:
   # OR fix the pull path to bypass the registry pivot during bootstrap.
   - 18-seaweedfs.yaml
   - 19-harbor.yaml
-  # bp-sandbox (slot 19a) — sandbox-controller Wave 1 (PR #1622) + Wave 8
-  # pty-server / MCP / NEWAPI runtime wiring. Reconciles
-  # `sandbox.openova.io/v1.Sandbox` CRs into per-Sandbox manifests
-  # written into the per-Org `catalyst-tenant` Gitea repo.
-  #
-  # Wave 11 convergence fix (2026-05-18, caught on t16.omantel.biz):
-  # originally slot 61 — moved here after bp-harbor (slot 19) because the
-  # post-handover cutover (slot 06a, Step-06 phase-1) rewrites every
-  # HelmRepository URL `oci://ghcr.io/openova-io` →
-  # `oci://harbor.<sov-fqdn>/openova-io`, and the bp-sandbox chart pull
-  # then hits harbor.<sov-fqdn> BEFORE bp-harbor is Ready — chicken-and-
-  # egg. Same failure shape as Wave 7 #1610 with bp-hcloud-csi (REMOVED,
-  # see the slot-17a comment block above) but resolved here by
-  # sequencing rather than removal so the slot remains available for
-  # the Wave 11 Sandbox MVP without manual Day-2 add-app re-introduction.
-  # HR's dependsOn pins ordering to AFTER bp-harbor + bp-vcluster-
-  # helmrepo + bp-catalyst-platform. Wave 11 convergence fix (TBD-D11,
-  # 2026-05-18): now gated default-ON via ${SANDBOX_ENABLED:-true} on
-  # the bootstrap-kit Kustomization substitute so the controller
-  # materialises on every fresh prov (Wave 8 pty-server + MCP images
-  # are SHA-stamped in chart values.yaml). Operators may opt-OUT via
-  # SANDBOX_ENABLED=false on the per-Sovereign overlay's substitute
-  # map. The chart's own values.enabled default remains false (defence
-  # in depth — a stale per-Sovereign overlay that hand-installs the
-  # HR without our envsubst layer still default-OFFs gracefully).
-  - 19a-bp-sandbox.yaml
+  # bp-sandbox (slot 19a) — RETIRED 2026-07-15 (#5114, Refs #3988). The
+  # founder REMOVED the Sandbox concept 2026-06-30 (CLAUDE.md Pillar-4
+  # note): the per-Org agent workspace is bp-agenity (products/agenity)
+  # and the agent tool surface is bp-openova-mcp (slot 13d above) — the
+  # RBAC-scoped thin facade that replaces the Sandbox-module MCP/pages
+  # per #3988. This slot had shipped the sandbox-controller (Sandbox CRs
+  # → per-Sandbox pty-server/MCP manifests) default-ON on every fresh
+  # prov since Wave 11 — installing a dead concept. Slot file deleted;
+  # placement.yaml + scripts/expected-bootstrap-deps.yaml rows removed in
+  # lockstep. products/sandbox/ source + the bp-sandbox catalog-seed
+  # entry + core/controllers/sandbox remain in-tree (LEGACY; removal is
+  # separate scope — see #5114 checklist). The 19a slot NUMBER stays
+  # tombstoned (never reuse; the cutover chart's additionalHRs still
+  # names the old slotFile until its own next roll — the step-07
+  # pivot_extra_hr is get-or-skip, so the dangling entry is a no-op).
   # 06a — Post-handover Self-Sovereignty Cutover (issue #791). Filename
   # carries the 06a prefix to colocate cohorts visually, but the slot's
   # dependsOn pins actual install order to AFTER bp-gitea (slot 10) and
@@ -332,12 +330,10 @@ resources:
   # this slot registers a live Flux source so per-TENANT vClusters can
   # be spawned by the Organization controller at runtime). Default-ON.
   - 60-bp-vcluster-helmrepo.yaml
-  # bp-sandbox MOVED 2026-05-18 (Wave 11 convergence fix) from slot 61
-  # to slot 19a (above, after bp-harbor) to break a chicken-and-egg
-  # cycle with harbor.<sov-fqdn> chart pulls during bootstrap. See the
-  # slot-19a comment block + 19a-bp-sandbox.yaml header for full
-  # diagnostic chain. No functional difference for operators — the
-  # SANDBOX_ENABLED knob still gates rendering identically.
+  # bp-sandbox (slot 61 → 19a, Wave 11) — RETIRED 2026-07-15 (#5114,
+  # Refs #3988): the Sandbox concept was removed by the founder
+  # 2026-06-30. See the slot-19a tombstone block above; superseded by
+  # bp-openova-mcp (slot 13d) + bp-agenity.
   # bp-continuum (slot 62) — Pillar-3 unblock (#2065, TBD-V14). DR
   # orchestrator for active-hot-standby Applications. Reconciles
   # Continuum.dr.openova.io/v1 CRs; executes switchover sequence
