@@ -1,0 +1,35 @@
+{{- /*
+Optional chepherd attach (#3988 §4.4 — recorded DEVIATION).
+
+The #3988 design packages bp-openova-mcp as a chepherd-DEPENDENT app
+(`dependsOn bp-chepherd`), but NO bp-chepherd blueprint/slot exists in
+this kit today — the chepherd runtime ships bundled inside the agenity
+image instead (products/agenity). The dependency is therefore an OPTIONAL
+values-gated seam and the chart is standalone-capable in sovereign mode.
+
+When enabled, this ConfigMap carries the exact mcpServers stanza a
+chepherd deployment feeds into CHEPHERD_EXTRA_MCP_JSON (the chepherd #4010
+seam agenity already uses) so every spawned agent discovers this MCP over
+streamable-HTTP. The bearer is NOT here — agents present the caller's
+session bearer per call (Authorization header / _auth.token), preserving
+the per-user RBAC contract.
+*/ -}}
+{{- if .Values.chepherd.attach.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openova-mcp.fullname" . }}-chepherd-attach
+  labels:
+    {{- include "openova-mcp.labels" . | nindent 4 }}
+    catalyst.openova.io/component: openova-mcp-chepherd-attach
+data:
+  mcp.json: |
+    {
+      "mcpServers": {
+        "openova": {
+          "type": "http",
+          "url": {{ include "openova-mcp.mcpUrl" . | quote }}
+        }
+      }
+    }
+{{- end }}

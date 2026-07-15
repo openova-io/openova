@@ -1,0 +1,117 @@
+{{- /*
+The OpenOva MCP server Deployment (#5114, Refs #3988) — one stateless
+replica serving the streamable-HTTP transport (OPENOVA_MCP_LISTEN). Every
+knob is a values→env passthrough of the binary's REAL env contract
+(products/openova-mcp/cmd/openova-mcp/main.go) — nothing here names an env
+the binary does not read.
+
+Secret refs are optional:true (#4228 lesson): the rs256 pubkey Secret
+(catalyst-handover-jwt) lives in catalyst-system — present for the
+sovereign-mode slot install, absent on an Org install — and a non-optional
+ref would wedge the pod at CreateContainerConfigError. Absent → the env is
+unset and the binary falls back to its inherited process env.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openova-mcp.fullname" . }}
+  labels:
+    {{- include "openova-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "openova-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openova-mcp.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "openova-mcp.serviceAccountName" . }}
+      # The server reads NOTHING from the Kubernetes API — no token mount.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: openova-mcp
+          image: {{ include "openova-mcp.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: OPENOVA_MCP_LISTEN
+              value: {{ .Values.listen | quote }}
+            - name: OPENOVA_MCP_CONTEXT
+              value: {{ .Values.mode | quote }}
+            {{- with (include "openova-mcp.catalystApiUrl" .) }}
+            - name: OPENOVA_MCP_CATALYST_API_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if eq .Values.mode "organization" }}
+            {{- with .Values.organization.tenantHost }}
+            - name: OPENOVA_MCP_TENANT_HOST
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.organization.orgSlug }}
+            - name: OPENOVA_MCP_ORG_SCOPE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            - name: OPENOVA_MCP_VERIFY
+              value: {{ .Values.auth.verify | quote }}
+            {{- with .Values.auth.expectedIssuer }}
+            - name: OPENOVA_MCP_EXPECTED_ISSUER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if and (eq .Values.auth.verify "rs256") .Values.auth.rs256PubkeySecret.name }}
+            - name: OPENOVA_MCP_RS256_PUBKEY_PEM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.rs256PubkeySecret.name }}
+                  key: {{ .Values.auth.rs256PubkeySecret.key }}
+                  # optional — see file header (#4228 lesson).
+                  optional: true
+            {{- end }}
+            {{- if and (eq .Values.auth.verify "hs256") .Values.auth.hs256Secret.name }}
+            - name: OPENOVA_MCP_HS256_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.hs256Secret.name }}
+                  key: {{ .Values.auth.hs256Secret.key }}
+                  optional: true
+            {{- end }}
+            {{- if .Values.auth.bearerSecret.name }}
+            - name: OPENOVA_MCP_BEARER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.bearerSecret.name }}
+                  key: {{ .Values.auth.bearerSecret.key }}
+                  optional: true
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

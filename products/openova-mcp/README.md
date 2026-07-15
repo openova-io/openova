@@ -72,6 +72,23 @@ ships:
 | `OPENOVA_MCP_RS256_PUBKEY_PEM` | PEM of the RS256 public key (Sovereign handover-jwt pubkey) when verify=rs256 |
 | `OPENOVA_MCP_HS256_SECRET` | HS256 shared secret when verify=hs256 |
 | `OPENOVA_MCP_BEARER` | fallback bearer when a `tools/call` omits the `_auth.token` argument |
+| `OPENOVA_MCP_EXPECTED_ISSUER` | optional exact `iss` claim pin — the instance-level trusted-realm boundary (#3988 §4.3) |
+| `OPENOVA_MCP_ORG_SCOPE` | optional Org slug pin for a per-Org instance — a token minted for a different Org is rejected outright |
+| `OPENOVA_MCP_LISTEN` | optional listen address (e.g. `:8080`) — serves the **streamable-HTTP transport** (`POST /mcp` with `Authorization: Bearer`, `GET /healthz`, `GET /readyz`) instead of stdio (#5114) |
+
+## Install path (bp-openova-mcp)
+
+`chart/` + `blueprint.yaml` (#5114, Refs #3988) package the standalone
+Service instance: Deployment (HTTP transport) + ClusterIP Service +
+Gateway-API HTTPRoute (`mcp.<sovereign-fqdn>`; never a Traefik Ingress,
+never a NodePort) + a zero-RBAC ServiceAccount (the facade reads nothing
+from the k8s API). The sovereign-mode instance installs on every fresh
+prov via bootstrap-kit slot 13d; `mode=organization` values pin a per-Org
+instance. See `chart/DESIGN.md` for the topology table + recorded
+deviations from the #3988 design. The standalone image is
+`ghcr.io/openova-io/openova-mcp` (`Containerfile`,
+`.github/workflows/build-openova-mcp.yaml`); the agenity image continues
+to bundle the same binary as its stdio child.
 
 ## Live-acceptance (hw173)
 
@@ -91,10 +108,14 @@ See the walk evidence on issue #3988.
 Per #3988 §5, the following are explicitly out of this slice and tracked as
 follow-ups:
 
-- **Agenity integration** — the `bp-openova-mcp dependsOn bp-agenity`
-  Blueprint chart, the `openovaMCP.*` repoint, the `.mcp.json` injection.
-- **HTTP/SSE transport** — this slice uses stdio; the long-lived
-  per-Org/per-Sovereign Service needs streamable-HTTP/SSE + stable DNS.
+- ~~**HTTP transport**~~ — SHIPPED (#5114): `OPENOVA_MCP_LISTEN` serves
+  streamable-HTTP (`POST /mcp` + health endpoints); server-initiated SSE
+  streams (`GET /mcp`) remain a follow-up (design doc O4).
+- ~~**The install path**~~ — SHIPPED (#5114): `chart/` + `blueprint.yaml`
+  + bootstrap-kit slot 13d (sovereign mode). Still follow-ups: per-Org
+  auto-install via the org pipeline; the chepherd attach stays a
+  values-gated seam until a bp-chepherd Blueprint exists (#3988 §4.4
+  deviation).
 - **Per-realm JWKS validation** — this slice verifies against a single
   RS256/HS256 key; the full per-realm JWKS cache (Org realm vs Sovereign
   realm) is the production identity path.

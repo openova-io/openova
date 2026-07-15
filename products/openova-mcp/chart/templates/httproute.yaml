@@ -1,0 +1,41 @@
+{{- /*
+Gateway-API HTTPRoute — the ONLY external door to the MCP (never a Traefik
+Ingress in a product chart; never a NodePort, §854).
+
+The sovereign-mode host (mcp.<sovereign-fqdn>) parents to the canonical
+Sovereign Gateway kube-system/cilium-gateway (the same parent every
+control-plane HTTPRoute attaches to — TBD-G6/C12-004: a non-existent
+parent renders Accepted=False and the host 404s). A per-Org install
+(mcp.<slug>.<pool>) overrides parentRef to the console gateway
+(cilium-gateway-console, #4054 console isolation).
+
+Fail-closed (Inviolable #4): no resolvable hostname → NO route (never a
+wrong-host default). The MCP endpoint itself enforces per-call bearer auth
+(unauthenticated tools/list = empty surface; every call re-authorized), so
+the route carries no auth gate of its own — parity with the catalyst-api
+/api/v1/* routes on the same gateway.
+*/ -}}
+{{- $host := include "openova-mcp.hostname" . -}}
+{{- if and .Values.httpRoute.enabled $host }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "openova-mcp.fullname" . }}
+  labels:
+    {{- include "openova-mcp.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.httpRoute.parentRef.name }}
+      namespace: {{ .Values.httpRoute.parentRef.namespace }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    # /mcp (the JSON-RPC endpoint) + /healthz + /readyz → the Service.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "openova-mcp.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

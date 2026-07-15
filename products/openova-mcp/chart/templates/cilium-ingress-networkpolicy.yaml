@@ -1,0 +1,46 @@
+{{- /*
+Gateway-ingress admit — the Cilium Gateway path to the MCP is DEAD without
+this CNP: once the HTTPRoute attaches mcp.<fqdn>, external hits reach the
+backend with the reserved `ingress` ENTITY identity (the Envoy proxy
+embedded in the cilium agent), which NO K8s NetworkPolicy selector
+(podSelector / namespaceSelector / ipBlock) can express — every external
+hit returns envoy 503 "upstream connect error" under a default-deny
+posture (#3374 / #3785 / #4180, the identical trap in bp-agenity /
+bp-newapi / bp-wordpress-tenant).
+
+`cluster` additionally admits in-cluster callers (agenity/chepherd-hosted
+agents in other namespaces dialing the ClusterIP Service) under the slot
+26b per-component default-deny.
+
+CNP allow-sets UNION with any K8s NetworkPolicy on the same pod, so this
+only opens the gateway/cluster → MCP hop. Gated on the cilium.io/v2
+Capabilities check (the #2988/#3102 idiom) so the chart still installs on
+CRD-less clusters (kind CI).
+*/ -}}
+{{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- if or .Values.networkPolicy.ingress.allowGatewayEntity .Values.networkPolicy.ingress.allowClusterEntity }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "openova-mcp.fullname" . }}-ingress
+  labels:
+    {{- include "openova-mcp.labels" . | nindent 4 }}
+    catalyst.openova.io/component: openova-mcp-ingress-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "openova-mcp.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEntities:
+        {{- if .Values.networkPolicy.ingress.allowGatewayEntity }}
+        - ingress
+        {{- end }}
+        {{- if .Values.networkPolicy.ingress.allowClusterEntity }}
+        - cluster
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.port | quote }}
+              protocol: TCP
+{{- end }}
+{{- end }}
