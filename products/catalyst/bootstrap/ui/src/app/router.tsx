@@ -310,9 +310,30 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
   // ping-ponging console → KC → console → KC. The guard is cleared by
   // AuthCallbackPage on a successful exchange.
   if (await attemptSilentSovereignSSO()) {
-    // Navigation is being handed to Keycloak via window.location.replace
-    // inside initiateLogin — block this route resolution.
-    throw redirect({ to: canonical as never, replace: true })
+    // Navigation has been handed to Keycloak via window.location.replace
+    // inside initiateLogin. Do NOT throw a router redirect here: TanStack
+    // would commit a same-document history navigation, and Chromium
+    // cancels any in-flight provisional document navigation the moment
+    // the renderer commits a same-document one — the KC round-trip died
+    // with net::ERR_ABORTED before ever leaving the page, the gate
+    // re-ran, saw the one-shot guard, and dumped even LIVE-session
+    // visitors on /login?next=… (#3374 row 29 — reproduced live on hw255,
+    // wire trace: whoami 401 → authorize?prompt=none issued → same-doc
+    // NAV → authorize ERR_ABORTED → /login). Instead, PARK this route
+    // resolution while the document unloads to Keycloak. Safety net: if
+    // the KC navigation somehow fails to commit (auth host unreachable),
+    // fall back to /login after a grace period rather than hanging a
+    // blank tab forever.
+    await new Promise((resolve) => setTimeout(resolve, SILENT_SSO_NAV_GRACE_MS))
+    // Still executing → the document navigation to Keycloak never
+    // committed, so no KC round-trip actually happened. Clear the
+    // one-shot guard to re-arm a later silent attempt, then fall through
+    // to the explicit /login redirect below.
+    try {
+      sessionStorage.removeItem(SILENT_SSO_GUARD_KEY)
+    } catch {
+      /* private browsing may throw */
+    }
   }
   // Silent SSO not possible (already attempted this cycle, or no FQDN) —
   // fall back to the explicit /login. Sanitize the `next` so we can never
@@ -348,6 +369,17 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
  * successful token exchange (so a later genuine expiry re-arms silent SSO).
  */
 export const SILENT_SSO_GUARD_KEY = 'catalyst:silent-sso-attempted'
+
+/**
+ * How long rootBeforeLoad stays parked after handing navigation to
+ * Keycloak before concluding the document navigation failed to commit
+ * (e.g. auth host unreachable) and falling back to /login. In the happy
+ * path the page unloads to Keycloak within a few hundred ms and this
+ * timer never fires. Generous on purpose: a premature fallback would
+ * commit a same-document navigation, which cancels the in-flight KC
+ * navigation (the exact #3374 row-29 defect this guards against).
+ */
+export const SILENT_SSO_NAV_GRACE_MS = 8000
 
 async function attemptSilentSovereignSSO(): Promise<boolean> {
   if (typeof window === 'undefined') return false
