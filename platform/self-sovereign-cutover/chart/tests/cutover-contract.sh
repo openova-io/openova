@@ -2309,8 +2309,17 @@ done
 _c56="$TMP/rollset56"; mkdir -p "$_c56/bin" "$_c56/work"
 helm template smoke . --show-only templates/08-egress-block-test-job.yaml > "$TMP/r08c56.yaml"
 _slice_fn "$TMP/r08c56.yaml" run_fresh_pull_all | sed 's#/work/#'"$_c56"'/work/#g' > "$_c56/sweep.sh"
+# run_fresh_pull_all now calls the #5091 rule-c detector — slice + source it too
+# so the real (both-functions-present) environment is reproduced. The Case-56
+# mock kubectl returns no PVCs for these fixtures, so rule c finds nothing to
+# skip and the roll-set behaviour asserted below is unchanged (Case 57 exercises
+# rule c's skip path against RWO-EVS fixtures).
+_slice_fn "$TMP/r08c56.yaml" workload_rwo_evs_reason > "$_c56/rwo.sh"
 if ! grep -q 'run_fresh_pull_all() {' "$_c56/sweep.sh"; then
   echo "FAIL: could not slice run_fresh_pull_all from step-08 (#5074)" >&2; exit 1
+fi
+if ! grep -q 'workload_rwo_evs_reason() {' "$_c56/rwo.sh"; then
+  echo "FAIL: could not slice workload_rwo_evs_reason from step-08 (#5074 / #5091)" >&2; exit 1
 fi
 cat > "$_c56/bin/kubectl" <<'MOCK'
 #!/bin/sh
@@ -2355,6 +2364,7 @@ _run56() { # $1 = FRESH_PULL_ROLL_SET_MODE
     export FRESH_PULL_INFRA_ALLOWLIST=""
     export FRESH_PULL_MIN_REPS_PER_REGION="12"
     export FRESH_PULL_REPRESENTATIVE_NAMESPACES="flux-system gitea harbor keycloak grafana"
+    . "$_c56/rwo.sh"
     . "$_c56/sweep.sh"
     roll_and_check_workload() { echo "ROLLED $1 $2/$3"; return 0; }
     : > "$_c56/work/roll_failures.txt"
@@ -2382,6 +2392,154 @@ done
 grep -qF 'ROLLED deployment flux-system/source-controller' <<<"$_full_out" \
   && { printf 'FAIL: full (legacy) mode rolled a LOCAL-registry-ref workload — legacy external-only selection changed; output:\n%s\n' "$_full_out" >&2; exit 1; }
 echo "  PASS (minimal: infra-ns DaemonSets + non-allowlisted infra workloads excluded by rule, representative sample rolled incl. Deployment top-up; full: legacy external-registry sweep byte-identical)"
+
+# ── Case 59 (#5091 Refs #5081 #4975): step-08 roll-set RULE C ───────────────
+# The #5081 minimal roll-set (rule a/b) still selected deployment/gitea — a
+# REPRESENTATIVE-namespace stateful RWO-EVS singleton — and force-rolled it under
+# the deny-egress hold, tripping the unrecoverable CSI NodeStage/VolumeAttachment
+# desync (globalmount missing) → ROLL_FAIL → step-08 fails forever (live hw253).
+# rule c must SKIP any Deployment/StatefulSet mounting an RWO PVC backed by EVS
+# (storageClass in rwoEvsExclusion.storageClasses OR bound-PV CSI driver in
+# rwoEvsExclusion.csiDrivers) while STILL rolling stateless representatives. The
+# ≥minRepresentativesPerRegion floor stays met from the stateless pool (rule c
+# filters candidates BEFORE the representative selection AND the Deployment
+# top-up, so the top-up draws only stateless workloads).
+echo "[cutover-contract] Case 59: step-08 rule c — a stateful RWO-EVS singleton (gitea evs-ssd / keycloak-postgresql evs.csi driver) is SKIPPED; stateless representatives still roll; floor met from the stateless pool (#5091 Refs #5081 #4975)"
+# Static: the rule-c knobs must reach the Job env with the new defaults.
+if ! grep -A1 'name: FRESH_PULL_RWO_EVS_EXCLUDE' "$TMP/render.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: freshPullProof.rwoEvsExclusion.enabled default must be true (#5091)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: FRESH_PULL_RWO_EVS_STORAGECLASSES' "$TMP/render.yaml" | grep -q 'evs-ssd'; then
+  echo "FAIL: FRESH_PULL_RWO_EVS_STORAGECLASSES default must carry evs-ssd (#5091)" >&2
+  exit 1
+fi
+if ! grep -A1 'name: FRESH_PULL_RWO_EVS_CSIDRIVERS' "$TMP/render.yaml" | grep -q 'evs.csi.huaweicloud.com'; then
+  echo "FAIL: FRESH_PULL_RWO_EVS_CSIDRIVERS default must carry evs.csi.huaweicloud.com (#5091)" >&2
+  exit 1
+fi
+# RBAC: rule c reads PVCs (accessModes/storageClass) + bound PVs (csi.driver).
+if ! grep -q 'resources: \["persistentvolumes"\]' "$TMP/render.yaml"; then
+  echo "FAIL: rule c needs persistentvolumes get/list in the runner ClusterRole (#5091)" >&2
+  exit 1
+fi
+# Behavioral: slice run_fresh_pull_all + the rule-c detector, stub
+# roll_and_check_workload, mock kubectl (enumeration + per-candidate PVC/PV
+# lookups). Fixture: representative-ns workloads gitea (RWO evs-ssd → skip via
+# storageClass leg) + keycloak-postgresql (RWO, empty SC, bound-PV driver
+# evs.csi.huaweicloud.com → skip via driver leg); stateless source-controller /
+# harbor-core (representative ns, no PVC → roll) + orgapp/web (top-up → roll).
+_c59="$TMP/rollset59"; mkdir -p "$_c59/bin" "$_c59/work"
+helm template smoke . --show-only templates/08-egress-block-test-job.yaml > "$TMP/r08c59.yaml"
+_slice_fn "$TMP/r08c59.yaml" run_fresh_pull_all | sed 's#/work/#'"$_c59"'/work/#g' > "$_c59/sweep.sh"
+_slice_fn "$TMP/r08c59.yaml" workload_rwo_evs_reason > "$_c59/rwo.sh"
+if ! grep -q 'run_fresh_pull_all() {' "$_c59/sweep.sh"; then
+  echo "FAIL: could not slice run_fresh_pull_all from step-08 (#5091)" >&2; exit 1
+fi
+if ! grep -q 'workload_rwo_evs_reason() {' "$_c59/rwo.sh"; then
+  echo "FAIL: could not slice workload_rwo_evs_reason from step-08 (#5091)" >&2; exit 1
+fi
+cat > "$_c59/bin/kubectl" <<'MOCK'
+#!/bin/sh
+# $1 is always "get".
+case "$2" in nodes) printf 'af-north-1\n'; exit 0 ;; esac
+if [ "$3" = "-A" ]; then
+  case "$2" in
+    deployments)
+      printf 'deployment gitea gitea=registry.t99.omani.works/proxy-ghcr/go-gitea/gitea:1.22 \n'
+      printf 'deployment flux-system source-controller=registry.t99.omani.works/proxy-ghcr/fluxcd/source-controller:v1.3 \n'
+      printf 'deployment harbor harbor-core=registry.t99.omani.works/proxy-dockerhub/goharbor/harbor-core:v2.11 \n'
+      printf 'deployment orgapp web=registry.t99.omani.works/proxy-dockerhub/library/nginx:1.27 \n'
+      ;;
+    statefulsets)
+      printf 'statefulset keycloak keycloak-postgresql=registry.t99.omani.works/proxy-dockerhub/bitnami/postgresql:16 \n'
+      ;;
+    daemonsets) : ;;
+  esac
+  exit 0
+fi
+# rule-c per-candidate lookups.
+case "$2" in
+  deployment|statefulset)
+    # get <kind> <name> -n <ns> -o jsonpath=...volumes... → claimName lines.
+    _name="$3"; _ns="$5"
+    case "${_ns}/${_name}" in
+      gitea/gitea)                     printf 'gitea-shared-storage\n' ;;
+      keycloak/keycloak-postgresql)    printf 'data-keycloak-postgresql\n' ;;
+      *) : ;;  # stateless — no PVC-backed volumes
+    esac
+    exit 0 ;;
+  pvc)
+    _name="$3"
+    case "${_name}" in
+      gitea-shared-storage)            printf '{"spec":{"accessModes":["ReadWriteOnce"],"storageClassName":"evs-ssd","volumeName":"pv-gitea"}}\n' ;;
+      data-keycloak-postgresql)        printf '{"spec":{"accessModes":["ReadWriteOnce"],"storageClassName":"","volumeName":"pv-kc-pg"}}\n' ;;
+      *) : ;;
+    esac
+    exit 0 ;;
+  pv)
+    _name="$3"
+    case "${_name}" in
+      pv-gitea|pv-kc-pg)               printf 'evs.csi.huaweicloud.com' ;;
+      *) : ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+MOCK
+chmod +x "$_c59/bin/kubectl"
+_run59() { # $1 = FRESH_PULL_RWO_EVS_EXCLUDE
+  ( set +e; set -u
+    export PATH="$_c59/bin:$PATH"
+    export FRESH_PULL_ROLL_SET_MODE="minimal"
+    export FRESH_PULL_RWO_EVS_EXCLUDE="$1"
+    export FRESH_PULL_RWO_EVS_STORAGECLASSES="evs-ssd"
+    export FRESH_PULL_RWO_EVS_CSIDRIVERS="evs.csi.huaweicloud.com"
+    export LOCAL_REGISTRY_SUBSTR="registry.t99.omani.works"
+    export FRESH_PULL_EXCLUDE="catalyst-api"
+    export EXCLUDED_HOSTS="xpkg.upbound.io"
+    export EXCLUDED_SUBSTRINGS="rancher/k3s loft-sh/vcluster"
+    export FRESH_PULL_EXCLUDE_WORKLOADS="catalyst/registry-pivot"
+    export FRESH_PULL_INFRA_NAMESPACES="kube-system huawei-evs-csi catalyst"
+    export FRESH_PULL_INFRA_ALLOWLIST=""
+    export FRESH_PULL_MIN_REPS_PER_REGION="12"
+    export FRESH_PULL_REPRESENTATIVE_NAMESPACES="flux-system gitea harbor keycloak grafana"
+    . "$_c59/rwo.sh"
+    . "$_c59/sweep.sh"
+    roll_and_check_workload() { echo "ROLLED $1 $2/$3"; return 0; }
+    : > "$_c59/work/roll_failures.txt"
+    run_fresh_pull_all; echo "RC=$?" )
+}
+# (i) exclusion ON (the fix) — RWO-EVS singletons skipped, stateless rolled.
+_on_out=$(_run59 true)
+grep -q 'RC=0' <<<"$_on_out" || { printf 'FAIL: rule-c sweep did not PASS; output:\n%s\n' "$_on_out" >&2; exit 1; }
+# gitea (storageClass leg) + keycloak-postgresql (bound-PV driver leg) SKIPPED by rule c.
+grep 'skip (rule c: RWO-EVS stateful singleton' <<<"$_on_out" | grep -q 'deployment gitea/gitea' \
+  || { printf 'FAIL: rule c did not skip the RWO-EVS gitea Deployment (storageClass leg); output:\n%s\n' "$_on_out" >&2; exit 1; }
+grep 'skip (rule c: RWO-EVS stateful singleton' <<<"$_on_out" | grep -q 'statefulset keycloak/keycloak-postgresql' \
+  || { printf 'FAIL: rule c did not skip the RWO-EVS keycloak-postgresql StatefulSet (bound-PV driver leg); output:\n%s\n' "$_on_out" >&2; exit 1; }
+grep -q 'gitea-shared-storage sc=evs-ssd' <<<"$_on_out" \
+  || { printf 'FAIL: rule-c skip line did not name the offending claim/storageClass; output:\n%s\n' "$_on_out" >&2; exit 1; }
+grep -q 'data-keycloak-postgresql sc=<none> driver=evs.csi.huaweicloud.com' <<<"$_on_out" \
+  || { printf 'FAIL: rule-c skip line did not name the bound-PV CSI driver; output:\n%s\n' "$_on_out" >&2; exit 1; }
+# The RWO-EVS singletons must NEVER be rolled.
+for _never in 'ROLLED deployment gitea/gitea' 'ROLLED statefulset keycloak/keycloak-postgresql'; do
+  grep -qF "$_never" <<<"$_on_out" && { printf 'FAIL: rule c let an RWO-EVS stateful singleton roll (%s) — the #5091 desync would re-fire; output:\n%s\n' "$_never" "$_on_out" >&2; exit 1; }
+done
+# Stateless representatives + the Deployment top-up STILL roll (floor met from the
+# stateless pool — the RWO-EVS singletons were removed from the candidate universe
+# BEFORE selection/top-up, never re-added).
+for _want in 'ROLLED deployment flux-system/source-controller' 'ROLLED deployment harbor/harbor-core' 'ROLLED deployment orgapp/web'; do
+  grep -qF "$_want" <<<"$_on_out" || { printf 'FAIL: rule c dropped a STATELESS representative that must still roll (%s); output:\n%s\n' "$_want" "$_on_out" >&2; exit 1; }
+done
+# (ii) exclusion OFF — the toggle reverts to the pre-#5091 behaviour: the RWO-EVS
+# gitea is force-rolled again (proves rule c is exactly what skips it).
+_off_out=$(_run59 false)
+grep -qF 'ROLLED deployment gitea/gitea' <<<"$_off_out" \
+  || { printf 'FAIL: with rwoEvsExclusion off, gitea should roll (pre-#5091 behaviour) — the toggle is inert; output:\n%s\n' "$_off_out" >&2; exit 1; }
+grep -q 'skip (rule c' <<<"$_off_out" \
+  && { printf 'FAIL: rule c fired while FRESH_PULL_RWO_EVS_EXCLUDE=false — the switch does not gate it; output:\n%s\n' "$_off_out" >&2; exit 1; }
+echo "  PASS (rule c skips gitea [evs-ssd] + keycloak-postgresql [evs.csi driver], names the offending claim; stateless source-controller/harbor-core/web still roll; toggle-off reverts to force-roll)"
 
 # ── Case 57 (#5007 round 3): step-03 pins registry.<fqdn> to the gateway ClusterIP
 # via a coredns-custom override (the hardened non-root pod can't write /etc/hosts) ─

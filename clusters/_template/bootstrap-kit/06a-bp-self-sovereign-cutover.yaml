@@ -875,7 +875,16 @@ spec:
       # warmed version (deployed 1.4.1121) diverged from the flux pin step-06
       # checks (1.4.1120) → step-06 wedge; chart_fail>0 stays the fail-loud guard.
       # Cases 57/58. Facet B (step-04 ELB-direct node pin) was closed in 0.1.129.
-      version: 0.1.134
+      # 0.1.135 (#5091 Refs #5081 #4975): step-08 minimal roll-set RULE C — never
+      # force-roll a stateful RWO-EVS singleton (e.g. deployment/gitea, gitea-shared-
+      # storage evs-ssd) under the deny-egress hold; its NodeUnstage removed the CSI
+      # globalmount while the VolumeAttachment persisted, NodeStage never re-fired and
+      # the replacement pod hung Init:0/3 past the 600s roll budget (live hw253). Rule c
+      # skips any Deployment/StatefulSet mounting an RWO PVC backed by EVS
+      # (freshPullProof.rwoEvsExclusion) BEFORE representative selection + Deployment
+      # top-up; locality already proven by the #4975 completeness gate + #5026 ref-host
+      # lint, so no image-proof value lost. Contract Case 59.
+      version: 0.1.135
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

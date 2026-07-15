@@ -130,7 +130,10 @@ rules:
     resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap; step 07 (#4996) reads node EVS zone labels to spot a broken-CSI node
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["persistentvolumeclaims"]   # step 07 (#4996) maps catalyst-api's PVCs -> PV names to scope the EVS detach-gate to catalyst-api's OWN volumes
+    resources: ["persistentvolumeclaims"]   # step 07 (#4996) maps catalyst-api's PVCs -> PV names to scope the EVS detach-gate to catalyst-api's OWN volumes; step 08 (#5091) rule-c reads each roll candidate's PVC accessModes + storageClassName to skip RWO-EVS stateful singletons
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]   # step 08 (#5091) rule-c resolves a candidate PVC's BOUND PV to read .spec.csi.driver (the storageClass-independent EVS-detection leg, so a PVC with an empty storageClassName is still caught)
     verbs: ["get", "list"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["volumeattachments"]   # step 07 (#4996) enumerates VolumeAttachments to find + clear the STALE RWO-EVS attachment that Multi-Attach-deadlocks a Recreate roll (#4972)
