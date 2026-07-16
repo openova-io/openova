@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-16T14:45:04Z` |
+| Last refreshed | `2026-07-16T15:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-16T14:49 | [#5146](https://github.com/openova-io/openova/pull/5146) | #5142 | fix(openbao): continuous unseal reconciler — survive region- |
 | 2026-07-16T13:07 | [#5141](https://github.com/openova-io/openova/pull/5141) | #5140 | fix(catalyst-api): Agenity sandbox sessions degrade to 503 o |
 | 2026-07-16T13:03 | [#5139](https://github.com/openova-io/openova/pull/5139) | #3 | docs(uat): hw261 funnel walk evidence — Pillars 1+2 live |
 | 2026-07-16T09:34 | [#5138](https://github.com/openova-io/openova/pull/5138) | #5134 | docs(uat): G12 region-kill Pillar-3 PASS on hw261 — zero-tx- |
@@ -265,7 +266,6 @@ flowchart LR
 | 2026-07-15T08:31 | [#5097](https://github.com/openova-io/openova/pull/5097) | #5019 | fix(jobs): surface the 65 bootstrap-kit install rows on /job |
 | 2026-07-15T08:31 | [#5096](https://github.com/openova-io/openova/pull/5096) | #4683 | fix(catalyst-api): sovereign-admin fleet visibility on /sove |
 | 2026-07-15T08:31 | [#5094](https://github.com/openova-io/openova/pull/5094) | #4901 | fix(continuum): cnpg-pair Continuum CR surfaces standby-abse |
-| 2026-07-15T03:47 | [#5092](https://github.com/openova-io/openova/pull/5092) | #5081 | fix(cutover): step-08 rule c — never roll stateful RWO-EVS s |
 
 ---
 
