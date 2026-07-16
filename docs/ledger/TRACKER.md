@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-16T01:30:04Z` |
+| Last refreshed | `2026-07-16T01:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 26 |
 | Open DoD gates | 0 / 41 |
@@ -233,6 +233,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-16T01:37 | [#5132](https://github.com/openova-io/openova/pull/5132) | #5131 | fix(catalyst-api): materialize chroot primary kubeconfig so  |
 | 2026-07-15T22:49 | [#5130](https://github.com/openova-io/openova/pull/5130) | #5127 | fix(cloud-init): collapse redundant reflector namespace list |
 | 2026-07-15T22:04 | [#5128](https://github.com/openova-io/openova/pull/5128) | #5121 | fix(openova-mcp): degrade-not-crash on absent rs256 pubkey [ |
 | 2026-07-15T20:04 | [#5127](https://github.com/openova-io/openova/pull/5127) | #5042 | fix(cloud-init): harden the bootstrap layer — retry k3s inst |
@@ -262,7 +263,6 @@ flowchart LR
 | 2026-07-15T03:09 | [#5087](https://github.com/openova-io/openova/pull/5087) | #5007 | fix(cutover): step-03 prewarm — in-cluster CoreDNS pin for r |
 | 2026-07-14T22:41 | [#5085](https://github.com/openova-io/openova/pull/5085) | #5082 | fix(cloudinit): repair #5082 build-failure — CP cloud-init b |
 | 2026-07-15T03:08 | [#5084](https://github.com/openova-io/openova/pull/5084) | #5042 | fix(catalyst-api): name a silent secondary-region flux-CRD-a |
-| 2026-07-14T20:33 | [#5083](https://github.com/openova-io/openova/pull/5083) | #5042 | fix(cloud-init): #5042 prevention — flux-install gated on se |
 
 ---
 
