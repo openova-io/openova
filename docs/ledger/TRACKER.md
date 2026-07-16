@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-16T13:00:06Z` |
+| Last refreshed | `2026-07-16T13:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-16T13:07 | [#5141](https://github.com/openova-io/openova/pull/5141) | #5140 | fix(catalyst-api): Agenity sandbox sessions degrade to 503 o |
+| 2026-07-16T13:03 | [#5139](https://github.com/openova-io/openova/pull/5139) | #3 | docs(uat): hw261 funnel walk evidence — Pillars 1+2 live |
 | 2026-07-16T09:34 | [#5138](https://github.com/openova-io/openova/pull/5138) | #5134 | docs(uat): G12 region-kill Pillar-3 PASS on hw261 — zero-tx- |
 | 2026-07-16T08:30 | [#5136](https://github.com/openova-io/openova/pull/5136) | #5135 | fix(catalyst-api): recover EVS-backstop creds from workdir t |
 | 2026-07-16T04:52 | [#5134](https://github.com/openova-io/openova/pull/5134) | #5133 | fix(bp-cnpg-pair): failover-readiness probe no longer false- |
@@ -264,8 +266,6 @@ flowchart LR
 | 2026-07-15T08:31 | [#5096](https://github.com/openova-io/openova/pull/5096) | #4683 | fix(catalyst-api): sovereign-admin fleet visibility on /sove |
 | 2026-07-15T08:31 | [#5094](https://github.com/openova-io/openova/pull/5094) | #4901 | fix(continuum): cnpg-pair Continuum CR surfaces standby-abse |
 | 2026-07-15T03:47 | [#5092](https://github.com/openova-io/openova/pull/5092) | #5081 | fix(cutover): step-08 rule c — never roll stateful RWO-EVS s |
-| 2026-07-15T08:31 | [#5090](https://github.com/openova-io/openova/pull/5090) | #5086 | fix(powerdns): Hetzner DNS front door via dnsdist hostPort:5 |
-| 2026-07-15T03:09 | [#5089](https://github.com/openova-io/openova/pull/5089) | #5088 | feat(kyverno-policies): §854 NodePort audit guard |
 
 ---
 
