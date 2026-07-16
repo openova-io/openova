@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.11 (#5133): FIX the failover-readiness probe false-negative that
+# blocked region-kill DR promotion (Pillar 3). Two defects in one probe:
+# (a) AUTH — it connected as `user=postgres`, but both Cluster CRs set
+# `enableSuperuserAccess: false`, so the psql auth FAILED on every poll →
+# `|| echo 999999` → the probe reported `lag=999999 … NOT promotable` on a
+# byte-caught-up SYNCHRONOUS standby and stayed 0/1 Ready forever (live on
+# hw260). It now authenticates as `streaming_replica` via the CNPG-issued
+# client cert (pg_hba `hostssl postgres streaming_replica all cert`),
+# mounting this replica cluster's own `<replica>-replication` + `<replica>-ca`
+# Secrets. (b) LAG MEASURE — the old `now() - pg_last_xact_replay_timestamp()`
+# is a replay-recency clock that grows unbounded on an idle-but-caught-up
+# standby (false lag) and returns NULL when nothing has been replayed. It now
+# compares `pg_last_wal_replay_lsn()` vs `pg_last_wal_receive_lsn()`: applied
+# == received → 0 lag (idle-safe AND region-kill-safe — the receiver freezes
+# when region-A dies and replay catches up → promotable, no dead-primary dep).
+# Only a genuinely-behind async standby falls through to a seconds-based apply
+# lag the `targetLagSeconds` threshold still gates. Probe now targets the
+# replica cluster's `-rw` Service (designated primary). Lockstep slot 16b pin →
+# 0.2.11. No resource-count change (volumes added to the existing Deployment).
 # 0.2.7 (#3829, #3375): default the Continuum CR's lease witness to
 # `k8s-lease` (a native coordination.k8s.io/v1 Lease in the control
 # plane — zero external dependency, durable etcd CAS) and DROP the
@@ -28,7 +47,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.10
+version: 0.2.11
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -68,6 +87,46 @@ description: |
 
   Changelog
   ─────────
+  0.2.11 (2026-07-16, failover-readiness false-negative fix — region-kill DR promotion, Refs #5133)
+    - FIX (Pillar-3 region-kill DR): the failover-readiness probe reported
+      `lag=999999s ≥ threshold=30s — NOT promotable` on a region-b replica
+      that was a byte-caught-up SYNCHRONOUS standby (pg_stat_replication on
+      the primary: state=streaming, sync_state=sync, empty replay_lag), so it
+      sat 0/1 Ready and a region-kill of region-a would NOT have promoted
+      region-b even though the replica was genuinely promotable. Caught live
+      on hw260 (dep 1e42924ea1656aac, 2026-07-16). TWO defects:
+        • AUTH (the always-firing cause of the 999999 sentinel): the probe
+          connected as `user=postgres`, but both Cluster CRs set
+          `enableSuperuserAccess: false`, so that superuser can NEVER
+          authenticate over TCP — every poll failed auth → `|| echo 999999`.
+          The probe now authenticates as `streaming_replica` via the
+          CNPG-issued client cert (CNPG default pg_hba
+          `hostssl postgres streaming_replica all cert`), mounting THIS replica
+          cluster's own `<replica>-replication` (tls.crt/tls.key) Secret (0440,
+          root:26 — the perms libpq requires for an sslkey) with sslmode=require.
+          Same streaming_replica-cert pattern the externalCluster streaming
+          connection already uses.
+        • LAG MEASURE: `now() - pg_last_xact_replay_timestamp()` is a
+          replay-recency clock, NOT a replication-lag measure — on a
+          caught-up standby of an idle primary it grows unbounded (false lag)
+          and returns NULL when no xact has been replayed. Replaced with an
+          LSN comparison: `pg_last_wal_replay_lsn() >= pg_last_wal_receive_lsn()`
+          → the standby applied everything it received → 0 lag. This is
+          idle-safe AND region-kill-safe (when region-a dies the WAL receiver
+          freezes and replay catches up to it → 0 → promotable, with no
+          dependency on the dead primary). A genuinely-behind async standby
+          (received > replayed) still falls through to a seconds-based apply
+          lag the `targetLagSeconds` threshold gates.
+    - The probe now targets the replica cluster's `-rw` Service (the
+      designated primary CNPG would promote) instead of `-r` (round-robin).
+    - Render-gate test (chart/tests/cnpg-pair-render.sh) Case 13 asserts the
+      probe authenticates as streaming_replica (NOT the disabled postgres
+      superuser), uses the LSN receive-vs-replay caught-up check, and mounts
+      the replication cert + CA.
+    - Default-OFF contract UNCHANGED: cnpgPair.enabled=false renders ZERO
+      resources on BOTH sides. Resource COUNTS unchanged (one Secret volume
+      added to the existing failover-readiness Deployment).
+
   0.2.6 (2026-06-24, cross-region replica streams from PRIMARY not a standby — RPO=0 completion, Refs #3740 / #3375)
     - FIX (Pillar-3 zero-tx-loss, the missing half of the 0.2.5 fix): the
       ClusterMesh replication-source Service (`-primary-mesh`, consumed by

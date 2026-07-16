@@ -605,4 +605,46 @@ if grep -q 'CiliumNetworkPolicy' "$TMP/replica.yaml"; then
   echo "FAIL: #4846 replica render WITHOUT crossRegionPeerClusters must emit ZERO CiliumNetworkPolicy." >&2; exit 1; fi
 echo "  PASS (1 CNP per side, identity In-list, no ipBlock; empty peers → zero CNP)"
 
+# ── Case 13: #5133 — failover-readiness probe auth + lag measure ─
+# The probe on hw260 reported `lag=999999 … NOT promotable` on a byte-caught-up
+# SYNCHRONOUS standby and stayed 0/1 Ready, which would block region-kill DR
+# promotion (Pillar 3). Root cause: it connected as the `postgres` superuser
+# (DISABLED by enableSuperuserAccess:false → auth fails → `|| echo 999999`
+# sentinel) and measured `now() - pg_last_xact_replay_timestamp()` (a
+# replay-recency clock that false-lags on an idle-but-caught-up standby). The
+# 0.2.11 probe authenticates as streaming_replica via the CNPG-issued client
+# cert and measures apply lag via LSN receive-vs-replay (idle- + region-kill-
+# safe). Assert the rendered side=replica probe on all four counts.
+echo "[render] Case 13: #5133 failover-readiness probe authenticates as streaming_replica + measures LSN apply-lag"
+# 1. Authenticates as streaming_replica — NEVER the disabled postgres superuser.
+grep -q 'user=streaming_replica' "$TMP/replica.yaml" || {
+  echo "FAIL: #5133 failover-readiness probe does not authenticate as streaming_replica." >&2
+  exit 1
+}
+if grep -q 'user=postgres' "$TMP/replica.yaml"; then
+  echo "FAIL: #5133 failover-readiness probe still connects as the postgres superuser — enableSuperuserAccess:false makes that auth fail on every poll (the 999999 sentinel root cause)." >&2
+  grep -nE 'user=postgres' "$TMP/replica.yaml" >&2
+  exit 1
+fi
+# 2. Idle-safe + region-kill-safe LSN apply-lag: replay_lsn caught up to
+#    receive_lsn → 0 (promotable), NOT the old clock-skew measure.
+grep -qF 'pg_last_wal_replay_lsn() >= pg_last_wal_receive_lsn()' "$TMP/replica.yaml" || {
+  echo "FAIL: #5133 failover-readiness probe missing the LSN receive-vs-replay caught-up check (a caught-up SYNCHRONOUS standby must read 0 lag → promotable)." >&2
+  grep -nE 'pg_last_wal' "$TMP/replica.yaml" >&2
+  exit 1
+}
+# 3. Mounts THIS replica cluster's own streaming_replica client cert Secret.
+grep -q 'secretName: smoke-cnpg-pair-bp-cnpg-pair-replica-replication' "$TMP/replica.yaml" || {
+  echo "FAIL: #5133 failover-readiness probe does not mount the <replica>-replication client cert Secret." >&2
+  exit 1
+}
+# 4. Targets the replica cluster's -rw Service (the designated primary CNPG
+#    would promote), not the round-robin -r endpoint.
+grep -q 'REPLICA_HOST="smoke-cnpg-pair-bp-cnpg-pair-replica-rw"' "$TMP/replica.yaml" || {
+  echo "FAIL: #5133 failover-readiness probe does not target the replica cluster's -rw (designated-primary) Service." >&2
+  grep -nE 'REPLICA_HOST=' "$TMP/replica.yaml" >&2
+  exit 1
+}
+echo "  PASS (streaming_replica cert auth, LSN apply-lag, -rw target)"
+
 echo "[render] All bp-cnpg-pair render gates green."
