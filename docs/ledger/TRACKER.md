@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-16T19:45:03Z` |
+| Last refreshed | `2026-07-16T20:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-16T19:47 | [#5148](https://github.com/openova-io/openova/pull/5148) | #5146 | fix(openbao): unseal-reconciler no-op'd on SEALED vault — ca |
+| 2026-07-16T19:48 | [#5147](https://github.com/openova-io/openova/pull/5147) | #5114 | fix(catalog): remove stale bp-sandbox Blueprint (removed San |
 | 2026-07-16T14:49 | [#5146](https://github.com/openova-io/openova/pull/5146) | #5142 | fix(openbao): continuous unseal reconciler — survive region- |
 | 2026-07-16T13:07 | [#5141](https://github.com/openova-io/openova/pull/5141) | #5140 | fix(catalyst-api): Agenity sandbox sessions degrade to 503 o |
 | 2026-07-16T13:03 | [#5139](https://github.com/openova-io/openova/pull/5139) | #3 | docs(uat): hw261 funnel walk evidence — Pillars 1+2 live |
@@ -264,8 +266,6 @@ flowchart LR
 | 2026-07-15T08:43 | [#5101](https://github.com/openova-io/openova/pull/5101) | #5099 | fix(#5099): fire script defaults SHARED_PG=true — explicit e |
 | 2026-07-15T08:31 | [#5098](https://github.com/openova-io/openova/pull/5098) | #4765 | fix(#4765): cross-namespace grant for the sovereign-vip VIP  |
 | 2026-07-15T08:31 | [#5097](https://github.com/openova-io/openova/pull/5097) | #5019 | fix(jobs): surface the 65 bootstrap-kit install rows on /job |
-| 2026-07-15T08:31 | [#5096](https://github.com/openova-io/openova/pull/5096) | #4683 | fix(catalyst-api): sovereign-admin fleet visibility on /sove |
-| 2026-07-15T08:31 | [#5094](https://github.com/openova-io/openova/pull/5094) | #4901 | fix(continuum): cnpg-pair Continuum CR surfaces standby-abse |
 
 ---
 
