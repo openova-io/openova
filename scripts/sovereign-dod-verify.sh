@@ -179,7 +179,7 @@ REQUIRED_HRS=(
     bp-opentelemetry bp-opentelemetry-operator
     bp-openova-flow-server bp-openova-flow-emitter
     bp-reloader bp-reflector bp-sealed-secrets bp-vpa
-    bp-guacamole bp-k8s-ws-proxy bp-sandbox
+    bp-guacamole bp-k8s-ws-proxy bp-openova-mcp
     bp-catalyst-platform bp-continuum
 )
 
