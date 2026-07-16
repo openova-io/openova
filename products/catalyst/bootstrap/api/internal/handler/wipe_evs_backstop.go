@@ -84,6 +84,47 @@ func (h *Handler) reapDeploymentEVSBackstop(ctx context.Context, reaper evsReape
 	return reaped
 }
 
+// applyWorkdirEVSCredsFallback fills the empty Huawei AK/SK/project_id/region
+// keys in the resolved wipe-creds map from the durable per-deployment
+// tofu.auto.tfvars.json — the #5135 fix. On the canonical body-less wipe after
+// a catalyst-api Pod roll, buildWipeCredsRaw yields empty access_key/secret_key
+// (dep.Request secrets don't survive a restart), which would make
+// huaweiSweepCredsFromRaw return ok=false and silently skip the #5028
+// post-destroy EVS backstop. This recovers the creds from disk (which tofu
+// destroy has not yet removed at call time) so the backstop still reaps this
+// dep's stranded CSI `pvc-*` volumes.
+//
+// Contract: no-op (returns false) for non-huawei providers, when AK+SK are
+// already present (body/request creds win — only empty keys are filled), or
+// when the workdir tfvars is missing/unparseable (honest skip, never a panic).
+// Returns true when at least one previously-empty key was filled, so the caller
+// can emit an observable progress line.
+func applyWorkdirEVSCredsFallback(providerName string, credsRaw map[string]string, workdir string) bool {
+	if credsRaw == nil || !strings.EqualFold(strings.TrimSpace(providerName), "huawei") {
+		return false
+	}
+	// Body/request already supplied the authenticating pair — nothing to fill.
+	if strings.TrimSpace(credsRaw["access_key"]) != "" && strings.TrimSpace(credsRaw["secret_key"]) != "" {
+		return false
+	}
+	hw, ok := loadHuaweiCredsFromTfvars(workdir)
+	if !ok {
+		return false
+	}
+	filled := false
+	fill := func(key, val string) {
+		if strings.TrimSpace(credsRaw[key]) == "" && strings.TrimSpace(val) != "" {
+			credsRaw[key] = val
+			filled = true
+		}
+	}
+	fill("access_key", hw.AccessKey)
+	fill("secret_key", hw.SecretKey)
+	fill("project_id", hw.ProjectID)
+	fill("region", hw.Region)
+	return filled
+}
+
 // huaweiSweepCredsFromRaw builds the sweep creds from the resolved wipe creds
 // map (buildWipeCredsRaw output). This is the reliable in-band source — the
 // per-deployment tfvars the janitor's discoverHuaweiCreds walks may already be
