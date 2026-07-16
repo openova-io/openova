@@ -3282,8 +3282,8 @@ func countFullyMeshedRegions(statuses []ClusterMeshStatus) int {
 // rehydrated record before PutKubeconfig stamped it — but the kubeconfig
 // FILE itself always survives on the PVC at `<kubeconfigsDir>/<id>.yaml`.
 //
-// Returns the resolved, stat-readable path and true. READ-ONLY by
-// design: it must NOT stamp the resolved path back onto
+// Returns the resolved, stat-readable path and true. READ-ONLY with respect
+// to dep.Result by design: it must NOT stamp the resolved path back onto
 // dep.Result.KubeconfigPath. Deployment.State() hands the *Result
 // pointer to writeJSON, which marshals it OUTSIDE dep.mu — a write
 // here from the mesh-reconcile goroutine (markPhase1Done →
@@ -3296,6 +3296,18 @@ func countFullyMeshedRegions(statuses []ClusterMeshStatus) int {
 // (PVC unmount / wipe race) or whose kubeconfigsDir is unset returns
 // ("", false) so the caller can warn-and-skip rather than spin a retry
 // budget against a phantom path.
+//
+// #5131 — chroot self-materialize. On the in-cluster (chroot) Sovereign the
+// mothership never posts the PRIMARY (local region-a) kubeconfig — only
+// SECONDARY kubeconfigs arrive via POST /api/v1/sovereign/secondary-kubeconfig
+// at handover — so the conventional file is absent and the os.Stat above
+// missed forever, permanently skipping the ClusterMesh startup reconcile on a
+// perfectly healthy 2-region Sovereign. When the primary file is absent AND
+// we are the chroot that owns dep, materialize it from the in-cluster
+// ServiceAccount (a NO-NETWORK build — see materializeChrootPrimaryKubeconfig)
+// and re-stat. This is still dep.Result-write-free (it writes a FILE, not the
+// record), so the -race contract above holds. Best-effort: a materialize
+// failure keeps the honest ("", false) miss.
 func (h *Handler) resolvePrimaryKubeconfigPath(dep *Deployment) (string, bool) {
 	dep.mu.Lock()
 	kubeconfigPath := ""
@@ -3303,16 +3315,30 @@ func (h *Handler) resolvePrimaryKubeconfigPath(dep *Deployment) (string, bool) {
 		kubeconfigPath = dep.Result.KubeconfigPath
 	}
 	dep.mu.Unlock()
-	if kubeconfigPath == "" && h.kubeconfigsDir != "" {
-		kubeconfigPath = filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
+	// The conventional PVC path is the deterministic materialize target: the
+	// mothership's PutKubeconfig stamps this exact string, so on a chroot the
+	// recorded field (when present) already equals it.
+	conventional := ""
+	if h.kubeconfigsDir != "" {
+		conventional = filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
+	}
+	if kubeconfigPath == "" {
+		kubeconfigPath = conventional
 	}
 	if kubeconfigPath == "" {
 		return "", false
 	}
-	if _, err := os.Stat(kubeconfigPath); err != nil {
-		return "", false
+	if _, err := os.Stat(kubeconfigPath); err == nil {
+		return kubeconfigPath, true
 	}
-	return kubeconfigPath, true
+	// Primary file absent. On the chroot that owns dep, synthesize the local
+	// cluster's kubeconfig from the in-cluster ServiceAccount and re-stat.
+	if conventional != "" && h.materializeChrootPrimaryKubeconfig(dep, conventional) {
+		if _, err := os.Stat(conventional); err == nil {
+			return conventional, true
+		}
+	}
+	return "", false
 }
 
 // shouldStartupClusterMeshReconcile reports whether a rehydrated
@@ -3400,10 +3426,18 @@ func (h *Handler) clusterMeshReconcileStatusGate(dep *Deployment) bool {
 // clusterMeshStartupRetryInterval and launches runAutoEstablishClusterMesh the
 // FIRST time it passes, then returns (the establish loop owns convergence +
 // steady-state from there; its own clusterMeshLoopActive guard makes any
-// double-start a no-op). It stops early when the deployment leaves the
+// double-start a no-op). It stops when the deployment leaves the
 // ready/rescuable-timeout status gate (a wipe landed mid-wait — the kubeconfigs
-// are gone) and gives up after clusterMeshStartupRetryBudget so a genuinely-lost
-// kubeconfig (PVC unmount / wipe race) does NOT spin forever.
+// are gone).
+//
+// #5131 — the retry is LEVEL-triggered: it no longer gives up after a fixed
+// budget with "next trigger is a catalyst-api restart". A ready multi-region
+// Sovereign whose primary kubeconfig is momentarily unresolved (the #4811
+// dir-load race) OR structurally unresolved until materialized (the #5131
+// chroot case, where the mothership never posts the local region's kubeconfig)
+// keeps re-checking until it resolves and self-heals without a pod restart. The
+// only terminal edges are "resolved → launch establish" and "no longer a mesh
+// candidate → stop"; the budget field is repurposed as a heartbeat-log cadence.
 func (h *Handler) retryStartupClusterMeshReconcile(dep *Deployment) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -3418,20 +3452,34 @@ func (h *Handler) retryStartupClusterMeshReconcile(dep *Deployment) {
 	if interval <= 0 {
 		interval = clusterMeshStartupRetryIntervalDefault
 	}
-	budget := h.clusterMeshStartupRetryBudget
-	if budget <= 0 {
-		budget = clusterMeshStartupRetryBudgetDefault
+	// #5131 — the retry is LEVEL-triggered, not a one-shot budget. It
+	// re-evaluates the gate every `interval` and returns ONLY on a terminal
+	// edge: the deployment leaving the ready/rescuable-timeout candidate set (a
+	// wipe removed the kubeconfigs → nothing left to mesh), or the establish
+	// loop launching. It NEVER gives up "until a catalyst-api restart" — a
+	// transient miss (or, the #5131 chroot case, a primary kubeconfig that must
+	// first be materialized from the in-cluster ServiceAccount) self-heals
+	// without a pod restart. `clusterMeshStartupRetryBudget` is repurposed as
+	// the heartbeat cadence: how often an unresolved-but-still-candidate
+	// deployment re-logs that it is still waiting, so the level-triggered spin
+	// stays observable without logging on every interval.
+	heartbeat := h.clusterMeshStartupRetryBudget
+	if heartbeat <= 0 {
+		heartbeat = clusterMeshStartupRetryBudgetDefault
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), budget)
-	defer cancel()
+	// A background context: sleepCtx here only paces the loop by `interval`.
+	// The stop condition is the candidate gate below, never a deadline — that
+	// is what makes the retry level-triggered rather than restart-gated.
+	ctx := context.Background()
 
-	h.log.Info("clustermesh: startup reconcile deferred — primary kubeconfig unresolved at restore; retrying until it lands on the PVC",
+	h.log.Info("clustermesh: startup reconcile deferred — primary kubeconfig unresolved at restore; retrying (level-triggered) until it resolves or the deployment leaves the mesh-candidate set",
 		"id", dep.ID,
 		"interval", interval,
-		"budget", budget,
+		"heartbeat", heartbeat,
 	)
 
+	lastHeartbeat := time.Now()
 	for attempt := 1; ; attempt++ {
 		// Stop the moment the deployment stops being a mesh candidate — a wipe
 		// mid-wait removes the kubeconfigs, so there is nothing left to mesh.
@@ -3450,14 +3498,14 @@ func (h *Handler) retryStartupClusterMeshReconcile(dep *Deployment) {
 			go h.runAutoEstablishClusterMesh(dep)
 			return
 		}
-		if sleepErr := sleepCtx(ctx, interval); sleepErr != nil {
-			h.log.Warn("clustermesh: startup reconcile retry budget exhausted — primary kubeconfig never resolved; next trigger is a catalyst-api restart",
+		if time.Since(lastHeartbeat) >= heartbeat {
+			h.log.Warn("clustermesh: startup reconcile still waiting — primary kubeconfig unresolved; retrying on a level basis (no restart required)",
 				"id", dep.ID,
 				"attempts", attempt,
-				"err", sleepErr,
 			)
-			return
+			lastHeartbeat = time.Now()
 		}
+		_ = sleepCtx(ctx, interval)
 	}
 }
 
