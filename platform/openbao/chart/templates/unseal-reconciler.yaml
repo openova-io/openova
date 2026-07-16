@@ -1,0 +1,169 @@
+{{- /*
+Catalyst openbao unseal reconciler — bp-openbao (#5142).
+
+WHY THIS EXISTS
+---------------
+`init-job.yaml` initialises OpenBao with a shamir seal and PERSISTS the
+unseal keys into the `openbao-unseal-keys` Secret, then (Step 2a) re-applies
+them via `bao operator unseal` when the vault is sealed. But that init Job is
+a ONE-SHOT Helm post-install/upgrade hook: it runs at install/roll and then
+completes. When `openbao-0`'s node/region is later killed and recovered — the
+core Pillar-3 region-kill event — the Pod restarts SEALED (shamir does not
+auto-unseal), and nothing re-runs the init Job, so the secrets layer stays
+degraded (SSO seeds fail, snapshot cron fails, catalyst-api destabilises).
+Observed live on hw261 after region-kill G12 (#5142).
+
+This CronJob closes that gap: on a short schedule it checks `bao status`, and
+if the vault is SEALED it fetches the persisted `openbao-unseal-keys` Secret
+and applies the keys — the exact idempotent path from init-job.yaml Step 2a,
+minus the init/seed/marker/trace machinery. On the happy path (already
+unsealed) it exits 0 and does nothing. It only exits non-zero when the vault
+is genuinely sealed AND cannot be unsealed (keys missing), so a persistent
+problem surfaces as a Failed reconcile row rather than silent degradation.
+
+Skip-render (per #402 — never `{{ fail }}`): rendered ONLY when
+`autoUnseal.enabled=true` AND `autoUnseal.reconcile.enabled=true` (default
+true when auto-unseal is on). Reuses the openbao-auto-unseal SA + RBAC
+(auto-unseal-rbac.yaml) which already grants read on the unseal-keys Secret.
+*/}}
+{{- $au := .Values.autoUnseal | default dict -}}
+{{- $rec := $au.reconcile | default dict -}}
+{{- $recEnabled := true -}}
+{{- if hasKey $rec "enabled" }}{{- $recEnabled = $rec.enabled -}}{{- end -}}
+{{- if and $au.enabled $recEnabled -}}
+{{- $img := $au.image | default dict -}}
+{{- $repo := $img.repository | default "quay.io/openbao/openbao" -}}
+{{- $registry := .Values.global.imageRegistry | default "" -}}
+{{- if $registry }}{{- $repo = printf "%s/%s" $registry $repo -}}{{- end -}}
+{{- $tag := $img.tag | default "2.1.0" -}}
+{{- $pullPolicy := $img.pullPolicy | default "IfNotPresent" -}}
+{{- $baoAddr := $au.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) -}}
+{{- $schedule := $rec.schedule | default "*/2 * * * *" -}}
+{{- $deadline := $rec.activeDeadlineSeconds | default 120 -}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openbao-unseal-reconciler
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-unseal-reconciler
+    app.kubernetes.io/managed-by: flux
+spec:
+  schedule: {{ $schedule | quote }}
+  # Never overlap runs, and don't fire a backlog of missed runs after a
+  # long node/region outage — one fresh attempt on recovery is enough.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-openbao
+        catalyst.openova.io/component: openbao-unseal-reconciler
+    spec:
+      activeDeadlineSeconds: {{ $deadline }}
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            catalyst.openova.io/blueprint: bp-openbao
+            catalyst.openova.io/component: openbao-unseal-reconciler
+        spec:
+          serviceAccountName: openbao-auto-unseal
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: unseal
+              image: {{ printf "%s:%s" $repo $tag | quote }}
+              imagePullPolicy: {{ $pullPolicy | quote }}
+              env:
+                - name: BAO_ADDR
+                  value: {{ $baoAddr | quote }}
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  UNSEAL_SECRET_NAME="openbao-unseal-keys"
+                  TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                  APISERVER="https://kubernetes.default.svc"
+
+                  # Reachability: if openbao isn't answering at all, exit 0 —
+                  # a reconciler must not fail-spam while the Pod is still
+                  # starting; the next tick will catch it.
+                  if ! bao status >/dev/null 2>&1; then
+                    RC=$?
+                    # rc 2 = reachable-but-sealed (proceed); anything else =
+                    # not reachable yet → best-effort no-op.
+                    if [ "$RC" != "2" ]; then
+                      echo "[unseal-reconciler] openbao not reachable at $BAO_ADDR (rc=$RC) — no-op this tick"
+                      exit 0
+                    fi
+                  fi
+
+                  SEALED=$(bao status -format=json 2>/dev/null | grep -E '"sealed"' | head -1 | sed -E 's/.*"sealed"[[:space:]]*:[[:space:]]*(true|false).*/\1/')
+                  if [ "$SEALED" != "true" ]; then
+                    echo "[unseal-reconciler] vault unsealed — nothing to do"
+                    exit 0
+                  fi
+
+                  echo "[unseal-reconciler] vault is SEALED — fetching persisted unseal keys from $UNSEAL_SECRET_NAME"
+                  UNSEAL_RESPONSE=$(wget -qO- --no-check-certificate \
+                    --header="Authorization: Bearer $TOKEN" \
+                    "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME") || {
+                      echo "[unseal-reconciler] FATAL: vault sealed but cannot fetch $UNSEAL_SECRET_NAME (missing?) — manual recovery: docs/RUNBOOKS.md openbao-auto-unseal"
+                      exit 1
+                    }
+                  KEYS_B64_FIELD=$(echo "$UNSEAL_RESPONSE" | tr -d '\n' | sed -E 's/.*"unseal-keys-b64"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
+                  THRESHOLD_FIELD=$(echo "$UNSEAL_RESPONSE" | tr -d '\n' | sed -E 's/.*"unseal-threshold"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
+                  if [ -z "$KEYS_B64_FIELD" ] || [ "$KEYS_B64_FIELD" = "$UNSEAL_RESPONSE" ]; then
+                    echo "[unseal-reconciler] FATAL: $UNSEAL_SECRET_NAME has no unseal-keys-b64 field"
+                    exit 1
+                  fi
+                  echo "$KEYS_B64_FIELD" | base64 -d > /tmp/.unseal-keys
+                  if [ -z "$THRESHOLD_FIELD" ] || [ "$THRESHOLD_FIELD" = "$UNSEAL_RESPONSE" ]; then
+                    UNSEAL_THRESHOLD=1
+                  else
+                    UNSEAL_THRESHOLD=$(echo "$THRESHOLD_FIELD" | base64 -d)
+                  fi
+                  if [ -z "$UNSEAL_THRESHOLD" ] || [ "$UNSEAL_THRESHOLD" -lt 1 ] 2>/dev/null; then
+                    UNSEAL_THRESHOLD=1
+                  fi
+                  # grep -c . counts NON-EMPTY lines (matches init-job Step 3;
+                  # base64 -d of a single key has no terminal newline so wc -l
+                  # would undercount — #2295).
+                  KEY_COUNT=$(grep -c . /tmp/.unseal-keys 2>/dev/null || echo 0)
+                  if [ "$KEY_COUNT" -lt "$UNSEAL_THRESHOLD" ]; then
+                    echo "[unseal-reconciler] FATAL: persisted $KEY_COUNT key(s) but threshold=$UNSEAL_THRESHOLD"
+                    exit 1
+                  fi
+                  echo "[unseal-reconciler] applying $UNSEAL_THRESHOLD unseal key(s)"
+                  I=0
+                  while [ "$I" -lt "$UNSEAL_THRESHOLD" ]; do
+                    I=$((I+1))
+                    KEY=$(sed -n "${I}p" /tmp/.unseal-keys)
+                    if [ -z "$KEY" ]; then
+                      echo "[unseal-reconciler] FATAL: empty key at slot $I"
+                      exit 1
+                    fi
+                    bao operator unseal "$KEY" >/dev/null
+                  done
+                  rm -f /tmp/.unseal-keys
+                  SEALED_AFTER=$(bao status -format=json 2>/dev/null | grep -E '"sealed"' | head -1 | sed -E 's/.*"sealed"[[:space:]]*:[[:space:]]*(true|false).*/\1/')
+                  if [ "$SEALED_AFTER" != "false" ]; then
+                    echo "[unseal-reconciler] FATAL: still sealed after applying $UNSEAL_THRESHOLD key(s) — sealed=$SEALED_AFTER"
+                    exit 1
+                  fi
+                  echo "[unseal-reconciler] re-unsealed (sealed=false) — region-kill recovery restored the secrets layer"
+{{- end -}}
