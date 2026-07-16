@@ -119,4 +119,32 @@ if [ "$JOB_BEFORE_HOOK" -lt 2 ]; then
 fi
 echo "  PASS"
 
+echo "[auto-unseal-toggle] Case 5: #5142 unseal reconciler — CronJob renders when autoUnseal on (default reconcile), suppressed by reconcile.enabled=false"
+# The one-shot init Job unseals at install but never re-runs; the reconciler
+# CronJob (templates/unseal-reconciler.yaml) re-applies the persisted unseal
+# keys after a region-kill restart. Gated on autoUnseal.enabled AND
+# autoUnseal.reconcile.enabled (default true when auto-unseal is on).
+if ! grep -qE "^  name: openbao-unseal-reconciler$" "$TMP/autounseal.yaml"; then
+  echo "FAIL: openbao-unseal-reconciler CronJob not rendered when autoUnseal.enabled=true (default reconcile)." >&2
+  exit 1
+fi
+if ! grep -qE "^kind: CronJob$" "$TMP/autounseal.yaml"; then
+  echo "FAIL: reconciler did not render as a CronJob." >&2
+  exit 1
+fi
+helm template smoke-bao . \
+  --set autoUnseal.enabled=true \
+  --set autoUnseal.reconcile.enabled=false \
+  --set gateway.host=bao.test.example.com \
+  > "$TMP/recoff.yaml" 2> "$TMP/recoff.err" || {
+    echo "FAIL: autoUnseal.enabled=true + reconcile.enabled=false render failed:" >&2
+    cat "$TMP/recoff.err" >&2
+    exit 1
+  }
+if grep -qE "openbao-unseal-reconciler" "$TMP/recoff.yaml"; then
+  echo "FAIL: reconciler CronJob rendered despite reconcile.enabled=false — skip-render broken." >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[auto-unseal-toggle] All bp-openbao auto-unseal-toggle gates green."
