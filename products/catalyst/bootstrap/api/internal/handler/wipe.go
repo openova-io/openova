@@ -559,6 +559,27 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		credsRaw := buildWipeCredsRaw(providerName, body, dep.Request)
+
+		// #5135 / #5028 — WORKDIR-CRED FALLBACK for the post-destroy EVS
+		// backstop. On the canonical body-less wipe (`{}`) AFTER a
+		// catalyst-api Pod roll, dep.Request's Huawei AK/SK are gone (secrets
+		// are GC'd from the in-memory Request post-writeTfvars and do not
+		// survive a restart), so buildWipeCredsRaw yields empty
+		// access_key/secret_key here even though providerName resolves to
+		// "huawei" from the per-region spec. tofu destroy still authenticates
+		// (the provider reads the workdir tfvars directly), but
+		// huaweiSweepCredsFromRaw would return ok=false below and the #5028
+		// EVS backstop would SILENTLY SKIP — stranding every CSI `pvc-*`
+		// volume as status=available toward the HCS quota (413
+		// VolumeLimitExceeded on the next fresh prov). Recover the creds from
+		// the durable per-deployment tofu.auto.tfvars.json on the
+		// catalyst-api-deployments PVC while the workdir still exists (tofu
+		// destroy may remove it below). Only empty keys are filled —
+		// body/request-provided values always win.
+		if applyWorkdirEVSCredsFallback(providerName, credsRaw, filepath.Join(h.tofuWorkDir(), id)) {
+			emit("wipe", "info", "huawei: #5028 EVS backstop creds recovered from workdir tofu.auto.tfvars.json (body/request creds empty after Pod roll) (#5135)")
+		}
+
 		wipeSpec := providers.WipeSpec{
 			DeploymentID:  dep.ID,
 			SovereignFQDN: dep.Request.SovereignFQDN,
