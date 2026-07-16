@@ -50,7 +50,15 @@ enabled: true
 # segment) — but the canonical shape going forward is host-less here.
 image:
   repository: proxy-dockerhub/alpine/k8s
-  tag: "1.30.0"
+  # 1.31.4 aligns with the platform-standard alpine/k8s tag used by the
+  # self-sovereign-cutover chart's own Jobs (platform/self-sovereign-cutover/
+  # chart/values.yaml images.kubectl.tag). Those Jobs run through the cutover,
+  # so 1.31.4 is warmed into the Sovereign's local Harbor proxy-cache; the
+  # divergent 1.30.0 was NOT cached and the reconciler ImagePullBackOff'd
+  # post-cutover on a self-sovereign env (proxy-cache can only serve pre-cached
+  # dockerhub images; the prewarm is ghcr-only by design). Live-caught on hw262
+  # (#5150). One alpine/k8s tag across the platform = one thing to warm.
+  tag: "1.31.4"
   pullPolicy: IfNotPresent
 
 # Reconcile cadence. 60s is the natural ceiling for "operator pushed a new
