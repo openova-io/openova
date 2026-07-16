@@ -156,7 +156,12 @@ spec:
       # 1.2.61 — #5142: continuous unseal reconciler CronJob so OpenBao
       #   re-unseals automatically after a region-kill restart (the one-shot
       #   init Job never re-runs, so post-region-kill the vault stayed SEALED).
-      version: 1.2.61
+      # 1.2.62 — #5146 hotfix: the 1.2.61 reconciler no-op'd on a SEALED vault —
+      #   `if ! bao status; then RC=$?` captured the `!`-negated exit code (0),
+      #   not bao's real rc=2, so the "reachable-but-sealed" branch never ran.
+      #   Caught by the live region-kill DR proof on hw262 (openbao-0 restarted
+      #   sealed, reconciler no-op'd every tick). Now captures rc directly.
+      version: 1.2.62
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

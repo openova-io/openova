@@ -147,4 +147,30 @@ if grep -qE "openbao-unseal-reconciler" "$TMP/recoff.yaml"; then
 fi
 echo "  PASS"
 
+echo "[auto-unseal-toggle] Case 6: #5146 reconciler captures bao's REAL rc (sealed=2 → proceed), not the !-negated 0"
+# The 1.2.61 bug: `if ! bao status; then RC=$?` clobbers $? to 0 via the `!`
+# negation, so a SEALED vault (rc=2) reads as rc=0 → the reachability guard
+# no-ops forever and never unseals. Caught live on the hw262 region-kill DR
+# proof (openbao-0 restarted sealed, reconciler no-op'd every tick). Guard the
+# regression on BOTH the rendered script (static) and the idiom (behavioral).
+REC="$TMP/autounseal.yaml"
+# 6a — the buggy `if ! bao status` wrapper must be ABSENT from executable code
+# (strip comment lines — the fix's own doc-comment names the antipattern).
+if grep -vE '^[[:space:]]*#' "$REC" | grep -qE 'if ! bao status'; then
+  echo "FAIL: reconciler wraps 'bao status' in 'if !' — the negation clobbers \$? (1.2.61 bug)." >&2
+  exit 1
+fi
+# 6b — the correct direct rc-capture must be PRESENT.
+if ! grep -qE 'bao status >/dev/null 2>&1 \|\| RC=\$\?' "$REC"; then
+  echo "FAIL: reconciler missing direct 'bao status ... || RC=\$?' rc-capture." >&2
+  exit 1
+fi
+# 6c — behavioral: the corrected idiom must PROCEED on sealed (rc=2), not no-op.
+res=$(sh -c 'set -eu; RC=0; (exit 2) >/dev/null 2>&1 || RC=$?; if [ "$RC" != "0" ] && [ "$RC" != "2" ]; then echo NOOP; else echo PROCEED; fi')
+if [ "$res" != "PROCEED" ]; then
+  echo "FAIL: corrected rc-capture idiom did not PROCEED on sealed(rc=2): got $res" >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[auto-unseal-toggle] All bp-openbao auto-unseal-toggle gates green."

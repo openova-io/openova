@@ -228,7 +228,7 @@ name: bp-openbao
 #   entity joined the sovereign-admins external group (direct_group_ids). Only
 #   the sso-configure reconcile.sh ROLE_PAYLOAD changes (+ the chart bump that
 #   rolls the Deployment per the #3374 checksum); no other template moves.
-version: 1.2.61
+version: 1.2.62
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

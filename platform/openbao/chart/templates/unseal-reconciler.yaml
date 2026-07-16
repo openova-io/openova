@@ -99,17 +99,19 @@ spec:
                   TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
                   APISERVER="https://kubernetes.default.svc"
 
-                  # Reachability: if openbao isn't answering at all, exit 0 —
-                  # a reconciler must not fail-spam while the Pod is still
-                  # starting; the next tick will catch it.
-                  if ! bao status >/dev/null 2>&1; then
-                    RC=$?
-                    # rc 2 = reachable-but-sealed (proceed); anything else =
-                    # not reachable yet → best-effort no-op.
-                    if [ "$RC" != "2" ]; then
-                      echo "[unseal-reconciler] openbao not reachable at $BAO_ADDR (rc=$RC) — no-op this tick"
-                      exit 0
-                    fi
+                  # Reachability: capture bao status' REAL exit code.
+                  #   0 = reachable + unsealed · 2 = reachable + SEALED · other = not reachable.
+                  # MUST NOT wrap in `if ! bao status; then RC=$?` — the `!` negation
+                  # clobbers $? to 0, so a SEALED vault (rc=2) is misread as rc=0 and the
+                  # guard below no-ops FOREVER (never unseals). This exact bug shipped in
+                  # 1.2.61 and was caught by the live region-kill DR proof on hw262 (#5146):
+                  # openbao-0 restarted sealed and the reconciler no-op'd every tick.
+                  # `|| RC=$?` is set -e safe (bao returns non-zero when sealed/unreachable).
+                  RC=0
+                  bao status >/dev/null 2>&1 || RC=$?
+                  if [ "$RC" != "0" ] && [ "$RC" != "2" ]; then
+                    echo "[unseal-reconciler] openbao not reachable at $BAO_ADDR (rc=$RC) — no-op this tick"
+                    exit 0
                   fi
 
                   SEALED=$(bao status -format=json 2>/dev/null | grep -E '"sealed"' | head -1 | sed -E 's/.*"sealed"[[:space:]]*:[[:space:]]*(true|false).*/\1/')
