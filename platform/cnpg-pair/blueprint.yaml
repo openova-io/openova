@@ -9,7 +9,12 @@ spec:
   # 0.2.9 (#4846): cross-region DR admission is an identity-based
   # CiliumNetworkPolicy (io.cilium.k8s.policy.cluster) — the 0.2.8 ipBlock was
   # inert for ClusterMesh remote endpoints. values crossRegionPeerClusters.
-  version: 0.2.10
+  # 0.2.11 (#5133): failover-readiness probe no longer false-negatives on a
+  # caught-up SYNCHRONOUS standby — authenticates as streaming_replica (the
+  # postgres superuser is disabled) and measures apply lag via LSN
+  # receive-vs-replay (idle- + region-kill-safe). Unblocks region-kill DR
+  # promotion (Pillar 3).
+  version: 0.2.11
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

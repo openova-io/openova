@@ -199,7 +199,11 @@ spec:
       # PRIMARY's walsender (not a cascaded local standby) → sync_state=sync.
       # 0.2.9 (#4846): identity-based cross-region DR CiliumNetworkPolicy
       # (crossRegionPeerClusters) replaces the inert ipBlock.
-      version: 0.2.10
+      # 0.2.11 (#5133): failover-readiness probe fix — authenticates as
+      # streaming_replica (postgres superuser disabled) and measures apply
+      # lag via LSN receive-vs-replay so a caught-up SYNCHRONOUS standby is
+      # correctly Ready/promotable. Unblocks region-kill DR promotion (P3).
+      version: 0.2.11
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

@@ -1,11 +1,34 @@
 {{- /*
 Failover-readiness probe Pod.
 
-Polls the replica's CNPG `-r` Service for `pg_last_wal_replay_lsn`
-vs the primary's `pg_current_wal_lsn`; when the lag falls below
-`cnpgPair.walStreaming.targetLagSeconds` the Pod's Ready condition
-flips true and Continuum K-Cont-2's switchover sequencer treats the
-replica as promotable.
+Polls the replica cluster's designated primary (its CNPG `-rw`
+Service) for the WAL APPLY lag and, when that lag falls below
+`cnpgPair.walStreaming.targetLagSeconds`, flips the Pod's Ready
+condition true so Continuum K-Cont-2's switchover sequencer treats
+the replica as promotable.
+
+Lag measure (#5133): compare the standby's `pg_last_wal_replay_lsn()`
+against its `pg_last_wal_receive_lsn()`. When the standby has REPLAYED
+everything its WAL receiver has RECEIVED the apply lag is zero — this
+is idle-safe (a caught-up SYNCHRONOUS standby of an idle primary reads
+0, NOT an ever-growing `now() - pg_last_xact_replay_timestamp()` clock
+skew) AND region-kill-safe (during a region-A kill the receiver freezes
+and replay catches up to it → 0 → promotable, with no dependency on the
+dead primary being reachable). Only a genuinely-behind (async) standby —
+received WAL not yet applied — falls through to a seconds-based apply
+lag that the `targetLagSeconds` threshold gates.
+
+🛑 AUTH (#5133 root cause): the probe authenticates as the
+`streaming_replica` role via its CNPG-issued client cert (CNPG's default
+pg_hba admits `hostssl postgres streaming_replica all cert`). The old
+probe connected as `user=postgres`, but BOTH Cluster CRs set
+`enableSuperuserAccess: false`, so that superuser can NEVER authenticate
+over TCP — every poll failed auth → `|| echo 999999` → the probe emitted
+`lag=999999 … NOT promotable` on a byte-caught-up SYNCHRONOUS standby and
+stayed 0/1 Ready forever, blocking region-kill promotion (Pillar 3). The
+`streaming_replica` client cert lives in this replica cluster's own
+CNPG-generated `<replica>-replication` Secret (same pattern the
+externalCluster streaming connection uses).
 
 Implementation: a single-replica Deployment running a tiny shell
 loop with psql + a /tmp/ready file watched by an exec readiness
@@ -78,19 +101,45 @@ spec:
         - name: probe
           image: {{ include "cnpg-pair.imageRef" . | quote }}
           imagePullPolicy: {{ .Values.cnpgPair.image.pullPolicy | quote }}
-          # Loop: query lag every 10s, write /tmp/ready when below
-          # threshold, remove it when above. The exec readinessProbe
+          # Loop: query the apply lag every 10s, write /tmp/ready when
+          # below threshold, remove it when above. The exec readinessProbe
           # then surfaces the boolean to K8s and to Continuum via
           # `kubectl get pod ... -o jsonpath=.status.conditions`.
-          # The CNPG `-r` Service is the read-only endpoint of the
-          # local (replica) Cluster CR — it always exists once CNPG
-          # has reconciled at least one instance Pod.
+          # We target the replica cluster's `-rw` Service — the DESIGNATED
+          # primary (the instance CNPG would promote), whose WAL receiver
+          # reflects the true CROSS-REGION stream. It always exists once
+          # CNPG has reconciled the replica Cluster's designated primary.
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -eu
-              REPLICA_HOST="{{ include "cnpg-pair.replicaName" . }}-r"
+              REPLICA_HOST="{{ include "cnpg-pair.replicaName" . }}-rw"
               THRESHOLD={{ .Values.cnpgPair.walStreaming.targetLagSeconds }}
+              # streaming_replica mutual-TLS (see the header rationale) —
+              # the postgres superuser is disabled on the Cluster CR, so
+              # the probe MUST authenticate with the streaming_replica
+              # client cert (CNPG pg_hba: `hostssl postgres streaming_replica
+              # all cert`). sslmode=require + the client cert is the canonical
+              # CNPG connection shape used elsewhere in the platform (the
+              # replica's own externalCluster streaming connection uses the
+              # exact same pattern); the SERVER-side `cert` method verifies
+              # this client cert against the cluster CA.
+              CONN="host=${REPLICA_HOST} port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              # Apply lag in seconds. CASE ladder (#5133):
+              #  1. NOT in recovery      → already promoted → 0 (ready).
+              #  2. replay_lsn caught up to receive_lsn → applied all
+              #     received WAL → 0 (idle-safe + region-kill-safe: no
+              #     `now()-last_xact_replay` clock skew, no dead-primary dep).
+              #  3. otherwise (genuinely behind) → seconds since the last
+              #     replayed xact, so `targetLagSeconds` gates async lag;
+              #     a fresh join that has replayed nothing → effectively
+              #     infinite (NOT promotable).
+              LAG_SQL="SELECT CASE
+                WHEN NOT pg_is_in_recovery() THEN 0
+                WHEN pg_last_wal_receive_lsn() IS NOT NULL
+                     AND pg_last_wal_replay_lsn() >= pg_last_wal_receive_lsn() THEN 0
+                ELSE COALESCE(GREATEST(0, EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::bigint), 2147483647)
+              END"
               while true; do
                 # Heartbeat first — the livenessProbe reads /tmp/alive's
                 # mtime to detect a WEDGED loop (a hung psql or a stalled
@@ -98,9 +147,13 @@ spec:
                 # is a SEPARATE signal (promotability), so the two probes
                 # answer different questions: alive vs promotable.
                 : > /tmp/alive
-                LAG=$(psql "host=${REPLICA_HOST} port=5432 user=postgres dbname=postgres sslmode=require" \
-                       -tAXc "SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int" 2>/dev/null \
-                       || echo "999999")
+                # 999999 is the CONNECTION/QUERY-FAILURE sentinel ONLY (psql
+                # non-zero, or an empty/non-numeric result). A caught-up
+                # standby now returns 0 from the CASE above — it can never
+                # collapse to this sentinel the way the old superuser-auth
+                # failure did.
+                LAG=$(psql "${CONN}" -tAXc "${LAG_SQL}" 2>/dev/null || echo "999999")
+                case "${LAG}" in ''|*[!0-9]*) LAG=999999 ;; esac
                 if [ "${LAG}" -lt "${THRESHOLD}" ]; then
                   date -u +"%FT%TZ replica lag=${LAG}s < threshold=${THRESHOLD}s — promotable" > /tmp/ready
                 else
@@ -151,7 +204,24 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # streaming_replica client cert + key (CNPG-issued for THIS
+            # replica cluster) — mounted 0440 root:26 so libpq (uid 26)
+            # accepts the key (root-owned, group-read-only, no world).
+            - name: replication-cert
+              mountPath: /tls/client
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        # CNPG generates the streaming_replica client cert for EVERY Cluster
+        # CR it reconciles — including this replica Cluster — so this Secret
+        # exists locally on cluster-B (no cross-cluster sync needed; unlike
+        # the primary's `-primary-replication` the replica streams FROM).
+        # defaultMode 0440 keeps the private key readable by the postgres
+        # group (fsGroup 26) yet inaccessible to world — the exact perms
+        # libpq requires for an sslkey.
+        - name: replication-cert
+          secret:
+            secretName: {{ include "cnpg-pair.replicaName" . }}-replication
+            defaultMode: 0440
 {{- end }}
