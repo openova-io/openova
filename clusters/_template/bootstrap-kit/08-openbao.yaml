@@ -153,7 +153,10 @@ spec:
       #   a NoSuchBucket (local seaweedfs `openbao-snapshots` bucket not yet
       #   created) aborted the Job every tick. Now a missing bucket is treated
       #   like the empty-bucket case: WARN + exit 0 (skipped tick, not failure).
-      version: 1.2.60
+      # 1.2.61 — #5142: continuous unseal reconciler CronJob so OpenBao
+      #   re-unseals automatically after a region-kill restart (the one-shot
+      #   init Job never re-runs, so post-region-kill the vault stayed SEALED).
+      version: 1.2.61
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
