@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-16T04:15:01Z` |
+| Last refreshed | `2026-07-16T04:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 26 |
 | Open DoD gates | 0 / 41 |
@@ -225,7 +225,7 @@ flowchart LR
 | [#5125](https://github.com/openova-io/openova/issues/5125) | DR durability: flux drift-correction re-demotes the promoted survivor mid-outage | Other |
 | [#5126](https://github.com/openova-io/openova/issues/5126) | prov-preflight EIP gap: check 3 counts orphan DOWN EIPs only, not pool availabil | Other |
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
-| [#5131](https://github.com/openova-io/openova/issues/5131) | P0: multi-region auto-cutover never arms — catalyst-api clustermesh startup re | Other |
+| [#5133](https://github.com/openova-io/openova/issues/5133) | P1: cnpg-pair failover-readiness probe reports false lag=999999 (NOT promotable) | Other |
 
 ---
 
