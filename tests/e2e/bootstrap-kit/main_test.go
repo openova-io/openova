@@ -578,7 +578,12 @@ var perOrgCatalogBlueprints = map[string]string{
 	"bp-wordpress-tenant": "wordpress-tenant",
 	"bp-stalwart-tenant":  "stalwart-tenant",
 	"bp-openclaw":         "openclaw",
-	"bp-sandbox":          "sandbox",
+	// bp-sandbox RETIRED 2026-07-15 (#5114, Refs #3988): the marketplace
+	// Sandbox concept was removed (products/sandbox/ has no blueprint.yaml/
+	// chart; bootstrap-kit slot 19a retired; catalog-seed entry removed).
+	// The Sandbox CRD + core/controllers/sandbox/ remain as the Agenity
+	// in-console session backend, but there is no per-Org catalog Blueprint
+	// to host-native-lock. Superseded by bp-agenity + bp-openova-mcp.
 }
 
 // deVclusteredPlanes are the platform-plane vCluster tiers removed by #4325.
