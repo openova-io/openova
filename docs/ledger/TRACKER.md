@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-16T08:30:06Z` |
+| Last refreshed | `2026-07-16T08:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -234,6 +234,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-16T08:30 | [#5136](https://github.com/openova-io/openova/pull/5136) | #5135 | fix(catalyst-api): recover EVS-backstop creds from workdir t |
 | 2026-07-16T04:52 | [#5134](https://github.com/openova-io/openova/pull/5134) | #5133 | fix(bp-cnpg-pair): failover-readiness probe no longer false- |
 | 2026-07-16T01:37 | [#5132](https://github.com/openova-io/openova/pull/5132) | #5131 | fix(catalyst-api): materialize chroot primary kubeconfig so  |
 | 2026-07-15T22:49 | [#5130](https://github.com/openova-io/openova/pull/5130) | #5127 | fix(cloud-init): collapse redundant reflector namespace list |
@@ -263,7 +264,6 @@ flowchart LR
 | 2026-07-15T08:31 | [#5090](https://github.com/openova-io/openova/pull/5090) | #5086 | fix(powerdns): Hetzner DNS front door via dnsdist hostPort:5 |
 | 2026-07-15T03:09 | [#5089](https://github.com/openova-io/openova/pull/5089) | #5088 | feat(kyverno-policies): §854 NodePort audit guard |
 | 2026-07-15T03:09 | [#5087](https://github.com/openova-io/openova/pull/5087) | #5007 | fix(cutover): step-03 prewarm — in-cluster CoreDNS pin for r |
-| 2026-07-14T22:41 | [#5085](https://github.com/openova-io/openova/pull/5085) | #5082 | fix(cloudinit): repair #5082 build-failure — CP cloud-init b |
 
 ---
 
