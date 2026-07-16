@@ -9,11 +9,46 @@
 package handler
 
 import (
+	"errors"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+// TestSandboxBackendUnavailable pins the degrade classifier: transient
+// backend-unreachable errors (401/403/503/timeout — e.g. the sandbox
+// reflector hitting a clustermesh peer apiserver that rejects its token
+// during a cutover/roll/region-kill recovery window, observed live on
+// hw261) MUST degrade to the honest 503 "API pending", while a genuine
+// object-not-found or already-exists MUST NOT (those keep each handler's
+// own 200/404/409 semantics).
+func TestSandboxBackendUnavailable(t *testing.T) {
+	gr := schema.GroupResource{Group: "sandbox.openova.io", Resource: "sandboxes"}
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"unauthorized-401", apierrors.NewUnauthorized("token rejected by peer apiserver"), true},
+		{"forbidden-403", apierrors.NewForbidden(gr, "s1", errors.New("no")), true},
+		{"service-unavailable-503", apierrors.NewServiceUnavailable("apiserver draining"), true},
+		{"server-timeout", apierrors.NewServerTimeout(gr, "list", 1), true},
+		{"not-found-object", apierrors.NewNotFound(gr, "s1"), false},
+		{"already-exists", apierrors.NewAlreadyExists(gr, "s1"), false},
+		{"plain-error", errors.New("boom"), false},
+		{"nil", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sandboxBackendUnavailable(tc.err); got != tc.want {
+				t.Fatalf("sandboxBackendUnavailable(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestUnstructuredToSandboxItem_StatusReflection(t *testing.T) {
 	creationTime := metav1.Now()

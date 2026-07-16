@@ -333,6 +333,24 @@ type sandboxCreateRequest struct {
 // with `{sandboxes: []}` even when the CRD isn't installed yet — the
 // FE renders the empty state plus its "API pending" pill in either
 // case, and a 5xx would just churn the page state with a spinner.
+// sandboxBackendUnavailable reports whether err indicates the Sandbox
+// backend is temporarily unreachable (as opposed to a genuine
+// object-not-found, which each handler maps to its own 200/404/503).
+// 401/403 arise when the catalyst-api dynamic client hits a clustermesh
+// peer apiserver that rejects its token during a cutover / chart-roll /
+// region-kill recovery window — observed live on hw261 after the
+// region-kill DR failover flipped the primary region and the sandbox
+// reflector alternated "Unauthorized" and "could not find the requested
+// resource". Per this package's doc, backend-unavailable ⇒ 503 "API
+// pending", never a raw 500.
+func sandboxBackendUnavailable(err error) bool {
+	return apierrors.IsUnauthorized(err) ||
+		apierrors.IsForbidden(err) ||
+		apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTimeout(err)
+}
+
 func (h *Handler) HandleListSandboxSessions(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil || claims.Sub == "" {
@@ -357,6 +375,14 @@ func (h *Handler) HandleListSandboxSessions(w http.ResponseWriter, r *http.Reque
 		// renders the empty state in either case.
 		if apierrors.IsNotFound(err) {
 			writeJSON(w, http.StatusOK, sandboxListResponse{Sandboxes: []sandboxItem{}})
+			return
+		}
+		if sandboxBackendUnavailable(err) {
+			h.log.Warn("sandbox: backend unavailable on list", "namespace", ns, "err", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "sandbox-backend-unavailable",
+				"detail": "sandbox backend temporarily unavailable",
+			})
 			return
 		}
 		h.log.Warn("sandbox: list failed", "namespace", ns, "err", err)
@@ -407,6 +433,14 @@ func (h *Handler) HandleGetSandboxSession(w http.ResponseWriter, r *http.Request
 			writeJSON(w, http.StatusNotFound, map[string]string{
 				"error":  "sandbox-not-found",
 				"detail": fmt.Sprintf("sandbox %q not found in namespace %q", id, ns),
+			})
+			return
+		}
+		if sandboxBackendUnavailable(err) {
+			h.log.Warn("sandbox: backend unavailable on get", "id", id, "namespace", ns, "err", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "sandbox-backend-unavailable",
+				"detail": "sandbox backend temporarily unavailable",
 			})
 			return
 		}
@@ -502,6 +536,14 @@ func (h *Handler) HandleCreateSandboxSession(w http.ResponseWriter, r *http.Requ
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "sandbox-crd-not-installed",
 				"detail": "sandboxes.sandbox.openova.io CRD missing on this cluster",
+			})
+			return
+		}
+		if sandboxBackendUnavailable(err) {
+			h.log.Warn("sandbox: backend unavailable on create", "name", crName, "namespace", ns, "err", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "sandbox-backend-unavailable",
+				"detail": "sandbox backend temporarily unavailable",
 			})
 			return
 		}
