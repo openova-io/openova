@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-16T23:15:03Z` |
+| Last refreshed | `2026-07-16T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-16T23:24 | [#5151](https://github.com/openova-io/openova/pull/5151) | #5150 | fix(sso-bridge): align alpine/k8s to cutover-standard 1.31.4 |
 | 2026-07-16T19:47 | [#5148](https://github.com/openova-io/openova/pull/5148) | #5146 | fix(openbao): unseal-reconciler no-op'd on SEALED vault — ca |
 | 2026-07-16T19:48 | [#5147](https://github.com/openova-io/openova/pull/5147) | #5114 | fix(catalog): remove stale bp-sandbox Blueprint (removed San |
 | 2026-07-16T14:49 | [#5146](https://github.com/openova-io/openova/pull/5146) | #5142 | fix(openbao): continuous unseal reconciler — survive region- |
@@ -265,7 +266,6 @@ flowchart LR
 | 2026-07-15T08:44 | [#5102](https://github.com/openova-io/openova/pull/5102) | #5100 | fix(console): purge rendered tenant-term copy; refute rows 1 |
 | 2026-07-15T08:43 | [#5101](https://github.com/openova-io/openova/pull/5101) | #5099 | fix(#5099): fire script defaults SHARED_PG=true — explicit e |
 | 2026-07-15T08:31 | [#5098](https://github.com/openova-io/openova/pull/5098) | #4765 | fix(#4765): cross-namespace grant for the sovereign-vip VIP  |
-| 2026-07-15T08:31 | [#5097](https://github.com/openova-io/openova/pull/5097) | #5019 | fix(jobs): surface the 65 bootstrap-kit install rows on /job |
 
 ---
 
