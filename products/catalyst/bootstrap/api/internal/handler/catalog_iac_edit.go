@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	yamlv3 "gopkg.in/yaml.v3"
@@ -197,6 +198,46 @@ func iaCEditDurableReason(wroteBytes bool) string {
 		return ""
 	}
 	return "already up to date (no change)"
+}
+
+// HandleGetCatalogBlueprintIaC — GET /api/v1/catalog/{name}/iac.
+//
+// Returns the CURRENTLY-COMMITTED catalog-sovereign/<repo>/blueprint.yaml — the
+// same file the PUT (HandleCatalogBlueprintIaCEdit) writes and the card-form save
+// commits, resolved via the same resolveCatalogEditRepo seam. #5124: the Edit-IaC
+// editor previously seeded from the store's stale CatalogItem.raw, so committing
+// from that seed silently reverted prior card-form edits (icon/title/summary) that
+// were already in the committed file. The FE seeds the editor from THIS endpoint
+// (the source of truth), falling back to its store raw only when nothing is
+// committed yet (404). Read-only.
+func (h *Handler) HandleGetCatalogBlueprintIaC(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing-name"})
+		return
+	}
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "gitea-unwired"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	repo := h.resolveCatalogEditRepo(ctx, name)
+	f, err := h.giteaClient.GetFile(ctx, catalogSovereignOrg, repo, catalogEditGitBranch, catalogEditBlueprintPath)
+	if err != nil {
+		// Not committed yet — the FE falls back to its store raw / live CR.
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not-committed", "detail": err.Error()})
+		return
+	}
+	raw, derr := f.Decoded()
+	if derr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "decode-failed", "detail": derr.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"blueprintYaml": string(raw),
+		"path":          fmt.Sprintf("catalog-sovereign/%s/%s", repo, catalogEditBlueprintPath),
+	})
 }
 
 // writeCatalogFullBlueprintToGit commits the FULL supplied blueprint.yaml to

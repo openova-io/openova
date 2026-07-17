@@ -417,3 +417,99 @@ func TestCatalogIaCEdit_MothershipSkipsAggregatorLeg(t *testing.T) {
 		}
 	}
 }
+
+// ── #5124 — GET /api/v1/catalog/{name}/iac read-back seam ───────────────────
+//
+// The Edit-IaC editor previously seeded its YAML buffer from the store's stale
+// CatalogItem.raw, so committing from that seed silently reverted card-form
+// edits (icon/title/summary) already present in the committed blueprint.yaml.
+// This GET returns the CURRENTLY-COMMITTED file — the same one the PUT writes,
+// resolved via the SAME resolveCatalogEditRepo seam — so the FE seeds the
+// editor from the source of truth (falling back to store raw only on 404).
+
+// callGetCatalogIaC drives GET /api/v1/catalog/{name}/iac through a chi router
+// so the {name} URL param resolves.
+func callGetCatalogIaC(t *testing.T, h *Handler, name string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := chi.NewRouter()
+	r.Get("/api/v1/catalog/{name}/iac", h.HandleGetCatalogBlueprintIaC)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/catalog/"+name+"/iac", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestGetCatalogIaC_ReturnsCommittedFile — the committed blueprint.yaml is
+// returned verbatim (the seed source of truth), NOT the stale store raw.
+func TestGetCatalogIaC_ReturnsCommittedFile(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	committed := fullAlloyBlueprintYAML("9.9.9")
+	fg.files[giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)] = []byte(committed)
+
+	rec := callGetCatalogIaC(t, h, "bp-alloy")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response did not parse: %v; body=%s", err, rec.Body.String())
+	}
+	if resp["blueprintYaml"] != committed {
+		t.Errorf("blueprintYaml must be the committed file verbatim;\n got=%q\nwant=%q", resp["blueprintYaml"], committed)
+	}
+	if resp["path"] != "catalog-sovereign/bp-alloy/blueprint.yaml" {
+		t.Errorf("path: got %q", resp["path"])
+	}
+}
+
+// TestGetCatalogIaC_ResolvesBareRepo — when the committed file lives in the
+// BARE-named repo (the #4896/#4997 bare↔bp- divergence), the resolver finds it
+// and the GET returns it, exactly as the PUT read path does.
+func TestGetCatalogIaC_ResolvesBareRepo(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	committed := bareAlloyBlueprintYAML("3.2.1")
+	fg.files[giteaKey(catalogSovereignOrg, "alloy", catalogEditGitBranch, catalogEditBlueprintPath)] = []byte(committed)
+
+	rec := callGetCatalogIaC(t, h, "bp-alloy")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["blueprintYaml"] != committed {
+		t.Errorf("bare-repo committed file must be returned; got=%q", resp["blueprintYaml"])
+	}
+	if resp["path"] != "catalog-sovereign/alloy/blueprint.yaml" {
+		t.Errorf("path must reflect the resolved bare repo; got %q", resp["path"])
+	}
+}
+
+// TestGetCatalogIaC_404WhenNotCommitted — nothing committed yet ⇒ 404 so the
+// FE knows to fall back to its store raw / live CR (never a fabricated blank).
+func TestGetCatalogIaC_404WhenNotCommitted(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	rec := callGetCatalogIaC(t, h, "bp-neverseen")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestGetCatalogIaC_503WhenGiteaUnwired — no local catalog git ⇒ 503, never a
+// false empty-file success.
+func TestGetCatalogIaC_503WhenGiteaUnwired(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// no SetGiteaClient → h.giteaClient == nil
+	rec := callGetCatalogIaC(t, h, "bp-alloy")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}

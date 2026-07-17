@@ -1726,6 +1726,7 @@ func main() {
 		// card-edit path writes (catalog-sovereign/<bp>/blueprint.yaml),
 		// under the dedicated git budget, tier-admin-gated. The console's
 		// "Edit IaC" mode (YamlEditor) drives this.
+		rg.Get("/api/v1/catalog/{name}/iac", h.HandleGetCatalogBlueprintIaC)
 		rg.Put("/api/v1/catalog/{name}/iac", h.HandleCatalogBlueprintIaCEdit)
 
 		// EPIC-6 (#1101) slice U-Fleet — multi-Sovereign fleet view.
