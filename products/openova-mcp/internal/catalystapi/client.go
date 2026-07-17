@@ -241,6 +241,40 @@ func (c *Client) ListOrganizations(ctx context.Context, bearer string) (*Organiz
 	return &out, nil
 }
 
+// WhoamiResponse mirrors whoamiResponse in
+// products/catalyst/bootstrap/api/internal/handler/auth.go. It is the
+// authoritative identity verdict for a session token: catalyst-api verifies
+// the token with the SAME key it minted the session with, then reports the
+// resolved (mode, tier, org, deployment) triple.
+type WhoamiResponse struct {
+	Email         string `json:"email"`
+	Sub           string `json:"sub"`
+	Verified      bool   `json:"verified"`
+	DeploymentID  string `json:"deploymentId,omitempty"`
+	SovereignFQDN string `json:"sovereignFQDN,omitempty"`
+	Mode          string `json:"mode,omitempty"` // "sovereign" | "organization"
+	Tier          string `json:"tier,omitempty"` // "owner" | "admin" | "viewer" | …
+	OrgScoped     bool   `json:"orgScoped,omitempty"`
+	Org           string `json:"org,omitempty"` // Organization slug in Org context
+}
+
+// Whoami calls GET /api/v1/whoami — catalyst-api's own identity endpoint.
+// The MCP uses it as the authority for SESSION tokens it cannot verify
+// locally: the MCP is configured with the mothership HANDOVER public key,
+// but catalyst-api mints post-handover session tokens with a DIFFERENT
+// (deployment-local) key whose public half the MCP does not hold (#5175).
+// Rather than ship that key to every MCP, the facade delegates the verdict
+// to catalyst-api — which IS the session-token issuer/authority. A non-2xx
+// (e.g. 401 on a bad/expired/tampered token) returns *APIError so the caller
+// fails closed.
+func (c *Client) Whoami(ctx context.Context, bearer string) (*WhoamiResponse, error) {
+	var out WhoamiResponse
+	if err := c.get(ctx, "/api/v1/whoami", bearer, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ── Write: create Application (POST .../applications) ────────────────────
 
 // ApplicationBlueprintRef mirrors `applicationBlueprintRef` in the

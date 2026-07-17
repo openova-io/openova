@@ -63,6 +63,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/openova-io/openova/products/openova-mcp/internal/catalystapi"
 	"github.com/openova-io/openova/products/openova-mcp/internal/identity"
@@ -288,7 +289,52 @@ func (s *server) resolveBearer(bearer string) (*identity.Identity, error) {
 	if bearer == "" {
 		return nil, errors.New("no bearer (set _auth.token in arguments or OPENOVA_MCP_BEARER)")
 	}
-	return s.resolver.Resolve(bearer)
+	id, err := s.resolver.Resolve(bearer)
+	if err == nil {
+		return id, nil
+	}
+	// #5175 — the MCP is configured with the mothership HANDOVER public key,
+	// but real callers present catalyst-api SESSION tokens signed with a
+	// deployment-local key the MCP does not hold. When local verify fails and
+	// a catalyst-api client is configured, delegate the verdict to
+	// catalyst-api's /whoami — it is the session-token authority. Fail-closed:
+	// on any whoami error (401 / unreachable / not-verified) fall through to
+	// the ORIGINAL local-verify error so a catalyst-api hiccup can never widen
+	// the surface.
+	if wid, werr := s.whoamiFallback(bearer); werr == nil {
+		return wid, nil
+	}
+	return nil, err
+}
+
+// whoamiFallback resolves identity via catalyst-api's /whoami for tokens the
+// local resolver cannot verify (session tokens signed by the deployment-local
+// key — #5175). Returns an error (→ caller keeps the original verify failure)
+// when no catalyst-api client is wired, the endpoint rejects the token, or
+// the session is not verified.
+func (s *server) whoamiFallback(bearer string) (*identity.Identity, error) {
+	api := s.reg.API()
+	if api == nil {
+		return nil, errors.New("whoami fallback: no catalyst-api client configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	w, err := api.Whoami(ctx, bearer)
+	if err != nil {
+		return nil, err
+	}
+	if !w.Verified {
+		return nil, errors.New("whoami fallback: session not verified")
+	}
+	return s.resolver.FromWhoami(identity.WhoamiIdentity{
+		Email:         w.Email,
+		Mode:          w.Mode,
+		Tier:          w.Tier,
+		Org:           w.Org,
+		OrgScoped:     w.OrgScoped,
+		DeploymentID:  w.DeploymentID,
+		SovereignFQDN: w.SovereignFQDN,
+	}, bearer)
 }
 
 // ── bearer plumbing (mirrors the sandbox MCP _auth envelope) ─────────────
