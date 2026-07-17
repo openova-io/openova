@@ -73,6 +73,7 @@ export type ArchNodeType =
   | 'Gateway'
   | 'HTTPRoute'
   | 'NetworkPolicy'
+  | 'CiliumNetworkPolicy'
   | 'Database'
 
 /**
@@ -117,6 +118,7 @@ export const ALL_NODE_TYPES: ArchNodeType[] = [
   'Gateway',
   'HTTPRoute',
   'NetworkPolicy',
+  'CiliumNetworkPolicy',
   'Database',
 ]
 
@@ -287,6 +289,7 @@ export const NODE_CATEGORY: Record<ArchNodeType, NodeCategory> = {
   HTTPRoute: 'network',
   Network: 'network',
   NetworkPolicy: 'network',
+  CiliumNetworkPolicy: 'network',
   // ◆ Config / Identity / Secret
   ConfigMap: 'config',
   Secret: 'config',
@@ -379,6 +382,7 @@ export const NODE_FAMILY: Record<ArchNodeType, NodeFamily> = {
   // Cilium / networking
   Network: 'cilium',
   NetworkPolicy: 'cilium',
+  CiliumNetworkPolicy: 'cilium',
   Gateway: 'cilium',
   HTTPRoute: 'cilium',
   // Catalyst control-plane CRs (*.openova.io)
@@ -551,6 +555,7 @@ export const NODE_FILL: Record<ArchNodeType, string> = {
   Gateway: '#0891b2', // cyan — networking
   HTTPRoute: '#1098ad', // teal-cyan — networking
   NetworkPolicy: '#15aabf', // bright cyan — networking
+  CiliumNetworkPolicy: '#0c8599', // deep cyan — Cilium L3-L7 micro-seg (#5129)
   Database: '#4338ca', // indigo — CNPG
 }
 

@@ -80,5 +80,6 @@ export const NODE_ICON: Record<ArchNodeType, Icon> = {
   Gateway: IconRouteAltLeft,
   HTTPRoute: IconRouteAltLeft,
   NetworkPolicy: IconShieldLock,
+  CiliumNetworkPolicy: IconShieldLock,
   Database: IconDatabase,
 }
