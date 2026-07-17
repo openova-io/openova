@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T22:30:04Z` |
+| Last refreshed | `2026-07-17T22:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 28 |
+| Open issues | 29 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 29 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 28 open items (clickable table)
+### All 29 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -228,6 +228,7 @@ flowchart LR
 | [#5187](https://github.com/openova-io/openova/issues/5187) | region-b: sovereign-tls Flux Kustomization Ready=False — configmaps 'sovereign | Other |
 | [#5191](https://github.com/openova-io/openova/issues/5191) | cutover step-04 registry-pivot: toolchain (curl+jq) fetched at runtime via 'apk  | Other |
 | [#5193](https://github.com/openova-io/openova/issues/5193) | Wipe strands an env un-wipeable after a partial destroy: wipe path lacks the hua | Other |
+| [#5194](https://github.com/openova-io/openova/issues/5194) | cutover step-08 egress-block-test does not auto-warm missing images when a funne | Other |
 
 ---
 
