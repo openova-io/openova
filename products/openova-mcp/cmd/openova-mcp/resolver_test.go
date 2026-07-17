@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
+	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -42,23 +45,34 @@ func TestBuildResolver_DegradedWhenRS256PubkeyAbsent(t *testing.T) {
 	}
 }
 
-// TestBuildResolver_DegradedWhenRS256PubkeyUnparseable proves the JWK-vs-PEM trap
-// (#4228) also degrades instead of crashing: the only published catalyst-system
-// mirror (`catalyst-handover-jwt-public`) holds a JWK, which the PEM parser cannot
-// read — that must not CrashLoop the pod either.
+// TestBuildResolver_DegradedWhenRS256PubkeyUnparseable proves a genuinely
+// unparseable pubkey (non-RSA JWK / garbage) still degrades instead of
+// crashing (#5114 posture). NOTE (#5167): a VALID RSA JWK is no longer the
+// unparseable case — it is now the PRIMARY fresh-prov path (the
+// `catalyst-handover-jwt-public` mirror), pinned ACTIVE by
+// TestBuildResolver_RS256ActiveWithJWK below.
 func TestBuildResolver_DegradedWhenRS256PubkeyUnparseable(t *testing.T) {
-	t.Setenv("OPENOVA_MCP_VERIFY", "rs256")
-	t.Setenv("OPENOVA_MCP_RS256_PUBKEY_PEM", `{"kty":"RSA","n":"0vx7","e":"AQAB"}`) // a JWK, not a PEM
-	t.Setenv("OPENOVA_MCP_CONTEXT", "")
-	t.Setenv("OPENOVA_MCP_EXPECTED_ISSUER", "")
-	t.Setenv("OPENOVA_MCP_ORG_SCOPE", "")
+	for name, payload := range map[string]string{
+		"non-RSA JWK":    `{"kty":"EC","crv":"P-256","x":"a","y":"b"}`,
+		"garbage n":      `{"kty":"RSA","n":"%%%not-base64url%%%","e":"AQAB"}`,
+		"missing n/e":    `{"kty":"RSA"}`,
+		"not JSON / PEM": `this is neither a pem nor a jwk`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("OPENOVA_MCP_VERIFY", "rs256")
+			t.Setenv("OPENOVA_MCP_RS256_PUBKEY_PEM", payload)
+			t.Setenv("OPENOVA_MCP_CONTEXT", "")
+			t.Setenv("OPENOVA_MCP_EXPECTED_ISSUER", "")
+			t.Setenv("OPENOVA_MCP_ORG_SCOPE", "")
 
-	r, err := buildResolver()
-	if err != nil {
-		t.Fatalf("buildResolver must DEGRADE (not exit) on an unparseable pubkey; got %v", err)
-	}
-	if degraded, _ := r.Degraded(); !degraded {
-		t.Fatal("resolver should be DEGRADED when the rs256 pubkey is unparseable")
+			r, err := buildResolver()
+			if err != nil {
+				t.Fatalf("buildResolver must DEGRADE (not exit) on an unparseable pubkey; got %v", err)
+			}
+			if degraded, _ := r.Degraded(); !degraded {
+				t.Fatal("resolver should be DEGRADED when the rs256 pubkey is unparseable")
+			}
+		})
 	}
 }
 
@@ -121,6 +135,67 @@ func TestBuildResolver_RS256ActiveWithPubkey(t *testing.T) {
 	}
 	if _, err := r.Resolve(badSigned); err == nil {
 		t.Fatal("a token signed by a NON-trusted key must be rejected (rs256 verify active)")
+	}
+}
+
+// TestBuildResolver_RS256ActiveWithJWK is the #5167 fresh-prov path: the ONLY
+// verify-pubkey Secret a Sovereign seeds is the JWK mirror
+// `catalyst-handover-jwt-public` (key `public.jwk`, an RSA JWK). Feeding that
+// JWK into OPENOVA_MCP_RS256_PUBKEY_PEM must make rs256 verify ACTIVE (not
+// DEGRADED): a token signed by the matching private key resolves, a token
+// signed by a different key is rejected.
+func TestBuildResolver_RS256ActiveWithJWK(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen key: %v", err)
+	}
+	// Build the RSA JWK exactly the way the platform's mirror does:
+	// base64url-without-padding n + e (RFC 7518 §6.3).
+	n := base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes())
+	jwk := fmt.Sprintf(`{"alg":"RS256","e":%q,"kty":"RSA","n":%q,"use":"sig"}`, e, n)
+
+	t.Setenv("OPENOVA_MCP_VERIFY", "rs256")
+	t.Setenv("OPENOVA_MCP_RS256_PUBKEY_PEM", jwk)
+	t.Setenv("OPENOVA_MCP_CONTEXT", "")
+	t.Setenv("OPENOVA_MCP_EXPECTED_ISSUER", "")
+	t.Setenv("OPENOVA_MCP_ORG_SCOPE", "")
+
+	r, err := buildResolver()
+	if err != nil {
+		t.Fatalf("buildResolver with a valid RSA JWK: %v", err)
+	}
+	if degraded, reason := r.Degraded(); degraded {
+		t.Fatalf("resolver must be ACTIVE with a valid RSA JWK (the catalyst-handover-jwt-public format, #5167); got DEGRADED %q", reason)
+	}
+
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub": "user-1", "org_id": "demo", "tier": "org-admin", "typ": "session",
+	})
+	signed, err := tok.SignedString(key)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	id, err := r.Resolve(signed)
+	if err != nil {
+		t.Fatalf("a valid RS256 token must resolve against the JWK-loaded key: %v", err)
+	}
+	if id.Context != identity.ContextOrganization || id.OrgID != "demo" {
+		t.Fatalf("unexpected identity: context=%s org=%s", id.Context, id.OrgID)
+	}
+
+	other, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("gen other key: %v", err)
+	}
+	badSigned, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub": "user-1", "org_id": "demo", "tier": "org-admin", "typ": "session",
+	}).SignedString(other)
+	if err != nil {
+		t.Fatalf("sign bad: %v", err)
+	}
+	if _, err := r.Resolve(badSigned); err == nil {
+		t.Fatal("a token signed by a NON-trusted key must be rejected (JWK-loaded rs256 verify active)")
 	}
 }
 

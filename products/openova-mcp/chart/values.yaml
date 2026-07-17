@@ -85,17 +85,22 @@ auth:
   # realm URL — pin whichever issuer mints the sessions this instance
   # serves. Per-realm JWKS resolution is the #3988 §4.2 follow-up.
   expectedIssuer: ""
-  # RS256 verify pubkey (PKIX PEM) — the public half of the Sovereign
-  # handover signer that MINTS catalyst-api session bearers (#4114). The
-  # default names the `catalyst-handover-jwt` Secret in the install
-  # namespace, which exists in catalyst-system (where the sovereign-mode
-  # slot lands). The ref is rendered optional:true so an install where the
-  # Secret is absent (e.g. an Org namespace) still schedules — the binary
-  # then falls back to its inherited process env. Never Helm-seed a
-  # placeholder value (reflector empty-seed trap).
+  # RS256 verify pubkey — the public half of the Sovereign handover signer
+  # that MINTS catalyst-api session bearers (#4114). #5167: the default now
+  # names the Secret a Sovereign ACTUALLY seeds — the JWK mirror
+  # `catalyst-handover-jwt-public` (key `public.jwk`, an RSA JWK the ≥0.2.3
+  # binary parses natively alongside PKIX/PKCS1 PEM). The old default
+  # (`catalyst-handover-jwt` / `handover-jwt-public.pem`) referenced a PEM
+  # Secret that is NEVER created on a Sovereign, so verify=rs256 silently
+  # started DEGRADED on every fresh prov (hw264 live) and tools/call 401'd
+  # for everyone — killing the Agenity→MCP north star. The ref stays
+  # optional:true so an install where the Secret is absent (e.g. an Org
+  # namespace) still schedules — the binary then falls back to its inherited
+  # process env. Never Helm-seed a placeholder value (reflector empty-seed
+  # trap).
   rs256PubkeySecret:
-    name: catalyst-handover-jwt
-    key: handover-jwt-public.pem
+    name: catalyst-handover-jwt-public
+    key: public.jwk
   # HS256 shared secret (verify=hs256 only).
   hs256Secret:
     name: ""

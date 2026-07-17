@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-openova-mcp
+# 0.1.3 / appVersion 0.2.3 (#5167, north-star unblock): verify=rs256 now WORKS
+# on a fresh Sovereign. Root cause of the every-fresh-prov DEGRADED mode was a
+# two-fold mismatch, silent behind optional:true — (a) values referenced the
+# never-created PEM Secret `catalyst-handover-jwt` / `handover-jwt-public.pem`
+# while a Sovereign only seeds the JWK mirror `catalyst-handover-jwt-public` /
+# `public.jwk`; (b) the binary rejected JWKs outright. The 0.2.3 binary parses
+# RSA JWKs natively (PEM still supported) and the values default now targets
+# the seeded mirror. tools/call RBAC-gating (Agenity→MCP create_application)
+# activates out-of-the-box; the #5114 degrade-never-crash posture is unchanged.
+# Lockstep: blueprint.yaml + slot 13d → 0.1.3 (not in catalog-seed).
 description: |
   OpenOva MCP server — the RBAC-scoped-per-user thin facade that exposes
   the OpenOva product surface (Applications, Environments, Organizations)
@@ -49,7 +59,7 @@ type: application
 # catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.2
+version: 0.1.3
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
 # 0.2.2 (#5114): buildResolver degrades instead of exiting when the rs256
 # verify pubkey (or the hs256 secret) is absent/unparseable — see the 0.1.2
@@ -61,7 +71,7 @@ version: 0.1.2
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.2"
+appVersion: "0.2.3"
 keywords:
   - mcp
   - agent
