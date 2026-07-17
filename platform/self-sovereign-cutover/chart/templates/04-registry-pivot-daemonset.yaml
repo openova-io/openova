@@ -292,7 +292,29 @@ data:
     # contract is unchanged.
     set -u
 
-    apk add --no-cache curl jq >/dev/null 2>&1 || true
+    # #5191 — the pivot toolchain (curl + jq) is load-bearing: Harbor CA
+    # extraction, dragonfly-CA/dfdaemon patch, LB-IP discovery, and the per-node
+    # `registriesYaml` acks (write_node_ack / cm_patch_status) all shell out to
+    # them. The former `apk add ... || true` SILENTLY proceeded tool-less on an
+    # egress miss, so every ack failed (`jq: not found`) and the node never
+    # acked v2 — the step-04 daemonset-wait then wedged the WHOLE cutover with
+    # NO failed-step flag (observed live: hw268 2 rebooted nodes lost the apk
+    # toolchain with no egress to reinstall). Retry, then verify, then FAIL
+    # LOUD: a still-missing tool crashes the Pod (a visible CrashLoopBackOff
+    # that self-heals the moment apk succeeds), never a silent tool-less
+    # proceed. Explicit exit — `set -u` here is deliberate (NOT errexit), so the
+    # guard cannot rely on a non-zero apk killing the shell.
+    i=0
+    while [ "${i}" -lt 6 ]; do
+      apk add --no-cache curl jq >/dev/null 2>&1 && break
+      i=$((i + 1))
+      echo "[registry-pivot] WARN apk add curl jq failed (attempt ${i}/6); retry in $((i * 5))s" >&2
+      sleep $((i * 5))
+    done
+    if ! command -v jq >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+      echo "[registry-pivot] FATAL toolchain unavailable after 6 attempts (jq=$(command -v jq || echo MISSING) curl=$(command -v curl || echo MISSING)); refusing to proceed tool-less — exiting so the Pod restarts and retries rather than silently wedging the step-04 ack-wait. See #5191." >&2
+      exit 1
+    fi
 
     api="https://kubernetes.default.svc"
     token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)

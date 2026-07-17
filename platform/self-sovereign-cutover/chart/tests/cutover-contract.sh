@@ -2707,4 +2707,24 @@ if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress p
 fi
 echo "  PASS (#5095 contract: proxy-sourced copies fall back to the mechanically-derived direct upstream before an attempt fails, pace retries exponentially over >=15 min via values-exposed knobs, name the winning source, and keep the Phase A FATAL)"
 
+# ── Case 61 (#5191): step-04 registry-pivot toolchain (curl+jq) fail-loud ──
+# curl+jq are load-bearing in the pivot (Harbor CA extraction, dragonfly-CA/
+# dfdaemon patch, LB-IP discovery, per-node registriesYaml acks). The former
+# `apk add --no-cache curl jq >/dev/null 2>&1 || true` SILENTLY proceeded
+# tool-less on an egress miss, so every ack failed (`jq: not found`), the node
+# never acked v2, and the step-04 daemonset-wait wedged the WHOLE cutover with
+# NO failed-step flag (hw268: 2 rebooted nodes lost the toolchain, no egress to
+# reinstall). Assert the silent form is GONE and a verify-then-exit-1 fail-loud
+# guard replaced it (a visible CrashLoop that self-heals, never a silent wedge).
+echo "[cutover-contract] Case 61: step-04 registry-pivot verifies curl+jq and fails loud, never 'apk add ... || true' (#5191)"
+if grep -qE 'apk add --no-cache curl jq >/dev/null 2>&1 \|\| true' "$TMP/render.yaml"; then
+  echo "FAIL: step-04 still acquires curl+jq via a silent 'apk add ... || true' — an egress miss would run the pivot tool-less and wedge the step-04 ack-wait (#5191)" >&2
+  exit 1
+fi
+if ! grep -q 'command -v jq' "$TMP/render.yaml" || ! grep -q 'refusing to proceed tool-less' "$TMP/render.yaml"; then
+  echo "FAIL: step-04 lost the fail-loud toolchain guard (retry apk, verify command -v jq/curl, then exit 1) — a missing tool must crash the Pod visibly, never silently proceed (#5191)" >&2
+  exit 1
+fi
+echo "  PASS (#5191 contract: step-04 retries apk, verifies jq+curl present, and exits 1 fail-loud when absent — a visible self-healing CrashLoop replaces the silent tool-less wedge)"
+
 echo "[cutover-contract] All gates green."
