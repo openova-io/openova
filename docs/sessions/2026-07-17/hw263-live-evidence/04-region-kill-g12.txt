@@ -1,0 +1,36 @@
+# hw263 region-kill G12 — 2026-07-17T03:32:20Z
+T0 kill (HARD os-stop 4 region-a ECS, bastion excluded): 2026-07-17T03:30:00.344Z (job 8a868c409f44d741...)
+region-a apiserver: DEAD (Unable to connect) post-kill
+region-b promote: spec.replica.enabled=false on cnpg-pair + shared-pg/-b/-c replicas
+cnpg-pair-replica PROMOTED: pg_is_in_recovery=false (~within seconds)
+RPO=0 PROOF: pre-kill sentinel g12-hw263-prekill-1784258978 SURVIVED on promoted region-b primary (zero-tx-loss)
+post-kill WRITE: INSERT 0 1 accepted → region-b writable primary
+
+--- full-tier failover completeness ---
+ALL 4 CNPG DR pairs promoted (pg_is_in_recovery=false):
+  cnpg-pair-bp-cnpg-pair-replica (RPO=0 sentinel-proven), shared-pg-replica, shared-pg-b-replica, shared-pg-c-replica
+region-a recovery: os-start issued (job 8a868c419f44e007...); region-a apiserver RECOVERED; openbao-0 restarting on recovered node.
+openbao auto-unseal (#5148 1.2.62 proof): IN FLIGHT — monitored via /tmp/hw263-openbao-unseal-monitor.sh
+
+--- openbao auto-unseal: control-plane-recovery-gated (FINDING) ---
+openbao-0 restarted SEALED post-recovery (correct). The 1.2.62 reconciler LOGIC is
+correct (Service http://openbao.openbao.svc:8200 reachable, returns sealed:true;
+rc-capture fix intact). ROOT CAUSE of the delay: hw263 has a SINGLE control-plane per
+region. Killing region-a took down region-a's k3s server (kube-controller-manager =
+CronJob scheduler), so the region-a-local openbao-unseal-reconciler CronJob could not
+fire during the outage (lastScheduleTime stuck at 03:34Z, the boot-window no-op tick).
+Auto-unseal is therefore gated on region-a CONTROL-PLANE recovery (~15+ min Huawei
+os-start), NOT the 2-min reconciler cadence. All region-a nodes Ready by 03:55Z;
+awaiting the CronJob controller to resume + fire the unseal tick (monitored).
+NOTE: openbao is region-local by design (SECURITY.md §5, no stretched cluster) — the
+secrets layer is expected DOWN during a region-a outage and auto-recovers on return.
+
+--- FINAL G12 VERDICT (2026-07-17) ---
+CNPG failover RPO=0 (Pillar 3): PROVEN ✅ (all 4 pairs promoted, sentinel survived, post-kill write ok).
+openbao auto-unseal: DEFECT FOUND ⚠️ — reconciler CronJob did NOT resume in ~40min post-region-kill.
+  Root cause: region-a-local reconciler is a CronJob; the k3s CronJob controller + Kyverno fail-closed
+  webhook (FailedDelete on the reconciler's old jobs) did not resume scheduling post-control-plane-restart
+  (openbao-snapshot-save CronJob DID schedule → controller works; reconciler specifically stuck).
+  Recovery: manual exec-unseal openbao-0 → Sealed=false (env restored). Follow-on fix: make the reconciler
+  a continuous Deployment (not a CronJob) so it resumes on pod-restart, independent of the CronJob
+  scheduler + per-tick Kyverno admission. This is a #5148 follow-on; validated on the NEXT region-kill prov.
