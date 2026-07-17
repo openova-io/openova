@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T17:15:03Z` |
+| Last refreshed | `2026-07-17T17:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T17:19 | [#5189](https://github.com/openova-io/openova/pull/5189) | #5178 | docs(uat): hw268 G12 region-kill PASS ✅ — #5178 fully valida |
 | 2026-07-17T17:00 | [#5188](https://github.com/openova-io/openova/pull/5188) | #960 | docs(uat): hw268 rows 41-44/R9/R11/R13 ✅ keycloak SSO + back |
 | 2026-07-17T16:50 | [#5185](https://github.com/openova-io/openova/pull/5185) | #960 | docs(uat): hw268 R3-R7/R12/R22 ✅ — sso-bridge/plane-isolatio |
 | 2026-07-17T16:24 | [#5184](https://github.com/openova-io/openova/pull/5184) | #4325 | docs(uat): hw268 authed console walk — 33 rows (31 ✅) live P |
@@ -265,7 +266,6 @@ flowchart LR
 | 2026-07-17T01:36 | [#5155](https://github.com/openova-io/openova/pull/5155) | #960 | fix(scripts): region-kill-drill discover hint ran kill via b |
 | 2026-07-17T01:05 | [#5153](https://github.com/openova-io/openova/pull/5153) | #960 | docs(session): hw263 region-kill G12 runbook + wipe forensic |
 | 2026-07-17T00:47 | [#5152](https://github.com/openova-io/openova/pull/5152) | #5150 | docs(uat): stamp R6/R7/R8/R11/R22 robustness backing ✅ on hw |
-| 2026-07-16T23:24 | [#5151](https://github.com/openova-io/openova/pull/5151) | #5150 | fix(sso-bridge): align alpine/k8s to cutover-standard 1.31.4 |
 
 ---
 
