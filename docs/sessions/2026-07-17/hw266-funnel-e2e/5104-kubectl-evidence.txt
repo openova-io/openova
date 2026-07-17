@@ -1,0 +1,32 @@
+# #5104 EVIDENCE — hw266 funnel-purchased WordPress deploys (S/host tier, Org store266)
+# captured 2026-07-17T13:26:18Z
+
+## kubectl --kubeconfig /tmp/hw266.kubeconfig -n store266 get deploy,pods -o wide
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE    CONTAINERS   IMAGES                                                 SELECTOR
+deployment.apps/mysql       1/1     1            1           107s   mysql        harbor.openova.io/proxy-dockerhub/mariadb:11           app=mysql
+deployment.apps/wordpress   1/1     1            1           107s   wordpress    harbor.openova.io/proxy-dockerhub/wordpress:6-apache   app=wordpress
+
+NAME                            READY   STATUS    RESTARTS   AGE    IP            NODE                                                        NOMINATED NODE   READINESS GATES
+pod/mysql-7d94d4b7f8-hzqgv      1/1     Running   0          107s   10.42.3.192   catalyst-hw266-omani-works-b85cb3b3-me-east-215-a-w26387e   <none>           <none>
+pod/wordpress-fc777f49b-n4xrf   1/1     Running   0          107s   10.42.1.192   catalyst-hw266-omani-works-b85cb3b3-me-east-215-a-wc90a2b   <none>           <none>
+
+## Delivery unit: flux-system/catalyst-tenant-store266-apps (Ready=True => cart-install kustomization committed + reconciled, NOT wedged)
+  conditions:
+  - lastTransitionTime: "2026-07-17T13:26:01Z"
+    message: 'Applied revision: main@sha1:9c5d980db98d4e9f695abf92a0d5f98ab8146d26'
+    observedGeneration: 1
+    reason: ReconciliationSucceeded
+    status: "True"
+    type: Ready
+
+## Funnel-purchase shape confirmation: NO Application CR, NO HelmRelease for wordpress
+-- helmreleases in store266 --
+No resources found in store266 namespace.
+
+## per-org-app HTTPRoute (the artifact #5123 projects)
+NAME            HOST                             APP         COMPONENT           TENANT
+app-wordpress   wordpress.store266.omani.homes   wordpress   per-org-app-route   store266
+
+## Live app URL (after DNS+wildcard-cert settled, ~3m post-order)
+curl https://wordpress.store266.omani.homes/  => HTTP 302 -> https://wordpress.store266.omani.homes/wp-admin/install.php (fresh WordPress installer; app is SERVING)
+curl https://console.store266.omani.homes/    => HTTP 200
