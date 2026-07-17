@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T13:30:05Z` |
+| Last refreshed | `2026-07-17T13:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -234,6 +234,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T13:37 | [#5180](https://github.com/openova-io/openova/pull/5180) | #5104 | docs(session): hw266 keystone evidence — cc=true + funnel #5 |
+| 2026-07-17T13:34 | [#5179](https://github.com/openova-io/openova/pull/5179) | #5137 | fix(cnpg-pair): dr-promoter region-A liveness gate + durable |
 | 2026-07-17T12:52 | [#5177](https://github.com/openova-io/openova/pull/5177) | #5167 | fix(openova-mcp): resolve session tokens via catalyst-api /w |
 | 2026-07-17T12:52 | [#5176](https://github.com/openova-io/openova/pull/5176) | #5167 | docs(uat): NORTH-STAR live on hw266 — openova-mcp deployed + |
 | 2026-07-17T12:52 | [#5174](https://github.com/openova-io/openova/pull/5174) | #5089 | docs(854): NodePort audit provenance trace — residue is out- |
@@ -262,8 +264,6 @@ flowchart LR
 | 2026-07-16T19:48 | [#5147](https://github.com/openova-io/openova/pull/5147) | #5114 | fix(catalog): remove stale bp-sandbox Blueprint (removed San |
 | 2026-07-16T14:49 | [#5146](https://github.com/openova-io/openova/pull/5146) | #5142 | fix(openbao): continuous unseal reconciler — survive region- |
 | 2026-07-16T13:07 | [#5141](https://github.com/openova-io/openova/pull/5141) | #5140 | fix(catalyst-api): Agenity sandbox sessions degrade to 503 o |
-| 2026-07-16T13:03 | [#5139](https://github.com/openova-io/openova/pull/5139) | #3 | docs(uat): hw261 funnel walk evidence — Pillars 1+2 live |
-| 2026-07-16T09:34 | [#5138](https://github.com/openova-io/openova/pull/5138) | #5134 | docs(uat): G12 region-kill Pillar-3 PASS on hw261 — zero-tx- |
 
 ---
 
