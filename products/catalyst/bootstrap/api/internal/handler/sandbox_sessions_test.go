@@ -9,10 +9,13 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -40,6 +43,15 @@ func TestSandboxBackendUnavailable(t *testing.T) {
 		{"already-exists", apierrors.NewAlreadyExists(gr, "s1"), false},
 		{"plain-error", errors.New("boom"), false},
 		{"nil", nil, false},
+		// #5140 — transient errors the OLD typed-only classifier missed and that
+		// fell through to a hard 500 on hw261's region-kill recovery window.
+		{"internal-error", apierrors.NewInternalError(errors.New("etcdserver: request timed out")), true},
+		{"no-kind-match-discovery-miss", &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "sandbox.openova.io", Kind: "Sandbox"}}, true},
+		{"deadline-exceeded-wrapped", fmt.Errorf("list sandboxes: %w", context.DeadlineExceeded), true},
+		{"discovery-404-untyped", errors.New("the server could not find the requested resource"), true},
+		{"connection-refused-untyped", errors.New("Get \"https://10.0.0.1:6443/apis\": dial tcp 10.0.0.1:6443: connect: connection refused"), true},
+		{"unexpected-eof-untyped", errors.New("unexpected EOF"), true},
+		{"genuine-parse-error", errors.New("json: cannot unmarshal number into Go value"), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

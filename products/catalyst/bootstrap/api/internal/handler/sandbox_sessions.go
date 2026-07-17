@@ -72,6 +72,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -82,6 +83,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -343,12 +345,52 @@ type sandboxCreateRequest struct {
 // reflector alternated "Unauthorized" and "could not find the requested
 // resource". Per this package's doc, backend-unavailable ⇒ 503 "API
 // pending", never a raw 500.
+// sandboxBackendUnavailable reports whether err indicates the sandbox backend
+// (apiserver / sandbox-CRD discovery / the reflector's watch) is TRANSIENTLY
+// unavailable — a retryable 503 — rather than a genuine 500 server fault.
+//
+// #5140: on hw261 during a region-kill recovery window, GET/POST
+// /api/v1/sandbox/sessions returned 500. The typed apierrors below did NOT
+// catch the real cause: the dynamic client's RESTMapper transiently could not
+// resolve the sandbox GVR (a *meta.NoKindMatchError, "no matches for kind"),
+// and the reflector's watch failed with connection-refused / "the server could
+// not find the requested resource" while the region-a apiserver restabilised.
+// Those are retryable — map them to 503 so the FE renders the "API pending"
+// pill and retries, not a hard 500.
 func sandboxBackendUnavailable(err error) bool {
-	return apierrors.IsUnauthorized(err) ||
+	if err == nil {
+		return false
+	}
+	if apierrors.IsUnauthorized(err) ||
 		apierrors.IsForbidden(err) ||
 		apierrors.IsServiceUnavailable(err) ||
 		apierrors.IsServerTimeout(err) ||
-		apierrors.IsTimeout(err)
+		apierrors.IsInternalError(err) ||
+		apierrors.IsTimeout(err) ||
+		meta.IsNoMatchError(err) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// Untyped discovery / connection errors the reflector + RESTMapper wrap as
+	// plain strings that the typed helpers above miss.
+	msg := strings.ToLower(err.Error())
+	for _, s := range []string{
+		"could not find the requested resource",
+		"the server is currently unable to handle the request",
+		"connection refused",
+		"dial tcp",
+		"unexpected eof",
+		"tls handshake",
+		"no route to host",
+		"i/o timeout",
+		"etcdserver: request timed out",
+		"apiserver not ready",
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) HandleListSandboxSessions(w http.ResponseWriter, r *http.Request) {
