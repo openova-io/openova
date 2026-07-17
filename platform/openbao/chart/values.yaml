@@ -195,23 +195,31 @@ autoUnseal:
   # leave the Job pending indefinitely.
   activeDeadlineSeconds: 600
   backoffLimit: 6
-  # ─── #5142 continuous unseal reconciler ───────────────────────────────
+  # ─── #5142/#5157 continuous unseal reconciler ─────────────────────────
   # The init Job above is a one-shot Helm post-install/upgrade hook: it
   # unseals at install/roll but never re-runs. After a region-kill
   # kills + recovers openbao-0's node, the Pod restarts SEALED (shamir
   # does not auto-unseal) and stays sealed — the secrets layer degrades
   # (SSO seeds, snapshot cron, catalyst-api). Observed live on hw261 after
-  # region-kill G12. This CronJob (templates/unseal-reconciler.yaml)
-  # re-applies the persisted openbao-unseal-keys on a short schedule so a
+  # region-kill G12. templates/unseal-reconciler.yaml re-applies the
+  # persisted openbao-unseal-keys whenever the vault is sealed so a
   # region-kill recovery restores the secrets layer without operator
   # action (Pillar-3 DR recovery). Rendered only when autoUnseal.enabled
   # AND reconcile.enabled are both true.
+  #
+  # #5157: this is a DEPLOYMENT (continuous loop), NOT a CronJob. The hw263
+  # region-kill G12 proved a CronJob is not robust to the event it guards —
+  # the region-a control-plane (CronJob scheduler) dies with the region and
+  # did not resume scheduling this reconciler for 40+ min on recovery
+  # (Kyverno fail-closed FailedDelete wedged its loop). A Deployment pod
+  # resumes its check-loop the instant its node recovers, independent of the
+  # CronJob scheduler + per-tick admission. `schedule` is retained for
+  # backward-compat but ignored; `intervalSeconds` is the loop cadence.
   reconcile:
     enabled: true
-    # Seal-status check cadence. Every 2 min bounds post-region-kill
-    # sealed-time to ~2 min while staying cheap (no long-running Pod).
-    schedule: "*/2 * * * *"
-    activeDeadlineSeconds: 120
+    # Loop cadence. 120s bounds post-region-kill sealed-time to ~2 min.
+    intervalSeconds: 120
+    schedule: "*/2 * * * *"   # legacy/no-op (superseded by intervalSeconds; #5157)
   # ─── #3888 (Refs #3847) prov-time openbao KV-seed ─────────────────────
   # The MISSING mechanism #3890 flagged: there is no way to land a
   # per-deployment cred into openbao KV at provision time, because the
