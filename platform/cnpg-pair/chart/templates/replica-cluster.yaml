@@ -75,10 +75,23 @@ spec:
   # `replica.enabled: true` configures this Cluster as a CNPG replica
   # cluster: instances bootstrap via streaming replication from the
   # named externalCluster source. Continuum K-Cont-2's switchover
-  # path patches `replica.enabled: false` on this CR (and flips the
-  # primary CR to the inverse) to promote/demote atomically.
+  # path promotes this CR by flipping it to `replica.enabled: false`.
+  #
+  # #5125 Defect-1 (DR durability): `enabled` is DRIVEN BY THE
+  # `replica.promoted` VALUE, not a live-object patch. Region-kill
+  # failover must patch the region-B HelmRelease DESIRED state
+  # (`spec.values.cnpgPair.replica.promoted: true`), NOT `kubectl patch`
+  # this live Cluster CR. A live-object patch is REVERTED by flux
+  # drift-correction mid-outage — on hw256 G12 (2026-07-15, T0+2m07s,
+  # region-a still SHUTOFF) helm-controller ran "correct cluster drift"
+  # on bp-cnpg-pair and reset `replica.enabled` back to `true`, silently
+  # re-demoting the promoted survivor to read-only against a dead source.
+  # Driving promotion through the HR value makes the failed-over state the
+  # DESIRED state, so drift-correction RE-AFFIRMS the promotion instead of
+  # undoing it. Default `promoted: false` ⇒ `enabled: true` (normal
+  # replica); a missing value is also treated as replica (backward-safe).
   replica:
-    enabled: true
+    enabled: {{ not (.Values.cnpgPair.replica.promoted | default false) }}
     source: {{ include "cnpg-pair.fullname" . }}-primary
 
   # ── Bootstrap from primary ──────────────────────────────────────

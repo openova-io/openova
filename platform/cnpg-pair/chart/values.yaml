@@ -86,6 +86,17 @@ cnpgPair:
   # so Cilium ClusterMesh publishes it across every connected peer.
   replica:
     region: ""
+    # ── DR failover promotion (#5125 Defect-1) ──────────────────────
+    # When true, the replica Cluster CR renders `replica.enabled: false`
+    # → CNPG promotes it to a writable primary. Region-kill failover
+    # MUST flip this on the region-B HelmRelease's DESIRED state
+    # (`spec.values.cnpgPair.replica.promoted: true`), never by
+    # `kubectl patch`-ing the live Cluster CR: a live-object patch is
+    # reverted by flux drift-correction mid-outage (hw256 G12), silently
+    # re-demoting the survivor. Driving it through HR values makes the
+    # failover the desired state so drift-correction re-affirms it.
+    # See RUNBOOKS.md §6.1 (region-kill failover) + replica-cluster.yaml.
+    promoted: false
     instances: 3
     storage:
       size: 100Gi

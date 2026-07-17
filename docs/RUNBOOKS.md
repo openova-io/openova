@@ -1069,10 +1069,27 @@ For multi-region active-hotstandby Sovereigns and Applications (Pillar 3).
 The deterministic failover test for two independent CNPG clusters:
 
 1. Place a write into the primary CNPG cluster (synchronous replication, `remote_apply`, PR #2071)
-2. Kill the primary region (Hetzner API: detach LB, drop firewall, terminate CP node)
-3. Promote the replica via `Continuum` CR (PR #2072, #2074)
-4. Verify the write made it across — zero-tx-loss
-5. Reverse: promote original primary back when region recovers
+2. Kill the primary region (canonical driver: `scripts/region-kill-drill.sh kill --arm` — batch HARD os-stop of the region-a ECS via the HCS action API; bastion hard-excluded)
+3. **Promote the replica by flipping the region-B HelmRelease DESIRED state**, NOT the live Cluster CR:
+   ```bash
+   # DURABLE (#5125 Defect-1): patch the HR values so the failed-over state
+   # IS the desired state → flux drift-correction RE-AFFIRMS the promotion.
+   kubectl --kubeconfig <region-b> -n <ns> patch helmrelease bp-cnpg-pair \
+     --type merge -p '{"spec":{"values":{"cnpgPair":{"replica":{"promoted":true}}}}}'
+   # → chart re-renders the replica Cluster CR with replica.enabled:false → CNPG promotes it writable.
+   ```
+   🛑 Do **NOT** `kubectl patch` `spec.replica.enabled=false` on the live Cluster CR:
+   a drift-enabled HelmRelease owns it, so helm-controller's "correct cluster drift"
+   REVERTS the patch mid-outage and silently re-demotes the survivor (hw256 G12,
+   T0+2m07s). Route the change through the HR value (or the Continuum sequencer
+   patching HR values) so the promotion survives reconcile. (The `Continuum` CR
+   orchestration path is the automated equivalent — PR #2072/#2074.)
+4. Verify the write made it across — zero-tx-loss (RPO=0)
+5. Reverse: `scripts/region-kill-drill.sh recover --arm` os-starts region-a; then set
+   `replica.promoted:false` back on the region-B HR to resume replica mode once the
+   original primary is re-cloned onto the current timeline (#5125 Defect-2, still open —
+   CNPG replica walreceivers crash-loop `timeline N behind recovery timeline N+1` until
+   the stale side is deleted + re-basebackup'd).
 
 Test harness lives at the D31 acceptance test (PR #2075).
 
