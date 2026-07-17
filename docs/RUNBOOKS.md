@@ -1096,6 +1096,47 @@ Inter-region = DMZ WireGuard over **PUBLIC IPs** ALWAYS. Cilium ClusterMesh apis
 
 There is no in-place recovery for a cluster whose Flux controllers have been deleted (see §2.7). For zero-tx-loss claims to hold, validate on the topology you claim: never report multi-region pass against a single-region prov.
 
+### 6.6 OpenBao secrets-layer auto-unseal after region-kill (#5142/#5157)
+
+OpenBao is **region-local** (3-node Raft, no stretched cluster — SECURITY.md §5).
+When the primary region is killed and recovered, `openbao-0` restarts **SEALED**
+(shamir does not auto-unseal), so the secrets layer degrades until re-unsealed:
+SSO seeds, ExternalSecrets, the snapshot cron, and catalyst-api all destabilise.
+
+**Auto-recovery (default, no operator action).** `bp-openbao` ships an
+`openbao-unseal-reconciler` — a **Deployment** (bp-openbao ≥ **1.2.63**; it was a
+CronJob in 1.2.61/1.2.62, see below) that runs a continuous loop: every
+`reconcile.intervalSeconds` (120s) it checks `bao status` and, if sealed, applies
+the persisted `openbao-unseal-keys` Secret via `bao operator unseal`. After a
+region-kill recovery the Deployment pod resumes its loop the instant its node is
+back, and openbao returns `Sealed=false` within ~2–4 min — no operator action.
+
+> **#5157 — why a Deployment, not a CronJob.** The 1.2.62 CronJob was **not
+> robust to the very event it guards**: killing the region takes down that
+> region's single k3s control-plane (the CronJob scheduler), and on the hw263
+> region-kill G12 the CronJob controller did not resume scheduling the reconciler
+> for 40+ min (a Kyverno fail-closed `FailedDelete` wedged its loop) — openbao
+> stayed SEALED until manual unseal. The Deployment has no such dependency. If a
+> Sovereign is on ≤1.2.62, roll it to ≥1.2.63 or use the manual path below.
+
+**Manual recovery (only if auto-unseal has not completed).** Exec into the pod
+and apply the persisted key directly (BAO_ADDR pod-local, bypasses the Ready-gated
+Service):
+
+```bash
+K="kubectl -n openbao"
+$K exec openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao status | grep Sealed'   # true?
+KEY=$($K get secret openbao-unseal-keys -o jsonpath='{.data.unseal-keys-b64}' | base64 -d | head -1)
+$K exec openbao-0 -- sh -c "BAO_ADDR=http://127.0.0.1:8200 bao operator unseal $KEY"
+$K exec openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao status | grep Sealed'   # false ✓
+```
+
+Then confirm the reconciler Deployment is healthy so it holds going forward:
+`kubectl -n openbao get deploy openbao-unseal-reconciler` (want 1/1). If the
+`openbao-unseal-keys` Secret is **missing**, auto-unseal cannot run — that is a
+separate init-Job failure; see the init-job persistence path in
+`platform/openbao/chart/templates/init-job.yaml`.
+
 ---
 
 ## §7 — Troubleshooting matrix
