@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T10:15:02Z` |
+| Last refreshed | `2026-07-17T10:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 25 |
 | Open DoD gates | 0 / 41 |
@@ -232,6 +232,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T10:20 | [#5171](https://github.com/openova-io/openova/pull/5171) | #5137 | fix(cnpg-pair): region-B dr-promoter — automatic RPO=0 regio |
+| 2026-07-17T10:15 | [#5170](https://github.com/openova-io/openova/pull/5170) | #5123 | fix(catalyst): per-Org Apps grid lists funnel-purchased apps |
+| 2026-07-17T10:15 | [#5169](https://github.com/openova-io/openova/pull/5169) | #5167 | docs(evidence): hw264 MCP DEGRADED live probe — #5167 north- |
 | 2026-07-17T09:56 | [#5168](https://github.com/openova-io/openova/pull/5168) | #5114 | fix(openova-mcp): rs256 verify ACTIVE on fresh Sovereign — a |
 | 2026-07-17T09:38 | [#5166](https://github.com/openova-io/openova/pull/5166) | #5125 | fix(cnpg-pair): DR failover through HR desired state (Refs # |
 | 2026-07-17T09:38 | [#5165](https://github.com/openova-io/openova/pull/5165) | #960 | docs(uat): hw264 authed render walk + §854 audit (Refs #960) |
@@ -259,9 +262,6 @@ flowchart LR
 | 2026-07-16T01:37 | [#5132](https://github.com/openova-io/openova/pull/5132) | #5131 | fix(catalyst-api): materialize chroot primary kubeconfig so  |
 | 2026-07-15T22:49 | [#5130](https://github.com/openova-io/openova/pull/5130) | #5127 | fix(cloud-init): collapse redundant reflector namespace list |
 | 2026-07-15T22:04 | [#5128](https://github.com/openova-io/openova/pull/5128) | #5121 | fix(openova-mcp): degrade-not-crash on absent rs256 pubkey [ |
-| 2026-07-15T20:04 | [#5127](https://github.com/openova-io/openova/pull/5127) | #5042 | fix(cloud-init): harden the bootstrap layer — retry k3s inst |
-| 2026-07-15T17:56 | [#5122](https://github.com/openova-io/openova/pull/5122) | #5116 | fix(auth): Date header on the funnel customer's login-code m |
-| 2026-07-15T17:28 | [#5121](https://github.com/openova-io/openova/pull/5121) | #5114 | fix(openova-mcp): hw256 defects — numeric runAsUser 65532 +  |
 
 ---
 
