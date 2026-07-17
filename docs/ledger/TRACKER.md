@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T06:30:04Z` |
+| Last refreshed | `2026-07-17T06:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 29 |
+| Open issues | 26 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 29 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 26 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 29 open items (clickable table)
+### All 26 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,16 +218,13 @@ flowchart LR
 | [#5100](https://github.com/openova-io/openova/issues/5100) | console bundle: tenant-string residue in user-visible strings (row 214) — Reco | Other |
 | [#5104](https://github.com/openova-io/openova/issues/5104) | P0: funnel purchased app never deploys — cart-install kustomization merge drop | Other |
 | [#5113](https://github.com/openova-io/openova/issues/5113) | catalog card-form Save commit-leg writes invalid/destructive Blueprint YAML —  | Other |
-| [#5119](https://github.com/openova-io/openova/issues/5119) | sovereign-lifecycle.sh fire body omits fireCutoverOnHandover/qaTestEnabled — p | Other |
 | [#5123](https://github.com/openova-io/openova/issues/5123) | per-Org console never lists funnel-purchased apps — /api/v1/org/applications p | Other |
 | [#5124](https://github.com/openova-io/openova/issues/5124) | Edit-IaC editor seeds from stale CatalogItem.raw — an IaC Commit silently reve | Other |
 | [#5125](https://github.com/openova-io/openova/issues/5125) | DR durability: flux drift-correction re-demotes the promoted survivor mid-outage | Other |
-| [#5126](https://github.com/openova-io/openova/issues/5126) | prov-preflight EIP gap: check 3 counts orphan DOWN EIPs only, not pool availabil | Other |
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
 | [#5137](https://github.com/openova-io/openova/issues/5137) | P2: Continuum DR controller + dr CR are single-region (region-a) — die with th | Other |
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
 | [#5142](https://github.com/openova-io/openova/issues/5142) | openbao stays SEALED after region-kill recovery (hw261) — no auto-unseal → s | Other |
-| [#5150](https://github.com/openova-io/openova/issues/5150) | sso-bridge-reconciler ImagePullBackOff post-cutover — proxy-dockerhub/alpine/k | Other |
 | [#5157](https://github.com/openova-io/openova/issues/5157) | openbao unseal-reconciler CronJob does not resume after a region-kill → openba | Other |
 
 ---
