@@ -11,3 +11,9 @@ FAILOVER (Pillar 3): cnpg-pair-replica promoted pg_is_in_recovery=f in ~seconds;
 RECOVER: region-a os-start issued (job 8a868c3f...012a429da).
 #5157 PROOF: IN FLIGHT — region-a boots → openbao-0 restarts SEALED → the
   Deployment reconciler resumes its loop + auto-unseals (vs hw263 CronJob 40min-sealed).
+
+#5157 PROVEN ✅ (monitored live): openbao-0 restarted SEALED (sealed=true, 0/1) at
+~3min post-recovery, then the DEPLOYMENT reconciler auto-unsealed it (sealed=false,
+1/1) by ~5min — NO CronJob-scheduler dependency, NO manual intervention. The hw263
+CronJob 40min-sealed gap is CLOSED. Deployment reconciler ran its continuous loop
+("Deployment loop started interval=120s" → reachable → unseal) through the recovery.
