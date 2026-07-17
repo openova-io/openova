@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T16:15:04Z` |
+| Last refreshed | `2026-07-17T16:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 28 |
 | Open DoD gates | 0 / 41 |
@@ -235,6 +235,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T16:24 | [#5184](https://github.com/openova-io/openova/pull/5184) | #4325 | docs(uat): hw268 authed console walk — 33 rows (31 ✅) live P |
+| 2026-07-17T16:18 | [#5183](https://github.com/openova-io/openova/pull/5183) | #3374 | docs(uat): hw268 row40 ✅ marketplace storefront + PROD LE ce |
 | 2026-07-17T14:30 | [#5182](https://github.com/openova-io/openova/pull/5182) | #5126 | fix(preflight): wipe→fire EIP-pool cooldown gate — regional  |
 | 2026-07-17T13:37 | [#5180](https://github.com/openova-io/openova/pull/5180) | #5104 | docs(session): hw266 keystone evidence — cc=true + funnel #5 |
 | 2026-07-17T13:34 | [#5179](https://github.com/openova-io/openova/pull/5179) | #5137 | fix(cnpg-pair): dr-promoter region-A liveness gate + durable |
@@ -263,8 +265,6 @@ flowchart LR
 | 2026-07-16T23:24 | [#5151](https://github.com/openova-io/openova/pull/5151) | #5150 | fix(sso-bridge): align alpine/k8s to cutover-standard 1.31.4 |
 | 2026-07-16T23:56 | [#5149](https://github.com/openova-io/openova/pull/5149) | #960 | docs(uat): stamp G11 cutover ✅ — hw262 cutoverComplete=true  |
 | 2026-07-16T19:47 | [#5148](https://github.com/openova-io/openova/pull/5148) | #5146 | fix(openbao): unseal-reconciler no-op'd on SEALED vault — ca |
-| 2026-07-16T19:48 | [#5147](https://github.com/openova-io/openova/pull/5147) | #5114 | fix(catalog): remove stale bp-sandbox Blueprint (removed San |
-| 2026-07-16T14:49 | [#5146](https://github.com/openova-io/openova/pull/5146) | #5142 | fix(openbao): continuous unseal reconciler — survive region- |
 
 ---
 
