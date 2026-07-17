@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T14:30:04Z` |
+| Last refreshed | `2026-07-17T14:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 28 |
 | Open DoD gates | 0 / 41 |
@@ -235,6 +235,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T14:30 | [#5182](https://github.com/openova-io/openova/pull/5182) | #5126 | fix(preflight): wipe→fire EIP-pool cooldown gate — regional  |
 | 2026-07-17T13:37 | [#5180](https://github.com/openova-io/openova/pull/5180) | #5104 | docs(session): hw266 keystone evidence — cc=true + funnel #5 |
 | 2026-07-17T13:34 | [#5179](https://github.com/openova-io/openova/pull/5179) | #5137 | fix(cnpg-pair): dr-promoter region-A liveness gate + durable |
 | 2026-07-17T12:52 | [#5177](https://github.com/openova-io/openova/pull/5177) | #5167 | fix(openova-mcp): resolve session tokens via catalyst-api /w |
@@ -264,7 +265,6 @@ flowchart LR
 | 2026-07-16T19:47 | [#5148](https://github.com/openova-io/openova/pull/5148) | #5146 | fix(openbao): unseal-reconciler no-op'd on SEALED vault — ca |
 | 2026-07-16T19:48 | [#5147](https://github.com/openova-io/openova/pull/5147) | #5114 | fix(catalog): remove stale bp-sandbox Blueprint (removed San |
 | 2026-07-16T14:49 | [#5146](https://github.com/openova-io/openova/pull/5146) | #5142 | fix(openbao): continuous unseal reconciler — survive region- |
-| 2026-07-16T13:07 | [#5141](https://github.com/openova-io/openova/pull/5141) | #5140 | fix(catalyst-api): Agenity sandbox sessions degrade to 503 o |
 
 ---
 
