@@ -1,0 +1,23 @@
+// GET https://console.store266.omani.homes/api/v1/org/applications
+// Headers: X-Tenant-Host: console.store266.omani.homes ; Cookie: catalyst_session=<org-scoped member session>
+// HTTP 200 — captured 2026-07-17 via in-page fetch on the per-Org console (Org store266, owner@store266.omani.homes)
+{
+  "apps": [
+    {
+      "id": "wordpress",
+      "slug": "wordpress",
+      "title": "wordpress",
+      "summary": "",
+      "tags": null,
+      "depends": null,
+      "status": "installed",
+      "bootstrapKit": false,
+      "environment": "dev",
+      "externalURL": "https://wordpress.store266.omani.homes",
+      "instance": true,
+      "blueprint": "bp-wordpress"
+    }
+  ],
+  "generatedAt": "2026-06-25T07:56:33.618Z",
+  "bootstrapKit": []
+}
