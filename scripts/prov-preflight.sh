@@ -220,6 +220,31 @@ if kubectl -n catalyst rollout status deploy/catalyst-api --timeout=8s >/dev/nul
   pass "4. catalyst-api rollout settled"
 else bad "4. catalyst-api mid-roll — wait (a roll mid-prov ABANDONS it)"; fi
 
+# 4b. mothership catalyst-api DEPLOYED image == origin/main PINNED tag (no roll
+#     PENDING). hw265 died because check-4 "settled" is POINT-IN-TIME: at fire
+#     time catalyst-api was 1/1 on the OLD image, then Flux reconciled the
+#     already-merged deploybot image-bump a few minutes later — MID-tofu-apply —
+#     and the restart abandoned the prov (reference_deploybot_catalyst_api_roll_
+#     mid_fire_abandons_prov). Gate on deployed==pinned so no roll can land during
+#     the prov: they diverge ONLY when a deploybot bump is merged but not yet
+#     reconciled onto the mothership.
+git fetch origin main --quiet 2>/dev/null || true
+_deployed_tag=$(kubectl -n catalyst get deploy catalyst-api \
+  -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://')
+_pinned_tag=$(git show origin/main:products/catalyst/chart/values.yaml 2>/dev/null | python3 -c '
+import sys,yaml
+try:
+    print((yaml.safe_load(sys.stdin) or {}).get("images",{}).get("catalystApi",{}).get("tag",""))
+except Exception:
+    print("")' 2>/dev/null)
+if [ -z "$_deployed_tag" ] || [ -z "$_pinned_tag" ]; then
+  bad "4b. could not read catalyst-api deployed/pinned tag (deployed='${_deployed_tag}' pinned='${_pinned_tag}') — verify the mothership is on the pinned image before firing"
+elif [ "$_deployed_tag" = "$_pinned_tag" ]; then
+  pass "4b. catalyst-api on the pinned image (${_deployed_tag}) — NO roll pending mid-prov"
+else
+  bad "4b. catalyst-api DEPLOYED=${_deployed_tag} != PINNED=${_pinned_tag} — a deploybot roll is PENDING; it WILL reconcile mid-prov and ABANDON it (hw265). Wait for Flux to roll catalyst-api to the pinned image + settle, THEN fire."
+fi
+
 # 5. NO in-flight Build-&-Deploy / blueprint-release CI (a merge mid-prov rolls catalyst-api -> abandon)
 inflight=$(gh run list --repo openova-io/openova --limit 12 --json name,status -q '[.[]|select(.status!="completed")]|length' 2>/dev/null)
 [ "${inflight:-x}" = "0" ] && pass "5. no in-flight CI (and HOLD all merges until ready)" || bad "5. ${inflight:-unknown} CI run(s) in flight — wait + DO NOT MERGE until prov is ready"
