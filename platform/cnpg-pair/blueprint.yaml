@@ -20,7 +20,12 @@ spec:
   # region-B HR desired state (replica.promoted=true, the #5125-D1 seam) so
   # CNPG promotes the survivor with ZERO operator action. sync-mode-only
   # (the remote_apply/dataDurability fence is the anti-split-brain arbiter).
-  version: 0.2.13
+  # 0.2.14 (#5178): dr-promoter regression fix — (A) a POSITIVE region-A
+  # liveness gate (pg_isready of `-primary-mesh` over the mesh) + startup grace
+  # so the actor no longer false-promotes a healthy replica against a live
+  # region-A, and (B) a durable SUSPEND latch + anti-flap divergence guard so a
+  # real promotion sticks instead of flapping the timeline away (hw266 G12).
+  version: 0.2.14
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

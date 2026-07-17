@@ -213,7 +213,15 @@ spec:
       # the #5125-D1 seam) when the primary's WAL stream has been dead ≥120s
       # AND failover-readiness is Ready — automatic RPO=0 region-kill
       # failover with zero operator action. sync-mode-only (data fence).
-      version: 0.2.13
+      # 0.2.14 (#5178): dr-promoter regression fix — the 0.2.13 promoter
+      # false-promoted a healthy replica against a live region-A and its
+      # promote was non-durable, running the region-B timeline away on hw266
+      # G12 (TL2→TL25). Adds (A) a POSITIVE region-A liveness gate (pg_isready
+      # of `-primary-mesh` over the mesh, gated on crossRegionPeerClusters) +
+      # startup grace, and (B) a durable SUSPEND latch + anti-flap guard. The
+      # existing SOVEREIGN_PEER_CLUSTERMESH_NAMES wiring (below) is what arms
+      # the liveness gate — no new substitute.
+      version: 0.2.14
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

@@ -1070,39 +1070,54 @@ The deterministic failover test for two independent CNPG clusters:
 
 1. Place a write into the primary CNPG cluster (synchronous replication, `remote_apply`, PR #2071)
 2. Kill the primary region (canonical driver: `scripts/region-kill-drill.sh kill --arm` — batch HARD os-stop of the region-a ECS via the HCS action API; bastion hard-excluded)
-3. **AUTOMATIC (bp-cnpg-pair ≥ 0.2.13, #5137)**: region-B's `<pair>-dr-promoter`
+3. **AUTOMATIC (bp-cnpg-pair ≥ 0.2.14, #5137 + #5178)**: region-B's `<pair>-dr-promoter`
    Deployment (side=replica; a Deployment NOT a CronJob per #5157 — it survives
-   the region-kill because it runs in the surviving region) detects the dead WAL
-   stream via the LOCAL replica's `pg_stat_wal_receiver`, waits
-   `autoPromote.primaryDownHoldSeconds` (120s, so an intra-region primary
-   restart never triggers), confirms the failover-readiness probe is Ready
-   (LSN apply==receive, #5133), and then executes the HR patch below ITSELF —
-   zero operator action, expected promotion ~2–4 min after the kill. The
-   controller-side Continuum orchestration cannot do this: it lives on region-a
-   and dies with it (#5137). Evidence lands as
-   `catalyst.openova.io/dr-auto-promoted-at` on the region-B HR + the
-   dr-promoter pod log. The manual command remains the fallback (and is exactly
-   what the actor runs). **Promote the replica by flipping the region-B
-   HelmRelease DESIRED state**, NOT the live Cluster CR:
+   the region-kill because it runs in the surviving region) detects loss via TWO
+   signals: the LOCAL replica's `pg_stat_wal_receiver` is ABSENT **AND** a direct
+   `pg_isready` of the region-A `-primary-mesh` endpoint over the ClusterMesh is
+   UNREACHABLE (the #5178 positive-liveness gate — a stalled local stream with
+   region-A still reachable is a replication fault, never a region kill, and does
+   NOT promote). It waits `autoPromote.primaryDownHoldSeconds` (120s, so an
+   intra-region primary restart never triggers), respects a `startupGraceSeconds`
+   window (a fresh catching-up replica can never trip it), confirms the
+   failover-readiness probe is Ready (LSN apply==receive, #5133), then executes
+   the promote + LATCH below ITSELF — zero operator action, expected promotion
+   ~2–4 min after the kill. The controller-side Continuum orchestration cannot do
+   this: it lives on region-a and dies with it (#5137). Evidence lands as
+   `catalyst.openova.io/dr-auto-promoted-at` + `…/dr-auto-promote-latched-at` on
+   the region-B HR + the dr-promoter pod log. The manual command remains the
+   fallback (and is exactly what the actor runs). **Promote the replica by
+   flipping the region-B HelmRelease DESIRED state, then SUSPEND the HR to latch
+   it** — NOT the live Cluster CR:
    ```bash
-   # DURABLE (#5125 Defect-1): patch the HR values so the failed-over state
-   # IS the desired state → flux drift-correction RE-AFFIRMS the promotion.
+   # STEP 1 — drive the failed-over DESIRED state (#5125 Defect-1):
    kubectl --kubeconfig <region-b> -n <ns> patch helmrelease bp-cnpg-pair \
      --type merge -p '{"spec":{"values":{"cnpgPair":{"replica":{"promoted":true}}}}}'
    # → chart re-renders the replica Cluster CR with replica.enabled:false → CNPG promotes it writable.
+   # STEP 2 — LATCH it durable (#5178 Defect-B): once replica.enabled:false has
+   # rendered, suspend the HR so flux can no longer revert it.
+   kubectl --kubeconfig <region-b> -n <ns> patch helmrelease bp-cnpg-pair \
+     --type merge -p '{"spec":{"suspend":true}}'
    ```
-   🛑 Do **NOT** `kubectl patch` `spec.replica.enabled=false` on the live Cluster CR:
-   a drift-enabled HelmRelease owns it, so helm-controller's "correct cluster drift"
-   REVERTS the patch mid-outage and silently re-demotes the survivor (hw256 G12,
-   T0+2m07s). Route the change through the HR value (or the Continuum sequencer
-   patching HR values) so the promotion survives reconcile. (The `Continuum` CR
-   orchestration path is the automated equivalent — PR #2072/#2074.)
+   🛑 The HR-value patch ALONE is NOT durable (hw266 G12, #5178): `spec.values` is
+   an ATOMIC RawExtension wholly owned by the flux Kustomization, so its next SSA
+   re-apply DROPS the nested `promoted` key and helm re-demotes the survivor →
+   promote/demote timeline-divergence flap (TL2→TL25). `spec.suspend` is a field
+   the Kustomization does NOT own, so it survives drift-correction and freezes
+   helm on the promoted release. (The actor sets both automatically; do STEP 2 by
+   hand only when `autoPromote.enabled=false`.)
+   🛑 Also do **NOT** `kubectl patch` `spec.replica.enabled=false` on the live
+   Cluster CR: a drift-enabled HelmRelease owns it, so helm-controller's "correct
+   cluster drift" REVERTS the patch mid-outage and silently re-demotes the
+   survivor (hw256 G12, T0+2m07s). (The `Continuum` CR orchestration path is the
+   automated equivalent — PR #2072/#2074.)
 4. Verify the write made it across — zero-tx-loss (RPO=0)
-5. Reverse: `scripts/region-kill-drill.sh recover --arm` os-starts region-a; then set
-   `replica.promoted:false` back on the region-B HR to resume replica mode once the
-   original primary is re-cloned onto the current timeline (#5125 Defect-2, still open —
-   CNPG replica walreceivers crash-loop `timeline N behind recovery timeline N+1` until
-   the stale side is deleted + re-basebackup'd).
+5. Reverse: `scripts/region-kill-drill.sh recover --arm` os-starts region-a; then
+   **un-suspend** the region-B HR (`{"spec":{"suspend":false}}`) and set
+   `replica.promoted:false` to resume replica mode once the original primary is
+   re-cloned onto the current timeline (#5125 Defect-2, still open — CNPG replica
+   walreceivers crash-loop `timeline N behind recovery timeline N+1` until the
+   stale side is deleted + re-basebackup'd).
 
 Test harness lives at the D31 acceptance test (PR #2075).
 
