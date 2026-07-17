@@ -50,12 +50,14 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -375,8 +377,8 @@ func buildResolver() (*identity.Resolver, error) {
 		if pemStr == "" {
 			log.Printf("WARNING: verify=rs256 but OPENOVA_MCP_RS256_PUBKEY_PEM is empty/absent — starting in DEGRADED mode: /healthz + /readyz serve, tools/list is the empty unauthenticated surface, tools/call is rejected 401. Wire the Sovereign handover verify pubkey (PKIX PEM) into OPENOVA_MCP_RS256_PUBKEY_PEM to enable authenticated tools. A missing OPTIONAL verify Secret must never CrashLoop the pod — the cutover settle-gate needs Ready.")
 			r = identity.NewDegradedResolver("verify=rs256 but OPENOVA_MCP_RS256_PUBKEY_PEM is absent", pin)
-		} else if pub, perr := parseRSAPublicKeyPEM(pemStr); perr != nil {
-			log.Printf("WARNING: verify=rs256 pubkey present but unparseable (%v) — starting in DEGRADED mode (see the absent-key note). The value must be a PKIX/PKCS1 RSA public-key PEM, NOT a JWK (the `catalyst-handover-jwt-public` mirror holds a JWK — #4228).", perr)
+		} else if pub, perr := parseRSAPublicKey(pemStr); perr != nil {
+			log.Printf("WARNING: verify=rs256 pubkey present but unparseable (%v) — starting in DEGRADED mode (see the absent-key note). The value must be a PKIX/PKCS1 RSA public-key PEM or an RSA JWK ({\"kty\":\"RSA\",\"n\":…,\"e\":…} — the format of the `catalyst-handover-jwt-public` mirror, #5167).", perr)
 			r = identity.NewDegradedResolver("verify=rs256 pubkey present but unparseable", pin)
 		} else {
 			r = identity.NewRS256Resolver(pub, pin)
@@ -401,6 +403,59 @@ func buildResolver() (*identity.Resolver, error) {
 	// instance trusts + the Org scope a per-Org instance is confined to.
 	return r.WithExpectedIssuer(os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER")).
 		WithOrgPin(os.Getenv("OPENOVA_MCP_ORG_SCOPE")), nil
+}
+
+// parseRSAPublicKey accepts EITHER a PKIX/PKCS1 RSA public-key PEM OR an RSA
+// JWK JSON document ({"kty":"RSA","n":…,"e":…}).
+//
+// #5167 (north-star unblock): the ONLY verify-pubkey Secret a fresh Sovereign
+// actually seeds is the JWK mirror `catalyst-handover-jwt-public` (key
+// `public.jwk`) — the PEM Secret `catalyst-handover-jwt` the chart used to
+// reference is never created, so verify=rs256 silently started DEGRADED on
+// every fresh prov (hw264 live) and tools/call 401'd for everyone, killing the
+// Agenity→MCP create_application north star. Accepting the JWK format the
+// platform already publishes closes that loop with zero seeder changes; PEM
+// stays supported for the per-Org seed / any future PEM source.
+func parseRSAPublicKey(s string) (*rsa.PublicKey, error) {
+	if strings.HasPrefix(strings.TrimSpace(s), "{") {
+		return parseRSAPublicKeyJWK(s)
+	}
+	return parseRSAPublicKeyPEM(s)
+}
+
+// parseRSAPublicKeyJWK parses an RSA JWK ({"kty":"RSA","n":…,"e":…}) into an
+// rsa.PublicKey. n and e are base64url-without-padding per RFC 7518 §6.3.
+func parseRSAPublicKeyJWK(s string) (*rsa.PublicKey, error) {
+	var jwk struct {
+		Kty string `json:"kty"`
+		N   string `json:"n"`
+		E   string `json:"e"`
+	}
+	if err := json.Unmarshal([]byte(s), &jwk); err != nil {
+		return nil, fmt.Errorf("RS256 pubkey: JWK parse: %w", err)
+	}
+	if jwk.Kty != "RSA" {
+		return nil, fmt.Errorf("RS256 pubkey: JWK kty=%q, want RSA", jwk.Kty)
+	}
+	if jwk.N == "" || jwk.E == "" {
+		return nil, errors.New("RS256 pubkey: JWK missing n/e")
+	}
+	nb, err := base64.RawURLEncoding.DecodeString(jwk.N)
+	if err != nil {
+		return nil, fmt.Errorf("RS256 pubkey: JWK n: %w", err)
+	}
+	eb, err := base64.RawURLEncoding.DecodeString(jwk.E)
+	if err != nil {
+		return nil, fmt.Errorf("RS256 pubkey: JWK e: %w", err)
+	}
+	e := 0
+	for _, b := range eb {
+		e = e<<8 | int(b)
+	}
+	if e <= 1 {
+		return nil, errors.New("RS256 pubkey: JWK exponent invalid")
+	}
+	return &rsa.PublicKey{N: new(big.Int).SetBytes(nb), E: e}, nil
 }
 
 func parseRSAPublicKeyPEM(pemStr string) (*rsa.PublicKey, error) {

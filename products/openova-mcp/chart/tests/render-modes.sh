@@ -47,7 +47,12 @@ grep -q 'type: ClusterIP' <<<"$sov" || fail "sovereign: Service is not ClusterIP
 grep -q 'kind: Ingress' <<<"$sov" && fail "an Ingress rendered — product charts use HTTPRoute ONLY"
 grep -qi 'nodeport' <<<"$sov" && fail "NodePort rendered — §854 ABSOLUTE BAN"
 grep -q 'OPENOVA_MCP_RS256_PUBKEY_PEM' <<<"$sov" || fail "sovereign: rs256 pubkey env (OPENOVA_MCP_RS256_PUBKEY_PEM) not wired"
-grep -q 'name: catalyst-handover-jwt' <<<"$sov" || fail "sovereign: rs256 pubkey secretKeyRef source (catalyst-handover-jwt) missing"
+# #5167: the ref must target the JWK mirror a Sovereign ACTUALLY seeds —
+# `catalyst-handover-jwt-public` / key `public.jwk` — not the never-created
+# PEM Secret `catalyst-handover-jwt` (that mismatch silently DEGRADED rs256
+# verify on every fresh prov and 401'd all tools/call).
+grep -q 'name: catalyst-handover-jwt-public' <<<"$sov" || fail "sovereign: rs256 pubkey secretKeyRef source (catalyst-handover-jwt-public — the seeded JWK mirror, #5167) missing"
+grep -q 'key: public.jwk' <<<"$sov" || fail "sovereign: rs256 pubkey secretKeyRef key (public.jwk, #5167) missing"
 grep -q 'optional: true' <<<"$sov" || fail "sovereign: rs256 pubkey ref not optional (#4228)"
 grep -q 'automountServiceAccountToken: false' <<<"$sov" || fail "SA token mounted — zero-RBAC contract broken"
 grep -q 'kind: CiliumNetworkPolicy' <<<"$sov" || fail "sovereign: gateway-ingress CNP missing (#4180)"
