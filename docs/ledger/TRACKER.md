@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T23:15:03Z` |
+| Last refreshed | `2026-07-17T23:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 29 |
+| Open issues | 26 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 29 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 26 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 29 open items (clickable table)
+### All 26 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -214,16 +214,13 @@ flowchart LR
 | [#5086](https://github.com/openova-io/openova/issues/5086) | Hetzner Sovereign DNS has no working front door since bp-powerdns 1.2.18 §854 f | Other |
 | [#5088](https://github.com/openova-io/openova/issues/5088) | §854: 4 live NodePort Services on the mothership cluster (founder #1 ban) — s | Other |
 | [#5095](https://github.com/openova-io/openova/issues/5095) | cutover step-03: prewarm hard-depends on mothership harbor proxy (harbor.openova | Other |
-| [#5099](https://github.com/openova-io/openova/issues/5099) | shared-pg trio: HelmReleases Ready ('upgrade succeeded shared-pg.v2') but ZERO r | Other |
 | [#5100](https://github.com/openova-io/openova/issues/5100) | console bundle: tenant-string residue in user-visible strings (row 214) — Reco | Other |
 | [#5113](https://github.com/openova-io/openova/issues/5113) | catalog card-form Save commit-leg writes invalid/destructive Blueprint YAML —  | Other |
 | [#5123](https://github.com/openova-io/openova/issues/5123) | per-Org console never lists funnel-purchased apps — /api/v1/org/applications p | Other |
 | [#5124](https://github.com/openova-io/openova/issues/5124) | Edit-IaC editor seeds from stale CatalogItem.raw — an IaC Commit silently reve | Other |
 | [#5125](https://github.com/openova-io/openova/issues/5125) | DR durability: flux drift-correction re-demotes the promoted survivor mid-outage | Other |
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
-| [#5137](https://github.com/openova-io/openova/issues/5137) | P2: Continuum DR controller + dr CR are single-region (region-a) — die with th | Other |
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
-| [#5167](https://github.com/openova-io/openova/issues/5167) | north-star: bp-openova-mcp DEGRADED on every fresh prov — rs256 verify pubkey  | Other |
 | [#5181](https://github.com/openova-io/openova/issues/5181) | P2: prov-preflight check-3f (project EIP count) doesn't gate the kom4dc REGIONAL | Other |
 | [#5187](https://github.com/openova-io/openova/issues/5187) | region-b: sovereign-tls Flux Kustomization Ready=False — configmaps 'sovereign | Other |
 | [#5191](https://github.com/openova-io/openova/issues/5191) | cutover step-04 registry-pivot: toolchain (curl+jq) fetched at runtime via 'apk  | Other |
