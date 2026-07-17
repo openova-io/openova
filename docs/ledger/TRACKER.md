@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T04:15:03Z` |
+| Last refreshed | `2026-07-17T04:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T04:24 | [#5159](https://github.com/openova-io/openova/pull/5159) | #960 | fix(openbao): unseal-reconciler CronJob→Deployment so it sur |
+| 2026-07-17T04:16 | [#5158](https://github.com/openova-io/openova/pull/5158) | #5157 | docs(uat): G12 region-kill ✅ zero-tx-loss RPO=0 on hw263 + # |
 | 2026-07-17T03:28 | [#5156](https://github.com/openova-io/openova/pull/5156) | #960 | docs(uat): reset→hw263 + re-earn R6/R7/R8/R11/R22 backing ro |
 | 2026-07-17T01:36 | [#5155](https://github.com/openova-io/openova/pull/5155) | #960 | fix(scripts): region-kill-drill discover hint ran kill via b |
 | 2026-07-17T01:05 | [#5153](https://github.com/openova-io/openova/pull/5153) | #960 | docs(session): hw263 region-kill G12 runbook + wipe forensic |
@@ -264,8 +266,6 @@ flowchart LR
 | 2026-07-15T13:05 | [#5112](https://github.com/openova-io/openova/pull/5112) | #2 | fix(preflight): ONE-environment-at-a-time fail-closed gate ( |
 | 2026-07-15T13:23 | [#5110](https://github.com/openova-io/openova/pull/5110) | #5088 | docs(5088): §854 mothership NodePort forensics + clean repla |
 | 2026-07-15T09:44 | [#5109](https://github.com/openova-io/openova/pull/5109) | #5104 | fix(#5104): funnel purchased app never deploys — plan-aware  |
-| 2026-07-15T09:35 | [#5108](https://github.com/openova-io/openova/pull/5108) | #3997 | fix(cloud): Networking lens chips read 0/0 — adapt Gateway/H |
-| 2026-07-15T09:35 | [#5107](https://github.com/openova-io/openova/pull/5107) | #5012 | fix(catalyst-api): stop freezing a healthy secondary at 0/0  |
 
 ---
 
