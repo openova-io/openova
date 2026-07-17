@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-openova-mcp
+# 0.1.4 / appVersion 0.2.4 (#5175, north-star close): the MCP verifies bearers
+# against the mothership HANDOVER public key, but real callers present
+# post-handover SESSION tokens signed with a deployment-local key the MCP does
+# NOT hold — so local rs256 verify fails "signature invalid" for every real
+# owner/Org session and tools/call 401s. The 0.2.4 binary adds a fail-closed
+# facade-forward-identity fallback: when local verify fails AND a catalyst-api
+# client is configured, it delegates the verdict to catalyst-api's own
+# /api/v1/whoami (the session-token AUTHORITY) and maps mode→context /
+# tier→tier / org→scope. The per-Org context+org pins are re-applied on this
+# path so a whoami verdict can never widen a per-Org instance's surface. A
+# bad/expired/tampered token 401s upstream → the original verify error stands
+# (surface never widened on a catalyst-api hiccup). No new value/env is needed —
+# the existing catalyst-api URL wiring activates the path. #5167 rs256 fast-path
+# unchanged. Lockstep: blueprint.yaml + slot 13d → 0.1.4 (not in catalog-seed).
+#
 # 0.1.3 / appVersion 0.2.3 (#5167, north-star unblock): verify=rs256 now WORKS
 # on a fresh Sovereign. Root cause of the every-fresh-prov DEGRADED mode was a
 # two-fold mismatch, silent behind optional:true — (a) values referenced the
@@ -59,7 +74,7 @@ type: application
 # catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.3
+version: 0.1.4
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
 # 0.2.2 (#5114): buildResolver degrades instead of exiting when the rs256
 # verify pubkey (or the hs256 secret) is absent/unparseable — see the 0.1.2
@@ -71,7 +86,7 @@ version: 0.1.3
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.3"
+appVersion: "0.2.4"
 keywords:
   - mcp
   - agent

@@ -78,6 +78,17 @@ func NewRegistry(api *catalystapi.Client) *Registry {
 	return r
 }
 
+// API exposes the wired catalyst-api client (nil in backend-less unit tests)
+// so the server's identity resolver can fall back to catalyst-api's /whoami
+// when a session token cannot be verified locally (#5175). Returns nil if the
+// registry was built with no backend.
+func (r *Registry) API() *catalystapi.Client {
+	if r == nil {
+		return nil
+	}
+	return r.api
+}
+
 // visible reports whether the tool is visible to the given identity under
 // layer-1 (and gate-checked identically under layer-2). A nil identity
 // sees nothing.
