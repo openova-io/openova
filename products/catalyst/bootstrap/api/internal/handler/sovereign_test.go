@@ -8,10 +8,10 @@
 //     Warning-level Events as Job rows, sorted started-DESC.
 //  3. /api/v1/sovereign/apps — joins the embedded blueprint catalog
 //     with HelmRelease state on the cluster:
-//       - HR present + Ready=True       → "installed"
-//       - HR present + Ready=False/none → "installing"
-//       - listed catalog, no HR         → "available"
-//       - bootstrap-kit                 → "bootstrap"
+//     - HR present + Ready=True       → "installed"
+//     - HR present + Ready=False/none → "installing"
+//     - listed catalog, no HR         → "available"
+//     - bootstrap-kit                 → "bootstrap"
 //  4. /api/v1/sovereign/cloud — emits nodes / namespaces / ingresses /
 //     LoadBalancer-services / storage classes / PVCs from the in-cluster
 //     client, with HTTPRoutes coming via dynamic client.
@@ -48,9 +48,10 @@ func newSovereignHandler(t *testing.T, coreObjs []runtime.Object, dynObjs []runt
 
 	scheme := runtime.NewScheme()
 	gvrToList := map[schema.GroupVersionResource]string{
-		helmReleaseGVR: "HelmReleaseList",
-		httpRouteGVR:   "HTTPRouteList",
-		applicationGVR: "ApplicationList",
+		helmReleaseGVR:       "HelmReleaseList",
+		httpRouteGVR:         "HTTPRouteList",
+		applicationGVR:       "ApplicationList",
+		fluxKustomizationGVR: "KustomizationList",
 		{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}: "CertificateList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList, dynObjs...)
