@@ -1,0 +1,9 @@
+# §854 NodePort audit — 2026-07-17T02:16:55Z
+## hw263 (OpenOva platform fresh prov, dep f21c8e5b3723be7e)
+NodePort services: 0  → §854 PASS (gateway served DIRECT)
+gateway svc: cilium-gateway-cilium-gateway = ClusterIP (LB-IPAM VIP / hostPort, NOT NodePort)
+## mothership (3 NodePorts, all accounted for — none an OpenOva-platform item)
+- cinova/catalog-svc          : ⛔ never-touch SME app (out of §854 platform scope)
+- iogrid/cm-acme-http-solver  : ephemeral cert-manager ACME solver (allowed cm-acme Kyverno carve-out)
+- iogrid/proxy-gateway-socks5 : the #5088 remainder — iogrid product, founder-gated (iogrid#844), tracked at task #962
+Conclusion: OpenOva platform is NodePort-free on the fixed train; no actionable platform §854 work.
