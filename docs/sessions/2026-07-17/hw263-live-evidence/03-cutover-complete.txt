@@ -1,0 +1,14 @@
+cutoverComplete: true | progressPercent: 100 | failedStep: -
+cutoverStartedAt: 2026-07-17T01:58:29Z -> cutoverFinishedAt: 2026-07-17T03:26:21Z
+--- 11 step results ---
+  catalyst-api-env-patch       success
+  crossplane-provider-pivot    success
+  egress-block-test            success
+  flux-gitrepository-patch     success
+  gitea-mirror                 success
+  gitea-token-mint             success
+  harbor-prewarm               success
+  harbor-projects              success
+  helmrepository-patches       success
+  registry-pivot               success
+  vcluster-registry-pivot      success
