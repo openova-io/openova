@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T09:45:05Z` |
+| Last refreshed | `2026-07-17T10:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 24 |
+| Open issues | 25 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 24 open items (clickable table)
+### All 25 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -224,6 +224,7 @@ flowchart LR
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
 | [#5137](https://github.com/openova-io/openova/issues/5137) | P2: Continuum DR controller + dr CR are single-region (region-a) — die with th | Other |
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
+| [#5167](https://github.com/openova-io/openova/issues/5167) | north-star: bp-openova-mcp DEGRADED on every fresh prov — rs256 verify pubkey  | Other |
 
 ---
 
@@ -231,6 +232,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T09:56 | [#5168](https://github.com/openova-io/openova/pull/5168) | #5114 | fix(openova-mcp): rs256 verify ACTIVE on fresh Sovereign — a |
 | 2026-07-17T09:38 | [#5166](https://github.com/openova-io/openova/pull/5166) | #5125 | fix(cnpg-pair): DR failover through HR desired state (Refs # |
 | 2026-07-17T09:38 | [#5165](https://github.com/openova-io/openova/pull/5165) | #960 | docs(uat): hw264 authed render walk + §854 audit (Refs #960) |
 | 2026-07-17T09:38 | [#5164](https://github.com/openova-io/openova/pull/5164) | #5124 | feat(catalyst-api): GET /catalog/{name}/iac committed-file s |
@@ -260,7 +262,6 @@ flowchart LR
 | 2026-07-15T20:04 | [#5127](https://github.com/openova-io/openova/pull/5127) | #5042 | fix(cloud-init): harden the bootstrap layer — retry k3s inst |
 | 2026-07-15T17:56 | [#5122](https://github.com/openova-io/openova/pull/5122) | #5116 | fix(auth): Date header on the funnel customer's login-code m |
 | 2026-07-15T17:28 | [#5121](https://github.com/openova-io/openova/pull/5121) | #5114 | fix(openova-mcp): hw256 defects — numeric runAsUser 65532 +  |
-| 2026-07-15T17:28 | [#5120](https://github.com/openova-io/openova/pull/5120) | #5119 | fix(lifecycle): fire body carries fireCutoverOnHandover + qa |
 
 ---
 
