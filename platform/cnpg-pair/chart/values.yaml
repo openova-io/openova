@@ -107,17 +107,28 @@ cnpgPair:
     #   (Deployment NOT CronJob, #5157: a CronJob's scheduler dies
     #   with the region) with two containers:
     #     signals — psql (streaming_replica cert, #5133 auth) against
-    #       the LOCAL replica -rw: non-streaming pg_stat_wal_receiver
-    #       while in recovery == the primary's WAL stream is dead.
-    #     actor  — when the stream has been dead CONTINUOUSLY for
+    #       the LOCAL replica -rw for pg_stat_wal_receiver state, PLUS
+    #       (#5178) a POSITIVE region-A liveness probe: a direct
+    #       pg_isready of the `-primary-mesh` endpoint over the
+    #       ClusterMesh (the SAME source the replica streams from). It
+    #       arms the promote clock ONLY when the local WAL stream is
+    #       absent AND region-A is genuinely unreachable — a local
+    #       stream stall with region-A still reachable is a REPLICATION
+    #       fault, never a region kill, so it does NOT promote.
+    #     actor  — when the region-A-loss clock has held for
     #       primaryDownHoldSeconds AND the failover-readiness probe is
     #       Ready (LSN apply==receive, promotable) AND the local
     #       Cluster CR is still a replica AND the HR value is not
-    #       already promoted, it merge-patches the region-B
+    #       already promoted AND the cluster has NOT already diverged, it
+    #       merge-patches the region-B
     #       HelmRelease DESIRED state
     #       (spec.values.cnpgPair.replica.promoted: true — the exact
     #       RUNBOOKS §6.1 command / #5125-D1 seam). Flux then renders
-    #       replica.enabled:false and CNPG promotes the survivor.
+    #       replica.enabled:false and CNPG promotes the survivor. The
+    #       actor then LATCHES the promotion durable by suspending the HR
+    #       (#5178 Defect-B — spec.suspend is a field flux's Kustomization
+    #       does NOT own, so drift-correction can no longer revert the
+    #       promoted release and flap the timeline away).
     # DATA SAFETY: only rendered when replication.mode=sync — with
     # remote_apply + FIRST 1 pinned to the cross-region replica +
     # dataDurability:required, the old primary cannot COMMIT while its
@@ -125,17 +136,39 @@ cnpgPair:
     # can never lose or fork committed data (RPO=0), partition or
     # kill alike. The operator-manual HR patch keeps working; the
     # actor no-ops when the value is already true.
+    #
+    # #5178 REGRESSION FIX (hw266 G12): the 0.2.13 promoter inferred
+    # "region-A dead" from the LOCAL WAL receiver alone and false-promoted
+    # a healthy replica against a live region-A, and the HR-value promote
+    # was reverted by flux → a promote/demote TIMELINE-DIVERGENCE flap
+    # (TL2→TL25). 0.2.14 adds (A) the positive region-A liveness gate +
+    # startupGraceSeconds + treating catchup/starting/waiting receiver
+    # states as alive, and (B) the durable suspend latch + anti-flap
+    # divergence guard.
     autoPromote:
       enabled: true
       # Poll cadence for both containers.
       intervalSeconds: 10
-      # The WAL stream must be down CONTINUOUSLY this long before the
-      # actor promotes. An intra-region primary restart / instance
-      # switchover reconnects the receiver in seconds and clears the
-      # hold clock — 120s keeps those events from triggering a
-      # cross-region promotion while still auto-recovering a real
-      # region kill in ~2-4 min end-to-end.
+      # The region-A-loss clock (local WAL stream absent AND region-A
+      # unreachable) must hold CONTINUOUSLY this long before the actor
+      # promotes. An intra-region primary restart / instance switchover
+      # reconnects the receiver in seconds and clears the clock — 120s
+      # keeps those events from triggering a cross-region promotion while
+      # still auto-recovering a real region kill in ~2-4 min end-to-end.
       primaryDownHoldSeconds: 120
+      # #5178 startup grace — a freshly-(re)started replica still
+      # completing its first catchup (walreceiver absent/`starting`) must
+      # NEVER trip the promote clock. For the whole grace window from
+      # signals-container start the clock is held clear regardless of
+      # receiver state. Must exceed a normal basebackup+catchup; 300s is
+      # conservative for the C-DB-3 100Gi seed.
+      startupGraceSeconds: 300
+      # #5178 region-A liveness probe timeout (seconds) — the pg_isready
+      # of the `-primary-mesh` endpoint. Kept short so a genuine region
+      # kill is detected within the poll cadence; only a rc=2 (no
+      # response) counts as unreachable, every other result fail-safes to
+      # "region-A alive" (do NOT promote).
+      livenessProbeTimeoutSeconds: 5
       # The flux HelmRelease whose DESIRED state carries the promotion
       # (bootstrap-kit slot 16b defaults).
       hr:

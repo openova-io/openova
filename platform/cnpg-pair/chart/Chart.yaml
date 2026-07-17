@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.14 (#5178): dr-promoter regression fix — the 0.2.13 promoter FALSE-PROMOTED
+# a healthy replica against a LIVE region-A and its promotion was NON-DURABLE, so
+# on hw266 G12 it ran the region-B Postgres timeline away (TL2→TL25) and
+# permanently broke cross-region replication. Two fixes: (A) POSITIVE region-A
+# liveness gate — the signals container arms the promote clock ONLY when the LOCAL
+# WAL receiver is ABSENT (catchup/starting/waiting count as ALIVE) AND a direct
+# pg_isready of the `-primary-mesh` endpoint over the mesh is UNREACHABLE, plus a
+# startupGraceSeconds window; region-A reachable + local stall ⇒ replication
+# fault, DO NOT promote; no liveness path wired ⇒ observe-only (fail-safe). (B)
+# durable + latched promotion — after helm renders the promote the actor SUSPENDS
+# the HR (spec.suspend, a field flux's Kustomization does not own → survives
+# drift-correction), and it NEVER re-promotes an already-diverged cluster
+# (anti-flap). Adds one region-A egress rule to the dr-promoter-egress CNP (gated
+# on crossRegionPeerClusters). No resource-count change. Lockstep slot 16b → 0.2.14.
 # 0.2.13 (#5137): region-B AUTOMATIC DR promotion — the DR orchestration now
 # SURVIVES the loss of the primary region. hw261 G12 proved the Continuum
 # controller + dr CR are single-region (region-A; bp-continuum slot 62 and the
@@ -82,7 +96,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.13
+version: 0.2.14
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -122,6 +136,32 @@ description: |
 
   Changelog
   ─────────
+  0.2.14 (2026-07-17, dr-promoter regression fix — liveness gate + durable latch, Refs #5178)
+    - FIX Defect-A (false-positive promote): the 0.2.13 signals container
+      inferred "region-A dead" from the LOCAL walreceiver alone and promoted a
+      healthy replica against a live region-A (hw266 G12, 16s after a verified
+      healthy stream). The container now arms the promote clock ONLY when the
+      LOCAL WAL receiver row is ABSENT (a present-but-not-streaming receiver —
+      catchup/starting/waiting/restarting — counts as ALIVE) AND a DIRECT
+      pg_isready of the region-A `-primary-mesh` endpoint over the ClusterMesh
+      returns "no response" (rc=2). region-A reachable + local stall ⇒
+      replication fault, log + do NOT promote. New startupGraceSeconds (300s)
+      holds the clock clear while a fresh replica finishes its first catchup.
+      If no cross-region liveness path is wired (clusterMesh off or
+      crossRegionPeerClusters empty) the actor observes but NEVER promotes.
+    - FIX Defect-B (non-durable, non-latched promote): the HR-value patch was
+      reverted by flux (spec.values is an atomic RawExtension owned by the
+      Kustomization) → a promote/demote timeline-divergence flap (TL2→TL25). The
+      actor now LATCHES a rendered promotion durable by suspending the HR
+      (spec.suspend — a field the Kustomization does not own → survives
+      drift-correction, freezes helm on the promoted release), and it NEVER
+      re-promotes an already-diverged cluster (anti-flap /shared/diverged guard).
+    - NetworkPolicy: one region-A egress rule added to the dr-promoter-egress
+      CNP (identity-scoped by crossRegionPeerClusters, #4846 idiom) for the
+      liveness probe. Empty peer list → no rule (byte-identical, observe-only).
+    - No resource-count change (still 12 non-test on side=replica). Lockstep
+      slot 16b pin → 0.2.14; RUNBOOKS §6.1 promote command updated (adds the
+      suspend latch + un-suspend on recovery).
   0.2.13 (2026-07-17, region-B AUTOMATIC DR promotion — orchestration survives region-kill, Refs #5137)
     - NEW (Pillar-3 region-kill DR): side=replica now renders a
       `<fullname>-dr-promoter` Deployment — the region-B actor that makes

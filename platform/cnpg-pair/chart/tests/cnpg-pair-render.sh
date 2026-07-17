@@ -776,4 +776,90 @@ if grep -q 'dr-promoter' "$TMP/asyncpromoter.yaml"; then
   echo "FAIL: #5137 replication.mode=async must render ZERO dr-promoter resources (no sync-rep data fence → automatic promotion is not split-brain-safe)." >&2; exit 1; fi
 echo "  PASS (replica-only actor, Recreate Deployment, HR-desired-state patch, resourceNames-pinned RBAC, sync-only)"
 
+# ── Case 16: #5178 dr-promoter regression fix — liveness gate + durable latch ─
+# hw266 G12: the 0.2.13 promoter false-promoted a HEALTHY replica against a LIVE
+# region-A (inferred "primary dead" from the LOCAL walreceiver alone) and the
+# HR-value promote was non-durable, so a promote/demote flap ran the region-B
+# timeline away (TL2→TL25). 0.2.14 adds (A) a POSITIVE region-A liveness gate +
+# startup grace, and (B) a durable suspend latch + anti-flap divergence guard.
+echo "[render] Case 16: #5178 region-A liveness gate + startup grace + durable suspend latch + anti-flap"
+
+# (a) FAIL-SAFE default (Case 3 render, no crossRegionPeerClusters): the promoter
+#     still renders, but the liveness gate is OFF (observe-only) and NO region-A
+#     egress rule is emitted — a promoter with no way to POSITIVELY prove
+#     region-A is gone must never promote.
+grep -q 'name: PRIMARY_LIVENESS_ENABLED' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 signals container missing the PRIMARY_LIVENESS_ENABLED env." >&2; exit 1; }
+python3 - "$TMP/replica.yaml" <<'PYEOF' || { echo "FAIL: #5178 fail-safe default assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-promoter' in d['metadata']['name']][0]
+sig=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='signals'][0]
+env={e['name']:e.get('value') for e in sig['env']}
+assert env.get('PRIMARY_LIVENESS_ENABLED')=='false', f"liveness must be OFF (fail-safe) without a peer, got {env.get('PRIMARY_LIVENESS_ENABLED')!r}"
+cnp=[d for d in docs if d.get('kind')=='CiliumNetworkPolicy' and 'dr-promoter-egress' in d['metadata']['name']][0]
+prim=[r for r in cnp['spec']['egress'] for s in r.get('toEndpoints',[]) if '-primary' in s.get('matchLabels',{}).get('cnpg.io/cluster','')]
+assert not prim, "region-A egress rule must be ABSENT without crossRegionPeerClusters (fail-safe)"
+PYEOF
+
+# region-A liveness probe (pg_isready of the -primary-mesh endpoint — the SAME
+# source the replica streams from, templated not hardcoded).
+grep -q 'pg_isready -h "${PRIMARY_MESH_HOST}"' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 signals container missing the pg_isready region-A liveness probe." >&2; exit 1; }
+grep -qE 'value: "[a-z0-9-]+-primary-mesh"' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 PRIMARY_MESH_HOST must be the -primary-mesh endpoint (region-A stream source), not hardcoded." >&2; exit 1; }
+# region-A REACHABLE + local stall ⇒ replication fault, NOT a promote.
+grep -q 'replication fault, NOT a region kill' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 signals must treat region-A-reachable + local WAL stall as a replication fault (no promote)." >&2; exit 1; }
+# A present-but-not-streaming receiver (catchup/starting/waiting) counts as ALIVE.
+grep -qF "WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) THEN 'receiving'" "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 signals must treat a present (non-streaming) WAL receiver as ALIVE, not down." >&2; exit 1; }
+
+# (b) startup grace — a fresh, still-catching-up replica can never trip the clock.
+grep -q 'name: STARTUP_GRACE_SECONDS' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 missing the STARTUP_GRACE_SECONDS env." >&2; exit 1; }
+grep -q 'startup grace' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 signals missing the startup-grace clock-clear." >&2; exit 1; }
+
+# (c) durable latch + anti-flap: the actor suspends the HR to latch the promote,
+#     and never re-promotes an already-diverged cluster.
+grep -qF '\"spec\":{\"suspend\":true}' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 actor missing the durable suspend LATCH (spec.suspend=true) — the HR-value patch alone is reverted by flux." >&2; exit 1; }
+grep -q '/shared/diverged' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 missing the anti-flap divergence marker (/shared/diverged)." >&2; exit 1; }
+grep -q 'REFUSING promote' "$TMP/replica.yaml" || {
+  echo "FAIL: #5178 actor must REFUSE to re-promote an already-diverged cluster (anti-flap latch)." >&2; exit 1; }
+
+# (d) crossRegionPeerClusters wired ⇒ liveness ON + a region-A egress RULE inside
+#     the existing dr-promoter-egress CNP (not a new CNP — count stays 2).
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.side=replica \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={hw228-mesh}' \
+  > "$TMP/replica-peer.yaml" 2> "$TMP/replica-peer.err" || {
+  echo "FAIL: #5178 crossRegionPeerClusters replica render errored:" >&2; cat "$TMP/replica-peer.err" >&2; exit 1; }
+python3 - "$TMP/replica-peer.yaml" <<'PYEOF' || { echo "FAIL: #5178 liveness-ON assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-promoter' in d['metadata']['name']][0]
+sig=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='signals'][0]
+env={e['name']:e.get('value') for e in sig['env']}
+assert env.get('PRIMARY_LIVENESS_ENABLED')=='true', f"liveness must be ON with a peer, got {env.get('PRIMARY_LIVENESS_ENABLED')!r}"
+cnp=[d for d in docs if d.get('kind')=='CiliumNetworkPolicy' and 'dr-promoter-egress' in d['metadata']['name']][0]
+ok=False
+for r in cnp['spec']['egress']:
+    for s in r.get('toEndpoints',[]):
+        lbl='-primary' in s.get('matchLabels',{}).get('cnpg.io/cluster','')
+        idn=any(m.get('key')=='io.cilium.k8s.policy.cluster' and 'hw228-mesh' in (m.get('values') or []) for m in s.get('matchExpressions',[]))
+        ok=ok or (lbl and idn)
+assert ok, "region-A egress rule (primary cluster + io.cilium.k8s.policy.cluster In [peer]) must render when crossRegionPeerClusters set"
+PYEOF
+if [ "$(grep -cE '^kind: CiliumNetworkPolicy' "$TMP/replica-peer.yaml")" -ne 2 ]; then
+  echo "FAIL: #5178 region-A egress must be a RULE inside dr-promoter-egress, not a new CiliumNetworkPolicy (expected 2 CNPs on the replica side)." >&2
+  grep -nE '^kind: CiliumNetworkPolicy' "$TMP/replica-peer.yaml" >&2; exit 1; fi
+echo "  PASS (fail-safe observe-only without a peer; liveness gate + startup grace + suspend latch + anti-flap with a peer)"
+
 echo "[render] All bp-cnpg-pair render gates green."
