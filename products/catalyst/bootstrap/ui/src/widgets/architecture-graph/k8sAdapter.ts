@@ -545,6 +545,34 @@ export function k8sToGraph(snapshot: K8sSnapshot): AdaptResult {
     })
   }
 
+  // 6e. CiliumNetworkPolicies (cilium.io/v2) — L3-L7 micro-segmentation,
+  //     rendered as a DISTINCT node type so the Networking lens no longer
+  //     folds them into the vanilla NetworkPolicy count (#5129). Edge: → Namespace.
+  for (const cnpKind of ['ciliumnetworkpolicy', 'ciliumclusterwidenetworkpolicy'] as const) {
+    for (const [, cnp] of iterByKind(snapshot, cnpKind)) {
+      const ns = cnp.metadata?.namespace ?? ''
+      const name = cnp.metadata?.name ?? ''
+      if (!name) continue
+      const id = compositeId('CiliumNetworkPolicy', ns, name)
+      addNode({
+        id,
+        type: 'CiliumNetworkPolicy',
+        label: name,
+        sublabel: ns || 'cluster-wide',
+        status: 'healthy',
+        metadata: { namespace: ns },
+      })
+      if (ns) {
+        addEdge({
+          id: `e:${id}->Namespace:${ns}`,
+          source: id,
+          target: compositeId('Namespace', '', ns),
+          type: 'member-of',
+        })
+      }
+    }
+  }
+
   // 7. PVCs.
   for (const [, pvc] of iterByKind(snapshot, 'persistentvolumeclaim')) {
     const ns = pvc.metadata?.namespace ?? ''

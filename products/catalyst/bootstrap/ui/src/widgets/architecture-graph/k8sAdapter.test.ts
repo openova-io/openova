@@ -466,6 +466,58 @@ describe('k8sToGraph', () => {
       }),
     )
   })
+
+  it('#5129: emits CiliumNetworkPolicy as a DISTINCT node type (not folded into NetworkPolicy)', () => {
+    const s = snap(
+      ['namespace:gitea', { metadata: { name: 'gitea' } }],
+      [
+        'networkpolicy:gitea/vanilla-np',
+        {
+          apiVersion: 'networking.k8s.io/v1',
+          kind: 'NetworkPolicy',
+          metadata: { namespace: 'gitea', name: 'vanilla-np' },
+          spec: { podSelector: {} },
+        },
+      ],
+      [
+        'ciliumnetworkpolicy:gitea/gitea-egress',
+        {
+          apiVersion: 'cilium.io/v2',
+          kind: 'CiliumNetworkPolicy',
+          metadata: { namespace: 'gitea', name: 'gitea-egress' },
+          spec: { endpointSelector: {} },
+        },
+      ],
+      [
+        'ciliumclusterwidenetworkpolicy:/baseline-deny',
+        {
+          apiVersion: 'cilium.io/v2',
+          kind: 'CiliumClusterwideNetworkPolicy',
+          metadata: { name: 'baseline-deny' },
+          spec: { endpointSelector: {} },
+        },
+      ],
+    )
+    const { nodes, edges } = k8sToGraph(s)
+    // The vanilla NP is still its own type…
+    expect(nodes.find((n) => n.id === 'NetworkPolicy:gitea/vanilla-np')?.type).toBe('NetworkPolicy')
+    // …and the CiliumNetworkPolicy is a SEPARATE node type, not folded in.
+    const cnp = nodes.find((n) => n.id === 'CiliumNetworkPolicy:gitea/gitea-egress')
+    expect(cnp).toBeDefined()
+    expect(cnp?.type).toBe('CiliumNetworkPolicy')
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: 'CiliumNetworkPolicy:gitea/gitea-egress',
+        target: 'Namespace:gitea',
+        type: 'member-of',
+      }),
+    )
+    // Clusterwide CNP renders (no namespace → id has no ns segment, no member-of edge).
+    const ccnp = nodes.find((n) => n.id === 'CiliumNetworkPolicy:baseline-deny')
+    expect(ccnp?.type).toBe('CiliumNetworkPolicy')
+    // No NetworkPolicy node was created for the Cilium policies (no fold).
+    expect(nodes.filter((n) => n.type === 'NetworkPolicy')).toHaveLength(1)
+  })
 })
 
 describe('mergeGraphs', () => {
