@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T18:30:04Z` |
+| Last refreshed | `2026-07-17T18:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 28 |
+| Open issues | 29 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 29 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 28 open items (clickable table)
+### All 29 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -228,6 +228,7 @@ flowchart LR
 | [#5175](https://github.com/openova-io/openova/issues/5175) | openova-mcp verifies the HANDOVER key but real callers carry SESSION tokens →  | Other |
 | [#5181](https://github.com/openova-io/openova/issues/5181) | P2: prov-preflight check-3f (project EIP count) doesn't gate the kom4dc REGIONAL | Other |
 | [#5187](https://github.com/openova-io/openova/issues/5187) | region-b: sovereign-tls Flux Kustomization Ready=False — configmaps 'sovereign | Other |
+| [#5191](https://github.com/openova-io/openova/issues/5191) | cutover step-04 registry-pivot: toolchain (curl+jq) fetched at runtime via 'apk  | Other |
 
 ---
 
@@ -235,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T18:44 | [#5192](https://github.com/openova-io/openova/pull/5192) | #5191 | fix(cutover): step-04 registry-pivot verifies curl+jq and fa |
 | 2026-07-17T17:35 | [#5190](https://github.com/openova-io/openova/pull/5190) | #960 | docs(uat): hw268 row240 §854 no-nodePort gateway ✅ (Refs #96 |
 | 2026-07-17T17:19 | [#5189](https://github.com/openova-io/openova/pull/5189) | #5178 | docs(uat): hw268 G12 region-kill PASS ✅ — #5178 fully valida |
 | 2026-07-17T17:00 | [#5188](https://github.com/openova-io/openova/pull/5188) | #960 | docs(uat): hw268 rows 41-44/R9/R11/R13 ✅ keycloak SSO + back |
@@ -264,7 +266,6 @@ flowchart LR
 | 2026-07-17T04:16 | [#5158](https://github.com/openova-io/openova/pull/5158) | #5157 | docs(uat): G12 region-kill ✅ zero-tx-loss RPO=0 on hw263 + # |
 | 2026-07-17T03:28 | [#5156](https://github.com/openova-io/openova/pull/5156) | #960 | docs(uat): reset→hw263 + re-earn R6/R7/R8/R11/R22 backing ro |
 | 2026-07-17T01:36 | [#5155](https://github.com/openova-io/openova/pull/5155) | #960 | fix(scripts): region-kill-drill discover hint ran kill via b |
-| 2026-07-17T01:05 | [#5153](https://github.com/openova-io/openova/pull/5153) | #960 | docs(session): hw263 region-kill G12 runbook + wipe forensic |
 
 ---
 
