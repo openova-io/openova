@@ -1,0 +1,13 @@
+# hw264 region-kill G12 + #5157 openbao-Deployment validation — 2026-07-17T07:18:23Z
+dep 4585c8a9f92d4e8e, bp-openbao 1.2.63 (unseal-reconciler = DEPLOYMENT, #5157)
+cutoverComplete=true 11/11 steps (finishedAt 2026-07-17T07:14:04Z) — Pillar 5.
+PRE-KILL: openbao-0 unsealed on region-a; reconciler = Deployment 1/1 (NO CronJob);
+  cnpg-pair region-a primary 3/3 + region-b replica streaming; sentinel seeded.
+KILL T0=2026-07-17T07:15:52Z: HARD os-stop 4 region-a ECS (bastion excluded);
+  region-a apiserver DEAD.
+FAILOVER (Pillar 3): cnpg-pair-replica promoted pg_is_in_recovery=f in ~seconds;
+  RPO=0 — pre-kill sentinel g12-hw264-prekill-1784272535 SURVIVED on promoted
+  region-b primary; post-kill write accepted.
+RECOVER: region-a os-start issued (job 8a868c3f...012a429da).
+#5157 PROOF: IN FLIGHT — region-a boots → openbao-0 restarts SEALED → the
+  Deployment reconciler resumes its loop + auto-unseals (vs hw263 CronJob 40min-sealed).
