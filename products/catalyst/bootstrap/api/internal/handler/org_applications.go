@@ -59,6 +59,27 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/catalog"
 )
 
+// perOrgAppRouteComponents — the `catalyst.openova.io/component` label values
+// the funnel stamps on the HOST-visible per-app HTTPRoute of a
+// Deployment-shaped purchased app (core/services/provisioning/gitops):
+//   - `per-org-app-route`     — host tier (free/S): generateAppHTTPRoute
+//     co-locates the route with the Deployment+Service in the host `<slug>` ns.
+//   - `per-org-app-hostroute` — vcluster tier (paid M+): #4993
+//     generateHostNativeAppRoute lands the route host-side in the `<slug>` ns
+//     (the Deployment itself lives INSIDE the Org vcluster, invisible to the
+//     host client).
+//
+// #5123 — these routes are the ONLY host-visible per-app artifact of a funnel
+// purchase: the purchase deploys NO Application CR and NO HelmRelease (the
+// provisioning consumer commits raw Deployment-shaped manifests into the
+// per-Org repo's `vcluster/apps` tree, reconciled by the org-controller's
+// `catalyst-tenant-<slug>-apps` Flux Kustomization). The Org-scoped Apps
+// projection joins on this label to surface each purchase as its own card.
+var perOrgAppRouteComponents = map[string]bool{
+	"per-org-app-route":     true,
+	"per-org-app-hostroute": true,
+}
+
 // HandleOrgApplicationInstall — POST /api/v1/org/applications.
 //
 // Installs an Application into the CALLER'S OWN Organization. The target
@@ -220,6 +241,14 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 	// index BOTH so the release→route join below resolves whichever key the
 	// chart used.
 	urlByKey := map[string]string{}
+	// funnelApps — app slug → open URL for every funnel-purchased
+	// Deployment-shaped app, joined from its per-org-app HTTPRoute (#5123, the
+	// only host-visible per-app artifact of a funnel purchase — see
+	// perOrgAppRouteComponents). funnelTenantSlug is the Org slug the funnel
+	// stamped on those routes (`openova.io/tenant`), used to resolve the
+	// purchase-delivering `catalyst-tenant-<slug>-apps` Kustomization.
+	funnelApps := map[string]string{}
+	funnelTenantSlug := ""
 	if rts, err := deps.dyn.Resource(httpRouteGVR).Namespace(orgNS).List(ctx, metav1.ListOptions{}); err == nil {
 		for _, rt := range rts.Items {
 			hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
@@ -228,6 +257,22 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 			}
 			url := "https://" + hosts[0]
 			urlByKey[rt.GetName()] = url
+			if labels := rt.GetLabels(); perOrgAppRouteComponents[labels["catalyst.openova.io/component"]] {
+				slug := strings.TrimSpace(labels["app"])
+				if slug == "" {
+					// Route names are `app-<slug>` (host tier) or
+					// `app-<slug>-hostroute` (vcluster tier).
+					slug = strings.TrimSuffix(strings.TrimPrefix(rt.GetName(), "app-"), "-hostroute")
+				}
+				if slug != "" {
+					if _, exists := funnelApps[slug]; !exists {
+						funnelApps[slug] = url
+					}
+					if funnelTenantSlug == "" {
+						funnelTenantSlug = strings.TrimSpace(labels["openova.io/tenant"])
+					}
+				}
+			}
 			rules, _, _ := unstructured.NestedSlice(rt.Object, "spec", "rules")
 			for _, rl := range rules {
 				rm, isMap := rl.(map[string]interface{})
@@ -371,6 +416,57 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 			Instance:    true,
 			Blueprint:   bpFull,
 		})
+	}
+
+	// Funnel-purchase pass (#5123) — every per-org-app HTTPRoute in the Org
+	// namespace is one purchased Application (see perOrgAppRouteComponents: a
+	// funnel purchase deploys NO Application CR and NO HelmRelease, so neither
+	// pass above can see it — hw256 acme256 rendered "0 apps" while the
+	// purchased WordPress served 200 at its route host). Status is read from
+	// the org-controller's `catalyst-tenant-<slug>-apps` Flux Kustomization
+	// (flux-system) — the delivery unit that reconciles the purchase's
+	// manifests into the Org boundary: Ready=True → installed, anything else
+	// (including not-yet-created) → installing, never fabricated. Cards
+	// already projected via an Application CR or HelmRelease of the same id
+	// are skipped — this pass only surfaces what the others cannot see.
+	if len(funnelApps) > 0 {
+		seen := map[string]bool{}
+		for i := range rows {
+			seen[rows[i].ID] = true
+		}
+		if funnelTenantSlug == "" {
+			// Funnel Orgs register OrganizationNamespace = the boundary slug
+			// namespace (tenantRegistrationFromOrgCR), so orgNS is the slug.
+			funnelTenantSlug = orgNS
+		}
+		status := "installing"
+		appsKSName := "catalyst-tenant-" + funnelTenantSlug + "-apps"
+		if ks, err := deps.dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+			Get(ctx, appsKSName, metav1.GetOptions{}); err == nil && helmReleaseReady(ks) {
+			// helmReleaseReady is a generic status.conditions[type=Ready]
+			// reader — it works on any Flux object, Kustomizations included.
+			status = "installed"
+		}
+		slugs := make([]string, 0, len(funnelApps))
+		for slug := range funnelApps {
+			slugs = append(slugs, slug)
+		}
+		sort.Strings(slugs)
+		for _, slug := range slugs {
+			if seen[slug] {
+				continue
+			}
+			rows = append(rows, sovereignAppItem{
+				ID:          slug,
+				Slug:        slug,
+				Title:       slug,
+				Status:      status,
+				Environment: defaultSovereignEnvironment,
+				ExternalURL: funnelApps[slug],
+				Instance:    true,
+				Blueprint:   "bp-" + slug,
+			})
+		}
 	}
 
 	resp.Apps = rows
