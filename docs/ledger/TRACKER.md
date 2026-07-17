@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T07:15:04Z` |
+| Last refreshed | `2026-07-17T07:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 26 |
+| Open issues | 24 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 26 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 26 open items (clickable table)
+### All 24 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -224,8 +224,6 @@ flowchart LR
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
 | [#5137](https://github.com/openova-io/openova/issues/5137) | P2: Continuum DR controller + dr CR are single-region (region-a) — die with th | Other |
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
-| [#5142](https://github.com/openova-io/openova/issues/5142) | openbao stays SEALED after region-kill recovery (hw261) — no auto-unseal → s | Other |
-| [#5157](https://github.com/openova-io/openova/issues/5157) | openbao unseal-reconciler CronJob does not resume after a region-kill → openba | Other |
 
 ---
 
@@ -233,6 +231,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T07:26 | [#5163](https://github.com/openova-io/openova/pull/5163) | #5129 | fix(console): CiliumNetworkPolicy as distinct graph node, no |
+| 2026-07-17T07:26 | [#5162](https://github.com/openova-io/openova/pull/5162) | #5157 | docs(uat): reset→hw264 + re-earn 8 backing rows on the 1.2.6 |
+| 2026-07-17T07:26 | [#5161](https://github.com/openova-io/openova/pull/5161) | #5140 | fix(catalyst-api): sandbox sessions 503 (not 500) on transie |
 | 2026-07-17T05:12 | [#5160](https://github.com/openova-io/openova/pull/5160) | #5157 | docs(runbooks): openbao region-kill auto-unseal §6.6 + hw264 |
 | 2026-07-17T04:24 | [#5159](https://github.com/openova-io/openova/pull/5159) | #960 | fix(openbao): unseal-reconciler CronJob→Deployment so it sur |
 | 2026-07-17T04:16 | [#5158](https://github.com/openova-io/openova/pull/5158) | #5157 | docs(uat): G12 region-kill ✅ zero-tx-loss RPO=0 on hw263 + # |
@@ -260,9 +261,6 @@ flowchart LR
 | 2026-07-15T15:05 | [#5118](https://github.com/openova-io/openova/pull/5118) | #5104 | fix(billing): price the BCP topology surcharge at checkout ( |
 | 2026-07-15T14:53 | [#5117](https://github.com/openova-io/openova/pull/5117) | #3988 | feat: bp-openova-mcp chart + blueprint + bootstrap-kit slot  |
 | 2026-07-15T14:38 | [#5116](https://github.com/openova-io/openova/pull/5116) | #5104 | fix(mail): RFC 5322 Date header on PIN + notification mails  |
-| 2026-07-15T14:36 | [#5115](https://github.com/openova-io/openova/pull/5115) | #5113 | fix(catalyst-api): catalog card-save commit leg — canonical  |
-| 2026-07-15T13:05 | [#5112](https://github.com/openova-io/openova/pull/5112) | #2 | fix(preflight): ONE-environment-at-a-time fail-closed gate ( |
-| 2026-07-15T13:23 | [#5110](https://github.com/openova-io/openova/pull/5110) | #5088 | docs(5088): §854 mothership NodePort forensics + clean repla |
 
 ---
 
