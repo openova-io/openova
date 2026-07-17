@@ -1,0 +1,30 @@
+# hw263 live-state evidence — dep f21c8e5b3723be7e — captured 2026-07-17T02:03:27Z
+## nodes (both regions)
+catalyst-hw263-omani-works-f21c8e5b-me-east-215-a-cp1-4931aa Ready control-plane,etcd,master
+catalyst-hw263-omani-works-f21c8e5b-me-east-215-a-w1c9902 Ready <none>
+catalyst-hw263-omani-works-f21c8e5b-me-east-215-a-w4691f0 Ready <none>
+catalyst-hw263-omani-works-f21c8e5b-me-east-215-a-w537f8e Ready <none>
+## openbao (#5148 1.2.62 — DR mechanism)
+openbao-0 1/1 Running
+openbao-agent-injector-588cd89db5-67728 1/1 Running
+openbao-snapshot-save-29737560-jrr9r 0/1 Completed
+openbao-sso-configure-7f79448dfd-9sqfn 1/1 Running
+openbao-sso-landing-b5dc4c7dd-c2ch6 1/1 Running
+openbao-unseal-reconciler-29737558-gpnkl 0/1 Completed
+sealed: false
+openbao-snapshot-save */10
+openbao-unseal-reconciler */2
+## sso-bridge (#5151 0.2.25)
+sso-bridge-reconciler-567855bfbc-4s2gx 1/1 Running
+## CNPG clusters (DR baseline)
+catalyst-system openova-flow-pg 2 2 Cluster
+cnpg cnpg-pair-bp-cnpg-pair-primary 1 Setting up
+guacamole guacamole-pg 1 1 Cluster
+newapi newapi-bp-newapi-newapi-pg 2 2 Cluster
+org-services org-pg 2 2 Cluster
+powerdns pdns-pg 2 2 Cluster
+shared-data shared-pg 3 3 Cluster
+shared-data shared-pg-b 3 3 Cluster
+shared-data shared-pg-c 3 3 Cluster
+## cutover progress at capture
+step gitea-mirror complete false pct 0
