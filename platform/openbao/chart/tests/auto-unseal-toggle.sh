@@ -119,17 +119,30 @@ if [ "$JOB_BEFORE_HOOK" -lt 2 ]; then
 fi
 echo "  PASS"
 
-echo "[auto-unseal-toggle] Case 5: #5142 unseal reconciler — CronJob renders when autoUnseal on (default reconcile), suppressed by reconcile.enabled=false"
+echo "[auto-unseal-toggle] Case 5: #5142/#5157 unseal reconciler — DEPLOYMENT renders when autoUnseal on (default reconcile), suppressed by reconcile.enabled=false"
 # The one-shot init Job unseals at install but never re-runs; the reconciler
-# CronJob (templates/unseal-reconciler.yaml) re-applies the persisted unseal
-# keys after a region-kill restart. Gated on autoUnseal.enabled AND
+# (templates/unseal-reconciler.yaml) re-applies the persisted unseal keys after
+# a region-kill restart. Gated on autoUnseal.enabled AND
 # autoUnseal.reconcile.enabled (default true when auto-unseal is on).
+# #5157: it MUST be a Deployment (continuous loop), NOT a CronJob — the hw263
+# region-kill G12 proved a CronJob doesn't resume when the region-a control-plane
+# (its scheduler) dies with the region. A CronJob regression here silently
+# reintroduces the 40-min-sealed DR gap.
 if ! grep -qE "^  name: openbao-unseal-reconciler$" "$TMP/autounseal.yaml"; then
-  echo "FAIL: openbao-unseal-reconciler CronJob not rendered when autoUnseal.enabled=true (default reconcile)." >&2
+  echo "FAIL: openbao-unseal-reconciler not rendered when autoUnseal.enabled=true (default reconcile)." >&2
   exit 1
 fi
-if ! grep -qE "^kind: CronJob$" "$TMP/autounseal.yaml"; then
-  echo "FAIL: reconciler did not render as a CronJob." >&2
+if ! grep -qE "^kind: Deployment$" "$TMP/autounseal.yaml"; then
+  echo "FAIL: reconciler did not render as a Deployment (#5157 — must not regress to CronJob)." >&2
+  exit 1
+fi
+if grep -qE "^kind: CronJob$" "$TMP/autounseal.yaml" && grep -qE "openbao-unseal-reconciler" "$TMP/autounseal.yaml"; then
+  echo "FAIL: reconciler rendered as a CronJob — #5157 regression (does not resume after a region-kill control-plane restart)." >&2
+  exit 1
+fi
+# The Deployment must run a CONTINUOUS loop (resumes on pod-restart, no scheduler dep).
+if ! grep -qE "while true; do" "$TMP/autounseal.yaml"; then
+  echo "FAIL: reconciler Deployment missing the continuous 'while true' reconcile loop (#5157)." >&2
   exit 1
 fi
 helm template smoke-bao . \

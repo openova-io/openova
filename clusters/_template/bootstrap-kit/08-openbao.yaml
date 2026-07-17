@@ -161,7 +161,7 @@ spec:
       #   not bao's real rc=2, so the "reachable-but-sealed" branch never ran.
       #   Caught by the live region-kill DR proof on hw262 (openbao-0 restarted
       #   sealed, reconciler no-op'd every tick). Now captures rc directly.
-      version: 1.2.62
+      version: 1.2.63
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
