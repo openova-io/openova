@@ -6,6 +6,7 @@ import {
   getCatalogItem,
   getApplication,
   saveCatalogBlueprintIaC,
+  getCatalogBlueprintIaC,
   type CatalogItem,
 } from '@/lib/catalog.api'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
@@ -141,6 +142,10 @@ export function CatalogDetail() {
   // / endpoints / shareable / contextSchema (fields the 7-field card form
   // can't touch) are editable, committing to the SAME catalog-sovereign file.
   const [editingIaC, setEditingIaC] = useState(false)
+  // #5124 — the CURRENTLY-COMMITTED blueprint.yaml, fetched when the Edit-IaC
+  // editor opens so the seed is the IaC source of truth (not the stale store
+  // `raw`). null ⇒ fall back to cat.raw (never worse than before).
+  const [committedIac, setCommittedIac] = useState<string | null>(null)
 
   // Chroot-aware "back to Catalog" target. On the mothership provision
   // monitor (`/provision/$deploymentId/...`) the apps grid is at
@@ -396,7 +401,14 @@ export function CatalogDetail() {
               <button
                 type="button"
                 data-testid="catalog-detail-edit-iac"
-                onClick={() => setEditingIaC(true)}
+                onClick={() => {
+                  // #5124 — seed the editor from the committed blueprint.yaml,
+                  // not the stale store raw. A 404/error resolves to null → the
+                  // YamlEditor falls back to cat.raw (unchanged behavior).
+                  setCommittedIac(null)
+                  setEditingIaC(true)
+                  void getCatalogBlueprintIaC(`bp-${name}`).then(setCommittedIac)
+                }}
                 title="Edit the full blueprint IaC (advanced)"
                 style={CATALOG_EDIT_BTN_STYLE}
               >
@@ -579,6 +591,7 @@ export function CatalogDetail() {
             ns={undefined}
             name={`bp-${name}`}
             obj={(cat.raw as K8sObject | undefined) ?? null}
+            seedYaml={committedIac ?? undefined}
             commitLabel="Commit IaC"
             onCommit={async (yaml) => {
               const resp = await saveCatalogBlueprintIaC(`bp-${name}`, yaml)
@@ -593,7 +606,10 @@ export function CatalogDetail() {
             <button
               type="button"
               data-testid="catalog-edit-iac-close"
-              onClick={() => setEditingIaC(false)}
+              onClick={() => {
+                setEditingIaC(false)
+                setCommittedIac(null)
+              }}
               style={CATALOG_EDIT_BTN_STYLE}
             >
               Close

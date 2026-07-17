@@ -175,6 +175,31 @@ export async function saveCatalogBlueprintIaC(
   }
 }
 
+/**
+ * getCatalogBlueprintIaC — read the CURRENTLY-COMMITTED
+ * catalog-sovereign/<repo>/blueprint.yaml via `GET /api/v1/catalog/{name}/iac`,
+ * the source of truth the PUT save writes (#5124). The Edit-IaC editor seeds
+ * from this so committing never silently reverts card-form edits already in the
+ * committed file. Returns `null` on 404 (nothing committed yet) or any transport
+ * error so the caller can fall back to its store `raw` — the seed is then never
+ * WORSE than today, only better when a committed file exists.
+ */
+export async function getCatalogBlueprintIaC(name: string): Promise<string | null> {
+  const url = `${catalogBase()}/${encodeURIComponent(name)}/iac`
+  try {
+    const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+    if (!res.ok) {
+      return null
+    }
+    const body = (await res.json()) as { blueprintYaml?: string }
+    return typeof body.blueprintYaml === 'string' && body.blueprintYaml.length > 0
+      ? body.blueprintYaml
+      : null
+  } catch {
+    return null
+  }
+}
+
 export async function getCatalogVersions(name: string): Promise<CatalogVersionsResponse> {
   const url = `${catalogBase()}/${encodeURIComponent(name)}/versions`
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
