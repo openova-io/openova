@@ -207,7 +207,13 @@ spec:
       # cnpgPair.replica.promoted VALUE, so region-kill failover flips the
       # region-B HR desired state (spec.values...promoted=true) instead of a
       # live-object patch flux drift-correction reverted mid-outage (hw256 G12).
-      version: 0.2.12
+      # 0.2.13 (#5137): region-B AUTOMATIC DR promotion — side=replica adds a
+      # dr-promoter Deployment (Deployment NOT CronJob, #5157) that patches
+      # THIS HR's desired state (spec.values.cnpgPair.replica.promoted=true,
+      # the #5125-D1 seam) when the primary's WAL stream has been dead ≥120s
+      # AND failover-readiness is Ready — automatic RPO=0 region-kill
+      # failover with zero operator action. sync-mode-only (data fence).
+      version: 0.2.13
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

@@ -97,6 +97,58 @@ cnpgPair:
     # failover the desired state so drift-correction re-affirms it.
     # See RUNBOOKS.md §6.1 (region-kill failover) + replica-cluster.yaml.
     promoted: false
+    # ── Region-B AUTOMATIC DR promotion (#5137) ─────────────────────
+    # hw261 G12 proved the DR orchestrator (Continuum controller + dr
+    # CR) is single-region: it dies WITH the killed primary region, so
+    # nothing acted on a promotable standby — the operator promoted by
+    # hand. autoPromote ships a region-B-local actor (side=replica
+    # only, like failover-readiness) that survives region-A loss:
+    #   Deployment `<fullname>-dr-promoter` — a continuous loop
+    #   (Deployment NOT CronJob, #5157: a CronJob's scheduler dies
+    #   with the region) with two containers:
+    #     signals — psql (streaming_replica cert, #5133 auth) against
+    #       the LOCAL replica -rw: non-streaming pg_stat_wal_receiver
+    #       while in recovery == the primary's WAL stream is dead.
+    #     actor  — when the stream has been dead CONTINUOUSLY for
+    #       primaryDownHoldSeconds AND the failover-readiness probe is
+    #       Ready (LSN apply==receive, promotable) AND the local
+    #       Cluster CR is still a replica AND the HR value is not
+    #       already promoted, it merge-patches the region-B
+    #       HelmRelease DESIRED state
+    #       (spec.values.cnpgPair.replica.promoted: true — the exact
+    #       RUNBOOKS §6.1 command / #5125-D1 seam). Flux then renders
+    #       replica.enabled:false and CNPG promotes the survivor.
+    # DATA SAFETY: only rendered when replication.mode=sync — with
+    # remote_apply + FIRST 1 pinned to the cross-region replica +
+    # dataDurability:required, the old primary cannot COMMIT while its
+    # sync standby is unreachable or diverged, so automatic promotion
+    # can never lose or fork committed data (RPO=0), partition or
+    # kill alike. The operator-manual HR patch keeps working; the
+    # actor no-ops when the value is already true.
+    autoPromote:
+      enabled: true
+      # Poll cadence for both containers.
+      intervalSeconds: 10
+      # The WAL stream must be down CONTINUOUSLY this long before the
+      # actor promotes. An intra-region primary restart / instance
+      # switchover reconnects the receiver in seconds and clears the
+      # hold clock — 120s keeps those events from triggering a
+      # cross-region promotion while still auto-recovering a real
+      # region kill in ~2-4 min end-to-end.
+      primaryDownHoldSeconds: 120
+      # The flux HelmRelease whose DESIRED state carries the promotion
+      # (bootstrap-kit slot 16b defaults).
+      hr:
+        name: bp-cnpg-pair
+        namespace: flux-system
+      # kubectl-bearing image for the actor container. Same
+      # harbor-proxy-pull-compliant (`*/proxy-*/*`) prefix as the
+      # signals/postgres image so the whole Pod matches ONE kyverno
+      # anyPattern glob (the #3195 single-source constraint).
+      kubectlImage:
+        repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+        tag: "1.30.0"
+        pullPolicy: IfNotPresent
     instances: 3
     storage:
       size: 100Gi

@@ -14,7 +14,13 @@ spec:
   # postgres superuser is disabled) and measures apply lag via LSN
   # receive-vs-replay (idle- + region-kill-safe). Unblocks region-kill DR
   # promotion (Pillar 3).
-  version: 0.2.12
+  # 0.2.13 (#5137): region-B AUTOMATIC DR promotion — side=replica renders a
+  # dr-promoter Deployment (#5157 shape) that survives region-A loss: when the
+  # WAL stream is dead ≥ hold AND failover-readiness is Ready, it patches the
+  # region-B HR desired state (replica.promoted=true, the #5125-D1 seam) so
+  # CNPG promotes the survivor with ZERO operator action. sync-mode-only
+  # (the remote_apply/dataDurability fence is the anti-split-brain arbiter).
+  version: 0.2.13
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

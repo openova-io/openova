@@ -1070,7 +1070,20 @@ The deterministic failover test for two independent CNPG clusters:
 
 1. Place a write into the primary CNPG cluster (synchronous replication, `remote_apply`, PR #2071)
 2. Kill the primary region (canonical driver: `scripts/region-kill-drill.sh kill --arm` — batch HARD os-stop of the region-a ECS via the HCS action API; bastion hard-excluded)
-3. **Promote the replica by flipping the region-B HelmRelease DESIRED state**, NOT the live Cluster CR:
+3. **AUTOMATIC (bp-cnpg-pair ≥ 0.2.13, #5137)**: region-B's `<pair>-dr-promoter`
+   Deployment (side=replica; a Deployment NOT a CronJob per #5157 — it survives
+   the region-kill because it runs in the surviving region) detects the dead WAL
+   stream via the LOCAL replica's `pg_stat_wal_receiver`, waits
+   `autoPromote.primaryDownHoldSeconds` (120s, so an intra-region primary
+   restart never triggers), confirms the failover-readiness probe is Ready
+   (LSN apply==receive, #5133), and then executes the HR patch below ITSELF —
+   zero operator action, expected promotion ~2–4 min after the kill. The
+   controller-side Continuum orchestration cannot do this: it lives on region-a
+   and dies with it (#5137). Evidence lands as
+   `catalyst.openova.io/dr-auto-promoted-at` on the region-B HR + the
+   dr-promoter pod log. The manual command remains the fallback (and is exactly
+   what the actor runs). **Promote the replica by flipping the region-B
+   HelmRelease DESIRED state**, NOT the live Cluster CR:
    ```bash
    # DURABLE (#5125 Defect-1): patch the HR values so the failed-over state
    # IS the desired state → flux drift-correction RE-AFFIRMS the promotion.

@@ -163,6 +163,19 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
+{{- if (include "cnpg-pair.autoPromoteActive" .) }}
+    # #5137 dr-promoter signals container — polls the replica's -rw for
+    # pg_stat_wal_receiver (primary-loss detection). Same intra-cluster
+    # 5432 path as the failover-readiness probe.
+    - from:
+        - podSelector:
+            matchLabels:
+              catalyst.openova.io/role: dr-promoter
+              catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+{{- end }}
     # #3322 OWN-CLUSTER carve-out: the replica Cluster's instance-2 joins
     # instance-1 via the replica's -rw Service on 5432. This netpol selects
     # the replica Pods, so without an explicit allow for the replica's OWN

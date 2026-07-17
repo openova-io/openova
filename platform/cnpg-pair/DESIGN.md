@@ -254,6 +254,52 @@ replica's streaming auth mounts the primary's `-replication` / `-ca`
 Secrets, which must be synced cluster-A → cluster-B (ESO/reflector
 per the per-Sovereign overlay).
 
+### 9. Region-B automatic DR promotion — the dr-promoter (chart 0.2.13, #5137)
+
+hw261 region-kill G12 (2026-07-16) exposed the last Pillar-3 gap: the
+DR *orchestrator* was single-region. The Continuum controller and its
+`dr.openova.io/v1` CR live on region-A (bp-continuum slot 62 is
+SECONDARY_HR_SUSPEND'ed on secondaries, and the Continuum CRD ships in
+bp-catalyst-platform slot 13, also suspended), so a real region-kill
+takes the orchestrator down WITH the region it exists to fail away
+from. failover-readiness correctly said "promotable" (#5133); nothing
+acted; the operator promoted by hand.
+
+`side=replica` therefore renders a `<fullname>-dr-promoter`
+**Deployment** (never a CronJob — #5157: the CronJob scheduler is the
+regional control plane and does not reliably resume) with two
+containers sharing an emptyDir:
+
+- **signals** (cnpg postgres image, `streaming_replica` client-cert
+  auth — the #5133 pattern): polls the LOCAL replica `-rw`. While in
+  recovery, a non-`streaming` `pg_stat_wal_receiver` means the WAL
+  stream from region-A is dead; the hold clock starts on the
+  streaming→down transition and clears on resume/promotion/psql
+  failure (fail-safe).
+- **actor** (alpine/k8s, kubectl): promotes only when the stream has
+  been dead continuously ≥ `autoPromote.primaryDownHoldSeconds` (120s)
+  AND failover-readiness is Ready AND the local Cluster CR is still a
+  replica AND the HR value is not already promoted. The promotion is
+  ONE merge-patch of the region-B HelmRelease DESIRED state
+  (`spec.values.cnpgPair.replica.promoted: true` — the #5125-D1 seam,
+  byte-identical to the RUNBOOKS §6.1 operator command), never a live
+  Cluster-CR patch (hw256 G12: drift-correction reverts those).
+
+**Why acting on a region-local signal is split-brain-safe** (and why
+the promoter renders only when `replication.mode=sync`): with
+`synchronous_commit=remote_apply` + `FIRST 1` pinned to the
+cross-region replica + `dataDurability: required` (#3740), the old
+primary CANNOT COMMIT while its sync standby is unreachable — during
+the outage/partition nothing committed exists on A that B lacks
+(RPO=0), and after recovery the stale primary stays write-fenced (its
+walsender is rejected on the diverged timeline) until re-cloned
+(#5125 Defect-2). A `k8s-lease` witness cannot arbitrate two SEPARATE
+clusters (each side would hold "its own" lease in its own apiserver);
+the sync-rep fence is the arbiter that actually holds through a
+region-kill. A third-site witness generalizing this (and letting the
+full Continuum sequencer — DNS flip, HTTPRoute drain — run from the
+survivor) is follow-up on #5137.
+
 ---
 
 ## C-DB-3 acceptance test — implementer brief (HARNESS SHIPPED, awaits operator walk)

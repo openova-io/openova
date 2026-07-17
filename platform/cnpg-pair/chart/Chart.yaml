@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.13 (#5137): region-B AUTOMATIC DR promotion — the DR orchestration now
+# SURVIVES the loss of the primary region. hw261 G12 proved the Continuum
+# controller + dr CR are single-region (region-A; bp-continuum slot 62 and the
+# Continuum CRD's bp-catalyst-platform slot 13 are both SECONDARY_HR_SUSPEND'ed),
+# so a real region-kill takes the orchestrator down WITH the region it must fail
+# away from — failover-readiness said promotable, no actor acted, the operator
+# promoted by hand. New side=replica-gated `<fullname>-dr-promoter` Deployment
+# (Deployment NOT CronJob — #5157, a CronJob's scheduler dies with the region):
+# signals container (psql, streaming_replica cert #5133) watches the LOCAL
+# replica's pg_stat_wal_receiver; when the WAL stream is dead CONTINUOUSLY for
+# autoPromote.primaryDownHoldSeconds (120s) AND failover-readiness is Ready
+# (LSN apply==receive) the actor container merge-patches the region-B HR
+# DESIRED state `spec.values.cnpgPair.replica.promoted: true` (the #5125-D1
+# seam / exact RUNBOOKS §6.1 command) — flux renders replica.enabled:false and
+# CNPG promotes the survivor, RPO=0, zero operator action. Data fence: only
+# rendered when replication.mode=sync (remote_apply + FIRST 1 + dataDurability:
+# required means the old primary cannot COMMIT while its sync standby is
+# unreachable or diverged — no committed-data split-brain, partition or kill).
+# Default-ON via autoPromote.enabled (side=replica + pair enabled only);
+# operator-manual HR patch unchanged (actor no-ops when already promoted).
+# Lockstep slot 16b pin → 0.2.13.
 # 0.2.12 (#5125 Defect-1): DR-durability — the replica Cluster CR's
 # `replica.enabled` is now driven by the `cnpgPair.replica.promoted` VALUE
 # (default false → `enabled: true` normal replica; promoted:true →
@@ -61,7 +82,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.12
+version: 0.2.13
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -101,6 +122,73 @@ description: |
 
   Changelog
   ─────────
+  0.2.13 (2026-07-17, region-B AUTOMATIC DR promotion — orchestration survives region-kill, Refs #5137)
+    - NEW (Pillar-3 region-kill DR): side=replica now renders a
+      `<fullname>-dr-promoter` Deployment — the region-B actor that makes
+      failover AUTOMATIC. hw261 G12 (2026-07-16) proved the DR orchestrator
+      is single-region: the Continuum controller + `dr` CR live on region-A
+      (bp-continuum slot 62 + the Continuum CRD's bp-catalyst-platform slot
+      13 are both suspended on secondaries), so a real region-kill takes the
+      orchestrator down WITH the region it must fail away from.
+      failover-readiness correctly reported promotable (#5133) but no actor
+      acted — the operator promoted by hand.
+    - Delivery wrapper is a Deployment with a continuous loop, NEVER a
+      CronJob (#5157, proven hw263→hw264: the CronJob scheduler dies with
+      the region and does not resume). replicas:1 + strategy Recreate — a
+      single actor, never two promotion loops.
+    - Two region-B-local signals, both independent of region-A:
+        signals container (cnpg postgres image, streaming_replica client
+        cert — the #5133 auth pattern) polls the LOCAL replica `-rw`:
+        while in recovery, a non-streaming `pg_stat_wal_receiver` means the
+        primary's WAL stream is dead. The hold clock starts on the
+        streaming→down transition and clears on resume / promotion / psql
+        failure (fail-safe: an unhealthy local replica never looks like a
+        dead primary).
+        actor container (alpine/k8s, kubectl) promotes ONLY when the stream
+        has been dead continuously ≥ autoPromote.primaryDownHoldSeconds
+        (120s — an intra-region primary restart/switchover reconnects in
+        seconds and never triggers) AND the failover-readiness probe is
+        Ready (LSN apply==receive → promotable) AND the local Cluster CR is
+        still a replica AND the HR value is not already promoted.
+    - The promotion is ONE merge-patch of the region-B HelmRelease DESIRED
+      state (`spec.values.cnpgPair.replica.promoted: true` + audit
+      annotations) — the exact RUNBOOKS §6.1 operator command and the
+      #5125-D1 seam, so flux drift-correction RE-AFFIRMS the failover
+      instead of reverting it. NEVER a live Cluster-CR patch (hw256 G12).
+      The operator-manual path keeps working: the actor no-ops when the
+      value is already true.
+    - ANTI-SPLIT-BRAIN data fence: the promoter renders ONLY when
+      replication.mode=sync. With synchronous_commit=remote_apply +
+      FIRST 1 pinned to the cross-region replica + dataDurability:required
+      (#3740), the old primary cannot COMMIT while its sync standby is
+      unreachable — so nothing committed exists on A that B lacks (RPO=0),
+      a mere partition cannot fork committed data, and after recovery the
+      stale primary stays write-fenced (walsender rejected on the diverged
+      timeline) until the operator re-clones it (#5125 Defect-2). A
+      k8s-lease witness cannot arbitrate two SEPARATE clusters; the
+      sync-rep fence is the arbiter that actually holds during a
+      region-kill. async mode (forensic/lab) renders NO promoter.
+    - RBAC is minimal + resourceNames-pinned: pods get/list + the replica
+      Cluster CR get (release ns); helmreleases get/patch on EXACTLY the
+      configured HR (flux-system). Egress is one CiliumNetworkPolicy:
+      kube-apiserver entity (#4428 idiom) + kube-dns + replica 5432.
+      The replica-side ingress policy admits the signals container to 5432
+      (same path as failover-readiness).
+    - kyverno-Enforce compliant: policy.cilium.io/enforced label, both
+      probes on both containers, both images under the single
+      `*/proxy-*/*` glob (postgres via proxy-ghcr, alpine/k8s via
+      proxy-dockerhub), pinned tags.
+    - New values: cnpgPair.replica.autoPromote.{enabled(true),
+      intervalSeconds(10), primaryDownHoldSeconds(120),
+      hr.name(bp-cnpg-pair), hr.namespace(flux-system),
+      kubectlImage.{repository,tag,pullPolicy}}.
+    - Default-OFF contract UNCHANGED: cnpgPair.enabled=false renders ZERO
+      resources on BOTH sides; side=primary is byte-identical to 0.2.12;
+      autoPromote.enabled=false or replication.mode=async renders the
+      0.2.12 replica set. Replica-side non-test resource count 5 → 12
+      (Deployment + SA + 2 Role + 2 RoleBinding + egress CNP). Render
+      Case 15 pins the gating, the HR merge-patch body, the #5157
+      Deployment shape, and the sync-mode fence.
   0.2.12 (2026-07-17, DR-durability — failover through HR desired state, Refs #5125 Defect-1)
     - FIX (Pillar-3 region-kill DR durability): the replica Cluster CR's
       `replica.enabled` was hard-coded `true`, so the documented #4275 failover

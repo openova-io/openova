@@ -104,6 +104,35 @@ rendering the primary half). Any other value fails the render.
 {{- end }}
 
 {{/*
+Region-B automatic DR promotion — active? (chart 0.2.13, #5137)
+
+TRUE only when ALL of:
+  - cnpgPair.enabled            (multi-region pair is on)
+  - side=replica                (the actor runs ON cluster-B, the half
+                                 that survives a region-A kill)
+  - replica.autoPromote.enabled (operator gate; default TRUE — absent
+                                 key ⇒ enabled, hasKey-guarded because
+                                 sprig `default` swallows a literal
+                                 `false`)
+  - replication.mode == sync    (the anti-split-brain DATA FENCE: with
+                                 synchronous_commit=remote_apply +
+                                 dataDurability=required pinned to the
+                                 cross-region replica, the old primary
+                                 CANNOT durably commit while its sync
+                                 standby is unreachable or diverged —
+                                 so an automatic promotion can never
+                                 lose or fork committed data. async
+                                 mode has NO such fence; the promoter
+                                 fail-safes to NOT render there.)
+*/}}
+{{- define "cnpg-pair.autoPromoteActive" -}}
+{{- $ap := .Values.cnpgPair.replica.autoPromote | default dict -}}
+{{- $apEnabled := true -}}
+{{- if hasKey $ap "enabled" }}{{- $apEnabled = $ap.enabled -}}{{- end -}}
+{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isReplicaSide" .) $apEnabled (eq (.Values.cnpgPair.replication.mode | default "sync") "sync") -}}true{{- end -}}
+{{- end }}
+
+{{/*
 Canonical CR names — derived from fullname so Continuum + the
 ClusterMesh global Service can compute them deterministically.
 */}}
