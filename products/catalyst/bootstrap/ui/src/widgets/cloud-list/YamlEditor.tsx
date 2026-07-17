@@ -43,6 +43,15 @@ export interface YamlEditorProps {
   name: string
   /** Live object — used to seed the editor + branch flux/manual. */
   obj: K8sObject | null
+  /**
+   * #5124 — verbatim seed override. When a non-empty string is provided, the
+   * editor seeds (and diffs against) THIS text instead of the `obj`-derived
+   * YAML. The catalog "Edit IaC" mode passes the CURRENTLY-COMMITTED
+   * blueprint.yaml so a commit never silently reverts card-form edits already
+   * in the committed file. Omitted / empty ⇒ unchanged obj-derived seed, so all
+   * other callers are unaffected.
+   */
+  seedYaml?: string
   /** Test seam — when true, "Apply" produces a PR-mode placeholder
    *  instead of a real Gitea call. */
   fluxOverride?: boolean
@@ -170,8 +179,13 @@ function computeDiff(left: string, right: string): DiffLine[] {
   return out
 }
 
-export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride, onCommit, commitLabel, onCreateEditor }: YamlEditorProps) {
-  const initial = useMemo(() => (obj ? objectToYAML(stripServerFields(obj)) : ''), [obj])
+export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOverride, onCommit, commitLabel, onCreateEditor }: YamlEditorProps) {
+  // #5124 — a verbatim seedYaml (the committed blueprint.yaml) wins over the
+  // obj-derived seed so the editor opens on the IaC source of truth.
+  const initial = useMemo(
+    () => (seedYaml && seedYaml.length > 0 ? seedYaml : obj ? objectToYAML(stripServerFields(obj)) : ''),
+    [seedYaml, obj],
+  )
   const [yaml, setYaml] = useState<string>(initial)
   const [showDiff, setShowDiff] = useState(false)
   const [validateMsg, setValidateMsg] = useState<string | null>(null)
