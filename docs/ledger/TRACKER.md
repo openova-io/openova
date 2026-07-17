@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T05:00:04Z` |
+| Last refreshed | `2026-07-17T05:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T05:12 | [#5160](https://github.com/openova-io/openova/pull/5160) | #5157 | docs(runbooks): openbao region-kill auto-unseal §6.6 + hw264 |
 | 2026-07-17T04:24 | [#5159](https://github.com/openova-io/openova/pull/5159) | #960 | fix(openbao): unseal-reconciler CronJob→Deployment so it sur |
 | 2026-07-17T04:16 | [#5158](https://github.com/openova-io/openova/pull/5158) | #5157 | docs(uat): G12 region-kill ✅ zero-tx-loss RPO=0 on hw263 + # |
 | 2026-07-17T03:28 | [#5156](https://github.com/openova-io/openova/pull/5156) | #960 | docs(uat): reset→hw263 + re-earn R6/R7/R8/R11/R22 backing ro |
@@ -265,7 +266,6 @@ flowchart LR
 | 2026-07-15T14:36 | [#5115](https://github.com/openova-io/openova/pull/5115) | #5113 | fix(catalyst-api): catalog card-save commit leg — canonical  |
 | 2026-07-15T13:05 | [#5112](https://github.com/openova-io/openova/pull/5112) | #2 | fix(preflight): ONE-environment-at-a-time fail-closed gate ( |
 | 2026-07-15T13:23 | [#5110](https://github.com/openova-io/openova/pull/5110) | #5088 | docs(5088): §854 mothership NodePort forensics + clean repla |
-| 2026-07-15T09:44 | [#5109](https://github.com/openova-io/openova/pull/5109) | #5104 | fix(#5104): funnel purchased app never deploys — plan-aware  |
 
 ---
 
