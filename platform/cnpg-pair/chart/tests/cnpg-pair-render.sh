@@ -238,9 +238,12 @@ count_resources "$TMP/replica.yaml" > "$TMP/replica-counts" || {
 NONTEST=$(grep -E '^NONTEST=' "$TMP/replica-counts" | cut -d= -f2)
 TEST=$(grep -E '^TEST=' "$TMP/replica-counts" | cut -d= -f2)
 # 1×Cluster (replica) + 1×Service (mesh stub) + 1×Deployment (probe)
-# + 2×NetworkPolicy = 5 non-test; helm-test renders on primary only.
-if [ "$NONTEST" -ne 5 ] || [ "$TEST" -ne 0 ]; then
-  echo "FAIL: side=replica expected 5 non-test + 0 test resources, got $NONTEST + $TEST." >&2
+# + 2×NetworkPolicy = 5, plus the #5137 dr-promoter set (default-ON on
+# side=replica): 1×Deployment + 1×ServiceAccount + 2×Role +
+# 2×RoleBinding + 1×CiliumNetworkPolicy (egress) = 7 → 12 non-test;
+# helm-test renders on primary only.
+if [ "$NONTEST" -ne 12 ] || [ "$TEST" -ne 0 ]; then
+  echo "FAIL: side=replica expected 12 non-test + 0 test resources, got $NONTEST + $TEST." >&2
   grep -E "^kind: " "$TMP/replica.yaml" >&2
   exit 1
 fi
@@ -309,7 +312,7 @@ grep -qE '^\s+- port: 9187' "$TMP/replica.yaml" || {
   echo "FAIL: replica-side NetworkPolicy missing the operator metrics port (9187)." >&2
   exit 1
 }
-echo "  PASS (5 non-test resources)"
+echo "  PASS (12 non-test resources — 5 replica-half + 7 dr-promoter)"
 
 # ── Case 4: side normalization + invalid side fail-fast ──────────
 echo "[render] Case 4: side=secondary aliases replica; invalid side fails fast"
@@ -588,8 +591,11 @@ helm template smoke-cnpg-pair . \
   --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={hw228-mesh}' \
   > "$TMP/cnp-replica.yaml" 2> "$TMP/cnp-replica.err" || {
   echo "FAIL: #4846 side=replica CNP render errored:" >&2; cat "$TMP/cnp-replica.err" >&2; exit 1; }
-if [ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-replica.yaml")" != "1" ]; then
-  echo "FAIL: #4846 side=replica expected exactly 1 CiliumNetworkPolicy." >&2; exit 1; fi
+# 0.2.13: side=replica carries 2 CNPs when peers are set — the #4846
+# crossregion-dr-replica ingress admit + the always-on #5137
+# dr-promoter-egress.
+if [ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-replica.yaml")" != "2" ]; then
+  echo "FAIL: #4846/#5137 side=replica expected exactly 2 CiliumNetworkPolicies (crossregion-dr-replica + dr-promoter-egress)." >&2; exit 1; fi
 grep -qE '^  name: smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-replica$' "$TMP/cnp-replica.yaml" || {
   echo "FAIL: #4846 replica CNP name != smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-replica." >&2; exit 1; }
 grep -qE '^      cnpg.io/cluster: smoke-cnpg-pair-bp-cnpg-pair-replica$' "$TMP/cnp-replica.yaml" || {
@@ -598,12 +604,14 @@ grep -q '"hw228-mesh"' "$TMP/cnp-replica.yaml" || {
   echo "FAIL: #4846 replica CNP missing the primary mesh name in the In-list." >&2; exit 1; }
 if grep -qE '^[[:space:]]*-?[[:space:]]*ipBlock:' "$TMP/cnp-replica.yaml"; then
   echo "FAIL: #4846 replica render leaked an ipBlock rule." >&2; exit 1; fi
-# Empty crossRegionPeerClusters (Case 2 default primary render) → ZERO CNP.
+# Empty crossRegionPeerClusters (Case 2 default primary render) → ZERO
+# crossregion-dr CNP. (0.2.13: the replica side ALWAYS carries the #5137
+# dr-promoter-egress CNP — assert by NAME, not by kind.)
 if grep -q 'CiliumNetworkPolicy' "$TMP/primary.yaml"; then
   echo "FAIL: #4846 primary render WITHOUT crossRegionPeerClusters must emit ZERO CiliumNetworkPolicy." >&2; exit 1; fi
-if grep -q 'CiliumNetworkPolicy' "$TMP/replica.yaml"; then
-  echo "FAIL: #4846 replica render WITHOUT crossRegionPeerClusters must emit ZERO CiliumNetworkPolicy." >&2; exit 1; fi
-echo "  PASS (1 CNP per side, identity In-list, no ipBlock; empty peers → zero CNP)"
+if grep -q 'crossregion-dr' "$TMP/replica.yaml"; then
+  echo "FAIL: #4846 replica render WITHOUT crossRegionPeerClusters must emit ZERO crossregion-dr CiliumNetworkPolicy." >&2; exit 1; fi
+echo "  PASS (1 CNP per side, identity In-list, no ipBlock; empty peers → zero crossregion CNP)"
 
 # ── Case 13: #5133 — failover-readiness probe auth + lag measure ─
 # The probe on hw260 reported `lag=999999 … NOT promotable` on a byte-caught-up
@@ -685,5 +693,87 @@ grep -q 'source: smoke-cnpg-pair-bp-cnpg-pair-primary' "$TMP/replica-promoted.ya
   echo "FAIL: #5125 promoted render dropped the replica source (CNPG needs it stable across the promote)." >&2; exit 1
 }
 echo "  PASS (promoted=false→enabled:true replica · promoted=true→enabled:false primary)"
+
+# ── Case 15: #5137 — region-B automatic DR promotion (dr-promoter) ─
+# The DR orchestration must survive the loss of region-A (hw261 G12: the
+# Continuum controller + dr CR died WITH the killed region; nobody acted
+# on a promotable standby). side=replica renders a dr-promoter Deployment
+# that (a) detects primary loss via the LOCAL replica's
+# pg_stat_wal_receiver, (b) gates on the failover-readiness Ready signal,
+# and (c) promotes by merge-patching the region-B HelmRelease DESIRED
+# state (spec.values.cnpgPair.replica.promoted=true — the #5125-D1 seam),
+# NEVER the live Cluster CR.
+echo "[render] Case 15: #5137 dr-promoter — side-gating, #5157 Deployment shape, HR-desired-state promotion, sync-only fence"
+# 1. Present on the default side=replica render (Case 3 output).
+grep -q 'catalyst.openova.io/role: dr-promoter' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 side=replica default render missing the dr-promoter." >&2; exit 1; }
+# 2. NEVER on side=primary (the actor must live in the surviving region).
+if grep -q 'dr-promoter' "$TMP/primary.yaml"; then
+  echo "FAIL: #5137 side=primary rendered dr-promoter resources — the actor must run ONLY on cluster-B (it must survive a region-A kill)." >&2; exit 1; fi
+# 3. Deployment (NOT CronJob — #5157: a CronJob's scheduler dies with the
+#    region) with a single Recreate replica (never two promotion loops).
+awk '/^kind: Deployment$/{d=1} d&&/name: .*-dr-promoter$/{f=1} f&&/type: Recreate/{print "RECREATE"; exit}' "$TMP/replica.yaml" | grep -q RECREATE || {
+  echo "FAIL: #5137 dr-promoter must be a Deployment with strategy Recreate (single actor, #5157 shape)." >&2; exit 1; }
+if grep -q '^kind: CronJob' "$TMP/replica.yaml"; then
+  echo "FAIL: #5137 rendered a CronJob — a region-local DR actor must be a Deployment (#5157: the CronJob scheduler dies with the region)." >&2; exit 1; fi
+# 4. Promotion drives the HR DESIRED state — the exact #5125-D1 merge-patch
+#    body — never a live Cluster-CR patch.
+grep -q 'patch helmrelease' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 actor does not patch the HelmRelease." >&2; exit 1; }
+grep -qF '\"spec\":{\"values\":{\"cnpgPair\":{\"replica\":{\"promoted\":true}}}}' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 actor must merge-patch spec.values.cnpgPair.replica.promoted=true (the #5125-D1 seam / RUNBOOKS §6.1 command)." >&2; exit 1; }
+if grep -q 'patch clusters' "$TMP/replica.yaml"; then
+  echo "FAIL: #5137 actor patches a live Cluster CR — flux drift-correction reverts that mid-outage (hw256 G12)." >&2; exit 1; fi
+# 5. Primary-loss detection via the LOCAL replica's WAL receiver, with the
+#    #5133 streaming_replica-cert auth (never the disabled superuser).
+grep -q 'pg_stat_wal_receiver' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 signals container missing the pg_stat_wal_receiver primary-loss detector." >&2; exit 1; }
+# 6. Promotability gate reads the failover-readiness probe's Ready signal.
+grep -q 'catalyst.openova.io/role=failover-readiness-probe' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 actor does not gate on the failover-readiness Ready condition (#5133 promotability signal)." >&2; exit 1; }
+# 7. RBAC is resourceNames-pinned to the configured HR in flux-system.
+grep -qE '^  namespace: flux-system$' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 missing the flux-system Role/RoleBinding (HR patch surface)." >&2; exit 1; }
+grep -qE 'resourceNames: \[bp-cnpg-pair\]' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 flux-system Role must be resourceNames-pinned to the bp-cnpg-pair HR." >&2; exit 1; }
+# 8. Egress CNP admits the kube-apiserver reserved entity (#4428 idiom).
+grep -q 'kube-apiserver' "$TMP/replica.yaml" || {
+  echo "FAIL: #5137 dr-promoter-egress CNP missing the kube-apiserver entity — kubectl egress would be default-denied." >&2; exit 1; }
+# 9. The replica ingress policy admits the signals container to 5432.
+#    (grep WITHOUT -q: under `set -o pipefail` a -q early-exit SIGPIPEs
+#    the upstream awk and fails the pipeline even on a match.)
+awk '/allow-probe-to-replica/{f=1} f' "$TMP/replica.yaml" | grep 'catalyst.openova.io/role: dr-promoter' >/dev/null || {
+  echo "FAIL: #5137 allow-probe-to-replica must admit the dr-promoter signals container to 5432." >&2; exit 1; }
+# 10. autoPromote.enabled=false → the 0.2.12 replica set (5 non-test), no promoter.
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.side=replica \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.replica.autoPromote.enabled=false \
+  > "$TMP/nopromoter.yaml" 2> "$TMP/nopromoter.err" || {
+  echo "FAIL: #5137 autoPromote-disabled render errored:" >&2; cat "$TMP/nopromoter.err" >&2; exit 1; }
+if grep -q 'dr-promoter' "$TMP/nopromoter.yaml"; then
+  echo "FAIL: #5137 autoPromote.enabled=false must render ZERO dr-promoter resources." >&2; exit 1; fi
+if [ "$(grep -cE '^kind: ' "$TMP/nopromoter.yaml")" -ne 5 ]; then
+  echo "FAIL: #5137 autoPromote.enabled=false replica render must match the 0.2.12 set (5 non-test)." >&2
+  grep -E '^kind: ' "$TMP/nopromoter.yaml" >&2; exit 1; fi
+# 11. replication.mode=async → NO promoter (the sync-rep remote_apply +
+#     dataDurability:required fence is what makes automatic promotion
+#     split-brain-safe; async has no fence, so the actor must fail-safe
+#     to absent).
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.side=replica \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.replication.mode=async \
+  > "$TMP/asyncpromoter.yaml" 2> "$TMP/asyncpromoter.err" || {
+  echo "FAIL: #5137 async-mode replica render errored:" >&2; cat "$TMP/asyncpromoter.err" >&2; exit 1; }
+if grep -q 'dr-promoter' "$TMP/asyncpromoter.yaml"; then
+  echo "FAIL: #5137 replication.mode=async must render ZERO dr-promoter resources (no sync-rep data fence → automatic promotion is not split-brain-safe)." >&2; exit 1; fi
+echo "  PASS (replica-only actor, Recreate Deployment, HR-desired-state patch, resourceNames-pinned RBAC, sync-only)"
 
 echo "[render] All bp-cnpg-pair render gates green."

@@ -1,0 +1,457 @@
+{{- /*
+Region-B DR auto-promoter (#5137 — chart 0.2.13).
+
+WHY THIS EXISTS
+---------------
+hw261 region-kill G12 (2026-07-16) proved the DR ORCHESTRATOR was
+single-region: the Continuum controller + its `dr` CR live on region-A
+(bp-continuum slot 62 is SECONDARY_HR_SUSPEND'ed; the Continuum CRD
+ships in bp-catalyst-platform slot 13, ALSO suspended on secondaries),
+so a real region-kill takes the orchestrator down WITH the region it
+must fail away from. failover-readiness correctly said "promotable"
+(1/1, #5133) but NO ACTOR acted on it — the operator promoted by hand.
+
+This Deployment is the region-B actor that survives the loss of
+region-A. It is rendered ONLY on side=replica (the same split-side
+gating as failover-readiness), so it runs ON cluster-B with zero
+dependency on anything in region-A.
+
+WHY A DEPLOYMENT, NOT A CronJob (#5157 — proven hw263→hw264)
+------------------------------------------------------------
+A region-local actor that must run DURING a region outage is a
+continuous Deployment loop: a CronJob's scheduler is the (regional)
+control plane and does not reliably resume after recovery (openbao
+stayed SEALED 40+ min on hw263). Same delivery wrapper as the
+openbao-unseal-reconciler.
+
+WHY IT PATCHES THE HELMRELEASE, NEVER THE LIVE Cluster CR (#5125-D1)
+--------------------------------------------------------------------
+On hw256 G12 a live `kubectl patch spec.replica.enabled=false` was
+REVERTED by flux drift-correction at T0+2m07s, silently re-demoting
+the promoted survivor mid-outage. bp-cnpg-pair ≥0.2.12 drives
+`replica.enabled` from the `cnpgPair.replica.promoted` VALUE, so the
+promoter flips the region-B HelmRelease DESIRED state
+(`spec.values.cnpgPair.replica.promoted: true`) — drift-correction
+then RE-AFFIRMS the promotion. This is byte-identical to the
+RUNBOOKS §6.1 operator command; the operator-manual path keeps
+working (the actor no-ops when the value is already true).
+
+Durability of the HR patch: the flux Kustomization's SSA re-apply of
+the bootstrap-kit slot 16b manifest does NOT remove the key — slot 16b
+never sets `replica.promoted`, so the promoter's field-manager keeps
+ownership of a field git never claims.
+
+HOW IT DECIDES (two independent signals, both region-B-local)
+-------------------------------------------------------------
+1. PRIMARY LOSS — `signals` container (postgres image, the same
+   streaming_replica client-cert auth as failover-readiness #5133)
+   polls the LOCAL replica's `-rw`: while in recovery, an EMPTY /
+   non-streaming `pg_stat_wal_receiver` means the WAL stream from
+   region-A is dead. The condition must hold CONTINUOUSLY for
+   `autoPromote.primaryDownHoldSeconds` (default 120s) so an
+   intra-region primary restart / instance switchover (receiver
+   reconnects in seconds) never triggers a cross-region promotion.
+2. PROMOTABILITY — the failover-readiness Pod's Ready condition
+   (the #5133 LSN apply==receive signal): the standby has APPLIED
+   everything it RECEIVED.
+
+ANTI-SPLIT-BRAIN — why acting on a region-local signal is data-safe
+-------------------------------------------------------------------
+The pair runs synchronous replication (remote_apply + FIRST 1 pinned
+to the cross-region replica + dataDurability:required — #3740). That
+gives a structural data fence with NO third-site witness:
+  - During the outage/partition, the region-A primary CANNOT COMMIT
+    (its only synchronous standby is unreachable) — so there is
+    nothing committed on A that B does not already have (RPO=0), and
+    a mere partition (A alive, mesh dead) cannot diverge committed
+    data either.
+  - After region-A recovers, its old primary still cannot durably
+    commit: the promoted region-B replica has left the timeline, the
+    walsender connection is rejected, and FIRST 1 stays unsatisfied —
+    the stale side is write-fenced until the operator re-clones it
+    (RUNBOOKS §6.1 step 5 / #5125 Defect-2).
+For this reason the promoter renders ONLY when replication.mode=sync
+(see cnpg-pair.autoPromoteActive) — async mode has no fence.
+
+The k8s-lease witness cannot arbitrate here: a coordination.k8s.io
+Lease lives in ONE cluster's apiserver, and a 2-region Sovereign is
+two SEPARATE clusters — each side would trivially hold "its own"
+lease. The sync-rep data fence is the arbiter that actually holds
+during a region-kill. (A future 3rd-site witness generalizes this;
+tracked on #5137.)
+*/ -}}
+{{- if (include "cnpg-pair.autoPromoteActive" .) }}
+{{- $ap := .Values.cnpgPair.replica.autoPromote }}
+{{- $hr := $ap.hr | default dict }}
+{{- $hrName := $hr.name | default "bp-cnpg-pair" }}
+{{- $hrNamespace := $hr.namespace | default "flux-system" }}
+{{- $kimg := $ap.kubectlImage | default dict }}
+{{- $krepo := $kimg.repository | default "harbor.openova.io/proxy-dockerhub/alpine/k8s" }}
+{{- $ktag := $kimg.tag | default "1.30.0" }}
+{{- $kpull := $kimg.pullPolicy | default "IfNotPresent" }}
+{{- $interval := $ap.intervalSeconds | default 10 }}
+{{- $hold := $ap.primaryDownHoldSeconds | default 120 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: dr-promoter
+---
+# Local-namespace reads: failover-readiness Pod Ready condition + the
+# replica Cluster CR's replica.enabled state.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get]
+    resourceNames: [{{ include "cnpg-pair.replicaName" . }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+    namespace: {{ .Release.Namespace }}
+---
+# The promotion surface: get (idempotence read) + patch (merge-patch of
+# spec.values.cnpgPair.replica.promoted) on EXACTLY the bp-cnpg-pair
+# HelmRelease — resourceNames-pinned, no list/create/delete.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+rules:
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, patch]
+    resourceNames: [{{ $hrName }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+    namespace: {{ .Release.Namespace }}
+---
+# Egress for the promoter Pod. The kube-apiserver is a reserved Cilium
+# entity a vanilla k8s NetworkPolicy cannot express (#4428 idiom — under
+# kube-proxy-replacement the apiserver VIP resolves to the reserved
+# `kube-apiserver` identity, which is neither a pod nor `world`), so the
+# whole egress allow-list lives in ONE CiliumNetworkPolicy: apiserver
+# (kubectl) + kube-dns (service-name resolution) + the replica cluster's
+# 5432 (the signals psql). Everything else stays denied.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter-egress
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      catalyst.openova.io/role: dr-promoter
+      catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . }}
+  egress:
+    - toEntities:
+        - kube-apiserver
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: dr-promoter
+  annotations:
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+spec:
+  replicas: 1
+  # Single actor; never two promotion loops at once (#5157 shape).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cnpg-pair.selectorLabels" . | nindent 6 }}
+      catalyst.openova.io/role: dr-promoter
+  template:
+    metadata:
+      labels:
+        {{- include "cnpg-pair.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/role: dr-promoter
+        catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+        # kyverno cilium-l7-mtls (Enforce) — required on the Pod
+        # template or the Deployment is DENIED at admission (#3238).
+        policy.cilium.io/enforced: "true"
+    spec:
+      # The actor runs in the replica region — the half that survives a
+      # region-A kill (same pin as failover-readiness).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: openova.io/region
+                    operator: In
+                    values: [{{ .Values.cnpgPair.replica.region | quote }}]
+      serviceAccountName: {{ include "cnpg-pair.fullname" . }}-dr-promoter
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # ── signals — PRIMARY-LOSS detector ──────────────────────────
+        # psql (streaming_replica client cert, the #5133 auth pattern)
+        # against the LOCAL replica `-rw`. While the replica is in
+        # recovery, a non-streaming pg_stat_wal_receiver == the WAL
+        # stream from region-A is dead; the hold clock (file mtime-free,
+        # epoch-in-file) starts on the streaming→down transition and is
+        # CLEARED the moment streaming resumes, the replica leaves
+        # recovery (already promoted), or psql itself fails (fail-safe:
+        # an unhealthy local replica must never look like a dead
+        # primary).
+        - name: signals
+          image: {{ include "cnpg-pair.imageRef" . | quote }}
+          imagePullPolicy: {{ .Values.cnpgPair.image.pullPolicy | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              CONN="host={{ include "cnpg-pair.replicaName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              Q="SELECT CASE
+                WHEN NOT pg_is_in_recovery() THEN 'promoted'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver WHERE status = 'streaming') THEN 'streaming'
+                ELSE 'down'
+              END"
+              echo "[dr-promoter/signals] loop started (interval={{ $interval }}s)"
+              while true; do
+                : > /shared/signals-alive
+                STATE=$(psql "${CONN}" -tAXc "${Q}" 2>/dev/null || echo "unknown")
+                case "${STATE}" in
+                  down)
+                    if [ ! -f /shared/primary-wal-down-since ]; then
+                      date -u +%s > /shared/primary-wal-down-since
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/signals] WAL receiver DOWN — primary stream dead; hold clock started"
+                    fi
+                    ;;
+                  *)
+                    if [ -f /shared/primary-wal-down-since ]; then
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/signals] state=${STATE} — hold clock cleared"
+                    fi
+                    rm -f /shared/primary-wal-down-since
+                    ;;
+                esac
+                sleep {{ $interval }}
+              done
+          env:
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/signals-alive && test -z \"$(find /shared/signals-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/signals-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsUser: 26   # postgres in upstream cnpg image
+            runAsGroup: 26
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+            - name: replication-cert
+              mountPath: /tls/client
+              readOnly: true
+        # ── actor — the PROMOTER ─────────────────────────────────────
+        # Each tick runs in a subshell (a persistent fault retries next
+        # tick instead of crashing the pod — #5157 shape). Gates, in
+        # order: hold expired → HR not already promoted (idempotence +
+        # operator-manual compatibility) → local Cluster CR still a
+        # replica → failover-readiness Ready (promotable, #5133). Then
+        # ONE merge-patch of the HR desired state — the exact RUNBOOKS
+        # §6.1 command — plus audit annotations.
+        - name: actor
+          image: {{ printf "%s:%s" $krepo $ktag | quote }}
+          imagePullPolicy: {{ $kpull | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
+              while true; do
+                : > /shared/actor-alive
+                (
+                  set -eu
+                  [ -f /shared/primary-wal-down-since ] || exit 0
+                  DOWN_SINCE=$(cat /shared/primary-wal-down-since)
+                  NOW=$(date -u +%s)
+                  DOWN_FOR=$((NOW - DOWN_SINCE))
+                  if [ "${DOWN_FOR}" -lt "${HOLD_SECONDS}" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] primary WAL stream down ${DOWN_FOR}s < hold ${HOLD_SECONDS}s — waiting"
+                    exit 0
+                  fi
+                  PROMOTED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.values.cnpgPair.replica.promoted}')
+                  if [ "${PROMOTED}" = "true" ]; then
+                    exit 0
+                  fi
+                  REPLICA_ENABLED=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}')
+                  if [ "${REPLICA_ENABLED}" != "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] local Cluster CR replica.enabled=${REPLICA_ENABLED} — not a replica; nothing to promote"
+                    exit 0
+                  fi
+                  READY=$(kubectl -n "${NAMESPACE}" get pod -l "${READY_SELECTOR}" -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}')
+                  if ! echo "${READY}" | grep -qw True; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] failover-readiness NOT Ready (got: '${READY}') — standby not promotable; holding (data safety over RTO)"
+                    exit 0
+                  fi
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTING: WAL stream down ${DOWN_FOR}s >= ${HOLD_SECONDS}s AND failover-readiness Ready — patching HR desired state (#5125-D1 seam)"
+                  kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-auto-promote-reason\":\"primary WAL stream down ${DOWN_FOR}s; failover-readiness Ready (#5137)\"}},\"spec\":{\"values\":{\"cnpgPair\":{\"replica\":{\"promoted\":true}}}}}"
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTED: HR ${HR_NAMESPACE}/${HR_NAME} spec.values.cnpgPair.replica.promoted=true — helm-controller renders replica.enabled:false → CNPG promotes the survivor writable"
+                ) || echo "[dr-promoter/actor] tick returned non-zero — retry in ${INTERVAL_SECONDS}s"
+                sleep "${INTERVAL_SECONDS}"
+              done
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HR_NAME
+              value: {{ $hrName | quote }}
+            - name: HR_NAMESPACE
+              value: {{ $hrNamespace | quote }}
+            - name: HOLD_SECONDS
+              value: {{ $hold | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+            - name: REPLICA_CLUSTER
+              value: {{ include "cnpg-pair.replicaName" . | quote }}
+            - name: READY_SELECTOR
+              value: "catalyst.openova.io/role=failover-readiness-probe,catalyst.openova.io/cnpg-pair={{ include "cnpg-pair.fullname" . }}"
+            # kubectl writes its discovery/http cache under $HOME.
+            - name: HOME
+              value: /tmp
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/actor-alive && test -z \"$(find /shared/actor-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/actor-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shared
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        # THIS replica cluster's own CNPG-issued streaming_replica client
+        # cert (exists locally on cluster-B, no cross-cluster sync) —
+        # 0440 root:26, the perms libpq requires for an sslkey (#5133).
+        - name: replication-cert
+          secret:
+            secretName: {{ include "cnpg-pair.replicaName" . }}-replication
+            defaultMode: 0440
+{{- end }}
