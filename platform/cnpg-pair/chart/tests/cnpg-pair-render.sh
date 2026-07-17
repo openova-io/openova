@@ -647,4 +647,43 @@ grep -q 'REPLICA_HOST="smoke-cnpg-pair-bp-cnpg-pair-replica-rw"' "$TMP/replica.y
 }
 echo "  PASS (streaming_replica cert auth, LSN apply-lag, -rw target)"
 
+# ── Case 14: #5125 Defect-1 — replica.enabled is driven by the promoted VALUE ─
+# DR failover must flip the HelmRelease desired state (spec.values.cnpgPair.
+# replica.promoted=true), not a live-object patch flux drift-correction reverts.
+echo "[render] Case 14: #5125 replica.enabled follows the promoted value (default replica, promoted→primary)"
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.side=replica \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --show-only templates/replica-cluster.yaml > "$TMP/replica-default.yaml" 2>"$TMP/replica-default.err" || {
+  echo "FAIL: #5125 default replica render errored:" >&2; cat "$TMP/replica-default.err" >&2; exit 1
+}
+# Default (promoted unset) → replica mode: replica.enabled: true.
+grep -qE '^  replica:' "$TMP/replica-default.yaml" && grep -A1 -E '^  replica:' "$TMP/replica-default.yaml" | grep -qE '^    enabled: true' || {
+  echo "FAIL: #5125 default (promoted unset) must render 'replica.enabled: true' (normal replica mode)." >&2
+  grep -nE '^  replica:|^    enabled:' "$TMP/replica-default.yaml" >&2; exit 1
+}
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.side=replica \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.replica.promoted=true \
+  --show-only templates/replica-cluster.yaml > "$TMP/replica-promoted.yaml" 2>"$TMP/replica-promoted.err" || {
+  echo "FAIL: #5125 promoted replica render errored:" >&2; cat "$TMP/replica-promoted.err" >&2; exit 1
+}
+# Promoted → CNPG primary: replica.enabled: false (the failed-over desired state).
+grep -A1 -E '^  replica:' "$TMP/replica-promoted.yaml" | grep -qE '^    enabled: false' || {
+  echo "FAIL: #5125 promoted=true must render 'replica.enabled: false' (promote to writable primary) — this IS the failover desired state flux drift-correction re-affirms." >&2
+  grep -nE '^  replica:|^    enabled:' "$TMP/replica-promoted.yaml" >&2; exit 1
+}
+# The bootstrap source stanza is preserved either way (ignored post-bootstrap).
+grep -q 'source: smoke-cnpg-pair-bp-cnpg-pair-primary' "$TMP/replica-promoted.yaml" || {
+  echo "FAIL: #5125 promoted render dropped the replica source (CNPG needs it stable across the promote)." >&2; exit 1
+}
+echo "  PASS (promoted=false→enabled:true replica · promoted=true→enabled:false primary)"
+
 echo "[render] All bp-cnpg-pair render gates green."

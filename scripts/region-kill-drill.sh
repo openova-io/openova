@@ -5,8 +5,11 @@
 #
 # Mechanics proven on hw256 (2026-07-15) + hw261 (2026-07-16):
 #   batch HARD os-stop ALL region-a ECS via HCS ECS action API → region-a
-#   apiserver dies (~4-5s) → promote region-b CNPG replicas
-#   (spec.replica.enabled=false) → RTO ~5.7s, RPO=0 (pre-kill sentinel survives)
+#   apiserver dies (~4-5s) → promote region-b CNPG replicas by flipping the
+#   region-B HelmRelease DESIRED state (spec.values.cnpgPair.replica.promoted=
+#   true → chart renders replica.enabled:false), NOT a live Cluster-CR patch
+#   flux drift-correction reverts mid-outage (#5125 Defect-1, bp-cnpg-pair
+#   ≥0.2.12; see RUNBOOKS §6.1) → RTO ~5.7s, RPO=0 (pre-kill sentinel survives)
 #   → post-kill write accepted → openbao auto-unseal via the */2 reconciler
 #   CronJob (bp-openbao ≥1.2.62) → os-start region-a to recover.
 #

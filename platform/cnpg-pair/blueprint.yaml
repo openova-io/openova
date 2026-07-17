@@ -14,7 +14,7 @@ spec:
   # postgres superuser is disabled) and measures apply lag via LSN
   # receive-vs-replay (idle- + region-kill-safe). Unblocks region-kill DR
   # promotion (Pillar 3).
-  version: 0.2.11
+  version: 0.2.12
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.12 (#5125 Defect-1): DR-durability — the replica Cluster CR's
+# `replica.enabled` is now driven by the `cnpgPair.replica.promoted` VALUE
+# (default false → `enabled: true` normal replica; promoted:true →
+# `enabled: false` writable primary), NOT a hard-coded `true` a live-object
+# failover patch fought. Region-kill failover MUST flip the region-B
+# HelmRelease's DESIRED state (`spec.values.cnpgPair.replica.promoted: true`),
+# never `kubectl patch` the live Cluster CR: on hw256 G12 (2026-07-15,
+# T0+2m07s, region-a still SHUTOFF) helm-controller ran "correct cluster
+# drift" on bp-cnpg-pair and reverted `replica.enabled` back to `true`,
+# silently re-demoting the promoted survivor to read-only against a dead
+# source. Driving promotion through HR values makes the failed-over state the
+# DESIRED state → drift-correction RE-AFFIRMS it. Backward-safe (missing
+# value ⇒ replica). Lockstep slot 16b pin → 0.2.12; RUNBOOKS §6.1 updated.
+# (Defect-2, timeline-divergence auto-rejoin, remains open in #5125.)
 # 0.2.11 (#5133): FIX the failover-readiness probe false-negative that
 # blocked region-kill DR promotion (Pillar 3). Two defects in one probe:
 # (a) AUTH — it connected as `user=postgres`, but both Cluster CRs set
@@ -47,7 +61,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.11
+version: 0.2.12
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -87,6 +101,23 @@ description: |
 
   Changelog
   ─────────
+  0.2.12 (2026-07-17, DR-durability — failover through HR desired state, Refs #5125 Defect-1)
+    - FIX (Pillar-3 region-kill DR durability): the replica Cluster CR's
+      `replica.enabled` was hard-coded `true`, so the documented #4275 failover
+      (`replica.enabled: false` to promote the survivor) was a LIVE-OBJECT patch
+      on an object a drift-enabled HelmRelease owns. On hw256 G12 (2026-07-15,
+      T0+2m07s, region-a still SHUTOFF) region-b's helm-controller ran "correct
+      cluster drift" on bp-cnpg-pair and reset `replica.enabled` back to `true`,
+      silently RE-DEMOTING the promoted survivor to read-only against a dead
+      primary — the failover was non-durable without operator intervention.
+      `replica.enabled` is now `{{ not (.Values.cnpgPair.replica.promoted | default false) }}`,
+      so DR failover flips the region-B HR DESIRED state
+      (`spec.values.cnpgPair.replica.promoted: true`) and Flux drift-correction
+      RE-AFFIRMS the promotion instead of undoing it. Default/absent value ⇒
+      replica mode (backward-safe). Render Case 14 pins both states; the bootstrap
+      source is preserved across the promote. Lockstep slot 16b → 0.2.12,
+      RUNBOOKS §6.1 updated. (Defect-2 — post-resume timeline-divergence
+      auto-rejoin — stays open in #5125.)
   0.2.11 (2026-07-16, failover-readiness false-negative fix — region-kill DR promotion, Refs #5133)
     - FIX (Pillar-3 region-kill DR): the failover-readiness probe reported
       `lag=999999s ≥ threshold=30s — NOT promotable` on a region-b replica

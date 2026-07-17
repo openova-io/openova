@@ -203,7 +203,11 @@ spec:
       # streaming_replica (postgres superuser disabled) and measures apply
       # lag via LSN receive-vs-replay so a caught-up SYNCHRONOUS standby is
       # correctly Ready/promotable. Unblocks region-kill DR promotion (P3).
-      version: 0.2.11
+      # 0.2.12 (#5125 Defect-1): replica.enabled follows the
+      # cnpgPair.replica.promoted VALUE, so region-kill failover flips the
+      # region-B HR desired state (spec.values...promoted=true) instead of a
+      # live-object patch flux drift-correction reverted mid-outage (hw256 G12).
+      version: 0.2.12
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
