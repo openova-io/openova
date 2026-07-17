@@ -80,6 +80,43 @@ PY
   [ "${orph:-x}" = "0" ] && pass "3. EIP headroom: 0 orphaned EIPs (status=DOWN; ELB-bound excluded)" || bad "3. ${orph} orphaned EIP(s) (status=DOWN, unbound) — delete them first (NEVER touch status=ELB/ACTIVE or bastion ${BASTION_EIP})"
   [ "${nonbastion:-x}" = "0" ] && pass "3f. EIP pool recovered: project holds ONLY the bastion EIP (no wipe→fire release lag)" || bad "3f. ${nonbastion:-unknown} non-bastion EIP(s) still allocated — prior env's EIPs not fully released to the shared pool; firing risks VPC.0532 'EIP pool sold out' (#5126). Wait ~10-15min for release."
 
+  # 3g (#5126, ONE LEVEL DEEPER — hw267 death 2026-07-17): check-3f measures our
+  #     PROJECT's EIP COUNT (nonbastion=0 right after a wipe), but a released EIP
+  #     does NOT instantly RETURN to the allocatable kom4dc REGIONAL pool. hw266
+  #     wiped 14:14Z, fire 14:17Z (3-min gap) → 3f green, yet tofu-apply died
+  #     `VPC.0532 EIP pool sold out` allocating cp/elb EIPs. Same bug-class as the
+  #     hw257 death that ADDED 3f, one layer down: project-count clean while the
+  #     regional pool is still starved. This gate measures TIME since the most
+  #     recent wiped/failed env and refuses to fire until the pool has had
+  #     EIP_COOLDOWN_MIN (default 15) to replenish. Set EIP_COOLDOWN_MIN=0 to skip
+  #     only when a direct regional-pool probe has confirmed availability.
+  cool=${EIP_COOLDOWN_MIN:-15}
+  cdiag=$(curl -s -H "$AUTH_HDR" "${CONSOLE}/deployments" 2>/dev/null | NOW="$(date -u +%s)" python3 -c '
+import sys,json,os,datetime
+now=int(os.environ["NOW"])
+try:
+    d=json.load(sys.stdin); deps=d if isinstance(d,list) else d.get("deployments",d.get("items",[]))
+except Exception:
+    print("999 parse-error"); sys.exit()
+def ts(s):
+    try:
+        return int(datetime.datetime.strptime(s or "","%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp())
+    except Exception:
+        return 0
+cands=[ts(x.get("finishedAt")) for x in deps if x.get("status") in ("wiped","failed")]
+latest=max(cands) if cands else 0
+if latest==0:
+    print("999 none")
+else:
+    print("{} {}".format((now-latest)//60, datetime.datetime.utcfromtimestamp(latest).strftime("%H:%MZ")))
+')
+  read -r mins_since wipe_at <<<"${cdiag:-999 none}"
+  if [ "${mins_since:-999}" -lt "$cool" ] 2>/dev/null; then
+    bad "3g. last wiped/failed env finished ${mins_since}min ago (${wipe_at}) < ${cool}min cooldown — released EIPs may not have RETURNED to the kom4dc regional pool; firing risks VPC.0532 (hw267 died this way 2026-07-17). Wait ~$((cool - mins_since))min more, then re-run."
+  else
+    pass "3g. wipe→fire EIP-pool cooldown OK (last wiped/failed ${mins_since}min ago >= ${cool}min — regional pool replenished)"
+  fi
+
   # 3b. GROUND-TRUTH no-foreign-Sovereign gate (#4675 — the omantel.biz-loss root cause).
   #     Check #2 above trusts GET /deployments, which returns a FALSE 0 when the
   #     catalyst-api store hasn't reloaded after a recycle → the gate cleared a fire
