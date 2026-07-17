@@ -108,7 +108,7 @@ case "$CMD" in
   discover)
     echo "== region-a kill-set (token=$REGION_A_TOKEN; bastion $BASTION_EIP hard-excluded) =="
     targets_or_die | python3 -c 'import sys,json;[print("  ",x["id"],x["name"],x["status"]) for x in json.load(sys.stdin)]'
-    echo "(dry-run — no action taken; run `kill --arm` to os-stop)"
+    echo "(dry-run — no action taken; run 'kill --arm' to os-stop)"
     ;;
   kill)
     js=$(targets_or_die)
