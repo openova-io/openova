@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-17T12:45:02Z` |
+| Last refreshed | `2026-07-17T13:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 26 |
 | Open DoD gates | 0 / 41 |
@@ -233,6 +233,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-17T12:52 | [#5177](https://github.com/openova-io/openova/pull/5177) | #5167 | fix(openova-mcp): resolve session tokens via catalyst-api /w |
+| 2026-07-17T12:52 | [#5176](https://github.com/openova-io/openova/pull/5176) | #5167 | docs(uat): NORTH-STAR live on hw266 — openova-mcp deployed + |
+| 2026-07-17T12:52 | [#5174](https://github.com/openova-io/openova/pull/5174) | #5089 | docs(854): NodePort audit provenance trace — residue is out- |
+| 2026-07-17T12:52 | [#5173](https://github.com/openova-io/openova/pull/5173) | #960 | fix(preflight): gate on catalyst-api deployed==pinned (no ro |
+| 2026-07-17T12:52 | [#5172](https://github.com/openova-io/openova/pull/5172) | #5123 | docs(session): hw265 fire-readiness gate (Refs #960) |
 | 2026-07-17T10:20 | [#5171](https://github.com/openova-io/openova/pull/5171) | #5137 | fix(cnpg-pair): region-B dr-promoter — automatic RPO=0 regio |
 | 2026-07-17T10:15 | [#5170](https://github.com/openova-io/openova/pull/5170) | #5123 | fix(catalyst): per-Org Apps grid lists funnel-purchased apps |
 | 2026-07-17T10:15 | [#5169](https://github.com/openova-io/openova/pull/5169) | #5167 | docs(evidence): hw264 MCP DEGRADED live probe — #5167 north- |
@@ -258,11 +263,6 @@ flowchart LR
 | 2026-07-16T13:07 | [#5141](https://github.com/openova-io/openova/pull/5141) | #5140 | fix(catalyst-api): Agenity sandbox sessions degrade to 503 o |
 | 2026-07-16T13:03 | [#5139](https://github.com/openova-io/openova/pull/5139) | #3 | docs(uat): hw261 funnel walk evidence — Pillars 1+2 live |
 | 2026-07-16T09:34 | [#5138](https://github.com/openova-io/openova/pull/5138) | #5134 | docs(uat): G12 region-kill Pillar-3 PASS on hw261 — zero-tx- |
-| 2026-07-16T08:30 | [#5136](https://github.com/openova-io/openova/pull/5136) | #5135 | fix(catalyst-api): recover EVS-backstop creds from workdir t |
-| 2026-07-16T04:52 | [#5134](https://github.com/openova-io/openova/pull/5134) | #5133 | fix(bp-cnpg-pair): failover-readiness probe no longer false- |
-| 2026-07-16T01:37 | [#5132](https://github.com/openova-io/openova/pull/5132) | #5131 | fix(catalyst-api): materialize chroot primary kubeconfig so  |
-| 2026-07-15T22:49 | [#5130](https://github.com/openova-io/openova/pull/5130) | #5127 | fix(cloud-init): collapse redundant reflector namespace list |
-| 2026-07-15T22:04 | [#5128](https://github.com/openova-io/openova/pull/5128) | #5121 | fix(openova-mcp): degrade-not-crash on absent rs256 pubkey [ |
 
 ---
 
