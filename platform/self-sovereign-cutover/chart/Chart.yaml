@@ -2202,7 +2202,20 @@ name: bp-self-sovereign-cutover
 # it back to true. Live 11-step→cutoverComplete=true validation is DEFERRED to a
 # fresh prov whose cutover reaches the 600s egress hold (roll-gated; not run on
 # the permanent env).
-version: 0.1.136
+#
+# 0.1.137 — #5191 (2026-07-18): step-04 registry-pivot toolchain (curl+jq) is
+# no longer acquired via a silent `apk add ... || true`. It now retries apk 6×
+# with backoff, then VERIFIES `command -v jq && command -v curl`, and if either
+# is still absent EXITS 1 (fail-loud → visible CrashLoopBackOff that self-heals
+# when apk succeeds) instead of silently proceeding tool-less. Root cause: on
+# hw268 two rebooted nodes lost the apk toolchain with no egress to reinstall;
+# `|| true` let the pivot run jq-less, every per-node `registriesYaml=v2` ack
+# failed silently, the step-04 daemonset-wait never reached N/N, and the WHOLE
+# cutover wedged at 27% with failedStep="" (no signal). A cutover (egress-
+# severing) tool must never silently depend on public-CDN egress for its own
+# toolchain. No step-count / RBAC / deadline change (still 11 steps). New
+# contract Case 61 asserts the fail-loud guard replaced `|| true`.
+version: 0.1.137
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
