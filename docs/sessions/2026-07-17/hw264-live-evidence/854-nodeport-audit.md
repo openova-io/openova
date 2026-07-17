@@ -27,3 +27,27 @@ mothership host and are each in a protected/gated class:
 None are autonomously actionable without violating cinova-never-touch or acting on
 a founder-gated fix. No chart edit is warranted; §854 posture confirmed compliant
 where it is the platform's responsibility.
+
+## Provenance trace — 2026-07-17 (definitive close)
+
+Source-grep of this repo: **ZERO `type: NodePort`** in any `platform/`, `products/`,
+`core/`, or `clusters/` chart (only the Kyverno `forbid-nodeport-service` *test
+fixture* references the string). The platform ships zero NodePorts and enforces
+that via Kyverno #5089.
+
+Live-service provenance (kubectl labels/ownerRefs):
+- `cinova/catalog-svc` — created 2026-03-22, no Helm managed-by, no ownerRefs →
+  hand/GitOps Service; manifests in `openova-private/clusters/contabo-mkt/apps/cinova/`
+  (a SEPARATE repo). ⛔ cinova NEVER-TOUCH (founder). Not actionable here.
+- `iogrid/cm-acme-http-solver-sh4np` — ownerRef `Challenge/proxy-iogrid-org-1-…` +
+  `acme.cert-manager.io/http01-solver=true` → cert-manager auto-creates/reaps this
+  transient ACME HTTP-01 solver (Kyverno cm-acme carve-out). Not a chart; cert-manager
+  GCs it. (Its 2-day age hints an iogrid ACME challenge is stuck — iogrid domain, out of scope.)
+- `iogrid/proxy-gateway-socks5` — created 2026-05-31, no Helm managed-by → hand/GitOps
+  Service in a SEPARATE iogrid repo; the NodePort→direct fix is gated in **iogrid#844**
+  (founder merge). Not actionable here.
+
+**Conclusion:** §854 is complete + enforced on the OpenOva platform (0 NodePorts,
+Kyverno guard). The 3 live residue Services are each out-of-repo and founder-fenced
+(never-touch / founder-gated / cert-manager-owned) — none is a chart in a repo this
+agent may edit. #5088's autonomously-actionable scope = ∅ (matches task #962).
