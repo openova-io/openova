@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T06:30:08Z` |
+| Last refreshed | `2026-07-18T06:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 22 |
 | Open DoD gates | 0 / 41 |
@@ -229,6 +229,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T06:30 | [#5209](https://github.com/openova-io/openova/pull/5209) | #5204 | fix(cutover): authenticate the Crossplane package pull again |
 | 2026-07-18T05:48 | [#5208](https://github.com/openova-io/openova/pull/5208) | #5206 | fix(mcp): publish mcp.<sov-fqdn> DNS + reject Org-scoped tok |
 | 2026-07-18T05:40 | [#5207](https://github.com/openova-io/openova/pull/5207) | #5205 | fix: same-origin console-ready proxy replaces no-cors funnel |
 | 2026-07-18T04:31 | [#5200](https://github.com/openova-io/openova/pull/5200) | #5193 | fix(catalyst-api): async wipe + huawei-operator-creds fallba |
@@ -258,7 +259,6 @@ flowchart LR
 | 2026-07-17T09:56 | [#5168](https://github.com/openova-io/openova/pull/5168) | #5114 | fix(openova-mcp): rs256 verify ACTIVE on fresh Sovereign — a |
 | 2026-07-17T09:38 | [#5166](https://github.com/openova-io/openova/pull/5166) | #5125 | fix(cnpg-pair): DR failover through HR desired state (Refs # |
 | 2026-07-17T09:38 | [#5165](https://github.com/openova-io/openova/pull/5165) | #960 | docs(uat): hw264 authed render walk + §854 audit (Refs #960) |
-| 2026-07-17T09:38 | [#5164](https://github.com/openova-io/openova/pull/5164) | #5124 | feat(catalyst-api): GET /catalog/{name}/iac committed-file s |
 
 ---
 
