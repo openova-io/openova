@@ -67,9 +67,36 @@ func (h *Handler) chrootServesDeployment(dep *Deployment) bool {
 
 // inClusterKubeconfigYAML serializes the in-cluster rest.Config into a
 // kubeconfig YAML pointing at the LOCAL apiserver with the mounted
-// ServiceAccount bearer token + CA. This is a NO-NETWORK resolution of the
-// local cluster: rest.InClusterConfig reads only the KUBERNETES_SERVICE_*
-// env and the mounted token/CA files — it never dials the apiserver.
+// ServiceAccount CA + a REFRESHING token reference. This is a NO-NETWORK
+// resolution of the local cluster: rest.InClusterConfig reads only the
+// KUBERNETES_SERVICE_* env and the mounted token/CA files — it never dials
+// the apiserver.
+//
+// #5210 — token refresh, NOT a one-shot bake. The projected ServiceAccount
+// token this pod mounts is bound (expirationSeconds ~3607 on the Sovereign
+// chart) and kubelet ROTATES it on disk before expiry. Earlier this function
+// baked the token's CURRENT string value inline (`user.token:`), so the
+// materialized <kubeconfigsDir>/<id>.yaml — which the k8scache informer
+// Factory, buildRegionSlots, clusterMeshDynamicClient and the jobs informer
+// all load — produced a rest.Config with BearerToken set but BearerTokenFile
+// EMPTY. client-go's NewBearerAuthWithRefreshRoundTripper builds a
+// NON-refreshing round-tripper when the token file is empty, so every one of
+// those long-lived reflectors kept presenting the ORIGINAL token forever.
+// Once the bound token rotated (~1h post-cutover, after the step-08 deny-egress
+// hold / step-04 node rolls tore down the watch streams), every watch + every
+// resource-GET on the local region-a client flooded 401 Unauthorized and the
+// console went DEGRADED — even though a freshly-read token authenticates 200.
+//
+// Fix: emit `user.tokenFile:` pointing at the mounted projected-token path
+// instead of an inline `user.token:`. clientcmd maps tokenFile ->
+// rest.Config.BearerTokenFile, which selects the REFRESHING round-tripper
+// (a CachedFileTokenSource re-reads the file ~every minute), so kubelet's
+// rotation is picked up with no pod restart — critical because the local
+// catalyst-api Pod mounts RWO Huawei-EVS PVCs and MUST NOT be restarted to
+// "clear" a wedged reflector (#5210 constraint). The inline `token:` path
+// survives ONLY as a fallback for a synthetic/off-cluster config that carries
+// a token string but no file (dev/CI); production InClusterConfig always sets
+// BearerTokenFile.
 func inClusterKubeconfigYAML() (string, error) {
 	cfg, err := inClusterConfigForMaterialize()
 	if err != nil {
@@ -85,12 +112,6 @@ func inClusterKubeconfigYAML() (string, error) {
 			caData = b
 		}
 	}
-	token := cfg.BearerToken
-	if token == "" && cfg.BearerTokenFile != "" {
-		if b, rerr := os.ReadFile(cfg.BearerTokenFile); rerr == nil {
-			token = strings.TrimSpace(string(b))
-		}
-	}
 
 	const name = "in-cluster"
 	apiCfg := clientcmdapi.NewConfig()
@@ -103,8 +124,24 @@ func inClusterKubeconfigYAML() (string, error) {
 		// must be self-consistent, so mark it insecure explicitly.
 		cluster.InsecureSkipTLSVerify = true
 	}
+
+	// Prefer a REFRESHING tokenFile reference (#5210). Every downstream
+	// consumer parses this YAML through clientcmd, which sets BearerTokenFile
+	// from `user.tokenFile` and thus builds the auto-refreshing round-tripper.
+	authInfo := &clientcmdapi.AuthInfo{}
+	if tf := strings.TrimSpace(cfg.BearerTokenFile); tf != "" {
+		authInfo.TokenFile = tf
+	} else if strings.TrimSpace(cfg.BearerToken) != "" {
+		// Fallback: a token-only config (no mounted file) — dev/CI/off-cluster.
+		// This path is NON-refreshing, which is acceptable only because such a
+		// config has no rotating file to track in the first place.
+		authInfo.Token = cfg.BearerToken
+	} else {
+		return "", fmt.Errorf("in-cluster config has neither a bearer token file nor an inline token")
+	}
+
 	apiCfg.Clusters[name] = cluster
-	apiCfg.AuthInfos[name] = &clientcmdapi.AuthInfo{Token: token}
+	apiCfg.AuthInfos[name] = authInfo
 	apiCfg.Contexts[name] = &clientcmdapi.Context{Cluster: name, AuthInfo: name}
 	apiCfg.CurrentContext = name
 
