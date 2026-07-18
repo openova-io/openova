@@ -48,6 +48,30 @@ func callWipeDeployment(h *Handler, id, query, bodyJSON string) *httptest.Respon
 	return w
 }
 
+// waitForWipeDone polls dep until the #5193 async purge goroutine has
+// cleared wipeInFlight (i.e. runWipePurge has returned and stamped
+// dep.lastWipeReport / dep.Error), or fails the test after timeout.
+// WipeDeployment now responds 202 before the purge itself runs, so any
+// test that needs to inspect the purge's outcome (report.Errors,
+// final Status, etc.) must synchronize on completion first — mirrors
+// the short-poll pattern already used elsewhere in this package for
+// other async goroutines (e.g. cutover_test.go).
+func waitForWipeDone(t *testing.T, dep *Deployment, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		dep.mu.Lock()
+		inFlight := dep.wipeInFlight
+		hasReport := dep.lastWipeReport != nil
+		dep.mu.Unlock()
+		if !inFlight && hasReport {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("wipe purge did not complete within %v", timeout)
+}
+
 // ── shouldRefuseWipe pure-function tests ────────────────────────────
 
 // TestShouldRefuseWipe_StillConvergingTooYoung — the headline case.
@@ -501,11 +525,15 @@ func TestWipeDeployment_BodyS3CredsBypassPodRestartScrub(t *testing.T) {
 
 // TestWipeDeployment_NoS3CredsAnywhereSurfacesError — issue #166
 // negative path. When neither body nor in-memory Request carries S3
-// creds, the response Errors slice MUST surface a clear message
+// creds, the purge report's Errors slice MUST surface a clear message
 // telling the operator to re-prompt + retry. Pre-#166 this case
 // silently logged a warn and reported "wipe complete" while a bucket
 // leaked. We assert the error message names both sources so future
 // readers immediately see why their bucket-purge skipped.
+//
+// #5193: the purge now runs asynchronously (WipeDeployment responds
+// 202 immediately), so this test waits for runWipePurge to finish and
+// reads the result off dep.lastWipeReport instead of the HTTP body.
 //
 // Test setup: terminal status (`failed`) so the guard allows the
 // wipe, EMPTY S3 creds on the Deployment Request, and a body with
@@ -526,21 +554,28 @@ func TestWipeDeployment_NoS3CredsAnywhereSurfacesError(t *testing.T) {
 
 	w := callWipeDeployment(h, dep.ID, "", `{"hetznerToken":"fake-hetzner-token"}`)
 
-	// The handler returns 200 even on partial failures (errors in body).
-	// We assert the errors slice carries our message.
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v — raw=%s", err, w.Body.String())
+	// #5193 — the handler now acks 202 immediately; the purge (and any
+	// errors it surfaces) completes asynchronously.
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d, want 202 — body=%s", w.Code, w.Body.String())
 	}
-	errs, _ := resp["errors"].([]any)
+
+	waitForWipeDone(t, dep, 10*time.Second)
+
+	dep.mu.Lock()
+	report := dep.lastWipeReport
+	dep.mu.Unlock()
+	if report == nil {
+		t.Fatalf("dep.lastWipeReport is nil after purge completed")
+	}
 	foundS3Err := false
-	for _, e := range errs {
-		if s, ok := e.(string); ok && bytes.Contains([]byte(s), []byte("object-storage credentials not supplied on request body AND not retained on in-memory deployment record")) {
+	for _, e := range report.Errors {
+		if bytes.Contains([]byte(e), []byte("object-storage credentials not supplied on request body AND not retained on in-memory deployment record")) {
 			foundS3Err = true
 			break
 		}
 	}
 	if !foundS3Err {
-		t.Errorf("expected hard error naming both creds sources in response.errors; got errors=%v body=%s", errs, w.Body.String())
+		t.Errorf("expected hard error naming both creds sources in lastWipeReport.errors; got errors=%v", report.Errors)
 	}
 }
