@@ -169,6 +169,19 @@ cnpgPair:
       # response) counts as unreachable, every other result fail-safes to
       # "region-A alive" (do NOT promote).
       livenessProbeTimeoutSeconds: 5
+      # #5218 same-tick durable latch — after the actor flips the HR
+      # DESIRED state (promoted=true) it stays IN THE SAME tick, polling the
+      # local Cluster CR until helm has rendered replica.enabled=false, then
+      # IMMEDIATELY suspends the HR. This collapses the promote→suspend gap
+      # from a full intervalSeconds (the 0.2.14 next-tick latch) to seconds,
+      # so kustomize-controller's SSA re-apply of the atomic spec.values
+      # cannot reclaim the nested `promoted` key and re-demote the survivor
+      # in the window. Bounds how long that in-tick poll waits for the render
+      # (a slow helm-controller); if it is exceeded the per-tick self-heal
+      # latch suspends the instant the render lands, so this is a ceiling on
+      # the fast path, never a correctness dependency. Must exceed a normal
+      # helm-controller reconcile of the promoted HR.
+      promoteRenderWaitSeconds: 90
       # The flux HelmRelease whose DESIRED state carries the promotion
       # (bootstrap-kit slot 16b defaults).
       hr:

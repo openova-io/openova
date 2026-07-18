@@ -25,7 +25,14 @@ spec:
   # so the actor no longer false-promotes a healthy replica against a live
   # region-A, and (B) a durable SUSPEND latch + anti-flap divergence guard so a
   # real promotion sticks instead of flapping the timeline away (hw266 G12).
-  version: 0.2.14
+  # 0.2.15 (#5218): dr-promoter durable-suspend RACE fix — on hw271 G12 the
+  # promote fired but was re-demoted mid-outage because the 0.2.14 latch only
+  # suspended the HR on the NEXT actor tick, leaving a window for kustomize to
+  # revert spec.values and re-render replica.enabled=true. The actor now
+  # suspends IN THE SAME TICK as the promote (once helm renders) and re-asserts
+  # spec.suspend every loop while promoted/diverged (self-heal), with readback
+  # verification. All decision gates unchanged.
+  version: 0.2.15
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

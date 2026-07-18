@@ -221,7 +221,15 @@ spec:
       # startup grace, and (B) a durable SUSPEND latch + anti-flap guard. The
       # existing SOVEREIGN_PEER_CLUSTERMESH_NAMES wiring (below) is what arms
       # the liveness gate — no new substitute.
-      version: 0.2.14
+      # 0.2.15 (#5218): dr-promoter durable-suspend RACE fix — on hw271 G12 the
+      # promote fired but was re-demoted mid-outage because the 0.2.14 latch
+      # suspended the HR only on the NEXT tick, leaving a window for kustomize
+      # to revert spec.values and re-render replica.enabled=true. The actor now
+      # suspends IN THE SAME TICK as the promote (once helm renders) and
+      # re-asserts spec.suspend every loop while promoted/diverged (self-heal),
+      # with readback verification. No new substitute; all decision gates
+      # unchanged.
+      version: 0.2.15
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

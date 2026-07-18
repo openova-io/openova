@@ -122,6 +122,7 @@ tracked on #5137.)
 {{- $hold := $ap.primaryDownHoldSeconds | default 120 }}
 {{- $startupGrace := $ap.startupGraceSeconds | default 300 }}
 {{- $probeTimeout := $ap.livenessProbeTimeoutSeconds | default 5 }}
+{{- $renderWait := $ap.promoteRenderWaitSeconds | default 90 }}
 {{- $peerClusters := .Values.cnpgPair.networkPolicy.crossRegionPeerClusters | default list }}
 {{- /* #5178 — the region-A liveness gate is meaningful ONLY when the mesh
        egress to region-A can actually be wired: clusterMesh on AND at least
@@ -464,30 +465,63 @@ spec:
             - name: replication-cert
               mountPath: /tls/client
               readOnly: true
-        # ── actor — the PROMOTER + durable LATCH (#5178 Defect-B) ────
+        # ── actor — the PROMOTER + durable SUSPEND LATCH (#5178 / #5218) ─
         # Each tick runs in a subshell (a persistent fault retries next
-        # tick instead of crashing the pod — #5157 shape). Ordering:
-        #   1. LATCH — if we drove a promotion (HR promoted=true) that has
-        #      RENDERED (local Cluster replica.enabled=false) but the HR is
-        #      not yet suspended, set spec.suspend=true. This makes the
-        #      promotion durable: kustomize-controller does NOT own
-        #      spec.suspend, and a suspended HR freezes helm so the reverted
-        #      atomic spec.values can no longer re-demote the survivor. Runs
-        #      independent of the hold clock (which signals clears the moment
-        #      the cluster leaves recovery).
-        #   2. ANTI-FLAP — already suspended (latched) OR promote in flight
-        #      ⇒ never touch again.
+        # tick instead of crashing the pod — #5157 shape). A shell helper
+        # `suspend_hr` sets spec.suspend=true, READBACK-VERIFIES it landed,
+        # and logs loudly (RBAC/conflict) on failure so a stuck latch is
+        # diagnosable in the actor-container log. Ordering:
+        #   1. SELF-HEAL LATCH (every tick, independent of the hold clock) —
+        #      if the promotion is DRIVEN + RENDERED (HR promoted=true AND
+        #      local Cluster replica.enabled=false) OR the local cluster has
+        #      already left recovery (/shared/diverged), and the HR is NOT
+        #      suspended, RE-ASSERT spec.suspend=true. Idempotent: it latches
+        #      the promoted release AND re-freezes within one interval if
+        #      anything ever un-suspends the HR. Both arms require POSITIVE
+        #      render evidence, so it can never freeze a pre-render HR and
+        #      strand an un-rendered promotion.
+        #   2. ANTI-FLAP — already suspended (latched) ⇒ done. HR promoted
+        #      but not yet rendered ⇒ WAIT for the render (do NOT suspend a
+        #      pre-render HR — a suspended HR is not reconciled by helm, so
+        #      the promotion would never land).
         #   3. PROMOTE — hold expired → NOT already diverged → local Cluster
-        #      still a replica → failover-readiness Ready (#5133). Then ONE
-        #      merge-patch of the HR desired state (the RUNBOOKS §6.1 seam);
-        #      the LATCH fires on the next tick once helm renders it.
+        #      still a replica → failover-readiness Ready (#5133). Flip the HR
+        #      desired state (the RUNBOOKS §6.1 seam), then STAY IN THE SAME
+        #      TICK (#5218): poll until helm renders replica.enabled=false and
+        #      suspend IMMEDIATELY. This shrinks the promote→suspend window
+        #      from a full interval (the 0.2.14 next-tick latch, which let
+        #      kustomize revert spec.values and re-demote mid-outage on hw271)
+        #      to seconds; the step-1 self-heal is the backstop.
         - name: actor
           image: {{ printf "%s:%s" $krepo $ktag | quote }}
           imagePullPolicy: {{ $kpull | quote }}
           command: ["/bin/sh", "-c"]
           args:
             - |
-              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
+              # suspend_hr <reason> — patch spec.suspend=true (+ latched-at
+              # annotation), then READBACK-VERIFY it landed. spec.suspend is a
+              # field flux's Kustomization (slot 16b) does NOT own, so its SSA
+              # drift-correction cannot remove it; a suspended HR freezes
+              # helm-controller so the reverted atomic spec.values can no
+              # longer re-render replica.enabled=true and re-demote the
+              # survivor (#5178 Defect-B / #5218). Returns non-zero (logged)
+              # if the patch or the readback fails — the caller re-asserts next
+              # tick, so an RBAC/conflict fault is self-healing AND diagnosable.
+              suspend_hr() {
+                _reason="$1"
+                if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-latched-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":true}}" >/dev/null 2>&1; then
+                  _v=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
+                  if [ "${_v}" = "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] LATCHED (${_reason}): HR ${HR_NAMESPACE}/${HR_NAME} spec.suspend=true VERIFIED — promotion durable; flux drift-correction can no longer revert spec.values and re-demote the survivor (#5178 Defect-B / #5218)"
+                    return 0
+                  fi
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (${_reason}): spec.suspend patch accepted but readback='${_v}' (expected true) — HR NOT frozen; re-asserting next tick (#5218)"
+                  return 1
+                fi
+                echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (${_reason}): spec.suspend patch FAILED (RBAC/conflict?) — HR NOT frozen; re-asserting next tick (#5218)"
+                return 1
+              }
+              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s renderWait=${PROMOTE_RENDER_WAIT_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
               while true; do
                 : > /shared/actor-alive
                 (
@@ -495,18 +529,28 @@ spec:
                   SUSPENDED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
                   HR_PROMOTED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.values.cnpgPair.replica.promoted}' 2>/dev/null || echo "")
                   REPLICA_ENABLED=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}' 2>/dev/null || echo "")
+                  DIVERGED=""; [ -f /shared/diverged ] && DIVERGED="true"
 
-                  # 1. LATCH — make an already-rendered promotion durable.
-                  if [ "${SUSPENDED}" != "true" ] && [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; then
-                    kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-latched-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":true}}"
-                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] LATCHED: HR ${HR_NAMESPACE}/${HR_NAME} spec.suspend=true — promotion durable; flux drift-correction can no longer revert spec.values and re-demote the survivor (#5178 Defect-B)"
+                  # 1. SELF-HEAL LATCH — keep an already-rendered promotion
+                  #    durable. Fires on the post-promote tick AND re-freezes
+                  #    the HR if anything ever un-suspends it. Both arms require
+                  #    POSITIVE render evidence (replica.enabled=false OR the
+                  #    cluster already left recovery) so it can never freeze a
+                  #    pre-render HR and strand the promotion.
+                  if [ "${SUSPENDED}" != "true" ] && { { [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; } || [ "${DIVERGED}" = "true" ]; }; then
+                    suspend_hr "self-heal" || true
                     exit 0
                   fi
-                  # 2. ANTI-FLAP — latched, or a promote is mid-render.
+                  # 2. ANTI-FLAP — latched ⇒ done.
                   if [ "${SUSPENDED}" = "true" ]; then
                     exit 0
                   fi
+                  # Promote driven but not yet rendered (replica.enabled still
+                  # true, not diverged) — WAIT for helm; never suspend now (a
+                  # suspended HR is not reconciled, the promote would never
+                  # land) and never re-promote.
                   if [ "${HR_PROMOTED}" = "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] HR promoted=true but not yet rendered (replica.enabled='${REPLICA_ENABLED}') — waiting for helm-controller; self-heal latch suspends the instant it renders (#5218)"
                     exit 0
                   fi
 
@@ -536,7 +580,28 @@ spec:
                   fi
                   echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTING: region-A WAL stream absent AND region-A unreachable ${DOWN_FOR}s >= ${HOLD_SECONDS}s AND failover-readiness Ready — patching HR desired state (#5125-D1 seam)"
                   kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-auto-promote-reason\":\"region-A WAL stream absent and region-A unreachable ${DOWN_FOR}s; failover-readiness Ready (#5137/#5178)\"}},\"spec\":{\"values\":{\"cnpgPair\":{\"replica\":{\"promoted\":true}}}}}"
-                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTED (step 1/2): HR ${HR_NAMESPACE}/${HR_NAME} spec.values.cnpgPair.replica.promoted=true — helm-controller renders replica.enabled:false → CNPG promotes; the suspend LATCH fires next tick once it renders (#5178)"
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTED (step 1/2): HR ${HR_NAMESPACE}/${HR_NAME} spec.values.cnpgPair.replica.promoted=true — helm-controller renders replica.enabled:false → CNPG promotes"
+                  # 3b. SAME-TICK DURABLE LATCH (#5218) — do NOT wait for the
+                  #     next tick. Poll until helm renders replica.enabled=false
+                  #     (the promotion has LANDED), then suspend IMMEDIATELY so
+                  #     kustomize cannot reclaim the atomic spec.values and
+                  #     re-demote in the gap. Bounded; the step-1 self-heal is
+                  #     the backstop if the render outlasts the ceiling.
+                  RE=""
+                  i=0
+                  while [ "${i}" -lt "${PROMOTE_RENDER_WAIT_SECONDS}" ]; do
+                    RE=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}' 2>/dev/null || echo "")
+                    if [ "${RE}" = "false" ]; then
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTION RENDERED (step 2/2): replica.enabled=false after ${i}s — suspending HR now (#5218)"
+                      suspend_hr "post-promote same-tick" || true
+                      break
+                    fi
+                    i=$((i + 1))
+                    sleep 1
+                  done
+                  if [ "${RE}" != "false" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] NOTE: helm has not rendered replica.enabled=false within ${PROMOTE_RENDER_WAIT_SECONDS}s of the promote patch (replica.enabled='${RE}') — the per-tick self-heal latch will suspend the instant it renders (#5218)"
+                  fi
                 ) || echo "[dr-promoter/actor] tick returned non-zero — retry in ${INTERVAL_SECONDS}s"
                 sleep "${INTERVAL_SECONDS}"
               done
@@ -553,6 +618,10 @@ spec:
               value: {{ $hold | quote }}
             - name: INTERVAL_SECONDS
               value: {{ $interval | quote }}
+            # #5218 — ceiling on the same-tick post-promote poll that waits
+            # for helm to render replica.enabled=false before suspending.
+            - name: PROMOTE_RENDER_WAIT_SECONDS
+              value: {{ $renderWait | quote }}
             - name: REPLICA_CLUSTER
               value: {{ include "cnpg-pair.replicaName" . | quote }}
             - name: READY_SELECTOR

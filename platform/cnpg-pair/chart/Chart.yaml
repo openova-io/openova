@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.15 (#5218): dr-promoter durable-suspend RACE fix — on hw271 G12 the promote
+# fired at T0+2m29s (region-B writable, TL2) but was RE-DEMOTED mid-outage (a
+# second "primary loss" re-detected ~T0+7m while region-A was still down), so the
+# survivor latched as a diverged TL2 standby and the failover effectively failed.
+# The 0.2.14 latch suspended the HR only on the NEXT actor tick (up to a full
+# intervalSeconds after the promote), leaving a window in which kustomize-
+# controller's SSA re-apply reclaimed the atomic spec.values, dropped the nested
+# `promoted` key, and helm re-rendered replica.enabled=true → re-demote. Fix: the
+# actor now stays IN THE SAME TICK after flipping promoted=true — it polls until
+# helm renders replica.enabled=false (bounded by promoteRenderWaitSeconds) and
+# suspends IMMEDIATELY, collapsing the promote→suspend window to seconds; a
+# per-tick SELF-HEAL latch re-asserts spec.suspend on every loop while the cluster
+# is promoted/diverged (idempotent — re-freezes if anything un-suspends the HR);
+# and a suspend_hr helper READBACK-VERIFIES every suspend and logs RBAC/conflict
+# failures. The suspend is NEVER set before the render (a suspended HR is not
+# reconciled by helm, so the promotion would never land). All 0.2.14 decision
+# gates unchanged (120s hold, positive region-A pg_isready gate, sync-only render,
+# startup grace, anti-flap divergence latch). No RBAC change (the flux-system Role
+# already grants get+patch on the one HR). No resource-count change. Lockstep slot
+# 16b → 0.2.15.
 # 0.2.14 (#5178): dr-promoter regression fix — the 0.2.13 promoter FALSE-PROMOTED
 # a healthy replica against a LIVE region-A and its promotion was NON-DURABLE, so
 # on hw266 G12 it ran the region-B Postgres timeline away (TL2→TL25) and
@@ -96,7 +116,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.14
+version: 0.2.15
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

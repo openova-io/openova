@@ -862,4 +862,52 @@ if [ "$(grep -cE '^kind: CiliumNetworkPolicy' "$TMP/replica-peer.yaml")" -ne 2 ]
   grep -nE '^kind: CiliumNetworkPolicy' "$TMP/replica-peer.yaml" >&2; exit 1; fi
 echo "  PASS (fail-safe observe-only without a peer; liveness gate + startup grace + suspend latch + anti-flap with a peer)"
 
+# ── Case 17: #5218 dr-promoter durable-suspend RACE fix ──────────────
+# hw271 G12: the promote fired (T0+2m29s) but was RE-DEMOTED mid-outage —
+# the 0.2.14 latch suspended the HR only on the NEXT actor tick (up to a
+# full intervalSeconds later), leaving a window for kustomize-controller to
+# reclaim the atomic spec.values, drop the nested `promoted` key, and let
+# helm re-render replica.enabled=true → re-demote. 0.2.15: suspend IN THE
+# SAME TICK as the promote (once helm renders), re-assert every loop while
+# promoted/diverged (self-heal), and readback-verify every suspend.
+echo "[render] Case 17: #5218 same-tick durable suspend + self-heal re-assert + readback-verify"
+# (a) the actor container script must be valid POSIX shell — helm renders the
+#     YAML but never parses the embedded shell, so a syntax error would ship.
+python3 - "$TMP/replica.yaml" <<'PYEOF' > "$TMP/actor.sh" || { echo "FAIL: #5218 could not extract the actor container script." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-promoter' in d['metadata']['name']][0]
+act=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='actor'][0]
+sys.stdout.write(act['args'][0])
+PYEOF
+sh -n "$TMP/actor.sh" || { echo "FAIL: #5218 actor container script is not valid POSIX shell." >&2; exit 1; }
+# (b) suspend_hr helper exists and READBACK-VERIFIES the suspend landed.
+grep -q 'suspend_hr()' "$TMP/actor.sh" || {
+  echo "FAIL: #5218 actor missing the suspend_hr helper." >&2; exit 1; }
+grep -q 'spec.suspend}' "$TMP/actor.sh" && grep -q 'VERIFIED' "$TMP/actor.sh" || {
+  echo "FAIL: #5218 suspend_hr must READBACK-VERIFY spec.suspend after patching." >&2; exit 1; }
+# (c) same-tick latch: after the promote patch the actor polls for the render
+#     and suspends in the SAME tick (step 2/2), not the next tick.
+grep -q 'PROMOTION RENDERED (step 2/2)' "$TMP/actor.sh" || {
+  echo "FAIL: #5218 actor must suspend in the SAME tick after helm renders (step 2/2), not the next tick." >&2; exit 1; }
+grep -q 'suspend_hr "post-promote same-tick"' "$TMP/actor.sh" || {
+  echo "FAIL: #5218 actor missing the same-tick post-promote suspend call." >&2; exit 1; }
+# (d) self-heal: suspend is re-asserted on every loop while promoted/diverged.
+grep -q 'suspend_hr "self-heal"' "$TMP/actor.sh" || {
+  echo "FAIL: #5218 actor missing the per-loop self-heal suspend re-assert." >&2; exit 1; }
+# (e) suspend must NEVER ride into the promote patch — a suspended HR is not
+#     reconciled by helm, so the promotion would never render/land. The
+#     promote merge-patch (promoted=true) must NOT also carry suspend=true.
+python3 - "$TMP/actor.sh" <<'PYEOF' || { echo "FAIL: #5218 promote/suspend ordering assertion failed." >&2; exit 1; }
+import sys
+lines=[l for l in open(sys.argv[1]).read().splitlines() if 'kubectl' in l and '\\"promoted\\":true' in l]
+assert lines, "no promote merge-patch line (promoted=true) found in the actor script"
+for l in lines:
+    assert '\\"suspend\\":true' not in l, "the promote patch must NOT also set spec.suspend — a suspended HR is not reconciled by helm, so the promotion would never render"
+PYEOF
+# (f) the same-tick render-wait ceiling is templated (env present).
+grep -q 'name: PROMOTE_RENDER_WAIT_SECONDS' "$TMP/replica.yaml" || {
+  echo "FAIL: #5218 actor missing the PROMOTE_RENDER_WAIT_SECONDS env (same-tick render-wait ceiling)." >&2; exit 1; }
+echo "  PASS (valid POSIX shell · readback-verified suspend · same-tick latch · self-heal re-assert · promote never suspends pre-render)"
+
 echo "[render] All bp-cnpg-pair render gates green."
