@@ -1253,7 +1253,7 @@ spec:
       #   global.sovereignFQDN values are UNCHANGED — still consumed by this
       #   chart's OTHER templates (sovereign-wildcard-certs.yaml,
       #   sovereign-fqdn-configmap.yaml). Lockstep w/ Chart.yaml.
-      version: 1.4.1155
+      version: 1.4.1156
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
