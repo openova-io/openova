@@ -5726,7 +5726,9 @@ spec:
   # cnpg-pair flip (region-B cross-region consumer DB host NXDOMAIN fix).
   # 0.2.12 (#4987/#4988): continuum.yaml mints dr-<instance> for AHS DR panel;
   # keep this display-version in lockstep with delivery source.version + blueprint.yaml.
-  version: "0.2.12"
+  # 0.2.13 (#5224): role-secrets side-gate — replica-role region never mints
+  # role/hub Secrets; pair password set single-sourced from the primary region.
+  version: "0.2.13"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5824,7 +5826,8 @@ spec:
     # DB hosts resolve the moment the mesh peers; region-B NXDOMAIN fix).
     # 0.2.12 (#4986): active-hot-standby emits the dr-<instance> Continuum CR so
     # the per-app Topology DR panel renders (shared-pg #3375 rows 51/52/56/57/64).
-    version: "0.2.12"
+    # 0.2.13 (#5224): role-secrets side-gate (replica-role region mints nothing).
+    version: "0.2.13"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the
