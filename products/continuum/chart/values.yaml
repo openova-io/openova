@@ -38,7 +38,7 @@ continuum:
     # tag is empty by default — CI stamps a SHA on every push to main.
     # Render-time fail-fast (see templates/_helpers.tpl) prevents a
     # half-configured deploy from accidentally running with `:latest`.
-    tag: "3465b8b"
+    tag: "e786f99"
     pullPolicy: IfNotPresent
 
   replicas: 1
