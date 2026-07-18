@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T04:15:03Z` |
+| Last refreshed | `2026-07-18T04:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T04:29 | [#5198](https://github.com/openova-io/openova/pull/5198) | #5125 | fix: Continuum sequencer step-8 re-clone-on-divergence (#512 |
 | 2026-07-18T00:53 | [#5197](https://github.com/openova-io/openova/pull/5197) | #5187 | fix(catalyst): render sovereign-tls-vars ConfigMap on every  |
 | 2026-07-18T00:29 | [#5196](https://github.com/openova-io/openova/pull/5196) | #4975 | fix(self-sovereign-cutover): self-heal step-08 offline-mirro |
 | 2026-07-18T00:06 | [#5195](https://github.com/openova-io/openova/pull/5195) | #5191 | docs(uat): hw269 fresh-prov fix-train validation — 64 ✅ (mar |
@@ -257,7 +258,6 @@ flowchart LR
 | 2026-07-17T07:26 | [#5162](https://github.com/openova-io/openova/pull/5162) | #5157 | docs(uat): reset→hw264 + re-earn 8 backing rows on the 1.2.6 |
 | 2026-07-17T07:26 | [#5161](https://github.com/openova-io/openova/pull/5161) | #5140 | fix(catalyst-api): sandbox sessions 503 (not 500) on transie |
 | 2026-07-17T05:12 | [#5160](https://github.com/openova-io/openova/pull/5160) | #5157 | docs(runbooks): openbao region-kill auto-unseal §6.6 + hw264 |
-| 2026-07-17T04:24 | [#5159](https://github.com/openova-io/openova/pull/5159) | #960 | fix(openbao): unseal-reconciler CronJob→Deployment so it sur |
 
 ---
 
