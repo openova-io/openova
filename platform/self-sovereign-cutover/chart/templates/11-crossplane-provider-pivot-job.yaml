@@ -139,6 +139,34 @@ data:
           # survives the cutover (Principle #11).
           - name: MOTHERSHIP_PROXY_PREFIX
             value: {{ .Values.crossplaneProviderPivot.mothershipProxyPrefix | quote }}
+          # #5204 — package-pull AUTH for the Sovereign-local Harbor. The
+          # canonical public registry host (registry.<sov-fqdn>) is derived
+          # from HARBOR_PUBLIC_URL exactly the way step 03/06 do; the pivot
+          # host (harbor.<sov-fqdn>) is computed from SOVEREIGN_FQDN below.
+          # Both are covered by the pull Secret + ImageConfig so the Crossplane
+          # package manager authenticates against whichever alias a Provider's
+          # spec.package carries.
+          - name: HARBOR_PUBLIC_URL
+            value: {{ .Values.sovereign.harborPublicURL | quote }}
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.usernameKey }}
+                optional: true
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+          - name: PACKAGE_PULL_AUTH_ENABLED
+            value: {{ .Values.crossplaneProviderPivot.packagePullAuth.enabled | quote }}
+          - name: CROSSPLANE_NAMESPACE
+            value: {{ .Values.crossplaneProviderPivot.packagePullAuth.crossplaneNamespace | quote }}
+          - name: PULL_SECRET_NAME
+            value: {{ .Values.crossplaneProviderPivot.packagePullAuth.pullSecretName | quote }}
+          - name: IMAGE_CONFIG_NAME
+            value: {{ .Values.crossplaneProviderPivot.packagePullAuth.imageConfigName | quote }}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
@@ -159,6 +187,88 @@ data:
             echo "[crossplane-provider-pivot] target host:   ${target_host}"
             echo "[crossplane-provider-pivot] upstream:      ${upstream_prefix}"
             echo "[crossplane-provider-pivot] target prefix: ${target_prefix}"
+
+            # ---- Phase 0: wire package-pull AUTH (ImageConfig + Secret) ----
+            #
+            # #5204 (Refs #3379). Pivoting spec.package to the local Harbor's
+            # `proxy-xpkg` project is NOT sufficient: `proxy-xpkg` is a Harbor
+            # PROXY-CACHE project, and Harbor requires an AUTHENTICATED pull
+            # from a proxy-cache project even when the project is public
+            # (unlike the push-mode offline-mirror projects step 02 creates
+            # public:true for anonymous pull). The Crossplane package manager
+            # (go-containerregistry remote.Image()) uses its OWN registry-auth
+            # path — NOT the node containerd certs.d (step 04) nor the
+            # flux-system/ghcr-pull dockerconfigjson (step 06, wired for Flux
+            # source-controller). With no credential wired it pulls anonymously
+            # and 401s (live hw270: provider-opentofu Installed=False,
+            # UnpackingPackage, 401 Unauthorized) — a latent Pillar-5 gap: the
+            # existing revision keeps running, but the Sovereign can never
+            # upgrade its own Crossplane providers post-severance.
+            #
+            # FIX (Crossplane 1.18 native): create a dockerconfigjson Secret in
+            # the Crossplane namespace carrying the SAME admin:<HARBOR password>
+            # credential step 02/03/06 use, and an ImageConfig
+            # (pkg.crossplane.io/v1beta1) whose matchImages prefixes cover the
+            # pivot host `harbor.<fqdn>/proxy-xpkg` AND the canonical
+            # `registry.<fqdn>/proxy-xpkg` alias, with
+            # spec.registry.authentication.pullSecretRef -> that Secret. The
+            # package manager then authenticates every package pull against the
+            # local Harbor. Runs BEFORE Phase 1 so the spec.package patch's
+            # immediate re-pull already has auth. Idempotent (kubectl apply).
+            registry_host="$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/.*$,,')"
+
+            if [ "${PACKAGE_PULL_AUTH_ENABLED}" != "true" ]; then
+              echo "[crossplane-provider-pivot] Phase 0 SKIP — packagePullAuth.enabled=false"
+            elif ! kubectl get crd imageconfigs.pkg.crossplane.io >/dev/null 2>&1; then
+              # Same very-early-handover guard Phase 1 uses: bp-crossplane not
+              # installed yet (no ImageConfig CRD, no crossplane-system ns).
+              # Phase 2 still rewrites Gitea so the eventual install pulls the
+              # pivoted URL; a step re-run once crossplane lands wires the auth.
+              echo "[crossplane-provider-pivot] Phase 0 SKIP — imageconfigs.pkg.crossplane.io CRD not installed yet (bp-crossplane not landed); auth wired on a later step re-run"
+            else
+              if [ -z "${HARBOR_PASSWORD:-}" ]; then
+                echo "[crossplane-provider-pivot] FATAL: HARBOR_PASSWORD env empty — cannot wire package-pull auth for ${target_host}" >&2
+                exit 1
+              fi
+              : "${HARBOR_USERNAME:=admin}"
+              echo "[crossplane-provider-pivot] Phase 0: wiring package-pull auth in ns ${CROSSPLANE_NAMESPACE} for ${target_host} + ${registry_host}"
+
+              harbor_auth="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\n')"
+              # Auth keyed on BOTH aliases (exact host[:port] match by
+              # go-containerregistry). --arg keeps the password a literal
+              # (never re-parsed by the shell).
+              dockercfg="$(jq -cn \
+                --arg th "${target_host}" \
+                --arg rh "${registry_host}" \
+                --arg user "${HARBOR_USERNAME}" \
+                --arg auth "${harbor_auth}" \
+                '{auths: {($th): {username: $user, auth: $auth}, ($rh): {username: $user, auth: $auth}}}')"
+              dockercfg_b64="$(printf '%s' "${dockercfg}" | base64 | tr -d '\n')"
+
+              # dockerconfigjson pull Secret — kubectl apply is idempotent
+              # (re-run rotates the password bytes cleanly). Built with printf
+              # and piped: a plain heredoc terminator cannot sit at column 0
+              # inside this YAML block scalar, so printf is the robust idiom.
+              # Nothing is written to disk (readOnlyRootFilesystem honoured).
+              secret_manifest="$(printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: crossplane-provider-pivot\ntype: kubernetes.io/dockerconfigjson\ndata:\n  .dockerconfigjson: %s\n' \
+                "${PULL_SECRET_NAME}" "${CROSSPLANE_NAMESPACE}" "${dockercfg_b64}")"
+              if ! printf '%s' "${secret_manifest}" | kubectl apply -f - >/dev/null; then
+                echo "[crossplane-provider-pivot] FATAL: failed to apply pull Secret ${CROSSPLANE_NAMESPACE}/${PULL_SECRET_NAME}" >&2
+                exit 1
+              fi
+              echo "[crossplane-provider-pivot]   OK Secret ${CROSSPLANE_NAMESPACE}/${PULL_SECRET_NAME}"
+
+              # ImageConfig binds the matchImages prefixes to the pull Secret.
+              # pullSecretRef resolves in the Crossplane install namespace.
+              # Same printf-piped idiom (no column-0 heredoc terminator).
+              imageconfig_manifest="$(printf 'apiVersion: pkg.crossplane.io/v1beta1\nkind: ImageConfig\nmetadata:\n  name: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: crossplane-provider-pivot\nspec:\n  matchImages:\n    - prefix: %s/%s\n    - prefix: %s/%s\n  registry:\n    authentication:\n      pullSecretRef:\n        name: %s\n' \
+                "${IMAGE_CONFIG_NAME}" "${target_host}" "${REGISTRY_PATH}" "${registry_host}" "${REGISTRY_PATH}" "${PULL_SECRET_NAME}")"
+              if ! printf '%s' "${imageconfig_manifest}" | kubectl apply -f - >/dev/null; then
+                echo "[crossplane-provider-pivot] FATAL: failed to apply ImageConfig ${IMAGE_CONFIG_NAME}" >&2
+                exit 1
+              fi
+              echo "[crossplane-provider-pivot]   OK ImageConfig ${IMAGE_CONFIG_NAME} (matchImages: ${target_host}/${REGISTRY_PATH}, ${registry_host}/${REGISTRY_PATH})"
+            fi
 
             # ---- Phase 1: live K8s patch on every Provider CR ----
             #

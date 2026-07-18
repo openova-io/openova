@@ -1,5 +1,29 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.139 (#5204 Refs #3379 — step-11 crossplane-provider-pivot: wire
+# package-pull AUTHENTICATION for the Sovereign-local Harbor. Pivoting
+# Provider.spec.package to harbor.<fqdn>/proxy-xpkg was necessary but NOT
+# sufficient: proxy-xpkg is a Harbor PROXY-CACHE project and Harbor requires an
+# authenticated pull from a proxy-cache project even when it is public, and the
+# Crossplane package manager (go-containerregistry remote.Image()) uses its OWN
+# registry-auth path — NOT the node containerd certs.d (step 04) nor the
+# ghcr-pull dockerconfigjson (step 06, wired for Flux source-controller). So
+# every post-cutover Provider package re-pull / version upgrade / inactive-
+# revision reconcile 401s (live hw270 dep b2f0a9b0585f6781: provider-opentofu
+# Installed=False, UnpackingPackage, 401 Unauthorized — the existing revision
+# keeps running, so live adoption is unaffected TODAY, but the Sovereign can
+# never upgrade its own Crossplane providers post-severance → a Pillar-5
+# durability gap). Step 11 Phase 0 now creates a dockerconfigjson Secret in
+# crossplane-system carrying the SAME admin:<HARBOR password> step 02/03/06 use
+# and an ImageConfig (pkg.crossplane.io/v1beta1, native in Crossplane 1.18)
+# whose matchImages cover harbor.<fqdn>/proxy-xpkg + registry.<fqdn>/proxy-xpkg
+# and whose spec.registry.authentication.pullSecretRef points at that Secret —
+# so the package manager authenticates the pull. Runs BEFORE the Phase-1 patch
+# so the re-pull it triggers already has auth; idempotent (kubectl apply);
+# fail-loud (FATAL on empty HARBOR_PASSWORD or apply failure); skip-if-CRD-
+# absent in the very-early-handover window. RBAC gains pkg.crossplane.io/
+# imageconfigs create/get/list/watch/update/patch.)
+#
 # 0.1.136 (#5095 Refs #5093 #3379 — step-03 harbor-prewarm: direct-source
 # fallback + flap-tolerant pacing for MOTHERSHIP-PROXY-sourced copies).
 # Docker-Hub-sourced bootstrap images route through the mothership Harbor
@@ -2241,7 +2265,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.138
+version: 0.1.139
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
