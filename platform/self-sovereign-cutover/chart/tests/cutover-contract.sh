@@ -2874,4 +2874,58 @@ fi
 if [ "$sh_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5214: self-heal init on all 6 gitea-admin-secret consumers, absent from the 5 non-consumers, applied copy stamped resource-policy: keep)"
 
+echo "[cutover-contract] Case 64: #5215 step-07 NEVER rolls the EVS/hcloud CSI driver — both the additionalHRs HR-pivot loop AND the Phase 4 pod-spec sweep exclude it (rolling csi-evs-node drops NodeStage globalmount for in-use EVS PVCs → catalyst-api wedges; step-04 containerd rewrite covers the pull; step-08 excludes the same driver #5074)"
+# Root-caused live hw271: step-07 rolled the csi-evs-node DaemonSet via TWO
+# vectors — (1) imageRegistryPivot.additionalHRs carried bp-huawei-evs-csi (added
+# #4892), so patching its HR global.imageRegistry Helm-upgraded the chart and
+# rolled the node plugin; (2) the Phase 4 sweep discovers EVERY DaemonSet and
+# rewrote csi-evs-node's sidecar images, rolling it too. The rolled plugin loses
+# the node-side NodeStage `globalmount` for already-attached EVS volumes → any
+# EVS-backed pod that remounts fails `globalmount does not exist` (exit 32) and
+# catalyst-api (2 RWO-EVS PVCs, also rolling here) wedges ContainerCreating → the
+# #4996 rollout-wait errors → cutover wedges. This Case guards BOTH exclusion
+# vectors + the overlay-resistant guard.
+helm template smoke . --show-only templates/07-catalyst-api-env-patch-job.yaml > "$TMP/r07_5215.yaml"
+c64_fail=0
+# (1) HR-pivot loop MUST NOT target the CSI driver.
+if grep -q 'pivot_extra_hr "bp-huawei-evs-csi"' "$TMP/r07_5215.yaml"; then
+  echo "FAIL: step-07 additionalHRs loop still pivots bp-huawei-evs-csi — rolling its HR rolls csi-evs-node and breaks NodeStage globalmount (#5215)" >&2; c64_fail=1
+fi
+# ...but the exclude guard MUST render bp-huawei-evs-csi (the exclusion is
+# auditable in the rendered manifest, not just absent).
+if ! grep -q 'NEVER pivoted here' "$TMP/r07_5215.yaml" \
+   || ! grep -A3 'NEVER pivoted here' "$TMP/r07_5215.yaml" | grep -q 'bp-huawei-evs-csi'; then
+  echo "FAIL: step-07 excludeHelmReleases guard comment does not render bp-huawei-evs-csi (#5215)" >&2; c64_fail=1
+fi
+# (2) Phase 4 pod-spec sweep env MUST carry the CSI driver "<ns>/<name>" set.
+if ! grep -A1 'name: PODSPEC_SWEEP_EXCLUDE_WORKLOADS$' "$TMP/r07_5215.yaml" \
+     | grep -q 'huawei-evs-csi/csi-evs-node'; then
+  echo "FAIL: step-07 PODSPEC_SWEEP_EXCLUDE_WORKLOADS env missing huawei-evs-csi/csi-evs-node (#5215)" >&2; c64_fail=1
+fi
+for _csi in huawei-evs-csi/csi-evs-controller kube-system/hcloud-csi-node kube-system/hcloud-csi-controller; do
+  if ! grep -A1 'name: PODSPEC_SWEEP_EXCLUDE_WORKLOADS$' "$TMP/r07_5215.yaml" | grep -q "$_csi"; then
+    echo "FAIL: step-07 PODSPEC_SWEEP_EXCLUDE_WORKLOADS env missing $_csi (#5215)" >&2; c64_fail=1
+  fi
+done
+# (2b) the sweep loop MUST consume that env with an exact "<ns>/<name>" match.
+if ! grep -q 'for _sw_x in ${PODSPEC_SWEEP_EXCLUDE_WORKLOADS' "$TMP/r07_5215.yaml"; then
+  echo "FAIL: step-07 pod-spec sweep does not honour PODSPEC_SWEEP_EXCLUDE_WORKLOADS (#5215)" >&2; c64_fail=1
+fi
+# (3) OVERLAY-RESISTANT: even if an overlay RE-ADDS bp-huawei-evs-csi to
+# additionalHRs, excludeHelmReleases (deny wins over allow) MUST still skip it.
+if helm template smoke . --show-only templates/07-catalyst-api-env-patch-job.yaml \
+     --set-json 'imageRegistryPivot.additionalHRs=[{"name":"bp-huawei-evs-csi","namespace":"flux-system","slotFile":"clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml"}]' \
+     > "$TMP/r07_5215_overlay.yaml" 2>/dev/null; then
+  if grep -q 'pivot_extra_hr "bp-huawei-evs-csi"' "$TMP/r07_5215_overlay.yaml"; then
+    echo "FAIL: an overlay that re-adds bp-huawei-evs-csi to additionalHRs is NOT neutralised by excludeHelmReleases — the guard is not deny-wins (#5215)" >&2; c64_fail=1
+  fi
+  if ! grep -q '#5215 SKIP HR pivot bp-huawei-evs-csi' "$TMP/r07_5215_overlay.yaml"; then
+    echo "FAIL: overlay re-add of bp-huawei-evs-csi did not render the excludeHelmReleases SKIP guard (#5215)" >&2; c64_fail=1
+  fi
+else
+  echo "FAIL: helm --set-json overlay render failed (#5215)" >&2; c64_fail=1
+fi
+if [ "$c64_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5215: step-07 excludes the CSI driver from BOTH the additionalHRs HR pivot [excludeHelmReleases] AND the Phase 4 pod-spec sweep [podSpecSweep.excludeWorkloads]; the exclusion renders auditably and is deny-wins against an overlay re-add)"
+
 echo "[cutover-contract] All gates green."
