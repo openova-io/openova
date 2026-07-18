@@ -819,13 +819,17 @@ if ! grep -A20 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | 
 fi
 # Default upstream host must be xpkg.upbound.io (the Crossplane Provider
 # package upstream the cutover pivots OFF of).
-if ! grep -A60 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "xpkg.upbound.io"'; then
+# NB (#5214): the window is -A160 (was -A60) because the gitea-admin-secret
+# self-heal initContainer prepended to this step's podSpec adds ~84 lines
+# before the main container's env; 160 still lands well inside the single
+# step-11 ConfigMap (~456 lines), so the scope stays step-11-only.
+if ! grep -A160 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "xpkg.upbound.io"'; then
   echo "FAIL: Step-11 missing UPSTREAM_HOST=xpkg.upbound.io env (TBD-V24 MISS-3)" >&2
   exit 1
 fi
 # Default registry path must be proxy-xpkg (the Harbor proxy-cache
 # project that mirrors xpkg.upbound.io — created by Step 02).
-if ! grep -A60 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "proxy-xpkg"'; then
+if ! grep -A160 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "proxy-xpkg"'; then
   echo "FAIL: Step-11 missing REGISTRY_PATH=proxy-xpkg env (TBD-V24 MISS-3)" >&2
   exit 1
 fi
@@ -2816,5 +2820,58 @@ if ! grep -A2 'name: MIRROR_SELF_HEAL_ENABLED' "$TMP/render-noselfheal.yaml" | g
   exit 1
 fi
 echo "  PASS (#5194 contract: a completeness miss is auto-warmed via the shared step-03 skopeo proxy-copy mechanism + re-HEADed before failing; a still-missing manifest after the warm still FATALs the gate; the self-heal path is operator-toggleable via offlineMirror.selfHeal.enabled)"
+
+echo "[cutover-contract] Case 63: #5214 gitea-admin-secret self-heal initContainer on every consuming step, absent from non-consumers"
+# Every cutover step that reads gitea-admin-secret via a secretKeyRef resolves
+# it ONLY in the Pod's own namespace (catalyst). Two install-time bridges
+# materialise the copy, but on hw271 it was DELETED between install and step-06
+# and nothing re-asserted it -> CreateContainerConfigError -> chain wedged
+# (the #4557/#4558/#4661 recurrence). The durable close is a self-heal
+# initContainer that re-copies gitea/gitea-admin-secret -> catalyst/
+# gitea-admin-secret at STEP-EXECUTION time on each consuming step, stamping
+# helm.sh/resource-policy: keep so it cannot be pruned again. This Case guards
+# BOTH that the init is present on all six consumers AND that it is NOT applied
+# to steps that do not consume the secret (anti over-application / theater).
+# The 11-mirror-resync CronJob is severance-gated OFF by default, so render it
+# in with --set mirrorResync.enabled=true.
+helm template smoke-selfheal . --set mirrorResync.enabled=true > "$TMP/render-selfheal.yaml"
+sh_fail=0
+consumers="cutover-step-06-helmrepository-patches cutover-step-07-catalyst-api-env-patch cutover-step-09-gitea-token-mint cutover-step-10-vcluster-registry-pivot cutover-step-11-crossplane-provider-pivot"
+non_consumers="cutover-step-01-gitea-mirror cutover-step-02-harbor-projects cutover-step-03-harbor-prewarm cutover-step-05-flux-gitrepository-patch cutover-step-08-egress-block-test"
+if command -v yq >/dev/null 2>&1; then
+  # 5 job-mode consumers carry the init inside the .data.podSpec block scalar
+  # (parsed by catalyst-api); re-parse that string and assert the init exists.
+  for step in $consumers; do
+    if ! yq "select(.kind==\"ConfigMap\" and .metadata.name==\"$step\") | .data.podSpec" "$TMP/render-selfheal.yaml" \
+         | yq '[.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' - | grep -qx true; then
+      echo "FAIL: consuming step $step missing the #5214 gitea-admin-secret self-heal initContainer" >&2; sh_fail=1
+    fi
+  done
+  # 6th consumer: the mirror-resync CronJob (a real resource).
+  if ! yq 'select(.kind=="CronJob" and .metadata.name=="gitea-mirror-resync") | [.spec.jobTemplate.spec.template.spec.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' "$TMP/render-selfheal.yaml" | grep -qx true; then
+    echo "FAIL: mirror-resync CronJob missing the #5214 gitea-admin-secret self-heal initContainer" >&2; sh_fail=1
+  fi
+  # Anti over-application: steps that read harbor/ghcr (or no) secret must NOT
+  # carry the gitea self-heal init.
+  for step in $non_consumers; do
+    if yq "select(.kind==\"ConfigMap\" and .metadata.name==\"$step\") | .data.podSpec" "$TMP/render-selfheal.yaml" \
+         | yq '[.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' - | grep -qx true; then
+      echo "FAIL: non-consuming step $step unexpectedly carries the gitea-admin-secret self-heal init (over-application)" >&2; sh_fail=1
+    fi
+  done
+else
+  # No yq: assert exactly 6 init entries render (one per consumer).
+  n=$(grep -cE '^[[:space:]]*- name: ensure-gitea-admin-secret[[:space:]]*$' "$TMP/render-selfheal.yaml")
+  if [ "$n" -ne 6 ]; then
+    echo "FAIL: expected 6 self-heal initContainers (one per gitea-admin-secret consumer), got $n" >&2; sh_fail=1
+  fi
+fi
+# The applied copy MUST carry the #5214 provenance annotation (paired with
+# helm.sh/resource-policy: keep in the jq) — the durability property.
+if ! grep -q 'gitea-admin-secret-cutover-ns-selfheal-5214' "$TMP/render-selfheal.yaml"; then
+  echo "FAIL: self-heal init missing the #5214 provenance annotation / resource-policy keep pairing" >&2; sh_fail=1
+fi
+if [ "$sh_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5214: self-heal init on all 6 gitea-admin-secret consumers, absent from the 5 non-consumers, applied copy stamped resource-policy: keep)"
 
 echo "[cutover-contract] All gates green."

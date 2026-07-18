@@ -133,6 +133,12 @@ spec:
         spec:
           serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
           restartPolicy: Never
+          # #5214 — re-assert gitea-admin-secret in the release namespace before
+          # each resync fire (durable close of the #4557/#4558/#4661 recurrence
+          # class; the secretKeyRef below resolves only in this Pod's namespace).
+          # See _helpers.tpl.
+          initContainers:
+            {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "pre") | nindent 12 }}
           containers:
             - name: gitea-mirror-resync
               image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.git.repository "tag" .Values.images.git.tag "cutoverPhase" "pre" "Values" .Values) }}
