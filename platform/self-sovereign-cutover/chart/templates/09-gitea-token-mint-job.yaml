@@ -85,6 +85,11 @@ data:
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
     activeDeadlineSeconds: {{ .Values.stepTimeouts.giteaTokenMintSeconds | default 600 }}
+    # #5214 — re-assert gitea-admin-secret in the release namespace at step
+    # execution time (durable close of the #4557/#4558/#4661 recurrence class).
+    # See _helpers.tpl.
+    initContainers:
+      {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "post") | nindent 6 }}
     containers:
       - name: gitea-token-mint
         image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}

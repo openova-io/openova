@@ -132,6 +132,142 @@ containerd. Space-separated, env-safe.
 {{- end -}}
 
 {{/*
+── #5214 gitea-admin-secret STEP-EXECUTION self-heal initContainer ──────────
+The DURABLE close of the #4557→#4558→#4661 recurrence class.
+
+WHY (verified live hw271). Every cutover step Job that reads the Gitea admin
+credential (06-helmrepository-patches, 07-catalyst-api-env-patch,
+09-gitea-token-mint, 10-vcluster-registry-pivot, 11-crossplane-provider-pivot,
+11-mirror-resync) resolves it via a Kubernetes `secretKeyRef` on
+`gitea-admin-secret`, which resolves ONLY in the Pod's OWN namespace
+(`catalyst`). Two install-time mechanisms materialise that copy —
+00-gitea-admin-secret-bridge.yaml (render-time Helm lookup+mirror, keep-policy)
+and 00-gitea-admin-secret-bridge-job.yaml (#4661 one-shot runtime copy). But
+the step Jobs run 45+ min after install (after harbor-prewarm), and on hw271 the
+copy was DELETED from `catalyst` between install and step-06 by an as-yet
+unidentified reaper (NOT helm-controller — release stayed in-sync so keep was
+never consulted; NOT kustomize-controller — the secret is in no inventory; NOT
+kyverno — no delete policy). Nothing re-asserted it (the mirror only re-renders
+on a helm upgrade; the #4661 Job is one-shot Complete) →
+`CreateContainerConfigError: secret "gitea-admin-secret" not found` → wedge.
+
+THE FIX. Re-assert the secret AT STEP-EXECUTION TIME, immediately before the
+main container needs it, regardless of who deleted it and when. This
+initContainer copies
+  <sourceNamespace>/<sourceSecretName>  ->  <Release.Namespace>/<adminSecretRef.name>
+with the SAME jq sanitize the #4661 bridge Job uses (rebuild-from-scratch drops
+resourceVersion/uid/managedFields/creationTimestamp/ownerReferences/
+last-applied-configuration and any helm.sh/hook* annotations by construction),
+BUT stamps `helm.sh/resource-policy: keep` on the applied copy so a subsequent
+helm reconcile cannot prune it. `kubectl apply` create-or-updates (idempotent),
+and the copy is fail-loud: if the password key is absent post-copy it exits 1
+so the step surfaces the real fault instead of a downstream 401.
+
+It runs under the cutover runner SA (secrets get cluster-wide + secrets create
+in the release namespace are already granted in rbac.yaml — no new RBAC). The
+kubectl image is images.kubectl (alpine/k8s carries kubectl + jq, exactly as
+the #4661 bridge Job relies on); `harbor.openova.io/proxy-*` refs resolve to
+local Harbor post-pivot via the step-04 containerd rewrite. HOME=/tmp with a
+writable rootfs (matching the step containers) so kubectl's cache has a home;
+no extra Pod volume is needed, keeping the per-step edit to `initContainers:`.
+
+Inputs (dict): .ctx (root context) .phase ("pre"|"post" image phase for the
+step this init is attached to). Emit at the pod's initContainers list level via
+`include ... (dict "ctx" . "phase" "post") | nindent 6` (see each step template).
+*/}}
+{{- define "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" -}}
+{{- $ctx := .ctx -}}
+{{- $phase := .phase | default "post" -}}
+{{- $srcNs := $ctx.Values.giteaAdminSecretBridge.sourceNamespace | default "gitea" -}}
+{{- $srcName := $ctx.Values.giteaAdminSecretBridge.sourceSecretName | default "gitea-admin-secret" -}}
+{{- $destName := $ctx.Values.gitea.adminSecretRef.name -}}
+{{- $destNs := $ctx.Release.Namespace -}}
+- name: ensure-gitea-admin-secret
+  image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" $ctx.Values.images.kubectl.repository "tag" $ctx.Values.images.kubectl.tag "cutoverPhase" $phase "Values" $ctx.Values) }}
+  imagePullPolicy: IfNotPresent
+  env:
+    - name: HOME
+      value: /tmp
+    - name: SRC_NAMESPACE
+      value: {{ $srcNs | quote }}
+    - name: SRC_SECRET_NAME
+      value: {{ $srcName | quote }}
+    - name: DEST_NAMESPACE
+      value: {{ $destNs | quote }}
+    - name: DEST_SECRET_NAME
+      value: {{ $destName | quote }}
+  command: ["/bin/sh", "-c"]
+  args:
+    - |
+      set -eu
+      echo "[ensure-gitea-admin-secret] source = ${SRC_NAMESPACE}/${SRC_SECRET_NAME}"
+      echo "[ensure-gitea-admin-secret] dest   = ${DEST_NAMESPACE}/${DEST_SECRET_NAME}"
+
+      # Fast path — if the destination already carries a usable password key we
+      # still re-copy from source (so a Gitea password rotation propagates), but
+      # if the source has vanished AND the dest is intact we leave it be.
+      if ! kubectl -n "${SRC_NAMESPACE}" get secret "${SRC_SECRET_NAME}" >/dev/null 2>&1; then
+        if kubectl -n "${DEST_NAMESPACE}" get secret "${DEST_SECRET_NAME}" -o jsonpath='{.data.password}' 2>/dev/null | grep -q .; then
+          echo "[ensure-gitea-admin-secret] source absent but destination already intact — leaving untouched"
+          exit 0
+        fi
+        echo "[ensure-gitea-admin-secret] FATAL: source ${SRC_NAMESPACE}/${SRC_SECRET_NAME} absent and no destination secret to fall back on" >&2
+        exit 1
+      fi
+
+      # Copy source -> destination. jq REBUILDS the object from scratch (drops
+      # resourceVersion/uid/managedFields/creationTimestamp/ownerReferences/
+      # last-applied + any helm.sh/hook* annotations by construction), re-targets
+      # name+namespace, keeps only provenance annotations, and stamps
+      # helm.sh/resource-policy: keep so nothing prunes the applied copy. The
+      # base64 password bytes flow kubectl->jq->kubectl and are NEVER printed.
+      kubectl -n "${SRC_NAMESPACE}" get secret "${SRC_SECRET_NAME}" -o json \
+        | jq \
+            --arg ns "${DEST_NAMESPACE}" \
+            --arg name "${DEST_SECRET_NAME}" \
+            --arg src "${SRC_NAMESPACE}/${SRC_SECRET_NAME}" \
+            '{apiVersion, kind, type,
+              metadata: {
+                name: $name,
+                namespace: $ns,
+                labels: {
+                  "catalyst.openova.io/blueprint": "bp-self-sovereign-cutover",
+                  "catalyst.openova.io/component": "gitea-admin-secret-bridge",
+                  "app.kubernetes.io/part-of": "catalyst",
+                  "app.kubernetes.io/managed-by": "Helm"
+                },
+                annotations: {
+                  "catalyst.openova.io/mirrored-from": $src,
+                  "catalyst.openova.io/bridge": "gitea-admin-secret-cutover-ns-selfheal-5214",
+                  "helm.sh/resource-policy": "keep"
+                }
+              },
+              data: (.data // {})}' \
+        | kubectl -n "${DEST_NAMESPACE}" apply -f - >/dev/null
+
+      # Fail loud: the step must not proceed on a keyless secret.
+      if ! kubectl -n "${DEST_NAMESPACE}" get secret "${DEST_SECRET_NAME}" \
+           -o jsonpath='{.data.password}' 2>/dev/null | grep -q .; then
+        echo "[ensure-gitea-admin-secret] FATAL: destination secret missing the password key after copy" >&2
+        exit 1
+      fi
+      echo "[ensure-gitea-admin-secret] ${DEST_NAMESPACE}/${DEST_SECRET_NAME} present with password key — step secretKeyRef will resolve"
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop: ["ALL"]
+{{- end -}}
+
+{{/*
 Image-path substrings EXCLUDED from the offline mirror + the step-08 roll-set
 (rancher/k3s = per-Org vcluster distro, un-mirrorable on the host plane;
 loft-sh/vcluster = handled by step-10 vcluster-registry-pivot). Space-separated.

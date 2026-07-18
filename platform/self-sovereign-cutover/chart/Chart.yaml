@@ -1,5 +1,34 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.140 (#5214 Refs #4557 #4558 #4661 — DURABLE close of the recurring
+# `secret "gitea-admin-secret" not found` wedge. Every cutover step Job that
+# reads the Gitea admin credential (06-helmrepository-patches,
+# 07-catalyst-api-env-patch, 09-gitea-token-mint, 10-vcluster-registry-pivot,
+# 11-crossplane-provider-pivot, 11-mirror-resync) resolves it via a
+# secretKeyRef on `gitea-admin-secret`, which resolves ONLY in the Pod's OWN
+# namespace (`catalyst`). Two install-time mechanisms materialise that copy —
+# the render-time lookup+mirror (00-gitea-admin-secret-bridge) and the #4661
+# one-shot runtime Job (00-gitea-admin-secret-bridge-job) — but the step Jobs
+# run 45+ min after install (post harbor-prewarm), and on hw271 the copy was
+# DELETED from `catalyst` between install and step-06 by an unidentified reaper
+# (NOT helm-controller: release stayed in-sync so `keep` was never consulted;
+# NOT kustomize-controller: not in any inventory; NOT kyverno: no delete
+# policy) and nothing re-asserted it (the mirror only re-renders on a helm
+# upgrade; the #4661 Job is one-shot Complete) → CreateContainerConfigError →
+# chain wedged at step-06. FIX: a reusable `giteaSecretSelfHealInitContainer`
+# helper (_helpers.tpl) copies gitea/gitea-admin-secret ->
+# catalyst/gitea-admin-secret AT STEP-EXECUTION TIME as an initContainer on
+# each of the six consuming step templates, so the secret is re-materialised
+# immediately before the main container needs it regardless of who deleted it.
+# Same jq sanitize as the #4661 Job, idempotent `kubectl apply`, fail-loud on a
+# missing password key, and it STAMPS `helm.sh/resource-policy: keep` on the
+# applied copy so a later reconcile cannot prune it. Runs under the existing
+# cutover runner SA (secrets get cluster-wide + create in-namespace already
+# granted — no new RBAC). Defense-in-depth: the #4661 bridge Job's jq now also
+# stamps `helm.sh/resource-policy: keep` so its applied copy stops clobbering
+# the mirror's keep protection. No step-count / RBAC / deadline change (still
+# 11 steps).)
+#
 # 0.1.139 (#5204 Refs #3379 — step-11 crossplane-provider-pivot: wire
 # package-pull AUTHENTICATION for the Sovereign-local Harbor. Pivoting
 # Provider.spec.package to harbor.<fqdn>/proxy-xpkg was necessary but NOT
@@ -2265,7 +2294,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.139
+version: 0.1.140
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

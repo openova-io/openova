@@ -135,6 +135,11 @@ data:
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
     activeDeadlineSeconds: {{ .Values.stepTimeouts.vclusterRegistryPivotSeconds }}
+    # #5214 — re-assert gitea-admin-secret in the release namespace at step
+    # execution time (durable close of the #4557/#4558/#4661 recurrence class).
+    # See _helpers.tpl.
+    initContainers:
+      {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "post") | nindent 6 }}
     containers:
       - name: vcluster-registry-pivot
         # alpine/k8s ships both kubectl AND git so we can patch live
