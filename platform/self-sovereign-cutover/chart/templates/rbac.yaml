@@ -92,6 +92,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec"]   # #4652 (Refs #4641): registry-pivot DaemonSet execs `grep` in the Running CoreDNS pod to confirm the coredns-custom CM-volume sync completed BEFORE trusting the registry.<fqdn>->ClusterIP override (the patch-then-sync sequencing — restart races the stale mount)
     verbs: ["create", "get"]
+  - apiGroups: ["pkg.crossplane.io"]
+    resources: ["imageconfigs"]   # step 11 (#5204) creates the ImageConfig that binds the pivoted matchImages prefixes to the local-Harbor package-pull Secret so the Crossplane package manager authenticates post-cutover
+    verbs: ["create"]
 
   # ───────────────────────────────────────────────────────────────
   # READ verbs — namespace-spanning per the step inventory above.
@@ -145,7 +148,7 @@ rules:
     resources: ["gateways"]   # step 06 Phase -1 (#1871, chart 0.1.32): wait for cilium-gateway Programmed=True before URL rewrite
     verbs: ["get", "list", "watch"]
   - apiGroups: ["pkg.crossplane.io"]
-    resources: ["providers"]   # step 11 (TBD-V24 MISS-3, chart 0.1.37): pivot Provider.spec.package off xpkg.upbound.io
+    resources: ["providers", "imageconfigs"]   # step 11 (TBD-V24 MISS-3, chart 0.1.37): pivot Provider.spec.package off xpkg.upbound.io; #5204 reads/applies the ImageConfig that authenticates the local-Harbor package pull
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]   # step 11 probes for providers.pkg.crossplane.io CRD presence before patching
@@ -188,8 +191,8 @@ rules:
     resources: ["kustomizations"]
     verbs: ["update", "patch"]   # step 08 (#3526) force-reconciles the bootstrap-kit Kustomization so Step-06's durable git-push lands before the pivot assertion (the annotate reconcile.fluxcd.io/requestedAt patch)
   - apiGroups: ["pkg.crossplane.io"]
-    resources: ["providers"]
-    verbs: ["update", "patch"]   # step 11 crossplane-provider-pivot (TBD-V24 MISS-3)
+    resources: ["providers", "imageconfigs"]
+    verbs: ["update", "patch"]   # step 11 crossplane-provider-pivot (TBD-V24 MISS-3); #5204 patches the ImageConfig on re-run (kubectl apply)
   - apiGroups: ["cilium.io"]
     resources: ["ciliumnetworkpolicies"]
     verbs: ["delete", "patch", "update"]   # step 08 removes the policy at end-of-test

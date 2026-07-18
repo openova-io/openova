@@ -859,7 +859,56 @@ if ! grep -q '"xpkg.upbound.io"' "$TMP/render.yaml"; then
   echo "FAIL: xpkg.upbound.io not present in chart values (mothershipAuthsToStrip / blockedDomains) (TBD-V24 MISS-3)" >&2
   exit 1
 fi
-echo "  PASS (Step-11 wired to pivot Provider CRs to local Harbor proxy-xpkg)"
+# #5204: Step-11 must ALSO wire package-pull AUTHENTICATION. Pivoting the
+# spec.package host is necessary but not sufficient — proxy-xpkg is a Harbor
+# proxy-cache project that requires an authenticated pull even when public, and
+# the Crossplane package manager uses its own registry-auth path (not the node
+# certs.d nor the ghcr-pull dockerconfigjson). Without this the post-cutover
+# Provider re-pull 401s (live hw270). Guard the auth wiring is present so a
+# future edit can't silently drop it back to the anonymous-401 shape.
+#
+# (a) The auth-config env must render on the step-11 ConfigMap.
+step11_body="$(awk '/cutover-step-11-crossplane-provider-pivot/{f=1} f{print} /^---$/{if(f)exit}' "$TMP/render.yaml")"
+if ! printf '%s' "${step11_body}" | grep -q 'name: PACKAGE_PULL_AUTH_ENABLED'; then
+  echo "FAIL: Step-11 missing PACKAGE_PULL_AUTH_ENABLED env (#5204)" >&2
+  exit 1
+fi
+if ! printf '%s' "${step11_body}" | grep -q 'name: CROSSPLANE_NAMESPACE'; then
+  echo "FAIL: Step-11 missing CROSSPLANE_NAMESPACE env (#5204)" >&2
+  exit 1
+fi
+if ! printf '%s' "${step11_body}" | grep -q 'name: HARBOR_PASSWORD'; then
+  echo "FAIL: Step-11 missing HARBOR_PASSWORD env — cannot derive local-Harbor pull credential (#5204)" >&2
+  exit 1
+fi
+# (b) The script body must apply an ImageConfig (pkg.crossplane.io/v1beta1)
+# whose registry.authentication.pullSecretRef binds the local-Harbor pull
+# Secret — the Crossplane 1.18 native package-pull-auth mechanism.
+if ! printf '%s' "${step11_body}" | grep -q 'kind: ImageConfig'; then
+  echo "FAIL: Step-11 missing ImageConfig apply — package pull would 401 against the local Harbor proxy-cache (#5204)" >&2
+  exit 1
+fi
+if ! printf '%s' "${step11_body}" | grep -q 'pullSecretRef'; then
+  echo "FAIL: Step-11 ImageConfig missing registry.authentication.pullSecretRef (#5204)" >&2
+  exit 1
+fi
+if ! printf '%s' "${step11_body}" | grep -q 'type: kubernetes.io/dockerconfigjson'; then
+  echo "FAIL: Step-11 missing the dockerconfigjson pull Secret the ImageConfig references (#5204)" >&2
+  exit 1
+fi
+# (c) RBAC: ClusterRole must permit create + patch on
+# pkg.crossplane.io.imageconfigs (kubectl apply = get-then-create-or-patch).
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
+     | grep -B1 -A3 '"imageconfigs"' | grep -E 'verbs:.*"create"' >/dev/null; then
+  echo "FAIL: ClusterRole missing pkg.crossplane.io.imageconfigs create verb (#5204)" >&2
+  exit 1
+fi
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
+     | grep -B1 -A3 '"imageconfigs"' | grep -E 'verbs:.*"patch"|verbs:.*"update"' >/dev/null; then
+  echo "FAIL: ClusterRole missing pkg.crossplane.io.imageconfigs [update|patch] verb (#5204)" >&2
+  exit 1
+fi
+echo "  PASS (Step-11 wired to pivot Provider CRs to local Harbor proxy-xpkg + authenticate the package pull)"
 
 
 echo "[cutover-contract] Case 23: Step-07 Phase 3 pivots catalyst-api issuer envs + runtime-config URLs (#2940)"
