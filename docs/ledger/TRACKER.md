@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T20:30:03Z` |
+| Last refreshed | `2026-07-18T20:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 28 |
 | Open DoD gates | 0 / 41 |
@@ -235,6 +235,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T20:32 | [#5229](https://github.com/openova-io/openova/pull/5229) | #4914 | fix(console): voucher-code inline policy + autogen path, rec |
+| 2026-07-18T20:32 | [#5228](https://github.com/openova-io/openova/pull/5228) | #5219 | fix(bp-postgres,continuum): single-source pair role password |
+| 2026-07-18T20:32 | [#5227](https://github.com/openova-io/openova/pull/5227) | #5124 | fix(catalyst-api): Edit-IaC seed served through the #5115 ca |
+| 2026-07-18T20:32 | [#5226](https://github.com/openova-io/openova/pull/5226) | #5204 | fix(cutover): warm Crossplane xpkg packages durably into loc |
 | 2026-07-18T19:35 | [#5222](https://github.com/openova-io/openova/pull/5222) | #5220 | fix(cnpg-pair): dr-promoter steady-state ARM gate + timeline |
 | 2026-07-18T19:31 | [#5221](https://github.com/openova-io/openova/pull/5221) | #5210 | fix(catalyst-api): materialize local kubeconfig with refresh |
 | 2026-07-18T14:18 | [#5219](https://github.com/openova-io/openova/pull/5219) | #5218 | fix(cnpg-pair): dr-promoter durable-suspend race — same-tick |
@@ -261,10 +265,6 @@ flowchart LR
 | 2026-07-17T13:37 | [#5180](https://github.com/openova-io/openova/pull/5180) | #5104 | docs(session): hw266 keystone evidence — cc=true + funnel #5 |
 | 2026-07-17T13:34 | [#5179](https://github.com/openova-io/openova/pull/5179) | #5137 | fix(cnpg-pair): dr-promoter region-A liveness gate + durable |
 | 2026-07-17T12:52 | [#5177](https://github.com/openova-io/openova/pull/5177) | #5167 | fix(openova-mcp): resolve session tokens via catalyst-api /w |
-| 2026-07-17T12:52 | [#5176](https://github.com/openova-io/openova/pull/5176) | #5167 | docs(uat): NORTH-STAR live on hw266 — openova-mcp deployed + |
-| 2026-07-17T12:52 | [#5174](https://github.com/openova-io/openova/pull/5174) | #5089 | docs(854): NodePort audit provenance trace — residue is out- |
-| 2026-07-17T12:52 | [#5173](https://github.com/openova-io/openova/pull/5173) | #960 | fix(preflight): gate on catalyst-api deployed==pinned (no ro |
-| 2026-07-17T12:52 | [#5172](https://github.com/openova-io/openova/pull/5172) | #5123 | docs(session): hw265 fire-readiness gate (Refs #960) |
 
 ---
 
