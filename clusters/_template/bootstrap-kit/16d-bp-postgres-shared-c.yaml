@@ -81,7 +81,11 @@ spec:
       # openova-flow hosts resolve the moment the mesh peers. Lockstep 16a/16c.
       # 0.2.10 (#4846): identity-based cross-region DR CiliumNetworkPolicy
       # (crossRegionPeerClusters) replaces the inert ipBlock. Lockstep 16a/16c.
-      version: 0.2.12
+      # 0.2.13 (#5224, Refs #5220 #4915): role-secrets side-gate — a region
+      # stamped side=secondary NEVER mints role/hub Secrets (incl. the #4460
+      # pre-flip window); the pair's password set is single-sourced from
+      # region-A. Lockstep with the other 16* bp-postgres slots.
+      version: 0.2.13
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

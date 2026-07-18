@@ -11,7 +11,10 @@ spec:
   # 0.2.10 (#4846): cross-region DR admission is an identity-based
   # CiliumNetworkPolicy (io.cilium.k8s.policy.cluster) — the 0.2.9 ipBlock was
   # inert for ClusterMesh remote endpoints. values crossRegionPeerClusters.
-  version: 0.2.12
+  # 0.2.13 (#5224): role-secrets side-gate — a replica-role region never mints
+  # role/hub Secrets (incl. the pre-flip window); password set single-sourced
+  # from the primary region (#4915 remedy class).
+  version: 0.2.13
   card:
     title: PostgreSQL
     summary: |

@@ -177,6 +177,16 @@ type continuumGoroutine struct {
 	// pattern as lastSpecFingerprint above (a controller restart starts
 	// a fresh episode rather than persisting across restarts).
 	rejoinState switchover.RejoinState
+
+	// lastActingPrimary is the Cluster CR name this goroutine last
+	// observed ACTING as the pair's primary (live spec.replica.enabled,
+	// not the static pair-role label) AND successfully re-asserted
+	// managed-role passwords on (#5224, role_reassert.go). Empty on a
+	// fresh goroutine, so the first settled observation always fires one
+	// idempotent re-assert — deliberate: the per-CR goroutines restart
+	// during the very promote-flap incidents the re-assert heals (hw273
+	// 18:33:57Z), and a same-value re-apply has no consumer impact.
+	lastActingPrimary string
 }
 
 // SetupWithManager wires the reconciler into the controller-runtime
@@ -387,6 +397,15 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 					// safe no-op outside the region-a-resume-with-
 					// divergence scenario (rejoin.go).
 					r.checkRejoin(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
+					// #5224 — canonical role-password re-assert on
+					// acting-primary transition (promote / failback /
+					// goroutine restart mid-flap). Touches the acting
+					// primary's managed-role passwordSecrets so CNPG
+					// re-applies the canonical passwords, healing any
+					// out-of-band role clobber (the hw273 harbor 28P01
+					// lockout) CNPG itself cannot detect. Same reused
+					// pair reads; role_reassert.go.
+					r.reassertRolesOnPrimaryTransition(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
 				}
 			}
 		}

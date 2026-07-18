@@ -33,6 +33,7 @@ func gvrListKinds() map[schema.GroupVersionResource]string {
 	return map[schema.GroupVersionResource]string{
 		ContinuumGVR:            "ContinuumList",
 		cnpg.ClusterGVR:         "ClusterList",
+		cnpg.SecretGVR:          "SecretList",
 		switchover.HTTPRouteGVR: "HTTPRouteList",
 	}
 }

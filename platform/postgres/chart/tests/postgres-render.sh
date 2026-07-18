@@ -332,6 +332,42 @@ if grep -qE '^      additional:$' "$TMP/preflip-secondary.yaml"; then
 fi
 grep -q 'cnpg.io/instanceRole: primary' "$TMP/preflip-secondary.yaml" || fail "#4460 pre-flip secondary -mesh-rw stub missing primary-role selector"
 
+# ── Case 4g: #5224 — PRE-FLIP SECONDARY must mint ZERO Secrets ────────────────
+# The hw273 harbor 28P01 lockout regression. role-secrets.yaml used to be gated
+# on renderReplicaHalf (= activeHotStandby AND side=replica); activeHotStandby
+# rides crossRegion (SOVEREIGN_ENABLE_CNPG_PAIR), which flips LATE — so the
+# secondary region's PRE-FLIP renders (side=secondary, crossRegion=false, the
+# exact Case-4d secondary shape above) passed the gate and MINTED their own
+# randAlphaNum role passwords, frozen forever by `helm.sh/resource-policy:
+# keep` → a permanently DIVERGENT per-region password set (region-b
+# shared-pg-harbor sha 59fd1fef… vs region-a 26f87b29…). A DR promote/failback
+# actor asserting a role password from the replica region's local set against
+# the shared `-mesh-rw` write endpoint then clobbers the primary's canonical
+# password, and CNPG cannot self-heal (drift is detected ONLY via the
+# passwordSecret resourceVersion). The gate is now the region ROLE alone
+# (isReplicaSide): a side=secondary/replica region NEVER mints role or hub
+# Secrets — pre-flip OR post-flip — and consumes region-A's authoritative
+# values via the catalyst-api cross-mesh hub-secret sync (#4915/#4918 class).
+echo "[render] Case 4g: #5224 pre-flip SECONDARY (side=secondary, crossRegion=false) → ZERO Secrets (no divergent mint)"
+if grep -qE '^kind: Secret$' "$TMP/preflip-secondary.yaml"; then
+  fail "#5224: pre-flip SECONDARY minted a Secret — the divergent role/hub password mint is back (hw273 harbor 28P01 lockout shape)"
+fi
+if grep -q 'harbor-database-secret' "$TMP/preflip-secondary.yaml"; then
+  fail "#5224: pre-flip SECONDARY rendered the hub connection Secret (must be primary-side only)"
+fi
+# The pre-flip PRIMARY must still mint the full set (the authoritative source).
+grep -qE '^type: kubernetes.io/basic-auth$' "$TMP/preflip-primary.yaml" \
+  || fail "#5224: pre-flip PRIMARY lost its role-password Secret (the gate must only exclude the replica side)"
+grep -q 'name: "harbor-database-secret"' "$TMP/preflip-primary.yaml" \
+  || fail "#5224: pre-flip PRIMARY lost its hub connection Secret"
+# And the replica-spelling alias must behave identically to `secondary`.
+helm template shared-pg . -f "$TMP/preflip.values.yaml" --namespace shared-data \
+  --set topology.side=replica \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/preflip-replica-alias.yaml" 2>&1 || fail "#5224 pre-flip side=replica render errored"
+if grep -qE '^kind: Secret$' "$TMP/preflip-replica-alias.yaml"; then
+  fail "#5224: pre-flip side=replica minted a Secret (alias must match side=secondary)"
+fi
+
 # ── Case 4e: #4846 — crossRegionPeerClusters → identity-based CNP, NO ipBlock ─
 # The cross-region DR admission is an identity-based CiliumNetworkPolicy that
 # selects the peer cluster(s) by io.cilium.k8s.policy.cluster. A k8s-netpol

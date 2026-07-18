@@ -1,5 +1,29 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.13 — #5224 (Refs #5220 #4915 #4878; the hw273 harbor 28P01 lockout):
+#   role-secrets.yaml gate `not renderReplicaHalf` → `not isReplicaSide`, so a
+#   region stamped side=secondary (SOVEREIGN_REGION_ROLE, present from the
+#   FIRST render) NEVER mints role-password/hub Secrets — including the #4460
+#   PRE-FLIP window where crossRegion (SOVEREIGN_ENABLE_CNPG_PAIR) is still
+#   false and the old gate let the secondary mint its own randAlphaNum
+#   passwords, frozen forever by `helm.sh/resource-policy: keep` (hw273:
+#   region-b shared-pg-harbor sha 59fd1fef… vs region-a 26f87b29…; gitea/
+#   keycloak likewise). Those divergent local Secrets are the ammunition for
+#   the #5220 G12 promote-flap casualty: a role password asserted from the
+#   replica region's local set against the shared `-mesh-rw` write endpoint
+#   clobbers the primary's canonical password, and CNPG cannot self-heal (it
+#   detects drift ONLY via passwordSecret resourceVersion — managedRolesStatus
+#   stayed "reconciled" at rv 28321 while the DB rejected that very password).
+#   The replica region consumes region-A's authoritative hub Secrets via the
+#   existing catalyst-api cross-mesh sync (#4915/#4918 remedy class + #4878
+#   restarts), so the pair's password set is single-sourced by construction.
+#   Companion (same PR): continuum-controller re-asserts role passwords
+#   through CNPG's managed-roles contract (passwordSecret rv touch) on every
+#   acting-primary transition. Primary/singleton render byte-identical; the
+#   ONLY delta is the pre-flip secondary, which now renders ZERO Secrets.
+#   tests/postgres-render.sh Case 4g added (pre-flip secondary → ZERO
+#   Secrets). Lockstep: 16a/16c/16d HR pins + blueprint.yaml + catalog-seed
+#   → 0.2.13.
 # 0.2.4 — #3878 (companion to #3876, the cycle-1 vc-mgmt DB-secret deadlock):
 #   add the optional `reflect.mangledTarget` knob. When a binding declares it,
 #   the chart emits a SECOND hub connection Secret named with the vCluster
@@ -167,7 +191,7 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.12
+version: 0.2.13
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
