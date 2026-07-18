@@ -425,7 +425,12 @@ func TestCatalogIaCEdit_MothershipSkipsAggregatorLeg(t *testing.T) {
 // edits (icon/title/summary) already present in the committed blueprint.yaml.
 // This GET returns the CURRENTLY-COMMITTED file — the same one the PUT writes,
 // resolved via the SAME resolveCatalogEditRepo seam — so the FE seeds the
-// editor from the source of truth (falling back to store raw only on 404).
+// editor from the source of truth. Two stale-seed legs are additionally pinned
+// below: a committed file that PREDATES #5115 (bare metadata.name, stripped
+// spec.version, server-side metadata junk) is re-canonicalized ON READ through
+// the same serializer every commit leg uses, and a not-yet-committed blueprint
+// is seeded from the catalog-resolved CR through that serializer instead of
+// 404ing the FE back onto its stale store raw (the exact hw256 defect).
 
 // callGetCatalogIaC drives GET /api/v1/catalog/{name}/iac through a chi router
 // so the {name} URL param resolves.
@@ -439,8 +444,9 @@ func callGetCatalogIaC(t *testing.T, h *Handler, name string) *httptest.Response
 	return rec
 }
 
-// TestGetCatalogIaC_ReturnsCommittedFile — the committed blueprint.yaml is
-// returned verbatim (the seed source of truth), NOT the stale store raw.
+// TestGetCatalogIaC_ReturnsCommittedFile — an already-CANONICAL committed
+// blueprint.yaml is returned verbatim (authored fidelity preserved), NOT the
+// stale store raw.
 func TestGetCatalogIaC_ReturnsCommittedFile(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
@@ -463,18 +469,22 @@ func TestGetCatalogIaC_ReturnsCommittedFile(t *testing.T) {
 	if resp["path"] != "catalog-sovereign/bp-alloy/blueprint.yaml" {
 		t.Errorf("path: got %q", resp["path"])
 	}
+	if resp["source"] != "committed" {
+		t.Errorf("a canonical committed file is served verbatim as source=committed; got %q", resp["source"])
+	}
 }
 
 // TestGetCatalogIaC_ResolvesBareRepo — when the committed file lives in the
 // BARE-named repo (the #4896/#4997 bare↔bp- divergence), the resolver finds it
-// and the GET returns it, exactly as the PUT read path does.
+// exactly as the PUT read path does. The bare-named document is a stale
+// pre-#5115 shape, so the served seed is the CANONICALIZED CR (name stamped
+// bp-alloy) — never the bare document the #5124 walk seeded from.
 func TestGetCatalogIaC_ResolvesBareRepo(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
 
-	committed := bareAlloyBlueprintYAML("3.2.1")
-	fg.files[giteaKey(catalogSovereignOrg, "alloy", catalogEditGitBranch, catalogEditBlueprintPath)] = []byte(committed)
+	fg.files[giteaKey(catalogSovereignOrg, "alloy", catalogEditGitBranch, catalogEditBlueprintPath)] = []byte(bareAlloyBlueprintYAML("3.2.1"))
 
 	rec := callGetCatalogIaC(t, h, "bp-alloy")
 	if rec.Code != http.StatusOK {
@@ -482,16 +492,210 @@ func TestGetCatalogIaC_ResolvesBareRepo(t *testing.T) {
 	}
 	var resp map[string]string
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["blueprintYaml"] != committed {
-		t.Errorf("bare-repo committed file must be returned; got=%q", resp["blueprintYaml"])
-	}
 	if resp["path"] != "catalog-sovereign/alloy/blueprint.yaml" {
 		t.Errorf("path must reflect the resolved bare repo; got %q", resp["path"])
 	}
+	if resp["source"] != "committed-canonicalized" {
+		t.Errorf("a bare-named committed file is a stale shape ⇒ source=committed-canonicalized; got %q", resp["source"])
+	}
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal([]byte(resp["blueprintYaml"]), &doc); err != nil {
+		t.Fatalf("served seed did not parse: %v", err)
+	}
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil || asString(meta["name"]) != "bp-alloy" {
+		t.Errorf("served seed must carry the canonical bp-alloy identity; metadata=%v", meta)
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil || asString(spec["version"]) != "3.2.1" {
+		t.Errorf("authored spec.version must survive canonicalization; spec=%v", spec)
+	}
+	if _, ok := spec["source"].(map[string]interface{}); !ok {
+		t.Errorf("full spec must survive canonicalization; spec=%v", spec)
+	}
 }
 
-// TestGetCatalogIaC_404WhenNotCommitted — nothing committed yet ⇒ 404 so the
-// FE knows to fall back to its store raw / live CR (never a fabricated blank).
+// staleAlloyPre5115CommittedYAML is the EXACT hw256 #5124 stale-seed
+// signature, as a committed pre-#5115 file: bare `alloy` metadata.name, NO
+// spec.version (the #4415 delivery-field strip), server-side metadata junk
+// (uid/resourceVersion/last-applied) + status, Helm ownership labels present,
+// and the card fields a prior card-form save committed. Opening the editor on
+// THIS document and committing is what reverted the walk's card edits.
+const staleAlloyPre5115CommittedYAML = `apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: alloy
+  uid: 8f0e2c1d-aaaa-bbbb-cccc-0123456789ab
+  resourceVersion: "123456"
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: catalyst-platform
+    kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"catalyst.openova.io/v1"}'
+spec:
+  card:
+    title: Grafana Alloy
+    summary: Walk-edited summary (prior card-form save)
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-alloy
+status:
+  phase: Ready
+`
+
+// TestGetCatalogIaC_RecanonicalizesStalePre5115Seed — the #5124 regression
+// guard: a committed file carrying the stale pre-#5115 raw shape is re-served
+// through the canonical CR serializer — name stamped bp-alloy, server junk
+// scrubbed, Helm ownership labels kept, the stripped spec.version refilled
+// from the catalog-resolved blueprint, and the prior card-form edits INTACT —
+// and the served seed then commits cleanly through the PUT (it passes
+// validateCatalogBlueprintYAML), so a commit from the editor seed can never
+// again regress card edits or 400 on a shape the read path itself produced.
+func TestGetCatalogIaC_RecanonicalizesStalePre5115Seed(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "") // mothership shape — isolates the seed/commit round-trip
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+	h.SetCatalogClient(newFakeCatalog(&CatalogBlueprint{Name: "bp-alloy", Version: "1.0.7"}))
+
+	perBP := giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)
+	fg.files[perBP] = []byte(staleAlloyPre5115CommittedYAML)
+
+	rec := callGetCatalogIaC(t, h, "bp-alloy")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["source"] != "committed-canonicalized" {
+		t.Errorf("stale pre-#5115 file must be re-canonicalized on read; source=%q", resp["source"])
+	}
+	seed := resp["blueprintYaml"]
+
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal([]byte(seed), &doc); err != nil {
+		t.Fatalf("served seed did not parse: %v", err)
+	}
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil || asString(meta["name"]) != "bp-alloy" {
+		t.Errorf("bare `alloy` must open as the canonical bp-alloy CR; metadata=%v", meta)
+	}
+	for _, k := range []string{"uid", "resourceVersion"} {
+		if _, present := meta[k]; present {
+			t.Errorf("server-side metadata.%s must be scrubbed from the seed; metadata=%v", k, meta)
+		}
+	}
+	if ann, _ := meta["annotations"].(map[string]interface{}); ann != nil {
+		if _, present := ann["kubectl.kubernetes.io/last-applied-configuration"]; present {
+			t.Errorf("last-applied annotation must be scrubbed from the seed; annotations=%v", ann)
+		}
+		if asString(ann["meta.helm.sh/release-name"]) != "catalyst-platform" {
+			t.Errorf("Helm ownership annotations must be PRESERVED (#5113 Facet E); annotations=%v", ann)
+		}
+	} else {
+		t.Errorf("Helm ownership annotations must survive canonicalization; metadata=%v", meta)
+	}
+	if lbl, _ := meta["labels"].(map[string]interface{}); lbl == nil || asString(lbl["app.kubernetes.io/managed-by"]) != "Helm" {
+		t.Errorf("Helm ownership labels must survive canonicalization; metadata=%v", meta)
+	}
+	if _, present := doc["status"]; present {
+		t.Errorf("status must be scrubbed from the seed")
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil || asString(spec["version"]) != "1.0.7" {
+		t.Errorf("the #4415-stripped spec.version must be refilled from the catalog-resolved blueprint; spec=%v", spec)
+	}
+	card, _ := spec["card"].(map[string]interface{})
+	if card == nil || asString(card["summary"]) != "Walk-edited summary (prior card-form save)" {
+		t.Errorf("prior card-form edits must be INTACT in the seed (the #5124 regression); card=%v", card)
+	}
+
+	// The served seed passes the PUT's validation gate…
+	if msg, ok := validateCatalogBlueprintYAML([]byte(seed), "bp-alloy"); !ok {
+		t.Fatalf("the served seed must pass validateCatalogBlueprintYAML; rejected: %s", msg)
+	}
+	// …and an UNMODIFIED commit of it round-trips without dropping the card
+	// fields — the exact silent-revert the hw256 walk hit.
+	put := callCatalogIaCEdit(t, h, "bp-alloy", `{"blueprintYaml":`+jsonQuote(seed)+`}`, adminClaims())
+	if put.Code != http.StatusOK {
+		t.Fatalf("committing the served seed must succeed; got %d body=%s", put.Code, put.Body.String())
+	}
+	var after map[string]interface{}
+	if err := yamlv3.Unmarshal(fg.files[perBP], &after); err != nil {
+		t.Fatalf("re-committed file did not parse: %v", err)
+	}
+	afterSpec, _ := after["spec"].(map[string]interface{})
+	afterCard, _ := afterSpec["card"].(map[string]interface{})
+	if afterCard == nil || asString(afterCard["summary"]) != "Walk-edited summary (prior card-form save)" {
+		t.Errorf("a commit from the editor seed must never regress card edits; committed card=%v", afterCard)
+	}
+}
+
+// TestGetCatalogIaC_SeedsFromLiveCRWhenNotCommitted — nothing committed yet:
+// instead of 404ing the FE back onto its stale store raw (the #5124 defect
+// signature), the endpoint serves the catalog-resolved CR through the SAME
+// canonical serializer — name stamped, server junk scrubbed, spec.version
+// filled from the resolved catalog version.
+func TestGetCatalogIaC_SeedsFromLiveCRWhenNotCommitted(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+	h.SetCatalogClient(newFakeCatalog(&CatalogBlueprint{
+		Name:    "bp-alloy",
+		Version: "1.0.2",
+		Raw: map[string]interface{}{
+			"apiVersion": "catalyst.openova.io/v1",
+			"kind":       "Blueprint",
+			"metadata": map[string]interface{}{
+				"name":            "alloy", // the stale bare shape the store raw carried
+				"uid":             "abc-123",
+				"resourceVersion": "42",
+			},
+			"spec": map[string]interface{}{
+				"card":   map[string]interface{}{"title": "Grafana Alloy", "summary": "Telemetry collector"},
+				"source": map[string]interface{}{"chart": "bp-alloy"},
+			},
+			"status": map[string]interface{}{"phase": "Ready"},
+		},
+	}))
+
+	rec := callGetCatalogIaC(t, h, "bp-alloy")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a resolvable blueprint must seed from the live CR, not 404; got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["source"] != "live-cr" {
+		t.Errorf("source: got %q want live-cr", resp["source"])
+	}
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal([]byte(resp["blueprintYaml"]), &doc); err != nil {
+		t.Fatalf("served seed did not parse: %v", err)
+	}
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil || asString(meta["name"]) != "bp-alloy" {
+		t.Errorf("live-CR seed must carry the canonical bp-alloy identity; metadata=%v", meta)
+	}
+	if _, present := meta["uid"]; present {
+		t.Errorf("server-side metadata must be scrubbed from the live-CR seed; metadata=%v", meta)
+	}
+	if _, present := doc["status"]; present {
+		t.Errorf("status must be scrubbed from the live-CR seed")
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil || asString(spec["version"]) != "1.0.2" {
+		t.Errorf("spec.version must be filled from the resolved catalog version; spec=%v", spec)
+	}
+	if msg, ok := validateCatalogBlueprintYAML([]byte(resp["blueprintYaml"]), "bp-alloy"); !ok {
+		t.Errorf("the live-CR seed must pass validateCatalogBlueprintYAML; rejected: %s", msg)
+	}
+}
+
+// TestGetCatalogIaC_404WhenNotCommitted — nothing committed AND no catalog
+// client to resolve the CR ⇒ 404 so the FE knows to fall back to its store
+// raw as a true last resort (never a fabricated blank).
 func TestGetCatalogIaC_404WhenNotCommitted(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
