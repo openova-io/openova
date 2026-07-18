@@ -192,6 +192,86 @@ func TestReader_SetReplicaEnabled(t *testing.T) {
 	}
 }
 
+// TestParseStatus_TimelineID — #5125 Defect-2: status.timelineID must
+// decode (tolerating the int64/int/float64 encodings the dynamic
+// client + fakes produce, same as readyInstances), and be absent
+// (HasTimelineID=false) when the field simply isn't present yet.
+func TestParseStatus_TimelineID(t *testing.T) {
+	t.Parallel()
+	cr := newCluster("ns", "p", nil, map[string]interface{}{
+		"timelineID": int64(3),
+	}, false)
+	s := parseStatus(cr)
+	if !s.HasTimelineID || s.TimelineID != 3 {
+		t.Errorf("TimelineID = %d HasTimelineID=%v, want 3/true", s.TimelineID, s.HasTimelineID)
+	}
+
+	cr2 := newCluster("ns", "p2", nil, map[string]interface{}{}, false)
+	s2 := parseStatus(cr2)
+	if s2.HasTimelineID {
+		t.Errorf("expected HasTimelineID=false for a Cluster CR with no timelineID field, got TimelineID=%d", s2.TimelineID)
+	}
+}
+
+// TestReader_RecloneCluster — #5125 Defect-2: RecloneCluster deletes
+// then re-creates the Cluster CR, preserving spec/labels/annotations
+// but stripping status/resourceVersion so CNPG treats it as a fresh
+// object (re-bootstrap via pg_basebackup).
+func TestReader_RecloneCluster(t *testing.T) {
+	t.Parallel()
+	cr := newCluster("ns", "demo-replica", map[string]string{
+		PairLabel:     "demo",
+		PairRoleLabel: RoleReplica,
+	}, map[string]interface{}{
+		"timelineID": int64(3),
+		"phase":      "Cluster in healthy state",
+	}, true)
+	cr.SetAnnotations(map[string]string{"some-annotation": "keep-me"})
+
+	scheme := runtime.NewScheme()
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrListMap(), cr)
+	r := NewReader(dyn)
+
+	if err := r.RecloneCluster(context.Background(), "ns", "demo-replica"); err != nil {
+		t.Fatalf("RecloneCluster: %v", err)
+	}
+
+	got, err := dyn.Resource(ClusterGVR).Namespace("ns").Get(context.Background(), "demo-replica", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get post-reclone: %v", err)
+	}
+	// spec.replica.enabled=true must survive the reclone.
+	en, _, _ := unstructured.NestedBool(got.Object, "spec", "replica", "enabled")
+	if !en {
+		t.Fatalf("expected spec.replica.enabled=true preserved, got %v", en)
+	}
+	// Labels + annotations must survive.
+	if got.GetLabels()[PairLabel] != "demo" {
+		t.Fatalf("pair label not preserved: %v", got.GetLabels())
+	}
+	if got.GetAnnotations()["some-annotation"] != "keep-me" {
+		t.Fatalf("annotation not preserved: %v", got.GetAnnotations())
+	}
+	// status must be wiped — the whole point is a fresh bootstrap.
+	if _, found, _ := unstructured.NestedFieldNoCopy(got.Object, "status", "timelineID"); found {
+		t.Fatalf("expected status.timelineID wiped after reclone, still present")
+	}
+}
+
+// TestReader_RecloneCluster_MissingCluster — RecloneCluster on a
+// nonexistent Cluster CR errors rather than panicking (bounded
+// attempts in rejoin.go treat this as a failed attempt, retried next
+// cooldown).
+func TestReader_RecloneCluster_MissingCluster(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrListMap())
+	r := NewReader(dyn)
+	if err := r.RecloneCluster(context.Background(), "ns", "nope"); err == nil {
+		t.Fatal("expected error re-cloning a nonexistent Cluster CR")
+	}
+}
+
 func TestMaxLagSeconds(t *testing.T) {
 	t.Parallel()
 	if MaxLagSeconds() != 0 {

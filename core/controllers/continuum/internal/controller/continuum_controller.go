@@ -143,6 +143,12 @@ type ContinuumReconciler struct {
 	// 30s per design doc §9.5; tests override to 0.
 	HealthDelay time.Duration
 
+	// RejoinOptions configures step-8 (#5125 Defect-2 re-clone-on-
+	// divergence): max attempts + backoff cooldown. Zero-value is
+	// filled by switchover.RejoinOptions.Defaults() (3 attempts, 3m
+	// cooldown) on every call.
+	RejoinOptions switchover.RejoinOptions
+
 	// activeContinuums tracks per-CR goroutines keyed by
 	// NamespacedName.String() (e.g. "demo/cr1").
 	activeContinuums   map[string]*continuumGoroutine
@@ -164,6 +170,13 @@ type continuumGoroutine struct {
 	// loop iteration sees a different value, we emit
 	// `continuum-config-changed` (slice F-1).
 	lastSpecFingerprint string
+
+	// rejoinState is step-8's (#5125 Defect-2) cross-tick bookkeeping —
+	// attempt count + backoff clock + bounded-fail-loud latch for the
+	// current re-clone-on-divergence episode. Session-scoped, same
+	// pattern as lastSpecFingerprint above (a controller restart starts
+	// a fresh episode rather than persisting across restarts).
+	rejoinState switchover.RejoinState
 }
 
 // SetupWithManager wires the reconciler into the controller-runtime
@@ -366,6 +379,14 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 						Available:      cnpg.StandbyAvailable(replicaStatus),
 						ReplicaCluster: replica.GetName(),
 					}
+					// #5125 Defect-2 — step-8 rejoin-repair check. Reuses
+					// the SAME FindPair + Get calls above; no extra CNPG
+					// API traffic. Runs every tick regardless of
+					// switchover-requested/lag-breach below — its own
+					// gate (DetectDivergence) is narrow enough to be a
+					// safe no-op outside the region-a-resume-with-
+					// divergence scenario (rejoin.go).
+					r.checkRejoin(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
 				}
 			}
 		}
@@ -537,6 +558,89 @@ func (r *ContinuumReconciler) runPostSwitchoverHealth(plan switchover.Switchover
 		LastSwitchoverHealthy:       condStatus,
 		LastSwitchoverHealthyDetail: detail,
 		Reason:                      "PostSwitchoverHealth",
+	})
+}
+
+// checkRejoin runs step-8 (#5125 Defect-2 — re-clone-on-divergence)
+// for this reconcile tick. It reuses the primary/replica CNPG status
+// the caller (runPerCR) already fetched for the #4901 standby check —
+// no extra API traffic.
+//
+// State is carried in the per-CR goroutine's in-memory RejoinState
+// (same session-scoped pattern as lastSpecFingerprint) so attempts +
+// backoff survive across ticks within one controller lifetime. The
+// outcome is mirrored onto the CR status + an audit event ONLY when
+// switchover.CheckRejoin reports a determination (a divergence was
+// observed this tick) — a healthy/no-divergence tick is a pure no-op,
+// exactly like the #4901 StandbyAvailable tri-state contract.
+func (r *ContinuumReconciler) checkRejoin(
+	ctx context.Context,
+	nn types.NamespacedName,
+	reader *cnpg.Reader,
+	namespace string,
+	primaryName string, primaryStatus cnpg.Status,
+	replicaName string, replicaStatus cnpg.Status,
+) {
+	key := nn.String()
+	r.activeContinuumsMu.Lock()
+	g, ok := r.activeContinuums[key]
+	var prior switchover.RejoinState
+	if ok {
+		prior = g.rejoinState
+	}
+	r.activeContinuumsMu.Unlock()
+	if !ok {
+		// No per-CR goroutine registered (shouldn't happen — checkRejoin
+		// is only called FROM that goroutine — but never guess/panic).
+		return
+	}
+
+	seq := &switchover.Sequencer{CNPG: reader, Now: r.Now}
+	next, result := seq.CheckRejoin(ctx, namespace, primaryName, primaryStatus, replicaName, replicaStatus, prior, r.RejoinOptions)
+
+	r.activeContinuumsMu.Lock()
+	if g2, ok2 := r.activeContinuums[key]; ok2 {
+		g2.rejoinState = next
+	}
+	r.activeContinuumsMu.Unlock()
+
+	if !result.Diverged {
+		return
+	}
+
+	cr, err := r.fetchCR(ctx, nn)
+	if err == nil {
+		_ = r.patchStatus(ctx, cr, statusUpdate{
+			Reason:  "RejoinRepair",
+			Message: result.Message,
+			RejoinRepair: &rejoinRepairUpdate{
+				Target:   result.Target,
+				Attempts: next.Attempts,
+				Bounded:  next.Bounded,
+				Message:  result.Message,
+			},
+		})
+	}
+
+	if r.Audit == nil {
+		return
+	}
+	// TypeRejoinRepair for an observed/attempted episode; TypeError once
+	// Bounded — the same "operator must act" audit-type the sequencer's
+	// step-N failures use (emitError in sequence.go), because a bounded
+	// rejoin-repair IS an unresolved failure, not routine progress.
+	evType := events.TypeRejoinRepair
+	reason := "rejoin-divergence"
+	if result.Bounded {
+		evType = events.TypeError
+		reason = "rejoin-repair-bounded"
+	}
+	_ = r.Audit.Publish(ctx, events.Event{
+		Type:          evType,
+		ContinuumName: key,
+		Reason:        reason,
+		Message:       result.Message,
+		InitiatedBy:   "controller",
 	})
 }
 
@@ -874,7 +978,28 @@ type statusUpdate struct {
 	StandbyAvailable      *bool
 	StandbyReplicaCluster string
 
+	// RejoinRepair — #5125 Defect-2 step-8 outcome. nil = this pass made
+	// no rejoin-repair determination (no divergence observed) — any
+	// prior RejoinRepair condition/status is preserved. Non-nil = write
+	// status.rejoinRepair + upsert the RejoinRepair condition, mirroring
+	// the StandbyAvailable tri-state pattern above.
+	RejoinRepair *rejoinRepairUpdate
+
 	Reason  string
+	Message string
+}
+
+// rejoinRepairUpdate is the #5125 Defect-2 step-8 status projection.
+type rejoinRepairUpdate struct {
+	// Target is the Cluster CR name step-8 is (re-)cloning.
+	Target string
+	// Attempts is the re-clone attempt count issued so far for the
+	// current divergence episode.
+	Attempts int
+	// Bounded — true once MaxAttempts is exhausted without converging;
+	// fail-loud, awaiting operator intervention.
+	Bounded bool
+	// Message is the human-readable detail surfaced on the condition.
 	Message string
 }
 
@@ -958,6 +1083,11 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			if t == "StandbyAvailable" && su.StandbyAvailable != nil {
 				continue
 			}
+			// #5125 Defect-2: same preserve-unless-rewriting contract for
+			// the RejoinRepair condition.
+			if t == "RejoinRepair" && su.RejoinRepair != nil {
+				continue
+			}
 			conds = append(conds, c)
 		}
 	}
@@ -1011,6 +1141,37 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			cond["message"] = fmt.Sprintf("required synchronous hot-standby (cnpg-pair replica cluster %q) is unreachable; synchronous replication has no standby to acknowledge commits so writes stall and RPO=0 durability is at risk", su.StandbyReplicaCluster)
 		}
 		conds = append(conds, cond)
+	}
+	// #5125 Defect-2 — surface step-8's re-clone-on-divergence outcome.
+	// Only written when this pass made a determination (a divergence was
+	// observed); a healthy/no-divergence pass leaves any prior condition
+	// untouched (preserve-unless-rewriting, same contract as
+	// StandbyAvailable above).
+	if su.RejoinRepair != nil {
+		rr := su.RejoinRepair
+		status["rejoinRepair"] = map[string]interface{}{
+			"target":   rr.Target,
+			"attempts": int64(rr.Attempts),
+			"bounded":  rr.Bounded,
+			"message":  rr.Message,
+			"at":       r.now().UTC().Format(time.RFC3339),
+		}
+		// Unknown while an attempt is in flight / converging (neither
+		// proven-healthy nor proven-failed yet); False only once Bounded
+		// (definitively did not converge — operator intervention needed).
+		condStatus := "Unknown"
+		reason := "RejoinRepairAttempted"
+		if rr.Bounded {
+			condStatus = "False"
+			reason = "RejoinRepairBounded"
+		}
+		conds = append(conds, map[string]interface{}{
+			"type":               "RejoinRepair",
+			"status":             condStatus,
+			"reason":             reason,
+			"message":            rr.Message,
+			"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
+		})
 	}
 	status["conditions"] = conds
 	latest.Object["status"] = status

@@ -14,9 +14,10 @@ func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
 func TestAuditTypes_Coverage(t *testing.T) {
 	t.Parallel()
-	// K-Cont-2 reserved 9; slice F (#1101 F-1) added 3 more = 12.
-	if len(AuditTypes) != 12 {
-		t.Fatalf("expected 12 audit types, got %d", len(AuditTypes))
+	// K-Cont-2 reserved 9; slice F (#1101 F-1) added 3 more; #5125
+	// Defect-2 added 1 more (TypeRejoinRepair) = 13.
+	if len(AuditTypes) != 13 {
+		t.Fatalf("expected 13 audit types, got %d", len(AuditTypes))
 	}
 	for _, want := range []string{
 		TypeSwitchover, TypeFailbackPending, TypeFailbackCompleted,
@@ -24,6 +25,8 @@ func TestAuditTypes_Coverage(t *testing.T) {
 		TypeCNPGPromotable, TypeError, TypeReconcileSuccess,
 		// F-1 additions
 		TypeCRCreated, TypeConfigChanged, TypeLeaseCollision,
+		// #5125 Defect-2 addition
+		TypeRejoinRepair,
 	} {
 		if !IsValidType(want) {
 			t.Errorf("expected %q to be valid", want)
@@ -89,6 +92,41 @@ func TestSliceFAuditTypes_Roundtrip(t *testing.T) {
 				t.Errorf("ContinuumName drift: got %q want %q", got.ContinuumName, e.ContinuumName)
 			}
 		})
+	}
+}
+
+// TestRejoinRepairAuditType_StringValueAndRoundtrip — #5125 Defect-2:
+// pin the wire string value + confirm the Event JSON round-trips, same
+// coverage the F-1 additions got above.
+func TestRejoinRepairAuditType_StringValueAndRoundtrip(t *testing.T) {
+	t.Parallel()
+	if TypeRejoinRepair != "continuum-rejoin-repair" {
+		t.Fatalf("audit-type constant drift: want %q got %q", "continuum-rejoin-repair", TypeRejoinRepair)
+	}
+	e := Event{
+		Type:            TypeRejoinRepair,
+		ContinuumName:   "demo/cr1",
+		ApplicationName: "demo/app1",
+		FromPrimary:     "fsn",
+		ToPrimary:       "hel",
+		Reason:          "rejoin-divergence",
+		Message:         "re-clone attempt 1/3 issued",
+		InitiatedBy:     "controller",
+		Timestamp:       "2026-07-18T01:02:03Z",
+	}
+	b, err := MarshalEvent(e)
+	if err != nil {
+		t.Fatalf("MarshalEvent: %v", err)
+	}
+	if !strings.Contains(string(b), `"type":"`+TypeRejoinRepair+`"`) {
+		t.Errorf("missing %q in JSON: %s", TypeRejoinRepair, b)
+	}
+	var got Event
+	if err := jsonUnmarshal(b, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.Type != TypeRejoinRepair || got.ContinuumName != e.ContinuumName {
+		t.Errorf("roundtrip drift: got %+v", got)
 	}
 }
 

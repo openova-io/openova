@@ -45,6 +45,9 @@ const Subject = "catalyst.audit"
 //
 // Schemas for the new types are documented in
 // products/continuum/DESIGN.md §"Slice F audit-type schemas".
+//
+// #5125 Defect-2 adds one more: TypeRejoinRepair — step-8's
+// re-clone-on-divergence outcome (attempted / bounded-fail-loud).
 const (
 	TypeSwitchover        = "continuum-switchover"
 	TypeFailbackPending   = "continuum-failback-pending"
@@ -60,6 +63,9 @@ const (
 	TypeCRCreated      = "continuum-cr-created"
 	TypeConfigChanged  = "continuum-config-changed"
 	TypeLeaseCollision = "continuum-lease-collision"
+
+	// #5125 Defect-2 addition — step-8 rejoin-repair outcome.
+	TypeRejoinRepair = "continuum-rejoin-repair"
 )
 
 // AuditTypes is the canonical list — used by tests + by U-DR-1's
@@ -80,6 +86,7 @@ var AuditTypes = []string{
 	TypeCRCreated,
 	TypeConfigChanged,
 	TypeLeaseCollision,
+	TypeRejoinRepair,
 }
 
 // IsValidType reports whether `t` is one of the 9 reserved values.

@@ -94,7 +94,25 @@ type: application
 # once the deploy-bot stamps the new image SHA (the 0.1.9 lesson).
 # Slot-62 pin + catalog-seed source.version move to 0.1.10 in lockstep
 # (Inviolable Principle #13).
-version: 0.1.10
+#
+# 0.1.11 (#5125 Defect-2): step-8 re-clone-on-divergence. On region-a
+# resume post-region-kill, the returning cnpg-pair half's walreceiver
+# can crash-loop with "highest timeline N of the primary is behind
+# recovery timeline N+1" (its own recovery history advanced past what
+# the new primary can serve — no plain reconnect can fix this). The
+# controller's per-CR reconcile loop now detects this exact signature
+# (standby un-Ready + TimelineID strictly ahead of the acting primary —
+# never on a healthy rejoin or ordinary catch-up lag) and drives the
+# proven manual heal (delete + re-create the diverged Cluster CR to
+# force a pg_basebackup re-clone), bounded to 3 attempts with linear
+# backoff and failing loud (continuum-error audit + a False/
+# RejoinRepairBounded condition) rather than looping forever. Surfaced
+# on status.rejoinRepair + condition type RejoinRepair. Chart templates
+# unchanged (controller-image change only); the version bump forces the
+# Flux re-pull once the deploy-bot stamps the new image SHA (the 0.1.9
+# lesson). Slot-62 pin + blueprint.yaml version move to 0.1.11 in
+# lockstep (Inviolable Principle #13).
+version: 0.1.11
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
