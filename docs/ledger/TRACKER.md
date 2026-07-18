@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T00:15:07Z` |
+| Last refreshed | `2026-07-18T00:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T00:29 | [#5196](https://github.com/openova-io/openova/pull/5196) | #4975 | fix(self-sovereign-cutover): self-heal step-08 offline-mirro |
 | 2026-07-18T00:06 | [#5195](https://github.com/openova-io/openova/pull/5195) | #5191 | docs(uat): hw269 fresh-prov fix-train validation — 64 ✅ (mar |
 | 2026-07-17T18:44 | [#5192](https://github.com/openova-io/openova/pull/5192) | #5191 | fix(cutover): step-04 registry-pivot verifies curl+jq and fa |
 | 2026-07-17T17:35 | [#5190](https://github.com/openova-io/openova/pull/5190) | #960 | docs(uat): hw268 row240 §854 no-nodePort gateway ✅ (Refs #96 |
@@ -257,7 +258,6 @@ flowchart LR
 | 2026-07-17T05:12 | [#5160](https://github.com/openova-io/openova/pull/5160) | #5157 | docs(runbooks): openbao region-kill auto-unseal §6.6 + hw264 |
 | 2026-07-17T04:24 | [#5159](https://github.com/openova-io/openova/pull/5159) | #960 | fix(openbao): unseal-reconciler CronJob→Deployment so it sur |
 | 2026-07-17T04:16 | [#5158](https://github.com/openova-io/openova/pull/5158) | #5157 | docs(uat): G12 region-kill ✅ zero-tx-loss RPO=0 on hw263 + # |
-| 2026-07-17T03:28 | [#5156](https://github.com/openova-io/openova/pull/5156) | #960 | docs(uat): reset→hw263 + re-earn R6/R7/R8/R11/R22 backing ro |
 
 ---
 
