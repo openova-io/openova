@@ -1,0 +1,11 @@
+NAMESPACE           NAME                  BLUEPRINT      VERSION   ENVIRONMENT                 PLACEMENT            PHASE     AGE
+catalyst            spine-gitea           bp-gitea       1.2.24    hw270-omantel-biz-cp        active-hot-standby   Ready     4h35m
+catalyst            spine-harbor          bp-harbor      1.2.26    hw270-omantel-biz-cp        active-hot-standby   Ready     4h35m
+catalyst            spine-keycloak        bp-keycloak    1.0.0     hw270-omantel-biz-cp        active-hot-standby   Ready     4h35m
+catalyst            spine-openbao         bp-openbao     1.2.25    hw270-omantel-biz-cp        active-passive       Ready     4h35m
+guacamole           guacamole             bp-guacamole   0.2.29    platform-bootstrap          singleton            Ready     175m
+hw270-funnel-walk   wordpress-mcp-proof   bp-wordpress   0.4.12    hw270-funnel-walk-staging   singleton            Pending   106m
+newapi              newapi                bp-newapi      1.4.139   platform-bootstrap          singleton            Ready     175m
+shared-data         shared-pg             bp-postgres    0.2.12    platform-bootstrap          active-hot-standby   Ready     4h35m
+shared-data         shared-pg-b           bp-postgres    0.2.12    platform-bootstrap          active-hot-standby   Ready     4h35m
+shared-data         shared-pg-c           bp-postgres    0.2.12    platform-bootstrap          active-hot-standby   Ready     4h35m

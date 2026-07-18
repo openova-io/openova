@@ -1,0 +1,8 @@
+{
+  "applied": false,
+  "detail": "blueprint bp-nonexistent-mcp-probe@0.0.0 is not in the catalog",
+  "error": "blueprint-not-found",
+  "httpStatus": 404,
+  "kind": "Application",
+  "status": "404"
+}
