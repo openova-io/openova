@@ -9,8 +9,11 @@
 # tool forwards the CALLER's bearer to the live catalyst-api, whose own
 # authz is the final word — the pod carries ZERO k8s RBAC and no token
 # mount. Per-Org (organization-mode) instances are NOT this slot: they
-# arrive via the org pipeline (follow-up on #5114); today the per-Org
-# path is the agenity-bundled stdio child (products/agenity).
+# install standalone via the SAME per-Org Application-CR door bp-agenity's
+# embedded stdio child already uses (POST /applications / the
+# create-instance seed path — products/catalyst/bootstrap/api/internal/
+# handler/application_parameters.go stampOpenovaMCPOrgParameters, #5206),
+# not an automatic Org-create-time trigger.
 #
 # Slot 13d — the catalyst-platform cohort (13 umbrella / 13b sso-bridge /
 # 13c oidc-gate): the facade is meaningless before catalyst-api exists,
@@ -91,6 +94,13 @@ spec:
   chart:
     spec:
       chart: bp-openova-mcp
+      # 0.1.5 (#5206): appVersion 0.2.5 — this Sovereign-mode instance's
+      # internal/identity resolver now REJECTS an Org-scoped caller instead
+      # of silently relabelling its context to Sovereign (the live hw270
+      # org-scoped-forbidden symptom — an Org-admin token had nowhere else
+      # to go before the #5206 per-Org install door existed). Values
+      # unchanged: mode=sovereign here still pins full Sovereign scope for
+      # genuine sovereign-admin bearers.
       # 0.1.2 (#5114 hw258 CHAIN-BLOCKER): appVersion 0.2.2 — the binary
       # degrades instead of CrashLooping when verify=rs256 but the OPTIONAL
       # pubkey Secret is absent/unparseable. On a Sovereign the PEM Secret
@@ -110,7 +120,7 @@ spec:
       # zero-RBAC ServiceAccount + Cilium ingress/egress CNPs. Lockstep:
       # products/openova-mcp/chart/Chart.yaml + blueprint.yaml +
       # catalog-seed (blueprints.json).
-      version: 0.1.4
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-openova-mcp

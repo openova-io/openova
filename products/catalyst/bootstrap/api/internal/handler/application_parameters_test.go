@@ -528,3 +528,159 @@ func TestDefaultedParameters_AgenityExplicitGateHostWins(t *testing.T) {
 		t.Fatalf("explicit gate host must win, got %#v", hosts)
 	}
 }
+
+// ── #5206 gap 2: a standalone per-Org bp-openova-mcp install rides the SAME
+//    Application-CR install door bp-agenity's embedded stdio child already
+//    uses. Mirrors the stampAgenity* test shape field-for-field. ──────────
+
+func TestDefaultedParameters_OpenovaMCPNoValues_StampsOrgMode(t *testing.T) {
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", nil)
+	if got["mode"] != "organization" {
+		t.Fatalf("openova-mcp org install must stamp mode=organization, got %#v", got["mode"])
+	}
+	if got["sovereignFqdn"] != "hw220.omani.works" {
+		t.Fatalf("openova-mcp org install must stamp sovereignFqdn, got %#v", got["sovereignFqdn"])
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPExplicitModeWins(t *testing.T) {
+	explicit := map[string]interface{}{"mode": "sovereign"}
+	got := defaultedParameters("openova-mcp", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", explicit)
+	if got["mode"] != "sovereign" {
+		t.Fatalf("a caller-pinned mode must NOT be overwritten, got %#v", got["mode"])
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPStampsOrgTenantHost(t *testing.T) {
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", nil)
+	org, ok := got["organization"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("openova-mcp parameters missing organization block: %#v", got)
+	}
+	if org["tenantHost"] != "console.nstar.omani.homes" {
+		t.Fatalf("organization.tenantHost = %v, want console.nstar.omani.homes (the ORG console host)", org["tenantHost"])
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPEmptyOrgConsoleHost_NoTenantHostStamp(t *testing.T) {
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar", "", nil)
+	if _, present := got["organization"]; present {
+		t.Fatalf("empty orgConsoleHost must NOT stamp organization.tenantHost, got %#v", got["organization"])
+	}
+	// mode + sovereignFqdn stamp independently of tenantHost resolution.
+	if got["mode"] != "organization" || got["sovereignFqdn"] != "hw220.omani.works" {
+		t.Fatalf("mode/sovereignFqdn must still stamp when orgConsoleHost is empty, got %#v", got)
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPStampsGateHostAndConsoleGateway(t *testing.T) {
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", nil)
+	hr, ok := got["httpRoute"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected httpRoute block, got %#v", got["httpRoute"])
+	}
+	hosts, ok := hr["hostnames"].([]interface{})
+	if !ok || len(hosts) != 1 || hosts[0] != "mcp.nstar.omani.homes" {
+		t.Fatalf("gate host = %#v, want [mcp.nstar.omani.homes] (the per-Org host, not mcp.hw220.omani.works)", hr["hostnames"])
+	}
+	parentRef, ok := hr["parentRef"].(map[string]interface{})
+	if !ok || parentRef["name"] != "cilium-gateway-console" {
+		t.Fatalf("httpRoute.parentRef.name = %v, want cilium-gateway-console (the chart default cilium-gateway is the Sovereign-wide gateway)", hr["parentRef"])
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPGateHostEmptyOrgConsole_NoStamp(t *testing.T) {
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar", "", nil)
+	if _, present := got["httpRoute"]; present {
+		t.Fatalf("no gate host/parentRef must be stamped when orgConsoleHost is empty, got %#v", got["httpRoute"])
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPExplicitHostnamesStillGetsParentRef(t *testing.T) {
+	// A caller-pinned hostnames list must be preserved verbatim, but the
+	// console-gateway parentRef correction still lands independently (the
+	// chart default parentRef is the Sovereign-wide gateway either way).
+	explicit := map[string]interface{}{
+		"httpRoute": map[string]interface{}{"hostnames": []interface{}{"mcp.custom.example"}},
+	}
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", explicit)
+	hr := got["httpRoute"].(map[string]interface{})
+	hosts := hr["hostnames"].([]interface{})
+	if hosts[0] != "mcp.custom.example" {
+		t.Fatalf("explicit gate host must win, got %#v", hosts)
+	}
+	parentRef := hr["parentRef"].(map[string]interface{})
+	if parentRef["name"] != "cilium-gateway-console" {
+		t.Fatalf("parentRef must still stamp even with an explicit hostnames list, got %#v", parentRef)
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPStampsRS256PubkeySecret(t *testing.T) {
+	// FQDN-form org ref must collapse to the leading DNS label, matching the
+	// SAME agenity-mcp-bearer Secret the embedded stdio child consumes.
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar.omani.homes", "console.nstar.omani.homes", nil)
+	auth, ok := got["auth"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("openova-mcp parameters missing auth block: %#v", got)
+	}
+	pk, ok := auth["rs256PubkeySecret"].(map[string]interface{})
+	if !ok || pk["name"] != agenityMCPBearerSecretName || pk["key"] != "pubkeyPem" {
+		t.Fatalf("auth.rs256PubkeySecret must point at %q/pubkeyPem, got %#v", agenityMCPBearerSecretName, auth["rs256PubkeySecret"])
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPEmptyOrgSlug_NoBearerStamp(t *testing.T) {
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "", "console.nstar.omani.homes", nil)
+	if _, ok := got["auth"]; ok {
+		t.Fatalf("empty org slug must NOT stamp auth.rs256PubkeySecret, got %#v", got["auth"])
+	}
+}
+
+func TestDefaultedParameters_OpenovaMCPExplicitPubkeySecretWins(t *testing.T) {
+	explicit := map[string]interface{}{
+		"auth": map[string]interface{}{"rs256PubkeySecret": map[string]interface{}{"name": "pinned-secret", "key": "pubkeyPem"}},
+	}
+	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", explicit)
+	auth := got["auth"].(map[string]interface{})
+	pk := auth["rs256PubkeySecret"].(map[string]interface{})
+	if pk["name"] != "pinned-secret" {
+		t.Fatalf("a caller-pinned auth.rs256PubkeySecret must NOT be overwritten, got %#v", pk)
+	}
+}
+
+func TestDefaultedParameters_NonOpenovaMCP_NoStamps(t *testing.T) {
+	got := defaultedParameters("bp-agenity", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", nil)
+	if got["mode"] != nil {
+		t.Fatalf("non-openova-mcp Blueprint must NOT get the mode stamp, got %#v", got["mode"])
+	}
+}
+
+func TestNewApplicationUnstructured_OpenovaMCP_StampsOrgParameters(t *testing.T) {
+	req := applicationInstallRequest{
+		BlueprintRef:    applicationBlueprintRef{Name: "bp-openova-mcp", Version: "0.1.4"},
+		Name:            "openova-mcp",
+		OrganizationRef: "nstar.omani.homes",
+		EnvironmentRef:  "nstar-prod",
+		Placement:       applicationPlacement{Mode: "singleton", Regions: []string{"primary"}},
+	}
+	obj := newApplicationUnstructured(req, "hw220.omani.works", "console.nstar.omani.homes")
+	params, found, _ := unstructured.NestedMap(obj.Object, "spec", "parameters")
+	if !found || params == nil {
+		t.Fatalf("spec.parameters absent/nil for openova-mcp install")
+	}
+	if params["mode"] != "organization" {
+		t.Fatalf("openova-mcp Application CR must carry spec.parameters.mode=organization, got %#v", params)
+	}
+	if params["sovereignFqdn"] != "hw220.omani.works" {
+		t.Fatalf("openova-mcp Application CR must carry spec.parameters.sovereignFqdn, got %#v", params)
+	}
+	org := params["organization"].(map[string]interface{})
+	if org["tenantHost"] != "console.nstar.omani.homes" {
+		t.Fatalf("organization.tenantHost = %v, want console.nstar.omani.homes", org["tenantHost"])
+	}
+	hr := params["httpRoute"].(map[string]interface{})
+	hosts := hr["hostnames"].([]interface{})
+	if hosts[0] != "mcp.nstar.omani.homes" {
+		t.Fatalf("httpRoute.hostnames = %v, want [mcp.nstar.omani.homes]", hosts)
+	}
+}

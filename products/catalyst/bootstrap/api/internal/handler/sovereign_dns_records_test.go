@@ -52,6 +52,7 @@ func TestCanonicalSovereignSubdomainsCoversBrowserFacingApps(t *testing.T) {
 		"openova-flow", // bp-openova-flow-server
 		"newapi",       // bp-newapi (LLM gateway) — #3263 row 6
 		"sandbox",      // bp-sandbox per-Sandbox pty-server
+		"mcp",          // bp-openova-mcp sovereign-mode instance — #5206
 	}
 
 	for _, sub := range want {

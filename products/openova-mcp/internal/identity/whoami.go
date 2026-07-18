@@ -80,6 +80,13 @@ func (r *Resolver) FromWhoami(w WhoamiIdentity, rawBearer string) (*Identity, er
 		if r.pinnedCtx == ContextOrganization && id.OrgID == "" {
 			return nil, errors.New("identity: per-Org MCP requires an org-scoped session (no org in whoami)")
 		}
+		// #5206: the symmetric guard (see fromClaims) — a Sovereign-mode
+		// instance must never relabel an org-scoped whoami verdict as
+		// Sovereign; that misroutes the caller at the Sovereign-wide
+		// catalyst-api seam instead of rejecting cleanly up front.
+		if r.pinnedCtx == ContextSovereign && id.Context == ContextOrganization {
+			return nil, fmt.Errorf("identity: this Sovereign-mode MCP instance requires a sovereign-admin whoami verdict; catalyst-api resolved the caller to organization %q — use that Organization's own MCP instance instead", id.OrgID)
+		}
 		id.Context = r.pinnedCtx
 	}
 	if id.Context == ContextOrganization && id.OrgID == "" {

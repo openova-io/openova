@@ -25,7 +25,7 @@
 // What this writes:
 //   For every CanonicalSovereignSubdomain (console / auth / gitea /
 //   harbor / bao / grafana / hubble / pdns / pdns-admin / openova-flow /
-//   marketplace / api / registry / guacamole / newapi / sandbox) an A record
+//   marketplace / api / registry / guacamole / newapi / sandbox / mcp) an A record
 //     <sub>.<sovereign-fqdn>. → <primary-lb-ipv4>
 //   in the parent zone. PATCH REPLACE — idempotent re-runs are safe.
 
@@ -48,6 +48,8 @@ import (
 //   - platform/catalyst-platform/chart/templates/*.yaml
 //   - platform/bp-keycloak / bp-gitea / bp-harbor / bp-openbao / bp-grafana /
 //     bp-pdns / bp-openova-flow-server / bp-guacamole / bp-newapi (HTTPRoute hostnames)
+//   - products/openova-mcp/chart/templates/httproute.yaml (bp-openova-mcp,
+//     sovereign-mode host mcp.<sov-fqdn> — #5206)
 //
 // Operator-overridable via CATALYST_SOVEREIGN_SUBDOMAINS (comma-separated)
 // for the rare case where the Sovereign exposes a custom subset.
@@ -91,6 +93,19 @@ var CanonicalSovereignSubdomains = []string{
 	// reach the URL even though the Gateway listener + HTTPRoute exist).
 	// Matches the cilium-gateway-cert.yaml SAN list (sandbox.<sov-fqdn>).
 	"sandbox",
+	// mcp — public URL for the Sovereign-mode OpenOva MCP server
+	// (bp-openova-mcp, bootstrap-kit slot 13d, host mcp.${SOVEREIGN_FQDN}
+	// per clusters/_template/bootstrap-kit/13d-bp-openova-mcp.yaml). The
+	// chart renders an Accepted=True HTTPRoute on the shared cilium-gateway
+	// (products/openova-mcp/chart/templates/httproute.yaml) but — same
+	// #3263/#3225 gap class — that alone never resolves publicly: only the
+	// prefixes in THIS allowlist get an A record in the parent zone. Caught
+	// live on hw270 (2026-07-18): `dig mcp.hw270.omantel.biz` returned empty
+	// for 3h+ while every sibling (registry/gitea/console) resolved, even
+	// though the HTTPRoute was Accepted and the backend healthy — blocking
+	// the entire Pillar-4 Org→MCP north star (#5206). Wildcard TLS
+	// (*.<fqdn>) already covers it; no cert/SAN change needed.
+	"mcp",
 }
 
 // ConsoleGatewaySubdomains — the subset of CanonicalSovereignSubdomains whose
