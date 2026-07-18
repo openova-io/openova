@@ -84,6 +84,40 @@ HOW IT DECIDES (region-B-local signals + a POSITIVE region-A probe)
    diverged (left the source timeline), and once promoted it latches
    (suspend) so it can neither re-demote nor re-promote (#5178).
 
+STEADY-STATE ARM GATE + TIMELINE-DIVERGENCE SURFACING (#5220)
+------------------------------------------------------------
+hw273 G12 exposed a FALSE-POSITIVE promotion: on a fresh, still-
+converging pair the primary restart-stormed (clean exit 0 ×5) and the
+cross-region WAL stream + region-b→region-a mesh reach both dropped for
+>120s while region-A stayed ALIVE on timeline 1. Every liveness signal
+the promoter has (the cnpg WAL stream, the pg_isready of `-primary-mesh`)
+rides the SAME region-b→region-a datapath, so a link flap is
+indistinguishable from a real death over that link — the pg_isready gate
+alone could not veto it. The #5178 startup grace (a fixed timer from pod
+start) did not help either: the restart-storm hit AFTER the grace window.
+
+(A) ARM GATE — the promoter is INELIGIBLE to promote until the signals
+    container has OBSERVED region-b's replica actively STREAMING from
+    region-A (walreceiver status=streaming) CONTINUOUSLY for
+    `steadyStateArmSeconds`. Until that steady-state is reached the actor
+    REFUSES every promote (a region-A-down signal before the first stable
+    stream is a convergence-time transient, never a real kill). Once
+    armed it STAYS armed for the pod's life — a real death AFTER
+    steady-state promotes normally. This kills the hw273 class at the
+    source: a pair that never streamed cannot promote.
+(B) TIMELINE-DIVERGENCE SURFACING — a standby that can NEVER re-stream
+    from a REACHABLE region-A (it left the source timeline in a prior
+    promotion: "highest timeline N of the primary is behind recovery
+    timeline N+1") is recorded ONCE on the HR (dr-timeline-diverged-at)
+    and logged loudly, so the wedge is DIAGNOSED + monitored instead of a
+    silent FATAL loop. The re-clone stays the operator's RUNBOOKS §6.1
+    action (NON-destructive here): a 2-node actor cannot prove WHICH side
+    is authoritative, so auto-destroying region-b's PGDATA could lose a
+    real survivor's committed writes — a worse failure than the wedge.
+    #5219's durable suspend latch is UNCHANGED — with (A) the promoter
+    only ever latches a promotion decided AFTER steady-state, so it can
+    no longer cement a convergence-time false positive.
+
 ANTI-SPLIT-BRAIN — why acting on a region-local signal is data-safe
 -------------------------------------------------------------------
 The pair runs synchronous replication (remote_apply + FIRST 1 pinned
@@ -123,6 +157,13 @@ tracked on #5137.)
 {{- $startupGrace := $ap.startupGraceSeconds | default 300 }}
 {{- $probeTimeout := $ap.livenessProbeTimeoutSeconds | default 5 }}
 {{- $renderWait := $ap.promoteRenderWaitSeconds | default 90 }}
+{{- /* #5220 (A) — the continuous-streaming steady-state the signals container
+       must OBSERVE before the actor is EVER eligible to promote (kills the
+       hw273 convergence-time false positive). #5220 (B) — how long a standby
+       must be unable to re-stream from a REACHABLE region-A before the wedge
+       is flagged as a timeline divergence. */ -}}
+{{- $armSeconds := $ap.steadyStateArmSeconds | default 180 }}
+{{- $tlDivergeHold := $ap.timelineDivergenceHoldSeconds | default 300 }}
 {{- $peerClusters := .Values.cnpgPair.networkPolicy.crossRegionPeerClusters | default list }}
 {{- /* #5178 — the region-A liveness gate is meaningful ONLY when the mesh
        egress to region-A can actually be wired: clusterMesh on AND at least
@@ -363,12 +404,46 @@ spec:
                 if [ -f /shared/primary-wal-down-since ]; then
                   echo "$(date -u +"%FT%TZ") [dr-promoter/signals] $1 — hold clock cleared"
                 fi
-                rm -f /shared/primary-wal-down-since
+                # Clears the promote clock AND (#5220 B) the replication-fault /
+                # timeline-divergence markers — any state that reaches a normal
+                # clock-clear (streaming/receiving/promoted/unknown/real-kill
+                # arming/grace) means the pair is NOT in the persistent
+                # can't-re-stream wedge, so a resolved wedge fully resets.
+                rm -f /shared/primary-wal-down-since /shared/replication-fault-since /shared/timeline-diverged /shared/timeline-diverged-recorded
               }
               while true; do
                 : > /shared/signals-alive
                 STATE=$(psql "${CONN}" -tAXc "${Q}" 2>/dev/null || echo "unknown")
                 NOW=$(date -u +%s)
+                # ── #5220 (A) — steady-state ARM gate ──────────────────────
+                # The promoter must OBSERVE the pair reach a stable STREAMING
+                # steady-state before ANY region-A-death is believable. A
+                # convergence-time transient — a primary restart-storm, or a
+                # replica that has not streamed even once (the hw273 #5220
+                # false positive) — must never arm the promoter → never
+                # promote. Once armed it STAYS armed for the pod's life (a real
+                # death AFTER steady-state promotes normally); a brief
+                # non-streaming blip only RESTARTS the arm window, never
+                # un-arms. Runs every tick, independent of the startup grace
+                # (streaming observed during the grace window still counts).
+                if [ "${STATE}" = "streaming" ]; then
+                  if [ ! -f /shared/armed ]; then
+                    if [ ! -f /shared/streaming-since ]; then
+                      echo "${NOW}" > /shared/streaming-since
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/signals] first stable stream observed — arm window ${STEADY_STATE_ARM_SECONDS}s started; promoter stays DISARMED until continuous streaming holds (#5220)"
+                    else
+                      SSINCE=$(cat /shared/streaming-since 2>/dev/null || echo "${NOW}")
+                      if [ "$((NOW - SSINCE))" -ge "${STEADY_STATE_ARM_SECONDS}" ]; then
+                        : > /shared/armed
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/signals] ARMED — streaming steady-state held $((NOW - SSINCE))s (>=${STEADY_STATE_ARM_SECONDS}s); region-A-death detection is now live (#5220)"
+                      fi
+                    fi
+                  fi
+                else
+                  # Any non-streaming state breaks the continuity requirement
+                  # → restart the arm window. NEVER un-arms once armed.
+                  rm -f /shared/streaming-since
+                fi
                 # STARTUP GRACE — a fresh replica still doing its first
                 # catchup must never arm the clock (#5178).
                 if [ "$((NOW - STARTED))" -lt "${STARTUP_GRACE_SECONDS}" ]; then
@@ -395,7 +470,27 @@ spec:
                     if [ "${PRIMARY_LIVENESS_ENABLED}" != "true" ]; then
                       clear_clock "state=noreceiver but NO region-A liveness path (clusterMesh off / crossRegionPeerClusters empty) — auto-promote inert, fail-safe"
                     elif pg_isready -h "${PRIMARY_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q; then
-                      clear_clock "state=noreceiver but region-A REACHABLE (pg_isready ok @ ${PRIMARY_MESH_HOST}) — replication fault, NOT a region kill; holding (data safety)"
+                      # region-A REACHABLE + local WAL absent ⇒ replication
+                      # fault, NOT a region kill. Clear the PROMOTE clock, but
+                      # (#5220 B) TRACK how long this fault persists: a standby
+                      # that can NEVER re-stream from a reachable region-A is
+                      # the timeline-divergence wedge (region-B left the source
+                      # timeline in a prior promotion and can never stream from
+                      # the lower-TL source). Do NOT call clear_clock here — it
+                      # would wipe the fault clock we are trying to accrue.
+                      if [ -f /shared/primary-wal-down-since ]; then
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/signals] state=noreceiver but region-A REACHABLE — replication fault, NOT a region kill; hold clock cleared"
+                      fi
+                      rm -f /shared/primary-wal-down-since
+                      if [ ! -f /shared/replication-fault-since ]; then
+                        echo "${NOW}" > /shared/replication-fault-since
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/signals] state=noreceiver but region-A REACHABLE (pg_isready ok @ ${PRIMARY_MESH_HOST}) — replication fault (data safety: NOT promoting); tracking for timeline-divergence (#5220)"
+                      fi
+                      FSINCE=$(cat /shared/replication-fault-since 2>/dev/null || echo "${NOW}")
+                      if [ "$((NOW - FSINCE))" -ge "${TL_DIVERGENCE_HOLD_SECONDS}" ] && [ ! -f /shared/timeline-diverged ]; then
+                        : > /shared/timeline-diverged
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/signals] TIMELINE-DIVERGENCE WEDGE: region-B has been unable to stream from a REACHABLE region-A for $((NOW - FSINCE))s (>=${TL_DIVERGENCE_HOLD_SECONDS}s) — the replica has left the source timeline and can never re-stream from the lower-TL source. Region-B must be RE-CLONED from region-A (RUNBOOKS §6.1); the actor records it on the HR (#5220)"
+                      fi
                     else
                       RC=$?
                       if [ "${RC}" -eq 2 ]; then
@@ -427,6 +522,11 @@ spec:
               value: {{ $startupGrace | quote }}
             - name: INTERVAL_SECONDS
               value: {{ $interval | quote }}
+            # #5220 (A) steady-state arm window + (B) timeline-divergence hold.
+            - name: STEADY_STATE_ARM_SECONDS
+              value: {{ $armSeconds | quote }}
+            - name: TL_DIVERGENCE_HOLD_SECONDS
+              value: {{ $tlDivergeHold | quote }}
           livenessProbe:
             exec:
               command:
@@ -531,6 +631,29 @@ spec:
                   REPLICA_ENABLED=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}' 2>/dev/null || echo "")
                   DIVERGED=""; [ -f /shared/diverged ] && DIVERGED="true"
 
+                  # #5220 (B) — TIMELINE-DIVERGENCE surfacing (non-destructive).
+                  # The signals container sets /shared/timeline-diverged when a
+                  # standby has been unable to re-stream from a REACHABLE
+                  # region-A for TL_DIVERGENCE_HOLD_SECONDS (it left the source
+                  # timeline in a prior promotion: "highest timeline N of the
+                  # primary is behind recovery timeline N+1"). Record it ONCE on
+                  # the HR so the wedge is DIAGNOSED + monitored instead of a
+                  # silent FATAL loop. Re-clone stays the operator's RUNBOOKS
+                  # §6.1 action: a 2-node actor cannot prove WHICH side is
+                  # authoritative, so auto-destroying region-B's PGDATA could
+                  # lose a real survivor's committed writes. Runs regardless of
+                  # suspend/promote state (a latched false promotion IS the
+                  # wedge the operator must un-stick). Uses the existing HR
+                  # get/patch RBAC — no new privileges.
+                  if [ -f /shared/timeline-diverged ] && [ ! -f /shared/timeline-diverged-recorded ]; then
+                    if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-timeline-diverged-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-timeline-diverged-action\":\"re-clone region-B from region-A per RUNBOOKS 6.1 — the replica left the source timeline and cannot re-stream (#5220)\"}}}" >/dev/null 2>&1; then
+                      : > /shared/timeline-diverged-recorded
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] TIMELINE-DIVERGENCE recorded on HR ${HR_NAMESPACE}/${HR_NAME} (dr-timeline-diverged-at) — region-B cannot re-stream from a reachable region-A; RE-CLONE region-B per RUNBOOKS 6.1 (#5220)"
+                    else
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] WARN: could not annotate HR with timeline-divergence (RBAC/conflict?) — wedge still logged by signals; retrying next tick (#5220)"
+                    fi
+                  fi
+
                   # 1. SELF-HEAL LATCH — keep an already-rendered promotion
                   #    durable. Fires on the post-promote tick AND re-freezes
                   #    the HR if anything ever un-suspends it. Both arms require
@@ -555,6 +678,21 @@ spec:
                   fi
 
                   # 3. PROMOTE decision (not promoted, not suspended).
+                  # #5220 ARM GATE — never promote until the pair has OBSERVED a
+                  # stable streaming steady-state (the signals container sets
+                  # /shared/armed after STEADY_STATE_ARM_SECONDS of continuous
+                  # streaming). A region-A-down signal BEFORE the first stable
+                  # stream is a convergence-time transient (the hw273 false
+                  # positive: primary restart-storm before the pair ever
+                  # streamed), NEVER a real kill. This is the primary #5220 fix:
+                  # a pair that never reached steady-state can never promote, so
+                  # #5219's suspend latch can never cement a false positive.
+                  if [ ! -f /shared/armed ]; then
+                    if [ -f /shared/primary-wal-down-since ]; then
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] REFUSING promote: region-A-down signal present but the DR pair never reached streaming steady-state (UNARMED) — convergence-time transient, not a real kill; holding (#5220)"
+                    fi
+                    exit 0
+                  fi
                   [ -f /shared/primary-wal-down-since ] || exit 0
                   DOWN_SINCE=$(cat /shared/primary-wal-down-since)
                   NOW=$(date -u +%s)
