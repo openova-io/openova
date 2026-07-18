@@ -940,16 +940,22 @@ imageRegistryPivot:
     - name: bp-continuum
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/62-bp-continuum.yaml
-    # #4892 (Refs #4885): the four charts formerly excluded above now honour
+    # #4892 (Refs #4885): the charts formerly excluded above now honour
     # global.imageRegistry, so their HRs pivot cleanly (no longer silent no-ops).
     # Each metadata.name matches the live HelmRelease the cutover patches, and
     # each slotFile carries the 6-space `global.imageRegistry: ''` seam.
+    # #5215: bp-huawei-evs-csi is DELIBERATELY NOT in this pivot list — pivoting
+    # its HR imageRegistry rolls the csi-evs-node DaemonSet, which drops the
+    # node-side NodeStage globalmount for already-attached EVS volumes → every
+    # EVS-backed pod that remounts hits `globalmount does not exist` (exit 32)
+    # and catalyst-api (2 RWO-EVS PVCs, also rolling in step-07) wedges
+    # ContainerCreating → the #4996 rollout-wait errors → cutover wedges. step-04's
+    # containerd certs.d rewrite ALREADY pivots its images to local WITHOUT a roll,
+    # so the pivot is redundant AND harmful. Enforced by excludeHelmReleases below
+    # (step-08 excludes the same driver for the identical reason — #5074).
     - name: bp-guacamole
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/52-bp-guacamole.yaml
-    - name: bp-huawei-evs-csi
-      namespace: flux-system
-      slotFile: clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml
     - name: bp-newapi
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/80-newapi.yaml
@@ -971,6 +977,24 @@ imageRegistryPivot:
     - name: bp-k8s-ws-proxy
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml
+
+  # #5215 — storage/CSI-driver HelmReleases that step-07 MUST NEVER pivot, even
+  # if an overlay (or a future edit) re-adds one to additionalHRs above. Deny
+  # wins over allow: the additionalHRs loop skips any HR whose name is listed
+  # here. Patching a CSI driver's global.imageRegistry rolls its node plugin
+  # (csi-evs-node DaemonSet); the rolled plugin loses the node-side NodeStage
+  # `globalmount` for already-attached EVS volumes, so any EVS-backed pod that
+  # remounts on that node fails `MountVolume.SetUp ... globalmount does not
+  # exist ... exit status 32`. catalyst-api (Recreate, 2 RWO-EVS PVCs) rolls in
+  # the SAME step-07 window and wedges ContainerCreating → the #4996 rollout
+  # wait errors → cutover wedges (live hw271, cutoverComplete never re-set after
+  # a re-fire). step-04's registry-pivot DaemonSet ALREADY rewrites the node
+  # containerd certs.d so the CSI images resolve to the local registry WITHOUT a
+  # roll, so the HR pivot is redundant AND harmful. This is the step-07 twin of
+  # step-08's CSI exclusion (#5074: never bounce the mechanism every stateful
+  # mount depends on). Auditable + overlay-extensible.
+  excludeHelmReleases:
+    - bp-huawei-evs-csi
 
   # #4973 #4975 #4961 — COMPREHENSIVE pod-spec image sweep (step-07 Phase 4).
   #
@@ -1002,6 +1026,24 @@ imageRegistryPivot:
     # Never sweep the cutover engine's own catalyst-api (step-07 pivots it via the
     # bp-catalyst-platform HR + env roll above). Substring match on workload name.
     excludeWorkloadSubstring: "catalyst-api"
+    # #5215 — storage/CSI-driver workloads ("<namespace>/<name>") the sweep MUST
+    # NEVER touch. Rewriting a CSI driver's pod-spec image rolls its node plugin
+    # (csi-evs-node DaemonSet), which drops the node-side NodeStage `globalmount`
+    # for already-attached EVS volumes → every EVS-backed pod that remounts on
+    # that node fails `globalmount does not exist` (exit 32) and catalyst-api (2
+    # RWO-EVS PVCs) wedges ContainerCreating → the #4996 rollout wait errors →
+    # cutover wedges (live hw271). This is the second step-07 vector that rolls
+    # the driver (the additionalHRs HR pivot is the first — see
+    # excludeHelmReleases above); both are closed for the same root cause. step-04's
+    # containerd certs.d rewrite already resolves the CSI images to local WITHOUT a
+    # roll, and step-08 excludes the same drivers by name (#5074) + never rolls a
+    # DaemonSet in an infra namespace (#5081 rule b). Covers Huawei EVS + Hetzner
+    # hcloud CSI (driver + controller); auditable + overlay-extensible.
+    excludeWorkloads:
+      - "huawei-evs-csi/csi-evs-node"
+      - "huawei-evs-csi/csi-evs-controller"
+      - "kube-system/hcloud-csi-node"
+      - "kube-system/hcloud-csi-controller"
     # Refuse to pivot a pod-spec image onto a ref the local Harbor does not yet
     # serve — leave it as-is so step-08's completeness gate names the REAL offender
     # instead of a sweep-induced ImagePullBackOff. Keep ON.

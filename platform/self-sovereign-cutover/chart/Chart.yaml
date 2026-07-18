@@ -1,5 +1,27 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.141 (#5215 Refs #4996 #5074 — step-07 must NOT roll the EVS/hcloud CSI
+# driver. Root-caused live on hw271 (cutoverComplete=true then re-fire wedge):
+# step-07 rolled the csi-evs-node DaemonSet via TWO vectors — (1) the
+# imageRegistryPivot.additionalHRs HR-pivot loop, which carried bp-huawei-evs-csi
+# (added #4892), so patching its spec.values.global.imageRegistry made Flux
+# Helm-upgrade the chart and roll the node plugin; (2) the Phase 4 pod-spec sweep
+# (sweep_workload_podspec_images), which discovers EVERY DaemonSet and rewrote
+# the csi-evs-node sidecar images, rolling it too. The rolled node plugin loses
+# the node-side NodeStage `globalmount` for already-attached EVS volumes, so any
+# EVS-backed pod that remounts on that node fails `MountVolume.SetUp ...
+# globalmount does not exist ... exit status 32`. catalyst-api (Recreate, 2
+# RWO-EVS PVCs) rolls in the SAME step-07 window → stuck ContainerCreating → the
+# #4996 rollout-wait errors → cutover wedges. step-04's registry-pivot DaemonSet
+# ALREADY rewrites node containerd certs.d so the CSI images resolve to the local
+# registry WITHOUT a roll, so both pivots are redundant AND harmful. FIX: two
+# values-driven exclude lists — imageRegistryPivot.excludeHelmReleases (default
+# [bp-huawei-evs-csi]) filters the additionalHRs loop; imageRegistryPivot.
+# podSpecSweep.excludeWorkloads (default the EVS + hcloud CSI driver/controller
+# "<ns>/<name>" set) filters the Phase 4 sweep. This is the step-07 twin of
+# step-08's CSI exclusion (#5074/#5081). No step-count / RBAC / deadline change
+# (still 11 steps). Contract Case 64 guards both vectors.)
+#
 # 0.1.140 (#5214 Refs #4557 #4558 #4661 — DURABLE close of the recurring
 # `secret "gitea-admin-secret" not found` wedge. Every cutover step Job that
 # reads the Gitea admin credential (06-helmrepository-patches,
@@ -2294,7 +2316,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.140
+version: 0.1.141
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

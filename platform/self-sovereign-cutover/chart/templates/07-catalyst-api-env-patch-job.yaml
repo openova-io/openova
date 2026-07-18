@@ -45,6 +45,18 @@ offline-mirror resolver step-03/04/08 share — no per-chart-helper /
 per-image allowlist to drift. Idempotent, presence-gated, fail-open,
 reversible (records pre-sweep images in a pod-template annotation).
 
+#5215 (Refs #4996 #5074): storage/CSI-driver workloads are the ONE class
+this step must NOT roll. Both the HR global.imageRegistry pivot loop
+(imageRegistryPivot.excludeHelmReleases) AND the Phase 4 pod-spec sweep
+(imageRegistryPivot.podSpecSweep.excludeWorkloads) now EXCLUDE the EVS/
+hcloud CSI drivers. Rolling csi-evs-node drops the node-side NodeStage
+`globalmount` for already-attached EVS volumes → catalyst-api (2 RWO-EVS
+PVCs, also rolling here) wedges ContainerCreating → the #4996 rollout
+wait errors → cutover wedges (live hw271). step-04's containerd certs.d
+rewrite already resolves the CSI images to local WITHOUT a roll, so the
+pivot is redundant AND harmful — step-08 excludes the same drivers for
+the identical reason (#5074).
+
 Phase 2 (pre-G61): kubectl set env CATALYST_GITOPS_REPO_URL pointing
 catalyst-api at the local Gitea mirror. Triggers another rolling
 restart (likely already in-flight from Phase 1's HR upgrade, but
@@ -170,6 +182,11 @@ data:
             value: {{ eq (toString .Values.imageRegistryPivot.podSpecSweep.enabled) "true" | quote }}
           - name: PODSPEC_SWEEP_EXCLUDE
             value: {{ .Values.imageRegistryPivot.podSpecSweep.excludeWorkloadSubstring | default "catalyst-api" | quote }}
+          # #5215 — "<ns>/<name>" storage/CSI-driver workloads the sweep MUST NOT
+          # roll (rolling csi-evs-node drops NodeStage globalmount for in-use EVS
+          # PVCs → catalyst-api wedges; step-04 containerd rewrite covers the pull).
+          - name: PODSPEC_SWEEP_EXCLUDE_WORKLOADS
+            value: {{ .Values.imageRegistryPivot.podSpecSweep.excludeWorkloads | default (list) | join " " | quote }}
           - name: PODSPEC_SWEEP_PRESENCE_GATE
             value: {{ eq (toString .Values.imageRegistryPivot.podSpecSweep.presenceGate) "true" | quote }}
           - name: LOCAL_REGISTRY_HOST
@@ -346,6 +363,23 @@ data:
                     # the bp-catalyst-platform HR + env roll below).
                     if [ -n "${PODSPEC_SWEEP_EXCLUDE:-}" ]; then
                       case "${_sw_name}" in *"${PODSPEC_SWEEP_EXCLUDE}"*) continue ;; esac
+                    fi
+                    # #5215 — never sweep a storage/CSI-driver workload. Rewriting
+                    # its pod-spec image rolls the driver Pod (csi-evs-node
+                    # DaemonSet), which drops the node-side NodeStage globalmount for
+                    # already-attached EVS volumes → every EVS-backed pod that
+                    # remounts on that node fails `globalmount does not exist` (exit
+                    # 32) and catalyst-api (RWO-EVS, also rolling in step-07) wedges.
+                    # step-04's containerd certs.d rewrite already resolves the CSI
+                    # images to local WITHOUT a roll; step-08 excludes the same
+                    # drivers (#5074). Exact "<ns>/<name>" match.
+                    _sw_skip=0
+                    for _sw_x in ${PODSPEC_SWEEP_EXCLUDE_WORKLOADS:-}; do
+                      if [ "${_sw_ns}/${_sw_name}" = "${_sw_x}" ]; then _sw_skip=1; break; fi
+                    done
+                    if [ "${_sw_skip}" = "1" ]; then
+                      echo "[catalyst-api-env-patch]     SKIP ${_sw_k} ${_sw_ns}/${_sw_name} (#5215 storage/CSI driver — a pod-spec-image roll drops NodeStage globalmount for in-use EVS volumes; step-04 containerd rewrite covers its pull)"
+                      continue
                     fi
                     sweep_one_workload "${_sw_k}" "${_sw_ns}" "${_sw_name}" || true
                   done
@@ -796,8 +830,17 @@ data:
                 "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
                 --overwrite || true
             }
+            # #5215 — storage/CSI-driver HelmReleases NEVER pivoted here (rolling a
+            # CSI driver rolls its csi-evs-node DaemonSet → drops NodeStage globalmount
+            # for in-use EVS PVCs → catalyst-api wedges; step-04 containerd rewrite
+            # covers their pull; step-08 excludes the same drivers #5074): {{ .Values.imageRegistryPivot.excludeHelmReleases | default (list) | join " " }}
+{{- $excludeHR := .Values.imageRegistryPivot.excludeHelmReleases | default (list) }}
 {{- range .Values.imageRegistryPivot.additionalHRs }}
+{{- if has .name $excludeHR }}
+            # #5215 SKIP HR pivot {{ .name }} (storage/CSI driver in imageRegistryPivot.excludeHelmReleases — rolling it breaks NodeStage globalmount)
+{{- else }}
             pivot_extra_hr {{ .name | quote }} {{ .namespace | quote }} {{ .slotFile | quote }}
+{{- end }}
 {{- end }}
 
             # G61 Phase 2 (was Step 07 pre-G61): set env on the
