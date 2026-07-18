@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T14:15:03Z` |
+| Last refreshed | `2026-07-18T14:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 26 |
 | Open DoD gates | 0 / 41 |
@@ -233,6 +233,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T14:18 | [#5219](https://github.com/openova-io/openova/pull/5219) | #5218 | fix(cnpg-pair): dr-promoter durable-suspend race — same-tick |
 | 2026-07-18T13:34 | [#5217](https://github.com/openova-io/openova/pull/5217) | #4996 | fix(cutover): step-07 must not roll the EVS/hcloud CSI drive |
 | 2026-07-18T13:09 | [#5216](https://github.com/openova-io/openova/pull/5216) | #5214 | fix(cutover): self-heal gitea-admin-secret at step execution |
 | 2026-07-18T09:12 | [#5211](https://github.com/openova-io/openova/pull/5211) | #5210 | fix(catalyst-api): refresh in-cluster SA token on 401 so pos |
@@ -262,7 +263,6 @@ flowchart LR
 | 2026-07-17T12:52 | [#5172](https://github.com/openova-io/openova/pull/5172) | #5123 | docs(session): hw265 fire-readiness gate (Refs #960) |
 | 2026-07-17T10:20 | [#5171](https://github.com/openova-io/openova/pull/5171) | #5137 | fix(cnpg-pair): region-B dr-promoter — automatic RPO=0 regio |
 | 2026-07-17T10:15 | [#5170](https://github.com/openova-io/openova/pull/5170) | #5123 | fix(catalyst): per-Org Apps grid lists funnel-purchased apps |
-| 2026-07-17T10:15 | [#5169](https://github.com/openova-io/openova/pull/5169) | #5167 | docs(evidence): hw264 MCP DEGRADED live probe — #5167 north- |
 
 ---
 
