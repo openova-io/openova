@@ -149,7 +149,19 @@ spec:
       # Healthy/lag=0 through the whole outage). Naming mirrors the
       # catalyst-api DR-panel projection (#4905). Pin moves in lockstep
       # (Inviolable Principle #13).
-      version: 0.1.10
+      # 0.1.11 (#5125 Defect-2): step-8 re-clone-on-divergence — on
+      # region-a resume the returning cnpg-pair half's walreceiver can
+      # crash-loop with "highest timeline N of the primary is behind
+      # recovery timeline N+1"; the per-CR reconcile loop now detects
+      # that exact divergence signature (standby un-Ready + TimelineID
+      # strictly ahead of the acting primary — never on a healthy
+      # rejoin or ordinary catch-up lag) and drives the proven manual
+      # heal (delete + re-create the diverged Cluster CR to force a
+      # pg_basebackup re-clone), bounded to 3 attempts with linear
+      # backoff, failing loud via a continuum-error audit + a False/
+      # RejoinRepairBounded condition rather than looping forever. Pin
+      # moves in lockstep (Inviolable Principle #13).
+      version: 0.1.11
       sourceRef:
         kind: HelmRepository
         name: bp-continuum

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -90,6 +91,21 @@ type Status struct {
 	// status is too old/partial to judge on this axis.
 	ReadyInstances    int
 	HasReadyInstances bool
+
+	// TimelineID is status.timelineID — the PostgreSQL timeline this
+	// Cluster is currently on. CNPG bumps it on every promotion
+	// (intra-Cluster failover, or a replica-cluster leaving recovery).
+	// Used by #5125 Defect-2 divergence detection (DetectDivergence):
+	// a standby (spec.replica.enabled=true) reporting a TimelineID
+	// STRICTLY GREATER than the CR currently acting as primary means
+	// its own recovery history has advanced past what the primary can
+	// serve — the structured form of the CNPG walreceiver crash-loop
+	// "highest timeline N of the primary is behind recovery timeline
+	// N+1". Zero/absent (HasTimelineID=false) means the field hasn't
+	// been populated yet (fresh CR, or a CNPG version/phase that
+	// hasn't surfaced it) — callers must never guess on absent data.
+	TimelineID    int
+	HasTimelineID bool
 }
 
 // StandbyAvailable reports whether the replica (standby) half of a
@@ -253,6 +269,55 @@ func (r *Reader) SetReplicaEnabled(ctx context.Context, namespace, name string, 
 	return nil
 }
 
+// RecloneCluster deletes then re-creates a CNPG Cluster CR from its own
+// captured spec/labels/annotations, forcing the CNPG operator to
+// re-bootstrap it from scratch (pg_basebackup) instead of trying to
+// resume streaming replication.
+//
+// This is the structured form of the #5125 Defect-2 proven manual heal
+// for a walreceiver stuck in timeline-divergence ("highest timeline N
+// of the primary is behind recovery timeline N+1"): "delete replica
+// Cluster CR + re-apply". Only spec + labels + annotations survive;
+// server-set metadata (resourceVersion, uid, creationTimestamp,
+// generation, managedFields, status) is stripped so the Create call is
+// accepted as a genuinely fresh object — CNPG then re-runs its normal
+// bootstrap reconcile, which re-clones via pg_basebackup.
+//
+// Idempotent: if the CR is already absent (e.g. a prior attempt's
+// Delete succeeded but the process crashed before Create), the missing
+// Get simply errors and the caller (Sequencer.CheckRejoin) surfaces it
+// as this attempt's failure — bounded-attempts + backoff (rejoin.go)
+// retries on the next cooldown window rather than looping tightly.
+func (r *Reader) RecloneCluster(ctx context.Context, namespace, name string) error {
+	if r == nil || r.Dyn == nil {
+		return errors.New("cnpg: nil Reader")
+	}
+	cr, err := r.Dyn.Resource(ClusterGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("cnpg: get for reclone: %w", err)
+	}
+
+	fresh := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	fresh.SetGroupVersionKind(cr.GroupVersionKind())
+	fresh.SetName(cr.GetName())
+	fresh.SetNamespace(cr.GetNamespace())
+	fresh.SetLabels(cr.GetLabels())
+	fresh.SetAnnotations(cr.GetAnnotations())
+	if spec, found, _ := unstructured.NestedMap(cr.Object, "spec"); found {
+		if err := unstructured.SetNestedMap(fresh.Object, spec, "spec"); err != nil {
+			return fmt.Errorf("cnpg: reclone: copy spec: %w", err)
+		}
+	}
+
+	if err := r.Dyn.Resource(ClusterGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("cnpg: delete for reclone: %w", err)
+	}
+	if _, err := r.Dyn.Resource(ClusterGVR).Namespace(namespace).Create(ctx, fresh, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("cnpg: recreate for reclone: %w", err)
+	}
+	return nil
+}
+
 // MaxLagSeconds returns the maximum lag observed across the listed
 // Clusters' Status. Clusters that aren't replicas (lag=0) are skipped
 // per the CNPG semantics.
@@ -297,6 +362,19 @@ func parseStatus(cr *unstructured.Unstructured) Status {
 			s.ReadyInstances, s.HasReadyInstances = n, true
 		case float64:
 			s.ReadyInstances, s.HasReadyInstances = int(n), true
+		}
+	}
+
+	// timelineID (#5125 Defect-2) — same tolerant int64/int/float64
+	// decoding as readyInstances above.
+	if v, found, _ := unstructured.NestedFieldNoCopy(cr.Object, "status", "timelineID"); found {
+		switch n := v.(type) {
+		case int64:
+			s.TimelineID, s.HasTimelineID = int(n), true
+		case int:
+			s.TimelineID, s.HasTimelineID = n, true
+		case float64:
+			s.TimelineID, s.HasTimelineID = int(n), true
 		}
 	}
 
