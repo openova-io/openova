@@ -907,7 +907,21 @@ spec:
       # proxy-xpkg endpoint (full pull-through + artifact-API durable assert,
       # FATAL on a miss); step-11 verifies the same durable presence before
       # every spec.package rewrite (fail-loud). Contract Case 65.
-      version: 0.1.142
+      # 0.1.143 (#5232 Refs #5226 #5204): the xpkg leg moves to DIGEST refs
+      # end-to-end. Live hw274: Harbor proxy-cache never records TAGS for
+      # pulled-through xpkg artifacts (tag-create 401s on proxy projects; a
+      # tag manifest GET records nothing either), so the 0.1.142 tag-based
+      # Phase A4 durable-verify deterministically FATAL'd at step-03 and a
+      # tag-based step-11 pivot ref would 404 post-severance. Step-03 now
+      # resolves each package's tag->digest from the pulled-through scratch
+      # manifest, verifies durability BY DIGEST via the artifact API, and
+      # persists the map in the self-sovereign-cutover-xpkg-digests
+      # ConfigMap; step-11 pivots spec.package to
+      # harbor.<fqdn>/proxy-xpkg/<path>@sha256:<digest> (verify-before-pivot
+      # + the already-pivoted branch + the Gitea YAML rewrite all
+      # digest-based; tag-form live pivots upgraded; DIGEST-MISS FATALs with
+      # the exact recovery). Contract Case 65 re-locked.
+      version: 0.1.143
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

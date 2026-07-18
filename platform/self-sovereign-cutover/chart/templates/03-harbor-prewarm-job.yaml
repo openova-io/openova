@@ -258,6 +258,19 @@ data:
             value: {{ .Values.crossplaneProviderPivot.registryPath | quote }}
           - name: XPKG_MOTHERSHIP_PROXY_PREFIX
             value: {{ .Values.crossplaneProviderPivot.mothershipProxyPrefix | quote }}
+          # #5232 (Refs #5226 #5204) — the tag->digest map Phase A4 records
+          # for step-11. Harbor proxy-cache NEVER records TAGS for
+          # pulled-through xpkg artifacts (manual tag-create 401s on proxy
+          # projects; a tag manifest GET serves the index but does not record
+          # the tag either — live hw274 dep d51a69f885872a81), so the step-11
+          # pivot ref must be DIGEST-addressed. Phase A4 resolves each
+          # package's digest at warm time (sha256 of the exact pulled-through
+          # manifest bytes) and persists it here; step-11 reads the SAME
+          # values-driven ConfigMap name (no drift).
+          - name: XPKG_DIGEST_CM
+            value: {{ .Values.prewarm.xpkgPackages.digestMapConfigMapName | quote }}
+          - name: RELEASE_NAMESPACE
+            value: {{ .Release.Namespace | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -1521,6 +1534,20 @@ data:
             # same fail-loud sovereignty contract as Phase A/A2. Step-11's
             # verify-before-pivot gate re-asserts this durable presence
             # immediately before each spec.package rewrite.
+            #
+            # #5232 (Refs #5226) — the durable verify + the step-11 pivot are
+            # DIGEST-addressed end-to-end. Live hw274 (dep d51a69f885872a81):
+            # Harbor proxy-cache NEVER records TAGS for pulled-through xpkg
+            # artifacts (manual tag-create 401s on proxy projects; a fresh
+            # tag manifest GET serves the OCI index but still records no tag
+            # — deterministic, not async lag), so the 0.1.142 tag-based
+            # artifact probe could never pass and a tag-based step-11 pivot
+            # ref would genuinely 404 post-severance. The artifact IS cached
+            # and queryable BY DIGEST. Phase A4 therefore resolves each
+            # package's tag->digest at warm time (sha256 of the exact
+            # pulled-through manifest bytes in the dir: scratch), verifies
+            # durability BY DIGEST, and persists the map in the
+            # XPKG_DIGEST_CM ConfigMap for step-11's digest pivot.
             xpkg_artifact_present() {
               # $1 = local path project/repo[:tag|@digest]; 0 when the local
               # Harbor DURABLY serves it (artifact API = Harbor CORE DB, never
@@ -1558,12 +1585,21 @@ data:
               # cold cache. A step re-run once crossplane lands warms the set.
               echo "[harbor-prewarm] Phase A4 SKIP — providers.pkg.crossplane.io CRD not installed yet (bp-crossplane not landed); packages warm on a later step re-run"
             else
-              echo "[harbor-prewarm] Phase A4: warm Crossplane xpkg provider packages through local ${XPKG_REGISTRY_PATH} (#5204)"
+              echo "[harbor-prewarm] Phase A4: warm Crossplane xpkg provider packages through local ${XPKG_REGISTRY_PATH} (#5204; digest-addressed durable verify #5232)"
               xpkg_target_host="harbor.${SOVEREIGN_FQDN}"
               xpkg_tsv=$(kubectl get providers.pkg.crossplane.io \
                 -o 'jsonpath={range .items[*]}{.metadata.name}{"\t"}{.spec.package}{"\n"}{end}' 2>/dev/null || true)
               xpkg_warm_dir=/tmp/xpkg-warm
               rm -rf "${xpkg_warm_dir}"; mkdir -p "${xpkg_warm_dir}"
+              # #5232 — the prior-run digest map (also the create-or-replace
+              # target below). A skip-if-present decision may ONLY key on a
+              # digest a PRIOR successful warm minted (full pull-through +
+              # durable verify): resolving a tag via a fresh manifest GET
+              # through the proxy would itself pull the manifest through and
+              # could record the artifact digest with COLD blobs — a
+              # durability hole. No prior digest -> full warm. Fail-closed.
+              xpkg_digest_map_json=$(kubectl get configmap "${XPKG_DIGEST_CM}" -n "${RELEASE_NAMESPACE}" -o json 2>/dev/null) || xpkg_digest_map_json='{}'
+              [ -n "${xpkg_digest_map_json}" ] || xpkg_digest_map_json='{}'
               printf '%s\n' "${xpkg_tsv}" | while IFS="$(printf '\t')" read -r _xw_name _xw_pkg; do
                 [ -z "${_xw_name}" ] && continue
                 [ -z "${_xw_pkg}" ] && continue
@@ -1594,12 +1630,36 @@ data:
                 esac
                 _xw_slug=$(printf '%s' "${_xw_lpath}" | tr -c 'A-Za-z0-9._-' '_')
                 : >"${xpkg_warm_dir}/${_xw_slug}.log"
-                # Idempotency: skip when the artifact is ALREADY durably cached
-                # (re-run / prior warm). Fail-closed — any probe miss warms.
-                if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] && xpkg_artifact_present "${_xw_lpath}"; then
-                  echo "[harbor-prewarm] Phase A4 skip ${_xw_pkg} -> ${_xw_lpath} (already durably cached)"
-                  printf '%s (present)' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.ok"
-                  continue
+                # #5232 — split the local path into repo-path + ref. A source
+                # ref that already carries a digest (#4955 normalized
+                # tag@digest -> digest-only) IS the authoritative digest.
+                _xw_repo_path="${_xw_lpath}"
+                _xw_digest=""
+                case "${_xw_lpath}" in
+                  *@sha256:*)
+                    _xw_digest="${_xw_lpath##*@}"; _xw_repo_path="${_xw_lpath%@*}"
+                    case "${_xw_repo_path##*/}" in *:*) _xw_repo_path="${_xw_repo_path%:*}" ;; esac ;;
+                  *)
+                    case "${_xw_lpath##*/}" in *:*) _xw_repo_path="${_xw_lpath%:*}" ;; esac ;;
+                esac
+                # Idempotency (#4994/#5232): skip ONLY when a digest is
+                # already authoritative (in-ref, or minted by a PRIOR
+                # successful warm) AND that digest is durably present. A TAG
+                # can never be probed: Harbor proxy-cache NEVER records tags
+                # for pulled-through xpkg artifacts (live hw274 — manual
+                # tag-create 401s on proxy projects; a tag manifest GET does
+                # not record either). Fail-closed — any miss warms.
+                if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ]; then
+                  _xw_skip_digest="${_xw_digest}"
+                  if [ -z "${_xw_skip_digest}" ]; then
+                    _xw_skip_digest=$(printf '%s' "${xpkg_digest_map_json}" | jq -r --arg k "${_xw_slug}" '.data[$k] // empty' 2>/dev/null) || _xw_skip_digest=""
+                  fi
+                  if [ -n "${_xw_skip_digest}" ] && xpkg_artifact_present "${_xw_repo_path}@${_xw_skip_digest}"; then
+                    echo "[harbor-prewarm] Phase A4 skip ${_xw_pkg} -> ${_xw_repo_path}@${_xw_skip_digest} (already durably cached by digest)"
+                    printf '%s' "${_xw_skip_digest}" > "${xpkg_warm_dir}/${_xw_slug}.digest"
+                    printf '%s@%s (present)' "${_xw_repo_path}" "${_xw_skip_digest}" > "${xpkg_warm_dir}/${_xw_slug}.ok"
+                    continue
+                  fi
                 fi
                 echo "[harbor-prewarm] Phase A4 warm ${_xw_pkg} -> ${HARBOR_HOST}/${_xw_lpath} (full pull-through; manifest + all blobs cache durably)"
                 _xw_attempt=1
@@ -1632,6 +1692,16 @@ data:
                   _xw_attempt=$((_xw_attempt+1))
                   [ "${_xw_attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
                 done
+                # #5232 — resolve the tag->digest from the pulled-through
+                # scratch BEFORE freeing it: the dir: transport's top-level
+                # manifest.json is the EXACT manifest(-list) bytes the proxy
+                # served, so its sha256 IS the digest Harbor records for the
+                # cached artifact (the same sha256-of-raw-bytes identity
+                # dest_already_current relies on, single-arch AND lists).
+                if [ "${_xw_rc}" -eq 0 ] && [ -z "${_xw_digest}" ]; then
+                  _xw_digest_hex=$(sha256sum "${xpkg_warm_dir}/${_xw_slug}.dir/manifest.json" 2>/dev/null | awk '{print $1}') || _xw_digest_hex=""
+                  if [ -n "${_xw_digest_hex}" ]; then _xw_digest="sha256:${_xw_digest_hex}"; fi
+                fi
                 # The dir: copy is a scratch side-effect — the durable payload
                 # is what Harbor cached on the way through. Free the emptyDir.
                 rm -rf "${xpkg_warm_dir}/${_xw_slug}.dir"
@@ -1640,19 +1710,29 @@ data:
                   echo "[harbor-prewarm] Phase A4 done ${_xw_lpath} (FAIL exit=${_xw_rc})"
                   continue
                 fi
-                # Durable-presence poll (Harbor records proxied artifacts
-                # ASYNC): bounded 12x10s before the fail-closed verdict.
+                if [ -z "${_xw_digest}" ]; then
+                  # Without a digest step-11 has NOTHING valid to pivot to (a
+                  # tag ref 404s post-severance — Harbor never records tags on
+                  # proxy projects, #5232) — fail LOUD while egress is open.
+                  printf '%s (pulled through but tag->digest resolution failed)' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.fail"
+                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the scratch manifest.json digest could not be computed — no digest to record for the step-11 pivot (#5232)"
+                  continue
+                fi
+                # Durable-presence poll BY DIGEST (#5232 — Harbor records
+                # proxied artifacts ASYNC and never records their tags):
+                # bounded 12x10s before the fail-closed verdict.
                 _xw_present=0
                 for _xw_i in $(seq 1 12); do
-                  if xpkg_artifact_present "${_xw_lpath}"; then _xw_present=1; break; fi
+                  if xpkg_artifact_present "${_xw_repo_path}@${_xw_digest}"; then _xw_present=1; break; fi
                   sleep 10
                 done
                 if [ "${_xw_present}" -eq 1 ]; then
-                  printf '%s' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.ok"
-                  echo "[harbor-prewarm] Phase A4 done ${_xw_lpath} (durably cached)"
+                  printf '%s' "${_xw_digest}" > "${xpkg_warm_dir}/${_xw_slug}.digest"
+                  printf '%s@%s' "${_xw_repo_path}" "${_xw_digest}" > "${xpkg_warm_dir}/${_xw_slug}.ok"
+                  echo "[harbor-prewarm] Phase A4 done ${_xw_repo_path}@${_xw_digest} (durably cached by digest)"
                 else
-                  printf '%s (pulled through but never durably recorded)' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.fail"
-                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the Harbor artifact API never recorded the artifact durably (120s poll) — proxy-cache persistence failed"
+                  printf '%s@%s (pulled through but never durably recorded)' "${_xw_repo_path}" "${_xw_digest}" > "${xpkg_warm_dir}/${_xw_slug}.fail"
+                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the Harbor artifact API never recorded ${_xw_digest} durably (120s poll) — proxy-cache persistence failed"
                 fi
               done
               xpkg_ok=0
@@ -1671,6 +1751,28 @@ data:
                 echo "[harbor-prewarm] Phase A4 FAIL $(cat "${f}")"
               done
               echo "[harbor-prewarm] Phase A4 complete: xpkg_ok=${xpkg_ok} xpkg_fail=${xpkg_fail}"
+              # #5232 — persist the tag->digest map for step-11 BEFORE the
+              # fail gate so partial progress is durable across a re-run.
+              # Create-or-replace: the enumerated live set fully re-emits
+              # every run (kubectl apply prunes keys absent from the render).
+              _xd_literals=""
+              _xd_count=0
+              for f in "${xpkg_warm_dir}"/*.digest; do
+                [ -e "${f}" ] || continue
+                _xd_literals="${_xd_literals} --from-literal=$(basename "${f}" .digest)=$(cat "${f}")"
+                _xd_count=$((_xd_count+1))
+              done
+              if [ "${_xd_count}" -gt 0 ]; then
+                if kubectl create configmap "${XPKG_DIGEST_CM}" -n "${RELEASE_NAMESPACE}" ${_xd_literals} \
+                    --dry-run=client -o json \
+                  | jq '.metadata.labels={"app.kubernetes.io/managed-by":"self-sovereign-cutover","bp.openova.io/cutover-step":"harbor-prewarm"}' \
+                  | kubectl apply -f - >/dev/null; then
+                  echo "[harbor-prewarm] Phase A4 recorded ${_xd_count} tag->digest entries in ConfigMap ${RELEASE_NAMESPACE}/${XPKG_DIGEST_CM} for the step-11 digest pivot (#5232)"
+                else
+                  echo "[harbor-prewarm] FATAL: failed to persist the xpkg tag->digest map to ConfigMap ${RELEASE_NAMESPACE}/${XPKG_DIGEST_CM} — step-11 cannot construct digest pivot refs without it (#5232)"
+                  exit 1
+                fi
+              fi
               if [ "${xpkg_fail}" -gt 0 ]; then
                 echo "[harbor-prewarm] FATAL: ${xpkg_fail} Crossplane xpkg package(s) failed to warm into local Harbor (named above) — step-11 would pivot Provider spec.package onto a ref the local registry cannot serve post-severance (#5204)"
                 exit 1

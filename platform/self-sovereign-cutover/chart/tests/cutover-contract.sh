@@ -2931,20 +2931,28 @@ fi
 if [ "$c64_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5215: step-07 excludes the CSI driver from BOTH the additionalHRs HR pivot [excludeHelmReleases] AND the Phase 4 pod-spec sweep [podSpecSweep.excludeWorkloads]; the exclusion renders auditably and is deny-wins against an overlay re-add)"
 
-# ── Case 65 (#5204, Refs #5209 #3379): Crossplane xpkg provider packages are
-# DURABLY warmed into the local Harbor proxy-xpkg project by step-03 Phase A4,
-# and step-11 pivots spec.package ONLY after verifying the artifact serves
+# ── Case 65 (#5204 + #5232, Refs #5209 #5226 #3379): Crossplane xpkg provider
+# packages are DURABLY warmed into the local Harbor proxy-xpkg project by
+# step-03 Phase A4 WITH a tag->digest resolution, and step-11 pivots
+# spec.package BY DIGEST only after verifying the digest artifact serves
 # locally (fail-loud) ─────────────────────────────────────────────────────────
-# Root cause (live hw270 dep b2f0a9b0585f6781): step-11 pivots
+# Root cause #5204 (live hw270 dep b2f0a9b0585f6781): step-11 pivots
 # Provider.spec.package to harbor.<fqdn>/proxy-xpkg/... and #5209 wired the
 # pull AUTH, but harbor-prewarm SKIPPED the xpkg packages entirely
 # (xpkg.upbound.io is in offlineMirror.excludedHosts, and `proxy-xpkg` is the
 # ONE project that stays a Harbor PROXY-CACHE — Harbor rejects pushes into a
 # proxy-cache project, so the Phase A skopeo-push route cannot serve it). On a
 # COLD cache the post-severance provider re-pull cannot resolve its package
-# descriptor from the local registry. This Case asserts the xpkg refs now
-# appear in the step-03 prewarm work (Phase A4 warm) + the step-11 gate.
-echo "[cutover-contract] Case 65: step-03 Phase A4 warms Crossplane xpkg provider packages into local proxy-xpkg + step-11 verifies durable local presence before each spec.package pivot (#5204)"
+# descriptor from the local registry.
+# Root cause #5232 (live hw274 dep d51a69f885872a81): Harbor proxy-cache NEVER
+# records TAGS for pulled-through xpkg artifacts (manual tag-create 401s on
+# proxy projects; a fresh tag manifest GET serves the OCI index but records no
+# tag — deterministic), so the #5204 tag-based durable-verify could never pass
+# (step-03 FATAL'd at pct=18) and a tag-based step-11 pivot ref would
+# genuinely 404 post-severance. The artifact IS cached + queryable BY DIGEST.
+# This Case asserts the warm + the digest resolution + the digest-addressed
+# durable verify + the digest-addressed pivot end-to-end.
+echo "[cutover-contract] Case 65: step-03 Phase A4 warms Crossplane xpkg provider packages into local proxy-xpkg with tag->digest resolution + step-11 pivots spec.package BY DIGEST after a digest-addressed durable verify (#5204 #5232)"
 [ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
 c65_fail=0
 # (a) step-03 enumerates the Provider package refs — the SAME set step-11
@@ -2980,6 +2988,34 @@ fi
 if ! grep -qF 'Crossplane xpkg package(s) failed to warm' "$TMP/s03pin.yaml"; then
   echo "FAIL: step-03 Phase A4 lost the xpkg_fail>0 FATAL — an unwarmed package would silently ship a cold cache into the step-11 pivot (#5204)" >&2; c65_fail=1
 fi
+# (d2) #5232: the tag->digest is resolved from the pulled-through dir: scratch
+#     (sha256 of the exact top-level manifest bytes IS the digest Harbor
+#     records), the durable poll probes BY DIGEST (tags are never recorded on
+#     proxy projects — hw274), a failed resolution FATALs, and the map is
+#     persisted to the XPKG_DIGEST_CM ConfigMap for step-11.
+if ! grep -qF 'sha256sum "${xpkg_warm_dir}/${_xw_slug}.dir/manifest.json"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 does not resolve the tag->digest from the pulled-through scratch manifest.json — step-11 has no digest to pivot by and a tag ref 404s post-severance (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'xpkg_artifact_present "${_xw_repo_path}@${_xw_digest}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 durable-presence poll is not DIGEST-addressed — a tag-based probe deterministically fails on proxy-cache artifacts (Harbor records no tags; live hw274) (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'tag->digest resolution failed' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 lost the FATAL on a failed tag->digest resolution — step-11 would have nothing valid to pivot to (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'kubectl create configmap "${XPKG_DIGEST_CM}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 does not persist the tag->digest map to the XPKG_DIGEST_CM ConfigMap — step-11 cannot construct digest pivot refs (#5232)" >&2; c65_fail=1
+fi
+# (d3) #5232: the skip-if-present branch keys ONLY on a digest a PRIOR
+#     successful warm minted (or an in-ref #4955 digest) — never on a fresh
+#     tag resolve through the proxy, which could record a manifest with COLD
+#     blobs (a durability hole).
+if ! grep -qF 'xpkg_artifact_present "${_xw_repo_path}@${_xw_skip_digest}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 skip-if-present is not keyed on a prior-minted digest — a tag-based (or fresh-resolve) skip either never fires or can false-skip on a cold-blob manifest record (#5232)" >&2; c65_fail=1
+fi
+# (d4) #5232: both steps project the SAME values-driven digest-map CM name.
+if ! grep -A1 'name: XPKG_DIGEST_CM' "$TMP/s03pin.yaml" | grep -q 'value: "self-sovereign-cutover-xpkg-digests"'; then
+  echo "FAIL: step-03 does not project XPKG_DIGEST_CM from prewarm.xpkgPackages.digestMapConfigMapName (#5232)" >&2; c65_fail=1
+fi
 # (e) xpkg.upbound.io STAYS excluded from the generic offline mirror — the
 #     Phase A push route targets push-mode projects and cannot serve the
 #     proxy-cache proxy-xpkg; Phase A4 is the dedicated leg.
@@ -2995,20 +3031,45 @@ helm template smoke-noxpkg . --show-only templates/03-harbor-prewarm-job.yaml --
 if ! grep -A1 'name: XPKG_PREWARM_ENABLED' "$TMP/r03_5204_off.yaml" | grep -q 'value: "false"'; then
   echo "FAIL: prewarm.xpkgPackages.enabled=false did not render XPKG_PREWARM_ENABLED=\"false\" — the operator override is not wired (#5204)" >&2; c65_fail=1
 fi
-# (g) step-11: the verify gate exists, fires BEFORE the patch AND on the
-#     already-pivoted SKIP branch, and a miss FATALs via the sentinel.
+# (g) step-11: the verify gate exists, is DIGEST-addressed, fires BEFORE the
+#     patch AND on the already-pivoted branch, the pivot ref itself is the
+#     digest form, a pre-#5232 tag-form local pivot is UPGRADED, and a
+#     missing digest / verify miss FATALs via the sentinel.
 helm template smoke . --show-only templates/11-crossplane-provider-pivot-job.yaml > "$TMP/r11_5204.yaml"
 if ! grep -qF 'verify_local_pkg_artifact()' "$TMP/r11_5204.yaml"; then
   echo "FAIL: step-11 lost the verify_local_pkg_artifact gate — spec.package can be pivoted onto a ref the local registry never durably serves (#5204)" >&2; c65_fail=1
 fi
-if ! grep -qF 'verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg_suffix}"' "$TMP/r11_5204.yaml"; then
-  echo "FAIL: step-11's Phase-1 patch branch does not invoke the verify gate BEFORE the spec.package rewrite (#5204)" >&2; c65_fail=1
+if ! grep -qF 'lookup_pkg_digest' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 lost the lookup into the step-03 tag->digest map — without it every pivot ref stays tag-form and 404s post-severance (#5232)" >&2; c65_fail=1
 fi
-if ! grep -qF 'verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg#${target_prefix}/}"' "$TMP/r11_5204.yaml"; then
-  echo "FAIL: step-11 does not re-verify an ALREADY-pivoted Provider — the hw270 latent shape (pivoted ref, cold cache) would pass silently (#5204)" >&2; c65_fail=1
+if ! grep -A1 'name: XPKG_DIGEST_CM' "$TMP/r11_5204.yaml" | grep -q 'value: "self-sovereign-cutover-xpkg-digests"'; then
+  echo "FAIL: step-11 does not project XPKG_DIGEST_CM from prewarm.xpkgPackages.digestMapConfigMapName — the two steps can drift onto different maps (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg_repo}@${pkg_digest}"' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11's Phase-1 patch branch does not verify BY DIGEST before the spec.package rewrite (#5204 #5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'new_pkg="${target_prefix}/${pkg_repo}@${pkg_digest}"' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11's pivot ref is not the digest form <target>/<path>@sha256:<digest> — a tag-form ref genuinely 404s post-severance (Harbor records no tags on proxy projects; live hw274) (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'verify_local_pkg_artifact "${REGISTRY_PATH}/${piv_repo}@${piv_digest}"' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 does not re-verify an ALREADY-pivoted Provider BY DIGEST — the hw270 latent shape (pivoted ref, cold cache) would pass silently (#5204 #5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'tag->digest upgrade' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 does not UPGRADE a pre-#5232 tag-form local pivot to the digest form — the 0.1.142-era live shape would keep a dead tag ref (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'DIGEST-MISS' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 lost the DIGEST-MISS fail-loud path — a missing tag->digest entry must FATAL naming the recovery, never silently pivot a tag ref (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'step.harbor-prewarm.result' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11's DIGEST-MISS recovery does not name the step-03 success-marker clear — the runCutover resume skips result=success steps, so a bare re-trigger alone would NOT re-run step-03 (#5232)" >&2; c65_fail=1
 fi
 if ! grep -qF '/tmp/xpkg-verify-failed' "$TMP/r11_5204.yaml" || ! grep -qF 'NOT durably served by the local Harbor' "$TMP/r11_5204.yaml"; then
   echo "FAIL: step-11 lost the fail-loud sentinel — a verify miss inside the pipeline-subshell loop must FATAL the step before the durable Gitea rewrite (#5204)" >&2; c65_fail=1
+fi
+# (g2) #5232: Phase 2's Gitea rewrite pushes the SAME digest form so the
+#     bootstrap-kit reconcile re-asserts (never reverts) the live patch.
+if ! grep -qF '_f_new="${target_prefix}/${_f_repo}@${_f_digest}"' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 Phase 2 does not rewrite the Gitea YAML package literal to the digest form — the bootstrap-kit reconcile would revert the live digest patch to a tag ref within minutes (#5232)" >&2; c65_fail=1
 fi
 if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204.yaml" | grep -q 'value: "true"'; then
   echo "FAIL: VERIFY_LOCAL_ARTIFACT does not default to \"true\" (crossplaneProviderPivot.verifyLocalArtifact.enabled) (#5204)" >&2; c65_fail=1
@@ -3018,6 +3079,6 @@ if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204_off.yaml" | grep -q '
   echo "FAIL: crossplaneProviderPivot.verifyLocalArtifact.enabled=false did not render VERIFY_LOCAL_ARTIFACT=\"false\" — the operator override is not wired (#5204)" >&2; c65_fail=1
 fi
 if [ "$c65_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#5204: step-03 Phase A4 enumerates the Provider spec.package set and warms each xpkg ref DURABLY through the local proxy-xpkg endpoint [pull-through — Harbor rejects pushes into a proxy-cache project] with an artifact-API durable assert + FATAL; step-11 verifies the same durable presence before every pivot AND on already-pivoted refs, failing loud via the sentinel; both toggles operator-wired; xpkg.upbound.io stays excluded from the generic push mirror)"
+echo "  PASS (#5204 #5232: step-03 Phase A4 enumerates the Provider spec.package set, warms each xpkg ref DURABLY through the local proxy-xpkg endpoint [pull-through — Harbor rejects pushes into a proxy-cache project], resolves the tag->digest from the pulled-through scratch manifest, asserts durability BY DIGEST via the artifact API [tags are never recorded on proxy projects — hw274], persists the map + FATALs on any miss; step-11 pivots spec.package BY the minted digest with digest-addressed verify-before-pivot, re-verifies already-pivoted refs by digest, upgrades tag-form live pivots, pushes the digest form to Gitea, and FATALs loud on DIGEST-MISS naming the exact recovery; both toggles operator-wired; xpkg.upbound.io stays excluded from the generic push mirror)"
 
 echo "[cutover-contract] All gates green."

@@ -52,14 +52,18 @@ Phase inventory
            for every Provider CR (cluster-scoped). Computes the new
            package literal by replacing the `xpkg.upbound.io` prefix
            with `harbor.<SOVEREIGN_FQDN>/proxy-xpkg` while preserving
-           the path + tag. Triggers an immediate Crossplane revision
-           reconcile so the new package is fetched within seconds.
-  Phase 2  Push YAML edit to local Gitea — sed-in-place every
-           `clusters/<sov>/infrastructure/provider-<name>.yaml` carrying the
-           literal `xpkg.upbound.io/...`. Without this phase, the
-           bootstrap-kit Kustomization reconcile (every ~1 min from
+           the path, and (#5232) replacing the TAG with the
+           `@sha256:<digest>` step-03 Phase A4 minted — Harbor
+           proxy-cache never records tags for pulled-through xpkg
+           artifacts, so only a digest ref serves post-severance.
+           Triggers an immediate Crossplane revision reconcile so the
+           new package is fetched within seconds.
+  Phase 2  Push YAML edit to local Gitea — rewrite every
+           `clusters/<sov>/infrastructure/provider-<name>.yaml` package
+           literal to the SAME digest form (#5232). Without this phase,
+           the bootstrap-kit Kustomization reconcile (every ~1 min from
            local Gitea) would silently revert Phase 1 back to the
-           upstream URL within minutes.
+           upstream URL (or a dead tag-form ref) within minutes.
 
 Idempotency
 ───────────
@@ -179,6 +183,18 @@ data:
             value: {{ .Values.crossplaneProviderPivot.packagePullAuth.pullSecretName | quote }}
           - name: IMAGE_CONFIG_NAME
             value: {{ .Values.crossplaneProviderPivot.packagePullAuth.imageConfigName | quote }}
+          # #5232 (Refs #5226 #5204) — the tag->digest map step-03 Phase A4
+          # minted (Harbor proxy-cache never records TAGS for pulled-through
+          # xpkg artifacts, so every pivot ref below is digest-addressed).
+          # SAME values-driven ConfigMap name as step-03 — no drift.
+          - name: XPKG_DIGEST_CM
+            value: {{ .Values.prewarm.xpkgPackages.digestMapConfigMapName | quote }}
+          - name: RELEASE_NAMESPACE
+            value: {{ .Release.Namespace | quote }}
+          # The cutover status ConfigMap — named in the DIGEST-MISS recovery
+          # message (clearing step.harbor-prewarm.result forces the re-warm).
+          - name: STATUS_CM
+            value: {{ .Values.status.configMapName | quote }}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
@@ -333,6 +349,47 @@ data:
             # a verify miss records here and the parent FATALs after the loop.
             rm -f /tmp/xpkg-verify-failed
 
+            # ---- #5232: digest-addressed pivot refs ----
+            #
+            # Harbor proxy-cache NEVER records TAGS for pulled-through xpkg
+            # artifacts (live hw274 dep d51a69f885872a81: manual tag-create
+            # 401s on proxy projects; a fresh tag manifest GET serves the OCI
+            # index but still records no tag — deterministic), so a tag-form
+            # local ref genuinely 404s post-severance. Every spec.package
+            # pivot below is therefore DIGEST-addressed:
+            #   registry-path preserved, tag replaced by @sha256:<digest>.
+            # Crossplane's package manager accepts digest refs: spec.package
+            # is an unrestricted string (pkg.crossplane.io_providers.yaml CRD)
+            # parsed by go-containerregistry name.ParseReference (crossplane
+            # v1.18.0 internal/controller/pkg/manager/revisioner.go), and the
+            # xpkg naming layer treats ":@" as the identifier delimiter set
+            # (internal/xpkg/name.go) — digest identifiers are first-class.
+            # The ONLY digest mint is step-03 Phase A4's full pull-through +
+            # durable verify; there is NO live re-resolve here (a fresh tag
+            # GET through the proxy could record a manifest with COLD blobs).
+            xpkg_digest_map_json=$(kubectl get configmap "${XPKG_DIGEST_CM}" -n "${RELEASE_NAMESPACE}" -o json 2>/dev/null) || xpkg_digest_map_json='{}'
+            [ -n "${xpkg_digest_map_json}" ] || xpkg_digest_map_json='{}'
+            lookup_pkg_digest() {
+              # $1 = local path project/repo[:tag]; echoes the sha256:<hex>
+              # step-03 Phase A4 minted for this exact ref, or empty on miss.
+              # SAME slug idiom as step-03 (tr -c 'A-Za-z0-9._-' '_').
+              _ld_slug=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')
+              printf '%s' "${xpkg_digest_map_json}" | jq -r --arg k "${_ld_slug}" '.data[$k] // empty' 2>/dev/null || true
+            }
+            # split_pkg_ref REF -> sets _sp_repo (path with no ref) and
+            # _sp_digest (sha256:<hex> when REF carries one, else empty).
+            # Handles tag, digest, and the #4955 tag@digest shapes.
+            split_pkg_ref() {
+              _sp_repo="$1"; _sp_digest=""
+              case "${_sp_repo}" in
+                *@sha256:*)
+                  _sp_digest="${_sp_repo##*@}"; _sp_repo="${_sp_repo%@*}"
+                  case "${_sp_repo##*/}" in *:*) _sp_repo="${_sp_repo%:*}" ;; esac ;;
+                *)
+                  case "${_sp_repo##*/}" in *:*) _sp_repo="${_sp_repo%:*}" ;; esac ;;
+              esac
+            }
+
             # ---- Phase 1: live K8s patch on every Provider CR ----
             #
             # `kubectl get providers.pkg.crossplane.io` is cluster-scoped
@@ -385,17 +442,32 @@ data:
 
                   case "${pkg}" in
                     "${upstream_prefix}/"* | "${MOTHERSHIP_PROXY_PREFIX}/"*)
-                      # Compute new spec.package by replacing the matched
-                      # host(+path) prefix with the Sovereign-local one.
+                      # Compute the DIGEST pivot ref (#5232): registry path
+                      # from the matched suffix + the digest step-03 minted
+                      # (or the digest the source ref itself carries, the
+                      # #4955 shape). A tag-form pivot ref is FORBIDDEN — it
+                      # 404s post-severance (Harbor records no tags on proxy
+                      # projects).
                       pkg_suffix="${pkg#${matched_prefix}/}"
-                      new_pkg="${target_prefix}/${pkg_suffix}"
-                      # #5204 verify-before-pivot: the local artifact MUST be
-                      # durably present BEFORE the rewrite (fail-loud).
-                      if ! verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg_suffix}"; then
-                        echo "[crossplane-provider-pivot] VERIFY-FAIL ${name}: local Harbor does not durably serve ${REGISTRY_PATH}/${pkg_suffix} — refusing to pivot spec.package onto a ref the local registry cannot serve post-severance (#5204; step-03 Phase A4 should have warmed it — re-trigger the cutover)" >&2
+                      split_pkg_ref "${pkg_suffix}"
+                      pkg_repo="${_sp_repo}"
+                      pkg_digest="${_sp_digest}"
+                      if [ -z "${pkg_digest}" ]; then
+                        pkg_digest=$(lookup_pkg_digest "${REGISTRY_PATH}/${pkg_suffix}")
+                      fi
+                      if [ -z "${pkg_digest}" ]; then
+                        echo "[crossplane-provider-pivot] DIGEST-MISS ${name}: no recorded tag->digest for ${REGISTRY_PATH}/${pkg_suffix} in ConfigMap ${RELEASE_NAMESPACE}/${XPKG_DIGEST_CM} — a tag-form pivot ref 404s post-severance (#5232). Force step-03 to re-warm+record: kubectl -n ${RELEASE_NAMESPACE} patch configmap ${STATUS_CM} --type merge -p '{\"data\":{\"step.harbor-prewarm.result\":\"\"}}' then re-trigger the cutover" >&2
                         touch /tmp/xpkg-verify-failed
                         continue
                       fi
+                      # #5204/#5232 verify-before-pivot BY DIGEST: the exact
+                      # artifact MUST be durably present BEFORE the rewrite.
+                      if ! verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg_repo}@${pkg_digest}"; then
+                        echo "[crossplane-provider-pivot] VERIFY-FAIL ${name}: local Harbor does not durably serve ${REGISTRY_PATH}/${pkg_repo}@${pkg_digest} — refusing to pivot spec.package onto a ref the local registry cannot serve post-severance (#5204 #5232; step-03 Phase A4 should have warmed it)" >&2
+                        touch /tmp/xpkg-verify-failed
+                        continue
+                      fi
+                      new_pkg="${target_prefix}/${pkg_repo}@${pkg_digest}"
                       echo "[crossplane-provider-pivot] PATCH ${name} ${pkg} -> ${new_pkg}"
                       # Merge-patch only spec.package — preserves every
                       # other spec field (revisionActivationPolicy,
@@ -409,15 +481,45 @@ data:
                       fi
                       ;;
                     "${target_prefix}/"*)
-                      # #5204: an ALREADY-pivoted Provider must ALSO durably
-                      # resolve locally — this is exactly the hw270 latent
-                      # shape (pivoted ref, cold cache). Fail-loud too.
-                      if ! verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg#${target_prefix}/}"; then
-                        echo "[crossplane-provider-pivot] VERIFY-FAIL ${name}: already pivoted to ${pkg} but the local Harbor does not durably serve ${REGISTRY_PATH}/${pkg#${target_prefix}/} (#5204; re-trigger the cutover so step-03 Phase A4 warms it)" >&2
-                        touch /tmp/xpkg-verify-failed
-                        continue
+                      piv_suffix="${pkg#${target_prefix}/}"
+                      split_pkg_ref "${piv_suffix}"
+                      piv_repo="${_sp_repo}"
+                      piv_digest="${_sp_digest}"
+                      if [ -n "${piv_digest}" ]; then
+                        # #5204/#5232: an ALREADY digest-pivoted Provider must
+                        # ALSO durably resolve locally — the hw270 latent
+                        # shape (pivoted ref, cold cache). Verify BY DIGEST.
+                        if ! verify_local_pkg_artifact "${REGISTRY_PATH}/${piv_repo}@${piv_digest}"; then
+                          echo "[crossplane-provider-pivot] VERIFY-FAIL ${name}: already pivoted to ${pkg} but the local Harbor does not durably serve ${REGISTRY_PATH}/${piv_repo}@${piv_digest} (#5204 #5232; re-warm via step-03 Phase A4)" >&2
+                          touch /tmp/xpkg-verify-failed
+                          continue
+                        fi
+                        echo "[crossplane-provider-pivot] SKIP ${name} (already digest-pivoted: ${pkg})"
+                      else
+                        # A TAG-form local pivot (the pre-#5232 0.1.142 shape)
+                        # genuinely 404s post-severance — UPGRADE it to the
+                        # digest form step-03 minted.
+                        piv_digest=$(lookup_pkg_digest "${REGISTRY_PATH}/${piv_suffix}")
+                        if [ -z "${piv_digest}" ]; then
+                          echo "[crossplane-provider-pivot] DIGEST-MISS ${name}: already pivoted to TAG-form ${pkg} but no recorded tag->digest for ${REGISTRY_PATH}/${piv_suffix} in ConfigMap ${RELEASE_NAMESPACE}/${XPKG_DIGEST_CM} (#5232). Force step-03 to re-warm+record: kubectl -n ${RELEASE_NAMESPACE} patch configmap ${STATUS_CM} --type merge -p '{\"data\":{\"step.harbor-prewarm.result\":\"\"}}' then re-trigger the cutover" >&2
+                          touch /tmp/xpkg-verify-failed
+                          continue
+                        fi
+                        if ! verify_local_pkg_artifact "${REGISTRY_PATH}/${piv_repo}@${piv_digest}"; then
+                          echo "[crossplane-provider-pivot] VERIFY-FAIL ${name}: local Harbor does not durably serve ${REGISTRY_PATH}/${piv_repo}@${piv_digest} — refusing the tag->digest upgrade (#5232)" >&2
+                          touch /tmp/xpkg-verify-failed
+                          continue
+                        fi
+                        new_pkg="${target_prefix}/${piv_repo}@${piv_digest}"
+                        echo "[crossplane-provider-pivot] PATCH ${name} ${pkg} -> ${new_pkg} (tag->digest upgrade, #5232)"
+                        patch_json=$(printf '{"spec":{"package":"%s"}}' "${new_pkg}")
+                        if kubectl patch provider.pkg.crossplane.io "${name}" \
+                            --type=merge --patch "${patch_json}" >/dev/null 2>&1; then
+                          echo "[crossplane-provider-pivot]   OK ${name}"
+                        else
+                          echo "[crossplane-provider-pivot]   FAIL ${name}" >&2
+                        fi
                       fi
-                      echo "[crossplane-provider-pivot] SKIP ${name} (already pivoted: ${pkg})"
                       ;;
                     *)
                       echo "[crossplane-provider-pivot] SKIP ${name} (package prefix not ${upstream_prefix}, ${MOTHERSHIP_PROXY_PREFIX}, or ${target_prefix}: ${pkg})"
@@ -432,7 +534,7 @@ data:
             # half-pivoted onto a ref the local registry cannot serve. The
             # live patches already applied are idempotent on the re-run.
             if [ -e /tmp/xpkg-verify-failed ]; then
-              echo "[crossplane-provider-pivot] FATAL: one or more Provider packages are NOT durably served by the local Harbor (VERIFY-FAIL lines above) — re-trigger the cutover so step-03 Phase A4 warms them (#5204)" >&2
+              echo "[crossplane-provider-pivot] FATAL: one or more Provider packages are NOT durably served by the local Harbor by digest (DIGEST-MISS / VERIFY-FAIL lines above) — nothing was durably rewritten. Recovery: clear the step-03 success marker so the re-trigger re-warms + re-records digests (kubectl -n ${RELEASE_NAMESPACE} patch configmap ${STATUS_CM} --type merge -p '{\"data\":{\"step.harbor-prewarm.result\":\"\"}}'), then re-trigger the cutover (#5204 #5232)" >&2
               exit 1
             fi
 
@@ -481,22 +583,58 @@ data:
             if [ -z "${matches}" ]; then
               echo "[crossplane-provider-pivot] no clusters/*/infrastructure/**/provider-*.yaml present in mirror"
             else
-              # Iterate, sed each file in-place. We escape `/` in the
-              # upstream/target prefixes so they don't terminate sed's
-              # delimiter; using `,` as delimiter is the simpler workaround
-              # (the prefixes never contain commas).
+              # #5232 — rewrite each file's `package:` literal to the DIGEST
+              # form so the bootstrap-kit reconcile from local Gitea
+              # re-asserts the SAME digest ref Phase 1 patched live (a
+              # tag-form YAML would revert the live patch on the next
+              # reconcile AND 404 post-severance). Handles all three source
+              # shapes Phase 1 handles: the raw upstream host, the mothership
+              # proxy prefix (#4488 Huawei), and a pre-#5232 tag-form local
+              # pivot. A ref with NO minted digest (a foreign-Sovereign /
+              # _template overlay whose Provider never ran on THIS cluster,
+              # or the very-early-handover path where step-03 skipped on the
+              # absent CRD) keeps the pre-#5232 host-swap so no upstream-host
+              # literal survives; the eventual step re-run upgrades it to the
+              # digest form. `,` sed delimiter — the refs never contain
+              # commas; the OLD literal has its `.` escaped for -E.
               for file in ${matches}; do
-                if grep -q "package: ${upstream_prefix}/" "${file}" 2>/dev/null; then
-                  if sed -i -E "s,(package:[[:space:]]+)${upstream_prefix}/,\1${target_prefix}/," "${file}"; then
-                    echo "[crossplane-provider-pivot] rewrote ${file}"
-                    edited=$((edited+1))
+                _f_changed=0
+                _f_pkgs=$(sed -n -E 's/^[[:space:]]*package:[[:space:]]+//p' "${file}" | sort -u)
+                for _f_pkg in ${_f_pkgs}; do
+                  _f_prefix=""
+                  case "${_f_pkg}" in
+                    "${upstream_prefix}/"*)         _f_prefix="${upstream_prefix}" ;;
+                    "${MOTHERSHIP_PROXY_PREFIX}/"*) _f_prefix="${MOTHERSHIP_PROXY_PREFIX}" ;;
+                    "${target_prefix}/"*@sha256:*)  continue ;;
+                    "${target_prefix}/"*)           _f_prefix="${target_prefix}" ;;
+                    *)                              continue ;;
+                  esac
+                  _f_suffix="${_f_pkg#${_f_prefix}/}"
+                  split_pkg_ref "${_f_suffix}"
+                  _f_repo="${_sp_repo}"
+                  _f_digest="${_sp_digest}"
+                  if [ -z "${_f_digest}" ]; then
+                    _f_digest=$(lookup_pkg_digest "${REGISTRY_PATH}/${_f_suffix}")
+                  fi
+                  if [ -n "${_f_digest}" ]; then
+                    _f_new="${target_prefix}/${_f_repo}@${_f_digest}"
+                  else
+                    _f_new="${target_prefix}/${_f_suffix}"
+                  fi
+                  if [ "${_f_pkg}" = "${_f_new}" ]; then
+                    echo "[crossplane-provider-pivot] SKIP ${file}: ${_f_pkg} (no digest recorded; already host-swapped — upgraded on a later step re-run)"
+                    continue
+                  fi
+                  _f_esc=$(printf '%s' "${_f_pkg}" | sed 's/\./\\./g')
+                  if sed -i -E "s,(package:[[:space:]]+)${_f_esc}([[:space:]]*)\$,\1${_f_new}\2," "${file}"; then
+                    echo "[crossplane-provider-pivot] rewrote ${file}: ${_f_pkg} -> ${_f_new}"
+                    _f_changed=1
                   else
                     echo "[crossplane-provider-pivot] WARN sed failed on ${file}" >&2
                   fi
-                elif grep -q "package: ${target_prefix}/" "${file}" 2>/dev/null; then
-                  echo "[crossplane-provider-pivot] SKIP ${file} (already pivoted)"
-                else
-                  echo "[crossplane-provider-pivot] SKIP ${file} (no upstream package literal found)"
+                done
+                if [ "${_f_changed}" -eq 1 ]; then
+                  edited=$((edited+1))
                 fi
               done
             fi
@@ -512,7 +650,7 @@ data:
               echo "[crossplane-provider-pivot] git diff empty after sed — nothing to commit"
               exit 0
             fi
-            git commit -m "cutover: pivot Crossplane Provider spec.package to harbor.${SOVEREIGN_FQDN}/${REGISTRY_PATH}" >/dev/null
+            git commit -m "cutover: pivot Crossplane Provider spec.package to harbor.${SOVEREIGN_FQDN}/${REGISTRY_PATH} by digest (#5232)" >/dev/null
             push_err=$(git push origin main 2>&1) || {
               echo "[crossplane-provider-pivot] FATAL: git push failed" >&2
               printf '%s\n' "$push_err" >&2
