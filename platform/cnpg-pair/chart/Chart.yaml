@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.16 (#5220): dr-promoter FALSE-POSITIVE fix — steady-state ARM gate +
+# timeline-divergence surfacing. On hw273 G12 the 0.2.15 promoter FALSE-PROMOTED
+# region-B during a TRANSIENT region-A unreachability (primary restart-storm +
+# cross-region WAL-stream blip during convergence) while region-A stayed ALIVE on
+# timeline 1, and #5219's durable suspend latch then CEMENTED the false promotion
+# permanently (region-B TL2, walreceiver FATAL-loop forever, region-A sync-wedged
+# on the never-connecting standby). Root cause: every liveness signal the
+# region-B promoter has (the cnpg WAL stream, the pg_isready of `-primary-mesh`)
+# rides the SAME region-B→region-A datapath, so a link flap is indistinguishable
+# from a real death over that link — the #5178 pg_isready gate false-positived
+# identically, and the #5178 startup grace (a FIXED timer from pod start) had
+# already expired when the restart-storm hit minutes into the env's life. TWO
+# fixes: (A) ARM GATE — the actor is INELIGIBLE to promote until the signals
+# container has OBSERVED region-B's replica actively STREAMING from region-A
+# (walreceiver status=streaming) CONTINUOUSLY for steadyStateArmSeconds (180s). A
+# region-A-down signal BEFORE the first stable stream is a convergence-time
+# transient, never a real kill; a pair that never reached steady-state can never
+# promote, so #5219's latch can never cement a false positive (this kills the
+# hw273 class at the source). Once armed it stays armed for the pod's life — a
+# real region-A death AFTER steady-state promotes normally. (B)
+# TIMELINE-DIVERGENCE SURFACING — a standby that can NEVER re-stream from a
+# REACHABLE region-A for timelineDivergenceHoldSeconds (300s) is recorded ONCE on
+# the HR (dr-timeline-diverged-at) + logged loudly, so the wedge is DIAGNOSED +
+# monitored instead of a silent FATAL loop. The re-clone stays the operator's
+# RUNBOOKS §6.1 action (NON-destructive here): a 2-node actor cannot prove WHICH
+# side is authoritative, so auto-destroying region-B's PGDATA could lose a real
+# survivor's committed writes — a worse failure than the wedge. #5219's durable
+# suspend latch + the 120s primaryDownHold + the region-A pg_isready gate + the
+# sync-only fence are ALL unchanged. No resource-count or RBAC change (the signals
+# container gains 2 env vars; script logic only). Lockstep slot 16b pin → 0.2.16.
 # 0.2.15 (#5218): dr-promoter durable-suspend RACE fix — on hw271 G12 the promote
 # fired at T0+2m29s (region-B writable, TL2) but was RE-DEMOTED mid-outage (a
 # second "primary loss" re-detected ~T0+7m while region-A was still down), so the
@@ -116,7 +146,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.15
+version: 0.2.16
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -156,6 +186,70 @@ description: |
 
   Changelog
   ─────────
+  0.2.16 (2026-07-19, dr-promoter FALSE-POSITIVE fix — steady-state ARM gate + timeline-divergence surfacing, Refs #5220)
+    - FIX (Pillar-3 region-kill DR): on hw273 G12 the 0.2.15 promoter
+      FALSE-PROMOTED region-B during a transient region-A unreachability
+      (primary-pod restart-storm — 5× clean exit 0 — + cross-region WAL-stream
+      blip during convergence) while region-A stayed ALIVE on timeline 1, and
+      #5219's durable suspend latch CEMENTED the false promotion permanently:
+      region-B bumped to TL2, its walreceiver FATAL-loops forever ("highest
+      timeline 1 of the primary is behind recovery timeline 2"), and region-A is
+      sync-wedged waiting on the never-connecting standby. The region-B promoter
+      declared "region-A dead" from region-B's vantage only — WAL stream absent
+      + pg_isready of `-primary-mesh` unreachable — but BOTH signals traverse the
+      SAME region-B→region-A ClusterMesh/VPC datapath, so a link flap is
+      indistinguishable from a real region loss; the #5178 pg_isready gate
+      false-positived identically and the #5178 startup grace (a fixed timer)
+      had already expired when the storm hit.
+    - (A) STEADY-STATE ARM GATE: the signals container now tracks CONTINUOUS
+      streaming (walreceiver status=streaming) and writes /shared/armed only
+      after it has held for autoPromote.steadyStateArmSeconds (180s). The actor
+      REFUSES every promote while UNARMED — a region-A-down signal before the
+      first stable stream is a convergence-time transient, never a real kill. A
+      pair that never reached steady-state can never promote, so #5219's latch
+      can never cement a convergence-time false positive. Once armed it stays
+      armed for the pod's life (a real region-A death AFTER steady-state
+      promotes normally); a non-streaming blip only restarts the arm window,
+      never un-arms.
+    - (B) TIMELINE-DIVERGENCE SURFACING: a standby that cannot re-stream from a
+      REACHABLE region-A for autoPromote.timelineDivergenceHoldSeconds (300s) is
+      the divergence wedge; the signals container flags it (/shared/timeline-
+      diverged) and the actor records it ONCE on the HR
+      (catalyst.openova.io/dr-timeline-diverged-at) + logs the RUNBOOKS §6.1
+      re-clone action, so the wedge is DIAGNOSED + monitored instead of a silent
+      FATAL loop. NON-destructive: the re-clone stays the operator's confirmed
+      action — a 2-node actor cannot prove which side is authoritative, so
+      auto-destroying region-B's PGDATA could lose a real survivor's committed
+      writes. Uses the existing HR get/patch RBAC (annotation only); no PVC/pod
+      delete.
+    - PRESERVED (all UNCHANGED): #5219's same-tick durable suspend latch +
+      per-loop self-heal + readback-verify, the 120s primaryDownHold, the
+      positive region-A pg_isready liveness gate, the startup grace, the
+      anti-flap "never re-promote a diverged cluster" latch, and the sync-only
+      data fence.
+    - New values: autoPromote.steadyStateArmSeconds (180),
+      autoPromote.timelineDivergenceHoldSeconds (300). Render-gate Case 18
+      asserts: the arm gate PRECEDES the promote merge-patch (a never-armed pair
+      can never reach the HR patch), the divergence marker is surfaced on the
+      HR, and the actor issues NO destructive kubectl delete + the dr-promoter
+      Role gains no delete/create verbs (data-safety). No resource-count or RBAC
+      change; the signals container gains 2 env vars. Lockstep slot 16b pin →
+      0.2.16. Live validation is the next fresh prov's region-kill G12.
+  0.2.15 (2026-07-18, dr-promoter durable-suspend RACE fix — same-tick latch + self-heal, Refs #5218)
+    - FIX (Pillar-3 region-kill DR durability): on hw271 G12 the promote fired
+      (T0+2m29s, region-B writable TL2) but was RE-DEMOTED mid-outage — the
+      0.2.14 latch suspended the HR only on the NEXT actor tick (up to a full
+      intervalSeconds later), leaving a window for kustomize-controller's SSA
+      re-apply to reclaim the atomic spec.values, drop the nested `promoted`
+      key, and re-render replica.enabled=true → re-demote. The actor now
+      suspends IN THE SAME TICK as the promote (polls until helm renders
+      replica.enabled=false, bounded by promoteRenderWaitSeconds, then suspends
+      immediately), re-asserts spec.suspend every loop while promoted/diverged
+      (per-loop self-heal), and READBACK-VERIFIES every suspend (suspend_hr
+      helper logs RBAC/conflict failures). suspend is NEVER set before the
+      render (a suspended HR is not reconciled by helm). All decision gates
+      unchanged. New value: autoPromote.promoteRenderWaitSeconds (90). Lockstep
+      slot 16b pin → 0.2.15.
   0.2.14 (2026-07-17, dr-promoter regression fix — liveness gate + durable latch, Refs #5178)
     - FIX Defect-A (false-positive promote): the 0.2.13 signals container
       inferred "region-A dead" from the LOCAL walreceiver alone and promoted a

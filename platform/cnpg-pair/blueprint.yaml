@@ -32,7 +32,17 @@ spec:
   # suspends IN THE SAME TICK as the promote (once helm renders) and re-asserts
   # spec.suspend every loop while promoted/diverged (self-heal), with readback
   # verification. All decision gates unchanged.
-  version: 0.2.15
+  # 0.2.16 (#5220): dr-promoter FALSE-POSITIVE fix — on hw273 G12 the 0.2.15
+  # promoter false-promoted region-B during a transient region-A blip while
+  # region-A stayed ALIVE on TL1, and #5219's suspend latch cemented it (region-B
+  # TL2, walreceiver FATAL-loop forever). (A) an ARM GATE makes the actor
+  # ineligible to promote until it has OBSERVED continuous streaming steady-state
+  # (steadyStateArmSeconds) — a never-converged pair can never promote, so the
+  # latch never cements a false positive; (B) a persistent can't-re-stream wedge
+  # is SURFACED on the HR (dr-timeline-diverged-at), the re-clone staying the
+  # operator's RUNBOOKS §6.1 action (non-destructive). #5219 latch + 120s hold +
+  # pg_isready gate + sync fence unchanged.
+  version: 0.2.16
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

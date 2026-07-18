@@ -229,7 +229,21 @@ spec:
       # re-asserts spec.suspend every loop while promoted/diverged (self-heal),
       # with readback verification. No new substitute; all decision gates
       # unchanged.
-      version: 0.2.15
+      # 0.2.16 (#5220): dr-promoter FALSE-POSITIVE fix — on hw273 G12 the 0.2.15
+      # promoter false-promoted region-B during a transient region-A blip
+      # (primary restart-storm + WAL-stream flap during convergence) while
+      # region-A stayed ALIVE on TL1, and #5219's suspend latch cemented it
+      # (region-B TL2, walreceiver FATAL-loop forever). Every liveness signal
+      # rides the SAME region-B→region-A datapath, so a link flap is
+      # indistinguishable from a real death. (A) ARM GATE — the actor cannot
+      # promote until it has OBSERVED continuous streaming steady-state
+      # (steadyStateArmSeconds), so a never-converged pair can never promote and
+      # the latch can never cement a false positive. (B) TIMELINE-DIVERGENCE
+      # SURFACING — a standby that can never re-stream from a reachable region-A
+      # is recorded on the HR (dr-timeline-diverged-at); the re-clone stays the
+      # operator's RUNBOOKS §6.1 action (non-destructive). #5219 latch + 120s
+      # hold + pg_isready gate + sync fence unchanged. No new substitute.
+      version: 0.2.16
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

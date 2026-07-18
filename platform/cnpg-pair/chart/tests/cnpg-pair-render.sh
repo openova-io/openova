@@ -910,4 +910,94 @@ grep -q 'name: PROMOTE_RENDER_WAIT_SECONDS' "$TMP/replica.yaml" || {
   echo "FAIL: #5218 actor missing the PROMOTE_RENDER_WAIT_SECONDS env (same-tick render-wait ceiling)." >&2; exit 1; }
 echo "  PASS (valid POSIX shell · readback-verified suspend · same-tick latch · self-heal re-assert · promote never suspends pre-render)"
 
+# ── Case 18: #5220 dr-promoter FALSE-POSITIVE fix — steady-state ARM gate +
+#             timeline-divergence surfacing ───────────────────────────────
+# hw273 G12: on a fresh, still-converging pair the primary restart-stormed and
+# the cross-region WAL stream + region-b→region-a mesh reach both dropped >120s
+# while region-A stayed ALIVE on timeline 1. The #5178 pg_isready gate rides the
+# SAME flapping link, and the #5178 startup grace (a fixed timer) expired before
+# the storm — so the promoter FALSE-PROMOTED and #5219's suspend latch cemented
+# it (region-b TL2, walreceiver FATAL-loop forever). 0.2.16 (A) makes the
+# promoter INELIGIBLE until it has OBSERVED continuous streaming steady-state,
+# and (B) SURFACES a persistent can't-re-stream wedge on the HR (non-destructive
+# — the re-clone stays the operator's RUNBOOKS §6.1 action).
+echo "[render] Case 18: #5220 steady-state ARM gate (no promote before observed steady-state) + timeline-divergence surfacing"
+
+# Extract both container scripts from the default side=replica render.
+python3 - "$TMP/replica.yaml" > "$TMP/signals.sh" <<'PYEOF' || { echo "FAIL: #5220 could not extract the signals container script." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-promoter' in d['metadata']['name']][0]
+sig=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='signals'][0]
+sys.stdout.write(sig['args'][0])
+PYEOF
+# (a) both scripts remain valid POSIX shell after the #5220 additions.
+sh -n "$TMP/signals.sh" || { echo "FAIL: #5220 signals container script is not valid POSIX shell." >&2; exit 1; }
+sh -n "$TMP/actor.sh"   || { echo "FAIL: #5220 actor container script is not valid POSIX shell." >&2; exit 1; }
+
+# (b) the ARM window + divergence hold are templated (envs present, default
+#     values 180 / 300 from values.yaml).
+python3 - "$TMP/replica.yaml" <<'PYEOF' || { echo "FAIL: #5220 arm/divergence env assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-promoter' in d['metadata']['name']][0]
+sig=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='signals'][0]
+env={e['name']:e.get('value') for e in sig['env']}
+assert env.get('STEADY_STATE_ARM_SECONDS')=='180', f"STEADY_STATE_ARM_SECONDS must default 180, got {env.get('STEADY_STATE_ARM_SECONDS')!r}"
+assert env.get('TL_DIVERGENCE_HOLD_SECONDS')=='300', f"TL_DIVERGENCE_HOLD_SECONDS must default 300, got {env.get('TL_DIVERGENCE_HOLD_SECONDS')!r}"
+PYEOF
+
+# (c) ARM tracking: signals arms ONLY on continuous streaming, resets the window
+#     on any non-streaming state, and never un-arms once armed.
+grep -q '/shared/armed' "$TMP/signals.sh" || {
+  echo "FAIL: #5220 signals missing the /shared/armed steady-state marker." >&2; exit 1; }
+grep -q '/shared/streaming-since' "$TMP/signals.sh" || {
+  echo "FAIL: #5220 signals missing the /shared/streaming-since continuity tracker." >&2; exit 1; }
+grep -q 'ARMED — streaming steady-state held' "$TMP/signals.sh" || {
+  echo "FAIL: #5220 signals missing the ARMED log (steady-state observed)." >&2; exit 1; }
+
+# (d) the ACTOR refuses to promote while UNARMED, and the arm gate PRECEDES the
+#     promote merge-patch (so a false positive can never reach the HR patch).
+grep -q 'REFUSING promote' "$TMP/actor.sh" || {
+  echo "FAIL: #5220 actor missing the unarmed REFUSING-promote guard." >&2; exit 1; }
+grep -q 'UNARMED' "$TMP/actor.sh" || {
+  echo "FAIL: #5220 actor missing the UNARMED refuse reason." >&2; exit 1; }
+python3 - "$TMP/actor.sh" <<'PYEOF' || { echo "FAIL: #5220 arm-gate ordering assertion failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+gate=s.find('/shared/armed')
+patch=s.find('\\"promoted\\":true')
+assert gate!=-1, "actor has no /shared/armed gate"
+assert patch!=-1, "actor has no promote merge-patch"
+assert gate < patch, "the /shared/armed arm gate MUST precede the promote merge-patch (a never-armed pair must never reach the HR patch)"
+PYEOF
+
+# (e) timeline-divergence detection: a standby that cannot re-stream from a
+#     REACHABLE region-A for the hold window is flagged (signals) and recorded
+#     ONCE on the HR (actor) — the wedge is diagnosed, not silently cemented.
+grep -q 'TIMELINE-DIVERGENCE WEDGE' "$TMP/signals.sh" || {
+  echo "FAIL: #5220 signals missing the timeline-divergence wedge detection." >&2; exit 1; }
+grep -q '/shared/timeline-diverged' "$TMP/signals.sh" || {
+  echo "FAIL: #5220 signals missing the /shared/timeline-diverged marker." >&2; exit 1; }
+grep -q 'dr-timeline-diverged-at' "$TMP/actor.sh" || {
+  echo "FAIL: #5220 actor does not record timeline-divergence on the HR." >&2; exit 1; }
+
+# (f) DATA SAFETY — the surfacing is NON-destructive. The actor must NEVER
+#     delete a PVC or a pod (a 2-node actor cannot prove which side is
+#     authoritative, so auto-destroying PGDATA could lose a real survivor's
+#     writes). Assert no destructive verbs in the script AND no delete RBAC.
+if grep -qE 'kubectl[^|]*delete' "$TMP/actor.sh"; then
+  echo "FAIL: #5220 actor issues a destructive kubectl delete — the re-clone must stay the operator's RUNBOOKS §6.1 action (2-node data-safety)." >&2
+  grep -nE 'kubectl[^|]*delete' "$TMP/actor.sh" >&2; exit 1; fi
+python3 - "$TMP/replica.yaml" <<'PYEOF' || { echo "FAIL: #5220 dr-promoter RBAC must not gain destructive verbs." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+for r in [d for d in docs if d.get('kind')=='Role' and 'dr-promoter' in d['metadata']['name']]:
+    for rule in r.get('rules',[]):
+        verbs=set(rule.get('verbs',[])); res=rule.get('resources',[])
+        assert 'delete' not in verbs, f"dr-promoter Role granted delete on {res} — must never delete PVCs/pods/CRs (data-safety, #5220)"
+        assert 'create' not in verbs, f"dr-promoter Role granted create on {res} — surfacing is non-destructive (#5220)"
+PYEOF
+echo "  PASS (arm gate blocks promote before observed steady-state · divergence surfaced on HR · non-destructive, no delete verbs)"
+
 echo "[render] All bp-cnpg-pair render gates green."

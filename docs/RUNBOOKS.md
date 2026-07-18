@@ -1079,10 +1079,16 @@ The deterministic failover test for two independent CNPG clusters:
    region-A still reachable is a replication fault, never a region kill, and does
    NOT promote). It waits `autoPromote.primaryDownHoldSeconds` (120s, so an
    intra-region primary restart never triggers), respects a `startupGraceSeconds`
-   window (a fresh catching-up replica can never trip it), confirms the
-   failover-readiness probe is Ready (LSN apply==receive, #5133), then executes
-   the promote + LATCH below ITSELF — zero operator action, expected promotion
-   ~2–4 min after the kill. The controller-side Continuum orchestration cannot do
+   window (a fresh catching-up replica can never trip it), and — since
+   bp-cnpg-pair ≥ 0.2.16 (#5220) — is **ARMED** only after it has OBSERVED the
+   pair reach a stable STREAMING steady-state (walreceiver status=streaming held
+   continuously for `autoPromote.steadyStateArmSeconds`, 180s); a region-A-down
+   signal BEFORE the first stable stream is a convergence-time transient (a
+   primary restart-storm on a still-converging pair — hw273 G12) and NEVER
+   promotes, so #5219's suspend latch can never cement a false positive. It then
+   confirms the failover-readiness probe is Ready (LSN apply==receive, #5133) and
+   executes the promote + LATCH below ITSELF — zero operator action, expected
+   promotion ~2–4 min after the kill. The controller-side Continuum orchestration cannot do
    this: it lives on region-a and dies with it (#5137). Evidence lands as
    `catalyst.openova.io/dr-auto-promoted-at` + `…/dr-auto-promote-latched-at` on
    the region-B HR + the dr-promoter pod log. The manual command remains the
@@ -1118,6 +1124,15 @@ The deterministic failover test for two independent CNPG clusters:
    re-cloned onto the current timeline (#5125 Defect-2, still open — CNPG replica
    walreceivers crash-loop `timeline N behind recovery timeline N+1` until the
    stale side is deleted + re-basebackup'd).
+   🛑 **Timeline-divergence signal (#5220)**: when a side can no longer stream
+   from a REACHABLE peer (the `timeline N behind recovery timeline N+1` wedge),
+   the dr-promoter records `catalyst.openova.io/dr-timeline-diverged-at` on the
+   region-B HR and logs the re-clone action — that annotation is the operator's
+   cue to delete the diverged Cluster's PVCs + re-basebackup it from the live
+   side. The actor does this NON-destructively (annotation only): from a 2-node
+   vantage with no witness it cannot prove WHICH side is authoritative, so
+   auto-destroying PGDATA could lose a real survivor's committed writes — the
+   re-clone stays this operator step.
 
 Test harness lives at the D31 acceptance test (PR #2075).
 

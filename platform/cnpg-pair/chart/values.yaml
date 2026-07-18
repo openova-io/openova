@@ -182,6 +182,36 @@ cnpgPair:
       # the fast path, never a correctness dependency. Must exceed a normal
       # helm-controller reconcile of the promoted HR.
       promoteRenderWaitSeconds: 90
+      # #5220 (A) steady-state ARM gate — the promoter is INELIGIBLE to
+      # promote until the signals container has OBSERVED region-B's replica
+      # actively STREAMING from region-A (walreceiver status=streaming) held
+      # CONTINUOUSLY this long. A convergence-time transient — a primary
+      # restart-storm, or a replica that has not streamed even once (the
+      # hw273 #5220 false positive, which fired minutes into the env's life
+      # while region-A stayed ALIVE on timeline 1) — must never look like a
+      # region kill. Every liveness signal the promoter has (the cnpg WAL
+      # stream, the pg_isready of `-primary-mesh`) rides the SAME region-B→
+      # region-A datapath, so a link flap is indistinguishable from a real
+      # death over that link; requiring an OBSERVED stable stream first is
+      # what rules out the never-converged case. Once satisfied the promoter
+      # latches ARMED for the pod's life — a real region-A death AFTER
+      # steady-state promotes normally. Must exceed a couple of poll
+      # intervals so a momentary streaming blip during churn never arms.
+      steadyStateArmSeconds: 180
+      # #5220 (B) timeline-divergence detection hold — a standby that cannot
+      # re-stream from a REACHABLE region-A for this long is the
+      # timeline-divergence wedge (region-B left the source timeline in a
+      # prior promotion and can never stream from the lower-TL source:
+      # "highest timeline N of the primary is behind recovery timeline N+1").
+      # The signals container flags it and the actor records it ONCE on the
+      # HR (dr-timeline-diverged-at) so the wedge is DIAGNOSED + monitored
+      # instead of a silent FATAL loop. The re-clone stays the operator's
+      # RUNBOOKS §6.1 action (NON-destructive here): a 2-node actor cannot
+      # prove WHICH side is authoritative, so auto-destroying region-B's
+      # PGDATA could lose a real survivor's committed writes. Must FAR exceed
+      # a normal basebackup+catchup so a slow first stream is never
+      # mis-flagged as a divergence.
+      timelineDivergenceHoldSeconds: 300
       # The flux HelmRelease whose DESIRED state carries the promotion
       # (bootstrap-kit slot 16b defaults).
       hr:
