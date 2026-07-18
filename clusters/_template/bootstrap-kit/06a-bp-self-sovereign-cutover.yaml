@@ -897,7 +897,17 @@ spec:
       # (prewarm.proxyBackoffBaseSeconds=30, doubling). FATAL-on-any-failure, the
       # #5030 dest-check skip, the #4975 pre-pass + multi-arch handling all
       # preserved. Contract Case 60.
-      version: 0.1.141
+      # 0.1.142 (#5204 Refs #5209): the local Harbor must DURABLY hold every
+      # Crossplane xpkg provider package BEFORE step-11 pivots onto it. #5209
+      # wired the package-pull auth, but nothing ever placed the xpkg artifact
+      # itself locally (proxy-xpkg is the ONE proxy-cache project — Harbor
+      # rejects pushes into it — and xpkg.upbound.io is excluded from the
+      # generic offline mirror). Step-03 Phase A4 now enumerates every
+      # Provider spec.package and warms it DURABLY through the local
+      # proxy-xpkg endpoint (full pull-through + artifact-API durable assert,
+      # FATAL on a miss); step-11 verifies the same durable presence before
+      # every spec.package rewrite (fail-loud). Contract Case 65.
+      version: 0.1.142
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

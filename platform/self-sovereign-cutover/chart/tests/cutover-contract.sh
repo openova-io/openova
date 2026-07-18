@@ -1560,12 +1560,15 @@ if ! grep -Eq '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt"; t
   echo "FAIL: Step-03 Phase A skopeo copy is missing --multi-arch all — a manifest-list image uploads only a single-arch manifest and Harbor rejects it 'digest invalid', fail-closing step-03 (#4975)" >&2
   exit 1
 fi
-# EXACTLY ONE copy carries it: the Phase A container-image copy. The Phase A2
-# chart-OCI copy (a single manifest, never a list) is left alone, so the flag-line
-# count is 1 — this also proves the flag did not get sprinkled onto the chart copy.
+# EXACTLY TWO copies carry it: the Phase A container-image copy AND the Phase A4
+# xpkg package warm (#5204 — upbound provider packages are multi-arch manifest
+# LISTS too; the warm must pull EVERY arch sub-manifest + blobs through so the
+# proxy-cache holds the complete list). The Phase A2 chart-OCI copy (a single
+# manifest, never a list) is left alone, so the flag-line count is exactly 2 —
+# this also proves the flag did not get sprinkled onto the chart copy.
 ma_lines=$(grep -Ec '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt" || true)
-if [ "${ma_lines}" -ne 1 ]; then
-  echo "FAIL: Step-03 has ${ma_lines} --multi-arch all flag line(s), expected exactly 1 (the container-image copy). The Phase A2 helm-chart-OCI copy must NOT carry it — chart artifacts are single manifests, not lists (#4975)" >&2
+if [ "${ma_lines}" -ne 2 ]; then
+  echo "FAIL: Step-03 has ${ma_lines} --multi-arch all flag line(s), expected exactly 2 (the Phase A container-image copy + the Phase A4 xpkg warm #5204). The Phase A2 helm-chart-OCI copy must NOT carry it — chart artifacts are single manifests, not lists (#4975)" >&2
   exit 1
 fi
 echo "  PASS (Step-03 Phase A container-image copy uses --multi-arch all; Phase A2 chart-OCI copy left single-manifest)"
@@ -2927,5 +2930,94 @@ else
 fi
 if [ "$c64_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5215: step-07 excludes the CSI driver from BOTH the additionalHRs HR pivot [excludeHelmReleases] AND the Phase 4 pod-spec sweep [podSpecSweep.excludeWorkloads]; the exclusion renders auditably and is deny-wins against an overlay re-add)"
+
+# ── Case 65 (#5204, Refs #5209 #3379): Crossplane xpkg provider packages are
+# DURABLY warmed into the local Harbor proxy-xpkg project by step-03 Phase A4,
+# and step-11 pivots spec.package ONLY after verifying the artifact serves
+# locally (fail-loud) ─────────────────────────────────────────────────────────
+# Root cause (live hw270 dep b2f0a9b0585f6781): step-11 pivots
+# Provider.spec.package to harbor.<fqdn>/proxy-xpkg/... and #5209 wired the
+# pull AUTH, but harbor-prewarm SKIPPED the xpkg packages entirely
+# (xpkg.upbound.io is in offlineMirror.excludedHosts, and `proxy-xpkg` is the
+# ONE project that stays a Harbor PROXY-CACHE — Harbor rejects pushes into a
+# proxy-cache project, so the Phase A skopeo-push route cannot serve it). On a
+# COLD cache the post-severance provider re-pull cannot resolve its package
+# descriptor from the local registry. This Case asserts the xpkg refs now
+# appear in the step-03 prewarm work (Phase A4 warm) + the step-11 gate.
+echo "[cutover-contract] Case 65: step-03 Phase A4 warms Crossplane xpkg provider packages into local proxy-xpkg + step-11 verifies durable local presence before each spec.package pivot (#5204)"
+[ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
+c65_fail=0
+# (a) step-03 enumerates the Provider package refs — the SAME set step-11
+#     pivots — so xpkg refs land in the prewarm work list.
+if ! grep -qF 'kubectl get providers.pkg.crossplane.io' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 never enumerates providers.pkg.crossplane.io — xpkg provider packages are absent from the prewarm set and the local registry stays COLD for step-11's pivot target (#5204)" >&2; c65_fail=1
+fi
+# (b) the routing literals come from the SAME crossplaneProviderPivot values
+#     step-11 reads (no second hand-list that can drift).
+if ! grep -A1 'name: XPKG_REGISTRY_PATH' "$TMP/s03pin.yaml" | grep -q 'value: "proxy-xpkg"'; then
+  echo "FAIL: step-03 does not project XPKG_REGISTRY_PATH=proxy-xpkg from crossplaneProviderPivot.registryPath (#5204)" >&2; c65_fail=1
+fi
+if ! grep -A1 'name: XPKG_UPSTREAM_HOST' "$TMP/s03pin.yaml" | grep -q 'value: "xpkg.upbound.io"'; then
+  echo "FAIL: step-03 does not project XPKG_UPSTREAM_HOST from crossplaneProviderPivot.upstreamHost (#5204)" >&2; c65_fail=1
+fi
+if ! grep -A1 'name: XPKG_MOTHERSHIP_PROXY_PREFIX' "$TMP/s03pin.yaml" | grep -q 'value: "harbor.openova.io/proxy-xpkg"'; then
+  echo "FAIL: step-03 does not project XPKG_MOTHERSHIP_PROXY_PREFIX from crossplaneProviderPivot.mothershipProxyPrefix — the Huawei fresh-prov package shape (#4488) would go unwarmed (#5204)" >&2; c65_fail=1
+fi
+# (c) the warm is a FULL pull-THROUGH of the exact local ref step-11 pivots to
+#     (dir: scratch dest — Harbor rejects pushes into a proxy-cache project, so
+#     a push-mode copy cannot serve proxy-xpkg), multi-arch complete.
+if ! grep -qF 'docker://${HARBOR_HOST}/${_xw_lpath}' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 does not pull the package THROUGH the local proxy-xpkg endpoint — only a pull-through can populate a proxy-cache project (pushes are rejected) (#5204)" >&2; c65_fail=1
+fi
+if ! grep -qF 'dir:${xpkg_warm_dir}/${_xw_slug}.dir' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 lost the dir: scratch destination for the warm pull-through (#5204)" >&2; c65_fail=1
+fi
+# (d) durable presence is asserted via the Harbor ARTIFACT API (the #5030
+#     durable-probe discipline) and a warm failure FATALs the step.
+if ! grep -qF 'xpkg_artifact_present' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 lost the xpkg_artifact_present durable probe (Harbor artifact API — CORE DB, never pull-through) (#5204)" >&2; c65_fail=1
+fi
+if ! grep -qF 'Crossplane xpkg package(s) failed to warm' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 lost the xpkg_fail>0 FATAL — an unwarmed package would silently ship a cold cache into the step-11 pivot (#5204)" >&2; c65_fail=1
+fi
+# (e) xpkg.upbound.io STAYS excluded from the generic offline mirror — the
+#     Phase A push route targets push-mode projects and cannot serve the
+#     proxy-cache proxy-xpkg; Phase A4 is the dedicated leg.
+if ! grep -A1 'name: EXCLUDED_HOSTS' "$TMP/s03pin.yaml" | grep -q 'xpkg.upbound.io'; then
+  echo "FAIL: xpkg.upbound.io left offlineMirror.excludedHosts — the generic Phase A push would target the proxy-cache proxy-xpkg project, which Harbor rejects (#5204)" >&2; c65_fail=1
+fi
+# (f) the Phase A4 toggle + the very-early-handover CRD guard exist, and the
+#     toggle is operator-wired.
+if ! grep -A1 'name: XPKG_PREWARM_ENABLED' "$TMP/s03pin.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: XPKG_PREWARM_ENABLED does not default to \"true\" (prewarm.xpkgPackages.enabled) (#5204)" >&2; c65_fail=1
+fi
+helm template smoke-noxpkg . --show-only templates/03-harbor-prewarm-job.yaml --set prewarm.xpkgPackages.enabled=false > "$TMP/r03_5204_off.yaml"
+if ! grep -A1 'name: XPKG_PREWARM_ENABLED' "$TMP/r03_5204_off.yaml" | grep -q 'value: "false"'; then
+  echo "FAIL: prewarm.xpkgPackages.enabled=false did not render XPKG_PREWARM_ENABLED=\"false\" — the operator override is not wired (#5204)" >&2; c65_fail=1
+fi
+# (g) step-11: the verify gate exists, fires BEFORE the patch AND on the
+#     already-pivoted SKIP branch, and a miss FATALs via the sentinel.
+helm template smoke . --show-only templates/11-crossplane-provider-pivot-job.yaml > "$TMP/r11_5204.yaml"
+if ! grep -qF 'verify_local_pkg_artifact()' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 lost the verify_local_pkg_artifact gate — spec.package can be pivoted onto a ref the local registry never durably serves (#5204)" >&2; c65_fail=1
+fi
+if ! grep -qF 'verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg_suffix}"' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11's Phase-1 patch branch does not invoke the verify gate BEFORE the spec.package rewrite (#5204)" >&2; c65_fail=1
+fi
+if ! grep -qF 'verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg#${target_prefix}/}"' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 does not re-verify an ALREADY-pivoted Provider — the hw270 latent shape (pivoted ref, cold cache) would pass silently (#5204)" >&2; c65_fail=1
+fi
+if ! grep -qF '/tmp/xpkg-verify-failed' "$TMP/r11_5204.yaml" || ! grep -qF 'NOT durably served by the local Harbor' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 lost the fail-loud sentinel — a verify miss inside the pipeline-subshell loop must FATAL the step before the durable Gitea rewrite (#5204)" >&2; c65_fail=1
+fi
+if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: VERIFY_LOCAL_ARTIFACT does not default to \"true\" (crossplaneProviderPivot.verifyLocalArtifact.enabled) (#5204)" >&2; c65_fail=1
+fi
+helm template smoke-noverify . --show-only templates/11-crossplane-provider-pivot-job.yaml --set crossplaneProviderPivot.verifyLocalArtifact.enabled=false > "$TMP/r11_5204_off.yaml"
+if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204_off.yaml" | grep -q 'value: "false"'; then
+  echo "FAIL: crossplaneProviderPivot.verifyLocalArtifact.enabled=false did not render VERIFY_LOCAL_ARTIFACT=\"false\" — the operator override is not wired (#5204)" >&2; c65_fail=1
+fi
+if [ "$c65_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5204: step-03 Phase A4 enumerates the Provider spec.package set and warms each xpkg ref DURABLY through the local proxy-xpkg endpoint [pull-through — Harbor rejects pushes into a proxy-cache project] with an artifact-API durable assert + FATAL; step-11 verifies the same durable presence before every pivot AND on already-pivoted refs, failing loud via the sentinel; both toggles operator-wired; xpkg.upbound.io stays excluded from the generic push mirror)"
 
 echo "[cutover-contract] All gates green."

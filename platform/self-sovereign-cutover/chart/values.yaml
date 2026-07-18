@@ -653,6 +653,28 @@ prewarm:
   # existing 3×5s discipline (PREWARM_COPY_ATTEMPTS) unchanged.
   proxyCopyAttempts: 6
   proxyBackoffBaseSeconds: 30
+  # #5204 (Refs #5209 #3379) — Phase A4: warm every Crossplane provider
+  # package (providers.pkg.crossplane.io spec.package — the SAME set step-11
+  # pivots, read from the crossplaneProviderPivot values so the two can never
+  # drift) through the local Harbor `proxy-xpkg` project so the xpkg OCI
+  # artifact is DURABLY cached locally BEFORE step-11 rewrites spec.package
+  # onto it. `proxy-xpkg` is the ONE local project that stays a Harbor
+  # PROXY-CACHE (Harbor REJECTS pushes into a proxy-cache project, so the
+  # Phase A skopeo-push route cannot serve it, and xpkg.upbound.io is
+  # deliberately in offlineMirror.excludedHosts — the Crossplane package
+  # manager bypasses containerd, making the generic mirror legs inert for
+  # it). The warm is ONE FULL authenticated pull THROUGH the local endpoint
+  # per package (skopeo → dir: scratch, --multi-arch all), which makes Harbor
+  # fetch + durably cache the manifest (list) and every blob; a bounded
+  # Harbor-artifact-API poll (#5030 durable-probe discipline) then asserts
+  # presence, FATAL naming the offender otherwise. Without this the cache is
+  # COLD at pivot time and every post-severance package re-pull / provider
+  # upgrade needs the proxy leg to reach xpkg.upbound.io — an upstream tether
+  # Principle #11 forbids (live hw270 dep b2f0a9b0585f6781: provider-opentofu
+  # could not resolve its package from the local registry). Set false only on
+  # a Sovereign that intentionally keeps the xpkg upstream leg open.
+  xpkgPackages:
+    enabled: true
   # #4975 (Refs #3379 #3695) — RETIRED. This hand-maintained 11-image HEAD list
   # (the old Phase B "warm the proxy-cache" pass) was one of the three drifting
   # lists that caused the per-prov whack-a-mole: any upstream image a chart added
@@ -1893,6 +1915,20 @@ crossplaneProviderPivot:
     # ImageConfig (pkg.crossplane.io/v1beta1) name step 11 applies to bind the
     # matchImages prefixes to the pullSecretRef.
     imageConfigName: "cutover-harbor-xpkg"
+  # #5204 (Refs #5209) — verify-before-pivot gate. Step 11 rewrites a
+  # Provider's spec.package onto harbor.<sov-fqdn>/proxy-xpkg/<path> ONLY
+  # after the local Harbor ARTIFACT API (Harbor CORE DB — durable, never
+  # pull-through: the #5030 probe discipline, dialed via the in-cluster
+  # harborInternalURL per #5036) confirms the package artifact is durably
+  # present locally (step-03 Phase A4 / prewarm.xpkgPackages warms it).
+  # An ALREADY-pivoted Provider is re-verified too — that is exactly the
+  # hw270 latent shape (pivoted ref, cold cache). A miss FAILS the step
+  # LOUD naming the package (before the durable Gitea rewrite, so nothing
+  # is half-pivoted) instead of silently pointing spec.package at a ref the
+  # local registry cannot serve post-severance. Set false to restore the
+  # unverified pivot.
+  verifyLocalArtifact:
+    enabled: true
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
 # that the Organization provisioning service uses for tenant repo materialisation.

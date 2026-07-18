@@ -153,6 +153,13 @@ data:
           # spec.package carries.
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
+          # #5204 verify-before-pivot — the in-cluster Harbor Service URL for
+          # the artifact-API durable-presence probe (#5036 direct-Service
+          # path; single-encode %2F) + the operator toggle.
+          - name: HARBOR_INTERNAL_URL
+            value: {{ .Values.sovereign.harborInternalURL | quote }}
+          - name: VERIFY_LOCAL_ARTIFACT
+            value: {{ .Values.crossplaneProviderPivot.verifyLocalArtifact.enabled | quote }}
           - name: HARBOR_USERNAME
             valueFrom:
               secretKeyRef:
@@ -275,6 +282,57 @@ data:
               echo "[crossplane-provider-pivot]   OK ImageConfig ${IMAGE_CONFIG_NAME} (matchImages: ${target_host}/${REGISTRY_PATH}, ${registry_host}/${REGISTRY_PATH})"
             fi
 
+            # ---- Phase 0.5 (#5204): local-artifact verify gate ----
+            #
+            # Rewrite a Provider's spec.package onto the local Harbor ONLY
+            # after the Harbor ARTIFACT API (Harbor CORE DB — durable, never
+            # pull-through: the #5030 probe discipline) confirms the package
+            # artifact is durably present locally. Step-03 Phase A4 warms
+            # every Provider package through proxy-xpkg for exactly this;
+            # a miss here means the warm never ran / was skipped for this
+            # package (e.g. a Provider created mid-cutover after step-03
+            # enumerated), and pivoting anyway would point spec.package at a
+            # ref the local registry cannot serve post-severance. FAIL-LOUD:
+            # the offender is named and the step exits 1 so the operator
+            # re-triggers the cutover (step-03 re-warms, idempotent) instead
+            # of shipping a silently-dangling pivot.
+            verify_local_pkg_artifact() {
+              # $1 = local path project/repo[:tag|@digest]; 0 = durably
+              # present OR verification not applicable (disabled / no
+              # credential to probe with).
+              case "${VERIFY_LOCAL_ARTIFACT:-true}" in
+                true|True|TRUE|1|yes) : ;;
+                *) return 0 ;;
+              esac
+              if [ -z "${HARBOR_PASSWORD:-}" ]; then
+                echo "[crossplane-provider-pivot] WARN: HARBOR_PASSWORD empty — cannot probe the local artifact API; skipping the #5204 verify gate for $1"
+                return 0
+              fi
+              : "${HARBOR_USERNAME:=admin}"
+              _vp="$1"
+              _vref="latest"
+              case "${_vp}" in
+                *@*)
+                  _vref="${_vp##*@}"; _vp="${_vp%@*}"
+                  case "${_vp##*/}" in *:*) _vp="${_vp%:*}" ;; esac ;;
+                *)
+                  case "${_vp##*/}" in *:*) _vref="${_vp##*:}"; _vp="${_vp%:*}" ;; esac ;;
+              esac
+              case "${_vp}" in
+                */*) _vproj="${_vp%%/*}"; _vrepo="${_vp#*/}" ;;
+                *)   return 1 ;;
+              esac
+              _vrepo_enc=$(printf '%s' "${_vrepo}" | sed 's#/#%2F#g')
+              _vd=$(curl -sk --max-time 30 \
+                -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_vproj}/repositories/${_vrepo_enc}/artifacts/${_vref}" 2>/dev/null \
+                | jq -r '.digest // empty' 2>/dev/null)
+              [ -n "${_vd}" ]
+            }
+            # Sentinel: the Phase-1 while-loop runs in a pipeline subshell, so
+            # a verify miss records here and the parent FATALs after the loop.
+            rm -f /tmp/xpkg-verify-failed
+
             # ---- Phase 1: live K8s patch on every Provider CR ----
             #
             # `kubectl get providers.pkg.crossplane.io` is cluster-scoped
@@ -331,6 +389,13 @@ data:
                       # host(+path) prefix with the Sovereign-local one.
                       pkg_suffix="${pkg#${matched_prefix}/}"
                       new_pkg="${target_prefix}/${pkg_suffix}"
+                      # #5204 verify-before-pivot: the local artifact MUST be
+                      # durably present BEFORE the rewrite (fail-loud).
+                      if ! verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg_suffix}"; then
+                        echo "[crossplane-provider-pivot] VERIFY-FAIL ${name}: local Harbor does not durably serve ${REGISTRY_PATH}/${pkg_suffix} — refusing to pivot spec.package onto a ref the local registry cannot serve post-severance (#5204; step-03 Phase A4 should have warmed it — re-trigger the cutover)" >&2
+                        touch /tmp/xpkg-verify-failed
+                        continue
+                      fi
                       echo "[crossplane-provider-pivot] PATCH ${name} ${pkg} -> ${new_pkg}"
                       # Merge-patch only spec.package — preserves every
                       # other spec field (revisionActivationPolicy,
@@ -344,6 +409,14 @@ data:
                       fi
                       ;;
                     "${target_prefix}/"*)
+                      # #5204: an ALREADY-pivoted Provider must ALSO durably
+                      # resolve locally — this is exactly the hw270 latent
+                      # shape (pivoted ref, cold cache). Fail-loud too.
+                      if ! verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg#${target_prefix}/}"; then
+                        echo "[crossplane-provider-pivot] VERIFY-FAIL ${name}: already pivoted to ${pkg} but the local Harbor does not durably serve ${REGISTRY_PATH}/${pkg#${target_prefix}/} (#5204; re-trigger the cutover so step-03 Phase A4 warms it)" >&2
+                        touch /tmp/xpkg-verify-failed
+                        continue
+                      fi
                       echo "[crossplane-provider-pivot] SKIP ${name} (already pivoted: ${pkg})"
                       ;;
                     *)
@@ -352,6 +425,15 @@ data:
                   esac
                 done
               fi
+            fi
+
+            # #5204 fail-loud: any verify miss recorded by the subshell loop
+            # fails the step BEFORE the durable Gitea rewrite, so nothing is
+            # half-pivoted onto a ref the local registry cannot serve. The
+            # live patches already applied are idempotent on the re-run.
+            if [ -e /tmp/xpkg-verify-failed ]; then
+              echo "[crossplane-provider-pivot] FATAL: one or more Provider packages are NOT durably served by the local Harbor (VERIFY-FAIL lines above) — re-trigger the cutover so step-03 Phase A4 warms them (#5204)" >&2
+              exit 1
             fi
 
             # ---- Phase 2: push YAML edit to local Gitea ----
