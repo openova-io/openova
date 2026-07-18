@@ -133,6 +133,35 @@ data:
             value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
           - name: MIRROR_COMPLETENESS_GATE
             value: {{ eq (toString .Values.offlineMirror.enabled) "true" | quote }}
+          # #5194 (Refs #4975 #5191) — PRE-HOLD completeness SELF-HEAL. On a
+          # missing-manifest MISS the gate below auto-warms the image into
+          # local Harbor (reusing step-03 harbor-prewarm's exact skopeo
+          # proxy-copy mechanism) instead of failing immediately — closes the
+          # gap where a funnel Org provisioned MID-CUTOVER (after step-03
+          # already enumerated the workload set) is never mirrored. The
+          # remaining env below mirrors step-03's skopeo-copy env VERBATIM
+          # (same Secret refs, same prewarm.* knobs) so both consumers derive
+          # identical credentials + retry/backoff behavior from one source.
+          - name: MIRROR_SELF_HEAL_ENABLED
+            value: {{ eq (toString .Values.offlineMirror.selfHeal.enabled) "true" | quote }}
+          - name: MOTHERSHIP_HOST
+            value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
+          - name: GHCR_DOCKERCONFIG
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.ghcrSecretRef.name }}
+                key: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey }}
+                optional: true
+          - name: GHCR_DOCKERCONFIG_NAMESPACE
+            value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
+          - name: PREWARM_SKOPEO_TIMEOUT
+            value: {{ .Values.prewarm.skopeoCommandTimeout | default "1200s" | quote }}
+          - name: PREWARM_DEST_TLS_VERIFY
+            value: {{ .Values.prewarm.destTLSVerify | default false | quote }}
+          - name: PREWARM_PROXY_COPY_ATTEMPTS
+            value: {{ .Values.prewarm.proxyCopyAttempts | default 6 | quote }}
+          - name: PREWARM_PROXY_BACKOFF_BASE_SECONDS
+            value: {{ .Values.prewarm.proxyBackoffBaseSeconds | default 30 | quote }}
           # #5026 — pre-hold ref-host lint toggle (treadmill-breaker).
           - name: PODSPEC_REFHOST_LINT
             value: {{ eq (toString .Values.egressTest.podspecRefHostLint.enabled) "true" | quote }}
@@ -364,14 +393,178 @@ data:
             # skipped so intra-cluster traffic is never blocked. Fail-safe:
             # any resolve/apply error falls back to assertion-only and
             # NEVER wedges the cutover on a tooling failure.
+            # ── #5194 (Refs #4975 #5191) PRE-HOLD COMPLETENESS SELF-HEAL ──
+            # A funnel Org provisioned MID-CUTOVER (after step-03 harbor-
+            # prewarm already enumerated the workload set) is never mirrored
+            # — its pods are Running (they pulled fine pre-hold) but the
+            # completeness gate below 404s on the missing NATIVE local
+            # manifest (live hw269: harbor.openova.io/proxy-dockerhub/
+            # mariadb:11 + wordpress:6-apache, org `hw269uatwalk`). Egress is
+            # still OPEN at this point (the deny-egress hold hasn't started),
+            # so the gap is recoverable: reuse the EXACT step-03 skopeo
+            # proxy-copy mechanism (HOST_PROJECT_MAP host->project mapping,
+            # the ghcr.io PAT + mothership-proxy direct-source fallback,
+            # PREWARM_PROXY_COPY_ATTEMPTS/backoff) to push the missing
+            # manifest into local Harbor, then re-HEAD. Only a warm that
+            # itself fails (or a still-missing manifest afterward) fails the
+            # gate — every app provisioned at ANY time now survives the
+            # sovereignty proof. Lazy: skopeo is installed + creds parsed
+            # ONLY on the first actual miss, so a complete mirror (the common
+            # case) pays zero extra cost.
+            _selfheal_skopeo_ready=0
+            _selfheal_creds_loaded=0
+            _selfheal_ghcr_user=""; _selfheal_ghcr_pat=""
+            _selfheal_moth_user=""; _selfheal_moth_pat=""
+
+            self_heal_ensure_skopeo() {
+              [ "${_selfheal_skopeo_ready}" = "1" ] && return 0
+              if command -v skopeo >/dev/null 2>&1; then
+                _selfheal_skopeo_ready=1
+                return 0
+              fi
+              echo "[egress-block-test] self-heal: skopeo not on PATH; downloading static binary (same pinned build step-03 harbor-prewarm uses)"
+              _sh_url="https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
+              _sh_try=1
+              while [ "${_sh_try}" -le 3 ]; do
+                if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${_sh_url}" -o /work/skopeo 2>&1 \
+                  && chmod +x /work/skopeo \
+                  && /work/skopeo --version >/dev/null 2>&1; then
+                  export PATH="/work:${PATH}"
+                  _selfheal_skopeo_ready=1
+                  echo "[egress-block-test] self-heal: skopeo static binary installed: $(skopeo --version)"
+                  return 0
+                fi
+                echo "[egress-block-test] self-heal: skopeo download attempt ${_sh_try}/3 failed; retrying in 5s"
+                _sh_try=$((_sh_try+1))
+                sleep 5
+              done
+              rm -f /work/skopeo
+              echo "[egress-block-test] self-heal: skopeo unavailable after 3 download attempts — warm path disabled this run"
+              return 1
+            }
+
+            # Parses the SAME flux-system/ghcr-pull dockerconfigjson step-03
+            # reads, extracting the ghcr.io PAT + any mothership-Harbor auth
+            # entry. Optional: an absent/empty GHCR_DOCKERCONFIG degrades to
+            # anonymous-only warm (public proxy-* upstreams still warm fine;
+            # a private ghcr.io/openova-io image would still fail the warm —
+            # falling through to the pre-#5194 FAIL, never a regression).
+            self_heal_load_creds() {
+              [ "${_selfheal_creds_loaded}" = "1" ] && return 0
+              _selfheal_creds_loaded=1
+              if [ -z "${GHCR_DOCKERCONFIG:-}" ]; then
+                echo "[egress-block-test] self-heal: no GHCR_DOCKERCONFIG mounted — anonymous-only warm"
+                return 0
+              fi
+              case "${GHCR_DOCKERCONFIG}" in
+                "{"*) _sh_dc="${GHCR_DOCKERCONFIG}" ;;
+                *) _sh_dc=$(printf '%s' "${GHCR_DOCKERCONFIG}" | base64 -d 2>/dev/null || printf '%s' "${GHCR_DOCKERCONFIG}") ;;
+              esac
+              _sh_ghcr_auth=$(printf '%s' "${_sh_dc}" | jq -r '.auths["ghcr.io"].auth // empty' 2>/dev/null || true)
+              if [ -n "${_sh_ghcr_auth}" ]; then
+                _selfheal_ghcr_user=$(printf '%s' "${_sh_ghcr_auth}" | base64 -d | awk -F: '{print $1}')
+                _selfheal_ghcr_pat=$(printf '%s' "${_sh_ghcr_auth}" | base64 -d | cut -d: -f2-)
+              fi
+              _sh_moth_auth=$(printf '%s' "${_sh_dc}" | jq -r --arg h "${MOTHERSHIP_HOST}" '.auths[$h].auth // empty' 2>/dev/null || true)
+              if [ -n "${_sh_moth_auth}" ]; then
+                _selfheal_moth_user=$(printf '%s' "${_sh_moth_auth}" | base64 -d | awk -F: '{print $1}')
+                _selfheal_moth_pat=$(printf '%s' "${_sh_moth_auth}" | base64 -d | cut -d: -f2-)
+              fi
+            }
+
+            self_heal_src_creds_for() {
+              case "$1" in
+                ghcr.io) printf '%s:%s' "${_selfheal_ghcr_user}" "${_selfheal_ghcr_pat}" ;;
+                "${MOTHERSHIP_HOST}")
+                  [ -n "${_selfheal_moth_user}" ] && printf '%s:%s' "${_selfheal_moth_user}" "${_selfheal_moth_pat}" || printf '' ;;
+                *) printf '' ;;
+              esac
+            }
+
+            # self_heal_warm_image UPSTREAM_REF LOCAL_PATH -> 0 warmed, 1 not.
+            # UPSTREAM_REF is the ORIGINAL pod-spec image (the enumerated
+            # ${_img}); LOCAL_PATH is the exact resolver-derived destination
+            # (${_lp} — the SAME path the completeness HEAD just missed on).
+            self_heal_warm_image() {
+              _wi_up=$(offlinemirror_normalize_ref "$1")
+              _wi_lp="$2"
+              if ! self_heal_ensure_skopeo; then
+                return 1
+              fi
+              self_heal_load_creds
+              _wi_lref="${LOCAL_REGISTRY_HOST}/${_wi_lp}"
+              _wi_srchost="${_wi_up%%/*}"
+              case "${_wi_srchost}" in *.*|*:*|localhost) : ;; *) _wi_srchost="docker.io" ;; esac
+              _wi_sc=$(self_heal_src_creds_for "${_wi_srchost}")
+              # Mothership-proxy direct-source fallback — the SAME inverse
+              # HOST_PROJECT_MAP derivation step-03's copy_one uses (#5095):
+              # harbor.openova.io/proxy-dockerhub/<path> -> docker.io/<path>.
+              _wi_fb_up=""; _wi_fb_sc=""
+              if [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${_wi_srchost}" = "${MOTHERSHIP_HOST}" ]; then
+                _wi_rest="${_wi_up#*/}"
+                case "${_wi_rest}" in
+                  */*)
+                    _wi_proj="${_wi_rest%%/*}"; _wi_path="${_wi_rest#*/}"
+                    for _wi_pair in ${HOST_PROJECT_MAP}; do
+                      _wi_h="${_wi_pair%%:*}"
+                      case "${_wi_pair}" in *:*) _wi_p="${_wi_pair#*:}" ;; *) _wi_p="" ;; esac
+                      if [ -n "${_wi_p}" ] && [ "${_wi_p}" = "${_wi_proj}" ]; then
+                        _wi_fb_up="${_wi_h}/${_wi_path}"
+                        _wi_fb_sc=$(self_heal_src_creds_for "${_wi_h}")
+                        break
+                      fi
+                    done
+                    ;;
+                esac
+              fi
+              _wi_attempts="${PREWARM_COPY_ATTEMPTS:-3}"
+              [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${_wi_srchost}" = "${MOTHERSHIP_HOST}" ] && _wi_attempts="${PREWARM_PROXY_COPY_ATTEMPTS:-6}"
+              _wi_attempt=1
+              while [ "${_wi_attempt}" -le "${_wi_attempts}" ]; do
+                echo "[egress-block-test] self-heal: warming ${_wi_up} -> ${_wi_lref} (attempt ${_wi_attempt}/${_wi_attempts})"
+                if [ -n "${_wi_sc}" ]; then set -- --src-creds="${_wi_sc}"; else set --; fi
+                if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
+                  --insecure-policy --multi-arch all --retry-times 5 "$@" \
+                  --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                  --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
+                  --src-tls-verify=true \
+                  "docker://${_wi_up}" "docker://${_wi_lref}" >/work/selfheal-warm.log 2>&1; then
+                  echo "[egress-block-test] self-heal: warmed OK ${_wi_up} -> ${_wi_lref}"
+                  return 0
+                fi
+                sed 's/^/    /' /work/selfheal-warm.log
+                if [ -n "${_wi_fb_up}" ]; then
+                  echo "[egress-block-test] self-heal: proxy source failed; direct-source fallback ${_wi_fb_up} -> ${_wi_lref}"
+                  if [ -n "${_wi_fb_sc}" ]; then set -- --src-creds="${_wi_fb_sc}"; else set --; fi
+                  if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
+                    --insecure-policy --multi-arch all --retry-times 5 "$@" \
+                    --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                    --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
+                    --src-tls-verify=true \
+                    "docker://${_wi_fb_up}" "docker://${_wi_lref}" >/work/selfheal-warm.log 2>&1; then
+                    echo "[egress-block-test] self-heal: warmed OK ${_wi_fb_up} -> ${_wi_lref} (direct-source fallback)"
+                    return 0
+                  fi
+                  sed 's/^/    /' /work/selfheal-warm.log
+                fi
+                _wi_attempt=$((_wi_attempt+1))
+                [ "${_wi_attempt}" -le "${_wi_attempts}" ] && sleep 5
+              done
+              echo "[egress-block-test] self-heal: warm FAILED for ${_wi_up} -> ${_wi_lref} after ${_wi_attempts} attempt(s)"
+              return 1
+            }
+
             # ── #4975 PRE-HOLD OFFLINE-MIRROR COMPLETENESS GATE ───────────
             # BEFORE the deny-egress hold (egress still OPEN), HEAD every
             # workload image against the LOCAL Harbor at the exact path the
             # shared resolver maps it to. A missing manifest = an image that
             # would ImagePullBackOff the moment its pod is rolled under the
-            # hold. FATAL-fast, NAMING the offender(s) — the systemic end of
-            # the per-prov whack-a-mole (an opaque mid-hold ImagePullBackOff
-            # becomes a clear "step-03 Phase A3 did not mirror <image>").
+            # hold. #5194: a miss is no longer immediately FATAL — it is
+            # first auto-warmed (see self_heal_warm_image above) and
+            # re-HEADed; only a still-missing manifest after the warm NAMES
+            # the offender(s) — the systemic end of the per-prov
+            # whack-a-mole (an opaque mid-hold ImagePullBackOff becomes a
+            # clear "step-03 Phase A3 did not mirror <image>").
             run_offline_mirror_completeness() {
               echo "[egress-block-test] #4975: PRE-HOLD completeness — HEAD every workload image against local Harbor ${HARBOR_PUBLIC_URL}"
               _base="${HARBOR_PUBLIC_URL}/v2"
@@ -414,7 +607,26 @@ data:
                   _checked=$((_checked+1))
                   case "${_code}" in
                     200|301|302) : ;;
-                    *) _missing="${_missing} ${_img}=>${_repo}/manifests/${_ref}(HTTP:${_code})" ;;
+                    *)
+                      # #5194 — self-heal BEFORE recording a miss: egress is
+                      # still open here, so warm the exact missing manifest
+                      # into local Harbor and re-HEAD once. Only a warm
+                      # failure or a still-missing manifest afterward counts.
+                      if [ "${MIRROR_SELF_HEAL_ENABLED:-true}" = "true" ] && self_heal_warm_image "${_img}" "${_lp}"; then
+                        _code=$(curl -sk -o /dev/null -w '%{http_code}' \
+                          -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                          -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+                          -I "${_base}/${_repo}/manifests/${_ref}" 2>/dev/null || echo 000)
+                        case "${_code}" in
+                          200|301|302)
+                            echo "  self-heal: re-HEAD ${_repo}/manifests/${_ref} now ${_code} — completeness restored (#5194)" ;;
+                          *)
+                            _missing="${_missing} ${_img}=>${_repo}/manifests/${_ref}(HTTP:${_code},self-heal-failed)" ;;
+                        esac
+                      else
+                        _missing="${_missing} ${_img}=>${_repo}/manifests/${_ref}(HTTP:${_code})"
+                      fi
+                      ;;
                   esac
                 done
               done

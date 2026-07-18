@@ -2727,4 +2727,45 @@ if ! grep -q 'command -v jq' "$TMP/render.yaml" || ! grep -q 'refusing to procee
 fi
 echo "  PASS (#5191 contract: step-04 retries apk, verifies jq+curl present, and exits 1 fail-loud when absent — a visible self-healing CrashLoop replaces the silent tool-less wedge)"
 
+# ── Case 62 (#5194, Refs #4975 #5191): step-08 offline-mirror completeness
+# SELF-HEAL — a missing workload image auto-warms into local Harbor (reusing
+# step-03's skopeo proxy-copy mechanism) and is re-HEADed BEFORE the gate
+# fails, instead of FATALing on the first miss. Root cause: a funnel Org
+# provisioned MID-CUTOVER (after step-03 harbor-prewarm already enumerated
+# the workload set) was never mirrored — its pods stayed Running but the
+# completeness HEAD 404'd forever (live hw269: proxy-dockerhub/mariadb:11 +
+# wordpress:6-apache, org hw269uatwalk). Assert the warm function exists, is
+# actually invoked from the miss branch BEFORE a manifest is recorded
+# missing, re-HEADs the exact path, and that a warm/re-HEAD failure still
+# reaches the pre-#5194 FATAL (the sovereignty guarantee is unweakened).
+echo "[cutover-contract] Case 62: step-08 offline-mirror completeness self-heals a miss by auto-warming into local Harbor before failing (#5194)"
+if ! grep -q 'self_heal_warm_image()' "$TMP/render.yaml"; then
+  echo "FAIL: step-08 lost the self_heal_warm_image warm function — a mid-cutover-provisioned Org's un-mirrored image would FATAL the gate with no recovery path (#5194)" >&2
+  exit 1
+fi
+if ! grep -q 'self_heal_warm_image "\${_img}" "\${_lp}"' "$TMP/render.yaml"; then
+  echo "FAIL: step-08's completeness miss-branch does not call self_heal_warm_image — the warm function exists but is never invoked from the gate (#5194)" >&2
+  exit 1
+fi
+if ! grep -qF 'self-heal: re-HEAD' "$TMP/render.yaml"; then
+  echo "FAIL: step-08 self-heal does not re-HEAD the manifest after a warm attempt — a warm with no re-check can never clear the miss (#5194)" >&2
+  exit 1
+fi
+if ! grep -qF 'self-heal-failed' "$TMP/render.yaml"; then
+  echo "FAIL: step-08 self-heal lost the fail-closed path — a warm/re-HEAD that still misses MUST still be recorded in _missing and FATAL the gate (#5194)" >&2
+  exit 1
+fi
+if ! grep -q 'name: MIRROR_SELF_HEAL_ENABLED' "$TMP/render.yaml"; then
+  echo "FAIL: step-08 lost the MIRROR_SELF_HEAL_ENABLED toggle (offlineMirror.selfHeal.enabled) — operators must be able to restore the pre-#5194 immediate-fail behavior (#5194)" >&2
+  exit 1
+fi
+# Disabling the toggle must fall back to the pre-#5194 immediate-fail path —
+# no self-heal invocation gated behind it.
+helm template smoke-noselfheal . --set offlineMirror.selfHeal.enabled=false > "$TMP/render-noselfheal.yaml"
+if ! grep -A2 'name: MIRROR_SELF_HEAL_ENABLED' "$TMP/render-noselfheal.yaml" | grep -q 'value: "false"'; then
+  echo "FAIL: offlineMirror.selfHeal.enabled=false did not render MIRROR_SELF_HEAL_ENABLED=\"false\" — the operator override is not wired (#5194)" >&2
+  exit 1
+fi
+echo "  PASS (#5194 contract: a completeness miss is auto-warmed via the shared step-03 skopeo proxy-copy mechanism + re-HEADed before failing; a still-missing manifest after the warm still FATALs the gate; the self-heal path is operator-toggleable via offlineMirror.selfHeal.enabled)"
+
 echo "[cutover-contract] All gates green."

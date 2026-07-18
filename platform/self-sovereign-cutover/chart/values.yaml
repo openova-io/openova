@@ -473,6 +473,21 @@ harbor:
 # guardrail (tests/image-registry-coverage.sh) at authoring time.
 offlineMirror:
   enabled: true
+  # #5194 (Refs #4975 #5191) — step-08 pre-hold completeness SELF-HEAL. A
+  # funnel Org provisioned MID-CUTOVER (after step-03 harbor-prewarm already
+  # enumerated the workload set) is never mirrored: its pods are Running
+  # (they pulled fine pre-hold) but the completeness gate 404s on the
+  # missing NATIVE local manifest (live hw269: harbor.openova.io/
+  # proxy-dockerhub/mariadb:11 + wordpress:6-apache, org hw269uatwalk).
+  # Egress is still OPEN when the gate runs, so the gap is recoverable: on a
+  # miss, step-08 now AUTO-WARMS the missing image into local Harbor via the
+  # SAME step-03 skopeo proxy-copy mechanism (HOST_PROJECT_MAP + the
+  # mothership-proxy direct-source fallback + prewarm.proxyCopyAttempts /
+  # proxyBackoffBaseSeconds), then re-HEADs — only a warm that itself fails
+  # (or a still-missing manifest afterward) fails the gate. Default true;
+  # set false to restore the pre-#5194 immediate-fail behavior.
+  selfHeal:
+    enabled: true
   # host → local Harbor project. project "" = host-swap, path preserved (the
   # mothership host, whose path already carries the proxy-<x> segment).
   hostProjects:

@@ -2215,7 +2215,33 @@ name: bp-self-sovereign-cutover
 # severing) tool must never silently depend on public-CDN egress for its own
 # toolchain. No step-count / RBAC / deadline change (still 11 steps). New
 # contract Case 61 asserts the fail-loud guard replaced `|| true`.
-version: 0.1.137
+#
+# 0.1.138 — #5194 (Refs #4975 #5191): step-08 egress-block-test's PRE-HOLD
+# offline-mirror completeness gate (#4975) now SELF-HEALS a miss instead of
+# FATALing the whole step. Root cause (live hw269, dep a47b82b25fbd5baf): a
+# funnel Org (`hw269uatwalk`) provisioned MID-CUTOVER, after step-03
+# harbor-prewarm had already enumerated the workload set, so its images
+# (harbor.openova.io/proxy-dockerhub/mariadb:11 + wordpress:6-apache) were
+# never mirrored — pods stayed Running (they pulled fine pre-hold) but the
+# completeness HEAD 404'd on the missing NATIVE local manifest, looping
+# `cutoverComplete=false` forever. Egress is still OPEN when the gate runs,
+# so the gap is recoverable: on a miss, step-08 now auto-warms the missing
+# image into local Harbor by reusing step-03's EXACT skopeo proxy-copy
+# mechanism (HOST_PROJECT_MAP host->project mapping, the ghcr.io PAT +
+# mothership-proxy direct-source fallback, PREWARM_PROXY_COPY_ATTEMPTS /
+# PREWARM_PROXY_BACKOFF_BASE_SECONDS), then re-HEADs the exact path; only a
+# warm that itself fails (or a still-missing manifest afterward) fails the
+# gate. New env: MIRROR_SELF_HEAL_ENABLED (offlineMirror.selfHeal.enabled,
+# default true), MOTHERSHIP_HOST, GHCR_DOCKERCONFIG(_NAMESPACE),
+# PREWARM_SKOPEO_TIMEOUT, PREWARM_DEST_TLS_VERIFY, PREWARM_PROXY_COPY_ATTEMPTS,
+# PREWARM_PROXY_BACKOFF_BASE_SECONDS — all sourced from the SAME
+# values.yaml keys step-03 already reads (harbor.ghcrSecretRef,
+# prewarm.skopeoCommandTimeout/destTLSVerify/proxyCopyAttempts/
+# proxyBackoffBaseSeconds), so no new operator-facing knob was invented. No
+# step-count / RBAC / deadline change (still 11 steps). New contract Case 62
+# asserts the self-heal warm + re-HEAD path is present in the rendered
+# script.
+version: 0.1.138
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
