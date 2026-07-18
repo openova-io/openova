@@ -1,100 +1,38 @@
-# PATH TO 100% — hw159 UAT remediation plan
+# PATH TO 100% — hw274-cycle fix map (refreshed 2026-07-19)
 
-> **Source of truth:** [`UAT.md`](UAT.md) — hw159 (2026-06-18), **119 ✅ / 61 ❌ / 56 GAP / 5 ☐ = 241 rows.**
-> This file maps every non-✅ row to the exact fix (issue + code path + owner) and a priority order.
-> "100%" here = **every browser-decidable row ✅** (the 180 PASS+FAIL → all PASS) + a triage decision
-> on each of the 56 GAP. A literal 241/241 also requires building UI for, or descoping, the GAP rows.
-
----
-
-## Bucket A — the 61 ❌ FAILs → 5 root-cause fixes
-
-Most of the 61 fails collapse into 5 roots. Fix the root, the cluster of rows flips.
-
-### A1 · 🛑 vCluster app-placement — `#3642` (flips ~13 ❌, rows `3642-*`)
-- **Symptom (walked):** the 7 platform apps (grafana/harbor/keycloak/gitea/openbao/newapi/guacamole) render under the **`host`** block in the Dashboard vCluster-layer treemap; **none under `mgmt`**. North Star #1 ("every app in a vCluster") unmet. `keycloak` app card reads `Namespace: flux-system`, `Placement: singleton`.
-- **Root cause:** the host-bridge generator (built in #870) emits the apps but they are NOT relocated into the `mgmt` vCluster — they stay as host-cluster HelmReleases in `flux-system`.
-- **Fix — code paths:**
-  - `products/catalyst/bootstrap/` host-bridge generator (the #3642/#870 deliverable) — the 7 slots must render INTO the mgmt vCluster namespace, not the host.
-  - `core/controllers/application` (application-controller) placement resolution — must honour the vCluster target, not default to host `flux-system`.
-  - `clusters/_template/bootstrap-kit/` slot files for the 7 apps — confirm they target the vCluster syncer, not the host.
-- **Owner:** platform / bootstrap-kit + application-controller. **Priority: P0** (it's North Star #1).
-- **Acceptance:** Dashboard treemap Layer1=vCluster shows the 7 apps under `mgmt`, each app card `Placement` ≠ host `flux-system`.
-
-### A2 · 🛑 Per-Org external serving — `#3376` (flips ~18 ❌, rows `3376-*`)
-- **Symptom (walked):** `Acme Corp` Org reaches **ACTIVE** in the directory, but `https://console.acme.omani.homes` AND `https://wordpress.acme.omani.homes` both return **ERR_CONNECTION_REFUSED** — the customer's own console + purchased app do not serve externally. The funnel's terminal "app running in the customer's own Org" is never reached.
-- **Root cause (to confirm):** the tenant vCluster's gateway/HTTPRoute + the `console.<slug>.<parent>` DNS record + wildcard cert for the Org subdomain are not provisioned (or not reconciled) when the Org goes ACTIVE; the purchased WordPress app's HelmRelease is not deployed into the tenant vCluster.
-- **Fix — code paths:**
-  - `core/controllers/organization` (org-controller) — on Org→ACTIVE, ensure tenant gateway + HTTPRoute for `console.<slug>.<parent>` + the app ingress.
-  - `core/pool-domain-manager` / external-dns — the `<slug>.<parent>` DNS record must be created + resolve.
-  - cert-manager wildcard for the tenant parent domain (`omani.homes`).
-  - the tenant gitops repo (`<slug>/catalyst-tenant`) → host Flux Kustomization (the #3687/#3700 per-Org loop) must actually APPLY the purchased-app HR.
-- **Owner:** platform / org-controller + pool-domain-manager. **Priority: P0** (Pillar-1 funnel terminal).
-- **Acceptance:** `console.acme.omani.homes` lands signed-in; `wordpress.acme.omani.homes` serves the WordPress site.
-
-### A3 · 🛑 Bootstrap-HR runtime topology — `#3375` (flips ~16 ❌, rows `3375-*`)
-- **Symptom (walked):** the `shared-pg` (and other bootstrap) **Topology tab is dead at runtime** — declared `singleton` mismatches the Overview tab's `active-hotstandby`, Live status reads `n/a`, replication-lag `n/a (mode)`, no Switchover. Because it's a bootstrap HelmRelease **with no Application CR**, the per-region controller has nothing to project.
-- **Root cause:** the 8 `application-cr.yaml` templates added in #3786 hardcode `placement: single-region` (a banned dialect) and/or are not wired so the Topology tab reads a live Application CR. Without a real Application CR carrying the placement, the topology UI shows stale/n-a.
-- **Fix — code paths:**
-  - `platform/<app>/chart/templates/application-cr.yaml` (the 8 added #3786) — replace hardcoded `placement: single-region` with the real declared mode (`singleton`/`active-hot-standby`), gated correctly; lockstep with `platform/postgres/blueprint.yaml` placementSchema (#3784).
-  - `core/controllers/application` — the Topology tab's Live-status must read the Application CR's per-region HR readback (#3687 "status from HR readback").
-- **Owner:** platform / chart templates + application-controller. **Priority: P1.**
-- **Acceptance:** shared-pg Topology tab shows declared == effective, Live status real (not n/a), Switchover offered where applicable.
-
-### A4 · SSO per-app — `#3374` (flips ~3 ❌, rows `3374-*`)
-- **Symptom (walked):** `newapi.hw159` bare URL → `/setup` first-run wizard (+ 1st-hit `upstream-connect-error 111`); `pdns-admin.hw159` → `/login` form with a manual "Sign in using OpenID Connect" button (no silent SSO). **guacamole is now ✅ (jti fixed).**
-- **Fix — code paths:**
-  - newapi: `platform/newapi/` chart — the first-run `/setup` must be pre-seeded/bypassed so the OIDC chain fires on 1st hit; investigate the upstream-111 (pod not ready / proxy).
-  - pdns-admin: `platform/powerdns/` (pdns-admin) OIDC config — enable auto-redirect to the IdP (no manual button), `OIDC_AUTO_LOGIN`-equivalent.
-- **Owner:** platform / newapi + powerdns charts. **Priority: P2.**
-- **Acceptance:** both bare URLs land signed-in, no setup wizard, no login form.
-
-### A5 · Stale-pin fails — `#3383` + misc (flips ~5–10, free)
-- **Symptom (walked):** create-org form still says "SME tenant slug"/"Onboard tenant"; jobs `/jobs` ingests only `lifecycle` Kind (multi-kind GAPs); possible newapi behaviour — all because **hw159 runs the last-PUBLISHED chart `1.4.674`**, while the fixes shipped in **`1.4.677`** (published this session after the publish-gate fix).
-- **Fix:** **re-prov on `1.4.677`** — no code change. The slot pin `clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml` must be bumped 1.4.674 → 1.4.677 first (it was held at 1.4.674 to unblock hw159).
-- **Owner:** orchestrator (me). **Priority: P0 — cheapest, do FIRST.**
-- **Acceptance:** fresh prov shows "Organization" wording + multi-kind jobs; re-walk #3383 + #3646 GAP/FAIL rows flip.
+> **Source of truth:** [`UAT.md`](UAT.md) — reset 2026-07-19 for the **hw274** fresh prov (dep `d51a69f885872a81`, `hw274.omantel.biz`, 2-region me-east-215-a/b, fired 20:43Z on the 8-fix train).
+> This file maps every non-green row family to its exact fix (issue + PR + code path) and its validation gate.
+> Prior anchor (hw159, 2026-06-18) is superseded — its Bucket-A roots #3642/#3376 were closed in the June cycles.
 
 ---
 
-## Bucket B — the 5 ☐ not-reached → walk them
+## The hw274 train — 8 fixes merged 2026-07-18/19, ALL validate on this prov
 
-Rows `3379-*` (cutover view-only). These need the **destructive cutover RUN** + **region-kill switchover** actually triggered (held back on the healthy env).
-- **Fix:** on a dedicated prov, fire `bp-self-sovereign-cutover` (8-step + 10-min deny-egress hold) and the region-kill switchover; capture the per-step Jobs tree + `cutoverComplete=true`.
-- **Owner:** orchestrator + cutover engine. **Priority: P1** (do on the 1.4.677 re-prov, after walking the non-destructive rows).
-- **Acceptance:** the 5 ☐ rows become ✅/❌ with the cutover Jobs tree screenshot.
-
----
-
-## Bucket C — the 56 GAP → triage (build UI or descope)
-
-Each GAP = "no browser surface for this assertion." Three sub-categories:
-
-| GAP sub-type | count (approx) | Decision |
-|---|---|---|
-| **Backend/code invariant** (e.g. `store.Tenant` UID owner-ref, shared payload struct, `-race` fixes) | ~30 | **Descope from the *browser* UAT** — these are unit/integration-test rows, not click-tests. Move them to a code-test ledger; do NOT count against browser 100%. (Honest reclassification, not fabrication.) |
-| **Feature with no UI yet** (e.g. cron-snapshot row, per-Org showback when Org has 0 apps, treemap Organization layer) | ~18 | **Build the UI surface** — each becomes a small console FE ticket. These legitimately convert GAP → ✅ once built. |
-| **Gated on another prov/ticket** (tenant-tier SSO, generality throwaway-app, cutover integrity proofs) | ~8 | **Unblock via the dependency** (the funnel-serving fix A2 unblocks tenant-tier; the cutover run B unblocks integrity proofs). |
-- **Owner:** product call on descope vs build. **Priority: P3** (after the FAILs — GAPs don't regress the app, they're coverage gaps).
-
----
-
-## Priority-ordered execution
-
-| # | Action | Bucket | Flips | Cost |
+| # | Defect (issue) | Fix PR / artifact | Rows it un-gates | Validation gate on hw274 |
 |---|---|---|---|---|
-| 1 | **Bump slot 1.4.674→1.4.677 + fresh prov + re-walk** | A5 | ~10 + clean baseline | low (no code) |
-| 2 | **Fix vCluster app-placement** (#3642) | A1 | ~13 | med |
-| 3 | **Fix per-Org external serving** (#3376) | A2 | ~18 | high |
-| 4 | **Fix bootstrap-HR Application CR placement** (#3375/#3786) | A3 | ~16 | med |
-| 5 | **Fire cutover-run + region-kill walk** | B | 5 | low (on the new prov) |
-| 6 | **newapi/pdns SSO** (#3374) | A4 | ~3 | low |
-| 7 | **GAP triage** — descope backend-invariants, build the ~18 missing UIs | C | ~26 | product call |
+| 1 | **#5210** catalyst-api informer one-shot token → post-cutover 401 flood → empty live-resource cache | **#5221** (`fdc903c85`) — chroot kubeconfig emits `user.tokenFile:` + refresh-wrap; `internal/handler/clustermesh_primary_kubeconfig.go` + `internal/k8scache` | ~26 render rows (cloud graph, Topology, treemap, per-kind 199-203, resource drill-in) | post-cutover console renders; reflector 401 count ≈ 0 |
+| 2 | **#5220** dr-promoter false-positive promotion cemented by the #5219 latch (hw273: region-a alive TL1, region-b spuriously TL2) | **#5222** (`bc15f31b6`) — bp-cnpg-pair **0.2.16**: steady-state ARM gate (≥180s observed streaming before any promote) + TL-divergence surfaced on the HR (non-destructive; operator re-clone per RUNBOOKS §6.1) | G12 + DR family | region-kill G12: no convergence-time promote; clean promote+latch on the real kill; RPO=0 |
+| 3 | **#5204** harbor-prewarm skipped Crossplane xpkg → provider-opentofu dead post-severance | **#5226** (`7c967fee4`) — cutover chart **0.1.142**: prewarm Phase A4 pull-through warm of every `spec.package` + step-11 verify-before-pivot (fail-loud); contract Case 65 | cutover rows 159-166 tail + crossplane G-rows | cc=true with `provider-opentofu Installed=True` under deny-egress |
+| 4 | **#5124** Edit-IaC seed stale (read path fixed in #5164; write seed still bypassed the canonical serializer) | **#5227** (`36e2382e0`) — catalyst-api serves the seed through the #5115 canonical Blueprint CR serializer | Edit-IaC rows 148/154 family | console Edit → seed matches live CR → Commit 200 |
+| 5 | **#5224** shared-pg role-password clobber (G12 flap ALTERed the shared primary's `harbor` role with region-b's divergent minted secret; CNPG blind — hw273 forensics) | **#5228** (`e786f9984`) — bp-postgres role-secrets single-sourced across the pair + Continuum/promote role-assert via CNPG managed-roles rv rotation (no direct ALTER) | R13 + region-b app steady-state family | zero `28P01` on shared roles through convergence AND through G12; region-b harbor steady |
+| 6 | **#5223** console voucher-code inline policy + reconciler-node drill-in + card-save IaC toast | **#5229** (`0b01f9548`) — console SPA | catalog/BSS voucher rows + recon drill rows | authed console walk |
+| 7 | **#5214** cutover gitea-admin-secret vanish (4th recurrence) | #5216, cutover 0.1.140 — **CLOSED**, fresh-prov-validated on hw273 | — (regression guard) | re-confirm zero-touch cc=true |
+| 8 | **#5215** step-07 CSI-roll EVS wedge | #5217, cutover 0.1.141 — **CLOSED**, fresh-prov-validated on hw273 (step-07 in 12s vs 11-min wedge) | — (regression guard) | re-confirm zero-touch cc=true |
 
-**After #1–#6: browser-decidable rows → ~100% PASS** (the meaningful 100%). **#7 closes the literal 241/241** by deciding each GAP.
+Also aboard, already fresh-prov-validated on hw273: **#5207/#5205** marketplace console-ready same-origin proxy (funnel row 87 leg).
 
-**Audit caveat (do before trusting the split):** re-check the 56 GAP — any that are "UI is broken so I called it GAP" must convert to ❌. That audit is a precondition for this plan's row counts.
+## Remaining non-green map (fleet triage `wf_42f3cdef`, 2026-07-19)
 
----
+| Class | Rows / family | Exact gate | Owner action |
+|---|---|---|---|
+| **Walk-only** (fix merged, needs the hw274 walk) | ~65 ⚠️ + the SSO 26-45 re-stamp family (durable SSO ≈ 90%, flushed by ledger discipline, NOT regressed) + rows 185/187/214/G10/G12/226/87 | hw274 cc=true + authed walk-fleet | walk-fleet workflow (staged) stamps them |
+| **Founder-gated** | G8/G9/220/M4 (Agenity chat driver, MCP `create_application` E2E) | **#4277** — a real Anthropic credential from the founder | the ONLY non-engineering gap in the ledger |
+| **Superseded premises** (annotate, don't walk) | R19 + sandbox rows 5/7/9-12 family | Sandbox concept removed by founder decree 2026-06-30 (Agenity + bp-openova-mcp supersede); #3985 SME→Organization; #4325 de-vcluster | reclassify ⛔-superseded at next consolidator pass (founder verdict precedent: rows 99-107) |
+| **Residual filed** | #5225 `registry.<fqdn>` wildcard → region-a cp1 INTERNAL-IP (cross-VPC :443 refused) | partially addressed via #5228's Refs; verify on hw274 region-b pulls | if it recurs on hw274 → dedicated fix |
+| **Non-blocking residue** | #5088 remainder (3 mothership NodePorts: cinova ⛔ / ephemeral solver / iogrid#844) | founder merge of iogrid#844 | consolidated record: #5088 comment 2026-07-19 |
 
-_Generated 2026-06-18 from the hw159 walk. Update the flip-counts as each fix lands + is re-walked._
+## The 100% equation on hw274
+
+`100% = walk-fleet stamps (walk-only bucket) + G12 clean (validates #5222/#5228) + superseded reclassification − #4277 (founder credential)`
+
+Every engineering defect known as of this refresh has a **merged** fix aboard hw274. Anything new the walk surfaces gets the fleet treatment: forensics → triage → worktree fixers → next train.
