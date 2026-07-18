@@ -2,8 +2,25 @@
 sovereign-tls-vars ConfigMap — Flux postBuild.substituteFrom source for
 the sovereign-tls Kustomization (clusters/_template/sovereign-tls/).
 
-Why this lives in the chart (Closes #2118)
-─────────────────────────────────────────
+Moved out of products/catalyst/chart (bp-catalyst-platform) into this
+dedicated chart — Refs #5187. bp-catalyst-platform is a PRIMARY-ONLY
+HelmRelease (`suspend: ${SECONDARY_HR_SUSPEND:=false}`, G2 #2574): it
+never installs on a secondary (DR-standby) region's control plane. The
+`sovereign-tls` Kustomization, however, reconciles on EVERY region (no
+region-role gate) with `postBuild.substituteFrom: [{kind: ConfigMap,
+name: sovereign-tls-vars, optional: false}]` — so a secondary region's
+Kustomization sat Ready=False forever (`configmaps "sovereign-tls-vars"
+not found`) because nothing on that region ever rendered the CM.
+
+This chart is installed via bootstrap-kit slot 12a with NO
+region-role/suspend gate (the same "no gate ⇒ every region" shape
+bp-cilium / bp-gateway-api / bp-cert-manager already use), so BOTH
+regions get this ConfigMap identically. Region-a is unaffected — same
+byte-for-byte template, same values contract, just a different
+(always-on) HelmRelease owns it now.
+
+Why this data is a ConfigMap at all (original #2118 rationale, preserved)
+──────────────────────────────────────────────────────────────────────
 The Cilium Gateway listeners block (cilium-gateway.yaml `spec.listeners:
 ${PARENT_DOMAINS_LISTENERS_YAML}`) was previously materialised in
 infra/hetzner/main.tf (locals.parent_domains_listeners_yaml) and threaded
@@ -18,25 +35,10 @@ Org-pool Sovereign (primary + 3 org-pool, e.g. omantel.biz + omani.{homes,
 rest,trade}) the value renders to ~2,210 bytes inside cloud-init — and
 Hetzner caps user_data at HARD 32 KiB. Cloud-init for t39's exact body
 overshot the post-#1985 guardrail (32,256) at 33,656 bytes (audit
-agent-a2c1647c, 2026-05-20).
-
-Fix: render the listener YAML inside the chart from .Values.parentZones
-(single source of truth — already populated by bootstrap-kit slot 13's
-`${PARENT_DOMAINS_YAML}` substitute). Emit it into a ConfigMap in
-flux-system/. The sovereign-tls Kustomization adds
-`postBuild.substituteFrom: [{kind: ConfigMap, name: sovereign-tls-vars,
-namespace: flux-system}]` and reads the value from there instead of an
-inline substitute key. The chart is INSIDE bootstrap-kit (slot 13);
-bootstrap-kit reaches Ready iff every HR (including this chart) is
-Ready; the sovereign-tls Kustomization `dependsOn: bootstrap-kit Ready`,
-so by the time sovereign-tls reconciles, this ConfigMap exists in etcd.
-
-Ordering is the same as the legacy cloud-init substitute path — Cilium
-Gateway always lands AFTER the chart's per-zone resources are committed.
-
-Catalyst-Zero (contabo, no global.sovereignFQDN, no sovereign-tls
-Kustomization) skips this template via the guard below so the contabo
-Kustomize build remains untouched.
+agent-a2c1647c, 2026-05-20). Reintroducing an inline cloud-init
+substitute (even scoped to one region) would reopen that exact
+regression — the ConfigMap-rendered-by-chart shape is the durable fix,
+now just installed on both regions instead of one.
 
 Listener-shape contract (must match locals.parent_domains_listeners_yaml
 in infra/hetzner/main.tf historically):

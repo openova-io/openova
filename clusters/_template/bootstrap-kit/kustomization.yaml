@@ -49,6 +49,17 @@ resources:
   # bp-sso-bridge on hw86). powerdns-admin is a G91 SSO opt-in. (#3150)
   - 11a-bp-powerdns-admin.yaml
   - 12-external-dns.yaml
+  # bp-sovereign-tls-vars (slot 12a, #5187) — renders the sovereign-tls-vars
+  # ConfigMap that the sovereign-tls Kustomization's postBuild.substituteFrom
+  # needs. Extracted out of bp-catalyst-platform (slot 13, primary-only —
+  # G2 #2574) into its OWN always-on chart so BOTH regions of a 2-region
+  # Sovereign get the ConfigMap, not just the primary. Without this the
+  # secondary region's sovereign-tls Kustomization sat Ready=False forever
+  # (`configmaps "sovereign-tls-vars" not found`) and its wildcard
+  # Certificate + Gateway never warmed up ahead of a region-kill promotion.
+  # MUST be registered here or Flux never creates the HR (the #3191
+  # forgotten-slot wedge class).
+  - 12a-bp-sovereign-tls-vars.yaml
   - 13-bp-catalyst-platform.yaml
   # G91.1 #2652 — bp-sso-bridge framework. Reconciler that watches
   # every G91-opted-in HelmRelease (`spec.values.sso.enabled: true`)

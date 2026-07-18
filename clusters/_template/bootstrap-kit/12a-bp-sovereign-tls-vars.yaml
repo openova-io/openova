@@ -1,0 +1,108 @@
+# bp-sovereign-tls-vars — Catalyst bootstrap-kit Blueprint, slot 12a.
+#
+# Renders the `sovereign-tls-vars` ConfigMap (flux-system) — the Flux
+# `postBuild.substituteFrom` source the `sovereign-tls` Kustomization
+# (clusters/_template/sovereign-tls/) reads to materialise the shared +
+# console Cilium Gateway listener arrays.
+#
+# Refs #5187 — this used to be rendered by bp-catalyst-platform (slot 13),
+# which is a PRIMARY-ONLY HelmRelease (`suspend:
+# ${SECONDARY_HR_SUSPEND:=false}`, G2 #2574 — the Sovereign control plane
+# installs on the primary region's cluster only). The `sovereign-tls`
+# Kustomization that CONSUMES the ConfigMap, however, reconciles on EVERY
+# region's own control plane (no region-role gate — see the top-of-block
+# comment for the `sovereign-tls` Kustomization in
+# infra/providers/_shared/cloudinit-control-plane.tftpl) with
+# `postBuild.substituteFrom` `optional: false`. On a 2-region Sovereign
+# the secondary (DR-standby) region therefore never got the ConfigMap —
+# its own `sovereign-tls` Kustomization sat Ready=False forever
+# (`configmaps "sovereign-tls-vars" not found`), and the standby's own
+# wildcard Certificate + Gateway never issued/programmed (caught live on
+# hw268, dep 7e7a0a1f42b2fdf4, region-b me-east-215-b).
+#
+# Why pre-warming the standby's Gateway/cert matters (not merely
+# cosmetic): a region-kill promotes the standby to primary, and the
+# platform's shared-EIP / LB-IPAM Gateway design (repo CLAUDE.md
+# §NodePorts, `lbipam.cilium.io/sharing-key`) expects the standby's own
+# Gateway + wildcard cert to already be warm — DNS-01 issuance +
+# propagation is minutes, which a live region-A failure can't wait for.
+#
+# Fix shape: this slot installs the SAME ConfigMap-rendering logic
+# (byte-for-byte moved from products/catalyst/chart/templates/
+# sovereign-tls-vars-cm.yaml — deleted there to avoid a two-Helm-release
+# ownership conflict on the identically-named ConfigMap) on its OWN tiny
+# dedicated chart (platform/sovereign-tls-vars/chart/), with NO
+# region-role / suspend gate — the SAME "no gate ⇒ every region" shape
+# bp-cilium (slot 01) / bp-gateway-api (slot 01a) / bp-cert-manager
+# (slot 02) already use. Region-a is unaffected: it now gets the
+# identical ConfigMap from this chart instead of from
+# bp-catalyst-platform.
+#
+# No CRDs, no cluster-network requirement, no dependsOn — a pure
+# ConfigMap render off already-known cloud-init substitute values
+# (${SOVEREIGN_FQDN} / ${PARENT_DOMAINS_YAML} / consoleGateway ports),
+# the SAME values slot 13 already wires into bp-catalyst-platform.
+#
+# Wrapper chart: platform/sovereign-tls-vars/chart/
+# Reconciled by: Flux on every region's k3s control plane.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-sovereign-tls-vars
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-sovereign-tls-vars
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "12a"
+spec:
+  interval: 15m
+  releaseName: sovereign-tls-vars
+  targetNamespace: flux-system
+  # NO suspend / region-role gate — this HR MUST install identically on
+  # every region (primary AND secondary). That is the entire fix for
+  # #5187: re-adding a suspend gate here reopens the exact gap this slot
+  # exists to close.
+  values:
+    global:
+      sovereignFQDN: ${SOVEREIGN_FQDN}
+    # Same source-of-truth as slot 13's parentZones (issue #827) — the
+    # two slots MUST stay in lockstep on what the Sovereign considers a
+    # parent zone.
+    parentZones: ${PARENT_DOMAINS_YAML}
+    # Same #4706 console-gateway port wiring as slot 13 (Huawei
+    # hostNetwork flips these to 8443/8080; Hetzner leaves 443/80).
+    consoleGateway:
+      httpsPort: ${CONSOLE_GATEWAY_HTTPS_PORT:=443}
+      httpPort: ${CONSOLE_GATEWAY_HTTP_PORT:=80}
+  chart:
+    spec:
+      chart: bp-sovereign-tls-vars
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-sovereign-tls-vars
+        namespace: flux-system
+  # Event-driven install: a single ConfigMap applies in one pass — no
+  # readiness condition to wait on beyond apiserver acceptance.
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3

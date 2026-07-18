@@ -1,0 +1,24 @@
+# Values contract mirrors the fields bp-catalyst-platform's removed
+# sovereign-tls-vars-cm.yaml template consumed (Refs #5187) — kept
+# byte-identical so bootstrap-kit slot 12a can pass the SAME cloud-init
+# substitute values (${SOVEREIGN_FQDN} / ${PARENT_DOMAINS_YAML} /
+# ${CONSOLE_GATEWAY_HTTPS_PORT} / ${CONSOLE_GATEWAY_HTTP_PORT}) already
+# wired for slot 13's bp-catalyst-platform HR.
+
+global:
+  # Sovereign FQDN. Empty (Catalyst-Zero / not-yet-provisioned) renders
+  # ZERO resources — see templates/configmap.yaml's top-level guard.
+  sovereignFQDN: ""
+
+# Multi-zone parent domains — see products/catalyst/chart/values.yaml's
+# `parentZones` doc-comment for the full contract (issue #827). Each
+# entry: {name, role, secretName}. Empty → single-zone fallback derived
+# from global.sovereignFQDN.
+parentZones: []
+
+# Console Gateway listener ports (#4706). Standard :443/:80 on Hetzner
+# (hostNetwork off); Huawei cloud-init overrides to 8443/8080 so the two
+# Gateways don't collide under hostNetwork.
+consoleGateway:
+  httpsPort: 443
+  httpPort: 80

@@ -325,10 +325,20 @@ func TestCiliumValuesParity_ConsolePortNoCollision(t *testing.T) {
 // TestConsoleGatewaySlot13ConsumesPortSubstitute (#4706, #4715 regression) —
 // the cloud-init emits CONSOLE_GATEWAY_HTTPS_PORT, but that is INERT unless
 // slot-13's bp-catalyst-platform HR values consume it into consoleGateway.
-// httpsPort (the chart's sovereign-tls-vars CM reads .Values.consoleGateway).
-// #4715 shipped the substitute WITHOUT this slot-13 wiring — the console
-// Gateway defaulted to 443 and collided even on fresh provs. This locks the
-// wiring so it cannot be dropped again silently.
+// httpsPort. #4715 shipped the substitute WITHOUT this slot-13 wiring — the
+// console Gateway defaulted to 443 and collided even on fresh provs. This
+// locks the wiring so it cannot be dropped again silently.
+//
+// #5187 (2026-07-18): the sovereign-tls-vars ConfigMap template that
+// actually READS .Values.consoleGateway moved out of bp-catalyst-platform
+// into its own always-on chart (platform/sovereign-tls-vars/chart/,
+// bootstrap-kit slot 12a — installs on every region, unlike the
+// primary-only bp-catalyst-platform HR). Slot 12a wires the SAME
+// CONSOLE_GATEWAY_HTTPS_PORT/HTTP_PORT substitutes into its OWN HR values.
+// This test's slot-13 assertion is kept as-is (harmless — the values are
+// simply unread by bp-catalyst-platform's own templates now) rather than
+// migrated, to avoid touching a pinned #4715 regression guard in the same
+// change that fixes an unrelated region-b gap.
 func TestConsoleGatewaySlot13ConsumesPortSubstitute(t *testing.T) {
 	cwd, _ := os.Getwd()
 	root := filepath.Clean(filepath.Join(cwd, "..", "..", "..", "..", "..", ".."))
