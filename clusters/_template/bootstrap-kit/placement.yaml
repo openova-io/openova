@@ -90,6 +90,8 @@ spec:
        namespace: powerdns, justification: "HOST-MINIMUM §4 — authoritative DNS substrate"}
     - {file: 12-external-dns.yaml, hr: bp-external-dns, vcluster: host, target: host,
        namespace: external-dns, justification: "HOST-MINIMUM §4 — DNS reconciler substrate"}
+    - {file: 12a-bp-sovereign-tls-vars.yaml, hr: bp-sovereign-tls-vars, vcluster: host, target: host,
+       namespace: flux-system, justification: "HOST-MINIMUM §4 — Flux postBuild.substituteFrom source for the host-cluster sovereign-tls Kustomization (#5187); must run on every region's own host control plane, never a vCluster"}
     - {file: 14-crossplane-claims.yaml, hr: bp-crossplane-claims, vcluster: host, target: host,
        namespace: crossplane-system, justification: "HOST-MINIMUM §4 — Crossplane claims plumbing"}
     - {file: 13c-bp-oidc-gate.yaml, hr: bp-oidc-gate, vcluster: host, target: host,

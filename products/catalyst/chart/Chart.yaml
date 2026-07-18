@@ -1,5 +1,28 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1151 — #5187 (Refs #5187, region-b sovereign-tls Kustomization
+#   Ready=False on a 2-region Sovereign): DELETES
+#   templates/sovereign-tls-vars-cm.yaml. Root cause: this chart's HR is
+#   PRIMARY-ONLY (`suspend: ${SECONDARY_HR_SUSPEND:=false}`, G2 #2574), so
+#   the sovereign-tls-vars ConfigMap it used to render never existed on a
+#   secondary (DR-standby) region — but the sovereign-tls Kustomization
+#   that CONSUMES it (postBuild.substituteFrom, optional:false) reconciles
+#   on EVERY region with no region-role gate. Result (caught live on hw268,
+#   dep 7e7a0a1f42b2fdf4, region-b me-east-215-b): the secondary region's
+#   sovereign-tls Kustomization sat Ready=False forever (`configmaps
+#   "sovereign-tls-vars" not found`) and its wildcard Certificate + Gateway
+#   never warmed up ahead of a region-kill promotion. Fix: the SAME
+#   ConfigMap-rendering logic (byte-for-byte) now lives in its own
+#   dedicated, always-on chart (platform/sovereign-tls-vars/chart/,
+#   bootstrap-kit slot 12a) with NO region-role/suspend gate, so BOTH
+#   regions get the ConfigMap. Deleting the template here (rather than
+#   leaving a dead duplicate) avoids a two-Helm-release ownership conflict
+#   on the identically-named `sovereign-tls-vars` ConfigMap on the primary
+#   region, where BOTH this chart's HR and the new chart's HR are active.
+#   No other template/value changed — `global.sovereignFQDN` / `parentZones`
+#   / `consoleGateway` stay wired exactly as before for the OTHER templates
+#   in this chart that still consume them (sovereign-wildcard-certs.yaml,
+#   sovereign-fqdn-configmap.yaml). Lockstep w/ bootstrap-kit slot 13 pin.
 # 1.4.1083 — #4971 (Pillar-5 cutover): keep catalyst-api OFF the driverless
 #   control-plane node during a Recreate roll. catalyst-api mounts two RWO
 #   Huawei-EVS PVCs (catalyst-api-deployments, catalyst-api-cache) whose CSI
@@ -3473,7 +3496,7 @@ name: bp-catalyst-platform
 #   footprint to fit the 4-CPU `plan-quota` (the 0.4.21 oidc-config post-install
 #   hook requested a 500m CPU limit into a namespace with only 250m of quota
 #   headroom → the hook pod was NEVER created → HR timeout → no HTTPRoute → 404).
-version: 1.4.1150
+version: 1.4.1151
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8

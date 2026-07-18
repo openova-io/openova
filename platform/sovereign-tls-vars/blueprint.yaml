@@ -1,0 +1,55 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-sovereign-tls-vars
+  labels:
+    catalyst.openova.io/category: per-host-cluster-infrastructure
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+spec:
+  version: 0.1.0
+  card:
+    title: Sovereign TLS Vars
+    summary: |
+      Renders the sovereign-tls-vars ConfigMap (flux-system) — the
+      Flux postBuild.substituteFrom source the sovereign-tls
+      Kustomization reads to materialise the shared + console Cilium
+      Gateway listener arrays. Extracted out of bp-catalyst-platform
+      (Refs #5187) because that HelmRelease is primary-region-only,
+      while sovereign-tls reconciles on every region — this Blueprint
+      installs on every region unconditionally so a DR-standby
+      region's own wildcard Certificate + Gateway can warm up ahead of
+      a region-kill promotion.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # runs on every region's control plane, like bp-cilium
+  manifests:
+    chart: ./chart
+  depends: []                        # no CRDs, no cluster-network requirement — pure ConfigMap render
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+  multiInstance:
+    enabled: false

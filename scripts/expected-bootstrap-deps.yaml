@@ -201,6 +201,16 @@ slots:
     # ghcr-pull secret; reflector must be Ready before external-dns deploys.
     depends_on: [bp-cert-manager, bp-powerdns, bp-reflector]
     wave: present
+  - slot: "12a"
+    name: bp-sovereign-tls-vars
+    # #5187: pure ConfigMap render off cloud-init substitute values already
+    # known at this point in the DAG (SOVEREIGN_FQDN / PARENT_DOMAINS_YAML /
+    # consoleGateway ports) — no CRDs, no cluster-network requirement, no
+    # dependency on any other slot. Installs on EVERY region (no
+    # region-role/suspend gate), unlike bp-catalyst-platform (slot 13,
+    # primary-only) which used to render this same ConfigMap.
+    depends_on: []
+    wave: present
   - slot: 13
     name: bp-catalyst-platform
     # bp-gateway-api dep (issue #503): umbrella chart ships catalyst-ui +

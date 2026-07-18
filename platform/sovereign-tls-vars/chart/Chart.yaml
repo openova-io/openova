@@ -1,0 +1,63 @@
+apiVersion: v2
+name: bp-sovereign-tls-vars
+version: 0.1.0
+appVersion: "n/a"
+description: |
+  Catalyst Blueprint that renders the `sovereign-tls-vars` ConfigMap
+  (flux-system) — the Flux `postBuild.substituteFrom` source the
+  `sovereign-tls` Kustomization (clusters/_template/sovereign-tls/) reads
+  to materialise the shared + console Cilium Gateway listener arrays
+  (PARENT_DOMAINS_LISTENERS_YAML / CONSOLE_LISTENERS_YAML).
+
+  Extracted out of `bp-catalyst-platform` (products/catalyst/chart) —
+  Refs #5187. Root cause: `bp-catalyst-platform` is a PRIMARY-ONLY
+  HelmRelease (`suspend: ${SECONDARY_HR_SUSPEND:=false}`, G2 #2574 —
+  the Sovereign control plane installs on the primary region's cluster
+  only). The `sovereign-tls` Kustomization, however, reconciles on
+  EVERY region's own control plane (no region-role gate — see its
+  top-of-block comment in infra/providers/_shared/
+  cloudinit-control-plane.tftpl) with `postBuild.substituteFrom`
+  `optional: false` against this ConfigMap. On a 2-region Sovereign the
+  secondary (DR-standby) region therefore never got the CM — its own
+  `sovereign-tls` Kustomization sat Ready=False forever
+  (`configmaps "sovereign-tls-vars" not found`), and the standby's own
+  wildcard Certificate + Gateway never issued/programmed.
+
+  This matters beyond cosmetics: region failover (region-kill) promotes
+  the standby to primary and relies on the shared-EIP / LB-IPAM Gateway
+  design (CLAUDE.md §NodePorts, `lbipam.cilium.io/sharing-key`) — the
+  standby's OWN Gateway + wildcard cert must already be warm, not
+  freshly mintable only after a live region-A death (DNS-01 issuance +
+  propagation is minutes, not seconds). Pre-warming both regions is
+  therefore correct DR hygiene, not merely fixing a status flag.
+
+  This chart carries ONLY that one ConfigMap template — same rendering
+  logic as the removed `products/catalyst/chart/templates/
+  sovereign-tls-vars-cm.yaml` (byte-for-byte, values contract
+  unchanged: `global.sovereignFQDN` / `parentZones` / `consoleGateway.
+  {httpsPort,httpPort}`) — installed via bootstrap-kit slot 12a with NO
+  `region-role`/`suspend` gate, so it reconciles on every region
+  identically (the same "no gate = active-active" shape bp-cilium /
+  bp-gateway-api / bp-cert-manager already use). Region-a is
+  unaffected: it now gets the SAME ConfigMap from this chart instead of
+  from bp-catalyst-platform (the old template was deleted there to
+  avoid a two-owner Helm-release conflict on the identically-named
+  ConfigMap).
+type: application
+keywords: [catalyst, blueprint, sovereign-tls, gateway, cilium, dr, multi-region]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# No upstream Helm chart — every byte here is Catalyst-authored (a single
+# ConfigMap). Hollow-chart guard (issue #181) opt-out, same pattern as
+# bp-catalyst-platform / bp-self-sovereign-cutover / bp-cnpg-pair.
+#
+# Default values (global.sovereignFQDN: "") render ZERO resources — same
+# "safe empty render" shape as bp-cnpg-pair (cnpgPair.enabled=false). The
+# blueprint-release smoke-render gate honors this via the
+# smoke-render-mode annotation; chart/tests/sovereign-tls-vars-render.sh
+# covers the enabled-render path.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/smoke-render-mode: "default-off"

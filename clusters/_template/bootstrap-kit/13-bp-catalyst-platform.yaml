@@ -1246,7 +1246,14 @@ spec:
       #   per-Org-namespace fix (tenant.namespace default "" -> falls back to
       #   .Release.Namespace) reaches fresh funnel Orgs. Lockstep w/ Chart.yaml.
       # 1.4.1092 — #4988: catalog-seed bp-postgres spec.version 0.2.10 -> 0.2.12.
-      version: 1.4.1150
+      # 1.4.1151 — #5187: templates/sovereign-tls-vars-cm.yaml DELETED (moved
+      #   to the new always-on platform/sovereign-tls-vars/chart/, bootstrap-kit
+      #   slot 12a) so the sovereign-tls-vars ConfigMap also renders on
+      #   secondary regions. This slot's consoleGateway/parentZones/
+      #   global.sovereignFQDN values are UNCHANGED — still consumed by this
+      #   chart's OTHER templates (sovereign-wildcard-certs.yaml,
+      #   sovereign-fqdn-configmap.yaml). Lockstep w/ Chart.yaml.
+      version: 1.4.1151
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
