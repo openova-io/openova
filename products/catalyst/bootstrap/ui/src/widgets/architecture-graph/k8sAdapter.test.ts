@@ -518,6 +518,81 @@ describe('k8sToGraph', () => {
     // No NetworkPolicy node was created for the Cilium policies (no fold).
     expect(nodes.filter((n) => n.type === 'NetworkPolicy')).toHaveLength(1)
   })
+
+  it('#5129: NetworkPolicy/CiliumNetworkPolicy totals are FULL-CLUSTER, not a graph-scoped subset', () => {
+    // Reproduces the hw258 UAT-201/202 reference scale: 30 vanilla
+    // NetworkPolicies + 44 Cilium(Clusterwide)NetworkPolicies (74 total).
+    // The pre-#5163 defect folded these into a single mislabeled chip
+    // whose count (35) matched neither 30, 44, nor 74 — the symptom of a
+    // graph-scoped subset (only policies whose Namespace also happened to
+    // be rendered). This test seeds MORE policies (across MANY namespaces)
+    // than Namespace nodes present in the snapshot, so a regression that
+    // silently drops/skips policies lacking a rendered Namespace peer would
+    // fail this test even though it would pass the single-object test above.
+    const entries: Array<[string, K8sObject]> = [
+      // Only 3 Namespace nodes are actually present in the snapshot —
+      // deliberately fewer than the namespaces the policies below span,
+      // so a namespace-gated adapter would under-count.
+      ['namespace:ns-0', { metadata: { name: 'ns-0' } }],
+      ['namespace:ns-1', { metadata: { name: 'ns-1' } }],
+      ['namespace:ns-2', { metadata: { name: 'ns-2' } }],
+    ]
+    const NP_TOTAL = 30
+    const CNP_TOTAL = 40
+    const CCNP_TOTAL = 4 // cluster-scoped; combines with CNP_TOTAL -> 44
+    for (let i = 0; i < NP_TOTAL; i++) {
+      const ns = `ns-${i % 10}` // spans 10 namespaces, only 3 of which have a Namespace node
+      entries.push([
+        `networkpolicy:${ns}/np-${i}`,
+        {
+          apiVersion: 'networking.k8s.io/v1',
+          kind: 'NetworkPolicy',
+          metadata: { namespace: ns, name: `np-${i}` },
+          spec: { podSelector: {} },
+        },
+      ])
+    }
+    for (let i = 0; i < CNP_TOTAL; i++) {
+      const ns = `ns-${i % 10}`
+      entries.push([
+        `ciliumnetworkpolicy:${ns}/cnp-${i}`,
+        {
+          apiVersion: 'cilium.io/v2',
+          kind: 'CiliumNetworkPolicy',
+          metadata: { namespace: ns, name: `cnp-${i}` },
+          spec: { endpointSelector: {} },
+        },
+      ])
+    }
+    for (let i = 0; i < CCNP_TOTAL; i++) {
+      entries.push([
+        `ciliumclusterwidenetworkpolicy:/ccnp-${i}`,
+        {
+          apiVersion: 'cilium.io/v2',
+          kind: 'CiliumClusterwideNetworkPolicy',
+          metadata: { name: `ccnp-${i}` },
+          spec: { endpointSelector: {} },
+        },
+      ])
+    }
+    const s = snap(...entries)
+    const { nodes } = k8sToGraph(s)
+
+    const npNodes = nodes.filter((n) => n.type === 'NetworkPolicy')
+    const cnpNodes = nodes.filter((n) => n.type === 'CiliumNetworkPolicy')
+
+    // Full-cluster counts — every policy became a node, not just the
+    // ones whose namespace happened to also be a rendered Namespace node.
+    expect(npNodes).toHaveLength(NP_TOTAL)
+    expect(cnpNodes).toHaveLength(CNP_TOTAL + CCNP_TOTAL)
+    expect(cnpNodes).toHaveLength(44)
+
+    // The two kinds never collide into one type, and neither total
+    // reproduces the historical folded-and-wrong "35" chip.
+    expect(npNodes.length).not.toBe(35)
+    expect(cnpNodes.length).not.toBe(35)
+    expect(npNodes.length + cnpNodes.length).toBe(74)
+  })
 })
 
 describe('mergeGraphs', () => {
