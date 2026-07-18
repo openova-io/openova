@@ -13,14 +13,31 @@
   //
   // This page is served from the marketplace origin (`marketplace.<sov>`),
   // which ALWAYS resolves. It shows a branded "Setting up your console…"
-  // state, polls the per-Org console `/healthz` (mapped to catalyst-api by the
-  // per-Org HTTPRoute — a 200 means DNS + TLS + route are all live), and only
-  // then forwards to the existing secure `/auth/org-handover` endpoint. The
-  // handover token is carried THROUGH unchanged and handed to the server at the
-  // end of the wait, preserving the #4182/#4186 contract (token → HttpOnly
-  // cookie server-side; never logged; refresh token never in a URL). On
-  // timeout the customer sees an honest "still provisioning" state with a
-  // manual retry — never a raw browser DNS error.
+  // state, polls the per-Org console readiness, and only then forwards to the
+  // existing secure `/auth/org-handover` endpoint. The handover token is
+  // carried THROUGH unchanged and handed to the server at the end of the
+  // wait, preserving the #4182/#4186 contract (token → HttpOnly cookie
+  // server-side; never logged; refresh token never in a URL). On timeout the
+  // customer sees an honest "still provisioning" state with a manual retry —
+  // never a raw browser DNS error.
+  //
+  // #5205 — the readiness probe used to `fetch(console.<slug>.<sov>/healthz,
+  // {mode:'no-cors'})` DIRECTLY from the browser. A no-cors cross-origin
+  // fetch always returns an OPAQUE Response — its status is unreadable by
+  // design — so the only signal available was "did the fetch promise resolve
+  // at all", which a live hw270 funnel walk proved unreliable: a real signup
+  // had the backend (Org+cert+DNS+WordPress) Ready in ~35s, but the opaque
+  // probe never observed success and the interstitial rode out the full
+  // 5-minute timeout, stranding the customer on a manual "Open console
+  // anyway" click even though a direct curl/browser-nav to the same host
+  // returned 200 within seconds. The fix routes the probe through the
+  // marketplace's OWN same-origin `/api/provisioning/console-ready` endpoint
+  // (core/services/provisioning/handlers/console_ready.go) — a plain,
+  // fully-readable JSON `{ready: boolean}` computed by a server-side GET
+  // /healthz against the per-Org host, with no browser CORS/opaque-response
+  // restriction in the way at all.
+
+  import { API_BASE } from '../lib/config';
 
   type Phase = 'provisioning' | 'forwarding' | 'timeout' | 'error';
   let phase = $state<Phase>('provisioning');
@@ -81,27 +98,28 @@
 
   let params = $state<LaunchParams | null>(null);
 
-  // Probe the per-Org console /healthz. ANY failure (DNS / TLS / connection /
-  // non-2xx) is treated as "still provisioning" and swallowed — we keep
-  // polling until ready or timeout. `no-cors` keeps the probe a simple request
-  // (no preflight) and tolerates the opaque cross-origin response; a resolved
-  // fetch (opaque or ok) means the host is up and serving, a rejection means
-  // it is not reachable yet.
+  // Probe the per-Org console's readiness via the marketplace's OWN
+  // same-origin proxy (#5205). Unlike the retired cross-origin
+  // `fetch(console.<slug>/healthz, {mode:'no-cors'})` — whose opaque Response
+  // gave the browser no readable status at all — this is a plain same-origin
+  // fetch to `${API_BASE}/provisioning/console-ready`, so `res.ok` and the
+  // JSON body are both fully readable. The provisioning-service handler does
+  // the actual cross-host GET /healthz server-side and reports back a REAL
+  // `{ready: boolean}`. ANY failure (this request's own network error, a
+  // non-OK response, or an upstream ready:false) is treated as "still
+  // provisioning" and swallowed — we keep polling until ready or timeout,
+  // preserving the original probe's tolerant contract.
   async function probeReady(host: string): Promise<boolean> {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
     try {
-      await fetch(`${host}/healthz`, {
-        method: 'GET',
-        mode: 'no-cors',
-        cache: 'no-store',
-        redirect: 'follow',
-        signal: ctrl.signal,
-      });
-      // A non-throwing fetch (even an opaque no-cors response) means DNS
-      // resolved, the TLS handshake completed, and the server answered — the
-      // host is reachable. NXDOMAIN / refused / TLS-fail all REJECT instead.
-      return true;
+      const res = await fetch(
+        `${API_BASE}/provisioning/console-ready?host=${encodeURIComponent(host)}`,
+        { method: 'GET', cache: 'no-store', signal: ctrl.signal },
+      );
+      if (!res.ok) return false;
+      const data = (await res.json().catch(() => null)) as { ready?: boolean } | null;
+      return data?.ready === true;
     } catch {
       return false;
     } finally {

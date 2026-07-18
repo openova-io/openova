@@ -799,24 +799,28 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
 
   // ──────────────────────────────────────────────────────────────────────
   // #4273 — provisioning interstitial (redirect-before-ready race fix).
+  // #5205 — readiness probe moved off a cross-origin no-cors browser fetch
+  // (whose opaque Response the browser could never read a real status from,
+  // per the live hw270 walk) onto the marketplace's own same-origin
+  // `/api/provisioning/console-ready` proxy.
   //
   // The funnel no longer hard-bounces to the per-Org console host the instant
   // checkout succeeds (its DNS/TLS/HTTPRoute are still provisioning → the
   // first click hit NXDOMAIN). It now lands on `/launching` — served from the
-  // marketplace origin, which always resolves — which polls the per-Org
-  // console `/healthz` and only forwards to `/auth/org-handover` once the host
-  // serves a response. These tests are hermetic: the `/healthz` probe is
-  // intercepted so no real per-Org host is needed.
+  // marketplace origin, which always resolves — which polls the same-origin
+  // readiness proxy and only forwards to `/auth/org-handover` once it reports
+  // ready:true. These tests are hermetic: `/api/provisioning/console-ready`
+  // is intercepted so no real per-Org host or backend is needed.
   // ──────────────────────────────────────────────────────────────────────
   test('18 launching interstitial shows immediately, then forwards once the per-Org host is ready', async ({ page }) => {
     const consoleHost = 'https://console.abc.omani.trade'
-    // The per-Org host's /healthz: fail (abort = NXDOMAIN/conn-refused shape)
-    // for the first 2 probes, then resolve — emulating DNS/TLS/route landing.
+    // The same-origin readiness proxy: ready:false (still provisioning) for
+    // the first 2 probes, then ready:true — emulating DNS/TLS/route landing.
     let probes = 0
-    await page.route('**/console.abc.omani.trade/healthz**', (route) => {
+    await page.route('**/api/provisioning/console-ready**', (route) => {
       probes += 1
-      if (probes <= 2) return route.abort('namenotresolved')
-      return route.fulfill({ status: 200, body: 'ok' })
+      const ready = probes > 2
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ready }) })
     })
     // Stop the real cross-host /auth/org-handover navigation (no live host) —
     // intercept so the forward lands on an interceptable response and the test
@@ -839,14 +843,16 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     const url = page.url()
     expect(url, 'forwarded to /auth/org-handover on the per-Org host').toContain('/auth/org-handover')
     expect(url, 'session token carried through to the handover').toContain('token=mock-session-jwt')
-    expect(probes, 'polled /healthz until ready (tolerated early NXDOMAIN)').toBeGreaterThanOrEqual(3)
+    expect(probes, 'polled console-ready until ready (tolerated early ready:false)').toBeGreaterThanOrEqual(3)
   })
 
   test('19 launching interstitial keeps a friendly waiting state while the host stays unreachable (no raw NXDOMAIN)', async ({ page }) => {
     // Probe never succeeds — the host is still provisioning. The customer must
     // see the on-brand "Setting up…" spinner (and an elapsed hint), NEVER a
     // dead browser error page, and must remain ON the marketplace origin.
-    await page.route('**/console.def.omani.rest/healthz**', (route) => route.abort('namenotresolved'))
+    await page.route('**/api/provisioning/console-ready**', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ready: false }) }),
+    )
 
     const params = new URLSearchParams({ host: 'https://console.def.omani.rest', token: 'mock-session-jwt', next: '/jobs' })
     await page.goto('/launching?' + params.toString())
@@ -855,6 +861,21 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
       .toBeVisible({ timeout: 5_000 })
     // After a few seconds of failing probes it still shows the waiting state
     // (and the elapsed-time hint) — we have NOT navigated away to a dead host.
+    await expect(page.getByText(/Still working/i)).toBeVisible({ timeout: 12_000 })
+    expect(page.url(), 'stays on the marketplace-origin /launching page').toContain('/launching')
+  })
+
+  test('19b launching interstitial tolerates the readiness proxy itself being unreachable (network error, not ready:false)', async ({ page }) => {
+    // The console-ready endpoint call itself fails at the transport level
+    // (e.g. a transient gateway blip) — this must be swallowed exactly like
+    // an upstream ready:false, never surfaced as a hard error.
+    await page.route('**/api/provisioning/console-ready**', (route) => route.abort('failed'))
+
+    const params = new URLSearchParams({ host: 'https://console.ghi.omani.homes', token: 'mock-session-jwt', next: '/jobs' })
+    await page.goto('/launching?' + params.toString())
+
+    await expect(page.getByRole('heading', { name: /Setting up your console/i }))
+      .toBeVisible({ timeout: 5_000 })
     await expect(page.getByText(/Still working/i)).toBeVisible({ timeout: 12_000 })
     expect(page.url(), 'stays on the marketplace-origin /launching page').toContain('/launching')
   })
