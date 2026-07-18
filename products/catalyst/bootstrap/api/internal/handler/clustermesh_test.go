@@ -2838,6 +2838,73 @@ func TestSyncSharedPGConsumerHubSecrets(t *testing.T) {
 	})
 }
 
+// TestAutoEstablishClusterMesh_ConsumerHubSecretsSyncPreMesh locks in #5230:
+// the #3629 consumer-hub Secret sync must fire from the EARLY per-slot phase of
+// autoEstablishClusterMesh — clustermesh NOT required — not from behind the
+// countFullyMeshedRegions full-mesh gate inside enableCNPGPairAfterFullMesh.
+// Region B deliberately has NO LB ingress, so the mesh can NEVER fully
+// establish and the cnpg-pair flip path is never reached; under the pre-#5230
+// wiring the replica's hub Secret therefore stayed divergent for the whole
+// mesh-establishment window (hw274: region-B harbor-core sat in
+// CreateContainerConfigError `secret "harbor-database-secret" not found` for
+// ≈22m37s on every fresh 2-region prov). The only prerequisites the sync
+// genuinely has: region-A's authoritative `-mesh-rw` hub Secret + a reachable
+// replica clientset — both present here.
+func TestAutoEstablishClusterMesh_ConsumerHubSecretsSyncPreMesh(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", ""})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+	// Shrink the LB lookup timeout so region B's absent LB fails fast.
+	setClusterMeshLBOverrides(t, 200*time.Millisecond, 25*time.Millisecond)
+
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
+	// Region-A's hub is AUTHORITATIVE from first render on a fresh prov
+	// (topology-aware -mesh-rw host — the hw274 21:15:53 state).
+	seedHubSecret(t, primaryCS, "harbor-database-secret",
+		"shared-pg-mesh-rw.shared-data.svc.cluster.local", "region-A-authoritative-pw")
+	// Region-B carries its divergent singleton-phase copy (the defect state
+	// the sync must overwrite without waiting for the mesh).
+	seedHubSecret(t, replicaCS, "harbor-database-secret",
+		"shared-pg-rw.shared-data.svc.cluster.local", "region-B-divergent-pw")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+
+	// Sanity: the mesh must NOT be fully established (region B has no LB) —
+	// this is exactly the window in which the pre-#5230 wiring never synced.
+	if fullyMeshed := countFullyMeshedRegions(statuses); fullyMeshed == len(statuses) {
+		t.Fatalf("fixture invalid: mesh fully established (%d/%d) — the pre-mesh window this test locks in did not occur", fullyMeshed, len(statuses))
+	}
+	// Sanity: the cnpg-pair flip must not have landed either (the old call
+	// site's gate) — proves the sync observed below ran OUTSIDE the flip.
+	ks := getBootstrapKitKustomization(t, fx.dynClients[fx.secondaryKubeconfigPath])
+	substitute, _, _ := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if substitute[clusterMeshCNPGPairSubstituteKey] == "true" {
+		t.Fatalf("fixture invalid: SOVEREIGN_ENABLE_CNPG_PAIR flipped ON despite the mesh never establishing")
+	}
+
+	// THE #5230 ASSERTION: region-B's hub Secret already carries region-A's
+	// authoritative host + password — synced pre-mesh, on the very first pass.
+	got, ok := getSharedDataSecret(t, replicaCS, "harbor-database-secret")
+	if !ok {
+		t.Fatalf("replica hub Secret missing — pre-mesh consumer-hub sync did not run (#5230 regression: sync still gated behind the full-mesh flip)")
+	}
+	if h := string(got.Data["host"]); h != "shared-pg-mesh-rw.shared-data.svc.cluster.local" {
+		t.Errorf("replica host = %q, want the -mesh-rw host synced PRE-mesh (#5230)", h)
+	}
+	if p := string(got.Data["password"]); p != "region-A-authoritative-pw" {
+		t.Errorf("replica password = %q, want region-A's authoritative password synced PRE-mesh (#5230) — harbor-core would sit in CreateContainerConfigError until the full-mesh flip otherwise", p)
+	}
+}
+
 // TestReconcileSharedPGConsumerRestart locks in the #4878 RESIDUAL fix
 // (live-verified on hw232): the consumer rollout-restart must NOT fire the
 // instant the shared-data hub Secret changes — it must wait until the corrected

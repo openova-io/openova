@@ -506,7 +506,9 @@ type sharedPGConsumerWorkload struct {
 //
 // THE BUG: on a 2-region prov, region-B's keycloak/gitea/harbor boot during the
 // pre-ClusterMesh-flip SINGLETON phase against a region-LOCAL, randomly-minted
-// shared-pg password. After the flip, syncSharedPGConsumerHubSecrets overwrites
+// shared-pg password. Once region-A's hubs are authoritative (`-mesh-rw` —
+// since #5230 already in the pre-mesh phase; before #5230 only after the
+// full-mesh flip), syncSharedPGConsumerHubSecrets overwrites
 // region-B's divergent hub Secret with region-A's AUTHORITATIVE password (and
 // the DB role replicates onto the follower), but the already-running pod stays
 // pinned to the stale password it cached at boot → endless
@@ -932,6 +934,32 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		h.emitClusterMeshProgress(dep, "warn",
 			fmt.Sprintf("ClusterMesh: region %q (cluster %q) unreachable before fan-out (%v) — peers will be marked disconnected", s.key, s.clusterName, s.err))
 	}
+
+	// ── #5230: EARLY shared-pg consumer-hub Secret sync (pre-mesh) ──────
+	// Hoisted OUT of enableCNPGPairAfterFullMesh (where it sat behind the
+	// countFullyMeshedRegions full-mesh gate): the #3629 consumer hub
+	// Secrets (harbor-database-secret + siblings) are plain data copies
+	// whose only real prerequisites are (a) region-A's authoritative hub
+	// Secrets carrying the topology-aware `-mesh-rw` host and (b) the
+	// replica region's apiserver being reachable — the mesh itself is NOT
+	// required (the `-mesh-rw` host resolves on the replica from first
+	// render via the replica-side stub Service). Keeping the sync behind
+	// the flip left region-B's harbor-core in CreateContainerConfigError
+	// (`secret "harbor-database-secret" not found`) for the whole
+	// mesh-establishment window — ≈22m37s on hw274, recurring on every
+	// fresh 2-region prov. Firing it here, BEFORE the up-to-5-min-per-
+	// region LB polling below, lands the hubs as early as the reconcile
+	// tick allows. Level-triggered + BEST-EFFORT like every #3629-family
+	// sync: it skips quietly when a source hub is absent (shared-pg
+	// disabled / consumer unconfigured / not yet minted), DEFERS any hub
+	// whose host is not yet `-mesh-rw`, and tolerates a nil replica
+	// clientset — so calling it on every pass (including passes where the
+	// mesh cannot establish) is safe and the re-run converges whatever
+	// this pass skipped. The flip-coupled replica-auth syncs
+	// (syncCNPGPairReplicaAuthSecrets / syncSharedPGReplicaAuthSecrets)
+	// deliberately stay inside enableCNPGPairAfterFullMesh — the replica
+	// Cluster CRs they feed exist only post-flip.
+	h.syncSharedPGConsumerHubSecrets(ctx, dep, slots)
 
 	// Step 1: per-region LB IP discovery (poll up to 5 min each).
 	for i := range slots {
@@ -1598,17 +1626,16 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 				patched++
 			}
 		}
-		// #3629 (best-effort, never blocks): once the flip has landed, region-A
-		// reconciles crossRegion=true and its bp-postgres hubs gain the
-		// topology-aware `-mesh-rw` host. Copy those hubs (correct password +
-		// host) primary → replica so the cross-region consumers (grafana,
-		// powerdns-admin, …) stop reading the divergent region-local hub each
-		// region minted in its singleton phase. The readiness gate inside the
-		// call defers any hub whose host is not yet `-mesh-rw`, so a first pass
-		// (before region-A's slot upgrade lands) is a harmless no-op and the
-		// #3241/#3583 level-trigger re-run converges it. NEVER gates the flip.
+		// #3629 → #5230: the consumer-hub Secret sync
+		// (syncSharedPGConsumerHubSecrets) is NO LONGER invoked here — it is
+		// hoisted into the early per-slot phase of autoEstablishClusterMesh
+		// (which precedes EVERY invocation of this function in the same
+		// reconcile pass), so the hubs land on the replica as soon as
+		// region-A's authoritative `-mesh-rw` Secrets + the replica clientset
+		// exist instead of waiting out the full-mesh flip (the ~22-min
+		// region-B harbor CreateContainerConfigError window on every fresh
+		// 2-region prov, hw274).
 		if sharedPGOn {
-			h.syncSharedPGConsumerHubSecrets(ctx, dep, slots)
 			// #4158 (best-effort, never blocks): one layer above the #3629
 			// consumer-hub DB secrets — region-B's keycloak boots against the
 			// cross-region-replicated shared-pg catalog (so its admin password
@@ -1871,6 +1898,17 @@ func (h *Handler) syncSharedPGReplicaAuthSecrets(ctx context.Context, dep *Deplo
 // failure is logged and SKIPPED, and the #3241/#3583 level-trigger re-run
 // converges it on a later pass. It returns nothing (the caller ignores the
 // outcome) precisely so it can never wedge convergence.
+//
+// CALL SITE (#5230): invoked from the EARLY per-slot phase of
+// autoEstablishClusterMesh — BEFORE LB discovery, on every level-trigger pass
+// — NOT from enableCNPGPairAfterFullMesh. The hubs need neither the mesh nor
+// the flip (plain data copies; the `-mesh-rw` host resolves on the replica
+// from first render via the stub Service), and gating them on the full-mesh
+// flip cost region-B's harbor-core a ≈22-min CreateContainerConfigError
+// window on every fresh 2-region prov (hw274). The internal skips above make
+// arbitrarily-early invocation safe: a pass before region-A minted its hubs
+// (or on a shared-pg-disabled Sovereign, where they never exist) skips every
+// name quietly.
 //
 // READINESS GATE: a hub Secret is propagated ONLY once its `host` key carries
 // the `-mesh-rw` marker — i.e. region-A has reconciled crossRegion=true and its
