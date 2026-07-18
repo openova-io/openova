@@ -3,6 +3,7 @@ package handler
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"k8s.io/client-go/rest"
@@ -72,11 +73,19 @@ func TestResolvePrimaryKubeconfig_ChrootMaterializesInClusterPrimary(t *testing.
 		}
 
 		// Chroot mode: SOVEREIGN_FQDN matches the deployment's FQDN, and the
-		// in-cluster config resolves (no network — synthetic here).
+		// in-cluster config resolves (no network — synthetic here). Real
+		// rest.InClusterConfig ALWAYS sets BearerTokenFile (the mounted
+		// projected-token path) as well as the read-once BearerToken string;
+		// mirror that here so the #5210 refreshing-token path is exercised.
 		t.Setenv("SOVEREIGN_FQDN", sovFQDN)
+		tokFile := filepath.Join(t.TempDir(), "token")
+		if err := os.WriteFile(tokFile, []byte(saToken), 0o600); err != nil {
+			t.Fatalf("seed projected token file: %v", err)
+		}
 		stubInClusterConfig(t, &rest.Config{
-			Host:        inClusHost,
-			BearerToken: saToken,
+			Host:            inClusHost,
+			BearerToken:     saToken,
+			BearerTokenFile: tokFile,
 			TLSClientConfig: rest.TLSClientConfig{
 				CAData: []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
 			},
@@ -111,8 +120,22 @@ func TestResolvePrimaryKubeconfig_ChrootMaterializesInClusterPrimary(t *testing.
 		if restCfg.Host != inClusHost {
 			t.Errorf("materialized primary host = %q, want %q", restCfg.Host, inClusHost)
 		}
-		if restCfg.BearerToken != saToken {
-			t.Errorf("materialized primary token = %q, want %q", restCfg.BearerToken, saToken)
+		// #5210 — the materialized kubeconfig MUST carry a refreshing tokenFile
+		// reference, NOT a one-shot inline token. clientcmd maps user.tokenFile
+		// -> rest.Config.BearerTokenFile, which selects client-go's
+		// auto-refreshing bearer round-tripper (re-reads the mounted token every
+		// ~minute). Without BearerTokenFile set, every reflector built from this
+		// kubeconfig freezes on the original bound token and floods 401
+		// Unauthorized once kubelet rotates it (~1h post-cutover).
+		if restCfg.BearerTokenFile != tokFile {
+			t.Errorf("materialized primary BearerTokenFile = %q, want %q (refreshing token reference — #5210)", restCfg.BearerTokenFile, tokFile)
+		}
+		// The serialized YAML must reference the file, never bake the literal.
+		if strings.Contains(string(raw), "token: "+saToken) {
+			t.Errorf("materialized primary kubeconfig baked a one-shot inline token — #5210 regression:\n%s", raw)
+		}
+		if !strings.Contains(string(raw), "tokenFile: "+tokFile) {
+			t.Errorf("materialized primary kubeconfig missing tokenFile reference — #5210:\n%s", raw)
 		}
 
 		// resolvePrimaryKubeconfigPath resolves to the canonical path now.

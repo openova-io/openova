@@ -564,12 +564,28 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		restCfg.TLSClientConfig.Insecure = true
 		restCfg.TLSClientConfig.CAData = nil
 		restCfg.TLSClientConfig.CAFile = ""
-		dyn, err = dynamic.NewForConfig(restCfg)
+		// #5210 — a kubeconfig that references a projected-token FILE
+		// (user.tokenFile:, which clientcmd maps to BearerTokenFile) belongs to
+		// the LOCAL chroot cluster: the materialized primary kubeconfig
+		// (clustermesh_primary_kubeconfig.go) now emits tokenFile instead of a
+		// one-shot inline token. This is the file-backed twin of the chroot
+		// self-register path, and on a chroot it is the client that ACTUALLY
+		// serves the local region (self-register is de-duped away once
+		// <id>.yaml exists). Give its long-lived informer/reflector clients the
+		// same force-refresh-on-401 transport the self-register path already
+		// uses. Applied to a COPY so the captured restCfg — reused by the exec
+		// SPDY dialer (RestConfigFor) — keeps its plain BearerTokenFile auth
+		// untouched. The helper is a no-op when BearerTokenFile is empty, so
+		// every REMOTE Sovereign/secondary kubeconfig (static embedded token, no
+		// file to re-read) builds exactly as before.
+		informerCfg := rest.CopyConfig(restCfg)
+		wrapInClusterTokenRefreshOn401(informerCfg)
+		dyn, err = dynamic.NewForConfig(informerCfg)
 		if err != nil {
 			return fmt.Errorf("dynamic client: %w", err)
 		}
 		if core == nil {
-			core, err = kubernetes.NewForConfig(restCfg)
+			core, err = kubernetes.NewForConfig(informerCfg)
 			if err != nil {
 				return fmt.Errorf("typed client: %w", err)
 			}
