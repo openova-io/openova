@@ -33,12 +33,14 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	fakek8s "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
@@ -456,6 +458,61 @@ func TestSandboxIntegration_ListThenDelete(t *testing.T) {
 	}
 	if len(listResp2.Sandboxes) != 2 {
 		t.Fatalf("LIST after delete count = %d, want 2", len(listResp2.Sandboxes))
+	}
+}
+
+// TestSandboxIntegration_DeleteBackendUnavailableDegradesTo503 — #5140
+// follow-up. List/Get/Create already degrade a transient
+// backend-unavailable error (401/403/timeout/discovery-race during a
+// cutover / region-kill recovery window — the hw261 symptom the issue
+// was filed against) to the honest 503 "API pending" instead of a raw
+// 500. Delete shares the exact same dynamic-client + error surface but
+// was not wired through the same sandboxBackendUnavailable classifier,
+// so the identical transient window still 500'd on the mutating
+// Start-session → Stop/Delete path. This pins the fix: a token-rejected
+// (Unauthorized) error on Delete now degrades to 503, matching the
+// other three verbs, while a genuine success (204, no error injected)
+// is unaffected — see TestSandboxIntegration_ListThenDelete.
+func TestSandboxIntegration_DeleteBackendUnavailableDegradesTo503(t *testing.T) {
+	scheme := runtime.NewScheme()
+	gvrToList := map[schema.GroupVersionResource]string{
+		SandboxGVR(): "SandboxList",
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList)
+	seed := mkSandboxCR("sandbox-flaky", "acme", "claude-code", nil)
+	if _, err := dyn.Resource(SandboxGVR()).Namespace("acme").Create(
+		context.Background(), seed, metav1.CreateOptions{},
+	); err != nil {
+		t.Fatalf("seed Sandbox: %v", err)
+	}
+
+	// Inject the exact transient class from the issue: a clustermesh
+	// peer apiserver rejecting the catalyst-api token during a
+	// region-kill recovery window surfaces as Unauthorized on the
+	// dynamic client call.
+	dyn.PrependReactor("delete", "sandboxes", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewUnauthorized("token rejected by peer apiserver")
+	})
+
+	core := fakek8s.NewSimpleClientset()
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetSovereignDepsFactory(func() (*sovereignDeps, error) {
+		return &sovereignDeps{core: core, dyn: dyn}, nil
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sandbox/sessions/sandbox-flaky", nil)
+	req = withSandboxClaims(req, "user-sub-flaky", "ops@acme.com", "acme")
+	rec := callSandbox(t, h, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("DELETE on transient-unauthorized: status = %d, want 503 (sandbox-backend-unavailable); body = %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["error"] != "sandbox-backend-unavailable" {
+		t.Errorf("error = %v, want sandbox-backend-unavailable", resp["error"])
 	}
 }
 

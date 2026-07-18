@@ -759,6 +759,14 @@ func canonicaliseForHash(in any) any {
 // inside the Org's vcluster. The handler returns 204 even when the CR
 // is already gone (idempotent — repeated DELETEs from the FE never
 // surface a 404 toast).
+//
+// #5140 follow-up: List/Get/Create already degrade a transient
+// backend-unavailable error (401/403/timeout/discovery-404/etc, see
+// sandboxBackendUnavailable) to 503 "API pending" instead of a raw
+// 500. Delete shared the exact same client + error surface but had
+// not been wired through the same classifier — fixed here so the
+// whole CRUD surface is consistent: transient ⇒ 503, genuine fault ⇒
+// 500.
 func (h *Handler) HandleDeleteSandboxSession(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil || claims.Sub == "" {
@@ -783,6 +791,14 @@ func (h *Handler) HandleDeleteSandboxSession(w http.ResponseWriter, r *http.Requ
 
 	err := client.Resource(SandboxGVR()).Namespace(ns).Delete(ctx, id, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
+		if sandboxBackendUnavailable(err) {
+			h.log.Warn("sandbox: backend unavailable on delete", "id", id, "namespace", ns, "err", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "sandbox-backend-unavailable",
+				"detail": "sandbox backend temporarily unavailable",
+			})
+			return
+		}
 		h.log.Warn("sandbox: delete failed", "id", id, "namespace", ns, "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "delete-failed",
