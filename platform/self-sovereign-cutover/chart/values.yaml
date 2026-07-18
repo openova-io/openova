@@ -675,6 +675,15 @@ prewarm:
   # a Sovereign that intentionally keeps the xpkg upstream leg open.
   xpkgPackages:
     enabled: true
+    # #5232 (Refs #5226 #5204) — the release-namespace ConfigMap where Phase
+    # A4 records each warmed package's tag->digest resolution. Harbor
+    # proxy-cache NEVER records TAGS for pulled-through xpkg artifacts
+    # (manual tag-create 401s on proxy projects; a tag manifest GET serves
+    # the index but does not record the tag either — live hw274 dep
+    # d51a69f885872a81), so step-11 pivots Provider.spec.package BY DIGEST
+    # using this map; a tag-form pivot ref would 404 post-severance. The
+    # SAME value is read by BOTH step templates (no drift).
+    digestMapConfigMapName: "self-sovereign-cutover-xpkg-digests"
   # #4975 (Refs #3379 #3695) — RETIRED. This hand-maintained 11-image HEAD list
   # (the old Phase B "warm the proxy-cache" pass) was one of the three drifting
   # lists that caused the per-prov whack-a-mole: any upstream image a chart added

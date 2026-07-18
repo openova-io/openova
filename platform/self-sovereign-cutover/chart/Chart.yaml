@@ -1,5 +1,58 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.143 (#5232 Refs #5226 #5204 — the xpkg leg moves to DIGEST refs
+# end-to-end. Live hw274 (dep d51a69f885872a81, first 0.1.142 run): step-03
+# Phase A4 FATAL'd `pulled through but never durably recorded` on
+# proxy-xpkg/upbound/provider-opentofu:v1.1.3 — the pull-through SUCCEEDED
+# and the artifact IS durably cached + queryable BY DIGEST
+# (sha256:d953d019..., media manifest.list.v2), but Harbor proxy-cache NEVER
+# records TAGS for pulled-through xpkg artifacts: manual tag-create 401s on
+# proxy projects, and a fresh tag manifest GET serves the OCI index without
+# recording the tag either (deterministic, not async lag). So (a) #5226's
+# tag-based Phase A4 durable-verify could never pass — the cutover halts at
+# step-03 pct=18 by design, and (b) step-11's tag-based spec.package pivot
+# ref would genuinely 404 post-severance. THREE coupled changes:
+#   (1) step-03 Phase A4 (template 03) — after the full pull-through, the
+#       tag->digest is resolved from the dir: scratch's top-level
+#       manifest.json (sha256 of the exact pulled-through manifest bytes IS
+#       the digest Harbor records — the #4994/#5030 sha256-of-raw-bytes
+#       identity, single-arch AND lists), the durable-presence poll probes
+#       the artifact API BY DIGEST (works today — hw274 evidence), and the
+#       map is persisted to the prewarm.xpkgPackages.digestMapConfigMapName
+#       ConfigMap (create-or-replace, release namespace) for step-11. The
+#       skip-if-present branch keys ONLY on a digest a PRIOR successful warm
+#       minted (in-ref #4955 digests aside) — never on a fresh tag resolve,
+#       which would itself pull the manifest through and could record the
+#       digest with COLD blobs. FATAL when the resolution or the CM persist
+#       fails (egress still open, recoverable).
+#   (2) step-11 (template 11) — every spec.package pivot ref is
+#       DIGEST-addressed: `harbor.<fqdn>/proxy-xpkg/<path>@sha256:<digest>`
+#       (Crossplane accepts digest package refs: spec.package is an
+#       unrestricted string [v1.18.0 cluster/crds/pkg.crossplane.io_
+#       providers.yaml] parsed via go-containerregistry name.ParseReference
+#       [internal/controller/pkg/manager/revisioner.go], and the xpkg naming
+#       layer treats ":@" as the identifier delimiter set [internal/xpkg/
+#       name.go]). Phase 1 rewrites BY the minted digest with the
+#       verify-before-pivot probe now digest-based; an ALREADY digest-pivoted
+#       Provider re-verifies by its own digest; a pre-#5232 TAG-form local
+#       pivot is UPGRADED to the digest form; a missing digest FATALs LOUD
+#       (DIGEST-MISS) naming the exact recovery (clear
+#       step.harbor-prewarm.result + re-trigger — the runCutover resume
+#       skips result=success steps, so a bare re-trigger alone would NOT
+#       re-run step-03). Phase 2's Gitea rewrite pushes the SAME digest form
+#       (all three source shapes: upstream host, #4488 mothership proxy
+#       prefix, tag-form local) so the bootstrap-kit reconcile re-asserts —
+#       never reverts — the live digest patch; refs with no minted digest
+#       (foreign-Sovereign/_template overlays, very-early-handover) keep the
+#       host-swap and upgrade on a later re-run. NO RBAC change (configmaps
+#       create/get/update/patch already granted cluster-wide). NO step-count
+#       / job-mode / deadline change (still 11 steps). Contract Case 65
+#       re-locks the digest resolution + digest verify + digest pivot-ref
+#       shape + the DIGEST-MISS FATAL; Case 39 unchanged (still exactly 2
+#       --multi-arch all copies). Slot-06a pin + blueprint.yaml +
+#       catalog-seed source.version + spec.version move to 0.1.143 in
+#       lockstep (Inviolable Principle #13).)
+# ── prior ──
 # 0.1.142 (#5204 Refs #5209 #3379 — the local Harbor must DURABLY hold every
 # Crossplane xpkg provider package BEFORE step-11 pivots onto it. #5209
 # (0.1.139) wired the package-pull AUTH, but NOTHING ever placed the xpkg OCI
@@ -47,7 +100,7 @@ name: bp-self-sovereign-cutover
 #       xpkg.upbound.io excludedHosts invariant. Slot-06a pin + blueprint.yaml
 #       + catalog-seed source.version + spec.version move to 0.1.142 in
 #       lockstep (Inviolable Principle #13).)
-# ── prior ──
+#
 # 0.1.141 (#5215 Refs #4996 #5074 — step-07 must NOT roll the EVS/hcloud CSI
 # driver. Root-caused live on hw271 (cutoverComplete=true then re-fire wedge):
 # step-07 rolled the csi-evs-node DaemonSet via TWO vectors — (1) the
@@ -2364,7 +2417,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.142
+version: 0.1.143
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
