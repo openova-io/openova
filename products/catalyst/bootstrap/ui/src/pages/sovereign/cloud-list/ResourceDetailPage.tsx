@@ -292,6 +292,29 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
         </div>
       )}
 
+      {/* #5210 — graceful degrade. The parent resource-GET (the k9s lens
+          `/k8s/{kind}/{ns}/{name}`) can fail on a Sovereign — e.g. a
+          transient apiserver auth blip after cutover — while the Flux
+          reconciler's OWN endpoints (logs + reconcile / suspend / resume)
+          stay reachable. Keep that management surface usable instead of
+          hiding the whole tab body behind the parent-GET error. `obj` is
+          null here; ReconcileTab reads every obj field defensively
+          (obj?.…) and drives its actions from deploymentId/apiKind/ns/name,
+          so it renders + operates without the parent object. Unblocks the
+          reconcile drill-in when the lens GET degrades (UAT rows 193/195). */}
+      {!isLoading && objErr && tab === 'reconcile' && isReconcilerManageable(apiKind) && (
+        <div data-testid={`resource-detail-tab-content-${tab}`}>
+          <ReconcileTab
+            deploymentId={deploymentId}
+            apiKind={apiKind}
+            ns={ns}
+            name={name}
+            obj={null}
+            isTierAdmin={isTierAdmin}
+          />
+        </div>
+      )}
+
       {!isLoading && !objErr && (
         <div data-testid={`resource-detail-tab-content-${tab}`}>
           {tab === 'overview' && (
