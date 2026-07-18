@@ -36,6 +36,13 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PortalShell } from '../PortalShell'
 import { BillingSectionNav } from './BillingSectionNav'
 import { useDeploymentEvents } from '../useDeploymentEvents'
+// Rows 73/74 (issue #5223) — the inline mirror of the server voucher-code
+// strength policy (core/services/shared/voucher/code.go).
+import {
+  validateVoucherCodeStrength,
+  VOUCHER_CODE_MIN_DISTINCT,
+  VOUCHER_CODE_MIN_LEN,
+} from './voucherCodePolicy'
 import {
   issueVoucher,
   listVouchers,
@@ -437,6 +444,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString()
 }
 
+
 interface IssueVoucherModalProps {
   onClose: () => void
   onIssued: (voucher: Voucher) => void
@@ -455,10 +463,19 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Rows 73/74 — live inline strength hint while the operator types a
+  // custom code (empty = the auto-generate path, no hint). The SAME rule
+  // gates submit, so the hint is never advisory-only.
+  const liveCodeHint = validateVoucherCodeStrength(code)
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!code.trim()) {
-      setError('Voucher code is required.')
+    // Rows 73/74 — mirror the server strength policy inline. An EMPTY
+    // code is VALID (the server auto-generates a high-entropy one); a
+    // supplied code must clear the min-length + distinct-chars minimum.
+    const codeError = validateVoucherCodeStrength(code)
+    if (codeError) {
+      setError(codeError)
       return
     }
     if (typeof creditOmr !== 'number' || creditOmr <= 0) {
@@ -469,10 +486,14 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
     setError(null)
     try {
       const req: IssueVoucherRequest = {
-        code: code.trim().toUpperCase(),
         credit_omr: creditOmr,
         active: true,
       }
+      // Omit `code` entirely when blank — the billing service's
+      // IssueVoucher then auto-generates `VCH-XXXXXXXXXXXX` (~60 bits,
+      // crypto/rand). The catalyst-api proxy skips edge strength checks
+      // for exactly this empty-code path (#4914).
+      if (code.trim()) req.code = code.trim().toUpperCase()
       if (description.trim()) req.description = description.trim()
       if (typeof maxRedemptions === 'number' && maxRedemptions > 0) {
         req.max_redemptions = maxRedemptions
@@ -520,18 +541,32 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
 
         <label className="mb-3 block">
           <div className="mb-1 text-xs font-medium text-[var(--color-text-dim)]">
-            Code
+            Code (optional — leave blank to auto-generate)
           </div>
           <input
             data-testid="bss-issue-voucher-code"
             type="text"
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            placeholder="LAUNCH2026"
+            placeholder="Blank auto-generates VCH-…"
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-sm font-mono uppercase text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
             autoFocus
             autoComplete="off"
           />
+          {liveCodeHint ? (
+            <div
+              data-testid="bss-issue-voucher-code-hint"
+              className="mt-1 text-[10px] text-amber-300"
+            >
+              {liveCodeHint}
+            </div>
+          ) : (
+            <div className="mt-1 text-[10px] text-[var(--color-text-dim)]">
+              A custom code needs ≥ {VOUCHER_CODE_MIN_LEN} characters with ≥{' '}
+              {VOUCHER_CODE_MIN_DISTINCT} distinct characters. Blank issues a
+              high-entropy VCH-… code.
+            </div>
+          )}
         </label>
 
         <label className="mb-3 block">

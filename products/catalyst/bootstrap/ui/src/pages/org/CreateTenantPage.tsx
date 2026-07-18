@@ -197,7 +197,7 @@ export function CreateTenantPage({
           <p className="text-sm text-[var(--color-text-dim)]">
             {isInternal
               ? 'An internal department — a people, app, and cost boundary on this Sovereign. No marketplace voucher; consumption attributes to the org via showback.'
-              : 'A customer organization — provisions its own vCluster, blueprint charts, DNS, certs, Keycloak realm, and registry entry. Choose a free subdomain under one of this Sovereign’s parent domains or bring an org-owned apex.'}
+              : 'A customer organization — provisions its own isolated runtime (per the isolation shown under Defaults, validated server-side at provision time), blueprint charts, DNS, certs, Keycloak realm, and registry entry. Choose a free subdomain under one of this Sovereign’s parent domains or bring an org-owned apex.'}
           </p>
         </div>
       </div>
@@ -243,7 +243,7 @@ export function CreateTenantPage({
                   <span className="block text-xs text-[var(--color-text-dim)]">
                     {k === 'internal'
                       ? 'Department — people/app/cost boundary'
-                      : 'Customer — its own Kubernetes universe'}
+                      : 'Customer — externally billed, own isolated runtime'}
                   </span>
                 </button>
               )
@@ -328,8 +328,8 @@ export function CreateTenantPage({
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-sm"
           />
           <span className="text-xs text-[var(--color-text-dim)]">
-            Used in resource names (vCluster, namespace) and the URL when
-            the organization picks free-subdomain mode.
+            Used in resource names (namespace and per-Org resources) and the
+            URL when the organization picks free-subdomain mode.
           </span>
         </label>
 

@@ -297,8 +297,12 @@ export function voucherStatus(v: Voucher): VoucherStatus {
 }
 
 export interface IssueVoucherRequest {
-  /** Voucher code (uppercased server-side on save). */
-  code: string
+  /** Voucher code (uppercased server-side on save). OPTIONAL — when
+   *  omitted/blank the billing service auto-generates a high-entropy
+   *  `VCH-XXXXXXXXXXXX` code (core/services/shared/voucher GenerateCode,
+   *  ~60 bits; UAT row 74). A supplied code must clear the server's
+   *  strength minimum (>=12 chars, >=6 distinct — row 73). */
+  code?: string
   /** Credit amount in OMR (integer). */
   credit_omr: number
   description?: string
