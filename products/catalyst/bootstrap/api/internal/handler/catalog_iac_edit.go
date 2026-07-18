@@ -200,19 +200,57 @@ func iaCEditDurableReason(wroteBytes bool) string {
 	return "already up to date (no change)"
 }
 
+// catalogIaCSeedResponse is the GET /api/v1/catalog/{name}/iac envelope.
+// The FE reads only blueprintYaml (catalog.api.ts getCatalogBlueprintIaC);
+// path + source are diagnostic — source names which truth the seed came from
+// so a walk can tell a verbatim committed read from a re-canonicalized one.
+type catalogIaCSeedResponse struct {
+	BlueprintYaml string `json:"blueprintYaml"`
+	Path          string `json:"path"`
+	// Source is one of:
+	//   "committed"               — the committed file, already canonical, verbatim;
+	//   "committed-canonicalized" — a stale pre-#5115 committed file, re-served
+	//                               through the canonical CR serializer;
+	//   "live-cr"                 — nothing committed yet; the catalog-resolved
+	//                               CR through the same canonical serializer.
+	Source string `json:"source"`
+}
+
 // HandleGetCatalogBlueprintIaC — GET /api/v1/catalog/{name}/iac.
 //
-// Returns the CURRENTLY-COMMITTED catalog-sovereign/<repo>/blueprint.yaml — the
-// same file the PUT (HandleCatalogBlueprintIaCEdit) writes and the card-form save
-// commits, resolved via the same resolveCatalogEditRepo seam. #5124: the Edit-IaC
-// editor previously seeded from the store's stale CatalogItem.raw, so committing
-// from that seed silently reverted prior card-form edits (icon/title/summary) that
-// were already in the committed file. The FE seeds the editor from THIS endpoint
-// (the source of truth), falling back to its store raw only when nothing is
-// committed yet (404). Read-only.
+// Returns the Edit-IaC editor SEED: the CURRENTLY-COMMITTED
+// catalog-sovereign/<repo>/blueprint.yaml (the same file the PUT and the
+// card-form save write, resolved via the same resolveCatalogEditRepo seam),
+// always in the #5115 canonical Blueprint CR shape.
+//
+// #5124 (hw256 V6 walk, UAT row 130): the Edit-IaC editor originally seeded
+// from the store's stale CatalogItem.raw — the pre-#5115 shape (bare `alloy`
+// metadata.name, no spec.version, no Helm ownership labels, no card fields) —
+// so an IaC Commit from that seed silently reverted card-form edits already in
+// the committed file. Serving the committed file (first pass of this endpoint)
+// closed the main path, but two stale-seed legs remained, both closed here:
+//
+//  1. A committed file that PREDATES #5115 (bare name / server-side metadata
+//     junk / #4415-stripped spec.version) was returned VERBATIM — the editor
+//     opened the stale shape. It is now re-canonicalized on read through the
+//     SAME serializer every commit leg uses (stampBlueprintCRForFluxAggregator,
+//     #5113/#5115), with spec.version refilled from the catalog-resolved
+//     blueprint when the stale file lost it, so the served seed always passes
+//     the PUT's validateCatalogBlueprintYAML gate. An already-canonical file
+//     is returned verbatim (authored fidelity preserved).
+//  2. Nothing committed yet returned 404 and the FE fell back to the stale
+//     store raw — the exact defect signature. The endpoint now serves the
+//     catalog-resolved CR (chainedCatalogClient: Gitea seed → in-cluster live
+//     CR) through the same canonical serializer instead; 404 remains only
+//     when neither source resolves, so the FE's raw fallback is a last resort
+//     for a blueprint the whole platform cannot see.
+//
+// Read-only — this endpoint never writes; the canonical shape lands in Gitea
+// on the next commit (which re-canonicalizes the aggregator leg regardless).
 func (h *Handler) HandleGetCatalogBlueprintIaC(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
+	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	bpName := catalogEditBlueprintName(name)
+	if bpName == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing-name"})
 		return
 	}
@@ -222,22 +260,155 @@ func (h *Handler) HandleGetCatalogBlueprintIaC(w http.ResponseWriter, r *http.Re
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	repo := h.resolveCatalogEditRepo(ctx, name)
+	repo := h.resolveCatalogEditRepo(ctx, bpName)
+	path := fmt.Sprintf("catalog-sovereign/%s/%s", repo, catalogEditBlueprintPath)
 	f, err := h.giteaClient.GetFile(ctx, catalogSovereignOrg, repo, catalogEditGitBranch, catalogEditBlueprintPath)
-	if err != nil {
-		// Not committed yet — the FE falls back to its store raw / live CR.
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not-committed", "detail": err.Error()})
+	if err == nil {
+		raw, derr := f.Decoded()
+		if derr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "decode-failed", "detail": derr.Error()})
+			return
+		}
+		if catalogIaCSeedIsCanonical(raw, bpName) {
+			writeJSON(w, http.StatusOK, catalogIaCSeedResponse{
+				BlueprintYaml: string(raw),
+				Path:          path,
+				Source:        "committed",
+			})
+			return
+		}
+		// Stale pre-#5115 committed shape — re-canonicalize on read so the
+		// editor opens the current canonical CR, never the stale document.
+		if canonical := h.recanonicalizeCommittedIaCSeed(ctx, raw, bpName); len(canonical) > 0 {
+			writeJSON(w, http.StatusOK, catalogIaCSeedResponse{
+				BlueprintYaml: string(canonical),
+				Path:          path,
+				Source:        "committed-canonicalized",
+			})
+			return
+		}
+		// Un-parsable committed document (out-of-band push) — return it
+		// verbatim rather than fabricating a blank; the PUT's validation
+		// will name the parse failure if the admin commits it unchanged.
+		writeJSON(w, http.StatusOK, catalogIaCSeedResponse{
+			BlueprintYaml: string(raw),
+			Path:          path,
+			Source:        "committed",
+		})
 		return
 	}
-	raw, derr := f.Decoded()
-	if derr != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "decode-failed", "detail": derr.Error()})
+	// Nothing committed yet (or the read failed) — #5124: NEVER hand the FE
+	// back to its stale store raw when the blueprint resolves. Serve the
+	// catalog-resolved CR through the same canonical serializer.
+	if seed := h.canonicalIaCSeedFromCatalog(ctx, bpName); len(seed) > 0 {
+		writeJSON(w, http.StatusOK, catalogIaCSeedResponse{
+			BlueprintYaml: string(seed),
+			Path:          path,
+			Source:        "live-cr",
+		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"blueprintYaml": string(raw),
-		"path":          fmt.Sprintf("catalog-sovereign/%s/%s", repo, catalogEditBlueprintPath),
-	})
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "not-committed", "detail": err.Error()})
+}
+
+// catalogIaCSeedIsCanonical reports whether a committed blueprint.yaml already
+// carries the #5115 canonical Blueprint CR shape: the canonical bp-<slug>
+// metadata.name, a non-empty spec.version, and none of the server-side fields
+// the canonical serializer scrubs (blueprintCRServerSideMetadataFields, status,
+// the last-applied annotation). A canonical file is served VERBATIM (authored
+// field order / comments preserved); anything else is the stale pre-#5115
+// shape and gets re-canonicalized on read.
+func catalogIaCSeedIsCanonical(raw []byte, bpName string) bool {
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return false
+	}
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil || asString(meta["name"]) != bpName {
+		return false
+	}
+	for _, k := range blueprintCRServerSideMetadataFields {
+		if _, present := meta[k]; present {
+			return false
+		}
+	}
+	if ann, ok := meta["annotations"].(map[string]interface{}); ok {
+		if _, present := ann["kubectl.kubernetes.io/last-applied-configuration"]; present {
+			return false
+		}
+	}
+	if _, present := doc["status"]; present {
+		return false
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	return spec != nil && strings.TrimSpace(asString(spec["version"])) != ""
+}
+
+// recanonicalizeCommittedIaCSeed re-serves a STALE pre-#5115 committed
+// blueprint.yaml through the canonical CR serializer (the same
+// stampBlueprintCRMapForFluxAggregator every commit leg uses): metadata.name
+// stamped to the canonical bp-<slug> identity, server-side metadata scrubbed,
+// Helm ownership labels preserved. When the stale file lost spec.version (the
+// pre-#5115 #4415 delivery-field strip), it is refilled from the
+// catalog-resolved blueprint so the served seed passes the PUT's
+// validateCatalogBlueprintYAML gate instead of 400ing the admin's commit.
+// Returns nil on an un-parsable document (the caller then serves the raw
+// bytes verbatim).
+func (h *Handler) recanonicalizeCommittedIaCSeed(ctx context.Context, raw []byte, bpName string) []byte {
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return nil
+	}
+	if blueprintSpecVersionMissing(doc) && h.catalogClient != nil {
+		if bp, err := h.catalogClient.Get(ctx, bpName, ""); err == nil && bp != nil {
+			fillBlueprintSpecVersion(doc, bp.Version)
+		}
+	}
+	return stampBlueprintCRMapForFluxAggregator(doc, bpName)
+}
+
+// canonicalIaCSeedFromCatalog resolves the blueprint via the catalog client
+// (chainedCatalogClient: Gitea seed → in-cluster live CR — the same full-spec
+// source the card path's first-edit seed uses, #3668 §5A) and renders it
+// through the canonical CR serializer, refilling spec.version from the
+// resolved catalog version when the Raw document lacks it. Returns nil when
+// the client is unwired or the blueprint cannot be resolved — the caller then
+// 404s and the FE falls back to its store raw as a true last resort.
+func (h *Handler) canonicalIaCSeedFromCatalog(ctx context.Context, bpName string) []byte {
+	if h.catalogClient == nil {
+		return nil
+	}
+	bp, err := h.catalogClient.Get(ctx, bpName, "")
+	if err != nil || bp == nil || len(bp.Raw) == 0 {
+		return nil
+	}
+	doc := deepCopyYAMLMap(bp.Raw)
+	fillBlueprintSpecVersion(doc, bp.Version)
+	return stampBlueprintCRMapForFluxAggregator(doc, bpName)
+}
+
+// blueprintSpecVersionMissing reports whether a decoded Blueprint CR map lacks
+// a non-empty spec.version (the CRD-required field the pre-#5115 #4415 strip
+// removed from committed files).
+func blueprintSpecVersionMissing(doc map[string]interface{}) bool {
+	spec, _ := doc["spec"].(map[string]interface{})
+	return spec == nil || strings.TrimSpace(asString(spec["version"])) == ""
+}
+
+// fillBlueprintSpecVersion sets spec.version to the supplied version when the
+// document lacks one. Never overwrites an authored version — the admin owns
+// an explicit spec.version (DoD §9.7).
+func fillBlueprintSpecVersion(doc map[string]interface{}, version string) {
+	v := strings.TrimSpace(version)
+	if v == "" || !blueprintSpecVersionMissing(doc) {
+		return
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil {
+		spec = map[string]interface{}{}
+		doc["spec"] = spec
+	}
+	spec["version"] = v
 }
 
 // writeCatalogFullBlueprintToGit commits the FULL supplied blueprint.yaml to
@@ -337,6 +508,16 @@ func (h *Handler) resolveCatalogEditRepo(ctx context.Context, bpName string) str
 func stampBlueprintCRForFluxAggregator(raw []byte, bpName string) []byte {
 	var doc map[string]interface{}
 	if err := yamlv3.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return nil
+	}
+	return stampBlueprintCRMapForFluxAggregator(doc, bpName)
+}
+
+// stampBlueprintCRMapForFluxAggregator is the map-level entry of the canonical
+// serializer above, shared with the #5124 Edit-IaC seed paths (which decode
+// first to refill a stripped spec.version before canonicalizing). MUTATES doc.
+func stampBlueprintCRMapForFluxAggregator(doc map[string]interface{}, bpName string) []byte {
+	if doc == nil {
 		return nil
 	}
 	if meta, ok := doc["metadata"].(map[string]interface{}); ok {
