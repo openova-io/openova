@@ -31,6 +31,20 @@
 // step 3 is fallback ONLY for orphans tofu can't see (corrupt state,
 // resources created out-of-band by a half-completed cloud-init, etc.).
 // We never use the direct API for new resource creation.
+//
+// #5193 — the purge sequence above (steps 2-6) runs ASYNCHRONOUSLY in a
+// detached goroutine (runWipePurge), NOT inside the HTTP request that
+// triggered it. WipeDeployment itself only validates + flips
+// Status="wiping" + launches the goroutine, then returns 202 Accepted
+// immediately. This matters because the console wipe endpoint sits
+// behind nginx with a 60s proxy-read-timeout: the old synchronous
+// implementation ran `tofu destroy` bound to r.Context(), so nginx
+// closing the client connection at 60s cancelled the context and
+// SIGKILLed the destroy mid-teardown, stranding the record at
+// status=wiping forever (hw268 incident). Poll GET
+// /api/v1/deployments/{id} for status=wiped + the `lastWipeReport`
+// field (same shape this file used to return synchronously), or GET
+// .../events for the live SSE purge log.
 package handler
 
 import (
@@ -260,20 +274,33 @@ func resolveProviderName(dep *Deployment) string {
 // WipeDeployment handles POST /api/v1/deployments/{id}/wipe.
 //
 // Response codes:
-//   - 200 OK on full or partial success (errors in the body)
-//   - 400 Bad Request when the body cannot be parsed
+//   - 202 Accepted once validation passes and the purge goroutine has
+//     been launched (#5193 — the actual tofu destroy + orphan sweep +
+//     DNS/PDM/local cleanup runs ASYNCHRONOUSLY in runWipePurge, never
+//     inside this request). Poll GET /api/v1/deployments/{id} for
+//     status=wiped + the `lastWipeReport` field (the same shape this
+//     endpoint used to return synchronously in a 200 body), or GET
+//     .../events for the live SSE purge log.
+//   - 400 Bad Request when the body cannot be parsed, or (huawei) no
+//     credential source resolves (typed body, legacy body, in-memory
+//     request, per-deployment PVC tfvars, or the huawei-operator-creds
+//     env fallback — see the provHint switch below).
 //   - 404 Not Found when the deployment id is unknown
-//   - 409 Conflict if a wipe is already in progress for this deployment,
-//     OR (issue #914) if the deployment is still in `phase1-watching`
-//     AND younger than wipeMinLifeProtection (default 30m). The 409
-//     body carries `retryAfterSec` + `minLifeSec` so the wizard can
-//     render a "wait N minutes" countdown. Operator override:
-//     `?force=true` query param.
-//   - 500 on a fatal local-state error (workdir non-removable, etc.)
+//   - 409 Conflict if a purge goroutine is ALREADY running for this
+//     deployment in this process (dep.wipeInFlight==true), OR (issue
+//     #914) if the deployment is still in `phase1-watching` AND
+//     younger than wipeMinLifeProtection (default 30m). The 409 body
+//     for the latter carries `retryAfterSec` + `minLifeSec` so the
+//     wizard can render a "wait N minutes" countdown. Operator
+//     override: `?force=true` query param.
 //
-// The endpoint is idempotent: re-running on a partially-wiped deployment
-// returns the same shape with empty deltas. The wizard treats a 200 with
-// non-empty Errors as "investigate the log; some cleanup may be manual".
+// The endpoint is idempotent, including re-wipe of a STRANDED `wiping`
+// record (#5193): a Status=="wiping" row whose owning goroutine died
+// with a prior catalyst-api process (Pod roll, or — pre-#5193 — nginx's
+// 60s proxy-timeout killing a request-bound destroy) is NOT protected
+// by the single-flight guard, because wipeInFlight is in-memory-only
+// and always starts false on a freshly rehydrated Deployment. A fresh
+// POST .../wipe on such a record simply resumes/re-runs the destroy.
 func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -303,11 +330,27 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	// the canonical creds resolution order is (1) typed body fields,
 	// (2) in-memory depReq, (3) the per-deployment tofu.auto.tfvars.json
 	// on PVC (which catalyst-api wrote during provision and survives
-	// Pod restart unconditionally). If ALL three sources are empty,
-	// THEN refuse the wipe with a typed error. Otherwise let the wipe
-	// proceed and let buildWipeCredsRaw + the provider adapter do the
-	// rest. For Hetzner the legacy `hetznerToken` is still the only
-	// path until the wizard ships a typed shape.
+	// Pod restart unconditionally), (4) — #5193 — the `huawei-operator-
+	// creds` Secret projected into the catalyst-api Pod as
+	// CATALYST_HUAWEI_ACCESS_KEY/_SECRET_KEY/_PROJECT_ID/_REGION, the
+	// SAME in-cluster fallback the janitor's discoverHuaweiCreds
+	// (janitor.go:584) already uses for the project-wide orphan sweep.
+	// If ALL FOUR sources are empty, THEN refuse the wipe with a typed
+	// error. Otherwise let the wipe proceed and let buildWipeCredsRaw +
+	// the provider adapter do the rest. For Hetzner the legacy
+	// `hetznerToken` is still the only path until the wizard ships a
+	// typed shape.
+	//
+	// #5193 root cause: a partial destroy (killed mid-teardown by the
+	// nginx 60s proxy-timeout — see runWipePurge) deletes the per-
+	// deployment tfvars off the PVC. If the catalyst-api Pod has also
+	// rolled since (dep.Request.Huawei* GC'd from memory) and the
+	// operator re-fires the wipe with an empty body, sources (1)-(3)
+	// are ALL empty even though an environment the platform
+	// created must always be wipeable — the operator-creds Secret is
+	// right there in the catalyst ns. Without this fallback the wipe
+	// 400s "credentials are required" forever, stranding the record at
+	// status=wiping and blocking the one-environment-at-a-time gate.
 	provHint := strings.ToLower(strings.TrimSpace(dep.Request.Provider))
 	if provHint == "" {
 		provHint = "hetzner"
@@ -331,9 +374,29 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// #5193 — operator-creds env fallback. Only fires when body +
+		// tfvars + in-memory dep.Request are still empty for the
+		// authenticating pair; body/tfvars-supplied values always win.
+		if firstNonEmpty(body.HuaweiAccessKey, dep.Request.HuaweiAccessKey) == "" ||
+			firstNonEmpty(body.HuaweiSecretKey, dep.Request.HuaweiSecretKey) == "" {
+			if hw, ok := huaweiOperatorCredsFromEnv(); ok {
+				if strings.TrimSpace(body.HuaweiAccessKey) == "" {
+					body.HuaweiAccessKey = hw.AccessKey
+				}
+				if strings.TrimSpace(body.HuaweiSecretKey) == "" {
+					body.HuaweiSecretKey = hw.SecretKey
+				}
+				if strings.TrimSpace(body.HuaweiProjectID) == "" {
+					body.HuaweiProjectID = hw.ProjectID
+				}
+				if strings.TrimSpace(body.HuaweiRegion) == "" {
+					body.HuaweiRegion = hw.Region
+				}
+			}
+		}
 		if firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, dep.Request.HuaweiAccessKey) == "" ||
 			firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, dep.Request.HuaweiSecretKey) == "" {
-			http.Error(w, "huawei credentials are required (huaweiAccessKey + huaweiSecretKey in body, or already on PVC tfvars)", http.StatusBadRequest)
+			http.Error(w, "huawei credentials are required (huaweiAccessKey + huaweiSecretKey in body, or already on PVC tfvars, or CATALYST_HUAWEI_ACCESS_KEY/_SECRET_KEY env on catalyst-api)", http.StatusBadRequest)
 			return
 		}
 	default:
@@ -407,15 +470,27 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Single-flight guard: if Status is already "wiping", refuse.
+	// Single-flight guard — #5193 hardened for idempotent re-wipe.
+	// Refuse ONLY when a goroutine in THIS process is genuinely running
+	// the purge right now (wipeInFlight==true). A record whose Status
+	// is "wiping" but wipeInFlight is false is a STRANDED wipe —
+	// abandoned by a catalyst-api Pod roll mid-destroy, or (the
+	// primary #5193 defect, fixed below by runWipePurge's detached
+	// context) killed by nginx's 60s proxy-timeout tearing down a
+	// request-bound destroy. Both used to leave the record un-wipeable
+	// via the old status-string-only guard, which blocked the
+	// one-environment-at-a-time fresh-prov gate forever. Re-firing the
+	// wipe on a stranded record now simply resumes/re-runs the destroy
+	// — idempotent, per the doc comment at the top of this file.
 	dep.mu.Lock()
-	if dep.Status == "wiping" {
+	if dep.wipeInFlight {
 		dep.mu.Unlock()
 		http.Error(w, "wipe already in progress for this deployment", http.StatusConflict)
 		return
 	}
 	prevStatus := dep.Status
 	dep.Status = "wiping"
+	dep.wipeInFlight = true
 	dep.mu.Unlock()
 
 	// Re-open the events channel for the wipe phase. The previous one
@@ -432,6 +507,54 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	dep.mu.Lock()
 	dep.eventsCh = make(chan provisioner.Event, 256)
 	dep.mu.Unlock()
+
+	// #5193 — respond immediately; the purge itself runs in a detached
+	// goroutine (mirrors CreateDeployment's `go h.runProvisioning(dep)`
+	// pattern, deployments.go:1498). This is the primary fix: the OLD
+	// code ran the entire purge sequence synchronously inside this HTTP
+	// request with `tofuCtx` rooted in `r.Context()`. nginx's 60s
+	// proxy-timeout closes the client-facing connection mid-destroy;
+	// Go's server then cancels r.Context() because the peer connection
+	// closed, which cancelled tofuCtx and SIGKILLed the `tofu destroy`
+	// subprocess partway through (region-a destroyed, region-b/EIPs/
+	// VPCs/S3 left behind — the hw268 incident). runWipePurge below
+	// roots every internal context in context.Background() instead, so
+	// a slow or disconnected client can never abort an in-flight
+	// destroy again. The wizard (or any client) polls
+	// GET /api/v1/deployments/{id} — `status` flips wiping → wiped, and
+	// `lastWipeReport` carries the same detail the old synchronous
+	// response used to return directly in its body.
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"deploymentId":  id,
+		"sovereignFQDN": dep.Request.SovereignFQDN,
+		"status":        "wiping",
+		"message":       "wipe started; poll GET /api/v1/deployments/" + id + " for status=wiped, or GET .../events for the live purge log",
+	})
+
+	go h.runWipePurge(dep, id, body, prevStatus)
+}
+
+// runWipePurge runs the full destructive purge sequence for a wipe —
+// tofu destroy, provider orphan sweep, DNS teardown, PDM release, and
+// local-state cleanup — detached from the HTTP request that triggered
+// it (#5193). WipeDeployment launches this in its own goroutine and
+// responds 202 immediately; every context created in here is rooted in
+// context.Background(), never r.Context(), so a client disconnect (the
+// nginx 60s proxy-timeout, a dropped wizard tab, a catalyst-api Pod
+// roll of some OTHER request) can never cancel this purge.
+//
+// Always clears dep.wipeInFlight on return (success or failure) so a
+// stranded `wiping` record — one whose owning goroutine died with a
+// prior catalyst-api process — is always re-wipeable via a fresh
+// POST .../wipe; the single-flight guard in WipeDeployment only blocks
+// a genuinely-running goroutine, never a bare status string left over
+// from a dead one.
+func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, prevStatus string) {
+	defer func() {
+		dep.mu.Lock()
+		dep.wipeInFlight = false
+		dep.mu.Unlock()
+	}()
 
 	providerName := resolveProviderName(dep)
 	report := wipeResponse{
@@ -521,7 +644,12 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	wipeReq.HetznerToken = body.HetznerToken
 
 	prov := provisioner.New()
-	tofuCtx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
+	// #5193 — rooted in context.Background(), NOT the (now long-since-
+	// returned) HTTP request context. This is what lets `tofu destroy`
+	// run to completion even though nginx's 60s proxy-timeout closes
+	// the original client connection almost immediately (the handler
+	// already responded 202 before this goroutine was even launched).
+	tofuCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
 	// Wave 3 — the provider adapter owns tofu destroy + orphan sweep
@@ -846,7 +974,22 @@ _ = deploymentSovereignName // retained for backwards-compat callers; unused on 
 		}()
 	}
 
-	writeJSON(w, http.StatusOK, report)
+	// #5193 — persist the final report so a poller (GET
+	// /deployments/{id}, or a re-fired wipe checking whether the prior
+	// attempt actually finished) sees the same detail the old
+	// synchronous 200 response used to return directly in its HTTP
+	// body. dep.Error carries a joined summary for the plain-text
+	// surfaces (wizard FailureCard, `error` field) that don't unwrap
+	// lastWipeReport; empty on a clean wipe.
+	dep.mu.Lock()
+	dep.lastWipeReport = &report
+	if len(report.Errors) > 0 {
+		dep.Error = "wipe completed with errors: " + strings.Join(report.Errors, "; ")
+	} else {
+		dep.Error = ""
+	}
+	dep.mu.Unlock()
+	h.persistDeployment(dep)
 }
 
 // deploymentSovereignName mirrors provisioner.Request.sovereignName() —
@@ -1176,6 +1319,36 @@ func loadHuaweiCredsFromTfvars(workdir string) (huaweiCreds, bool) {
 	}
 	if hw.AccessKey == "" || hw.SecretKey == "" {
 		return huaweiCreds{}, false
+	}
+	return hw, true
+}
+
+// huaweiOperatorCredsFromEnv resolves the `huawei-operator-creds`
+// Kubernetes Secret, projected into the catalyst-api Pod as
+// CATALYST_HUAWEI_ACCESS_KEY / _SECRET_KEY / _PROJECT_ID / _REGION —
+// the exact same in-cluster fallback discoverHuaweiCreds (janitor.go)
+// already uses for the project-wide orphan sweep. Refs #5193: the
+// wipe path lacked this fallback, so a wipe whose per-deployment
+// tfvars were already destroyed by a partial prior destroy (and whose
+// in-memory dep.Request was lost to a Pod roll) had nowhere left to
+// turn and 400'd "credentials required" forever. An environment the
+// platform created must always be wipeable from in-cluster creds.
+//
+// Returns (zero, false) when access_key, secret_key, or project_id is
+// missing — region alone defaults to "me-east-215" (same default the
+// janitor's discoverHuaweiCreds applies) when unset.
+func huaweiOperatorCredsFromEnv() (huaweiCreds, bool) {
+	hw := huaweiCreds{
+		AccessKey: strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_ACCESS_KEY")),
+		SecretKey: strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_SECRET_KEY")),
+		ProjectID: strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_PROJECT_ID")),
+		Region:    strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_REGION")),
+	}
+	if hw.AccessKey == "" || hw.SecretKey == "" || hw.ProjectID == "" {
+		return huaweiCreds{}, false
+	}
+	if hw.Region == "" {
+		hw.Region = "me-east-215"
 	}
 	return hw, true
 }

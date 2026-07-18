@@ -194,6 +194,27 @@ type Deployment struct {
 	// snapshot. Cleared on wipe.
 	secondaryKubeconfigPaths map[string]string
 	secondaryWatchers        map[string]*helmwatch.Watcher
+
+	// wipeInFlight — #5193. True only while THIS catalyst-api process's
+	// goroutine owns an active tofu-destroy purge for this deployment.
+	// Guarded by mu. Deliberately in-memory-only (never persisted via
+	// toRecord/fromRecord): a Deployment rehydrated after a Pod roll
+	// always starts with wipeInFlight=false even when the persisted
+	// Status is still "wiping" from a purge the OLD process abandoned
+	// mid-destroy (nginx 60s proxy-timeout killing a request-bound
+	// destroy, or the roll itself). That is what makes a stranded
+	// `wiping` record re-wipeable: the single-flight guard in
+	// WipeDeployment only refuses a genuinely-running goroutine in
+	// THIS process, never a bare status string left over from a dead
+	// one.
+	wipeInFlight bool
+
+	// lastWipeReport — the most recent wipeResponse produced by an
+	// async wipe purge (#5193), surfaced via State() so GET
+	// /deployments/{id} carries the same detail the old synchronous
+	// 200 response used to return directly. Nil until the first wipe
+	// completes.
+	lastWipeReport *wipeResponse
 }
 
 // SlimForHandover returns a copy of the receiver retaining ONLY the
@@ -939,6 +960,14 @@ func (d *Deployment) State() map[string]any {
 	}
 	if d.Error != "" {
 		out["error"] = d.Error
+	}
+	// #5193 — surface the most recent async wipe purge report so GET
+	// /deployments/{id} carries the same detail the old synchronous
+	// 200 response returned directly (SweepOrphan totals, S3 buckets
+	// purged, PDM-released flag, verifiedZeroOrphans, etc). The wizard
+	// polls this endpoint after the wipe's immediate 202 ack.
+	if d.lastWipeReport != nil {
+		out["lastWipeReport"] = d.lastWipeReport
 	}
 	if d.Result != nil {
 		out["result"] = d.Result
