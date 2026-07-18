@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T00:00:02Z` |
+| Last refreshed | `2026-07-18T00:15:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 22 |
+| Open issues | 21 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 22 open items (clickable table)
+### All 21 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -214,7 +214,6 @@ flowchart LR
 | [#5095](https://github.com/openova-io/openova/issues/5095) | cutover step-03: prewarm hard-depends on mothership harbor proxy (harbor.openova | Other |
 | [#5100](https://github.com/openova-io/openova/issues/5100) | console bundle: tenant-string residue in user-visible strings (row 214) — Reco | Other |
 | [#5113](https://github.com/openova-io/openova/issues/5113) | catalog card-form Save commit-leg writes invalid/destructive Blueprint YAML —  | Other |
-| [#5123](https://github.com/openova-io/openova/issues/5123) | per-Org console never lists funnel-purchased apps — /api/v1/org/applications p | Other |
 | [#5124](https://github.com/openova-io/openova/issues/5124) | Edit-IaC editor seeds from stale CatalogItem.raw — an IaC Commit silently reve | Other |
 | [#5125](https://github.com/openova-io/openova/issues/5125) | DR durability: flux drift-correction re-demotes the promoted survivor mid-outage | Other |
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
@@ -229,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T00:06 | [#5195](https://github.com/openova-io/openova/pull/5195) | #5191 | docs(uat): hw269 fresh-prov fix-train validation — 64 ✅ (mar |
 | 2026-07-17T18:44 | [#5192](https://github.com/openova-io/openova/pull/5192) | #5191 | fix(cutover): step-04 registry-pivot verifies curl+jq and fa |
 | 2026-07-17T17:35 | [#5190](https://github.com/openova-io/openova/pull/5190) | #960 | docs(uat): hw268 row240 §854 no-nodePort gateway ✅ (Refs #96 |
 | 2026-07-17T17:19 | [#5189](https://github.com/openova-io/openova/pull/5189) | #5178 | docs(uat): hw268 G12 region-kill PASS ✅ — #5178 fully valida |
@@ -258,7 +258,6 @@ flowchart LR
 | 2026-07-17T04:24 | [#5159](https://github.com/openova-io/openova/pull/5159) | #960 | fix(openbao): unseal-reconciler CronJob→Deployment so it sur |
 | 2026-07-17T04:16 | [#5158](https://github.com/openova-io/openova/pull/5158) | #5157 | docs(uat): G12 region-kill ✅ zero-tx-loss RPO=0 on hw263 + # |
 | 2026-07-17T03:28 | [#5156](https://github.com/openova-io/openova/pull/5156) | #960 | docs(uat): reset→hw263 + re-earn R6/R7/R8/R11/R22 backing ro |
-| 2026-07-17T01:36 | [#5155](https://github.com/openova-io/openova/pull/5155) | #960 | fix(scripts): region-kill-drill discover hint ran kill via b |
 
 ---
 
