@@ -897,7 +897,7 @@ spec:
       # (prewarm.proxyBackoffBaseSeconds=30, doubling). FATAL-on-any-failure, the
       # #5030 dest-check skip, the #4975 pre-pass + multi-arch handling all
       # preserved. Contract Case 60.
-      version: 0.1.137
+      version: 0.1.138
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
