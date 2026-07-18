@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T19:30:04Z` |
+| Last refreshed | `2026-07-18T19:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 25 |
 | Open DoD gates | 0 / 41 |
@@ -232,6 +232,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T19:35 | [#5222](https://github.com/openova-io/openova/pull/5222) | #5220 | fix(cnpg-pair): dr-promoter steady-state ARM gate + timeline |
+| 2026-07-18T19:31 | [#5221](https://github.com/openova-io/openova/pull/5221) | #5210 | fix(catalyst-api): materialize local kubeconfig with refresh |
 | 2026-07-18T14:18 | [#5219](https://github.com/openova-io/openova/pull/5219) | #5218 | fix(cnpg-pair): dr-promoter durable-suspend race — same-tick |
 | 2026-07-18T13:34 | [#5217](https://github.com/openova-io/openova/pull/5217) | #4996 | fix(cutover): step-07 must not roll the EVS/hcloud CSI drive |
 | 2026-07-18T13:09 | [#5216](https://github.com/openova-io/openova/pull/5216) | #5214 | fix(cutover): self-heal gitea-admin-secret at step execution |
@@ -260,8 +262,6 @@ flowchart LR
 | 2026-07-17T12:52 | [#5174](https://github.com/openova-io/openova/pull/5174) | #5089 | docs(854): NodePort audit provenance trace — residue is out- |
 | 2026-07-17T12:52 | [#5173](https://github.com/openova-io/openova/pull/5173) | #960 | fix(preflight): gate on catalyst-api deployed==pinned (no ro |
 | 2026-07-17T12:52 | [#5172](https://github.com/openova-io/openova/pull/5172) | #5123 | docs(session): hw265 fire-readiness gate (Refs #960) |
-| 2026-07-17T10:20 | [#5171](https://github.com/openova-io/openova/pull/5171) | #5137 | fix(cnpg-pair): region-B dr-promoter — automatic RPO=0 regio |
-| 2026-07-17T10:15 | [#5170](https://github.com/openova-io/openova/pull/5170) | #5123 | fix(catalyst): per-Org Apps grid lists funnel-purchased apps |
 
 ---
 
