@@ -6,6 +6,12 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-7-agentic-workspace
 spec:
+  # 0.1.5 (#5206): appVersion 0.2.5 — internal/identity (fromClaims +
+  # FromWhoami) now rejects an Org-scoped caller reaching a Sovereign-pinned
+  # instance instead of silently relabelling its context to Sovereign (the
+  # live hw270 org-scoped-forbidden symptom). Also adds the per-Org install
+  # door (application_parameters.go stampOpenovaMCPOrgParameters) — no chart
+  # template changes. Lockstep: chart/Chart.yaml + bootstrap-kit slot 13d.
   # 0.1.2 (#5114 hw258 CHAIN-BLOCKER): appVersion 0.2.2 — the binary degrades
   # instead of CrashLooping when verify=rs256 but the OPTIONAL pubkey Secret
   # is absent/unparseable (the sovereign-mode slot-13d case: the PEM Secret
@@ -23,7 +29,7 @@ spec:
   # HTTPRoute + zero-RBAC ServiceAccount + Cilium CNPs). Lockstep with
   # products/openova-mcp/chart/Chart.yaml 0.1.2 + bootstrap-kit slot 13d pin
   # + the catalog-seed (blueprints.json) entry.
-  version: 0.1.4
+  version: 0.1.5
   card:
     title: OpenOva MCP
     summary: |
@@ -39,9 +45,11 @@ spec:
     documentation: https://github.com/openova-io/openova
     license: MIT
   # unlisted — infrastructure component: the sovereign-mode instance is
-  # auto-installed by bootstrap-kit slot 13d; the per-Org instance arrives
-  # via the org pipeline (follow-up on #5114), not a marketplace card. The
-  # USER-facing Pillar-4 card is bp-agenity, which consumes this MCP.
+  # auto-installed by bootstrap-kit slot 13d; the per-Org instance installs
+  # standalone through the SAME Application-CR door bp-agenity's embedded
+  # stdio child already uses (POST /applications, #5206), not a marketplace
+  # card. The USER-facing Pillar-4 card is bp-agenity, which consumes this
+  # MCP.
   visibility: unlisted
   owner:
     team: ai-platform

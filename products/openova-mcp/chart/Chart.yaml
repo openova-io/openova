@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-openova-mcp
+# 0.1.5 / appVersion 0.2.5 (#5206, Org-usability gap-3 hardening): a
+# Sovereign-mode (mode=sovereign, pinnedCtx=Sovereign) instance used to
+# silently RELABEL any Org-scoped caller's context to Sovereign — harmless
+# for tool-visibility (Tier still gates it) but it misrouted every
+# downstream tool call at the Sovereign-WIDE catalyst-api seam
+# (requireDeployment + the deployment-addressed route table), which the
+# endpoint's own OrgScopeGuard then 403'd with an opaque
+# "org-scoped-forbidden" (live hw270 symptom: an Org-admin token hit the
+# only deployed instance — mode=sovereign, slot 13d — and list_applications
+# 403'd). internal/identity/identity.go (fromClaims) + whoami.go
+# (FromWhoami) now REJECT up front with a clear, actionable identity error
+# instead of misrouting. #5206 also adds the per-Org install door
+# (products/catalyst/bootstrap/api/internal/handler/application_parameters.go
+# stampOpenovaMCPOrgParameters) — a chart-values-only change, no template
+# edits — and the parent-zone A-record fix for mcp.<sov-fqdn>
+# (sovereign_dns_records.go CanonicalSovereignSubdomains), neither of which
+# touch this chart. Lockstep: blueprint.yaml + slot 13d → 0.1.5 (not in
+# catalog-seed, matching the 0.1.3/0.1.4 precedent).
+#
 # 0.1.4 / appVersion 0.2.4 (#5175, north-star close): the MCP verifies bearers
 # against the mothership HANDOVER public key, but real callers present
 # post-handover SESSION tokens signed with a deployment-local key the MCP does
@@ -74,8 +93,11 @@ type: application
 # catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.4
+version: 0.1.5
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
+# 0.2.5 (#5206): see the version-0.1.5 note above — identity.go/whoami.go
+# reject an Org-scoped caller reaching a Sovereign-pinned instance instead
+# of silently relabelling it.
 # 0.2.2 (#5114): buildResolver degrades instead of exiting when the rs256
 # verify pubkey (or the hs256 secret) is absent/unparseable — see the 0.1.2
 # note above. 0.2.1 rebuilds 0.2.0 with a NUMERIC USER (65532:65532) — see
@@ -86,7 +108,7 @@ version: 0.1.4
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.4"
+appVersion: "0.2.5"
 keywords:
   - mcp
   - agent

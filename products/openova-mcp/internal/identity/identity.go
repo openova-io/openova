@@ -329,6 +329,19 @@ func (r *Resolver) fromClaims(claims *sharedauth.Claims) (*Identity, error) {
 		if r.pinnedCtx == ContextOrganization && id.OrgID == "" {
 			return nil, errors.New("identity: per-Org MCP requires an org-scoped token (no org_id claim)")
 		}
+		// #5206: the symmetric guard. A Sovereign-mode instance must NEVER
+		// silently relabel an Org-scoped token (derived ContextOrganization —
+		// i.e. NOT a sovereign-admin) as Sovereign. Doing so used to route
+		// every downstream tool call at the Sovereign-wide catalyst-api seam
+		// (requireDeployment + the deployment-addressed route table), which
+		// the endpoint's OWN OrgScopeGuard then 403s — an opaque
+		// "org-scoped-forbidden" surfacing far from its actual cause (the
+		// live hw270 symptom: an Org-admin token hit the only deployed
+		// instance, mode=sovereign, and list_applications 403'd). Reject up
+		// front with a clear, actionable identity error instead.
+		if r.pinnedCtx == ContextSovereign && id.Context == ContextOrganization {
+			return nil, fmt.Errorf("identity: this Sovereign-mode MCP instance requires a sovereign-admin session; the caller's token is scoped to organization %q — use that Organization's own MCP instance instead", id.OrgID)
+		}
 		id.Context = r.pinnedCtx
 	}
 

@@ -66,3 +66,33 @@ func TestOrgScopePin(t *testing.T) {
 		t.Fatal("cross-org token accepted by org-pinned instance")
 	}
 }
+
+// #5206 — the symmetric guard: a Sovereign-pinned instance (mode=sovereign,
+// the ONLY instance deployed today — bootstrap-kit slot 13d) must REJECT an
+// Org-scoped token outright rather than silently relabelling its context to
+// Sovereign. The pre-fix behaviour let the token through as ContextSovereign,
+// which then misrouted every downstream tool call at the Sovereign-wide
+// catalyst-api seam and got an opaque "org-scoped-forbidden" 403 far from its
+// actual cause (the live hw270 symptom).
+func TestSovereignPinRejectsOrgScopedToken(t *testing.T) {
+	orgToken := mintNone(t, &sharedauth.Claims{Email: "u@acme.test", OrgID: "acme", Tier: "org-admin"})
+
+	r := NewInsecureResolver(ContextSovereign)
+	_, err := r.Resolve(orgToken)
+	if err == nil {
+		t.Fatal("Sovereign-pinned instance accepted an Org-scoped token instead of rejecting it")
+	}
+	if !strings.Contains(err.Error(), "sovereign-admin") || !strings.Contains(err.Error(), "acme") {
+		t.Fatalf("rejection error should name the sovereign-admin requirement + the caller's org, got: %v", err)
+	}
+
+	// A genuine sovereign-admin token still resolves fine on the same pin.
+	sovToken := mintNone(t, &sharedauth.Claims{Email: "e@openova.io", Role: "sovereign-admin"})
+	id, err := r.Resolve(sovToken)
+	if err != nil {
+		t.Fatalf("Sovereign-pinned instance rejected a genuine sovereign-admin token: %v", err)
+	}
+	if id.Context != ContextSovereign {
+		t.Fatalf("got context %q, want sovereign", id.Context)
+	}
+}

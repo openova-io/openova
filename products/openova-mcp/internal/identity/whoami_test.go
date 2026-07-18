@@ -107,3 +107,31 @@ func TestFromWhoami_EmptyBearerRejected(t *testing.T) {
 		t.Fatal("empty bearer accepted")
 	}
 }
+
+// #5206 — the symmetric guard on the whoami-fallback path (mirrors
+// TestSovereignPinRejectsOrgScopedToken in identity_pins_test.go): a
+// Sovereign-pinned instance must reject an org-scoped whoami verdict instead
+// of silently relabelling it Sovereign — the exact hw270 misroute (an
+// Org-admin session hit the only deployed instance, mode=sovereign, and
+// list_applications 403'd org-scoped-forbidden downstream at catalyst-api).
+func TestFromWhoami_SovereignPinRejectsOrgScopedVerdict(t *testing.T) {
+	r := NewDegradedResolver("no session pubkey", ContextSovereign)
+	_, err := r.FromWhoami(WhoamiIdentity{
+		Email: "u@acme.test", Mode: "organization", Tier: "admin", Org: "acme",
+	}, "sess.tok.org")
+	if err == nil {
+		t.Fatal("Sovereign-pinned instance accepted an org-scoped whoami verdict instead of rejecting it")
+	}
+	if !strings.Contains(err.Error(), "sovereign-admin") || !strings.Contains(err.Error(), "acme") {
+		t.Fatalf("rejection error should name the sovereign-admin requirement + the caller's org, got: %v", err)
+	}
+
+	// A genuine sovereign verdict still resolves fine on the same pin.
+	id, err := r.FromWhoami(WhoamiIdentity{Email: "e@openova.io", Mode: "sovereign", Tier: "owner"}, "sess.tok.sov")
+	if err != nil {
+		t.Fatalf("Sovereign-pinned instance rejected a genuine sovereign verdict: %v", err)
+	}
+	if id.Context != ContextSovereign {
+		t.Fatalf("got context %q, want sovereign", id.Context)
+	}
+}

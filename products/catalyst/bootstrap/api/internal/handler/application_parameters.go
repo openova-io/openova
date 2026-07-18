@@ -136,6 +136,15 @@ func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsole
 		stampAgenityGateHost(out, orgConsoleHost)
 	}
 
+	// #5206 gap 2 — a standalone per-Org bp-openova-mcp install reuses this
+	// SAME per-Org Application-CR install door (POST /applications / the
+	// create-instance seed path) — the only per-Org provisioning pipeline
+	// that exists today (bp-agenity's embedded stdio child arrives the same
+	// way). See stampOpenovaMCPOrgParameters for the full rationale.
+	if isOpenovaMCPBlueprint(blueprint) {
+		stampOpenovaMCPOrgParameters(out, sovereignFQDN, orgSlug, orgConsoleHost)
+	}
+
 	if len(out) > 0 {
 		return out
 	}
@@ -306,6 +315,152 @@ func stampAgenityGateHost(params map[string]interface{}, orgConsoleHost string) 
 	params["httpRoute"] = hr
 }
 
+// openovaMCPOrgHTTPRouteParentRef is the console-facing Cilium Gateway a
+// per-Org bp-openova-mcp install must parent its HTTPRoute to (#4054 console
+// isolation) — the SAME gateway bp-agenity's own chart hardcodes as ITS
+// default (products/agenity/chart/values.yaml). bp-openova-mcp cannot bake
+// this into its own chart defaults because ONE chart serves both the
+// bootstrap-kit sovereign-mode slot 13d (kube-system/cilium-gateway is
+// correct there) and a per-Org install — so the org-mode gateway override
+// must come from this install-time stamp, not the chart.
+const openovaMCPOrgHTTPRouteParentRef = "cilium-gateway-console"
+
+// stampOpenovaMCPOrgParameters wires a per-Org bp-openova-mcp install
+// (#5206 gap 2 — the Pillar-4 north-star Org→MCP surface) through the SAME
+// per-Org Application-CR install door bp-agenity's embedded stdio child
+// already uses (POST /applications / the create-instance seed path) — today
+// the ONLY per-Org provisioning pipeline that exists (there is no separate
+// Org-create-time auto-provisioning trigger for either Blueprint). Mirrors
+// the proven stampAgenity* pattern field-for-field, adapted to
+// bp-openova-mcp's OWN values shape (products/openova-mcp/chart/values.yaml):
+//
+//   - mode: "organization" — pins the instance's realm context
+//     (internal/identity.Resolver.pinnedCtx) so THIS install can never widen
+//     to Sovereign scope no matter what bearer reaches it (the #5206 gap-3
+//     hardening in internal/identity/identity.go + whoami.go is what makes
+//     that pin safe: an org-scoped caller is confined to its own Org, never
+//     silently relabelled).
+//   - sovereignFqdn — so the chart's openova-mcp.catalystApiUrl helper
+//     derives https://console.<sovereignFqdn> (organization mode), giving
+//     the binary a catalyst-api client to delegate the #5175 whoami-fallback
+//     identity resolution to (internal/identity.Resolver.FromWhoami) even
+//     before any local verify key is wired.
+//   - organization.tenantHost — the Org's public console host, forwarded as
+//     X-Tenant-Host (#4116/#4610) exactly like the agenity stamp, so
+//     catalyst-api resolves the caller's OWN Org namespace on every
+//     forwarded tool call.
+//   - httpRoute.hostnames[0] = mcp.<slug>.<pool> + httpRoute.parentRef.name
+//     = cilium-gateway-console — the chart's OWN default
+//     (cilium-gateway/kube-system + mcp.<sovereignFqdn>) is the Sovereign
+//     slot-13d shape and is the WRONG gateway/host for a per-Org install
+//     (the exact #5206 gap-1 DNS-and-gateway mismatch class, applied here to
+//     the per-Org door before it ships the same bug a second time).
+//   - auth.rs256PubkeySecret — best-effort: points at the SAME in-namespace
+//     `agenity-mcp-bearer` Secret the agenity-embedded stdio child already
+//     consumes (fed by the existing per-Org OpenBao producer, seedMCPBearer
+//     / #4610 — no second producer/path needed). The chart's secretKeyRef is
+//     optional:true (products/openova-mcp/chart/templates/deployment.yaml),
+//     so an Org that has not (also) installed bp-agenity in this namespace
+//     still schedules Ready — the binary degrades to the #5175
+//     whoami-delegation path instead of crash-looping on an absent Secret.
+//
+// Deference (same as every stampAgenity* sibling): every field is set only
+// when the caller did not already pin a non-empty value; nothing here is
+// forced onto an explicit install request.
+func stampOpenovaMCPOrgParameters(params map[string]interface{}, sovereignFQDN, orgSlug, orgConsoleHost string) {
+	setIfAbsentString(params, "mode", "organization")
+	stampOpenovaMCPSovereignFqdn(params, sovereignFQDN)
+	stampOpenovaMCPTenantHost(params, orgConsoleHost)
+	stampOpenovaMCPGateHost(params, orgConsoleHost)
+	stampOpenovaMCPBearer(params, orgSlug)
+}
+
+// stampOpenovaMCPSovereignFqdn sets `parameters.sovereignFqdn` — see
+// stampOpenovaMCPOrgParameters. No-op when sovereignFQDN is empty (the
+// mothership case) so the chart's existing fail-closed default holds.
+func stampOpenovaMCPSovereignFqdn(params map[string]interface{}, sovereignFQDN string) {
+	fqdn := strings.TrimSpace(sovereignFQDN)
+	if fqdn == "" {
+		return
+	}
+	setIfAbsentString(params, "sovereignFqdn", fqdn)
+}
+
+// stampOpenovaMCPTenantHost sets `parameters.organization.tenantHost` to the
+// Org's public console host — see stampOpenovaMCPOrgParameters. No-op when
+// orgConsoleHost is empty (mothership / unregistered tenant — fail-closed).
+func stampOpenovaMCPTenantHost(params map[string]interface{}, orgConsoleHost string) {
+	host := strings.ToLower(strings.TrimSpace(orgConsoleHost))
+	if host == "" {
+		return
+	}
+	org, _ := params["organization"].(map[string]interface{})
+	if org == nil {
+		org = map[string]interface{}{}
+	}
+	setIfAbsentString(org, "tenantHost", host)
+	params["organization"] = org
+}
+
+// stampOpenovaMCPGateHost sets `parameters.httpRoute.hostnames[0]` to the
+// Org's public MCP host (mcp.<slug>.<pool>, the exact inverse derivation of
+// stampAgenityGateHost's agenity.<slug>.<pool>) and
+// `parameters.httpRoute.parentRef.name` to the console gateway — see
+// stampOpenovaMCPOrgParameters. The parentRef stamp is independent of the
+// hostnames deference: even a caller who pinned their own hostnames still
+// needs the console-gateway parentRef corrected (the chart default parents
+// the Sovereign-wide gateway, which has no listener path a per-Org install
+// can rely on being routed the same way). No-op (whole function) when
+// orgConsoleHost is empty (mothership / unregistered tenant — fail-closed,
+// chart defaults hold).
+func stampOpenovaMCPGateHost(params map[string]interface{}, orgConsoleHost string) {
+	host := strings.ToLower(strings.TrimSpace(orgConsoleHost))
+	if host == "" {
+		return
+	}
+	// console.<slug>.<pool> → <slug>.<pool>; require a dotted host so a bare
+	// label can't produce a zone-less "mcp." host.
+	parts := strings.SplitN(host, ".", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return
+	}
+	gateHost := "mcp." + parts[1]
+
+	hr, _ := params["httpRoute"].(map[string]interface{})
+	if hr == nil {
+		hr = map[string]interface{}{}
+	}
+	if existing, ok := hr["hostnames"].([]interface{}); !ok || len(existing) == 0 {
+		hr["hostnames"] = []interface{}{gateHost}
+	}
+	setIfAbsentMap(hr, "parentRef", map[string]interface{}{
+		"name": openovaMCPOrgHTTPRouteParentRef,
+	})
+	params["httpRoute"] = hr
+}
+
+// stampOpenovaMCPBearer wires `parameters.auth.rs256PubkeySecret` at the SAME
+// in-namespace Secret the agenity-embedded stdio child consumes — see
+// stampOpenovaMCPOrgParameters. No-op when orgSlug is empty (we can't scope
+// the OpenBao-fed Secret name any tighter than "the agenity convention", but
+// we at least require SOME Org identity) or the caller already pinned a
+// non-empty auth.rs256PubkeySecret.
+func stampOpenovaMCPBearer(params map[string]interface{}, orgSlug string) {
+	slug := leadingDNSLabel(orgSlug)
+	if slug == "" {
+		return
+	}
+	auth, _ := params["auth"].(map[string]interface{})
+	if auth == nil {
+		auth = map[string]interface{}{}
+	}
+	setIfAbsentMap(auth, "rs256PubkeySecret", map[string]interface{}{
+		"name": agenityMCPBearerSecretName,
+		"key":  "pubkeyPem",
+	})
+	params["auth"] = auth
+}
+
 // orgConsoleHostFor resolves the Org's public console host
 // (console.<slug>.<poolParentDomain>) for an Org ref from the tenant
 // registry — the SAME table the org-scoped install path resolves
@@ -380,6 +535,15 @@ func setIfAbsentMap(dst map[string]interface{}, key string, val map[string]inter
 	dst[key] = val
 }
 
+// setIfAbsentString sets key=val only when the destination has no non-empty
+// string value at key — the scalar-valued twin of setIfAbsentMap.
+func setIfAbsentString(dst map[string]interface{}, key, val string) {
+	if existing, ok := dst[key].(string); ok && strings.TrimSpace(existing) != "" {
+		return
+	}
+	dst[key] = val
+}
+
 // leadingDNSLabel returns the first DNS label (everything before the first
 // dot) of an Org ref, lower-cased + trimmed. "nstar2.omani.homes" → "nstar2";
 // "acme" → "acme"; "" → "". Matches the per-Org OpenBao path slug the
@@ -406,6 +570,14 @@ func isPostgresBlueprint(blueprint string) bool {
 	b := strings.TrimSpace(strings.ToLower(blueprint))
 	b = strings.TrimPrefix(b, "bp-")
 	return b == "postgres"
+}
+
+// isOpenovaMCPBlueprint reports whether the blueprint id refers to
+// bp-openova-mcp (with or without the `bp-` prefix) — #5206 gap 2.
+func isOpenovaMCPBlueprint(blueprint string) bool {
+	b := strings.TrimSpace(strings.ToLower(blueprint))
+	b = strings.TrimPrefix(b, "bp-")
+	return b == "openova-mcp"
 }
 
 // postgresConfigSchemaMode folds the canonical placement topology onto the
