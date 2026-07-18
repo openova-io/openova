@@ -60,6 +60,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/transport"
 )
 
 // EventType mirrors cache.DeltaType / watch.EventType. Wire-compatible
@@ -1474,6 +1475,12 @@ func buildChrootClusterRef(log *slog.Logger, sovereignFQDN string) (ClusterRef, 
 	}
 	cfg.QPS = 50
 	cfg.Burst = 100
+	// #5210 — force the in-cluster informer/client transport to re-read the
+	// rotated projected SA token on a 401 instead of pinning a cached/expired
+	// one. Without this the reflector LIST/WATCH + the resource-GET client
+	// 401-loop after a cutover disruption rotates the bound token (see the
+	// helper godoc for the full client-go transport analysis).
+	wrapInClusterTokenRefreshOn401(cfg)
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		log.Warn("k8scache: chroot dynamic client build failed", "err", err)
@@ -1489,6 +1496,47 @@ func buildChrootClusterRef(log *slog.Logger, sovereignFQDN string) (ClusterRef, 
 		DynamicClient: dyn,
 		CoreClient:    core,
 	}, true
+}
+
+// wrapInClusterTokenRefreshOn401 upgrades an in-cluster *rest.Config so its
+// HTTP transport force-refreshes the projected ServiceAccount token whenever
+// the apiserver answers 401 Unauthorized.
+//
+// Root cause (#5210, hw270 post-cutover): rest.InClusterConfig() returns a
+// config carrying BearerToken (the token file read ONCE at process start) plus
+// BearerTokenFile (the projected-token path). client-go's HasTokenAuth() branch
+// wraps that with a bearerAuthRoundTripper, which re-reads the token file on a
+// ~1-minute timer but NEVER resets its cache in response to a 401 — unlike the
+// tokenSourceTransport client-go installs for a ResettableTokenSource, which
+// calls ResetTokenOlderThan on every 401. After a cutover disruption (the
+// step-08 10-minute deny-egress hold and/or the step-04 registry-pivot node
+// rolls) interrupts the long-lived watch streams and the bound token rotates,
+// the reflector LIST/WATCH goroutines and the DynamicClientFor resource-GET can
+// pin a cached/expired token and 401-loop against the local apiserver even
+// though a fresh read of the projected token file authenticates fine.
+//
+// Swapping to transport.ResettableTokenSourceWrapTransport makes the very next
+// request after a 401 re-read the rotated projected token instead of waiting on
+// the timer — the recovery path the plain bearer transport lacks. BearerToken /
+// BearerTokenFile are cleared so client-go does NOT also install a
+// bearerAuthRoundTripper: that wrapper pre-sets the Authorization header, and
+// tokenSourceTransport skips (no reset) any request whose Authorization is
+// already set, which would defeat the fix.
+//
+// No-op when BearerTokenFile is empty (off-cluster dev via a kubeconfig — that
+// path carries a static embedded token with no file to re-read).
+func wrapInClusterTokenRefreshOn401(cfg *rest.Config) {
+	tokenFile := cfg.BearerTokenFile
+	if tokenFile == "" {
+		return
+	}
+	ts := transport.NewCachedFileTokenSource(tokenFile)
+	cfg.WrapTransport = transport.Wrappers(
+		cfg.WrapTransport,
+		transport.ResettableTokenSourceWrapTransport(ts),
+	)
+	cfg.BearerToken = ""
+	cfg.BearerTokenFile = ""
 }
 
 // scanStoreForDeploymentID walks the deployment store dir for a
