@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T05:30:03Z` |
+| Last refreshed | `2026-07-18T05:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 24 |
+| Open issues | 22 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 24 open items (clickable table)
+### All 22 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,9 +218,7 @@ flowchart LR
 | [#5125](https://github.com/openova-io/openova/issues/5125) | DR durability: flux drift-correction re-demotes the promoted survivor mid-outage | Other |
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
-| [#5187](https://github.com/openova-io/openova/issues/5187) | region-b: sovereign-tls Flux Kustomization Ready=False — configmaps 'sovereign | Other |
 | [#5193](https://github.com/openova-io/openova/issues/5193) | Wipe strands an env un-wipeable after a partial destroy: wipe path lacks the hua | Other |
-| [#5194](https://github.com/openova-io/openova/issues/5194) | cutover step-08 egress-block-test does not auto-warm missing images when a funne | Other |
 | [#5204](https://github.com/openova-io/openova/issues/5204) | Post-cutover: crossplane provider-opentofu package re-pull 401 Unauthorized from | Other |
 | [#5205](https://github.com/openova-io/openova/issues/5205) | Funnel completion: launching interstitial stalls 5min (healthz no-cors poll neve | Other |
 | [#5206](https://github.com/openova-io/openova/issues/5206) | MCP north-star not usable by an Organization: mcp.<sov> has no DNS record + no p | Other |
@@ -231,6 +229,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T05:40 | [#5207](https://github.com/openova-io/openova/pull/5207) | #5205 | fix: same-origin console-ready proxy replaces no-cors funnel |
 | 2026-07-18T04:31 | [#5200](https://github.com/openova-io/openova/pull/5200) | #5193 | fix(catalyst-api): async wipe + huawei-operator-creds fallba |
 | 2026-07-18T04:31 | [#5199](https://github.com/openova-io/openova/pull/5199) | #5140 | fix(catalyst-api): sandbox DELETE degrades to 503 on backend |
 | 2026-07-18T04:29 | [#5198](https://github.com/openova-io/openova/pull/5198) | #5125 | fix: Continuum sequencer step-8 re-clone-on-divergence (#512 |
@@ -260,7 +259,6 @@ flowchart LR
 | 2026-07-17T09:38 | [#5165](https://github.com/openova-io/openova/pull/5165) | #960 | docs(uat): hw264 authed render walk + §854 audit (Refs #960) |
 | 2026-07-17T09:38 | [#5164](https://github.com/openova-io/openova/pull/5164) | #5124 | feat(catalyst-api): GET /catalog/{name}/iac committed-file s |
 | 2026-07-17T07:26 | [#5163](https://github.com/openova-io/openova/pull/5163) | #5129 | fix(console): CiliumNetworkPolicy as distinct graph node, no |
-| 2026-07-17T07:26 | [#5162](https://github.com/openova-io/openova/pull/5162) | #5157 | docs(uat): reset→hw264 + re-earn 8 backing rows on the 1.2.6 |
 
 ---
 
