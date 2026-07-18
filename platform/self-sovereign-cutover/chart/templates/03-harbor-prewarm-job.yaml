@@ -243,6 +243,21 @@ data:
             value: {{ .Values.prewarm.proxyCopyAttempts | default 6 | quote }}
           - name: PREWARM_PROXY_BACKOFF_BASE_SECONDS
             value: {{ .Values.prewarm.proxyBackoffBaseSeconds | default 30 | quote }}
+          # #5204 (Refs #5209 #3379) — Phase A4 Crossplane xpkg package warm.
+          # The upstream/mothership/registry-path literals come from the SAME
+          # .Values.crossplaneProviderPivot block step-11 reads, so the warm
+          # set and the pivot target can never drift apart (no second
+          # hand-list — the #4975 single-source discipline).
+          - name: XPKG_PREWARM_ENABLED
+            value: {{ .Values.prewarm.xpkgPackages.enabled | quote }}
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
+          - name: XPKG_UPSTREAM_HOST
+            value: {{ .Values.crossplaneProviderPivot.upstreamHost | quote }}
+          - name: XPKG_REGISTRY_PATH
+            value: {{ .Values.crossplaneProviderPivot.registryPath | quote }}
+          - name: XPKG_MOTHERSHIP_PROXY_PREFIX
+            value: {{ .Values.crossplaneProviderPivot.mothershipProxyPrefix | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -1469,6 +1484,197 @@ data:
             if [ "${chart_fail}" -gt 0 ]; then
               echo "[harbor-prewarm] FATAL: ${chart_fail} openova-io chart(s) failed to mirror (named above) — step-06 cannot strip ghcr.io safely (post-cutover chart (re)pulls would 404). #5007: this INCLUDES any pinned/desired chart version the union added — a pinned tag that cannot be pulled fails LOUD here (egress open, recoverable) instead of silently wedging step-06 under the deny-egress hold."
               exit 1
+            fi
+
+            # ─── Phase A4 (#5204): warm Crossplane xpkg provider packages ──────
+            #
+            # #5204 (Refs #5209 #3379). Step-11 (crossplane-provider-pivot)
+            # rewrites every Provider's spec.package to the local Harbor
+            # `proxy-xpkg` project and #5209 wired the package-pull AUTH — but
+            # NOTHING ever placed the xpkg OCI artifact ITSELF in the local
+            # Harbor. `proxy-xpkg` is the ONE local project that stays a Harbor
+            # PROXY-CACHE (0.1.114; Harbor REJECTS pushes into a proxy-cache
+            # project, so the Phase A skopeo-push route cannot serve it), and
+            # xpkg.upbound.io is deliberately in offlineMirror.excludedHosts
+            # (the Crossplane package manager bypasses containerd, so the
+            # generic mirror legs are inert for it). On a COLD cache every
+            # post-severance package re-pull / provider upgrade / inactive-
+            # revision reconcile needs the proxy leg to reach xpkg.upbound.io —
+            # an upstream tether Principle #11 forbids: the fully-severed
+            # Sovereign cannot resolve its own provider package descriptor
+            # from the local registry (live hw270 dep b2f0a9b0585f6781,
+            # provider-opentofu Installed=False).
+            #
+            # FIX: enumerate every providers.pkg.crossplane.io spec.package
+            # (the SAME set step-11 pivots) and perform ONE FULL authenticated
+            # pull THROUGH the local proxy-xpkg endpoint per package
+            # (`skopeo copy docker://${HARBOR_HOST}/proxy-xpkg/<path> dir:…`
+            # with --multi-arch all). The pull-through forces Harbor to fetch
+            # the manifest (list) + EVERY blob from upstream and cache them
+            # DURABLY in the project, so the exact ref step-11 pivots to
+            # serves locally with no upstream leg (Harbor serves cached
+            # proxy-cache content when the upstream is unreachable). A
+            # bounded durable-presence poll via the Harbor ARTIFACT API
+            # (#5030 discipline — Harbor CORE DB, never pull-through;
+            # proxy-cache records artifacts ASYNC, hence the poll) confirms
+            # each package landed; FATAL naming the offender otherwise — the
+            # same fail-loud sovereignty contract as Phase A/A2. Step-11's
+            # verify-before-pivot gate re-asserts this durable presence
+            # immediately before each spec.package rewrite.
+            xpkg_artifact_present() {
+              # $1 = local path project/repo[:tag|@digest]; 0 when the local
+              # Harbor DURABLY serves it (artifact API = Harbor CORE DB, never
+              # pull-through — the #5030 probe discipline). Non-zero on ANY
+              # miss/parse-fail/API error (fail-closed → the caller warms).
+              _xa_pp="$1"
+              _xa_ref="latest"
+              case "${_xa_pp}" in
+                *@*)
+                  _xa_ref="${_xa_pp##*@}"; _xa_pp="${_xa_pp%@*}"
+                  case "${_xa_pp##*/}" in *:*) _xa_pp="${_xa_pp%:*}" ;; esac ;;
+                *)
+                  case "${_xa_pp##*/}" in *:*) _xa_ref="${_xa_pp##*:}"; _xa_pp="${_xa_pp%:*}" ;; esac ;;
+              esac
+              case "${_xa_pp}" in
+                */*) _xa_proj="${_xa_pp%%/*}"; _xa_repo="${_xa_pp#*/}" ;;
+                *)   return 1 ;;
+              esac
+              # Single-encode nested repo `/` -> %2F for the direct harbor-core
+              # Service path (#5036 — no gateway decode layer in between).
+              _xa_repo_enc=$(printf '%s' "${_xa_repo}" | sed 's#/#%2F#g')
+              _xa_d=$(curl -sk --max-time 30 \
+                -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_xa_proj}/repositories/${_xa_repo_enc}/artifacts/${_xa_ref}" 2>/dev/null \
+                | jq -r '.digest // empty' 2>/dev/null)
+              [ -n "${_xa_d}" ]
+            }
+
+            if [ "${XPKG_PREWARM_ENABLED:-true}" != "true" ]; then
+              echo "[harbor-prewarm] Phase A4 SKIP — prewarm.xpkgPackages.enabled=false (Crossplane package warm disabled; post-severance provider re-pulls stay dependent on proxy-cache upstream reachability)"
+            elif ! kubectl get crd providers.pkg.crossplane.io >/dev/null 2>&1; then
+              # Same very-early-handover guard step-11 Phase 1 uses: bp-crossplane
+              # not landed yet → no Provider CRs to warm, and step-11 skips the
+              # live pivot on the SAME probe, so no ref is ever pivoted onto a
+              # cold cache. A step re-run once crossplane lands warms the set.
+              echo "[harbor-prewarm] Phase A4 SKIP — providers.pkg.crossplane.io CRD not installed yet (bp-crossplane not landed); packages warm on a later step re-run"
+            else
+              echo "[harbor-prewarm] Phase A4: warm Crossplane xpkg provider packages through local ${XPKG_REGISTRY_PATH} (#5204)"
+              xpkg_target_host="harbor.${SOVEREIGN_FQDN}"
+              xpkg_tsv=$(kubectl get providers.pkg.crossplane.io \
+                -o 'jsonpath={range .items[*]}{.metadata.name}{"\t"}{.spec.package}{"\n"}{end}' 2>/dev/null || true)
+              xpkg_warm_dir=/tmp/xpkg-warm
+              rm -rf "${xpkg_warm_dir}"; mkdir -p "${xpkg_warm_dir}"
+              printf '%s\n' "${xpkg_tsv}" | while IFS="$(printf '\t')" read -r _xw_name _xw_pkg; do
+                [ -z "${_xw_name}" ] && continue
+                [ -z "${_xw_pkg}" ] && continue
+                # tag@digest → digest-only (skopeo rejects a ref carrying both;
+                # the digest is authoritative — the #4955 normalization).
+                _xw_pkg=$(offlinemirror_normalize_ref "${_xw_pkg}")
+                # Route the package to its local proxy-xpkg path. Handles every
+                # shape step-11 handles: the raw upstream host (Hetzner), the
+                # MOTHERSHIP proxy prefix (Huawei fresh-prov, #4488), and the
+                # already-pivoted local aliases (re-run idempotency).
+                _xw_lpath=""
+                case "${_xw_pkg}" in
+                  "${XPKG_UPSTREAM_HOST}/"*)
+                    _xw_lpath="${XPKG_REGISTRY_PATH}/${_xw_pkg#${XPKG_UPSTREAM_HOST}/}" ;;
+                  "${XPKG_MOTHERSHIP_PROXY_PREFIX}/"*)
+                    _xw_lpath="${XPKG_REGISTRY_PATH}/${_xw_pkg#${XPKG_MOTHERSHIP_PROXY_PREFIX}/}" ;;
+                  "${xpkg_target_host}/${XPKG_REGISTRY_PATH}/"*)
+                    _xw_lpath="${_xw_pkg#${xpkg_target_host}/}" ;;
+                  "${LOCAL_REGISTRY_HOST}/${XPKG_REGISTRY_PATH}/"*)
+                    _xw_lpath="${_xw_pkg#${LOCAL_REGISTRY_HOST}/}" ;;
+                  *)
+                    # Unmapped package host — the same fail-fast discipline as
+                    # the Phase A pre-pass (egress still open, offender named)
+                    # instead of a silent post-severance resolution failure.
+                    echo "[harbor-prewarm] Phase A4 UNMAPPED: Provider ${_xw_name} package '${_xw_pkg}' is from a host not covered by crossplaneProviderPivot (${XPKG_UPSTREAM_HOST} / ${XPKG_MOTHERSHIP_PROXY_PREFIX} / ${xpkg_target_host}/${XPKG_REGISTRY_PATH} / ${LOCAL_REGISTRY_HOST}/${XPKG_REGISTRY_PATH}) — extend the values and re-trigger"
+                    printf '%s %s (unmapped host)' "${_xw_name}" "${_xw_pkg}" > "${xpkg_warm_dir}/$(printf '%s' "${_xw_name}" | tr -c 'A-Za-z0-9._-' '_').fail"
+                    continue ;;
+                esac
+                _xw_slug=$(printf '%s' "${_xw_lpath}" | tr -c 'A-Za-z0-9._-' '_')
+                : >"${xpkg_warm_dir}/${_xw_slug}.log"
+                # Idempotency: skip when the artifact is ALREADY durably cached
+                # (re-run / prior warm). Fail-closed — any probe miss warms.
+                if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] && xpkg_artifact_present "${_xw_lpath}"; then
+                  echo "[harbor-prewarm] Phase A4 skip ${_xw_pkg} -> ${_xw_lpath} (already durably cached)"
+                  printf '%s (present)' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.ok"
+                  continue
+                fi
+                echo "[harbor-prewarm] Phase A4 warm ${_xw_pkg} -> ${HARBOR_HOST}/${_xw_lpath} (full pull-through; manifest + all blobs cache durably)"
+                _xw_attempt=1
+                _xw_rc=1
+                while [ "${_xw_attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
+                  echo "[harbor-prewarm] Phase A4 warm ${_xw_lpath} attempt ${_xw_attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${xpkg_warm_dir}/${_xw_slug}.log"
+                  rm -rf "${xpkg_warm_dir}/${_xw_slug}.dir"
+                  # SOURCE = the local proxy-xpkg endpoint (the exact ref
+                  # step-11 pivots to); admin src-creds satisfy Harbor's
+                  # authenticated proxy-cache pull (#5204/#5209). src-tls
+                  # follows PREWARM_DEST_TLS_VERIFY — it is the SAME in-cluster
+                  # registry.<fqdn> endpoint the Phase A pushes target (#4529
+                  # rationale: trust is the cluster network, not a public CA).
+                  # --multi-arch all pulls EVERY arch sub-manifest + blobs
+                  # through so the cached list is complete (#4975 rationale).
+                  if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+                      --insecure-policy \
+                      --multi-arch all \
+                      --retry-times 5 \
+                      --src-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                      --src-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
+                      "docker://${HARBOR_HOST}/${_xw_lpath}" \
+                      "dir:${xpkg_warm_dir}/${_xw_slug}.dir" >>"${xpkg_warm_dir}/${_xw_slug}.log" 2>&1; then
+                    _xw_rc=0
+                    break
+                  else
+                    _xw_rc=$?
+                  fi
+                  echo "[harbor-prewarm] Phase A4 warm ${_xw_lpath} attempt ${_xw_attempt} failed (exit=${_xw_rc}); retrying after backoff" >>"${xpkg_warm_dir}/${_xw_slug}.log"
+                  _xw_attempt=$((_xw_attempt+1))
+                  [ "${_xw_attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
+                done
+                # The dir: copy is a scratch side-effect — the durable payload
+                # is what Harbor cached on the way through. Free the emptyDir.
+                rm -rf "${xpkg_warm_dir}/${_xw_slug}.dir"
+                if [ "${_xw_rc}" -ne 0 ]; then
+                  printf '%s exit=%s' "${_xw_lpath}" "${_xw_rc}" > "${xpkg_warm_dir}/${_xw_slug}.fail"
+                  echo "[harbor-prewarm] Phase A4 done ${_xw_lpath} (FAIL exit=${_xw_rc})"
+                  continue
+                fi
+                # Durable-presence poll (Harbor records proxied artifacts
+                # ASYNC): bounded 12x10s before the fail-closed verdict.
+                _xw_present=0
+                for _xw_i in $(seq 1 12); do
+                  if xpkg_artifact_present "${_xw_lpath}"; then _xw_present=1; break; fi
+                  sleep 10
+                done
+                if [ "${_xw_present}" -eq 1 ]; then
+                  printf '%s' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.ok"
+                  echo "[harbor-prewarm] Phase A4 done ${_xw_lpath} (durably cached)"
+                else
+                  printf '%s (pulled through but never durably recorded)' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.fail"
+                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the Harbor artifact API never recorded the artifact durably (120s poll) — proxy-cache persistence failed"
+                fi
+              done
+              xpkg_ok=0
+              xpkg_fail=0
+              for f in "${xpkg_warm_dir}"/*.ok; do
+                [ -e "${f}" ] || continue
+                _xs=$(basename "${f}" .ok)
+                xpkg_ok=$((xpkg_ok+1))
+                echo "[harbor-prewarm] Phase A4 OK $(cat "${f}")"
+              done
+              for f in "${xpkg_warm_dir}"/*.fail; do
+                [ -e "${f}" ] || continue
+                _xs=$(basename "${f}" .fail)
+                sed 's/^/  /' "${xpkg_warm_dir}/${_xs}.log" 2>/dev/null || true
+                xpkg_fail=$((xpkg_fail+1))
+                echo "[harbor-prewarm] Phase A4 FAIL $(cat "${f}")"
+              done
+              echo "[harbor-prewarm] Phase A4 complete: xpkg_ok=${xpkg_ok} xpkg_fail=${xpkg_fail}"
+              if [ "${xpkg_fail}" -gt 0 ]; then
+                echo "[harbor-prewarm] FATAL: ${xpkg_fail} Crossplane xpkg package(s) failed to warm into local Harbor (named above) — step-11 would pivot Provider spec.package onto a ref the local registry cannot serve post-severance (#5204)"
+                exit 1
+              fi
             fi
 
             # ─── Phase B (legacy): HEAD against proxy-cache for non-openova-io ─

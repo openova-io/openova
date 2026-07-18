@@ -1,5 +1,53 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.142 (#5204 Refs #5209 #3379 — the local Harbor must DURABLY hold every
+# Crossplane xpkg provider package BEFORE step-11 pivots onto it. #5209
+# (0.1.139) wired the package-pull AUTH, but NOTHING ever placed the xpkg OCI
+# artifact ITSELF in the local Harbor: `proxy-xpkg` is the ONE local project
+# that stays a Harbor PROXY-CACHE (0.1.114; Harbor REJECTS pushes into a
+# proxy-cache project, so the Phase A skopeo-push route cannot serve it) and
+# xpkg.upbound.io is deliberately in offlineMirror.excludedHosts (the
+# Crossplane package manager bypasses containerd, so the generic mirror legs
+# are inert for it). On a COLD cache every post-severance package re-pull /
+# provider upgrade / inactive-revision reconcile needs the proxy leg to reach
+# xpkg.upbound.io — an upstream tether Principle #11 forbids: the fully-severed
+# Sovereign cannot resolve its own provider package descriptor from the local
+# registry (live hw270 dep b2f0a9b0585f6781: provider-opentofu
+# Installed=False). TWO coupled fixes:
+#   (1) step-03 Phase A4 (NEW, template 03 + values prewarm.xpkgPackages) —
+#       enumerate every providers.pkg.crossplane.io spec.package (the SAME set
+#       step-11 pivots; the upstream/mothership/registry-path literals come
+#       from the SAME crossplaneProviderPivot values, no second hand-list) and
+#       perform ONE FULL authenticated pull THROUGH the local proxy-xpkg
+#       endpoint per package (skopeo → dir: scratch, --multi-arch all, the
+#       #4955 tag@digest normalization, PREWARM_COPY_ATTEMPTS retry + #4994
+#       skip-if-already-durable idempotency). The pull-through makes Harbor
+#       fetch + DURABLY cache the manifest (list) + every blob, so the exact
+#       ref step-11 pivots to serves locally with no upstream leg (Harbor
+#       serves cached proxy-cache content when the upstream is unreachable).
+#       A bounded artifact-API poll (#5030 durable-probe discipline — Harbor
+#       CORE DB, never pull-through; proxy-cache records async) asserts each
+#       package landed; xpkg_fail>0 → FATAL naming the offender (the same
+#       fail-loud sovereignty contract as Phase A/A2). Skip-guards: the
+#       prewarm.xpkgPackages.enabled toggle + the same
+#       providers.pkg.crossplane.io-CRD-absent very-early-handover guard
+#       step-11 Phase 1 uses (both skip ⇒ nothing is ever pivoted onto a cold
+#       cache).
+#   (2) step-11 verify-before-pivot (template 11 + values
+#       crossplaneProviderPivot.verifyLocalArtifact) — each spec.package
+#       rewrite (AND each already-pivoted SKIP — the hw270 latent shape) is
+#       gated on the SAME artifact-API durable-presence probe (dialed via the
+#       in-cluster harborInternalURL, #5036); a miss records a sentinel and
+#       the step FATALs LOUD naming the package BEFORE the durable Gitea
+#       rewrite, so nothing is half-pivoted onto a ref the local registry
+#       cannot serve. NO RBAC change (providers get/list/watch + CRD get are
+#       already granted for step-11; step-03 runs under the same runner SA).
+#       NO step-count / job-mode / deadline change (still 11 steps). Contract
+#       Case 65 locks the warm + the verify gate + the toggles + the
+#       xpkg.upbound.io excludedHosts invariant. Slot-06a pin + blueprint.yaml
+#       + catalog-seed source.version + spec.version move to 0.1.142 in
+#       lockstep (Inviolable Principle #13).)
+# ── prior ──
 # 0.1.141 (#5215 Refs #4996 #5074 — step-07 must NOT roll the EVS/hcloud CSI
 # driver. Root-caused live on hw271 (cutoverComplete=true then re-fire wedge):
 # step-07 rolled the csi-evs-node DaemonSet via TWO vectors — (1) the
@@ -2316,7 +2364,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.141
+version: 0.1.142
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
