@@ -64,6 +64,8 @@ import type {
   VolumeItem,
 } from '@/lib/infrastructure.types'
 import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas'
+import { ReconcilerDrillPanel } from './ReconcilerDrillPanel'
+import { isReconcilerNode } from './reconcilerDrill'
 import { buildCloudGraph } from './cloudGraphData'
 import { useK8sCacheStream, type K8sSnapshot } from './useK8sCacheStream'
 import type { ReconciliationNode } from '@/lib/reconciliation.api'
@@ -664,8 +666,21 @@ export function ArchitectureGraphPage({
        *  canvas) which the canvas renders via showLegend + edgeTypeCounts.
        *  No separate bottom button. */}
 
+      {/* Reconciler drill-in (UAT row 193 / #5223) — a reconciler-side
+          node opens the #3996 drill (status + owning-controller logs +
+          reconcile/suspend/resume) instead of the generic infrastructure
+          panel, re-wiring the drill that lived on the deleted
+          /reconciliation page onto the unified Cloud graph. */}
+      {selectedNode && isReconcilerNode(selectedNode) && (
+        <ReconcilerDrillPanel
+          deploymentId={deploymentId}
+          node={selectedNode}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+
       {/* Detail panel — slides in from the right on node click. */}
-      {selectedNode && (
+      {selectedNode && !isReconcilerNode(selectedNode) && (
         <DetailPanel
           node={selectedNode}
           neighbors={neighborList}

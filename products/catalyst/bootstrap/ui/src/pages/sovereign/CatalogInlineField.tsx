@@ -26,6 +26,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { saveCatalogEdit, type CatalogEntryEdit } from '@/lib/commerce.api'
 
+/** How long the save-verdict toast stays visible (#5113 facet-a). */
+export const TOAST_MS = 6_000
+
+/** One save-verdict toast: green committed-to-IaC vs amber store-only. */
+interface SaveNotice {
+  tone: 'ok' | 'warn'
+  text: string
+}
+
 export interface CatalogInlineFieldProps<T> {
   /** Catalog entry id (may be `bp-`-prefixed) — keyed to the store slug. */
   blueprintId: string
@@ -69,7 +78,29 @@ export function CatalogInlineField<T>({
   const [draft, setDraft] = useState<T>(initialDraft)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // #5113 facet-a / UAT row 132 — the save verdict TOAST. The editor used
+  // to close silently on save; now the {stored, committed} envelope the
+  // server returns (honest since #5115) is surfaced next to the field:
+  //   committed:true  → green  "Saved to IaC ✓"
+  //   committed:false → amber  "Saved to store — IaC commit failed: …"
+  //   committed:null  → amber  "Saved to store — no IaC verdict reported"
+  // Auto-dismisses after TOAST_MS; never blocks the next edit.
+  const [notice, setNotice] = useState<SaveNotice | null>(null)
   const editorRef = useRef<HTMLDivElement>(null)
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear any pending toast timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    }
+  }, [])
+
+  const showNotice = (n: SaveNotice) => {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    setNotice(n)
+    noticeTimerRef.current = setTimeout(() => setNotice(null), TOAST_MS)
+  }
 
   // Re-seed the draft from the latest current value each time the editor opens,
   // so re-opening after an external refetch starts from the live value.
@@ -99,10 +130,24 @@ export function CatalogInlineField<T>({
     // surgical — every sibling field round-trips unchanged.
     const edit: CatalogEntryEdit = { ...current, ...toPatch(draft) }
     try {
-      const slug = await saveCatalogEdit(blueprintId, edit)
-      void slug
+      const verdict = await saveCatalogEdit(blueprintId, edit)
       setSaving(false)
       setEditing(false)
+      // Row 132 — surface the dual-write verdict instead of closing
+      // silently. committed:false/null NEVER reads as a durable green.
+      if (verdict.committed === true) {
+        showNotice({ tone: 'ok', text: 'Saved to IaC ✓' })
+      } else if (verdict.committed === false) {
+        showNotice({
+          tone: 'warn',
+          text: `Saved to store — IaC commit failed${verdict.reason ? `: ${verdict.reason}` : ''}`,
+        })
+      } else {
+        showNotice({
+          tone: 'warn',
+          text: 'Saved to store — no IaC verdict reported by the server',
+        })
+      }
       onSaved(edit)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -150,6 +195,16 @@ export function CatalogInlineField<T>({
             </svg>
           </span>
         </button>
+        {notice ? (
+          <span
+            role="status"
+            className={`cif-toast cif-toast-${notice.tone}`}
+            data-testid={`cif-${fieldKey}-save-verdict`}
+            data-tone={notice.tone}
+          >
+            {notice.text}
+          </span>
+        ) : null}
       </div>
     )
   }
@@ -233,6 +288,20 @@ const CATALOG_INLINE_FIELD_CSS = `
 .cif-topo-summary { font-size: 0.85rem; color: var(--color-text); font-weight: 400; }
 
 .cif-error { margin: 0; color: var(--color-danger); font-size: 0.78rem; }
+
+/* #5113 facet-a — the per-field save-verdict toast (UAT row 132). */
+.cif-toast {
+  display: inline-block; margin-top: 0.3rem; padding: 0.2rem 0.6rem;
+  border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+}
+.cif-toast-ok {
+  background: color-mix(in srgb, var(--color-success, #16a34a) 16%, transparent);
+  color: var(--color-success, #16a34a);
+}
+.cif-toast-warn {
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: #d97706;
+}
 .cif-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.1rem; }
 .cif-btn {
   padding: 0.4rem 0.95rem; border-radius: 8px; border: 1px solid transparent;

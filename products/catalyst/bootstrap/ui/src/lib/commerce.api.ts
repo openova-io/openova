@@ -182,6 +182,42 @@ export interface CatalogEntryEdit {
 }
 
 /**
+ * CatalogSaveVerdict — the #3668/#5113 dual-write verdict for one catalog
+ * card-save. The catalyst-api `apps` create/update proxy wraps the upstream
+ * store row in a `{stored, committed, reason}` envelope
+ * (writeCatalogEditEnvelope in handler/org_commerce.go, honest since #5115):
+ *   • stored    — the commerce store (the cache) accepted the edit.
+ *   • committed — the IaC source-of-truth git commit (catalog-sovereign
+ *     Gitea) durably landed AND its Flux reconcile leg is armed. `null`
+ *     when the server relayed a legacy (pre-envelope) body — the UI then
+ *     reports the verdict as unavailable rather than fabricating a green.
+ *   • reason    — the server's why, when the commit leg failed.
+ */
+export interface CatalogSaveVerdict {
+  slug: string
+  stored: boolean
+  committed: boolean | null
+  reason?: string
+}
+
+/** parseCatalogEditEnvelope — fold a commerce `apps` write response body
+ *  onto the CatalogSaveVerdict. Tolerates the legacy raw-row shape (no
+ *  envelope) by returning committed:null — verdict unknown, never a
+ *  fabricated `committed:true`. */
+export function parseCatalogEditEnvelope(body: unknown, slug: string): CatalogSaveVerdict {
+  if (body && typeof body === 'object' && typeof (body as { committed?: unknown }).committed === 'boolean') {
+    const env = body as { stored?: unknown; committed: boolean; reason?: unknown }
+    return {
+      slug,
+      stored: env.stored !== false,
+      committed: env.committed,
+      reason: typeof env.reason === 'string' && env.reason ? env.reason : undefined,
+    }
+  }
+  return { slug, stored: true, committed: null }
+}
+
+/**
  * saveCatalogEdit persists an admin's catalog-entry edit to the Organization
  * commerce catalog store.
  *
@@ -200,9 +236,14 @@ export interface CatalogEntryEdit {
  *      never had), POST a new minimal row (slug + the edited fields) so the
  *      edit still persists and overlays the seed on the next catalog read.
  *
- * Returns the slug it wrote, for the caller's optimistic cache update.
+ * Returns the CatalogSaveVerdict (#5113 facet-a / UAT row 132): the caller
+ * surfaces "Saved to IaC ✓" vs "Saved to store — IaC commit failed: …"
+ * instead of closing silently.
  */
-export async function saveCatalogEdit(slug: string, edit: CatalogEntryEdit): Promise<string> {
+export async function saveCatalogEdit(
+  slug: string,
+  edit: CatalogEntryEdit,
+): Promise<CatalogSaveVerdict> {
   const bare = slug.replace(/^bp-/, '')
   const apps = await listApps()
   const existing = apps.find((a) => (a.slug ?? '').replace(/^bp-/, '') === bare)
@@ -221,16 +262,16 @@ export async function saveCatalogEdit(slug: string, edit: CatalogEntryEdit): Pro
     // Merge onto the full runtime row so untouched columns survive the
     // full-$set UpdateApp.
     const merged = { ...existing, ...patch }
-    await updateCommerce('apps', existing.id, merged)
-    return bare
+    const body = await updateCommerce('apps', existing.id, merged)
+    return parseCatalogEditEnvelope(body, bare)
   }
 
   // No store row yet — create one carrying the edit. slug is required by
   // the store; name falls back to the slug when the admin left it blank.
-  await createCommerce<CommerceApp>('apps', {
+  const body = await createCommerce<CommerceApp>('apps', {
     slug: bare,
     name: edit.name || bare,
     ...patch,
   })
-  return bare
+  return parseCatalogEditEnvelope(body, bare)
 }
