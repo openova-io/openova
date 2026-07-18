@@ -76,6 +76,12 @@ func main() {
 		// Provisioning — status polling is public, admin/start require auth.
 		{PathPrefix: "/api/provisioning/status/", Upstream: provisioningURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/provisioning/tenant/", Upstream: provisioningURL, StripPrefix: "/api", Public: true},
+		// #5205 — same-origin readiness proxy the funnel completion
+		// interstitial polls instead of a cross-origin no-cors fetch straight
+		// at the per-Org console host (whose opaque Response the browser can
+		// never read the status of). Public: polled before the customer has
+		// any session, from the marketplace's own origin.
+		{PathPrefix: "/api/provisioning/console-ready", Upstream: provisioningURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/provisioning/", Upstream: provisioningURL, StripPrefix: "/api", Public: false},
 		// Billing (mixed — public list of plans/addons/redeem-preview for
 		// the marketplace landing + /redeem flow; webhook for Stripe;

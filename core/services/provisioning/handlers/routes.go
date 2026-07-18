@@ -9,6 +9,12 @@ func (h *Handler) Routes() http.Handler {
 	// Public — provision status polling.
 	mux.HandleFunc("GET /provisioning/status/{id}", h.GetStatus)
 	mux.HandleFunc("GET /provisioning/tenant/{tenantId}", h.GetByTenant)
+	// Public — #5205 same-origin readiness proxy for the marketplace funnel
+	// completion interstitial (LaunchingStep.svelte). Must be public: it is
+	// polled before the customer has any session, from the SAME marketplace
+	// origin, replacing the old cross-origin no-cors browser probe that could
+	// never read the per-Org console's actual readiness.
+	mux.HandleFunc("GET /provisioning/console-ready", h.ConsoleReady)
 
 	// Admin — manual provisioning and listing.
 	mux.HandleFunc("POST /provisioning/start", h.Start)
