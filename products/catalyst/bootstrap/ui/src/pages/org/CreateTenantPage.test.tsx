@@ -8,12 +8,20 @@
  *   • Console URL preview updates as fields change (free-subdomain)
  *   • Switching to BYO mode hides the dropdown + shows the BYO field
  *   • Empty pool surfaces the "no parents available" placeholder
+ *   • Submit-failure panel renders "create organization:" with no
+ *     tenant-string residue (UAT row 214, issue #5100 / PR #5102)
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CreateTenantPage } from './CreateTenantPage'
 import type { SovereignParentDomain } from './org.api'
+
+vi.mock('./org.api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./org.api')>()
+  return { ...actual, createOrgTenant: vi.fn() }
+})
+import { createOrgTenant } from './org.api'
 
 afterEach(() => cleanup())
 
@@ -140,5 +148,34 @@ describe('CreateTenantPage', () => {
     ) as HTMLSelectElement
     expect(select.disabled).toBe(true)
     expect(select.textContent).toContain('No pool parents available')
+  })
+
+  /* ── Row 214 regression guard (issue #5100 / PR #5102) ──
+     createOrgTenant's rejection message is rendered VERBATIM in the
+     submit-error panel — it used to read "create org tenant: …",
+     now "create organization: …". Lock the rendered copy so it can't
+     silently regress back to the banned "tenant" term. */
+  it('submit failure renders "create organization:" with no tenant-string residue', async () => {
+    vi.mocked(createOrgTenant).mockRejectedValueOnce(
+      new Error('create organization: HTTP 500 upstream failure'),
+    )
+    render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
+
+    fireEvent.change(screen.getByTestId('org-create-tenant-subdomain'), {
+      target: { value: 'acme' },
+    })
+    fireEvent.change(screen.getByTestId('org-create-tenant-email'), {
+      target: { value: 'admin@acme.com' },
+    })
+    fireEvent.click(screen.getByTestId('org-create-tenant-submit'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('org-create-tenant-submit-error').textContent).toContain(
+        'create organization: HTTP 500',
+      )
+    })
+    expect(
+      screen.getByTestId('org-create-tenant-submit-error').textContent?.toLowerCase(),
+    ).not.toContain('tenant')
   })
 })
