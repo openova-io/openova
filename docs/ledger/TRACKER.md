@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T13:30:08Z` |
+| Last refreshed | `2026-07-18T13:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 25 |
+| Open issues | 26 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 26 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 25 open items (clickable table)
+### All 26 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -225,6 +225,7 @@ flowchart LR
 | [#5210](https://github.com/openova-io/openova/issues/5210) | Post-cutover: catalyst-api reflector watches 401 Unauthorized (valid RBAC + fres | Other |
 | [#5214](https://github.com/openova-io/openova/issues/5214) | cutover: gitea-admin-secret self-heal — one-shot bridge Job can't survive to s | Other |
 | [#5215](https://github.com/openova-io/openova/issues/5215) | cutover step-07: image-registry sweep rolls bp-huawei-evs-csi → in-flight EVS  | Other |
+| [#5218](https://github.com/openova-io/openova/issues/5218) | G12 region-kill (hw271, post-cutover): promotion fires at T0+2m29s but is NOT du | Other |
 
 ---
 
@@ -232,6 +233,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T13:34 | [#5217](https://github.com/openova-io/openova/pull/5217) | #4996 | fix(cutover): step-07 must not roll the EVS/hcloud CSI drive |
 | 2026-07-18T13:09 | [#5216](https://github.com/openova-io/openova/pull/5216) | #5214 | fix(cutover): self-heal gitea-admin-secret at step execution |
 | 2026-07-18T09:12 | [#5211](https://github.com/openova-io/openova/pull/5211) | #5210 | fix(catalyst-api): refresh in-cluster SA token on 401 so pos |
 | 2026-07-18T06:30 | [#5209](https://github.com/openova-io/openova/pull/5209) | #5204 | fix(cutover): authenticate the Crossplane package pull again |
@@ -261,7 +263,6 @@ flowchart LR
 | 2026-07-17T10:20 | [#5171](https://github.com/openova-io/openova/pull/5171) | #5137 | fix(cnpg-pair): region-B dr-promoter — automatic RPO=0 regio |
 | 2026-07-17T10:15 | [#5170](https://github.com/openova-io/openova/pull/5170) | #5123 | fix(catalyst): per-Org Apps grid lists funnel-purchased apps |
 | 2026-07-17T10:15 | [#5169](https://github.com/openova-io/openova/pull/5169) | #5167 | docs(evidence): hw264 MCP DEGRADED live probe — #5167 north- |
-| 2026-07-17T09:56 | [#5168](https://github.com/openova-io/openova/pull/5168) | #5114 | fix(openova-mcp): rs256 verify ACTIVE on fresh Sovereign — a |
 
 ---
 
