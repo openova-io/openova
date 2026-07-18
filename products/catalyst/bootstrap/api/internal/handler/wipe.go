@@ -1216,10 +1216,23 @@ func buildWipeCredsRaw(providerName string, body wipeRequest, depReq provisioner
 		// atomic: no need for the operator to re-prompt creds after
 		// a Pod restart, because catalyst-api wrote them to disk
 		// during provision.
-		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.HuaweiAccessKey)
-		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.HuaweiSecretKey)
-		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.HuaweiProjectID)
-		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.HuaweiRegion)
+		// #5193 — FINAL fallback: the huawei-operator-creds Secret projected env
+		// (CATALYST_HUAWEI_*). Mirrors the janitor's fallback (janitor.go ~584) and
+		// is what keeps an env the platform created ALWAYS wipeable from in-cluster
+		// creds — even after a partial destroy deleted the per-deployment tfvars AND
+		// the pod rolled (no in-memory depReq) AND no body creds. Without it the wipe
+		// 400s "huawei credentials are required" and the record sticks at
+		// status=wiping, blocking the one-environment-at-a-time preflight gate.
+		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.HuaweiAccessKey, os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"))
+		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.HuaweiSecretKey, os.Getenv("CATALYST_HUAWEI_SECRET_KEY"))
+		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.HuaweiProjectID, os.Getenv("CATALYST_HUAWEI_PROJECT_ID"))
+		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.HuaweiRegion, os.Getenv("CATALYST_HUAWEI_REGION"))
+		// Default region ONLY when the creds resolved (matches janitor.go) — keeps
+		// the empty-everything case truly empty so the EVS/orphan backstop still
+		// reads "no creds" rather than a bare region.
+		if out["region"] == "" && out["access_key"] != "" && out["secret_key"] != "" && out["project_id"] != "" {
+			out["region"] = "me-east-215"
+		}
 	default:
 		// hetzner (canonical) — same wire shape pre-Wave-3.
 		token := strings.TrimSpace(body.HetznerToken)
