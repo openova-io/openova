@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T05:00:05Z` |
+| Last refreshed | `2026-07-18T05:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 24 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 24 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -221,6 +221,9 @@ flowchart LR
 | [#5187](https://github.com/openova-io/openova/issues/5187) | region-b: sovereign-tls Flux Kustomization Ready=False — configmaps 'sovereign | Other |
 | [#5193](https://github.com/openova-io/openova/issues/5193) | Wipe strands an env un-wipeable after a partial destroy: wipe path lacks the hua | Other |
 | [#5194](https://github.com/openova-io/openova/issues/5194) | cutover step-08 egress-block-test does not auto-warm missing images when a funne | Other |
+| [#5204](https://github.com/openova-io/openova/issues/5204) | Post-cutover: crossplane provider-opentofu package re-pull 401 Unauthorized from | Other |
+| [#5205](https://github.com/openova-io/openova/issues/5205) | Funnel completion: launching interstitial stalls 5min (healthz no-cors poll neve | Other |
+| [#5206](https://github.com/openova-io/openova/issues/5206) | MCP north-star not usable by an Organization: mcp.<sov> has no DNS record + no p | Other |
 
 ---
 
