@@ -78,10 +78,14 @@ The **chart's** `defaultStorageClass` value defaults to `false` (so a bare
 - The `hcloud-volumes` StorageClass renders with the
   `storageclass.kubernetes.io/is-default-class: "true"` annotation.
 - A post-install hook Job (`default-class-hook.yaml`) waits for the SC to
-  exist, then promotes it to default and **demotes** the k3s `local-path`
-  default (strips its default annotation) so there is exactly ONE default.
-- `local-path` is left INSTALLED but non-default — genuinely-ephemeral caches
-  can still opt in with `storageClassName: local-path`.
+  exist, then promotes it to default and **demotes** any OTHER StorageClass
+  still carrying the default annotation so there is exactly ONE default (on
+  a fresh prov this is a no-op — `local-path` does not exist at all).
+- `local-path` is FORBIDDEN outright (#3971): k3s runs
+  `--disable=local-storage` so the provisioner is NEVER installed, and the
+  bp-kyverno-policies K23 ENFORCE policy DENIES any `local-path` PVC /
+  StorageClass / `rancher.io/local-path` provisioner. There is no opt-in —
+  genuinely-ephemeral caches use `emptyDir`, never a local-path PVC.
 
 On a FRESH prov this is non-destructive: the stateful slots (openbao,
 keycloak, gitea, cnpg) install LATE (after their `dependsOn` chains on

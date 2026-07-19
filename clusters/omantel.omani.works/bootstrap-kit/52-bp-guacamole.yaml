@@ -86,12 +86,17 @@ spec:
         # matches bp-keycloak's realm-config-cli default.
         issuer: https://auth.omantel.biz/realms/catalyst
       recordings:
-        # omantel chroot is currently single-CSI (local-path).
-        # SeaweedFS-CSI is not deployed here; once it is, switch
-        # back to `seaweedfs-storage` for RWX session-recording
-        # streaming. local-path is RWO but the recording-shipper
-        # (when added) reads asynchronously, so RWO is acceptable.
-        storageClass: local-path
+        # #3971: local-path is FORBIDDEN — k3s runs
+        # --disable=local-storage (the ephemeral provisioner is never
+        # installed) and the K23 Kyverno ENFORCE policy DENIES any
+        # local-path PVC/StorageClass. omantel runs on Huawei (kom4dc)
+        # where the durable cloud CSI class is `evs-ssd`
+        # (bp-huawei-evs-csi, slot 55b) — pin it so a future
+        # recordings.persistence=true flip binds a durable EVS volume,
+        # not the chart's Hetzner default (hcloud-volumes). Recordings
+        # stay an emptyDir until persistence is enabled (chart default
+        # recordings.persistence=false, #3374).
+        storageClass: evs-ssd
       webapp:
         # Memory-constrained omantel cluster — only one webapp
         # replica fits alongside the rest of the catalyst-system
