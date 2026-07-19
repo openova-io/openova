@@ -31,9 +31,9 @@
  * in the top-right of this shell so identity placement is consistent
  * across wizard + provisioning + Sovereign-console.
  *
- * The canonical shell handles auth + portal resolution; in the
+ * The canonical shell handles auth + org-console resolution; in the
  * Sovereign-provision wizard context that's not relevant — the wizard
- * runs unauthenticated and the deploymentId IS the portal identity. The shell
+ * runs unauthenticated and the deploymentId IS the org-console identity. The shell
  * therefore only needs the deployment id + an optional resolved
  * sovereign FQDN to mirror the same chrome.
  *

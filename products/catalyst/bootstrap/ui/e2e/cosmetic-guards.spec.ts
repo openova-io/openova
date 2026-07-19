@@ -396,8 +396,8 @@ async function mockProvisionDeploymentAPI(page: Page): Promise<void> {
     })
   })
 
-  // Portal discovery — org-tier-rbac.spec uses the mother kind to boot
-  // the SPA past its portal-detection gate.
+  // Org-console discovery — org-tier-rbac.spec uses the mother kind to boot
+  // the SPA past its org-console-detection gate.
   await page.route(/.*\/api\/v1\/tenant\/discover.*/, async (route: Route) => {
     await route.fulfill({
       status: 200,

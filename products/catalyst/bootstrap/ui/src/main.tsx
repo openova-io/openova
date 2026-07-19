@@ -4,7 +4,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { runMothershipTokenRedirect } from './shared/lib/mothershipTokenRedirect'
 import { router } from './app/router'
-import { bootstrapPortal } from './shared/lib/portalDiscover'
+import { bootstrapOrgConsole } from './shared/lib/orgConsoleDiscover'
 import { installFetchAuthInterceptor } from './shared/lib/authedFetch'
 import './app/globals.css'
 
@@ -43,25 +43,25 @@ if (!runMothershipTokenRedirect()) {
   if (!root) throw new Error('Root element not found')
 
   /**
-   * Portal discovery (issue #802, #795 [Q-mine-1]).
+   * Org-console discovery (issue #802, #795 [Q-mine-1]).
    *
    * The same SPA bundle serves both otech-admin (`console.<otech-fqdn>`)
    * and Organization-admin (`console.<org-domain>` — free-subdomain
    * `console.acme.<otech-fqdn>` OR BYO domain `console.acme.com`).
-   * Portal context is discovered from `window.location.host` against
+   * Org-console context is discovered from `window.location.host` against
    * the back-end registry — NOT from path/subdomain string parsing —
    * so a BYO CNAME-fronted domain resolves the same way as a
    * platform-hosted subdomain.
    *
    * Discovery is fire-and-forget at boot — the result is cached in
-   * the portalDiscover module so any component that needs it (sidebar
-   * nav, OIDC bootstrap) reads `getPortalContext()` synchronously after
+   * the orgConsoleDiscover module so any component that needs it (sidebar
+   * nav, OIDC bootstrap) reads `getOrgConsoleContext()` synchronously after
    * the promise settles. Failure modes (404 / 503 / network error) all
    * fall through to the catalyst-zero default surface — no throw, no
    * boot block.
    */
-  void bootstrapPortal().catch(() => {
-    /* discovery failures are surfaced via getPortalContext().status; no boot abort. */
+  void bootstrapOrgConsole().catch(() => {
+    /* discovery failures are surfaced via getOrgConsoleContext().status; no boot abort. */
   })
 
   createRoot(root).render(

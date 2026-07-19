@@ -16,7 +16,7 @@
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every URL
  * derives from `apiUrl()` in `shared/config/urls`. Per #2 (never
  * compromise on quality), the response shape is parsed through the
- * branded-types parsers (`parsePortalID` etc.) at the boundary so a
+ * branded-types parsers (`parseOrgConsoleID` etc.) at the boundary so a
  * future server-side wire-shape drift surfaces as a runtime error
  * here, not as silent cross-Organization pollution downstream.
  */

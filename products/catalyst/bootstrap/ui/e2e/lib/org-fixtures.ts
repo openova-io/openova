@@ -8,7 +8,7 @@
  * otech (#804). Until #804 lands, mocking is the only way to keep the
  * screenshot evidence green and unblock the broader epic.
  *
- * Each helper here installs ONE narrow contract — portal discovery,
+ * Each helper here installs ONE narrow contract — org-console discovery,
  * whoami, org/users CRUD, deployment lifecycle, etc. — so a future
  * "live mode" version of this spec can opt out of any single mock by
  * not calling that helper. The helpers themselves are the seam between
@@ -100,14 +100,14 @@ export function makeMockState(): OrgMockState {
   return { users: new Map() }
 }
 
-/* ── Portal discovery + auth ───────────────────────────────────── */
+/* ── Org-console discovery + auth ──────────────────────────────── */
 
 /**
- * Mock GET /api/v1/tenant/discover (legacy BE route) so the SPA bootstrap resolves
+ * Mock GET /api/v1/tenant/discover (legacy BE route) so the SPA boot resolves
  * `console.<org-domain>` to the Organization-tier branch regardless of the
  * dev-server's actual host header.
  */
-export async function mockPortalDiscovery(
+export async function mockOrgConsoleDiscovery(
   page: Page,
   payload: typeof ORG_DISCOVERY = ORG_DISCOVERY,
 ): Promise<void> {
@@ -387,7 +387,7 @@ export async function installBillingMocks(page: Page): Promise<void> {
  */
 export async function installAllMocks(page: Page): Promise<OrgMockState> {
   const state = makeMockState()
-  await mockPortalDiscovery(page)
+  await mockOrgConsoleDiscovery(page)
   await mockWhoami(page)
   await installMarketplaceMocks(page)
   await installOrgUserMocks(page, state)

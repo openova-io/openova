@@ -36,7 +36,7 @@ const ORG_DISCOVERY = {
 
 const OTECH_DISCOVERY = {
   host: 'console.otech.example',
-  tenant_id: 'portal-otech',
+  tenant_id: 'orgc-otech',
   tenant_kind: 'otech',
   keycloak_realm_url: 'https://kc.otech.example/realms/otech',
   keycloak_client_id: 'catalyst-ui',
@@ -164,13 +164,13 @@ test.describe('Organization-tier RBAC (issue #802)', () => {
     })
   })
 
-  test('OTECH portal: same SPA bundle, otech-tier UI does NOT show Organization pages', async ({ page }) => {
+  test('OTECH org-console: same SPA bundle, otech-tier UI does NOT show Organization pages', async ({ page }) => {
     await mockBackend(page, OTECH_DISCOVERY)
 
-    // Navigating to /console/org/users on an OTECH-portal context is
+    // Navigating to /console/org/users on an OTECH-org-console context is
     // technically a registered route; the page renders, BUT the
-    // portal-discovery payload says otech. The page itself doesn't
-    // gate on portal kind (the routes are registered globally per
+    // org-console-discovery payload says otech. The page itself doesn't
+    // gate on org-console kind (the routes are registered globally per
     // [Q-mine-1] of #795 — same SPA bundle). What changes per tier
     // is the OIDC realm bootstrap + sidebar nav. The screenshot
     // captures the expected UX: an otech operator can navigate to

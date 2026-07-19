@@ -1603,8 +1603,8 @@ const consoleInstallBlueprintRoute = createRoute({
  *                          group → app-role map).
  *
  * Whether these routes are exposed in the sidebar is decided at
- * runtime by the portal-aware nav (see SovereignSidebar.tsx),
- * which reads the discovery payload from `getPortalContext()`.
+ * runtime by the org-console-aware nav (see SovereignSidebar.tsx),
+ * which reads the discovery payload from `getOrgConsoleContext()`.
  * Because TanStack Router resolves on URL match (not on sidebar
  * visibility), the routes themselves are always registered — that
  * keeps the bundle a single SPA per [Q-mine-1]/#795 and lets the

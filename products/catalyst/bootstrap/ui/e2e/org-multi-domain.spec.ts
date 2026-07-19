@@ -21,9 +21,9 @@
 
 import { expect, test } from '@playwright/test'
 
-const PORTAL_DISCOVERY = {
+const ORG_CONSOLE_DISCOVERY = {
   host: 'console.otech.example',
-  tenant_id: 'portal-otech',
+  tenant_id: 'orgc-otech',
   tenant_kind: 'otech',
   keycloak_realm_url: 'https://kc.otech.example/realms/otech',
   keycloak_client_id: 'catalyst-ui',
@@ -43,7 +43,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(PORTAL_DISCOVERY),
+        body: JSON.stringify(ORG_CONSOLE_DISCOVERY),
       })
     })
     await page.route('**/api/v1/whoami', async (route) => {

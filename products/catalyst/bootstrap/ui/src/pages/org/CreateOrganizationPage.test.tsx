@@ -8,12 +8,27 @@
  *   • Console URL preview updates as fields change (free-subdomain)
  *   • Switching to BYO mode hides the dropdown + shows the BYO field
  *   • Empty pool surfaces the "no parents available" placeholder
+ *   • Submit-failure panel renders "create organization:" with no
+ *     banned org-rename residue (UAT row 214, issue #5100 — supersedes
+ *     the PR #5203 guard that targeted the pre-rename symbol/testids)
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import { CreateOrganizationPage } from './CreateOrganizationPage'
 import type { SovereignParentDomain } from './org.api'
+
+vi.mock('./org.api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./org.api')>()
+  return { ...actual, createOrganization: vi.fn() }
+})
+import { createOrganization } from './org.api'
 
 afterEach(() => cleanup())
 
@@ -140,5 +155,33 @@ describe('CreateOrganizationPage', () => {
     ) as HTMLSelectElement
     expect(select.disabled).toBe(true)
     expect(select.textContent).toContain('No pool parents available')
+  })
+
+  /* ── Row 214 regression guard (issue #5100; supersedes PR #5203) ──
+     createOrganization's rejection message is rendered VERBATIM in the
+     submit-error panel (`err.message`). Lock the rendered copy so it
+     can't silently regress back to the banned org-rename term. */
+  it('submit failure renders "create organization:" with no banned residue', async () => {
+    vi.mocked(createOrganization).mockRejectedValueOnce(
+      new Error('create organization: HTTP 500 upstream failure'),
+    )
+    render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
+
+    fireEvent.change(screen.getByTestId('org-create-subdomain'), {
+      target: { value: 'acme' },
+    })
+    fireEvent.change(screen.getByTestId('org-create-email'), {
+      target: { value: 'admin@acme.com' },
+    })
+    fireEvent.click(screen.getByTestId('org-create-submit'))
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('org-create-submit-error').textContent,
+      ).toContain('create organization: HTTP 500')
+    })
+    expect(
+      screen.getByTestId('org-create-submit-error').textContent?.toLowerCase(),
+    ).not.toContain('tenant')
   })
 })

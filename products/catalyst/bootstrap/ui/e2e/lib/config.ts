@@ -27,7 +27,7 @@
  * Otech (Sovereign) FQDN under test. Defaults to a fixture domain that
  * never resolves — the spec mocks every fetch the SPA makes, so DNS
  * resolution doesn't matter, but the hostname literal still flows into
- * portal-discovery payloads, OIDC realm URLs, and screenshot filenames
+ * org-console-discovery payloads, OIDC realm URLs, and screenshot filenames
  * so we keep it parameterised.
  */
 export const OTECH_FQDN: string = process.env.E2E_OTECH_FQDN ?? 'otech.example'
@@ -41,9 +41,9 @@ export const ORG_SLUG: string = process.env.E2E_ORG_SLUG ?? 'acme'
 /**
  * Composed hosts for each surface in the Organization happy path. None of these
  * are dialled at the network layer — the spec mocks them via
- * `page.route` — but they appear verbatim in portal-discovery payloads
+ * `page.route` — but they appear verbatim in org-console-discovery payloads
  * and OIDC realm URLs so the SPA's runtime branching keys off the
- * correct portal kind (the legacy `tenant_kind` wire key).
+ * correct org-console kind (the legacy `tenant_kind` wire key).
  */
 export const HOSTS = {
   marketplace: `marketplace.${OTECH_FQDN}`,
@@ -56,7 +56,7 @@ export const HOSTS = {
 } as const
 
 /**
- * Portal-discovery payloads. Mirrors the wire shape of
+ * Org-console-discovery payloads. Mirrors the wire shape of
  * `GET /api/v1/tenant/discover?host=<host>` (legacy BE route; the
  * `tenant_id` / `tenant_kind` JSON keys are the wire contract) —
  * `tenant_kind: "org"` branches the SPA into the Organization-tier UX

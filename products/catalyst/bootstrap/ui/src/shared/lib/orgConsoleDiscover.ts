@@ -1,11 +1,11 @@
 /**
- * portalDiscover — host-driven portal discovery for the unified
+ * orgConsoleDiscover — host-driven org-console discovery for the unified
  * Sovereign Console SPA (issue #802, #795 [Q-mine-1]).
  *
  * The same SPA bundle serves both otech-admin (`console.<otech-fqdn>`)
  * and Organization-admin (`console.<org-domain>` — free-subdomain
  * `console.acme.<otech-fqdn>` OR BYO domain `console.acme.com`).
- * Portal context is discovered from `window.location.host` against
+ * Org-console context is discovered from `window.location.host` against
  * the back-end's host registry — NOT from path/subdomain string
  * parsing — so a BYO CNAME-fronted domain resolves the same way as a
  * platform-hosted subdomain.
@@ -33,10 +33,10 @@
 import { apiUrl } from '@/shared/config/urls'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import {
-  parsePortalID,
-  parsePortalKind,
-  type PortalDiscovery,
-} from '@/shared/types/portal'
+  parseOrgConsoleID,
+  parseOrgConsoleKind,
+  type OrgConsoleDiscovery,
+} from '@/shared/types/orgConsole'
 
 /**
  * Possible terminal states of bootstrap discovery.
@@ -56,7 +56,7 @@ export type DiscoveryStatus = 'discovered' | 'unknown' | 'unwired' | 'error'
 export interface DiscoveryResult {
   status: DiscoveryStatus
   /** Discovery payload — present iff `status === 'discovered'`. */
-  portal?: PortalDiscovery
+  orgConsole?: OrgConsoleDiscovery
   /** Failure detail — present on 'error' for diagnostics. */
   error?: string
 }
@@ -68,7 +68,7 @@ export interface DiscoveryResult {
  * `fetchImpl` is an injectable seam so unit tests can stub the
  * network without monkey-patching global fetch.
  */
-export async function discoverPortal(
+export async function discoverOrgConsole(
   host: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DiscoveryResult> {
@@ -102,16 +102,16 @@ export async function discoverPortal(
     // (api/internal/handler/tenant_discover.go) — the wire contract.
     // They are mapped onto org-rename-clean model fields right here so
     // no other module touches the legacy keys.
-    const portal: PortalDiscovery = {
+    const orgConsole: OrgConsoleDiscovery = {
       host: typeof raw.host === 'string' ? raw.host : host,
-      portalId: parsePortalID(raw.tenant_id),
-      portalKind: parsePortalKind(raw.tenant_kind),
+      orgConsoleId: parseOrgConsoleID(raw.tenant_id),
+      orgConsoleKind: parseOrgConsoleKind(raw.tenant_kind),
       keycloak_realm_url:
         typeof raw.keycloak_realm_url === 'string' ? raw.keycloak_realm_url : '',
       keycloak_client_id:
         typeof raw.keycloak_client_id === 'string' ? raw.keycloak_client_id : '',
     }
-    return { status: 'discovered', portal }
+    return { status: 'discovered', orgConsole }
   } catch (err) {
     return {
       status: 'error',
@@ -122,7 +122,7 @@ export async function discoverPortal(
 
 /**
  * Module-singleton state. The bootstrap path (called once from
- * main.tsx) writes here; route components read via `getPortalContext()`
+ * main.tsx) writes here; route components read via `getOrgConsoleContext()`
  * to pick which route tree to mount.
  */
 let cachedResult: DiscoveryResult | null = null
@@ -131,13 +131,13 @@ let cachedResult: DiscoveryResult | null = null
  * Run discovery once at app boot. Idempotent — repeated calls with
  * the same host return the cached value. Components that need
  * synchronous access after the bootstrap can read
- * `getPortalContext()`.
+ * `getOrgConsoleContext()`.
  *
  * Skipped on Sovereign chroot mode (TC-229, 2026-05-07): the
  * `/api/v1/tenant/discover` endpoint is mother-only — only the
  * Catalyst-Zero apex (`console.openova.io`) registers it. A chroot
- * Sovereign Console (e.g. `console.<sov-fqdn>`) IS its own portal by
- * definition, so calling host-discover there is both meaningless
+ * Sovereign Console (e.g. `console.<sov-fqdn>`) IS its own org-console
+ * by definition, so calling host-discover there is both meaningless
  * and noisy: the chroot's catalyst-api returns 404 on every request
  * and the SPA's React-Query layer (DashboardLayout etc.) keeps
  * re-issuing the call as the Dashboard mounts/unmounts — 50+ HTTP
@@ -146,13 +146,13 @@ let cachedResult: DiscoveryResult | null = null
  * Short-circuit returns `status: 'unwired'` (the contract for "no
  * registry available; proceed on the host's own identity") and
  * caches it so a second call is a no-op. Downstream code that
- * inspects `getPortalContext()` (sidebar nav, OIDC bootstrap) treats
+ * inspects `getOrgConsoleContext()` (sidebar nav, OIDC bootstrap) treats
  * unwired the same as a successful no-op on the chroot path —
- * portal identity is already encoded in the session JWT
+ * org-console identity is already encoded in the session JWT
  * (sovereign_fqdn / deployment_id claims) so no registry payload is
  * needed for any chroot UI.
  */
-export async function bootstrapPortal(
+export async function bootstrapOrgConsole(
   host: string = typeof window !== 'undefined' ? window.location.host : '',
   fetchImpl: typeof fetch = fetch,
 ): Promise<DiscoveryResult> {
@@ -161,16 +161,16 @@ export async function bootstrapPortal(
     cachedResult = { status: 'unwired' }
     return cachedResult
   }
-  cachedResult = await discoverPortal(host, fetchImpl)
+  cachedResult = await discoverOrgConsole(host, fetchImpl)
   return cachedResult
 }
 
 /** Synchronous accessor for code paths that run after bootstrap. */
-export function getPortalContext(): DiscoveryResult | null {
+export function getOrgConsoleContext(): DiscoveryResult | null {
   return cachedResult
 }
 
 /** Test-only reset hook — lets a test reset module state between cases. */
-export function _resetPortalContextForTesting(): void {
+export function _resetOrgConsoleContextForTesting(): void {
   cachedResult = null
 }

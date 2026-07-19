@@ -107,7 +107,7 @@ const AUDIT_EVENTS = [
 // ── Mock harness ───────────────────────────────────────────────────
 
 async function mockMembershipAPI(page: Page) {
-  // Portal discovery — mother fallback so the SPA boot succeeds.
+  // Org-console discovery — mother fallback so the SPA boot succeeds.
   await page.route(/.*\/api\/v1\/tenant\/discover.*/, (route: Route) => {
     route.fulfill({
       status: 200,
