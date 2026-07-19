@@ -272,7 +272,7 @@ func (h *Handler) Commit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Allocator returns a wrapped "powerdns write" error AFTER the row
 		// was flipped to active. Surface 202 in that case so the caller
-		// knows the row is committed but the canonical 8-record set in the
+		// knows the row is committed but the canonical 9-record set in the
 		// child zone is pending — calling Commit again with the same body
 		// is idempotent (PowerDNS PATCH replaces existing RRsets in place).
 		if alloc != nil && strings.Contains(err.Error(), "powerdns write") {

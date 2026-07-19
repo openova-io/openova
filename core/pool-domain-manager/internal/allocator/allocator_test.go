@@ -176,8 +176,8 @@ func TestCanonicalRecordSet(t *testing.T) {
 	// #4053 — empty consoleLBIP = legacy single-LB behaviour: EVERY record
 	// (incl. console/api) points at lbIP, byte-identical to pre-#4053.
 	rrsets := canonicalRecordSet("acme.openova.io", "1.2.3.4", "")
-	if len(rrsets) != 8 {
-		t.Fatalf("expected 8 RRsets, got %d", len(rrsets))
+	if len(rrsets) != 9 {
+		t.Fatalf("expected 9 RRsets, got %d", len(rrsets))
 	}
 	wantNames := map[string]bool{
 		"acme.openova.io":             false,
@@ -188,6 +188,7 @@ func TestCanonicalRecordSet(t *testing.T) {
 		"harbor.acme.openova.io":      false,
 		"marketplace.acme.openova.io": false,
 		"registry.acme.openova.io":    false, // #5225
+		"mcp.acme.openova.io":         false, // #5206
 	}
 	for _, r := range rrsets {
 		if r.Type != "A" {
@@ -229,8 +230,8 @@ func TestCanonicalRecordSetConsoleSplit(t *testing.T) {
 	const sharedIP = "1.2.3.4"
 	const consoleIP = "9.9.9.9"
 	rrsets := canonicalRecordSet("acme.openova.io", sharedIP, consoleIP)
-	if len(rrsets) != 8 {
-		t.Fatalf("expected 8 RRsets, got %d", len(rrsets))
+	if len(rrsets) != 9 {
+		t.Fatalf("expected 9 RRsets, got %d", len(rrsets))
 	}
 	wantIP := map[string]string{
 		"acme.openova.io":             sharedIP,
@@ -243,6 +244,10 @@ func TestCanonicalRecordSetConsoleSplit(t *testing.T) {
 		// #5225 — registry rides the shared LB (Harbor's primary host), NOT the
 		// console LB, so it MUST stay on sharedIP even when a console LB exists.
 		"registry.acme.openova.io": sharedIP,
+		// #5206 — mcp rides the shared LB too (its HTTPRoute parents the shared
+		// cilium-gateway; mcp ∉ ConsoleGatewaySubdomains), so it MUST stay on
+		// sharedIP even when a console LB exists.
+		"mcp.acme.openova.io": sharedIP,
 	}
 	for _, r := range rrsets {
 		want, ok := wantIP[r.Name]
@@ -394,8 +399,8 @@ func TestCommitDNSShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := dns.rrsets["omantel.omani.works"]
-	if len(got) != 8 {
-		t.Fatalf("expected 8 RRsets recorded, got %d", len(got))
+	if len(got) != 9 {
+		t.Fatalf("expected 9 RRsets recorded, got %d", len(got))
 	}
 }
 
