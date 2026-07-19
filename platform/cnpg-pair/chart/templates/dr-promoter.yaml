@@ -54,8 +54,18 @@ So the actor makes the promotion durable by SUSPENDING the HR
 is NOT in slot 16b's manifest, so kustomize-controller does not own it and
 its drift-correction cannot remove it; a suspended HR freezes helm-
 controller, so even after kustomize reverts the atomic `spec.values` the
-promoted release is NOT re-rendered and the survivor stays writable. The
-operator un-suspends after re-cloning the stale side (RUNBOOKS §6.1).
+promoted release is NOT re-rendered and the survivor stays writable.
+#5245 CAVEATS on the 0.2.15–0.2.17 latch, both fixed here: (a) the latch
+was written with the default `kubectl-patch` field manager, which
+kustomize-controller's managed-fields cleanup CLAIMS AND STRIPS on every
+reconcile of the applying Kustomization (hw275: suspend stripped 06:55:20
+→ helm re-demoted the survivor 06:55:23 → self-heal re-latched 06:55:27,
+×19) — every write now uses `--field-manager=dr-promoter`, which the
+cleanup list does not match; (b) nothing ever LIFTED the latch — the
+DURABLE HANDOFF below moves the promotion into the bootstrap-kit
+Kustomization's postBuild.substitute (SOVEREIGN_CNPG_PAIR_PROMOTED) and
+then un-suspends, so the end state is a fully reconciled flux, not a
+frozen HR (RUNBOOKS §6.1).
 
 HOW IT DECIDES (region-B-local signals + a POSITIVE region-A probe)
 -------------------------------------------------------------------
@@ -150,6 +160,9 @@ tracked on #5137.)
 {{- $hr := $ap.hr | default dict }}
 {{- $hrName := $hr.name | default "bp-cnpg-pair" }}
 {{- $hrNamespace := $hr.namespace | default "flux-system" }}
+{{- $ks := $ap.kustomization | default dict }}
+{{- $ksName := $ks.name | default "bootstrap-kit" }}
+{{- $ksNamespace := $ks.namespace | default "flux-system" }}
 {{- $kimg := $ap.kubectlImage | default dict }}
 {{- $krepo := $kimg.repository | default "harbor.openova.io/proxy-dockerhub/alpine/k8s" }}
 {{- $ktag := $kimg.tag | default "1.30.0" }}
@@ -220,7 +233,11 @@ subjects:
 # The promotion surface: get (idempotence + suspend-state read) + patch
 # (merge-patch of spec.values.cnpgPair.replica.promoted AND, for the #5178
 # durable latch, spec.suspend) on EXACTLY the bp-cnpg-pair HelmRelease —
-# resourceNames-pinned, no list/create/delete.
+# resourceNames-pinned, no list/create/delete. #5245 adds the applying
+# Kustomization (get + patch, resourceNames-pinned): the DURABLE HANDOFF
+# writes the promotion into postBuild.substitute
+# SOVEREIGN_CNPG_PAIR_PROMOTED so kustomize itself renders the promoted
+# desired state, after which the suspend latch is LIFTED.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -234,6 +251,10 @@ rules:
     resources: [helmreleases]
     verbs: [get, patch]
     resourceNames: [{{ $hrName }}]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, patch]
+    resourceNames: [{{ $ksName }}]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -431,6 +452,21 @@ spec:
                 WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) THEN 'receiving'
                 ELSE 'noreceiver'
               END"
+              # #5245 — timeline reads for the TL-ahead re-promote proof.
+              # IDENTIFY_SYSTEM over a replication-protocol connection is
+              # the one surface streaming_replica is GUARANTEED to have
+              # (pg_hba `hostssl replication streaming_replica all cert`) —
+              # no pg_control / pg_read_all_stats privileges involved (the
+              # #5239 lesson). The SOURCE read authenticates with THIS
+              # cluster's `-replication` cert, which region-A accepts
+              # because chart ≥0.2.18 issues it from the SHARED client CA
+              # (`-primary-ca`, replica-cluster.yaml).
+              LOCAL_REPL="host={{ include "cnpg-pair.replicaName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key replication=true"
+              SOURCE_REPL="host=${PRIMARY_MESH_HOST} port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key replication=true"
+              tl_of() {
+                psql "$1" -tAXc "IDENTIFY_SYSTEM" 2>/dev/null | head -1 | cut -d'|' -f2
+              }
+              is_int() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
               STARTED=$(date -u +%s)
               echo "[dr-promoter/signals] loop started (interval=${INTERVAL_SECONDS}s startupGrace=${STARTUP_GRACE_SECONDS}s primaryLiveness=${PRIMARY_LIVENESS_ENABLED} primaryMeshHost=${PRIMARY_MESH_HOST})"
               clear_clock() {
@@ -438,11 +474,12 @@ spec:
                   echo "$(date -u +"%FT%TZ") [dr-promoter/signals] $1 — hold clock cleared"
                 fi
                 # Clears the promote clock AND (#5220 B) the replication-fault /
-                # timeline-divergence markers — any state that reaches a normal
-                # clock-clear (streaming/receiving/promoted/unknown/real-kill
-                # arming/grace) means the pair is NOT in the persistent
-                # can't-re-stream wedge, so a resolved wedge fully resets.
-                rm -f /shared/primary-wal-down-since /shared/replication-fault-since /shared/timeline-diverged /shared/timeline-diverged-recorded
+                # timeline-divergence markers (+ the #5245 TL-ahead proof) —
+                # any state that reaches a normal clock-clear (streaming/
+                # receiving/promoted/unknown/real-kill arming/grace) means the
+                # pair is NOT in the persistent can't-re-stream wedge, so a
+                # resolved wedge fully resets.
+                rm -f /shared/primary-wal-down-since /shared/replication-fault-since /shared/timeline-diverged /shared/timeline-diverged-recorded /shared/tl-ahead
               }
               while true; do
                 : > /shared/signals-alive
@@ -522,7 +559,28 @@ spec:
                       FSINCE=$(cat /shared/replication-fault-since 2>/dev/null || echo "${NOW}")
                       if [ "$((NOW - FSINCE))" -ge "${TL_DIVERGENCE_HOLD_SECONDS}" ] && [ ! -f /shared/timeline-diverged ]; then
                         : > /shared/timeline-diverged
-                        echo "$(date -u +"%FT%TZ") [dr-promoter/signals] TIMELINE-DIVERGENCE WEDGE: region-B has been unable to stream from a REACHABLE region-A for $((NOW - FSINCE))s (>=${TL_DIVERGENCE_HOLD_SECONDS}s) — the replica has left the source timeline and can never re-stream from the lower-TL source. Region-B must be RE-CLONED from region-A (RUNBOOKS §6.1); the actor records it on the HR (#5220)"
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/signals] TIMELINE-DIVERGENCE WEDGE: region-B has been unable to stream from a REACHABLE region-A for $((NOW - FSINCE))s (>=${TL_DIVERGENCE_HOLD_SECONDS}s) — the replica has left the source timeline and can never re-stream from the lower-TL source. The actor records it on the HR (#5220) and, when the TL-ahead proof below holds, RE-PROMOTES this line (#5245)"
+                      fi
+                      # #5245 — once the wedge holds, PROVE the direction with
+                      # timeline arithmetic: own TL strictly higher than the
+                      # reachable source's ⇒ this standby's line supersedes the
+                      # source's acknowledged history (state-X shape: the hw275
+                      # TL2-standby-vs-TL1-primary FATAL loop). The proof is
+                      # re-taken every tick and torn down by clear_clock the
+                      # moment the wedge resolves.
+                      if [ -f /shared/timeline-diverged ]; then
+                        TL_OWN=$(tl_of "${LOCAL_REPL}")
+                        TL_SRC=$(tl_of "${SOURCE_REPL}")
+                        if is_int "${TL_OWN}" && is_int "${TL_SRC}" && [ "${TL_OWN}" -gt "${TL_SRC}" ]; then
+                          echo "${TL_OWN}" > /shared/tl-own
+                          echo "${TL_SRC}" > /shared/tl-source
+                          if [ ! -f /shared/tl-ahead ]; then
+                            : > /shared/tl-ahead
+                            echo "$(date -u +"%FT%TZ") [dr-promoter/signals] TL-AHEAD PROOF: own timeline ${TL_OWN} > reachable source timeline ${TL_SRC} — this standby's line holds every acknowledged commit; the actor may re-promote it (#5245)"
+                          fi
+                        else
+                          rm -f /shared/tl-ahead
+                        fi
                       fi
                     else
                       RC=$?
@@ -631,6 +689,23 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
+              # #5245 — EVERY write uses a CUSTOM field manager. hw275 G12
+              # live-proved the #5219 latch was NOT durable under the default
+              # `kubectl-patch` manager: kustomize-controller's managed-fields
+              # cleanup REPLACES every manager matching the `kubectl` prefix
+              # with itself on EACH reconcile of the applying Kustomization
+              # and then drops the claimed fields absent from its manifest
+              # (fluxcd kustomization_controller.go — the documented "undo
+              # kubectl drift" behavior). On hw275 that stripped spec.suspend
+              # + the DR annotations every bootstrap-kit reconcile: kustomize
+              # Apply 06:55:20 → helm redeployed the reverted values 06:55:23
+              # (the mid-recovery RE-DEMOTE that produced the #5245 FATAL-loop
+              # state) → self-heal re-latched 06:55:27 — a war repeating every
+              # reconcile (19 re-latches in 30 min). A custom manager is NOT
+              # in that cleanup list, so the latch + annotations now survive
+              # (live precedent: the catalyst-api substitute flips persist
+              # under manager `catalyst-api`).
+              FM="--field-manager=dr-promoter"
               # suspend_hr <reason> — patch spec.suspend=true (+ latched-at
               # annotation), then READBACK-VERIFY it landed. spec.suspend is a
               # field flux's Kustomization (slot 16b) does NOT own, so its SSA
@@ -642,7 +717,7 @@ spec:
               # tick, so an RBAC/conflict fault is self-healing AND diagnosable.
               suspend_hr() {
                 _reason="$1"
-                if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-latched-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":true}}" >/dev/null 2>&1; then
+                if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-latched-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":true}}" >/dev/null 2>&1; then
                   _v=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
                   if [ "${_v}" = "true" ]; then
                     echo "$(date -u +"%FT%TZ") [dr-promoter/actor] LATCHED (${_reason}): HR ${HR_NAMESPACE}/${HR_NAME} spec.suspend=true VERIFIED — promotion durable; flux drift-correction can no longer revert spec.values and re-demote the survivor (#5178 Defect-B / #5218)"
@@ -654,7 +729,15 @@ spec:
                 echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (${_reason}): spec.suspend patch FAILED (RBAC/conflict?) — HR NOT frozen; re-asserting next tick (#5218)"
                 return 1
               }
-              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s renderWait=${PROMOTE_RENDER_WAIT_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
+              # nudge_ks — rate-limited kustomize reconcile request so a
+              # substitute flip renders without waiting a full interval.
+              nudge_ks() {
+                if [ ! -f /shared/nudged-ks ] || [ -n "$(find /shared/nudged-ks -mmin +1 2>/dev/null)" ]; then
+                  kubectl -n "${KS_NAMESPACE}" annotate kustomization "${KS_NAME}" "reconcile.fluxcd.io/requestedAt=$(date -u +%s)" --overwrite ${FM} >/dev/null 2>&1 || true
+                  : > /shared/nudged-ks
+                fi
+              }
+              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s renderWait=${PROMOTE_RENDER_WAIT_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME} kustomization=${KS_NAMESPACE}/${KS_NAME})"
               while true; do
                 : > /shared/actor-alive
                 (
@@ -662,6 +745,7 @@ spec:
                   SUSPENDED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
                   HR_PROMOTED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.values.cnpgPair.replica.promoted}' 2>/dev/null || echo "")
                   REPLICA_ENABLED=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}' 2>/dev/null || echo "")
+                  SUB=$(kubectl -n "${KS_NAMESPACE}" get kustomization "${KS_NAME}" -o jsonpath='{.spec.postBuild.substitute.SOVEREIGN_CNPG_PAIR_PROMOTED}' 2>/dev/null || echo "")
                   DIVERGED=""; [ -f /shared/diverged ] && DIVERGED="true"
 
                   # #5220 (B) — TIMELINE-DIVERGENCE surfacing (non-destructive).
@@ -679,7 +763,7 @@ spec:
                   # wedge the operator must un-stick). Uses the existing HR
                   # get/patch RBAC — no new privileges.
                   if [ -f /shared/timeline-diverged ] && [ ! -f /shared/timeline-diverged-recorded ]; then
-                    if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-timeline-diverged-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-timeline-diverged-action\":\"re-clone region-B from region-A per RUNBOOKS 6.1 — the replica left the source timeline and cannot re-stream (#5220)\"}}}" >/dev/null 2>&1; then
+                    if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-timeline-diverged-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-timeline-diverged-action\":\"re-clone region-B from region-A per RUNBOOKS 6.1 — the replica left the source timeline and cannot re-stream (#5220)\"}}}" >/dev/null 2>&1; then
                       : > /shared/timeline-diverged-recorded
                       echo "$(date -u +"%FT%TZ") [dr-promoter/actor] TIMELINE-DIVERGENCE recorded on HR ${HR_NAMESPACE}/${HR_NAME} (dr-timeline-diverged-at) — region-B cannot re-stream from a reachable region-A; RE-CLONE region-B per RUNBOOKS 6.1 (#5220)"
                     else
@@ -687,14 +771,86 @@ spec:
                     fi
                   fi
 
+                  # ── #5245 DURABLE HANDOFF + LATCH LIFT ────────────────
+                  # The suspend latch is the MID-OUTAGE mechanism (helm-only,
+                  # works from the source-controller's cached chart with no
+                  # kustomize/source dependency). It is NOT the end state: a
+                  # latched HR freezes flux forever and, pre-#5245, nothing
+                  # ever lifted it. Once the promotion is real, hand the
+                  # desired state to the SOURCE: set the Kustomization's
+                  # postBuild.substitute SOVEREIGN_CNPG_PAIR_PROMOTED="true"
+                  # (slot 16b renders `promoted: ${SOVEREIGN_CNPG_PAIR_
+                  # PROMOTED:-false}`), and once the HR carries promoted=true
+                  # with the substitute in place, UNSUSPEND — kustomize now
+                  # renders the promotion as its OWN desired state, so
+                  # drift-correction RE-AFFIRMS it and flux is fully
+                  # reconciled again (chart bumps flow, no frozen HR). If the
+                  # substitute is ever lost, the step-1 self-heal latch
+                  # below re-freezes within one tick (belt and braces).
+                  if [ "${SUB}" != "true" ]; then
+                    if [ "${SUSPENDED}" = "true" ] && { { [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; } || [ "${DIVERGED}" = "true" ]; }; then
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] DURABLE HANDOFF (step 1/2): promotion is latched+rendered — patching Kustomization ${KS_NAMESPACE}/${KS_NAME} substitute SOVEREIGN_CNPG_PAIR_PROMOTED=true so the promotion becomes the SOURCE-rendered desired state (#5245)"
+                      kubectl -n "${KS_NAMESPACE}" patch kustomization "${KS_NAME}" --type merge ${FM} -p '{"spec":{"postBuild":{"substitute":{"SOVEREIGN_CNPG_PAIR_PROMOTED":"true"}}}}' >/dev/null 2>&1 || echo "$(date -u +"%FT%TZ") [dr-promoter/actor] WARN: substitute patch failed (RBAC/conflict?) — retrying next tick (#5245)"
+                      nudge_ks
+                    fi
+                  else
+                    if [ "${SUSPENDED}" = "true" ] && [ "${HR_PROMOTED}" = "true" ]; then
+                      if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-handoff-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":false}}" >/dev/null 2>&1; then
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/actor] DURABLE HANDOFF (step 2/2): substitute in place and HR promoted=true — suspend latch LIFTED; flux reconciles the promoted desired state from source (#5245)"
+                      else
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/actor] WARN: latch-lift patch failed — retrying next tick (#5245)"
+                      fi
+                      exit 0
+                    fi
+                  fi
                   # 1. SELF-HEAL LATCH — keep an already-rendered promotion
                   #    durable. Fires on the post-promote tick AND re-freezes
                   #    the HR if anything ever un-suspends it. Both arms require
                   #    POSITIVE render evidence (replica.enabled=false OR the
                   #    cluster already left recovery) so it can never freeze a
-                  #    pre-render HR and strand the promotion.
-                  if [ "${SUSPENDED}" != "true" ] && { { [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; } || [ "${DIVERGED}" = "true" ]; }; then
+                  #    pre-render HR and strand the promotion. #5245: SKIPPED
+                  #    once the durable handoff holds (substitute set AND the
+                  #    HR rendering promoted=true from source) — the promotion
+                  #    no longer needs the freeze; if the substitute is ever
+                  #    reverted this guard re-arms automatically.
+                  if [ "${SUSPENDED}" != "true" ] && ! { [ "${SUB}" = "true" ] && [ "${HR_PROMOTED}" = "true" ]; } && { { [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; } || [ "${DIVERGED}" = "true" ]; }; then
                     suspend_hr "self-heal" || true
+                    exit 0
+                  fi
+                  # ── #5245 TL-AHEAD RE-PROMOTE — the state-X recovery ──
+                  # The wedge the #5220-B surfacing only DIAGNOSED is now
+                  # actionable: a standby whose OWN timeline is STRICTLY
+                  # HIGHER than its reachable source's (IDENTIFY_SYSTEM
+                  # arithmetic, written by the signals container as
+                  # /shared/tl-ahead) holds a line the source can never have
+                  # — every acknowledged commit lives on the higher line
+                  # (before divergence B was the mandatory remote_apply sync
+                  # target; after it, the lower-TL side is write-fenced by
+                  # its unsatisfiable FIRST 1). Re-promoting it is therefore
+                  # data-safe, and it is the ONLY way out of the hw275 state
+                  # (region-B re-demoted to a TL2 standby FATAL-looping at a
+                  # TL1 region-A): region-B must be writable again before
+                  # region-A's failback actor can re-clone region-A onto its
+                  # line. DELIBERATELY BYPASSES the #5220 arm gate (a
+                  # TL-ahead standby can never stream, so it could never
+                  # arm) and the failover-readiness gate (there is no lag
+                  # against a lower-TL source — the standby's own line IS
+                  # the payload): the TL arithmetic is a STRONGER proof than
+                  # either heuristic — a link flap or a never-converged pair
+                  # can never manufacture own-TL > source-TL. Guards: the
+                  # divergence wedge must have HELD (timelineDivergenceHold),
+                  # at most ONE TL-ahead promote per pod lifetime, and never
+                  # after this pod has already seen the cluster promoted
+                  # (/shared/diverged — the hw266 runaway guard). Rides the
+                  # DURABLE SUBSTITUTE seam (not the raw HR patch): once the
+                  # substitute renders promoted=true, the handoff block above
+                  # lifts any suspend and helm renders the promotion.
+                  if [ -f /shared/timeline-diverged ] && [ -f /shared/tl-ahead ] && [ ! -f /shared/diverged ] && [ ! -f /shared/tl-ahead-promoted ] && [ "${REPLICA_ENABLED}" = "true" ] && [ "${SUB}" != "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] TL-AHEAD RE-PROMOTE: local standby TL=$(cat /shared/tl-own 2>/dev/null || echo '?') > reachable source TL=$(cat /shared/tl-source 2>/dev/null || echo '?') and the wedge held ${TL_DIVERGENCE_HOLD_SECONDS}s — this line holds every acknowledged commit; re-promoting via the durable substitute seam (#5245)"
+                    kubectl -n "${KS_NAMESPACE}" patch kustomization "${KS_NAME}" --type merge ${FM} -p '{"spec":{"postBuild":{"substitute":{"SOVEREIGN_CNPG_PAIR_PROMOTED":"true"}}}}'
+                    kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-tl-ahead-repromoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-tl-ahead-repromote-reason\":\"standby timeline ahead of reachable source (state-X wedge); re-promoted so the acknowledged line serves writes and region-A can fail back onto it (#5245)\"}}}" >/dev/null 2>&1 || true
+                    : > /shared/tl-ahead-promoted
+                    nudge_ks
                     exit 0
                   fi
                   # 2. ANTI-FLAP — latched ⇒ done.
@@ -750,7 +906,7 @@ spec:
                     exit 0
                   fi
                   echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTING: region-A WAL stream absent AND region-A unreachable ${DOWN_FOR}s >= ${HOLD_SECONDS}s AND failover-readiness Ready — patching HR desired state (#5125-D1 seam)"
-                  kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-auto-promote-reason\":\"region-A WAL stream absent and region-A unreachable ${DOWN_FOR}s; failover-readiness Ready (#5137/#5178)\"}},\"spec\":{\"values\":{\"cnpgPair\":{\"replica\":{\"promoted\":true}}}}}"
+                  kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-auto-promote-reason\":\"region-A WAL stream absent and region-A unreachable ${DOWN_FOR}s; failover-readiness Ready (#5137/#5178)\"}},\"spec\":{\"values\":{\"cnpgPair\":{\"replica\":{\"promoted\":true}}}}}"
                   echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTED (step 1/2): HR ${HR_NAMESPACE}/${HR_NAME} spec.values.cnpgPair.replica.promoted=true — helm-controller renders replica.enabled:false → CNPG promotes"
                   # 3b. SAME-TICK DURABLE LATCH (#5218) — do NOT wait for the
                   #     next tick. Poll until helm renders replica.enabled=false
@@ -785,6 +941,12 @@ spec:
               value: {{ $hrName | quote }}
             - name: HR_NAMESPACE
               value: {{ $hrNamespace | quote }}
+            # #5245 durable-handoff target — the Kustomization applying
+            # slot 16b (its postBuild.substitute carries the promotion).
+            - name: KS_NAME
+              value: {{ $ksName | quote }}
+            - name: KS_NAMESPACE
+              value: {{ $ksNamespace | quote }}
             - name: HOLD_SECONDS
               value: {{ $hold | quote }}
             - name: INTERVAL_SECONDS
@@ -793,6 +955,11 @@ spec:
             # for helm to render replica.enabled=false before suspending.
             - name: PROMOTE_RENDER_WAIT_SECONDS
               value: {{ $renderWait | quote }}
+            # #5245 — referenced by the TL-ahead re-promote log line (the
+            # wedge must have held this long before the signals container
+            # ever sets /shared/timeline-diverged + /shared/tl-ahead).
+            - name: TL_DIVERGENCE_HOLD_SECONDS
+              value: {{ $tlDivergeHold | quote }}
             - name: REPLICA_CLUSTER
               value: {{ include "cnpg-pair.replicaName" . | quote }}
             - name: READY_SELECTOR

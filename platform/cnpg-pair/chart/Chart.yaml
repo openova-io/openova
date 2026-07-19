@@ -1,5 +1,84 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.18 (#5245): region-kill FAILBACK — the DR chain gains its missing return
+# leg. hw275 G12 (dep 7886def2e61c63aa, 2026-07-19): after a CLEAN forward
+# promote (region-B writable TL2, latched), recovering region-A did NOT
+# converge — region-A resumed its OLD TL1 primary role (it never knew it was
+# killed), region-B could never re-stream ("highest timeline 1 of the primary
+# is behind recovery timeline 2" walreceiver FATAL every 5s, forever), and the
+# HR stayed suspend-latched: cross-region replication permanently dead, no
+# actor anywhere owned the failback. FOUR pieces:
+# (1) LATCH DURABILITY (root cause of the observed re-demote): every actor
+#     write now uses a CUSTOM --field-manager (dr-promoter / dr-failback).
+#     kustomize-controller's managed-fields cleanup REPLACES kubectl-prefixed
+#     managers with itself on EVERY reconcile and drops the claimed fields
+#     absent from its manifest — hw275 live-proof: kustomize Apply 06:55:20
+#     stripped spec.suspend → helm redeployed reverted values 06:55:23 (the
+#     mid-recovery RE-DEMOTE, release v4) → self-heal re-latched 06:55:27; 19
+#     re-latches in 30 min; the HR's dr-auto-promoted-at annotation was
+#     stripped the same way. Custom managers are not in the cleanup list
+#     (live precedent: catalyst-api's substitute flips persist).
+# (2) DURABLE HANDOFF + LATCH LIFT: the suspend latch stays the mid-outage
+#     mechanism (helm-only, no source dependency), but once the promotion is
+#     latched+rendered the actor writes it into the SOURCE — bootstrap-kit
+#     Kustomization postBuild.substitute SOVEREIGN_CNPG_PAIR_PROMOTED="true"
+#     (slot 16b renders `promoted: ${SOVEREIGN_CNPG_PAIR_PROMOTED:-false}`) —
+#     verifies the HR renders promoted=true, then UNSUSPENDS. Drift-correction
+#     now RE-AFFIRMS the promotion and flux is fully reconciled again (no
+#     forever-frozen HR). Self-heal re-latches if the substitute is ever lost.
+# (3) TL-AHEAD RE-PROMOTE (state-X recovery, the #5220-B wedge made
+#     actionable): a standby whose OWN timeline is strictly HIGHER than its
+#     reachable source's (IDENTIFY_SYSTEM arithmetic — readable by
+#     streaming_replica via the replication protocol, no pg_control privileges)
+#     holds every acknowledged commit (pre-divergence it was the mandatory
+#     remote_apply sync target; post-divergence the lower-TL side is
+#     write-fenced by its unsatisfiable FIRST 1). The promoter re-promotes it
+#     through the substitute seam — bypassing the #5220 arm gate (a TL-ahead
+#     standby can never stream, so it could never arm; the TL arithmetic is a
+#     strictly stronger proof no link flap can manufacture), max once per pod
+#     lifetime, never after /shared/diverged (the hw266 runaway guard holds).
+# (4) dr-failback ACTOR (side=primary, NEW): detects the post-failover
+#     geometry from region-A — local writable on TL n + the pinned sync
+#     standby ABSENT + the peer REACHABLE, WRITABLE and on a HIGHER timeline
+#     over the NEW `-replica-mesh` global Service (reverse mirror of
+#     `-primary-mesh`: CNPG-managed rw Service on the replica Cluster + a
+#     zero-backend stub on cluster-A) — then demotes + RE-CLONES region-A onto
+#     region-B's line: flips substitute SOVEREIGN_CNPG_PAIR_DEMOTED="true"
+#     (slot 16b → `primary.demoted`), waits for kustomize to render, and
+#     deletes the stale Cluster CR so helm re-creates it as a pg_basebackup
+#     replica of region-B (primary-cluster.yaml demoted shape: replica cluster
+#     + externalCluster over `-replica-mesh`, synchronous block omitted).
+#     Direction is fixed by the data: sync remote_apply + FIRST 1 pinned +
+#     dataDurability:required means region-B ⊇ every acked commit region-A
+#     ever made (post-recovery region-A is write-fenced by the same
+#     unsatisfiable FIRST 1) — only never-acked WAL is discarded, which RPO=0
+#     already discards; re-cloning region-B from region-A would destroy acked
+#     post-promote writes and is never automatic. pg_rewind is deliberately
+#     not used (no CNPG cross-cluster trigger; basebackup is deterministic for
+#     every WAL-tail geometry). Destruction is bounded: delete only the
+#     resourceNames-pinned Cluster CR (PVCs owner-GC), only with a <60s-fresh
+#     peer-writable-and-ahead proof, and a fresh clone is NEVER deleted (wedge
+#     escalation only re-clones a CR predating the failback episode). AUTH:
+#     the rejoin stream + peer probe present region-A's own
+#     `-primary-replication` cert, accepted by region-B because the replica
+#     Cluster now pins certificates.clientCASecret to the SHARED `-primary-ca`
+#     (already synced A→B with ca.key at the post-mesh flip, live-verified
+#     hw275; CNPG generates `<replica>-replication` from a BYO client CA when
+#     replicationTLSSecret is unset — cluster_pki.go — so every existing
+#     consumer keeps its mounts).
+# End state after a kill+recover cycle: region-B primary / region-A streaming
+# replica, both HRs unsuspended, desired state at the source. The controlled
+# switchback to original roles stays a sovereign-admin action (RUNBOOKS §6.1).
+# Forward-path gates ALL unchanged: #5220 arm gate, #5239 readable signals,
+# #5218 same-tick latch, 120s hold, pg_isready gate, startup grace, sync-only
+# fence. New values: primary.demoted, primary.failback.{enabled,intervalSeconds,
+# peerAheadHoldSeconds,startupGraceSeconds,livenessProbeTimeoutSeconds,
+# wedgeHoldSeconds,kustomization,hr,kubectlImage},
+# replica.autoPromote.kustomization. Side=primary gains the `-replica-mesh`
+# stub Service always (+1) and the dr-failback stack when peers are wired
+# (+7). Validation REQUIRES a fresh 2-region prov kill+recover G12 (the
+# failback only reproduces via a real kill + os-start recovery). Lockstep slot
+# 16b pin → 0.2.18.
 # 0.2.17 (#5239): dr-promoter ARM GATE never armed — the #5220 steady-state arm
 # gate detected "streaming" via `pg_stat_wal_receiver WHERE status = 'streaming'`,
 # but the signals container authenticates as `streaming_replica` (client cert),
@@ -172,7 +251,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.17
+version: 0.2.18
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -212,6 +291,61 @@ description: |
 
   Changelog
   ─────────
+  0.2.18 (2026-07-19, region-kill FAILBACK — demote+re-clone region-A onto the promoted line, durable handoff, TL-ahead re-promote, Refs #5245)
+    - FIX (Pillar-3 region-kill DR, the missing return leg): on hw275 G12 the
+      forward promote was CLEAN (region-B TL2, armed, latched) but recovering
+      region-A did not converge: region-A resumed its old TL1 primary role,
+      region-B FATAL-looped ("highest timeline 1 of the primary is behind
+      recovery timeline 2"), the HR stayed suspend-latched — cross-region
+      replication permanently dead with no owner.
+    - LATCH DURABILITY (observed root cause of the mid-recovery re-demote):
+      every actor write now carries a CUSTOM --field-manager. kustomize-
+      controller's managed-fields cleanup claims kubectl-prefixed managers on
+      every reconcile and strips their fields (hw275: suspend stripped
+      06:55:20 → helm re-demoted 06:55:23 → re-latch 06:55:27, ×19) — custom
+      managers survive it (catalyst-api substitute-flip precedent).
+    - DURABLE HANDOFF + LATCH LIFT: once the promotion is latched+rendered the
+      promoter writes SOVEREIGN_CNPG_PAIR_PROMOTED="true" into the
+      bootstrap-kit Kustomization postBuild.substitute, verifies the HR
+      renders promoted=true from source, then UNSUSPENDS — flux reconciles
+      again, drift-correction re-affirms the promotion. Self-heal re-latches
+      if the substitute is ever lost.
+    - TL-AHEAD RE-PROMOTE: the #5220-B divergence wedge is now actionable —
+      a standby whose own timeline exceeds its reachable source's
+      (IDENTIFY_SYSTEM arithmetic, streaming_replica-readable) is re-promoted
+      through the substitute seam (bypasses the arm gate: a TL-ahead standby
+      can never stream; the arithmetic is a stronger proof than the streaming
+      heuristic). Max once per pod lifetime; the /shared/diverged runaway
+      guard holds.
+    - NEW dr-failback actor (side=primary, sync-mode + peers-wired only):
+      detects local-writable-TL-n + pinned-sync-standby-absent + peer
+      writable on a HIGHER timeline over the new `-replica-mesh` global
+      Service, holds the proof 120s, flips SOVEREIGN_CNPG_PAIR_DEMOTED=
+      "true", waits for the source-rendered demotion, then deletes the stale
+      Cluster CR so helm re-creates it as a pg_basebackup replica of
+      region-B. Bounded destruction: one resourceNames-pinned Cluster CR,
+      <60s-fresh peer proof required at the delete tick, fresh clones never
+      deleted (wedge escalation only re-clones a CR predating the episode).
+      Data direction fixed by the sync fence: region-B ⊇ every acked commit
+      region-A ever made — only never-acked WAL is discarded (the RPO=0
+      contract); the reverse re-clone would lose acked writes, never
+      automatic.
+    - Shared client CA: the replica Cluster pins certificates.clientCASecret
+      to `-primary-ca` (synced A→B with ca.key at the post-mesh flip), so
+      region-A's own `-primary-replication` cert authenticates against
+      region-B (CNPG keeps generating `<replica>-replication` from the BYO
+      CA — existing consumers unchanged). Reverse-direction mesh path: the
+      replica Cluster publishes `-replica-mesh` (managed additional Service,
+      selectorType rw) + a zero-backend stub on side=primary.
+    - PRESERVED: #5220 arm gate, #5239 readable signals, #5218 same-tick
+      latch + self-heal, 120s primaryDownHold, pg_isready liveness gate,
+      startup grace, sync-only fence, #5125-D1 no-live-CR-patch doctrine.
+    - Resource deltas: side=primary +1 always (`-replica-mesh` stub Service),
+      +7 when crossRegionPeerClusters wired (dr-failback SA/2×Role/2×RB/CNP/
+      Deployment). side=replica unchanged. Render Case 19 pins the gating,
+      the demoted shape, the substitute seams, the field managers, and the
+      no-PVC-verb RBAC. Lockstep slot 16b pin → 0.2.18. Live validation
+      REQUIRES a fresh 2-region prov kill+recover G12.
   0.2.16 (2026-07-19, dr-promoter FALSE-POSITIVE fix — steady-state ARM gate + timeline-divergence surfacing, Refs #5220)
     - FIX (Pillar-3 region-kill DR): on hw273 G12 the 0.2.15 promoter
       FALSE-PROMOTED region-B during a transient region-A unreachability

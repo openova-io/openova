@@ -1,0 +1,51 @@
+{{- /*
+Primary-side ClusterMesh global Service stub for `-replica-mesh`
+(#5245, chart 0.2.18) — the exact mirror of replica-mesh-service.yaml.
+
+Cilium ClusterMesh global services merge BY NAME+NAMESPACE: a Service
+participates only if an object with the same name + namespace exists in
+EVERY consuming cluster, each annotated `service.cilium.io/global`.
+The replica side's `-replica-mesh` Service is CNPG-managed on
+cluster-B (replica Cluster CR `spec.managed.services.additional`) —
+but cluster-A has no replica Cluster CR, so without this stub the name
+is NXDOMAIN on cluster-A and neither the dr-failback peer probe nor
+the demoted (rejoin) primary Cluster's externalCluster could ever
+resolve region-B's writable endpoint.
+
+The selector (`cnpg.io/cluster: <fullname>-replica`) matches ZERO Pods
+on cluster-A by construction, so every connection routes across the
+mesh to region-B's backends (the `affinity: local` hint falls through
+to remote when no local backend exists). No CNPG ownership collision:
+the local CNPG operator on cluster-A manages only the primary
+Cluster's Services, never this name.
+
+Rendered whenever the pair + mesh are on (not failback-gated): the
+stub is a passive DNS anchor with zero backends, and having it present
+from day 0 means the failback path needs no render-ordering dance when
+peers are wired later.
+*/ -}}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.clusterMesh.enabled (include "cnpg-pair.isPrimarySide" .) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cnpg-pair.peerReplicationServiceName" . }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: failback-source
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ .Values.cnpgPair.clusterMesh.affinity | quote }}
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+spec:
+  type: ClusterIP
+  selector:
+    # CNPG selector shape for the REPLICA Cluster — matches zero Pods
+    # on the primary cluster by construction.
+    cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+{{- end }}

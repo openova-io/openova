@@ -1118,21 +1118,49 @@ The deterministic failover test for two independent CNPG clusters:
    survivor (hw256 G12, T0+2m07s). (The `Continuum` CR orchestration path is the
    automated equivalent — PR #2072/#2074.)
 4. Verify the write made it across — zero-tx-loss (RPO=0)
-5. Reverse: `scripts/region-kill-drill.sh recover --arm` os-starts region-a; then
-   **un-suspend** the region-B HR (`{"spec":{"suspend":false}}`) and set
-   `replica.promoted:false` to resume replica mode once the original primary is
-   re-cloned onto the current timeline (#5125 Defect-2, still open — CNPG replica
-   walreceivers crash-loop `timeline N behind recovery timeline N+1` until the
-   stale side is deleted + re-basebackup'd).
-   🛑 **Timeline-divergence signal (#5220)**: when a side can no longer stream
-   from a REACHABLE peer (the `timeline N behind recovery timeline N+1` wedge),
-   the dr-promoter records `catalyst.openova.io/dr-timeline-diverged-at` on the
-   region-B HR and logs the re-clone action — that annotation is the operator's
-   cue to delete the diverged Cluster's PVCs + re-basebackup it from the live
-   side. The actor does this NON-destructively (annotation only): from a 2-node
-   vantage with no witness it cannot prove WHICH side is authoritative, so
-   auto-destroying PGDATA could lose a real survivor's committed writes — the
-   re-clone stays this operator step.
+5. Reverse: `scripts/region-kill-drill.sh recover --arm` os-starts region-a.
+   **AUTOMATIC (bp-cnpg-pair ≥ 0.2.18, #5245)** — the failback now converges
+   with zero operator action, in three coordinated moves:
+   - **Durable handoff + latch lift** (region-B dr-promoter): once the
+     promotion is latched+rendered, the actor writes it into the SOURCE —
+     `SOVEREIGN_CNPG_PAIR_PROMOTED="true"` on the bootstrap-kit
+     Kustomization's `postBuild.substitute` (slot 16b renders
+     `replica.promoted` from it) — verifies the HR renders promoted=true,
+     then **un-suspends** the HR itself. Flux thereafter RE-AFFIRMS the
+     failed-over topology; no forever-frozen HR. (Every actor write uses a
+     custom `--field-manager` — kustomize's cleanup strips `kubectl*`-managed
+     fields on each reconcile, the hw275 mid-recovery re-demote root cause.)
+   - **TL-ahead re-promote** (region-B dr-promoter): a standby whose own
+     timeline exceeds its REACHABLE source's (`IDENTIFY_SYSTEM` arithmetic —
+     the hw275 `timeline 1 of the primary is behind recovery timeline 2`
+     wedge, #5220-B) is re-promoted through the substitute seam: that line
+     holds every acknowledged commit (the lower-TL side is write-fenced by
+     its unsatisfiable `FIRST 1`), so re-promoting it is data-safe.
+   - **dr-failback** (region-A, side=primary): on POSITIVE proof — local
+     writable on TL n, the pinned sync standby ABSENT, peer WRITABLE on a
+     HIGHER timeline over the `-replica-mesh` global Service, held 120s —
+     region-A demotes via `SOVEREIGN_CNPG_PAIR_DEMOTED="true"` (the primary
+     Cluster CR re-renders as a pg_basebackup replica cluster of region-B)
+     and the stale Cluster CR is deleted so helm re-creates it and the
+     basebackup clones region-B's line. Discarded: only region-A's
+     never-acked WAL tail (the RPO=0 contract). Evidence:
+     `dr-failback-started-at` / `-recloned-at` / `-converged-at` annotations
+     on the region-A HR + both actors' pod logs.
+   **End state**: region-B primary, region-A streaming replica, both HRs
+   unsuspended, topology rendered from source. The **controlled switchback**
+   to original roles stays a sovereign-admin action: demote region-B and
+   restore region-A by resetting BOTH substitutes
+   (`SOVEREIGN_CNPG_PAIR_PROMOTED`/`_DEMOTED` → `"false"` on each region's
+   bootstrap-kit Kustomization) during a maintenance window — automate via
+   the CNPG demotion-token handshake is follow-up on #5245.
+   🛑 **Timeline-divergence signal (#5220/#5245)**: the dr-promoter still
+   records `catalyst.openova.io/dr-timeline-diverged-at` on the region-B HR
+   when a side cannot stream from a REACHABLE peer — on ≥ 0.2.18 the wedge
+   then AUTO-RESOLVES via the TL-ahead re-promote + failback above; the
+   annotation remains the audit trail (plus `dr-tl-ahead-repromoted-at` when
+   the re-promote fired). On < 0.2.18 the re-clone stays this manual step:
+   un-suspend the region-B HR, set `replica.promoted:false`, delete the
+   diverged Cluster's PVCs + re-basebackup from the live side.
 
 Test harness lives at the D31 acceptance test (PR #2075).
 

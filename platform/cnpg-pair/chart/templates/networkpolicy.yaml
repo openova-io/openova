@@ -89,6 +89,20 @@ spec:
           protocol: TCP
         - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+{{- if (include "cnpg-pair.failbackActive" .) }}
+    # #5245 dr-failback signals container — polls the primary's -rw for
+    # the post-failover geometry (local recovery/timeline state + the
+    # pinned sync standby's presence). Same intra-cluster 5432 path as
+    # the replica side's dr-promoter rule.
+    - from:
+        - podSelector:
+            matchLabels:
+              catalyst.openova.io/role: dr-failback
+              catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+{{- end }}
 {{- if gt (len .Values.cnpgPair.networkPolicy.crossRegionPeerClusters) 0 }}
 ---
 # CROSS-REGION DR (#4846): the REPLICA region's Pods (streaming + pg_basebackup)

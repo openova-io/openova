@@ -161,3 +161,54 @@ directly to the right object) rather than as a standalone template.
 {{- define "cnpg-pair.replicationServiceName" -}}
 {{- printf "%s-primary-mesh" (include "cnpg-pair.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end }}
+
+{{/*
+Peer replication Service name (#5245) — the REVERSE-direction mesh
+alias: region-A reaches region-B's writable (promoted) primary through
+`<fullname>-replica-mesh`. Declared via the replica Cluster CR's
+`spec.managed.services.additional` (selectorType rw — B's designated
+primary) on side=replica, plus a zero-backend local stub on
+side=primary (Cilium merges global services by name+namespace; without
+the stub the name is NXDOMAIN on cluster-A). Consumed by the
+dr-failback actor's peer probe and by the demoted primary Cluster's
+externalCluster (the region-A rejoin stream).
+*/}}
+{{- define "cnpg-pair.peerReplicationServiceName" -}}
+{{- printf "%s-replica-mesh" (include "cnpg-pair.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{/*
+Region-A automatic DR FAILBACK — active? (chart 0.2.18, #5245)
+
+TRUE only when ALL of:
+  - cnpgPair.enabled
+  - side=primary                 (the failback actor runs ON cluster-A —
+                                  by definition it only matters once
+                                  region-A is back)
+  - primary.failback.enabled     (operator gate; default TRUE, hasKey-
+                                  guarded like autoPromote)
+  - replication.mode == sync     (the SAME data fence that makes the
+                                  forward promote safe is what PROVES
+                                  region-B's line ⊇ region-A's acked
+                                  history — without it, discarding
+                                  region-A's timeline could lose
+                                  acknowledged commits)
+  - clusterMesh.enabled AND crossRegionPeerClusters non-empty
+                                 (the peer probe — psql of region-B over
+                                  `-replica-mesh` — is a HARD
+                                  requirement: without a positive
+                                  peer-writable-and-ahead proof the
+                                  actor has no safe action at all, so
+                                  it does not render. This mirrors the
+                                  dr-promoter's #5178 fail-safe, but
+                                  stricter: the promoter can observe
+                                  without peers; the failback cannot
+                                  even observe.)
+*/}}
+{{- define "cnpg-pair.failbackActive" -}}
+{{- $fb := .Values.cnpgPair.primary.failback | default dict -}}
+{{- $fbEnabled := true -}}
+{{- if hasKey $fb "enabled" }}{{- $fbEnabled = $fb.enabled -}}{{- end -}}
+{{- $peers := .Values.cnpgPair.networkPolicy.crossRegionPeerClusters | default list -}}
+{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) $fbEnabled (eq (.Values.cnpgPair.replication.mode | default "sync") "sync") .Values.cnpgPair.clusterMesh.enabled (gt (len $peers) 0) -}}true{{- end -}}
+{{- end }}

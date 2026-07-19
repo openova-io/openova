@@ -5,13 +5,14 @@
 #   1. Default render (cnpgPair.enabled=false) → ZERO resources, on
 #      BOTH sides (side=primary and side=replica) — byte-identical
 #      empty renders.
-#   2. Enabled side=primary render → 3 non-test resources (primary
+#   2. Enabled side=primary render → 4 non-test resources (primary
 #      Cluster CR + audit-config ConfigMap + replication-ingress
-#      NetworkPolicy) + 4 helm-test resources. NO replica Cluster, NO
-#      failover-readiness Deployment (those live on cluster-B — chart
-#      0.2.0: a 2-region Sovereign is two SEPARATE clusters joined by
-#      ClusterMesh; region-B-pinned workloads can never schedule on
-#      cluster-A, hw126 FailedScheduling).
+#      NetworkPolicy + the #5245 `-replica-mesh` Service stub) + 4
+#      helm-test resources. NO replica Cluster, NO failover-readiness
+#      Deployment (those live on cluster-B — chart 0.2.0: a 2-region
+#      Sovereign is two SEPARATE clusters joined by ClusterMesh;
+#      region-B-pinned workloads can never schedule on cluster-A,
+#      hw126 FailedScheduling).
 #   3. Enabled side=replica render → 5 non-test resources (replica
 #      Cluster CR + `-primary-mesh` global Service stub + failover-
 #      readiness Deployment + 2 probe NetworkPolicies) + 0 helm-test.
@@ -93,10 +94,12 @@ helm template smoke-cnpg-pair . \
 }
 
 # Expect 1×Cluster (primary) + 1×ConfigMap (audit) + 1×NetworkPolicy
-# (replication ingress) = 3 non-test kinds; helm-test Pod + SA + Role
-# + RoleBinding = 4 test kinds. The replication Service is CNPG-
-# managed via the primary Cluster's spec.managed.services.additional,
-# so it is NOT a kind in the rendered manifest.
+# (replication ingress) + 1×Service (#5245 `-replica-mesh` stub — the
+# zero-backend local anchor for the reverse-direction global-service
+# merge) = 4 non-test kinds; helm-test Pod + SA + Role + RoleBinding =
+# 4 test kinds. The replication Service is CNPG-managed via the
+# primary Cluster's spec.managed.services.additional, so it is NOT a
+# kind in the rendered manifest.
 count_resources() {
   python3 - "$1" <<'PYEOF'
 import sys, yaml
@@ -114,8 +117,8 @@ count_resources "$TMP/primary.yaml" > "$TMP/primary-counts" || {
 }
 NONTEST=$(grep -E '^NONTEST=' "$TMP/primary-counts" | cut -d= -f2)
 TEST=$(grep -E '^TEST=' "$TMP/primary-counts" | cut -d= -f2)
-if [ "$NONTEST" -ne 3 ] || [ "$TEST" -ne 4 ]; then
-  echo "FAIL: side=primary expected 3 non-test + 4 test resources, got $NONTEST + $TEST." >&2
+if [ "$NONTEST" -ne 4 ] || [ "$TEST" -ne 4 ]; then
+  echo "FAIL: side=primary expected 4 non-test + 4 test resources, got $NONTEST + $TEST." >&2
   grep -E "^kind: " "$TMP/primary.yaml" >&2
   exit 1
 fi
@@ -216,7 +219,7 @@ grep -qE '^\s+- port: 9187' "$TMP/primary.yaml" || {
   echo "FAIL: primary-side NetworkPolicy missing the operator metrics port (9187)." >&2
   exit 1
 }
-echo "  PASS (3 non-test + 4 test resources)"
+echo "  PASS (4 non-test + 4 test resources)"
 
 # ── Case 3: side=replica enabled render ──────────────────────────
 echo "[render] Case 3: enabled side=replica render emits the replica half only"
@@ -565,8 +568,11 @@ helm template smoke-cnpg-pair . \
   --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={hw228-me-east-b}' \
   > "$TMP/cnp-primary.yaml" 2> "$TMP/cnp-primary.err" || {
   echo "FAIL: #4846 side=primary CNP render errored:" >&2; cat "$TMP/cnp-primary.err" >&2; exit 1; }
-if [ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-primary.yaml")" != "1" ]; then
-  echo "FAIL: #4846 side=primary expected exactly 1 CiliumNetworkPolicy." >&2; exit 1; fi
+# 0.2.18: side=primary carries 2 CNPs when peers are set — the #4846
+# crossregion-dr-primary ingress admit + the #5245 dr-failback-egress
+# (the failback actor renders only when peers are wired).
+if [ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/cnp-primary.yaml")" != "2" ]; then
+  echo "FAIL: #4846/#5245 side=primary expected exactly 2 CiliumNetworkPolicies (crossregion-dr-primary + dr-failback-egress)." >&2; exit 1; fi
 grep -qE '^  name: smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-primary$' "$TMP/cnp-primary.yaml" || {
   echo "FAIL: #4846 primary CNP name != smoke-cnpg-pair-bp-cnpg-pair-crossregion-dr-primary." >&2; exit 1; }
 grep -qE '^      cnpg.io/cluster: smoke-cnpg-pair-bp-cnpg-pair-primary$' "$TMP/cnp-primary.yaml" || {
@@ -1025,5 +1031,198 @@ grep -qF 'if [ "${STATE}" = "streaming" ]' "$TMP/signals.sh" || {
   echo "FAIL: #5239 arm window must still key off STATE='streaming' (the #5220 continuity tracker)." >&2; exit 1; }
 
 echo "  PASS (arm gate blocks promote before observed steady-state · divergence surfaced on HR · non-destructive, no delete verbs · #5239 streaming signal readable by streaming_replica)"
+
+# ── Case 19: #5245 region-kill FAILBACK — dr-failback actor, demoted shape,
+#             durable substitute seams, field managers, bounded destruction ─
+# hw275 G12: after a clean forward promote, recovered region-A resumed its
+# stale TL1 primary role while promoted region-B FATAL-looped as a TL2
+# standby — cross-region replication permanently dead, no failback owner.
+echo "[render] Case 19: #5245 failback — dr-failback gating + demoted rejoin shape + durable seams + latch lift + TL-ahead re-promote"
+
+# (a) GATING: no dr-failback without crossRegionPeerClusters (no peer probe ⇒
+#     no safe action ⇒ nothing renders); never on side=replica; the
+#     `-replica-mesh` stub Service IS on the default primary render (passive
+#     DNS anchor, mesh-gated only).
+if grep -q 'dr-failback' "$TMP/primary.yaml"; then
+  echo "FAIL: #5245 side=primary WITHOUT crossRegionPeerClusters must render ZERO dr-failback resources (no peer probe → no safe action)." >&2; exit 1; fi
+grep -qE '^  name: smoke-cnpg-pair-bp-cnpg-pair-replica-mesh$' "$TMP/primary.yaml" || {
+  echo "FAIL: #5245 side=primary missing the -replica-mesh stub Service (reverse-direction global-service merge anchor)." >&2; exit 1; }
+if grep -q 'dr-failback' "$TMP/replica.yaml"; then
+  echo "FAIL: #5245 side=replica rendered dr-failback resources — the failback actor runs ONLY on cluster-A." >&2; exit 1; fi
+# failback disabled / async mode ⇒ no dr-failback even with peers.
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={hw228-me-east-b}' \
+  --set cnpgPair.primary.failback.enabled=false \
+  > "$TMP/nofailback.yaml" 2>/dev/null || { echo "FAIL: #5245 failback-disabled render errored." >&2; exit 1; }
+if grep -q 'dr-failback' "$TMP/nofailback.yaml"; then
+  echo "FAIL: #5245 primary.failback.enabled=false must render ZERO dr-failback resources." >&2; exit 1; fi
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={hw228-me-east-b}' \
+  --set cnpgPair.replication.mode=async \
+  > "$TMP/asyncfailback.yaml" 2>/dev/null || { echo "FAIL: #5245 async-mode primary render errored." >&2; exit 1; }
+if grep -q 'dr-failback' "$TMP/asyncfailback.yaml"; then
+  echo "FAIL: #5245 replication.mode=async must render ZERO dr-failback resources — the sync fence is the data-safety proof for discarding region-A's line." >&2; exit 1; fi
+
+# (b) DELIVERY SHAPE on the peers-wired render (Case 12 output): a Recreate
+#     Deployment (#5157 — never a CronJob) with signals + actor containers.
+awk '/^kind: Deployment$/{d=1} d&&/name: .*-dr-failback$/{f=1} f&&/type: Recreate/{print "RECREATE"; exit}' "$TMP/cnp-primary.yaml" | grep -q RECREATE || {
+  echo "FAIL: #5245 dr-failback must be a Deployment with strategy Recreate (single actor, #5157 shape)." >&2; exit 1; }
+
+# (c) SCRIPTS are valid POSIX shell.
+python3 - "$TMP/cnp-primary.yaml" signals > "$TMP/fb-signals.sh" <<'PYEOF' || { echo "FAIL: #5245 could not extract the dr-failback signals script." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-failback' in d['metadata']['name']][0]
+c=[c for c in dep['spec']['template']['spec']['containers'] if c['name']==sys.argv[2]][0]
+sys.stdout.write(c['args'][0])
+PYEOF
+python3 - "$TMP/cnp-primary.yaml" actor > "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5245 could not extract the dr-failback actor script." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-failback' in d['metadata']['name']][0]
+c=[c for c in dep['spec']['template']['spec']['containers'] if c['name']==sys.argv[2]][0]
+sys.stdout.write(c['args'][0])
+PYEOF
+sh -n "$TMP/fb-signals.sh" || { echo "FAIL: #5245 dr-failback signals script is not valid POSIX shell." >&2; exit 1; }
+sh -n "$TMP/fb-actor.sh"   || { echo "FAIL: #5245 dr-failback actor script is not valid POSIX shell." >&2; exit 1; }
+
+# (d) POSITIVE-PROOF signals: peer probe = pg_isready + pg_is_in_recovery +
+#     IDENTIFY_SYSTEM timeline arithmetic (streaming_replica-readable, #5239
+#     lesson) over the -replica-mesh alias; sync-standby presence read from
+#     pg_stat_replication (walsender rows run AS streaming_replica).
+grep -q 'IDENTIFY_SYSTEM' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must read timelines via IDENTIFY_SYSTEM (the streaming_replica-readable surface)." >&2; exit 1; }
+grep -q 'pg_stat_replication' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must check the pinned sync standby's presence in pg_stat_replication." >&2; exit 1; }
+grep -qE 'value: "[a-z0-9-]+-replica-mesh"' "$TMP/cnp-primary.yaml" || {
+  echo "FAIL: #5245 PEER_MESH_HOST must be the templated -replica-mesh alias, not hardcoded." >&2; exit 1; }
+grep -q '"${_tl_peer}" -gt "${_tl_local}"' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must require TL_peer STRICTLY greater than TL_local (the antisymmetric authority proof)." >&2; exit 1; }
+
+# (e) DURABLE SEAM: the actor demotes through the Kustomization substitute
+#     (SOVEREIGN_CNPG_PAIR_DEMOTED) with a CUSTOM field manager — never a raw
+#     HR-values-only patch, never a live Cluster-CR patch.
+grep -qF 'SOVEREIGN_CNPG_PAIR_DEMOTED' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 actor must flip the SOVEREIGN_CNPG_PAIR_DEMOTED substitute (the durable source seam)." >&2; exit 1; }
+grep -qF -- '--field-manager=dr-failback' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 actor writes must use --field-manager=dr-failback (kustomize's cleanup strips kubectl-managed fields — the hw275 re-demote root cause)." >&2; exit 1; }
+if grep -q 'patch clusters' "$TMP/fb-actor.sh"; then
+  echo "FAIL: #5245 actor patches a live Cluster CR — drift-correction reverts that (#5125-D1)." >&2; exit 1; fi
+
+# (f) BOUNDED DESTRUCTION: delete only via a fresh peer proof; RBAC delete is
+#     resourceNames-pinned to the ONE primary Cluster CR; no PVC/pod verbs.
+grep -q 'peer_fresh' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 actor must re-verify the peer writable+ahead proof (peer_fresh) before every delete." >&2; exit 1; }
+python3 - "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5245 delete-guard ordering assertion failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+import re
+for m in re.finditer(r'delete clusters', s):
+    head = s[:m.start()]
+    assert 'peer_fresh' in head.rsplit('exit 0',1)[-1] or 'peer_fresh ||' in s[max(0,m.start()-600):m.start()], \
+        "every kubectl delete of the Cluster CR must be immediately preceded by a peer_fresh guard"
+PYEOF
+python3 - "$TMP/cnp-primary.yaml" <<'PYEOF' || { echo "FAIL: #5245 dr-failback RBAC assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+roles=[d for d in docs if d.get('kind')=='Role' and 'dr-failback' in d['metadata']['name']]
+assert len(roles)==2, f"expected 2 dr-failback Roles (local ns + flux-system), got {len(roles)}"
+for r in roles:
+    for rule in r.get('rules',[]):
+        res=rule.get('resources',[]); verbs=set(rule.get('verbs',[]))
+        assert 'persistentvolumeclaims' not in res, "dr-failback must never hold PVC verbs (storage goes via owner-GC only)"
+        assert 'pods' not in res, "dr-failback needs no pod verbs"
+        if 'delete' in verbs:
+            assert res==['clusters'], f"delete verb only on the Cluster CR, got {res}"
+            assert rule.get('resourceNames'), "the delete rule must be resourceNames-pinned"
+PYEOF
+
+# (g) DEMOTED REJOIN SHAPE: primary.demoted=true renders the primary Cluster
+#     as a pg_basebackup replica of region-B (no sync fence); the default
+#     render keeps initdb + the full synchronous block.
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.primary.demoted=true \
+  > "$TMP/demoted.yaml" 2> "$TMP/demoted.err" || {
+  echo "FAIL: #5245 demoted render errored:" >&2; cat "$TMP/demoted.err" >&2; exit 1; }
+python3 - "$TMP/demoted.yaml" <<'PYEOF' || { echo "FAIL: #5245 demoted-shape assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+c=[d for d in docs if d.get('kind')=='Cluster'][0]
+spec=c['spec']
+assert spec.get('replica',{}).get('enabled') is True, "demoted primary must render replica.enabled=true"
+assert 'pg_basebackup' in spec.get('bootstrap',{}), "demoted primary must bootstrap via pg_basebackup (the re-clone)"
+ext=spec.get('externalClusters',[])
+assert ext and ext[0]['connectionParameters']['host'].endswith('-replica-mesh'), "demoted primary must stream from the -replica-mesh alias"
+assert ext[0]['sslCert']['name'].endswith('-primary-replication'), "the rejoin stream must present region-A's OWN client cert (shared client CA)"
+assert 'synchronous' not in spec.get('postgresql',{}), "demoted primary must NOT carry the synchronous block (a standby holds no sync fence)"
+assert 'synchronous_commit' not in spec.get('postgresql',{}).get('parameters',{}), "demoted primary must NOT set synchronous_commit"
+PYEOF
+python3 - "$TMP/primary.yaml" <<'PYEOF' || { echo "FAIL: #5245 default primary shape regression." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+c=[d for d in docs if d.get('kind')=='Cluster'][0]
+assert 'initdb' in c['spec'].get('bootstrap',{}), "default primary must keep bootstrap.initdb"
+assert 'synchronous' in c['spec'].get('postgresql',{}), "default primary must keep the synchronous block"
+PYEOF
+
+# (h) SHARED CLIENT CA + reverse mesh Service on side=replica: the replica
+#     Cluster pins clientCASecret to -primary-ca (so region-A's own cert
+#     authenticates the rejoin stream) and publishes -replica-mesh via
+#     managed.services.additional (selectorType rw, Cilium-global).
+python3 - "$TMP/replica.yaml" <<'PYEOF' || { echo "FAIL: #5245 replica-side shared-CA / -replica-mesh assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+c=[d for d in docs if d.get('kind')=='Cluster'][0]
+assert c['spec'].get('certificates',{}).get('clientCASecret','').endswith('-primary-ca'), \
+    "replica Cluster must pin certificates.clientCASecret to the shared -primary-ca (region-A's cert must authenticate the failback stream)"
+svcs=c['spec'].get('managed',{}).get('services',{}).get('additional',[])
+mesh=[s for s in svcs if s['serviceTemplate']['metadata']['name'].endswith('-replica-mesh')]
+assert mesh, "replica Cluster must publish the -replica-mesh managed additional Service"
+assert mesh[0]['selectorType']=='rw', "the -replica-mesh Service must use selectorType rw (tracks the writable/promoted instance)"
+assert mesh[0]['serviceTemplate']['metadata']['annotations'].get('service.cilium.io/global')=='true', \
+    "the -replica-mesh Service must be Cilium-global"
+PYEOF
+
+# (i) PROMOTER-SIDE #5245 pieces (default replica render): custom field
+#     manager on every write, the durable handoff (substitute + latch lift),
+#     and the TL-ahead re-promote riding the substitute seam with the
+#     divergence-wedge + runaway guards.
+grep -qF -- '--field-manager=dr-promoter' "$TMP/actor.sh" || {
+  echo "FAIL: #5245 dr-promoter writes must use --field-manager=dr-promoter (the hw275 latch-strip root cause)." >&2; exit 1; }
+grep -qF 'SOVEREIGN_CNPG_PAIR_PROMOTED' "$TMP/actor.sh" || {
+  echo "FAIL: #5245 dr-promoter missing the durable-handoff substitute patch (SOVEREIGN_CNPG_PAIR_PROMOTED)." >&2; exit 1; }
+grep -qF '\"suspend\":false' "$TMP/actor.sh" || {
+  echo "FAIL: #5245 dr-promoter must LIFT the suspend latch once the promotion is source-rendered (the reconciled-topology end state)." >&2; exit 1; }
+grep -q 'TL-AHEAD RE-PROMOTE' "$TMP/actor.sh" || {
+  echo "FAIL: #5245 dr-promoter missing the TL-ahead re-promote (the state-X recovery)." >&2; exit 1; }
+python3 - "$TMP/actor.sh" <<'PYEOF' || { echo "FAIL: #5245 TL-ahead guard assertions failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+i=s.find('TL-AHEAD RE-PROMOTE')
+blk=s[i:i+2500]
+assert '/shared/timeline-diverged' in blk, "TL-ahead re-promote must require the held divergence wedge"
+assert '/shared/tl-ahead' in blk, "TL-ahead re-promote must require the positive TL arithmetic proof"
+assert '! -f /shared/diverged' in blk, "TL-ahead re-promote must keep the /shared/diverged runaway guard (hw266)"
+assert '/shared/tl-ahead-promoted' in blk, "TL-ahead re-promote must be once-per-pod-lifetime"
+PYEOF
+grep -q 'TL-AHEAD PROOF' "$TMP/signals.sh" || {
+  echo "FAIL: #5245 dr-promoter signals missing the TL-ahead arithmetic proof (IDENTIFY_SYSTEM own-vs-source)." >&2; exit 1; }
+# Scripts still valid POSIX shell after the #5245 additions.
+sh -n "$TMP/actor.sh"   || { echo "FAIL: #5245 dr-promoter actor script is not valid POSIX shell." >&2; exit 1; }
+sh -n "$TMP/signals.sh" || { echo "FAIL: #5245 dr-promoter signals script is not valid POSIX shell." >&2; exit 1; }
+
+echo "  PASS (peers-gated dr-failback · demoted pg_basebackup rejoin shape · shared client CA + -replica-mesh · durable substitute seams + latch lift · TL-ahead re-promote · bounded resourceNames-pinned destruction)"
 
 echo "[render] All bp-cnpg-pair render gates green."
