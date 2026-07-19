@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T12:45:04Z` |
+| Last refreshed | `2026-07-19T13:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 27 |
+| Open issues | 28 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 27 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 27 open items (clickable table)
+### All 28 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -227,6 +227,7 @@ flowchart LR
 | [#5244](https://github.com/openova-io/openova/issues/5244) | Region-kill: gateway EIP does not fail over to region-b — external service unr | Other |
 | [#5245](https://github.com/openova-io/openova/issues/5245) | Region-kill FAILBACK: recovered region-a resumes as TL1 primary while promoted r | Other |
 | [#5253](https://github.com/openova-io/openova/issues/5253) | Region-b never converges: the #4706 console-reachability gate flips Phase-1 to f | Other |
+| [#5255](https://github.com/openova-io/openova/issues/5255) | flaky CI: wipe_async_creds_rewipe_test 15s waitForWipeDone ceiling fails on slow | Other |
 
 ---
 
@@ -234,6 +235,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T12:51 | [#5254](https://github.com/openova-io/openova/pull/5254) | #5253 | fix(catalyst-api): decouple the Phase-1 producer chain from  |
 | 2026-07-19T11:52 | [#5252](https://github.com/openova-io/openova/pull/5252) | #5140 | fix(catalyst-api): sandbox client re-resolves the backend af |
 | 2026-07-19T11:52 | [#5251](https://github.com/openova-io/openova/pull/5251) | #5140 | fix(catalyst-api): stamp Retry-After on sandbox 503 degrades |
 | 2026-07-19T11:55 | [#5250](https://github.com/openova-io/openova/pull/5250) | #5206 | fix(pool-domain-manager): add explicit mcp A record to the c |
@@ -263,7 +265,6 @@ flowchart LR
 | 2026-07-18T06:30 | [#5209](https://github.com/openova-io/openova/pull/5209) | #5204 | fix(cutover): authenticate the Crossplane package pull again |
 | 2026-07-18T05:48 | [#5208](https://github.com/openova-io/openova/pull/5208) | #5206 | fix(mcp): publish mcp.<sov-fqdn> DNS + reject Org-scoped tok |
 | 2026-07-18T05:40 | [#5207](https://github.com/openova-io/openova/pull/5207) | #5205 | fix: same-origin console-ready proxy replaces no-cors funnel |
-| 2026-07-18T04:31 | [#5200](https://github.com/openova-io/openova/pull/5200) | #5193 | fix(catalyst-api): async wipe + huawei-operator-creds fallba |
 
 ---
 
