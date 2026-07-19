@@ -112,6 +112,10 @@ function clearSessionState() {
   localStorage.removeItem('org-refresh-token');
   localStorage.removeItem('org-active-org');
   localStorage.removeItem('org-cart');
+  // 'org-checkout-tenant' + 'org-tenant:*' are legacy localStorage keys
+  // WRITTEN by the marketplace SPA (core/marketplace CheckoutStep) — the
+  // console only clears them at logout. Key strings are a cross-app
+  // contract; rename in lockstep with the marketplace or stale keys leak.
   localStorage.removeItem('org-checkout-tenant');
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const k = localStorage.key(i);
@@ -132,16 +136,22 @@ export const logout = () => {
 export const logoutAll = () =>
   request<{ message: string }>('/auth/logout-all', { method: 'POST' });
 
-// Tenant
-export const getMyOrgs = () => request<Org[]>('/tenant/orgs');
-export const getOrg = (id: string) => request<Org>(`/tenant/orgs/${id}`);
+// Organizations
+// Org CRUD rides the canonical `/organizations` routes (#3383 — served by
+// core/services/tenant routes.go via the gateway's /api/organizations).
+// The member / app / backing-service sub-resources below still live ONLY
+// under the legacy `/tenant/orgs/{id}/...` back-end paths — those URL
+// strings are the wire contract until the BE grows canonical aliases
+// (#3383 alias-removal checklist).
+export const getMyOrgs = () => request<Org[]>('/organizations');
+export const getOrg = (id: string) => request<Org>(`/organizations/${id}`);
 export const getMembers = (orgId: string) => request<Member[]>(`/tenant/orgs/${orgId}/members`);
 export const inviteMember = (orgId: string, email: string, role: string) =>
   request<Member>(`/tenant/orgs/${orgId}/members`, { method: 'POST', body: JSON.stringify({ email, role }) });
 export const updateOrg = (orgId: string, patch: { name?: string }) =>
-  request<Org>(`/tenant/orgs/${orgId}`, { method: 'PUT', body: JSON.stringify(patch) });
+  request<Org>(`/organizations/${orgId}`, { method: 'PUT', body: JSON.stringify(patch) });
 export const deleteOrg = (orgId: string) =>
-  request<{ status: string }>(`/tenant/orgs/${orgId}`, { method: 'DELETE' });
+  request<{ status: string }>(`/organizations/${orgId}`, { method: 'DELETE' });
 
 // Domains
 export const getDomains = (orgId: string) => request<Domain[]>(`/domain/list?tenant_id=${orgId}`);
@@ -239,11 +249,14 @@ export const getApps = async (): Promise<CatalogApp[]> => {
 };
 
 // Provisioning
-export const getProvisionStatus = (tenantId: string) => request<Provision>(`/provisioning/tenant/${tenantId}`);
+// The `/provisioning/tenant/…` path + `tenant_id` query param are the
+// provisioning service's wire contract (core/services/provisioning
+// routes.go / jobs.go) — URL strings stay until a BE lockstep rename.
+export const getProvisionStatus = (orgId: string) => request<Provision>(`/provisioning/tenant/${orgId}`);
 // Day-2 Jobs: install/uninstall records the Jobs page renders alongside the
-// initial tenant provision. Returns newest-first.
-export const getJobs = (tenantId: string) =>
-  request<Job[]>(`/provisioning/jobs?tenant_id=${encodeURIComponent(tenantId)}`);
+// initial Org provision. Returns newest-first.
+export const getJobs = (orgId: string) =>
+  request<Job[]>(`/provisioning/jobs?tenant_id=${encodeURIComponent(orgId)}`);
 
 // Preview of what an uninstall will do to backing services. Used by the
 // confirm modal so the user sees purge vs retain before proceeding.
@@ -319,7 +332,7 @@ export const getLaunchURL = async (
   return res.json();
 };
 
-// Backing services (databases, caches, queues) inventory per tenant. Merges
+// Backing services (databases, caches, queues) inventory per Org. Merges
 // catalog metadata with live pod status from provisioning so the console can
 // render name/version/endpoint + a Running/Pending/Failed pill in one call.
 export const getBackingServices = async (orgId: string): Promise<BackingService[]> => {
@@ -371,6 +384,8 @@ export interface ProvisionStep {
 }
 export interface Provision {
   id: string;
+  /** Legacy BE wire key (provisioning service JSON) — type-erased, never
+   *  accessed by console code; changes only in a BE+FE lockstep. */
   tenant_id: string;
   order_id?: string;
   plan_id?: string;
@@ -391,6 +406,8 @@ export interface JobStep {
 }
 export interface Job {
   id: string;
+  /** Legacy BE wire keys (provisioning service JSON) — type-erased, never
+   *  accessed by console code; change only in a BE+FE lockstep. */
   tenant_id: string;
   tenant_slug?: string;
   kind: 'install' | 'uninstall';

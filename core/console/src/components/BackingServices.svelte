@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Per-tenant "Backing services" panel. Self-contained: fetches on mount,
+  // Per-Org "Backing services" panel. Self-contained: fetches on mount,
   // refetches whenever the parent hands it a new orgId. Keeps its own
   // reveal-details toggle so owners can grab the connection string without
   // having to read our docs.
@@ -62,7 +62,7 @@
         return { label: 'FAILED', cls: 's-failed' };
       case 'not_found':
         // 'not_found' means total_replicas=0 — the service is known to
-        // the tenant but no pod has been scheduled yet. Friendlier label
+        // the Org but no pod has been scheduled yet. Friendlier label
         // than the previous 'NOT FOUND' which read like a 404. #106.
         return { label: 'DEPLOYING', cls: 's-installing' };
       default:

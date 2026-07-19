@@ -8,7 +8,7 @@
 
   const ACTIVE_ORG_KEY = 'org-active-org';
 
-  // Unified timeline row — renders both the tenant provision (initial setup)
+  // Unified timeline row — renders both the Org provision (initial setup)
   // and day-2 install / uninstall jobs with the same visual shape.
   type TimelineEntry = {
     id: string;
@@ -54,7 +54,7 @@
       if (picked) {
         store = getAppStateStore(picked.id);
         const dispose = store.subscribe();
-        // Initial tenant provision is a separate backend model from day-2
+        // Initial Org provision is a separate backend model from day-2
         // jobs; poll it on its own cadence only while it's in-flight.
         loadProvisionInitial(picked.id);
         loading = false;

@@ -18,7 +18,7 @@
   let activeOrg = $state<Org | null>(null);
   let query = $state('');
   let tab = $state<'installed' | 'catalog'>('installed');
-  // Shared store — source of truth for tenant apps + app_states + jobs. #64
+  // Shared store — source of truth for Org apps + app_states + jobs. #64
   let store = $state<ReturnType<typeof getAppStateStore> | null>(null);
 
   // Add/Remove modal state
@@ -64,7 +64,7 @@
     return () => { if (provPollTimer) clearInterval(provPollTimer); };
   });
 
-  // Mirror the shared store's tenant record into activeOrg so the existing
+  // Mirror the shared store's org record into activeOrg so the existing
   // derived values (installedIds, appStateFor) see fresh app_states without
   // further plumbing. Runs on every store update.
   $effect(() => {
@@ -85,7 +85,7 @@
       .catch(() => { provision = null; provLoading = false; });
   }
 
-  // Initial-provision status is a separate backend model (one row per tenant,
+  // Initial-provision status is a separate backend model (one row per Org,
   // the "first-run" flow) from the day-2 jobs the shared store tracks. Keep
   // a small focused poller for it so the setup banner remains accurate
   // without widening the store's surface.
@@ -111,7 +111,7 @@
 
   function appStateFor(app: CatalogApp): { state: AppState; message?: string } {
     // app_states is the source of truth for day-2 transitions (#64). If the
-    // tenant consumer flipped the app to "installing" / "uninstalling" /
+    // org-service consumer flipped the app to "installing" / "uninstalling" /
     // "failed", render that regardless of whether the initial provisioning
     // is still in-flight or long since done.
     const dayTwo = activeOrg?.app_states?.[app.id];
@@ -128,7 +128,7 @@
     if (step?.status === 'failed') return { state: 'failed', message: step.message };
     if (step?.status === 'running') return { state: 'installing', message: step.message };
     // Day-2 installs have NO step in the provision record. If app_states
-    // didn't flag installing/failed above AND tenant.Apps has the id, the
+    // didn't flag installing/failed above AND the org record's Apps has the id, the
     // app is installed. Previously we fell through to the provision.status
     // branch here, which painted every day-2 app as INSTALLING for the
     // entire duration of the initial provision — the exact Uptime-Kuma
@@ -147,7 +147,7 @@
     window.open(`https://${activeOrg.slug}.omani.rest/${slug}`, '_blank');
   }
 
-  // SOURCE OF TRUTH for "what's deployed" is the tenant record's Apps list.
+  // SOURCE OF TRUTH for "what's deployed" is the org record's Apps list.
   // Previously we overrode with provision.apps when present, which was stale
   // for day-2 installs that happened after the initial provisioning record
   // was created — those apps never appeared in the Deployments tab. #113.
@@ -334,7 +334,7 @@
       </div>
     {:else}
       <!-- Tabs: "Deployments" covers installing+installed+failed (anything
-           recorded in tenant.Apps, regardless of state); "Catalog" is the
+           recorded in the org record's Apps, regardless of state); "Catalog" is the
            full library including backing services. Issue #113. -->
       <div class="tabs">
         <button class="tab" class:active={tab === 'installed'} onclick={() => (tab = 'installed')}>

@@ -77,12 +77,12 @@
     }
   });
 
-  // Lifecycle state for the app on this workspace, driven by tenant.app_states.
+  // Lifecycle state for the app on this Environment, driven by the org record's app_states.
   const appState = $derived(app && activeOrg?.app_states ? (activeOrg.app_states[app.id] ?? null) : null);
   const isServiceApp = $derived(!!app && (app.kind === 'service' || app.system === true));
 
   // Fetch backing-service connection info when this page is for a service
-  // app AND the tenant actually has it installed. Re-runs on org change.
+  // app AND the Org actually has it installed. Re-runs on org change.
   $effect(() => {
     if (!activeOrg || !app || !isServiceApp) { backing = null; return; }
     getBackingServices(activeOrg.id)

@@ -1,5 +1,5 @@
 {
-  "name": "sme-console",
+  "name": "org-console",
   "type": "module",
   "scripts": {
     "dev": "astro dev --port 4322",

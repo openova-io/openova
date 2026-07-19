@@ -30,7 +30,7 @@
 </script>
 
 <aside class="fixed left-0 top-0 flex h-screen w-56 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-2)]">
-  <!-- Logo + Tenant switcher -->
+  <!-- Logo + Org switcher -->
   <div class="border-b border-[var(--color-border)]">
     <div class="flex h-14 items-center gap-2 px-4">
       <!-- Canonical OpenOva mark — see /brand/logo-mark.svg -->

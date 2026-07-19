@@ -1,6 +1,6 @@
 // Shared source-of-truth for the console's apps / app-detail / jobs pages.
 //
-// Before #64, each page polled /tenant/orgs/:id and /provisioning/jobs on its
+// Before #64, each page polled the org record and /provisioning/jobs on its
 // own cadence and held its own $state. That allowed a single tab to disagree
 // with itself across routes — app-detail could render "installed" while the
 // apps list still rendered "installing", the jobs page could run ahead of
@@ -9,13 +9,13 @@
 // subscriber reads the same snapshot at the same time.
 //
 // Design (poll, not SSE):
-//   No SSE endpoint exists in services/tenant yet. Adding one would require
+//   No SSE endpoint exists in the org service (services/tenant) yet. Adding one would require
 //   a broker fanout + auth middleware rework to accept query-param tokens
 //   for EventSource. Centralising the poll fixes the drift with bounded
 //   scope; transport can be swapped later without touching consumers.
 //
-//   One AppStateStore per tenant. Mount triggers an initial hydrate
-//   (/tenant/orgs/:id + /provisioning/jobs?tenant_id=...). After that:
+//   One AppStateStore per Organization. Mount triggers an initial hydrate
+//   (org record + jobs — see api.ts for the wire paths). After that:
 //     - fast cadence (1.5s) while any app is mid-transition or any job is
 //       pending/running — gives the "<2s" reactivity the acceptance asks for
 //     - slow cadence (10s) otherwise — keeps the tab warm without thrashing
@@ -38,7 +38,7 @@ import {
 export type StoreStatus = 'idle' | 'loading' | 'error';
 
 type State = {
-  tenantId: string;
+  orgId: string;
   org: Org | null;
   jobs: Job[];
   status: StoreStatus;
@@ -101,7 +101,7 @@ export class AppStateStore {
   // reading fields directly. All rendering goes through $derived in the
   // calling component, so Svelte picks up every write here.
   state = $state<State>({
-    tenantId: '',
+    orgId: '',
     org: null,
     jobs: [],
     status: 'idle',
@@ -114,8 +114,8 @@ export class AppStateStore {
   private subs = 0;
   private inFlight: Promise<void> | null = null;
 
-  constructor(tenantId: string) {
-    this.state.tenantId = tenantId;
+  constructor(orgId: string) {
+    this.state.orgId = orgId;
     if (bcSupported()) {
       try {
         this.bc = new BroadcastChannel(BROADCAST_CHANNEL);
@@ -170,7 +170,7 @@ export class AppStateStore {
       (v) => ({ ok: true as const, value: v }),
       (err) => ({ ok: false as const, err }),
     );
-    const jobsP = getJobs(this.state.tenantId).then(
+    const jobsP = getJobs(this.state.orgId).then(
       (v) => ({ ok: true as const, value: v }),
       (err) => ({ ok: false as const, err }),
     );
@@ -178,7 +178,7 @@ export class AppStateStore {
 
     let org: Org | null = this.state.org;
     if (orgsR.ok) {
-      org = (orgsR.value || []).find((o) => o.id === this.state.tenantId) ?? null;
+      org = (orgsR.value || []).find((o) => o.id === this.state.orgId) ?? null;
     }
     const jobs: Job[] = jobsR.ok ? (jobsR.value || []) : this.state.jobs;
 
@@ -218,7 +218,7 @@ export class AppStateStore {
     if (!this.bc) return;
     try {
       this.bc.postMessage({
-        tenantId: this.state.tenantId,
+        orgId: this.state.orgId,
         org: this.state.org,
         jobs: this.state.jobs,
         lastUpdated: this.state.lastUpdated,
@@ -230,7 +230,7 @@ export class AppStateStore {
 
   private onBroadcast(msg: any) {
     if (!msg || typeof msg !== 'object') return;
-    if (msg.tenantId !== this.state.tenantId) return;
+    if (msg.orgId !== this.state.orgId) return;
     // Only accept broadcasts that are fresher than what we have.
     if (typeof msg.lastUpdated === 'number' && msg.lastUpdated <= this.state.lastUpdated) return;
     this.state.org = msg.org ?? null;
@@ -252,17 +252,17 @@ export class AppStateStore {
   }
 }
 
-// One store per tenantId, shared across AppsPage / AppDetail / JobsPage
+// One store per orgId, shared across AppsPage / AppDetail / JobsPage
 // within the same tab. Tabs in the same origin coordinate via the
 // BroadcastChannel inside each store.
 const stores = new Map<string, AppStateStore>();
 
-export function getAppStateStore(tenantId: string): AppStateStore {
-  if (!tenantId) tenantId = '__empty__';
-  let s = stores.get(tenantId);
+export function getAppStateStore(orgId: string): AppStateStore {
+  if (!orgId) orgId = '__empty__';
+  let s = stores.get(orgId);
   if (!s) {
-    s = new AppStateStore(tenantId);
-    stores.set(tenantId, s);
+    s = new AppStateStore(orgId);
+    stores.set(orgId, s);
   }
   return s;
 }
