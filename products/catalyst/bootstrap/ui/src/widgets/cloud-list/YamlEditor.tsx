@@ -23,7 +23,7 @@
  *      applicationInstallCallerAuthorized in k8s_resource_actions.go).
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { EditorView } from '@codemirror/view'
 
@@ -187,6 +187,20 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
     [seedYaml, obj],
   )
   const [yaml, setYaml] = useState<string>(initial)
+  // #5124 — the committed seed (seedYaml = GET /iac blueprint.yaml) is fetched
+  // ASYNC by the Edit-IaC opener, arriving AFTER this editor mounts with the
+  // obj-derived seed. `useState(initial)` captured only that first (obj-derived,
+  // possibly-stale CatalogItem.raw) seed; without re-syncing, the editor keeps
+  // showing AND committing the stale seed even after the committed file loads —
+  // the exact silent card-field loss #5124 describes. Adopt the arriving
+  // committed seed ONLY while the user hasn't started editing (yaml still equals
+  // the seed it was last showing), so in-progress edits are never clobbered.
+  const seededRef = useRef(initial)
+  useEffect(() => {
+    if (!seedYaml || seedYaml.length === 0) return
+    setYaml((cur) => (cur === seededRef.current ? seedYaml : cur))
+    seededRef.current = seedYaml
+  }, [seedYaml])
   const [showDiff, setShowDiff] = useState(false)
   const [validateMsg, setValidateMsg] = useState<string | null>(null)
   const [validateError, setValidateError] = useState<string | null>(null)
