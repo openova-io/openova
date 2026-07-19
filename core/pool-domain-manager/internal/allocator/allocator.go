@@ -26,12 +26,12 @@
 //     at the OpenOva NS endpoints. For BYO the operator's registrar handles
 //     delegation and PDM only owns the child zone — no parent touch.
 //
-//   - Each child zone publishes the canonical 8-record set: apex A,
-//     wildcard A, plus console/api/marketplace/gitea/harbor/registry A — all
-//     pointing at the regional Load Balancer IP (console/api/marketplace ride
-//     the dedicated console LB when one exists). Wildcard TLS is therefore scoped per
-//     Sovereign (`*.<sub>.<pool>`), satisfying the per-Sovereign isolation
-//     requirement in the issue body for #168.
+//   - Each child zone publishes the canonical 9-record set: apex A,
+//     wildcard A, plus console/api/marketplace/gitea/harbor/registry/mcp A —
+//     all pointing at the regional Load Balancer IP (console/api/marketplace
+//     ride the dedicated console LB when one exists). Wildcard TLS is therefore
+//     scoped per Sovereign (`*.<sub>.<pool>`), satisfying the per-Sovereign
+//     isolation requirement in the issue body for #168.
 //
 //   - DNSSEC is mandatory. Every child zone is signed with a fresh KSK+ZSK
 //     pair (algorithm 13, ECDSAP256SHA256). Per-Sovereign keys allow
@@ -66,7 +66,7 @@ type DNSWriter interface {
 	// AddARecord upserts a single A record inside a zone.
 	AddARecord(ctx context.Context, zone, name, ipv4 string, ttl int) error
 	// PatchRRSets is the lower-level batch primitive the allocator uses for
-	// the canonical 8-record set in a single round-trip.
+	// the canonical 9-record set in a single round-trip.
 	PatchRRSets(ctx context.Context, zone string, rrsets []pdns.RRSet) error
 	// AddNSDelegation upserts the NS delegation RRset inside the parent zone.
 	AddNSDelegation(ctx context.Context, parentZone, childName string, nameservers []string, ttl int) error
@@ -317,16 +317,16 @@ type CommitInput struct {
 	ConsoleLoadBalancerIP string
 }
 
-// Commit flips a reservation to ACTIVE and writes the canonical 8-record set
-// (apex, wildcard, console, api, marketplace, gitea, harbor, registry) into the
-// CHILD zone. All records point at the supplied LB IP and use TTL 300 for fast
-// failover.
+// Commit flips a reservation to ACTIVE and writes the canonical 9-record set
+// (apex, wildcard, console, api, marketplace, gitea, harbor, registry, mcp)
+// into the CHILD zone. All records point at the supplied LB IP and use TTL 300
+// for fast failover.
 //
 // Order of operations:
 //  1. Verify the row + reservation token (single row-locked Postgres tx).
 //  2. Update row to state='active' (same tx).
 //  3. Commit the tx.
-//  4. PATCH the 8 RRsets into the child zone in a single PowerDNS PATCH
+//  4. PATCH the 9 RRsets into the child zone in a single PowerDNS PATCH
 //     (atomic at the PowerDNS API layer).
 //
 // If step 4 fails we LEAVE the row in state='active' and surface the error
@@ -560,7 +560,7 @@ func childZoneName(poolDomain, subdomain string) string {
 	return strings.ToLower(strings.TrimSpace(subdomain)) + "." + strings.ToLower(strings.TrimSpace(poolDomain))
 }
 
-// canonicalRecordSet returns the 8-RRset payload PowerDNS PATCH expects to
+// canonicalRecordSet returns the 9-RRset payload PowerDNS PATCH expects to
 // publish a fresh Sovereign:
 //
 //	@            A   <lb>          (apex of the child zone)
@@ -571,6 +571,7 @@ func childZoneName(poolDomain, subdomain string) string {
 //	gitea        A   <lb>
 //	harbor       A   <lb>
 //	registry     A   <lb>          (#5225 — Harbor's primary host; shared gateway)
+//	mcp          A   <lb>          (#5206 — Sovereign-mode OpenOva MCP; shared gateway)
 //
 // #4053 — the console-gateway names point at consoleLBIP (the dedicated console
 // LB → cilium-gateway-console) so a poisoned SHARED-gateway CEC can never 404
@@ -592,7 +593,8 @@ func childZoneName(poolDomain, subdomain string) string {
 // dropped consoleLBIP entirely) console/api/marketplace ALL collapsed onto lbIP,
 // occluding the correct parent-zone records and failing the Phase-1 console
 // readiness gate so handover never fired. Every remaining name (apex, wildcard,
-// gitea, harbor, registry) always points at lbIP (the shared gateway) regardless.
+// gitea, harbor, registry, mcp) always points at lbIP (the shared gateway)
+// regardless.
 //
 // Per docs/PLATFORM-POWERDNS.md these names mirror the canonical-record
 // contract and use TTL 300 for fast failover.
@@ -630,6 +632,25 @@ func canonicalRecordSet(childZone, lbIP, consoleLBIP string) []pdns.RRSet {
 		// resolves the reachable VIP in BOTH regions. Mirrors the #5034 fix that
 		// added the then-missing marketplace record to this same set.
 		{"registry", lbIP},
+		// #5206 — mcp.<fqdn> is the Sovereign-mode OpenOva MCP server's public
+		// host (bp-openova-mcp, products/openova-mcp/chart/templates/
+		// httproute.yaml derives mcp.<sovereignFqdn> and parents the SHARED
+		// kube-system/cilium-gateway), the Pillar-4 Org→MCP front door. Exact
+		// #5225/#5243 defect class: without an EXPLICIT child-zone record it was
+		// covered only by the `*` wildcard, and on a 2-region Huawei Sovereign
+		// (§854 hostNetwork gateway — no LB VIP; gateway status = node addresses)
+		// external-dns (gateway-httproute source, policy=sync) SHADOWED that
+		// wildcard with a specific mcp.<fqdn> A pointing at a region-a
+		// control-plane node's INTERNAL VPC IP — unroutable cross-VPC/externally,
+		// so the MCP endpoint was unreachable to every Organization. An explicit
+		// record here — the reachable shared-gateway ELB EIP, identical to the
+		// wildcard + harbor + registry — is one external-dns will NOT overwrite
+		// (the TXT-registry own-only rule). Rides lbIP, NOT consoleLBIP: the
+		// route parents the shared gateway, and catalyst-api's authoritative
+		// lists agree (mcp ∈ CanonicalSovereignSubdomains, mcp ∉
+		// ConsoleGatewaySubdomains — sovereign_dns_records.go, the parent-zone
+		// writer this delegated child zone MUST mirror).
+		{"mcp", lbIP},
 	}
 	rrsets := make([]pdns.RRSet, 0, len(prefixes))
 	for _, p := range prefixes {
