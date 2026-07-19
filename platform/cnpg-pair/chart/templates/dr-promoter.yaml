@@ -794,13 +794,20 @@ spec:
                       nudge_ks
                     fi
                   else
-                    if [ "${SUSPENDED}" = "true" ] && [ "${HR_PROMOTED}" = "true" ]; then
-                      if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-handoff-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":false}}" >/dev/null 2>&1; then
-                        echo "$(date -u +"%FT%TZ") [dr-promoter/actor] DURABLE HANDOFF (step 2/2): substitute in place and HR promoted=true — suspend latch LIFTED; flux reconciles the promoted desired state from source (#5245)"
-                      else
-                        echo "$(date -u +"%FT%TZ") [dr-promoter/actor] WARN: latch-lift patch failed — retrying next tick (#5245)"
+                    if [ "${SUSPENDED}" = "true" ]; then
+                      if [ "${HR_PROMOTED}" = "true" ]; then
+                        if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-handoff-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":false}}" >/dev/null 2>&1; then
+                          echo "$(date -u +"%FT%TZ") [dr-promoter/actor] DURABLE HANDOFF (step 2/2): substitute in place and HR promoted=true — suspend latch LIFTED; flux reconciles the promoted desired state from source (#5245)"
+                        else
+                          echo "$(date -u +"%FT%TZ") [dr-promoter/actor] WARN: latch-lift patch failed — retrying next tick (#5245)"
+                        fi
+                        exit 0
                       fi
-                      exit 0
+                      # Substitute set but the HR does not yet render
+                      # promoted=true — keep nudging kustomize (rate-limited)
+                      # so the handoff / TL-ahead re-promote converges within
+                      # the poll cadence instead of a full kustomize interval.
+                      nudge_ks
                     fi
                   fi
                   # 1. SELF-HEAL LATCH — keep an already-rendered promotion
