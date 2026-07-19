@@ -1620,6 +1620,8 @@ Application-page topology UI: editor (`single-region` | `active-active` | `activ
 
 **Acceptance**: 3-region cluster up (1 mgt + 2 data planes). Demo Application with `active-hotstandby` runs primary in fsn, hot-standby in hel; CNPG replication healthy. Switchover from Application page completes in <60s with <5s write disruption. Resolver clients within 30–90s observe new primary (lua-record TTL window). Reverse failback once original primary recovers.
 
+**Control-plane DR posture (#5267, deliberate)**: the Catalyst control plane (catalyst-api serving console / api / marketplace) is **primary-region-only** — G2 (#2574) suspends `bp-catalyst-platform` on secondary CPs (`SECONDARY_HR_SUSPEND`), and catalyst-api is single-replica `strategy: Recreate` on RWO zone-scoped EVS PVCs (single-writer flat-file deployment store, no leader election). During a primary-region kill the gateway VIP fails over to the surviving region's envoy (#5246) and the console returns **HTTP 404 `server: envoy`** for the outage window, then 200 on failback — that 404 signature is the expected PASS state, gated by `products/catalyst/chart/tests/api-single-writer-dr-contract.sh` and specified in [`DOD.md`](DOD.md) §6 "Service-plane contract during the kill". Data-plane failover (CNPG + customer workloads + gateway) is the Pillar-3 contract; control-plane HA needs a persistence redesign (DB-backed store + leader election) and is deferred with that reason.
+
 ### §10.8 State-of-the-art patterns applied
 
 | Pattern | Where it lives |
