@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T07:15:02Z` |
+| Last refreshed | `2026-07-19T07:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 31 |
+| Open issues | 25 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 31 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 31 open items (clickable table)
+### All 25 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -215,22 +215,16 @@ flowchart LR
 | [#5100](https://github.com/openova-io/openova/issues/5100) | console bundle: tenant-string residue in user-visible strings (row 214) — Reco | Other |
 | [#5113](https://github.com/openova-io/openova/issues/5113) | catalog card-form Save commit-leg writes invalid/destructive Blueprint YAML —  | Other |
 | [#5124](https://github.com/openova-io/openova/issues/5124) | Edit-IaC editor seeds from stale CatalogItem.raw — an IaC Commit silently reve | Other |
-| [#5125](https://github.com/openova-io/openova/issues/5125) | DR durability: flux drift-correction re-demotes the promoted survivor mid-outage | Other |
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
 | [#5193](https://github.com/openova-io/openova/issues/5193) | Wipe strands an env un-wipeable after a partial destroy: wipe path lacks the hua | Other |
-| [#5205](https://github.com/openova-io/openova/issues/5205) | Funnel completion: launching interstitial stalls 5min (healthz no-cors poll neve | Other |
 | [#5206](https://github.com/openova-io/openova/issues/5206) | MCP north-star not usable by an Organization: mcp.<sov> has no DNS record + no p | Other |
 | [#5210](https://github.com/openova-io/openova/issues/5210) | Post-cutover: catalyst-api reflector watches 401 Unauthorized (valid RBAC + fres | Other |
-| [#5218](https://github.com/openova-io/openova/issues/5218) | G12 region-kill (hw271, post-cutover): promotion fires at T0+2m29s but is NOT du | Other |
-| [#5220](https://github.com/openova-io/openova/issues/5220) | cnpg-pair dr-promoter FALSE-POSITIVE promotion (link-flap/primary-restart) cemen | Other |
 | [#5223](https://github.com/openova-io/openova/issues/5223) | console: voucher-code inline validation + auto-generate path, reconciler-node dr | Other |
-| [#5224](https://github.com/openova-io/openova/issues/5224) | shared-pg role-password clobber: replica-side pre-flip mint diverges (bp-postgre | Other |
 | [#5225](https://github.com/openova-io/openova/issues/5225) | registry.<sovereign-fqdn> wildcard resolves to region-a cp1 INTERNAL-IP (cross-V | Other |
-| [#5234](https://github.com/openova-io/openova/issues/5234) | funnel purchased-app deploy: per-Org repo commit gitea ref-race persists through | Other |
 | [#5237](https://github.com/openova-io/openova/issues/5237) | cutover step-06 catalog-latest-vs-flux-pinned drift: a bp-catalyst-platform bump | Other |
-| [#5239](https://github.com/openova-io/openova/issues/5239) | CRITICAL #5222 arm-gate never arms: signals probes pg_stat_wal_receiver.status a | Other |
 | [#5244](https://github.com/openova-io/openova/issues/5244) | Region-kill: gateway EIP does not fail over to region-b — external service unr | Other |
+| [#5245](https://github.com/openova-io/openova/issues/5245) | Region-kill FAILBACK: recovered region-a resumes as TL1 primary while promoted r | Other |
 
 ---
 
