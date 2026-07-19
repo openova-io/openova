@@ -1,0 +1,56 @@
+name: check — adoption endpoints use the real HCS region (#5270)
+
+# Permanent guard that the Crossplane cloudadoption module composes its
+# Huawei API endpoint hosts from the REAL HCS region, never the kom4dc
+# 2-VPC-mimic pseudo-region (me-east-215-a / -b).
+#
+# The mimic pseudo-region is the correct Kubernetes-side identity
+# (placement/labels/region-affinity) but has NO API DNS — the -a/-b
+# endpoint hosts are NXDOMAIN while the real region resolves. When the
+# adoption Workspaces inherited the claim's pseudo-region into their
+# endpoint URLs, 16/24 adoptions could never Observe (live-proven hw278,
+# 2026-07-19, UAT rows 206/207/239). Chart 1.3.4 maps mimic->real via
+# `local.hw_api_region`; scripts/check-adoption-endpoint-region.sh
+# asserts the mapping three ways: structural (rendered endpoints use
+# hw_api_region), hermetic (the shipped expression evaluated with the
+# real tofu runtime across mimic/real/default inputs), and a full-module
+# `tofu validate` (kills the #4739 single-line-block syntax class).
+#
+# Per docs/PRINCIPLES.md #4a, this workflow renders + evaluates templates
+# locally — it does not deploy anything or call cloud APIs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/crossplane-claims/**'
+      - 'scripts/check-adoption-endpoint-region.sh'
+      - '.github/workflows/check-adoption-endpoint-region.yaml'
+  pull_request:
+    paths:
+      - 'platform/crossplane-claims/**'
+      - 'scripts/check-adoption-endpoint-region.sh'
+      - '.github/workflows/check-adoption-endpoint-region.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adoption-endpoint-region:
+    name: Reject mimic pseudo-region in adoption endpoint hosts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run adoption endpoint-region guard
+        run: bash scripts/check-adoption-endpoint-region.sh

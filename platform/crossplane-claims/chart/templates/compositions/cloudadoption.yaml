@@ -175,6 +175,12 @@ spec:
               # / HW_PROJECT_ID natively. region falls back to HW_REGION_NAME
               # for the var-empty path, but the endpoints below need the
               # literal region string, so we coalesce it locally.
+              # #5270: the endpoint HOSTS use local.hw_api_region — the REAL
+              # HCS region — never local.hw_region (the claim's region, which
+              # on a kom4dc 2-VPC mimic is the pseudo-region me-east-215-a /
+              # -b with NO API DNS; see the locals block). `region` keeps the
+              # claim's value: the endpoints map covers every service this
+              # module dials, so no host is ever derived from `region`.
               provider "huaweicloud" {
                 region     = local.hw_region
                 access_key = var.huawei_access_key != "" ? var.huawei_access_key : null
@@ -182,10 +188,10 @@ spec:
                 project_id = var.huawei_project_id != "" ? var.huawei_project_id : null
                 insecure   = tobool(var.huawei_insecure)
                 endpoints = {
-                  iam = "https://iam.${local.hw_region}.kom4dc.nationalcloud.om"
-                  ecs = "https://ecs.${local.hw_region}.kom4dc.nationalcloud.om"
-                  vpc = "https://vpc.${local.hw_region}.kom4dc.nationalcloud.om"
-                  elb = "https://elb.${local.hw_region}.kom4dc.nationalcloud.om"
+                  iam = "https://iam.${local.hw_api_region}.kom4dc.nationalcloud.om"
+                  ecs = "https://ecs.${local.hw_api_region}.kom4dc.nationalcloud.om"
+                  vpc = "https://vpc.${local.hw_api_region}.kom4dc.nationalcloud.om"
+                  elb = "https://elb.${local.hw_api_region}.kom4dc.nationalcloud.om"
                 }
               }
 
@@ -233,6 +239,19 @@ spec:
                 # for the var-empty path, but endpoints are string-built so
                 # they always use this local.
                 hw_region = var.huawei_region != "" ? var.huawei_region : "me-east-215"
+                # #5270: kom4dc single-region 2-VPC mimic — the claim carries
+                # the PSEUDO-region (me-east-215-a / -b), correct for
+                # placement/labels/region-affinity, but HCS publishes API DNS
+                # ONLY for the real region: ecs.me-east-215.kom4dc.
+                # nationalcloud.om resolves (212.72.2.97) while the -a/-b
+                # hosts are NXDOMAIN (live-proven hw278: 16/24 adoptions
+                # never Observed, UAT rows 206/207/239). Map mimic -> real
+                # for the ENDPOINT host only: strip a trailing -a/-b when it
+                # follows a digit-ending base (the mimic shape
+                # "<real-region>-a|b"). Every real HCS/Huawei region id ends
+                # in a digit (me-east-215, ae-ad-1), so a real region never
+                # matches and passes through unchanged.
+                hw_api_region = try(regex("^(.+\\d)-[ab]$", local.hw_region)[0], local.hw_region)
                 observed_id = coalesce(
                   try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].id, ""),
                   try(data.huaweicloud_compute_instance.hw[0].id, ""),
@@ -273,6 +292,10 @@ spec:
               output "observed_id"      { value = local.observed_id }
               output "observed_address" { value = local.observed_address }
               output "adopted"          { value = local.observed_id == var.resource_id }
+              # #5270: surfaced for debuggability (status.atProvider.outputs)
+              # + the hermetic CI evaluation of the mimic->real mapping
+              # (scripts/check-adoption-endpoint-region.sh).
+              output "hw_api_region"    { value = local.hw_api_region }
       patches:
         # ── identity / external-name binding ─────────────────────────
         - fromFieldPath: spec.parameters.resourceId
