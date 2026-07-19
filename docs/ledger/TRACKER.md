@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T06:45:02Z` |
+| Last refreshed | `2026-07-19T07:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 30 |
 | Open DoD gates | 0 / 41 |
@@ -237,6 +237,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T06:49 | [#5243](https://github.com/openova-io/openova/pull/5243) | #5225 | fix(pool-domain-manager): registry.<fqdn> resolves the reach |
 | 2026-07-19T03:01 | [#5242](https://github.com/openova-io/openova/pull/5242) | #5204 | fix(ci): cutover-contract Case 22 here-strings — unhalt the  |
 | 2026-07-19T02:18 | [#5240](https://github.com/openova-io/openova/pull/5240) | #5222 | fix(cnpg-pair): dr-promoter arm gate reads a streaming signa |
 | 2026-07-19T02:06 | [#5238](https://github.com/openova-io/openova/pull/5238) | #5007 | fix(cutover): step-06 union-warm-on-drift for catalog-latest |
@@ -266,7 +267,6 @@ flowchart LR
 | 2026-07-17T18:44 | [#5192](https://github.com/openova-io/openova/pull/5192) | #5191 | fix(cutover): step-04 registry-pivot verifies curl+jq and fa |
 | 2026-07-17T17:35 | [#5190](https://github.com/openova-io/openova/pull/5190) | #960 | docs(uat): hw268 row240 §854 no-nodePort gateway ✅ (Refs #96 |
 | 2026-07-17T17:19 | [#5189](https://github.com/openova-io/openova/pull/5189) | #5178 | docs(uat): hw268 G12 region-kill PASS ✅ — #5178 fully valida |
-| 2026-07-17T17:00 | [#5188](https://github.com/openova-io/openova/pull/5188) | #960 | docs(uat): hw268 rows 41-44/R9/R11/R13 ✅ keycloak SSO + back |
 
 ---
 
