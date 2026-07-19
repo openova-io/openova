@@ -619,6 +619,28 @@ prewarm:
   # settled.
   settledRollPreflight:
     enabled: true
+  # #5237 round 2 (Refs #5007 #3379) — PIN-AWARE prewarm: union the chart-
+  # mirror set with the EXACT versions the bootstrap-kit slot pins in the
+  # LOCAL GITEA MIRROR reference (clusters/_template/bootstrap-kit/*.yaml at
+  # the commit step-01 mirrored — the SAME commit flux consumes once step-05
+  # pivots the GitRepository). The live deployed∪desired union (#5007 round 3)
+  # tracks the CLUSTER, which a mid-cutover catalog merge can roll AWAY from
+  # the frozen pins before step-03 runs (the GitRepository still tracks GitHub
+  # until step-05): prewarm then mirrors the transient tag while the version
+  # flux settles back to post-pivot was never warmed → step-06 wedges /
+  # post-strip chart (re)pulls 404 under the deny-egress hold. Enumerating the
+  # FROZEN pins directly (via the shared cutover-bootstrap-kit-pins extractor
+  # — ONE parser for step-03, step-06 and the #5265 Day-2 reconciler)
+  # guarantees the post-cutover pin set is in local Harbor REGARDLESS of what
+  # merges upstream mid-cutover — the durable close of the hw274
+  # catalog-latest-vs-flux-pinned drift class (dep d51a69f885872a81).
+  # FAIL-LOUD: an unreadable PAT / unreachable Gitea mirror / zero-pin parse
+  # FATALs step-03 while egress is still open, never a silently narrower
+  # mirror. Set false ONLY as an emergency override on an env whose local
+  # Gitea mirror is manually confirmed unusable (the live-union mirror set +
+  # the step-06 union-warm top-up then remain the only nets).
+  bootstrapKitPins:
+    enabled: true
   # #4994 (Refs #3379) — content-digest idempotency for the step-03 skopeo
   # mirror. When true (default) each container-image copy (Phase A) + chart-OCI
   # copy (Phase A2) first compares the SOURCE vs local-Harbor DEST manifest
@@ -1721,6 +1743,22 @@ helmReadinessProbe:
   # AND upstream still FATALs at the deadline (fail-loud preserved). Set false
   # to restore pure fail-loud (no upstream top-up).
   unionWarmOnDrift: true
+  # #5237 round 2 (Refs #5007) — step-06 Phase 3a-pin: BEFORE the sampled
+  # pull-probe (and therefore before the irreversible Phase-3b mothership-auth
+  # strip), assert EVERY bootstrap-kit-pinned chart version — enumerated from
+  # the step-06 Phase-2 clone of the local Gitea mirror (the frozen commit
+  # flux consumes post-pivot) via the SAME cutover-bootstrap-kit-pins
+  # extractor step-03 mirrors from — is durably present in local Harbor
+  # (artifact-API probe on the in-cluster Harbor Service, the #5030
+  # never-pull-through discipline). A missing version is first top-up-warmed
+  # from the still-reachable upstream (the #5237 union-warm helper; egress is
+  # open until step-08); anything STILL missing FATALs with the full missing
+  # list and the ghcr.io auth intact — a clear, recoverable step-06 failure
+  # instead of HelmReleases wedging on `does not have an artifact` after the
+  # strip. The Phase-3a sample probe only proves a SAMPLE pulls; this gate
+  # proves the WHOLE frozen pin set exists. Set false only to restore the
+  # pre-#5237-round-2 sample-only gating.
+  pinPresenceGate: true
   # #4557 (Refs #3379): TLS verification on the helm-CLI probe DESTINATION —
   # the IN-CLUSTER Harbor reached as `registry.<sov-fqdn>` (HARBOR_PUBLIC_URL
   # → harbor_host). DEFAULT false (skip verify for the in-cluster target).

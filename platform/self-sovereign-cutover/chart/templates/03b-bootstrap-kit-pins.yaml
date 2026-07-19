@@ -1,0 +1,137 @@
+{{- /*
+#5237 (Refs #5007 #3379) — the BOOTSTRAP-KIT PIN EXTRACTOR.
+
+This ConfigMap carries ONE shell library, sourced by BOTH step-03
+(harbor-prewarm Phase A2-pins: mirror EXACTLY the chart versions the frozen
+local-Gitea bootstrap-kit pins reference) AND step-06 (helmrepository-patches
+Phase 3a-pin: assert every pinned chart version is present in local Harbor
+BEFORE the mothership-auth strip). Two consumers, ONE parser — the same
+single-source discipline as the #4975 offline-mirror resolver next door
+(03a): neither consumer forks the logic, so the mirror set and the gate can
+never disagree about what "the pins" are.
+
+WHY the pins, not the live cluster: the live HelmRelease deployed∪desired
+union (step-03 Phase A2, #5007 round 3) tracks the CLUSTER's current state —
+which a mid-cutover catalog merge can roll AWAY from the pins the Sovereign
+settles back to once step-05 freezes Flux onto the local Gitea mirror commit.
+The bootstrap-kit slot files in that MIRROR are the ground truth of what flux
+will pin post-cutover, immune to anything published upstream after step-01
+mirrored. Enumerating them kills the catalog-latest-vs-flux-pinned drift
+class at the root (hw274, dep d51a69f885872a81).
+
+WHY awk, not kubectl/yq: a `kubectl create --dry-run=client` parse resolves
+each doc's kind through discovery, so it breaks the moment a slot file's CRD
+apiVersion (e.g. source.toolkit.fluxcd.io/v1beta2) stops being served — a
+flux-lifecycle coupling this enumeration must not have. yq is not in the
+alpine/k8s image and an `apk add` mid-cutover is a network dependency (the
+G69 skopeo lesson). Plain awk over the repo-controlled slot corpus has ZERO
+runtime deps, and tests/cutover-contract.sh runs THIS exact library against
+clusters/_template/bootstrap-kit at PR time — any slot-format drift fails CI
+before it can ever reach a Sovereign.
+
+REUSE CONTRACT (#5265 Day-2 leg): the same drift class re-opens POST-cutover
+when the local Gitea mirror re-syncs upstream pin bumps whose chart versions
+local Harbor lacks. A Day-2 reconciler closes that by calling THIS function
+over the freshly-synced mirror commit and warming any missing version — the
+callable seam is deliberately runtime-agnostic:
+
+    . /pin-extractor/extract-pins.sh
+    bootstrapkit_pins <slot-dir> <upstream-oci-prefix> <local-oci-prefix>
+      stdout : "<chart>\t<version>" per pinned openova-io-sourced HelmRelease
+      stderr : WARN/skip diagnostics (never mixed into stdout)
+      exit   : always 0 — the CALLER owns the fail-loud policy (count check)
+
+NOT a cutover-step ConfigMap: no bp.openova.io/cutover-order label, so it
+does not count toward the 11-step contract (tests/cutover-contract.sh Case
+2/4).
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-bootstrap-kit-pins
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-bootstrap-kit-pins
+data:
+  extract-pins.sh: |
+    # POSIX sh + awk. No runtime deps. Pure function — no side effects.
+    #
+    # bootstrapkit_pins DIR UPSTREAM_PREFIX LOCAL_PREFIX
+    #   Emits one "<chart>\t<version>" line (sorted, deduped) per HelmRelease
+    #   in DIR/[0-9]*.yaml whose chart.spec pins a CONCRETE version AND whose
+    #   sourceRef names a HelmRepository (declared anywhere in DIR) whose url
+    #   starts with UPSTREAM_PREFIX (pre-pivot: oci://ghcr.io/openova-io) or
+    #   LOCAL_PREFIX (a post-step-06 re-run reads the already-pivoted mirror:
+    #   oci://registry.<fqdn>/openova-io). Non-openova sources (e.g. the loft
+    #   charts.loft.sh HelmRepository, slot 60) and semver-range pins are
+    #   skipped with a stderr WARN. Exit 0 always — the caller owns the
+    #   fail-loud policy via a count check on stdout.
+    bootstrapkit_pins() {
+      _bk_dir="$1"; _bk_up="$2"; _bk_lp="${3:-}"
+      [ -d "${_bk_dir}" ] || { echo "[bootstrapkit-pins] WARN: ${_bk_dir} is not a directory" >&2; return 0; }
+      # Slot files are the numbered bootstrap-kit entries; kustomization.yaml
+      # + placement.yaml are not slot manifests.
+      _bk_files=$(ls "${_bk_dir}"/[0-9]*.yaml 2>/dev/null || true)
+      [ -n "${_bk_files}" ] || { echo "[bootstrapkit-pins] WARN: no [0-9]*.yaml slot files in ${_bk_dir}" >&2; return 0; }
+
+      # Pass A — the openova-io pivot set: HelmRepository metadata.name for
+      # every repo whose spec.url starts with the upstream OR the already-
+      # pivoted local prefix. Slot docs order apiVersion/kind/metadata/spec
+      # with metadata.name at 2-space and spec.url at 2-space; secretRef.name
+      # sits at 4-space, so the exact-indent anchors cannot cross-match.
+      _bk_pivot=$(awk -v up="${_bk_up}" -v lp="${_bk_lp}" '
+        FNR==1 { kind=""; rname="" }
+        /^---/ { kind=""; rname=""; next }
+        /^[[:space:]]*#/ { next }
+        /^kind:[[:space:]]*/ { kind=$2; rname=""; next }
+        kind=="HelmRepository" && rname=="" && /^  name:[[:space:]]*[^[:space:]]/ { rname=$2; next }
+        kind=="HelmRepository" && rname!="" && /^  url:[[:space:]]*[^[:space:]]/ {
+          url=$2; gsub(/"/,"",url)
+          if (index(url, up)==1 || (lp!="" && index(url, lp)==1)) print rname
+          else printf "[bootstrapkit-pins] skip repo %s (non-openova url %s)\n", rname, url > "/dev/stderr"
+          kind=""; rname=""
+        }
+      ' ${_bk_files} | sort -u)
+
+      # Pass B — (chart, version, sourceRef.name) off every HelmRelease
+      # chart.spec: the 6-space `chart:` scalar, the FIRST following 6-space
+      # `version:`, and the 8-space `name:` under the 6-space `sourceRef:`.
+      # Comments are stripped first, so the multi-hundred-line version-history
+      # comment blocks between `chart:` and `version:` (slot 13 carries >1000)
+      # never confuse the pairing; the c!=""/v=="" guards keep any 6-space
+      # key inside a spec.values block from being mis-captured.
+      awk '
+        FNR==1 { kind=""; c=""; v=""; insrc=0 }
+        /^---/ { kind=""; c=""; v=""; insrc=0; next }
+        /^[[:space:]]*#/ { next }
+        /^kind:[[:space:]]*/ { kind=$2; c=""; v=""; insrc=0; next }
+        kind=="HelmRelease" && /^      chart:[[:space:]]*[^[:space:]]/ { c=$2; gsub(/"/,"",c); v=""; insrc=0; next }
+        kind=="HelmRelease" && c!="" && v=="" && /^      version:[[:space:]]*[^[:space:]]/ { v=$2; gsub(/"/,"",v); next }
+        kind=="HelmRelease" && c!="" && /^      sourceRef:[[:space:]]*$/ { insrc=1; next }
+        insrc==1 && /^        name:[[:space:]]*[^[:space:]]/ {
+          s=$2; gsub(/"/,"",s)
+          printf "%s\t%s\t%s\n", c, v, s
+          insrc=0; c=""; v=""
+        }
+      ' ${_bk_files} | sort -u | while IFS="$(printf '\t')" read -r _bk_c _bk_v _bk_s; do
+        [ -z "${_bk_c}" ] && continue
+        if ! printf '%s\n' "${_bk_pivot}" | grep -Fxq "${_bk_s}"; then
+          echo "[bootstrapkit-pins] skip ${_bk_c} (sourceRef ${_bk_s} not an openova-io HelmRepository)" >&2
+          continue
+        fi
+        if [ -z "${_bk_v}" ]; then
+          echo "[bootstrapkit-pins] WARN: ${_bk_c} (source ${_bk_s}) has no pinned version — skipping (cannot mirror a floating tag deterministically)" >&2
+          continue
+        fi
+        # Same range guard as step-03 Phase A2 (#5007 round 3): a semver
+        # range is not a concrete OCI tag.
+        case "${_bk_v}" in
+          *[\<\>~^\|\ ]*|*'*'*)
+            echo "[bootstrapkit-pins] WARN: ${_bk_c} version '${_bk_v}' is a semver range — skipping (cannot mirror deterministically)" >&2
+            continue ;;
+        esac
+        printf '%s\t%s\n' "${_bk_c}" "${_bk_v}"
+      done | sort -u
+      return 0
+    }
