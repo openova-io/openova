@@ -483,12 +483,12 @@ func TestListPromoCodes_ExcludesSoftDeleted(t *testing.T) {
 
 	// The query must filter WHERE deleted_at IS NULL.
 	mock.ExpectQuery(regexp.QuoteMeta(
-		`SELECT code, credit_omr, description, active, max_redemptions, times_redeemed, created_at, deleted_at
+		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
 		 FROM promo_codes WHERE deleted_at IS NULL ORDER BY created_at DESC`)).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"code", "credit_omr", "description", "active",
+			"code", "credit_omr", "description", "plan_tier", "active",
 			"max_redemptions", "times_redeemed", "created_at", "deleted_at",
-		}).AddRow("LIVE", 10, "", true, 100, 5, time.Now(), nil))
+		}).AddRow("LIVE", 10, "", "", true, 100, 5, time.Now(), nil))
 
 	out, err := s.ListPromoCodes(context.Background())
 	if err != nil {

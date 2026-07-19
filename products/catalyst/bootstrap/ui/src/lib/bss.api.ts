@@ -268,6 +268,9 @@ export interface Voucher {
   /** Credit amount in OMR (integer; BE stores OMR not cents). */
   credit_omr: number
   description: string
+  /** Catalog plan slug this voucher targets (s/m/l/xl — BE lowercases;
+   *  #5223 UAT row 72). Omitted/empty = credit-only voucher (any plan). */
+  plan_tier?: string
   /** Operator-toggleable enable flag (separate from soft-delete). */
   active: boolean
   /** 0 = unlimited; otherwise hard cap on redemptions. */
@@ -306,6 +309,9 @@ export interface IssueVoucherRequest {
   /** Credit amount in OMR (integer). */
   credit_omr: number
   description?: string
+  /** Catalog plan slug the voucher targets (#5223 UAT row 72). Omitted =
+   *  credit-only voucher usable with any plan. BE lowercases on save. */
+  plan_tier?: string
   active?: boolean
   /** 0 = unlimited (server default). */
   max_redemptions?: number

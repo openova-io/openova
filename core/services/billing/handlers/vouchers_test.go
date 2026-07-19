@@ -42,7 +42,7 @@ func TestRedeemVoucherPreview_404OnUnknownCode(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		`SELECT code, credit_omr, description, active, max_redemptions, times_redeemed, created_at, deleted_at
+		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
 			 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`,
 	)).WithArgs("DOES-NOT-EXIST").WillReturnError(sql.ErrNoRows)
 
@@ -72,12 +72,12 @@ func TestRedeemVoucherPreview_200OnValidCode(t *testing.T) {
 	defer db.Close()
 
 	rows := sqlmock.NewRows([]string{
-		"code", "credit_omr", "description", "active",
+		"code", "credit_omr", "description", "plan_tier", "active",
 		"max_redemptions", "times_redeemed", "created_at", "deleted_at",
-	}).AddRow("LAUNCH-50", 50, "Launch credit", true, 0, 3, time.Now(), nil)
+	}).AddRow("LAUNCH-50", 50, "Launch credit", "", true, 0, 3, time.Now(), nil)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		`SELECT code, credit_omr, description, active, max_redemptions, times_redeemed, created_at, deleted_at
+		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
 			 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`,
 	)).WithArgs("LAUNCH-50").WillReturnRows(rows)
 
@@ -127,12 +127,12 @@ func TestRedeemVoucherPreview_410OnCappedCode(t *testing.T) {
 	defer db.Close()
 
 	rows := sqlmock.NewRows([]string{
-		"code", "credit_omr", "description", "active",
+		"code", "credit_omr", "description", "plan_tier", "active",
 		"max_redemptions", "times_redeemed", "created_at", "deleted_at",
-	}).AddRow("CAPPED", 25, "Cap reached", true, 5, 5, time.Now(), nil)
+	}).AddRow("CAPPED", 25, "Cap reached", "", true, 5, 5, time.Now(), nil)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		`SELECT code, credit_omr, description, active, max_redemptions, times_redeemed, created_at, deleted_at
+		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
 			 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`,
 	)).WithArgs("CAPPED").WillReturnRows(rows)
 
@@ -238,15 +238,16 @@ func TestIssueVoucher_SendsEmail_WhenRecipientPresent(t *testing.T) {
 
 	// Match the UpsertPromoCode SQL — code normalises to upper.
 	mock.ExpectExec(regexp.QuoteMeta(
-		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
-			 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (code) DO UPDATE
 			 SET credit_omr = EXCLUDED.credit_omr,
 			     description = EXCLUDED.description,
+			     plan_tier = EXCLUDED.plan_tier,
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("GIFT5012ABCD", 50, "Q4 launch", true, 0).
+	)).WithArgs("GIFT5012ABCD", 50, "Q4 launch", "", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{}
@@ -327,15 +328,16 @@ func TestIssueVoucher_NoEmail_WhenRecipientAbsent(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(regexp.QuoteMeta(
-		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
-			 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (code) DO UPDATE
 			 SET credit_omr = EXCLUDED.credit_omr,
 			     description = EXCLUDED.description,
+			     plan_tier = EXCLUDED.plan_tier,
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("LAUNCH012ABC", 100, "", false, 0).
+	)).WithArgs("LAUNCH012ABC", 100, "", "", false, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{}
@@ -380,15 +382,16 @@ func TestIssueVoucher_NotificationFailure_DoesNotFailUpsert(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(regexp.QuoteMeta(
-		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
-			 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (code) DO UPDATE
 			 SET credit_omr = EXCLUDED.credit_omr,
 			     description = EXCLUDED.description,
+			     plan_tier = EXCLUDED.plan_tier,
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("FAILMAIL1234", 10, "", false, 0).
+	)).WithArgs("FAILMAIL1234", 10, "", "", false, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{
@@ -473,15 +476,16 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(regexp.QuoteMeta(
-		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
-			 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (code) DO UPDATE
 			 SET credit_omr = EXCLUDED.credit_omr,
 			     description = EXCLUDED.description,
+			     plan_tier = EXCLUDED.plan_tier,
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("AUTH12345678", 10, "auth header guard", true, 0).
+	)).WithArgs("AUTH12345678", 10, "auth header guard", "", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Choose explicit test bytes — production reads
@@ -594,15 +598,16 @@ func TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(regexp.QuoteMeta(
-		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
-			 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (code) DO UPDATE
 			 SET credit_omr = EXCLUDED.credit_omr,
 			     description = EXCLUDED.description,
+			     plan_tier = EXCLUDED.plan_tier,
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("BACKCOMPAT12", 5, "", true, 0).
+	)).WithArgs("BACKCOMPAT12", 5, "", "", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{}
@@ -654,15 +659,16 @@ func TestIssueVoucher_DetachesEmailDispatch_DoesNotBlockOnSlowRelay(t *testing.T
 	defer db.Close()
 
 	mock.ExpectExec(regexp.QuoteMeta(
-		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
-			 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (code) DO UPDATE
 			 SET credit_omr = EXCLUDED.credit_omr,
 			     description = EXCLUDED.description,
+			     plan_tier = EXCLUDED.plan_tier,
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("SLOW50123ABC", 50, "slow", true, 0).
+	)).WithArgs("SLOW50123ABC", 50, "slow", "", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &blockingRoundTripper{started: make(chan struct{}), release: make(chan struct{})}
@@ -721,4 +727,58 @@ func (b *blockingRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 		Body:       io.NopCloser(bytes.NewReader(nil)),
 		Header:     make(http.Header),
 	}, nil
+}
+
+// TestIssueVoucher_PlanTierNormalisedAndEchoed — #5223 (UAT row 72). The
+// BSS Vouchers issuance form submits a `plan_tier` (catalog plan slug);
+// the handler lowercases it (catalog Plan.Slug convention), persists it on
+// the promo_codes row, and echoes it back in the 200 body so the console
+// table can render the PLAN column from the response without a re-list.
+func TestIssueVoucher_PlanTierNormalisedAndEchoed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec(regexp.QuoteMeta(
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5, $6)
+			 ON CONFLICT (code) DO UPDATE
+			 SET credit_omr = EXCLUDED.credit_omr,
+			     description = EXCLUDED.description,
+			     plan_tier = EXCLUDED.plan_tier,
+			     active = EXCLUDED.active,
+			     max_redemptions = EXCLUDED.max_redemptions,
+			     deleted_at = NULL`,
+	)).WithArgs("PLANTIER2026M", 20, "", "m", true, 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	h := &Handler{Store: store.New(db)}
+
+	// " M " exercises both the trim and the lowercase normalisation.
+	body, _ := json.Marshal(map[string]any{
+		"code":       "PLANTIER2026M",
+		"credit_omr": 20,
+		"active":     true,
+		"plan_tier":  " M ",
+	})
+	r := httptest.NewRequest("POST", "/billing/vouchers/issue", bytes.NewReader(body))
+	r = withSuperadmin(r)
+	w := httptest.NewRecorder()
+	h.IssueVoucher(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("issue voucher: expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["plan_tier"] != "m" {
+		t.Errorf("plan_tier echo: got %v, want m", got["plan_tier"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sqlmock unmet: %v", err)
+	}
 }

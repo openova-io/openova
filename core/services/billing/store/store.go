@@ -135,9 +135,16 @@ type Settings struct {
 //   - Remain the foreign-key target for past promo_redemptions + orders so
 //     historical analytics and admin order views stay intact
 type PromoCode struct {
-	Code           string     `json:"code"`
-	CreditOMR      int        `json:"credit_omr"`
-	Description    string     `json:"description"`
+	Code        string `json:"code"`
+	CreditOMR   int    `json:"credit_omr"`
+	Description string `json:"description"`
+	// PlanTier is the catalog plan slug (e.g. "s"/"m"/"l"/"xl" — see
+	// core/services/catalog store.Plan.Slug) this voucher targets.
+	// #5223 (UAT row 72): surfaced on the BSS Vouchers issuance form +
+	// list. Empty string = credit-only voucher, usable with any plan.
+	// Informational for the operator today — checkout does NOT enforce
+	// plan matching (the granted credit is fungible at checkout).
+	PlanTier       string     `json:"plan_tier,omitempty"`
 	Active         bool       `json:"active"`
 	MaxRedemptions int        `json:"max_redemptions"`
 	TimesRedeemed  int        `json:"times_redeemed"`
@@ -267,6 +274,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 		// + orders.promo_code both reference it) but the code is hidden from
 		// listings and rejected by RedeemPromoCode.
 		`ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+		// #5223 (UAT row 72) — plan-tier targeting. The BSS Vouchers
+		// issuance form carries a plan tier (catalog plan slug); persisted
+		// here so the voucher list can render it. Empty = credit-only.
+		`ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS plan_tier TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS credit_ledger (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			customer_id UUID NOT NULL REFERENCES customers(id),
@@ -839,9 +850,9 @@ func (s *Store) GetPromoCode(ctx context.Context, code string) (*PromoCode, erro
 	var p PromoCode
 	var deletedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx,
-		`SELECT code, credit_omr, description, active, max_redemptions, times_redeemed, created_at, deleted_at
+		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
 		 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`, code,
-	).Scan(&p.Code, &p.CreditOMR, &p.Description, &p.Active, &p.MaxRedemptions, &p.TimesRedeemed, &p.CreatedAt, &deletedAt)
+	).Scan(&p.Code, &p.CreditOMR, &p.Description, &p.PlanTier, &p.Active, &p.MaxRedemptions, &p.TimesRedeemed, &p.CreatedAt, &deletedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -863,15 +874,16 @@ func (s *Store) GetPromoCode(ctx context.Context, code string) (*PromoCode, erro
 // un-delete the tombstone rather than silently failing because of the PK.
 func (s *Store) UpsertPromoCode(ctx context.Context, p *PromoCode) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO promo_codes (code, credit_omr, description, plan_tier, active, max_redemptions)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (code) DO UPDATE
 		 SET credit_omr = EXCLUDED.credit_omr,
 		     description = EXCLUDED.description,
+		     plan_tier = EXCLUDED.plan_tier,
 		     active = EXCLUDED.active,
 		     max_redemptions = EXCLUDED.max_redemptions,
 		     deleted_at = NULL`,
-		p.Code, p.CreditOMR, p.Description, p.Active, p.MaxRedemptions,
+		p.Code, p.CreditOMR, p.Description, p.PlanTier, p.Active, p.MaxRedemptions,
 	)
 	if err != nil {
 		return fmt.Errorf("store: upsert promo %s: %w", p.Code, err)
@@ -885,7 +897,7 @@ func (s *Store) UpsertPromoCode(ctx context.Context, p *PromoCode) error {
 // appears to do nothing.
 func (s *Store) ListPromoCodes(ctx context.Context) ([]PromoCode, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT code, credit_omr, description, active, max_redemptions, times_redeemed, created_at, deleted_at
+		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
 		 FROM promo_codes WHERE deleted_at IS NULL ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -896,7 +908,7 @@ func (s *Store) ListPromoCodes(ctx context.Context) ([]PromoCode, error) {
 	for rows.Next() {
 		var p PromoCode
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&p.Code, &p.CreditOMR, &p.Description, &p.Active, &p.MaxRedemptions, &p.TimesRedeemed, &p.CreatedAt, &deletedAt); err != nil {
+		if err := rows.Scan(&p.Code, &p.CreditOMR, &p.Description, &p.PlanTier, &p.Active, &p.MaxRedemptions, &p.TimesRedeemed, &p.CreatedAt, &deletedAt); err != nil {
 			return nil, err
 		}
 		if deletedAt.Valid {
