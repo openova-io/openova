@@ -9,7 +9,7 @@
 # namespace declarations, chart template dirs, and exported Go identifiers
 # matching `sme`/`SMETenant` fail the build.
 #
-# A persona is a field VALUE (`tier: "sme"`, `TenantKindSME`), NOT
+# A persona is a field VALUE (`tier: "sme"` on legacy records), NOT
 # architecture — those are EXEMPT. Ecosystem/vendored upstream values are
 # EXEMPT. The one-release deprecation aliases (annotated `naming-guard:
 # alias`) are EXEMPT.
@@ -104,15 +104,16 @@ line_is_prose() {
 }
 
 # Data-value exemptions (the legitimate `sme`): a line matching one of
-# these is the `Tier` commercial-class VALUE or the registry kind const,
-# never machinery. Checked per-line so a `Tier: "sme"` passes even in a
-# non-exempt file.
+# these is the `Tier` commercial-class VALUE (e.g. on legacy persisted
+# records), never machinery. Checked per-line so a `Tier: "sme"` passes
+# even in a non-exempt file.
+# #3985 tightening: `TenantKindSME` and the `"sme","corporate"` enum
+# pairing were eradicated from the tree (the live Organization CRD tier
+# enum is `[org, corporate]`), so those exemptions are removed — a new
+# occurrence now fails the guard instead of being grandfathered.
 declare -a DATA_VALUE_OK=(
-  'TenantKindSME'
   'tier:\s*"?sme"?'
   'Tier\s*[:=]'
-  '"sme"\s*,?\s*"corporate"'
-  '"corporate"\s*,?\s*"sme"'
 )
 
 is_exempt_path() {
@@ -304,7 +305,7 @@ else
   echo "Machinery (namespace, route path, chart template dir, exported Go"
   echo "identifier) must be Organization-named. If the line above is a"
   echo "deliberate one-release compatibility alias, annotate it with"
-  echo "'naming-guard: alias'. A legitimate Tier data value (tier: \"sme\","
-  echo "TenantKindSME) is already exempt."
+  echo "'naming-guard: alias'. A legitimate legacy Tier data value"
+  echo "(tier: \"sme\") is already exempt."
   exit 1
 fi

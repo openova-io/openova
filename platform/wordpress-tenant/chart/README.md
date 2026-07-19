@@ -1,7 +1,7 @@
 # bp-wordpress-tenant
 
 Catalyst Blueprint scratch chart that installs a turnkey,
-SSO-pre-wired WordPress instance per SME tenant inside the SME's
+SSO-pre-wired WordPress instance per Organization inside the Org's
 vcluster.
 
 This is a **scratch chart** — there is no first-party Helm chart
@@ -17,13 +17,13 @@ pattern.
 |---|---|
 | `Deployment` (single replica) | The WordPress Pod. Two initContainers: one seeds `wp-content/` from the image onto the PVC; the other downloads + installs `openid-connect-generic` (Keycloak SSO) and `pg4wp` (Postgres adapter) from wordpress.org / GitHub. |
 | `Service` (ClusterIP, :80) | In-vcluster service for the ingress to target. |
-| `Ingress` (Traefik, host `wordpress.<smeDomain>`) | Customer-facing entry point. cert-manager issues TLS via the operator-supplied `ClusterIssuer`. |
+| `Ingress` (Traefik, host `wordpress.<orgDomain>`) | Customer-facing entry point. cert-manager issues TLS via the operator-supplied `ClusterIssuer`. |
 | `PersistentVolumeClaim` (10Gi default, RWO) | Backs `/var/www/html/wp-content` so themes, plugins, and uploads persist across pod restarts and image upgrades. `helm.sh/resource-policy: keep` so `helm uninstall` never drops customer content. |
 | `Cluster.postgresql.cnpg.io` (1 instance, 10Gi) | Tenant-isolated Postgres provisioned by bp-cnpg. The CNPG-emitted `<cluster>-app` Secret carries the password. |
 | `Secret wordpress-database-secret` (placeholder) | Reflector-managed bridge that the WordPress Pod reads via `secretKeyRef`. Populated by the post-install `db-secret-sync` Job. |
 | `Job <release>-db-secret-sync` (post-install/upgrade) | Mirrors `<cluster>-app.password` into `wordpress-database-secret.password`. Eliminates the otech30-class Reflector race documented in `bp-gitea`. |
 | `Job <release>-oidc-config` (post-install/upgrade) | Runs the canonical `wordpress:cli` image: `wp core install` (idempotent), `wp plugin install openid-connect-generic --activate` (idempotent), `wp option update openid_connect_generic_settings <json>` with the per-tenant Keycloak realm + client + secret, `wp option update default_role`, `wp theme activate`, `wp option update siteurl/home`. Idempotent — re-running on `helm upgrade` is safe. |
-| `Job <release>-admin-user` (post-install/upgrade, hook weight 15) | Pre-seeds the SME admin into `wp_users` + `wp_usermeta` with the `administrator` role + the SSO email mapping. The user can log in via Keycloak only. |
+| `Job <release>-admin-user` (post-install/upgrade, hook weight 15) | Pre-seeds the Org admin into `wp_users` + `wp_usermeta` with the `administrator` role + the SSO email mapping. The user can log in via Keycloak only. |
 | `NetworkPolicy` | Restricts egress to: bp-cnpg :5432, Keycloak :8443/:8080, kube-dns, and HTTPS to public IPs (for plugin/theme fetches at first install). Ingress allowed only from the configured ingress namespace (default `traefik`). |
 | `ServiceAccount` | Default SA for the WordPress Pod. The post-install Jobs use a dedicated SA + Role + RoleBinding scoped to the tenant namespace. |
 
@@ -41,11 +41,11 @@ helm install
   │        --activate, wp option update openid_connect_generic_settings,
   │        wp theme activate, wp option update siteurl/home
   └─ post-install hook weight 15: admin-user Job
-        └─ INSERT/UPDATE wp_users row for the SME admin's email
+        └─ INSERT/UPDATE wp_users row for the Org admin's email
 ```
 
-After all hooks complete, the SME admin browses to
-`https://wordpress.<smeDomain>` → openid-connect-generic redirects to
+After all hooks complete, the Org admin browses to
+`https://wordpress.<orgDomain>` → openid-connect-generic redirects to
 Keycloak → returns to `/wp-admin` authenticated as administrator. No
 WP install wizard, no manual config.
 
@@ -53,10 +53,10 @@ WP install wizard, no manual config.
 
 | Value | Description |
 |---|---|
-| `smeDomain` | The SME tenant's domain (e.g. `acme.<otech-fqdn>` or BYO `acme.com`). Used to derive the default ingress host as `wordpress.<smeDomain>`. |
-| `oidc.issuerURL` | Discovery URL of the per-tenant Keycloak realm. Example: `https://keycloak.acme.<otech-fqdn>/realms/sme-acme`. The wp-cli Job derives the OIDC `endpoint_*` URLs from this. |
+| `orgDomain` | The Organization's domain (e.g. `acme.<otech-fqdn>` or BYO `acme.com`). Used to derive the default ingress host as `wordpress.<orgDomain>`. |
+| `oidc.issuerURL` | Discovery URL of the per-tenant Keycloak realm. Example: `https://keycloak.acme.<otech-fqdn>/realms/org-acme`. The wp-cli Job derives the OIDC `endpoint_*` URLs from this. |
 | `oidc.clientSecretName` | K8s Secret carrying the OIDC client secret (key `client-secret`). Provisioned by `bp-keycloak`'s tenant-realm ConfigMap (PR #918) at the same time as the realm import. |
-| `adminUser.email` | Email of the SME admin (must match the `email` claim Keycloak issues for that user). The admin-user Job pre-seeds a wp_user with this email and the administrator role. |
+| `adminUser.email` | Email of the Org admin (must match the `email` claim Keycloak issues for that user). The admin-user Job pre-seeds a wp_user with this email and the administrator role. |
 
 > **Back-compat (chart 0.1.x):** `keycloak.{realmURL,clientID,clientSecretName}` is still accepted as an alias when the modern `oidc.*` block is at its values.yaml defaults. New overlays MUST emit `oidc.*` — the legacy block is removed in chart `0.3.0`.
 
@@ -68,7 +68,7 @@ All other values have sensible defaults; common overrides include:
 |---|---|---|
 | `global.imageRegistry` | `""` | Set to the Sovereign's Harbor proxy-cache hostname post-handover. |
 | `wordpress.image.tag` | `6-php8.3-apache` | The chart pins the manifest-list digest alongside; change `tag`+`digest` together. |
-| `database.cnpgClusterName` | `wordpress-db` | Per-tenant unique within the SME namespace. |
+| `database.cnpgClusterName` | `wordpress-db` | Per-tenant unique within the Org namespace. |
 | `database.cluster.storageSize` | `10Gi` | Postgres storage size. |
 | `persistence.wpContent.size` | `10Gi` | wp-content PVC size. |
 | `persistence.wpContent.storageClass` | `local-path` | Set to a RWX class if you want to scale `replicas > 1`. |
@@ -84,8 +84,8 @@ Issue #800 specifies "bp-cnpg Postgres in tenant namespace". The
 official `wordpress` image targets MySQL/MariaDB; we run it against
 Postgres via the `pg4wp` mu-plugin (a `wp-content/db.php` drop-in that
 intercepts `wpdb` at the PHP level and translates queries). This keeps
-the SME tenant footprint to one database operator (bp-cnpg) instead
-of sprouting a separate MySQL operator per SME — see the upstream
+the per-Org footprint to one database operator (bp-cnpg) instead
+of sprouting a separate MySQL operator per Organization — see the upstream
 project at
 https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress.
 

@@ -384,7 +384,7 @@ spec:
     # on multi-region Sovereigns despite the substitute firing. Caught
     # live on hw86 2026-06-03 after the SOVEREIGN_CNPG_INSTANCES
     # Kustomization-substitute fix verified 4 of 6 CNPG clusters bumped.
-    # Mirror the chart's value path. (Same shape for slot 81-sme if that
+    # Mirror the chart's value path. (Same shape if a future slot
     # chart also reads cnpg.cluster.instances — track separately.)
     cnpg:
       enabled: true  # #4291 DE-VCLUSTER — newapi renders its OWN CNPG Cluster natively in host ns `newapi` (host cnpg-operator reconciles it; was suppressed by the #3831 host-bridge render-split)

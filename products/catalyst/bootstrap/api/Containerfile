@@ -41,9 +41,9 @@ RUN apk add --no-cache upx
 COPY core/controllers/ /core/controllers/
 # core/services/shared/ is required by the second replace directive in
 # products/catalyst/bootstrap/api/go.mod (PR #1658 follow-up to #1625 —
-# the /api/v1/sme/* proxies mint an HS256 bridge token via
+# the /api/v1/org/* proxies mint an HS256 bridge token via
 # core/services/shared/auth.MintSMEAccessToken before forwarding to the
-# SME gateway). The replace resolves `../../../../core/services/shared`
+# Organization gateway). The replace resolves `../../../../core/services/shared`
 # from /app to /core/services/shared, mirroring the controllers tree
 # above. Without this COPY, `go mod download` fails with `open
 # /core/services/shared/go.mod: no such file or directory` and every
@@ -131,7 +131,7 @@ RUN apk add --no-cache ca-certificates curl bash git \
     && /usr/local/bin/kubectl version --client >/dev/null \
     && /usr/local/bin/helm version --short >/dev/null \
     && apk del .upx
-# git is required by the SME tenant provisioning pipeline (#804) and the
+# git is required by the Organization provisioning pipeline (#804) and the
 # marketplace-settings GitOps writer — both shell out to `git clone /
 # commit / push` against the catalyst-zero / Sovereign GitOps repo.
 # Without git on PATH the pipeline fails with `exec: "git": executable

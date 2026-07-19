@@ -86,7 +86,7 @@ spec:
             # The auth.yaml template has consumed these two keys
             # from sme-secrets since chart 1.4.20 (issue #934); this
             # template was an oversight from the same change-set.
-            # The sme-secrets template's source-wins lookup against
+            # The org-services-secrets template's source-wins lookup against
             # catalyst-system/sovereign-smtp-credentials already
             # populates SMTP_USER + SMTP_PASS with the canonical
             # mothership-relay credentials (Phase-1) or the

@@ -774,7 +774,7 @@ catalystIntegration:
   # secretKeyRef as CATALYST_NEWAPI_ADMIN_TOKEN to drive the ADR-0003
   # §3.2 user-create hook. The Kubernetes secretKeyRef is same-
   # namespace-only, so the reflector mirror is the canonical cross-
-  # namespace seam (same pattern as sme-secrets in the bp-catalyst-
+  # namespace seam (same pattern as org-services-secrets in the bp-catalyst-
   # platform chart). Operator overlays MAY widen this list when other
   # controllers in other namespaces need the same bearer locally.
   reflectorNamespaces: "catalyst-system"

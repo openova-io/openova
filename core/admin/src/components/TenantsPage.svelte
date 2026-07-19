@@ -68,8 +68,8 @@
 <div>
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Tenants</h1>
-      <p class="mt-1 text-sm text-[var(--color-text-dim)]">{total} total tenant{total !== 1 ? 's' : ''}</p>
+      <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Organizations</h1>
+      <p class="mt-1 text-sm text-[var(--color-text-dim)]">{total} total organization{total !== 1 ? 's' : ''}</p>
     </div>
   </div>
 
@@ -85,7 +85,7 @@
     </div>
   {:else if tenants.length === 0}
     <div class="mt-12 text-center">
-      <p class="text-[var(--color-text-dim)]">No tenants yet.</p>
+      <p class="text-[var(--color-text-dim)]">No organizations yet.</p>
     </div>
   {:else}
     <div class="mt-4 overflow-x-auto rounded-xl border border-[var(--color-border)]">
@@ -184,7 +184,7 @@
   {#if deleteTarget}
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div class="w-full max-w-md rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-        <h3 class="text-lg font-semibold text-[var(--color-text-strong)]">Delete tenant?</h3>
+        <h3 class="text-lg font-semibold text-[var(--color-text-strong)]">Delete organization?</h3>
         <p class="mt-2 text-sm text-[var(--color-text-dim)]">
           This will soft-delete <strong class="text-[var(--color-text)]">{deleteTarget.name}</strong>
           ({deleteTarget.slug}) and publish a tenant.deleted event. This cannot be undone from the admin UI.

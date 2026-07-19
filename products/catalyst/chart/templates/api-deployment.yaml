@@ -877,10 +877,10 @@ spec:
                   name: catalyst-gitea-token
                   key: token
                   optional: true
-            # CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/sme/*
+            # CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/org/*
             # proxies (PR #1625 follow-up). The Organization microservice mesh
             # (core/services/{gateway,billing,catalog,...}) validates HS256
-            # tokens signed with sme-secrets/JWT_SECRET; catalyst-api's
+            # tokens signed with org-services-secrets/JWT_SECRET; catalyst-api's
             # operator session is RS256 Keycloak. proxySMEVoucher (and
             # future siblings) mint a short-lived HS256 token from the
             # operator's already-validated session via
@@ -948,7 +948,7 @@ spec:
             # `catalyst/newapi/admin-token` — written by catalyst-api's
             # seedNewapiAdminToken seam, #4477).
             #
-            # Same cross-namespace pattern as `sme-secrets` above: the
+            # Same cross-namespace pattern as `org-services-secrets` above: the
             # ExternalSecret lands the Secret in the `newapi` namespace
             # (bp-newapi targetNamespace), and emberstack/reflector
             # mirrors it into catalyst-system. The mirror annotations

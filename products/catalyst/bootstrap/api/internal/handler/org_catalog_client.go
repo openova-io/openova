@@ -184,7 +184,7 @@ func (c *orgCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 // header") — that's the C4-012 / #1735 symptom. The bearer is minted
 // by the caller (HandleSovereignAppPublish) via the canonical Organization
 // bridge (org_billing_vouchers.go's mintOrgBridgeToken — same HS256
-// `sme-secrets/JWT_SECRET` the gateway + billing service use) and
+// `org-services-secrets/JWT_SECRET` the gateway + billing service use) and
 // passed in here as the `bearer` argument. Empty bearer signals the
 // caller has no session; the Organization catalog will then return 401 and the
 // chroot surfaces it verbatim so the UI shows the auth gap rather

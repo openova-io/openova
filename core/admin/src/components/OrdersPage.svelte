@@ -81,7 +81,7 @@
         <thead>
           <tr class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
             <th class="px-4 py-3 text-left font-medium text-[var(--color-text-dim)]">Order ID</th>
-            <th class="px-4 py-3 text-left font-medium text-[var(--color-text-dim)]">Tenant</th>
+            <th class="px-4 py-3 text-left font-medium text-[var(--color-text-dim)]">Organization</th>
             <th class="px-4 py-3 text-left font-medium text-[var(--color-text-dim)]">Plan</th>
             <th class="px-4 py-3 text-left font-medium text-[var(--color-text-dim)]">Promo</th>
             <th class="px-4 py-3 text-right font-medium text-[var(--color-text-dim)]">Amount</th>

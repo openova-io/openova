@@ -28,9 +28,9 @@ require (
 // impossible to ship.
 replace github.com/openova-io/openova/core/controllers => ../../../../core/controllers
 
-// PR #1625 follow-up: the /api/v1/sme/* proxies mint an HS256 bridge
+// PR #1625 follow-up: the /api/v1/org/* proxies mint an HS256 bridge
 // token via core/services/shared/auth.MintSMEAccessToken before
-// forwarding to the SME gateway (which rejects RS256 Keycloak tokens
+// forwarding to the Organization gateway (which rejects RS256 Keycloak tokens
 // outright). Same in-tree replace pattern as core/controllers above —
 // no published version exists, the module is consumed directly.
 replace github.com/openova-io/openova/core/services/shared => ../../../../core/services/shared

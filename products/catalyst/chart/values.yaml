@@ -1543,7 +1543,7 @@ ingress:
 #
 #   ./clusters/<global.sovereignFQDN>/org-tenants
 #
-# Without it, every POST /api/v1/sme/tenants reaches state=done
+# Without it, every POST /api/v1/organizations reaches state=done
 # optimistically but the per-tenant K8s resources (Namespace, vCluster,
 # bp-keycloak / bp-cnpg / bp-wordpress-tenant / bp-openclaw /
 # bp-stalwart-tenant HRs) never materialise. Caught live on otech103,
@@ -1591,7 +1591,7 @@ orgTenants:
     # tenant's full readiness is owned by the orchestrator's watcher
     # loop, not this Kustomization (wait: false below).
     timeout: 5m
-    # DELETE /api/v1/sme/tenants/<id> removes the per-tenant overlay
+    # DELETE /api/v1/organizations/<id> removes the per-tenant overlay
     # directory. Flux GCs the corresponding K8s resources via the
     # Kustomization's prune contract.
     prune: true
@@ -1818,7 +1818,7 @@ orgPostgres:
   # credentialSecret — when set, the Organization services + FerretDB read
   # username/password from this Secret instead of the CNPG-generated
   # org-pg-app (the slot-16d hub `org-database-secret`, reflector-PUSHED
-  # into ns sme, carries the same keys). Empty = org-pg-app.
+  # into ns org-services, carries the same keys). Empty = org-pg-app.
   credentialSecret: ""
   cluster:
     # false → the bundled org-pg Cluster is skipped entirely (#3370
@@ -1854,8 +1854,8 @@ orgPostgres:
         memory: 1Gi
 
 # ─── Organization secrets bundle (issue #859) ─────────────────────────────
-# When ingress.marketplace.enabled=true the chart renders a `sme-secrets`
-# Kubernetes Secret in the `sme` namespace consumed by 10 of the 11 Organization
+# When ingress.marketplace.enabled=true the chart renders an `org-services-secrets`
+# Kubernetes Secret in the `org-services` namespace consumed by 10 of the 11 Organization
 # service Deployments (auth, billing, catalog, console, domain, gateway,
 # marketplace, notification, provisioning, tenant).
 #
@@ -1891,7 +1891,7 @@ orgSecrets:
     # ─── Sovereign source-Secret (issue #934) ────────────────────────
     # On a freshly franchised Sovereign the SMTP creds are seeded by
     # cloud-init / A5's provisioner (#883/#905) into
-    # `catalyst-system/sovereign-smtp-credentials`. The sme-secrets
+    # `catalyst-system/sovereign-smtp-credentials`. The org-services-secrets
     # template reads from there with source-wins precedence so any
     # non-empty bytes override the chart-level defaults below. Empty
     # source falls back to the defaults so non-Sovereign (contabo)
@@ -1904,7 +1904,7 @@ orgSecrets:
     # Sovereign-local Stalwart relay (slot 95 bp-stalwart-sovereign)
     # lands. The SMTP source-Secret (catalyst-system/sovereign-smtp-
     # credentials) is layered on top via source-wins precedence in
-    # sme-secrets.yaml — when A5's provisioner (#883/#905) seeds the
+    # org-services-secrets.yaml — when A5's provisioner (#883/#905) seeds the
     # canonical key shape (smtp-host/port/from), those bytes win over
     # these fallbacks. Until A5 ships full host/port/from coverage
     # the chart-level fallback keeps gate 2 (PIN delivery) working.
@@ -1914,7 +1914,7 @@ orgSecrets:
     from: "noreply@openova.io"
     user: "noreply@openova.io"                # SMTP submission username (often == from)
     # SMTP_PASS is sensitive — never inline it. Reference an existing
-    # Secret in the `sme` namespace (the per-Sovereign overlay typically
+    # Secret in the `org-services` namespace (the per-Sovereign overlay typically
     # creates this from cloud-init or via OpenBao + ExternalSecret).
     # Empty `name` skips the lookup and renders SMTP_PASS as empty.
     passwordSecretRef:
@@ -1930,9 +1930,9 @@ orgSecrets:
 # ─── Organization service backing-store endpoints (issue #861) ────────────
 # When ingress.marketplace.enabled=true the chart renders:
 #   - templates/org-services/ferretdb.yaml — FerretDB Deployment + Service
-#     in `sme` ns, MongoDB-wire-compatible front end backed by org-pg.
+#     in `org-services` ns, MongoDB-wire-compatible front end backed by org-pg.
 #   - templates/org-services/valkey-cross-ns-policy.yaml —
-#     CiliumNetworkPolicy in `valkey` ns allowing ingress from `sme` ns.
+#     CiliumNetworkPolicy in `valkey` ns allowing ingress from `org-services` ns.
 #   - templates/org-services/configmap.yaml — MONGODB_URI + VALKEY_ADDR
 #     populated from the values below.
 #
@@ -1982,7 +1982,7 @@ orgServices:
     imagePullPolicy: IfNotPresent
     replicas: 1
     # Postgres connection target — org-pg-rw read/write Service in
-    # `sme` ns, org_documents DB created by org-pg's
+    # `org-services` ns, org_documents DB created by org-pg's
     # postInitApplicationSQL block (see orgPostgres.cluster.
     # additionalDatabases above).
     postgresPort: 5432
@@ -2029,7 +2029,7 @@ orgServices:
     # `valkey` namespace. The catalyst chart renders templates/
     # org-services/valkey-cross-ns-secret.yaml which uses Helm `lookup`
     # to read that password and re-emit it as `org-valkey-auth` in
-    # `sme` ns — auth.yaml + gateway.yaml then wire VALKEY_PASSWORD via
+    # `org-services` ns — auth.yaml + gateway.yaml then wire VALKEY_PASSWORD via
     # secretKeyRef. Each knob below is operator-overridable in case a
     # Sovereign uses a forked bp-valkey with a different Secret name
     # or key.
@@ -2040,14 +2040,14 @@ orgServices:
     crossNsPolicy:
       # Render templates/org-services/valkey-cross-ns-policy.yaml — a
       # CiliumNetworkPolicy in the `valkey` namespace allowing ingress
-      # from the `sme` namespace on Valkey's port.
+      # from the `org-services` namespace on Valkey's port.
       #
       # #3373 Batch A (2026-06-14): DISABLED. bp-valkey moved INSIDE the
       # rtz vCluster, so its pods are syncer-reflected into the HOST `rtz`
       # namespace (the host `valkey` namespace no longer carries the
       # workload). This CNP (endpointSelector in ns `valkey`) would select
       # zero endpoints. The cross-ns wire is now governed by the
-      # bp-rtz-vcluster isolation NetworkPolicy, which carves out the `sme`
+      # bp-rtz-vcluster isolation NetworkPolicy, which carves out the `org-services`
       # namespace in allowedIngressNamespaces (mirrors the #3423 sme→NATS
       # carve-out). Re-enable + override `namespace` only for a
       # host-placed valkey.
@@ -2060,7 +2060,7 @@ orgServices:
   # franchised Sovereign, templates/org-services/provisioning-github-
   # token.yaml mirrors the gitea-admin password (already generated by
   # platform/gitea/chart/templates/admin-secret.yaml with the same
-  # lookup-persistence pattern) into `sme` ns under the canonical
+  # lookup-persistence pattern) into `org-services` ns under the canonical
   # GITHUB_TOKEN key the provisioning service reads. This unblocks the
   # provisioning Pod reaching Running 1/1 on a fresh Sovereign — the
   # last 1/13 Organization pod that #859 + #861 + #863 didn't already cover.
@@ -2536,9 +2536,9 @@ security:
     # Platform namespaces catalyst-system Pods are allowed to egress to.
     # Override to add tenant-specific or per-Sovereign namespaces.
     #
-    # `sme` — the bp-sme-platform chart deploys the Organization control-plane
+    # `org-services` — the bp-catalyst-platform chart deploys the Organization control-plane
     # (auth, billing, catalog, console, domain, gateway, marketplace,
-    # notification, provisioning, tenant) into namespace `sme`. Console
+    # notification, provisioning, tenant) into namespace `org-services`. Console
     # in catalyst-system reaches `gateway.org-services.svc.cluster.local:8080`
     # for every voucher list/issue/redeem call (and admin reaches the
     # same gateway for tenant onboarding). Without this allow, console

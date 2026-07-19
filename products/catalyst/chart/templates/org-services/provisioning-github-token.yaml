@@ -193,7 +193,7 @@ metadata:
     app.kubernetes.io/part-of: org
   annotations:
     # Identifies the upstream source for ops visibility — `kubectl describe
-    # secret provisioning-github-token -n sme` makes the provenance obvious
+    # secret provisioning-github-token -n org-services` makes the provenance obvious
     # without tribal knowledge.
     catalyst.openova.io/mirrored-from: {{ printf "%s/%s" $sourceNamespace $sourceSecretName | quote }}
     # Survive helm uninstall — the Secret outlives the release. A
@@ -209,7 +209,7 @@ metadata:
     # marketplace and the Organization tenant gitops writer both return 503
     # "gitops token unconfigured — set CATALYST_GITOPS_TOKEN" because
     # K8s secretKeyRef is same-namespace-only and Step 09's destination
-    # lives in `sme`.
+    # lives in `org-services`.
     #
     # Pattern mirrors org-services-secrets.yaml's reflector block (same chart,
     # same destination namespace) — see that file for the field-by-

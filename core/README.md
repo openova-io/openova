@@ -17,7 +17,7 @@ The four modules that constitute the Catalyst control plane's user-facing surfac
 | [`marketplace/`](./marketplace/) | Astro + Svelte | Public-facing Blueprint card grid (the "App Store"). 5-step `Plan → Apps → Addons → Checkout → Review` flow. | `ghcr.io/openova-io/openova/marketplace:<sha>` |
 | [`marketplace-api/`](./marketplace-api/) | Go | Backend API for `marketplace` and `console`. Handlers (`handlers/`), provisioner (`provisioner/`), store (`store/`). Phase 4 extends this with full Hetzner provisioning. | `ghcr.io/openova-io/openova/marketplace-api:<sha>` |
 
-The Helm chart that deploys all four (plus `catalyst-ui`, `catalyst-api`, and the legacy SME backend services) lives at [`products/catalyst/chart/`](../products/catalyst/chart/).
+The Helm chart that deploys all four (plus `catalyst-ui`, `catalyst-api`, and the legacy Organization backend services) lives at [`products/catalyst/chart/`](../products/catalyst/chart/).
 
 ---
 

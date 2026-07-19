@@ -97,7 +97,7 @@ fire() {
   #
   # Node sizing is overridable per-fire (#3952 capacity verdict, 2026-06-20): the
   # default m7n.xlarge.8 x3 worker tier runs ~99% CPU once the full #3642 vc-mgmt
-  # stack + 4 catalyst controllers + marketplace/billing/sme-pg schedule, chronically
+  # stack + 4 catalyst controllers + marketplace/billing/org-pg schedule, chronically
   # blocking pods on 'Insufficient cpu' (no Huawei autoscaler). For a real convergence
   # re-prov pass WORKER_COUNT=5 (stays on the PROVEN m7n.xlarge.8 flavor -> 20 vCPU/
   # region, absorbs the blocked worker-scheduled pods). Do NOT raise WORKER_SIZE to an

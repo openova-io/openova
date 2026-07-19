@@ -40,7 +40,7 @@ catalystBlueprint:
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 there is no production-safe
 # default — the tenant-provisioning pipeline (#804) MUST supply this
-# value at install. The placeholder `sme.local` is set ONLY so the
+# value at install. The placeholder `org.local` is set ONLY so the
 # `helm template` smoke render in the Blueprint Release workflow
 # (which runs with no overrides) produces valid YAML; per-Sovereign
 # overlays MUST override.

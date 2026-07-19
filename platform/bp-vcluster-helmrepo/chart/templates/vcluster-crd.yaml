@@ -35,7 +35,7 @@
 # dependencies must use Kustomization.dependsOn, NEVER HelmRelease.
 # dependsOn, which is silently ignored for non-HelmRelease deps):
 # downstream HelmReleases that materialise VCluster CRs (e.g. a
-# future bp-sme-tenant slot) must be sequenced AFTER slot 60
+# future per-Org tenant Blueprint slot) must be sequenced AFTER slot 60
 # (60-bp-vcluster-helmrepo.yaml) in the bootstrap-kit
 # kustomization.yaml — same way they're sequenced after slot 03
 # (bp-flux) today. No HR-level dependsOn needed.

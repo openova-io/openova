@@ -1958,7 +1958,7 @@ crossplaneProviderPivot:
 #
 # Root cause this addresses: the catalyst-platform chart's
 # `provisioning-github-token.yaml` template mirrors gitea-admin-secret's
-# PASSWORD into sme/provisioning-github-token.GITHUB_TOKEN. The
+# PASSWORD into org-services/provisioning-github-token.GITHUB_TOKEN. The
 # provisioning service sends `Authorization: token <X>` to Gitea, which
 # resolves the credential as an API access token (sha1 lookup) — the
 # admin password is NOT a valid access token. Result: 401 "user does

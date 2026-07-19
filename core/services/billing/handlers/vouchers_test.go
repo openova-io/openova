@@ -489,7 +489,7 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Choose explicit test bytes — production reads
-	// sme-secrets/JWT_SECRET in BOTH billing.yaml and notification.yaml
+	// org-services-secrets/JWT_SECRET in BOTH billing.yaml and notification.yaml
 	// (see chart templates) so the values are guaranteed identical at
 	// runtime. The test exercises the symmetric-bytes property: same
 	// bytes on the mint side as the verify side.

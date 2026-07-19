@@ -222,8 +222,8 @@ realmConfig:
   tenant:
     # Master switch — when false (default), chart stays in Sovereign mode.
     enabled: false
-    # Realm name in the tenant Keycloak (e.g. `sme-acme`). REQUIRED when
-    # enabled=true. Convention: `sme-<subdomain>` matching the tenant
+    # Realm name in the tenant Keycloak (e.g. `org-acme`). REQUIRED when
+    # enabled=true. Convention: `org-<subdomain>` matching the Organization
     # subdomain registered in the Organization pool (multi-domain Sovereign #826).
     realmName: ""
     # Display name shown in the Keycloak login UI — typically the Organization's

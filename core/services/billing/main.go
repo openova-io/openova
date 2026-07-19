@@ -135,7 +135,7 @@ func main() {
 			Timeout: 5 * time.Second,
 		},
 		// JWTSecret — same bytes the inbound JWTAuth middleware below
-		// validates against (sme-secrets/JWT_SECRET). Used by
+		// validates against (org-services-secrets/JWT_SECRET). Used by
 		// sendVoucherIssuedEmail to mint a short-lived service token for
 		// the billing→notification hop so notification's matching
 		// JWTAuth middleware accepts the dispatch. Pre-#1999 this hop

@@ -45,7 +45,7 @@
 // org/orders + org/billing/revenue registrations) ensures only a valid
 // console session reaches these handlers. The session JWT is RS256
 // (Keycloak-issued); the Organization gateway (core/services/gateway/proxy.go)
-// only accepts HS256 signed with `sme-secrets/JWT_SECRET`. Forwarding
+// only accepts HS256 signed with `org-services-secrets/JWT_SECRET`. Forwarding
 // the RS256 header verbatim therefore 401s upstream.
 //
 // Bridge (this file, follow-up to PR #1625):
@@ -56,7 +56,7 @@
 //      role vocabulary (superadmin / sovereign-admin / member) the
 //      billing service's requireVoucherIssuer expects.
 //   4. authpkg.MintOrgAccessToken signs a fresh 5-minute HS256
-//      token with h.orgJWTSecret (mirrored from `sme-secrets`
+//      token with h.orgJWTSecret (mirrored from `org-services-secrets`
 //      into catalyst-system by emberstack/reflector — see the
 //      annotation block on products/catalyst/chart/templates/
 //      org-services/org-services-secrets.yaml).
@@ -316,7 +316,7 @@ func (h *Handler) HandleRevokeOrgBillingVoucher(w http.ResponseWriter, r *http.R
 //   - 503 `org-jwt-bridge-unwired` — the chart hasn't seeded
 //     CATALYST_ORG_JWT_SECRET on this Pod yet (Sovereign without
 //     marketplace, or stale chart predating the reflector annotation
-//     on sme-secrets). Surfacing 503 lets the FE render an actionable
+//     on org-services-secrets). Surfacing 503 lets the FE render an actionable
 //     "marketplace not enabled" message rather than the silent 401
 //     the pre-bridge state produced.
 //   - 500 `org-jwt-mint-failed` — should never happen in production
@@ -330,7 +330,7 @@ func (h *Handler) mintOrgBridgeToken(r *http.Request) (string, int, map[string]s
 	if len(h.orgJWTSecret) == 0 {
 		return "", http.StatusServiceUnavailable, map[string]string{
 			"error":  "org-jwt-bridge-unwired",
-			"detail": "CATALYST_ORG_JWT_SECRET is not set on this catalyst-api Pod; the chart's sme-secrets Secret may not be reflected into catalyst-system yet",
+			"detail": "CATALYST_ORG_JWT_SECRET is not set on this catalyst-api Pod; the chart's org-services-secrets Secret may not be reflected into catalyst-system yet",
 		}
 	}
 	claims := authpkg.ClaimsFromContext(r.Context())

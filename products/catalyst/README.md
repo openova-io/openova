@@ -8,7 +8,7 @@ This product directory contains:
 
 - `chart/` — the Helm chart that deploys Catalyst-Zero on a Kubernetes cluster (and every franchised Sovereign).
 - `chart/templates/{ui,api}-deployment.yaml` + service + ingress — the catalyst-ui (React SPA wizard scaffold) and catalyst-api (Go bootstrap API) workloads.
-- `chart/templates/org-services/` — 11 manifests for the legacy SME backend services + the consolidated `console`, `admin`, `marketplace` UI workloads (sourced from `core/{console,admin,marketplace}/`).
+- `chart/templates/org-services/` — 11 manifests for the legacy Organization backend services + the consolidated `console`, `admin`, `marketplace` UI workloads (sourced from `core/{console,admin,marketplace}/`).
 - `chart/templates/marketplace-api/` — manifests for the Go marketplace-api backend (sourced from `core/marketplace-api/`).
 - `bootstrap/{ui,api}/` — the source code for catalyst-ui and catalyst-api (deployed via the catalyst-build CI workflow).
 

@@ -16,9 +16,9 @@
 // handover marker the cutover's 425 gate keys on. Sealing it fires the
 // Self-Sovereignty Cutover engine (CATALYST_FIRE_CUTOVER_ON_HANDOVER,
 // #3127), whose Step 09 mints the real Gitea API token + patches
-// `secret/sme/provisioning-github-token` with the
+// `secret/org-services/provisioning-github-token` with the
 // `catalyst.openova.io/token-source=self-sovereign-cutover-step-09`
-// annotation. The `sme/provisioning` Pod's `wait-for-cutover-token` init
+// annotation. The `org-services/provisioning` Pod's `wait-for-cutover-token` init
 // container gates on exactly that annotation; until it lands the pod sits
 // Init:0/1 forever, the provisioning Service has zero ready endpoints, and
 // `provisioning/start` 502s. So this one push un-wedges the whole funnel.

@@ -184,7 +184,7 @@ metadata:
       should require editing only THIS file, not every service YAML.
 data:
   # ---- cluster-internal service endpoints -----------------------------------
-  # The Organization microservice mesh. All services run in the `sme` namespace and
+  # The Organization microservice mesh. All services run in the `org-services` namespace and
   # expose their own ports. Gateway fan-out uses these URLs; services call
   # each other directly using these too.
   AUTH_URL: "http://auth.org-services.svc.cluster.local:8081"
@@ -196,7 +196,7 @@ data:
   NOTIFICATION_URL: "http://notification.org-services.svc.cluster.local:8087"
 
   # ---- shared backing-store endpoints ---------------------------------------
-  # FerretDB (MongoDB-wire) — Catalyst-curated Deployment in `sme` ns
+  # FerretDB (MongoDB-wire) — Catalyst-curated Deployment in `org-services` ns
   # (see ferretdb.yaml, issue #861). Operator-overridable via
   # .Values.orgServices.ferretdb.{host,port} so a per-Sovereign overlay
   # MAY swap to an external MongoDB endpoint without forking the chart.

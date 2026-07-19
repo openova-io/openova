@@ -19,7 +19,7 @@
 // Why the existing /auth/handover (auth_handover.go) could NOT be reused:
 // that endpoint validates an RS256 sovereign-admin handover JWT minted by
 // the mothership. The marketplace member session is an HS256 token signed
-// with the Organization mesh's `sme-secrets/JWT_SECRET` (the same secret
+// with the Organization mesh's `org-services-secrets/JWT_SECRET` (the same secret
 // catalyst-api already mints bridge tokens with — h.orgJWTSecret). The two
 // are different signers and different identities (sovereign-admin vs Org
 // member). auth.ValidateToken even hard-rejects any non-RS256 alg, so a
@@ -56,7 +56,7 @@ import (
 )
 
 // orgHandoverClaims is the subset of the marketplace member-session token
-// (HS256, signed with sme-secrets/JWT_SECRET) this handler relies on. The
+// (HS256, signed with org-services-secrets/JWT_SECRET) this handler relies on. The
 // marketplace `auth` service stamps {sub, email, role:member, typ:session,
 // iat, exp}; we only need sub/email + standard registered claims.
 type orgHandoverClaims struct {
@@ -92,7 +92,7 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 
 	// ── 1. The Org JWT secret must be wired ─────────────────────────────
 	// CATALYST_ORG_JWT_SECRET is fed from the reflector-mirrored
-	// sme-secrets/JWT_SECRET (SetOrgJWTSecret in main.go). Without it this
+	// org-services-secrets/JWT_SECRET (SetOrgJWTSecret in main.go). Without it this
 	// catalyst-api cannot validate a member token — surface a terse 401
 	// (no secret material in the body, per INVIOLABLE-PRINCIPLES #10).
 	if len(h.orgJWTSecret) == 0 {
@@ -131,7 +131,7 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── 3. Validate the member token (HS256, sme-secrets/JWT_SECRET) ────
+	// ── 3. Validate the member token (HS256, org-services-secrets/JWT_SECRET) ────
 	var claims orgHandoverClaims
 	tok, perr := jwt.ParseWithClaims(raw, &claims,
 		func(t *jwt.Token) (any, error) {

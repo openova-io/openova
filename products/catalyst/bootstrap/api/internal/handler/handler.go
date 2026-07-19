@@ -452,7 +452,7 @@ type Handler struct {
 	orgTenantDeps OrganizationDeps
 
 	// ── Organization HS256 bridge secret (PR #1625 follow-up) ───────────────────────
-	// orgJWTSecret — raw bytes of `sme-secrets/JWT_SECRET` (mirrored
+	// orgJWTSecret — raw bytes of `org-services-secrets/JWT_SECRET` (mirrored
 	// from the `org-services` namespace into catalyst-system by
 	// emberstack/reflector — see the annotation block on
 	// products/catalyst/chart/templates/org-services/org-services-secrets.yaml).
@@ -889,13 +889,13 @@ func (h *Handler) SetPowerDNSZoneClient(c powerdnsZoneClient) { h.powerdnsZoneCl
 // makes the rbac_assign emit-side a no-op.
 func (h *Handler) SetAuditBus(bus *audit.Bus) { h.auditBus = bus }
 
-// SetOrgJWTSecret wires the raw bytes of `sme-secrets/JWT_SECRET` so
+// SetOrgJWTSecret wires the raw bytes of `org-services-secrets/JWT_SECRET` so
 // the /api/v1/org/* proxies (org_billing_vouchers.go + future siblings)
 // can mint a short-lived HS256 bridge token the Organization gateway will
 // accept. Empty / nil secret disables the mint path; proxies surface
 // 503 `org-jwt-bridge-unwired` rather than forging a 401 upstream.
 // Called by main.go at startup from CATALYST_ORG_JWT_SECRET (Pod env
-// fed via secretKeyRef from the reflector-mirrored sme-secrets Secret).
+// fed via secretKeyRef from the reflector-mirrored org-services-secrets Secret).
 func (h *Handler) SetOrgJWTSecret(secret []byte) { h.orgJWTSecret = secret }
 
 // AuditBus returns the wired Bus or nil. Test helper.

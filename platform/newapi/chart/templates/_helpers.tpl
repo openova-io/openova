@@ -202,7 +202,7 @@ channel-router resolves `model` lookups in row-insertion order:
 A fresh customer landing on a fresh Sovereign with no
 `.Values.channels` set hits qwenPartner first; this is the
 documented "channel #1 = Qwen partner-hosted" contract from epic #915
-(per-tenant SME alice → NewAPI → partner-hosted Qwen end-to-end DoD).
+(per-Org alice → NewAPI → partner-hosted Qwen end-to-end DoD).
 Centralised so configmap.yaml + assertChannelAttestation +
 channel-seed-job.yaml operate on the same materialised list.
 */}}

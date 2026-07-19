@@ -5,7 +5,7 @@
 //   On a freshly franchised Sovereign, console-side magic-link / PIN
 //   email delivery fails because there's no SMTP relay reachable inside
 //   the cluster: the bootstrap-kit doesn't deploy a Stalwart on the new
-//   Sovereign, the Sovereign-local sme-secrets has empty SMTP_HOST/PORT/
+//   Sovereign, the Sovereign-local org-services-secrets has empty SMTP_HOST/PORT/
 //   FROM/USER/PASS, and services-auth defaults SMTP_HOST=localhost.
 //
 //   Phase-1 architectural decision (founder-confirmed): during initial

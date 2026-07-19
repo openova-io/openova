@@ -48,7 +48,7 @@
 // cmd/api/main.go — only a valid console session reaches this handler.
 // `mintOrgBridgeToken` returns 503 `org-jwt-bridge-unwired` when
 // `CATALYST_ORG_JWT_SECRET` is unset (Sovereign without marketplace,
-// or stale chart predating the sme-secrets reflector annotation).
+// or stale chart predating the org-services-secrets reflector annotation).
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the minted token is NEVER
 // logged — only the operator's email and the mapped role are.
 package handler

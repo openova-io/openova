@@ -1023,7 +1023,7 @@ func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
 //
 // 503 when the Organization catalog is not deployed on this Sovereign
 // (marketplace.enabled=false in the chart values), or when the
-// Organization HS256 bridge secret is not wired (sme-secrets reflection
+// Organization HS256 bridge secret is not wired (org-services-secrets reflection
 // not yet reconciled). 401 when the operator's session has no
 // claims attached (auth middleware bypassed). 404 when the slug
 // isn't in the Organization catalog. The upstream status is surfaced verbatim.
@@ -1034,7 +1034,7 @@ func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
 // every /catalog/admin/* path and requireAdmin on this specific
 // handler. Forwarding the operator's Keycloak RS256 session header
 // to the catalog 401s upstream (catalog only accepts HS256 signed
-// with sme-secrets/JWT_SECRET, just like the rest of the Organization mesh).
+// with org-services-secrets/JWT_SECRET, just like the rest of the Organization mesh).
 // Mint a fresh HS256 bridge token via the same h.mintOrgBridgeToken
 // helper org_billing_vouchers.go uses for the BSS Vouchers surface
 // and forward THAT as the upstream Authorization header. Operators
@@ -1064,7 +1064,7 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 	// invalid authorization header" — that's the C4-012 / #1735
 	// symptom. The bridge mirrors org_billing_vouchers.go's
 	// mintOrgBridgeToken pattern: RS256 operator session → HS256
-	// token signed with sme-secrets/JWT_SECRET, role mapped via
+	// token signed with org-services-secrets/JWT_SECRET, role mapped via
 	// sharedauth.OrgRoleFor. The upstream catalog's requireAdmin was
 	// widened in the same PR to accept "sovereign-admin" so a
 	// franchisee operator can manage their own Sovereign's

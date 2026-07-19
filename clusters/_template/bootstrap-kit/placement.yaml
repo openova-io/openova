@@ -194,7 +194,7 @@ spec:
     - {file: 09-keycloak.yaml, hr: bp-keycloak, vcluster: host, target: host, namespace: keycloak,
        justification: "#4291 DE-VCLUSTER §C — SSO IdP is a platform plane, not a tenant boundary; native host ns renders its own route/DB + per-component default-deny CNP (Refs #4293)"}
     # extraNamespaces: the umbrella renders the Organization service set into ns
-    # `sme` and cutover artifacts into ns `catalyst` alongside its own
+    # `org-services` and cutover artifacts into ns `catalyst` alongside its own
     # catalyst-system — declared so the live conformance audit can
     # attribute those workloads (multi-namespace chart, not undeclared).
     - {file: 13-bp-catalyst-platform.yaml, hr: bp-catalyst-platform, vcluster: host, target: host,
