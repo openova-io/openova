@@ -105,6 +105,19 @@ const phase1LatePollIntervalEnv = "CATALYST_PHASE1_LATE_POLL_INTERVAL"
 // reads this on every Pod start.
 const phase1ReachabilityBudgetEnv = "CATALYST_PHASE1_REACHABILITY_BUDGET"
 
+// phase1RecensusIntervalEnv — env var override for the cadence of the
+// informer-independent periodic re-census (#5269). Every interval the
+// Phase-1 watch Lists bp-* HelmReleases directly against the Sovereign
+// apiserver, re-runs the same sentinel-gated OutcomeReady decision the
+// informer path uses, and emits one structured heartbeat log line — so
+// a quiesced/hung informer event stream (the hw278 wedge: sentinel
+// Ready=True for 66min, watch never concluded, whole prov stranded at
+// phase1-watching ~80min with handover/mesh/cutover all gated behind
+// it) can no longer strand a converged prov, and a future wedge is
+// visible in the catalyst-api logs within one interval instead of
+// silent. Default helmwatch.DefaultRecensusInterval (45s).
+const phase1RecensusIntervalEnv = "CATALYST_PHASE1_RECENSUS_INTERVAL"
+
 // kubeconfigArrivalTimeoutEnv — how long runPhase1Watch waits for the
 // cloud-init PUT to land /var/lib/catalyst/kubeconfigs/<id>.yaml on
 // disk before giving up with OutcomeKubeconfigMissing. Cloud-init
@@ -430,6 +443,13 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 		}
 	}
 
+	// #5269 — informer-independent re-census cadence. Same
+	// field-override-beats-env precedence as every other Phase-1 knob.
+	recensusInterval := h.phase1RecensusInterval
+	if recensusInterval == 0 {
+		recensusInterval = helmwatch.CompileRecensusInterval(envOrEmpty(phase1RecensusIntervalEnv))
+	}
+
 	// #4746 — the component whose terminal-install gates OutcomeReady.
 	// Base value is the Handler field (production New() sets it to
 	// catalyst-platform; tests leave it empty → gate off). An explicitly
@@ -450,6 +470,15 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 		LatePollInterval:          latePollInterval,
 		ReachabilityOverallBudget: reachabilityBudget,
 		ReadySentinelComponent:    readySentinel,
+		RecensusInterval:          recensusInterval,
+		// OnHeartbeat — one structured log line per re-census
+		// evaluation cycle (#5269): dep id, HR ready count, sentinel
+		// state, all-terminal verdict, informer-event age. This is the
+		// forensic surface the hw278 wedge lacked — 80 minutes of
+		// silence between "informer synced" and the operator's manual
+		// rollout-restart. Secondary-region watchers re-wire this with
+		// a region tag in spawnSecondaryRegionWatchers.
+		OnHeartbeat: h.phase1HeartbeatLogger(dep, ""),
 		// OnSubstate — issue #923. The watcher fires this on every
 		// Phase-1 substate transition (reconnecting → watching). We
 		// stamp Result.Phase1Substate under dep.mu so a /deployments/
@@ -510,6 +539,45 @@ func (h *Handler) setPhase1Substate(dep *Deployment, substate string) {
 	dep.Result.Phase1Substate = substate
 	dep.mu.Unlock()
 	h.persistDeployment(dep)
+}
+
+// phase1HeartbeatLogger returns the helmwatch.Config.OnHeartbeat
+// callback for a deployment's Phase-1 watch (#5269): one structured
+// log line per re-census evaluation cycle so a wedged watch is visible
+// in the catalyst-api logs within one interval instead of silently
+// idling to WatchTimeout. region is empty for the primary watch and
+// the region key for secondary-region watchers (whose heartbeats carry
+// no sentinel — the gate is a primary-region concept, see
+// spawnSecondaryRegionWatchers).
+//
+// Level policy: Info for a healthy cycle; Warn when the cycle's direct
+// List failed (transient apiserver blip — no census update applied) or
+// when the informer event stream has gone stale (the hw278 signature —
+// the re-census is then the only thing driving the conclusion).
+func (h *Handler) phase1HeartbeatLogger(dep *Deployment, region string) func(helmwatch.Heartbeat) {
+	return func(hb helmwatch.Heartbeat) {
+		args := []any{
+			"id", dep.ID,
+			"observedHRs", hb.ObservedHRs,
+			"readyHRs", hb.ReadyHRs,
+			"failedHRs", hb.FailedHRs,
+			"sentinel", hb.SentinelState,
+			"allTerminal", hb.AllTerminal,
+			"informerEventAge", hb.InformerEventAge.Round(time.Second).String(),
+		}
+		if region != "" {
+			args = append(args, "region", region)
+		}
+		switch {
+		case hb.ListError != "":
+			args = append(args, "listErr", hb.ListError)
+			h.log.Warn("phase1 watch heartbeat: re-census List failed — no census update this cycle (#5269)", args...)
+		case hb.InformerStale:
+			h.log.Warn("phase1 watch heartbeat: informer event stream stale — ticker re-census is driving the readiness decision (#5269)", args...)
+		default:
+			h.log.Info("phase1 watch heartbeat (#5269)", args...)
+		}
+	}
 }
 
 // spawnSecondaryRegionWatchers reads `<kubeconfigsDir>/<id>-*.yaml`
@@ -628,6 +696,10 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 			// converged secondary self-terminate cleanly instead of idling until
 			// stopSecondaries cancels it.
 			cfg.ReadySentinelComponent = ""
+			// #5269 — region-tag the heartbeat so the per-region
+			// re-census lines are distinguishable from the primary's
+			// in the catalyst-api log stream.
+			cfg.OnHeartbeat = h.phase1HeartbeatLogger(dep, region)
 			watcher, err := helmwatch.NewWatcher(cfg, func(ev provisioner.Event) {
 				// Region-tag the component events so the SSE consumer
 				// can group them per region. Bare bp-* names from
