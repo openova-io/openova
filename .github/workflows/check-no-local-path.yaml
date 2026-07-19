@@ -1,0 +1,58 @@
+name: check — zero local-path StorageClass (#3971)
+
+# Permanent guard that the local-path StorageClass stays FORBIDDEN at land,
+# for EVERY future PR.
+#
+# #3971: local-path (rancher.io/local-path) is ephemeral node-local disk —
+# no cloud block volume behind it — so any node replacement destroys the
+# data. The runtime layers already forbid it (k3s --disable=local-storage,
+# the per-provider cloud CSI default StorageClass, and the K23 Kyverno
+# ENFORCE deny). This workflow is the LAND-TIME layer: no shipped chart,
+# manifest, overlay, or IaC source may name local-path, and no chart may
+# RENDER a storageClassName/storageClass/provisioner resolving to it.
+#
+# scripts/check-no-local-path.sh runs two phases: an authoritative static
+# source scan (platform/ products/ clusters/ infra/ core/) plus a
+# best-effort `helm template` render sweep of every chart. See the script
+# header for detail. Same shape as check-no-nodeports.yaml (#4765).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/**'
+      - 'infra/**'
+      - 'core/**'
+      - 'scripts/check-no-local-path.sh'
+      - '.github/workflows/check-no-local-path.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/**'
+      - 'infra/**'
+      - 'core/**'
+      - 'scripts/check-no-local-path.sh'
+      - '.github/workflows/check-no-local-path.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-local-path:
+    name: Reject local-path StorageClass (sources + rendered charts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
+      - name: Run zero-local-path guard
+        run: bash scripts/check-no-local-path.sh

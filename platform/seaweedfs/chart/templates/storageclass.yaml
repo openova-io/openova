@@ -25,8 +25,8 @@ Why bp-seaweedfs ships this StorageClass (not bp-guacamole / overlay):
 Cloud CSI), NOT the ephemeral k3s local-path:
   - k3s now runs `--disable=local-storage` (cloud-init), so the local-path
     provisioner is FORBIDDEN — it is NEVER installed. A StorageClass with
-    `provisioner: rancher.io/local-path` would be non-functional (no
-    provisioner to bind) AND would be DENIED by the bp-kyverno-policies
+    `provisioner: rancher.io/local-path` is FORBIDDEN and non-functional
+    (no provisioner to bind) AND would be DENIED by the bp-kyverno-policies
     local-path ENFORCE policy.
   - bp-hcloud-csi (bootstrap-kit slot 55a) is now a `dependsOn` of the
     stateful root slots (bp-cnpg / bp-mgmt-vcluster), so the cloud CSI +
