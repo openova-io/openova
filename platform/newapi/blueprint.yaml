@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.139 # lockstep with chart/Chart.yaml (#4885: global.imageRegistry seam for openova-io images)
+  version: 1.4.140 # lockstep with chart/Chart.yaml (#4885: global.imageRegistry seam for openova-io images)
   card:
     title: NewAPI
     summary: |
