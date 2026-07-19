@@ -873,30 +873,30 @@ fi
 #
 # (a) The auth-config env must render on the step-11 ConfigMap.
 step11_body="$(awk '/cutover-step-11-crossplane-provider-pivot/{f=1} f{print} /^---$/{if(f)exit}' "$TMP/render.yaml")"
-if ! printf '%s' "${step11_body}" | grep -q 'name: PACKAGE_PULL_AUTH_ENABLED'; then
+if ! grep -q 'name: PACKAGE_PULL_AUTH_ENABLED' <<<"${step11_body}"; then
   echo "FAIL: Step-11 missing PACKAGE_PULL_AUTH_ENABLED env (#5204)" >&2
   exit 1
 fi
-if ! printf '%s' "${step11_body}" | grep -q 'name: CROSSPLANE_NAMESPACE'; then
+if ! grep -q 'name: CROSSPLANE_NAMESPACE' <<<"${step11_body}"; then
   echo "FAIL: Step-11 missing CROSSPLANE_NAMESPACE env (#5204)" >&2
   exit 1
 fi
-if ! printf '%s' "${step11_body}" | grep -q 'name: HARBOR_PASSWORD'; then
+if ! grep -q 'name: HARBOR_PASSWORD' <<<"${step11_body}"; then
   echo "FAIL: Step-11 missing HARBOR_PASSWORD env — cannot derive local-Harbor pull credential (#5204)" >&2
   exit 1
 fi
 # (b) The script body must apply an ImageConfig (pkg.crossplane.io/v1beta1)
 # whose registry.authentication.pullSecretRef binds the local-Harbor pull
 # Secret — the Crossplane 1.18 native package-pull-auth mechanism.
-if ! printf '%s' "${step11_body}" | grep -q 'kind: ImageConfig'; then
+if ! grep -q 'kind: ImageConfig' <<<"${step11_body}"; then
   echo "FAIL: Step-11 missing ImageConfig apply — package pull would 401 against the local Harbor proxy-cache (#5204)" >&2
   exit 1
 fi
-if ! printf '%s' "${step11_body}" | grep -q 'pullSecretRef'; then
+if ! grep -q 'pullSecretRef' <<<"${step11_body}"; then
   echo "FAIL: Step-11 ImageConfig missing registry.authentication.pullSecretRef (#5204)" >&2
   exit 1
 fi
-if ! printf '%s' "${step11_body}" | grep -q 'type: kubernetes.io/dockerconfigjson'; then
+if ! grep -q 'type: kubernetes.io/dockerconfigjson' <<<"${step11_body}"; then
   echo "FAIL: Step-11 missing the dockerconfigjson pull Secret the ImageConfig references (#5204)" >&2
   exit 1
 fi
