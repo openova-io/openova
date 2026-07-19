@@ -134,9 +134,17 @@ func StandbyAvailable(replica Status) bool {
 // resolvable, e.g. provisioning in flight); the controller then leaves
 // any prior StandbyAvailable condition untouched instead of
 // false-alarming.
+//
+// Gone distinguishes the two unavailable postures (#4901 follow-up):
+// false = the replica Cluster CR is PRESENT but not serving (not
+// Ready / zero ready instances — "standby temporarily unreachable");
+// true = a replica Cluster CR that WAS previously resolvable is no
+// longer resolvable at all (cluster deleted / region wiped — "standby
+// cluster gone"). Only meaningful when Known && !Available.
 type StandbyObservation struct {
 	Known          bool
 	Available      bool
+	Gone           bool
 	ReplicaCluster string
 }
 

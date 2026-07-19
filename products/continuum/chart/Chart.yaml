@@ -112,7 +112,25 @@ type: application
 # Flux re-pull once the deploy-bot stamps the new image SHA (the 0.1.9
 # lesson). Slot-62 pin + blueprint.yaml version move to 0.1.11 in
 # lockstep (Inviolable Principle #13).
-version: 0.1.11
+#
+# 0.1.12 (#4901 follow-up): standby-GONE detection + flap-grace. The
+# 0.1.10 standby-absent fix covered a replica Cluster CR that is
+# present but not Ready; a replica CR DELETED outright (cluster
+# deleted / region wiped) made FindPair fail -> "no determination" ->
+# the prior StandbyAvailable=True condition was preserved forever
+# (false-green). The reconcile loop now remembers the last-resolved
+# replica (seeded from status.standbyReplicaCluster across controller
+# restarts): a previously-seen replica that becomes unresolvable
+# degrades the CR with reason StandbyAbsent, while present-but-not-
+# Ready keeps StandbyUnreachable. Both degrade paths are gated behind
+# a continuous-unavailability grace window (spec.standbyGraceSeconds,
+# default 30s) so one flapped probe never flips the CR; recovery
+# surfaces immediately. Chart templates unchanged (controller-image
+# change only); the version bump forces the Flux re-pull once the
+# deploy-bot stamps the new image SHA (the 0.1.9 lesson). Slot-62 pin
+# + blueprint.yaml version move to 0.1.12 in lockstep (Inviolable
+# Principle #13).
+version: 0.1.12
 appVersion: "0.1.0"
 home: https://openova.io
 sources:

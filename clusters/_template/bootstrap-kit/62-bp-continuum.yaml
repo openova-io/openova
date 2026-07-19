@@ -161,7 +161,18 @@ spec:
       # backoff, failing loud via a continuum-error audit + a False/
       # RejoinRepairBounded condition rather than looping forever. Pin
       # moves in lockstep (Inviolable Principle #13).
-      version: 0.1.11
+      # 0.1.12 (#4901 follow-up): standby-GONE detection + flap-grace —
+      # a replica Cluster CR deleted outright (cluster deleted / region
+      # wiped) previously read "no determination", preserving the prior
+      # StandbyAvailable=True condition forever (false-green). The
+      # controller now remembers the last-resolved replica (seeded from
+      # status.standbyReplicaCluster across restarts) and degrades with
+      # reason StandbyAbsent when it vanishes; present-but-not-Ready
+      # keeps StandbyUnreachable. Both are gated behind a continuous-
+      # unavailability grace window (spec.standbyGraceSeconds, default
+      # 30s) so a flapped probe never flips the CR; recovery surfaces
+      # immediately. Pin moves in lockstep (Inviolable Principle #13).
+      version: 0.1.12
       sourceRef:
         kind: HelmRepository
         name: bp-continuum

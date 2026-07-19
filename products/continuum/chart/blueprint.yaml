@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-9-disaster-recovery
     openova.io/category: customer-facing-capability
 spec:
-  version: 0.1.11
+  version: 0.1.12
   card:
     title: Continuum
     summary: |

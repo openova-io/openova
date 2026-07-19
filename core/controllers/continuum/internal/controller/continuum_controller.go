@@ -76,6 +76,14 @@ const (
 	DefaultLeaseTTLSeconds   = 30
 	DefaultLeaseRenewSeconds = 10
 	DefaultLagThresholdSecs  = 60
+
+	// DefaultStandbyGraceSeconds — #4901 follow-up: how long the
+	// required synchronous hot-standby must be CONTINUOUSLY
+	// unavailable/unresolvable before the CR degrades (3 renew ticks
+	// at the default 10s cadence). Overridable per-CR via
+	// spec.standbyGraceSeconds; explicit 0 degrades on the first
+	// unavailable observation.
+	DefaultStandbyGraceSeconds = 30
 )
 
 // Phase strings — mirrors the CRD enum.
@@ -187,6 +195,19 @@ type continuumGoroutine struct {
 	// during the very promote-flap incidents the re-assert heals (hw273
 	// 18:33:57Z), and a same-value re-apply has no consumer impact.
 	lastActingPrimary string
+
+	// standbyLastSeenReplica + standbyUnavailableSince — #4901
+	// follow-up cross-tick memory for resolveStandbyPosture (same
+	// session-scoped pattern as the fields above). lastSeenReplica is
+	// the replica Cluster CR name from the most recent tick that
+	// RESOLVED the pair (seeded lazily from status.standbyReplicaCluster
+	// after a controller restart) — non-empty means a later
+	// unresolvable pair is a GONE standby, not provisioning-in-flight.
+	// unavailableSince is the wall-clock start of the current
+	// continuous-unavailable episode (zero when available / no
+	// episode); the grace window is measured against it.
+	standbyLastSeenReplica  string
+	standbyUnavailableSince time.Time
 }
 
 // SetupWithManager wires the reconciler into the controller-runtime
@@ -370,21 +391,29 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		leaseState = newState
 
 		// #4901 — resolve the required synchronous hot-standby's
-		// availability alongside lag. standby.Known stays false when the
-		// CR names no cnpg pair (dr-spine/raft continuums) or the pair's
-		// replica half is unresolvable (provisioning in flight) — the
-		// status patch then preserves any prior StandbyAvailable
-		// condition instead of false-alarming.
+		// availability alongside lag. The RAW observation stays
+		// Known=false when the pair's replica half is unresolvable this
+		// tick; resolveStandbyPosture below folds it through the per-CR
+		// cross-tick memory so a PREVIOUSLY-SEEN replica that vanished
+		// (cluster deleted / region wiped) still degrades the CR after
+		// the grace window, while a never-seen pair (provisioning in
+		// flight, dr-spine/raft continuums) keeps making no
+		// determination — the status patch then preserves any prior
+		// StandbyAvailable condition instead of false-alarming.
 		var primaryStatus, replicaStatus cnpg.Status
 		var standby cnpg.StandbyObservation
 		if reader := r.cnpgReader(); reader != nil && spec.CNPGNamespace != "" && spec.CNPGPair != "" {
+			var raw cnpg.StandbyObservation
+			resolveFailed := false
 			primary, replica, fErr := reader.FindPair(ctx, spec.CNPGNamespace, spec.CNPGPair)
 			if fErr == nil {
 				primaryStatus, _, _ = reader.Get(ctx, primary.GetNamespace(), primary.GetName())
 				var gErr error
 				replicaStatus, _, gErr = reader.Get(ctx, replica.GetNamespace(), replica.GetName())
-				if gErr == nil {
-					standby = cnpg.StandbyObservation{
+				if gErr != nil {
+					resolveFailed = true
+				} else {
+					raw = cnpg.StandbyObservation{
 						Known:          true,
 						Available:      cnpg.StandbyAvailable(replicaStatus),
 						ReplicaCluster: replica.GetName(),
@@ -407,7 +436,10 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 					// pair reads; role_reassert.go.
 					r.reassertRolesOnPrimaryTransition(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
 				}
+			} else {
+				resolveFailed = true
 			}
+			standby = r.resolveStandbyPosture(nn, cr, spec, raw, resolveFailed)
 		}
 
 		switchoverRequested := isSwitchoverRequested(cr)
@@ -892,6 +924,105 @@ func (r *ContinuumReconciler) clearSwitchoverRequest(ctx context.Context, cr *un
 	return err
 }
 
+// resolveStandbyPosture folds one tick's RAW standby observation
+// through the per-CR goroutine's cross-tick memory (#4901 follow-up).
+// It closes three gaps left by the first #4901 fix (#5094):
+//
+//  1. GONE standby: when the replica Cluster CR is deleted outright
+//     (cluster deleted / region wiped) FindPair fails and the raw
+//     observation reads "no determination" — which preserved the
+//     prior StandbyAvailable=True condition FOREVER (false-green). A
+//     pair whose replica RESOLVED earlier (this controller lifetime,
+//     or per the CR's own stored status) and is now unresolvable is
+//     GONE, not provisioning: after the grace window it degrades with
+//     reason StandbyAbsent.
+//  2. Flap-grace: one failed probe (apiserver hiccup, replica rolling
+//     restart) must not flip the CR Degraded for a single tick.
+//     Unavailable observations only pass through once continuously
+//     unavailable for spec.standbyGraceSeconds; inside the window the
+//     pass makes no determination, preserving the prior condition.
+//     Recovery (available) passes through IMMEDIATELY and resets the
+//     episode clock.
+//  3. Restart amnesia: the memory is session-scoped, so it seeds
+//     lazily from status.standbyReplicaCluster — a controller that
+//     restarts mid-outage (region outages restart controllers) still
+//     recognizes the vanished replica as previously-seen. When the
+//     stored status already says standbyAvailable=false the grace is
+//     treated as already served: a restart never flips a degraded CR
+//     back green.
+func (r *ContinuumReconciler) resolveStandbyPosture(
+	nn types.NamespacedName,
+	cr *unstructured.Unstructured,
+	spec ContinuumSpec,
+	raw cnpg.StandbyObservation,
+	resolveFailed bool,
+) cnpg.StandbyObservation {
+	r.activeContinuumsMu.Lock()
+	defer r.activeContinuumsMu.Unlock()
+	g, ok := r.activeContinuums[nn.String()]
+	if !ok {
+		// No per-CR goroutine registered (race with stopGoroutine).
+		// Without memory there is nothing to grace with — pass the raw
+		// observation through unchanged: degrade-on-observation is the
+		// safe default, silence is not.
+		return raw
+	}
+	grace := time.Duration(spec.StandbyGraceSeconds) * time.Second
+	now := r.now()
+
+	// Seed the session-scoped memory from the CR's stored status once
+	// (controller restart mid-outage).
+	if g.standbyLastSeenReplica == "" && cr != nil {
+		if prev, _, _ := unstructured.NestedString(cr.Object, "status", "standbyReplicaCluster"); prev != "" {
+			g.standbyLastSeenReplica = prev
+			if avail, found, _ := unstructured.NestedBool(cr.Object, "status", "standbyAvailable"); found && !avail {
+				// Already degraded before the restart — the grace
+				// window was served by the previous incarnation.
+				g.standbyUnavailableSince = now.Add(-grace)
+			}
+		}
+	}
+
+	switch {
+	case raw.Known && raw.Available:
+		g.standbyLastSeenReplica = raw.ReplicaCluster
+		g.standbyUnavailableSince = time.Time{}
+		return raw
+	case raw.Known:
+		// Replica CR present but not serving (not Ready / zero ready
+		// instances) — "standby temporarily unreachable".
+		g.standbyLastSeenReplica = raw.ReplicaCluster
+		if g.standbyUnavailableSince.IsZero() {
+			g.standbyUnavailableSince = now
+		}
+		if now.Sub(g.standbyUnavailableSince) < grace {
+			return cnpg.StandbyObservation{}
+		}
+		return raw
+	case resolveFailed && g.standbyLastSeenReplica != "":
+		// A previously-seen replica is no longer resolvable — the
+		// standby cluster is GONE (deleted CR / wiped region), not
+		// provisioning-in-flight.
+		if g.standbyUnavailableSince.IsZero() {
+			g.standbyUnavailableSince = now
+		}
+		if now.Sub(g.standbyUnavailableSince) < grace {
+			return cnpg.StandbyObservation{}
+		}
+		return cnpg.StandbyObservation{
+			Known:          true,
+			Available:      false,
+			Gone:           true,
+			ReplicaCluster: g.standbyLastSeenReplica,
+		}
+	default:
+		// Never-seen pair (provisioning in flight) or a transient
+		// resolve failure before any sighting — genuinely no
+		// determination; never false-alarm.
+		return cnpg.StandbyObservation{}
+	}
+}
+
 // patchStatusFromCR — convenience wrapper for steady-state patches.
 func (r *ContinuumReconciler) patchStatusFromCR(
 	ctx context.Context,
@@ -932,6 +1063,7 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 	if standby.Known {
 		avail := standby.Available
 		su.StandbyAvailable = &avail
+		su.StandbyGone = standby.Gone
 		su.StandbyReplicaCluster = standby.ReplicaCluster
 	}
 	if !lease.ExpiresAt.IsZero() {
@@ -996,6 +1128,13 @@ type statusUpdate struct {
 	// the OBSERVED status agree.
 	StandbyAvailable      *bool
 	StandbyReplicaCluster string
+
+	// StandbyGone — #4901 follow-up: only meaningful when
+	// StandbyAvailable is non-nil false. True = the replica Cluster CR
+	// itself is no longer resolvable (cluster deleted / region wiped) —
+	// the condition reason becomes StandbyAbsent; false = the CR is
+	// present but not serving — reason StandbyUnreachable.
+	StandbyGone bool
 
 	// RejoinRepair — #5125 Defect-2 step-8 outcome. nil = this pass made
 	// no rejoin-repair determination (no divergence observed) — any
@@ -1158,6 +1297,13 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 		if !*su.StandbyAvailable {
 			cond["reason"] = "StandbyUnreachable"
 			cond["message"] = fmt.Sprintf("required synchronous hot-standby (cnpg-pair replica cluster %q) is unreachable; synchronous replication has no standby to acknowledge commits so writes stall and RPO=0 durability is at risk", su.StandbyReplicaCluster)
+			if su.StandbyGone {
+				// #4901 follow-up — the replica Cluster CR itself is no
+				// longer resolvable (cluster deleted / region wiped), a
+				// strictly worse posture than present-but-not-Ready.
+				cond["reason"] = "StandbyAbsent"
+				cond["message"] = fmt.Sprintf("required synchronous hot-standby (cnpg-pair replica cluster %q) is GONE — its Cluster CR is no longer resolvable (cluster deleted or region lost); synchronous replication has no standby to acknowledge commits so writes stall and RPO=0 durability is at risk", su.StandbyReplicaCluster)
+			}
 		}
 		conds = append(conds, cond)
 	}

@@ -58,6 +58,18 @@ type ContinuumSpec struct {
 	// operator.
 	AutoFailover bool
 
+	// StandbyGraceSeconds — #4901 follow-up: how long the required
+	// synchronous hot-standby must be CONTINUOUSLY unavailable (or its
+	// Cluster CR unresolvable after having been seen) before the
+	// controller degrades the CR and writes StandbyAvailable=False. A
+	// brief flap (one failed probe, apiserver hiccup, rolling restart)
+	// inside the window makes no determination — the prior condition
+	// is preserved. Recovery always surfaces immediately. Read from
+	// spec.standbyGraceSeconds (the CRD's spec preserves unknown
+	// fields); absent = DefaultStandbyGraceSeconds, explicit 0 =
+	// degrade on first observation.
+	StandbyGraceSeconds int
+
 	// Mechanism — the switchover state-promotion mechanism
 	// (`cnpg-pair` default | `raft-transition`). Read from
 	// spec.switchover.mechanism; mirrors the Blueprint topology
@@ -149,6 +161,13 @@ func parseSpec(cr *unstructured.Unstructured) (ContinuumSpec, error) {
 	}
 
 	out.AutoFailover, _, _ = unstructured.NestedBool(cr.Object, "spec", "autoFailover")
+
+	// #4901 follow-up — standby-absent grace window. Absent field =
+	// default; explicit 0 = degrade on first unavailable observation.
+	out.StandbyGraceSeconds = DefaultStandbyGraceSeconds
+	if v, ok, _ := unstructured.NestedInt64(cr.Object, "spec", "standbyGraceSeconds"); ok {
+		out.StandbyGraceSeconds = int(v)
+	}
 
 	out.CNPGPair, _, _ = unstructured.NestedString(cr.Object, "spec", "cnpgPair", "name")
 	out.CNPGNamespace, _, _ = unstructured.NestedString(cr.Object, "spec", "cnpgPair", "namespace")
