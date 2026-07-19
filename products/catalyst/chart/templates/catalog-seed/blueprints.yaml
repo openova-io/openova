@@ -2362,7 +2362,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.139"
+    version: "1.4.140"
   topology:
     supported:
     - active-passive
@@ -4333,7 +4333,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.47"
+  version: "1.2.48"
   visibility: unlisted
   card:
     title: "Gitea"
@@ -4356,7 +4356,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-gitea
-    version: "1.2.47"
+    version: "1.2.48"
   topology:
     supported:
       - active-hot-standby
@@ -5041,7 +5041,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.145"
+  version: "0.1.146"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5058,7 +5058,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.145"
+    version: "0.1.146"
   topology:
     supported:
       - singleton

@@ -179,7 +179,13 @@ spec:
       #   (slot 28) rolls gitea on any admin-secret change and keepUpdated re-syncs
       #   the DB password — closes the Pillar-5 cutover step-06 demirror 401 gap
       #   (live hw232). Refs #4885 #3379 #830.
-      version: 1.2.47
+      # 1.2.48 — #5262: admin-secret vanish-proof password stickiness — on a
+      #   re-render that finds the source Secret absent (#5214 vanish class)
+      #   the password is restored from the reflector mirror(s)
+      #   (giteaAdmin.mirrorNamespaces) instead of minting a fresh one that
+      #   drifts from Gitea's DB (live hw277: cutover step-10 clone 401 /
+      #   git exit 128). Refs #5262 #5214 #3379.
+      version: 1.2.48
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

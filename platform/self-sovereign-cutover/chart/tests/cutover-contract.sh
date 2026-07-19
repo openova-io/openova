@@ -2833,16 +2833,20 @@ echo "[cutover-contract] Case 63: #5214 gitea-admin-secret self-heal initContain
 # initContainer that re-copies gitea/gitea-admin-secret -> catalyst/
 # gitea-admin-secret at STEP-EXECUTION time on each consuming step, stamping
 # helm.sh/resource-policy: keep so it cannot be pruned again. This Case guards
-# BOTH that the init is present on all six consumers AND that it is NOT applied
+# BOTH that the init is present on all consumers AND that it is NOT applied
 # to steps that do not consume the secret (anti over-application / theater).
+# #5262 — steps 10/11 LEFT the consumer set: their git clone/push now
+# authenticates with the step-09 minted `catalyst-gitea-token` PAT (Case 67),
+# so they no longer reference gitea-admin-secret at all and must NOT carry
+# the self-heal init (it would keep a wedge-path on a secret they don't use).
 # The 11-mirror-resync CronJob is severance-gated OFF by default, so render it
 # in with --set mirrorResync.enabled=true.
 helm template smoke-selfheal . --set mirrorResync.enabled=true > "$TMP/render-selfheal.yaml"
 sh_fail=0
-consumers="cutover-step-06-helmrepository-patches cutover-step-07-catalyst-api-env-patch cutover-step-09-gitea-token-mint cutover-step-10-vcluster-registry-pivot cutover-step-11-crossplane-provider-pivot"
-non_consumers="cutover-step-01-gitea-mirror cutover-step-02-harbor-projects cutover-step-03-harbor-prewarm cutover-step-05-flux-gitrepository-patch cutover-step-08-egress-block-test"
+consumers="cutover-step-06-helmrepository-patches cutover-step-07-catalyst-api-env-patch cutover-step-09-gitea-token-mint"
+non_consumers="cutover-step-01-gitea-mirror cutover-step-02-harbor-projects cutover-step-03-harbor-prewarm cutover-step-05-flux-gitrepository-patch cutover-step-08-egress-block-test cutover-step-10-vcluster-registry-pivot cutover-step-11-crossplane-provider-pivot"
 if command -v yq >/dev/null 2>&1; then
-  # 5 job-mode consumers carry the init inside the .data.podSpec block scalar
+  # 3 job-mode consumers carry the init inside the .data.podSpec block scalar
   # (parsed by catalyst-api); re-parse that string and assert the init exists.
   for step in $consumers; do
     if ! yq "select(.kind==\"ConfigMap\" and .metadata.name==\"$step\") | .data.podSpec" "$TMP/render-selfheal.yaml" \
@@ -2850,12 +2854,13 @@ if command -v yq >/dev/null 2>&1; then
       echo "FAIL: consuming step $step missing the #5214 gitea-admin-secret self-heal initContainer" >&2; sh_fail=1
     fi
   done
-  # 6th consumer: the mirror-resync CronJob (a real resource).
+  # 4th consumer: the mirror-resync CronJob (a real resource).
   if ! yq 'select(.kind=="CronJob" and .metadata.name=="gitea-mirror-resync") | [.spec.jobTemplate.spec.template.spec.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' "$TMP/render-selfheal.yaml" | grep -qx true; then
     echo "FAIL: mirror-resync CronJob missing the #5214 gitea-admin-secret self-heal initContainer" >&2; sh_fail=1
   fi
-  # Anti over-application: steps that read harbor/ghcr (or no) secret must NOT
-  # carry the gitea self-heal init.
+  # Anti over-application: steps that read harbor/ghcr (or no) secret — and
+  # the #5262 PAT-authenticated steps 10/11 — must NOT carry the gitea
+  # self-heal init.
   for step in $non_consumers; do
     if yq "select(.kind==\"ConfigMap\" and .metadata.name==\"$step\") | .data.podSpec" "$TMP/render-selfheal.yaml" \
          | yq '[.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' - | grep -qx true; then
@@ -2863,10 +2868,10 @@ if command -v yq >/dev/null 2>&1; then
     fi
   done
 else
-  # No yq: assert exactly 6 init entries render (one per consumer).
+  # No yq: assert exactly 4 init entries render (one per consumer).
   n=$(grep -cE '^[[:space:]]*- name: ensure-gitea-admin-secret[[:space:]]*$' "$TMP/render-selfheal.yaml")
-  if [ "$n" -ne 6 ]; then
-    echo "FAIL: expected 6 self-heal initContainers (one per gitea-admin-secret consumer), got $n" >&2; sh_fail=1
+  if [ "$n" -ne 4 ]; then
+    echo "FAIL: expected 4 self-heal initContainers (one per gitea-admin-secret consumer), got $n" >&2; sh_fail=1
   fi
 fi
 # The applied copy MUST carry the #5214 provenance annotation (paired with
@@ -2875,7 +2880,7 @@ if ! grep -q 'gitea-admin-secret-cutover-ns-selfheal-5214' "$TMP/render-selfheal
   echo "FAIL: self-heal init missing the #5214 provenance annotation / resource-policy keep pairing" >&2; sh_fail=1
 fi
 if [ "$sh_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#5214: self-heal init on all 6 gitea-admin-secret consumers, absent from the 5 non-consumers, applied copy stamped resource-policy: keep)"
+echo "  PASS (#5214: self-heal init on all 4 gitea-admin-secret consumers, absent from the 7 non-consumers incl. the #5262 PAT-authenticated steps 10/11, applied copy stamped resource-policy: keep)"
 
 echo "[cutover-contract] Case 64: #5215 step-07 NEVER rolls the EVS/hcloud CSI driver — both the additionalHRs HR-pivot loop AND the Phase 4 pod-spec sweep exclude it (rolling csi-evs-node drops NodeStage globalmount for in-use EVS PVCs → catalyst-api wedges; step-04 containerd rewrite covers the pull; step-08 excludes the same driver #5074)"
 # Root-caused live hw271: step-07 rolled the csi-evs-node DaemonSet via TWO
@@ -3178,5 +3183,57 @@ if ! grep -A1 'name: UNION_WARM_ON_DRIFT' "$TMP/r06_5237_off.yaml" | grep -q 'va
 fi
 if [ "$c66_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5237: step-06 Phase-3a top-up-warms a sampled chart absent from local Harbor [catalog-latest drifted ahead of step-03 prewarm] from the still-reachable upstream — helm pull upstream [verify ON] + helm push local openova-io — then re-probes; bounded per chart:ver; the REFUSE-to-strip FATAL still guards a chart unpullable from both local and upstream; operator-toggleable via helmReadinessProbe.unionWarmOnDrift)"
+
+echo "[cutover-contract] Case 67: #5262 steps 10/11 git-persist authenticates with the step-09 minted PAT, never the gitea admin password"
+# Live hw277 (dep 1708c340ffc0e3f2, 2026-07-19): a mid-cutover bp-gitea
+# re-render rotated gitea-admin-secret while Gitea's DB kept the install-time
+# password -> step-10's Phase-2 git clone (BasicAuth gitea_admin:<secret pw>)
+# 401'd and git exited 128 in ~1s, wedging the chain at step-10. The durable
+# fix: steps 10/11 source their clone/push credential from the step-09 minted
+# `catalyst-gitea-token` PAT (fresh-per-cutover by construction, direct local
+# sha1 lookup — immune to admin-password drift AND to the external
+# openova-sso apiAuth hang), exactly the step-01 #3584 / step-05 #3536
+# pattern. This Case guards, per step:
+#   (a) the PAT source env triple renders (catalyst-system/catalyst-gitea-token.token);
+#   (b) the runtime PAT read loop + fail-loud empty-PAT FATAL are present;
+#   (c) the git remote URL embeds ${GITEA_PAT}, and NO ${GITEA_PASSWORD}
+#       reference survives anywhere in the step (anti-regression);
+#   (d) GITEA_USERNAME is a plain value from gitRepositorySecretRef.username,
+#       NOT a gitea-admin-secret secretKeyRef.
+c67_fail=0
+for tpl in 10-vcluster-registry-pivot-job.yaml 11-crossplane-provider-pivot-job.yaml; do
+  helm template smoke . --show-only "templates/${tpl}" > "$TMP/r_5262_${tpl%%-*}.yaml"
+  F="$TMP/r_5262_${tpl%%-*}.yaml"
+  # (a) PAT source env triple.
+  if ! grep -A1 'name: PAT_SOURCE_NAMESPACE' "$F" | grep -q 'value: "catalyst-system"'; then
+    echo "FAIL: ${tpl} missing PAT_SOURCE_NAMESPACE=catalyst-system env (#5262)" >&2; c67_fail=1
+  fi
+  if ! grep -A1 'name: PAT_SOURCE_SECRET_NAME' "$F" | grep -q 'value: "catalyst-gitea-token"'; then
+    echo "FAIL: ${tpl} missing PAT_SOURCE_SECRET_NAME=catalyst-gitea-token env (#5262)" >&2; c67_fail=1
+  fi
+  if ! grep -A1 'name: PAT_SOURCE_KEY' "$F" | grep -q 'value: "token"'; then
+    echo "FAIL: ${tpl} missing PAT_SOURCE_KEY=token env (#5262)" >&2; c67_fail=1
+  fi
+  # (b) runtime PAT read + fail-loud FATAL on an empty token byte.
+  if ! grep -qF 'jsonpath={.data.${PAT_SOURCE_KEY}}' "$F"; then
+    echo "FAIL: ${tpl} missing the runtime kubectl PAT read (#5262)" >&2; c67_fail=1
+  fi
+  if ! grep -qF 'refusing to clone with the admin password' "$F"; then
+    echo "FAIL: ${tpl} missing the fail-loud empty-PAT FATAL — an empty token must NOT silently fall back to any other credential (#5262)" >&2; c67_fail=1
+  fi
+  # (c) PAT-embedded remote URL; the admin password is fully severed.
+  if ! grep -qF ':${GITEA_PAT}@' "$F"; then
+    echo "FAIL: ${tpl} git remote URL does not embed the PAT (#5262)" >&2; c67_fail=1
+  fi
+  if grep -q 'GITEA_PASSWORD' "$F"; then
+    echo "FAIL: ${tpl} still references GITEA_PASSWORD — the gitea admin password can rotate out from under the DB and 401 the clone (#5262 regression)" >&2; c67_fail=1
+  fi
+  # (d) username is a plain value, not an admin-secret secretKeyRef.
+  if grep -A3 'name: GITEA_USERNAME' "$F" | grep -q 'secretKeyRef'; then
+    echo "FAIL: ${tpl} GITEA_USERNAME still sourced from a secretKeyRef — must be the plain gitRepositorySecretRef.username value (#5262)" >&2; c67_fail=1
+  fi
+done
+if [ "$c67_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5262: steps 10/11 clone/push with the step-09 minted catalyst-gitea-token PAT — runtime read, fail-loud on empty, PAT-embedded remote URL, zero GITEA_PASSWORD residue)"
 
 echo "[cutover-contract] All gates green."
