@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T08:30:04Z` |
+| Last refreshed | `2026-07-19T08:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -234,6 +234,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T08:36 | [#5249](https://github.com/openova-io/openova/pull/5249) | #5223 | fix(console+billing): BSS Vouchers plan-tier — issuance sele |
 | 2026-07-19T08:14 | [#5248](https://github.com/openova-io/openova/pull/5248) | #5245 | fix(cnpg-pair): region-kill FAILBACK — demote+re-clone regio |
 | 2026-07-19T07:49 | [#5246](https://github.com/openova-io/openova/pull/5246) | #5244 | fix: gateway + console ELB backend pools span ALL regions —  |
 | 2026-07-19T06:49 | [#5243](https://github.com/openova-io/openova/pull/5243) | #5225 | fix(pool-domain-manager): registry.<fqdn> resolves the reach |
@@ -253,6 +254,7 @@ flowchart LR
 | 2026-07-18T14:18 | [#5219](https://github.com/openova-io/openova/pull/5219) | #5218 | fix(cnpg-pair): dr-promoter durable-suspend race — same-tick |
 | 2026-07-18T13:34 | [#5217](https://github.com/openova-io/openova/pull/5217) | #4996 | fix(cutover): step-07 must not roll the EVS/hcloud CSI drive |
 | 2026-07-18T13:09 | [#5216](https://github.com/openova-io/openova/pull/5216) | #5214 | fix(cutover): self-heal gitea-admin-secret at step execution |
+| 2026-07-19T08:31 | [#5212](https://github.com/openova-io/openova/pull/5212) | #5164 | fix(console): Edit-IaC editor adopts the async committed see |
 | 2026-07-18T09:12 | [#5211](https://github.com/openova-io/openova/pull/5211) | #5210 | fix(catalyst-api): refresh in-cluster SA token on 401 so pos |
 | 2026-07-18T06:30 | [#5209](https://github.com/openova-io/openova/pull/5209) | #5204 | fix(cutover): authenticate the Crossplane package pull again |
 | 2026-07-18T05:48 | [#5208](https://github.com/openova-io/openova/pull/5208) | #5206 | fix(mcp): publish mcp.<sov-fqdn> DNS + reject Org-scoped tok |
@@ -262,8 +264,6 @@ flowchart LR
 | 2026-07-18T04:29 | [#5198](https://github.com/openova-io/openova/pull/5198) | #5125 | fix: Continuum sequencer step-8 re-clone-on-divergence (#512 |
 | 2026-07-18T00:53 | [#5197](https://github.com/openova-io/openova/pull/5197) | #5187 | fix(catalyst): render sovereign-tls-vars ConfigMap on every  |
 | 2026-07-18T00:29 | [#5196](https://github.com/openova-io/openova/pull/5196) | #4975 | fix(self-sovereign-cutover): self-heal step-08 offline-mirro |
-| 2026-07-18T00:06 | [#5195](https://github.com/openova-io/openova/pull/5195) | #5191 | docs(uat): hw269 fresh-prov fix-train validation — 64 ✅ (mar |
-| 2026-07-17T18:44 | [#5192](https://github.com/openova-io/openova/pull/5192) | #5191 | fix(cutover): step-04 registry-pivot verifies curl+jq and fa |
 
 ---
 
