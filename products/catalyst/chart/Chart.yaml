@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1180 — #5267 (Refs #5267 #5246 #4275, hw277 G12 region-kill: console
+#   404 during region-a outage): NO template change — adds the
+#   tests/api-single-writer-dr-contract.sh CI gate that makes the
+#   control-plane DR posture a deliberate, tested contract. catalyst-api is
+#   primary-region-only by design (G2 #2574 SECONDARY_HR_SUSPEND; RWO
+#   zone-scoped EVS PVCs backing the single-writer flat-file deployment
+#   store; no leader election), so during a primary-region kill the gateway
+#   fails over (#5246, envoy answers) and console/api/marketplace return
+#   404-with-`server: envoy` until failback — documented in docs/DOD.md §6
+#   "Service-plane contract during the kill" + docs/ARCHITECTURE.md §10.7.
+#   The gate fails any future replicas>1 / strategy!=Recreate / RWX-widening
+#   change that skips the persistence redesign (DB-backed store + leader
+#   election). Lockstep w/ bootstrap-kit slot 13 pin.
 # 1.4.1151 — #5187 (Refs #5187, region-b sovereign-tls Kustomization
 #   Ready=False on a 2-region Sovereign): DELETES
 #   templates/sovereign-tls-vars-cm.yaml. Root cause: this chart's HR is
@@ -3496,7 +3509,7 @@ name: bp-catalyst-platform
 #   footprint to fit the 4-CPU `plan-quota` (the 0.4.21 oidc-config post-install
 #   hook requested a 500m CPU limit into a namespace with only 250m of quota
 #   headroom → the hook pod was NEVER created → HR timeout → no HTTPRoute → 404).
-version: 1.4.1179
+version: 1.4.1180
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8

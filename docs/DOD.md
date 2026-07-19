@@ -759,6 +759,57 @@ region kill. Any gap, replay, or skipped value = failed gate.
   **only acceptable evidence**. Operator-walk screenshots alone do not
   satisfy D31.
 
+### Service-plane contract during the kill — control-plane availability (deliberate, #5267)
+
+Pillar 3's DR contract is **data-plane** continuity: CNPG promotion, customer
+workloads, and the gateway VIP in the surviving region. The **Catalyst
+control plane** (catalyst-api serving console / api / marketplace in
+`catalyst-system`) is **primary-region-only by design** and is NOT part of
+the failover contract. This was decided twice, independently:
+
+- **G2 (#2574)**: `bp-catalyst-platform` installs only where
+  `sovereign_region_role == "primary"` — bootstrap-kit slot 13 renders
+  `suspend: true` on every secondary CP (`SECONDARY_HR_SUSPEND`).
+- **Chart design**: catalyst-api is single-replica with
+  `strategy: Recreate`, persisting the deployment store (tofu workdirs,
+  flat-file JSON deployment records) and the k8scache snapshots on two
+  **RWO EVS PVCs** whose PVs carry zone-scoped nodeAffinity — the volume
+  cannot attach in the other region, so a region-b replica cannot mount the
+  store. The store is single-writer flat-file with no leader election; a
+  region-b replica with its own PVC would fork the deployment/tofu state
+  (split-brain over infrastructure truth — double-provision / mis-wipe
+  hazards), and catalyst-api's in-process singleton loops (phase-1 watch,
+  deploy reconciler, cutover driver) would run twice.
+
+**Expected observable behavior during a primary-region kill** (live-confirmed
+hw277 G12, 2026-07-19 — #5267):
+
+| Surface | During outage | On failback | Meaning |
+|---|---|---|---|
+| Gateway VIP (`https://console.<sovereign-fqdn>/`) | **HTTP 404 with `server: envoy`** | HTTP 200 | TLS terminates on the surviving region's envoy (#5246 both-region ELB pool); the 404 proves the gateway is alive and the control-plane backend is deliberately absent |
+| Customer data plane (tenant Applications, CNPG) | Serving from the surviving region | Serving | The actual Pillar-3 contract |
+| Console / api / marketplace (control plane) | Unreachable — the 404 above | Returns automatically, no manual action | Control plane restarts with the primary region |
+
+A whole-outage connection **timeout / black-hole** on the gateway VIP is a
+**FAIL** (#5244 shape — ELB pool was primary-region-only). The
+404-with-`server: envoy` signature is the **PASS** signature for the
+service-plane check: it distinguishes "gateway failed over, control plane
+deliberately absent" from "gateway dead".
+
+During the outage the sovereign-admin observes/drives via `kubectl` against
+the surviving region's cluster; D31 itself needs no console — the failover
+is machine-driven (`failover-controller` + counter writer, per the hard
+requirements above).
+
+Control-plane HA is **deferred with reason**: it requires a persistence
+redesign (deployment store moved off RWO-EVS flat files onto a DR-replicated
+database, plus leader election for the singleton loops) — not a
+replica-count bump. The contract is CI-gated by
+`products/catalyst/chart/tests/api-single-writer-dr-contract.sh`, which
+fails any chart change that raises catalyst-api replicas, drops
+`strategy: Recreate`, or widens the PVC access mode without revisiting this
+section.
+
 ---
 
 ## §7 — Pillar 5 sovereignty cutover
