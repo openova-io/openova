@@ -143,6 +143,32 @@ func TestGenerateAdoptionClaims_hw173_RealELB(t *testing.T) {
 	}
 }
 
+// #5270 seam contract: on a kom4dc 2-VPC mimic the claim's region IS the
+// pseudo-region (me-east-215-a / -b) — that value is the Kubernetes-side
+// placement/label/region-affinity identity and the seeder must pass it
+// through VERBATIM. The mimic->real mapping (me-east-215-a -> me-east-215)
+// happens ONLY where the API endpoint host is composed: the cloudadoption
+// module's hw_api_region local (platform/crossplane-claims chart 1.3.4,
+// guarded by scripts/check-adoption-endpoint-region.sh). Stripping the
+// suffix HERE would erase the claim's placement identity — this test pins
+// the seam so #5270 is never "re-fixed" on the wrong side.
+func TestGenerateAdoptionClaims_MimicRegionKeptOnClaim(t *testing.T) {
+	out, err := GenerateAdoptionClaims([]byte(hw173StateFixture), "hw278.omani.works", "huawei", "me-east-215-a")
+	if err != nil {
+		t.Fatalf("GenerateAdoptionClaims: %v", err)
+	}
+	got := string(out)
+
+	if !strings.Contains(got, "region: me-east-215-a") {
+		t.Errorf("claim must keep the mimic pseudo-region verbatim (placement/labels contract); got:\n%s", got)
+	}
+	// Every claim carries the mimic region — none may be silently mapped
+	// to the real region by the seeder.
+	if strings.Contains(got, "region: me-east-215\n") {
+		t.Errorf("seeder must NOT strip the mimic -a suffix — endpoint mapping lives in the cloudadoption module, not the claim")
+	}
+}
+
 func TestGenerateAdoptionClaims_Deterministic(t *testing.T) {
 	a, _ := GenerateAdoptionClaims([]byte(hw173StateFixture), "hw173.omani.works", "huawei", "me-east-215")
 	b, _ := GenerateAdoptionClaims([]byte(hw173StateFixture), "hw173.omani.works", "huawei", "me-east-215")
