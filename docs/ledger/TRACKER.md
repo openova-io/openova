@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-18T23:45:03Z` |
+| Last refreshed | `2026-07-19T00:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 30 |
+| Open issues | 31 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 30 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 31 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 30 open items (clickable table)
+### All 31 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -230,6 +230,7 @@ flowchart LR
 | [#5225](https://github.com/openova-io/openova/issues/5225) | registry.<sovereign-fqdn> wildcard resolves to region-a cp1 INTERNAL-IP (cross-V | Other |
 | [#5230](https://github.com/openova-io/openova/issues/5230) | fresh 2-region prov: region-b consumer hub-secrets gated behind full-mesh flip � | Other |
 | [#5232](https://github.com/openova-io/openova/issues/5232) | cutover Phase A4 (#5226): Harbor proxy-cache never records TAGS for pulled-throu | Other |
+| [#5234](https://github.com/openova-io/openova/issues/5234) | funnel purchased-app deploy: per-Org repo commit gitea ref-race persists through | Other |
 
 ---
 
@@ -237,6 +238,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-18T23:45 | [#5233](https://github.com/openova-io/openova/pull/5233) | #5226 | fix(cutover): pivot the Crossplane xpkg leg to DIGEST refs e |
 | 2026-07-18T23:16 | [#5231](https://github.com/openova-io/openova/pull/5231) | #3241 | fix(catalyst-api): sync shared-pg consumer hub secrets pre-m |
 | 2026-07-18T20:32 | [#5229](https://github.com/openova-io/openova/pull/5229) | #4914 | fix(console): voucher-code inline policy + autogen path, rec |
 | 2026-07-18T20:32 | [#5228](https://github.com/openova-io/openova/pull/5228) | #5219 | fix(bp-postgres,continuum): single-source pair role password |
@@ -266,7 +268,6 @@ flowchart LR
 | 2026-07-17T16:18 | [#5183](https://github.com/openova-io/openova/pull/5183) | #3374 | docs(uat): hw268 row40 ✅ marketplace storefront + PROD LE ce |
 | 2026-07-17T14:30 | [#5182](https://github.com/openova-io/openova/pull/5182) | #5126 | fix(preflight): wipe→fire EIP-pool cooldown gate — regional  |
 | 2026-07-17T13:37 | [#5180](https://github.com/openova-io/openova/pull/5180) | #5104 | docs(session): hw266 keystone evidence — cc=true + funnel #5 |
-| 2026-07-17T13:34 | [#5179](https://github.com/openova-io/openova/pull/5179) | #5137 | fix(cnpg-pair): dr-promoter region-A liveness gate + durable |
 
 ---
 
