@@ -269,7 +269,15 @@ spec:
       # side=primary dr-failback actor demotes + re-clones region-A onto
       # region-B's promoted line (pg_basebackup over the new `-replica-mesh`
       # global Service; shared client CA so region-A's own cert authenticates).
-      version: 0.2.18
+      # 0.2.19 (#5245): dr-failback TL-EQUALITY deadlock + fail-loud peer
+      # probe. hw277 G12: region-A's os-start HA failover bumped its timeline
+      # to the SAME number as region-B's promote (TL2==TL2) — the strict
+      # TL_peer>TL_local gate was structurally unsatisfiable → 57-minute
+      # split-brain until region-B's TL-ahead re-promote broke the tie. TL
+      # gate now `>=` (the sync fence is the authority proof) + every peer-
+      # probe failure reason (NXDOMAIN/unreachable/in-recovery/TL-behind)
+      # logs loudly. Script-only; substitutes unchanged.
+      version: 0.2.19
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

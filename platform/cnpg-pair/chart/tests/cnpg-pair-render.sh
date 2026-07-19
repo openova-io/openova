@@ -1104,8 +1104,30 @@ grep -q 'pg_stat_replication' "$TMP/fb-signals.sh" || {
   echo "FAIL: #5245 signals must check the pinned sync standby's presence in pg_stat_replication." >&2; exit 1; }
 grep -qE 'value: "[a-z0-9-]+-replica-mesh"' "$TMP/cnp-primary.yaml" || {
   echo "FAIL: #5245 PEER_MESH_HOST must be the templated -replica-mesh alias, not hardcoded." >&2; exit 1; }
-grep -q '"${_tl_peer}" -gt "${_tl_local}"' "$TMP/fb-signals.sh" || {
-  echo "FAIL: #5245 signals must require TL_peer STRICTLY greater than TL_local (the antisymmetric authority proof)." >&2; exit 1; }
+# 0.2.19 (#5245 hw277): the TL gate is EQUAL-OR-GREATER, never strict.
+# region-A's os-start HA failover bumped it to the SAME TL as region-B's
+# promote (TL2==TL2) and the strict -gt gate sat in a silent 57-minute
+# split-brain; the sync fence (a render precondition), not the TL number,
+# is the authority proof — side gating carries the single-actor asymmetry.
+grep -q '"${_tl_peer}" -ge "${_tl_local}"' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must accept TL_peer EQUAL-OR-GREATER than TL_local (hw277: strict > deadlocks when the recovered region's local failover matches the survivor's TL)." >&2; exit 1; }
+if grep -q '"${_tl_peer}" -gt "${_tl_local}"' "$TMP/fb-signals.sh"; then
+  echo "FAIL: #5245 signals must NOT gate the peer-ahead proof on a STRICT TL comparison (the hw277 TL-equality deadlock)." >&2; exit 1; fi
+grep -q 'tl-behind' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must explicitly detect the peer-TL-BEHIND geometry and refuse it loudly (fail-safe, RUNBOOKS §6.1)." >&2; exit 1; }
+# 0.2.19 (#5245): the peer probe must FAIL LOUD — every failure reason
+# (NXDOMAIN by name, unreachable, in-recovery, TL-unreadable, TL-behind)
+# logs on its transition + a periodic heartbeat. hw277: 57 minutes of
+# total silence after 'loop started' made a TL deadlock indistinguishable
+# from a DNS wedge.
+grep -q 'peer_report' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must carry the fail-loud peer-probe reason ladder (peer_report)." >&2; exit 1; }
+grep -q 'NOT RESOLVABLE' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must log a loud NXDOMAIN diagnostic naming the unresolvable peer host." >&2; exit 1; }
+grep -q 'getent hosts' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must resolve the peer host explicitly (getent) so NXDOMAIN surfaces separately from unreachability." >&2; exit 1; }
+grep -q 'peer probe STILL' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 signals must re-log a persisting probe-failure reason (heartbeat) — a wedge must never go silent." >&2; exit 1; }
 
 # (e) DURABLE SEAM: the actor demotes through the Kustomization substitute
 #     (SOVEREIGN_CNPG_PAIR_DEMOTED) with a CUSTOM field manager — never a raw

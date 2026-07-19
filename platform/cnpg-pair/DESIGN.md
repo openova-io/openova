@@ -367,12 +367,22 @@ line.** `side=primary` renders a `<fullname>-dr-failback` Deployment
 action, so nothing renders). Signals: local cluster WRITABLE on TL n +
 the pinned sync standby ABSENT from `pg_stat_replication` (walsender
 rows run AS `streaming_replica` — same-user rows are fully visible) +
-the peer REACHABLE, WRITABLE and on a strictly HIGHER timeline over
+the peer REACHABLE, WRITABLE and on an EQUAL-OR-HIGHER timeline over
 the new `-replica-mesh` global Service (the reverse mirror of
 `-primary-mesh`: a CNPG-managed `rw` additional Service on the replica
-Cluster + a zero-backend stub on cluster-A). `TL_peer > TL_local` is
-antisymmetric — only the stale side can ever see peer-ahead, so the
-two regions' actors can never both act. After the proof holds
+Cluster + a zero-backend stub on cluster-A). `TL_peer >= TL_local`,
+never strict (chart 0.2.19, #5245 hw277): region-A's os-start recovery
+can run a LOCAL HA failover that bumps its timeline to the SAME number
+as region-B's promote (TL2 == TL2 live-observed — a 57-minute
+split-brain under the earlier strict gate). Timeline numbers on two
+independently-promoted lines are not ordered lineage, so equality
+carries no authority signal; the sync fence is the authority proof,
+and the single-actor asymmetry rests on side gating (only cluster-A
+renders a dr-failback actor) plus the dr-promoter's anti-flap. A peer
+TL strictly BEHIND local is refused loudly (fail-safe, RUNBOOKS §6.1),
+and every peer-probe failure reason (NXDOMAIN / unreachable /
+in-recovery / TL-unreadable / TL-behind) logs on its transition with a
+~5-minute heartbeat while it persists. After the proof holds
 `peerAheadHoldSeconds`, the actor flips
 `SOVEREIGN_CNPG_PAIR_DEMOTED="true"`, waits for kustomize to render
 the demoted shape into the HR (primary Cluster CR as a replica cluster

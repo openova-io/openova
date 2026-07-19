@@ -43,13 +43,33 @@ fence IS the authority proof.
      on timeline N, the pinned sync standby ABSENT from
      pg_stat_replication (walsender rows run AS streaming_replica, so
      the probe role sees its own rows — no #5239 privilege trap), AND
-     the peer REACHABLE + WRITABLE + on a HIGHER timeline over the
-     `-replica-mesh` global Service. Timelines come from IDENTIFY_SYSTEM
-     over a replication-protocol connection — the one surface
-     streaming_replica is guaranteed to have (pg_hba `hostssl
+     the peer REACHABLE + WRITABLE + on an EQUAL-OR-HIGHER timeline
+     over the `-replica-mesh` global Service. Timelines come from
+     IDENTIFY_SYSTEM over a replication-protocol connection — the one
+     surface streaming_replica is guaranteed to have (pg_hba `hostssl
      replication streaming_replica all cert`), no pg_control privileges
-     involved. TL_peer > TL_local is antisymmetric: only the stale side
-     can ever see peer-ahead, so two actors can never both act.
+     involved.
+     TL_peer >= TL_local, NOT strictly greater (chart 0.2.19, #5245
+     hw277 live-proof, dep 1708c340ffc0e3f2 2026-07-19): region-A's
+     os-start recovery ran a LOCAL HA failover that bumped its own
+     timeline to the SAME number as region-B's promote (TL2 == TL2), so
+     the 0.2.18 strict `>` gate was STRUCTURALLY unsatisfiable — both
+     regions served writes for 57 minutes (persistent split-brain,
+     divergence-probe-proven) until region-B's independent TL-ahead
+     re-promote (TL3) happened to break the tie at 18:33:57Z, after
+     which the whole demote → wedge-escalation → re-clone chain ran
+     clean. Equality is safe to act on: a WRITABLE peer behind
+     `-replica-mesh` (selectorType rw of the REPLICA Cluster CR) proves
+     region-B promoted, the local pinned-sync-standby ABSENCE proves
+     the fork, and the sync fence (FIRST 1 + dataDurability:required —
+     a render precondition of this actor) proves region-A has acked
+     nothing since. Timeline numbers on two INDEPENDENTLY-promoted
+     lines are not ordered lineage — equality carries no authority
+     signal either way; the fence does. Single-actor asymmetry never
+     rested on the TL compare: only cluster-A renders a dr-failback
+     actor (side gating) and the dr-promoter never demotes (anti-flap).
+     A peer TL strictly BEHIND local stays fail-safe: loud log, no
+     action (RUNBOOKS §6.1).
   2. DECIDE (actor container): the peer-ahead evidence must hold
      CONTINUOUSLY for failback.peerAheadHoldSeconds (120s), never
      during the startup grace.
@@ -115,12 +135,28 @@ Same delivery contract as the dr-promoter: a region-local DR actor is
 a continuous Deployment loop; a CronJob's scheduler is the regional
 control plane and does not reliably resume around region churn.
 
+FAIL-LOUD PEER PROBE (#5245, chart 0.2.19)
+------------------------------------------
+Every peer-probe failure REASON — host NOT RESOLVABLE (NXDOMAIN) /
+unreachable / in recovery / timeline unreadable / TL behind — is
+logged on its transition and re-logged every 30 ticks (~5 min) while
+it persists. On hw277 the loop emitted NOTHING for 57 minutes after
+'loop started' while the probe failed every tick on TL equality; from
+the outside that silence was indistinguishable from a DNS wedge (the
+17:48Z walk verdict blamed an NXDOMAIN on the bare `-replica-mesh`
+name — in fact the peer-mesh-service.yaml stub had existed on
+cluster-A since install, 14:56:30Z, and the probe reached the peer
+over that exact bare name the moment the TL relation admitted it;
+the `.openstacklocal` fall-through observed was a NODE-vantage
+resolver artifact, not the pod's). A silent probe loop is a defect:
+every wedge must name itself in the logs immediately.
+
 WHAT IT NEVER DOES
 ------------------
 Never patches a live Cluster CR (#5125-D1 — drift-correction reverts
 it). Never deletes PVCs directly (owner-GC only), never any object but
 the one resourceNames-pinned Cluster CR. Never acts when the peer is
-unreachable, in recovery, or on an equal/lower timeline — a mere mesh
+unreachable, in recovery, or on a LOWER timeline — a mere mesh
 partition, a healthy pair, or the pre-promote outage window all read
 as "no peer-ahead proof" and clear the hold clock. Never re-promotes
 region-B (that is the dr-promoter's TL-ahead re-promote, on
@@ -378,18 +414,68 @@ spec:
                 rm -f /shared/peer-ahead-since
               }
               clear_wedge() { rm -f /shared/wedge-since; }
-              # probe_peer_ahead <tl_local> — verifies peer REACHABLE +
-              # WRITABLE + TL strictly higher; on success touches the
-              # freshness marker the actor re-checks before EVERY
-              # destructive step. Any failure → non-zero (caller clears).
+              # peer_report <key> <message> — #5245 FAIL-LOUD probe
+              # diagnostics (chart 0.2.19). hw277: the loop sat 57 min
+              # after 'loop started' with ZERO output while the peer
+              # probe failed every tick (TL2==TL2 under the then-strict
+              # -gt gate) — a silent wedge indistinguishable from an
+              # NXDOMAIN from outside. Every probe REASON now logs on
+              # its transition and re-logs every 30 ticks (~5 min at
+              # the 10s interval) while a non-ok reason persists.
+              peer_report() {
+                _k="$1"; _m="$2"
+                _prev=$(cat /shared/peer-probe-reason 2>/dev/null || echo "")
+                if [ "${_k}" != "${_prev}" ]; then
+                  echo "${_k}" > /shared/peer-probe-reason
+                  echo 0 > /shared/peer-probe-ticks
+                  echo "$(date -u +"%FT%TZ") [dr-failback/signals] peer probe: ${_m}"
+                elif [ "${_k}" != "ok" ]; then
+                  _n=$(($(cat /shared/peer-probe-ticks 2>/dev/null || echo 0) + 1))
+                  if [ "${_n}" -ge 30 ]; then
+                    _n=0
+                    echo "$(date -u +"%FT%TZ") [dr-failback/signals] peer probe STILL: ${_m}"
+                  fi
+                  echo "${_n}" > /shared/peer-probe-ticks
+                fi
+              }
+              # probe_peer_ahead <tl_local> — verifies peer RESOLVABLE +
+              # REACHABLE + WRITABLE + TL equal-or-higher (>= — see the
+              # DETECT rationale: the hw277 TL2==TL2 deadlock; the sync
+              # fence, not the TL number, is the authority proof). On
+              # success touches the freshness marker the actor re-checks
+              # before EVERY destructive step. Any failure → non-zero
+              # (caller clears) with its reason fail-loud via
+              # peer_report.
               probe_peer_ahead() {
                 _tl_local="$1"
-                pg_isready -h "${PEER_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q || return 1
+                # DNS first, separately from reachability: a structural
+                # NXDOMAIN (missing local -replica-mesh stub Service /
+                # broken kube-dns) must surface BY NAME, immediately
+                # (#5245). getent-less images fall through to
+                # pg_isready, which still covers reachability.
+                if command -v getent >/dev/null 2>&1 && ! getent hosts "${PEER_MESH_HOST}" >/dev/null 2>&1; then
+                  peer_report nxdomain "peer host ${PEER_MESH_HOST} NOT RESOLVABLE from this pod (NXDOMAIN) — the like-named local -replica-mesh stub Service (peer-mesh-service.yaml) or kube-dns is missing/broken; failback cannot observe the peer (#5245)"
+                  return 1
+                fi
+                if ! pg_isready -h "${PEER_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q; then
+                  peer_report unreachable "peer ${PEER_MESH_HOST} resolves but is UNREACHABLE (pg_isready failed — region-B down, mesh partition, or CNP block)"
+                  return 1
+                fi
                 _rec=$(psql "${PEER_CONN}" -tAXc "SELECT pg_is_in_recovery()" 2>/dev/null || echo "err")
-                [ "${_rec}" = "f" ] || return 1
+                if [ "${_rec}" != "f" ]; then
+                  peer_report in-recovery "peer ${PEER_MESH_HOST} reachable but NOT WRITABLE (in_recovery=${_rec}) — region-B not promoted (healthy pair / pre-promote window): no failback"
+                  return 1
+                fi
                 _tl_peer=$(tl_of "${PEER_REPL}")
-                is_int "${_tl_peer}" || return 1
-                [ "${_tl_peer}" -gt "${_tl_local}" ] || return 1
+                if ! is_int "${_tl_peer}"; then
+                  peer_report tl-unreadable "peer ${PEER_MESH_HOST} writable but its timeline is unreadable over the replication protocol — fail-safe"
+                  return 1
+                fi
+                if ! [ "${_tl_peer}" -ge "${_tl_local}" ]; then
+                  peer_report tl-behind "SPLIT-BRAIN with peer TL BEHIND local (peer TL=${_tl_peer} < local TL=${_tl_local}): both sides writable but the recovered region out-promoted the survivor — automatic failback REFUSES this geometry (fail-safe); sovereign-admin action per RUNBOOKS §6.1 (#5245)"
+                  return 1
+                fi
+                peer_report ok "peer ${PEER_MESH_HOST} WRITABLE on TL=${_tl_peer} >= local TL=${_tl_local} — peer-ahead proof available (#5245)"
                 echo "${_tl_peer}" > /shared/tl-peer
                 : > /shared/peer-ahead-fresh
                 return 0
@@ -423,10 +509,10 @@ spec:
                     if probe_peer_ahead "${TL_LOCAL}"; then
                       if [ ! -f /shared/peer-ahead-since ]; then
                         echo "${NOW}" > /shared/peer-ahead-since
-                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] POST-FAILOVER GEOMETRY: local writable TL=${TL_LOCAL}, sync standby ABSENT, peer WRITABLE on TL=$(cat /shared/tl-peer) (> local) — peer-ahead hold clock started (#5245)"
+                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] POST-FAILOVER GEOMETRY: local writable TL=${TL_LOCAL}, sync standby ABSENT, peer WRITABLE on TL=$(cat /shared/tl-peer) (>= local) — peer-ahead hold clock started (#5245)"
                       fi
                     else
-                      clear_hold "peer not provably writable+ahead (unreachable / in recovery / TL<=local)"
+                      clear_hold "peer not provably writable+equal-or-ahead (reason in the fail-loud peer-probe line above)"
                     fi
                     ;;
                   streaming)
@@ -446,7 +532,7 @@ spec:
                     if is_int "${TL_LOCAL}" && probe_peer_ahead "${TL_LOCAL}"; then
                       if [ ! -f /shared/wedge-since ]; then
                         echo "${NOW}" > /shared/wedge-since
-                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] local standby cannot stream (state=${STATE}) while peer is writable+ahead — wedge clock started (#5245 escalation)"
+                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] local standby cannot stream (state=${STATE}) while peer is writable+equal-or-ahead — wedge clock started (#5245 escalation)"
                       fi
                     else
                       clear_wedge
@@ -575,7 +661,7 @@ spec:
                       exit 0
                     fi
                     peer_fresh || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] hold expired but peer proof is stale — re-verifying next tick (fail-safe)"; exit 0; }
-                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] DEMOTING region-A: peer writable on TL=$(cat /shared/tl-peer 2>/dev/null || echo '?') > local TL=$(cat /shared/tl-local 2>/dev/null || echo '?') held ${HELD}s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)"
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] DEMOTING region-A: peer writable on TL=$(cat /shared/tl-peer 2>/dev/null || echo '?') >= local TL=$(cat /shared/tl-local 2>/dev/null || echo '?') held ${HELD}s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)"
                     kubectl -n "${KS_NAMESPACE}" patch kustomization "${KS_NAME}" --type merge ${FM} -p '{"spec":{"postBuild":{"substitute":{"SOVEREIGN_CNPG_PAIR_DEMOTED":"true"}}}}'
                     kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-started-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-failback-reason\":\"region-A resumed stale TL$(cat /shared/tl-local 2>/dev/null || echo '?') primary while region-B is writable on TL$(cat /shared/tl-peer 2>/dev/null || echo '?'); demoting + re-cloning region-A onto region-B's line (#5245)\"}}}" >/dev/null 2>&1 || true
                     nudge kustomization "${KS_NAMESPACE}" "${KS_NAME}" nudged-ks

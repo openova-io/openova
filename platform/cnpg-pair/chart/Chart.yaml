@@ -1,5 +1,37 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.19 (#5245): dr-failback TL-EQUALITY deadlock + fail-loud peer probe.
+# hw277 G12 (dep 1708c340ffc0e3f2, 2026-07-19) live-proved the 0.2.18 failback
+# wedge root cause is NOT DNS: the `-replica-mesh` stub Service existed on
+# cluster-A since install (helm-created 14:56:30Z, pre-kill) and the bare name
+# resolves fine from the actor pod (same-namespace search path — the same
+# proven form the WAL externalCluster uses for `-primary-mesh`; the NXDOMAIN
+# read in the 17:48Z walk was a NODE-vantage resolver artifact,
+# `.openstacklocal` search). The REAL wedge: region-A's os-start recovery ran
+# a LOCAL HA failover that bumped its timeline to the SAME number as
+# region-B's promote (TL2 == TL2), so the DETECT gate's strict
+# `TL_peer > TL_local` was STRUCTURALLY unsatisfiable — both regions served
+# writes for 57 minutes (persistent split-brain, divergence-probe-proven)
+# until region-B's independent TL-ahead re-promote (TL3, 18:33:55Z) happened
+# to break the tie; the demote → wedge-escalation → re-clone chain then ran
+# clean end-to-end (re-clone 18:46:31Z, pg_basebackup streaming). TWO fixes:
+# (1) TL gate `>` → `>=`. Equality is safe: a WRITABLE peer behind
+#     `-replica-mesh` (selectorType rw of the REPLICA Cluster) proves
+#     region-B promoted, the local pinned-sync-standby ABSENCE proves the
+#     fork, and the sync fence (FIRST 1 + dataDurability:required — a render
+#     precondition) proves region-A acked nothing since. TL numbers on two
+#     independently-promoted lines are not ordered lineage; the fence is the
+#     authority proof. Single-actor asymmetry rests on side gating (only
+#     cluster-A renders dr-failback) + the promoter's anti-flap, never on TL
+#     strictness. Peer TL strictly BEHIND local stays fail-safe (loud log,
+#     no action, RUNBOOKS §6.1).
+# (2) FAIL-LOUD peer probe: every probe-failure reason — host NOT RESOLVABLE
+#     (getent, NXDOMAIN by name) / unreachable / in-recovery / TL-unreadable /
+#     TL-behind — logs on its transition + re-logs every 30 ticks (~5 min)
+#     while it persists. hw277 sat 57 min with zero output after 'loop
+#     started'; a silent probe loop made the TL deadlock indistinguishable
+#     from a DNS wedge. Script-only change: no resource-count, RBAC, env or
+#     values-schema delta. Lockstep slot 16b pin → 0.2.19.
 # 0.2.18 (#5245): region-kill FAILBACK — the DR chain gains its missing return
 # leg. hw275 G12 (dep 7886def2e61c63aa, 2026-07-19): after a CLEAN forward
 # promote (region-B writable TL2, latched), recovering region-A did NOT
@@ -251,7 +283,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.18
+version: 0.2.19
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -291,6 +323,41 @@ description: |
 
   Changelog
   ─────────
+  0.2.19 (2026-07-19, dr-failback TL-equality deadlock + fail-loud peer probe, Refs #5245 #5248 #5218)
+    - FIX (Pillar-3 region-kill failback): hw277 G12 (dep 1708c340ffc0e3f2)
+      live-proved the 0.2.18 failback wedge is NOT DNS. The `-replica-mesh`
+      stub Service existed on cluster-A since install (helm-created
+      14:56:30Z, pre-kill) and the bare name resolves from the actor pod
+      (same-namespace search path — the identical proven-reachable form the
+      WAL externalCluster uses for `-primary-mesh`; the walk's NXDOMAIN
+      observation was a NODE-vantage resolver artifact, `.openstacklocal`
+      search). The REAL wedge: region-A's os-start recovery ran a LOCAL HA
+      failover that bumped its timeline to the SAME number as region-B's
+      promote (TL2 == TL2), so the DETECT gate's strict `TL_peer > TL_local`
+      was structurally unsatisfiable — both regions served writes for 57
+      minutes (persistent split-brain, divergence-probe-proven) until
+      region-B's independent TL-ahead re-promote (TL3, 18:33:55Z) broke the
+      tie by luck; the demote → wedge-escalation → re-clone chain then ran
+      clean end-to-end (re-clone 18:46:31Z, pg_basebackup streaming).
+    - TL gate `>` → `>=`: a WRITABLE peer behind `-replica-mesh`
+      (selectorType rw of the REPLICA Cluster) proves region-B promoted, the
+      local pinned-sync-standby ABSENCE proves the fork, and the sync fence
+      (FIRST 1 + dataDurability:required — a render precondition) proves
+      region-A acked nothing since. TL numbers on two independently-promoted
+      lines are not ordered lineage; the fence is the authority proof.
+      Single-actor asymmetry rests on side gating + the promoter anti-flap,
+      never on TL strictness. Peer TL strictly BEHIND local stays fail-safe
+      (loud log, no action — RUNBOOKS §6.1).
+    - FAIL-LOUD peer probe: every probe-failure reason — host NOT RESOLVABLE
+      (getent, NXDOMAIN named explicitly) / unreachable / in-recovery /
+      TL-unreadable / TL-behind — logs on its transition and re-logs every
+      30 ticks (~5 min) while it persists. hw277 sat 57 min with zero output
+      after 'loop started'; a silent probe loop made the TL deadlock
+      indistinguishable from a DNS wedge from the outside.
+    - Script-only change: no resource-count, RBAC, env or values-schema
+      delta. Render Case 19 now pins the `>=` gate, the loud TL-behind
+      refusal, and the fail-loud reason ladder. Lockstep slot 16b pin →
+      0.2.19.
   0.2.18 (2026-07-19, region-kill FAILBACK — demote+re-clone region-A onto the promoted line, durable handoff, TL-ahead re-promote, Refs #5245)
     - FIX (Pillar-3 region-kill DR, the missing return leg): on hw275 G12 the
       forward promote was CLEAN (region-B TL2, armed, latched) but recovering
