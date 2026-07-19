@@ -932,7 +932,17 @@ spec:
       # via a v2 HEAD and verifies durability with a v2 digest GET; step-11
       # verify_local_pkg_artifact + the already-pivoted branch use the same v2
       # digest GET. Contract Case 65 re-locked.
-      version: 0.1.144
+      # 0.1.145 (#5237 Refs #5007): step-06 helmrepository-patches Phase-3a
+      # UNION-WARM-ON-DRIFT — when a sampled pivoted chart is absent from local
+      # Harbor because a mid-cutover deploy-bot bump drifted bp-catalyst-platform
+      # one concrete pin ahead of what step-03 prewarm mirrored (LIVE hw274:
+      # prewarm 1.4.1164, flux redeployed 1.4.1165 pre-step-06, step-06 404'd +
+      # stalled → cutover parked), top-up-warm it from the still-reachable
+      # upstream (step-06 runs BEFORE the step-08 deny-egress hold) into local
+      # Harbor, then re-probe. Self-healing (no hand-skopeo); a chart unpullable
+      # from BOTH local AND upstream still FATALs at the deadline. New knob
+      # helmReadinessProbe.unionWarmOnDrift (default true). Contract Case 66 added.
+      version: 0.1.145
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

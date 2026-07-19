@@ -3122,4 +3122,61 @@ fi
 if [ "$c65_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5204 #5232: step-03 Phase A4 enumerates the Provider spec.package set, warms each xpkg ref DURABLY through the local proxy-xpkg endpoint [pull-through — Harbor rejects pushes into a proxy-cache project], resolves the tag->digest from a registry v2 HEAD [Docker-Content-Digest — the servable OCI index digest the artifact-management API never exposes; live hw274], asserts durability via a v2 digest GET [200], persists the map + FATALs on a v2 HEAD non-200 or a v2 digest GET non-200 [no artifact-management-API call in the xpkg leg]; step-11 pivots spec.package BY the minted digest with the SAME v2 digest-GET verify-before-pivot, re-verifies already-pivoted refs by digest, upgrades tag-form live pivots, pushes the digest form to Gitea, and FATALs loud on DIGEST-MISS naming the exact recovery; both toggles operator-wired; xpkg.upbound.io stays excluded from the generic push mirror)"
 
+# ── Case 66 (#5237 Refs #5007): step-06 Phase-3a UNION-WARM-ON-DRIFT ─────────
+# A `bp-catalyst-platform` release published to ghcr AFTER step-03 harbor-
+# prewarm finishes (a mid-cutover deploy-bot bump) drifts the umbrella one
+# CONCRETE pin ahead of what prewarm mirrored; flux redeploys it BEFORE step-06,
+# so Phase-3a samples a tag prewarm never warmed (the #5007 step-03 union-warm
+# cannot cover it — that tag did not exist when prewarm ran). LIVE hw274 (dep
+# d51a69f8): prewarm warmed 1.4.1164; 1.4.1165 published ~2 min later; step-06
+# sampled 1165, 404'd locally, stalled stripReadinessSeconds → cutover parked at
+# pct=45 → hand-heal (manual skopeo). FIX: a sampled chart absent from local
+# Harbor is top-up-warmed from the still-reachable upstream (step-06 runs BEFORE
+# the step-08 deny-egress hold) via helm pull upstream + helm push local, then
+# re-probed — self-healing, no hand-skopeo. A chart unpullable from BOTH local
+# AND upstream still FATALs at the deadline (fail-loud preserved).
+echo "[cutover-contract] Case 66: step-06 Phase-3a top-up-warms a catalog-latest chart that drifted ahead of step-03 prewarm from the still-reachable upstream, instead of stalling (#5237 Refs #5007)"
+c66_fail=0
+# (a) the gate env defaults to "true".
+if ! grep -A1 'name: UNION_WARM_ON_DRIFT' "$STEP06_F" | grep -q 'value: "true"'; then
+  echo "FAIL: step-06 UNION_WARM_ON_DRIFT does not default to \"true\" (helmReadinessProbe.unionWarmOnDrift) — a drifted catalog-latest would stall the strip-readiness gate (#5237)" >&2; c66_fail=1
+fi
+# (b) the warm helper exists AND is invoked from the local-pull fail branch —
+#     a helper that is never called cannot self-heal the drift.
+if ! grep -qF 'warm_chart_from_upstream()' "$STEP06_F"; then
+  echo "FAIL: step-06 lost the warm_chart_from_upstream helper — a sampled chart that drifted ahead of prewarm has no self-heal path and stalls the gate (#5237)" >&2; c66_fail=1
+fi
+if ! grep -qF 'warm_chart_from_upstream "${p_chart}" "${p_ver}"' "$STEP06_F"; then
+  echo "FAIL: step-06's Phase-3a local-pull fail branch never calls warm_chart_from_upstream — the helper exists but is never invoked, so the drift still stalls the gate (#5237)" >&2; c66_fail=1
+fi
+# (c) the warm PULLS from the upstream (ghcr) and PUSHES to local Harbor's
+#     openova-io — the exact path the probe pulls from.
+if ! grep -qF 'helm pull "oci://${up_host}/${up_proj}/${w_chart}"' "$STEP06_F"; then
+  echo "FAIL: step-06 union-warm does not helm-pull the drifted chart from the upstream host — the top-up has no source (#5237)" >&2; c66_fail=1
+fi
+if ! grep -qF 'helm push "${w_tgz}" "oci://${harbor_endpoint}/openova-io"' "$STEP06_F"; then
+  echo "FAIL: step-06 union-warm does not helm-push the warmed chart into local Harbor's openova-io project — the probe would still 404 the next pull (#5237)" >&2; c66_fail=1
+fi
+# (d) the upstream pull keeps TLS verify ON (public-CA-signed ghcr) — the
+#     in-cluster LE-staging skip flag must NOT be applied to the external pull.
+if grep -F 'helm pull "oci://${up_host}' "$STEP06_F" | grep -q 'HELM_PULL_INSECURE_FLAG'; then
+  echo "FAIL: step-06 union-warm applies the in-cluster TLS-skip flag to the EXTERNAL upstream pull — ghcr.io is public-CA-signed and MUST be verified (#5237)" >&2; c66_fail=1
+fi
+# (e) fail-loud preserved: a bounded attempt cap + the REFUSE-to-strip FATAL
+#     both survive — a chart unpullable from BOTH local and upstream still
+#     parks the cutover recoverably instead of silently stripping auth.
+if ! grep -qF 'UNION_WARM_MAX_ATTEMPTS' "$STEP06_F"; then
+  echo "FAIL: step-06 union-warm lost the per-chart:ver attempt cap — a genuinely-absent tag would spin the upstream every 15s until the deadline (#5237)" >&2; c66_fail=1
+fi
+if ! grep -qF 'REFUSING to strip' "$STEP06_F"; then
+  echo "FAIL: step-06 lost the strip-readiness FATAL/REFUSE path — the union-warm must NOT weaken the fail-loud guard for a chart unpullable from both local and upstream (#5237)" >&2; c66_fail=1
+fi
+# (f) the toggle is operator-wired: disabling it renders UNION_WARM_ON_DRIFT="false".
+helm template smoke-nounionwarm . --show-only templates/06-helmrepository-patches-job.yaml --set helmReadinessProbe.unionWarmOnDrift=false > "$TMP/r06_5237_off.yaml"
+if ! grep -A1 'name: UNION_WARM_ON_DRIFT' "$TMP/r06_5237_off.yaml" | grep -q 'value: "false"'; then
+  echo "FAIL: helmReadinessProbe.unionWarmOnDrift=false did not render UNION_WARM_ON_DRIFT=\"false\" — the operator override is not wired (#5237)" >&2; c66_fail=1
+fi
+if [ "$c66_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5237: step-06 Phase-3a top-up-warms a sampled chart absent from local Harbor [catalog-latest drifted ahead of step-03 prewarm] from the still-reachable upstream — helm pull upstream [verify ON] + helm push local openova-io — then re-probes; bounded per chart:ver; the REFUSE-to-strip FATAL still guards a chart unpullable from both local and upstream; operator-toggleable via helmReadinessProbe.unionWarmOnDrift)"
+
 echo "[cutover-contract] All gates green."
