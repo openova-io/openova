@@ -1380,6 +1380,71 @@ func TestPhase1WatchConfig_ReachabilityFieldOverrideBeatsEnv(t *testing.T) {
 	}
 }
 
+// TestPhase1WatchConfig_RecensusIntervalEnvVarOverride proves the
+// CATALYST_PHASE1_RECENSUS_INTERVAL env var parses through
+// phase1WatchConfigForDeployment (issue #5269) — the operator's only
+// production knob for the informer-independent re-census cadence.
+func TestPhase1WatchConfig_RecensusIntervalEnvVarOverride(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	t.Setenv("CATALYST_PHASE1_RECENSUS_INTERVAL", "90s")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-recensus-env", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+
+	if cfg.RecensusInterval != 90*time.Second {
+		t.Errorf("RecensusInterval = %v, want 90s (from env)", cfg.RecensusInterval)
+	}
+}
+
+// TestPhase1WatchConfig_RecensusIntervalFieldOverrideBeatsEnv proves
+// the test-injection precedence for the re-census cadence (issue
+// #5269). Mirrors the FieldOverrideBeatsEnv contract for every other
+// Phase-1 knob.
+func TestPhase1WatchConfig_RecensusIntervalFieldOverrideBeatsEnv(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.phase1RecensusInterval = 50 * time.Millisecond
+	t.Setenv("CATALYST_PHASE1_RECENSUS_INTERVAL", "90s")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-recensus-field", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+
+	if cfg.RecensusInterval != 50*time.Millisecond {
+		t.Errorf("RecensusInterval = %v, want 50ms (handler field override)", cfg.RecensusInterval)
+	}
+}
+
+// TestPhase1WatchConfig_RecensusDefaultAndHeartbeatWired pins the
+// production wiring (#5269): with no env and no field override the
+// re-census cadence falls back to helmwatch.DefaultRecensusInterval,
+// and OnHeartbeat is non-nil — the structured per-cycle log line is
+// what makes a future watch wedge visible within one interval (the
+// hw278 forensic gap was 80 minutes of silence between "informer
+// synced" and the operator's manual rollout-restart). The callback is
+// invoked with a converged-but-stale sample and a List-failed sample
+// to prove both log branches execute without panicking.
+func TestPhase1WatchConfig_RecensusDefaultAndHeartbeatWired(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	t.Setenv("CATALYST_PHASE1_RECENSUS_INTERVAL", "")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-recensus-default", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+
+	if cfg.RecensusInterval != helmwatch.DefaultRecensusInterval {
+		t.Errorf("RecensusInterval = %v, want helmwatch.DefaultRecensusInterval (%v)", cfg.RecensusInterval, helmwatch.DefaultRecensusInterval)
+	}
+	if cfg.OnHeartbeat == nil {
+		t.Fatalf("OnHeartbeat is nil — the per-cycle heartbeat log line must be wired on the production path (#5269)")
+	}
+	cfg.OnHeartbeat(helmwatch.Heartbeat{
+		ObservedHRs:      66,
+		ReadyHRs:         63,
+		SentinelState:    helmwatch.StateInstalled,
+		InformerEventAge: 75 * time.Minute,
+		InformerStale:    true,
+	})
+	cfg.OnHeartbeat(helmwatch.Heartbeat{ListError: "connection refused"})
+}
+
 // TestRunPhase1Watch_OnSubstate_StampedOntoResult proves the wiring
 // from helmwatch.Watcher.OnSubstate → handler.setPhase1Substate →
 // dep.Result.Phase1Substate (issue #923).

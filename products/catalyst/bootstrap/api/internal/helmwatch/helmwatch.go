@@ -218,6 +218,43 @@ const DefaultLatePollTimeout = 10 * time.Minute
 // Operator override: CATALYST_PHASE1_LATE_POLL_INTERVAL.
 const DefaultLatePollInterval = 30 * time.Second
 
+// DefaultRecensusInterval — cadence of the informer-independent
+// periodic re-census (#5269). Every interval the Watch loop performs a
+// direct List of bp-* HelmReleases against the Sovereign apiserver and
+// drives each result through the SAME processEvent census/decision path
+// an informer delta takes — so the terminate-on-all-done gate
+// (allObservedTerminal → OutcomeReady/OutcomeFailed) no longer depends
+// on a live informer event stream.
+//
+// hw278 (#5269, dep b27c7e204802ed7f, 2026-07-19): the per-deployment
+// phase1 watch established its informers ("informer synced helmrelease"
+// logged 20:05Z) then went silent — the sentinel bp-catalyst-platform
+// was Ready=True for 66 minutes, a fresh informer event (nudge) did NOT
+// re-trigger evaluation, and the deployment sat "phase1-watching" for
+// ~80min on a fully-converged region until a catalyst-api
+// rollout-restart re-launched a fresh watch that concluded in seconds.
+// The conclusion machinery was purely informer-event-driven, so a
+// quiesced/hung event stream silently stranded the prov: no handover,
+// no ClusterMesh, region-b wedged pre-mesh. The ticker re-census makes
+// the conclusion poll-robust; the informer remains the low-latency
+// steady-state path.
+//
+// 45s keeps worst-case added conclusion latency under a minute without
+// meaningfully loading the apiserver (one namespaced List per interval).
+// Operator override: CATALYST_PHASE1_RECENSUS_INTERVAL.
+const DefaultRecensusInterval = 45 * time.Second
+
+// staleInformerIntervals — number of re-census intervals without a
+// single informer-delivered event after which the heartbeat flags the
+// informer stale (#5269). A HEALTHY informer redelivers every cached
+// object at least once per Resync (30s default), so on the default
+// 45s re-census cadence 4 silent intervals (~3m) is a positive signal
+// the event stream has quiesced — not a quiet-but-alive cluster. The
+// staleness flag is observability-only: the ticker re-census already
+// drives the conclusion independent of the informer, so a stale stream
+// degrades latency, never correctness.
+const staleInformerIntervals = 4
+
 // DefaultReachabilityProbeTimeout — per-attempt timeout for the
 // pre-flight apiserver reachability probe (issue #923). After a
 // catalyst-api Pod restart, the new Pod's TLS handshake to the
@@ -527,6 +564,64 @@ type Config struct {
 	// notifications (the Watcher still runs the probe, just without
 	// surfacing the field on the deployment record).
 	OnSubstate func(substate string)
+
+	// RecensusInterval — cadence of the informer-independent periodic
+	// re-census (#5269). Every interval the Watch loop Lists bp-*
+	// HelmReleases directly against the apiserver and drives each
+	// result through processEvent, so a quiesced informer event stream
+	// cannot strand a converged prov at "phase1-watching". Defaults to
+	// DefaultRecensusInterval (45s); the catalyst-api wires
+	// CATALYST_PHASE1_RECENSUS_INTERVAL into this. Tests inject a tiny
+	// value (e.g. 50ms) to exercise the ticker path in milliseconds.
+	RecensusInterval time.Duration
+
+	// OnHeartbeat — fired once per re-census evaluation cycle (#5269)
+	// with the cycle's census summary. Production wires this to a
+	// structured h.log line carrying the deployment id, HR ready
+	// count, sentinel state and all-terminal verdict — so a future
+	// watch wedge is visible in the catalyst-api logs within one
+	// interval instead of silently idling to WatchTimeout. Optional;
+	// nil disables heartbeat notifications (the re-census still runs
+	// and still drives the conclusion).
+	OnHeartbeat func(hb Heartbeat)
+}
+
+// Heartbeat is the per-re-census-cycle summary handed to
+// Config.OnHeartbeat (#5269). One is produced per RecensusInterval tick
+// for the lifetime of the watch, BEFORE the cycle's List results are
+// driven through processEvent — so the heartbeat lands even if a
+// downstream emit subscriber wedges, and the log line pinpoints the
+// cycle at which a wedge began.
+type Heartbeat struct {
+	// ObservedHRs — count of distinct bp-* components in the union of
+	// the watcher's accumulated observed set and this cycle's fresh
+	// List.
+	ObservedHRs int
+	// ReadyHRs / FailedHRs — components in StateInstalled /
+	// StateFailed on the merged (accumulated ∪ fresh-List) view.
+	ReadyHRs  int
+	FailedHRs int
+	// SentinelState — the #4746 ready-sentinel's state on the merged
+	// view: a helmwatch State enum, "unobserved" when the sentinel is
+	// armed but not yet present, or "" when the gate is disabled.
+	SentinelState string
+	// AllTerminal — the allObservedTerminal verdict on the merged
+	// view: true means this cycle concludes the watch (OutcomeReady or
+	// OutcomeFailed via the standard classification downstream).
+	AllTerminal bool
+	// InformerEventAge — time since the informer last DELIVERED an
+	// event (initial-sync baseline when none has arrived since). A
+	// healthy informer redelivers at least every Resync (30s), so a
+	// growing age is the quiesced-stream signature.
+	InformerEventAge time.Duration
+	// InformerStale — true once InformerEventAge exceeds
+	// staleInformerIntervals × RecensusInterval. Observability-only:
+	// the ticker re-census drives the conclusion regardless.
+	InformerStale bool
+	// ListError — non-empty when this cycle's direct List failed
+	// (transient apiserver blip); counts then reflect only the
+	// accumulated informer view and no census update was applied.
+	ListError string
 }
 
 func (c *Config) applyDefaults() {
@@ -562,6 +657,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.ReachabilityOverallBudget <= 0 {
 		c.ReachabilityOverallBudget = DefaultReachabilityOverallBudget
+	}
+	if c.RecensusInterval <= 0 {
+		c.RecensusInterval = DefaultRecensusInterval
 	}
 	if c.Sleep == nil {
 		c.Sleep = sleepWithContext
@@ -655,6 +753,22 @@ type Watcher struct {
 	// post-sync stabilisation tick that re-evaluates the gate cannot
 	// double-emit. Mutated under w.mu.
 	readyTransitionEmitted bool
+
+	// lastInformerEventAt — wall-clock instant of the most recent
+	// informer-DELIVERED callback (Add/Update from the event handler,
+	// including Resync redeliveries), baselined at initial-sync time
+	// (#5269). The ticker re-census reads this to compute
+	// Heartbeat.InformerEventAge / InformerStale — a growing age with
+	// a live re-census is the quiesced-informer signature hw278
+	// exhibited. Mutated under w.mu.
+	lastInformerEventAt time.Time
+
+	// staleInformerWarnEmitted — set true once the loud stale-informer
+	// warn event has been dispatched for the CURRENT quiet stretch
+	// (#5269), so a wedged stream warns once instead of every tick.
+	// Reset whenever a non-stale cycle is observed so a later re-wedge
+	// warns again. Mutated under w.mu.
+	staleInformerWarnEmitted bool
 
 	// latePollActive — set true while the watcher is in the
 	// eventual-consistency late-poll mode (issue #910): the all-
@@ -918,9 +1032,11 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		},
 		Handler: cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj any) {
+				w.noteInformerEvent()
 				w.processEvent(obj, terminated, &closeOnce)
 			},
 			UpdateFunc: func(_, obj any) {
+				w.noteInformerEvent()
 				w.processEvent(obj, terminated, &closeOnce)
 			},
 			// DeleteFunc — a HelmRelease being deleted mid-bootstrap
@@ -981,6 +1097,12 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 	// enter the cache. We park the all-terminal check until here.
 	w.mu.Lock()
 	w.informerSynced = true
+	// Baseline the informer-event clock at sync time (#5269) so the
+	// stale-informer detector measures quiet time from a defined
+	// instant — the initial-List Adds fired before this point and a
+	// quiet-but-converged cluster must not trip the stale flag on the
+	// first tick.
+	w.lastInformerEventAt = w.cfg.Now()
 	allTerminalAtSync := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, true, w.cfg.ReadySentinelComponent)
 	w.mu.Unlock()
 
@@ -1023,6 +1145,17 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 	}
 	firstSeenTicker := time.NewTicker(firstSeenCheckInterval)
 	defer firstSeenTicker.Stop()
+
+	// Periodic re-census ticker (#5269) — the informer-independent
+	// conclusion driver. Every RecensusInterval the loop Lists bp-*
+	// HelmReleases directly against the apiserver and drives each
+	// result through the SAME processEvent census/decision path an
+	// informer delta takes, so a quiesced/hung informer event stream
+	// can no longer strand a converged prov: the sentinel-gated
+	// allObservedTerminal decision (#4746 semantics unchanged) is
+	// re-evaluated on the wall clock, not only on event callbacks.
+	recensusTicker := time.NewTicker(w.cfg.RecensusInterval)
+	defer recensusTicker.Stop()
 
 	// Wait for either all-terminal or context done.
 	for {
@@ -1069,8 +1202,201 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 			w.maybeEmitFirstSeenWarn(firstSeenStart)
 			// Loop and keep waiting — first-seen timeout does NOT
 			// terminate the watch.
+
+		case <-recensusTicker.C:
+			// #5269 — informer-independent re-census. Emits the
+			// heartbeat, then feeds the fresh List through
+			// processEvent, which closes `terminated` (via the shared
+			// closeOnce) when the census concludes; the next select
+			// iteration then returns through the standard
+			// <-terminated branch, so classification and the
+			// downstream handover fire exactly once regardless of
+			// whether an informer event or the ticker concluded.
+			w.runTickerRecensus(watchCtx, dyn, terminated, &closeOnce)
 		}
 	}
+}
+
+// noteInformerEvent stamps the informer-event clock (#5269). Called
+// from the informer's Add/Update handlers — including Resync
+// redeliveries — so the ticker re-census can distinguish a healthy
+// quiet cluster (resync keeps the age under Resync) from a quiesced
+// event stream (age grows without bound).
+func (w *Watcher) noteInformerEvent() {
+	w.mu.Lock()
+	w.lastInformerEventAt = w.cfg.Now()
+	w.mu.Unlock()
+}
+
+// runTickerRecensus performs one informer-independent evaluation cycle
+// (#5269): a direct namespaced List of bp-* HelmReleases against the
+// Sovereign apiserver, a heartbeat emit summarising the fresh census,
+// then each listed HR driven through processEvent — the SAME
+// census/decision path an informer delta takes. processEvent dedupes
+// emissions (first-observation / transition only), updates
+// w.states/w.observed, and closes `terminated` when allObservedTerminal
+// is satisfied, so the #4746 sentinel gate and the #5254/#5253
+// downstream semantics are byte-identical between the two drivers.
+//
+// The heartbeat is emitted BEFORE the processEvent feed so the log line
+// lands even if a downstream emit subscriber wedges — the cycle at
+// which a wedge began is then visible in the catalyst-api logs.
+//
+// A List failure (transient apiserver blip) emits a heartbeat carrying
+// the error and applies no census update — the informer path and the
+// next tick are unaffected; a flake can never invent a conclusion.
+func (w *Watcher) runTickerRecensus(watchCtx context.Context, dyn dynamic.Interface, terminated chan struct{}, closeOnce *sync.Once) {
+	// Bound the List so a hung apiserver costs at most one interval,
+	// never stalls the watch loop indefinitely (the production REST
+	// config carries DefaultRESTConfigTimeout too; this is the
+	// belt-and-braces bound for injected clients).
+	listBudget := w.cfg.RecensusInterval
+	if listBudget > DefaultRESTConfigTimeout {
+		listBudget = DefaultRESTConfigTimeout
+	}
+	listCtx, cancel := context.WithTimeout(watchCtx, listBudget)
+	list, err := dyn.Resource(HelmReleaseGVR).Namespace(FluxNamespace).List(listCtx, metav1.ListOptions{})
+	cancel()
+
+	if err != nil {
+		w.emitHeartbeat(w.buildHeartbeat(nil, err))
+		return
+	}
+
+	w.emitHeartbeat(w.buildHeartbeat(list, nil))
+
+	for i := range list.Items {
+		u := &list.Items[i]
+		if !strings.HasPrefix(u.GetName(), "bp-") {
+			continue
+		}
+		w.processEvent(u, terminated, closeOnce)
+	}
+}
+
+// buildHeartbeat computes the per-cycle census summary (#5269) from the
+// fresh List (nil on List failure) merged over the watcher's
+// accumulated state, WITHOUT mutating any watcher state — the real
+// census update happens in the processEvent feed that follows. The
+// merged view means the heartbeat's AllTerminal verdict matches exactly
+// what the processEvent feed is about to decide (the observed set is
+// append-only, so merging fresh states over accumulated ones reproduces
+// the post-feed decision inputs).
+func (w *Watcher) buildHeartbeat(list *unstructured.UnstructuredList, listErr error) Heartbeat {
+	fresh := map[string]string{}
+	if list != nil {
+		for i := range list.Items {
+			u := &list.Items[i]
+			name := u.GetName()
+			if !strings.HasPrefix(name, "bp-") {
+				continue
+			}
+			conds, _ := extractConditions(u)
+			state := DeriveState(conds)
+			// Wave 5.103 (#2447) parity with processEvent: suspended
+			// HRs count as installed.
+			if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
+				state = StateInstalled
+			}
+			fresh[ComponentIDFromHelmRelease(name)] = state
+		}
+	}
+
+	w.mu.Lock()
+	merged := make(map[string]string, len(w.states)+len(fresh))
+	observed := make(map[string]struct{}, len(w.observed)+len(fresh))
+	for k, v := range w.states {
+		merged[k] = v
+	}
+	for k := range w.observed {
+		observed[k] = struct{}{}
+	}
+	for k, v := range fresh {
+		merged[k] = v
+		observed[k] = struct{}{}
+	}
+	firstSeen := w.firstSeenAt
+	if firstSeen.IsZero() && len(fresh) > 0 {
+		// The processEvent feed below is about to stamp firstSeenAt —
+		// mirror that so the verdict matches the imminent decision.
+		firstSeen = w.cfg.Now()
+	}
+	synced := w.informerSynced
+	lastEvent := w.lastInformerEventAt
+	w.mu.Unlock()
+
+	ready, failed := 0, 0
+	for _, s := range merged {
+		switch s {
+		case StateInstalled:
+			ready++
+		case StateFailed:
+			failed++
+		}
+	}
+	sentinelState := ""
+	if w.cfg.ReadySentinelComponent != "" {
+		sentinelState = merged[w.cfg.ReadySentinelComponent]
+		if sentinelState == "" {
+			sentinelState = "unobserved"
+		}
+	}
+	var age time.Duration
+	if !lastEvent.IsZero() {
+		age = w.cfg.Now().Sub(lastEvent)
+	}
+	hb := Heartbeat{
+		ObservedHRs:      len(observed),
+		ReadyHRs:         ready,
+		FailedHRs:        failed,
+		SentinelState:    sentinelState,
+		AllTerminal:      allObservedTerminal(merged, observed, w.cfg.MinBootstrapKitHRs, firstSeen, synced, w.cfg.ReadySentinelComponent),
+		InformerEventAge: age,
+		InformerStale:    !lastEvent.IsZero() && age > time.Duration(staleInformerIntervals)*w.cfg.RecensusInterval,
+	}
+	if listErr != nil {
+		hb.ListError = listErr.Error()
+	}
+	return hb
+}
+
+// emitHeartbeat routes the per-cycle summary to Config.OnHeartbeat and
+// manages the one-shot stale-informer warn (#5269). The warn is a
+// dispatch (SSE + subscribers) so the operator-facing wizard log pane
+// surfaces the quiesced stream, not only the catalyst-api Pod log; it
+// fires once per quiet stretch and re-arms when the stream recovers.
+// Best-effort re-establishment is deliberately NOT attempted here — the
+// ticker re-census already drives the conclusion without the informer,
+// so a rebuild would add teardown/rebuild races for zero correctness
+// gain.
+func (w *Watcher) emitHeartbeat(hb Heartbeat) {
+	if w.cfg.OnHeartbeat != nil {
+		w.cfg.OnHeartbeat(hb)
+	}
+
+	if !hb.InformerStale {
+		w.mu.Lock()
+		w.staleInformerWarnEmitted = false
+		w.mu.Unlock()
+		return
+	}
+	w.mu.Lock()
+	already := w.staleInformerWarnEmitted
+	w.staleInformerWarnEmitted = true
+	w.mu.Unlock()
+	if already {
+		return
+	}
+	w.dispatch(provisioner.Event{
+		Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+		Phase: PhaseComponent,
+		Level: "warn",
+		Message: fmt.Sprintf(
+			"Phase-1 watch: informer event stream has been quiet for %s — the periodic re-census (every %s) is driving the readiness decision, so the watch still concludes; investigate the catalyst-api ↔ Sovereign apiserver watch connection if this persists (#5269).",
+			hb.InformerEventAge.Round(time.Second),
+			w.cfg.RecensusInterval,
+		),
+	})
 }
 
 // hasFailures returns true when at least one component in the state
@@ -2055,6 +2381,21 @@ func CompileLatePollInterval(raw string) time.Duration {
 	d, err := time.ParseDuration(raw)
 	if err != nil || d <= 0 {
 		return DefaultLatePollInterval
+	}
+	return d
+}
+
+// CompileRecensusInterval — env-var parse helper for
+// CATALYST_PHASE1_RECENSUS_INTERVAL. Empty / unparseable /
+// non-positive input yields DefaultRecensusInterval. Issue #5269.
+func CompileRecensusInterval(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultRecensusInterval
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return DefaultRecensusInterval
 	}
 	return d
 }

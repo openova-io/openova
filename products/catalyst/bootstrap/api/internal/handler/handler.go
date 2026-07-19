@@ -191,6 +191,14 @@ type Handler struct {
 	phase1LatePollTimeout  time.Duration
 	phase1LatePollInterval time.Duration
 
+	// phase1RecensusInterval — test-only override for the informer-
+	// independent periodic re-census cadence (#5269). Zero means "fall
+	// back to env var → helmwatch.DefaultRecensusInterval (45s)";
+	// tests inject a tiny value (e.g. 50ms) so the ticker-driven
+	// conclusion path can be exercised in milliseconds. Production
+	// reads CATALYST_PHASE1_RECENSUS_INTERVAL on every Pod start.
+	phase1RecensusInterval time.Duration
+
 	// phase1Reachability — test-only override for the pre-flight
 	// apiserver reachability probe (issue #923). Production uses
 	// helmwatch.NewReachabilityProbeFromKubeconfig (discovery client
