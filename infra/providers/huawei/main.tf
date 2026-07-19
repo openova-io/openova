@@ -1510,7 +1510,15 @@ resource "huaweicloud_elb_loadbalancer" "primary" {
   ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
   ipv4_eip_id       = huaweicloud_vpc_eip.elb_primary.id
   availability_zone = [var.huawei_az]
-  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4690 gateway ELB, public 443/80 → gateway LoadBalancer Service nodePort (type=LoadBalancer, #4682)"
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4690 gateway ELB, public 443/80 → node:443/:80 (cilium-envoy hostNetwork host ports, §854 — no nodePort)"
+
+  # #5244 — IP-as-backend so PEER-REGION nodes can be pool members. The ELB
+  # lives in the primary region's VPC; region-b nodes sit in region-b's VPC,
+  # reachable only over the mesh VPC peering. Huawei ELB only accepts members
+  # outside its own VPC as IP-type members with cross-VPC backend enabled.
+  # Multi-region only: single-region provs keep the pre-#5244 shape (all
+  # members are same-VPC, the flag stays provider-default).
+  cross_vpc_backend = length(local.region_keys) > 1 ? true : null
 
   # Immutable-field churn guards (same as the console ELB): the huaweicloud
   # provider sends null/empty for l4_flavor_id/l7_flavor_id/vpc_id/ipv4_eip_id
@@ -1563,22 +1571,40 @@ resource "huaweicloud_elb_listener" "http" {
   description     = "TCP passthrough — ACME HTTP-01 + .well-known + HTTP→HTTPS redirect at the gateway"
 }
 
-# Primary-region node private IPs — consumed by BOTH the gateway ELB
-# (elb_primary) members here and the CONSOLE ELB (elb_console) members below.
-# cilium-envoy (hostNetwork DaemonSet, gateway-api hostNetwork mode #4706)
-# binds node:443/:80 on every node, so every node is a valid member.
+# MESH-WIDE node private IPs — consumed by BOTH the gateway ELB (elb_primary)
+# members here and the CONSOLE ELB (elb_console) members below. cilium-envoy
+# (hostNetwork DaemonSet, gateway-api hostNetwork mode #4706) binds
+# node:443/:80 on EVERY node in EVERY region, so every node is a valid member.
+#
+# #5244 region-kill failover: members were previously PRIMARY-REGION-ONLY, so
+# on a region-a kill the ELB health monitors drained every member and the
+# public EIP black-holed — externally unreachable for the whole outage — even
+# though region-b's cilium-envoy was Running and serving node:443 (proven live
+# on hw275 G12, dep 7886def2: all pool members 10.208.1.x/region-a, zero
+# 10.218.1.x/region-b, ip_target_enable=false). The fix spans the member set
+# across ALL regions' nodes: peer-region nodes are CROSS-VPC (IP-as-backend)
+# members reaching the peer VPC over the existing mesh peering + routes
+# (huaweicloud_vpc_peering_connection.mesh, ~L224 — the same path the pod
+# datapath and the ELB health probes ride). The per-pool TCP health monitors
+# (below, unchanged) drain the dead region's members within
+# interval×max_retries (~30s) and the survivors carry the EIP. Ports stay the
+# durable gateway host ports (443/80 gateway, 8443/8080 console) — hostNetwork
+# cilium-envoy host ports, never a nodePort (§854).
 locals {
   # CPs are `count`-based — index by tofu's list-indexed array.
   # Workers are `for_each`-based on local.worker_map (key=<region>-<index>).
-  primary_lb_node_ips = concat(
-    [for idx, n in local.cp_nodes :
-      huaweicloud_compute_instance.control_plane[idx].access_ip_v4
-      if n.region == local.region_keys[0]
-    ],
-    [for w in local.worker_nodes :
-      huaweicloud_compute_instance.worker["${w.region}-${w.index}"].access_ip_v4
-      if w.region == local.region_keys[0]
-    ],
+  # `primary` marks nodes in the ELB's own VPC (region_keys[0]) — they carry
+  # the primary subnet_id; peer-region nodes are IP-type members (no subnet,
+  # requires cross_vpc_backend on the LB).
+  gateway_lb_members = concat(
+    [for idx, n in local.cp_nodes : {
+      ip      = huaweicloud_compute_instance.control_plane[idx].access_ip_v4
+      primary = n.region == local.region_keys[0]
+    }],
+    [for w in local.worker_nodes : {
+      ip      = huaweicloud_compute_instance.worker["${w.region}-${w.index}"].access_ip_v4
+      primary = w.region == local.region_keys[0]
+    }],
   )
 
   # #4053 console-isolation gate (Refs #4431 #4212). When "true" (default) the
@@ -1587,30 +1613,33 @@ locals {
   # node, so their count is the node count multiplied by the gate (0 → no
   # members when isolation is off).
   console_isolation_on = var.console_isolation_enabled == "true"
-  console_member_count = local.console_isolation_on ? length(local.primary_lb_node_ips) : 0
+  console_member_count = local.console_isolation_on ? length(local.gateway_lb_members) : 0
 }
 
-# Gateway ELB members: primary-region nodes (CPs + workers). With cilium
+# Gateway ELB members: ALL regions' nodes (CPs + workers). With cilium
 # 1.19.3's gateway-api hostNetwork mode (#4706), cilium-envoy (a hostNetwork
 # DaemonSet) binds node:443/:80 on EVERY node, so every node is a valid member
 # at the DURABLE host ports — correct from Phase-0 apply, no placeholder, no
 # post-convergence nodePort discovery, no nodePort anywhere (§854).
+# #5244: peer-region nodes are cross-VPC IP-type members (subnet_id omitted —
+# the ELB reaches them over the mesh VPC peering), so a region-a kill leaves
+# the health-checked region-b members serving the EIP.
 # catalyst-api (post_handover_gateway_elb.go) only heals member-SET drift
 # (node churn from the autoscaler) at these same ports.
 resource "huaweicloud_elb_member" "https" {
-  count         = length(local.primary_lb_node_ips)
+  count         = length(local.gateway_lb_members)
   pool_id       = huaweicloud_elb_pool.https.id
-  address       = local.primary_lb_node_ips[count.index]
+  address       = local.gateway_lb_members[count.index].ip
   protocol_port = var.gateway_member_port_https
-  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
 }
 
 resource "huaweicloud_elb_member" "http" {
-  count         = length(local.primary_lb_node_ips)
+  count         = length(local.gateway_lb_members)
   pool_id       = huaweicloud_elb_pool.http.id
-  address       = local.primary_lb_node_ips[count.index]
+  address       = local.gateway_lb_members[count.index].ip
   protocol_port = var.gateway_member_port_http
-  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
 }
 
 resource "huaweicloud_elb_monitor" "https" {
@@ -1681,7 +1710,11 @@ resource "huaweicloud_elb_loadbalancer" "console" {
   ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
   ipv4_eip_id       = huaweicloud_vpc_eip.elb_console[0].id
   availability_zone = [var.huawei_az]
-  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→443 + 80→80 passthrough (#4682)"
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→8443 + 80→8080 passthrough (#4682/#4715)"
+
+  # #5244 — same cross-VPC backend rationale as elb_primary above: the console
+  # EIP must keep serving from peer-region nodes when the primary region dies.
+  cross_vpc_backend = length(local.region_keys) > 1 ? true : null
 
   # Immutable-field churn guards: the huaweicloud provider sends null/empty for
   # l4_flavor_id/l7_flavor_id/vpc_id/ipv4_eip_id on subsequent plans (HCS auto-
@@ -1737,23 +1770,25 @@ resource "huaweicloud_elb_listener" "console_http" {
   description     = "TCP passthrough — console HTTP→HTTPS redirect"
 }
 
-# Console ELB members: the SAME primary-region nodes as the primary ELB.
-# The console gateway owns its own Service type=LoadBalancer on :443/:80
-# (hostNetwork off, no NodePort; #4682), reachable on every node.
+# Console ELB members: the SAME mesh-wide node set as the primary ELB
+# (#5244 — the console EIP black-holed on region-kill for the same
+# region-a-only-membership root cause). The console gateway binds
+# node:8443/:8080 (host ports, NOT nodePorts — #4715) on every node in every
+# region; peer-region nodes are cross-VPC IP-type members like the gateway's.
 resource "huaweicloud_elb_member" "console_https" {
   count         = local.console_member_count
   pool_id       = huaweicloud_elb_pool.console_https[0].id
-  address       = local.primary_lb_node_ips[count.index]
+  address       = local.gateway_lb_members[count.index].ip
   protocol_port = 8443
-  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
 }
 
 resource "huaweicloud_elb_member" "console_http" {
   count         = local.console_member_count
   pool_id       = huaweicloud_elb_pool.console_http[0].id
-  address       = local.primary_lb_node_ips[count.index]
+  address       = local.gateway_lb_members[count.index].ip
   protocol_port = 8080
-  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
 }
 
 resource "huaweicloud_elb_monitor" "console_https" {

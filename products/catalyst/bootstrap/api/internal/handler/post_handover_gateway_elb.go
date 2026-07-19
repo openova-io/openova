@@ -13,6 +13,17 @@
 // replaced/removed nodes leaving stale members — the job hcloud-ccm does
 // continuously on Hetzner, done explicitly here because Huawei has no CCM.
 //
+// #5244 — the member set spans EVERY region's nodes, not just the primary's.
+// Both the tofu seed and this hook were primary-region-only, so a region-a
+// kill drained every (health-checked) member and the gateway + console EIPs
+// black-holed for the whole outage even though region-b's cilium-envoy was
+// serving node:443 (hw275 G12). This hook now enumerates ALL regions'
+// clusters (primary kubeconfig + every secondary kubeconfig) and converges
+// the ELB member set to the UNION; peer-region nodes become cross-VPC
+// IP-type members (see providers/huawei/gateway_elb.go). When a secondary
+// cluster cannot be enumerated (possibly mid-outage) the reconcile is
+// ADDS-ONLY — it never sweeps members belonging to a region it cannot see.
+//
 // History: on cilium 1.16.5 (hostNetwork bind bug) this hook discovered the
 // gateway Service's auto-allocated nodePort and repointed member PORTS
 // (#4690/#4691). That shape is retired by the 1.19.3 bump.
@@ -26,6 +37,7 @@ package handler
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -89,20 +101,9 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 		h.log.Warn("gateway-elb: no kubeconfig for deployment; skipping ELB reconcile", "id", dep.ID)
 		return
 	}
-	kcRaw, err := os.ReadFile(kcPath)
+	cs, err := h.clientsetFromKubeconfigPath(kcPath)
 	if err != nil {
-		h.log.Warn("gateway-elb: read kubeconfig failed; skipping", "id", dep.ID, "path", kcPath, "err", err)
-		return
-	}
-	restCfg, err := clientcmd.RESTConfigFromKubeConfig(kcRaw)
-	if err != nil {
-		h.log.Warn("gateway-elb: parse kubeconfig failed", "id", dep.ID, "err", err)
-		return
-	}
-	restCfg.Timeout = 20 * time.Second
-	cs, err := kubernetes.NewForConfig(restCfg)
-	if err != nil {
-		h.log.Warn("gateway-elb: build clientset failed", "id", dep.ID, "err", err)
+		h.log.Warn("gateway-elb: primary clientset build failed; skipping", "id", dep.ID, "path", kcPath, "err", err)
 		return
 	}
 
@@ -117,15 +118,27 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 
 	// Poll for the primary cluster's node InternalIPs (the primary kubeconfig
 	// scopes this to primary-region nodes — each region is its own cluster),
-	// then converge the ELB member set to them at the gateway host ports.
+	// then converge the ELB member set to the MESH-WIDE node union (#5244):
+	// primary nodes + every secondary region's nodes, at the gateway host
+	// ports.
 	deadline := time.Now().Add(gatewayELBReconcileMaxWait)
 	for {
 		nodeIPs, perr := h.discoverNodeInternalIPs(cs)
 		if perr == nil && len(nodeIPs) > 0 {
+			// #5244 — enumerate every SECONDARY region's cluster too. When any
+			// of them cannot be listed (kubeconfig missing / cluster
+			// unreachable — possibly mid region outage), the reconcile is
+			// ADDS-ONLY (sweepStale=false): stale members are kept rather
+			// than risk draining the region currently carrying the EIP.
+			peerIPs, allPeersEnumerated := h.discoverSecondaryNodeInternalIPs(dep)
+			sweepStale := allPeersEnumerated
+			if !sweepStale {
+				h.log.Warn("gateway-elb: secondary region enumeration incomplete — reconciling adds-only (no stale-member sweep)", "id", dep.ID)
+			}
 			changed, rerr := hp.ReconcileGatewayELBMembers(
 				context.Background(),
 				dep.Request.HuaweiAccessKey, dep.Request.HuaweiSecretKey, dep.Request.HuaweiProjectID,
-				region, fqdn, nodeIPs, gatewayHostPortHTTPS, gatewayHostPortHTTP,
+				region, fqdn, nodeIPs, peerIPs, gatewayHostPortHTTPS, gatewayHostPortHTTP, sweepStale,
 				func(msg string) { h.log.Info("gateway-elb: " + msg) },
 			)
 			if rerr != nil {
@@ -139,25 +152,27 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 				return
 			}
 			h.log.Info("gateway-elb: reconcile complete",
-				"id", dep.ID, "nodes", len(nodeIPs), "membersChanged", changed)
+				"id", dep.ID, "primaryNodes", len(nodeIPs), "peerNodes", len(peerIPs), "membersChanged", changed)
 			dep.recordEvent(provisioner.Event{
 				Time:    time.Now().UTC().Format(time.RFC3339),
 				Phase:   "post-handover",
 				Level:   "info",
-				Message: "Gateway ELB member set converged to " + strconv.Itoa(len(nodeIPs)) + " live nodes at node:" + strconv.Itoa(gatewayHostPortHTTPS) + "/:" + strconv.Itoa(gatewayHostPortHTTP) + " (" + strconv.Itoa(changed) + " changed); public :443/:80 front door is wired.",
+				Message: "Gateway ELB member set converged to " + strconv.Itoa(len(nodeIPs)) + " primary + " + strconv.Itoa(len(peerIPs)) + " peer-region live nodes at node:" + strconv.Itoa(gatewayHostPortHTTPS) + "/:" + strconv.Itoa(gatewayHostPortHTTP) + " (" + strconv.Itoa(changed) + " changed); public :443/:80 front door is wired for cross-region failover.",
 			})
 
 			// Also converge the dedicated CONSOLE ELB (console_isolation provs)
-			// to the same live nodes at the console gateway host ports (8443/8080).
-			// Best-effort + soft-skip: a console_isolation=false prov has no
-			// console ELB → clean no-op. Without this the console ELB kept its
-			// tofu-seeded boot members forever and lost its backends after an
-			// autoscaler node roll → Console 000 (#4706). Its failure must NOT
-			// mask the primary success above, so it is logged, not returned.
+			// to the same mesh-wide nodes at the console gateway host ports
+			// (8443/8080). Best-effort + soft-skip: a console_isolation=false
+			// prov has no console ELB → clean no-op. Without this the console
+			// ELB kept its tofu-seeded boot members forever and lost its
+			// backends after an autoscaler node roll → Console 000 (#4706) —
+			// and stayed region-a-only on region-kill → console EIP black-hole
+			// (#5244). Its failure must NOT mask the primary success above, so
+			// it is logged, not returned.
 			if cChanged, cErr := hp.ReconcileConsoleELBMembers(
 				context.Background(),
 				dep.Request.HuaweiAccessKey, dep.Request.HuaweiSecretKey, dep.Request.HuaweiProjectID,
-				region, fqdn, nodeIPs, consoleHostPortHTTPS, consoleHostPortHTTP,
+				region, fqdn, nodeIPs, peerIPs, consoleHostPortHTTPS, consoleHostPortHTTP, sweepStale,
 				func(msg string) { h.log.Info("console-elb: " + msg) },
 			); cErr != nil {
 				h.log.Warn("console-elb: member reconcile failed (non-fatal; primary front door is up)", "id", dep.ID, "err", cErr)
@@ -181,6 +196,21 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 	}
 }
 
+// clientsetFromKubeconfigPath reads + parses a kubeconfig file into a
+// short-timeout clientset (20s — node list only).
+func (h *Handler) clientsetFromKubeconfigPath(path string) (kubernetes.Interface, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	restCfg, err := clientcmd.RESTConfigFromKubeConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	restCfg.Timeout = 20 * time.Second
+	return kubernetes.NewForConfig(restCfg)
+}
+
 // discoverNodeInternalIPs lists the cluster's nodes and returns their
 // InternalIP addresses — the gateway ELB pool member addresses. Every node
 // runs cilium-envoy (hostNetwork DaemonSet) with the gateway listeners bound
@@ -201,4 +231,63 @@ func (h *Handler) discoverNodeInternalIPs(cs kubernetes.Interface) ([]string, er
 		}
 	}
 	return ips, nil
+}
+
+// discoverSecondaryNodeInternalIPs (#5244) lists every SECONDARY region
+// cluster's node InternalIPs — the peer-region gateway ELB members. Each
+// region is its own cluster; the secondary kubeconfigs are the union of the
+// in-memory dep.secondaryKubeconfigPaths map and the on-disk
+// `<depID>-<regionKey>.yaml` files (onDiskSecondaryKubeconfigKeys — the
+// authoritative set, immune to in-memory loss across catalyst-api restarts,
+// #4000).
+//
+// Returns (peerIPs, complete). complete=false when the deployment spec
+// expects more secondary regions than were successfully enumerated (missing
+// kubeconfig, or a cluster that cannot be listed — possibly mid region
+// outage). Callers must then reconcile ADDS-ONLY: never sweep members of a
+// region that cannot currently be seen.
+func (h *Handler) discoverSecondaryNodeInternalIPs(dep *Deployment) ([]string, bool) {
+	dep.mu.Lock()
+	expectedSecondaries := 0
+	if len(dep.Request.Regions) > 1 {
+		expectedSecondaries = len(dep.Request.Regions) - 1
+	}
+	paths := make(map[string]string, len(dep.secondaryKubeconfigPaths))
+	for k, v := range dep.secondaryKubeconfigPaths {
+		paths[k] = v
+	}
+	depID := dep.ID
+	dep.mu.Unlock()
+
+	// Union with the files actually on disk (keyed by whatever regionKey the
+	// secondary CP's cloud-init deposited).
+	dir := secondaryKubeconfigsDir()
+	for _, key := range onDiskSecondaryKubeconfigKeys(dir, depID) {
+		if _, ok := paths[key]; !ok {
+			paths[key] = filepath.Join(dir, depID+"-"+key+".yaml")
+		}
+	}
+
+	if expectedSecondaries == 0 {
+		// Single-region deployment: vacuously complete, no peers.
+		return nil, true
+	}
+
+	var peerIPs []string
+	enumerated := 0
+	for key, path := range paths {
+		cs, err := h.clientsetFromKubeconfigPath(path)
+		if err != nil {
+			h.log.Warn("gateway-elb: secondary clientset build failed", "id", depID, "region", key, "path", path, "err", err)
+			continue
+		}
+		ips, err := h.discoverNodeInternalIPs(cs)
+		if err != nil || len(ips) == 0 {
+			h.log.Warn("gateway-elb: secondary node list failed or empty", "id", depID, "region", key, "err", err)
+			continue
+		}
+		peerIPs = append(peerIPs, ips...)
+		enumerated++
+	}
+	return peerIPs, enumerated >= expectedSecondaries
 }

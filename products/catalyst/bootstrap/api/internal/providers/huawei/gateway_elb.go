@@ -17,6 +17,18 @@
 // hcloud-ccm does continuously on Hetzner, done explicitly here because
 // Huawei has no CCM.
 //
+// #5244 — the member set spans ALL regions, not just the primary. Members
+// were primary-region-only (both the tofu seed and this reconciler), so on a
+// region-a kill the ELB health monitors drained every member and the public
+// EIP black-holed for the whole outage even though region-b's cilium-envoy
+// was Running and bound on node:443 (proven live on hw275 G12, dep 7886def2:
+// every pool member 10.208.1.x/region-a, zero 10.218.1.x/region-b,
+// ip_target_enable=false). Peer-region nodes live in a DIFFERENT VPC than
+// the ELB, so they are added as cross-VPC IP-type members (no
+// subnet_cidr_id; requires the LB's ip_target_enable, which this reconciler
+// flips on when needed) reachable over the existing mesh VPC peering. The
+// ports stay the identical hostNetwork host ports — never a nodePort (§854).
+//
 // History: on cilium 1.16.5 (hostNetwork bind bug) the gateway was an
 // ELB→node:<auto-allocated nodePort> forward and this file repointed member
 // PORTS post-convergence (#4690/#4691). That shape — and its failure mode
@@ -64,50 +76,86 @@ const (
 )
 
 // ReconcileGatewayELBMembers converges the gateway ELB's HTTPS/HTTP pool
-// member sets to nodeIPs at the fixed gateway host ports, and points each
-// pool's health monitor at the same port.
+// member sets to the union of primaryIPs + peerIPs at the fixed gateway host
+// ports, and points each pool's health monitor at the same port.
 //
 // It is an exported method on *Provider (mirrors SweepOrphanEIPs) so the
-// handler reaches it via h.huaweiProvider("gateway-elb"). nodeIPs are the
-// live cluster's node InternalIPs (primary region — each region is its own
-// cluster); httpsPort/httpPort are the durable gateway host ports (443/80),
-// bound on every node by cilium-envoy's gateway-api hostNetwork mode.
+// handler reaches it via h.huaweiProvider("gateway-elb").
+//
+//   - primaryIPs are the PRIMARY region cluster's node InternalIPs — nodes in
+//     the ELB's own VPC, added as classic subnet members.
+//   - peerIPs are every OTHER region cluster's node InternalIPs (#5244) —
+//     nodes in peer VPCs, added as cross-VPC IP-type members (no
+//     subnet_cidr_id; the reconciler enables the LB's ip_target_enable when
+//     peer members are needed and it is off).
+//   - sweepStale gates DELETION of members outside the union. Pass false when
+//     region enumeration was INCOMPLETE (e.g. a peer cluster unreachable —
+//     possibly mid region outage): the reconcile then only ADDS missing
+//     members, so a temporarily unlistable region's members — the exact
+//     members carrying the EIP through the outage — are never drained by a
+//     blind sweep.
+//   - httpsPort/httpPort are the durable gateway host ports (443/80), bound on
+//     every node in every region by cilium-envoy's gateway-api hostNetwork
+//     mode.
 //
 // Returns the number of members changed (adds + removals; 0 == already
 // converged) and an error only on a hard API failure. Per-member failures are
 // logged via progress and do NOT abort the whole reconcile (best-effort, like
 // the day-2 post-handover hooks).
-func (p *Provider) ReconcileGatewayELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN string, nodeIPs []string, httpsPort, httpPort int, progress func(msg string)) (int, error) {
+func (p *Provider) ReconcileGatewayELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN string, primaryIPs, peerIPs []string, httpsPort, httpPort int, sweepStale bool, progress func(msg string)) (int, error) {
 	return p.reconcileELBMembers(ctx, ak, sk, projectID, region, sovereignFQDN,
 		gatewayELBNameSuffix, gatewayPoolHTTPSSuffix, gatewayPoolHTTPSuffix,
-		nodeIPs, httpsPort, httpPort, false /*softSkipMissing*/, progress)
+		primaryIPs, peerIPs, httpsPort, httpPort, sweepStale, false /*softSkipMissing*/, progress)
 }
 
 // ReconcileConsoleELBMembers converges the dedicated CONSOLE ELB's member set
-// to nodeIPs at the console gateway host ports (8443/8080 on huawei). Identical
-// convergence to the primary gateway, targeting the "-elb-console" ELB. It is
-// softSkipMissing: a console_isolation_enabled=false prov has no console ELB, so
-// "ELB not found" is a clean no-op (0, nil), not an error. Without this, primary
-// self-heals node churn (post_handover) but the console ELB kept its tofu-seeded
-// boot member set forever → after an autoscaler node roll the console front door
-// lost its live backends → Console 000. Companion to ReconcileGatewayELBMembers.
-func (p *Provider) ReconcileConsoleELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN string, nodeIPs []string, httpsPort, httpPort int, progress func(msg string)) (int, error) {
+// to the same mesh-wide node union at the console gateway host ports
+// (8443/8080 on huawei — #5244: the console EIP black-holed on region-kill for
+// the same primary-region-only-membership root cause as the gateway ELB).
+// Identical convergence to the primary gateway, targeting the "-elb-console"
+// ELB. It is softSkipMissing: a console_isolation_enabled=false prov has no
+// console ELB, so "ELB not found" is a clean no-op (0, nil), not an error.
+// Without this, primary self-heals node churn (post_handover) but the console
+// ELB kept its tofu-seeded boot member set forever → after an autoscaler node
+// roll the console front door lost its live backends → Console 000. Companion
+// to ReconcileGatewayELBMembers.
+func (p *Provider) ReconcileConsoleELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN string, primaryIPs, peerIPs []string, httpsPort, httpPort int, sweepStale bool, progress func(msg string)) (int, error) {
 	return p.reconcileELBMembers(ctx, ak, sk, projectID, region, sovereignFQDN,
 		consoleELBNameSuffix, consolePoolHTTPSSuffix, consolePoolHTTPSuffix,
-		nodeIPs, httpsPort, httpPort, true /*softSkipMissing*/, progress)
+		primaryIPs, peerIPs, httpsPort, httpPort, sweepStale, true /*softSkipMissing*/, progress)
 }
 
-func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN, elbSuffix, poolHTTPSSuffix, poolHTTPSuffix string, nodeIPs []string, httpsPort, httpPort int, softSkipMissing bool, progress func(msg string)) (int, error) {
+// elbMember is one pool member as returned by the ELB v3 members-list
+// endpoint.
+type elbMember struct {
+	ID           string `json:"id"`
+	Address      string `json:"address"`
+	ProtocolPort int    `json:"protocol_port"`
+	SubnetID     string `json:"subnet_cidr_id"`
+}
+
+func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, region, sovereignFQDN, elbSuffix, poolHTTPSSuffix, poolHTTPSuffix string, primaryIPs, peerIPs []string, httpsPort, httpPort int, sweepStale, softSkipMissing bool, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
 	if httpsPort <= 0 && httpPort <= 0 {
 		return 0, fmt.Errorf("gateway-elb: no valid gateway host port supplied (https=%d http=%d)", httpsPort, httpPort)
 	}
-	desiredIPs := make(map[string]bool, len(nodeIPs))
-	for _, ip := range nodeIPs {
+	// desiredIPs = the full member union; crossVPC marks the peer-region
+	// subset that must be created WITHOUT a subnet_cidr_id (IP-type member).
+	// A duplicate IP in both lists classifies as primary.
+	desiredIPs := make(map[string]bool, len(primaryIPs)+len(peerIPs))
+	crossVPC := make(map[string]bool, len(peerIPs))
+	for _, ip := range peerIPs {
 		if ip = strings.TrimSpace(ip); ip != "" {
 			desiredIPs[ip] = true
+			crossVPC[ip] = true
+		}
+	}
+	for _, ip := range primaryIPs {
+		if ip = strings.TrimSpace(ip); ip != "" {
+			desiredIPs[ip] = true
+			delete(crossVPC, ip)
 		}
 	}
 	if len(desiredIPs) == 0 {
@@ -140,8 +188,9 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 	}
 
 	// 2. Resolve the ELB's pools + its VIP subnet (the fallback subnet for
-	//    member creates when a pool has no existing member to inherit from —
-	//    nodes and the ELB share the region subnet by construction).
+	//    same-VPC member creates when a pool has no existing member to inherit
+	//    from — primary-region nodes and the ELB share the region subnet by
+	//    construction) + ip_target_enable (#5244 — cross-VPC members need it).
 	lbResp, status, err := doSignedRequest(client, hw, http.MethodGet, base+"/loadbalancers/"+gwELBID, nil)
 	if err != nil {
 		return 0, fmt.Errorf("gateway-elb: get LB %s: %w", gwELBID, err)
@@ -152,6 +201,7 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 	var lb struct {
 		LoadBalancer struct {
 			VipSubnetCidrID string `json:"vip_subnet_cidr_id"`
+			IPTargetEnable  bool   `json:"ip_target_enable"`
 			Pools           []struct {
 				ID string `json:"id"`
 			} `json:"pools"`
@@ -161,9 +211,32 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 		return 0, fmt.Errorf("gateway-elb: decode LB %s: %w", gwELBID, err)
 	}
 
+	// 2b. #5244 — peer-region members are cross-VPC IP-type members; the LB
+	// must have ip_target_enable on before their create is accepted. tofu sets
+	// cross_vpc_backend at Phase-0 on multi-region provs; this heals drift
+	// (pre-#5244 provs, or an HCS build that dropped the create-time flag).
+	// On PUT failure: log + skip ADDING cross-VPC members this cycle (their
+	// creates would be rejected anyway) — but keep them in desiredIPs so an
+	// existing peer member is never swept as stale.
+	if len(crossVPC) > 0 && !lb.LoadBalancer.IPTargetEnable {
+		putBody := []byte(`{"loadbalancer":{"ip_target_enable":true}}`)
+		pResp, pStat, pErr := doSignedRequest(client, hw, http.MethodPut, base+"/loadbalancers/"+gwELBID, putBody)
+		if pErr != nil || pStat >= 400 {
+			progress(fmt.Sprintf("gateway-elb: enable ip_target_enable on LB %s failed (status %d): %s — peer-region member adds skipped this cycle", gwELBID, pStat, snippet(pResp, 200)))
+			for ip := range crossVPC {
+				crossVPC[ip] = false // marker: known peer IP, but not addable now
+			}
+		} else {
+			progress(fmt.Sprintf("gateway-elb: LB %s ip_target_enable → true (cross-VPC members permitted)", gwELBID))
+		}
+	}
+
 	changed := 0
 	for _, pl := range lb.LoadBalancer.Pools {
-		// Fetch pool detail (name + members + healthmonitor_id).
+		// Fetch pool detail (name + healthmonitor_id). NOTE: the pool GET's
+		// inline `members` are ID-only STUBS on HCS (proven live on hw275 —
+		// address/protocol_port come back empty), so the member set is read
+		// from the dedicated members-list endpoint below.
 		pResp, pStat, perr := doSignedRequest(client, hw, http.MethodGet, base+"/pools/"+pl.ID, nil)
 		if perr != nil || pStat >= 400 {
 			progress(fmt.Sprintf("gateway-elb: get pool %s failed (status %d): %v", pl.ID, pStat, perr))
@@ -171,13 +244,7 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 		}
 		var pool struct {
 			Pool struct {
-				Name    string `json:"name"`
-				Members []struct {
-					ID           string `json:"id"`
-					Address      string `json:"address"`
-					ProtocolPort int    `json:"protocol_port"`
-					SubnetID     string `json:"subnet_cidr_id"`
-				} `json:"members"`
+				Name            string `json:"name"`
 				HealthMonitorID string `json:"healthmonitor_id"`
 			} `json:"pool"`
 		}
@@ -201,17 +268,37 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 			continue
 		}
 
-		// 3. Converge the member set: keep members already at (nodeIP, desired),
-		//    delete everything else (stale nodes, wrong ports, empty addresses),
-		//    then add the missing nodes. Track a subnet to inherit for creates.
+		// Fetch the pool's full member objects (address + port + subnet).
+		mResp, mStat, merr := doSignedRequest(client, hw, http.MethodGet, base+"/pools/"+pl.ID+"/members", nil)
+		if merr != nil || mStat >= 400 {
+			progress(fmt.Sprintf("gateway-elb: list members of pool %s failed (status %d): %v", pl.ID, mStat, merr))
+			continue
+		}
+		var members struct {
+			Members []elbMember `json:"members"`
+		}
+		if err := json.Unmarshal(mResp, &members); err != nil {
+			progress(fmt.Sprintf("gateway-elb: decode members of pool %s failed: %v", pl.ID, err))
+			continue
+		}
+
+		// 3. Converge the member set: keep members already at (nodeIP, desired);
+		//    delete everything else (stale nodes, wrong ports, empty addresses)
+		//    — but ONLY when sweepStale (a partial region enumeration must
+		//    never drain the unreachable region's members, #5244) — then add
+		//    the missing nodes. Track a subnet to inherit for same-VPC creates.
 		subnetForCreate := lb.LoadBalancer.VipSubnetCidrID
-		present := make(map[string]bool, len(pool.Pool.Members))
-		for _, m := range pool.Pool.Members {
+		present := make(map[string]bool, len(members.Members))
+		for _, m := range members.Members {
 			if m.SubnetID != "" {
 				subnetForCreate = m.SubnetID
 			}
 			if desiredIPs[m.Address] && m.ProtocolPort == desired {
 				present[m.Address] = true
+				continue
+			}
+			if !sweepStale {
+				progress(fmt.Sprintf("gateway-elb: pool %s: member %q:%d not in the enumerated node set, but region enumeration was incomplete — keeping (adds-only cycle)", pool.Pool.Name, m.Address, m.ProtocolPort))
 				continue
 			}
 			// Stale member (node gone, wrong port, or empty address).
@@ -227,18 +314,35 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 			if present[ip] {
 				continue
 			}
-			body := gatewayMemberCreateBody(ip, desired, subnetForCreate)
+			isCross, isKnownPeer := crossVPC[ip]
+			if isKnownPeer && !isCross {
+				// Peer IP whose cross-VPC enable failed above — skip the add.
+				continue
+			}
+			subnet := subnetForCreate
+			if isCross {
+				// #5244 cross-VPC IP-type member: subnet_cidr_id MUST be
+				// omitted — the peer node's IP is outside every subnet of the
+				// ELB's VPC; the ELB reaches it over the mesh VPC peering.
+				subnet = ""
+			}
+			body := gatewayMemberCreateBody(ip, desired, subnet)
 			cResp, cStat, cErr := doSignedRequest(client, hw, http.MethodPost, base+"/pools/"+pl.ID+"/members", body)
 			if cErr != nil || cStat >= 400 {
 				progress(fmt.Sprintf("gateway-elb: pool %s: add member %s:%d failed (status %d): %s", pool.Pool.Name, ip, desired, cStat, snippet(cResp, 200)))
 				continue
 			}
-			progress(fmt.Sprintf("gateway-elb: pool %s: member %s:%d added", pool.Pool.Name, ip, desired))
+			kind := "member"
+			if isCross {
+				kind = "cross-VPC member"
+			}
+			progress(fmt.Sprintf("gateway-elb: pool %s: %s %s:%d added", pool.Pool.Name, kind, ip, desired))
 			changed++
 		}
 
 		// 4. Point the pool's health monitor at the gateway host port, so the
-		//    ELB marks the members healthy against the port it actually forwards.
+		//    ELB marks the members healthy against the port it actually forwards
+		//    — and drains a dead region's members on region-kill (#5244).
 		if pool.Pool.HealthMonitorID != "" {
 			hmBody := []byte(fmt.Sprintf(`{"healthmonitor":{"monitor_port":%d}}`, desired))
 			hResp, hStat, hErr := doSignedRequest(client, hw, http.MethodPut, base+"/healthmonitors/"+pool.Pool.HealthMonitorID, hmBody)
@@ -255,9 +359,10 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 
 // gatewayMemberCreateBody builds the ELB v3 member-create payload. subnet_cidr_id
 // is the member's IPv4 subnet (inherited from an existing member, or the ELB's
-// own VIP subnet — nodes and the ELB share the region subnet by construction).
-// When empty it is omitted (cross-VPC member — not our case, but keep the
-// encoder honest).
+// own VIP subnet — primary-region nodes and the ELB share the region subnet by
+// construction). When empty it is omitted — the cross-VPC IP-type member shape
+// (#5244): peer-region nodes live outside the ELB's VPC, and the members API
+// rejects a subnet_cidr_id that does not contain the address.
 func gatewayMemberCreateBody(address string, port int, subnetCIDRID string) []byte {
 	member := map[string]any{
 		"address":       address,

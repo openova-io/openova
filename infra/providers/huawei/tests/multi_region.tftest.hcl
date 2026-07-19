@@ -158,6 +158,36 @@ run "tier_b_two_regions_poc" {
     condition     = huaweicloud_obs_bucket.main.bucket == "catalyst-t99-omani-works-deadbeef"
     error_message = "OBS bucket name must match the operator-supplied obs_bucket_name."
   }
+
+  # #5244 — gateway ELB members span ALL regions' nodes (2 CP + 4 workers =
+  # 6), not just the primary's. Primary-region-only membership black-holed
+  # the gateway EIP for the whole region-a outage on hw275 G12: the health
+  # monitors drained every member and nothing was left to serve.
+  assert {
+    condition     = length(huaweicloud_elb_member.https) == 6 && length(huaweicloud_elb_member.http) == 6
+    error_message = "Gateway ELB pools must contain EVERY region's nodes (6 for 2×(1 CP + 2 workers)) so a region kill leaves the peer region serving the EIP (#5244)."
+  }
+  assert {
+    condition     = length([for m in local.gateway_lb_members : m if !m.primary]) == 3
+    error_message = "3 of the 6 gateway ELB members must be peer-region (region-b) nodes (#5244)."
+  }
+  # Peer-region members are cross-VPC IP-type members: subnet_id omitted.
+  assert {
+    condition     = length([for i, m in local.gateway_lb_members : i if !m.primary && huaweicloud_elb_member.https[i].subnet_id != null]) == 0
+    error_message = "Peer-region gateway members must OMIT subnet_id (cross-VPC IP-type member — the peer node's IP is outside the ELB's VPC, #5244)."
+  }
+  # Cross-VPC (IP-as-backend) must be on for a multi-region prov, or the
+  # peer-region member creates are rejected by the ELB API.
+  assert {
+    condition     = huaweicloud_elb_loadbalancer.primary.cross_vpc_backend == true
+    error_message = "Multi-region provs must enable cross_vpc_backend on the gateway ELB (#5244)."
+  }
+  # §854 — the member ports stay the durable cilium-envoy hostNetwork host
+  # ports; the k8s NodePort range must never appear.
+  assert {
+    condition     = length([for m in huaweicloud_elb_member.https : m if m.protocol_port >= 30000]) == 0 && length([for m in huaweicloud_elb_member.http : m if m.protocol_port >= 30000]) == 0
+    error_message = "Gateway ELB member ports must stay below the k8s NodePort range — nodePorts are forbidden (§854)."
+  }
 }
 
 # Scenario 2 — single-region shape (1 CP region, no secondary). Verifies
@@ -194,6 +224,12 @@ run "single_region" {
   assert {
     condition     = length(huaweicloud_compute_instance.worker) == 2
     error_message = "Single-region must create 2 worker ECS."
+  }
+  # #5244 — single-region keeps the pre-#5244 member shape: all members are
+  # same-VPC (subnet_id set), and cross_vpc_backend stays provider-default.
+  assert {
+    condition     = length(huaweicloud_elb_member.https) == 3 && length([for m in local.gateway_lb_members : m if !m.primary]) == 0
+    error_message = "Single-region gateway ELB members must be exactly the region's own 3 nodes, all primary (no cross-VPC members, #5244)."
   }
 }
 
