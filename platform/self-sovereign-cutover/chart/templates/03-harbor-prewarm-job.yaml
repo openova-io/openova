@@ -1543,37 +1543,56 @@ data:
             # — deterministic, not async lag), so the 0.1.142 tag-based
             # artifact probe could never pass and a tag-based step-11 pivot
             # ref would genuinely 404 post-severance. The artifact IS cached
-            # and queryable BY DIGEST. Phase A4 therefore resolves each
-            # package's tag->digest at warm time (sha256 of the exact
-            # pulled-through manifest bytes in the dir: scratch), verifies
-            # durability BY DIGEST, and persists the map in the
-            # XPKG_DIGEST_CM ConfigMap for step-11's digest pivot.
-            xpkg_artifact_present() {
-              # $1 = local path project/repo[:tag|@digest]; 0 when the local
-              # Harbor DURABLY serves it (artifact API = Harbor CORE DB, never
-              # pull-through — the #5030 probe discipline). Non-zero on ANY
-              # miss/parse-fail/API error (fail-closed → the caller warms).
-              _xa_pp="$1"
-              _xa_ref="latest"
-              case "${_xa_pp}" in
-                *@*)
-                  _xa_ref="${_xa_pp##*@}"; _xa_pp="${_xa_pp%@*}"
-                  case "${_xa_pp##*/}" in *:*) _xa_pp="${_xa_pp%:*}" ;; esac ;;
-                *)
-                  case "${_xa_pp##*/}" in *:*) _xa_ref="${_xa_pp##*:}"; _xa_pp="${_xa_pp%:*}" ;; esac ;;
-              esac
-              case "${_xa_pp}" in
-                */*) _xa_proj="${_xa_pp%%/*}"; _xa_repo="${_xa_pp#*/}" ;;
-                *)   return 1 ;;
-              esac
-              # Single-encode nested repo `/` -> %2F for the direct harbor-core
-              # Service path (#5036 — no gateway decode layer in between).
-              _xa_repo_enc=$(printf '%s' "${_xa_repo}" | sed 's#/#%2F#g')
-              _xa_d=$(curl -sk --max-time 30 \
+            # and queryable BY DIGEST — but ONLY via the registry v2 API, not
+            # the artifact-management API (#5232 round 2, live hw274: for a
+            # MULTI-ARCH package the artifact API records only the per-arch
+            # CHILD manifests, never the top-level OCI index by its own digest
+            # → GET artifacts/sha256:<index> 404s there even though every blob
+            # is durable). Phase A4 therefore resolves each package's
+            # tag->digest from a registry v2 HEAD (the Docker-Content-Digest
+            # response header — the exact digest containerd/Crossplane resolve
+            # at pull time), verifies durability with a v2 digest GET (200),
+            # and persists the map in the XPKG_DIGEST_CM ConfigMap for
+            # step-11's digest pivot.
+            #
+            # The two helpers below use the registry v2 manifest API
+            # (${HARBOR_INTERNAL_URL}/v2/<repo>/manifests/<ref>, the SAME
+            # in-cluster Harbor Service Phase B dials) with LITERAL-slash repo
+            # paths (no %2F encode — the /v2 API takes the nested repo name
+            # verbatim). The Accept header covers OCI index + docker manifest
+            # list + single manifest so a single-arch package (whose HEAD
+            # returns a manifest.v2 digest, equally servable) needs no
+            # special-casing.
+            XPKG_V2_ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+            xpkg_v2_resolve_digest() {
+              # $1 = repo-path (literal slashes, incl. project), $2 = tag.
+              # Echoes the servable manifest/index digest (Docker-Content-Digest
+              # from a v2 HEAD) when the HEAD is 200 + carries the header, else
+              # nothing. This is the durable digest step-11 pivots spec.package
+              # to. Empty tag → nothing (an in-ref digest is authoritative and
+              # never needs resolving).
+              _xr_repo="$1"; _xr_tag="$2"
+              [ -n "${_xr_tag}" ] || return 0
+              curl -sSIk --max-time 30 \
                 -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_xa_proj}/repositories/${_xa_repo_enc}/artifacts/${_xa_ref}" 2>/dev/null \
-                | jq -r '.digest // empty' 2>/dev/null)
-              [ -n "${_xa_d}" ]
+                -H "Accept: ${XPKG_V2_ACCEPT}" \
+                "${HARBOR_INTERNAL_URL}/v2/${_xr_repo}/manifests/${_xr_tag}" 2>/dev/null \
+                | tr -d '\r' | grep -i '^docker-content-digest:' | tail -1 | awk '{print $2}'
+            }
+            xpkg_v2_digest_present() {
+              # $1 = repo-path (literal slashes, incl. project), $2 = sha256
+              # digest. 0 iff the registry v2 API serves that digest (200) —
+              # Harbor CORE serving the durably-cached index/manifest, the
+              # multi-arch-aware durability signal that supersedes the
+              # artifact-management-API probe for xpkg (#5232). Non-zero on ANY
+              # miss → fail-closed (the caller warms / FATALs).
+              _xp_repo="$1"; _xp_dig="$2"
+              [ -n "${_xp_dig}" ] || return 1
+              _xp_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
+                -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                -H "Accept: ${XPKG_V2_ACCEPT}" \
+                "${HARBOR_INTERNAL_URL}/v2/${_xp_repo}/manifests/${_xp_dig}" 2>/dev/null)
+              [ "${_xp_code}" = "200" ]
             }
 
             if [ "${XPKG_PREWARM_ENABLED:-true}" != "true" ]; then
@@ -1630,17 +1649,20 @@ data:
                 esac
                 _xw_slug=$(printf '%s' "${_xw_lpath}" | tr -c 'A-Za-z0-9._-' '_')
                 : >"${xpkg_warm_dir}/${_xw_slug}.log"
-                # #5232 — split the local path into repo-path + ref. A source
-                # ref that already carries a digest (#4955 normalized
-                # tag@digest -> digest-only) IS the authoritative digest.
+                # #5232 — split the local path into repo-path + tag + ref. A
+                # source ref that already carries a digest (#4955 normalized
+                # tag@digest -> digest-only) IS the authoritative digest; the
+                # tag drives the registry v2 HEAD that resolves the servable
+                # digest for a tag-only ref.
                 _xw_repo_path="${_xw_lpath}"
                 _xw_digest=""
+                _xw_tag=""
                 case "${_xw_lpath}" in
                   *@sha256:*)
                     _xw_digest="${_xw_lpath##*@}"; _xw_repo_path="${_xw_lpath%@*}"
-                    case "${_xw_repo_path##*/}" in *:*) _xw_repo_path="${_xw_repo_path%:*}" ;; esac ;;
+                    case "${_xw_repo_path##*/}" in *:*) _xw_tag="${_xw_repo_path##*:}"; _xw_repo_path="${_xw_repo_path%:*}" ;; esac ;;
                   *)
-                    case "${_xw_lpath##*/}" in *:*) _xw_repo_path="${_xw_lpath%:*}" ;; esac ;;
+                    case "${_xw_lpath##*/}" in *:*) _xw_tag="${_xw_lpath##*:}"; _xw_repo_path="${_xw_lpath%:*}" ;; esac ;;
                 esac
                 # Idempotency (#4994/#5232): skip ONLY when a digest is
                 # already authoritative (in-ref, or minted by a PRIOR
@@ -1654,7 +1676,7 @@ data:
                   if [ -z "${_xw_skip_digest}" ]; then
                     _xw_skip_digest=$(printf '%s' "${xpkg_digest_map_json}" | jq -r --arg k "${_xw_slug}" '.data[$k] // empty' 2>/dev/null) || _xw_skip_digest=""
                   fi
-                  if [ -n "${_xw_skip_digest}" ] && xpkg_artifact_present "${_xw_repo_path}@${_xw_skip_digest}"; then
+                  if [ -n "${_xw_skip_digest}" ] && xpkg_v2_digest_present "${_xw_repo_path}" "${_xw_skip_digest}"; then
                     echo "[harbor-prewarm] Phase A4 skip ${_xw_pkg} -> ${_xw_repo_path}@${_xw_skip_digest} (already durably cached by digest)"
                     printf '%s' "${_xw_skip_digest}" > "${xpkg_warm_dir}/${_xw_slug}.digest"
                     printf '%s@%s (present)' "${_xw_repo_path}" "${_xw_skip_digest}" > "${xpkg_warm_dir}/${_xw_slug}.ok"
@@ -1692,15 +1714,19 @@ data:
                   _xw_attempt=$((_xw_attempt+1))
                   [ "${_xw_attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
                 done
-                # #5232 — resolve the tag->digest from the pulled-through
-                # scratch BEFORE freeing it: the dir: transport's top-level
-                # manifest.json is the EXACT manifest(-list) bytes the proxy
-                # served, so its sha256 IS the digest Harbor records for the
-                # cached artifact (the same sha256-of-raw-bytes identity
-                # dest_already_current relies on, single-arch AND lists).
+                # #5232 (round 2) — resolve the tag->digest from the REGISTRY
+                # V2 API, not the pulled-through scratch: HEAD the tag and read
+                # the `Docker-Content-Digest` response header. That is the
+                # EXACT digest Harbor serves for the tag (and containerd/
+                # Crossplane resolve at pull time) — for a multi-arch package
+                # the top-level OCI INDEX digest, which the artifact-management
+                # API never exposes by its own digest (live hw274: only per-
+                # arch child manifests, so the resolved index 404s there). The
+                # full pull-through above already cached the manifest + every
+                # blob durably, so this HEAD is served from cache. In-ref
+                # digests (#4955) are authoritative and skip the resolve.
                 if [ "${_xw_rc}" -eq 0 ] && [ -z "${_xw_digest}" ]; then
-                  _xw_digest_hex=$(sha256sum "${xpkg_warm_dir}/${_xw_slug}.dir/manifest.json" 2>/dev/null | awk '{print $1}') || _xw_digest_hex=""
-                  if [ -n "${_xw_digest_hex}" ]; then _xw_digest="sha256:${_xw_digest_hex}"; fi
+                  _xw_digest=$(xpkg_v2_resolve_digest "${_xw_repo_path}" "${_xw_tag}")
                 fi
                 # The dir: copy is a scratch side-effect — the durable payload
                 # is what Harbor cached on the way through. Free the emptyDir.
@@ -1715,15 +1741,16 @@ data:
                   # tag ref 404s post-severance — Harbor never records tags on
                   # proxy projects, #5232) — fail LOUD while egress is open.
                   printf '%s (pulled through but tag->digest resolution failed)' "${_xw_lpath}" > "${xpkg_warm_dir}/${_xw_slug}.fail"
-                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the scratch manifest.json digest could not be computed — no digest to record for the step-11 pivot (#5232)"
+                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the registry v2 HEAD returned no Docker-Content-Digest for tag '${_xw_tag}' (HEAD non-200 or header absent) — no digest to record for the step-11 pivot (#5232)"
                   continue
                 fi
-                # Durable-presence poll BY DIGEST (#5232 — Harbor records
-                # proxied artifacts ASYNC and never records their tags):
-                # bounded 12x10s before the fail-closed verdict.
+                # Durable-presence poll BY DIGEST via the registry v2 API
+                # (#5232 round 2 — the multi-arch-aware durability signal;
+                # Harbor records proxied artifacts ASYNC): GET the digest must
+                # be 200, bounded 12x10s before the fail-closed verdict.
                 _xw_present=0
                 for _xw_i in $(seq 1 12); do
-                  if xpkg_artifact_present "${_xw_repo_path}@${_xw_digest}"; then _xw_present=1; break; fi
+                  if xpkg_v2_digest_present "${_xw_repo_path}" "${_xw_digest}"; then _xw_present=1; break; fi
                   sleep 10
                 done
                 if [ "${_xw_present}" -eq 1 ]; then
@@ -1732,7 +1759,7 @@ data:
                   echo "[harbor-prewarm] Phase A4 done ${_xw_repo_path}@${_xw_digest} (durably cached by digest)"
                 else
                   printf '%s@%s (pulled through but never durably recorded)' "${_xw_repo_path}" "${_xw_digest}" > "${xpkg_warm_dir}/${_xw_slug}.fail"
-                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the Harbor artifact API never recorded ${_xw_digest} durably (120s poll) — proxy-cache persistence failed"
+                  echo "[harbor-prewarm] Phase A4 ${_xw_lpath}: pull-through succeeded but the registry v2 API never served ${_xw_digest} (GET non-200, 120s poll) — proxy-cache persistence failed"
                 fi
               done
               xpkg_ok=0

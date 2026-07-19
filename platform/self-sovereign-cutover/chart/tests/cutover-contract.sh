@@ -2950,9 +2950,18 @@ echo "  PASS (#5215: step-07 excludes the CSI driver from BOTH the additionalHRs
 # tag — deterministic), so the #5204 tag-based durable-verify could never pass
 # (step-03 FATAL'd at pct=18) and a tag-based step-11 pivot ref would
 # genuinely 404 post-severance. The artifact IS cached + queryable BY DIGEST.
-# This Case asserts the warm + the digest resolution + the digest-addressed
-# durable verify + the digest-addressed pivot end-to-end.
-echo "[cutover-contract] Case 65: step-03 Phase A4 warms Crossplane xpkg provider packages into local proxy-xpkg with tag->digest resolution + step-11 pivots spec.package BY DIGEST after a digest-addressed durable verify (#5204 #5232)"
+# Root cause #5232 round 2 (same env, 0.1.143 run): the digest was resolved
+# correctly but verified via the Harbor artifact-MANAGEMENT API
+# (/api/v2.0/.../artifacts/<digest>). For a MULTI-ARCH package that API records
+# ONLY the per-arch CHILD manifests and NEVER exposes the top-level OCI index
+# by its own digest → GET artifacts/<index-digest> 404s → step-03 STILL FATAL'd
+# despite every blob being durable. The registry v2 manifest API serves the
+# index correctly (HEAD tag → 200 + Docker-Content-Digest; GET digest → 200) —
+# exactly containerd/Crossplane's pull path. This Case asserts the warm + the
+# v2-HEAD digest resolution + the v2 digest-GET durable verify (with NO
+# artifact-management-API call in the xpkg leg) + the digest-addressed pivot
+# end-to-end.
+echo "[cutover-contract] Case 65: step-03 Phase A4 warms Crossplane xpkg provider packages into local proxy-xpkg, resolves the tag->digest via a registry v2 HEAD + durable-verifies via a v2 digest GET (no artifact-management API), and step-11 pivots spec.package BY DIGEST after the same v2 durable verify (#5204 #5232)"
 [ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
 c65_fail=0
 # (a) step-03 enumerates the Provider package refs — the SAME set step-11
@@ -2980,37 +2989,59 @@ fi
 if ! grep -qF 'dir:${xpkg_warm_dir}/${_xw_slug}.dir' "$TMP/s03pin.yaml"; then
   echo "FAIL: step-03 Phase A4 lost the dir: scratch destination for the warm pull-through (#5204)" >&2; c65_fail=1
 fi
-# (d) durable presence is asserted via the Harbor ARTIFACT API (the #5030
-#     durable-probe discipline) and a warm failure FATALs the step.
-if ! grep -qF 'xpkg_artifact_present' "$TMP/s03pin.yaml"; then
-  echo "FAIL: step-03 Phase A4 lost the xpkg_artifact_present durable probe (Harbor artifact API — CORE DB, never pull-through) (#5204)" >&2; c65_fail=1
+# (d) durable presence is asserted via the REGISTRY V2 manifest API (#5232
+#     round 2 — the multi-arch-aware durability signal; the artifact-
+#     management API never exposes a multi-arch OCI index by its own digest,
+#     live hw274) and a warm failure FATALs the step.
+if ! grep -qF 'xpkg_v2_digest_present' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 lost the xpkg_v2_digest_present durable probe (registry v2 digest GET — the multi-arch-aware durability signal) (#5232)" >&2; c65_fail=1
 fi
 if ! grep -qF 'Crossplane xpkg package(s) failed to warm' "$TMP/s03pin.yaml"; then
   echo "FAIL: step-03 Phase A4 lost the xpkg_fail>0 FATAL — an unwarmed package would silently ship a cold cache into the step-11 pivot (#5204)" >&2; c65_fail=1
 fi
-# (d2) #5232: the tag->digest is resolved from the pulled-through dir: scratch
-#     (sha256 of the exact top-level manifest bytes IS the digest Harbor
-#     records), the durable poll probes BY DIGEST (tags are never recorded on
-#     proxy projects — hw274), a failed resolution FATALs, and the map is
-#     persisted to the XPKG_DIGEST_CM ConfigMap for step-11.
-if ! grep -qF 'sha256sum "${xpkg_warm_dir}/${_xw_slug}.dir/manifest.json"' "$TMP/s03pin.yaml"; then
-  echo "FAIL: step-03 Phase A4 does not resolve the tag->digest from the pulled-through scratch manifest.json — step-11 has no digest to pivot by and a tag ref 404s post-severance (#5232)" >&2; c65_fail=1
+# (d2) #5232 round 2: the tag->digest is resolved from a REGISTRY V2 HEAD
+#     (the Docker-Content-Digest response header — the exact digest
+#     containerd/Crossplane resolve; for a multi-arch package the top-level
+#     OCI index digest, which the artifact-management API never exposes by its
+#     own digest — live hw274), the durable poll probes BY DIGEST via a v2
+#     digest GET (200), a v2 HEAD non-200 AND a v2 digest GET non-200 both
+#     FATAL, and the map is persisted to the XPKG_DIGEST_CM ConfigMap.
+if ! grep -qF 'xpkg_v2_resolve_digest "${_xw_repo_path}" "${_xw_tag}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 does not resolve the tag->digest from a registry v2 HEAD (xpkg_v2_resolve_digest) — the artifact-management API 404s on a multi-arch OCI index by digest (live hw274) (#5232)" >&2; c65_fail=1
 fi
-if ! grep -qF 'xpkg_artifact_present "${_xw_repo_path}@${_xw_digest}"' "$TMP/s03pin.yaml"; then
-  echo "FAIL: step-03 Phase A4 durable-presence poll is not DIGEST-addressed — a tag-based probe deterministically fails on proxy-cache artifacts (Harbor records no tags; live hw274) (#5232)" >&2; c65_fail=1
+if ! grep -qF "grep -i '^docker-content-digest:'" "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4's v2 digest resolve does not parse the Docker-Content-Digest response header — the servable index digest is the durability signal (#5232)" >&2; c65_fail=1
 fi
-if ! grep -qF 'tag->digest resolution failed' "$TMP/s03pin.yaml"; then
-  echo "FAIL: step-03 Phase A4 lost the FATAL on a failed tag->digest resolution — step-11 would have nothing valid to pivot to (#5232)" >&2; c65_fail=1
+if ! grep -qF 'xpkg_v2_digest_present "${_xw_repo_path}" "${_xw_digest}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 durable-presence poll is not a registry v2 digest GET — the artifact-management API deterministically 404s on a multi-arch OCI index (live hw274) (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'no Docker-Content-Digest for tag' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 lost the FATAL on a v2 HEAD that returns no Docker-Content-Digest (HEAD non-200 / header absent) — step-11 would have nothing valid to pivot to (#5232)" >&2; c65_fail=1
+fi
+if ! grep -qF 'the registry v2 API never served' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 lost the FATAL on a v2 digest GET non-200 durable-verify miss (#5232)" >&2; c65_fail=1
 fi
 if ! grep -qF 'kubectl create configmap "${XPKG_DIGEST_CM}"' "$TMP/s03pin.yaml"; then
   echo "FAIL: step-03 Phase A4 does not persist the tag->digest map to the XPKG_DIGEST_CM ConfigMap — step-11 cannot construct digest pivot refs (#5232)" >&2; c65_fail=1
 fi
 # (d3) #5232: the skip-if-present branch keys ONLY on a digest a PRIOR
-#     successful warm minted (or an in-ref #4955 digest) — never on a fresh
-#     tag resolve through the proxy, which could record a manifest with COLD
-#     blobs (a durability hole).
-if ! grep -qF 'xpkg_artifact_present "${_xw_repo_path}@${_xw_skip_digest}"' "$TMP/s03pin.yaml"; then
-  echo "FAIL: step-03 Phase A4 skip-if-present is not keyed on a prior-minted digest — a tag-based (or fresh-resolve) skip either never fires or can false-skip on a cold-blob manifest record (#5232)" >&2; c65_fail=1
+#     successful warm minted (or an in-ref #4955 digest) and durable-verifies
+#     it with the SAME registry v2 digest GET — never on a fresh tag resolve
+#     through the proxy, which could record a manifest with COLD blobs.
+if ! grep -qF 'xpkg_v2_digest_present "${_xw_repo_path}" "${_xw_skip_digest}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A4 skip-if-present is not keyed on a prior-minted digest verified via the registry v2 digest GET — a tag-based (or fresh-resolve) skip either never fires or can false-skip on a cold-blob manifest record (#5232)" >&2; c65_fail=1
+fi
+# (d3b) #5232 round 2: the xpkg leg (Phase A4) makes NO artifact-management-API
+#     call — for a multi-arch package that API 404s on the OCI index by its
+#     own digest (live hw274). The registry v2 manifest API is the sole xpkg
+#     durability probe. (The container-image Phase A dest_already_current
+#     keeps the artifact API per #5030 — a DIFFERENT leg; this scopes to A4.)
+awk '/─── Phase A4/{c=1} /─── Phase B/{c=0} c' "$TMP/s03pin.yaml" > "$TMP/s03_a4.yaml"
+if [ ! -s "$TMP/s03_a4.yaml" ]; then
+  echo "FAIL: could not isolate the step-03 Phase A4 block for the artifact-API-absence assertion (#5232)" >&2; c65_fail=1
+fi
+if grep -Eq 'api/v2\.0/projects/.*/artifacts/' "$TMP/s03_a4.yaml"; then
+  echo "FAIL: step-03 Phase A4 still calls the Harbor artifact-management API (/api/v2.0/.../artifacts/) — it 404s on a multi-arch OCI index by digest; the xpkg leg must verify via the registry v2 manifest API only (#5232)" >&2; c65_fail=1
 fi
 # (d4) #5232: both steps project the SAME values-driven digest-map CM name.
 if ! grep -A1 'name: XPKG_DIGEST_CM' "$TMP/s03pin.yaml" | grep -q 'value: "self-sovereign-cutover-xpkg-digests"'; then
@@ -3038,6 +3069,16 @@ fi
 helm template smoke . --show-only templates/11-crossplane-provider-pivot-job.yaml > "$TMP/r11_5204.yaml"
 if ! grep -qF 'verify_local_pkg_artifact()' "$TMP/r11_5204.yaml"; then
   echo "FAIL: step-11 lost the verify_local_pkg_artifact gate — spec.package can be pivoted onto a ref the local registry never durably serves (#5204)" >&2; c65_fail=1
+fi
+# #5232 round 2: step-11's verify probes the REGISTRY V2 manifest API BY
+# DIGEST (200), NOT the Harbor artifact-management API — the same multi-arch-
+# aware durability signal step-03 uses (the artifact API 404s on a multi-arch
+# OCI index by its own digest; live hw274).
+if ! grep -qF '${HARBOR_INTERNAL_URL}/v2/${_vp}/manifests/${_vref}' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 verify_local_pkg_artifact does not probe the registry v2 manifest API BY DIGEST — the artifact-management API 404s on a multi-arch OCI index (live hw274) (#5232)" >&2; c65_fail=1
+fi
+if grep -Eq 'api/v2\.0/projects/.*/artifacts/' "$TMP/r11_5204.yaml"; then
+  echo "FAIL: step-11 still calls the Harbor artifact-management API (/api/v2.0/.../artifacts/) — the xpkg verify must go through the registry v2 manifest API only (#5232)" >&2; c65_fail=1
 fi
 if ! grep -qF 'lookup_pkg_digest' "$TMP/r11_5204.yaml"; then
   echo "FAIL: step-11 lost the lookup into the step-03 tag->digest map — without it every pivot ref stays tag-form and 404s post-severance (#5232)" >&2; c65_fail=1
@@ -3079,6 +3120,6 @@ if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204_off.yaml" | grep -q '
   echo "FAIL: crossplaneProviderPivot.verifyLocalArtifact.enabled=false did not render VERIFY_LOCAL_ARTIFACT=\"false\" — the operator override is not wired (#5204)" >&2; c65_fail=1
 fi
 if [ "$c65_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#5204 #5232: step-03 Phase A4 enumerates the Provider spec.package set, warms each xpkg ref DURABLY through the local proxy-xpkg endpoint [pull-through — Harbor rejects pushes into a proxy-cache project], resolves the tag->digest from the pulled-through scratch manifest, asserts durability BY DIGEST via the artifact API [tags are never recorded on proxy projects — hw274], persists the map + FATALs on any miss; step-11 pivots spec.package BY the minted digest with digest-addressed verify-before-pivot, re-verifies already-pivoted refs by digest, upgrades tag-form live pivots, pushes the digest form to Gitea, and FATALs loud on DIGEST-MISS naming the exact recovery; both toggles operator-wired; xpkg.upbound.io stays excluded from the generic push mirror)"
+echo "  PASS (#5204 #5232: step-03 Phase A4 enumerates the Provider spec.package set, warms each xpkg ref DURABLY through the local proxy-xpkg endpoint [pull-through — Harbor rejects pushes into a proxy-cache project], resolves the tag->digest from a registry v2 HEAD [Docker-Content-Digest — the servable OCI index digest the artifact-management API never exposes; live hw274], asserts durability via a v2 digest GET [200], persists the map + FATALs on a v2 HEAD non-200 or a v2 digest GET non-200 [no artifact-management-API call in the xpkg leg]; step-11 pivots spec.package BY the minted digest with the SAME v2 digest-GET verify-before-pivot, re-verifies already-pivoted refs by digest, upgrades tag-form live pivots, pushes the digest form to Gitea, and FATALs loud on DIGEST-MISS naming the exact recovery; both toggles operator-wired; xpkg.upbound.io stays excluded from the generic push mirror)"
 
 echo "[cutover-contract] All gates green."

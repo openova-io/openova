@@ -301,27 +301,33 @@ data:
             # ---- Phase 0.5 (#5204): local-artifact verify gate ----
             #
             # Rewrite a Provider's spec.package onto the local Harbor ONLY
-            # after the Harbor ARTIFACT API (Harbor CORE DB — durable, never
-            # pull-through: the #5030 probe discipline) confirms the package
-            # artifact is durably present locally. Step-03 Phase A4 warms
-            # every Provider package through proxy-xpkg for exactly this;
-            # a miss here means the warm never ran / was skipped for this
-            # package (e.g. a Provider created mid-cutover after step-03
-            # enumerated), and pivoting anyway would point spec.package at a
-            # ref the local registry cannot serve post-severance. FAIL-LOUD:
-            # the offender is named and the step exits 1 so the operator
-            # re-triggers the cutover (step-03 re-warms, idempotent) instead
-            # of shipping a silently-dangling pivot.
+            # after the registry v2 manifest API confirms the package's digest
+            # is durably served locally (#5232 round 2, live hw274 — the
+            # multi-arch-aware durability signal; the Harbor artifact-
+            # management API records only the per-arch CHILD manifests for a
+            # multi-arch package and never exposes the top-level OCI index by
+            # its own digest, so a digest-addressed artifact-API probe 404s
+            # even when the index IS durable + servable via /v2, exactly
+            # containerd/Crossplane's pull path). Step-03 Phase A4 warms every
+            # Provider package through proxy-xpkg for exactly this; a miss here
+            # means the warm never ran / was skipped for this package (e.g. a
+            # Provider created mid-cutover after step-03 enumerated), and
+            # pivoting anyway would point spec.package at a ref the local
+            # registry cannot serve post-severance. FAIL-LOUD: the offender is
+            # named and the step exits 1 so the operator re-triggers the
+            # cutover (step-03 re-warms, idempotent) instead of shipping a
+            # silently-dangling pivot.
             verify_local_pkg_artifact() {
-              # $1 = local path project/repo[:tag|@digest]; 0 = durably
-              # present OR verification not applicable (disabled / no
+              # $1 = local path project/repo@sha256:<digest> (step-11 always
+              # verifies BY DIGEST). 0 = the registry v2 API durably serves
+              # that digest (200) OR verification not applicable (disabled / no
               # credential to probe with).
               case "${VERIFY_LOCAL_ARTIFACT:-true}" in
                 true|True|TRUE|1|yes) : ;;
                 *) return 0 ;;
               esac
               if [ -z "${HARBOR_PASSWORD:-}" ]; then
-                echo "[crossplane-provider-pivot] WARN: HARBOR_PASSWORD empty — cannot probe the local artifact API; skipping the #5204 verify gate for $1"
+                echo "[crossplane-provider-pivot] WARN: HARBOR_PASSWORD empty — cannot probe the local registry v2 API; skipping the #5204 verify gate for $1"
                 return 0
               fi
               : "${HARBOR_USERNAME:=admin}"
@@ -335,15 +341,20 @@ data:
                   case "${_vp##*/}" in *:*) _vref="${_vp##*:}"; _vp="${_vp%:*}" ;; esac ;;
               esac
               case "${_vp}" in
-                */*) _vproj="${_vp%%/*}"; _vrepo="${_vp#*/}" ;;
+                */*) : ;;
                 *)   return 1 ;;
               esac
-              _vrepo_enc=$(printf '%s' "${_vrepo}" | sed 's#/#%2F#g')
-              _vd=$(curl -sk --max-time 30 \
+              # Registry v2 manifest API: LITERAL-slash repo path (no %2F
+              # encode — the /v2 API takes the nested repo name verbatim), the
+              # digest as the reference, must serve 200. Accept covers OCI
+              # index + docker manifest list + single manifest so a single-arch
+              # package (manifest.v2 digest, equally servable) needs no
+              # special-casing.
+              _vcode=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
                 -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_vproj}/repositories/${_vrepo_enc}/artifacts/${_vref}" 2>/dev/null \
-                | jq -r '.digest // empty' 2>/dev/null)
-              [ -n "${_vd}" ]
+                -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+                "${HARBOR_INTERNAL_URL}/v2/${_vp}/manifests/${_vref}" 2>/dev/null)
+              [ "${_vcode}" = "200" ]
             }
             # Sentinel: the Phase-1 while-loop runs in a pipeline subshell, so
             # a verify miss records here and the parent FATALs after the loop.
