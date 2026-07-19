@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
@@ -156,6 +156,47 @@ describe('NetworkingPage', () => {
     expect(screen.getAllByText(/CiliumNetworkPolicy/).length).toBeGreaterThan(0)
     expect(screen.getByText(/default-deny/)).toBeTruthy()
     expect(screen.queryByText(/pending live data/)).toBeNull()
+  })
+
+  // #5129 — the Cloud Networking lens must never fold NetworkPolicy and
+  // CiliumNetworkPolicy into a single chip. Seed all three policy kinds
+  // with DISTINCT counts (30 / 40 / 4 — the hw258 UAT-201/202 reference
+  // scale) and assert each renders its OWN per-kind stat card with its
+  // OWN count, never a merged/summed total.
+  it('Policies tab renders NetworkPolicy + CiliumNetworkPolicy as SEPARATE per-kind cards with independent counts', async () => {
+    setFetchHandler(() => ({
+      items: [],
+      counts_by_kind: {
+        NetworkPolicy: 30,
+        CiliumNetworkPolicy: 40,
+        CiliumClusterwideNetworkPolicy: 4,
+      },
+      counts_by_namespace: {},
+      total: 74,
+    }))
+    renderAtSlug('policies')
+    await waitFor(() => screen.getByTestId('policies-tab'))
+
+    const npCard = screen.getByTestId('policy-kind-NetworkPolicy')
+    const cnpCard = screen.getByTestId('policy-kind-CiliumNetworkPolicy')
+    const ccnpCard = screen.getByTestId('policy-kind-CiliumClusterwideNetworkPolicy')
+
+    // Three DISTINCT cards, not one folded chip.
+    expect(npCard).toBeTruthy()
+    expect(cnpCard).toBeTruthy()
+    expect(ccnpCard).toBeTruthy()
+
+    // Each card carries its OWN exact full-cluster count — EXACT text
+    // match (not substring) so a "40" rendered where "4" is expected
+    // (or vice versa) fails this assertion, and never the summed total
+    // (74) nor the historical folded-and-wrong "35".
+    expect(within(npCard).getByText('30', { exact: true })).toBeTruthy()
+    expect(within(cnpCard).getByText('40', { exact: true })).toBeTruthy()
+    expect(within(ccnpCard).getByText('4', { exact: true })).toBeTruthy()
+    expect(within(npCard).queryByText('35', { exact: true })).toBeNull()
+    expect(within(cnpCard).queryByText('35', { exact: true })).toBeNull()
+    expect(within(npCard).queryByText('74', { exact: true })).toBeNull()
+    expect(within(ccnpCard).queryByText('40', { exact: true })).toBeNull()
   })
 
   it('ClusterMesh tab renders fsn + hel peers', async () => {
