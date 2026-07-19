@@ -27,6 +27,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -513,6 +514,83 @@ func TestSandboxIntegration_DeleteBackendUnavailableDegradesTo503(t *testing.T) 
 	}
 	if resp["error"] != "sandbox-backend-unavailable" {
 		t.Errorf("error = %v, want sandbox-backend-unavailable", resp["error"])
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Errorf("Retry-After header missing on sandbox 503 (#5140 retryable contract)")
+	}
+}
+
+// TestSandboxIntegration_ListTransient503VsGenuine500 — #5140. Pins the
+// full HTTP contract on the primary GET /api/v1/sandbox/sessions route:
+//
+//   - a TRANSIENT backend error (peer-apiserver token rejection during a
+//     cutover / region-kill recovery window) → 503 with the Retry-After
+//     back-off hint, so clients treat the hiccup as retryable;
+//   - a GENUINE internal error (a fault the classifier does not
+//     recognise as backend-unavailable) → 500 with NO Retry-After, so a
+//     real server fault is never dressed up as a transient one.
+func TestSandboxIntegration_ListTransient503VsGenuine500(t *testing.T) {
+	cases := []struct {
+		name          string
+		injected      error
+		wantCode      int
+		wantError     string
+		wantRetryHint bool
+	}{
+		{
+			name:          "transient-unauthorized-degrades-503",
+			injected:      apierrors.NewUnauthorized("token rejected by peer apiserver"),
+			wantCode:      http.StatusServiceUnavailable,
+			wantError:     "sandbox-backend-unavailable",
+			wantRetryHint: true,
+		},
+		{
+			name:          "genuine-fault-stays-500",
+			injected:      errors.New("json: cannot unmarshal number into Go value"),
+			wantCode:      http.StatusInternalServerError,
+			wantError:     "list-failed",
+			wantRetryHint: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			gvrToList := map[schema.GroupVersionResource]string{
+				SandboxGVR(): "SandboxList",
+			}
+			dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList)
+			dyn.PrependReactor("list", "sandboxes", func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, tc.injected
+			})
+
+			core := fakek8s.NewSimpleClientset()
+			h := NewWithPDM(silentLogger(), &fakePDM{})
+			h.SetSovereignDepsFactory(func() (*sovereignDeps, error) {
+				return &sovereignDeps{core: core, dyn: dyn}, nil
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sandbox/sessions", nil)
+			req = withSandboxClaims(req, "user-sub-list", "ops@acme.com", "acme")
+			rec := callSandbox(t, h, req)
+
+			if rec.Code != tc.wantCode {
+				t.Fatalf("LIST status = %d, want %d; body = %s", rec.Code, tc.wantCode, rec.Body.String())
+			}
+			var resp map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if resp["error"] != tc.wantError {
+				t.Errorf("error = %v, want %s", resp["error"], tc.wantError)
+			}
+			got := rec.Header().Get("Retry-After")
+			if tc.wantRetryHint && got == "" {
+				t.Errorf("Retry-After header missing on sandbox 503 (#5140 retryable contract)")
+			}
+			if !tc.wantRetryHint && got != "" {
+				t.Errorf("Retry-After = %q on a genuine 500 — a real fault must not advertise retryability", got)
+			}
+		})
 	}
 }
 

@@ -208,6 +208,28 @@ var sandboxNameSanitize = regexp.MustCompile(`[^a-z0-9-]+`)
 // rendering the "API pending" pill (see sandbox.api.ts:EMPTY_SANDBOXES).
 const sandboxRequestBudget = 5 * time.Second
 
+// sandboxRetryAfterSeconds — the Retry-After hint stamped on every
+// sandbox 503 response (#5140). The transient windows the 503 covers
+// (clustermesh peer-apiserver token rejection during a cutover /
+// chart-roll / region-kill recovery, discovery races, apiserver
+// restabilising) typically clear within a few minutes, so a 30s pace
+// keeps retrying clients honest without hammering the degraded
+// backend. Same convention as organization_provisioning.go's
+// NS-flip-pending 503 (which uses 300s for its slower DNS window).
+const sandboxRetryAfterSeconds = "30"
+
+// writeSandboxJSON writes the JSON envelope for the sandbox handlers'
+// error paths. When the status is 503 Service Unavailable it first
+// stamps the Retry-After back-off hint so clients treat the degrade as
+// retryable-with-pacing (#5140); genuine faults (500) and the
+// object-level 404/409 keep their envelope untouched.
+func writeSandboxJSON(w http.ResponseWriter, status int, body map[string]string) {
+	if status == http.StatusServiceUnavailable {
+		w.Header().Set("Retry-After", sandboxRetryAfterSeconds)
+	}
+	writeJSON(w, status, body)
+}
+
 // sandboxDefaultNamespaceEnv — operator override for the namespace the
 // handler reads/writes when claims.Org is empty (single-tenant chroot
 // case). Defaults to `catalyst-system` so a fresh Sovereign with the
@@ -402,7 +424,7 @@ func (h *Handler) HandleListSandboxSessions(w http.ResponseWriter, r *http.Reque
 
 	client, ns, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
-		writeJSON(w, status, errResp)
+		writeSandboxJSON(w, status, errResp)
 		return
 	}
 
@@ -421,7 +443,7 @@ func (h *Handler) HandleListSandboxSessions(w http.ResponseWriter, r *http.Reque
 		}
 		if sandboxBackendUnavailable(err) {
 			h.log.Warn("sandbox: backend unavailable on list", "namespace", ns, "err", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			writeSandboxJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "sandbox-backend-unavailable",
 				"detail": "sandbox backend temporarily unavailable",
 			})
@@ -462,7 +484,7 @@ func (h *Handler) HandleGetSandboxSession(w http.ResponseWriter, r *http.Request
 
 	client, ns, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
-		writeJSON(w, status, errResp)
+		writeSandboxJSON(w, status, errResp)
 		return
 	}
 
@@ -480,7 +502,7 @@ func (h *Handler) HandleGetSandboxSession(w http.ResponseWriter, r *http.Request
 		}
 		if sandboxBackendUnavailable(err) {
 			h.log.Warn("sandbox: backend unavailable on get", "id", id, "namespace", ns, "err", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			writeSandboxJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "sandbox-backend-unavailable",
 				"detail": "sandbox backend temporarily unavailable",
 			})
@@ -541,7 +563,7 @@ func (h *Handler) HandleCreateSandboxSession(w http.ResponseWriter, r *http.Requ
 
 	client, ns, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
-		writeJSON(w, status, errResp)
+		writeSandboxJSON(w, status, errResp)
 		return
 	}
 
@@ -575,7 +597,7 @@ func (h *Handler) HandleCreateSandboxSession(w http.ResponseWriter, r *http.Requ
 			// the sandboxes.sandbox.openova.io CRD on this
 			// cluster yet. Surface 503 so the FE renders the
 			// "API pending" pill rather than a generic 500.
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			writeSandboxJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "sandbox-crd-not-installed",
 				"detail": "sandboxes.sandbox.openova.io CRD missing on this cluster",
 			})
@@ -583,7 +605,7 @@ func (h *Handler) HandleCreateSandboxSession(w http.ResponseWriter, r *http.Requ
 		}
 		if sandboxBackendUnavailable(err) {
 			h.log.Warn("sandbox: backend unavailable on create", "name", crName, "namespace", ns, "err", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			writeSandboxJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "sandbox-backend-unavailable",
 				"detail": "sandbox backend temporarily unavailable",
 			})
@@ -782,7 +804,7 @@ func (h *Handler) HandleDeleteSandboxSession(w http.ResponseWriter, r *http.Requ
 
 	client, ns, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
-		writeJSON(w, status, errResp)
+		writeSandboxJSON(w, status, errResp)
 		return
 	}
 
@@ -793,7 +815,7 @@ func (h *Handler) HandleDeleteSandboxSession(w http.ResponseWriter, r *http.Requ
 	if err != nil && !apierrors.IsNotFound(err) {
 		if sandboxBackendUnavailable(err) {
 			h.log.Warn("sandbox: backend unavailable on delete", "id", id, "namespace", ns, "err", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			writeSandboxJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "sandbox-backend-unavailable",
 				"detail": "sandbox backend temporarily unavailable",
 			})
