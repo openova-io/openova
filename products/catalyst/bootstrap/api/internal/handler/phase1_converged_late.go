@@ -31,6 +31,19 @@ import (
 // of Ready HelmReleases, so a half-dead cluster never rescues. Every
 // downstream step (fireHandover, job sweep, policy flip) is idempotent
 // and self-guarding.
+//
+// #5253 extends the same rescue to failed+OutcomeReady — the pre-#5253
+// console-downgrade signature (hw276): the primary fully converged
+// (every primary HR installed) but the #4706 console-reachability gate
+// latched the record "failed", skipping the whole producer chain with
+// no heal path (`failed && OutcomeReady` matched neither this gate nor
+// the mesh status gate). markPhase1Done no longer produces that shape
+// (a console-degraded record stays "ready" with the non-fatal
+// ConsoleDegraded surface), so this arm heals records PERSISTED by
+// older builds on the next catalyst-api restart. The live census below
+// is the primary-converged proof either way, and the stale #4706
+// console error is re-homed onto the ConsoleDegraded surface so the
+// rescued record is not ready-with-FailureCard.
 
 // convergedLateMinReady is the absolute floor of Ready HelmReleases —
 // just under the canonical bootstrap-kit size so a kit-trim doesn't
@@ -48,7 +61,13 @@ func (h *Handler) shouldConvergedLateRescue(dep *Deployment) bool {
 		fired = dep.Result.HandoverFiredAt != nil
 	}
 	dep.mu.Unlock()
-	if status != "failed" || outcome != helmwatch.OutcomeTimeout || fired {
+	if status != "failed" || fired {
+		return false
+	}
+	// TIMEOUT (#3319, the original converged-late shape) or OutcomeReady
+	// (#5253, the pre-fix console-downgrade shape) qualify; every other
+	// outcome is a hard failure and never rescues.
+	if outcome != helmwatch.OutcomeTimeout && outcome != helmwatch.OutcomeReady {
 		return false
 	}
 	if _, ok := h.resolvePrimaryKubeconfigPath(dep); !ok {
@@ -87,8 +106,23 @@ func (h *Handler) runConvergedLateRescue(dep *Deployment) {
 		return
 	}
 	dep.Status = "ready"
-	if dep.Result != nil && dep.Result.Phase1FinishedAt == nil {
-		dep.Result.Phase1FinishedAt = &now
+	if dep.Result != nil {
+		if dep.Result.Phase1FinishedAt == nil {
+			dep.Result.Phase1FinishedAt = &now
+		}
+		// #5253 — a pre-fix console-downgrade record (failed +
+		// Phase1Outcome=="ready") carries the #4706 "console is NOT
+		// externally reachable" text on dep.Error. Re-home it onto the
+		// non-fatal ConsoleDegraded surface: the rescued record must not
+		// read ready-with-FailureCard (/deployments/{id} renders a
+		// non-empty Error as a hard failure), and the console signal
+		// stays surfaced instead of being deleted. Timeout records keep
+		// their existing Error handling untouched.
+		if dep.Result.Phase1Outcome == helmwatch.OutcomeReady && dep.Error != "" {
+			dep.Result.ConsoleDegraded = true
+			dep.Result.ConsoleDegradedDetail = dep.Error
+			dep.Error = ""
+		}
 	}
 	dep.mu.Unlock()
 	h.persistDeployment(dep)

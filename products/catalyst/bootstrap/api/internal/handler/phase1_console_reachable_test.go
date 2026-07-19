@@ -45,3 +45,64 @@ func TestDefaultConsoleReachable_EmptyFQDN(t *testing.T) {
 		t.Fatalf("empty FQDN must error, got %v", err)
 	}
 }
+
+// TestDefaultConsoleReachable_RootSPA404HandoverFallback pins the #5253
+// false-negative fix (hw276): a HEALTHY console whose bare SPA root answers
+// 404 must still count reachable because the catalyst-api-registered
+// /auth/handover route answers (302 to the SPA error page → 200 after
+// redirect-following). The hw218 no-vhost envoy shape — 404 on EVERY path —
+// stays unreachable (pinned by the status-bar table above), so the #4706
+// false-green bar is intact.
+func TestDefaultConsoleReachable_RootSPA404HandoverFallback(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/handover", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/auth/handover-error?reason=missing_token", http.StatusFound)
+	})
+	mux.HandleFunc("/auth/handover-error", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // the hw276 SPA root
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	if err := probeReachableForTest(srv.URL); err != nil {
+		t.Fatalf("healthy console with a 404 SPA root must be reachable via the /auth/handover fallback (#5253), got %v", err)
+	}
+}
+
+// TestDefaultConsoleReachable_RedirectFinalStatusDecides pins the #5253
+// redirect contract: the reachability decision is made on the FINAL status of
+// the redirect chain — a 2xx-after-redirect is a healthy silent-SSO front
+// door; a redirect landing on a 4xx is not.
+func TestDefaultConsoleReachable_RedirectFinalStatusDecides(t *testing.T) {
+	t.Run("2xx after redirect -> reachable", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/landed", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/landed", http.StatusFound)
+		})
+		srv := httptest.NewTLSServer(mux)
+		defer srv.Close()
+		if err := probeReachableForTest(srv.URL); err != nil {
+			t.Fatalf("302 -> 200 must be reachable, got %v", err)
+		}
+	})
+
+	t.Run("4xx after redirect on every path -> unreachable", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/dead", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/dead", http.StatusFound)
+		})
+		srv := httptest.NewTLSServer(mux)
+		defer srv.Close()
+		if err := probeReachableForTest(srv.URL); err == nil {
+			t.Fatalf("a redirect chain terminating on 404 for every probed path must stay unreachable")
+		}
+	})
+}

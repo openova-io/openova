@@ -3432,6 +3432,21 @@ func (h *Handler) shouldStartupClusterMeshReconcile(dep *Deployment) bool {
 // converging under Flux — abandoning its mesh forever contradicted the
 // never-wipe-a-timeout doctrine. Hard failures (OutcomeFailed /
 // flux-not-reconciling) stay excluded.
+//
+// #5253 also accepts failed+OutcomeReady — the pre-#5253 console-downgrade
+// signature (hw276): the PRIMARY fully converged (OutcomeReady is granted only
+// when every primary HelmRelease installed — the primary-converged proof) but
+// the #4706 console-reachability gate latched the record "failed", which
+// structurally excluded it from every mesh path, leaving the cross-region
+// topology permanently inert (no mesh → no CNPG-pair flip → hub secrets never
+// sync). Under the current markPhase1Done a console-degraded record stays
+// "ready" (surface-not-gate), so this arm matches only records PERSISTED by
+// older builds — a catalyst-api restart now re-establishes their mesh instead
+// of abandoning it. The establish loop is idempotent, so an already-meshed
+// record's first attempt confirms + exits. Genuine failures still can't slip
+// in: every other failed shape carries a non-OutcomeReady Phase1Outcome
+// (kubeconfig-missing, flux-not-reconciling, OutcomeFailed, timeout, the
+// #3971 storage downgrade stamps ReasonDefaultStorageClassEphemeral).
 func (h *Handler) clusterMeshReconcileStatusGate(dep *Deployment) bool {
 	dep.mu.Lock()
 	status := dep.Status
@@ -3442,7 +3457,8 @@ func (h *Handler) clusterMeshReconcileStatusGate(dep *Deployment) bool {
 	}
 	dep.mu.Unlock()
 	rescuableTimeout := status == "failed" && outcome == helmwatch.OutcomeTimeout
-	if (status != "ready" && !rescuableTimeout) || regionCount < 2 {
+	rescuableConsoleDowngrade := status == "failed" && outcome == helmwatch.OutcomeReady
+	if (status != "ready" && !rescuableTimeout && !rescuableConsoleDowngrade) || regionCount < 2 {
 		return false
 	}
 	return true

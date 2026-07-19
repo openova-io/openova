@@ -1474,6 +1474,30 @@ type Result struct {
 	// the #3611 Regions census as a 0/0 degraded secondary because the probe
 	// registers a nil watcher slot for it (skipping the doomed real watcher).
 	SecondaryFluxCRDAbsentRegions []string `json:"secondaryFluxCRDAbsentRegions,omitempty"`
+
+	// ConsoleDegraded — surface-only flag (#5253, family #4486/#4706): the
+	// PRIMARY region fully converged (Phase1Outcome=="ready" — every primary
+	// HelmRelease installed) but the #4706 external console-reachability
+	// probe did not observe https://console.<fqdn>/ serving within its budget
+	// at Phase-1 termination. Like SecondaryDegraded this is intentionally
+	// NOT a gate — markPhase1Done keeps Status="ready" and fires the full
+	// producer chain (handover, ClusterMesh establish, spine/adoption/policy
+	// hooks) off the converged primary, because latching Status="failed" here
+	// left the ENTIRE cross-region topology permanently inert (hw276: no
+	// mesh → no CNPG-pair flip → hub secrets never sync → keycloak + the SSO
+	// charts wedge on region-b). A background re-probe clears the flag the
+	// moment the front door answers; the operator console can badge a
+	// "ready" deployment as console-degraded off this field meanwhile.
+	ConsoleDegraded bool `json:"consoleDegraded,omitempty"`
+
+	// ConsoleDegradedDetail — the human diagnostic behind ConsoleDegraded
+	// (the last probe error, e.g. "https://console.<fqdn>/ returned HTTP
+	// 404"). Updated by each background re-probe attempt; cleared together
+	// with ConsoleDegraded when the console answers. Deliberately NOT
+	// stamped on the deployment's top-level Error field — /deployments/{id}
+	// renders a non-empty Error as a hard failure (the #4486 NB), and this
+	// condition is non-fatal by design.
+	ConsoleDegradedDetail string `json:"consoleDegradedDetail,omitempty"`
 }
 
 // PartialRegionMaterialisationError is returned by Provision when

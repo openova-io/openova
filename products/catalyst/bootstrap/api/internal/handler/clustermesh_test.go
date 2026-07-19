@@ -3446,3 +3446,51 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, []regionSlot{{key: "", kubeconfigPath: primaryPath}})
 	})
 }
+
+// TestClusterMeshReconcileStatusGate_ConsoleDowngradedRecord pins the #5253
+// heal arm: a failed record whose Phase1Outcome is "ready" — the signature a
+// pre-#5253 build persisted when the #4706 console gate downgraded a fully
+// converged primary (hw276) — must be a mesh candidate, so a catalyst-api
+// restart re-establishes ClusterMesh instead of leaving the cross-region
+// topology inert forever. Genuine failures (any non-OutcomeReady,
+// non-OutcomeTimeout Phase1Outcome) and single-region records stay excluded,
+// and the existing ready + failed-by-TIMEOUT (#3317) arms are unchanged.
+func TestClusterMeshReconcileStatusGate_ConsoleDowngradedRecord(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	regions := func(n int) []provisioner.RegionSpec {
+		out := make([]provisioner.RegionSpec, n)
+		for i := range out {
+			out[i] = provisioner.RegionSpec{Provider: "huawei"}
+		}
+		return out
+	}
+	mk := func(status, outcome string, regionCount int) *Deployment {
+		return &Deployment{
+			ID:      "gate-5253",
+			Status:  status,
+			Request: provisioner.Request{Regions: regions(regionCount)},
+			Result:  &provisioner.Result{Phase1Outcome: outcome},
+		}
+	}
+
+	cases := []struct {
+		name    string
+		status  string
+		outcome string
+		regions int
+		want    bool
+	}{
+		{"ready multi-region (baseline)", "ready", helmwatch.OutcomeReady, 2, true},
+		{"failed+timeout multi-region (#3317 arm intact)", "failed", helmwatch.OutcomeTimeout, 2, true},
+		{"failed+OutcomeReady multi-region (#5253 hw276 pre-fix shape)", "failed", helmwatch.OutcomeReady, 2, true},
+		{"failed+OutcomeReady single-region", "failed", helmwatch.OutcomeReady, 1, false},
+		{"failed+OutcomeFailed (genuine hard failure)", "failed", helmwatch.OutcomeFailed, 2, false},
+		{"failed+flux-not-reconciling (genuine hard failure)", "failed", helmwatch.OutcomeFluxNotReconciling, 2, false},
+		{"failed+storage-downgrade (#3971 replaces the outcome)", "failed", provisioner.ReasonDefaultStorageClassEphemeral, 2, false},
+	}
+	for _, c := range cases {
+		if got := h.clusterMeshReconcileStatusGate(mk(c.status, c.outcome, c.regions)); got != c.want {
+			t.Errorf("%s: gate=%v, want %v", c.name, got, c.want)
+		}
+	}
+}

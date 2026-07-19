@@ -802,56 +802,170 @@ const (
 	consoleProbeInterval = 15 * time.Second
 )
 
-// defaultConsoleReachable is the production external-reachability probe for
-// #4706: it repeatedly GETs https://console.<fqdn>/ until it gets an HTTP
-// response with status < 400 (the console front door actually SERVES) or the
-// budget expires. It returns nil on reachable, a descriptive error otherwise.
+// consoleProbePaths are the paths each probe pass tries IN ORDER against
+// https://console.<fqdn>; the front door counts as SERVING when ANY of them
+// answers < 400 after redirect-following (#5253).
 //
-// TLS verification is skipped on purpose — this proves the gateway ANSWERS
-// (TCP + TLS + HTTP), not that the cert chains to a public root (a fresh
-// Sovereign may still be on an LE-staging/in-cluster wildcard).
+//   - "/" — the operator's entry point (silent-SSO: 200 SSR landing or 302 to
+//     the Keycloak login on a healthy console).
+//   - "/auth/handover" — the catalyst-api-registered handover route every
+//     Sovereign console serves (auth_handover.go): a browser-shaped GET
+//     without a token answers 302 to the SPA error page. This is the #5253
+//     false-negative killer — hw276's healthy console answered 404 at its
+//     bare SPA root, and the single-path probe misread the whole front door
+//     as dead, tipping a fully-converged Sovereign to "failed". A route the
+//     console BACKEND owns still answers < 400 in that shape, while the
+//     hw218 no-vhost envoy 404 (#4715 — envoy up, NO route to the console
+//     backend) keeps failing on EVERY path, so the false-green bar #4706
+//     exists for is unchanged.
+var consoleProbePaths = []string{"/", "/auth/handover"}
+
+// newConsoleProbeClient builds the probe's HTTP client. TLS verification is
+// skipped on purpose — the probe proves the gateway ANSWERS (TCP + TLS +
+// HTTP), not that the cert chains to a public root (a fresh Sovereign may
+// still be on an LE-staging/in-cluster wildcard). Redirect-following is
+// EXPLICIT and load-bearing (#5253): the reachability decision is made on the
+// FINAL status of the redirect chain (a 2xx-after-redirect is a healthy
+// silent-SSO front door; a redirect landing on a 4xx/5xx is not). Go's
+// default client already follows up to 10 hops — pinned here so a future
+// client change can't silently turn the probe into a single-hop reader.
+func newConsoleProbeClient() *http.Client {
+	return &http.Client{
+		Timeout:   8 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // reachability, not trust
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
+}
+
+// consoleProbeAttempt runs ONE probe pass against base (scheme://host, no
+// trailing slash): each consoleProbePaths entry is GET'd browser-shaped
+// (Accept: text/html — the gate proves the OPERATOR's browser can open the
+// console) with redirect-following. Returns nil when any path's final status
+// is < 400; otherwise the last error/status observed.
+func consoleProbeAttempt(ctx context.Context, client *http.Client, base string) error {
+	var last error
+	for _, p := range consoleProbePaths {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+p, nil)
+		if err != nil {
+			last = err
+			continue
+		}
+		req.Header.Set("Accept", "text/html")
+		resp, err := client.Do(req)
+		if err != nil {
+			last = err
+			continue
+		}
+		code := resp.StatusCode
+		resp.Body.Close()
+		if code < 400 {
+			return nil
+		}
+		last = fmt.Errorf("%s returned HTTP %d", base+p, code)
+	}
+	return last
+}
+
+// defaultConsoleReachable is the production external-reachability probe for
+// #4706: it repeatedly probes https://console.<fqdn> (see consoleProbePaths)
+// until a pass observes an HTTP response with FINAL status < 400 after
+// redirect-following (the console front door actually SERVES) or the budget
+// expires. It returns nil on reachable, a descriptive error otherwise.
 //
 // STATUS BAR < 400 (tightened from the original < 500 — hw218 evidence, #4706):
-// the catalyst console is silent-SSO — its bare root returns 200 (SSR landing,
-// signed-in) or 302 (redirect to the Keycloak login), NEVER a 4xx. hw218
+// the catalyst console is silent-SSO — its entry routes answer 200 or 302,
+// never a 4xx, when the front door routes to the console backend. hw218
 // (2026-07-03) exposed the hole in the old < 500 bar: its console gateway
 // answered HTTP 404 (envoy up, but NO vhost/route to the console backend — the
 // #4715 listener collision), and the < 500 gate mislabelled that broken front
-// door "ready" — the exact false-green this probe exists to kill. A 4xx (404
-// no-route / 401 / 403 misconfigured front door) or 5xx or a transport error
-// (connection refused / timeout / NXDOMAIN) now correctly counts as down.
+// door "ready" — the exact false-green this probe exists to kill. A 4xx on
+// EVERY probed path or 5xx or a transport error (connection refused / timeout
+// / NXDOMAIN) counts as down. #5253 widened a pass to the multi-path +
+// redirect-following decision above so a healthy console whose bare SPA root
+// answers 404 (hw276) is no longer misread as a dead front door.
 func defaultConsoleReachable(fqdn string) error {
 	fqdn = strings.TrimSpace(fqdn)
 	if fqdn == "" {
 		return fmt.Errorf("empty sovereign FQDN — cannot probe console reachability")
 	}
-	target := "https://console." + fqdn + "/"
-	client := &http.Client{
-		Timeout:   8 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // reachability, not trust
-	}
+	base := "https://console." + fqdn
+	client := newConsoleProbeClient()
 	ctx, cancel := context.WithTimeout(context.Background(), consoleProbeBudget)
 	defer cancel()
 	var last error
 	for {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-		resp, err := client.Do(req)
-		if err == nil {
-			code := resp.StatusCode
-			resp.Body.Close()
-			if code < 400 {
-				return nil
-			}
-			last = fmt.Errorf("%s returned HTTP %d", target, code)
+		if err := consoleProbeAttempt(ctx, client, base); err == nil {
+			return nil
 		} else {
 			last = err
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("console %s not externally reachable within %s: %v", target, consoleProbeBudget, last)
+			return fmt.Errorf("console %s/ not externally reachable within %s: %v", base, consoleProbeBudget, last)
 		case <-time.After(consoleProbeInterval):
 		}
 	}
+}
+
+// consoleReprobeAttempts bounds the #5253 background re-probe that runs after
+// a ready-but-ConsoleDegraded Phase-1 termination. Each attempt is a full
+// consoleProbeBudget pass of h.consoleProbe, so 4 attempts extend the grace
+// window well past any realistic gateway/LB/cert settling lag without leaving
+// an unbounded goroutine behind.
+const consoleReprobeAttempts = 4
+
+// runConsoleReachabilityReprobe re-runs the console-reachability probe for a
+// deployment that terminated Phase-1 ready with the non-fatal ConsoleDegraded
+// surface set (#5253). On the first successful pass it clears the surface and
+// persists; failed passes refresh ConsoleDegradedDetail so the operator sees
+// the CURRENT diagnostic, not the stale termination-time one. This is
+// observability-only — the producer chain (handover/mesh/spine/policy) fired
+// at termination and is never gated on this loop. Runs on a
+// spawnPostHandoverHook goroutine; the h.consoleProbe seam keeps tests off
+// the network.
+func (h *Handler) runConsoleReachabilityReprobe(dep *Deployment) {
+	if h.consoleProbe == nil {
+		return
+	}
+	// dep.Request is immutable after creation — lock-free read is safe
+	// (same contract markPhase1Done relies on).
+	fqdn := dep.Request.SovereignFQDN
+	for attempt := 1; attempt <= consoleReprobeAttempts; attempt++ {
+		err := h.consoleProbe(fqdn)
+		dep.mu.Lock()
+		if dep.Result == nil {
+			dep.mu.Unlock()
+			return
+		}
+		if err == nil {
+			dep.Result.ConsoleDegraded = false
+			dep.Result.ConsoleDegradedDetail = ""
+			dep.mu.Unlock()
+			h.persistDeployment(dep)
+			h.log.Info("console re-probe: front door now serving — ConsoleDegraded cleared (#5253)",
+				"id", dep.ID,
+				"attempt", attempt,
+			)
+			return
+		}
+		dep.Result.ConsoleDegradedDetail = err.Error()
+		dep.mu.Unlock()
+		h.persistDeployment(dep)
+		h.log.Warn("console re-probe: front door still not confirmed reachable (#5253)",
+			"id", dep.ID,
+			"attempt", attempt,
+			"err", err,
+		)
+	}
+	h.log.Warn("console re-probe attempts exhausted — ConsoleDegraded stays surfaced; investigate the gateway / load-balancer wiring (#4706). The producer chain (handover/mesh/spine/policy) already fired at Phase-1 termination and is NOT gated on this (#5253)",
+		"id", dep.ID,
+		"attempts", consoleReprobeAttempts,
+	)
 }
 
 // EnableConsoleReachabilityGate wires the production external console-
@@ -1018,13 +1132,44 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		dep.Error = fmt.Sprintf("Phase 1 watch timed out before convergence: %d component(s) observed, none hard-failed, but not all reached installed within the watch budget. The Sovereign's Flux keeps retrying cluster-side; re-attach the watch (retry) to re-evaluate. The deployment is NOT ready until every component is installed.", len(finalStates))
 	case outcome == helmwatch.OutcomeReady:
 		if consoleReachErr != nil {
-			// #4706 — Flux converged (every HelmRelease installed) but the
-			// operator-facing console is NOT externally reachable. A "ready"
-			// pill here redirects the operator to a dead URL — the exact
-			// false-green the readiness gate must refuse. Classify honestly.
-			dep.Status = "failed"
-			dep.Error = fmt.Sprintf("Phase 1 converged (all HelmReleases installed) but the console is NOT externally reachable: %v. The Sovereign's internals are up, but its gateway is not serving the public console URL, so the operator cannot use it — this is NOT ready. Investigate the gateway / load-balancer wiring (#4706) then retry.", consoleReachErr)
-			break
+			// #5253 (family #4486/#4706, root-caused live on hw276) — Flux
+			// converged (every PRIMARY HelmRelease installed) but the #4706
+			// external console probe did not observe https://console.<fqdn>/
+			// serving within its budget. The former handling latched
+			// Status="failed" here, which re-introduced for the console cause
+			// the EXACT architectural fault the #4486 comment below documents
+			// for the absent-secondary cause: finalStatus=="failed" makes the
+			// OutcomeReady terminal block skip fireHandover +
+			// runAutoEstablishClusterMesh + the spine/adoption/policy hooks,
+			// and BOTH heal paths (clusterMeshReconcileStatusGate,
+			// shouldConvergedLateRescue) structurally excluded the
+			// failed+OutcomeReady shape — so a fully-converged primary never
+			// meshed, region-b never converged (no mesh → no CNPG-pair flip →
+			// hub secrets never sync → keycloak + the SSO charts wedge). On
+			// hw276 the trigger was additionally a FALSE NEGATIVE: the
+			// console stack was healthy, its SPA root just answered 404 while
+			// the front door served fine one redirect later.
+			//
+			// The honest, self-healing outcome mirrors #4486: STAY "ready"
+			// (OutcomeReady is granted only when every primary HR installed —
+			// that is the producer-chain fire condition), fire the chain, and
+			// carry the console condition on the NON-FATAL ConsoleDegraded
+			// surface (the #3611 surface-not-gate idiom) with a background
+			// re-probe (see the OutcomeReady terminal block below) that
+			// clears it the moment the front door answers. dep.Error stays
+			// empty on purpose — /deployments/{id} renders a non-empty Error
+			// as a hard FailureCard (the #4486 NB below). A genuinely-dead
+			// console stays loudly visible via ConsoleDegraded + this warn +
+			// the re-probe's terminal warn; it no longer latches the
+			// cross-region topology inert. A genuinely-unconverged primary
+			// never reaches this arm at all (outcome != OutcomeReady) and
+			// stays failed with no handover.
+			dep.Result.ConsoleDegraded = true
+			dep.Result.ConsoleDegradedDetail = consoleReachErr.Error()
+			h.log.Warn("phase 1 converged on the PRIMARY but the console front door was not confirmed externally reachable — staying ready + firing the producer chain; surfaced as ConsoleDegraded with a background re-probe (#5253, family #4486/#4706)",
+				"id", dep.ID,
+				"consoleReachErr", consoleReachErr,
+			)
 		}
 		dep.Status = "ready"
 	default:
@@ -1324,6 +1469,16 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// log + emit SSE warn but never fail the handover. See
 		// post_handover_gateway_elb.go.
 		h.spawnPostHandoverHook(func() { h.runPostHandoverGatewayELB(dep) })
+
+		// #5253 — when the #4706 console probe did NOT confirm reachability,
+		// the record is ready with the non-fatal ConsoleDegraded surface set
+		// (see the OutcomeReady case above). Keep re-probing in the
+		// background and clear the surface the moment the front door
+		// answers — the producer chain above already fired and is NOT gated
+		// on this. Failures only refresh the surfaced diagnostic.
+		if consoleReachErr != nil {
+			h.spawnPostHandoverHook(func() { h.runConsoleReachabilityReprobe(dep) })
+		}
 	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
 		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
 		// recoverable classification ("components observed, none
@@ -2850,23 +3005,12 @@ func certificateReady(u *unstructured.Unstructured) (bool, string, error) {
 	return false, "<missing-ready>", nil
 }
 
-// probeReachableForTest mirrors defaultConsoleReachable's status-bar decision
-// against an explicit URL (no console.<fqdn> construction, single attempt) so
-// the < 400 contract is unit-testable without DNS or the 90s budget. Kept in
-// non-test code because httptest servers need the same *http.Client TLS-skip.
+// probeReachableForTest runs defaultConsoleReachable's real status-bar
+// decision (consoleProbeAttempt: multi-path + redirect-following + < 400
+// final status, #4706/#5253) against an explicit base URL (no console.<fqdn>
+// construction, single pass) so the contract is unit-testable without DNS or
+// the probe budget. Kept in non-test code because httptest servers need the
+// same *http.Client TLS-skip.
 func probeReachableForTest(target string) error {
-	client := &http.Client{
-		Timeout:   8 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-	}
-	resp, err := client.Get(target)
-	if err != nil {
-		return err
-	}
-	code := resp.StatusCode
-	resp.Body.Close()
-	if code < 400 {
-		return nil
-	}
-	return fmt.Errorf("%s returned HTTP %d", target, code)
+	return consoleProbeAttempt(context.Background(), newConsoleProbeClient(), strings.TrimSuffix(target, "/"))
 }
