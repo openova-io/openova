@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T16:45:05Z` |
+| Last refreshed | `2026-07-19T17:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 30 |
 | Open DoD gates | 0 / 41 |
@@ -237,6 +237,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T16:59 | [#5264](https://github.com/openova-io/openova/pull/5264) | #5262 | fix(#5262): sticky gitea admin password + cutover git-persis |
+| 2026-07-19T16:55 | [#5263](https://github.com/openova-io/openova/pull/5263) | #5261 | fix(#5261): mesh cascade force-reconciles replica-region HRs |
 | 2026-07-19T16:37 | [#5260](https://github.com/openova-io/openova/pull/5260) | #4901 | fix(#4901): Continuum surfaces standby-absent — health degra |
 | 2026-07-19T16:37 | [#5259](https://github.com/openova-io/openova/pull/5259) | #3985 | refactor(#3985): Organization-term remainder — mechanical re |
 | 2026-07-19T16:37 | [#5258](https://github.com/openova-io/openova/pull/5258) | #3971 | fix(#3971): forbid local-path StorageClass at land — CI gate |
@@ -265,8 +267,6 @@ flowchart LR
 | 2026-07-18T19:31 | [#5221](https://github.com/openova-io/openova/pull/5221) | #5210 | fix(catalyst-api): materialize local kubeconfig with refresh |
 | 2026-07-18T14:18 | [#5219](https://github.com/openova-io/openova/pull/5219) | #5218 | fix(cnpg-pair): dr-promoter durable-suspend race — same-tick |
 | 2026-07-18T13:34 | [#5217](https://github.com/openova-io/openova/pull/5217) | #4996 | fix(cutover): step-07 must not roll the EVS/hcloud CSI drive |
-| 2026-07-18T13:09 | [#5216](https://github.com/openova-io/openova/pull/5216) | #5214 | fix(cutover): self-heal gitea-admin-secret at step execution |
-| 2026-07-19T08:31 | [#5212](https://github.com/openova-io/openova/pull/5212) | #5164 | fix(console): Edit-IaC editor adopts the async committed see |
 
 ---
 
