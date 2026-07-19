@@ -133,7 +133,7 @@ const CANONICAL_APPDETAIL_SECTIONS = [
   'About',
   'Connection',
   'Bundled',
-  'Tenant',
+  'Organization',
   'Configuration',
   'Jobs',
 ] as const
@@ -396,8 +396,8 @@ async function mockProvisionDeploymentAPI(page: Page): Promise<void> {
     })
   })
 
-  // Tenant discovery — org-tier-rbac.spec uses the mother kind to boot
-  // the SPA past its tenant-detection gate.
+  // Portal discovery — org-tier-rbac.spec uses the mother kind to boot
+  // the SPA past its portal-detection gate.
   await page.route(/.*\/api\/v1\/tenant\/discover.*/, async (route: Route) => {
     await route.fulfill({
       status: 200,

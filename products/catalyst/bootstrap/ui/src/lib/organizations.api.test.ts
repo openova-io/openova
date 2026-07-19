@@ -11,9 +11,9 @@ import { describe, expect, it } from 'vitest'
 import {
   kindDefaults,
   parentRowFromSelf,
-  subOrgRowFromTenant,
+  subOrgRowFromRecord,
 } from './organizations.api'
-import type { Tenant } from './bss.api'
+import type { OrgRecord } from './bss.api'
 
 describe('kindDefaults', () => {
   it('internal → showback + namespace (the internal door, no voucher)', () => {
@@ -55,8 +55,8 @@ describe('parentRowFromSelf', () => {
   })
 })
 
-describe('subOrgRowFromTenant', () => {
-  const tenant: Tenant = {
+describe('subOrgRowFromRecord', () => {
+  const record: OrgRecord = {
     id: 'tnt-1',
     orgName: 'ACME Corp',
     consoleHost: 'console.acme.omani.homes',
@@ -75,8 +75,8 @@ describe('subOrgRowFromTenant', () => {
     lastError: '',
   }
 
-  it('maps a customer tenant to a non-parent customer row', () => {
-    const row = subOrgRowFromTenant(tenant)
+  it('maps a customer org to a non-parent customer row', () => {
+    const row = subOrgRowFromRecord(record)
     expect(row.isParent).toBe(false)
     expect(row.kind).toBe('customer')
     expect(row.tier).toBe('org')
@@ -90,9 +90,9 @@ describe('subOrgRowFromTenant', () => {
 
   // #3378 badge-fidelity regression: an Internal org must badge Internal
   // (showback + namespace), NOT the old hardcoded customer/real/vcluster.
-  it('maps an internal tenant to an internal/showback/namespace row', () => {
-    const row = subOrgRowFromTenant({
-      ...tenant,
+  it('maps an internal org to an internal/showback/namespace row', () => {
+    const row = subOrgRowFromRecord({
+      ...record,
       id: 'tnt-internal',
       orgName: 'Finance',
       subdomain: 'finance',
@@ -110,8 +110,8 @@ describe('subOrgRowFromTenant', () => {
   // An internal org with a chargeback override round-trips that override
   // (the advanced-view billing-mode pick), not the kind default.
   it('honors an explicit billingMode override on an internal org', () => {
-    const row = subOrgRowFromTenant({
-      ...tenant,
+    const row = subOrgRowFromRecord({
+      ...record,
       kind: 'internal',
       billingMode: 'chargeback',
       isolation: 'namespace',
@@ -124,8 +124,8 @@ describe('subOrgRowFromTenant', () => {
   // isolation) fall back to the kind-derived customer defaults so they
   // still badge sensibly rather than rendering blanks.
   it('falls back to customer defaults when spec fields are empty (legacy row)', () => {
-    const row = subOrgRowFromTenant({
-      ...tenant,
+    const row = subOrgRowFromRecord({
+      ...record,
       kind: '',
       tier: '',
       billingMode: '',

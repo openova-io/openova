@@ -12,7 +12,7 @@
  * GET /api/v1/organizations. No new directory endpoint (#3378 §6).
  *
  * Chrome + design tokens inherited from the sibling sovereign surfaces
- * (TenantsPage / JobsPage / ParentDomainsPage) — no bespoke chrome, no
+ * (the legacy roster page / JobsPage / ParentDomainsPage) — no bespoke chrome, no
  * hex colours outside the documented amber/rose/emerald status-pill
  * exception.
  */

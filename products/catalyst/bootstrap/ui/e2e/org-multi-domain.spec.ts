@@ -1,5 +1,5 @@
 /**
- * org-tenant-multi-domain.spec.ts — Playwright E2E for the multi-
+ * org-multi-domain.spec.ts — Playwright E2E for the multi-
  * domain Organization onboarding flow (issue #828, parent epic #825).
  *
  * Two paths exercised:
@@ -21,9 +21,9 @@
 
 import { expect, test } from '@playwright/test'
 
-const TENANT_DISCOVERY = {
+const PORTAL_DISCOVERY = {
   host: 'console.otech.example',
-  tenant_id: 'tenant-otech',
+  tenant_id: 'portal-otech',
   tenant_kind: 'otech',
   keycloak_realm_url: 'https://kc.otech.example/realms/otech',
   keycloak_client_id: 'catalyst-ui',
@@ -43,7 +43,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(TENANT_DISCOVERY),
+        body: JSON.stringify(PORTAL_DISCOVERY),
       })
     })
     await page.route('**/api/v1/whoami', async (route) => {
@@ -78,7 +78,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
         status: 202,
         contentType: 'application/json',
         body: JSON.stringify({
-          org_tenant_id: 'tenant-uuid-free',
+          org_tenant_id: 'org-uuid-free',
           state: 'done',
           subdomain: 'acme',
           domain_mode: 'free-subdomain',
@@ -87,7 +87,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
           company_name: 'Acme',
           otech_fqdn: 'otech.example',
           vcluster_name: 'vc-acme',
-          tenant_namespace: 'org-tenant-uuid-free',
+          tenant_namespace: 'org-uuid-free-ns',
           console_host: 'console.acme.omani.trade',
           commit_sha: 'sha-test',
           steps: {
@@ -104,37 +104,37 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
       })
     })
 
-    await page.goto('/console/org/tenants/new')
-    await expect(page.getByTestId('org-create-tenant-page')).toBeVisible()
-    await expect(page.getByTestId('org-create-tenant-form')).toBeVisible()
+    await page.goto('/console/organizations/new')
+    await expect(page.getByTestId('org-create-page')).toBeVisible()
+    await expect(page.getByTestId('org-create-form')).toBeVisible()
 
     // Initial 1440 px screenshot — pristine form with the parent
     // dropdown populated from the mocked pool.
     await page.screenshot({
-      path: 'e2e/screenshots/828-create-tenant-form-1440.png',
+      path: 'e2e/screenshots/828-create-org-form-1440.png',
       fullPage: true,
     })
 
-    await page.getByTestId('org-create-tenant-subdomain').fill('acme')
-    await page.getByTestId('org-create-tenant-company').fill('Acme')
-    await page.getByTestId('org-create-tenant-email').fill('admin@acme.example')
+    await page.getByTestId('org-create-subdomain').fill('acme')
+    await page.getByTestId('org-create-company').fill('Acme')
+    await page.getByTestId('org-create-email').fill('admin@acme.example')
     // Pick omani.trade.
     await page
-      .getByTestId('org-create-tenant-parent-select')
+      .getByTestId('org-create-parent-select')
       .selectOption('omani.trade')
 
     // The URL preview reflects the chosen parent.
-    await expect(page.getByTestId('org-create-tenant-url-preview')).toHaveText(
+    await expect(page.getByTestId('org-create-url-preview')).toHaveText(
       'console.acme.omani.trade',
     )
 
     await page.screenshot({
-      path: 'e2e/screenshots/828-create-tenant-free-filled-1440.png',
+      path: 'e2e/screenshots/828-create-org-free-filled-1440.png',
       fullPage: true,
     })
 
-    await page.getByTestId('org-create-tenant-submit').click()
-    await expect(page.getByTestId('org-create-tenant-result')).toBeVisible({
+    await page.getByTestId('org-create-submit').click()
+    await expect(page.getByTestId('org-create-result')).toBeVisible({
       timeout: 5000,
     })
 
@@ -148,11 +148,11 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
 
     // Post-submit: the result panel renders with the chosen parent.
     await expect(
-      page.getByTestId('org-create-tenant-result-parent'),
+      page.getByTestId('org-create-result-parent'),
     ).toHaveText('omani.trade')
 
     await page.screenshot({
-      path: 'e2e/screenshots/828-create-tenant-free-success-1440.png',
+      path: 'e2e/screenshots/828-create-org-free-success-1440.png',
       fullPage: true,
     })
   })
@@ -169,7 +169,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
         status: 202,
         contentType: 'application/json',
         body: JSON.stringify({
-          org_tenant_id: 'tenant-uuid-byo',
+          org_tenant_id: 'org-uuid-byo',
           state: 'done',
           subdomain: 'acme',
           domain_mode: 'byo',
@@ -177,7 +177,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
           admin_email: 'admin@acme.com',
           otech_fqdn: 'otech.example',
           vcluster_name: 'vc-acme',
-          tenant_namespace: 'org-tenant-uuid-byo',
+          tenant_namespace: 'org-uuid-byo-ns',
           console_host: 'console.acme.com',
           commit_sha: 'sha-byo',
           steps: {
@@ -194,34 +194,34 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
       })
     })
 
-    await page.goto('/console/org/tenants/new')
-    await expect(page.getByTestId('org-create-tenant-page')).toBeVisible()
+    await page.goto('/console/organizations/new')
+    await expect(page.getByTestId('org-create-page')).toBeVisible()
 
     // Switch to BYO mode — the parent dropdown disappears.
     await page
-      .getByTestId('org-create-tenant-mode-byo')
+      .getByTestId('org-create-mode-byo')
       .locator('input[type="radio"]')
       .click()
-    await expect(page.getByTestId('org-create-tenant-parent-row')).toHaveCount(
+    await expect(page.getByTestId('org-create-parent-row')).toHaveCount(
       0,
     )
-    await expect(page.getByTestId('org-create-tenant-byo')).toBeVisible()
+    await expect(page.getByTestId('org-create-byo')).toBeVisible()
 
-    await page.getByTestId('org-create-tenant-subdomain').fill('acme')
-    await page.getByTestId('org-create-tenant-email').fill('admin@acme.com')
-    await page.getByTestId('org-create-tenant-byo').fill('acme.com')
+    await page.getByTestId('org-create-subdomain').fill('acme')
+    await page.getByTestId('org-create-email').fill('admin@acme.com')
+    await page.getByTestId('org-create-byo').fill('acme.com')
 
-    await expect(page.getByTestId('org-create-tenant-url-preview')).toHaveText(
+    await expect(page.getByTestId('org-create-url-preview')).toHaveText(
       'console.acme.com',
     )
 
     await page.screenshot({
-      path: 'e2e/screenshots/828-create-tenant-byo-filled-1440.png',
+      path: 'e2e/screenshots/828-create-org-byo-filled-1440.png',
       fullPage: true,
     })
 
-    await page.getByTestId('org-create-tenant-submit').click()
-    await expect(page.getByTestId('org-create-tenant-result')).toBeVisible({
+    await page.getByTestId('org-create-submit').click()
+    await expect(page.getByTestId('org-create-result')).toBeVisible({
       timeout: 5000,
     })
 
@@ -236,7 +236,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
     expect(lastBody?.parent_domain).toBeUndefined()
 
     await page.screenshot({
-      path: 'e2e/screenshots/828-create-tenant-byo-success-1440.png',
+      path: 'e2e/screenshots/828-create-org-byo-success-1440.png',
       fullPage: true,
     })
   })

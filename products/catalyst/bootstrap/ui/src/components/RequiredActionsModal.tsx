@@ -1,5 +1,5 @@
 /**
- * RequiredActionsModal — post-login first-use prompt for Sovereign tenants.
+ * RequiredActionsModal — post-login first-use prompt for Sovereign operators.
  *
  * After a successful OIDC login (or handover-token reception), the
  * id_token may carry a `requiredActions` claim from Keycloak listing

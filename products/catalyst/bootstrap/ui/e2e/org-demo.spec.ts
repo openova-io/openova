@@ -12,7 +12,7 @@
  *
  * Today the spec runs against the local Vite dev server with every
  * back-end surface mocked via `page.route`. This is the only way to
- * keep CI green while the tenant-provisioning pipeline (#804) and the
+ * keep CI green while the Organization-provisioning pipeline (#804) and the
  * billing UI surfaces are still in flight. The mocks live in
  * `e2e/lib/org-fixtures.ts` — each one is wire-shape-faithful to the
  * canonical handler (org_users.go, tenant_discover.go) so when #804
@@ -21,7 +21,7 @@
  *
  * Steps that depend on UI surfaces NOT YET LANDED at SHA-of-record are
  * marked with `test.fixme` + a TODO comment linking to the blocker
- * issue (#804 for tenant-provisioning, #802 sub-task for billing UI).
+ * issue (#804 for Organization-provisioning, #802 sub-task for billing UI).
  *
  * ── Why one spec instead of six ───────────────────────────────────
  *
@@ -66,7 +66,7 @@ test.describe('@org-demo Organization end-to-end happy path (issue #805)', () =>
   test('step 1 — marketplace signup form filled (1440×900)', async ({ page }, testInfo) => {
     // The marketplace surface is the SAME wizard the open-source
     // catalyst-ui ships. Organization signup runs through the same flow; the
-    // tenant-create payload at the end is what differs (#804 wires
+    // org-create payload at the end is what differs (#804 wires
     // the Organization creation; today the wizard targets a Sovereign
     // deployment).
     //
@@ -179,9 +179,9 @@ test.describe('@org-demo Organization end-to-end happy path (issue #805)', () =>
   test('step 5a — alice on WordPress (mock SSO) (1440×900)', async ({ page }, testInfo) => {
     // wordpress.<org-domain> is OUTSIDE the catalyst-ui SPA. In
     // mock-mode we serve a placeholder HTML page so the screenshot
-    // captures *something* attributable to bp-wordpress-tenant (#800).
+    // captures *something* attributable to the per-Org wordpress Blueprint (#800).
     // The real SSO walk (Keycloak redirect → WP auto-login) lands as
-    // part of #804's live tenant pipeline.
+    // part of #804's live provisioning pipeline.
     await page.goto(`https://${HOSTS.wordpress}/`)
     await expect(page).toHaveTitle(/WordPress/)
     await snap(page, 5, 'wordpress-alice-dashboard', testInfo)
@@ -190,7 +190,7 @@ test.describe('@org-demo Organization end-to-end happy path (issue #805)', () =>
   test.fixme(
     'step 5b — alice on OpenClaw (controller spawns pod, prompt + response)',
     async ({ page }, testInfo) => {
-      // Pending #804 (tenant-provisioning pipeline wires bp-openclaw +
+      // Pending #804 (Organization-provisioning pipeline wires bp-openclaw +
       // per-user pod spawner end-to-end). The assertion in this
       // fixme step (controller spawns pod, NEWAPI_KEY env injected,
       // prompt → completion arrives) requires a real OpenClaw
@@ -204,12 +204,12 @@ test.describe('@org-demo Organization end-to-end happy path (issue #805)', () =>
   )
 
   test.fixme(
-    'step 5c — alice → bob webmail roundtrip (Stalwart per-tenant)',
+    'step 5c — alice → bob webmail roundtrip (Stalwart per-Org)',
     async ({ page }, testInfo) => {
-      // Pending #801 (Stalwart-tenant chart) + #804 (mailbox
-      // provisioning hook from the tenant pipeline). The webmail UI
+      // Pending #801 (per-Org Stalwart chart) + #804 (mailbox
+      // provisioning hook from the provisioning pipeline). The webmail UI
       // itself is upstream Stalwart and is not part of this SPA. The
-      // fixme step activates once a real per-tenant Stalwart is up.
+      // fixme step activates once a real per-Org Stalwart is up.
       await page.goto(`https://${HOSTS.webmail}/`)
       await expect(page).toHaveTitle(/Webmail/)
       await snap(page, 5, 'webmail-bob-receives-mail', testInfo)

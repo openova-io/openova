@@ -5,7 +5,7 @@
  * Layout contract (issue #350 — drop accordion):
  *   • Fixed left rail, w-56, full height
  *   • Logo + product wordmark in the 56px header
- *   • Single-Sovereign label in place of the canonical Tenant
+ *   • Single-Sovereign label in place of the canonical Org
  *     switcher (the wizard is single-Sovereign by definition).
  *   • Nav list — flat single-level destinations only:
  *
@@ -161,7 +161,7 @@ export function Sidebar({ deploymentId, sovereignFQDN }: SidebarProps) {
       className="fixed left-0 top-0 flex h-screen w-56 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-2)]"
       data-testid="admin-sidebar"
     >
-      {/* Logo + Sovereign label (replaces canonical Tenant switcher) */}
+      {/* Logo + Sovereign label (replaces canonical Org switcher) */}
       <div className="border-b border-[var(--color-border)]">
         <div className="flex h-14 items-center gap-2 px-4">
           {/* Canonical OpenOva mark — same shape + gradient as core/console */}
@@ -187,7 +187,7 @@ export function Sidebar({ deploymentId, sovereignFQDN }: SidebarProps) {
         <div className="px-3 pb-3">
           <div
             className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-left text-xs"
-            data-testid="sov-tenant-label"
+            data-testid="sov-org-label"
           >
             <span className="min-w-0 flex-1 truncate text-[var(--color-text-strong)]">{sovereignLabel}</span>
           </div>

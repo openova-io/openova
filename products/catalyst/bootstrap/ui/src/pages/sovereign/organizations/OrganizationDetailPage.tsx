@@ -6,7 +6,7 @@
  * links, and the `Enter org` button (sub-orgs only — the §2.4 support
  * session; absent on the parent row, "you are already inside it"). The
  * org's people belong on the org's page — the users + roles tabs absorb
- * /sme/users + /sme/roles in a follow-on PR on this chain.
+ * the legacy users/roles URLs in a follow-on PR on this chain.
  *
  * No bespoke parent-side estate views (§2.4): the org's OWN console (the
  * limited-similar UI served at console.<org>.<domain>) IS the view; this

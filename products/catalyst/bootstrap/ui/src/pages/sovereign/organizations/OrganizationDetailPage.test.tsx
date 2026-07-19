@@ -17,10 +17,10 @@ import {
 } from '@tanstack/react-router'
 
 import { OrganizationDetailPage } from './OrganizationDetailPage'
-import { parentRowFromSelf, subOrgRowFromTenant, type OrgRow } from '@/lib/organizations.api'
+import { parentRowFromSelf, subOrgRowFromRecord, type OrgRow } from '@/lib/organizations.api'
 
 const PARENT = parentRowFromSelf({ deploymentId: 'd1', sovereignFQDN: 'hw130.omantel.biz' })
-const SUB = subOrgRowFromTenant({
+const SUB = subOrgRowFromRecord({
   id: 'tnt-1', orgName: 'ACME Corp', consoleHost: 'console.acme.omani.homes', subdomain: 'acme',
   parentDomain: 'omani.homes', plan: 'pro', kind: 'customer', tier: 'org', billingMode: 'real',
   isolation: 'vcluster', status: 'active', region: 'r', ownerEmail: 'o@acme.example',

@@ -31,9 +31,9 @@
  * in the top-right of this shell so identity placement is consistent
  * across wizard + provisioning + Sovereign-console.
  *
- * The canonical shell handles auth + tenant resolution; in the
+ * The canonical shell handles auth + portal resolution; in the
  * Sovereign-provision wizard context that's not relevant — the wizard
- * runs unauthenticated and the deploymentId IS the tenant. The shell
+ * runs unauthenticated and the deploymentId IS the portal identity. The shell
  * therefore only needs the deployment id + an optional resolved
  * sovereign FQDN to mirror the same chrome.
  *
@@ -54,7 +54,7 @@ import { ReadinessChip, OperationBanner } from '@/components/ReadinessChip'
 interface PortalShellProps {
   /** Stable deploymentId from the URL parameter. */
   deploymentId: string
-  /** Resolved Sovereign FQDN (passed through to Sidebar's tenant slot). */
+  /** Resolved Sovereign FQDN (passed through to Sidebar's estate slot). */
   sovereignFQDN?: string | null
   /** Page title shown left-aligned at the start of the header. */
   pageTitle?: string

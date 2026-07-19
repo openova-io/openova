@@ -7,11 +7,11 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { EnterOrgButton } from './EnterOrgButton'
-import { parentRowFromSelf, subOrgRowFromTenant, type EnterOrgResult } from '@/lib/organizations.api'
+import { parentRowFromSelf, subOrgRowFromRecord, type EnterOrgResult } from '@/lib/organizations.api'
 
 afterEach(() => cleanup())
 
-const SUB = subOrgRowFromTenant({
+const SUB = subOrgRowFromRecord({
   id: 'tnt-1',
   orgName: 'ACME Corp',
   consoleHost: 'console.acme.omani.homes',

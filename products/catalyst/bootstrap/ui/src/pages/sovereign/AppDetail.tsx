@@ -526,7 +526,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               {/*
                 PR K (2026-05-17 t140 founder bug #4): per-app catalog
                 publish/unpublish toggle. Operator clicks to flip the
-                Published flag on this app — controls whether tenants
+                Published flag on this app — controls whether Organizations
                 see it in marketplace storefront. Backend at
                 PUT /api/catalog/admin/apps/{slug}/published; ownership
                 gated by Sovereign Console session.
@@ -1484,7 +1484,7 @@ function OverviewPanel({
       ) : null}
 
       {/* Organization */}
-      <section className="section" data-testid="sov-section-tenant">
+      <section className="section" data-testid="sov-section-organization">
         <h2>Organization</h2>
         <p className="desc">
           {sovereignFQDN

@@ -90,7 +90,7 @@ describe('ResourcesTab — namespace plumbing (TBD-V2 #1928)', () => {
         <ResourcesTab
           applicationName="legal-co"
           sovereignId="test-sov"
-          namespace="tenant/legal"
+          namespace="acme/legal"
         />,
       ),
     )
@@ -98,7 +98,7 @@ describe('ResourcesTab — namespace plumbing (TBD-V2 #1928)', () => {
       expect(fetchCalls.length).toBeGreaterThan(0)
     })
     for (const url of fetchCalls) {
-      expect(url).toContain('namespace=tenant%2Flegal')
+      expect(url).toContain('namespace=acme%2Flegal')
     }
   })
 

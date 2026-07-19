@@ -795,7 +795,7 @@ export const useWizardStore = create<WizardStore>()(
           // Marketplace fields added in #710 wave 3a — coerce missing
           // values on a legacy persisted payload. D27 zero-touch ruling
           // 2026-05-16: default true so a fresh wizard hydration provisions
-          // a Sovereign that's ready to host tenant orgs (D29).
+          // a Sovereign that's ready to host Organizations (D29).
           if (typeof p.marketplaceEnabled !== 'boolean') {
             p.marketplaceEnabled = true
           }

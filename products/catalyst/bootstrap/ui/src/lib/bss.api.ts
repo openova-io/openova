@@ -3,7 +3,7 @@
  *
  * Wire paths:
  *
- *   browser ──/api/v1/org/bss/overview──▶ catalyst-api ──▶ per-tenant rollups
+ *   browser ──/api/v1/org/bss/overview──▶ catalyst-api ──▶ per-Org rollups
  *   browser ──/api/v1/org/billing/revenue──▶ catalyst-api ──▶ rollup
  *   browser ──/api/v1/org/billing/vouchers/{issue,list,revoke}──▶ catalyst-api
  *           ──▶ billing service (#117 — core/services/billing/handlers/vouchers.go)
@@ -12,11 +12,11 @@
  *
  * The overview / revenue / orders endpoints are FE-facing rollups for
  * the matching BSS sections. The vouchers endpoints back the Wave 6 PR 5
- * vouchers surface. The tenants endpoint backs Wave 6 PR 6 and ships
+ * vouchers surface. The roster endpoint backs Wave 6 PR 6 and ships
  * today via HandleListOrganizations in organization_provisioning.go. All endpoints
  * gracefully tolerate 404 / 5xx so the page still renders its target-
  * state chrome on first paint (per INVIOLABLE-PRINCIPLES.md #1) —
- * overview / revenue / orders / tenants return zero-filled / empty
+ * overview / revenue / orders / roster return zero-filled / empty
  * with the FE flagging "API pending" where the page wants that pill;
  * voucher list throws so the page can surface the API error inline.
  */
@@ -48,7 +48,9 @@ export interface BssOverview {
      *  no vouchers have been issued. */
     redeemRate: number | null
   }
-  tenants: {
+  /** Organization KPIs. The BE wire key is the legacy `tenants`
+   *  (org_bss_overview.go json tag) — mapped here at the parse boundary. */
+  orgs: {
     active: number
     newThisWeek: number
   }
@@ -68,7 +70,7 @@ const ZERO_OVERVIEW: BssOverview = {
   billing: { mrrCents: 0, deltaPct: null },
   orders: { pending: 0, oldestDays: null },
   vouchers: { active: 0, redeemRate: null },
-  tenants: { active: 0, newThisWeek: 0 },
+  orgs: { active: 0, newThisWeek: 0 },
   revenue: { last30dCents: 0, deltaPct: null, sparkline: [] },
 }
 
@@ -92,7 +94,13 @@ export async function getBssOverview(): Promise<BssOverview> {
     return ZERO_OVERVIEW
   }
   try {
-    const body = (await res.json()) as Partial<BssOverview> | null
+    // Wire mirror: the BE emits the org KPIs under the legacy `tenants`
+    // JSON key (org_bss_overview.go); everything else matches the model.
+    const body = (await res.json()) as
+      | (Partial<Omit<BssOverview, 'orgs'>> & {
+          tenants?: { active?: number; newThisWeek?: number }
+        })
+      | null
     if (!body || typeof body !== 'object') return ZERO_OVERVIEW
     return {
       pendingApi: false,
@@ -117,7 +125,7 @@ export async function getBssOverview(): Promise<BssOverview> {
             ? null
             : Number(body.vouchers.redeemRate),
       },
-      tenants: {
+      orgs: {
         active: Number(body.tenants?.active ?? 0),
         newThisWeek: Number(body.tenants?.newThisWeek ?? 0),
       },
@@ -142,7 +150,7 @@ export async function getBssOverview(): Promise<BssOverview> {
  * Deeper cut of the BSS revenue rollup. The landing's overview surfaces
  * a single MRR number + 30-day sparkline; the /bss/revenue page exposes
  * per-day points for a richer chart and a per-plan breakdown table with
- * tenant count + MRR + YoY delta. Wire shape mirrors getBssOverview:
+ * Organization count + MRR + YoY delta. Wire shape mirrors getBssOverview:
  * zero-filled fallback + pendingApi=true on 404 / 5xx / network error
  * so the page renders the full target-state surface on first paint
  * (per INVIOLABLE-PRINCIPLES.md #1 — waterfall).
@@ -153,8 +161,9 @@ export interface PlanBreakdown {
   id: string
   /** Operator-facing plan label (e.g. "Starter", "Growth", "Enterprise"). */
   plan: string
-  /** Number of tenants currently subscribed to this plan. */
-  tenants: number
+  /** Number of Organizations currently subscribed to this plan. The BE
+   *  wire key is the legacy `tenants` — mapped at the parse boundary. */
+  orgs: number
   /** Monthly recurring revenue contribution from this plan, in cents. */
   mrrCents: number
   /** Year-over-year delta, signed percentage with 1-decimal precision.
@@ -167,8 +176,9 @@ export interface RevenueKpi {
   last30dCents: number
   /** Month-over-month delta, signed percentage. Null when no prior window. */
   momPct: number | null
-  /** Highest-MRR tenant label; empty when no tenants. */
-  topTenant: string
+  /** Highest-MRR Organization label; empty when none. The BE wire key
+   *  is the legacy `topTenant` — mapped at the parse boundary. */
+  topOrg: string
   /** Highest-MRR plan label; empty when no plans. */
   topPlan: string
 }
@@ -185,7 +195,7 @@ export interface BssRevenue {
 
 const ZERO_REVENUE: BssRevenue = {
   pendingApi: true,
-  kpi: { last30dCents: 0, momPct: null, topTenant: '', topPlan: '' },
+  kpi: { last30dCents: 0, momPct: null, topOrg: '', topPlan: '' },
   sparkline: [],
   breakdown: [],
 }
@@ -213,13 +223,24 @@ export async function getRevenue(): Promise<BssRevenue> {
     return ZERO_REVENUE
   }
   try {
-    const body = (await res.json()) as Partial<BssRevenue> | null
+    // Wire mirror: `kpi.topTenant` + per-row `tenants` are the legacy BE
+    // JSON keys — mapped onto topOrg / orgs at this parse boundary.
+    const body = (await res.json()) as
+      | {
+          pendingApi?: boolean
+          kpi?: Partial<Omit<RevenueKpi, 'topOrg'>> & { topTenant?: string }
+          sparkline?: unknown
+          breakdown?: (Partial<Omit<PlanBreakdown, 'orgs'>> & {
+            tenants?: number
+          })[]
+        }
+      | null
     if (!body || typeof body !== 'object') return ZERO_REVENUE
     const breakdown = Array.isArray(body.breakdown)
       ? body.breakdown.map((row, i) => ({
           id: String(row?.id ?? `row-${i}`),
           plan: String(row?.plan ?? ''),
-          tenants: Number(row?.tenants ?? 0),
+          orgs: Number(row?.tenants ?? 0),
           mrrCents: Number(row?.mrrCents ?? 0),
           yoyPct:
             row?.yoyPct === null || row?.yoyPct === undefined
@@ -235,7 +256,7 @@ export async function getRevenue(): Promise<BssRevenue> {
           body.kpi?.momPct === null || body.kpi?.momPct === undefined
             ? null
             : Number(body.kpi.momPct),
-        topTenant: String(body.kpi?.topTenant ?? ''),
+        topOrg: String(body.kpi?.topTenant ?? ''),
         topPlan: String(body.kpi?.topPlan ?? ''),
       },
       sparkline: Array.isArray(body.sparkline)
@@ -394,9 +415,10 @@ export interface Order {
   /** Stable per-order id (e.g. `ord_01HX...`); used as the row key
    *  and as the drill-in URL slug. */
   id: string
-  /** Tenant organisation that placed the order. Empty string when the
-   *  BE hasn't projected the tenant join yet (rare; renders an em-dash). */
-  tenantOrg: string
+  /** Organization that placed the order. Empty string when the BE hasn't
+   *  projected the org join yet (rare; renders an em-dash). The BE wire
+   *  key is the legacy `tenantOrg` — mapped at the parse boundary. */
+  org: string
   /** Marketplace catalogue item the order is for. */
   product: string
   status: OrderStatus
@@ -464,7 +486,7 @@ export async function getOrders(): Promise<OrdersResponse> {
         const status = normalizeOrderStatus(r.status)
         return {
           id,
-          tenantOrg: typeof r.tenantOrg === 'string' ? r.tenantOrg : '',
+          org: typeof r.tenantOrg === 'string' ? r.tenantOrg : '',
           product: typeof r.product === 'string' ? r.product : '',
           status,
           createdAt: typeof r.createdAt === 'string' ? r.createdAt : '',
@@ -500,9 +522,10 @@ export type SubscriptionStatus = 'paid' | 'trial' | 'overdue' | 'cancelled'
 export interface Subscription {
   /** Stable per-subscription id; used as the row key. */
   id: string
-  /** Tenant organisation that holds the subscription. Empty string when
-   *  the BE hasn't projected the org join yet (rare; renders an em-dash). */
-  tenantOrg: string
+  /** Organization that holds the subscription. Empty string when the BE
+   *  hasn't projected the org join yet (rare; renders an em-dash). The BE
+   *  wire key is the legacy `tenantOrg` — mapped at the parse boundary. */
+  org: string
   /** Plan label (Starter / Pro / Enterprise / etc.). */
   plan: string
   /** Monthly recurring amount in cents. */
@@ -565,7 +588,7 @@ export async function getBillingSubscriptions(): Promise<SubscriptionsResponse> 
         if (id === '') return null
         return {
           id,
-          tenantOrg: typeof r.tenantOrg === 'string' ? r.tenantOrg : '',
+          org: typeof r.tenantOrg === 'string' ? r.tenantOrg : '',
           plan: typeof r.plan === 'string' ? r.plan : '',
           mrrCents:
             typeof r.mrrCents === 'number' && Number.isFinite(r.mrrCents)
@@ -593,20 +616,21 @@ function normalizeSubscriptionStatus(raw: unknown): SubscriptionStatus {
   return 'paid'
 }
 
-/* ── Tenants — Wave 6 PR 6 ───────────────────────────────────────────
+/* ── Organization roster — Wave 6 PR 6 ───────────────────────────────
  *
  * Source-of-truth: GET /api/v1/organizations (HandleListOrganizations in
  * products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go).
- * That handler returns `{items: [orgTenantResponse, ...]}` where each
- * row mirrors store.OrganizationProvisionRecord — id, state, subdomain,
+ * That handler returns `{items: [...]}` where each row mirrors
+ * store.OrganizationProvisionRecord — id, state, subdomain,
  * domain mode, parent domain, admin email, company name, OTECH FQDN,
  * vCluster name, console host, timestamps.
  *
- * Wave 6 maps that wire shape onto a flatter `Tenant` UI type that the
- * native TenantsPage table consumes. Per ADR-0001 §2.7 (K8s-native
- * tenancy) the same orchestrator also reconciles an Organization CR
- * (orgs.openova.io/v1), but for the operator's BSS landing view the
- * provisioning-pipeline record is the richer + already-listed source.
+ * Wave 6 maps that wire shape onto a flatter `OrgRecord` UI type that
+ * the Organizations directory consumes. Per ADR-0001 §2.7 (K8s-native
+ * multi-Org isolation) the same orchestrator also reconciles an
+ * Organization CR (orgs.openova.io/v1), but for the operator's BSS
+ * landing view the provisioning-pipeline record is the richer +
+ * already-listed source.
  *
  * `plan` and `region` are sourced from the response where the backend
  * populates them; on the current pipeline they are not yet wired so the
@@ -617,7 +641,7 @@ function normalizeSubscriptionStatus(raw: unknown): SubscriptionStatus {
  */
 
 /** Provisioning lifecycle state mirroring store.OrganizationProvisionState. */
-export type TenantStatus =
+export type OrgStatus =
   | 'active'
   | 'trial'
   | 'provisioning'
@@ -625,8 +649,8 @@ export type TenantStatus =
   | 'failed'
   | 'unknown'
 
-export interface Tenant {
-  /** Stable identifier (org_tenant_id from the orchestrator). */
+export interface OrgRecord {
+  /** Stable identifier (the orchestrator's legacy `org_tenant_id` wire key). */
   id: string
   /** Display name, falling back to the slug when company name absent. */
   orgName: string
@@ -634,7 +658,7 @@ export interface Tenant {
   consoleHost: string
   /**
    * Subdomain leaf (e.g. "acme" → acme.omani.homes). Empty for BYO
-   * tenants whose console FQDN doesn't decompose into the pool form.
+   * Organizations whose console FQDN doesn't decompose into the pool form.
    */
   subdomain: string
   /** Parent zone (e.g. omani.homes) used to compose the subdomain. */
@@ -643,7 +667,7 @@ export interface Tenant {
   plan: string | null
   /**
    * Organizations-model spec fields (issue #3378 B1). The orchestrator
-   * stamps these on the OrganizationProvisionRecord and the tenants feed
+   * stamps these on the OrganizationProvisionRecord and the roster feed
    * surfaces them as kind / tier / billing_mode / isolation. Empty string
    * when the record predates the B1 fields (older provisioning runs) — the
    * Organizations directory then falls back to kind-derived defaults so a
@@ -654,7 +678,7 @@ export interface Tenant {
   billingMode: string
   isolation: string
   /** Lifecycle status normalized to the UI vocabulary. */
-  status: TenantStatus
+  status: OrgStatus
   /** Hetzner region key (fsn1 / hel1 / ...) — null until BE wires it. */
   region: string | null
   /** Owner email (admin_email from the create call). */
@@ -678,7 +702,7 @@ export interface Tenant {
  *   deleted                                               → suspended
  *   anything else                                         → unknown
  */
-export function mapStateToStatus(state: string): TenantStatus {
+export function mapStateToStatus(state: string): OrgStatus {
   switch (state) {
     case 'done':
     case 'tenant_registered':
@@ -699,9 +723,10 @@ export function mapStateToStatus(state: string): TenantStatus {
   }
 }
 
-/** Wire-shape mirror of orgTenantResponse — Partial so future BE
- *  additions don't break the FE parse. */
-interface RawTenant {
+/** Wire-shape mirror of the BE list-organizations row (the legacy
+ *  `org_tenant_id` / `tenant_namespace` JSON keys are the wire contract)
+ *  — Partial so future BE additions don't break the FE parse. */
+interface OrgRecordWire {
   org_tenant_id?: string
   state?: string
   subdomain?: string
@@ -717,7 +742,7 @@ interface RawTenant {
   plan?: string
   region?: string
   // Organizations-model spec fields (issue #3378 B1) — already emitted by
-  // orgTenantResponse (products/catalyst/bootstrap/api/internal/handler/
+  // the BE row (products/catalyst/bootstrap/api/internal/handler/
   // organization_provisioning.go). Optional so older payloads still parse.
   kind?: string
   tier?: string
@@ -728,7 +753,7 @@ interface RawTenant {
   updated_at?: string
 }
 
-function mapTenant(raw: RawTenant): Tenant {
+function mapOrgRecord(raw: OrgRecordWire): OrgRecord {
   const subdomain = String(raw.subdomain ?? '')
   const parentDomain = String(raw.parent_domain ?? '')
   const companyName = String(raw.company_name ?? '').trim()
@@ -754,7 +779,7 @@ function mapTenant(raw: RawTenant): Tenant {
 }
 
 /**
- * listTenants — fetch the tenant roster for the BSS Tenants table.
+ * listOrgRecords — fetch the Organization roster (directory feed).
  *
  * Returns `[]` on network failure or non-2xx so the table renders its
  * empty state rather than crashing the surface (per
@@ -762,7 +787,7 @@ function mapTenant(raw: RawTenant): Tenant {
  * time). The handler already returns `{items: []}` on an empty store,
  * so the empty array is the natural happy-path signal too.
  */
-export async function listTenants(): Promise<Tenant[]> {
+export async function listOrgRecords(): Promise<OrgRecord[]> {
   let res: Response
   try {
     res = await authedFetch(`${API_BASE}/v1/organizations`, {
@@ -775,9 +800,9 @@ export async function listTenants(): Promise<Tenant[]> {
     return []
   }
   try {
-    const body = (await res.json()) as { items?: RawTenant[] } | null
+    const body = (await res.json()) as { items?: OrgRecordWire[] } | null
     if (!body || !Array.isArray(body.items)) return []
-    return body.items.map(mapTenant)
+    return body.items.map(mapOrgRecord)
   } catch {
     return []
   }

@@ -4,7 +4,7 @@
  * Coverage (post issue #350 — accordion dropped):
  *   • Renders the OpenOva mark inside the 56px logo header
  *   • Surfaces the deployment id (or sovereignFQDN when supplied) as
- *     the "tenant" label in place of the canonical Tenant switcher
+ *     the Sovereign label in place of the canonical Org switcher
  *   • Renders Apps + Jobs + Dashboard + Cloud + Settings nav items
  *     (the explicit subset for the Sovereign-provision surface)
  *   • Active item carries `aria-current="page"`
@@ -116,15 +116,15 @@ describe('Sidebar — chrome', () => {
     expect(within(sidebar).getByText(/Sovereign/i)).toBeTruthy()
   })
 
-  it('uses sovereignFQDN as the tenant label when supplied', async () => {
+  it('uses sovereignFQDN as the Sovereign label when supplied', async () => {
     renderSidebarAt('/provision/d-test-1234', 'omantel.omani.works')
-    const label = await screen.findByTestId('sov-tenant-label')
+    const label = await screen.findByTestId('sov-org-label')
     expect(label.textContent).toContain('omantel.omani.works')
   })
 
   it('falls back to a deploymentId-derived label when no FQDN is known', async () => {
     renderSidebarAt('/provision/d-test-1234')
-    const label = await screen.findByTestId('sov-tenant-label')
+    const label = await screen.findByTestId('sov-org-label')
     expect(label.textContent).toContain('d-test-1')
   })
 })

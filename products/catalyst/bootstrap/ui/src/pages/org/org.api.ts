@@ -16,7 +16,7 @@
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every URL
  * derives from `apiUrl()` in `shared/config/urls`. Per #2 (never
  * compromise on quality), the response shape is parsed through the
- * branded-types parsers (`parseTenantID` etc.) at the boundary so a
+ * branded-types parsers (`parsePortalID` etc.) at the boundary so a
  * future server-side wire-shape drift surfaces as a runtime error
  * here, not as silent cross-Organization pollution downstream.
  */
@@ -61,7 +61,7 @@ export interface OrgUserCreateRequest {
 
 const ORG_USERS_PATH = '/v1/org/users'
 
-function tenantHeaders(): HeadersInit {
+function orgScopeHeaders(): HeadersInit {
   const host =
     typeof window !== 'undefined' ? window.location.host : ''
   return {
@@ -74,7 +74,7 @@ export async function listOrgUsers(): Promise<OrgUser[]> {
   const res = await fetch(apiUrl(ORG_USERS_PATH), {
     method: 'GET',
     credentials: 'include',
-    headers: tenantHeaders(),
+    headers: orgScopeHeaders(),
   })
   if (!res.ok) {
     throw new Error(`list org users: HTTP ${res.status}`)
@@ -89,7 +89,7 @@ export async function createOrgUser(
   const res = await fetch(apiUrl(ORG_USERS_PATH), {
     method: 'POST',
     credentials: 'include',
-    headers: { ...tenantHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...orgScopeHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   })
   if (!res.ok && res.status !== 202) {
@@ -103,51 +103,54 @@ export async function deleteOrgUser(uuid: string): Promise<void> {
   const res = await fetch(apiUrl(`${ORG_USERS_PATH}/${encodeURIComponent(uuid)}`), {
     method: 'DELETE',
     credentials: 'include',
-    headers: tenantHeaders(),
+    headers: orgScopeHeaders(),
   })
   if (!res.ok && res.status !== 204) {
     throw new Error(`delete org user: HTTP ${res.status}`)
   }
 }
 
-/* ── Organization tenant pipeline (issue #804) + multi-domain (#828) ─────── */
+/* ── Organization provisioning pipeline (issue #804) + multi-domain (#828) ── */
 
-export type OrgTenantDomainMode = 'free-subdomain' | 'byo'
+export type OrgDomainMode = 'free-subdomain' | 'byo'
 
-export type OrgTenantStepState = 'pending' | 'done' | 'failed'
+export type OrgProvisionStepState = 'pending' | 'done' | 'failed'
 
-export interface OrgTenantSteps {
-  vcluster: OrgTenantStepState
-  bp_charts: OrgTenantStepState
-  dns: OrgTenantStepState
-  certs: OrgTenantStepState
-  keycloak_clients: OrgTenantStepState
-  registry: OrgTenantStepState
+export interface OrgProvisionSteps {
+  vcluster: OrgProvisionStepState
+  bp_charts: OrgProvisionStepState
+  dns: OrgProvisionStepState
+  certs: OrgProvisionStepState
+  keycloak_clients: OrgProvisionStepState
+  registry: OrgProvisionStepState
 }
 
-export interface OrgTenant {
+export interface OrgProvisionRecord {
+  /** Legacy BE wire key (store.OrganizationProvisionRecord json tag) —
+   *  changes only in a BE+FE lockstep rename. */
   org_tenant_id: string
   state: string
   subdomain: string
-  domain_mode: OrgTenantDomainMode
+  domain_mode: OrgDomainMode
   byo_domain?: string
   parent_domain?: string
   admin_email: string
   company_name?: string
   otech_fqdn: string
   vcluster_name: string
+  /** Legacy BE wire key — see org_tenant_id note above. */
   tenant_namespace: string
   console_host: string
   commit_sha?: string
   last_error?: string
-  steps: OrgTenantSteps
+  steps: OrgProvisionSteps
   created_at: string
   updated_at: string
 }
 
-export interface OrgTenantCreateRequest {
+export interface OrgCreateRequest {
   subdomain: string
-  domain_mode: OrgTenantDomainMode
+  domain_mode: OrgDomainMode
   /** Required when domain_mode === 'byo'. */
   byo_domain?: string
   /** Required when domain_mode === 'free-subdomain' AND the Sovereign
@@ -170,7 +173,7 @@ export interface OrgTenantCreateRequest {
 
 /** Wire shape mirrors the canonical issue #829 endpoint
  *  (parent_domains.go ListParentDomains). Re-exported here so the
- *  CreateTenantPage can consume the same shape without depending on
+ *  CreateOrganizationPage can consume the same shape without depending on
  *  the admin-page module. */
 export type ParentDomainFlipStatus =
   | 'queued'
@@ -184,10 +187,10 @@ export type ParentDomainFlipStatus =
 export interface SovereignParentDomain {
   name: string
   /** "primary" | "org-pool" — only org-pool entries are valid Organization
-   *  tenant parents. */
+   *  parents. */
   role: 'primary' | 'org-pool'
   /** Pipeline state of the NS-flip + zone-create + cert-issue chain.
-   *  Operators MUST NOT bind a tenant under a not-yet-ready parent —
+   *  Operators MUST NOT bind an Organization under a not-yet-ready parent —
    *  the back end returns 503 Retry-After. */
   flipStatus: ParentDomainFlipStatus
   flipMessage?: string
@@ -196,7 +199,7 @@ export interface SovereignParentDomain {
   registrarKind?: string
 }
 
-/** A parent is bookable for Organization tenants once its NS records are
+/** A parent is bookable for Organizations once its NS records are
  *  authoritative on this Sovereign's PowerDNS. Anything past `flipped`
  *  is acceptable (the wildcard cert may still be issuing but the
  *  authoritative NS resolution is in place). */
@@ -204,13 +207,13 @@ export function isParentDomainReady(p: SovereignParentDomain): boolean {
   return p.flipStatus === 'ready' || p.flipStatus === 'flipped'
 }
 
-const ORG_TENANTS_PATH = '/v1/organizations'
+const ORGANIZATIONS_PATH = '/v1/organizations'
 const SOVEREIGN_PARENT_DOMAINS_PATH = '/v1/sovereign/parent-domains'
 
 /**
  * listSovereignParentDomains — GET /api/v1/sovereign/parent-domains.
  *
- * Backs the CreateTenantPage parent-domain dropdown. The endpoint is
+ * Backs the CreateOrganizationPage parent-domain dropdown. The endpoint is
  * the integration seam to MD-1 (#826) — until that lands, the back end
  * sources from the CATALYST_ORG_POOL_DOMAINS env stub, hardcoded to
  * `omani.works + omani.trade` per the #828 constraint.
@@ -235,17 +238,17 @@ export async function listSovereignParentDomains(
 }
 
 /**
- * createOrgTenant — POST /api/v1/organizations.
+ * createOrganization — POST /api/v1/organizations.
  *
  * The pipeline is event-driven (NATS reconciler): the response is the
  * latest persisted record, even when the pipeline has only just kicked
  * off. The 202 response carries a steps[] map the SPA renders as a
  * progress timeline.
  */
-export async function createOrgTenant(
-  req: OrgTenantCreateRequest,
-): Promise<OrgTenant> {
-  const res = await fetch(apiUrl(ORG_TENANTS_PATH), {
+export async function createOrganization(
+  req: OrgCreateRequest,
+): Promise<OrgProvisionRecord> {
+  const res = await fetch(apiUrl(ORGANIZATIONS_PATH), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -255,11 +258,11 @@ export async function createOrgTenant(
     const detail = await res.text().catch(() => '')
     throw new Error(`create organization: HTTP ${res.status} ${detail}`)
   }
-  return (await res.json()) as OrgTenant
+  return (await res.json()) as OrgProvisionRecord
 }
 
-export async function listOrgTenants(): Promise<OrgTenant[]> {
-  const res = await fetch(apiUrl(ORG_TENANTS_PATH), {
+export async function listOrganizationRecords(): Promise<OrgProvisionRecord[]> {
+  const res = await fetch(apiUrl(ORGANIZATIONS_PATH), {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: 'application/json' },
@@ -267,6 +270,6 @@ export async function listOrgTenants(): Promise<OrgTenant[]> {
   if (!res.ok) {
     throw new Error(`list organizations: HTTP ${res.status}`)
   }
-  const body = (await res.json()) as { items?: OrgTenant[] }
+  const body = (await res.json()) as { items?: OrgProvisionRecord[] }
   return body.items ?? []
 }

@@ -285,7 +285,7 @@ export function SandboxSession({
     const host = hostRef.current
     if (!host) return
 
-    // Theme uses our design tokens — read live so a future tenant theme
+    // Theme uses our design tokens — read live so a future per-Org theme
     // override propagates to the terminal background / foreground.
     const styles = getComputedStyle(document.documentElement)
     const bg = styles.getPropertyValue('--color-bg').trim() || '#0a0a0a'

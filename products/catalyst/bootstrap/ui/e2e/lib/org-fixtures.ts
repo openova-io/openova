@@ -8,7 +8,7 @@
  * otech (#804). Until #804 lands, mocking is the only way to keep the
  * screenshot evidence green and unblock the broader epic.
  *
- * Each helper here installs ONE narrow contract — tenant discovery,
+ * Each helper here installs ONE narrow contract — portal discovery,
  * whoami, org/users CRUD, deployment lifecycle, etc. — so a future
  * "live mode" version of this spec can opt out of any single mock by
  * not calling that helper. The helpers themselves are the seam between
@@ -16,7 +16,7 @@
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #2 (never compromise on quality):
  * the mock payloads are wire-shape-faithful to the back-end Go handlers
- * (see api/internal/handler/org_users.go + tenant_discover.go); a wire
+ * (see api/internal/handler/org_users.go + tenant_discover.go BE files); a wire
  * drift surfaces here as a TypeScript compile error rather than as
  * silently-passing tests.
  */
@@ -100,14 +100,14 @@ export function makeMockState(): OrgMockState {
   return { users: new Map() }
 }
 
-/* ── Tenant discovery + auth ───────────────────────────────────── */
+/* ── Portal discovery + auth ───────────────────────────────────── */
 
 /**
- * Mock GET /api/v1/tenant/discover so the SPA bootstrap resolves
+ * Mock GET /api/v1/tenant/discover (legacy BE route) so the SPA bootstrap resolves
  * `console.<org-domain>` to the Organization-tier branch regardless of the
  * dev-server's actual host header.
  */
-export async function mockTenantDiscovery(
+export async function mockPortalDiscovery(
   page: Page,
   payload: typeof ORG_DISCOVERY = ORG_DISCOVERY,
 ): Promise<void> {
@@ -142,10 +142,10 @@ export async function mockWhoami(
   })
 }
 
-/* ── Marketplace signup + tenant-create ───────────────────────── */
+/* ── Marketplace signup + org-create ──────────────────────────── */
 
 /**
- * Mock the marketplace tenant-create endpoint. On POST, returns a
+ * Mock the marketplace org-create endpoint. On POST, returns a
  * deployment id the spec can navigate to for Step 2's provisioning
  * surface. On GET (status poll), advances through phases until
  * `done` so the UI's "provisioning…" view eventually flips to the
@@ -302,8 +302,9 @@ export async function installDeploymentMocks(page: Page): Promise<void> {
 
 /**
  * Stub responses for cross-app surfaces the spec walks through. These
- * are NOT part of the catalyst-ui SPA — they live in bp-wordpress-tenant
- * (#800), bp-openclaw (#803), bp-stalwart-tenant (#801). For
+ * are NOT part of the catalyst-ui SPA — they live in the per-Org
+ * wordpress Blueprint (#800), bp-openclaw (#803), and the per-Org
+ * stalwart Blueprint (#801). For
  * mock-mode CI, we serve a tiny placeholder HTML so the screenshot
  * captures *something* attributable to that app.
  *
@@ -386,7 +387,7 @@ export async function installBillingMocks(page: Page): Promise<void> {
  */
 export async function installAllMocks(page: Page): Promise<OrgMockState> {
   const state = makeMockState()
-  await mockTenantDiscovery(page)
+  await mockPortalDiscovery(page)
   await mockWhoami(page)
   await installMarketplaceMocks(page)
   await installOrgUserMocks(page, state)
