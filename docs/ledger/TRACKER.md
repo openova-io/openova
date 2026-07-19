@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T03:00:03Z` |
+| Last refreshed | `2026-07-19T03:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 34 |
+| Open issues | 33 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 34 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 33 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 34 open items (clickable table)
+### All 33 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -233,7 +233,6 @@ flowchart LR
 | [#5234](https://github.com/openova-io/openova/issues/5234) | funnel purchased-app deploy: per-Org repo commit gitea ref-race persists through | Other |
 | [#5237](https://github.com/openova-io/openova/issues/5237) | cutover step-06 catalog-latest-vs-flux-pinned drift: a bp-catalyst-platform bump | Other |
 | [#5239](https://github.com/openova-io/openova/issues/5239) | CRITICAL #5222 arm-gate never arms: signals probes pg_stat_wal_receiver.status a | Other |
-| [#5241](https://github.com/openova-io/openova/issues/5241) | Blueprint Release for bp-self-sovereign-cutover:0.1.145 fails — SIGPIPE false- | Other |
 
 ---
 
@@ -241,6 +240,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T03:01 | [#5242](https://github.com/openova-io/openova/pull/5242) | #5204 | fix(ci): cutover-contract Case 22 here-strings — unhalt the  |
 | 2026-07-19T02:18 | [#5240](https://github.com/openova-io/openova/pull/5240) | #5222 | fix(cnpg-pair): dr-promoter arm gate reads a streaming signa |
 | 2026-07-19T02:06 | [#5238](https://github.com/openova-io/openova/pull/5238) | #5007 | fix(cutover): step-06 union-warm-on-drift for catalog-latest |
 | 2026-07-19T00:33 | [#5236](https://github.com/openova-io/openova/pull/5236) | #5233 | fix(cutover): verify + resolve xpkg digest via the registry  |
@@ -270,7 +270,6 @@ flowchart LR
 | 2026-07-17T17:35 | [#5190](https://github.com/openova-io/openova/pull/5190) | #960 | docs(uat): hw268 row240 §854 no-nodePort gateway ✅ (Refs #96 |
 | 2026-07-17T17:19 | [#5189](https://github.com/openova-io/openova/pull/5189) | #5178 | docs(uat): hw268 G12 region-kill PASS ✅ — #5178 fully valida |
 | 2026-07-17T17:00 | [#5188](https://github.com/openova-io/openova/pull/5188) | #960 | docs(uat): hw268 rows 41-44/R9/R11/R13 ✅ keycloak SSO + back |
-| 2026-07-17T16:50 | [#5185](https://github.com/openova-io/openova/pull/5185) | #960 | docs(uat): hw268 R3-R7/R12/R22 ✅ — sso-bridge/plane-isolatio |
 
 ---
 
