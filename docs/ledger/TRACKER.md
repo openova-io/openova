@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T00:30:04Z` |
+| Last refreshed | `2026-07-19T00:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 31 |
 | Open DoD gates | 0 / 41 |
@@ -238,6 +238,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T00:33 | [#5236](https://github.com/openova-io/openova/pull/5236) | #5233 | fix(cutover): verify + resolve xpkg digest via the registry  |
+| 2026-07-19T00:33 | [#5235](https://github.com/openova-io/openova/pull/5235) | #1031 | fix(provisioning): per-Org repo commit is a genuine per-atte |
 | 2026-07-18T23:45 | [#5233](https://github.com/openova-io/openova/pull/5233) | #5226 | fix(cutover): pivot the Crossplane xpkg leg to DIGEST refs e |
 | 2026-07-18T23:16 | [#5231](https://github.com/openova-io/openova/pull/5231) | #3241 | fix(catalyst-api): sync shared-pg consumer hub secrets pre-m |
 | 2026-07-18T20:32 | [#5229](https://github.com/openova-io/openova/pull/5229) | #4914 | fix(console): voucher-code inline policy + autogen path, rec |
@@ -266,8 +268,6 @@ flowchart LR
 | 2026-07-17T16:50 | [#5185](https://github.com/openova-io/openova/pull/5185) | #960 | docs(uat): hw268 R3-R7/R12/R22 ✅ — sso-bridge/plane-isolatio |
 | 2026-07-17T16:24 | [#5184](https://github.com/openova-io/openova/pull/5184) | #4325 | docs(uat): hw268 authed console walk — 33 rows (31 ✅) live P |
 | 2026-07-17T16:18 | [#5183](https://github.com/openova-io/openova/pull/5183) | #3374 | docs(uat): hw268 row40 ✅ marketplace storefront + PROD LE ce |
-| 2026-07-17T14:30 | [#5182](https://github.com/openova-io/openova/pull/5182) | #5126 | fix(preflight): wipe→fire EIP-pool cooldown gate — regional  |
-| 2026-07-17T13:37 | [#5180](https://github.com/openova-io/openova/pull/5180) | #5104 | docs(session): hw266 keystone evidence — cc=true + funnel #5 |
 
 ---
 
