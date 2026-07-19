@@ -251,7 +251,12 @@ gitea:
 # ─── Catalyst-curated admin Secret (issue #830 Bug 2) ────────────────────
 # Templated `gitea-admin-secret` lives in templates/admin-secret.yaml.
 # Created on first install with a randAlphaNum 32-char password; preserved
-# across reconciles via Helm `lookup`. Consumed by:
+# across reconciles via Helm `lookup` — and, when the source Secret has
+# VANISHED mid-life (#5214 class), restored from the reflector mirror(s)
+# in `mirrorNamespaces` below instead of minting a fresh password that
+# would drift from Gitea's DB (#5262, live hw277: a mid-cutover chart
+# re-render rotated the Secret while the DB kept the install-time
+# password → cutover step-10 git clone 401 / exit 128). Consumed by:
 #   - upstream gitea subchart via gitea.gitea.admin.existingSecret above
 #     (init container reads GITEA_ADMIN_USERNAME / GITEA_ADMIN_PASSWORD
 #     from this Secret to seed the Gitea admin user).
@@ -266,6 +271,15 @@ gitea:
 giteaAdmin:
   secretName: "gitea-admin-secret"
   username: "gitea_admin"
+  # #5262 — single source of truth for BOTH the reflector
+  # reflection-*-namespaces annotations on the admin Secret AND the
+  # re-render vanish-fallback lookup order in admin-secret.yaml. Every
+  # namespace here receives a live mirror of the Secret, and a re-render
+  # that finds the source absent restores the password from the first
+  # mirror that still holds one (never minting fresh bytes while any
+  # copy survives).
+  mirrorNamespaces:
+    - "catalyst"
 
 # ─── CNPG-managed Postgres cluster for Gitea ──────────────────────────────
 # Per the Harbor pattern (templates/cnpg-cluster.yaml in bp-harbor), Gitea's

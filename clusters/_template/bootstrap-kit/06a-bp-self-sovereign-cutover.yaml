@@ -942,7 +942,16 @@ spec:
       # Harbor, then re-probe. Self-healing (no hand-skopeo); a chart unpullable
       # from BOTH local AND upstream still FATALs at the deadline. New knob
       # helmReadinessProbe.unionWarmOnDrift (default true). Contract Case 66 added.
-      version: 0.1.145
+      # 0.1.146 (#5262 Refs #5214 #3379): steps 10/11 git-persist authenticates
+      # with the step-09 minted `catalyst-gitea-token` PAT (runtime read from
+      # catalyst-system, step-01/#3584 + step-05/#3536 pattern), never the
+      # gitea admin password — LIVE hw277: a mid-cutover bp-gitea re-render
+      # rotated gitea-admin-secret while Gitea's DB kept the install-time
+      # password → step-10 clone 401'd (git exit 128) and the chain wedged.
+      # The #5214 self-heal initContainer is removed from these two steps
+      # (no longer gitea-admin-secret consumers). Companion bp-gitea 1.2.48
+      # makes the admin password itself vanish-proof. Contract Case 67 added.
+      version: 0.1.146
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -1,5 +1,30 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.146 (#5262 Refs #5214 #3379 — steps 10/11 git-persist authenticates with
+# the step-09 minted PAT, never the gitea admin password. LIVE hw277 (dep
+# 1708c340ffc0e3f2, 2026-07-19): step-10 vcluster-registry-pivot failed
+# repeatedly — Phase-2 cloned local Gitea with GITEA_USERNAME/GITEA_PASSWORD
+# from gitea-admin-secret and git exited 128 in ~1s. Authed info/refs probe
+# with the secret's creds ALSO 401'd ("user's password is invalid [uid: 1,
+# name: gitea_admin]"): a mid-cutover bp-gitea re-render (the step-06
+# HelmRepository pivot) had rotated the SECRET's password while Gitea's DB
+# kept the install-time one (bp-gitea's lookup-pin can't preserve what has
+# vanished — the #5214 class; the companion bp-gitea 1.2.48 mirror-fallback
+# closes that side). FIX here: steps 10/11 drop the gitea-admin-secret
+# dependency entirely — the git clone/push credential is the step-09 minted
+# `catalyst-gitea-token` PAT (fresh-per-cutover by construction, direct local
+# sha1 lookup, immune to admin-password drift AND to the external openova-sso
+# apiAuth hang), read at runtime from catalyst-system exactly like step-01
+# (#3584) and step-05 (#3536); bounded 150s wait then fail-loud (never a
+# silent admin-password fallback). GITEA_USERNAME becomes the plain
+# gitRepositorySecretRef.username value; the #5214 self-heal initContainer is
+# REMOVED from these two steps (no longer consumers — no wedge-path on a
+# secret they don't use; Case 63 consumer/non-consumer lists updated). No
+# step-count / RBAC / deadline change (still 11 steps; the runner
+# ClusterRole's cluster-scoped secrets get already covers the PAT read, same
+# as steps 01/05). Contract Case 67 locks the PAT wiring + zero
+# GITEA_PASSWORD residue in steps 10/11.
+#
 # 0.1.145 (#5237 Refs #5007 — step-06 helmrepository-patches UNION-WARM-ON-DRIFT.
 # Phase-3a samples the LIVE chart version off each pivoted HelmRelease (deployed
 # `.status.history[0].chartVersion` // desired `.spec.chart.spec.version`) and
@@ -2465,7 +2490,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.145
+version: 0.1.146
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

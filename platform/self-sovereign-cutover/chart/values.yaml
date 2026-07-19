@@ -319,6 +319,15 @@ giteaAdminSecretBridge:
 # Secret lives in catalyst-system, so step 05 reads it and materialises a
 # basic-auth Secret in flux-system (keys username/password) that the
 # GitRepository can reference.
+#
+# #5262 — this block is ALSO the PAT source for the git clone/push legs of
+# step-01 (gitea-mirror, #3584), step-10 (vcluster-registry-pivot) and
+# step-11 (crossplane-provider-pivot): they read the token at runtime via
+# kubectl and embed `<username>:<PAT>@` in the git remote URL. Steps 10/11
+# previously authenticated with the gitea-admin-secret password, which can
+# rotate out from under Gitea's DB on a mid-cutover bp-gitea re-render
+# (live hw277: clone 401 / git exit 128); the step-09 re-minted PAT is
+# fresh-per-cutover by construction and immune to that drift.
 gitRepositorySecretRef:
   # Destination basic-auth Secret name (created/updated by step 05 in the
   # GitRepository's namespace = gitopsRepository.namespace). The

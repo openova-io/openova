@@ -135,11 +135,11 @@ data:
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
     activeDeadlineSeconds: {{ .Values.stepTimeouts.vclusterRegistryPivotSeconds }}
-    # #5214 — re-assert gitea-admin-secret in the release namespace at step
-    # execution time (durable close of the #4557/#4558/#4661 recurrence class).
-    # See _helpers.tpl.
-    initContainers:
-      {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "post") | nindent 6 }}
+    # #5262 — the #5214 gitea-admin-secret self-heal initContainer is GONE
+    # from this step: the Phase-2 git clone/push now authenticates with the
+    # step-09 minted `catalyst-gitea-token` PAT (read at runtime below), so
+    # this step no longer consumes gitea-admin-secret at all and must not
+    # keep a wedge-path on its presence (contract Case 63 asserts absence).
     containers:
       - name: vcluster-registry-pivot
         # alpine/k8s ships both kubectl AND git so we can patch live
@@ -159,16 +159,26 @@ data:
             value: {{ .Values.sovereign.fqdn | quote }}
           - name: GITEA_INTERNAL_URL
             value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          # #5262 (live hw277) — the Phase-2 git clone/push authenticates
+          # with the step-09 minted `catalyst-gitea-token` PAT, NOT the
+          # gitea admin password. On hw277 a mid-cutover bp-gitea re-render
+          # rotated gitea-admin-secret while Gitea's DB kept the
+          # install-time password → the clone here 401'd (git exit 128,
+          # ~1s) and the step wedged. A Gitea PAT is accepted as the HTTP
+          # git password under any existing username (step-01 #3584 + step-05
+          # #3536 precedent), is fresh-per-cutover by construction (step-09
+          # runs at order 9, directly before this step), and is a direct
+          # local sha1 lookup — immune to admin-password drift AND to the
+          # external openova-sso apiAuth hang. Username stays the admin
+          # login for commit auditability (gitRepositorySecretRef.username).
           - name: GITEA_USERNAME
-            valueFrom:
-              secretKeyRef:
-                name: {{ .Values.gitea.adminSecretRef.name }}
-                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
-          - name: GITEA_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: {{ .Values.gitea.adminSecretRef.name }}
-                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+            value: {{ .Values.gitRepositorySecretRef.username | quote }}
+          - name: PAT_SOURCE_NAMESPACE
+            value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+          - name: PAT_SOURCE_SECRET_NAME
+            value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+          - name: PAT_SOURCE_KEY
+            value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
           - name: GITEA_ORG
             value: {{ .Values.gitea.org | quote }}
           - name: GITEA_REPO
@@ -500,7 +510,30 @@ data:
               sleep 5
             done
 
-            push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+            # #5262 — read the step-09 minted `catalyst-gitea-token` PAT for
+            # the git clone/push. Credential hygiene: the PAT is never
+            # echoed; it flows only into the git remote URL (logged in the
+            # redacted form). Bounded wait: step-09 (gitea-token-mint) runs
+            # directly before this step, so a populated token byte is the
+            # steady state; the retry only covers apiserver flakes.
+            echo "[vcluster-registry-pivot] reading PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY}"
+            GITEA_PAT=""
+            for i in $(seq 1 30); do
+              GITEA_PAT=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
+                -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+              if [ -n "${GITEA_PAT}" ]; then
+                echo "[vcluster-registry-pivot] PAT present (attempt ${i})"
+                break
+              fi
+              echo "[vcluster-registry-pivot] PAT not yet populated in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME} (attempt ${i}/30) — sleeping 5s"
+              sleep 5
+            done
+            if [ -z "${GITEA_PAT}" ]; then
+              echo "[vcluster-registry-pivot] FATAL: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} empty after 150s — step-09 gitea-token-mint did not populate the PAT; refusing to clone with the admin password (drifts from the Gitea DB, the #5262 401/exit-128 wedge)" >&2
+              exit 1
+            fi
+
+            push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PAT}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
             redacted=$(printf '%s' "${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git")
 
             echo "[vcluster-registry-pivot] cloning ${redacted}"

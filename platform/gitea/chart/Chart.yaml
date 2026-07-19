@@ -206,7 +206,20 @@ name: bp-gitea
 #   admin-secret change and keepUpdated re-syncs the DB password immediately. The
 #   Recreate strategy keeps the roll RWO/LevelDB-safe. Non-cutover render unchanged
 #   except the new (always-present) Deployment annotation.
-version: 1.2.47
+# 1.2.48 (#5262, Refs #5214 #3379, 2026-07-20): Pillar-5 cutover hardening —
+#   admin-secret VANISH-PROOF password stickiness. Live hw277: gitea/
+#   gitea-admin-secret was absent (the #5214 vanish class) exactly when the
+#   cutover step-06 HelmRepository pivot re-upgraded this chart; the primary
+#   Helm `lookup` returned nil mid-life, randAlphaNum minted a FRESH password,
+#   and Gitea's DB kept the install-time one -> every admin BasicAuth 401'd
+#   (cutover step-10 git clone exit 128). templates/admin-secret.yaml now
+#   falls back to the reflector mirror(s) (giteaAdmin.mirrorNamespaces, default
+#   [catalyst]) before minting: any surviving copy carries the DB-lockstep
+#   password, so fresh bytes are only ever minted on a genuine first install.
+#   The reflector reflection-*-namespaces annotations are templated from the
+#   SAME values knob so annotation list and fallback order can never drift.
+#   Non-cutover render unchanged (annotation values identical at defaults).
+version: 1.2.48
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
