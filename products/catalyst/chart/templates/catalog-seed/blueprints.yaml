@@ -2362,7 +2362,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.139"
+    version: "1.4.140"
   topology:
     supported:
     - active-passive
