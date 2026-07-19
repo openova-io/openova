@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T02:00:03Z` |
+| Last refreshed | `2026-07-19T02:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 33 |
 | Open DoD gates | 0 / 41 |
@@ -240,6 +240,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T02:06 | [#5238](https://github.com/openova-io/openova/pull/5238) | #5007 | fix(cutover): step-06 union-warm-on-drift for catalog-latest |
 | 2026-07-19T00:33 | [#5236](https://github.com/openova-io/openova/pull/5236) | #5233 | fix(cutover): verify + resolve xpkg digest via the registry  |
 | 2026-07-19T00:33 | [#5235](https://github.com/openova-io/openova/pull/5235) | #1031 | fix(provisioning): per-Org repo commit is a genuine per-atte |
 | 2026-07-18T23:45 | [#5233](https://github.com/openova-io/openova/pull/5233) | #5226 | fix(cutover): pivot the Crossplane xpkg leg to DIGEST refs e |
@@ -269,7 +270,6 @@ flowchart LR
 | 2026-07-17T17:00 | [#5188](https://github.com/openova-io/openova/pull/5188) | #960 | docs(uat): hw268 rows 41-44/R9/R11/R13 ✅ keycloak SSO + back |
 | 2026-07-17T16:50 | [#5185](https://github.com/openova-io/openova/pull/5185) | #960 | docs(uat): hw268 R3-R7/R12/R22 ✅ — sso-bridge/plane-isolatio |
 | 2026-07-17T16:24 | [#5184](https://github.com/openova-io/openova/pull/5184) | #4325 | docs(uat): hw268 authed console walk — 33 rows (31 ✅) live P |
-| 2026-07-17T16:18 | [#5183](https://github.com/openova-io/openova/pull/5183) | #3374 | docs(uat): hw268 row40 ✅ marketplace storefront + PROD LE ce |
 
 ---
 
