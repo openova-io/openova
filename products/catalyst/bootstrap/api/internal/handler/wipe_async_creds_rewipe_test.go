@@ -85,8 +85,12 @@ func TestWipeDeployment_RespondsBeforePurgeCompletes(t *testing.T) {
 	}
 
 	// Drain the goroutine before returning so it can't leak into a
-	// later test in this same process.
-	waitForWipeDone(t, dep, 15*time.Second)
+	// later test in this same process. 60s ceiling (#5255): a loaded
+	// shared CI runner finished the purge at ~15.01s, tripping the old
+	// 15s deadline. waitForWipeDone polls every 10ms and returns the
+	// moment the purge lands, so the generous ceiling costs nothing on
+	// healthy runs.
+	waitForWipeDone(t, dep, 60*time.Second)
 }
 
 // TestWipeDeployment_PurgeSurvivesRequestContextCancellation is the
@@ -138,7 +142,7 @@ func TestWipeDeployment_PurgeSurvivesRequestContextCancellation(t *testing.T) {
 	cancelledAt := time.Now()
 	cancel()
 
-	waitForWipeDone(t, dep, 15*time.Second)
+	waitForWipeDone(t, dep, 60*time.Second)
 	purgeElapsed := time.Since(cancelledAt)
 
 	dep.mu.Lock()
@@ -280,7 +284,7 @@ func TestWipeDeployment_HuaweiOperatorCredsEnvFallbackAvoids400(t *testing.T) {
 		t.Fatalf("status=%d, want 202 — body=%s", w.Code, w.Body.String())
 	}
 
-	waitForWipeDone(t, dep, 15*time.Second)
+	waitForWipeDone(t, dep, 60*time.Second)
 }
 
 // TestWipeDeployment_HuaweiNoCredsAnywhereStill400s is the negative
@@ -365,7 +369,7 @@ func TestWipeDeployment_StrandedWipingRecordIsReWipeable(t *testing.T) {
 		t.Errorf("dep.wipeInFlight=false immediately after re-firing the wipe — the purge goroutine was not (re)launched")
 	}
 
-	waitForWipeDone(t, dep, 15*time.Second)
+	waitForWipeDone(t, dep, 60*time.Second)
 
 	dep.mu.Lock()
 	status := dep.Status
