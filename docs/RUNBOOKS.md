@@ -1137,8 +1137,12 @@ The deterministic failover test for two independent CNPG clusters:
      holds every acknowledged commit (the lower-TL side is write-fenced by
      its unsatisfiable `FIRST 1`), so re-promoting it is data-safe.
    - **dr-failback** (region-A, side=primary): on POSITIVE proof — local
-     writable on TL n, the pinned sync standby ABSENT, peer WRITABLE on a
-     HIGHER timeline over the `-replica-mesh` global Service, held 120s —
+     writable on TL n, the pinned sync standby ABSENT, peer WRITABLE on an
+     EQUAL-or-higher timeline over the `-replica-mesh` global Service
+     (chart 0.2.19 #5245: equality included — on hw277 region-A's os-start
+     HA failover matched the survivor's TL and the strict gate deadlocked
+     in split-brain; the sync fence is the authority proof, and every
+     peer-probe failure reason now logs fail-loud), held 120s —
      region-A demotes via `SOVEREIGN_CNPG_PAIR_DEMOTED="true"` (the primary
      Cluster CR re-renders as a pg_basebackup replica cluster of region-B)
      and the stale Cluster CR is deleted so helm re-creates it and the

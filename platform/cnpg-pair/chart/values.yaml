@@ -85,20 +85,28 @@ cnpgPair:
     # dead. failback ships a region-A-local actor (side=primary only)
     # that detects the post-failover geometry from POSITIVE signals
     # (local writable on TL n; the pinned sync standby absent; the peer
-    # REACHABLE + WRITABLE + on a HIGHER timeline over the
-    # `-replica-mesh` global Service) and then demotes + RE-CLONES
-    # region-A onto region-B's line via the SOVEREIGN_CNPG_PAIR_DEMOTED
-    # substitute seam. The one destructive act (deleting the local
-    # stale Cluster CR so helm re-creates it as a pg_basebackup replica
-    # of region-B) is gated on the peer being PROVABLY writable + ahead
-    # at that exact tick — the timeline order is the authority proof.
+    # REACHABLE + WRITABLE + on an EQUAL-OR-HIGHER timeline over the
+    # `-replica-mesh` global Service — 0.2.19 #5245 hw277: region-A's
+    # os-start HA failover bumped it to the SAME TL as region-B's
+    # promote, so the 0.2.18 strictly-higher gate deadlocked in a
+    # 57-minute split-brain) and then demotes + RE-CLONES region-A onto
+    # region-B's line via the SOVEREIGN_CNPG_PAIR_DEMOTED substitute
+    # seam. The one destructive act (deleting the local stale Cluster
+    # CR so helm re-creates it as a pg_basebackup replica of region-B)
+    # is gated on the peer being PROVABLY writable + equal-or-ahead at
+    # that exact tick — the sync fence (FIRST 1 + dataDurability:
+    # required), not the bare TL number, is the authority proof; the TL
+    # bound only refuses the anomalous peer-BEHIND geometry.
     failback:
       enabled: true
       intervalSeconds: 10
       # The peer-ahead evidence (local primary + sync standby absent +
-      # peer writable on a higher TL) must hold CONTINUOUSLY this long
-      # before the actor flips the demotion substitute. A transient
-      # mesh blip or a replica restart clears the clock.
+      # peer writable on an EQUAL-or-higher TL — hw277 #5245: a
+      # strictly-higher gate is structurally unsatisfiable when the
+      # recovered region's local failover matched the survivor's TL)
+      # must hold CONTINUOUSLY this long before the actor flips the
+      # demotion substitute. A transient mesh blip or a replica restart
+      # clears the clock.
       peerAheadHoldSeconds: 120
       # A freshly-(re)started signals container must never act on a
       # half-observed geometry.
