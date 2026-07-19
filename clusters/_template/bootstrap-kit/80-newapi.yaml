@@ -305,7 +305,7 @@ spec:
       #   remoteRef.key → catalyst/newapi/admin-token (the path catalyst-api's
       #   seedNewapiAdminToken seam writes); fixes the SecretSyncedError that
       #   left unified-rbac's admin-API calls 401'd on a fresh prov.
-      version: 1.4.139
+      version: 1.4.140
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
