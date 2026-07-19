@@ -91,6 +91,11 @@ func (h *Handler) IssueVoucher(w http.ResponseWriter, r *http.Request) {
 	// (BillingPage.svelte uppercases on save). Public redemption is also
 	// case-insensitive — see RedeemVoucherPreview.
 	p.Code = strings.ToUpper(strings.TrimSpace(p.Code))
+	// #5223 (UAT row 72) — plan_tier is a catalog plan slug (s/m/l/xl…);
+	// normalise to lowercase to match catalog Plan.Slug. Empty = credit-only
+	// voucher (any plan). Not validated against the catalog here — billing
+	// has no catalog dependency and the field is operator-informational.
+	p.PlanTier = strings.ToLower(strings.TrimSpace(p.PlanTier))
 	// #3376 DoD-6 — voucher-code entropy. An omitted code auto-generates a
 	// high-entropy one (crypto/rand, ~60 bits); a supplied code must pass
 	// the server-side strength minimum so a guessable code (the walk's

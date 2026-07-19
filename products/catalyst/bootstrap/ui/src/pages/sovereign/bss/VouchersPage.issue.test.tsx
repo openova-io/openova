@@ -1,8 +1,14 @@
 /**
- * VouchersPage.issue.test.tsx — regression lock-in for UAT rows 73/74
+ * VouchersPage.issue.test.tsx — regression lock-in for UAT rows 72/73/74
  * (issue #5223): the Issue-voucher modal mirrors the SERVER voucher-code
- * strength policy (core/services/shared/voucher/code.go) inline.
+ * strength policy (core/services/shared/voucher/code.go) inline, and
+ * renders the plan-tier field the row-72 criterion names.
  *
+ *   • Row 72 — the issuance form renders code + credit OMR + PLAN TIER +
+ *     description. The plan-tier select is fed by the live commerce plans
+ *     list (never hardcoded); the chosen slug submits as `plan_tier`, and
+ *     "Any plan (credit only)" omits the field. The table's PLAN column
+ *     renders the persisted tier.
  *   • Row 73 — a weak custom code (`1234`) must be rejected INLINE with the
  *     min-12-chars message; before this fix it sailed to the server and the
  *     operator only saw the opaque post-submit 400.
@@ -45,6 +51,25 @@ vi.mock('@/lib/bss.api', () => ({
   listVouchers: () => Promise.resolve([]),
   revokeVoucher: () => Promise.resolve(),
   voucherStatus: () => 'active',
+}))
+
+// Row 72 — the Plan-tier select is fed by the commerce plans list. Two
+// generic tiers + one product-scoped tier (which the #3156 guard must
+// exclude from the picker).
+vi.mock('@/lib/commerce.api', () => ({
+  listPlans: () =>
+    Promise.resolve([
+      { slug: 'm', name: 'M', price_omr: 9, sort_order: 2, features: [] },
+      { slug: 's', name: 'S', price_omr: 5, sort_order: 1, features: [] },
+      {
+        slug: 'agenity-s',
+        name: 'Agenity S',
+        price_omr: 3,
+        sort_order: 9,
+        product_slug: 'agenity',
+        features: [],
+      },
+    ]),
 }))
 
 import { VouchersPage } from './VouchersPage'
@@ -151,5 +176,108 @@ describe('IssueVoucherModal — rows 73/74', () => {
     fireEvent.click(screen.getByTestId('bss-issue-voucher-submit'))
     await waitFor(() => expect(issueSpy).toHaveBeenCalledTimes(1))
     expect(issueSpy.mock.calls[0][0].code).toBe('LAUNCH2026PROMO')
+  })
+})
+
+describe('IssueVoucherModal — row 72 plan tier', () => {
+  it('renders the Plan-tier select fed by the commerce plans list, sorted, generic-only', async () => {
+    renderPage()
+    openIssueModal()
+    const select = screen.getByTestId(
+      'bss-issue-voucher-plan-tier',
+    ) as HTMLSelectElement
+    // Fetched options land async — wait for S + M.
+    await waitFor(() => expect(select.options.length).toBe(3))
+    expect(select.options[0].value).toBe('') // Any plan (credit only)
+    expect(select.options[1].value).toBe('s') // sort_order wins over fetch order
+    expect(select.options[2].value).toBe('m')
+    // #3156 guard — the product-scoped plan never enters the picker.
+    expect(
+      Array.from(select.options).some((o) => o.value === 'agenity-s'),
+    ).toBe(false)
+  })
+
+  it('submits the chosen plan slug as plan_tier', async () => {
+    renderPage()
+    openIssueModal()
+    const select = screen.getByTestId('bss-issue-voucher-plan-tier')
+    await waitFor(() =>
+      expect((select as HTMLSelectElement).options.length).toBe(3),
+    )
+    fireEvent.change(select, { target: { value: 'm' } })
+    setCredit('20')
+    fireEvent.click(screen.getByTestId('bss-issue-voucher-submit'))
+    await waitFor(() => expect(issueSpy).toHaveBeenCalledTimes(1))
+    expect(issueSpy.mock.calls[0][0].plan_tier).toBe('m')
+  })
+
+  it('omits plan_tier entirely for "Any plan (credit only)"', async () => {
+    renderPage()
+    openIssueModal()
+    setCredit('5')
+    fireEvent.click(screen.getByTestId('bss-issue-voucher-submit'))
+    await waitFor(() => expect(issueSpy).toHaveBeenCalledTimes(1))
+    expect('plan_tier' in issueSpy.mock.calls[0][0]).toBe(false)
+  })
+})
+
+describe('Voucher table — row 72 PLAN column', () => {
+  it('renders the persisted plan tier in the PLAN column and the drawer', () => {
+    const voucher = {
+      code: 'VCH-PLANM12345',
+      credit_omr: 20,
+      description: 'plan-tier row',
+      plan_tier: 'm',
+      active: true,
+      max_redemptions: 1,
+      times_redeemed: 0,
+      created_at: '2026-07-19T00:00:00Z',
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <VouchersPage
+          disableStream
+          disableFetch
+          initialItemsOverride={[voucher]}
+        />
+      </QueryClientProvider>,
+    )
+    expect(
+      screen.getByTestId('bss-voucher-plan-VCH-PLANM12345').textContent,
+    ).toBe('m')
+    fireEvent.click(screen.getByTestId('bss-voucher-toggle-VCH-PLANM12345'))
+    expect(
+      screen.getByTestId('bss-voucher-drawer-plan-VCH-PLANM12345').textContent,
+    ).toBe('m')
+  })
+
+  it('renders an em-dash in PLAN and "Any plan" in the drawer for a credit-only voucher', () => {
+    const voucher = {
+      code: 'VCH-CREDITONLY1',
+      credit_omr: 5,
+      description: '',
+      active: true,
+      max_redemptions: 0,
+      times_redeemed: 0,
+      created_at: '2026-07-19T00:00:00Z',
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <VouchersPage
+          disableStream
+          disableFetch
+          initialItemsOverride={[voucher]}
+        />
+      </QueryClientProvider>,
+    )
+    expect(
+      screen.getByTestId('bss-voucher-plan-VCH-CREDITONLY1').textContent,
+    ).toBe('—')
+    fireEvent.click(screen.getByTestId('bss-voucher-toggle-VCH-CREDITONLY1'))
+    expect(
+      screen.getByTestId('bss-voucher-drawer-plan-VCH-CREDITONLY1').textContent,
+    ).toBe('Any plan (credit only)')
   })
 })

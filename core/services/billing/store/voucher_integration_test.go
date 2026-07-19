@@ -128,9 +128,12 @@ func mkCustomer(t *testing.T, s *Store, id string) *Customer {
 func mkPromo(t *testing.T, s *Store, code string, credit, maxRedemptions int) {
 	t.Helper()
 	p := &PromoCode{
-		Code:           code,
-		CreditOMR:      credit,
-		Description:    "integration test " + code,
+		Code:        code,
+		CreditOMR:   credit,
+		Description: "integration test " + code,
+		// #5223 (UAT row 72) — every fixture voucher carries a plan tier so
+		// the round-trip assertions below cover the new column end-to-end.
+		PlanTier:       "m",
 		Active:         true,
 		MaxRedemptions: maxRedemptions,
 	}
@@ -167,6 +170,10 @@ func TestVoucherLifecycle_IssueRedeemAndCreditApplied(t *testing.T) {
 			found = true
 			if p.CreditOMR != 50 || !p.Active {
 				t.Errorf("listed promo wrong: %+v", p)
+			}
+			// #5223 (UAT row 72) — plan_tier persists through upsert + list.
+			if p.PlanTier != "m" {
+				t.Errorf("listed promo plan_tier: got %q, want %q", p.PlanTier, "m")
 			}
 		}
 	}
@@ -220,6 +227,10 @@ func TestVoucherLifecycle_IssueRedeemAndCreditApplied(t *testing.T) {
 	}
 	if p.TimesRedeemed != 1 {
 		t.Errorf("expected times_redeemed=1, got %d", p.TimesRedeemed)
+	}
+	// #5223 (UAT row 72) — plan_tier survives the single-row read too.
+	if p.PlanTier != "m" {
+		t.Errorf("GetPromoCode plan_tier: got %q, want %q", p.PlanTier, "m")
 	}
 }
 

@@ -10,16 +10,23 @@
  *
  * Layout:
  *   • Header: tagline + filter row (search + status select + Issue CTA)
- *   • Table: Code | Recipient (—) | Plan (—) | Value | Status pill |
+ *   • Table: Code | Recipient (—) | Plan | Value | Status pill |
  *            Issued | Expires (—) | Redeemed by (— or N/N)
- *   • Issue modal: code, credit_omr, description, max_redemptions,
- *     recipient_email — POSTs /api/v1/org/billing/vouchers/issue
+ *   • Issue modal: code, credit_omr, plan_tier, description,
+ *     max_redemptions, recipient_email —
+ *     POSTs /api/v1/org/billing/vouchers/issue
  *
- * The "Recipient", "Plan", and "Expires" columns are rendered as `—`
- * placeholders for now because the backend (PromoCode store row, see
+ * The "Plan" column is LIVE as of #5223 (UAT row 72): the Issue modal
+ * carries a Plan-tier select fed by the commerce plans list (the same
+ * catalog the funnel's plan step renders), the billing service persists
+ * `plan_tier` on the promo_codes row, and the table + drawer render it.
+ * An empty plan tier = credit-only voucher usable with any plan.
+ *
+ * The "Recipient" and "Expires" columns remain `—` placeholders because
+ * the backend (PromoCode store row, see
  * core/services/billing/handlers/vouchers.go) does NOT yet persist the
  * recipient email (it is request-only per the issueVoucherRequest
- * comment) or a plan / expiry-at field. The columns are present in the
+ * comment) or an expiry-at field. The columns are present in the
  * target-state per Wave 6 brief; flipping them from `—` to live values
  * is a future BE schema extension, not a UI change. Per
  * INVIOLABLE-PRINCIPLES.md #1 (waterfall — first paint is the full
@@ -52,6 +59,10 @@ import {
   type Voucher,
   type VoucherStatus,
 } from '@/lib/bss.api'
+// #5223 (UAT row 72) — the Plan-tier select in the Issue modal is fed by
+// the SAME commerce plans list the funnel's plan step + the Commerce
+// editor render (catalyst-api /api/v1/org/commerce/plans read-proxy).
+import { listPlans, type CommercePlan } from '@/lib/commerce.api'
 
 const QUERY_STALE_MS = 15_000
 
@@ -241,6 +252,7 @@ export function VouchersPage({
                 <VoucherRow
                   key={v.code}
                   voucher={v}
+                  sovereignFQDN={sovereignFQDN}
                   expanded={expanded === v.code}
                   onToggle={() =>
                     setExpanded(expanded === v.code ? null : v.code)
@@ -268,12 +280,22 @@ export function VouchersPage({
 
 interface VoucherRowProps {
   voucher: Voucher
+  /** Live Sovereign FQDN from the deployment snapshot — builds the
+   *  canonical redeem URL in the drawer (docs/DOD.md §Domains-canon:
+   *  `https://marketplace.<sovereign-fqdn>/redeem/?code=<CODE>`). */
+  sovereignFQDN: string | null
   expanded: boolean
   onToggle: () => void
   onRevoke: () => void
 }
 
-function VoucherRow({ voucher, expanded, onToggle, onRevoke }: VoucherRowProps) {
+function VoucherRow({
+  voucher,
+  sovereignFQDN,
+  expanded,
+  onToggle,
+  onRevoke,
+}: VoucherRowProps) {
   const status = voucherStatus(voucher)
   const issued = formatDate(voucher.created_at)
   const redeemed =
@@ -299,12 +321,21 @@ function VoucherRow({ voucher, expanded, onToggle, onRevoke }: VoucherRowProps) 
             {voucher.code}
           </button>
         </td>
-        {/* Recipient + Plan + Expires are target-state columns; the BE
-            PromoCode row does not persist them yet (recipient is request-
-            only, plan / expiry are future schema extensions). Render `—`
-            until the BE catches up. */}
+        {/* Recipient + Expires are target-state columns; the BE PromoCode
+            row does not persist them yet (recipient is request-only,
+            expiry is a future schema extension). Render `—` until the BE
+            catches up. Plan is LIVE (#5223 UAT row 72). */}
         <td className="py-2 pr-3 text-xs text-[var(--color-text-dim)]">—</td>
-        <td className="py-2 pr-3 text-xs text-[var(--color-text-dim)]">—</td>
+        <td
+          data-testid={`bss-voucher-plan-${voucher.code}`}
+          className={
+            voucher.plan_tier
+              ? 'py-2 pr-3 text-xs uppercase text-[var(--color-text)]'
+              : 'py-2 pr-3 text-xs text-[var(--color-text-dim)]'
+          }
+        >
+          {voucher.plan_tier ? voucher.plan_tier : '—'}
+        </td>
         <td className="py-2 pr-3 text-right tabular-nums text-[var(--color-text)]">
           {voucher.credit_omr} OMR
         </td>
@@ -325,7 +356,11 @@ function VoucherRow({ voucher, expanded, onToggle, onRevoke }: VoucherRowProps) 
             colSpan={8}
             className="bg-[var(--color-bg-2)] border-b border-[var(--color-border)]"
           >
-            <VoucherDrawer voucher={voucher} onRevoke={onRevoke} />
+            <VoucherDrawer
+              voucher={voucher}
+              sovereignFQDN={sovereignFQDN}
+              onRevoke={onRevoke}
+            />
           </td>
         </tr>
       )}
@@ -335,11 +370,19 @@ function VoucherRow({ voucher, expanded, onToggle, onRevoke }: VoucherRowProps) 
 
 interface VoucherDrawerProps {
   voucher: Voucher
+  sovereignFQDN: string | null
   onRevoke: () => void
 }
 
-function VoucherDrawer({ voucher, onRevoke }: VoucherDrawerProps) {
+function VoucherDrawer({ voucher, sovereignFQDN, onRevoke }: VoucherDrawerProps) {
   const status = voucherStatus(voucher)
+  // docs/DOD.md §Domains-canon — the customer-facing redeem URL lives on
+  // the marketplace host of THIS Sovereign. Derived from the live
+  // deployment snapshot's FQDN, never hardcoded; `—` until the snapshot
+  // arrives.
+  const redeemURL = sovereignFQDN
+    ? `https://marketplace.${sovereignFQDN}/redeem/?code=${encodeURIComponent(voucher.code)}`
+    : null
   return (
     <div className="px-4 py-4">
       <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
@@ -353,10 +396,37 @@ function VoucherDrawer({ voucher, onRevoke }: VoucherDrawerProps) {
             {voucher.credit_omr} OMR
           </span>
         </Field>
+        <Field label="Plan tier">
+          <span
+            data-testid={`bss-voucher-drawer-plan-${voucher.code}`}
+            className={
+              voucher.plan_tier
+                ? 'text-sm uppercase text-[var(--color-text)]'
+                : 'text-sm text-[var(--color-text-dim)]'
+            }
+          >
+            {voucher.plan_tier ? voucher.plan_tier : 'Any plan (credit only)'}
+          </span>
+        </Field>
         <Field label="Description">
           <span className="text-sm text-[var(--color-text)]">
             {voucher.description || '—'}
           </span>
+        </Field>
+        <Field label="Redeem URL">
+          {redeemURL ? (
+            <a
+              data-testid={`bss-voucher-redeem-url-${voucher.code}`}
+              href={redeemURL}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all font-mono text-xs text-[var(--color-accent)] hover:underline"
+            >
+              {redeemURL}
+            </a>
+          ) : (
+            <span className="text-sm text-[var(--color-text-dim)]">—</span>
+          )}
         </Field>
         <Field label="Status">
           <StatusPill status={status} testCode={`${voucher.code}-drawer`} />
@@ -457,11 +527,27 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
   // a sibling of the admin Parent Domains modal.
   const [code, setCode] = useState('')
   const [creditOmr, setCreditOmr] = useState<number | ''>('')
+  const [planTier, setPlanTier] = useState('')
   const [description, setDescription] = useState('')
   const [maxRedemptions, setMaxRedemptions] = useState<number | ''>('')
   const [recipient, setRecipient] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // #5223 (UAT row 72) — plan tiers come from the live commerce plans
+  // list (same catalog the funnel plan step renders), never hardcoded.
+  // Product-scoped plans (product_slug set) are excluded per the #3156
+  // generic-picker guard. A failed fetch degrades to the credit-only
+  // option — issuing stays possible without the catalog.
+  const plansQuery = useQuery<CommercePlan[]>({
+    queryKey: ['commerce-plans'],
+    queryFn: listPlans,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const planOptions = (plansQuery.data ?? [])
+    .filter((p) => !p.product_slug)
+    .sort((a, b) => a.sort_order - b.sort_order)
 
   // Rows 73/74 — live inline strength hint while the operator types a
   // custom code (empty = the auto-generate path, no hint). The SAME rule
@@ -494,6 +580,9 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
       // crypto/rand). The catalyst-api proxy skips edge strength checks
       // for exactly this empty-code path (#4914).
       if (code.trim()) req.code = code.trim().toUpperCase()
+      // #5223 (UAT row 72) — omit `plan_tier` when "Any plan" is chosen
+      // so the row persists as a credit-only voucher.
+      if (planTier) req.plan_tier = planTier
       if (description.trim()) req.description = description.trim()
       if (typeof maxRedemptions === 'number' && maxRedemptions > 0) {
         req.max_redemptions = maxRedemptions
@@ -585,6 +674,30 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
             placeholder="50"
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-sm tabular-nums text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
           />
+        </label>
+
+        <label className="mb-3 block">
+          <div className="mb-1 text-xs font-medium text-[var(--color-text-dim)]">
+            Plan tier
+          </div>
+          <select
+            data-testid="bss-issue-voucher-plan-tier"
+            value={planTier}
+            onChange={(e) => setPlanTier(e.target.value)}
+            className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
+          >
+            <option value="">Any plan (credit only)</option>
+            {planOptions.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.name} — {p.price_omr} OMR/mo
+              </option>
+            ))}
+          </select>
+          <div className="mt-1 text-[10px] text-[var(--color-text-dim)]">
+            {plansQuery.isError
+              ? 'Plan catalog unavailable — issuing as a credit-only voucher still works.'
+              : 'The plan this voucher targets. The credit is applied at checkout either way; the tier is shown to the operator on the voucher list.'}
+          </div>
         </label>
 
         <label className="mb-3 block">
