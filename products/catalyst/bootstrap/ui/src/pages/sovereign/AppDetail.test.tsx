@@ -111,11 +111,11 @@ describe('AppDetail — Overview default tab + sections', () => {
     expect(await screen.findByTestId('app-tab-overview-panel')).toBeTruthy()
   })
 
-  it('renders About / Tenant sections on the Overview tab', async () => {
+  it('renders About / Organization sections on the Overview tab', async () => {
     renderDetail('d-1', 'bp-cilium')
     const panel = await screen.findByTestId('app-tab-overview-panel')
     expect(within(panel).getByTestId('sov-section-about')).toBeTruthy()
-    expect(within(panel).getByTestId('sov-section-tenant')).toBeTruthy()
+    expect(within(panel).getByTestId('sov-section-organization')).toBeTruthy()
   })
 
   it('does NOT render legacy accordion testids', async () => {

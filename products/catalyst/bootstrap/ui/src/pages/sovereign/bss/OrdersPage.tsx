@@ -220,7 +220,7 @@ export function OrdersPage({
             <thead>
               <tr>
                 <th data-col="id">Order ID</th>
-                <th data-col="tenant">Organization</th>
+                <th data-col="org">Organization</th>
                 <th data-col="product">Product</th>
                 <th data-col="status">Status</th>
                 <th data-col="created">Created</th>
@@ -282,9 +282,9 @@ function OrderRow({ order }: { order: Order }) {
           {order.id}
         </Link>
       </td>
-      <td className="orders-cell orders-cell-tenant">
-        {order.tenantOrg ? (
-          order.tenantOrg
+      <td className="orders-cell orders-cell-org">
+        {order.org ? (
+          order.org
         ) : (
           <span className="orders-empty-cell">—</span>
         )}
@@ -370,7 +370,7 @@ function compareOrders(a: Order, b: Order): number {
 function matchOrder(o: Order, query: string): boolean {
   const q = query.toLowerCase()
   if (o.id.toLowerCase().includes(q)) return true
-  if (o.tenantOrg.toLowerCase().includes(q)) return true
+  if (o.org.toLowerCase().includes(q)) return true
   if (o.product.toLowerCase().includes(q)) return true
   if (o.status.toLowerCase().includes(q)) return true
   return false
@@ -558,7 +558,7 @@ const ORDERS_TABLE_CSS = `
   color: var(--color-text);
 }
 .orders-cell-id { min-width: 200px; font-family: var(--font-mono, ui-monospace, monospace); }
-.orders-cell-tenant { min-width: 160px; }
+.orders-cell-org { min-width: 160px; }
 .orders-cell-product { min-width: 160px; }
 .orders-cell-total { text-align: right; min-width: 100px; }
 .orders-row-link {

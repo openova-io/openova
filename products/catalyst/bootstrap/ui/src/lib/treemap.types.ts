@@ -30,7 +30,7 @@ import { STATUS_KIND_COLOR, type StatusKind } from '@/shared/lib/statusColors'
  *   • namespace    — Kubernetes namespace
  *   • cluster      — Sovereign cluster (one per kubeconfig)
  *   • family       — product family (observability, security, …)
- *   • sovereign    — top-level Sovereign tenant
+ *   • sovereign    — top-level Sovereign estate
  *   • region       — cloud region (multi-region topology)
  *   • vcluster     — vCluster role (mgmt/dmz/rtz; host pods → "host")
  *   • organization — owning Organization, keyed on the

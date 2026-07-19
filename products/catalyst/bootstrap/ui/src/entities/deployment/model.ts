@@ -88,7 +88,7 @@ export const OPENOVA_NAMESERVERS: readonly string[] = [
 ] as const
 
 export interface SovereignPoolDomain {
-  /** Pool domain owned by OpenOva (or by a franchised Sovereign owner). Sovereign tenants pick a subdomain under it. */
+  /** Pool domain owned by OpenOva (or by a franchised Sovereign owner). Sovereign operators pick a subdomain under it. */
   id: string
   domain: string
   description: string
@@ -251,7 +251,7 @@ export interface WizardState {
    * provisioner sets `marketplace_enabled=true` on the OpenTofu var that
    * cloud-init substitutes into the bp-catalyst-platform HelmRelease,
    * which in turn renders the marketplace HTTPRoutes (storefront +
-   * per-tenant subdomain shells). The backend Request struct
+   * per-Org subdomain shells). The backend Request struct
    * (`provisioner.Request.MarketplaceEnabled`) and the chart values
    * (`ingress.marketplace.enabled`) are already wired — this flag is the
    * UI seam.
@@ -324,13 +324,13 @@ export const ORG_DEFAULTS = {
 }
 
 /**
- * Pool domains a Sovereign tenant can pick when sovereignDomainMode='pool'.
+ * Pool domains a Sovereign operator can pick when sovereignDomainMode='pool'.
  *
  * The first entry, omani.works, is OpenOva's primary pool domain — registered in the
  * Dynadot account managed by the dynadot-api-credentials K8s secret in openova-system
  * (which is account-scoped, so the same API key covers all OpenOva-owned domains).
  *
- * When a tenant picks a pool domain, the provisioner backend writes a CNAME or A record
+ * When an operator picks a pool domain, the provisioner backend writes a CNAME or A record
  * for `<sovereignSubdomain>.<pool-domain>` pointing at the new Sovereign's load balancer
  * IP, and cert-manager handles TLS via Let's Encrypt DNS-01 against the same Dynadot
  * account.
@@ -507,7 +507,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
   // Marketplace mode (issue #710 wave 3a) — DEFAULT ON for D27 zero-touch.
   // Founder ruling 2026-05-16: a Sovereign is provisioned ready to host
-  // tenant organizations (D27-D31). Operator can still flip the toggle
+  // hosted Organizations (D27-D31). Operator can still flip the toggle
   // off on StepMarketplace if they explicitly want a private Sovereign.
   marketplaceEnabled: true,
   marketplaceBrand: { name: '', tagline: '', primaryColor: '' },

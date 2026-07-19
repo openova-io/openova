@@ -111,7 +111,7 @@ export function CatalogPage() {
 
   // #3668 (hw171 catalog walk) — the grid must ALSO render every Blueprint
   // the live catalog serves, not only the build-time component graph. Some
-  // seeded Blueprints (e.g. `bp-wordpress` / `bp-wordpress-tenant`, the
+  // seeded Blueprints (e.g. `bp-wordpress` and its per-Org variant, the
   // marketplace-funnel CMS) are NOT in `componentGroups.ts` — they ship as
   // catalog-seed CRs (products/catalyst/chart/templates/catalog-seed/
   // blueprints.yaml) but have no wizard-component entry, so they were

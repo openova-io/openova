@@ -13,7 +13,7 @@ const SELF_QUERY_KEY = ['sovereign', 'self'] as const
 /**
  * useResolvedDeploymentId — resolves the active deployment id from either
  * the runtime self-discovery endpoint (Sovereign operator) or URL params
- * (mothership tenant operator at /provision/$deploymentId/*).
+ * (mothership deployment operator at /provision/$deploymentId/*).
  *
  * # The two ids of a Sovereign (issue #4193)
  *

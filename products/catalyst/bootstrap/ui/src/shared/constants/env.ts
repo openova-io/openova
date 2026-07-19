@@ -15,7 +15,7 @@ export const APP_VERSION = import.meta.env['VITE_APP_VERSION'] ?? 'dev'
  *   VITE_CATALYST_MODE is not set and hostname matches the hardcoded
  *   Catalyst-Zero apex (see detectMode.ts).
  * - 'sovereign': Running on console.<sov-fqdn> — Sovereign Console; the
- *   tenant manages their own Sovereign. Keycloak auth gates all routes.
+ *   operator manages their own Sovereign. Keycloak auth gates all routes.
  *
  * Override via VITE_CATALYST_MODE in .env.local for local dev:
  *   VITE_CATALYST_MODE=sovereign VITE_SOVEREIGN_FQDN=otech23.omani.works npm run dev

@@ -1,7 +1,7 @@
 /**
  * JobsTimeline — fullscreen Gantt-style retrospective view of all jobs.
  * (Stretch deliverable for #206; routes:
- *   • mothership tenant: /provision/$deploymentId/jobs/timeline
+ *   • mothership deployment: /provision/$deploymentId/jobs/timeline
  *   • Sovereign chroot:  /jobs/timeline (added by PR #1073, fixed in #1076).)
  *
  * Each row is one job; a horizontal bar spans `startedAt` → `finishedAt`
@@ -82,7 +82,7 @@ export function JobsTimeline({
   jobsOverride,
 }: JobsTimelineProps = {}) {
   // Resolve deploymentId from either:
-  //   • URL :deploymentId param (mothership tenant route /provision/$id/jobs/timeline)
+  //   • URL :deploymentId param (mothership deployment route /provision/$id/jobs/timeline)
   //   • /api/v1/sovereign/self (Sovereign chroot route /jobs/timeline, no URL param)
   // Mirrors the pattern used by JobsPage / NotificationsPage / Dashboard.
   // Caught on console.omantel.biz QA pass 2026-05-07 (TC-050): the previous

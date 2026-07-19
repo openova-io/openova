@@ -1,14 +1,14 @@
 /**
- * CreateTenantPage — operator-facing Organization create form (issue
+ * CreateOrganizationPage — operator-facing Organization create form (issue
  * #828, parent epic #825 / Multi-domain Sovereign).
  *
- * The page extends the #804 Organization tenant pipeline with operator choice
+ * The page extends the #804 Organization provisioning pipeline with operator choice
  * over which parent domain hosts the new Organization's free subdomain. A
  * Sovereign at signup brings N parent domains; one is `role: primary`
  * (host of `console.<sovereign>`) and zero-or-more are `role:
  * org-pool` (offered to Organizations). When the operator picks
  * domain_mode=free-subdomain they choose one org-pool parent from the
- * dropdown; the resulting URL is `console.<tenant>.<chosen-parent>`.
+ * dropdown; the resulting URL is `console.<org-subdomain>.<chosen-parent>`.
  *
  * For domain_mode=byo the operator types the Organization's own apex (e.g.
  * "acme.com") and the back end validates the CNAME points at any
@@ -26,11 +26,11 @@
 import { useEffect, useState } from 'react'
 import { Globe, ServerCog, Plus } from 'lucide-react'
 import {
-  createOrgTenant,
+  createOrganization,
   isParentDomainReady,
   listSovereignParentDomains,
-  type OrgTenant,
-  type OrgTenantDomainMode,
+  type OrgProvisionRecord,
+  type OrgDomainMode,
   type SovereignParentDomain,
 } from './org.api'
 // Organizations model (issue #3378 B1) — the kind-derived defaults that
@@ -42,17 +42,17 @@ import {
   type OrgKind,
 } from '@/lib/organizations.api'
 
-export interface CreateTenantPageProps {
+export interface CreateOrganizationPageProps {
   /** Test seam — supplies the parent-domain pool synchronously. */
   initialParentDomains?: SovereignParentDomain[]
   /** Test seam — disables the parent-domain fetch effect entirely. */
   disableFetch?: boolean
 }
 
-export function CreateTenantPage({
+export function CreateOrganizationPage({
   initialParentDomains,
   disableFetch = false,
-}: CreateTenantPageProps = {}) {
+}: CreateOrganizationPageProps = {}) {
   const [pool, setPool] = useState<SovereignParentDomain[]>(
     initialParentDomains?.filter((p) => p.role === 'org-pool') ?? [],
   )
@@ -65,7 +65,7 @@ export function CreateTenantPage({
   const [companyName, setCompanyName] = useState<string>('')
   const [adminEmail, setAdminEmail] = useState<string>('')
   const [domainMode, setDomainMode] =
-    useState<OrgTenantDomainMode>('free-subdomain')
+    useState<OrgDomainMode>('free-subdomain')
   const [parentDomain, setParentDomain] = useState<string>('')
   const [byoDomain, setByoDomain] = useState<string>('')
 
@@ -97,7 +97,7 @@ export function CreateTenantPage({
 
   const [submitting, setSubmitting] = useState<boolean>(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [created, setCreated] = useState<OrgTenant | null>(null)
+  const [created, setCreated] = useState<OrgProvisionRecord | null>(null)
 
   useEffect(() => {
     if (disableFetch) return
@@ -158,7 +158,7 @@ export function CreateTenantPage({
     setCreated(null)
     setSubmitting(true)
     try {
-      const result = await createOrgTenant({
+      const result = await createOrganization({
         subdomain: subdomain.trim().toLowerCase(),
         admin_email: adminEmail.trim(),
         company_name: companyName.trim(),
@@ -185,7 +185,7 @@ export function CreateTenantPage({
   }
 
   return (
-    <div data-testid="org-create-tenant-page" className="px-6 py-4">
+    <div data-testid="org-create-page" className="px-6 py-4">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1
@@ -204,7 +204,7 @@ export function CreateTenantPage({
 
       {poolError && (
         <div
-          data-testid="org-create-tenant-pool-error"
+          data-testid="org-create-pool-error"
           className="mb-4 rounded-md border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3 text-sm text-[var(--color-danger)]"
         >
           Failed to load parent-domain pool: {poolError}
@@ -212,7 +212,7 @@ export function CreateTenantPage({
       )}
 
       <form
-        data-testid="org-create-tenant-form"
+        data-testid="org-create-form"
         onSubmit={onSubmit}
         className="grid max-w-2xl gap-4 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-5"
       >
@@ -318,7 +318,7 @@ export function CreateTenantPage({
             Organization slug
           </span>
           <input
-            data-testid="org-create-tenant-subdomain"
+            data-testid="org-create-subdomain"
             type="text"
             required
             pattern="[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
@@ -336,7 +336,7 @@ export function CreateTenantPage({
         <label className="grid gap-1 text-sm">
           <span className="text-[var(--color-text-dim)]">Company name</span>
           <input
-            data-testid="org-create-tenant-company"
+            data-testid="org-create-company"
             type="text"
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
@@ -348,7 +348,7 @@ export function CreateTenantPage({
         <label className="grid gap-1 text-sm">
           <span className="text-[var(--color-text-dim)]">Admin email</span>
           <input
-            data-testid="org-create-tenant-email"
+            data-testid="org-create-email"
             type="email"
             required
             value={adminEmail}
@@ -364,7 +364,7 @@ export function CreateTenantPage({
           </legend>
           <label
             className="flex cursor-pointer items-start gap-3 rounded-md border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface-strong,_rgba(255,255,255,0.04))]"
-            data-testid="org-create-tenant-mode-free"
+            data-testid="org-create-mode-free"
           >
             <input
               type="radio"
@@ -391,7 +391,7 @@ export function CreateTenantPage({
 
           <label
             className="flex cursor-pointer items-start gap-3 rounded-md border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface-strong,_rgba(255,255,255,0.04))]"
-            data-testid="org-create-tenant-mode-byo"
+            data-testid="org-create-mode-byo"
           >
             <input
               type="radio"
@@ -422,10 +422,10 @@ export function CreateTenantPage({
         </fieldset>
 
         {domainMode === 'free-subdomain' && (
-          <label className="grid gap-1 text-sm" data-testid="org-create-tenant-parent-row">
+          <label className="grid gap-1 text-sm" data-testid="org-create-parent-row">
             <span className="text-[var(--color-text-dim)]">Parent domain</span>
             <select
-              data-testid="org-create-tenant-parent-select"
+              data-testid="org-create-parent-select"
               value={parentDomain}
               onChange={(e) => setParentDomain(e.target.value)}
               disabled={poolLoading || pool.length === 0}
@@ -446,7 +446,7 @@ export function CreateTenantPage({
                     key={p.name}
                     value={p.name}
                     disabled={!ready}
-                    data-testid={`org-create-tenant-parent-option-${p.name}`}
+                    data-testid={`org-create-parent-option-${p.name}`}
                   >
                     {p.name}
                     {ready ? '' : ` (${p.flipStatus.replace('-', ' ')})`}
@@ -461,7 +461,7 @@ export function CreateTenantPage({
           <label className="grid gap-1 text-sm">
             <span className="text-[var(--color-text-dim)]">Organization apex domain</span>
             <input
-              data-testid="org-create-tenant-byo"
+              data-testid="org-create-byo"
               type="text"
               required
               value={byoDomain}
@@ -483,14 +483,14 @@ export function CreateTenantPage({
 
         <div className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-input)] p-3 text-sm">
           <span className="text-[var(--color-text-dim)]">Console URL preview: </span>
-          <code data-testid="org-create-tenant-url-preview" className="font-mono text-[var(--color-text-strong)]">
+          <code data-testid="org-create-url-preview" className="font-mono text-[var(--color-text-strong)]">
             {consolePreview || '—'}
           </code>
         </div>
 
         {submitError && (
           <div
-            data-testid="org-create-tenant-submit-error"
+            data-testid="org-create-submit-error"
             className="rounded-md border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3 text-sm text-[var(--color-danger)]"
           >
             {submitError}
@@ -500,7 +500,7 @@ export function CreateTenantPage({
         <button
           type="submit"
           disabled={submitting}
-          data-testid="org-create-tenant-submit"
+          data-testid="org-create-submit"
           className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
@@ -510,7 +510,7 @@ export function CreateTenantPage({
 
       {created && (
         <div
-          data-testid="org-create-tenant-result"
+          data-testid="org-create-result"
           className="mt-6 max-w-2xl rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
         >
           <div className="mb-3 text-sm font-medium">
@@ -520,7 +520,7 @@ export function CreateTenantPage({
             <dt className="text-[var(--color-text-dim)]">Console URL</dt>
             <dd className="font-mono">
               <a
-                data-testid="org-create-tenant-result-console-href"
+                data-testid="org-create-result-console-href"
                 href={`https://${created.console_host}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -534,7 +534,7 @@ export function CreateTenantPage({
                 <dt className="text-[var(--color-text-dim)]">Parent domain</dt>
                 <dd
                   className="font-mono"
-                  data-testid="org-create-tenant-result-parent"
+                  data-testid="org-create-result-parent"
                 >
                   {created.parent_domain}
                 </dd>
@@ -543,7 +543,7 @@ export function CreateTenantPage({
             <dt className="text-[var(--color-text-dim)]">Organization ID</dt>
             <dd className="font-mono">{created.org_tenant_id}</dd>
           </dl>
-          <TenantSteps steps={created.steps} />
+          <ProvisionSteps steps={created.steps} />
           {created.last_error && (
             <div className="mt-2 text-xs text-[var(--color-danger)]">
               {created.last_error}
@@ -555,12 +555,12 @@ export function CreateTenantPage({
   )
 }
 
-function TenantSteps({
+function ProvisionSteps({
   steps,
 }: {
-  steps: OrgTenant['steps']
+  steps: OrgProvisionRecord['steps']
 }) {
-  const items: { key: keyof OrgTenant['steps']; label: string }[] = [
+  const items: { key: keyof OrgProvisionRecord['steps']; label: string }[] = [
     { key: 'vcluster', label: 'vCluster' },
     { key: 'bp_charts', label: 'Charts' },
     { key: 'dns', label: 'DNS' },
@@ -582,7 +582,7 @@ function TenantSteps({
           <span key={s.key} className="flex items-center gap-1 text-xs">
             <span
               className={`inline-block h-2 w-2 rounded-full ${cls}`}
-              data-testid={`org-create-tenant-step-${s.key}-${state}`}
+              data-testid={`org-create-step-${s.key}-${state}`}
               aria-label={`${s.label}: ${state}`}
             />
             <span>{s.label}</span>

@@ -15,11 +15,11 @@ export const API_BASE: string = `${BASE}api`;
 /** Resolve the marketplace origin at runtime.
  *
  *  TBD-A68 (#1994, 2026-05-19): the pre-fix value was hardcoded to
- *  `https://marketplace.openova.io`, which sent every Sovereign tenant
+ *  `https://marketplace.openova.io`, which sent every Sovereign Org
  *  (running at `console.<slug>.<sovFQDN>` — e.g. `console.acme.omani.homes`)
  *  back to the mothership marketplace instead of THEIR Sovereign's
  *  marketplace. Result: a redirect into Catalyst-Zero's storefront
- *  with no tenant context, dead-ending sign-in and checkout.
+ *  with no Org context, dead-ending sign-in and checkout.
  *
  *  Resolution order:
  *
@@ -46,7 +46,7 @@ function resolveMarketplaceOrigin(): string {
     let zone = host;
     if (host.startsWith('console.')) {
       const rest = host.slice('console.'.length);
-      // Drop one tenant-slug label if there's room (slug.parent.tld → parent.tld).
+      // Drop one org-slug label if there's room (slug.parent.tld → parent.tld).
       // A bare `console.<tld>` (no slug) keeps `<tld>` so dev hosts work.
       const dot = rest.indexOf('.');
       zone = dot >= 0 ? rest.slice(dot + 1) : rest;

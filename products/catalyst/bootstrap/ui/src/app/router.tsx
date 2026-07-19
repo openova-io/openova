@@ -32,7 +32,7 @@ const basepath = isCatalystZeroURL() ? '/sovereign' : '/'
  *
  * We detect by hostname rather than IS_SAAS / IS_SELFHOSTED because the
  * same selfhosted build image runs on both Catalyst-Zero (contabo-mkt)
- * and tenant Sovereign consoles (console.<sov-fqdn>). Only Catalyst-Zero
+ * and franchised Sovereign consoles (console.<sov-fqdn>). Only Catalyst-Zero
  * has Keycloak + the session middleware wired up; Sovereign clusters
  * manage their own auth separately.
  */
@@ -110,7 +110,7 @@ import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // resolve via the operator clicking Settings in the sidebar then
 // scrolling to the Marketplace anchor.
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
-// CreateTenantPage re-mounts as the Organizations internal door at
+// CreateOrganizationPage mounts as the Organizations internal door at
 // /organizations/new (issue #3378). The Organization UsersPage / RolesPage keep
 // their /org/users + /org/roles routes for now — their people surfaces
 // fold into the org-detail page's users + roles tabs in a follow-on PR
@@ -119,7 +119,7 @@ import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 // no Organization-admin people surface regresses.
 import { UsersPage as OrgUsersPage } from '@/pages/org/UsersPage'
 import { RolesPage as OrgRolesPage } from '@/pages/org/RolesPage'
-import { CreateTenantPage as OrgCreateTenantPage } from '@/pages/org/CreateTenantPage'
+import { CreateOrganizationPage } from '@/pages/org/CreateOrganizationPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
 // qa-loop iter-6 Cluster-A `spa-target-state-routes-missing` —
 // stub pages mounted under /app/$deploymentId/* for routes whose
@@ -151,7 +151,7 @@ import { PodLogsPage } from '@/pages/sovereign/resources/PodLogsPage'
 // under /organizations/billing/* (#3378). #4196 promotes it to its own
 // top-level menu and DELETES the dead iframe modules (BssSectionShell,
 // BssLandingPage) + the never-named Subscriptions BillingPage + the
-// org-directory-superseded bss/TenantsPage. Voucher issuance is the Phase-0
+// org-directory-superseded legacy bss roster page. Voucher issuance is the Phase-0
 // sovereign-admin onboarding tool and is NEVER showback-gated (#4170).
 import { OrdersPage as BillingOrdersPage } from '@/pages/sovereign/bss/OrdersPage'
 import { RevenuePage as BillingRevenuePage } from '@/pages/sovereign/bss/RevenuePage'
@@ -688,7 +688,7 @@ const fleetTreemapRoute = createRoute({
  *
  * Per #689 DoD: a signed-in operator who is NOT the owner of the
  * deployment id sees the canonical 404 surface (the catalyst-api
- * returns 404 for cross-tenant access — the UI does not need to
+ * returns 404 for cross-Organization access — the UI does not need to
  * implement a separate "you don't have access" branch).
  */
 async function provisionAuthGuard() {
@@ -830,7 +830,7 @@ const provisionRoute = createRoute({
   component: AppsPage,
   beforeLoad: async ({ params }) => {
     // Issue #689 — anonymous visitors get redirected to the wizard
-    // with a flash banner; signed-in but cross-tenant gets 404 from
+    // with a flash banner; signed-in but cross-Organization gets 404 from
     // the API (no UI-side branch needed).
     await provisionAuthGuard()
     await maybeRedirectToCustomerConsole(params.deploymentId)
@@ -839,13 +839,13 @@ const provisionRoute = createRoute({
 
 // Per-Application detail page — pixel-ported from core/console
 // AppDetail.svelte. SECTIONS, NOT TABS: hero / About / Connection /
-// Bundled deps / Tenant / Configuration / Jobs (Jobs section appended
+// Bundled deps / Organization / Configuration / Jobs (Jobs section appended
 // for the wizard provision context).
 const provisionAppRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/app/$componentId',
   component: AppDetail,
-  // Issue #689 — anonymous redirected to wizard with banner; cross-tenant 404 from API.
+  // Issue #689 — anonymous redirected to wizard with banner; cross-Organization 404 from API.
   beforeLoad: provisionAuthGuard,
 })
 
@@ -1548,7 +1548,7 @@ const consoleAppDetailTabRoute = createRoute({
 // Two sibling URL trees per the same pattern as compliance dashboards
 // (slice U):
 //
-//   Mothership tenant operator (provision tree):
+//   Mothership deployment operator (provision tree):
 //     /provision/$deploymentId/install                — catalog landing
 //     /provision/$deploymentId/install/$blueprintName — Blueprint pre-selected
 //
@@ -1603,15 +1603,15 @@ const consoleInstallBlueprintRoute = createRoute({
  *                          group → app-role map).
  *
  * Whether these routes are exposed in the sidebar is decided at
- * runtime by the Organization-tenant-aware nav (see SovereignSidebar.tsx),
- * which reads the discovery payload from `getTenantContext()`.
+ * runtime by the org-console-aware nav (see SovereignSidebar.tsx),
+ * which reads the discovery payload from `getOrgConsoleContext()`.
  * Because TanStack Router resolves on URL match (not on sidebar
  * visibility), the routes themselves are always registered — that
  * keeps the bundle a single SPA per [Q-mine-1]/#795 and lets the
  * Organization admin deep-link into either page from the welcome email.
  */
 // Organizations menu move (issue #3378): /parent-domains and
-// /org/tenants/new now resolve via consoleOrganizationsRedirectRoutes
+// the legacy /org/…/new URL now resolve via consoleOrganizationsRedirectRoutes
 // (→ /organizations/domains + /organizations/new), and the create form
 // re-mounts as CreateOrganizationPage at /organizations/new.
 //
@@ -1700,7 +1700,8 @@ const consoleNotificationsRoute = createRoute({
  *                         drops iframe; KPI strip + line chart +
  *                         breakdown table)
  *   /bss/vouchers       → VouchersPage(PortalShell + iframe; Wave 6 PR 5)
- *   /bss/tenants        → TenantsPage (PortalShell + iframe; Wave 6 PR 6)
+ *   /bss/tenants        → legacy roster page (PortalShell + iframe; Wave 6 PR 6;
+ *                         URL lives on as a redirect only)
  *
  * Each section page is a sibling of the landing, not a child of a
  * shared layout — no more BssLayout wrapper. The sidebar's BSS group
@@ -1726,7 +1727,8 @@ const consoleNotificationsRoute = createRoute({
  *   /organizations/new    → CreateOrganizationPage (the internal door;
  *                           reuses the Organization create form component, mounted
  *                           under the Organization-named route — #3383
- *                           naming law: sme/tenant never name anything new)
+ *                           naming law: banned legacy terms never name
+ *                           anything new)
  *
  * The /organizations/$org detail page, the commerce + billing + domains
  * sub-routes, and the Enter-org button arrive in follow-on PRs on this
@@ -1740,7 +1742,7 @@ const consoleOrganizationsRoute = createRoute({
 const consoleOrganizationsNewRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/new',
-  component: OrgCreateTenantPage,
+  component: CreateOrganizationPage,
 })
 // /organizations/$org — the org detail page (identity card + consumption
 // panel + Enter-org button). The literal /organizations/{new,commerce,

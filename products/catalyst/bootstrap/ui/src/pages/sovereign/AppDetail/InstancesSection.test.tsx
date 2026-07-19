@@ -47,9 +47,10 @@ const WP_CATALOG = {
 
 // /sovereign/self parent-org payload (the directory's first row).
 const SELF = { deploymentId: 'd-1', sovereignFQDN: 't01.omani.works' }
-// /v1/organizations sub-org feed — RawTenant wire shape (snake_case). The
+// /v1/organizations sub-org feed — OrgRecordWire shape (snake_case; the
+// org_tenant_id / tenant_namespace keys are the legacy BE wire contract). The
 // dialog's Org dropdown value is the subdomain slug.
-const TENANTS = {
+const ORG_ROWS = {
   items: [
     { org_tenant_id: 't-acme', subdomain: 'acme', company_name: 'Acme', tenant_namespace: 'acme', state: 'ready' },
   ],
@@ -85,7 +86,7 @@ function installFetch() {
     if (url.includes('/instances')) return json({ items: [] })
     // Org sources: /sovereign/self (parent) + /v1/organizations (sub-orgs).
     if (url.includes('/sovereign/self')) return json(SELF)
-    if (url.includes('/v1/organizations')) return json(TENANTS)
+    if (url.includes('/v1/organizations')) return json(ORG_ROWS)
     // Infra topology (regions + vclusters).
     if (url.includes('/infrastructure/topology')) return json(TOPOLOGY)
     // Catalog item + version (topology supported list).

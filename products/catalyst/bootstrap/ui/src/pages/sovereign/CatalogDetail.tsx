@@ -52,7 +52,7 @@ import { IconPicker } from './IconPicker'
  *   • Empty state for multi-instance Blueprints with no installs yet.
  *   • Bootstrap/singleton handling — platform components installed as
  *     HelmReleases (grafana/harbor/openbao/gitea/keycloak) have no
- *     per-tenant Application CR, so the instances list is empty by
+ *     per-Org Application CR, so the instances list is empty by
  *     design; we surface a link to the existing bootstrap instance and
  *     label it "platform component (singleton)" rather than showing an
  *     empty table + an inapplicable "create instance" prompt.
@@ -168,7 +168,7 @@ export function CatalogDetail() {
 
   // Bootstrap/singleton detection. Platform components (grafana, harbor,
   // openbao, gitea, keycloak …) install as bare HelmReleases with no
-  // per-tenant Application CR, so the /catalog/{bp}/instances list is
+  // per-Org Application CR, so the /catalog/{bp}/instances list is
   // empty for them. getApplication("bp-<name>") returns `bootstrap:true`
   // + the live phase/externalURL of the singleton install — we use it to
   // surface a link to the running instance instead of an empty table.

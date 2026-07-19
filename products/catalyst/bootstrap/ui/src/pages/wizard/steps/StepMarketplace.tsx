@@ -3,9 +3,9 @@
  *
  * Inserted between StepComponents and StepDomain. The toggle decides
  * whether the operator wants to turn this Sovereign into a SaaS
- * platform (per-tenant subdomains, public storefront at
- * `marketplace.<sovereign-fqdn>`, isolated tenant shells) or keep it
- * as a private single-tenant install.
+ * platform (per-Org subdomains, public storefront at
+ * `marketplace.<sovereign-fqdn>`, isolated per-Org shells) or keep it
+ * as a private single-estate install.
  *
  * Wiring (already in place — this step is the missing UI seam):
  *

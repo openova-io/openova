@@ -19,7 +19,7 @@ import {
 } from '@tanstack/react-router'
 
 import { OrganizationsDirectoryPage } from './OrganizationsDirectoryPage'
-import { parentRowFromSelf, subOrgRowFromTenant, type OrgRow } from '@/lib/organizations.api'
+import { parentRowFromSelf, subOrgRowFromRecord, type OrgRow } from '@/lib/organizations.api'
 
 function renderDirectory(orgs: readonly OrgRow[]) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
@@ -119,7 +119,7 @@ describe('OrganizationsDirectoryPage — §5 empty-state law', () => {
 
   it('lists the parent FIRST, then sub-orgs (parent is first citizen)', async () => {
     const parent = parentRowFromSelf({ deploymentId: 'dep-1', sovereignFQDN: 'hw130.omantel.biz' })
-    const sub = subOrgRowFromTenant({
+    const sub = subOrgRowFromRecord({
       id: 'tnt-1',
       orgName: 'ACME Corp',
       consoleHost: 'console.acme.omani.homes',

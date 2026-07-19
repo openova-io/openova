@@ -11,18 +11,19 @@
  *     deployment id) — the parent org IS the sovereign itself (#3378 §2.2:
  *     "the parent org is the sovereign itself, root, parentOrg empty").
  *   • the SUB-ORG rows derive from GET /api/v1/organizations — the same
- *     listTenants() feed the BSS Tenants page used (#3378 §3 cites this
- *     as the org directory source). Each Tenant is one Organization CR.
+ *     listOrgRecords() roster feed the legacy BSS page used (#3378 §3
+ *     cites this as the org directory source). Each OrgRecord is one
+ *     Organization CR.
  *
  * The model fields (kind / tier / billingMode / isolation) live on
  * OrganizationSpec (core/controllers/organization/internal/orgapi/
  * types.go:54-79). Today only the customer path stamps them, so the
  * directory maps every sub-org to its kind-derived defaults until the
- * tenants feed surfaces the real spec fields (B1 wires the internal door
+ * roster feed surfaces the real spec fields (B1 wires the internal door
  * that varies them).
  */
 
-import { listTenants, type Tenant, type TenantStatus } from '@/lib/bss.api'
+import { listOrgRecords, type OrgRecord, type OrgStatus as PipelineOrgStatus } from '@/lib/bss.api'
 import { API_BASE } from '@/shared/config/urls'
 import { authedFetch } from '@/shared/lib/authedFetch'
 
@@ -40,8 +41,8 @@ export type OrgBillingMode = 'real' | 'chargeback' | 'showback'
 export type OrgIsolation = 'namespace' | 'vcluster'
 
 /** OrgStatus — lifecycle status the directory renders as a pill. The
- *  parent is always 'active'; sub-orgs map from the tenant pipeline. */
-export type OrgStatus = TenantStatus
+ *  parent is always 'active'; sub-orgs map from the provisioning pipeline. */
+export type OrgStatus = PipelineOrgStatus
 
 /**
  * OrgRow — one row of the Organizations directory. The parent row and
@@ -147,7 +148,7 @@ export function parentRowFromSelf(self: SovereignSelf | null): OrgRow {
 }
 
 /**
- * normalizeKind — coerce the tenants-feed `kind` string onto the OrgKind
+ * normalizeKind — coerce the roster-feed `kind` string onto the OrgKind
  * union. Anything that isn't the literal 'internal' (incl. empty/legacy
  * rows) reads as 'customer' — the marketplace external door is the safe
  * default for a row whose spec predates the B1 fields.
@@ -157,7 +158,7 @@ function normalizeKind(raw: string | undefined): OrgKind {
 }
 
 /**
- * normalizeTier — coerce the tenants-feed `tier` onto OrgTier. 'corporate'
+ * normalizeTier — coerce the roster-feed `tier` onto OrgTier. 'corporate'
  * is honored verbatim; everything else (incl. empty) reads as 'org'.
  */
 function normalizeTier(raw: string | undefined): OrgTier {
@@ -165,7 +166,7 @@ function normalizeTier(raw: string | undefined): OrgTier {
 }
 
 /**
- * normalizeBillingMode — coerce the tenants-feed `billing_mode` onto the
+ * normalizeBillingMode — coerce the roster-feed `billing_mode` onto the
  * OrgBillingMode union, falling back to the kind-derived default when the
  * field is empty or unrecognized (legacy rows that predate B1).
  */
@@ -176,7 +177,7 @@ function normalizeBillingMode(raw: string | undefined, kind: OrgKind): OrgBillin
 }
 
 /**
- * normalizeIsolation — coerce the tenants-feed `isolation` onto the
+ * normalizeIsolation — coerce the roster-feed `isolation` onto the
  * OrgIsolation union, falling back to the kind-derived default when empty
  * or unrecognized.
  */
@@ -187,15 +188,15 @@ function normalizeIsolation(raw: string | undefined, kind: OrgKind): OrgIsolatio
 }
 
 /**
- * subOrgRowFromTenant — map an existing Tenant (one Organization CR) to a
- * directory row. The tenants feed surfaces the real spec fields the
+ * subOrgRowFromRecord — map an existing OrgRecord (one Organization CR) to
+ * a directory row. The roster feed surfaces the real spec fields the
  * orchestrator stamps (kind / tier / billing_mode / isolation, issue
  * #3378 B1), so an Internal org badges Internal · showback · namespace —
  * NOT the old hardcoded customer/real/vcluster. Rows whose spec predates
  * the B1 fields (empty kind/tier/billing/isolation) fall back to the
  * kind-derived defaults so a legacy customer row still badges sensibly.
  */
-export function subOrgRowFromTenant(t: Tenant): OrgRow {
+export function subOrgRowFromRecord(t: OrgRecord): OrgRow {
   const kind = normalizeKind(t.kind)
   return {
     id: t.id,
@@ -220,12 +221,12 @@ export function subOrgRowFromTenant(t: Tenant): OrgRow {
  * rather than an empty menu.
  */
 export async function listOrganizations(): Promise<OrgRow[]> {
-  const [self, tenants] = await Promise.all([
+  const [self, records] = await Promise.all([
     getSovereignSelf(),
-    listTenants().catch(() => [] as Tenant[]),
+    listOrgRecords().catch(() => [] as OrgRecord[]),
   ])
   const rows: OrgRow[] = [parentRowFromSelf(self)]
-  for (const t of tenants) rows.push(subOrgRowFromTenant(t))
+  for (const t of records) rows.push(subOrgRowFromRecord(t))
   return rows
 }
 

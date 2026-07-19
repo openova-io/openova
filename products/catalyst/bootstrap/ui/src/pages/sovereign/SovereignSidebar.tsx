@@ -6,7 +6,7 @@
  *
  *   - Routes use the /console/* prefix (no deploymentId param) — the
  *     Sovereign is implicit from the hostname.
- *   - The tenant label shows the Sovereign FQDN.
+ *   - The estate label shows the Sovereign FQDN.
  *   - The footer card shows the authenticated user's identity (#4187:
  *     resolved from GET /api/v1/whoami via `useSession` — the cookie/PIN
  *     session principal — falling back to OIDC id_token claims only on
@@ -150,7 +150,7 @@ const FLAT_NAV: FlatNavItem[] = [
   // view of everything beneath it — the org directory (parent first),
   // entering any sub-org for support (audited impersonation), the
   // commerce catalog, mode-aware billing, and the domain pools. Replaces
-  // the BSS entry that previously lived here; the legacy /bss* + /sme/* +
+  // the BSS entry that previously lived here; the legacy /bss* + retired-prefix +
   // /parent-domains URLs redirect into /organizations (router.tsx).
   //
   // Icon: an org-chart / building line-glyph (nodes + connecting edges)
@@ -295,13 +295,13 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   })
   const dynamicEntries: SidebarEntry[] = dynamicEntriesQuery.data ?? []
 
-  // Tenant-label expanded state — clicking the pill opens a small inline
+  // Estate-label expanded state — clicking the pill opens a small inline
   // panel listing the full Sovereign FQDN. The pill itself only has room
   // for a truncated label; the expanded panel guarantees the FQDN is
   // surfaced into the viewport DOM regardless of width. Closes on a
   // second click. (Issue #607 — TC-133 contract: clicking the sidebar
-  // tenant label surfaces the FQDN.)
-  const [tenantOpen, setTenantOpen] = useState(false)
+  // estate label surfaces the FQDN.)
+  const [estateOpen, setEstateOpen] = useState(false)
 
   // User-menu open state (UAT row 27 / #5000). The footer identity card is
   // the ONLY place the signed-in owner can sign out of the Sovereign Console.
@@ -334,7 +334,7 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   // present; on the chroot Sovereign Console the deploymentId-bound
   // snapshot may not yet be loaded for newly-mounted pages, in which
   // case we fall back to the hostname-derived FQDN exposed by
-  // `DETECTED_MODE`. This avoids ever rendering an empty tenant label
+  // `DETECTED_MODE`. This avoids ever rendering an empty estate label
   // on `console.<sov-fqdn>` regardless of network timing.
   const resolvedFQDN =
     sovereignFQDN && sovereignFQDN.length > 0
@@ -399,22 +399,22 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
         <div className="px-3 pb-3">
           <button
             type="button"
-            onClick={() => setTenantOpen((v) => !v)}
-            aria-expanded={tenantOpen}
-            aria-controls="sov-console-tenant-details"
+            onClick={() => setEstateOpen((v) => !v)}
+            aria-expanded={estateOpen}
+            aria-controls="sov-console-org-details"
             className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-left text-xs transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
-            data-testid="sov-console-tenant-label"
+            data-testid="sov-console-org-label"
             title={resolvedFQDN}
           >
             <span
               className="min-w-0 flex-1 truncate text-[var(--color-text-strong)]"
-              data-testid="sov-console-tenant-fqdn"
+              data-testid="sov-console-org-fqdn"
             >
               {resolvedFQDN}
             </span>
             <svg
               className={`h-3 w-3 shrink-0 text-[var(--color-text-dim)] transition-transform ${
-                tenantOpen ? 'rotate-180' : ''
+                estateOpen ? 'rotate-180' : ''
               }`}
               fill="none"
               viewBox="0 0 24 24"
@@ -425,16 +425,16 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          {tenantOpen ? (
+          {estateOpen ? (
             <div
-              id="sov-console-tenant-details"
-              data-testid="sov-console-tenant-details"
+              id="sov-console-org-details"
+              data-testid="sov-console-org-details"
               className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[11px]"
             >
               <p className="text-[var(--color-text-dimmer)]">Sovereign FQDN</p>
               <p
                 className="mt-0.5 break-all font-mono text-[var(--color-text-strong)]"
-                data-testid="sov-console-tenant-fqdn-full"
+                data-testid="sov-console-org-fqdn-full"
               >
                 {resolvedFQDN}
               </p>

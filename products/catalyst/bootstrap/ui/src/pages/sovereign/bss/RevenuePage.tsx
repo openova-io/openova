@@ -55,7 +55,7 @@ const CHART_HEIGHT_PX = 220
 
 /** Column ids for the breakdown table. Used as the sortable-column key
  *  + the test seam attribute on the th. */
-type SortKey = 'plan' | 'tenants' | 'mrr' | 'yoy'
+type SortKey = 'plan' | 'orgs' | 'mrr' | 'yoy'
 type SortDir = 'asc' | 'desc'
 
 export interface RevenuePageProps {
@@ -120,10 +120,10 @@ export function RevenuePage({
             pendingApi={pendingApi}
           />
           <KpiCard
-            id="top-tenant"
+            id="top-org"
             title="Top organization"
-            value={loaded && revenue!.kpi.topTenant ? revenue!.kpi.topTenant : '—'}
-            footer={loaded && !revenue!.kpi.topTenant ? 'No organizations yet' : undefined}
+            value={loaded && revenue!.kpi.topOrg ? revenue!.kpi.topOrg : '—'}
+            footer={loaded && !revenue!.kpi.topOrg ? 'No organizations yet' : undefined}
             pendingApi={pendingApi}
           />
           <KpiCard
@@ -495,7 +495,7 @@ function BreakdownTable({ rows, loaded }: BreakdownTableProps) {
           />
           <SortableTh
             label="Organizations"
-            col="tenants"
+            col="orgs"
             activeKey={sortKey}
             activeDir={sortDir}
             onClick={onHeaderClick}
@@ -534,9 +534,9 @@ function BreakdownTable({ rows, loaded }: BreakdownTableProps) {
             </td>
             <td
               className="py-2 pr-3 text-right tabular-nums text-[var(--color-text)]"
-              data-testid={`bss-revenue-breakdown-tenants-${row.id}`}
+              data-testid={`bss-revenue-breakdown-orgs-${row.id}`}
             >
-              {row.tenants}
+              {row.orgs}
             </td>
             <td
               className="py-2 pr-3 text-right tabular-nums text-[var(--color-text-strong)]"
@@ -623,8 +623,8 @@ function compareRows(
   switch (key) {
     case 'plan':
       return a.plan.localeCompare(b.plan) || a.id.localeCompare(b.id)
-    case 'tenants':
-      return a.tenants - b.tenants || a.id.localeCompare(b.id)
+    case 'orgs':
+      return a.orgs - b.orgs || a.id.localeCompare(b.id)
     case 'mrr':
       return a.mrrCents - b.mrrCents || a.id.localeCompare(b.id)
     case 'yoy': {

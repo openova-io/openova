@@ -156,7 +156,7 @@ export function PinSignInModal({
 
   async function sendMagicLink() {
     // Magic-link fallback: PIN endpoints are the canonical sign-in path
-    // (#688). The magic-link path remains for tenants whose Sovereign is
+    // (#688). The magic-link path remains for accounts whose Sovereign is
     // mid-roll and hasn't yet shipped the PIN handlers — fail-open keeps
     // wizard sign-in available regardless of API SHA.
     const res = await fetch(`${API_BASE}/v1/auth/magic-link`, {

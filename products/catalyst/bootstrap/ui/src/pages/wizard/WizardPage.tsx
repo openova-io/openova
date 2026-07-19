@@ -31,7 +31,7 @@ import { StepNSDelegation } from './steps/StepNSDelegation'
 //   4. StepComponents   — unified marketplace catalog.
 //   5. StepMarketplace  — opt into Marketplace mode (issue #710 wave 3a).
 //                         The toggle decides whether the Sovereign exposes
-//                         a per-tenant SaaS storefront at
+//                         a per-Org SaaS storefront at
 //                         marketplace.<sovereign-fqdn>.
 //   6. StepDomain       — pool subdomain or BYO domain (admin email
 //                         decommissioned in #762).
