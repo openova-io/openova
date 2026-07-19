@@ -1,0 +1,708 @@
+{{- /*
+Region-A DR auto-FAILBACK (#5245 — chart 0.2.18).
+
+WHY THIS EXISTS
+---------------
+hw275 G12 (2026-07-19, dep 7886def2e61c63aa) proved the DR chain had a
+forward leg only. After a clean region-kill promote (region-B writable
+on TL2, latched), the recovery of region-A did NOT converge:
+
+  - region-A's primary Cluster resumed its OLD role — pg_is_in_recovery
+    =false, timeline 1. It never knew it was killed.
+  - region-B could never re-stream from it: a TL2 line cannot follow a
+    TL1 source — walreceiver FATAL 55000 "highest timeline 1 of the
+    primary is behind recovery timeline 2", every 5 seconds, forever.
+  - Nothing anywhere demoted region-A, re-cloned anyone, or lifted the
+    promote latch. Cross-region replication was permanently dead.
+
+This Deployment is the region-A actor that closes the loop. It renders
+ONLY on side=primary (it acts on cluster-A, which by definition exists
+again exactly when failback matters) and ONLY when the cross-region
+peer probe can be wired (clusterMesh + crossRegionPeerClusters — see
+cnpg-pair.failbackActive; without a positive peer proof there is no
+safe action, so the actor does not render at all).
+
+WHAT IT DOES — demote + re-clone region-A onto region-B's line
+--------------------------------------------------------------
+The correct failback direction is fixed by the data, not by preference:
+region-B's promoted line ⊇ every ACKNOWLEDGED commit region-A ever
+made. Structurally: sync remote_apply + FIRST 1 pinned to the
+cross-region replica + dataDurability:required means (a) before the
+kill, no commit was acked on A that B had not already applied; (b) the
+dead window adds nothing; (c) post-recovery region-A is write-fenced by
+the same unsatisfiable FIRST 1 (its only allowed sync standby has left
+the timeline), so it acks nothing new. Discarding region-A's line loses
+only never-acked local WAL — exactly what the RPO=0 contract already
+discards. The reverse direction (re-cloning region-B from region-A)
+would destroy the acknowledged post-promote writes and is therefore
+never automatic. This is why the actor renders only in sync mode: the
+fence IS the authority proof.
+
+  1. DETECT (signals container, psql as streaming_replica with this
+     cluster's own client cert): local cluster WRITABLE (in_recovery=f)
+     on timeline N, the pinned sync standby ABSENT from
+     pg_stat_replication (walsender rows run AS streaming_replica, so
+     the probe role sees its own rows — no #5239 privilege trap), AND
+     the peer REACHABLE + WRITABLE + on a HIGHER timeline over the
+     `-replica-mesh` global Service. Timelines come from IDENTIFY_SYSTEM
+     over a replication-protocol connection — the one surface
+     streaming_replica is guaranteed to have (pg_hba `hostssl
+     replication streaming_replica all cert`), no pg_control privileges
+     involved. TL_peer > TL_local is antisymmetric: only the stale side
+     can ever see peer-ahead, so two actors can never both act.
+  2. DECIDE (actor container): the peer-ahead evidence must hold
+     CONTINUOUSLY for failback.peerAheadHoldSeconds (120s), never
+     during the startup grace.
+  3. DEMOTE — durable, through the SOURCE: patch the bootstrap-kit
+     Kustomization's postBuild.substitute SOVEREIGN_CNPG_PAIR_DEMOTED=
+     "true" (custom field manager `dr-failback`; see LATCH-DURABILITY
+     below) and wait for kustomize to render `primary.demoted: true`
+     into the HR desired state. From that moment flux itself re-affirms
+     the demotion — no suspend latch is needed on this side, and the
+     hazard window of the b-side promote path (values revert → wrong
+     shape re-render) cannot exist here.
+  4. RE-CLONE — the ONE destructive act: delete the local Cluster CR
+     (PVCs are CNPG-owned and garbage-collect with it) so helm
+     re-creates it in the demoted shape and pg_basebackup clones
+     region-B's current timeline. Guarded per-tick: desired state
+     RENDERED + peer verified writable-and-ahead within the last probe
+     window + the CR still in its OLD primary shape. A Cluster CR
+     already in the demoted shape is deleted ONLY via the wedge
+     escalation (below) and ONLY when it predates this failback episode
+     — a fresh clone is NEVER deleted, so destruction is bounded to one
+     re-clone per episode.
+  5. CONVERGE: the re-cloned cluster streams from region-B
+     (walreceiver row + receive-LSN — the #5239-readable signal); the
+     actor records dr-failback-converged-at on the HR and goes idle.
+
+WEDGE ESCALATION (in-place demote left a stale standby)
+-------------------------------------------------------
+If the CNPG webhook admits the shape change on the LIVE Cluster before
+the delete lands, CNPG demotes it in place, keeping the stale TL-N
+PGDATA. If that standby's WAL tail is past the fork point it can never
+follow region-B (the mirrored FATAL wedge). The actor escalates to the
+re-clone when a demoted-shape CR that PREDATES the failback episode
+(creationTimestamp < dr-failback-started-at) has been unable to stream
+from a verified writable+ahead peer for failback.wedgeHoldSeconds. If
+the tail happened to be exactly at the fork, the in-place demote
+follows cleanly instead and no re-clone happens at all — cheapest path
+wins automatically.
+
+LATCH-DURABILITY (#5245 root-cause, shared with dr-promoter)
+------------------------------------------------------------
+kustomize-controller's server-side-apply cleanup REPLACES every field
+manager matching the `kubectl` prefix (kubectl-patch, kubectl-edit, …)
+with itself on EVERY reconcile of the applying Kustomization, then
+drops the claimed fields absent from its manifest (fluxcd
+kustomization_controller.go managed-fields cleanup — its documented
+"undo kubectl drift" behavior). hw275 live-proved this is what
+re-demoted the promoted survivor mid-recovery: kustomize Apply
+06:55:20 stripped the #5219 suspend latch, helm redeployed the
+reverted values 06:55:23 (release v4 — the re-demote), the promoter's
+self-heal re-latched 06:55:27, and the war repeated every reconcile
+(19 re-latches in 30 min; the HR's foreign annotations were stripped
+the same way). Custom field managers (`dr-failback`, `dr-promoter`)
+are NOT in that cleanup list, and the Kustomization CR itself is
+applied once by cloud-init (kubectl-client-side-apply, never
+re-applied) — the catalyst-api substitute flip
+(SOVEREIGN_ENABLE_CNPG_PAIR, manager `catalyst-api`) is the live-
+proven precedent that such patches persist. Every write this actor
+makes uses --field-manager=dr-failback.
+
+WHY A DEPLOYMENT, NOT A CronJob (#5157)
+---------------------------------------
+Same delivery contract as the dr-promoter: a region-local DR actor is
+a continuous Deployment loop; a CronJob's scheduler is the regional
+control plane and does not reliably resume around region churn.
+
+WHAT IT NEVER DOES
+------------------
+Never patches a live Cluster CR (#5125-D1 — drift-correction reverts
+it). Never deletes PVCs directly (owner-GC only), never any object but
+the one resourceNames-pinned Cluster CR. Never acts when the peer is
+unreachable, in recovery, or on an equal/lower timeline — a mere mesh
+partition, a healthy pair, or the pre-promote outage window all read
+as "no peer-ahead proof" and clear the hold clock. Never re-promotes
+region-B (that is the dr-promoter's TL-ahead re-promote, on
+cluster-B).
+*/ -}}
+{{- if (include "cnpg-pair.failbackActive" .) }}
+{{- $fb := .Values.cnpgPair.primary.failback }}
+{{- $hr := $fb.hr | default dict }}
+{{- $hrName := $hr.name | default "bp-cnpg-pair" }}
+{{- $hrNamespace := $hr.namespace | default "flux-system" }}
+{{- $ks := $fb.kustomization | default dict }}
+{{- $ksName := $ks.name | default "bootstrap-kit" }}
+{{- $ksNamespace := $ks.namespace | default "flux-system" }}
+{{- $kimg := $fb.kubectlImage | default dict }}
+{{- $krepo := $kimg.repository | default "harbor.openova.io/proxy-dockerhub/alpine/k8s" }}
+{{- $ktag := $kimg.tag | default "1.30.0" }}
+{{- $kpull := $kimg.pullPolicy | default "IfNotPresent" }}
+{{- $interval := $fb.intervalSeconds | default 10 }}
+{{- $hold := $fb.peerAheadHoldSeconds | default 120 }}
+{{- $startupGrace := $fb.startupGraceSeconds | default 300 }}
+{{- $probeTimeout := $fb.livenessProbeTimeoutSeconds | default 5 }}
+{{- $wedgeHold := $fb.wedgeHoldSeconds | default 600 }}
+{{- $peerClusters := .Values.cnpgPair.networkPolicy.crossRegionPeerClusters | default list }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: dr-failback
+---
+# Local-namespace surface: get + delete on EXACTLY the primary Cluster
+# CR (the bounded re-clone). No patch (live-CR patches are the #5125-D1
+# anti-pattern), no PVC verbs (owner-GC does the storage), no list.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+rules:
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get, delete]
+    resourceNames: [{{ include "cnpg-pair.primaryName" . }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+    namespace: {{ .Release.Namespace }}
+---
+# flux-system surface: the HR (annotations + reconcile nudges) and the
+# Kustomization (the durable SOVEREIGN_CNPG_PAIR_DEMOTED substitute) —
+# both resourceNames-pinned, get+patch only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+rules:
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, patch]
+    resourceNames: [{{ $hrName }}]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, patch]
+    resourceNames: [{{ $ksName }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+    namespace: {{ .Release.Namespace }}
+---
+# Egress allow-list (one CNP, #4428 idiom): apiserver (kubectl) +
+# kube-dns + the local primary cluster's 5432 (signals psql) + the
+# peer replica cluster's 5432 across the ClusterMesh (the peer probe —
+# same #4846 identity-scoped shape as the dr-promoter's region-A leg).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback-egress
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      catalyst.openova.io/role: dr-failback
+      catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . }}
+  egress:
+    - toEntities:
+        - kube-apiserver
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/cluster: {{ include "cnpg-pair.primaryName" . }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Peer probe path — region-B's replica Cluster Pods over the mesh.
+    # Cross-region ClusterMesh endpoints carry their OWN pod identity;
+    # a plain toEndpoints is implicitly ANDed with the LOCAL cluster
+    # (#4846), so admit the peer cluster(s) explicitly.
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-dr-failback
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: dr-failback
+  annotations:
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+spec:
+  replicas: 1
+  # Single actor; never two failback loops at once (#5157 shape).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cnpg-pair.selectorLabels" . | nindent 6 }}
+      catalyst.openova.io/role: dr-failback
+  template:
+    metadata:
+      labels:
+        {{- include "cnpg-pair.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/role: dr-failback
+        catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+        # kyverno cilium-l7-mtls (Enforce) — required on the Pod
+        # template or the Deployment is DENIED at admission (#3238).
+        policy.cilium.io/enforced: "true"
+    spec:
+      # The actor runs in the primary region — the half being rejoined.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: openova.io/region
+                    operator: In
+                    values: [{{ .Values.cnpgPair.primary.region | quote }}]
+      serviceAccountName: {{ include "cnpg-pair.fullname" . }}-dr-failback
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # ── signals — post-failover-geometry detector ─────────────────
+        # psql (streaming_replica client cert — this cluster's own
+        # `-primary-replication`, the #5133 auth pattern) against the
+        # LOCAL `-rw` plus the PEER probe over `-replica-mesh`. The
+        # peer psql presents the SAME local cert: region-B accepts it
+        # because its client CA is pinned to the shared `-primary-ca`
+        # (replica-cluster.yaml #5245). Timelines via IDENTIFY_SYSTEM
+        # on replication-protocol connections (pg_hba `hostssl
+        # replication streaming_replica all cert` — no pg_control /
+        # pg_read_all_stats privileges involved, #5239 lesson).
+        - name: signals
+          image: {{ include "cnpg-pair.imageRef" . | quote }}
+          imagePullPolicy: {{ .Values.cnpgPair.image.pullPolicy | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              LOCAL_CONN="host={{ include "cnpg-pair.primaryName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              PEER_CONN="host=${PEER_MESH_HOST} port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              # Replication-protocol conninfo for IDENTIFY_SYSTEM (the
+              # timeline read every streaming_replica can perform).
+              LOCAL_REPL="host={{ include "cnpg-pair.primaryName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key replication=true"
+              PEER_REPL="host=${PEER_MESH_HOST} port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key replication=true"
+              # LOCAL state ladder — mirrors the dr-promoter's #5239-readable
+              # signals: 'primary' (writable), 'streaming' (standby with a live
+              # walreceiver row + a set receive-LSN), 'receiving' (row, no WAL
+              # yet), 'noreceiver' (standby, no stream), 'unknown' (probe
+              # failed — fail-safe).
+              LQ="SELECT CASE
+                WHEN NOT pg_is_in_recovery() THEN 'primary'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) AND pg_last_wal_receive_lsn() IS NOT NULL THEN 'streaming'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) THEN 'receiving'
+                ELSE 'noreceiver'
+              END"
+              # Pinned sync standby present? The walsender rows run AS
+              # streaming_replica, so this probe role sees its own rows in
+              # full (no #5239 NULLing for same-user rows) — and row
+              # ABSENCE, the signal that matters, is visible to everyone.
+              SQ="SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_stat_replication WHERE application_name = '{{ include "cnpg-pair.replicaName" . }}') THEN 'present' ELSE 'absent' END"
+              # IDENTIFY_SYSTEM row: systemid | timeline | xlogpos | dbname
+              tl_of() {
+                psql "$1" -tAXc "IDENTIFY_SYSTEM" 2>/dev/null | head -1 | cut -d'|' -f2
+              }
+              is_int() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+              STARTED=$(date -u +%s)
+              echo "[dr-failback/signals] loop started (interval=${INTERVAL_SECONDS}s startupGrace=${STARTUP_GRACE_SECONDS}s peerMeshHost=${PEER_MESH_HOST})"
+              clear_hold() {
+                if [ -f /shared/peer-ahead-since ]; then
+                  echo "$(date -u +"%FT%TZ") [dr-failback/signals] $1 — peer-ahead hold clock cleared"
+                fi
+                rm -f /shared/peer-ahead-since
+              }
+              clear_wedge() { rm -f /shared/wedge-since; }
+              # probe_peer_ahead <tl_local> — verifies peer REACHABLE +
+              # WRITABLE + TL strictly higher; on success touches the
+              # freshness marker the actor re-checks before EVERY
+              # destructive step. Any failure → non-zero (caller clears).
+              probe_peer_ahead() {
+                _tl_local="$1"
+                pg_isready -h "${PEER_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q || return 1
+                _rec=$(psql "${PEER_CONN}" -tAXc "SELECT pg_is_in_recovery()" 2>/dev/null || echo "err")
+                [ "${_rec}" = "f" ] || return 1
+                _tl_peer=$(tl_of "${PEER_REPL}")
+                is_int "${_tl_peer}" || return 1
+                [ "${_tl_peer}" -gt "${_tl_local}" ] || return 1
+                echo "${_tl_peer}" > /shared/tl-peer
+                : > /shared/peer-ahead-fresh
+                return 0
+              }
+              while true; do
+                : > /shared/signals-alive
+                STATE=$(psql "${LOCAL_CONN}" -tAXc "${LQ}" 2>/dev/null || echo "unknown")
+                NOW=$(date -u +%s)
+                echo "${STATE}" > /shared/local-state
+                if [ "$((NOW - STARTED))" -lt "${STARTUP_GRACE_SECONDS}" ]; then
+                  clear_hold "startup grace ($((NOW - STARTED))s<${STARTUP_GRACE_SECONDS}s, state=${STATE})"
+                  clear_wedge
+                  sleep "${INTERVAL_SECONDS}"; continue
+                fi
+                case "${STATE}" in
+                  primary)
+                    clear_wedge
+                    SYNC=$(psql "${LOCAL_CONN}" -tAXc "${SQ}" 2>/dev/null || echo "err")
+                    if [ "${SYNC}" != "absent" ]; then
+                      # Standby streaming from us (or probe failed) — the pair
+                      # is healthy (or unknowable): fail-safe, no failback.
+                      clear_hold "local primary with sync standby ${SYNC}"
+                      sleep "${INTERVAL_SECONDS}"; continue
+                    fi
+                    TL_LOCAL=$(tl_of "${LOCAL_REPL}")
+                    if ! is_int "${TL_LOCAL}"; then
+                      clear_hold "local timeline unreadable — fail-safe"
+                      sleep "${INTERVAL_SECONDS}"; continue
+                    fi
+                    echo "${TL_LOCAL}" > /shared/tl-local
+                    if probe_peer_ahead "${TL_LOCAL}"; then
+                      if [ ! -f /shared/peer-ahead-since ]; then
+                        echo "${NOW}" > /shared/peer-ahead-since
+                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] POST-FAILOVER GEOMETRY: local writable TL=${TL_LOCAL}, sync standby ABSENT, peer WRITABLE on TL=$(cat /shared/tl-peer) (> local) — peer-ahead hold clock started (#5245)"
+                      fi
+                    else
+                      clear_hold "peer not provably writable+ahead (unreachable / in recovery / TL<=local)"
+                    fi
+                    ;;
+                  streaming)
+                    # Demoted + streaming from region-B — converged.
+                    clear_hold "local standby streaming (converged)"
+                    clear_wedge
+                    : > /shared/converged-streaming
+                    ;;
+                  receiving|noreceiver)
+                    # A local standby that is NOT streaming. If the peer is
+                    # provably writable+ahead this is the in-place-demote
+                    # wedge candidate (stale TL-N PGDATA that cannot follow) —
+                    # accrue the wedge clock for the actor's escalation.
+                    clear_hold "local standby state=${STATE}"
+                    rm -f /shared/converged-streaming
+                    TL_LOCAL=$(tl_of "${LOCAL_REPL}")
+                    if is_int "${TL_LOCAL}" && probe_peer_ahead "${TL_LOCAL}"; then
+                      if [ ! -f /shared/wedge-since ]; then
+                        echo "${NOW}" > /shared/wedge-since
+                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] local standby cannot stream (state=${STATE}) while peer is writable+ahead — wedge clock started (#5245 escalation)"
+                      fi
+                    else
+                      clear_wedge
+                    fi
+                    ;;
+                  unknown|*)
+                    # Local probe failed — mid-re-clone (no endpoints) or an
+                    # unhealthy local cluster. Fail-safe: no evidence accrues.
+                    clear_hold "local state unknown (probe failed — fail-safe)"
+                    clear_wedge
+                    rm -f /shared/converged-streaming
+                    ;;
+                esac
+                sleep "${INTERVAL_SECONDS}"
+              done
+          env:
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            - name: PEER_MESH_HOST
+              value: {{ include "cnpg-pair.peerReplicationServiceName" . | quote }}
+            - name: PROBE_TIMEOUT
+              value: {{ $probeTimeout | quote }}
+            - name: STARTUP_GRACE_SECONDS
+              value: {{ $startupGrace | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/signals-alive && test -z \"$(find /shared/signals-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/signals-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsUser: 26   # postgres in upstream cnpg image
+            runAsGroup: 26
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+            - name: replication-cert
+              mountPath: /tls/client
+              readOnly: true
+        # ── actor — demote (substitute) + bounded re-clone ────────────
+        # Every write carries --field-manager=dr-failback (survives the
+        # kustomize kubectl-manager cleanup — the #5245 root cause).
+        # Each tick runs in a subshell; every step is guarded by
+        # live-observed state, so the loop is idempotent and resumes
+        # from any crash point.
+        - name: actor
+          image: {{ printf "%s:%s" $krepo $ktag | quote }}
+          imagePullPolicy: {{ $kpull | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              FM="--field-manager=dr-failback"
+              echo "[dr-failback/actor] loop started (hold=${HOLD_SECONDS}s wedgeHold=${WEDGE_HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME} kustomization=${KS_NAMESPACE}/${KS_NAME})"
+              # nudge <kind> <ns> <name> <marker> — rate-limited flux
+              # reconcile request (reconcile.fluxcd.io/requestedAt).
+              nudge() {
+                if [ ! -f "/shared/$4" ] || [ -n "$(find "/shared/$4" -mmin +1)" ]; then
+                  kubectl -n "$2" annotate "$1" "$3" "reconcile.fluxcd.io/requestedAt=$(date -u +%s)" --overwrite ${FM} >/dev/null 2>&1 || true
+                  : > "/shared/$4"
+                fi
+              }
+              # peer_fresh — the signals container re-verified the peer
+              # writable+ahead within the last 60s (it re-probes every
+              # tick, ~10s). Required before EVERY destructive step (a
+              # stale proof is no proof). POSIX find only (-mmin integer:
+              # busybox-safe).
+              peer_fresh() {
+                [ -f /shared/peer-ahead-fresh ] && [ -z "$(find /shared/peer-ahead-fresh -mmin +1 2>/dev/null)" ]
+              }
+              # ts_lt <a> <b> — RFC3339-UTC lexicographic a < b (POSIX;
+              # no `[ \< ]` bashism).
+              ts_lt() {
+                [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort | head -1)" = "$1" ]
+              }
+              while true; do
+                : > /shared/actor-alive
+                (
+                  set -eu
+                  SUB=$(kubectl -n "${KS_NAMESPACE}" get kustomization "${KS_NAME}" -o jsonpath='{.spec.postBuild.substitute.SOVEREIGN_CNPG_PAIR_DEMOTED}' 2>/dev/null || echo "")
+                  VALS_DEMOTED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.values.cnpgPair.primary.demoted}' 2>/dev/null || echo "")
+                  CR_JSON=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" -o jsonpath='{.spec.replica.enabled}|{.metadata.creationTimestamp}|{.metadata.deletionTimestamp}' 2>/dev/null || echo "__absent__")
+                  STARTED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-failback-started-at}' 2>/dev/null || echo "")
+
+                  # ── CONVERGED — record once, then idle ────────────────
+                  if [ -f /shared/converged-streaming ] && [ "${VALS_DEMOTED}" = "true" ] && [ ! -f /shared/converged-recorded ]; then
+                    if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-converged-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1; then
+                      : > /shared/converged-recorded
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] CONVERGED: region-A re-cloned and streaming from region-B — recorded dr-failback-converged-at on HR ${HR_NAMESPACE}/${HR_NAME}. Cross-region replication restored, roles swapped; the controlled switchback (demote region-B, restore region-A primary) is the sovereign-admin's RUNBOOKS §6.1 action (#5245)"
+                    fi
+                    exit 0
+                  fi
+
+                  # ── D0: DECIDE — flip the durable demotion substitute ─
+                  if [ "${SUB}" != "true" ]; then
+                    [ -f /shared/peer-ahead-since ] || exit 0
+                    SINCE=$(cat /shared/peer-ahead-since)
+                    NOW=$(date -u +%s)
+                    HELD=$((NOW - SINCE))
+                    if [ "${HELD}" -lt "${HOLD_SECONDS}" ]; then
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] peer writable+ahead held ${HELD}s < ${HOLD_SECONDS}s — waiting"
+                      exit 0
+                    fi
+                    peer_fresh || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] hold expired but peer proof is stale — re-verifying next tick (fail-safe)"; exit 0; }
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] DEMOTING region-A: peer writable on TL=$(cat /shared/tl-peer 2>/dev/null || echo '?') > local TL=$(cat /shared/tl-local 2>/dev/null || echo '?') held ${HELD}s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)"
+                    kubectl -n "${KS_NAMESPACE}" patch kustomization "${KS_NAME}" --type merge ${FM} -p '{"spec":{"postBuild":{"substitute":{"SOVEREIGN_CNPG_PAIR_DEMOTED":"true"}}}}'
+                    kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-started-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-failback-reason\":\"region-A resumed stale TL$(cat /shared/tl-local 2>/dev/null || echo '?') primary while region-B is writable on TL$(cat /shared/tl-peer 2>/dev/null || echo '?'); demoting + re-cloning region-A onto region-B's line (#5245)\"}}}" >/dev/null 2>&1 || true
+                    nudge kustomization "${KS_NAMESPACE}" "${KS_NAME}" nudged-ks
+                    exit 0
+                  fi
+
+                  # ── D1: WAIT for kustomize to render the demotion ─────
+                  if [ "${VALS_DEMOTED}" != "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] substitute set but HR values not yet rendered (demoted='${VALS_DEMOTED}') — waiting for kustomize-controller"
+                    nudge kustomization "${KS_NAMESPACE}" "${KS_NAME}" nudged-ks
+                    exit 0
+                  fi
+
+                  # ── D2: RE-CLONE — the one bounded destructive act ────
+                  if [ "${CR_JSON}" = "__absent__" ]; then
+                    # Deleted (by us) or not yet re-created — nudge helm to
+                    # render the demoted shape promptly.
+                    nudge helmrelease "${HR_NAMESPACE}" "${HR_NAME}" nudged-hr
+                    exit 0
+                  fi
+                  CR_REPLICA=$(echo "${CR_JSON}" | cut -d'|' -f1)
+                  CR_CREATED=$(echo "${CR_JSON}" | cut -d'|' -f2)
+                  CR_DELETING=$(echo "${CR_JSON}" | cut -d'|' -f3)
+                  if [ -n "${CR_DELETING}" ]; then
+                    exit 0   # teardown in progress — wait
+                  fi
+                  if [ "${CR_REPLICA}" != "true" ]; then
+                    # Still the OLD primary shape with the stale timeline.
+                    peer_fresh || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] demotion rendered but peer proof stale — NOT deleting (fail-safe)"; exit 0; }
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONING: deleting stale Cluster ${PRIMARY_CLUSTER} (old primary shape, TL=$(cat /shared/tl-local 2>/dev/null || echo '?')) — helm re-creates it as a pg_basebackup replica of region-B; PVCs are CNPG-owned and garbage-collect (#5245)"
+                    kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
+                    kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                    exit 0
+                  fi
+                  # Demoted shape exists. A CR created BEFORE the failback
+                  # episode is an IN-PLACE demote keeping stale PGDATA — if it
+                  # cannot stream for wedgeHold while the peer stays provably
+                  # writable+ahead, escalate to the re-clone. A CR created
+                  # AFTER (a fresh clone) is NEVER deleted — bounded
+                  # destruction.
+                  if [ -n "${STARTED_AT}" ] && ts_lt "${CR_CREATED}" "${STARTED_AT}" && [ -f /shared/wedge-since ]; then
+                    WSINCE=$(cat /shared/wedge-since)
+                    NOW=$(date -u +%s)
+                    if [ "$((NOW - WSINCE))" -ge "${WEDGE_HOLD_SECONDS}" ]; then
+                      peer_fresh || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] wedge hold expired but peer proof stale — NOT deleting (fail-safe)"; exit 0; }
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] WEDGE ESCALATION: in-place-demoted Cluster (created ${CR_CREATED} < failback start ${STARTED_AT}) unable to stream $((NOW - WSINCE))s >= ${WEDGE_HOLD_SECONDS}s with peer writable+ahead — deleting for a clean re-clone (#5245)"
+                      kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
+                      kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                      exit 0
+                    fi
+                  fi
+                  # Fresh clone converging (or in-place demote following
+                  # cleanly) — let it stream; the CONVERGED block closes out.
+                  exit 0
+                ) || echo "[dr-failback/actor] tick returned non-zero — retry in ${INTERVAL_SECONDS}s"
+                sleep "${INTERVAL_SECONDS}"
+              done
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HR_NAME
+              value: {{ $hrName | quote }}
+            - name: HR_NAMESPACE
+              value: {{ $hrNamespace | quote }}
+            - name: KS_NAME
+              value: {{ $ksName | quote }}
+            - name: KS_NAMESPACE
+              value: {{ $ksNamespace | quote }}
+            - name: HOLD_SECONDS
+              value: {{ $hold | quote }}
+            - name: WEDGE_HOLD_SECONDS
+              value: {{ $wedgeHold | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+            - name: PRIMARY_CLUSTER
+              value: {{ include "cnpg-pair.primaryName" . | quote }}
+            # kubectl writes its discovery/http cache under $HOME.
+            - name: HOME
+              value: /tmp
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/actor-alive && test -z \"$(find /shared/actor-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/actor-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shared
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        # THIS primary cluster's own CNPG-issued streaming_replica client
+        # cert — 0440 root:26, the perms libpq requires for an sslkey
+        # (#5133). The SAME cert authenticates against region-B thanks to
+        # the shared client CA (replica-cluster.yaml #5245).
+        - name: replication-cert
+          secret:
+            secretName: {{ include "cnpg-pair.primaryName" . }}-replication
+            defaultMode: 0440
+{{- end }}

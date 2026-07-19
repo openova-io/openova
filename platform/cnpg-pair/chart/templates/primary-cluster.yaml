@@ -16,9 +16,37 @@ Side-gating (chart 0.2.0): this CR renders ONLY on side=primary —
 the primary and replica halves of the pair live on SEPARATE clusters
 (ClusterMesh-joined), so cluster-B must never receive the primary
 Cluster CR (its region-A node-affinity could never schedule there).
+
+DEMOTED shape (#5245, chart 0.2.18): when `cnpgPair.primary.demoted`
+is true this CR renders as a REPLICA CLUSTER of region-B — the
+region-A rejoin after a region-kill promote. hw275 G12 proved the
+failback leg was missing: recovered region-A resumed its OLD TL1
+primary role while promoted region-B held TL2, and a TL2 line can
+never stream from a TL1 source ("highest timeline 1 of the primary is
+behind recovery timeline 2" FATAL loop) — cross-region replication
+permanently dead. The rejoin DISCARDS region-A's stale timeline and
+re-clones from region-B (bootstrap.pg_basebackup over the
+`-replica-mesh` global Service): with sync remote_apply + FIRST 1
+pinned to the cross-region replica + dataDurability:required, region-B
+holds EVERY acknowledged commit region-A ever made (before the kill it
+was the mandatory sync target; after recovery region-A is write-fenced
+by the same unsatisfiable FIRST 1), so nothing acknowledged is lost —
+only region-A's never-acked local WAL tail, which the RPO=0 contract
+already discards. pg_rewind is deliberately NOT used: CNPG has no
+cross-cluster rewind trigger and a rewind's fork-point arithmetic
+depends on WAL-tail geometry the actor cannot verify; the basebackup
+re-clone is deterministic for every geometry. The demoted shape omits
+the synchronous block (a standby carries no sync fence); flipping
+`demoted` back to false (the sovereign-admin's controlled switchback,
+after region-B has been demoted in turn) restores the full primary
+shape. AUTH: the rejoin stream presents region-A's OWN
+`-primary-replication` client cert — accepted by region-B because the
+replica Cluster pins its client CA to the shared `-primary-ca`
+(replica-cluster.yaml, #5245).
 */ -}}
 {{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) }}
 {{- include "cnpg-pair.validateRegions" . }}
+{{- $demoted := .Values.cnpgPair.primary.demoted | default false }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -46,10 +74,56 @@ spec:
   resources:
     {{- toYaml .Values.cnpgPair.primary.resources | nindent 4 }}
 
+{{- if $demoted }}
+  # ── #5245 REJOIN shape — replica cluster of region-B ──────────────
+  # `replica.enabled: true` + pg_basebackup from the `-replica`
+  # externalCluster (region-B's promoted primary over `-replica-mesh`).
+  # bootstrap runs only at Cluster creation — the dr-failback actor
+  # deletes the stale Cluster CR once this desired state is rendered,
+  # so helm re-creates it fresh and the basebackup clones region-B's
+  # current timeline.
+  replica:
+    enabled: true
+    source: {{ include "cnpg-pair.fullname" . }}-replica
+  bootstrap:
+    pg_basebackup:
+      source: {{ include "cnpg-pair.fullname" . }}-replica
+      database: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      owner:    {{ .Values.cnpgPair.primary.bootstrap.owner | quote }}
+  externalClusters:
+    - name: {{ include "cnpg-pair.fullname" . }}-replica
+      connectionParameters:
+        # Reverse-direction ClusterMesh global alias: region-B's
+        # replica Cluster publishes its `rw` (designated/promoted
+        # primary) as `<fullname>-replica-mesh` (managed additional
+        # Service, replica-cluster.yaml); the side=primary local stub
+        # (peer-mesh-service.yaml) makes the name resolve here with
+        # zero local backends → traffic crosses the mesh.
+        host: {{ include "cnpg-pair.peerReplicationServiceName" . }}
+        port: "5432"
+        user: streaming_replica
+        sslmode: require
+        dbname: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      # Region-A's OWN CNPG-issued streaming_replica client cert —
+      # accepted by region-B because the replica Cluster's client CA is
+      # pinned to this same `-primary-ca` (shared client CA, #5245).
+      # Both Secrets exist natively on cluster-A (CNPG issued them for
+      # this Cluster).
+      sslKey:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.key
+      sslCert:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.crt
+      sslRootCert:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-ca
+        key: ca.crt
+{{- else }}
   bootstrap:
     initdb:
       database: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
       owner:    {{ .Values.cnpgPair.primary.bootstrap.owner | quote }}
+{{- end }}
 
   # Region pinning — node-affinity is the operator's idiomatic seam
   # for region selection (Cluster CR Pods land on nodes whose
@@ -128,11 +202,15 @@ spec:
       manifest then omits both the parameter AND the synchronous block,
       falling back to the PostgreSQL default (synchronous_commit=on,
       no standbys forced).
+
+      #5245: the DEMOTED (rejoin) shape also omits both — a standby of
+      region-B must not pin a sync fence; the fence returns with the
+      primary shape on the controlled switchback (demoted:false).
       */ -}}
-      {{- if eq (default "sync" .Values.cnpgPair.replication.mode) "sync" }}
+      {{- if and (not $demoted) (eq (default "sync" .Values.cnpgPair.replication.mode) "sync") }}
       synchronous_commit: {{ default "remote_apply" .Values.cnpgPair.replication.sync.commit | quote }}
       {{- end }}
-    {{- if eq (default "sync" .Values.cnpgPair.replication.mode) "sync" }}
+    {{- if and (not $demoted) (eq (default "sync" .Values.cnpgPair.replication.mode) "sync") }}
     # ── Synchronous replication — CNPG-native (NOT a raw parameter) ────
     # method=first + number=N + standbyNamesPre:[<replica>] +
     # maxStandbyNamesFromCluster:0 renders

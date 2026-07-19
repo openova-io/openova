@@ -300,6 +300,123 @@ region-kill. A third-site witness generalizing this (and letting the
 full Continuum sequencer — DNS flip, HTTPRoute drain — run from the
 survivor) is follow-up on #5137.
 
+### 10. Region-A automatic DR failback — the dr-failback + durable seams (chart 0.2.18, #5245)
+
+hw275 G12 (2026-07-19) proved the DR chain had a forward leg only.
+After a clean promote (region-B writable, TL2, latched), `recover
+--arm` os-started region-A and nothing converged: region-A resumed its
+OLD TL1 primary role (it never knew it was killed), region-B could
+never re-stream — a TL2 line cannot follow a TL1 source (walreceiver
+`FATAL 55000 "highest timeline 1 of the primary is behind recovery
+timeline 2"`, every 5 s, forever) — and the promote latch froze the HR
+with no owner for the return leg. Chart 0.2.18 closes it with four
+pieces:
+
+**(a) Latch durability — custom field managers.** The observed
+mid-recovery re-demote had a precise mechanism: kustomize-controller's
+server-side-apply cleanup replaces every field manager matching the
+`kubectl` prefix with itself on EACH reconcile of the applying
+Kustomization and drops the claimed fields absent from its manifest
+(its documented "undo kubectl drift" behavior). The #5219 suspend
+latch was written with the default `kubectl-patch` manager, so every
+bootstrap-kit reconcile stripped it: on hw275, kustomize Apply
+06:55:20 → helm redeployed the reverted values 06:55:23 (release v4 —
+the re-demote that manufactured the FATAL-loop state) → the self-heal
+re-latched 06:55:27, nineteen times in 30 minutes. Every DR-actor
+write now carries `--field-manager=dr-promoter` / `dr-failback` —
+managers the cleanup list does not match (live precedent: the
+catalyst-api substitute flips persist under manager `catalyst-api`).
+
+**(b) Durable handoff + latch lift — the substitute seam.** The
+suspend latch remains the mid-outage mechanism (helm-only; works from
+the cached chart artifact with zero kustomize/source dependency), but
+it is no longer the end state. Slot 16b now renders
+`replica.promoted: ${SOVEREIGN_CNPG_PAIR_PROMOTED:-false}` and
+`primary.demoted: ${SOVEREIGN_CNPG_PAIR_DEMOTED:-false}`; once a
+promotion is latched+rendered, the promoter patches
+`SOVEREIGN_CNPG_PAIR_PROMOTED="true"` onto the bootstrap-kit
+Kustomization's `postBuild.substitute` (the catalyst-api
+`SOVEREIGN_ENABLE_CNPG_PAIR` precedent — the Kustomization CR is
+applied once by cloud-init and never re-applied, so a custom-manager
+patch persists), verifies the HR renders `promoted: true` from source,
+then UNSUSPENDS. Drift-correction thereafter re-affirms the failed-over
+topology; flux is fully reconciled (chart bumps flow again). If the
+substitute is ever lost, the per-tick self-heal re-latches.
+
+**(c) TL-ahead re-promote — the #5220-B wedge made actionable.** A
+standby whose OWN timeline is strictly higher than its REACHABLE
+source's holds a line the source can never supersede: before the
+divergence it was the mandatory `remote_apply` sync target (so it had
+every acked commit), and after it the lower-TL side is write-fenced by
+its unsatisfiable `FIRST 1`. The promoter reads both timelines via
+`IDENTIFY_SYSTEM` on replication-protocol connections (the one surface
+`streaming_replica` is guaranteed — no `pg_read_all_stats`, the #5239
+lesson) and, once the #5220 divergence wedge has held, re-promotes the
+TL-ahead standby through the substitute seam. This deliberately
+bypasses the #5220 arm gate (a TL-ahead standby can never stream, so
+it could never arm) — sound because the timeline arithmetic is a
+strictly stronger proof than the streaming heuristic: no link flap or
+never-converged pair can manufacture `own-TL > source-TL`. Guards: max
+once per pod lifetime, never after `/shared/diverged` (the hw266
+runaway guard), wedge must have held `timelineDivergenceHoldSeconds`.
+
+**(d) dr-failback — demote + re-clone region-A onto the promoted
+line.** `side=primary` renders a `<fullname>-dr-failback` Deployment
+(same #5157 two-container shape) gated on sync mode AND
+`crossRegionPeerClusters` (without the peer probe there is no safe
+action, so nothing renders). Signals: local cluster WRITABLE on TL n +
+the pinned sync standby ABSENT from `pg_stat_replication` (walsender
+rows run AS `streaming_replica` — same-user rows are fully visible) +
+the peer REACHABLE, WRITABLE and on a strictly HIGHER timeline over
+the new `-replica-mesh` global Service (the reverse mirror of
+`-primary-mesh`: a CNPG-managed `rw` additional Service on the replica
+Cluster + a zero-backend stub on cluster-A). `TL_peer > TL_local` is
+antisymmetric — only the stale side can ever see peer-ahead, so the
+two regions' actors can never both act. After the proof holds
+`peerAheadHoldSeconds`, the actor flips
+`SOVEREIGN_CNPG_PAIR_DEMOTED="true"`, waits for kustomize to render
+the demoted shape into the HR (primary Cluster CR as a replica cluster
+of region-B: `replica.enabled: true` + `bootstrap.pg_basebackup` from
+the `-replica` externalCluster, synchronous block omitted), and then
+performs the ONE destructive act: it deletes the stale Cluster CR so
+helm re-creates it fresh and `pg_basebackup` clones region-B's current
+timeline (PVCs are CNPG-owned and garbage-collect).
+
+*Why this direction, and why it is data-safe*: the same sync fence
+that authorizes the forward promote proves region-B's line ⊇ every
+ACKED commit region-A ever made — before the kill B was the mandatory
+sync target; the dead window adds nothing; post-recovery A is
+write-fenced by its unsatisfiable `FIRST 1`. Discarding A's line loses
+only never-acked local WAL, which the RPO=0 contract already
+discards. The reverse re-clone (B from A) would destroy acknowledged
+post-promote writes and is never automatic. *Why not `pg_rewind`*:
+CNPG has no cross-cluster rewind trigger, and rewind's fork-point
+arithmetic depends on WAL-tail geometry the actor cannot verify; the
+basebackup re-clone is deterministic for every geometry (cost: a full
+copy — acceptable on the recovery leg, disclosed here). *Bounded
+destruction*: delete only the resourceNames-pinned Cluster CR, only
+with a <60 s-fresh peer-writable-and-ahead proof at that exact tick,
+and NEVER a Cluster created after the failback episode began — an
+in-place-demoted stale standby (if the webhook admits the shape change
+on the live CR) is re-cloned only via the wedge escalation
+(`wedgeHoldSeconds` unable to stream, `creationTimestamp` predating
+`dr-failback-started-at`); a fresh clone is never deleted.
+
+*Auth*: the rejoin stream and the peer probe present region-A's own
+`-primary-replication` client cert. Region-B accepts it because the
+replica Cluster pins `certificates.clientCASecret` to the shared
+`-primary-ca` (already synced A→B with `ca.key` at the post-mesh flip
+— live-verified hw275; CNPG generates `<replica>-replication` from a
+BYO client CA when `replicationTLSSecret` is unset, so every existing
+consumer keeps its mounts).
+
+End state after a kill+recover cycle: region-B primary, region-A
+streaming replica, both HRs unsuspended, the failed-over topology
+rendered from source. The controlled switchback to the original roles
+(demote B, restore A as primary — flip both substitutes back) stays a
+sovereign-admin action per RUNBOOKS §6.1; automating it needs the
+CNPG demotion-token handshake and is follow-up on #5245.
+
 ---
 
 ## C-DB-3 acceptance test — implementer brief (HARNESS SHIPPED, awaits operator walk)

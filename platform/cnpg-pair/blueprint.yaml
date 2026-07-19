@@ -50,7 +50,25 @@ spec:
   # ROW (EXISTS visible to all) AND pg_last_wal_receive_lsn() non-null. A GRANT
   # was not viable (streaming_replica is CNPG-reserved and absent at postInitSQL
   # time). All #5220/#5219/#5178 gates unchanged; script-only.
-  version: 0.2.17
+  # 0.2.18 (#5245): region-kill FAILBACK — the missing return leg. hw275 G12:
+  # after a clean forward promote, recovered region-A resumed its stale TL1
+  # primary role while promoted region-B FATAL-looped as a TL2 standby —
+  # replication permanently dead. (1) latch durability: every actor write uses
+  # a custom --field-manager (kustomize's managed-fields cleanup strips
+  # kubectl-managed fields each reconcile — the observed mid-recovery
+  # re-demote); (2) durable handoff: the promotion moves into the
+  # bootstrap-kit Kustomization substitute SOVEREIGN_CNPG_PAIR_PROMOTED and
+  # the suspend latch is LIFTED once source-rendered; (3) TL-ahead
+  # re-promote: a standby provably ahead of its reachable source
+  # (IDENTIFY_SYSTEM arithmetic) re-promotes through the substitute seam;
+  # (4) NEW side=primary dr-failback actor: on a held peer-writable-and-ahead
+  # proof it demotes region-A (SOVEREIGN_CNPG_PAIR_DEMOTED → the primary
+  # Cluster renders as a pg_basebackup replica of region-B over the new
+  # `-replica-mesh` global Service) and re-clones the stale line — bounded
+  # destruction, sync-fence data-safety (region-B ⊇ every acked commit).
+  # Shared client CA on the replica Cluster (clientCASecret=-primary-ca) lets
+  # region-A's own cert authenticate the rejoin stream.
+  version: 0.2.18
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

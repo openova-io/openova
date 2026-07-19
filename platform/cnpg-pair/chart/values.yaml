@@ -53,6 +53,83 @@ cnpgPair:
     # via configSchema. Empty string with enabled=true triggers a
     # template-time `required` error.
     region: ""
+    # ── DR FAILBACK demotion (#5245) — mirror of replica.promoted ────
+    # When true, the side=primary Cluster CR renders as a REPLICA
+    # CLUSTER of region-B (replica.enabled:true + bootstrap.pg_basebackup
+    # + externalClusters streaming region-B's promoted primary over the
+    # `-replica-mesh` global Service), and the synchronous block is
+    # OMITTED (a standby carries no sync fence). This is the region-A
+    # rejoin shape after a region-kill promote: the recovered region-A
+    # must DISCARD its stale timeline and re-clone onto region-B's
+    # promoted line — never the reverse (region-B's line ⊇ every
+    # ACKNOWLEDGED commit, structurally: sync remote_apply + FIRST 1
+    # pinned to the cross-region replica + dataDurability:required means
+    # region-A could never ack a commit region-B lacked, before OR after
+    # the kill — post-recovery region-A is write-fenced by the same
+    # unsatisfiable FIRST 1).
+    #
+    # The durable channel for this flag is the bootstrap-kit
+    # Kustomization postBuild substitute SOVEREIGN_CNPG_PAIR_DEMOTED
+    # (slot 16b renders `demoted: ${SOVEREIGN_CNPG_PAIR_DEMOTED:-false}`),
+    # patched by the dr-failback actor with its own field manager —
+    # kustomize-controller then renders the demotion as ITS OWN desired
+    # state, so drift-correction RE-AFFIRMS it (no suspend latch needed
+    # on this side; see the #5245 latch-durability note in dr-promoter).
+    demoted: false
+    # ── Region-A automatic DR FAILBACK (#5245) ───────────────────────
+    # hw275 G12 proved the failback leg was missing: after a clean
+    # forward promote (region-B TL2) and a region-A recovery, region-A
+    # resumed its OLD TL1 primary role and region-B could never
+    # re-stream ("highest timeline 1 of the primary is behind recovery
+    # timeline 2" FATAL loop) — cross-region replication permanently
+    # dead. failback ships a region-A-local actor (side=primary only)
+    # that detects the post-failover geometry from POSITIVE signals
+    # (local writable on TL n; the pinned sync standby absent; the peer
+    # REACHABLE + WRITABLE + on a HIGHER timeline over the
+    # `-replica-mesh` global Service) and then demotes + RE-CLONES
+    # region-A onto region-B's line via the SOVEREIGN_CNPG_PAIR_DEMOTED
+    # substitute seam. The one destructive act (deleting the local
+    # stale Cluster CR so helm re-creates it as a pg_basebackup replica
+    # of region-B) is gated on the peer being PROVABLY writable + ahead
+    # at that exact tick — the timeline order is the authority proof.
+    failback:
+      enabled: true
+      intervalSeconds: 10
+      # The peer-ahead evidence (local primary + sync standby absent +
+      # peer writable on a higher TL) must hold CONTINUOUSLY this long
+      # before the actor flips the demotion substitute. A transient
+      # mesh blip or a replica restart clears the clock.
+      peerAheadHoldSeconds: 120
+      # A freshly-(re)started signals container must never act on a
+      # half-observed geometry.
+      startupGraceSeconds: 300
+      # pg_isready timeout for the peer probe.
+      livenessProbeTimeoutSeconds: 5
+      # How long an in-place-demoted standby (a Cluster CR that CNPG
+      # demoted in place, keeping its stale TL-n PGDATA) may sit unable
+      # to stream from a writable+ahead peer before the actor escalates
+      # to the re-clone (delete + fresh pg_basebackup). A fresh clone
+      # created AFTER the failback started is NEVER deleted (bounded
+      # destruction: at most one re-clone per failback episode).
+      wedgeHoldSeconds: 600
+      # The flux Kustomization whose postBuild.substitute map carries
+      # the durable SOVEREIGN_CNPG_PAIR_DEMOTED flip (the catalyst-api
+      # enableCNPGPairAfterFullMesh precedent — a custom field manager
+      # on the Kustomization spec survives every reconcile).
+      kustomization:
+        name: bootstrap-kit
+        namespace: flux-system
+      # The region-A HelmRelease (annotations + reconcile nudges only —
+      # the desired state itself rides the substitute).
+      hr:
+        name: bp-cnpg-pair
+        namespace: flux-system
+      # kubectl-bearing image for the actor container (same
+      # harbor-proxy-pull-compliant prefix as the dr-promoter's).
+      kubectlImage:
+        repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+        tag: "1.30.0"
+        pullPolicy: IfNotPresent
     instances: 3
     storage:
       size: 100Gi
@@ -216,6 +293,30 @@ cnpgPair:
       # (bootstrap-kit slot 16b defaults).
       hr:
         name: bp-cnpg-pair
+        namespace: flux-system
+      # ── #5245 durable-promotion handoff target ──────────────────────
+      # The flux Kustomization that applies slot 16b. hw275 G12 proved
+      # the #5219 suspend latch is NOT durable: kustomize-controller's
+      # managed-fields cleanup claims every `kubectl*`-managed field on
+      # each reconcile (fluxcd kustomization_controller.go — managers
+      # matching the `kubectl` prefix are replaced and their fields,
+      # absent from the manifest, are REMOVED), so `spec.suspend` +
+      # the DR annotations were stripped every bootstrap-kit reconcile
+      # and helm re-demoted the promoted survivor in the seconds before
+      # the self-heal re-latched (hw275: kustomize Apply 06:55:20 →
+      # helm re-demote 06:55:23 → re-latch 06:55:27). Two fixes ride
+      # this value: (a) every actor patch now uses a CUSTOM field
+      # manager (`dr-promoter`), which the cleanup list does not match,
+      # so the latch survives; (b) once the promotion is rendered the
+      # actor performs a DURABLE HANDOFF — it patches this
+      # Kustomization's postBuild.substitute
+      # SOVEREIGN_CNPG_PAIR_PROMOTED="true" so kustomize itself renders
+      # `replica.promoted: true` into the HR desired state, verifies the
+      # render, then LIFTS the suspend latch (the reconciled-topology
+      # end state: flux fully unfrozen, drift-correction re-affirming
+      # the promotion).
+      kustomization:
+        name: bootstrap-kit
         namespace: flux-system
       # kubectl-bearing image for the actor container. Same
       # harbor-proxy-pull-compliant (`*/proxy-*/*`) prefix as the

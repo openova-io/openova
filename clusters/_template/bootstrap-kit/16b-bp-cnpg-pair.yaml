@@ -253,7 +253,23 @@ spec:
       # A GRANT was not viable (streaming_replica is a CNPG reserved role and does
       # not exist at postInitSQL time → GRANT would wedge bootstrap). All #5220/
       # #5219/#5178 gates unchanged; script-only. No new substitute.
-      version: 0.2.17
+      # 0.2.18 (#5245): region-kill FAILBACK. hw275 G12: after a clean forward
+      # promote, recovered region-A resumed its stale TL1 primary while promoted
+      # region-B FATAL-looped as a TL2 standby — replication permanently dead.
+      # (1) every actor write uses a custom --field-manager (kustomize-controller
+      # strips kubectl-managed fields on every reconcile of THIS slot — the
+      # live-observed mid-recovery re-demote of the promoted survivor); (2) the
+      # promotion/demotion desired state now rides TWO NEW substitutes below
+      # (SOVEREIGN_CNPG_PAIR_PROMOTED / SOVEREIGN_CNPG_PAIR_DEMOTED) that the
+      # DR actors patch onto THIS Kustomization's postBuild.substitute with
+      # their own field managers (the catalyst-api SOVEREIGN_ENABLE_CNPG_PAIR
+      # precedent) — kustomize then renders the failed-over topology as its own
+      # desired state and the suspend latch is LIFTED; (3) a TL-ahead standby
+      # (own timeline > reachable source's) re-promotes automatically; (4) NEW
+      # side=primary dr-failback actor demotes + re-clones region-A onto
+      # region-B's promoted line (pg_basebackup over the new `-replica-mesh`
+      # global Service; shared client CA so region-A's own cert authenticates).
+      version: 0.2.18
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -331,8 +347,29 @@ spec:
       primary:
         # Canonical region label (matches openova.io/region node label).
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
+        # ── #5245 DR FAILBACK seam — cluster-local runtime flip ───────
+        # NOT a provisioner substitute: default false on every prov. The
+        # side=primary dr-failback actor patches SOVEREIGN_CNPG_PAIR_
+        # DEMOTED="true" onto THIS Kustomization's postBuild.substitute
+        # (custom field manager `dr-failback`) when a recovered region-A
+        # must rejoin region-B's promoted line — kustomize then renders
+        # the demotion (primary Cluster CR as a pg_basebackup replica of
+        # region-B) as its OWN desired state, so drift-correction
+        # re-affirms it. The sovereign-admin's controlled switchback
+        # resets it to "false" (RUNBOOKS §6.1).
+        demoted: ${SOVEREIGN_CNPG_PAIR_DEMOTED:-false}
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
+        # ── #5245 DR PROMOTION seam — cluster-local runtime flip ──────
+        # NOT a provisioner substitute: default false on every prov. The
+        # side=replica dr-promoter's DURABLE HANDOFF patches SOVEREIGN_
+        # CNPG_PAIR_PROMOTED="true" onto THIS Kustomization once a
+        # promotion is latched+rendered (and the TL-ahead re-promote
+        # writes it directly) — the promotion becomes the SOURCE-rendered
+        # desired state and the #5219 suspend latch is LIFTED, so flux
+        # keeps reconciling the promoted survivor instead of freezing
+        # forever. Reset to "false" at the controlled switchback.
+        promoted: ${SOVEREIGN_CNPG_PAIR_PROMOTED:-false}
       networkPolicy:
         # crossRegionPeerClusters (#4846) — admit the PEER region's Pods to the
         # pair's 5432 by CLUSTER IDENTITY. A k8s `ipBlock` (the reverted #4846

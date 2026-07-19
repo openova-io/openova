@@ -61,6 +61,24 @@ spec:
   resources:
     {{- toYaml .Values.cnpgPair.replica.resources | nindent 4 }}
 
+  # ── Shared client CA (#5245) ──────────────────────────────────────
+  # Pin this cluster's CLIENT CA to the primary cluster's CA Secret
+  # (already synced cluster-A → cluster-B at the post-mesh flip, with
+  # ca.crt + ca.key — live-verified hw275). CNPG then issues THIS
+  # cluster's `<replica>-replication` streaming_replica leaf from that
+  # CA (cluster_pki.go: a BYO clientCASecret carrying ca.key generates
+  # the replication leaf when replicationTLSSecret is unset), so every
+  # local consumer (failover-readiness + the promoter signals) keeps
+  # mounting `<replica>-replication` unchanged — AND region-A's own
+  # `-primary-replication` cert (same CA) now authenticates here too.
+  # That reverse-direction auth is what the #5245 failback rides:
+  # the demoted region-A streams FROM this cluster (post-promote)
+  # presenting the only client cert cluster-A natively holds. Server
+  # certs are untouched (sslmode=require skips server-chain
+  # verification on every streaming path in this chart).
+  certificates:
+    clientCASecret: {{ include "cnpg-pair.fullname" . }}-primary-ca
+
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
@@ -146,6 +164,43 @@ spec:
       sslRootCert:
         name: {{ include "cnpg-pair.fullname" . }}-primary-ca
         key: ca.crt
+
+  # ── Reverse-direction replication Service (#5245) ─────────────────
+  # Publish THIS cluster's writable endpoint across the mesh as
+  # `<fullname>-replica-mesh` — the exact mirror of the primary side's
+  # `-primary-mesh` (CNPG-managed additional Service, selectorType rw,
+  # Cilium-global). Pre-promote this tracks the designated primary (a
+  # standby — no consumers); POST-PROMOTE it is the writable survivor
+  # region-A's failback rides: the failback actor's peer probe and the
+  # demoted region-A's externalCluster both resolve this name (the
+  # side=primary local stub in peer-mesh-service.yaml completes the
+  # by-name global-service merge). CNPG re-points `rw` at whatever
+  # instance is current, so the alias tracks promotion/demotion with
+  # no chart change (#3740 idiom).
+  {{- if .Values.cnpgPair.clusterMesh.enabled }}
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: {{ include "cnpg-pair.peerReplicationServiceName" . }}
+              labels:
+                {{- include "cnpg-pair.labels" . | nindent 16 }}
+                catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+                catalyst.openova.io/role: failback-source
+              annotations:
+                service.cilium.io/global: "true"
+                service.cilium.io/affinity: {{ .Values.cnpgPair.clusterMesh.affinity | quote }}
+                catalyst.openova.io/blueprint: bp-cnpg-pair
+            spec:
+              type: ClusterIP
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+                  protocol: TCP
+  {{- end }}
 
   # `hot_standby` is intentionally OMITTED — see primary-cluster.yaml
   # for the rationale. PostgreSQL 16 hard-pins it to `on` for any
