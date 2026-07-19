@@ -86,7 +86,10 @@ spec:
       # 1.2.4 — #4347: harbor-proxy the seaweedfs image so all 4 workloads clear
       #   the host-ns Kyverno harbor-proxy-pull Enforce policy (post-#4325).
       #   Refs #4347 #4325.
-      version: 1.2.4
+      # 1.2.5 — #3971: comment-only reword in storageclass.yaml so the
+      #   land-time zero-local-path guard sees the ban marker on the line
+      #   naming rancher.io/local-path. Rendered output identical to 1.2.4.
+      version: 1.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-seaweedfs

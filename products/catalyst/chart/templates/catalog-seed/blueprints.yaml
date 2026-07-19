@@ -2661,7 +2661,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-seaweedfs
-    version: "1.2.4"
+    version: "1.2.5"
   topology:
     supported:
     - singleton
