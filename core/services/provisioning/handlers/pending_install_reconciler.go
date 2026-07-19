@@ -89,6 +89,10 @@ func (h *Handler) reconcilePendingInstalls(ctx context.Context) {
 				"action":     "install",
 				"error":      msg,
 			})
+			// #5234 — the purchased app can never deploy from this dispatch;
+			// paint the funnel timeline red now instead of leaving the
+			// "Deploying <app>" step running.
+			h.failActiveProvisionForCommitError(ctx, data, fmt.Errorf("%s", msg))
 			continue
 		}
 
@@ -130,6 +134,10 @@ func (h *Handler) reconcilePendingInstalls(ctx context.Context) {
 			"action":     "install",
 			"error":      err.Error(),
 		})
+		// #5234 — same terminal-state propagation as the synchronous path:
+		// fail the in-flight funnel provision immediately (red step +
+		// provision.failed → customer status "failed").
+		h.failActiveProvisionForCommitError(ctx, data, err)
 	}
 	if committed > 0 {
 		slog.Info("pending-install reconciler: self-healed parked installs", "count", committed)

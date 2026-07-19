@@ -217,6 +217,13 @@ func (h *Handler) runInstallJob(ctx context.Context, data appChangeData) error {
 			"action":     "install",
 			"error":      err.Error(),
 		})
+		// #5234 — a terminally-failed step-0 commit (e.g. a ref-race that
+		// persisted through every CAS retry) means the purchased app can NEVER
+		// deploy from this dispatch. Fail the Org's in-flight funnel provision
+		// NOW — red "Deploying <app>" step + provision.failed → customer
+		// status "failed" — instead of letting the timeline burn the full
+		// 10-minute pod wait before surfacing anything.
+		h.failActiveProvisionForCommitError(ctx, data, err)
 		return err
 	}
 	h.markJobStep(ctx, job, 0, "completed", "ok")
@@ -660,6 +667,18 @@ func (h *Handler) perOrgBranch() string {
 // an uninstall removes them) WITHOUT touching the org-controller's boundary
 // baseline (networkpolicy.yaml / ciliumnetworkpolicy.yaml), which is preserved
 // in the merged kustomization.
+//
+// #5234 — the commit is a genuine per-attempt compare-and-swap. The
+// org-controller writes the SAME repo concurrently (one PutFile commit per
+// rendered manifest, per reconcile), so the funnel's batch commit routinely
+// loses the ref CAS mid-burst. The file map — including the read-modify-write
+// merges of both kustomization indexes — used to be built ONCE before the
+// retry loop, so every retry re-pushed content based on a STALE base read
+// (the exact #1031 defect class, now against the org-controller's #5104
+// merge-writes). The build now runs inside a rebuild closure the client
+// invokes at the start of EVERY attempt: each retry re-reads the remote
+// head's kustomization indexes / tree listings / DB password and re-merges
+// onto them before re-pushing with fresh per-file SHA preconditions.
 func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeData, action, planSlug string, appSlugs []string, _ string) error {
 	slug := data.TenantSlug
 	repoClient := h.GitHubClient.WithRepo(slug, h.perOrgRepoName())
@@ -667,15 +686,6 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 	// on a Sovereign). Commit to the branch the org-controller's per-Org Flux
 	// GitRepository actually watches.
 	branch := h.perOrgBranch()
-
-	// Preserve the existing DB password if the per-Org repo already carries a
-	// db Secret (so a second cart install / day-2 change keeps the running DB
-	// password). Read from the SAME per-Org tree we write to.
-	dbPassword := readDBPasswordFromTree(ctx, repoClient, branch, gitops.PerOrgAppsDir)
-	if dbPassword == "" {
-		slog.Info("day-2: no existing DB password found in per-Org repo — generating fresh (first DB install)",
-			"tenant", slug, "action", action, "repo", slug+"/"+h.perOrgRepoName())
-	}
 
 	// #4999: render the per-Org app hosts under the Org's CHOSEN (served) pool
 	// zone — the SAME zone resolveOrgParentDomain stamps on the Org CR's
@@ -695,90 +705,116 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 		gen = &clone
 	}
 
-	appFiles, appDocs := gen.GeneratePerOrgAppsTree(slug, planSlug, appSlugs, dbPassword)
-	if len(appFiles) == 0 && action == "install" {
-		// No deployable Application payload on an INSTALL (e.g. the cart held
-		// only HR-overlay apps the generic generator can't emit, or an empty
-		// cart). Nothing to commit — not an error. On an UNINSTALL we still
-		// fall through to prune the stale file + rebuild the kustomization.
+	// buildPerOrgFiles assembles the COMPLETE per-Org commit payload from the
+	// remote head's CURRENT state. Called before the commit (for the
+	// empty-payload early return, via the returned payload count) and again on
+	// every ref-race retry (#5234) so a retry never replays a merge computed
+	// against a superseded head.
+	buildPerOrgFiles := func(ctx context.Context) (map[string]string, int, error) {
+		// Preserve the existing DB password if the per-Org repo already carries a
+		// db Secret (so a second cart install / day-2 change keeps the running DB
+		// password). Read from the SAME per-Org tree we write to — re-read per
+		// attempt so a concurrent install's freshly-minted password is honored.
+		dbPassword := readDBPasswordFromTree(ctx, repoClient, branch, gitops.PerOrgAppsDir)
+		if dbPassword == "" {
+			slog.Info("day-2: no existing DB password found in per-Org repo — generating fresh (first DB install)",
+				"tenant", slug, "action", action, "repo", slug+"/"+h.perOrgRepoName())
+		}
+
+		appFiles, appDocs := gen.GeneratePerOrgAppsTree(slug, planSlug, appSlugs, dbPassword)
+		payloadCount := len(appFiles)
+		if appFiles == nil {
+			appFiles = map[string]string{}
+		}
+
+		// Merge the new app docs into the org-controller's vcluster/apps
+		// kustomization (read-modify-write so the NP/CNP baseline + any prior
+		// cart apps survive). On uninstall, the rebuilt list reflects ONLY the
+		// surviving app docs (appDocs no longer lists the removed app) plus the
+		// baseline. Empty existing → MergePerOrgAppsKustomization seeds the
+		// baseline + the current docs.
+		//
+		// #5104 — the merge is plan-aware AND tree-derived: it force-includes the
+		// org-controller baseline for this plan (networkpolicy.yaml; plus the #4992
+		// vcluster target-ns namespace.yaml for the vcluster tier) and every
+		// baseline-shaped doc ACTUALLY committed under vcluster/apps/ (best-effort
+		// dir listing — nil on error, the plan-aware list still covers the known
+		// docs). Before this, the merge knew only networkpolicy.yaml, so the funnel
+		// index dropped namespace.yaml → the target ns never existed inside the
+		// vcluster → the apps Flux Kustomization wedged on `namespaces "<slug>"
+		// not found` and the purchased app never deployed (2/2 Orgs, hw255).
+		kustPath := gitops.PerOrgAppsDir + "/kustomization.yaml"
+		existingKust := ""
+		if content, err := repoClient.ReadFile(ctx, branch, kustPath); err == nil {
+			existingKust = content
+		}
+		appsTreeDocs, err := repoClient.ListDir(ctx, branch, gitops.PerOrgAppsDir)
+		if err != nil {
+			appsTreeDocs = nil // best-effort — plan-aware baseline still applies
+		}
+		if action == "uninstall" {
+			// Rebuild from the baseline + the SURVIVING app docs only, so the
+			// removed app is dropped from resources (a plain merge would preserve
+			// it because it's still listed in the existing kustomization).
+			appFiles[kustPath] = gitops.MergePerOrgAppsKustomization("", planSlug, appsTreeDocs, appDocs)
+		} else {
+			appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, planSlug, appsTreeDocs, appDocs)
+		}
+
+		// #4993 — for the VCLUSTER tier, also emit the HOST-NATIVE per-app HTTPRoutes
+		// into vcluster/host-apps/. The app's own HTTPRoute is co-located INSIDE the
+		// vcluster (apps tree, kubeConfig-targeted) but loft vcluster 0.33.4 registers
+		// no httproute reflecting controller, so it never reaches the host Cilium
+		// Gateway → 404 with pods Running. The host-native route binds the SYNCED
+		// Service (<app>-x-<slug>-x-vcluster) on the host `<slug>` ns directly — the
+		// same host-native model the per-Org console route uses. The org-controller
+		// SEEDS vcluster/host-apps/kustomization.yaml once and never clobbers it, so
+		// merge our route docs in (preserving the CNP + provisioning-rbac baseline),
+		// exactly as the apps kustomization above. Host-tier Orgs route via the
+		// co-located generateAppHTTPRoute (plain Service in the host ns), so
+		// GeneratePerOrgHostAppRoutes returns nothing and this block is a no-op.
+		if gitops.BoundaryIsVcluster(planSlug) {
+			hostRouteFiles, hostAppDocs := gen.GeneratePerOrgHostAppRoutes(slug, planSlug, appSlugs)
+			for p, c := range hostRouteFiles {
+				appFiles[p] = c
+			}
+			hostKustPath := gitops.PerOrgHostAppsDir + "/kustomization.yaml"
+			existingHostKust := ""
+			if content, err := repoClient.ReadFile(ctx, branch, hostKustPath); err == nil {
+				existingHostKust = content
+			}
+			// #5104 — same tree-derived baseline preservation as the apps merge
+			// above: any baseline-shaped doc the org-controller committed under
+			// vcluster/host-apps/ survives the merge even if this build predates it.
+			hostTreeDocs, err := repoClient.ListDir(ctx, branch, gitops.PerOrgHostAppsDir)
+			if err != nil {
+				hostTreeDocs = nil // best-effort
+			}
+			if action == "uninstall" {
+				// Rebuild from baseline + SURVIVING route docs only (drops the
+				// removed app's route from the index).
+				appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization("", hostTreeDocs, hostAppDocs)
+			} else {
+				appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization(existingHostKust, hostTreeDocs, hostAppDocs)
+			}
+		}
+		return appFiles, payloadCount, nil
+	}
+
+	// First build runs BEFORE the commit loop so the empty-payload install
+	// stays a clean no-commit no-op (e.g. the cart held only HR-overlay apps
+	// the generic generator can't emit, or an empty cart). On an UNINSTALL we
+	// still fall through to prune the stale file + rebuild the kustomization.
+	// The app payload is deterministic per (slug, plan, apps), so emptiness
+	// cannot change across retries — only the merge inputs can.
+	firstFiles, payloadCount, err := buildPerOrgFiles(ctx)
+	if err != nil {
+		return err
+	}
+	if payloadCount == 0 && action == "install" {
 		slog.Info("day-2 (per-Org): no deployable app payload to commit",
 			"tenant", slug, "action", action, "apps", len(appSlugs))
 		return nil
-	}
-	if appFiles == nil {
-		appFiles = map[string]string{}
-	}
-
-	// Merge the new app docs into the org-controller's vcluster/apps
-	// kustomization (read-modify-write so the NP/CNP baseline + any prior
-	// cart apps survive). On uninstall, the rebuilt list reflects ONLY the
-	// surviving app docs (appDocs no longer lists the removed app) plus the
-	// baseline. Empty existing → MergePerOrgAppsKustomization seeds the
-	// baseline + the current docs.
-	//
-	// #5104 — the merge is plan-aware AND tree-derived: it force-includes the
-	// org-controller baseline for this plan (networkpolicy.yaml; plus the #4992
-	// vcluster target-ns namespace.yaml for the vcluster tier) and every
-	// baseline-shaped doc ACTUALLY committed under vcluster/apps/ (best-effort
-	// dir listing — nil on error, the plan-aware list still covers the known
-	// docs). Before this, the merge knew only networkpolicy.yaml, so the funnel
-	// index dropped namespace.yaml → the target ns never existed inside the
-	// vcluster → the apps Flux Kustomization wedged on `namespaces "<slug>"
-	// not found` and the purchased app never deployed (2/2 Orgs, hw255).
-	kustPath := gitops.PerOrgAppsDir + "/kustomization.yaml"
-	existingKust := ""
-	if content, err := repoClient.ReadFile(ctx, branch, kustPath); err == nil {
-		existingKust = content
-	}
-	appsTreeDocs, err := repoClient.ListDir(ctx, branch, gitops.PerOrgAppsDir)
-	if err != nil {
-		appsTreeDocs = nil // best-effort — plan-aware baseline still applies
-	}
-	if action == "uninstall" {
-		// Rebuild from the baseline + the SURVIVING app docs only, so the
-		// removed app is dropped from resources (a plain merge would preserve
-		// it because it's still listed in the existing kustomization).
-		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization("", planSlug, appsTreeDocs, appDocs)
-	} else {
-		appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, planSlug, appsTreeDocs, appDocs)
-	}
-
-	// #4993 — for the VCLUSTER tier, also emit the HOST-NATIVE per-app HTTPRoutes
-	// into vcluster/host-apps/. The app's own HTTPRoute is co-located INSIDE the
-	// vcluster (apps tree, kubeConfig-targeted) but loft vcluster 0.33.4 registers
-	// no httproute reflecting controller, so it never reaches the host Cilium
-	// Gateway → 404 with pods Running. The host-native route binds the SYNCED
-	// Service (<app>-x-<slug>-x-vcluster) on the host `<slug>` ns directly — the
-	// same host-native model the per-Org console route uses. The org-controller
-	// SEEDS vcluster/host-apps/kustomization.yaml once and never clobbers it, so
-	// merge our route docs in (preserving the CNP + provisioning-rbac baseline),
-	// exactly as the apps kustomization above. Host-tier Orgs route via the
-	// co-located generateAppHTTPRoute (plain Service in the host ns), so
-	// GeneratePerOrgHostAppRoutes returns nothing and this block is a no-op.
-	if gitops.BoundaryIsVcluster(planSlug) {
-		hostRouteFiles, hostAppDocs := gen.GeneratePerOrgHostAppRoutes(slug, planSlug, appSlugs)
-		for p, c := range hostRouteFiles {
-			appFiles[p] = c
-		}
-		hostKustPath := gitops.PerOrgHostAppsDir + "/kustomization.yaml"
-		existingHostKust := ""
-		if content, err := repoClient.ReadFile(ctx, branch, hostKustPath); err == nil {
-			existingHostKust = content
-		}
-		// #5104 — same tree-derived baseline preservation as the apps merge
-		// above: any baseline-shaped doc the org-controller committed under
-		// vcluster/host-apps/ survives the merge even if this build predates it.
-		hostTreeDocs, err := repoClient.ListDir(ctx, branch, gitops.PerOrgHostAppsDir)
-		if err != nil {
-			hostTreeDocs = nil // best-effort
-		}
-		if action == "uninstall" {
-			// Rebuild from baseline + SURVIVING route docs only (drops the
-			// removed app's route from the index).
-			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization("", hostTreeDocs, hostAppDocs)
-		} else {
-			appFiles[hostKustPath] = gitops.MergePerOrgHostAppsKustomization(existingHostKust, hostTreeDocs, hostAppDocs)
-		}
 	}
 
 	// Prune scope: ONLY the funnel-owned app docs (so uninstalled apps are
@@ -797,14 +833,27 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 		gitops.PerOrgHostAppsDir + "/app-",
 	}
 
+	// Rebuild-per-attempt (#5234): attempt 1 reuses the map built above (no
+	// double remote read on the happy path); every RETRY re-runs the full
+	// build against the freshly-moved head before re-pushing.
+	firstAttempt := true
+	rebuild := func(ctx context.Context) (map[string]string, error) {
+		if firstAttempt {
+			firstAttempt = false
+			return firstFiles, nil
+		}
+		files, _, buildErr := buildPerOrgFiles(ctx)
+		return files, buildErr
+	}
+
 	commitMsg := fmt.Sprintf("day-2: %s %s on Org %s (apps: %d) → vcluster/apps",
 		action, data.AppSlug, slug, len(appSlugs))
-	if err := repoClient.CommitFilesWithPrune(ctx, branch, commitMsg, appFiles, prunePrefixes); err != nil {
+	if err := repoClient.CommitFilesWithPruneAndRebuild(ctx, branch, commitMsg, nil, prunePrefixes, rebuild); err != nil {
 		return fmt.Errorf("commit to per-Org repo %s/%s: %w", slug, h.perOrgRepoName(), err)
 	}
 	slog.Info("day-2 (per-Org): committed app manifests to per-Org repo",
 		"tenant", slug, "action", action, "apps", len(appSlugs),
-		"repo", slug+"/"+h.perOrgRepoName(), "branch", branch, "files", len(appFiles))
+		"repo", slug+"/"+h.perOrgRepoName(), "branch", branch)
 	return nil
 }
 
