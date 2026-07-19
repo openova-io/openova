@@ -56,8 +56,8 @@ allowSystemNamespaces:
   # namespace carries the marketplace/auth/billing/provisioning Deployments
   # that the #3376 funnel depends on; it needs the same coarse-grained
   # allow as the other control-plane namespaces so default-deny doesn't sever
-  # its inter-platform flows. The legacy `sme` entry stays one release for
-  # back-compat / any not-yet-migrated Sovereign.
+  # its inter-platform flows. The legacy `sme` entry is gone (#3985 — fresh
+  # provs allow only `org-services`).
   - org-services
   - powerdns
   - reflector

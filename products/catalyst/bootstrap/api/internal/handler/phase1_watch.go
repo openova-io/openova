@@ -2261,7 +2261,7 @@ func (h *Handler) fireHandover(dep *Deployment) {
 	// #3376 — ship the phase0 tofu archive to the child so its
 	// ReceiveTofuArchive seals secret/catalyst/tofu-phase0-archive, which
 	// un-gates the cutover (425→fires) → Step 09 patches
-	// secret/sme/provisioning-github-token → the sme/provisioning init
+	// secret/org-services/provisioning-github-token → the org-services/provisioning init
 	// container proceeds → the tenant-Org funnel completes. Before this,
 	// the archive push lived ONLY in the synchronous FinaliseHandover
 	// wizard path; auto-handover never pushed it, so every fresh prov's

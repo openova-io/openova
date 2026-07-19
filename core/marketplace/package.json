@@ -1,5 +1,5 @@
 {
-  "name": "sme-marketplace",
+  "name": "org-marketplace",
   "type": "module",
   "scripts": {
     "dev": "astro dev",

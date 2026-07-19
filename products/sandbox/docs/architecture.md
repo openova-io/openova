@@ -166,7 +166,7 @@ Every plumbing point below is verified against the codebase as of 2026-05-15.
 | Sandbox use | Existing primitive | Reference |
 |---|---|---|
 | One vcluster per Org | `Organization` CRD + organization-controller renders vcluster HelmRelease into per-Org Gitea repo | `products/catalyst/chart/crds/organization.yaml:1-322`, `core/controllers/organization/internal/gitops/manifests.go:65-146` |
-| One Keycloak realm per Sovereign (corporate) or per Org (SME) | mutually exclusive chart modes | `platform/keycloak/chart/values.yaml:24-192`, `chart/templates/configmap-{sovereign,tenant}-realm.yaml` |
+| One Keycloak realm per Sovereign (corporate) or per Org | mutually exclusive chart modes | `platform/keycloak/chart/values.yaml:24-192`, `chart/templates/configmap-{sovereign,tenant}-realm.yaml` |
 | One Gitea Org per Org | auto-provisioned at Org create | `core/controllers/organization/internal/controller/organization_controller.go:177-198` |
 | Marketplace subdomain + BYOD custom domain | `POST /domain/byod` returns CNAME target after validation | `core/services/domain/handlers/handlers.go:206-290`, `core/marketplace-api/handlers/handlers.go` |
 | JetStream subject convention | `catalyst.<domain>.<event>`, tenancy in payload (`TenantID`) — ADR-0001 §6 | `core/services/shared/events/nats.go:34-45` |

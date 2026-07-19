@@ -1,7 +1,7 @@
 # catalyst-catalog — EPIC-2 Slice L design notes
 
 EPIC-2 Slice L of #1097. Multi-source Blueprint catalog HTTP REST service
-that REPLACES the per-Org SME catalog (different scope) per ADR-0001 §4.3.
+that REPLACES the legacy per-Org catalog (different scope) per ADR-0001 §4.3.
 
 ## Module layout (decision)
 
@@ -11,12 +11,12 @@ that REPLACES the per-Org SME catalog (different scope) per ADR-0001 §4.3.
 Group `core/controllers/` is for **CRD reconcilers**; group
 `core/services/` is for **HTTP services**. Catalyst-catalog is a service,
 not a controller, so it doesn't share the controllers module. Co-located
-SME services (auth/billing/notification/etc.) each live in their own
+Organization services (auth/billing/notification/etc.) each live in their own
 `core/services/<name>/` modules — this slice follows that pattern.
 
 We ship under the name `catalyst-catalog/` (rather than `catalog/`) to
-disambiguate from the existing `core/services/catalog/` SME service. SME
-catalog retirement is slice L3, deferred per the EPIC-2 master brief.
+disambiguate from the existing `core/services/catalog/` per-Org service. Its
+retirement is slice L3, deferred per the EPIC-2 master brief.
 
 ## Importing the unified Gitea client
 
@@ -144,11 +144,11 @@ When the install flow needs nested-fetch shape (e.g. "give me Blueprint
 in-process GraphQL surface (gqlgen) or compose REST calls in the UI's
 TanStack Query layer. Decision deferred until a real consumer arrives.
 
-## SME catalog retirement — DEFERRED
+## Per-Org catalog retirement — DEFERRED
 
-Per the EPIC-2 master brief, slice L3 (migrating the SME catalog
+Per the EPIC-2 master brief, slice L3 (migrating the per-Org catalog
 service's existing routes to catalyst-catalog or documenting them as
-retired) is deferred to a follow-up slice. The SME `core/services/catalog/`
+retired) is deferred to a follow-up slice. The per-Org `core/services/catalog/`
 service continues to operate on its current scope (per-Org, MongoDB-backed)
-until that slice lands. **DO NOT remove or modify SME catalog code in
+until that slice lands. **DO NOT remove or modify per-Org catalog code in
 the L1+L2 PR.**

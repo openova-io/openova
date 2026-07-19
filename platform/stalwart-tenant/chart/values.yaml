@@ -2,7 +2,7 @@
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
 # meaningful value is operator-supplied at install time; cluster overlays
-# in clusters/<sovereign>/sme-overlays/<tenant>/ may override any of these
+# in the per-Org GitOps overlay may override any of these
 # without rebuilding the Blueprint OCI artifact. The Organization's domain, the
 # Keycloak realm URL, the admin secret name, and the webmail/SMTP hosts are
 # all required values surfaced by configSchema in blueprint.yaml.
@@ -197,7 +197,7 @@ domain:
 # chart consumes the client secret from `keycloak.clientSecretName`.
 keycloak:
   # REQUIRED — Organization-vcluster Keycloak realm issuer URL.
-  # Example: "https://auth.acme.<otech-fqdn>/realms/sme"
+  # Example: "https://auth.acme.<otech-fqdn>/realms/org-acme"
   realmURL: ""
   # OIDC client ID registered in the Organization realm. Convention: "stalwart".
   clientID: "stalwart"

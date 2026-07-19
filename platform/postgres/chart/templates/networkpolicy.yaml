@@ -41,7 +41,7 @@ spec:
   ingress:
     # SHARED-PG CONSUMERS (#3577): the data instance is SHARED — its consumers
     # live in MANY namespaces (keycloak, gitea, harbor, grafana, powerdns,
-    # powerdns-admin, sme, newapi, catalyst-system, …) and every one dials the
+    # powerdns-admin, org-services, newapi, catalyst-system, …) and every one dials the
     # primary's `<instance>-rw` Service on 5432. This NetworkPolicy selects ALL
     # primary-CR Pods, so it default-denies EVERY ingress it does not list —
     # including all of those consumer connections (on hw144 keycloak-0 →

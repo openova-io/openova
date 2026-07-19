@@ -87,7 +87,7 @@ spec:
   # Annotations CNPG propagates onto every Secret it generates
   # (org-pg-app, org-pg-superuser, org-pg-replication, ...). Reflector
   # mirrors them into other namespaces if a per-tenant vCluster ever
-  # needs to consume org-pg-app from outside the `sme` namespace.
+  # needs to consume org-pg-app from outside the `org-services` namespace.
   inheritedMetadata:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"

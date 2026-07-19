@@ -442,7 +442,7 @@ spec:
             # apps/sme/data/...). On franchised Sovereigns it is rendered by
             # templates/org-services/provisioning-github-token.yaml (issue
             # #866) which mirrors the local Gitea admin password into
-            # `sme/provisioning-github-token`. The Secret name + key are
+            # `org-services/provisioning-github-token`. The Secret name + key are
             # operator-overridable via
             # .Values.orgServices.provisioning.githubToken.* without
             # forking the chart.

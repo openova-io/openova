@@ -33,7 +33,7 @@ Confirmed against the codebase (2026-05-15):
 |---|---|---|
 | `Organization` CRD (`orgs.openova.io/v1`) | Shipped | `products/catalyst/chart/crds/organization.yaml` |
 | vcluster per Org | Shipped | `core/controllers/organization/internal/gitops/manifests.go` |
-| Keycloak realm (sovereign-shared vs per-Org SME mode) | Shipped | `platform/keycloak/chart/values.yaml`, `chart/templates/configmap-{sovereign,tenant}-realm.yaml` |
+| Keycloak realm (sovereign-shared vs per-Org mode) | Shipped | `platform/keycloak/chart/values.yaml`, `chart/templates/configmap-{sovereign,tenant}-realm.yaml` |
 | Gitea Org + `catalyst-tenant` repo auto-provisioned per Org | Shipped | `core/controllers/organization/internal/controller/organization_controller.go` |
 | UserAccess CR → RoleBindings (RBAC fan-out) | Shipped | same controller |
 | Marketplace: subdomain + BYO custom domain | Shipped | `core/services/domain/handlers/handlers.go` (`POST /domain/byod`), `core/marketplace-api/handlers/handlers.go` |

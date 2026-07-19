@@ -1,10 +1,10 @@
 # bp-stalwart-tenant
 
-Per-SME (per-vcluster) **dedicated** Stalwart mail server. Implements locked decision **[Q3]** of [EPIC #795](https://github.com/openova-io/openova/issues/795) — every SME on a Sovereign gets its **own** Stalwart in its tenant namespace, with its **own** domain, **own** MTA reputation, and **own** queue.
+Per-Org (per-vcluster) **dedicated** Stalwart mail server. Implements locked decision **[Q3]** of [EPIC #795](https://github.com/openova-io/openova/issues/795) — every Organization on a Sovereign gets its **own** Stalwart in its tenant namespace, with its **own** domain, **own** MTA reputation, and **own** queue.
 
 **Status:** v0.1.0 (Application Blueprint, scratch chart) | **Updated:** 2026-05-04 (#801)
 
-> NOT the same as the otech-shared `openova.io` Stalwart in `openova-private/clusters/contabo-mkt/apps/stalwart/` — that is the OpenOva-corp mail server. This Blueprint is the **per-SME-tenant** mail server that ships inside each SME vcluster.
+> NOT the same as the otech-shared `openova.io` Stalwart in `openova-private/clusters/contabo-mkt/apps/stalwart/` — that is the OpenOva-corp mail server. This Blueprint is the **per-Org** mail server that ships inside each Org vcluster.
 
 ---
 
@@ -12,9 +12,9 @@ Per-SME (per-vcluster) **dedicated** Stalwart mail server. Implements locked dec
 
 Locked in #795: founder explicitly chose this over a shared otech-level multi-domain Stalwart. The trade buys:
 
-- **Stronger isolation** — one SME's deliverability problem doesn't affect another SME's MTA reputation.
-- **Per-customer DKIM** — each SME signs with their own key on their own domain.
-- **Per-customer queue** — bounce-floods, blocklist hits, rate-limit pushes from one SME stay in their queue.
+- **Stronger isolation** — one Organization's deliverability problem doesn't affect another Organization's MTA reputation.
+- **Per-customer DKIM** — each Organization signs with their own key on their own domain.
+- **Per-customer queue** — bounce-floods, blocklist hits, rate-limit pushes from one Organization stay in their queue.
 
 Cost: **mail-server resources multiply by N tenants**. Each install = 1 small StatefulSet (100m / 256Mi requests) + 1 PVC (default 20Gi). #795 trade-off table tracks this.
 
@@ -32,7 +32,7 @@ Cost: **mail-server resources multiply by N tenants**. Each install = 1 small St
 | `HTTPRoute` _or_ `Ingress` | webmail UI at `mail.<domain>` → SnappyMail (Cilium Gateway by default; Traefik fallback). Optional `mailadmin.<domain>` → Stalwart webadmin |
 | `ConfigMap` (config) | Stalwart bootstrap `config.toml` — applied when RocksDB is empty |
 | `ConfigMap` (webmail domain-seed) | SnappyMail `<domain>.json` pre-seeding this Stalwart as the default login domain |
-| `ConfigMap` (dns-records-required) | MX/SPF/DKIM/DMARC the SME admin must publish — surfaced by unified-rbac UI |
+| `ConfigMap` (dns-records-required) | MX/SPF/DKIM/DMARC the Org admin must publish — surfaced by unified-rbac UI |
 | `ExternalSecret` (admin) | Pulls Stalwart admin password from OpenBao |
 | `ExternalSecret` (oidc) | Pulls Keycloak client secret from OpenBao |
 | `Job` (post-install) | Bootstraps admin principal + send-allow row (idempotent) |
@@ -54,19 +54,19 @@ How it wires up:
 
 Acceptance: `mail.<domain>/` → HTTP 200/302 serving the SnappyMail login UI (not 404).
 
-## SSO via SME-vcluster Keycloak
+## SSO via Org-vcluster Keycloak
 
-The Stalwart mail server authenticates IMAP/SMTP/JMAP users against the SME's per-vcluster Keycloak realm — **NOT** the otech-level Keycloak. (The bundled SnappyMail webmail proxies username/password to Stalwart's IMAP/SMTP; OIDC bearer-token login flows are validated by Stalwart's OIDC directory.)
+The Stalwart mail server authenticates IMAP/SMTP/JMAP users against the Organization's per-vcluster Keycloak realm — **NOT** the otech-level Keycloak. (The bundled SnappyMail webmail proxies username/password to Stalwart's IMAP/SMTP; OIDC bearer-token login flows are validated by Stalwart's OIDC directory.)
 
-The OIDC client `stalwart` is registered in the SME realm at vcluster provisioning time (handled by [#804](https://github.com/openova-io/openova/issues/804) — tenant provisioning pipeline). The client secret is written to OpenBao at the canonical path:
+The OIDC client `stalwart` is registered in the Org realm at vcluster provisioning time (handled by [#804](https://github.com/openova-io/openova/issues/804) — tenant provisioning pipeline). The client secret is written to OpenBao at the canonical path:
 
 ```
 sovereign/<sovereign-fqdn>/stalwart/<tenant>/oidc → property OIDC_CLIENT_SECRET
 ```
 
-The chart's `oidc-externalsecret.yaml` pulls it down into the SME tenant namespace.
+The chart's `oidc-externalsecret.yaml` pulls it down into the Org namespace.
 
-Per-user mailbox provisioning is **event-driven** (per [ADR-0003 §3](../../docs/adr/0003-rbac-newapi-user-create-hook.md)): when the SME admin creates a user via the unified-rbac console, the unified-rbac service POSTs Stalwart's `/api/principal` admin API to create the mailbox. This chart ships only the bootstrap admin principal in the post-install Job — it does **not** loop on the NATS subject by default. Per-tenant overlays may flip `mailboxProvisioner.natsSubscriber.enabled=true` once the SME vcluster's NATS subject is wired.
+Per-user mailbox provisioning is **event-driven** (per [ADR-0003 §3](../../docs/adr/0003-rbac-newapi-user-create-hook.md)): when the Org admin creates a user via the unified-rbac console, the unified-rbac service POSTs Stalwart's `/api/principal` admin API to create the mailbox. This chart ships only the bootstrap admin principal in the post-install Job — it does **not** loop on the NATS subject by default. Per-tenant overlays may flip `mailboxProvisioner.natsSubscriber.enabled=true` once the Org vcluster's NATS subject is wired.
 
 ---
 
@@ -78,7 +78,7 @@ Operator overlay sets `domain.primary: <slug>.<otech-fqdn>` (e.g. `acme.omantel.
 
 ### BYO domain mode
 
-Operator overlay sets `domain.primary: acme.com` and `domain.mode: byo`. The records ConfigMap is still emitted; the unified-rbac console UI surfaces them to the SME admin to paste into their public DNS provider. Smoke test in [#804](https://github.com/openova-io/openova/issues/804) asserts the records are reachable post-creation.
+Operator overlay sets `domain.primary: acme.com` and `domain.mode: byo`. The records ConfigMap is still emitted; the unified-rbac console UI surfaces them to the Org admin to paste into their public DNS provider. Smoke test in [#804](https://github.com/openova-io/openova/issues/804) asserts the records are reachable post-creation.
 
 ---
 
@@ -107,20 +107,20 @@ The bootstrap `config.toml` is **applied only once** — when RocksDB is empty (
 
 ## Inbound spam filtering
 
-**Disabled by default** per the founder directive on the corp Stalwart ([feedback_no_spam_filtering.md memory](../../../.claude/projects/-home-openova-repos-openova-private/memory/feedback_no_spam_filtering.md)) — accept everything, filter at the client. Per-SME deployments inherit the same posture; individual SMEs may opt in via webadmin runtime config.
+**Disabled by default** per the founder directive on the corp Stalwart ([feedback_no_spam_filtering.md memory](../../../.claude/projects/-home-openova-repos-openova-private/memory/feedback_no_spam_filtering.md)) — accept everything, filter at the client. Per-Org deployments inherit the same posture; individual Organizations may opt in via webadmin runtime config.
 
 ---
 
 ## Required values (per-tenant overlay)
 
 ```yaml
-# clusters/<sovereign>/sme-overlays/<tenant>/stalwart.yaml
+# per-Org GitOps overlay: <org-slug>/stalwart.yaml
 domain:
   primary: "acme.omantel.omani.works"   # or "acme.com" for BYO
   mode: "free-subdomain"                 # or "byo"
 
 keycloak:
-  realmURL: "https://auth.acme.omantel.omani.works/realms/sme"
+  realmURL: "https://auth.acme.omantel.omani.works/realms/org-acme"
   clientID: "stalwart"
   clientSecretName: "stalwart-oidc"
   oidcExternalSecret:
@@ -146,7 +146,7 @@ dns:
 
 ## Capacity
 
-Default per-tenant: 100m / 256Mi requests, 1 CPU / 1Gi limits, 20Gi PVC. Roughly **50 mailboxes / 5 GB mail spool** comfortably; bump `stalwart.resources` and `persistence.spool.size` per-tenant for larger SMEs. Single replica per tenant — Stalwart RocksDB is single-writer by design at this tier.
+Default per-tenant: 100m / 256Mi requests, 1 CPU / 1Gi limits, 20Gi PVC. Roughly **50 mailboxes / 5 GB mail spool** comfortably; bump `stalwart.resources` and `persistence.spool.size` per-tenant for larger Organizations. Single replica per tenant — Stalwart RocksDB is single-writer by design at this tier.
 
 ---
 

@@ -599,7 +599,7 @@ echo "[cutover-contract] Case 19: Step-09 gitea-token-mint mints a real API toke
 # Chart <0.1.30 had no Step-09; the catalyst-platform chart's
 # `provisioning-github-token.yaml` template mirrored the Gitea admin
 # PASSWORD verbatim into Secret sme/provisioning-github-token under key
-# GITHUB_TOKEN. The SME provisioning service then sent
+# GITHUB_TOKEN. The Organization provisioning service then sent
 # `Authorization: token <PWD>` to Gitea, which 401'd because Gitea
 # resolves the Bearer credential as an API access token (sha1 lookup),
 # not a password. Result on t22 (2026-05-18): voucher checkout returned
@@ -612,7 +612,7 @@ echo "[cutover-contract] Case 19: Step-09 gitea-token-mint mints a real API toke
 #   - POSTs /api/v1/users/gitea_admin/tokens with scope "all"
 #   - Captures the returned .sha1
 #   - Validates by calling GET /api/v1/user with `Authorization: token <X>`
-#   - kubectl-patches Secret sme/provisioning-github-token.GITHUB_TOKEN
+#   - kubectl-patches Secret org-services/provisioning-github-token.GITHUB_TOKEN
 #   - rollout-restarts the provisioning Deployment (best-effort)
 #
 # Guard against future regressions that drop the token-mint Job.

@@ -10,7 +10,7 @@
 // the canonical token-claim shape (`core/services/shared/auth.Claims`)
 // without each package growing its own divergent fork, we depend on the
 // in-tree modules via the same `replace` pattern catalyst-bootstrap and
-// every sme-service already use.
+// every org-services service already uses.
 //
 // k8s.io/client-go is the only big new dep — needed for the dynamic
 // + in-cluster client backing k8s.read.*. We use the same v0.31.x line

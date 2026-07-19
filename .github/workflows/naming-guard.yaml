@@ -4,7 +4,7 @@ name: Naming guard
 # `tenant`, docs/GLOSSARY.md:18) out of Catalyst MACHINERY — namespaces,
 # route paths, chart template dirs, and exported Go identifiers (#3383).
 #
-# A persona is a field VALUE (`tier: "sme"`, `TenantKindSME`), never
+# A persona is a field VALUE (`tier: "sme"` on legacy records), never
 # architecture. Those, plus the one-release deprecation aliases (annotated
 # `naming-guard: alias`) and docs/history, are EXEMPT. Companion to
 # banned-words-validate.yaml.

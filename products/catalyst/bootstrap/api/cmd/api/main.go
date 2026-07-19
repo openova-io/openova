@@ -651,7 +651,7 @@ func main() {
 
 	// CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/org/* proxies
 	// (PR #1625 follow-up). The chart's api-deployment.yaml feeds this
-	// via secretKeyRef on `sme-secrets/JWT_SECRET`, mirrored from the
+	// via secretKeyRef on `org-services-secrets/JWT_SECRET`, mirrored from the
 	// `org-services` namespace into `catalyst-system` by emberstack/reflector
 	// (annotation block on chart/templates/org-services/org-services-secrets.yaml).
 	// proxyOrgVoucher uses these bytes to mint a short-lived HS256
@@ -669,7 +669,7 @@ func main() {
 			"bytes", len(orgSecret),
 		)
 	} else {
-		log.Info("org: HS256 bridge secret unset — /api/v1/org/* proxies return 503 until sme-secrets is reflected into catalyst-system")
+		log.Info("org: HS256 bridge secret unset — /api/v1/org/* proxies return 503 until org-services-secrets is reflected into catalyst-system")
 	}
 
 	// /healthz is LIVENESS — always 200 if the process is up and the
@@ -1118,7 +1118,7 @@ func main() {
 	// Secure marketplace→console session handoff (issue #4182 + #4186).
 	// The marketplace post-checkout redirect lands the browser here with
 	// the Org member-session token (HS256, signed with the Org mesh's
-	// sme-secrets/JWT_SECRET). AuthOrgHandover validates it against
+	// org-services-secrets/JWT_SECRET). AuthOrgHandover validates it against
 	// CATALYST_ORG_JWT_SECRET, resolves the Org from the request host,
 	// mints an RS256 Org-scoped catalyst_session, sets the HttpOnly Secure
 	// SameSite=Lax cookie, stamps Referrer-Policy: no-referrer, and 302s to

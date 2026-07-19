@@ -117,9 +117,9 @@ type Handler struct {
 	// falls back to DefaultCustomerResolver wired against h.Store.
 	MeteringCustomerResolver CustomerResolver
 
-	// JWTSecret is the raw bytes of `sme-secrets/JWT_SECRET` — the SAME
+	// JWTSecret is the raw bytes of `org-services-secrets/JWT_SECRET` — the SAME
 	// Secret value the notification service reads via secretKeyRef on
-	// `sme-secrets/JWT_SECRET` (see chart templates/org-services/{billing,
+	// `org-services-secrets/JWT_SECRET` (see chart templates/org-services/{billing,
 	// notification}.yaml). Used to mint a short-lived HS256 service token
 	// on the billing→notification hop so notification's JWTAuth middleware
 	// (core/services/shared/middleware/jwt.go) accepts the request.

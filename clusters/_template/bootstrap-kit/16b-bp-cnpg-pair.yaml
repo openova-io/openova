@@ -102,7 +102,7 @@
 # install fails with `namespaces "cnpg" not found` (caught live on hw124:
 # the slot installed but `cnpg` was never created — slot 16/bp-cnpg makes
 # `cnpg-system` for the OPERATOR, and every CNPG consumer (gitea/harbor/
-# powerdns/sme/newapi) places its Cluster CR in its OWN namespace, so
+# powerdns/org-services/newapi) places its Cluster CR in its OWN namespace, so
 # nothing ever created `cnpg`). Every sibling slot that targets a fresh
 # namespace (16-cnpg → cnpg-system, 16a → shared-data, 17-valkey → valkey)
 # declares it here. So this slot must create `cnpg` UNCONDITIONALLY —

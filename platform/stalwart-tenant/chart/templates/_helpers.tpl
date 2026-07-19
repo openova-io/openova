@@ -63,7 +63,7 @@ ConfigMap name (Stalwart bootstrap config.toml).
 {{- end }}
 
 {{/*
-DNS-records ConfigMap name (MX/SPF/DKIM/DMARC required by SME admin).
+DNS-records ConfigMap name (MX/SPF/DKIM/DMARC required by the Org admin).
 Surfaced by the unified-rbac console UI.
 */}}
 {{- define "bp-stalwart-tenant.dnsRecordsConfigMapName" -}}
@@ -71,7 +71,7 @@ Surfaced by the unified-rbac console UI.
 {{- end }}
 
 {{/*
-Tenant primary mail domain — resolves the SME's mail FQDN regardless of
+Tenant primary mail domain — resolves the Organization's mail FQDN regardless of
 the values shape the orchestrator supplies. Three accepted shapes (in
 priority order):
 

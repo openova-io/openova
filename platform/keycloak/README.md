@@ -5,7 +5,7 @@ User identity for Catalyst Sovereigns. Per-Sovereign supporting service in the C
 **Status:** Accepted | **Updated:** 2026-04-27
 
 > **Catalyst topology** (set at Sovereign provisioning time, see [`docs/SECURITY.md`](../../docs/SECURITY.md) §6):
-> - **`per-organization`** (SME-style Sovereigns, e.g. omantel): one minimal Keycloak per Organization (single replica, embedded H2/sqlite, ~150 MB RAM, no HA). Blast radius limited to one Org.
+> - **`per-organization`** (multi-Org Sovereigns, e.g. omantel): one minimal Keycloak per Organization (single replica, embedded H2/sqlite, ~150 MB RAM, no HA). Blast radius limited to one Org.
 > - **`shared-sovereign`** (corporate self-host): one HA Keycloak for the entire Sovereign with multiple realms (one per Organization), federating to the corporation's identity provider (Azure AD, Okta).
 
 ---
@@ -95,7 +95,7 @@ spec:
     hostname: auth.<location-code>.<sovereign-domain>
 ```
 
-**SME (`per-organization`)** — one minimal Keycloak per Organization in the Org's namespace on the management cluster:
+**Per-Org (`per-organization`)** — one minimal Keycloak per Organization in the Org's namespace on the management cluster:
 
 ```yaml
 apiVersion: k8s.keycloak.org/v2alpha1
@@ -104,7 +104,7 @@ metadata:
   name: keycloak
   namespace: <org>                     # per-Org namespace
 spec:
-  instances: 1                          # no HA at SME tier
+  instances: 1                          # no HA at org tier
   db:
     vendor: postgres                    # or H2/sqlite for the smallest tier
     host: keycloak-postgres-rw.<org>.svc
@@ -220,7 +220,7 @@ sequenceDiagram
 HA shape depends on Catalyst's `keycloakTopology`:
 
 - **`shared-sovereign`** (corporate): 3 replicas behind a Service, CNPG PostgreSQL with WAL streaming to async standby, session replication via Infinispan.
-- **`per-organization`** (SME): single replica, no session replication, restart-on-deploy is acceptable for SME-tier SLAs. Larger SMEs can opt into HA via tier upgrade — same Catalyst CR shape, just bumped `instances`.
+- **`per-organization`** (per-Org): single replica, no session replication, restart-on-deploy is acceptable for org-tier SLAs. Larger Organizations can opt into HA via tier upgrade — same Catalyst CR shape, just bumped `instances`.
 
 ---
 

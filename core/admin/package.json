@@ -1,5 +1,5 @@
 {
-  "name": "sme-admin",
+  "name": "org-admin",
   "type": "module",
   "scripts": {
     "dev": "astro dev --port 4323",

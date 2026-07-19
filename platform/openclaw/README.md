@@ -17,7 +17,7 @@ unified-rbac user-create hook ([ADR-0003](../../docs/adr/0003-rbac-newapi-user-c
                               ▼
               ┌──────────────────────────────────┐
               │  Controller Deployment (HA-able) │
-              │  - validates SME Keycloak JWT    │
+              │  - validates Org Keycloak JWT    │
               │  - spawns / proxies / reaps      │
               │    per-user pods                 │
               └─────┬───────────────────┬────────┘
@@ -35,12 +35,12 @@ unified-rbac user-create hook ([ADR-0003](../../docs/adr/0003-rbac-newapi-user-c
 ```
 
 **Why this shape (and not the rejected alternative).** A "shared OpenClaw
-service forwarding the SME-vcluster JWT to NewAPI" was explicitly rejected
+service forwarding the Org-vcluster JWT to NewAPI" was explicitly rejected
 in #795: it would force NewAPI to trust a Keycloak realm it has no
 ownership of (cross-realm OIDC trust = identity sprawl). The workspace-
-controller pattern keeps NewAPI talking only to its own keys (one per SME
+controller pattern keeps NewAPI talking only to its own keys (one per Organization
 end-user), and the controller is the *only* component that ever sees a
-JWT from the SME's Keycloak realm.
+JWT from the Organization's Keycloak realm.
 
 This pattern generalises to bp-opencode / bp-aider / bp-cursor-server
 later — the chart's structure (controller + per-user pod + identity-
@@ -77,13 +77,13 @@ The chart fails to render if any of these are unset (see
 
 | Value | Example |
 |---|---|
-| `oidc.issuerURL` | `https://keycloak.acme.<parent-domain>/realms/sme-acme` |
+| `oidc.issuerURL` | `https://keycloak.acme.<parent-domain>/realms/org-acme` |
 | `oidc.clientId` | `openclaw` |
 | `oidc.clientSecret.name` | `openclaw-oidc-client-secret` (Secret with key `OIDC_CLIENT_SECRET`) |
 | `llm.baseURL` | `https://api.acme.<parent-domain>/v1` (per-tenant NewAPI OpenAI-compatible endpoint) |
 | `llm.apiKey.name` | `openclaw-newapi-controller-token` (Secret with key `NEWAPI_KEY`) |
 | `llm.defaultModel` | `qwen3.6` (NewAPI maps this to a backing channel — e.g. a partner-hosted Qwen) |
-| `tenant.namespace` | `sme-acme` |
+| `tenant.namespace` | `org-acme` |
 | `controller.image.tag` | SHA-pinned tag (Inviolable Principle 4) |
 | `perUserPod.image.tag` | SHA-pinned tag (Inviolable Principle 4) |
 | `ingress.host` | `openclaw.acme.<parent-domain>` |
@@ -104,7 +104,7 @@ two env vars**:
 | `NEWAPI_KEY` | `secretKeyRef: name=newapi-key-{uuid}, key=api-key` |
 
 It carries **no Keycloak code, no key-management code, no knowledge of
-the SME tenant model**. Identity-blind by construction.
+the Organization model**. Identity-blind by construction.
 
 The `runtime/` directory in this Blueprint ships a minimal reference
 implementation that satisfies the contract: a Go binary exposing an
@@ -197,4 +197,4 @@ a same-version mutable-tag overwrite (issue #4257).
 - Epic [#795](https://github.com/openova-io/openova/issues/795) — SME-tenant turnkey experience
 - ADR-0003 — RBAC ↔ NewAPI user-create hook
 - bp-newapi (`platform/newapi/`) — Sovereign-level metered LLM gateway
-- bp-keycloak (`platform/keycloak/`) — SME-vcluster realm
+- bp-keycloak (`platform/keycloak/`) — Org-vcluster realm

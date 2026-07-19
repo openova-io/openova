@@ -2,7 +2,7 @@
 //
 // catalyst-catalog is the Sovereign-wide Blueprint catalog HTTP REST
 // service shipped by EPIC-2 Slice L (#1097). It REPLACES the per-Org
-// SME `catalog` service (different scope: SME's was Org-bound; this is
+// per-Org `catalog` service (different scope: it was Org-bound; this is
 // Sovereign-wide multi-source) per ADR-0001 §4.3.
 //
 // SEAM DECISION: catalyst-catalog is a SERVICE not a CONTROLLER, so it

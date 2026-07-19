@@ -278,7 +278,7 @@ Resolved OIDC issuer URL. Resolution precedence (G117.5 W3.D3 #2744):
   5. Fall back to whatever `oidc.issuerURL` is (the smoke-render
      placeholder) so `helm template` continues to render valid YAML.
 
-The placeholder is `https://keycloak.sme.local/realms/sme`.
+The placeholder is `https://keycloak.org.local/realms/org`.
 */}}
 {{- define "bp-wordpress-tenant.oidcIssuerURL" -}}
 {{- $modern := .Values.oidc.issuerURL -}}

@@ -171,7 +171,7 @@ type notificationSendRequest struct {
 // voucher row persisted, HTTP 200 to operator, no email ever sent.
 //
 // Fix: when h.JWTSecret is populated, mint a fresh short-lived HS256
-// service-to-service token signed with the SAME `sme-secrets/JWT_SECRET`
+// service-to-service token signed with the SAME `org-services-secrets/JWT_SECRET`
 // bytes notification verifies against, and forward it as
 // `Authorization: Bearer …`. The mint helper is the same one
 // catalyst-api's RS256→HS256 bridge uses (sharedauth.MintOrgAccessToken),
@@ -219,7 +219,7 @@ func (h *Handler) sendVoucherIssuedEmail(ctx context.Context, recipient string, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	// Service-to-service auth (#1999 / TBD-V8). Mint a fresh HS256
-	// token with the SAME sme-secrets/JWT_SECRET bytes notification
+	// token with the SAME org-services-secrets/JWT_SECRET bytes notification
 	// verifies against. Empty h.JWTSecret → legacy unauth path; the
 	// dispatch will 401 but the voucher row already persisted so the
 	// failure is logged-not-fatal (matches existing best-effort
