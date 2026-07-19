@@ -1698,6 +1698,20 @@ helmReadinessProbe:
   # gate fast while remaining a genuine end-to-end pull. Operators may raise
   # this to probe more charts.
   sampleSize: 5
+  # #5237 (Refs #5007): union-warm-on-drift. Phase-3a samples the LIVE chart
+  # version off each pivoted HelmRelease. If a `bp-catalyst-platform` release
+  # is published to ghcr AFTER step-03 harbor-prewarm finishes (a mid-cutover
+  # merge's deploy-bot bump), flux redeploys the umbrella to the newer concrete
+  # pin BEFORE this step runs, so the sampled tag is one bump ahead of what
+  # prewarm mirrored (catalog-latest drift) → the local pull 404s → step-06
+  # stalls stripReadinessSeconds and the cutover parks (LIVE hw274, dep
+  # d51a69f8). When true (default), a sampled chart absent from local Harbor is
+  # top-up-warmed from the still-reachable upstream (this step runs BEFORE the
+  # step-08 deny-egress hold) into local Harbor, then re-probed — self-healing
+  # the drift with no hand-skopeo. A chart genuinely unpullable from BOTH local
+  # AND upstream still FATALs at the deadline (fail-loud preserved). Set false
+  # to restore pure fail-loud (no upstream top-up).
+  unionWarmOnDrift: true
   # #4557 (Refs #3379): TLS verification on the helm-CLI probe DESTINATION —
   # the IN-CLUSTER Harbor reached as `registry.<sov-fqdn>` (HARBOR_PUBLIC_URL
   # → harbor_host). DEFAULT false (skip verify for the in-cluster target).

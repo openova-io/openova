@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.145 (#5237 Refs #5007 — step-06 helmrepository-patches UNION-WARM-ON-DRIFT.
+# Phase-3a samples the LIVE chart version off each pivoted HelmRelease (deployed
+# `.status.history[0].chartVersion` // desired `.spec.chart.spec.version`) and
+# refuses to strip mothership auth until each sampled chart is pullable from
+# local Harbor. If a `bp-catalyst-platform` release is published to ghcr AFTER
+# step-03 harbor-prewarm finishes (a mid-cutover merge's deploy-bot bump), flux
+# redeploys the umbrella to the newer CONCRETE pin BEFORE step-06 runs — so the
+# sampled tag is one bump ahead of what prewarm mirrored (catalog-latest drift;
+# neither the deployed NOR the desired tag was warmed → step-03 union-warm #5007
+# cannot cover it, the tag did not yet exist when prewarm ran). LIVE hw274 (dep
+# d51a69f885872a81): prewarm warmed through bp-catalyst-platform:1.4.1164;
+# 1.4.1165 published ~2 min later; step-06 sampled 1165, 404'd locally, stalled
+# stripReadinessSeconds → cutover parked at pct=45 → hand-heal (manual skopeo).
+# FIX: when a sampled chart is absent from local Harbor, TOP-UP-WARM it from the
+# still-reachable upstream (step-06 runs BEFORE the step-08 deny-egress hold) via
+# `helm pull` upstream + `helm push` local, then re-probe — self-healing the
+# drift, no hand-skopeo. Bounded per chart:ver (UNION_WARM_MAX_ATTEMPTS=3); a
+# chart genuinely unpullable from BOTH local AND upstream still FATALs at the
+# deadline (fail-loud preserved). New knob helmReadinessProbe.unionWarmOnDrift
+# (env UNION_WARM_ON_DRIFT, default true; false restores pure fail-loud). ghcr
+# creds come from the SAME ghcr-pull dockerconfig Phase-0 already reads (no new
+# secret); upstream ghcr.io keeps verify ON, only the in-cluster push carries
+# the existing LE-staging skip. No step-count / RBAC / deadline change (still 11
+# steps). Contract Case 66 asserts the union-warm helper + fail-branch call are
+# present in the rendered step-06 script.
+#
 # 0.1.144 (#5232 round 2 Refs #5204 — the xpkg digest verify + resolution
 # move to the REGISTRY V2 manifest API. Live hw274 (dep d51a69f885872a81,
 # 0.1.143 run): step-03 Phase A4 resolved the OCI-index digest correctly but
@@ -2439,7 +2465,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.144
+version: 0.1.145
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

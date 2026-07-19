@@ -173,6 +173,30 @@ data:
           # fast while still proving Harbor serves charts + auth works.
           - name: HELM_PROBE_SAMPLE_SIZE
             value: {{ .Values.helmReadinessProbe.sampleSize | quote }}
+          # #5237 (Refs #5007): union-warm-on-drift. Phase-3a samples the LIVE
+          # chart version off each pivoted HelmRelease (deployed
+          # `.status.history[0].chartVersion` // desired `.spec.chart.spec
+          # .version`). If a `bp-catalyst-platform` release is published to
+          # ghcr AFTER step-03 harbor-prewarm finishes (a mid-cutover merge's
+          # deploy-bot bump), flux redeploys the umbrella to the newer
+          # concrete pin BEFORE this step runs — so the sampled version is a
+          # tag prewarm never mirrored (catalog-latest drifted one bump ahead;
+          # neither the deployed NOR the desired tag was warmed). When true
+          # (default), a sampled chart that is absent from local Harbor is
+          # TOP-UP-WARMED from the still-reachable upstream (this step runs
+          # BEFORE the step-08 deny-egress hold) into local Harbor, then
+          # re-probed — self-healing the drift instead of stalling
+          # stripReadinessSeconds and parking the cutover. A genuinely-absent
+          # chart (unpullable from BOTH local Harbor AND upstream) still
+          # FATALs at the deadline (fail-loud preserved). Set false to restore
+          # pure fail-loud (no upstream top-up).
+          # NB: bare `| quote` (NOT `| default true`) — sprig `default` treats a
+          # literal `false` as empty and would flip an explicit disable back to
+          # true (feedback_rbac_create_no_resourcenames.md sprig_default_bool_unsafe).
+          # The values.yaml default (true) supplies the on-state; a nil renders
+          # "" and the script's `: "${UNION_WARM_ON_DRIFT:=true}"` restores true.
+          - name: UNION_WARM_ON_DRIFT
+            value: {{ .Values.helmReadinessProbe.unionWarmOnDrift | quote }}
           # #4557 (Refs #3379): TLS-verify on the Phase-3a helm-CLI probe
           # DESTINATION (the in-cluster Harbor `registry.<sov-fqdn>` =
           # harbor_host). DEFAULT false — the in-cluster Harbor serves an
@@ -180,9 +204,10 @@ data:
           # in a Job Pod has no node trust store. See
           # .Values.helmReadinessProbe.inClusterTLSVerify. When false, both
           # `helm registry login` and `helm pull` (in-cluster target) carry
-          # `--insecure-skip-tls-verify`; external ghcr/upstream calls are
-          # NOT made by this step, so verify is only ever skipped for the
-          # cluster's own registry.
+          # `--insecure-skip-tls-verify`. The ONLY external (ghcr/upstream)
+          # helm calls this step makes are the #5237 union-warm top-up pulls,
+          # which target the public-CA-signed ghcr.io and keep verify ON — the
+          # in-cluster skip is only ever applied to the cluster's own registry.
           - name: HELM_IN_CLUSTER_TLS_VERIFY
             value: {{ .Values.helmReadinessProbe.inClusterTLSVerify | default false | quote }}
           # Refs #3379 — source-controller TLS-trust for the pivoted
@@ -1243,6 +1268,89 @@ data:
               && echo "[helmrepository-patches] Phase-3a: helm registry login ${harbor_endpoint} OK" \
               || echo "[helmrepository-patches] Phase-3a WARN: helm registry login ${harbor_endpoint} returned non-zero (will retry inside the pull loop)"
 
+            # ---- #5237 union-warm-on-drift setup (Refs #5007) ----
+            # Derive the upstream (ghcr) host/project from the SAME value
+            # Phase-1 pivots FROM (oci://ghcr.io/openova-io). If a sampled chart
+            # drifted ahead of step-03 prewarm (a mid-cutover deploy-bot bump
+            # publishes bp-catalyst-platform:<N+1> AFTER prewarm mirrored :<N>
+            # and flux redeploys the umbrella to :<N+1> before THIS step), the
+            # local pull below 404s. This step runs BEFORE the step-08
+            # deny-egress hold, so the drifted tag is still pullable upstream —
+            # warm it into local Harbor on demand (helm pull upstream + helm
+            # push local), self-healing the catalog-latest-vs-prewarm race.
+            up_ref=$(printf '%s' "${UPSTREAM_PREFIX}" | sed -e 's,^oci://,,' -e 's,/*$,,')
+            up_host=${up_ref%%/*}
+            up_proj=${up_ref#*/}
+            : "${UNION_WARM_ON_DRIFT:=true}"
+            # Cap upstream top-up attempts per distinct chart:ver so a
+            # genuinely-absent tag cannot spin the upstream every 15s until the
+            # deadline (the stripReadinessSeconds deadline is the fail-loud
+            # guard); 3 attempts absorb a transient ghcr blip.
+            : "${UNION_WARM_MAX_ATTEMPTS:=3}"
+            if [ "${UNION_WARM_ON_DRIFT}" = "true" ]; then
+              # ghcr auth from the SAME ghcr-pull dockerconfig Phase-0 read
+              # (openova-io chart packages are PRIVATE); fall through to
+              # anonymous if absent. Upstream ghcr.io is public-CA-signed →
+              # verify stays ON for the upstream pull (no insecure flag).
+              up_auth_b64=$(printf '%s' "${existing_json:-}" | jq -r --arg h "${up_host}" '.auths[$h].auth // empty' 2>/dev/null || true)
+              if [ -n "${up_auth_b64}" ]; then
+                up_userpass=$(printf '%s' "${up_auth_b64}" | base64 -d 2>/dev/null || true)
+                up_user=${up_userpass%%:*}
+                up_pass=${up_userpass#*:}
+                if [ -n "${up_user}" ] && helm registry login "${up_host}" -u "${up_user}" -p "${up_pass}" >/dev/null 2>&1; then
+                  echo "[helmrepository-patches] Phase-3a: helm registry login ${up_host} OK (#5237 union-warm source)"
+                else
+                  echo "[helmrepository-patches] Phase-3a WARN: helm registry login ${up_host} non-zero — #5237 union-warm will try anonymous (public packages still pull)"
+                fi
+              else
+                echo "[helmrepository-patches] Phase-3a: no ${up_host} auth in ghcr-pull — #5237 union-warm pulls anonymously if the package is public"
+              fi
+            else
+              echo "[helmrepository-patches] Phase-3a: #5237 union-warm-on-drift DISABLED (UNION_WARM_ON_DRIFT=${UNION_WARM_ON_DRIFT}) — pure fail-loud on a drifted catalog-latest"
+            fi
+
+            # Top-up-warm ONE sampled chart:ver from the upstream into local
+            # Harbor. Called from the pull loop's fail branch; the next poll
+            # pass re-pulls it locally. Bounded per chart:ver; returns non-zero
+            # (no-op) when disabled, capped, or the warm fails — the deadline
+            # stays the fail-loud guard for a genuinely-absent chart.
+            warm_chart_from_upstream() {
+              w_chart="$1"; w_ver="$2"
+              [ "${UNION_WARM_ON_DRIFT}" = "true" ] || return 1
+              w_slug=$(printf '%s_%s' "${w_chart}" "${w_ver}" | tr -c 'A-Za-z0-9._-' '_')
+              w_marker="/tmp/.warm-${w_slug}.n"
+              w_n=0
+              [ -f "${w_marker}" ] && w_n=$(cat "${w_marker}" 2>/dev/null || echo 0)
+              if [ "${w_n}" -ge "${UNION_WARM_MAX_ATTEMPTS}" ]; then
+                return 1
+              fi
+              printf '%s' "$((w_n + 1))" > "${w_marker}"
+              echo "[helmrepository-patches] Phase-3a union-warm (#5237): ${w_chart}:${w_ver} absent from local Harbor — top-up-warming from ${up_host}/${up_proj} (egress still open, attempt $((w_n + 1))/${UNION_WARM_MAX_ATTEMPTS})"
+              rm -rf /tmp/warm-pull; mkdir -p /tmp/warm-pull
+              if ! helm pull "oci://${up_host}/${up_proj}/${w_chart}" --version "${w_ver}" \
+                   -d /tmp/warm-pull >/tmp/.warm-pull.log 2>&1; then
+                echo "[helmrepository-patches] Phase-3a union-warm WARN: upstream pull ${up_host}/${up_proj}/${w_chart}:${w_ver} failed (may be genuinely absent upstream — deadline stays fail-loud):" >&2
+                sed 's/^/    /' /tmp/.warm-pull.log 2>/dev/null | tail -4 >&2 || true
+                return 1
+              fi
+              w_tgz=$(ls /tmp/warm-pull/*.tgz 2>/dev/null | head -n1)
+              if [ -z "${w_tgz}" ]; then
+                echo "[helmrepository-patches] Phase-3a union-warm WARN: no chart tarball produced for ${w_chart}:${w_ver}" >&2
+                return 1
+              fi
+              # Push to the SAME openova-io path the probe pulls from; local
+              # Harbor is the in-cluster LE-staging target → carry the same
+              # in-cluster skip flag the local pull uses.
+              if helm push "${w_tgz}" "oci://${harbor_endpoint}/openova-io" ${HELM_PULL_INSECURE_FLAG} \
+                   >/tmp/.warm-push.log 2>&1; then
+                echo "[helmrepository-patches] Phase-3a union-warm OK (#5237): ${w_chart}:${w_ver} pushed to ${harbor_endpoint}/openova-io — local Harbor now serves the drifted catalog-latest; re-probing"
+                return 0
+              fi
+              echo "[helmrepository-patches] Phase-3a union-warm WARN: push ${w_chart}:${w_ver} -> ${harbor_endpoint} failed:" >&2
+              sed 's/^/    /' /tmp/.warm-push.log 2>/dev/null | tail -4 >&2 || true
+              return 1
+            }
+
             while [ "$(date +%s)" -lt "${strip_wait_deadline}" ]; do
               if [ "${sample_total}" -eq 0 ]; then
                 # No pivoted-chart HelmRelease found yet — Phase-1's URL pivot
@@ -1302,6 +1410,12 @@ data:
                 else
                   pull_fail=$((pull_fail+1))
                   pull_fail_names="${pull_fail_names}${p_chart}:${p_ver} "
+                  # #5237: the local pull 404'd — if this is a catalog-latest
+                  # drift (tag published AFTER step-03 prewarm), top-up-warm it
+                  # from the still-reachable upstream so the next poll pass finds
+                  # it locally. Bounded per chart:ver; no-op when disabled or at
+                  # the attempt cap. `|| true` keeps `set -e` happy.
+                  warm_chart_from_upstream "${p_chart}" "${p_ver}" || true
                 fi
               done < "${sample_file}"
               if [ "${pull_ok}" -gt 0 ] && [ "${pull_fail}" -eq 0 ]; then
