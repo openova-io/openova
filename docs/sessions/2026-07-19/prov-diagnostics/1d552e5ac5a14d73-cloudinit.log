@@ -1,0 +1,434 @@
+Cloud-init v. 19.1 running 'init-local' at Sun, 19 Jul 2026 09:24:57 +0000. Up 10.73 seconds.
+Cloud-init v. 19.1 running 'init' at Sun, 19 Jul 2026 09:24:59 +0000. Up 12.03 seconds.
+ci-info: +++++++++++++++++++++++++++++++++++++++Net device info+++++++++++++++++++++++++++++++++++++++
+ci-info: +--------+------+------------------------------+---------------+--------+-------------------+
+ci-info: | Device |  Up  |           Address            |      Mask     | Scope  |     Hw-Address    |
+ci-info: +--------+------+------------------------------+---------------+--------+-------------------+
+ci-info: |  eth0  | True |         10.57.1.229          | 255.255.255.0 | global | fa:16:3e:2f:f7:db |
+ci-info: |  eth0  | True | fe80::f816:3eff:fe2f:f7db/64 |       .       |  link  | fa:16:3e:2f:f7:db |
+ci-info: |   lo   | True |          127.0.0.1           |   255.0.0.0   |  host  |         .         |
+ci-info: |   lo   | True |           ::1/128            |       .       |  host  |         .         |
+ci-info: +--------+------+------------------------------+---------------+--------+-------------------+
+ci-info: +++++++++++++++++++++++++++++++Route IPv4 info+++++++++++++++++++++++++++++++
+ci-info: +-------+-----------------+-----------+-----------------+-----------+-------+
+ci-info: | Route |   Destination   |  Gateway  |     Genmask     | Interface | Flags |
+ci-info: +-------+-----------------+-----------+-----------------+-----------+-------+
+ci-info: |   0   |     0.0.0.0     | 10.57.1.1 |     0.0.0.0     |    eth0   |   UG  |
+ci-info: |   1   |    10.57.1.0    |  0.0.0.0  |  255.255.255.0  |    eth0   |   U   |
+ci-info: |   2   | 169.254.169.254 | 10.57.1.1 | 255.255.255.255 |    eth0   |  UGH  |
+ci-info: +-------+-----------------+-----------+-----------------+-----------+-------+
+ci-info: +++++++++++++++++++Route IPv6 info+++++++++++++++++++
+ci-info: +-------+-------------+---------+-----------+-------+
+ci-info: | Route | Destination | Gateway | Interface | Flags |
+ci-info: +-------+-------------+---------+-----------+-------+
+ci-info: |   1   |  fe80::/64  |    ::   |    eth0   |   U   |
+ci-info: |   3   |  multicast  |    ::   |    eth0   |   U   |
+ci-info: +-------+-------------+---------+-----------+-------+
+Generating public/private rsa key pair.
+Your identification has been saved in /etc/ssh/ssh_host_rsa_key
+Your public key has been saved in /etc/ssh/ssh_host_rsa_key.pub
+The key fingerprint is:
+SHA256:cx7EEpvaMkBSJiPyEhl5bNrwxqE0UvcEQ3V1OQMBvbk root@catalyst-hw276-omani-works-1d552e5a-me-east-215-a-cp1-869ad1
+The key's randomart image is:
++---[RSA 3072]----+
+|=*=oOoo +++o..   |
+|**=B + . =..+    |
+|+Xo.. . + oo o   |
+|o.=  . o oo      |
+| .    + S o.     |
+|       o +E.     |
+|          .      |
+|                 |
+|                 |
++----[SHA256]-----+
+Generating public/private dsa key pair.
+Your identification has been saved in /etc/ssh/ssh_host_dsa_key
+Your public key has been saved in /etc/ssh/ssh_host_dsa_key.pub
+The key fingerprint is:
+SHA256:jVBhPh8WmLqWTrDYK5CNrkZy3d7XxGkLLvEOb533tkQ root@catalyst-hw276-omani-works-1d552e5a-me-east-215-a-cp1-869ad1
+The key's randomart image is:
++---[DSA 1024]----+
+|        ++.      |
+|       +o  .     |
+|      ..o o      |
+|    . .. * .     |
+| + + + oS o. . E |
+|=.+ + * . . = .  |
+|+o   * ..+ * o . |
+| o. . o oo= = o .|
+|+  .     =o  . +o|
++----[SHA256]-----+
+Generating public/private ecdsa key pair.
+Your identification has been saved in /etc/ssh/ssh_host_ecdsa_key
+Your public key has been saved in /etc/ssh/ssh_host_ecdsa_key.pub
+The key fingerprint is:
+SHA256:8AJ8S51W1paQYXT33Ijh930AG3JeuWlMnPwZAq91tYM root@catalyst-hw276-omani-works-1d552e5a-me-east-215-a-cp1-869ad1
+The key's randomart image is:
++---[ECDSA 256]---+
+|         .O*B+oo.|
+|   .   . =.*=XB=+|
+|    o + +  .=E=B*|
+|     + =    o.*++|
+|      o S  . .  +|
+|       .        .|
+|                 |
+|                 |
+|                 |
++----[SHA256]-----+
+Generating public/private ed25519 key pair.
+Your identification has been saved in /etc/ssh/ssh_host_ed25519_key
+Your public key has been saved in /etc/ssh/ssh_host_ed25519_key.pub
+The key fingerprint is:
+SHA256:0AbEfKcy9EP+KwX27tVIrASviyYVX5zPLAOJ4epxKBE root@catalyst-hw276-omani-works-1d552e5a-me-east-215-a-cp1-869ad1
+The key's randomart image is:
++--[ED25519 256]--+
+|     +o          |
+|  E   =oo .      |
+|   . o.B+= .     |
+|  .   *oXo+.     |
+|   . o *SBo+o    |
+|  . + o .o*o+o   |
+|   o +  .o.+o .  |
+|    o ....o.     |
+|     o. .o.      |
++----[SHA256]-----+
+Cloud-init v. 19.1 running 'modules:config' at Sun, 19 Jul 2026 09:25:03 +0000. Up 16.06 seconds.
+Cloud-init v. 19.1 running 'modules:final' at Sun, 19 Jul 2026 09:25:11 +0000. Up 24.07 seconds.
+Hit:1 http://repo.huaweicloud.com/ubuntu jammy InRelease
+Get:2 http://repo.huaweicloud.com/ubuntu jammy-updates InRelease [128 kB]
+Get:3 http://repo.huaweicloud.com/ubuntu jammy-backports InRelease [127 kB]
+Get:4 http://repo.huaweicloud.com/ubuntu jammy-security InRelease [129 kB]
+Get:5 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 Packages [3,646 kB]
+Get:6 http://repo.huaweicloud.com/ubuntu jammy-updates/main Translation-en [547 kB]
+Get:7 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 c-n-f Metadata [20.1 kB]
+Get:8 http://repo.huaweicloud.com/ubuntu jammy-updates/restricted amd64 Packages [6,245 kB]
+Get:9 http://repo.huaweicloud.com/ubuntu jammy-updates/restricted Translation-en [1,195 kB]
+Get:10 http://repo.huaweicloud.com/ubuntu jammy-updates/restricted amd64 c-n-f Metadata [584 B]
+Get:11 http://repo.huaweicloud.com/ubuntu jammy-updates/universe amd64 Packages [1,278 kB]
+Get:12 http://repo.huaweicloud.com/ubuntu jammy-updates/universe Translation-en [322 kB]
+Get:13 http://repo.huaweicloud.com/ubuntu jammy-updates/universe amd64 c-n-f Metadata [30.8 kB]
+Get:14 http://repo.huaweicloud.com/ubuntu jammy-updates/multiverse amd64 Packages [71.6 kB]
+Get:15 http://repo.huaweicloud.com/ubuntu jammy-updates/multiverse Translation-en [15.5 kB]
+Get:16 http://repo.huaweicloud.com/ubuntu jammy-updates/multiverse amd64 c-n-f Metadata [756 B]
+Get:17 http://repo.huaweicloud.com/ubuntu jammy-backports/main amd64 Packages [70.2 kB]
+Get:18 http://repo.huaweicloud.com/ubuntu jammy-backports/main Translation-en [11.4 kB]
+Get:19 http://repo.huaweicloud.com/ubuntu jammy-backports/main amd64 c-n-f Metadata [412 B]
+Get:20 http://repo.huaweicloud.com/ubuntu jammy-backports/universe amd64 Packages [30.8 kB]
+Get:21 http://repo.huaweicloud.com/ubuntu jammy-backports/universe Translation-en [16.9 kB]
+Get:22 http://repo.huaweicloud.com/ubuntu jammy-backports/universe amd64 c-n-f Metadata [676 B]
+Get:23 http://repo.huaweicloud.com/ubuntu jammy-security/main amd64 Packages [3,361 kB]
+Get:24 http://repo.huaweicloud.com/ubuntu jammy-security/main Translation-en [475 kB]
+Get:25 http://repo.huaweicloud.com/ubuntu jammy-security/main amd64 c-n-f Metadata [14.7 kB]
+Get:26 http://repo.huaweicloud.com/ubuntu jammy-security/restricted amd64 Packages [5,988 kB]
+Get:27 http://repo.huaweicloud.com/ubuntu jammy-security/restricted Translation-en [1,146 kB]
+Get:28 http://repo.huaweicloud.com/ubuntu jammy-security/restricted amd64 c-n-f Metadata [600 B]
+Get:29 http://repo.huaweicloud.com/ubuntu jammy-security/universe amd64 Packages [1,044 kB]
+Get:30 http://repo.huaweicloud.com/ubuntu jammy-security/universe Translation-en [233 kB]
+Get:31 http://repo.huaweicloud.com/ubuntu jammy-security/universe amd64 c-n-f Metadata [23.2 kB]
+Get:32 http://repo.huaweicloud.com/ubuntu jammy-security/multiverse amd64 Packages [64.3 kB]
+Get:33 http://repo.huaweicloud.com/ubuntu jammy-security/multiverse Translation-en [12.6 kB]
+Get:34 http://repo.huaweicloud.com/ubuntu jammy-security/multiverse amd64 c-n-f Metadata [544 B]
+Fetched 26.3 MB in 4s (6,101 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+unattended-upgrades is already the newest version (2.8ubuntu1).
+The following packages were automatically installed and are no longer required:
+  eatmydata libeatmydata1 libflashrom1 libftdi1-2 python-babel-localedata
+  python3-babel python3-certifi python3-jinja2 python3-json-pointer
+  python3-jsonpatch python3-jsonschema python3-markupsafe python3-pyrsistent
+  python3-requests python3-tz python3-urllib3
+Use 'apt autoremove' to remove them.
+The following additional packages will be installed:
+  libcurl4 libip4tc2 libip6tc2 libjq1 libonig5 libxtables12 python3-pyinotify
+  whois
+Suggested packages:
+  default-mta | mail-transport-agent www-browser x-terminal-emulator mailx
+  monit sqlite3 git-daemon-run | git-daemon-sysvinit git-doc git-email git-gui
+  gitk gitweb git-cvs git-mediawiki git-svn firewalld python-pyinotify-doc
+The following NEW packages will be installed:
+  apt-listchanges fail2ban jq libjq1 libonig5 python3-pyinotify whois
+The following packages will be upgraded:
+  ca-certificates curl git iptables libcurl4 libip4tc2 libip6tc2 libxtables12
+8 upgraded, 7 newly installed, 0 to remove and 332 not upgraded.
+Need to get 5,243 kB of archives.
+After this operation, 3,974 kB of additional disk space will be used.
+Get:1 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 ca-certificates all 20260601~22.04.1 [141 kB]
+Get:2 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 iptables amd64 1.8.7-1ubuntu5.2 [455 kB]
+Get:3 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 libxtables12 amd64 1.8.7-1ubuntu5.2 [31.3 kB]
+Get:4 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 libip6tc2 amd64 1.8.7-1ubuntu5.2 [20.3 kB]
+Get:5 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 libip4tc2 amd64 1.8.7-1ubuntu5.2 [19.9 kB]
+Get:6 http://repo.huaweicloud.com/ubuntu jammy/main amd64 apt-listchanges all 3.24 [85.3 kB]
+Get:7 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 curl amd64 7.81.0-1ubuntu1.25 [194 kB]
+Get:8 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 libcurl4 amd64 7.81.0-1ubuntu1.25 [291 kB]
+Get:9 http://repo.huaweicloud.com/ubuntu jammy/universe amd64 fail2ban all 0.11.2-6 [394 kB]
+Get:10 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 git amd64 1:2.34.1-1ubuntu1.17 [3,174 kB]
+Get:11 http://repo.huaweicloud.com/ubuntu jammy/main amd64 libonig5 amd64 6.9.7.1-2build1 [172 kB]
+Get:12 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 libjq1 amd64 1.6-2.1ubuntu3.2 [135 kB]
+Get:13 http://repo.huaweicloud.com/ubuntu jammy-updates/main amd64 jq amd64 1.6-2.1ubuntu3.2 [52.5 kB]
+Get:14 http://repo.huaweicloud.com/ubuntu jammy/main amd64 python3-pyinotify all 0.9.6-1.3 [24.8 kB]
+Get:15 http://repo.huaweicloud.com/ubuntu jammy/main amd64 whois amd64 5.5.13 [53.4 kB]
+Preconfiguring packages ...
+Fetched 5,243 kB in 1s (8,179 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 80859 files and directories currently installed.)
+Preparing to unpack .../00-ca-certificates_20260601~22.04.1_all.deb ...
+Unpacking ca-certificates (20260601~22.04.1) over (20230311ubuntu0.22.04.1) ...
+Preparing to unpack .../01-iptables_1.8.7-1ubuntu5.2_amd64.deb ...
+Unpacking iptables (1.8.7-1ubuntu5.2) over (1.8.7-1ubuntu5.1) ...
+Preparing to unpack .../02-libxtables12_1.8.7-1ubuntu5.2_amd64.deb ...
+Unpacking libxtables12:amd64 (1.8.7-1ubuntu5.2) over (1.8.7-1ubuntu5.1) ...
+Preparing to unpack .../03-libip6tc2_1.8.7-1ubuntu5.2_amd64.deb ...
+Unpacking libip6tc2:amd64 (1.8.7-1ubuntu5.2) over (1.8.7-1ubuntu5.1) ...
+Preparing to unpack .../04-libip4tc2_1.8.7-1ubuntu5.2_amd64.deb ...
+Unpacking libip4tc2:amd64 (1.8.7-1ubuntu5.2) over (1.8.7-1ubuntu5.1) ...
+Selecting previously unselected package apt-listchanges.
+Preparing to unpack .../05-apt-listchanges_3.24_all.deb ...
+Unpacking apt-listchanges (3.24) ...
+Preparing to unpack .../06-curl_7.81.0-1ubuntu1.25_amd64.deb ...
+Unpacking curl (7.81.0-1ubuntu1.25) over (7.81.0-1ubuntu1.10) ...
+Preparing to unpack .../07-libcurl4_7.81.0-1ubuntu1.25_amd64.deb ...
+Unpacking libcurl4:amd64 (7.81.0-1ubuntu1.25) over (7.81.0-1ubuntu1.10) ...
+Selecting previously unselected package fail2ban.
+Preparing to unpack .../08-fail2ban_0.11.2-6_all.deb ...
+Unpacking fail2ban (0.11.2-6) ...
+Preparing to unpack .../09-git_1%3a2.34.1-1ubuntu1.17_amd64.deb ...
+Unpacking git (1:2.34.1-1ubuntu1.17) over (1:2.34.1-1ubuntu1.9) ...
+Selecting previously unselected package libonig5:amd64.
+Preparing to unpack .../10-libonig5_6.9.7.1-2build1_amd64.deb ...
+Unpacking libonig5:amd64 (6.9.7.1-2build1) ...
+Selecting previously unselected package libjq1:amd64.
+Preparing to unpack .../11-libjq1_1.6-2.1ubuntu3.2_amd64.deb ...
+Unpacking libjq1:amd64 (1.6-2.1ubuntu3.2) ...
+Selecting previously unselected package jq.
+Preparing to unpack .../12-jq_1.6-2.1ubuntu3.2_amd64.deb ...
+Unpacking jq (1.6-2.1ubuntu3.2) ...
+Selecting previously unselected package python3-pyinotify.
+Preparing to unpack .../13-python3-pyinotify_0.9.6-1.3_all.deb ...
+Unpacking python3-pyinotify (0.9.6-1.3) ...
+Selecting previously unselected package whois.
+Preparing to unpack .../14-whois_5.5.13_amd64.deb ...
+Unpacking whois (5.5.13) ...
+Setting up libip4tc2:amd64 (1.8.7-1ubuntu5.2) ...
+Setting up whois (5.5.13) ...
+Setting up libip6tc2:amd64 (1.8.7-1ubuntu5.2) ...
+Setting up fail2ban (0.11.2-6) ...
+Setting up python3-pyinotify (0.9.6-1.3) ...
+Setting up ca-certificates (20260601~22.04.1) ...
+Updating certificates in /etc/ssl/certs...
+rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+24 added, 40 removed; done.
+Setting up git (1:2.34.1-1ubuntu1.17) ...
+Setting up libxtables12:amd64 (1.8.7-1ubuntu5.2) ...
+Setting up libcurl4:amd64 (7.81.0-1ubuntu1.25) ...
+Setting up curl (7.81.0-1ubuntu1.25) ...
+Setting up apt-listchanges (3.24) ...
+
+Creating config file /etc/apt/listchanges.conf with new version
+Setting up libonig5:amd64 (6.9.7.1-2build1) ...
+Setting up libjq1:amd64 (1.6-2.1ubuntu3.2) ...
+Setting up iptables (1.8.7-1ubuntu5.2) ...
+Setting up jq (1.6-2.1ubuntu3.2) ...
+Processing triggers for man-db (2.10.2-1) ...
+Processing triggers for libc-bin (2.35-0ubuntu3.1) ...
+Processing triggers for ca-certificates (20260601~22.04.1) ...
+Updating certificates in /etc/ssl/certs...
+0 added, 0 removed; done.
+Running hooks in /etc/ca-certificates/update.d...
+done.
+NEEDRESTART-VER: 3.5
+NEEDRESTART-KCUR: 5.15.0-76-generic
+NEEDRESTART-KEXP: 5.15.0-76-generic
+NEEDRESTART-KSTA: 1
+NEEDRESTART-SVC: systemd-journald.service
+NEEDRESTART-SVC: systemd-logind.service
+NEEDRESTART-SVC: systemd-manager
+NEEDRESTART-SVC: systemd-resolved.service
+update-alternatives: using /usr/sbin/iptables-legacy to provide /usr/sbin/iptables (iptables) in manual mode
+update-alternatives: using /usr/sbin/ip6tables-legacy to provide /usr/sbin/ip6tables (ip6tables) in manual mode
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+* Applying /etc/sysctl.d/10-console-messages.conf ...
+kernel.printk = 4 4 1 7
+* Applying /etc/sysctl.d/10-ipv6-privacy.conf ...
+net.ipv6.conf.all.use_tempaddr = 2
+net.ipv6.conf.default.use_tempaddr = 2
+* Applying /etc/sysctl.d/10-kernel-hardening.conf ...
+kernel.kptr_restrict = 1
+* Applying /etc/sysctl.d/10-magic-sysrq.conf ...
+kernel.sysrq = 176
+* Applying /etc/sysctl.d/10-network-security.conf ...
+net.ipv4.conf.default.rp_filter = 2
+net.ipv4.conf.all.rp_filter = 2
+* Applying /etc/sysctl.d/10-ptrace.conf ...
+kernel.yama.ptrace_scope = 1
+* Applying /etc/sysctl.d/10-zeropage.conf ...
+vm.mmap_min_addr = 65536
+* Applying /usr/lib/sysctl.d/50-default.conf ...
+kernel.core_uses_pid = 1
+net.ipv4.conf.default.rp_filter = 2
+net.ipv4.conf.default.accept_source_route = 0
+sysctl: setting key "net.ipv4.conf.all.accept_source_route": Invalid argument
+net.ipv4.conf.default.promote_secondaries = 1
+sysctl: setting key "net.ipv4.conf.all.promote_secondaries": Invalid argument
+net.ipv4.ping_group_range = 0 2147483647
+net.core.default_qdisc = fq_codel
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.protected_regular = 1
+fs.protected_fifos = 1
+* Applying /usr/lib/sysctl.d/50-pid-max.conf ...
+kernel.pid_max = 4194304
+* Applying /etc/sysctl.d/99-catalyst-disable-ipv6.conf ...
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+* Applying /etc/sysctl.d/99-catalyst-inotify.conf ...
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 1048576
+fs.inotify.max_queued_events = 16384
+* Applying /usr/lib/sysctl.d/99-protect-links.conf ...
+fs.protected_fifos = 1
+fs.protected_hardlinks = 1
+fs.protected_regular = 2
+fs.protected_symlinks = 1
+* Applying /etc/sysctl.d/99-sysctl.conf ...
+vm.swappiness = 0
+net.core.somaxconn = 1024
+net.ipv4.tcp_max_tw_buckets = 5000
+net.ipv4.tcp_max_syn_backlog = 1024
+* Applying /etc/sysctl.conf ...
+vm.swappiness = 0
+net.core.somaxconn = 1024
+net.ipv4.tcp_max_tw_buckets = 5000
+net.ipv4.tcp_max_syn_backlog = 1024
+Synchronizing state of fail2ban.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install enable fail2ban
+Created symlink /etc/systemd/system/multi-user.target.wants/fail2ban.service → /lib/systemd/system/fail2ban.service.
+Synchronizing state of unattended-upgrades.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install enable unattended-upgrades
+[INFO]  Using v1.31.4+k3s1 as release
+[INFO]  Downloading hash https://github.com/k3s-io/k3s/releases/download/v1.31.4%2Bk3s1/sha256sum-amd64.txt
+[INFO]  Downloading binary https://github.com/k3s-io/k3s/releases/download/v1.31.4%2Bk3s1/k3s
+[INFO]  Verifying binary download
+[INFO]  Installing k3s to /usr/local/bin/k3s
+[INFO]  Skipping installation of SELinux RPM
+[INFO]  Creating /usr/local/bin/kubectl symlink to k3s
+[INFO]  Creating /usr/local/bin/crictl symlink to k3s
+[INFO]  Creating /usr/local/bin/ctr symlink to k3s
+[INFO]  Creating killall script /usr/local/bin/k3s-killall.sh
+[INFO]  Creating uninstall script /usr/local/bin/k3s-uninstall.sh
+[INFO]  env: Creating environment file /etc/systemd/system/k3s.service.env
+[INFO]  systemd: Creating service file /etc/systemd/system/k3s.service
+[INFO]  systemd: Enabling k3s unit
+Created symlink /etc/systemd/system/multi-user.target.wants/k3s.service → /etc/systemd/system/k3s.service.
+[INFO]  systemd: Starting k3s
+primary kubeconfig PUT-back attempt 1 -> HTTP 204
+customresourcedefinition.apiextensions.k8s.io/backendlbpolicies.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io condition met
+Downloading https://get.helm.sh/helm-v3.21.3-linux-amd64.tar.gz
+Verifying checksum... Done.
+Preparing to install helm into /usr/local/bin
+helm installed into /usr/local/bin/helm
+"cilium" has been added to your repositories
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "cilium" chart repository
+Update Complete. ⎈Happy Helming!⎈
+Release "cilium" does not exist. Installing it now.
+NAME: cilium
+LAST DEPLOYED: Sun Jul 19 17:26:20 2026
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+You have successfully installed Cilium with Hubble.
+
+Your release version is 1.19.3.
+
+For any further help, visit https://docs.cilium.io/en/v1.19/gettinghelp
+Waiting for daemon set "cilium" rollout to finish: 0 of 1 updated pods are available...
+Waiting for daemon set "cilium" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 0 of 2 updated pods are available...
+Waiting for daemon set "cilium" rollout to finish: 1 of 2 updated pods are available...
+daemon set "cilium" successfully rolled out
+configmap/coredns-custom created
+namespace/flux-system created
+resourcequota/critical-pods created
+customresourcedefinition.apiextensions.k8s.io/alerts.notification.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/buckets.source.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/gitrepositories.source.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/helmcharts.source.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/helmreleases.helm.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/helmrepositories.source.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/imagepolicies.image.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/imagerepositories.image.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/imageupdateautomations.image.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/kustomizations.kustomize.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/ocirepositories.source.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/providers.notification.toolkit.fluxcd.io created
+customresourcedefinition.apiextensions.k8s.io/receivers.notification.toolkit.fluxcd.io created
+serviceaccount/helm-controller created
+serviceaccount/image-automation-controller created
+serviceaccount/image-reflector-controller created
+serviceaccount/kustomize-controller created
+serviceaccount/notification-controller created
+serviceaccount/source-controller created
+clusterrole.rbac.authorization.k8s.io/crd-controller created
+clusterrole.rbac.authorization.k8s.io/flux-edit created
+clusterrole.rbac.authorization.k8s.io/flux-view created
+clusterrolebinding.rbac.authorization.k8s.io/cluster-reconciler created
+clusterrolebinding.rbac.authorization.k8s.io/crd-controller created
+service/notification-controller created
+service/source-controller created
+service/webhook-receiver created
+deployment.apps/helm-controller created
+deployment.apps/image-automation-controller created
+deployment.apps/image-reflector-controller created
+deployment.apps/kustomize-controller created
+deployment.apps/notification-controller created
+deployment.apps/source-controller created
+networkpolicy.networking.k8s.io/allow-egress created
+networkpolicy.networking.k8s.io/allow-scraping created
+networkpolicy.networking.k8s.io/allow-webhooks created
+networkpolicy.networking.k8s.io "allow-egress" deleted
+networkpolicy.networking.k8s.io "allow-scraping" deleted
+networkpolicy.networking.k8s.io "allow-webhooks" deleted
+deployment.apps/helm-controller condition met
+deployment.apps/image-automation-controller condition met
+deployment.apps/image-reflector-controller condition met
+deployment.apps/kustomize-controller condition met
+timed out waiting for the condition on deployments/notification-controller
+timed out waiting for the condition on deployments/source-controller
+deployment.apps/helm-controller condition met
+deployment.apps/image-automation-controller condition met
+deployment.apps/image-reflector-controller condition met
+deployment.apps/kustomize-controller condition met
+deployment.apps/notification-controller condition met
+deployment.apps/source-controller condition met
+Warning: resource namespaces/catalyst-system is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+namespace/catalyst-system configured
+namespace/openbao created
+secret/ghcr-pull created
+secret/harbor-robot-token created
+secret/pdm-basicauth created
+secret/catalyst-handover-jwt-public created
+secret/object-storage created
+secret/cloud-credentials created
+secret/openbao-recovery-seed created
+gitrepository.source.toolkit.fluxcd.io/openova created
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit created
+kustomization.kustomize.toolkit.fluxcd.io/sovereign-tls created
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit-crs created
+kustomization.kustomize.toolkit.fluxcd.io/infrastructure-providers created
+CLOUDINIT-SENTINEL: cloud-init-complete
