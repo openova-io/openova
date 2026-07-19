@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.17 (#5239): dr-promoter ARM GATE never armed — the #5220 steady-state arm
+# gate detected "streaming" via `pg_stat_wal_receiver WHERE status = 'streaming'`,
+# but the signals container authenticates as `streaming_replica` (client cert),
+# which lacks pg_read_all_stats/pg_monitor, so PostgreSQL NULLs the privileged
+# columns of pg_stat_wal_receiver for it — `status` is ALWAYS NULL (live-confirmed
+# hw274: pg_has_role('streaming_replica','pg_read_all_stats','MEMBER')=f;
+# SELECT status FROM pg_stat_wal_receiver → NULL). The `status = 'streaming'`
+# predicate was therefore NEVER true → the pair NEVER armed → /shared/armed never
+# written → #5220's actor REFUSED every promote → a real region-kill would NOT
+# fail over (DR failover dead on every env, worse than the #5220 false-promote it
+# replaced). A GRANT is NOT a clean fix: `streaming_replica` is a CNPG RESERVED
+# role (barred from spec.managed.roles) AND does not yet exist at initdb
+# postInitSQL time (ConfigureNewInstance runs postInitSQL BEFORE the operator
+# creates streaming_replica), so a GRANT would fail and wedge the whole primary
+# bootstrap of the platform's shared-pg. Fix: detect "streaming" with objects
+# EVERY role can read on a standby — a live pg_stat_wal_receiver ROW (its `pid`,
+# hence EXISTS, is visible to all; only the detail columns are NULLed) AND
+# pg_last_wal_receive_lsn() IS NOT NULL (both PUBLIC-executable). The row-EXISTS
+# guard neutralises the one hazard of pg_last_wal_receive_lsn() (its value
+# persists after a receiver stops): the view holds a row ONLY while a walreceiver
+# process is live, so requiring BOTH is a true "streaming right now" signal that
+# resets the instant the receiver dies. Everything else in #5220/#5219/#5178 is
+# UNCHANGED (the arm window, the same-tick suspend latch, the refuse-while-unarmed
+# guard, the timeline-divergence surfacing) — only the streaming signal is made
+# readable by the probe role. No resource-count/RBAC/env change (script only).
+# Lockstep slot 16b pin → 0.2.17.
 # 0.2.16 (#5220): dr-promoter FALSE-POSITIVE fix — steady-state ARM gate +
 # timeline-divergence surfacing. On hw273 G12 the 0.2.15 promoter FALSE-PROMOTED
 # region-B during a TRANSIENT region-A unreachability (primary restart-storm +
@@ -146,7 +172,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.16
+version: 0.2.17
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

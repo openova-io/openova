@@ -243,7 +243,17 @@ spec:
       # is recorded on the HR (dr-timeline-diverged-at); the re-clone stays the
       # operator's RUNBOOKS §6.1 action (non-destructive). #5219 latch + 120s
       # hold + pg_isready gate + sync fence unchanged. No new substitute.
-      version: 0.2.16
+      # 0.2.17 (#5239): the #5220 arm gate NEVER armed — it read "streaming" from
+      # pg_stat_wal_receiver.status, but the signals probe authenticates as
+      # streaming_replica, which lacks pg_read_all_stats so status is ALWAYS NULL
+      # (live-confirmed hw274) → status='streaming' never true → /shared/armed
+      # never written → actor REFUSED every promote (DR failover dead). Fix:
+      # detect streaming from PUBLIC-readable signals — a live pg_stat_wal_receiver
+      # ROW (EXISTS/pid is visible to all) AND pg_last_wal_receive_lsn() non-null.
+      # A GRANT was not viable (streaming_replica is a CNPG reserved role and does
+      # not exist at postInitSQL time → GRANT would wedge bootstrap). All #5220/
+      # #5219/#5178 gates unchanged; script-only. No new substitute.
+      version: 0.2.17
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

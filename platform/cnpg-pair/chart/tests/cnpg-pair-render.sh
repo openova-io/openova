@@ -998,6 +998,32 @@ for r in [d for d in docs if d.get('kind')=='Role' and 'dr-promoter' in d['metad
         assert 'delete' not in verbs, f"dr-promoter Role granted delete on {res} — must never delete PVCs/pods/CRs (data-safety, #5220)"
         assert 'create' not in verbs, f"dr-promoter Role granted create on {res} — surfacing is non-destructive (#5220)"
 PYEOF
-echo "  PASS (arm gate blocks promote before observed steady-state · divergence surfaced on HR · non-destructive, no delete verbs)"
+
+# (g) #5239 — the arm gate's "streaming" signal must be READABLE by the probe
+#     role. The signals psql authenticates as streaming_replica (client cert),
+#     which lacks pg_read_all_stats/pg_monitor, so PostgreSQL NULLs the
+#     privileged columns of pg_stat_wal_receiver for it — `status` is ALWAYS NULL
+#     (live-confirmed hw274). The former `pg_stat_wal_receiver WHERE status =
+#     'streaming'` predicate could therefore NEVER be true → /shared/armed never
+#     written → the actor REFUSED every promote → a real region-kill would not
+#     fail over (DR failover DEAD). Assert the privileged status column is GONE
+#     from the streaming detector, and that "streaming" is now decided from
+#     PUBLIC-readable signals only.
+if grep -qF "pg_stat_wal_receiver WHERE status" "$TMP/signals.sh"; then
+  echo "FAIL: #5239 signals still gate 'streaming' on the privileged pg_stat_wal_receiver.status column — NULL for the unprivileged streaming_replica probe role, so the pair never arms and DR failover is dead." >&2
+  grep -nF "pg_stat_wal_receiver WHERE status" "$TMP/signals.sh" >&2; exit 1; fi
+# "streaming" must require BOTH a live pg_stat_wal_receiver ROW (its pid/EXISTS is
+# visible to every role; the view holds a row ONLY while a walreceiver is alive)
+# AND a set pg_last_wal_receive_lsn() (PUBLIC-executable). The ROW-EXISTS guard is
+# what makes the receive-LSN a "streaming NOW" proof — the LSN value persists
+# after a receiver stops, so alone it is not current-streaming evidence.
+grep -qF "EXISTS (SELECT 1 FROM pg_stat_wal_receiver) AND pg_last_wal_receive_lsn() IS NOT NULL THEN 'streaming'" "$TMP/signals.sh" || {
+  echo "FAIL: #5239 'streaming' must be detected from PUBLIC-readable signals — a live pg_stat_wal_receiver ROW AND pg_last_wal_receive_lsn() IS NOT NULL (both readable by streaming_replica)." >&2; exit 1; }
+# The arm gate keys off STATE='streaming', so the detector rewrite must keep that
+# exact token feeding /shared/armed (regression guard for the whole #5220 chain).
+grep -qF 'if [ "${STATE}" = "streaming" ]' "$TMP/signals.sh" || {
+  echo "FAIL: #5239 arm window must still key off STATE='streaming' (the #5220 continuity tracker)." >&2; exit 1; }
+
+echo "  PASS (arm gate blocks promote before observed steady-state · divergence surfaced on HR · non-destructive, no delete verbs · #5239 streaming signal readable by streaming_replica)"
 
 echo "[render] All bp-cnpg-pair render gates green."

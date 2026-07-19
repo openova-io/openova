@@ -98,8 +98,10 @@ start) did not help either: the restart-storm hit AFTER the grace window.
 
 (A) ARM GATE — the promoter is INELIGIBLE to promote until the signals
     container has OBSERVED region-b's replica actively STREAMING from
-    region-A (walreceiver status=streaming) CONTINUOUSLY for
-    `steadyStateArmSeconds`. Until that steady-state is reached the actor
+    region-A (a live walreceiver row + a set receive-LSN — the #5239
+    non-privileged streaming signal, since `streaming_replica` cannot
+    read the privileged pg_stat_wal_receiver.status column) CONTINUOUSLY
+    for `steadyStateArmSeconds`. Until that steady-state is reached the actor
     REFUSES every promote (a region-A-down signal before the first stable
     stream is a convergence-time transient, never a real kill). Once
     armed it STAYS armed for the pod's life — a real death AFTER
@@ -387,14 +389,45 @@ spec:
               CONN="host={{ include "cnpg-pair.replicaName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
               # 'promoted'   — NOT in recovery: the local cluster is writable
               #                (already promoted / diverged off the source TL).
-              # 'streaming'  — WAL receiver actively streaming.
-              # 'receiving'  — a WAL receiver row EXISTS but is not (yet)
-              #                streaming (starting/waiting/restarting/catchup)
+              # 'streaming'  — WAL receiver process ALIVE and it has received WAL
+              #                over the stream (receive-LSN set) — the pair is
+              #                genuinely streaming right now.
+              # 'receiving'  — a WAL receiver row EXISTS but no WAL has been
+              #                received yet (the brief connect/handshake window)
               #                — region-A is delivering WAL, ALIVE, not dead.
               # 'noreceiver' — no WAL receiver row at all → POTENTIAL loss.
+              #
+              # #5239 — the arm gate MUST decide "streaming" from signals the
+              # probe role can actually READ. The signals psql authenticates as
+              # `streaming_replica` (client cert), which lacks pg_read_all_stats
+              # / pg_monitor, so PostgreSQL NULLs the privileged columns of
+              # pg_stat_wal_receiver for it — `status` is ALWAYS NULL
+              # (live-confirmed hw274). The former `status = 'streaming'`
+              # predicate was therefore NEVER true → the pair NEVER armed → a
+              # real region-kill would refuse to promote (DR failover dead on
+              # every env). A privilege GRANT is not a clean fix here:
+              # `streaming_replica` is a CNPG RESERVED role (barred from
+              # spec.managed.roles), and it does not yet exist at initdb
+              # postInitSQL time (ConfigureNewInstance runs postInitSQL before
+              # the operator creates streaming_replica), so a GRANT would fail
+              # and wedge the whole primary bootstrap. Instead detect streaming
+              # with objects EVERY role can read on a standby:
+              #   - pg_is_in_recovery()       — PUBLIC-executable
+              #   - the pg_stat_wal_receiver ROW — its `pid` (hence EXISTS) is
+              #                                    visible to all; only the
+              #                                    detail columns are NULLed
+              #   - pg_last_wal_receive_lsn() — PUBLIC-executable
+              # The ROW-EXISTS guard is what makes pg_last_wal_receive_lsn() safe
+              # here: that function's value PERSISTS after a receiver stops, so
+              # ALONE it is not proof of CURRENT streaming — but the view holds a
+              # row ONLY while a walreceiver process is live, so requiring BOTH
+              # (row present AND receive-LSN set) is a true "streaming right now"
+              # signal that resets the instant the receiver dies (row vanishes →
+              # STATE becomes 'noreceiver'). Everything else in the #5220/#5178
+              # arm gate + latch is unchanged; only this signal is made readable.
               Q="SELECT CASE
                 WHEN NOT pg_is_in_recovery() THEN 'promoted'
-                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver WHERE status = 'streaming') THEN 'streaming'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) AND pg_last_wal_receive_lsn() IS NOT NULL THEN 'streaming'
                 WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) THEN 'receiving'
                 ELSE 'noreceiver'
               END"
