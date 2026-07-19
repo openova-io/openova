@@ -486,7 +486,10 @@ func defaultBootstrapKitSubstitute() map[string]any {
 }
 
 // newFakeKustomizationDynClient builds a fake dynamic client that knows
-// the Flux Kustomization GVR, seeded with the given objects.
+// the Flux Kustomization GVR — plus the HelmRelease GVR, so the #5261
+// post-delivery stalled-HR scan can List flux-system HelmReleases against
+// the same fake (an unregistered list GVR panics the dynamic fake) —
+// seeded with the given objects.
 func newFakeKustomizationDynClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
 	t.Helper()
 	scheme := runtime.NewScheme()
@@ -496,8 +499,17 @@ func newFakeKustomizationDynClient(t *testing.T, objs ...runtime.Object) dynamic
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
 		Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "KustomizationList",
 	}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: helmReleaseGVR.Group, Version: helmReleaseGVR.Version, Kind: "HelmRelease",
+	}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: helmReleaseGVR.Group, Version: helmReleaseGVR.Version, Kind: "HelmReleaseList",
+	}, &unstructured.UnstructuredList{})
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{fluxKustomizationGVR: "KustomizationList"},
+		map[schema.GroupVersionResource]string{
+			fluxKustomizationGVR: "KustomizationList",
+			helmReleaseGVR:       "HelmReleaseList",
+		},
 		objs...)
 }
 
@@ -2836,6 +2848,220 @@ func TestSyncSharedPGConsumerHubSecrets(t *testing.T) {
 			}
 		}
 	})
+}
+
+// ── #5261 — cascade force-reconciles replica HRs stalled pre-delivery ──
+
+// buildTestHelmRelease returns a flux-system HelmRelease (the unstructured
+// shape the #5261 stalled-HR scan reads) carrying the given status conditions.
+func buildTestHelmRelease(name string, conds ...map[string]any) *unstructured.Unstructured {
+	condList := make([]any, 0, len(conds))
+	for _, c := range conds {
+		condList = append(condList, c)
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": helmReleaseGVR.Group + "/" + helmReleaseGVR.Version,
+		"kind":       "HelmRelease",
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": fluxSystemNamespace,
+		},
+		"status": map[string]any{"conditions": condList},
+	}}
+}
+
+// hrCondition builds one status condition; a zero lastTransition omits the
+// lastTransitionTime key entirely (the unprovable-age shape).
+func hrCondition(typ, status, reason string, lastTransition time.Time) map[string]any {
+	c := map[string]any{"type": typ, "status": status, "reason": reason}
+	if !lastTransition.IsZero() {
+		c["lastTransitionTime"] = lastTransition.UTC().Format(time.RFC3339)
+	}
+	return c
+}
+
+// getFluxSystemHelmRelease re-reads a flux-system HR from the fake dynamic
+// client so assertions observe post-patch state.
+func getFluxSystemHelmRelease(t *testing.T, dyn dynamic.Interface, name string) *unstructured.Unstructured {
+	t.Helper()
+	hr, err := dyn.Resource(helmReleaseGVR).Namespace(fluxSystemNamespace).
+		Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get HelmRelease %s: %v", name, err)
+	}
+	return hr
+}
+
+// TestForceReconcileStalledReplicaHelmReleases covers the #5261 close-the-loop
+// step (hw277 live evidence): replica-region SSO HRs exhaust their install
+// retries BEFORE the post-Phase-1 mesh cascade delivers the hub Secrets
+// (bp-keycloak Stalled=True at 13:26Z+2 attempts, keycloak-database-secret
+// only at 15:13Z), and Flux never retries a Stalled HR on its own — so after
+// the hub-secret delivery the cascade must force-reconcile exactly the HRs
+// whose failure PREDATES the delivery: (1) a pre-delivery stalled HR is
+// kicked with matching requestedAt+forceAt tokens (forceAt is what makes
+// helm-controller retry an exhausted install); (2) a healthy HR is untouched;
+// (3) an HR that failed AFTER the delivery is untouched (a genuine defect,
+// not a missing-input strand — kicking it would mask it and thrash retries);
+// (4) a wedged HR whose age cannot be proven is untouched; (5) a per-HR kick
+// failure is non-fatal and the scan continues to the next HR.
+func TestForceReconcileStalledReplicaHelmReleases(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dep := &Deployment{ID: "dep-5261"}
+	syncRef := time.Now().UTC()
+	const kcPath = "kc-replica-5261"
+	slot := &regionSlot{key: "secondary", kubeconfigPath: kcPath}
+
+	install := func(t *testing.T, dyn dynamic.Interface) {
+		t.Helper()
+		restore := installClusterMeshDynamicClientFactory(map[string]dynamic.Interface{kcPath: dyn})
+		t.Cleanup(restore)
+	}
+	annotationsOf := func(t *testing.T, dyn dynamic.Interface, name string) map[string]string {
+		t.Helper()
+		return getFluxSystemHelmRelease(t, dyn, name).GetAnnotations()
+	}
+
+	t.Run("stalled-HR-predating-sync-gets-kicked", func(t *testing.T) {
+		// The exact hw277 shape: install retries exhausted (`Failed to install
+		// after 2 attempt(s)`) ~107min before the cascade delivered the secret.
+		dyn := newFakeKustomizationDynClient(t, buildTestHelmRelease("bp-keycloak",
+			hrCondition("Ready", "False", "InstallFailed", syncRef.Add(-107*time.Minute)),
+			hrCondition("Stalled", "True", "RetriesExceeded", syncRef.Add(-107*time.Minute)),
+		))
+		install(t, dyn)
+		h.forceReconcileStalledReplicaHelmReleases(context.Background(), dep, slot, syncRef)
+		ann := annotationsOf(t, dyn, "bp-keycloak")
+		req, force := ann[fluxReconcileRequestedAtAnnotation], ann[fluxReconcileForceAtAnnotation]
+		if req == "" || force == "" {
+			t.Fatalf("pre-delivery stalled HR was not kicked (requestedAt=%q forceAt=%q) — Flux never retries a Stalled HR on its own, so the region-b SSO tier stays wedged (#5261)", req, force)
+		}
+		if req != force {
+			t.Errorf("requestedAt=%q != forceAt=%q — helm-controller only force-retries an exhausted install when both tokens MATCH", req, force)
+		}
+	})
+
+	t.Run("healthy-HR-untouched", func(t *testing.T) {
+		dyn := newFakeKustomizationDynClient(t, buildTestHelmRelease("bp-grafana",
+			hrCondition("Ready", "True", "InstallSucceeded", syncRef.Add(-3*time.Hour)),
+		))
+		install(t, dyn)
+		h.forceReconcileStalledReplicaHelmReleases(context.Background(), dep, slot, syncRef)
+		if ann := annotationsOf(t, dyn, "bp-grafana"); len(ann) != 0 {
+			t.Errorf("healthy HR gained annotations %v — a Ready release must never be force-reconciled", ann)
+		}
+	})
+
+	t.Run("HR-failing-after-sync-untouched", func(t *testing.T) {
+		// Failure stamped AFTER the hub-secret delivery — a genuine defect, not
+		// a missing-input strand. Kicking it would mask the defect and put the
+		// release on an endless force-retry treadmill.
+		dyn := newFakeKustomizationDynClient(t, buildTestHelmRelease("bp-newapi",
+			hrCondition("Ready", "False", "UpgradeFailed", syncRef.Add(10*time.Minute)),
+		))
+		install(t, dyn)
+		h.forceReconcileStalledReplicaHelmReleases(context.Background(), dep, slot, syncRef)
+		if ann := annotationsOf(t, dyn, "bp-newapi"); len(ann) != 0 {
+			t.Errorf("post-delivery failing HR gained annotations %v — only failures PREDATING the sync are missing-input strands (#5261)", ann)
+		}
+	})
+
+	t.Run("wedged-HR-without-transition-time-untouched", func(t *testing.T) {
+		// No parseable lastTransitionTime → the failure cannot be proven to
+		// predate the delivery → conservative skip.
+		dyn := newFakeKustomizationDynClient(t, buildTestHelmRelease("bp-oidc-gate",
+			hrCondition("Stalled", "True", "RetriesExceeded", time.Time{}),
+		))
+		install(t, dyn)
+		h.forceReconcileStalledReplicaHelmReleases(context.Background(), dep, slot, syncRef)
+		if ann := annotationsOf(t, dyn, "bp-oidc-gate"); len(ann) != 0 {
+			t.Errorf("wedged HR with unprovable failure age gained annotations %v — must be skipped conservatively", ann)
+		}
+	})
+
+	t.Run("kick-error-non-fatal-and-continues", func(t *testing.T) {
+		dyn := newFakeKustomizationDynClient(t,
+			buildTestHelmRelease("bp-keycloak",
+				hrCondition("Ready", "False", "InstallFailed", syncRef.Add(-time.Hour)),
+				hrCondition("Stalled", "True", "RetriesExceeded", syncRef.Add(-time.Hour)),
+			),
+			buildTestHelmRelease("bp-gitea",
+				hrCondition("Ready", "False", "DependencyNotReady", syncRef.Add(-time.Hour)),
+			),
+		)
+		fd := dyn.(*dynamicfake.FakeDynamicClient)
+		fd.PrependReactor("patch", "helmreleases", func(action ktesting.Action) (bool, runtime.Object, error) {
+			if pa, ok := action.(ktesting.PatchAction); ok && pa.GetName() == "bp-keycloak" {
+				return true, nil, fmt.Errorf("injected patch failure")
+			}
+			return false, nil, nil
+		})
+		install(t, dyn)
+		// Must neither panic nor abort — the failed kick is logged (best-effort,
+		// matching the #4878 consumer rollout-restart idiom) and the scan
+		// continues to the remaining HRs.
+		h.forceReconcileStalledReplicaHelmReleases(context.Background(), dep, slot, syncRef)
+		if ann := annotationsOf(t, dyn, "bp-gitea"); ann[fluxReconcileRequestedAtAnnotation] == "" {
+			t.Errorf("kick failure on bp-keycloak stopped the scan — bp-gitea was never kicked (best-effort continue broke)")
+		}
+	})
+}
+
+// TestSyncSharedPGConsumerHubSecrets_KicksStalledHRsOnDeliveryPassOnly wires
+// the #5261 step through its real caller: the force-reconcile fires on the
+// pass that actually DELIVERS hub bytes to the replica (copy changed=true)
+// and NOT on a steady-state re-check pass (bytes already match) — the
+// #3241/#3583 no-thrash contract for the ~2-min level-trigger re-runs.
+func TestSyncSharedPGConsumerHubSecrets_KicksStalledHRsOnDeliveryPassOnly(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dep := &Deployment{ID: "dep-5261-sync"}
+	const kcPath = "kc-replica-5261-sync"
+
+	primaryCS := kfake.NewSimpleClientset()
+	replicaCS := kfake.NewSimpleClientset()
+	// Region-A's authoritative hub (topology-aware -mesh-rw host) — the
+	// replica has NO copy yet, so pass 1 is the delivery pass.
+	seedHubSecret(t, primaryCS, "keycloak-database-secret",
+		"shared-pg-mesh-rw.shared-data.svc.cluster.local", "region-A-pw")
+
+	// bp-keycloak stalled long before the delivery (the hw277 wedge).
+	stalledSince := time.Now().UTC().Add(-2 * time.Hour)
+	dyn := newFakeKustomizationDynClient(t, buildTestHelmRelease("bp-keycloak",
+		hrCondition("Ready", "False", "InstallFailed", stalledSince),
+		hrCondition("Stalled", "True", "RetriesExceeded", stalledSince),
+	))
+	restore := installClusterMeshDynamicClientFactory(map[string]dynamic.Interface{kcPath: dyn})
+	defer restore()
+
+	slots := []regionSlot{
+		{key: "", clientset: primaryCS},
+		{key: "secondary", clientset: replicaCS, kubeconfigPath: kcPath},
+	}
+
+	// Pass 1 — DELIVERY: the replica gains the hub Secret → the pre-delivery
+	// stalled HR must be force-reconciled in the same pass.
+	h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+	ann := getFluxSystemHelmRelease(t, dyn, "bp-keycloak").GetAnnotations()
+	if ann[fluxReconcileRequestedAtAnnotation] == "" || ann[fluxReconcileForceAtAnnotation] == "" {
+		t.Fatalf("delivery pass did not kick the pre-delivery stalled HR (annotations=%v) — the hw277 wedge would persist (#5261)", ann)
+	}
+
+	// Simulate helm-controller consuming the kick: wipe the annotations.
+	hr := getFluxSystemHelmRelease(t, dyn, "bp-keycloak")
+	unstructured.RemoveNestedField(hr.Object, "metadata", "annotations")
+	if _, err := dyn.Resource(helmReleaseGVR).Namespace(fluxSystemNamespace).
+		Update(context.Background(), hr, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("reset HR annotations: %v", err)
+	}
+
+	// Pass 2 — STEADY STATE: replica bytes already match → no delivery → no
+	// kick, even though the HR still reads as stalled-before-now. Without the
+	// delivery gate this would re-kick on every ~2-min pass (retry treadmill).
+	h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+	ann = getFluxSystemHelmRelease(t, dyn, "bp-keycloak").GetAnnotations()
+	if ann[fluxReconcileRequestedAtAnnotation] != "" || ann[fluxReconcileForceAtAnnotation] != "" {
+		t.Errorf("steady-state pass (no byte change) re-kicked the HR (annotations=%v) — the #5261 anti-thrash gate broke", ann)
+	}
 }
 
 // TestAutoEstablishClusterMesh_ConsumerHubSecretsSyncPreMesh locks in #5230:

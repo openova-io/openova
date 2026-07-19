@@ -272,6 +272,13 @@ const (
 	// deadlock) keys the patch ordering off it.
 	clusterMeshRegionRoleSubstituteKey = "SOVEREIGN_REGION_ROLE"
 	fluxReconcileRequestedAtAnnotation = "reconcile.fluxcd.io/requestedAt"
+	// fluxReconcileForceAtAnnotation (#5261) — paired with requestedAt (same
+	// token value), this is what makes helm-controller retry a HelmRelease whose
+	// install/upgrade remediation retries are EXHAUSTED (Stalled=True). A bare
+	// requestedAt bump only re-queues the object; the reconciler sees the
+	// exhausted remediation budget and returns without acting. `flux reconcile
+	// helmrelease --force` stamps exactly this pair.
+	fluxReconcileForceAtAnnotation = "reconcile.fluxcd.io/forceAt"
 
 	// clusterMeshPeerClusterMeshNamesSubstituteKey (#4846, Refs #4656 #4275)
 	// carries the Cilium ClusterMesh cluster.name(s) of the OTHER region(s)
@@ -1916,6 +1923,13 @@ func (h *Handler) syncSharedPGReplicaAuthSecrets(ctx context.Context, dep *Deplo
 // source still carries the region-LOCAL `<instance>-rw` (which NXDOMAINs on the
 // replica), so pushing it would make things WORSE; skipping waits for the next
 // pass. Single-region (len(slots)<2) is a no-op.
+//
+// #5261 COMPLETION STEP: a replica pass that actually DELIVERED hub bytes
+// (copySecretAcrossClusters changed=true — the moment the missing input
+// arrives) closes its own loop by force-reconciling that replica's
+// flux-system HelmReleases which wedged BEFORE the delivery
+// (forceReconcileStalledReplicaHelmReleases). Steady-state passes (no byte
+// change) never kick, so the #3241/#3583 no-thrash contract holds.
 func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deployment, slots []regionSlot) {
 	if len(slots) < 2 {
 		return // single-region — no replica to sync to
@@ -1926,6 +1940,14 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 			"id", dep.ID)
 		return
 	}
+
+	// #5261 — captured BEFORE any copy lands: only HR failures whose
+	// lastTransitionTime predates this instant can have been caused by the
+	// hub Secrets missing, so only those are force-reconcile candidates.
+	syncStartedAt := time.Now().UTC()
+	// deliveredToReplica[i] — slot index i actually received changed hub
+	// bytes on THIS pass (the delivery moment, not a steady-state re-check).
+	deliveredToReplica := make(map[int]bool, len(slots)-1)
 
 	synced := make([]string, 0, len(sharedPGConsumerHubSecrets))
 	for _, name := range sharedPGConsumerHubSecrets {
@@ -1955,11 +1977,17 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				copied = false
 				continue
 			}
-			if _, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace); err != nil {
+			changed, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace)
+			if err != nil {
 				h.log.Warn("clustermesh: shared-pg consumer-hub sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
 					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "err", err)
 				copied = false
 				continue
+			}
+			if changed {
+				// #5261 — this pass DELIVERED hub bytes to this replica (create
+				// or heal), so its pre-delivery stalled HRs get kicked below.
+				deliveredToReplica[i] = true
 			}
 			// #4878 (+ residual, live hw232): after we OVERWRITE the replica's
 			// divergent shared-data hub Secret with region-A's authoritative one,
@@ -1995,6 +2023,145 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 			fmt.Sprintf("ClusterMesh: synced %d shared-pg consumer-hub Secret(s) (%s) primary → %d replica region(s) — cross-region consumer DB host/password (#3629)",
 				len(synced), strings.Join(synced, ", "), len(slots)-1))
 	}
+
+	// #5261 — the cascade closes its own loop: every replica that received
+	// changed hub bytes THIS pass gets its pre-delivery stalled flux-system
+	// HelmReleases force-reconciled. Best-effort: a kick failure never fails
+	// the sync (matching the #4878 consumer-restart idiom above).
+	for i := 1; i < len(slots); i++ {
+		if !deliveredToReplica[i] {
+			continue
+		}
+		h.forceReconcileStalledReplicaHelmReleases(ctx, dep, &slots[i], syncStartedAt)
+	}
+}
+
+// forceReconcileStalledReplicaHelmReleases (#5261) — the mesh cascade's
+// close-the-loop step for the hw277 wedge: on a 2-region Sovereign the
+// replica-region SSO-tier HelmReleases (bp-keycloak + its 7 dependents) fire
+// at boot, ~107min BEFORE the post-Phase-1 cascade delivers the consumer-hub
+// Secrets (keycloak-database-secret et al., fire 13:26Z → secret 15:13Z on
+// hw277) — so bp-keycloak exhausts its install remediation retries
+// (Stalled=True `Failed to install after 2 attempt(s)`) while its DB Secret
+// simply does not exist yet. Flux NEVER retries a Stalled HelmRelease on its
+// own, so even after the workload self-heals (the pod picks up the delivered
+// Secret) the release object stays Failed and every `dependsOn` dependent
+// sits at 'dependency not ready' indefinitely.
+//
+// Called ONLY from syncSharedPGConsumerHubSecrets, and only for a replica
+// that received CHANGED hub bytes on this pass (the delivery moment). It
+// lists the replica's flux-system HelmReleases and force-reconciles —
+// stamping BOTH reconcile.fluxcd.io/requestedAt AND …/forceAt with the same
+// token; the forceAt half is what makes helm-controller retry an EXHAUSTED
+// install — every HR that is wedged (Ready=False and/or Stalled=True) with a
+// lastTransitionTime PREDATING the sync. The predates-the-sync guard is the
+// anti-thrash contract: a failure stamped AFTER the hub Secrets landed is a
+// genuine defect (not a missing-input strand) and must keep surfacing, not
+// be masked by an endless force-retry treadmill. Kicked HRs transition
+// (Reconciling) immediately, so they can never match a later delivery pass
+// either — each strand is kicked at most once per delivery.
+//
+// BEST-EFFORT like the #4878 consumer rollout-restart step: a missing
+// kubeconfig, client-build failure, List failure, or per-HR Patch failure is
+// logged (with the #5261 ref) and skipped — NEVER fatal to the orchestrator;
+// the same 'kick after the missing input arrives' idiom as the #5254 heal
+// paths (rescuableConsoleDowngrade / runConvergedLateRescue).
+func (h *Handler) forceReconcileStalledReplicaHelmReleases(ctx context.Context, dep *Deployment, slot *regionSlot, syncedAt time.Time) {
+	if slot == nil {
+		return
+	}
+	regionLabel := slot.key
+	if regionLabel == "" {
+		regionLabel = "replica"
+	}
+	if slot.kubeconfigPath == "" {
+		h.log.Warn("clustermesh: #5261 stalled-HR force-reconcile: region kubeconfig path empty — skipping (best-effort)",
+			"id", dep.ID, "region", regionLabel)
+		return
+	}
+	dyn, err := h.clusterMeshDynamicClient(slot.kubeconfigPath)
+	if err != nil {
+		h.log.Warn("clustermesh: #5261 stalled-HR force-reconcile: dynamic client build failed — skipping (best-effort)",
+			"id", dep.ID, "region", regionLabel, "err", err)
+		return
+	}
+	listCtx, cancelList := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	list, err := dyn.Resource(helmReleaseGVR).Namespace(fluxSystemNamespace).List(listCtx, metav1.ListOptions{})
+	cancelList()
+	if err != nil {
+		h.log.Warn("clustermesh: #5261 stalled-HR force-reconcile: list flux-system HelmReleases failed — skipping (best-effort)",
+			"id", dep.ID, "region", regionLabel, "err", err)
+		return
+	}
+
+	kicked := make([]string, 0, 4)
+	for i := range list.Items {
+		hr := &list.Items[i]
+		wedged, failedAt := helmReleaseWedgedSince(hr)
+		if !wedged {
+			continue // healthy / progressing — never touched
+		}
+		if failedAt.IsZero() || !failedAt.Before(syncedAt) {
+			// The failure does not (provably) predate the hub-secret delivery —
+			// a post-delivery failure is a genuine defect, not a missing-input
+			// strand. Leave it to surface on its own merits (#5261 anti-thrash).
+			h.log.Info("clustermesh: #5261 stalled-HR force-reconcile: HelmRelease failure does not predate the hub-secret delivery — leaving untouched",
+				"id", dep.ID, "region", regionLabel, "helmrelease", hr.GetName(),
+				"failedAt", failedAt.UTC().Format(time.RFC3339), "hubSecretsDeliveredAt", syncedAt.Format(time.RFC3339))
+			continue
+		}
+		token := time.Now().UTC().Format(time.RFC3339Nano)
+		patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:%q,%q:%q}}}`,
+			fluxReconcileRequestedAtAnnotation, token, fluxReconcileForceAtAnnotation, token))
+		patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		_, patchErr := dyn.Resource(helmReleaseGVR).Namespace(fluxSystemNamespace).
+			Patch(patchCtx, hr.GetName(), types.MergePatchType, patch, metav1.PatchOptions{})
+		cancelPatch()
+		if patchErr != nil {
+			h.log.Warn("clustermesh: #5261 stalled-HR force-reconcile: annotation patch failed — continuing (best-effort; kick never fails the orchestrator)",
+				"id", dep.ID, "region", regionLabel, "helmrelease", hr.GetName(), "err", patchErr)
+			continue
+		}
+		h.log.Info("clustermesh: #5261 force-reconciled stalled HelmRelease — its install retries exhausted BEFORE the mesh cascade delivered the hub Secrets, and Flux never retries a Stalled release on its own",
+			"id", dep.ID, "region", regionLabel, "helmrelease", hr.GetName(),
+			"failedAt", failedAt.UTC().Format(time.RFC3339), "hubSecretsDeliveredAt", syncedAt.Format(time.RFC3339))
+		kicked = append(kicked, hr.GetName())
+	}
+	if len(kicked) > 0 {
+		h.emitClusterMeshProgress(dep, "info",
+			fmt.Sprintf("ClusterMesh: force-reconciled %d stalled HelmRelease(s) (%s) in region %q whose install retries exhausted before the hub-secret delivery (#5261 — requestedAt+forceAt makes helm-controller retry the exhausted install)",
+				len(kicked), strings.Join(kicked, ", "), regionLabel))
+	}
+}
+
+// helmReleaseWedgedSince reports whether a HelmRelease is wedged —
+// Ready=False and/or Stalled=True — and the LATEST lastTransitionTime among
+// its wedged conditions (zero when none parse). Using the latest matching
+// transition means an HR is only treated as pre-delivery-stranded (#5261)
+// when EVERY piece of its failure evidence predates the hub-secret sync; any
+// post-delivery transition disqualifies it. Pure helper, no I/O.
+func helmReleaseWedgedSince(hr *unstructured.Unstructured) (bool, time.Time) {
+	conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
+	wedged := false
+	var latest time.Time
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		typ, _ := cm["type"].(string)
+		status, _ := cm["status"].(string)
+		if !((typ == "Ready" && status == "False") || (typ == "Stalled" && status == "True")) {
+			continue
+		}
+		wedged = true
+		if lt, _ := cm["lastTransitionTime"].(string); lt != "" {
+			if ts, err := time.Parse(time.RFC3339, lt); err == nil && ts.After(latest) {
+				latest = ts
+			}
+		}
+	}
+	return wedged, latest
 }
 
 // patchSecondaryCrossRegionPGHosts re-stamps the cross-region shared-pg WRITE
