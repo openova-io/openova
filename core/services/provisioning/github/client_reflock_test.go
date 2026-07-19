@@ -78,12 +78,26 @@ func TestCommitFiles_GiteaTarget_RetriesOnRefLock(t *testing.T) {
 	}
 }
 
+// shrinkCommitRetryDelays drops the ref-race backoff bounds to near-zero for
+// the duration of a test so exhaustion-path tests (#5234: 10 attempts, 4s
+// cap) complete in milliseconds. Restores the production values on cleanup.
+func shrinkCommitRetryDelays(t *testing.T) {
+	t.Helper()
+	origBase, origMax := commitRetryBaseDelay, commitRetryMaxDelay
+	commitRetryBaseDelay = 1 * time.Millisecond
+	commitRetryMaxDelay = 5 * time.Millisecond
+	t.Cleanup(func() {
+		commitRetryBaseDelay, commitRetryMaxDelay = origBase, origMax
+	})
+}
+
 // TestCommitFiles_GiteaTarget_RefLockPersists asserts that when the ref-lock
 // race NEVER clears, the client exhausts commitAttemptsMax and returns a
 // descriptive ref-race error (rather than hanging or masking the failure).
 // This guards the bound on the retry so a pathological hot branch can't spin
 // forever.
 func TestCommitFiles_GiteaTarget_RefLockPersists(t *testing.T) {
+	shrinkCommitRetryDelays(t)
 	var (
 		mu        sync.Mutex
 		postCount int
@@ -186,6 +200,13 @@ func TestIsGiteaRefRaceError_RefLockShapes(t *testing.T) {
 		"stale base",
 		"ref has been updated by another request",
 		"Update is not a fast forward",
+		// #5234 — file-level CAS losses from the ChangeFiles per-file SHA
+		// preconditions. Gitea returns these as 422 (no " 409 " marker), so
+		// they MUST match on wording: a concurrent writer created the same
+		// path first (create raced) or changed the file after our probe
+		// (stale update SHA). Both resolve on a fresh re-probe + retry.
+		`GitHub API POST .../contents: 422 {"message":"repository file already exists [path: vcluster/apps/kustomization.yaml]"}`,
+		`GitHub API POST .../contents: 422 {"message":"sha does not match [given: aaaa, expected: bbbb]"}`,
 	}
 	for _, s := range retryable {
 		if !isGiteaRefRaceError(simpleErr(s)) {

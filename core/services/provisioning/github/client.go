@@ -79,20 +79,37 @@ func (c *Client) WithRepo(owner, repo string) *Client {
 // rebuild (getRef → tree → commit → updateRef) when updateRef returns
 // "Update is not a fast forward". Concurrent day-2 installs race at the
 // branch-ref level; a clean rebuild against the new HEAD succeeds on the
-// next try. 5 attempts handles bursts of ~5 parallel commits.
-const commitAttemptsMax = 5
+// next try.
+//
+// #5234 (hw274): 5 attempts was sized for a burst of ~5 parallel one-shot
+// commits — but the org-controller's per-Org reconcile advances the SAME
+// `<slug>/catalyst-tenant@main` head with a BURST of sequential single-file
+// PutFile commits (~10+ per reconcile, re-fired on every requeue while the
+// funnel Org is converging). The funnel's cart-install batch commit kept
+// landing mid-burst and lost the compare-and-swap 5/5 times inside the old
+// ~1.5s retry window ("ref-race persisted after 5 attempts" → the purchased
+// app never deployed). 10 attempts paired with the widened backoff below
+// gives the loser a multi-second window that straddles a whole burst.
+const commitAttemptsMax = 10
 
 // Backoff bounds for the ref-race retry. Without a delay every concurrent
 // writer that lost the compare-and-swap retries simultaneously and re-loses
 // against the SAME winner — a thundering herd that can burn all
 // commitAttemptsMax attempts in milliseconds on the shared `org-tenants`
-// branch (Refs #3376). A short jittered exponential backoff staggers the
-// racers so each gets a clear shot at the moved HEAD. Bounds are small —
-// Gitea ref updates land in tens of ms — so the worst-case total added
-// latency across 4 backoffs stays well under a second.
-const (
+// branch (Refs #3376). A jittered exponential backoff staggers the racers so
+// each gets a clear shot at the moved HEAD.
+//
+// #5234: the cap was 750ms, sized for one-shot racers. Against the
+// org-controller's sequential PutFile bursts the whole 4-backoff window
+// (~1.5s worst case) fit INSIDE a single burst, so every attempt re-lost.
+// The 4s cap stretches the worst-case total window to ~18s across 9
+// backoffs (expected ~9s with full jitter) — longer than any observed
+// reconcile burst, while staying well inside the day-2 consumer's budget.
+// Vars (not consts) so tests can shrink the delays to keep the
+// exhaustion-path tests fast.
+var (
 	commitRetryBaseDelay = 50 * time.Millisecond
-	commitRetryMaxDelay  = 750 * time.Millisecond
+	commitRetryMaxDelay  = 4 * time.Second
 )
 
 // commitRetryBackoff returns the jittered backoff to wait before the given
@@ -609,6 +626,19 @@ func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
 //   - "is at <sha> but expected <sha>"                              (CAS mismatch)
 //   - "unable to create '...refs/heads/<branch>.lock': File exists" (lock-file race)
 //   - "failed to update ref"                                       (generic ref-update wrap)
+//
+// #5234 — two MORE CAS-loss shapes come from the per-file SHA preconditions
+// the batch ChangeFiles payload carries (the file-level compare-and-swap):
+//   - "repository file already exists [path: …]" — our `create` op raced a
+//     concurrent create of the same path (e.g. both the org-controller and
+//     the funnel seeding/merging `vcluster/apps/kustomization.yaml`);
+//   - "sha does not match [given: …, expected: …]" — our `update` op carried
+//     a per-file SHA that went stale because a concurrent writer changed the
+//     file after our tree/contents probe.
+// Both mean a concurrent writer won; a fresh re-probe on the next attempt
+// converts the op (create→update / stale-SHA→current-SHA) and succeeds.
+// Before this they fell through to the fatal `change files` branch and the
+// retry loop never engaged.
 func isGiteaRefRaceError(err error) bool {
 	if err == nil {
 		return false
@@ -625,7 +655,11 @@ func isGiteaRefRaceError(err error) bool {
 		strings.Contains(s, "cannot lock ref") ||
 		strings.Contains(s, "but expected") ||
 		(strings.Contains(s, "unable to create") && strings.Contains(s, ".lock")) ||
-		strings.Contains(s, "failed to update ref")
+		strings.Contains(s, "failed to update ref") ||
+		// file-level CAS losses from the ChangeFiles per-file SHA
+		// preconditions (#5234) — see doc comment above.
+		strings.Contains(s, "repository file already exists") ||
+		strings.Contains(s, "sha does not match")
 }
 
 // getContentSHA returns the blob SHA of `path` at `branch`, or "" if the
