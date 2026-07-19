@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T16:30:04Z` |
+| Last refreshed | `2026-07-19T16:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 29 |
+| Open issues | 30 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 29 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 30 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 29 open items (clickable table)
+### All 30 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -229,6 +229,7 @@ flowchart LR
 | [#5253](https://github.com/openova-io/openova/issues/5253) | Region-b never converges: the #4706 console-reachability gate flips Phase-1 to f | Other |
 | [#5255](https://github.com/openova-io/openova/issues/5255) | flaky CI: wipe_async_creds_rewipe_test 15s waitForWipeDone ceiling fails on slow | Other |
 | [#5261](https://github.com/openova-io/openova/issues/5261) | Replica-region SSO HRs exhaust install retries before the mesh cascade delivers  | Other |
+| [#5262](https://github.com/openova-io/openova/issues/5262) | bp-gitea admin password rotates on HR upgrade while Gitea DB keeps the install-t | Other |
 
 ---
 
@@ -236,6 +237,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T16:37 | [#5260](https://github.com/openova-io/openova/pull/5260) | #4901 | fix(#4901): Continuum surfaces standby-absent — health degra |
+| 2026-07-19T16:37 | [#5259](https://github.com/openova-io/openova/pull/5259) | #3985 | refactor(#3985): Organization-term remainder — mechanical re |
+| 2026-07-19T16:37 | [#5258](https://github.com/openova-io/openova/pull/5258) | #3971 | fix(#3971): forbid local-path StorageClass at land — CI gate |
+| 2026-07-19T16:37 | [#5257](https://github.com/openova-io/openova/pull/5257) | #5254 | test(catalyst-api): raise wipe_async_creds_rewipe waitForWip |
 | 2026-07-19T12:51 | [#5254](https://github.com/openova-io/openova/pull/5254) | #5253 | fix(catalyst-api): decouple the Phase-1 producer chain from  |
 | 2026-07-19T11:52 | [#5252](https://github.com/openova-io/openova/pull/5252) | #5140 | fix(catalyst-api): sandbox client re-resolves the backend af |
 | 2026-07-19T11:52 | [#5251](https://github.com/openova-io/openova/pull/5251) | #5140 | fix(catalyst-api): stamp Retry-After on sandbox 503 degrades |
@@ -262,10 +267,6 @@ flowchart LR
 | 2026-07-18T13:34 | [#5217](https://github.com/openova-io/openova/pull/5217) | #4996 | fix(cutover): step-07 must not roll the EVS/hcloud CSI drive |
 | 2026-07-18T13:09 | [#5216](https://github.com/openova-io/openova/pull/5216) | #5214 | fix(cutover): self-heal gitea-admin-secret at step execution |
 | 2026-07-19T08:31 | [#5212](https://github.com/openova-io/openova/pull/5212) | #5164 | fix(console): Edit-IaC editor adopts the async committed see |
-| 2026-07-18T09:12 | [#5211](https://github.com/openova-io/openova/pull/5211) | #5210 | fix(catalyst-api): refresh in-cluster SA token on 401 so pos |
-| 2026-07-18T06:30 | [#5209](https://github.com/openova-io/openova/pull/5209) | #5204 | fix(cutover): authenticate the Crossplane package pull again |
-| 2026-07-18T05:48 | [#5208](https://github.com/openova-io/openova/pull/5208) | #5206 | fix(mcp): publish mcp.<sov-fqdn> DNS + reject Org-scoped tok |
-| 2026-07-18T05:40 | [#5207](https://github.com/openova-io/openova/pull/5207) | #5205 | fix: same-origin console-ready proxy replaces no-cors funnel |
 
 ---
 
