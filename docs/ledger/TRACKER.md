@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T07:45:02Z` |
+| Last refreshed | `2026-07-19T08:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 25 |
 | Open DoD gates | 0 / 41 |
@@ -232,6 +232,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T07:49 | [#5246](https://github.com/openova-io/openova/pull/5246) | #5244 | fix: gateway + console ELB backend pools span ALL regions —  |
 | 2026-07-19T06:49 | [#5243](https://github.com/openova-io/openova/pull/5243) | #5225 | fix(pool-domain-manager): registry.<fqdn> resolves the reach |
 | 2026-07-19T03:01 | [#5242](https://github.com/openova-io/openova/pull/5242) | #5204 | fix(ci): cutover-contract Case 22 here-strings — unhalt the  |
 | 2026-07-19T02:18 | [#5240](https://github.com/openova-io/openova/pull/5240) | #5222 | fix(cnpg-pair): dr-promoter arm gate reads a streaming signa |
@@ -261,7 +262,6 @@ flowchart LR
 | 2026-07-18T00:06 | [#5195](https://github.com/openova-io/openova/pull/5195) | #5191 | docs(uat): hw269 fresh-prov fix-train validation — 64 ✅ (mar |
 | 2026-07-17T18:44 | [#5192](https://github.com/openova-io/openova/pull/5192) | #5191 | fix(cutover): step-04 registry-pivot verifies curl+jq and fa |
 | 2026-07-17T17:35 | [#5190](https://github.com/openova-io/openova/pull/5190) | #960 | docs(uat): hw268 row240 §854 no-nodePort gateway ✅ (Refs #96 |
-| 2026-07-17T17:19 | [#5189](https://github.com/openova-io/openova/pull/5189) | #5178 | docs(uat): hw268 G12 region-kill PASS ✅ — #5178 fully valida |
 
 ---
 
