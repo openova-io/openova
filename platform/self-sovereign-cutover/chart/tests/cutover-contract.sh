@@ -3236,4 +3236,151 @@ done
 if [ "$c67_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5262: steps 10/11 clone/push with the step-09 minted catalyst-gitea-token PAT — runtime read, fail-loud on empty, PAT-embedded remote URL, zero GITEA_PASSWORD residue)"
 
+# ── Case 68 (#5237 round 2, Refs #5007 #5265): PIN-AWARE PREWARM + step-06 pin gate ──
+# The durable close of the catalog-latest-vs-flux-pinned drift class (hw274):
+# the post-cutover pin ground truth is the bootstrap-kit slot set in the LOCAL
+# GITEA MIRROR (the commit flux consumes post-step-05). Step-03 Phase A2-pins
+# unions those FROZEN pins into the chart-mirror set; step-06 Phase 3a-pin
+# asserts EVERY frozen pin durably present in local Harbor before the
+# irreversible Phase-3b auth strip. Both consume the ONE shared extractor
+# (cutover-bootstrap-kit-pins, 03b) — and THIS case runs that exact extractor
+# against the in-repo slot corpus, so slot-format drift fails CI at PR time
+# instead of silently narrowing a Sovereign's mirror.
+echo "[cutover-contract] Case 68: pin-aware prewarm (step-03 Phase A2-pins) + step-06 full pin-presence gate share the 03b extractor; the extractor parses the live slot corpus (#5237 round 2)"
+c68_fail=0
+helm template smoke . --show-only templates/03-harbor-prewarm-job.yaml > "$TMP/r03_5237.yaml"
+helm template smoke . --show-only templates/06-helmrepository-patches-job.yaml > "$TMP/r06_5237.yaml"
+helm template smoke . --show-only templates/03b-bootstrap-kit-pins.yaml > "$TMP/r03b_5237.yaml"
+
+# (a) the shared extractor ConfigMap renders, carries the library, and is NOT
+#     a cutover step (no order label — the 11-step contract must not grow).
+if ! grep -q 'name: cutover-bootstrap-kit-pins' "$TMP/r03b_5237.yaml"; then
+  echo "FAIL: cutover-bootstrap-kit-pins ConfigMap does not render — no shared pin extractor for step-03/step-06/#5265 (#5237)" >&2; c68_fail=1
+fi
+if ! grep -q 'bootstrapkit_pins()' "$TMP/r03b_5237.yaml"; then
+  echo "FAIL: the 03b ConfigMap lost the bootstrapkit_pins() library function (#5237)" >&2; c68_fail=1
+fi
+if grep -q 'bp.openova.io/cutover-order' "$TMP/r03b_5237.yaml"; then
+  echo "FAIL: cutover-bootstrap-kit-pins must NOT carry bp.openova.io/cutover-order — it is a shared library, not a 12th step (#5237)" >&2; c68_fail=1
+fi
+
+# (b) BOTH consumers mount the SAME ConfigMap (single-source discipline —
+#     neither step may fork its own parser).
+for rf in "$TMP/r03_5237.yaml" "$TMP/r06_5237.yaml"; do
+  if ! grep -q 'name: cutover-bootstrap-kit-pins' "$rf"; then
+    echo "FAIL: $(basename "$rf") does not mount the cutover-bootstrap-kit-pins ConfigMap — the pin set would fork between mirror and gate (#5237)" >&2; c68_fail=1
+  fi
+  if ! grep -qF '. /pin-extractor/extract-pins.sh' "$rf"; then
+    echo "FAIL: $(basename "$rf") never sources /pin-extractor/extract-pins.sh — the shared extractor is mounted but unused (#5237)" >&2; c68_fail=1
+  fi
+done
+
+# (c) step-03 Phase A2-pins: defaults ON, fetches the FROZEN slot files from
+#     the LOCAL Gitea mirror (contents + raw API with the PAT read path steps
+#     01/05 use), unions the pins into the chart-mirror work list, and is
+#     FAIL-LOUD on an unprovable pin set.
+if ! grep -A1 'name: PREWARM_BOOTSTRAP_KIT_PINS' "$TMP/r03_5237.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: step-03 PREWARM_BOOTSTRAP_KIT_PINS does not default to \"true\" (prewarm.bootstrapKitPins.enabled) — the frozen pin union is off by default (#5237)" >&2; c68_fail=1
+fi
+if ! grep -qF '/contents/${bk_path}?ref=${UPSTREAM_BRANCH}' "$TMP/r03_5237.yaml"; then
+  echo "FAIL: step-03 never lists clusters/_template/bootstrap-kit via the local Gitea contents API — the pins are not read from the FROZEN mirror commit (#5237)" >&2; c68_fail=1
+fi
+if ! grep -qF '/raw/${bk_path}/${bk_f}?ref=${UPSTREAM_BRANCH}' "$TMP/r03_5237.yaml"; then
+  echo "FAIL: step-03 never fetches the slot files raw from the local Gitea mirror (#5237)" >&2; c68_fail=1
+fi
+if ! grep -qF 'bootstrapkit_pins "${bk_dir}" "${UPSTREAM_PREFIX}" "oci://${HARBOR_HOST}/openova-io"' "$TMP/r03_5237.yaml"; then
+  echo "FAIL: step-03 never calls bootstrapkit_pins over the fetched slot files (accepting both the upstream and the already-pivoted local prefix) (#5237)" >&2; c68_fail=1
+fi
+if ! grep -qF '>> "${chart_work}"' "$TMP/r03_5237.yaml" || ! grep -q 'Phase A2-pins' "$TMP/r03_5237.yaml"; then
+  echo "FAIL: step-03 Phase A2-pins never unions the frozen pins into the chart-mirror work list (#5237)" >&2; c68_fail=1
+fi
+if ! grep -q 'PIN-ONLY' "$TMP/r03_5237.yaml"; then
+  echo "FAIL: step-03 lost the PIN-ONLY drift report — a mid-cutover roll away from the frozen pins would be invisible in the step log (#5237)" >&2; c68_fail=1
+fi
+c68_fatal_ok=1
+grep -q 'FATAL: zero pinned openova-io charts parsed' "$TMP/r03_5237.yaml" || c68_fatal_ok=0
+grep -q 'bootstrap-kit slot file(s) failed to fetch' "$TMP/r03_5237.yaml" || c68_fatal_ok=0
+grep -q 'could not list ${bk_path}' "$TMP/r03_5237.yaml" || c68_fatal_ok=0
+if [ "$c68_fatal_ok" -ne 1 ]; then
+  echo "FAIL: step-03 Phase A2-pins lost one of its FAIL-LOUD exits (PAT/list/fetch/zero-pins) — an enumeration failure would silently narrow the mirror (#5237)" >&2; c68_fail=1
+fi
+helm template smoke-nopins . --show-only templates/03-harbor-prewarm-job.yaml --set prewarm.bootstrapKitPins.enabled=false > "$TMP/r03_5237_off.yaml"
+if ! grep -A1 'name: PREWARM_BOOTSTRAP_KIT_PINS' "$TMP/r03_5237_off.yaml" | grep -q 'value: "false"'; then
+  echo "FAIL: prewarm.bootstrapKitPins.enabled=false did not render PREWARM_BOOTSTRAP_KIT_PINS=\"false\" — the emergency override is not wired (#5237)" >&2; c68_fail=1
+fi
+
+# (d) step-06 Phase 3a-pin: defaults ON, reads the FROZEN Phase-2 clone,
+#     probes EVERY pin via the in-cluster Harbor artifact API (the #5030
+#     never-pull-through probe), top-up-warms a missing pin via the #5237
+#     union-warm helper, FATALs with the full missing list BEFORE the strip,
+#     and re-arms the sample-probe deadline.
+if ! grep -A1 'name: PIN_PRESENCE_GATE' "$TMP/r06_5237.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: step-06 PIN_PRESENCE_GATE does not default to \"true\" (helmReadinessProbe.pinPresenceGate) (#5237)" >&2; c68_fail=1
+fi
+if ! grep -qF 'pin_src_dir=/tmp/repo/clusters/_template/bootstrap-kit' "$TMP/r06_5237.yaml"; then
+  echo "FAIL: step-06's pin gate does not read the Phase-2 clone of the local Gitea mirror — any other source is not the frozen commit flux consumes (#5237)" >&2; c68_fail=1
+fi
+if ! grep -qF '/api/v2.0/projects/openova-io/repositories/$1/artifacts/$2' "$TMP/r06_5237.yaml"; then
+  echo "FAIL: step-06's pin gate does not probe durable presence via the Harbor artifact API — a pull-through probe would false-pass a cold artifact (#5030 discipline) (#5237)" >&2; c68_fail=1
+fi
+if ! grep -A1 'name: HARBOR_INTERNAL_URL' "$TMP/r06_5237.yaml" | grep -q 'value:'; then
+  echo "FAIL: step-06 lost the HARBOR_INTERNAL_URL env — the artifact-API probe has no in-cluster endpoint (#5237)" >&2; c68_fail=1
+fi
+if ! grep -qF 'warm_chart_from_upstream "${pg_chart}" "${pg_ver}"' "$TMP/r06_5237.yaml"; then
+  echo "FAIL: step-06's pin gate never top-up-warms a missing pin via warm_chart_from_upstream — a frozen pin absent locally has no self-heal before the FATAL (#5237)" >&2; c68_fail=1
+fi
+if ! grep -q 'REFUSING to strip mothership auth (the post-pivot flux pin set' "$TMP/r06_5237.yaml"; then
+  echo "FAIL: step-06's pin gate lost its FATAL-with-missing-list REFUSE path — a missing frozen pin must park the step recoverably, never proceed to the strip (#5237)" >&2; c68_fail=1
+fi
+if ! grep -q 'Re-arm the sample-probe deadline' "$TMP/r06_5237.yaml"; then
+  echo "FAIL: step-06 no longer re-arms strip_wait_deadline after the pin gate — a warm-heavy gate pass would eat the sampled pull-probe's budget (#5237)" >&2; c68_fail=1
+fi
+helm template smoke-nopingate . --show-only templates/06-helmrepository-patches-job.yaml --set helmReadinessProbe.pinPresenceGate=false > "$TMP/r06_5237_off.yaml"
+if ! grep -A1 'name: PIN_PRESENCE_GATE' "$TMP/r06_5237_off.yaml" | grep -q 'value: "false"'; then
+  echo "FAIL: helmReadinessProbe.pinPresenceGate=false did not render PIN_PRESENCE_GATE=\"false\" — the emergency override is not wired (#5237)" >&2; c68_fail=1
+fi
+
+# (e) THE PARSER-VS-CORPUS LOCK: extract the rendered extractor and run it
+#     against this repo's actual clusters/_template/bootstrap-kit. The
+#     extractor and the corpus live in the same repo — a slot-format change
+#     that the awk cannot parse fails HERE, at PR time, never on a Sovereign.
+#     Skipped (with a loud note) only when the chart is tested outside the
+#     monorepo (no corpus dir) — blueprint-release CI runs from the monorepo.
+# (the suite already `cd "$CHART_DIR"`-ed at the top, so the monorepo root is ../../..)
+CORPUS_DIR="$(cd ../../.. && pwd)/clusters/_template/bootstrap-kit"
+if [ -d "$CORPUS_DIR" ]; then
+  awk '/^  extract-pins.sh: \|/{f=1;next} f && !/^    / && !/^$/{exit} f{sub(/^    /,"");print}' \
+    "$TMP/r03b_5237.yaml" > "$TMP/extract-pins.sh"
+  if ! sh -n "$TMP/extract-pins.sh"; then
+    echo "FAIL: the rendered extract-pins.sh does not parse as POSIX sh (#5237)" >&2; c68_fail=1
+  fi
+  UP="oci://ghcr.io/openova-io"
+  sh -c ". '$TMP/extract-pins.sh'; bootstrapkit_pins '$CORPUS_DIR' '$UP' ''" \
+    > "$TMP/corpus-pins.tsv" 2> "$TMP/corpus-pins.warn"
+  pins_n=$(grep -c . "$TMP/corpus-pins.tsv" || true)
+  if [ "$pins_n" -lt 40 ]; then
+    echo "FAIL: the extractor parsed only ${pins_n} pins from the live slot corpus (expected the full bootstrap-kit set, ≥40) — the slot format drifted from the awk anchors; fix the extractor in 03b BEFORE this merges, or every future cutover under-mirrors (#5237)" >&2
+    sed 's/^/    /' "$TMP/corpus-pins.warn" >&2 || true
+    c68_fail=1
+  fi
+  # Cross-parser check: the keystone umbrella pin must round-trip exactly.
+  kp_ver=$(grep -E '^      version: [0-9]' "$CORPUS_DIR/13-bp-catalyst-platform.yaml" | awk '{print $2}' | head -1)
+  if [ -n "$kp_ver" ] && ! grep -qF "$(printf 'bp-catalyst-platform\t%s' "$kp_ver")" "$TMP/corpus-pins.tsv"; then
+    echo "FAIL: the extractor did not recover bp-catalyst-platform:${kp_ver} from slot 13 — the chart/version pairing broke (#5237)" >&2; c68_fail=1
+  fi
+  # Purity: every emitted line is exactly "<chart>\t<concrete-version>".
+  if grep -vE "^[A-Za-z0-9._-]+$(printf '\t')[0-9][A-Za-z0-9._+-]*$" "$TMP/corpus-pins.tsv" | grep -q .; then
+    echo "FAIL: the extractor emitted a malformed pin line (must be chart<TAB>concrete-version):" >&2
+    grep -vE "^[A-Za-z0-9._-]+$(printf '\t')[0-9][A-Za-z0-9._+-]*$" "$TMP/corpus-pins.tsv" | sed 's/^/    /' >&2
+    c68_fail=1
+  fi
+  corpus_note="corpus lock: ${pins_n} pins recovered from the live slot set, bp-catalyst-platform:${kp_ver} round-tripped"
+else
+  echo "  NOTE: monorepo slot corpus not found at ${CORPUS_DIR} — skipping the parser-vs-corpus lock (runs in blueprint-release CI from the monorepo)"
+  corpus_note="corpus lock SKIPPED (chart tested outside the monorepo)"
+fi
+
+if [ "$c68_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5237 round 2: step-03 Phase A2-pins unions the FROZEN local-Gitea bootstrap-kit pins into the chart mirror [fail-loud, toggleable]; step-06 Phase 3a-pin asserts EVERY frozen pin durably present via the in-cluster artifact API before the irreversible strip [top-up-warm, FATAL with full missing list, deadline re-armed]; ONE shared 03b extractor for both + the #5265 Day-2 seam; ${corpus_note})"
+
 echo "[cutover-contract] All gates green."

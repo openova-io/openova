@@ -197,6 +197,23 @@ data:
           # "" and the script's `: "${UNION_WARM_ON_DRIFT:=true}"` restores true.
           - name: UNION_WARM_ON_DRIFT
             value: {{ .Values.helmReadinessProbe.unionWarmOnDrift | quote }}
+          # #5237 round 2 (Refs #5007): Phase 3a-pin — before the sampled
+          # pull-probe (and the irreversible Phase-3b strip), assert EVERY
+          # bootstrap-kit-pinned chart version from the Phase-2 clone of the
+          # local Gitea mirror (the frozen commit flux consumes post-pivot)
+          # is durably present in local Harbor; top-up-warm a missing one
+          # from the still-reachable upstream, and FATAL with the full
+          # missing list otherwise (auth intact — recoverable). Same bare
+          # `| quote` sprig-bool discipline as UNION_WARM_ON_DRIFT above.
+          - name: PIN_PRESENCE_GATE
+            value: {{ .Values.helmReadinessProbe.pinPresenceGate | quote }}
+          # #5237 round 2 — the in-cluster Harbor Service URL for the
+          # Phase 3a-pin durable-presence probe (artifact API served by
+          # Harbor CORE against its DB — never pull-through, the #5030
+          # discipline; the SAME endpoint step-03's dest_already_current
+          # dials).
+          - name: HARBOR_INTERNAL_URL
+            value: {{ .Values.sovereign.harborInternalURL | quote }}
           # #4557 (Refs #3379): TLS-verify on the Phase-3a helm-CLI probe
           # DESTINATION (the in-cluster Harbor `registry.<sov-fqdn>` =
           # harbor_host). DEFAULT false — the in-cluster Harbor serves an
@@ -229,6 +246,9 @@ data:
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
+            readOnly: true
+          - name: bootstrap-kit-pins
+            mountPath: /pin-extractor
             readOnly: true
           - name: tmp
             mountPath: /tmp
@@ -1351,6 +1371,92 @@ data:
               return 1
             }
 
+            # ---- Phase 3a-pin (#5237 round 2, Refs #5007): FULL pin-presence gate ----
+            #
+            # The Phase-3a loop below proves a SAMPLE of pivoted charts pulls.
+            # This gate proves the WHOLE frozen pin set exists: every chart
+            # version the bootstrap-kit slots pin in the Phase-2 clone at
+            # /tmp/repo — the EXACT local-Gitea-mirror commit flux consumes
+            # post-step-05, immune to anything a mid-cutover merge published
+            # upstream — must be durably present in local Harbor BEFORE the
+            # irreversible Phase-3b mothership-auth strip. Enumeration is the
+            # shared cutover-bootstrap-kit-pins extractor (03b) — the SAME
+            # parser step-03 Phase A2-pins mirrors from (and the #5265 Day-2
+            # reconciler reuses), so the mirror and this gate can never
+            # disagree about what "the pins" are. Presence is the Harbor
+            # ARTIFACT API on the in-cluster Service (Harbor CORE against its
+            # DB — never pull-through, the #5030 discipline): ~65 cheap GETs,
+            # seconds. A missing version is first top-up-warmed from the
+            # still-reachable upstream (warm_chart_from_upstream above —
+            # egress is open until step-08); anything STILL missing FATALs
+            # with the FULL missing list and the ghcr.io auth intact — a
+            # clear, recoverable step-06 failure (re-run; a step-03 re-run
+            # with Phase A2-pins also heals) instead of HelmReleases wedging
+            # on `does not have an artifact` after the strip (the hw274
+            # class, dep d51a69f885872a81).
+            : "${PIN_PRESENCE_GATE:=true}"
+            if [ "${PIN_PRESENCE_GATE}" = "true" ]; then
+              pin_src_dir=/tmp/repo/clusters/_template/bootstrap-kit
+              if [ ! -d "${pin_src_dir}" ]; then
+                echo "[helmrepository-patches] FATAL: ${pin_src_dir} absent — the Phase-2 clone of the local Gitea mirror did not materialise the bootstrap-kit tree, so the frozen pin set cannot be asserted before the strip (#5237). Emergency override: helmReadinessProbe.pinPresenceGate=false." >&2
+                exit 1
+              fi
+              . /pin-extractor/extract-pins.sh
+              pin_file=/tmp/.bootstrap-kit-pins.tsv
+              bootstrapkit_pins "${pin_src_dir}" "${UPSTREAM_PREFIX}" "${local_prefix}" > "${pin_file}"
+              pin_total=$(grep -c . "${pin_file}" || true)
+              if [ "${pin_total}" -eq 0 ]; then
+                echo "[helmrepository-patches] FATAL: zero pinned openova-io charts parsed from ${pin_src_dir} — the bootstrap-kit ALWAYS pins its charts, so an empty parse means the mirror or the slot format drifted; refusing to strip mothership auth on an unprovable pin set (#5237). Emergency override: helmReadinessProbe.pinPresenceGate=false." >&2
+                exit 1
+              fi
+              echo "[helmrepository-patches] Phase 3a-pin (#5237): asserting all ${pin_total} frozen bootstrap-kit pin(s) are durably present in local Harbor (artifact API, in-cluster) before the strip"
+              # Durable-presence probe: 200 from the artifact API = the chart
+              # OCI artifact is in Harbor's own store. Chart repos are single-
+              # segment under openova-io, so no %2F encoding is needed.
+              pin_present() {
+                _pp_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
+                  -u "${HARBOR_USERNAME:-admin}:${HARBOR_PASSWORD}" \
+                  "${HARBOR_INTERNAL_URL}/api/v2.0/projects/openova-io/repositories/$1/artifacts/$2" 2>/dev/null)
+                [ "${_pp_code}" = "200" ]
+              }
+              pin_missing=""
+              pin_ok=0
+              pin_warmed=0
+              while IFS="$(printf '\t')" read -r pg_chart pg_ver; do
+                [ -z "${pg_chart}" ] && continue
+                if pin_present "${pg_chart}" "${pg_ver}"; then
+                  pin_ok=$((pin_ok+1))
+                  continue
+                fi
+                echo "[helmrepository-patches] Phase 3a-pin: ${pg_chart}:${pg_ver} pinned by the frozen bootstrap-kit but ABSENT from local Harbor — top-up-warming from the still-reachable upstream (#5237)"
+                warm_chart_from_upstream "${pg_chart}" "${pg_ver}" || true
+                # Bounded re-probe: a direct helm push records via the
+                # registry hook near-synchronously; allow a short settle.
+                pg_found=0
+                for pg_i in $(seq 1 6); do
+                  if pin_present "${pg_chart}" "${pg_ver}"; then pg_found=1; break; fi
+                  sleep 5
+                done
+                if [ "${pg_found}" -eq 1 ]; then
+                  pin_ok=$((pin_ok+1))
+                  pin_warmed=$((pin_warmed+1))
+                else
+                  pin_missing="${pin_missing}${pg_chart}:${pg_ver} "
+                fi
+              done < "${pin_file}"
+              if [ -n "${pin_missing}" ]; then
+                echo "[helmrepository-patches] FATAL: $(printf '%s' "${pin_missing}" | wc -w | tr -d ' ') bootstrap-kit-pinned chart version(s) are NOT in local Harbor and could not be top-up-warmed from the upstream: ${pin_missing}— REFUSING to strip mothership auth (the post-pivot flux pin set would 404 under the deny-egress hold). ghcr.io auth is intact; this step is recoverable on re-run, and a step-03 re-run (Phase A2-pins) also heals the mirror (#5237)." >&2
+                exit 1
+              fi
+              echo "[helmrepository-patches] Phase 3a-pin OK: all ${pin_total} frozen bootstrap-kit pin(s) durably present in local Harbor (${pin_warmed} top-up-warmed) — proceeding to the sampled pull-probe"
+            else
+              echo "[helmrepository-patches] Phase 3a-pin DISABLED (helmReadinessProbe.pinPresenceGate=false) — the strip is gated on the sampled pull-probe only; the full frozen pin set is NOT asserted (#5237)"
+            fi
+
+            # Re-arm the sample-probe deadline so a warm-heavy Phase 3a-pin
+            # pass cannot eat the pull-probe's stripReadinessSeconds budget.
+            strip_wait_deadline=$(( $(date +%s) + STRIP_READINESS_TIMEOUT_SECONDS ))
+
             while [ "$(date +%s)" -lt "${strip_wait_deadline}" ]; do
               if [ "${sample_total}" -eq 0 ]; then
                 # No pivoted-chart HelmRelease found yet — Phase-1's URL pivot
@@ -1523,6 +1629,12 @@ data:
           items:
             - key: helmrepository-names.txt
               path: helmrepository-names.txt
+      - name: bootstrap-kit-pins
+        configMap:
+          name: cutover-bootstrap-kit-pins
+          items:
+            - key: extract-pins.sh
+              path: extract-pins.sh
       - name: tmp
         emptyDir: {}
 # re-publish 0.1.145 (Blueprint Release for #5238 failed transiently — #5237 union-warm fix)

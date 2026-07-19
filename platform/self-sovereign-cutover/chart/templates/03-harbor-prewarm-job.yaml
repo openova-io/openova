@@ -271,6 +271,35 @@ data:
             value: {{ .Values.prewarm.xpkgPackages.digestMapConfigMapName | quote }}
           - name: RELEASE_NAMESPACE
             value: {{ .Release.Namespace | quote }}
+          # #5237 round 2 (Refs #5007) — Phase A2-pins: union the chart-mirror
+          # set with the EXACT versions the bootstrap-kit slot pins in the
+          # LOCAL GITEA MIRROR reference — the frozen commit flux consumes
+          # once step-05 pivots the GitRepository, immune to anything a
+          # mid-cutover merge publishes upstream. The slot files are fetched
+          # from the local Gitea (step-01 mirrored them) via the SAME
+          # catalyst-gitea-token PAT steps 01/05 read, and parsed by the
+          # shared cutover-bootstrap-kit-pins extractor (03b — one parser for
+          # step-03, step-06 and the #5265 Day-2 reconciler).
+          # NB: bare `| quote` (NOT `| default true`) — sprig `default`
+          # treats a literal false as empty and would flip an explicit
+          # disable back to true (sprig_default_bool_unsafe); the script's
+          # `: "${VAR:=true}"` restores the on-state for a nil render.
+          - name: PREWARM_BOOTSTRAP_KIT_PINS
+            value: {{ .Values.prewarm.bootstrapKitPins.enabled | quote }}
+          - name: GITEA_INTERNAL_URL
+            value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          - name: GITEA_ORG
+            value: {{ .Values.gitea.org | quote }}
+          - name: GITEA_REPO
+            value: {{ .Values.gitea.repo | quote }}
+          - name: UPSTREAM_BRANCH
+            value: {{ .Values.upstream.branch | quote }}
+          - name: PAT_SOURCE_NAMESPACE
+            value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+          - name: PAT_SOURCE_SECRET_NAME
+            value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+          - name: PAT_SOURCE_KEY
+            value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -280,6 +309,9 @@ data:
             readOnly: true
           - name: offline-mirror-resolver
             mountPath: /resolver
+            readOnly: true
+          - name: bootstrap-kit-pins
+            mountPath: /pin-extractor
             readOnly: true
           - name: tmp
             mountPath: /tmp
@@ -1373,6 +1405,107 @@ data:
               esac
               printf '%s\t%s\n' "${c_chart}" "${c_ver}" >> "${chart_work}"
             done
+
+            # ── Phase A2-pins (#5237 round 2, Refs #5007): union the FROZEN
+            # bootstrap-kit pins from the LOCAL GITEA MIRROR into the chart-
+            # mirror set. The live deployed∪desired union above tracks the
+            # CLUSTER — which a mid-cutover catalog merge can roll AWAY from
+            # the pins flux settles back to post-step-05 (the GitRepository
+            # still tracks GitHub until then, so a pin-bump commit landing
+            # between step-01's mirror and step-05's pivot rolls the live HR
+            # to a version the FROZEN mirror never pins; prewarm mirrors the
+            # transient tag, the frozen pin is never warmed, and the first
+            # post-strip (re)pull 404s under the deny-egress hold — the hw274
+            # class, dep d51a69f885872a81). The bootstrap-kit slot files in
+            # the local Gitea mirror ARE the post-cutover pin ground truth,
+            # immune to anything published upstream after step-01 mirrored:
+            # enumerate them (shared extractor 03b — the SAME parser step-06's
+            # Phase 3a-pin gate and the #5265 Day-2 reconciler use) and union
+            # the result in. Strict superset — every entry is still copied
+            # idempotently (#4994 skip-if-present makes an already-mirrored
+            # pin a cheap API GET), and the Phase A2 chart_fail>0 FATAL below
+            # stays the fail-loud guard for a pinned tag that cannot be
+            # pulled. FAIL-LOUD on enumeration failure: an unreadable PAT /
+            # unreachable mirror / zero-pin parse exits 1 HERE (egress open,
+            # recoverable) rather than silently narrowing the mirror.
+            : "${PREWARM_BOOTSTRAP_KIT_PINS:=true}"
+            if [ "${PREWARM_BOOTSTRAP_KIT_PINS}" = "true" ]; then
+              echo "[harbor-prewarm] Phase A2-pins (#5237): enumerating bootstrap-kit chart pins from the local Gitea mirror (the frozen commit flux consumes post-step-05)"
+              # The catalyst-gitea-token PAT — same coordinates + bounded wait
+              # as steps 01/05 (BasicAuth would hang ~130s then 401 while
+              # Keycloak converges; a PAT is a direct local lookup). Never
+              # echoed; sent only via the Authorization header.
+              bk_pat=""
+              for i in $(seq 1 12); do
+                bk_pat=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
+                  -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                [ -n "${bk_pat}" ] && break
+                echo "[harbor-prewarm] Phase A2-pins: PAT not yet populated in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME} (attempt ${i}/12) — sleeping 5s"
+                sleep 5
+              done
+              if [ -z "${bk_pat}" ]; then
+                echo "[harbor-prewarm] FATAL: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} empty after 60s — cannot read the local Gitea mirror's bootstrap-kit pins, so the mirror set cannot be proven to cover the frozen flux pin set (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
+                exit 1
+              fi
+              bk_dir=/tmp/bootstrap-kit-pins
+              rm -rf "${bk_dir}"; mkdir -p "${bk_dir}"
+              bk_api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
+              bk_path="clusters/_template/bootstrap-kit"
+              # Directory listing via the Gitea contents API, then each slot
+              # file raw — ~70 small text fetches against the in-cluster
+              # Gitea Service (step-01 already proved it reachable), far
+              # lighter than a full monorepo clone.
+              bk_list=$(curl -fsS --retry 3 --retry-delay 5 \
+                -H "Authorization: token ${bk_pat}" \
+                "${bk_api}/contents/${bk_path}?ref=${UPSTREAM_BRANCH}" 2>/dev/null \
+                | jq -r '.[] | select(.type=="file") | .name | select(test("^[0-9].*\\.ya?ml$"))' 2>/dev/null || true)
+              if [ -z "${bk_list}" ]; then
+                echo "[harbor-prewarm] FATAL: could not list ${bk_path} in the local Gitea mirror (${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}) — step-01 gitea-mirror must have completed before step-03; without the frozen pin set the mirror cannot be proven complete (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
+                exit 1
+              fi
+              bk_fetch_fail=0
+              for bk_f in ${bk_list}; do
+                if ! curl -fsS --retry 3 --retry-delay 5 \
+                    -H "Authorization: token ${bk_pat}" \
+                    -o "${bk_dir}/${bk_f}" \
+                    "${bk_api}/raw/${bk_path}/${bk_f}?ref=${UPSTREAM_BRANCH}" 2>/dev/null; then
+                  echo "[harbor-prewarm] Phase A2-pins: fetch FAILED for ${bk_path}/${bk_f}"
+                  bk_fetch_fail=$((bk_fetch_fail+1))
+                fi
+              done
+              if [ "${bk_fetch_fail}" -gt 0 ]; then
+                echo "[harbor-prewarm] FATAL: ${bk_fetch_fail} bootstrap-kit slot file(s) failed to fetch from the local Gitea mirror (named above) — a partial pin set could silently miss the exact version a mid-cutover merge makes load-bearing (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
+                exit 1
+              fi
+              # Shared extractor (03b): one parser for step-03 + step-06 +
+              # the #5265 Day-2 reconciler. Accepts BOTH the upstream and the
+              # already-pivoted local prefix so a post-step-06 re-run (mirror
+              # already rewritten to local Harbor) still enumerates.
+              . /pin-extractor/extract-pins.sh
+              bk_pins=/tmp/.bootstrap-kit-pins.tsv
+              bootstrapkit_pins "${bk_dir}" "${UPSTREAM_PREFIX}" "oci://${HARBOR_HOST}/openova-io" > "${bk_pins}"
+              bk_count=$(grep -c . "${bk_pins}" || true)
+              if [ "${bk_count}" -eq 0 ]; then
+                echo "[harbor-prewarm] FATAL: zero pinned openova-io charts parsed from ${bk_path} ($(printf '%s\n' ${bk_list} | grep -c .) slot files fetched) — the bootstrap-kit ALWAYS pins its charts, so an empty parse means the mirror or the slot format drifted; refusing to build a mirror that cannot be proven to cover the frozen flux pin set (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
+                exit 1
+              fi
+              # Drift visibility: pins NOT already in the live union are
+              # exactly the entries a mid-cutover roll would have lost.
+              sort -u "${chart_work}" -o "${chart_work}"
+              bk_pin_only=0
+              while IFS="$(printf '\t')" read -r bk_c bk_v; do
+                [ -z "${bk_c}" ] && continue
+                if ! grep -Fxq "$(printf '%s\t%s' "${bk_c}" "${bk_v}")" "${chart_work}"; then
+                  echo "[harbor-prewarm] Phase A2-pins PIN-ONLY (#5237): ${bk_c}:${bk_v} pinned by the frozen bootstrap-kit but absent from the live deployed∪desired union — the live cluster drifted; warming the pin so post-pivot flux converges"
+                  bk_pin_only=$((bk_pin_only+1))
+                fi
+                printf '%s\t%s\n' "${bk_c}" "${bk_v}" >> "${chart_work}"
+              done < "${bk_pins}"
+              echo "[harbor-prewarm] Phase A2-pins: ${bk_count} frozen bootstrap-kit pin(s) unioned into the mirror set (${bk_pin_only} pin-only, i.e. not covered by the live union)"
+            else
+              echo "[harbor-prewarm] Phase A2-pins DISABLED (prewarm.bootstrapKitPins.enabled=false) — mirroring the live deployed∪desired union only; the frozen flux pin set is NOT guaranteed locally (#5237)"
+            fi
+
             sort -u "${chart_work}" -o "${chart_work}"
             chart_count=$(grep -c . "${chart_work}" || true)
             echo "[harbor-prewarm] Phase A2: ${chart_count} unique openova-io chart(s) to mirror"
@@ -1870,5 +2003,11 @@ data:
           items:
             - key: resolver.sh
               path: resolver.sh
+      - name: bootstrap-kit-pins
+        configMap:
+          name: cutover-bootstrap-kit-pins
+          items:
+            - key: extract-pins.sh
+              path: extract-pins.sh
       - name: tmp
         emptyDir: {}

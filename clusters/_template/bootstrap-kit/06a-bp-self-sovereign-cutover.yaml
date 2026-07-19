@@ -951,7 +951,20 @@ spec:
       # The #5214 self-heal initContainer is removed from these two steps
       # (no longer gitea-admin-secret consumers). Companion bp-gitea 1.2.48
       # makes the admin password itself vanish-proof. Contract Case 67 added.
-      version: 0.1.146
+      # 0.1.147 (#5237 round 2, Refs #5007 #5265): PIN-AWARE PREWARM + step-06
+      # FULL pin-presence gate — the durable close of the catalog-latest-vs-
+      # flux-pinned drift class. New shared 03b extractor ConfigMap
+      # (cutover-bootstrap-kit-pins, zero-dep sh+awk, one parser for step-03 +
+      # step-06 + the #5265 Day-2 reconciler); step-03 Phase A2-pins unions the
+      # FROZEN local-Gitea-mirror bootstrap-kit pins (the commit flux consumes
+      # post-step-05) into the chart-mirror set (fail-loud on an unprovable pin
+      # set; knob prewarm.bootstrapKitPins.enabled); step-06 Phase 3a-pin
+      # asserts EVERY frozen pin durably present in local Harbor (in-cluster
+      # artifact API) before the irreversible auth strip, top-up-warming a
+      # missing one and FATALing with the full missing list otherwise (knob
+      # helmReadinessProbe.pinPresenceGate). Contract Case 68 runs the
+      # extractor against this very slot corpus at PR time.
+      version: 0.1.147
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

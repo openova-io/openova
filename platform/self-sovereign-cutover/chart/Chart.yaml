@@ -1,5 +1,48 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.147 (#5237 round 2, Refs #5007 #5265 — PIN-AWARE PREWARM + step-06 FULL
+# pin-presence gate: the durable close of the catalog-latest-vs-flux-pinned
+# drift class (hw274, dep d51a69f885872a81). The 0.1.145 union-warm (below) is
+# the mid-flight NET; this round removes the drift class at the ROOT: the
+# post-cutover pin ground truth is the bootstrap-kit slot files in the LOCAL
+# GITEA MIRROR (the commit step-01 mirrored = the commit flux consumes once
+# step-05 pivots the GitRepository), immune to anything a mid-cutover merge
+# publishes upstream.
+# (1) NEW shared ConfigMap cutover-bootstrap-kit-pins (03b) — a zero-dep
+#     POSIX sh+awk extractor `bootstrapkit_pins DIR UP_PREFIX LOCAL_PREFIX`
+#     emitting the (chart, version) pin set off clusters/_template/
+#     bootstrap-kit/[0-9]*.yaml; ONE parser sourced by step-03 AND step-06
+#     (and the documented reuse seam for the #5265 Day-2 mirror-resync
+#     reconciler), same single-source discipline as the 03a resolver. awk
+#     (not kubectl --dry-run=client: that resolves kinds via discovery and
+#     breaks when a slot CRD apiVersion stops being served; not yq: not in
+#     alpine/k8s, apk-add is a mid-cutover network dep — the G69 lesson).
+#     Contract Case 68 runs THIS extractor against the in-repo slot corpus,
+#     so slot-format drift fails CI at PR time, never on a Sovereign.
+# (2) Step-03 Phase A2-pins: fetch the slot files from the local Gitea
+#     (contents+raw API, catalyst-gitea-token PAT — the step-01/05 read
+#     path) and UNION the frozen pins into the Phase A2 chart-mirror set.
+#     The live deployed∪desired union (#5007 r3) tracks the CLUSTER, which a
+#     pin-bump merged between step-01's mirror and step-05's pivot rolls
+#     AWAY from the frozen pins (GitRepository still on GitHub) — prewarm
+#     then mirrors the transient tag while the version flux settles back to
+#     was never warmed → post-strip 404 under the deny-egress hold. The pin
+#     union closes that direction for good; PIN-ONLY entries are logged as
+#     the drift report. FAIL-LOUD: unreadable PAT / unlistable mirror /
+#     zero-pin parse exits 1 while egress is open. Knob
+#     prewarm.bootstrapKitPins.enabled (default true).
+# (3) Step-06 Phase 3a-pin (belt-and-braces): BEFORE the sampled pull-probe
+#     and the irreversible Phase-3b auth strip, assert EVERY frozen pin is
+#     durably present in local Harbor (artifact API on the in-cluster
+#     Service — the #5030 never-pull-through probe; ~65 GETs, seconds); a
+#     missing version is top-up-warmed via the 0.1.145 warm helper, and
+#     anything still missing FATALs with the FULL missing list, ghcr auth
+#     intact (recoverable) — a clear step-06 failure instead of wedged HRs.
+#     The sample-probe deadline re-arms after the gate. Knob
+#     helmReadinessProbe.pinPresenceGate (default true). New step-06 envs
+#     PIN_PRESENCE_GATE + HARBOR_INTERNAL_URL; step-03 gains the Gitea/PAT
+#     envs. No step-count / RBAC change (secrets get is already granted
+#     cluster-wide; still 11 steps).
 # 0.1.146 (#5262 Refs #5214 #3379 — steps 10/11 git-persist authenticates with
 # the step-09 minted PAT, never the gitea admin password. LIVE hw277 (dep
 # 1708c340ffc0e3f2, 2026-07-19): step-10 vcluster-registry-pivot failed
@@ -2490,7 +2533,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.146
+version: 0.1.147
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
