@@ -921,7 +921,18 @@ spec:
       # + the already-pivoted branch + the Gitea YAML rewrite all
       # digest-based; tag-form live pivots upgraded; DIGEST-MISS FATALs with
       # the exact recovery). Contract Case 65 re-locked.
-      version: 0.1.143
+      # 0.1.144 (#5232 round 2 Refs #5204): the xpkg digest verify + tag->digest
+      # resolution move to the REGISTRY V2 manifest API. Live hw274 (0.1.143
+      # run): the digest was resolved correctly but verified via the Harbor
+      # artifact-management API, which for a multi-arch package records only
+      # per-arch child manifests and never exposes the top-level OCI index by
+      # its own digest → the resolved index 404s → step-03 still FATAL'd. The
+      # v2 API serves it (HEAD tag → Docker-Content-Digest; GET digest → 200),
+      # exactly containerd/Crossplane's pull path. Step-03 Phase A4 now resolves
+      # via a v2 HEAD and verifies durability with a v2 digest GET; step-11
+      # verify_local_pkg_artifact + the already-pivoted branch use the same v2
+      # digest GET. Contract Case 65 re-locked.
+      version: 0.1.144
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
