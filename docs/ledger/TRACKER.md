@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T19:15:02Z` |
+| Last refreshed | `2026-07-19T19:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 28 |
+| Open issues | 25 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 28 open items (clickable table)
+### All 25 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -217,10 +217,7 @@ flowchart LR
 | [#5129](https://github.com/openova-io/openova/issues/5129) | Cloud Networking lens folds NetworkPolicy + CiliumNetworkPolicy into one wrong-c | Other |
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
 | [#5193](https://github.com/openova-io/openova/issues/5193) | Wipe strands an env un-wipeable after a partial destroy: wipe path lacks the hua | Other |
-| [#5206](https://github.com/openova-io/openova/issues/5206) | MCP north-star not usable by an Organization: mcp.<sov> has no DNS record + no p | Other |
 | [#5210](https://github.com/openova-io/openova/issues/5210) | Post-cutover: catalyst-api reflector watches 401 Unauthorized (valid RBAC + fres | Other |
-| [#5223](https://github.com/openova-io/openova/issues/5223) | console: voucher-code inline validation + auto-generate path, reconciler-node dr | Other |
-| [#5225](https://github.com/openova-io/openova/issues/5225) | registry.<sovereign-fqdn> wildcard resolves to region-a cp1 INTERNAL-IP (cross-V | Other |
 | [#5237](https://github.com/openova-io/openova/issues/5237) | cutover step-06 catalog-latest-vs-flux-pinned drift: a bp-catalyst-platform bump | Other |
 | [#5245](https://github.com/openova-io/openova/issues/5245) | Region-kill FAILBACK: recovered region-a resumes as TL1 primary while promoted r | Other |
 | [#5255](https://github.com/openova-io/openova/issues/5255) | flaky CI: wipe_async_creds_rewipe_test 15s waitForWipeDone ceiling fails on slow | Other |
@@ -235,6 +232,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T19:24 | [#5268](https://github.com/openova-io/openova/pull/5268) | #5245 | fix(#5245): dr-failback targets a peer host resolvable from  |
 | 2026-07-19T17:16 | [#5266](https://github.com/openova-io/openova/pull/5266) | #5237 | fix(#5237): pin-aware prewarm + step-06 version-presence gat |
 | 2026-07-19T16:59 | [#5264](https://github.com/openova-io/openova/pull/5264) | #5262 | fix(#5262): sticky gitea admin password + cutover git-persis |
 | 2026-07-19T16:55 | [#5263](https://github.com/openova-io/openova/pull/5263) | #5261 | fix(#5261): mesh cascade force-reconciles replica-region HRs |
@@ -264,7 +262,6 @@ flowchart LR
 | 2026-07-18T20:32 | [#5226](https://github.com/openova-io/openova/pull/5226) | #5204 | fix(cutover): warm Crossplane xpkg packages durably into loc |
 | 2026-07-18T19:35 | [#5222](https://github.com/openova-io/openova/pull/5222) | #5220 | fix(cnpg-pair): dr-promoter steady-state ARM gate + timeline |
 | 2026-07-18T19:31 | [#5221](https://github.com/openova-io/openova/pull/5221) | #5210 | fix(catalyst-api): materialize local kubeconfig with refresh |
-| 2026-07-18T14:18 | [#5219](https://github.com/openova-io/openova/pull/5219) | #5218 | fix(cnpg-pair): dr-promoter durable-suspend race — same-tick |
 
 ---
 
