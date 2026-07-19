@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T11:45:02Z` |
+| Last refreshed | `2026-07-19T12:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -234,6 +234,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T11:52 | [#5252](https://github.com/openova-io/openova/pull/5252) | #5140 | fix(catalyst-api): sandbox client re-resolves the backend af |
+| 2026-07-19T11:52 | [#5251](https://github.com/openova-io/openova/pull/5251) | #5140 | fix(catalyst-api): stamp Retry-After on sandbox 503 degrades |
+| 2026-07-19T11:55 | [#5250](https://github.com/openova-io/openova/pull/5250) | #5206 | fix(pool-domain-manager): add explicit mcp A record to the c |
 | 2026-07-19T08:36 | [#5249](https://github.com/openova-io/openova/pull/5249) | #5223 | fix(console+billing): BSS Vouchers plan-tier — issuance sele |
 | 2026-07-19T08:14 | [#5248](https://github.com/openova-io/openova/pull/5248) | #5245 | fix(cnpg-pair): region-kill FAILBACK — demote+re-clone regio |
 | 2026-07-19T08:50 | [#5247](https://github.com/openova-io/openova/pull/5247) | #5100 | refactor(console): purge banned-term code identifiers from b |
@@ -261,9 +264,6 @@ flowchart LR
 | 2026-07-18T05:48 | [#5208](https://github.com/openova-io/openova/pull/5208) | #5206 | fix(mcp): publish mcp.<sov-fqdn> DNS + reject Org-scoped tok |
 | 2026-07-18T05:40 | [#5207](https://github.com/openova-io/openova/pull/5207) | #5205 | fix: same-origin console-ready proxy replaces no-cors funnel |
 | 2026-07-18T04:31 | [#5200](https://github.com/openova-io/openova/pull/5200) | #5193 | fix(catalyst-api): async wipe + huawei-operator-creds fallba |
-| 2026-07-18T04:31 | [#5199](https://github.com/openova-io/openova/pull/5199) | #5140 | fix(catalyst-api): sandbox DELETE degrades to 503 on backend |
-| 2026-07-18T04:29 | [#5198](https://github.com/openova-io/openova/pull/5198) | #5125 | fix: Continuum sequencer step-8 re-clone-on-divergence (#512 |
-| 2026-07-18T00:53 | [#5197](https://github.com/openova-io/openova/pull/5197) | #5187 | fix(catalyst): render sovereign-tls-vars ConfigMap on every  |
 
 ---
 
