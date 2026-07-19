@@ -37,7 +37,7 @@ jobs:
         working-directory: products/continuum/cloudflare-worker
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -79,7 +79,7 @@ jobs:
         working-directory: infra/cloudflare-worker-leases
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1

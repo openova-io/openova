@@ -34,10 +34,10 @@ jobs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
       - name: Checkout openova-private
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout openova (public source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: openova-io/openova
           path: openova-src
@@ -220,10 +220,10 @@ jobs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
       - name: Checkout openova-private
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout openova (public source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: openova-io/openova
           path: openova-src
@@ -453,7 +453,7 @@ jobs:
       actions: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # In-flight provisioning guard — t13/t17/t21 incident, 2026-05-17.
       #

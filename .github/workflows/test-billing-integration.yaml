@@ -48,7 +48,7 @@ jobs:
       BILLING_TEST_PG_URL: postgres://billing:billing@localhost:5432/billing_test?sslmode=disable
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5

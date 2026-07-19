@@ -89,7 +89,7 @@ jobs:
       matrix: ${{ steps.changed.outputs.matrix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # G47 #2599: fetch full history so we can diff against the
           # `github.event.before` base of the push, not just HEAD~1.
@@ -140,7 +140,7 @@ jobs:
       matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
