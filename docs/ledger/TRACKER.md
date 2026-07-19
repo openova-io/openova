@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T17:15:03Z` |
+| Last refreshed | `2026-07-19T17:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 31 |
 | Open DoD gates | 0 / 41 |
@@ -238,6 +238,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-19T17:16 | [#5266](https://github.com/openova-io/openova/pull/5266) | #5237 | fix(#5237): pin-aware prewarm + step-06 version-presence gat |
 | 2026-07-19T16:59 | [#5264](https://github.com/openova-io/openova/pull/5264) | #5262 | fix(#5262): sticky gitea admin password + cutover git-persis |
 | 2026-07-19T16:55 | [#5263](https://github.com/openova-io/openova/pull/5263) | #5261 | fix(#5261): mesh cascade force-reconciles replica-region HRs |
 | 2026-07-19T16:37 | [#5260](https://github.com/openova-io/openova/pull/5260) | #4901 | fix(#4901): Continuum surfaces standby-absent — health degra |
@@ -267,7 +268,6 @@ flowchart LR
 | 2026-07-18T19:35 | [#5222](https://github.com/openova-io/openova/pull/5222) | #5220 | fix(cnpg-pair): dr-promoter steady-state ARM gate + timeline |
 | 2026-07-18T19:31 | [#5221](https://github.com/openova-io/openova/pull/5221) | #5210 | fix(catalyst-api): materialize local kubeconfig with refresh |
 | 2026-07-18T14:18 | [#5219](https://github.com/openova-io/openova/pull/5219) | #5218 | fix(cnpg-pair): dr-promoter durable-suspend race — same-tick |
-| 2026-07-18T13:34 | [#5217](https://github.com/openova-io/openova/pull/5217) | #4996 | fix(cutover): step-07 must not roll the EVS/hcloud CSI drive |
 
 ---
 
