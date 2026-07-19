@@ -50,6 +50,21 @@
 // neither path is available the handler returns 503 so the FE renders
 // its target-state "API pending" pill rather than a 5xx spinner.
 //
+// #5140 part B — primary-client re-resolution. The Path-1 Factory
+// client is constructed ONCE at AddCluster registration time and
+// cached in the Factory's cluster map; DynamicClientFor never
+// invalidates it. After a region-kill / DR failover the cached
+// client can keep dialing a dead or stale endpoint (or present a
+// token a peer apiserver rejects) — pre-fix, every request through
+// it failed identically and the surface returned 503 FOREVER, even
+// after the DR survivor was serving. sandboxCall fixes the recovery
+// gap: on a connection-level (backend-unavailable) failure from the
+// Path-1 client it re-resolves a FRESH client via sovereignDepsFor()
+// — the local host apiserver, where the Sandbox CRD + RBAC are
+// always valid (the remedy #5140 names) — and retries the operation
+// once, so the first request after the survivor takes over returns
+// 200 instead of a permanent 503.
+//
 // ── Org-scoping ─────────────────────────────────────────────────────
 //
 // Every endpoint reads `claims.Org` (populated by RequireSession from
@@ -400,16 +415,19 @@ func (h *Handler) HandleListSandboxSessions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	client, ns, status, errResp := h.sandboxClient(r)
+	hc, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
 		writeJSON(w, status, errResp)
 		return
 	}
+	ns := hc.ns
 
-	ctx, cancel := context.WithTimeout(r.Context(), sandboxRequestBudget)
-	defer cancel()
-
-	listIface, err := client.Resource(SandboxGVR()).Namespace(ns).List(ctx, metav1.ListOptions{})
+	var listIface *unstructured.UnstructuredList
+	err := h.sandboxCall(r.Context(), hc, func(ctx context.Context, dyn dynamic.Interface) error {
+		var cerr error
+		listIface, cerr = dyn.Resource(SandboxGVR()).Namespace(ns).List(ctx, metav1.ListOptions{})
+		return cerr
+	})
 	if err != nil {
 		// CRD not installed → return empty list. The Sandbox CRD ships
 		// via the catalyst chart's crds/ directory but a fresh chroot
@@ -460,16 +478,19 @@ func (h *Handler) HandleGetSandboxSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	client, ns, status, errResp := h.sandboxClient(r)
+	hc, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
 		writeJSON(w, status, errResp)
 		return
 	}
+	ns := hc.ns
 
-	ctx, cancel := context.WithTimeout(r.Context(), sandboxRequestBudget)
-	defer cancel()
-
-	obj, err := client.Resource(SandboxGVR()).Namespace(ns).Get(ctx, id, metav1.GetOptions{})
+	var obj *unstructured.Unstructured
+	err := h.sandboxCall(r.Context(), hc, func(ctx context.Context, dyn dynamic.Interface) error {
+		var cerr error
+		obj, cerr = dyn.Resource(SandboxGVR()).Namespace(ns).Get(ctx, id, metav1.GetOptions{})
+		return cerr
+	})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			writeJSON(w, http.StatusNotFound, map[string]string{
@@ -539,11 +560,12 @@ func (h *Handler) HandleCreateSandboxSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	client, ns, status, errResp := h.sandboxClient(r)
+	hc, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
 		writeJSON(w, status, errResp)
 		return
 	}
+	ns := hc.ns
 
 	// Derive the CR name. Operator-supplied Name is preferred (lets
 	// the FE control the label); when empty we synthesise from the
@@ -558,10 +580,17 @@ func (h *Handler) HandleCreateSandboxSession(w http.ResponseWriter, r *http.Requ
 	orgSlug := sandboxOrgSlug(claims)
 	obj := buildSandboxUnstructured(crName, ns, displayName, agent, body.Repo, claims.Email, orgSlug)
 
-	ctx, cancel := context.WithTimeout(r.Context(), sandboxRequestBudget)
-	defer cancel()
-
-	created, err := client.Resource(SandboxGVR()).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
+	// Create retried through sandboxCall is safe: a first attempt that
+	// FAILED at the connection level (the only class sandboxCall
+	// retries) never reached the apiserver, so the retry cannot
+	// double-create; a duplicate racing through anyway surfaces as
+	// IsAlreadyExists and maps to 409 exactly like a double-click.
+	var created *unstructured.Unstructured
+	err := h.sandboxCall(r.Context(), hc, func(ctx context.Context, dyn dynamic.Interface) error {
+		var cerr error
+		created, cerr = dyn.Resource(SandboxGVR()).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
+		return cerr
+	})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			writeJSON(w, http.StatusConflict, map[string]string{
@@ -780,16 +809,16 @@ func (h *Handler) HandleDeleteSandboxSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	client, ns, status, errResp := h.sandboxClient(r)
+	hc, status, errResp := h.sandboxClient(r)
 	if errResp != nil {
 		writeJSON(w, status, errResp)
 		return
 	}
+	ns := hc.ns
 
-	ctx, cancel := context.WithTimeout(r.Context(), sandboxRequestBudget)
-	defer cancel()
-
-	err := client.Resource(SandboxGVR()).Namespace(ns).Delete(ctx, id, metav1.DeleteOptions{})
+	err := h.sandboxCall(r.Context(), hc, func(ctx context.Context, dyn dynamic.Interface) error {
+		return dyn.Resource(SandboxGVR()).Namespace(ns).Delete(ctx, id, metav1.DeleteOptions{})
+	})
 	if err != nil && !apierrors.IsNotFound(err) {
 		if sandboxBackendUnavailable(err) {
 			h.log.Warn("sandbox: backend unavailable on delete", "id", id, "namespace", ns, "err", err)
@@ -813,16 +842,34 @@ func (h *Handler) HandleDeleteSandboxSession(w http.ResponseWriter, r *http.Requ
 
 // ── Internal helpers ────────────────────────────────────────────────
 
-// sandboxClient resolves the (dynamic.Interface, namespace) pair the
-// handlers operate on. Resolution order matches the package doc:
+// sandboxClientHandle bundles the resolved dynamic client with the
+// namespace it operates on plus the resolution path it came from.
+//
+// fromFactory marks a Path-1 (k8sCache Factory) client. That client is
+// a REGISTRATION-TIME construction cached in the Factory's cluster map
+// (k8scache.AddCluster builds it once from the kubeconfig on disk;
+// DynamicClientFor never invalidates it), so across a region-kill /
+// DR-failover window it can keep dialing a dead or stale endpoint —
+// #5140 part B. Only that path is eligible for sandboxCall's
+// re-resolve retry: Path-2 clients are already constructed fresh per
+// request (sovereignDepsFromEnv), so retrying the same construction
+// adds nothing but a duplicate call.
+type sandboxClientHandle struct {
+	dyn         dynamic.Interface
+	ns          string
+	fromFactory bool
+}
+
+// sandboxClient resolves the client handle the handlers operate on.
+// Resolution order matches the package doc:
 //
 //  1. k8sCache.Factory.DynamicClientFor(resolveChrootClusterID(""))
 //     — the canonical Catalyst-Zero / multi-Sovereign path.
 //  2. sovereignDepsFor() — chroot in-cluster fallback.
 //
-// Returns (..., status, errResp) with errResp non-nil on failure;
+// Returns (handle, status, errResp) with errResp non-nil on failure;
 // the caller writes the JSON envelope verbatim.
-func (h *Handler) sandboxClient(r *http.Request) (dynamic.Interface, string, int, map[string]string) {
+func (h *Handler) sandboxClient(r *http.Request) (*sandboxClientHandle, int, map[string]string) {
 	claims := auth.ClaimsFromContext(r.Context())
 	ns := sandboxNamespaceFor(claims)
 
@@ -834,7 +881,7 @@ func (h *Handler) sandboxClient(r *http.Request) (dynamic.Interface, string, int
 		clusterID := h.resolveChrootClusterID("")
 		if clusterID != "" {
 			if dyn, err := h.k8sCache.DynamicClientFor(clusterID); err == nil {
-				return dyn, ns, 0, nil
+				return &sandboxClientHandle{dyn: dyn, ns: ns, fromFactory: true}, 0, nil
 			}
 		}
 	}
@@ -844,18 +891,81 @@ func (h *Handler) sandboxClient(r *http.Request) (dynamic.Interface, string, int
 	// Tests inject a fake via SetSovereignDepsFactory.
 	deps, err := h.sovereignDepsFor()
 	if err != nil {
-		return nil, ns, http.StatusServiceUnavailable, map[string]string{
+		return nil, http.StatusServiceUnavailable, map[string]string{
 			"error":  "sandbox-cluster-unavailable",
 			"detail": err.Error(),
 		}
 	}
 	if deps == nil || deps.dyn == nil {
-		return nil, ns, http.StatusServiceUnavailable, map[string]string{
+		return nil, http.StatusServiceUnavailable, map[string]string{
 			"error":  "sandbox-cluster-unavailable",
 			"detail": "no dynamic client available",
 		}
 	}
-	return deps.dyn, ns, 0, nil
+	return &sandboxClientHandle{dyn: deps.dyn, ns: ns}, 0, nil
+}
+
+// sandboxCall runs op against the resolved client with the per-request
+// budget and — #5140 part B — re-resolves the backend on a
+// connection-level failure of the Path-1 (Factory-cached) client.
+//
+// Root cause of the recovery gap (hw261, post-region-kill): after the
+// DR failover flipped the primary region, the sandbox surface returned
+// 503 on EVERY request and never recovered, because the Factory's
+// dynamic client is built once at cluster registration and cached
+// forever — a dead endpoint, a token a peer apiserver rejects (401), or
+// a peer that does not serve the Sandbox CRD ("could not find the
+// requested resource") fails identically on every call, and
+// sandboxClient only falls through to Path 2 when Path 1 fails to
+// RESOLVE, never when its client fails at request time. Part A
+// (#5141/#5161/#5199) made those failures an honest retryable 503; this
+// closes the loop so a retry can actually succeed.
+//
+// Mechanics:
+//
+//   - The first attempt runs against hc.dyn under its own
+//     sandboxRequestBudget.
+//   - When the attempt fails with a backend-unavailable class error
+//     (sandboxBackendUnavailable — connection refused / dial / i-o
+//     timeout / 401 / 403 / discovery-404 / NoKindMatch) AND the client
+//     came from the Factory cache, a FRESH client is constructed via
+//     sovereignDepsFor() — rest.InClusterConfig, i.e. the LOCAL host
+//     apiserver where the Sandbox CRD + the cutover-driver RBAC are
+//     always valid (the exact remedy #5140 part B names) — and op is
+//     retried ONCE under a fresh budget. The fresh budget matters: a
+//     blackholed endpoint eats the full first budget, so reusing the
+//     original deadline would doom the retry to DeadlineExceeded.
+//   - A genuine object-level NotFound ("sandboxes \"x\" not found")
+//     is NOT in the backend-unavailable class, so ordinary 404s never
+//     pay a second call. A CRD-level miss retries and, when the CRD is
+//     genuinely absent locally too, returns the same error the caller
+//     already maps (List → 200 empty, Create → 503 crd-not-installed).
+//   - No sticky state: each request tries Path 1 first (it may have
+//     healed via a kubeconfig re-registration) and pays at most one
+//     extra call while the primary is stale. Worst case per request is
+//     2× sandboxRequestBudget, still bounded for the FE, and the
+//     response is a 200 from the survivor instead of a permanent 503.
+func (h *Handler) sandboxCall(rctx context.Context, hc *sandboxClientHandle, op func(ctx context.Context, dyn dynamic.Interface) error) error {
+	ctx, cancel := context.WithTimeout(rctx, sandboxRequestBudget)
+	err := op(ctx, hc.dyn)
+	cancel()
+	if err == nil || !hc.fromFactory || !sandboxBackendUnavailable(err) {
+		return err
+	}
+
+	deps, derr := h.sovereignDepsFor()
+	if derr != nil || deps == nil || deps.dyn == nil {
+		// No fresh local client available (mothership without in-cluster
+		// SA, CI without the seam wired) — surface the original, honest
+		// primary-path error; the caller degrades to 503 as before.
+		return err
+	}
+	h.log.Warn("sandbox: primary client backend-unavailable — re-resolved local in-cluster client, retrying once (#5140)",
+		"namespace", hc.ns, "err", err)
+
+	retryCtx, retryCancel := context.WithTimeout(rctx, sandboxRequestBudget)
+	defer retryCancel()
+	return op(retryCtx, deps.dyn)
 }
 
 // sandboxNamespaceFor returns the namespace the handler reads/writes.
