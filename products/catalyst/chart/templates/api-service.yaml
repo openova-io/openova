@@ -7,7 +7,7 @@ metadata:
   # zero local backends) resolves to THIS single region-a pod over the mesh.
   # UNCONDITIONAL plain YAML — this file is ALSO consumed raw by the mothership
   # catalyst-platform kustomization (path=.../chart/templates), which cannot
-  # parse Helm {{ }}. The annotation is an inert no-op without a clustermesh
+  # parse Helm brace directives. The annotation is an inert no-op without a clustermesh
   # (single-region Sovereign / Catalyst-Zero mothership) and only takes effect
   # where a mesh exists (2-region Sovereign) — so it is safe to always emit.
   annotations:

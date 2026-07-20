@@ -6,7 +6,7 @@ metadata:
   # Service so region-b's bp-catalyst-edge-routes stub resolves to this
   # region-a pod over the mesh. UNCONDITIONAL plain YAML — this file is ALSO
   # consumed raw by the mothership catalyst-platform kustomization, which cannot
-  # parse Helm {{ }}. The annotation is an inert no-op without a clustermesh
+  # parse Helm brace directives. The annotation is an inert no-op without a clustermesh
   # (single-region / mothership) and only takes effect where a mesh exists.
   annotations:
     service.cilium.io/global: "true"
