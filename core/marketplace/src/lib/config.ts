@@ -98,6 +98,26 @@ function readActiveConsoleHost(): string | null {
 }
 
 /**
+ * localStorage key for the active Org's id (the tenant_id the provisioning
+ * service keys on). `setActiveOrg` (api.ts) stamps this right after
+ * `createTenant` / on Stripe return — BEFORE the launch redirect fires — so
+ * the `/launching` interstitial can poll `GET /api/provisioning/tenant/<id>`
+ * to render the live provisioning-stage timeline (#3860 / UAT row 86).
+ */
+export const ACTIVE_ORG_ID_KEY = 'org-active-org';
+
+/** Read the persisted active-Org id (tenant_id). Null in SSR or when unset. */
+function readActiveOrgId(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const id = localStorage.getItem(ACTIVE_ORG_ID_KEY);
+    return id && id.trim() ? id.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Derive the customer console URL from the current marketplace host AND the
  * active tenant slug (if known).
  *
@@ -311,11 +331,14 @@ export const consoleHandoffHref = (
  * placed in any URL — it stays in client storage.
  *
  * Pass `opts.slug` to override the active-org-slug read from localStorage.
+ * Pass `opts.tenant` to override the active-Org id (tenant_id) the
+ * interstitial polls for the provisioning-stage timeline; when omitted it
+ * falls back to the id `setActiveOrg` stamped before this redirect (#3860).
  */
 export const consoleLaunchHref = (
   token: string,
   refreshToken?: string | null,
-  opts?: { slug?: string | null; next?: string },
+  opts?: { slug?: string | null; next?: string; tenant?: string | null },
 ): string => {
   const base = opts && opts.slug !== undefined
     ? deriveConsoleURL(opts.slug)
@@ -328,6 +351,16 @@ export const consoleLaunchHref = (
   // Sovereign per-Org (or operator) console — route through the marketplace-
   // origin interstitial that waits for the host to be reachable.
   const params = new URLSearchParams({ host: base, token, next });
+  // #3860 / UAT row 86 — thread the Org id (tenant_id) so the interstitial
+  // can poll GET /api/provisioning/tenant/<id> and render the live
+  // Creating tenant → Committing manifests → Provisioning vCluster →
+  // Deploying <app> → TLS → Health stage timeline instead of a bare spinner.
+  // Prefer the caller-supplied id, else the one setActiveOrg persisted before
+  // this redirect. Absent (e.g. a returning user whose id was cleared) the
+  // interstitial degrades to the spinner + host-readiness wait — never worse
+  // than today.
+  const tenant = (opts && opts.tenant) || readActiveOrgId();
+  if (tenant) params.set('tenant', tenant);
   return `${BASE}launching?${params.toString()}`;
 };
 

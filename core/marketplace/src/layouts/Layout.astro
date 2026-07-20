@@ -221,6 +221,15 @@ const { title, step = 0 } = Astro.props;
             token: token,
             next: '/jobs',
           });
+          // #3860 / UAT row 86 — pass the active Org id (tenant_id) so the
+          // /launching interstitial can render the live provisioning-stage
+          // timeline (mirrors src/lib/config.ts::consoleLaunchHref). Best-
+          // effort: absent it, the interstitial keeps its spinner + host-
+          // readiness wait.
+          try {
+            var activeOrgId = (localStorage.getItem('org-active-org') || '').trim();
+            if (activeOrgId) launchQs.set('tenant', activeOrgId);
+          } catch (_) {}
           // The marketplace is served at the site root (no Astro `base:`
           // configured), so `/launching` is the interstitial page route. This
           // is an `is:inline` script — NOT processed by Vite — so we use a

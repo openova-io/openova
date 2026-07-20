@@ -38,10 +38,33 @@
   // restriction in the way at all.
 
   import { API_BASE } from '../lib/config';
+  import ProvisioningTimeline from './ProvisioningTimeline.svelte';
+  import type { ProvisionStep } from '../lib/api';
 
-  type Phase = 'provisioning' | 'forwarding' | 'timeout' | 'error';
+  type Phase = 'provisioning' | 'forwarding' | 'timeout' | 'error' | 'failed';
   let phase = $state<Phase>('provisioning');
   let elapsedMs = $state(0);
+
+  // #3860 / UAT row 86 — live provisioning-stage timeline.
+  //
+  // While this interstitial waits for the per-Org console HOST to become
+  // reachable (the console-ready probe below), it ALSO polls the provisioning
+  // service for the backend workflow's per-stage status and renders it, so the
+  // customer watches named stages advance (Creating tenant → Committing
+  // manifests → Provisioning vCluster → Deploying <app> → TLS → Health)
+  // instead of a bare, indefinite spinner. Host-readiness stays the forward
+  // trigger (the host's async DNS/TLS/HTTPRoute can still be landing after the
+  // workflow itself completes — #4273/#5205); the timeline is the honest
+  // progress surface during that wait. A TERMINAL backend failure short-
+  // circuits the wait and shows WHICH stage failed rather than spinning out
+  // the full timeout.
+  let stages = $state<ProvisionStep[]>([]);
+  let provisionStatus = $state<string>('');
+  const STATUS_POLL_MS = 2000;
+  let statusTimer: ReturnType<typeof setTimeout> | null = null;
+  let orgId: string | null = null;
+
+  const failedStage = $derived(stages.find((s) => s.status === 'failed') ?? null);
 
   // Polling schedule — fast at first (route often lands inside ~20-40s) then
   // backs off. Bounded by TIMEOUT_MS so a genuinely stuck provision surfaces a
@@ -57,6 +80,13 @@
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let cancelled = false;
+  // Terminal-failure flag. Kept as a PLAIN (non-reactive) let — NOT $state —
+  // deliberately: the poll guards below run synchronously inside start(),
+  // which the mount $effect invokes. Reading a $state (e.g. `phase`) there
+  // would make the effect re-subscribe and re-run whenever that state changed,
+  // resetting the whole interstitial in a loop. `terminated` mirrors
+  // `cancelled` (also plain) so the guards never re-trigger the effect.
+  let terminated = false;
 
   interface LaunchParams {
     host: string;   // full origin, e.g. https://console.abc.omani.trade
@@ -98,6 +128,23 @@
 
   let params = $state<LaunchParams | null>(null);
 
+  // Resolve the Org id (tenant_id) to poll provisioning status for. Prefer the
+  // `tenant` query param the funnel threads through consoleLaunchHref /
+  // Layout's inline launch; fall back to the id setActiveOrg persisted in
+  // localStorage before this redirect. Absent → no timeline (the interstitial
+  // degrades to spinner + host-readiness wait, never worse than before).
+  function resolveOrgId(): string | null {
+    if (typeof window === 'undefined') return null;
+    const fromQuery = (new URLSearchParams(window.location.search).get('tenant') || '').trim();
+    if (fromQuery) return fromQuery;
+    try {
+      const stored = (localStorage.getItem('org-active-org') || '').trim();
+      return stored || null;
+    } catch {
+      return null;
+    }
+  }
+
   // Probe the per-Org console's readiness via the marketplace's OWN
   // same-origin proxy (#5205). Unlike the retired cross-origin
   // `fetch(console.<slug>/healthz, {mode:'no-cors'})` — whose opaque Response
@@ -127,6 +174,42 @@
     }
   }
 
+  // Poll the provisioning service for the backend workflow's per-stage status
+  // (#3860). Tolerant like probeReady: a 404 (the provision row not created
+  // yet) or any network/parse error is swallowed and retried — we keep the
+  // last-known stages and keep polling. Contract (store.Provision):
+  //   status ∈ pending | provisioning | completed | failed
+  //   steps[].status ∈ pending | running | completed | failed
+  // A terminal `failed` stops the wait and surfaces which stage broke;
+  // `completed` does NOT forward here — the console host's DNS/TLS/HTTPRoute
+  // can still be landing, so forwarding stays gated on the readiness probe.
+  async function pollStatusOnce(id: string) {
+    if (cancelled || terminated) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/provisioning/tenant/${encodeURIComponent(id)}`,
+        { method: 'GET', cache: 'no-store' },
+      );
+      if (res.ok) {
+        const data = (await res.json().catch(() => null)) as
+          | { status?: string; steps?: ProvisionStep[] }
+          | null;
+        if (data && Array.isArray(data.steps)) stages = data.steps;
+        if (data && typeof data.status === 'string') provisionStatus = data.status;
+        if (data?.status === 'failed') {
+          terminated = true;
+          phase = 'failed';
+          cleanup();
+          return;
+        }
+      }
+    } catch {
+      // Swallow — keep last-known stages and retry on the next tick.
+    }
+    if (cancelled || terminated) return;
+    statusTimer = setTimeout(() => pollStatusOnce(id), STATUS_POLL_MS);
+  }
+
   function forward(p: LaunchParams) {
     phase = 'forwarding';
     cleanup();
@@ -139,14 +222,16 @@
   }
 
   async function pollOnce(p: LaunchParams) {
-    if (cancelled) return;
+    if (cancelled || terminated) return;
     if (Date.now() - startedAt >= TIMEOUT_MS) {
       phase = 'timeout';
       cleanup();
       return;
     }
     const ready = await probeReady(p.host);
-    if (cancelled) return;
+    // A terminal provisioning failure (surfaced by pollStatusOnce) wins over a
+    // late host-ready — never forward into a dead provision.
+    if (cancelled || terminated) return;
     if (ready) {
       forward(p);
       return;
@@ -160,6 +245,7 @@
   function cleanup() {
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
     if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
   }
 
   function start() {
@@ -167,11 +253,18 @@
     params = p;
     if (!p) { phase = 'error'; return; }
     cancelled = false;
+    terminated = false;
     phase = 'provisioning';
     startedAt = Date.now();
     elapsedMs = 0;
+    stages = [];
+    provisionStatus = '';
+    orgId = resolveOrgId();
     tickTimer = setInterval(() => { elapsedMs = Date.now() - startedAt; }, 1000);
     pollOnce(p);
+    // Kick off the provisioning-stage timeline poll in parallel with the
+    // host-readiness probe. Only when we know which Org to poll.
+    if (orgId) pollStatusOnce(orgId);
   }
 
   function retry() {
@@ -200,7 +293,12 @@
 <div class="mx-auto max-w-lg py-12">
   <div class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center">
     {#if phase === 'provisioning' || phase === 'forwarding'}
-      <div class="mx-auto mb-5 h-14 w-14 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent"></div>
+      <!-- Bare spinner only until the first stage payload lands; once we have
+           named stages the timeline (with its own per-stage running spinner)
+           is the progress surface. -->
+      {#if stages.length === 0}
+        <div class="mx-auto mb-5 h-14 w-14 animate-spin rounded-full border-4 border-[var(--color-accent)] border-t-transparent"></div>
+      {/if}
       <h1 class="text-xl font-bold text-[var(--color-text-strong)]">
         {phase === 'forwarding' ? 'Opening your console…' : 'Setting up your console…'}
       </h1>
@@ -208,11 +306,56 @@
         We're provisioning your Organization's secure address. This usually
         takes under a minute — you'll be redirected automatically.
       </p>
+      {#if stages.length > 0}
+        <div class="mt-6 text-left">
+          <ProvisioningTimeline steps={stages} status={provisionStatus} />
+        </div>
+      {/if}
       {#if phase === 'provisioning' && elapsedMs >= 5000}
         <p class="mt-4 text-xs text-[var(--color-text-dimmer)]">
           Still working… ({elapsedLabel})
         </p>
       {/if}
+    {:else if phase === 'failed'}
+      <!-- Terminal backend failure (#3860). Show WHICH stage failed and STOP —
+           never a premature success, never an indefinite spinner on a dead
+           provision. Forwarding is suppressed (pollOnce/pollStatusOnce bail on
+           phase==='failed'). -->
+      <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-danger)]/15">
+        <svg class="h-7 w-7 text-[var(--color-danger)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+        </svg>
+      </div>
+      <h1 class="text-xl font-bold text-[var(--color-text-strong)]">Provisioning didn't finish</h1>
+      <p class="mt-2 text-sm text-[var(--color-text-dim)]">
+        {#if failedStage}
+          Something went wrong at the <span class="font-semibold text-[var(--color-text)]">{failedStage.name}</span> stage.
+        {:else}
+          Something went wrong while setting up your Organization.
+        {/if}
+        Our team has been notified — you can try again or contact support.
+      </p>
+      {#if stages.length > 0}
+        <div class="mt-6 text-left">
+          <ProvisioningTimeline steps={stages} status={provisionStatus} />
+        </div>
+      {/if}
+      <div class="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
+        <button
+          type="button"
+          onclick={retry}
+          data-testid="launching-retry"
+          class="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)]"
+        >
+          Try again
+        </button>
+        <a
+          href="/checkout"
+          class="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] px-5 py-2.5 text-sm font-medium text-[var(--color-text)] transition-colors hover:bg-[var(--color-surface-hover)] no-underline"
+        >
+          Back to checkout
+        </a>
+      </div>
     {:else if phase === 'timeout'}
       <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-warn)]/15">
         <svg class="h-7 w-7 text-[var(--color-warn)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">

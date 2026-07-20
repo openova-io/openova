@@ -565,13 +565,25 @@ export interface CheckoutResponse {
 export interface Provision {
   id: string;
   tenant_id: string;
+  // pending | provisioning | completed | failed (store.Provision.Status).
   status: string;
   steps: ProvisionStep[];
+  // 0-100 rollup the provisioning service stamps as steps complete
+  // (store.Provision.Progress). Optional so older payloads still decode.
+  progress?: number;
 }
 
 export interface ProvisionStep {
   name: string;
+  // pending | running | completed | failed (store.ProvisionStep.Status).
   status: string;
+  // Human-readable detail the workflow attaches on completion/failure
+  // (store.ProvisionStep.Message) — e.g. the reason a stage failed.
+  message?: string;
   started_at?: string;
-  completed_at?: string;
+  // Wire field is `done_at` (store.ProvisionStep.DoneAt) — NOT completed_at.
+  // The operator console (core/console) already decodes done_at; the
+  // marketplace type was drifted and is corrected here so the launch
+  // interstitial reads the real field.
+  done_at?: string;
 }
