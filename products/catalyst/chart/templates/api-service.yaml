@@ -2,15 +2,17 @@ apiVersion: v1
 kind: Service
 metadata:
   name: catalyst-api
-  {{- if (((.Values.multiRegion).enabled)) }}
   # #5289 multi-region: publish catalyst-api as a Cilium ClusterMesh global
   # Service so region-b's bp-catalyst-edge-routes stub (same name+namespace,
   # zero local backends) resolves to THIS single region-a pod over the mesh.
-  # Gated on multiRegion.enabled → single-region render is byte-unchanged.
+  # UNCONDITIONAL plain YAML — this file is ALSO consumed raw by the mothership
+  # catalyst-platform kustomization (path=.../chart/templates), which cannot
+  # parse Helm {{ }}. The annotation is an inert no-op without a clustermesh
+  # (single-region Sovereign / Catalyst-Zero mothership) and only takes effect
+  # where a mesh exists (2-region Sovereign) — so it is safe to always emit.
   annotations:
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
-  {{- end }}
 spec:
   selector:
     app.kubernetes.io/name: catalyst-api
