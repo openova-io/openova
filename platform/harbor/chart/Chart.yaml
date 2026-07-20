@@ -170,7 +170,18 @@ type: application
 #   sign-in->/c/oidc/login redirect keeps its canonical hostname), so entry via
 #   harbor.<fqdn> lands on the canonical host with no loop. Also adds
 #   gateway.extraHosts (arbitrary aliases) + tests/httproute-render.sh Case 6.
-version: 1.2.43
+# 1.2.44 (#5302): fix the S3 blob-redirect key casing. Upstream Harbor reads the
+#   ALL-LOWERCASE `persistence.imageChartStorage.disableredirect` (registry-cm
+#   renders `redirect.disable: {{ $storage.disableredirect }}`). The camelCase
+#   `disableRedirect` that #4573 F2 / #4575 shipped was silently dropped by Helm
+#   (values are case-sensitive), so the OBS 302 redirect stayed ENABLED and every
+#   COLD chart pull (e.g. after a region hard-restart) TLS-failed with `x509:
+#   certificate valid for *.obs... not registry.<fqdn>`, wedging post-cutover
+#   Flux self-heal. Default is now `disableredirect: true` — the self-contained
+#   sovereign registry streams blobs over its own trusted host, never redirects
+#   to a differently-certed Object Storage backend. tests/registry-disableredirect.sh
+#   guards the wiring so the casing typo cannot recur.
+version: 1.2.44
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

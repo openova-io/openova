@@ -226,7 +226,9 @@ spec:
       #   DNS/cert change. externalURL + OIDC redirect_uri stay on registry.<fqdn>.
       # 1.2.42: updateStrategy Recreate — single-replica RWO jobservice
       # deadlocked cutover step-08's forced roll on Multi-Attach (#5022).
-      version: 1.2.43
+      # 1.2.44: #5302 — fix the disableredirect key casing (was silently-dropped
+      # camelCase; the s3 overlay above now sets the correct lowercase key).
+      version: 1.2.44
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -401,11 +403,15 @@ spec:
           # *.obs... not registry.<fqdn>` (live c39f0cd4455b7a46, #4573 F2).
           # That x509 wedges the step-08 fresh-pull proof (containerd blob
           # GET) and any in-cluster blob fetch under the deny-egress hold.
-          # `disableRedirect: true` makes harbor-registry stream the blob
+          # `disableredirect: true` makes harbor-registry stream the blob
           # bytes itself over the already-trusted registry host — the OBS
           # backend is still the durable store (Harbor reads/writes it
           # server-side); only the CLIENT-facing 302 is suppressed.
-          disableRedirect: true
+          # #5302: the key is ALL-LOWERCASE `disableredirect` — upstream Harbor
+          # reads exactly that (registry-cm renders `disable: {{ $storage.
+          # disableredirect }}`). The camelCase `disableRedirect` #4575 shipped
+          # was silently dropped by Helm (case-sensitive), leaving redirect ON.
+          disableredirect: true
           type: s3
           s3:
             existingSecret: harbor-objectstorage-credentials

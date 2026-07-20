@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.43  # lockstep with chart/Chart.yaml (#5022 updateStrategy Recreate — jobservice RWO single-replica roll deadlock)
+  version: 1.2.44  # lockstep with chart/Chart.yaml (#5302 disableredirect key casing — see Chart.yaml changelog)
   card:
     title: Harbor
     family: foundation

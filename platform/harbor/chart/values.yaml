@@ -139,7 +139,14 @@ harbor:
         accessMode: ReadWriteOnce
         size: 5Gi
     imageChartStorage:
-      disableRedirect: false
+      # #5302: upstream Harbor's key is all-lowercase `disableredirect` (Helm
+      # values are case-sensitive — camelCase `disableRedirect` is silently
+      # ignored, which is why #4573 F2 was inert its entire life and a
+      # region-restart cold chart-pull TLS-failed against the OBS redirect).
+      # Default `true`: a self-contained sovereign registry must stream blobs
+      # over its own trusted registry host, never 302-redirect to a
+      # differently-certed Object Storage backend. Inert for `type: filesystem`.
+      disableredirect: true
       # Default `filesystem` so contabo dev/test renders cleanly with
       # no S3 endpoint configured. Per-Sovereign overlay flips this to
       # `s3` and supplies bucket/region/regionendpoint/existingSecret
