@@ -118,6 +118,22 @@ const phase1ReachabilityBudgetEnv = "CATALYST_PHASE1_REACHABILITY_BUDGET"
 // silent. Default helmwatch.DefaultRecensusInterval (45s).
 const phase1RecensusIntervalEnv = "CATALYST_PHASE1_RECENSUS_INTERVAL"
 
+// phase1ProgressStallWindowEnv — env var override for the progress-guard
+// stall window (#5283). Past the soft WatchTimeout the watch concludes
+// OutcomeTimeout only once readyHRs has been flat for this long with no
+// failed HR; while readyHRs climbed within the window it defers instead
+// of stamping a still-converging prov failed (hw279: an intermittent
+// external xpkg.upbound.io 503 delayed the bp-crossplane →
+// bp-catalyst-platform chain past 120m while readyHRs kept climbing).
+// Empty/invalid falls back to helmwatch's WatchTimeout/4 default (30m).
+const phase1ProgressStallWindowEnv = "CATALYST_PHASE1_PROGRESS_STALL_WINDOW"
+
+// phase1ProgressGuardCeilingEnv — env var override for the absolute
+// wall-clock ceiling on the whole Phase-1 watch INCLUDING progress-guard
+// deferrals past WatchTimeout (#5283). Empty/invalid falls back to
+// helmwatch's WatchTimeout×2 default (240m).
+const phase1ProgressGuardCeilingEnv = "CATALYST_PHASE1_PROGRESS_GUARD_CEILING"
+
 // kubeconfigArrivalTimeoutEnv — how long runPhase1Watch waits for the
 // cloud-init PUT to land /var/lib/catalyst/kubeconfigs/<id>.yaml on
 // disk before giving up with OutcomeKubeconfigMissing. Cloud-init
@@ -450,6 +466,19 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 		recensusInterval = helmwatch.CompileRecensusInterval(envOrEmpty(phase1RecensusIntervalEnv))
 	}
 
+	// #5283 — progress-guard knobs. Left zero unless an explicit env
+	// override is set, so helmwatch.applyDefaults derives both from the
+	// resolved WatchTimeout (stall window = /4, ceiling = ×2). Only a
+	// positive, parseable duration overrides.
+	var progressStallWindow time.Duration
+	if v, _ := time.ParseDuration(envOrEmpty(phase1ProgressStallWindowEnv)); v > 0 {
+		progressStallWindow = v
+	}
+	var progressGuardCeiling time.Duration
+	if v, _ := time.ParseDuration(envOrEmpty(phase1ProgressGuardCeilingEnv)); v > 0 {
+		progressGuardCeiling = v
+	}
+
 	// #4746 — the component whose terminal-install gates OutcomeReady.
 	// Base value is the Handler field (production New() sets it to
 	// catalyst-platform; tests leave it empty → gate off). An explicitly
@@ -464,6 +493,8 @@ func (h *Handler) phase1WatchConfigForDeployment(dep *Deployment, kubeconfig str
 	cfg := helmwatch.Config{
 		KubeconfigYAML:            kubeconfig,
 		WatchTimeout:              timeout,
+		ProgressStallWindow:       progressStallWindow,
+		ProgressGuardCeiling:      progressGuardCeiling,
 		MinBootstrapKitHRs:        minHRs,
 		FirstSeenTimeout:          firstSeen,
 		LatePollTimeout:           latePollTimeout,
