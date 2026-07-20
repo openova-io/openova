@@ -1512,6 +1512,184 @@ func TestCatalogSeed_DeliveryPinsNotBehindComponentCharts(t *testing.T) {
 	t.Logf("catalog-seed drift guard: compared %d in-repo delivery pins against component chart versions; none behind", checked)
 }
 
+// ── #4432 recurrence guard — catalog-seed DISPLAY versions (spec.version)
+//    must not lag the delivery pin / component chart ─────────────────────
+//
+// Root cause of #4432 (UAT row R21): the #4415/#4864 guard above
+// (TestCatalogSeed_DeliveryPinsNotBehindComponentCharts) checks ONLY the
+// `source.version` delivery pin. The card the operator console renders reads
+// `spec.version` — a SECOND, unchecked version field on the same CR. When a
+// component chart is bumped, syncing `source.version` (which CI enforced) but
+// forgetting `spec.version` left the catalog CARD advertising a stale version
+// while the chart actually shipped a newer one. 14 of 79 seed entries had
+// drifted this way on hw282 (e.g. bp-guacamole card 0.2.3 while the chart
+// shipped 0.2.29; bp-continuum 0.1.4 vs 0.1.12) — the card LIED about the
+// shipping version. This guard makes both invariants a hard CI failure:
+//
+//	(1) spec.version is NOT behind the component chart/Chart.yaml, and
+//	(2) spec.version EQUALS source.version (the card advertises exactly what
+//	    the delivery pin installs).
+//
+// Same in-repo-only, semver-aware, skip-external rules as the #4415 guard.
+// Entries whose version is a Helm template (e.g. bp-catalyst-platform pins
+// `{{ .Chart.Version }}` — the umbrella whose version auto-increments on every
+// deploy, so a hard pin can never stay in lockstep) render numerically at
+// install time and are skipped by the numeric-parse gate here, exactly as the
+// #4415 guard skips them.
+
+type seedEntry struct {
+	name          string
+	specVersion   string
+	specLine      int
+	sourceChart   string
+	sourceVersion string
+	sourceLine    int
+}
+
+var reSeedKind = regexp.MustCompile(`^kind:\s*Blueprint\s*$`)
+var reSeedName = regexp.MustCompile(`^  name:\s*"?(bp-[A-Za-z0-9._-]+)"?\s*$`)
+var reSeedSpecVersion = regexp.MustCompile(`^  version:\s*"?([0-9][0-9A-Za-z._+-]*)"?\s*$`)
+
+// catalogSeedEntries walks the catalog-seed template by `kind: Blueprint`
+// boundaries and captures, per Blueprint CR, the metadata.name, the
+// spec.version (the card DISPLAY version — the first 2-space `version:` that
+// precedes the `source:` block) and the source.chart + source.version delivery
+// pin. The file is a Helm template so a plain YAML unmarshal is impossible; the
+// fields we read are static YAML, so a scoped line scan is sufficient.
+func catalogSeedEntries(t *testing.T, root string) []seedEntry {
+	t.Helper()
+	f := filepath.Join(root, "products", "catalyst", "chart", "templates", "catalog-seed", "blueprints.yaml")
+	raw, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatalf("read catalog-seed: %v", err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	var entries []seedEntry
+	var cur *seedEntry
+	inSource := false
+	flush := func() {
+		if cur != nil {
+			entries = append(entries, *cur)
+		}
+		cur = nil
+		inSource = false
+	}
+	for i, ln := range lines {
+		if reSeedKind.MatchString(ln) {
+			flush()
+			cur = &seedEntry{}
+			continue
+		}
+		if cur == nil {
+			continue
+		}
+		if cur.name == "" {
+			if m := reSeedName.FindStringSubmatch(ln); m != nil {
+				cur.name = m[1]
+			}
+		}
+		if reSeedSource.MatchString(ln) {
+			inSource = true
+			continue
+		}
+		if inSource {
+			// A non-blank line indented <=2 spaces ends the source block.
+			if strings.TrimSpace(ln) != "" && !strings.HasPrefix(ln, "    ") {
+				inSource = false
+			} else {
+				if m := reSeedChart.FindStringSubmatch(ln); m != nil {
+					cur.sourceChart = m[1]
+				}
+				if m := reSeedVersion.FindStringSubmatch(ln); m != nil && cur.sourceVersion == "" {
+					cur.sourceVersion = m[1]
+					cur.sourceLine = i + 1
+				}
+				continue
+			}
+		}
+		// Outside a source block: the first 2-space `version:` is spec.version.
+		if cur.specVersion == "" {
+			if m := reSeedSpecVersion.FindStringSubmatch(ln); m != nil {
+				cur.specVersion = m[1]
+				cur.specLine = i + 1
+			}
+		}
+	}
+	flush()
+	return entries
+}
+
+func TestCatalogSeed_DisplayVersionNotBehindDeliveryPin(t *testing.T) {
+	root := repoRoot(t)
+
+	comp := componentChartVersions(t, root)
+	if len(comp) == 0 {
+		t.Fatal("discovered zero component charts under platform/ + products/ — guard is inert (glob/parse broken)")
+	}
+	entries := catalogSeedEntries(t, root)
+	if len(entries) == 0 {
+		t.Fatal("parsed zero catalog-seed Blueprint entries — the line parser is broken (expected dozens)")
+	}
+
+	checkedChart := 0
+	checkedPair := 0
+	for _, e := range entries {
+		if e.specVersion == "" {
+			// Templated (e.g. {{ .Chart.Version }}) or absent — nothing to
+			// compare statically; rendered at install time. Skip.
+			continue
+		}
+		chart := e.sourceChart
+		if chart == "" {
+			chart = e.name
+		}
+
+		// (1) DISPLAY version must not lag the component chart source-of-truth.
+		if cv, ok := comp[chart]; ok {
+			if less, comparable := semverLess(e.specVersion, cv); comparable {
+				checkedChart++
+				if less {
+					t.Errorf("CATALOG-SEED DISPLAY DRIFT (#4432 / R21):\n"+
+						"  Blueprint %q card spec.version is BEHIND its component chart:\n"+
+						"    catalog-seed spec.version   = %q  (blueprints.yaml line %d)\n"+
+						"    component chart/Chart.yaml  = %q\n"+
+						"  → the operator-console catalog CARD advertises a STALE version.\n"+
+						"  Sync the card: set spec.version to %q for %q in\n"+
+						"  products/catalyst/chart/templates/catalog-seed/blueprints.yaml",
+						e.name, e.specVersion, e.specLine, cv, cv, e.name)
+				}
+			}
+		}
+
+		// (2) DISPLAY version must EQUAL the delivery pin — the card must
+		// advertise exactly the chart the source block installs.
+		if e.sourceVersion != "" {
+			_, specNum := parseSemverNumeric(e.specVersion)
+			_, srcNum := parseSemverNumeric(e.sourceVersion)
+			if specNum && srcNum {
+				checkedPair++
+				if e.specVersion != e.sourceVersion {
+					t.Errorf("CATALOG-SEED CARD/DELIVERY MISMATCH (#4432 / R21):\n"+
+						"  Blueprint %q advertises one version but delivers another:\n"+
+						"    spec.version   = %q  (blueprints.yaml line %d)\n"+
+						"    source.version = %q  (blueprints.yaml line %d)\n"+
+						"  → the catalog card must advertise exactly the chart it installs.\n"+
+						"  Align both to the component chart version for %q in\n"+
+						"  products/catalyst/chart/templates/catalog-seed/blueprints.yaml",
+						e.name, e.specVersion, e.specLine, e.sourceVersion, e.sourceLine, e.name)
+				}
+			}
+		}
+	}
+	if checkedChart == 0 {
+		t.Fatal("zero catalog-seed spec.versions were comparable against component charts — the chart-name mapping is broken (guard would never catch display drift)")
+	}
+	if checkedPair == 0 {
+		t.Fatal("zero catalog-seed spec/source version pairs were comparable — the parser is broken (guard would never catch card/delivery mismatch)")
+	}
+	t.Logf("catalog-seed display-version guard: %d card versions checked against component charts, %d card-vs-delivery pairs checked; all aligned", checkedChart, checkedPair)
+}
+
 // TestBootstrapKit_LbIpamSharingCrossNamespace guards the #4765 residue
 // fixed in bp-cilium 1.4.16 (live-proven hw255, 2026-07-15): Cilium
 // LB-IPAM (≥1.16) only lets two LoadBalancer Services share one VIP
