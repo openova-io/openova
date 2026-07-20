@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T22:30:05Z` |
+| Last refreshed | `2026-07-20T22:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T22:39 | [#5307](https://github.com/openova-io/openova/pull/5307) | #4432 | fix(catalog-seed): sync 14 stale catalog card versions + gua |
 | 2026-07-20T16:43 | [#5303](https://github.com/openova-io/openova/pull/5303) | #4573 | fix(bp-harbor): disable S3 blob-redirect via the correct low |
 | 2026-07-20T15:24 | [#5299](https://github.com/openova-io/openova/pull/5299) | #3379 | fix(cutover): raise step-03 harbor-prewarm deadline for the  |
 | 2026-07-20T12:29 | [#5293](https://github.com/openova-io/openova/pull/5293) | #5290 | ci(catalyst): guard mothership raw-kustomize build against b |
@@ -256,7 +257,6 @@ flowchart LR
 | 2026-07-19T12:51 | [#5254](https://github.com/openova-io/openova/pull/5254) | #5253 | fix(catalyst-api): decouple the Phase-1 producer chain from  |
 | 2026-07-19T11:52 | [#5252](https://github.com/openova-io/openova/pull/5252) | #5140 | fix(catalyst-api): sandbox client re-resolves the backend af |
 | 2026-07-19T11:52 | [#5251](https://github.com/openova-io/openova/pull/5251) | #5140 | fix(catalyst-api): stamp Retry-After on sandbox 503 degrades |
-| 2026-07-19T11:55 | [#5250](https://github.com/openova-io/openova/pull/5250) | #5206 | fix(pool-domain-manager): add explicit mcp A record to the c |
 
 ---
 
