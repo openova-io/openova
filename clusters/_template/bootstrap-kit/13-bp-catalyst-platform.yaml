@@ -1269,7 +1269,7 @@ spec:
       #   bp-catalyst-edge-routes (slot 13b) can proxy api./console./
       #   marketplace. to region-a's singletons. Set below from
       #   ${SOVEREIGN_ENABLE_HOT_STANDBY}. Lockstep w/ Chart.yaml.
-      version: 1.4.1196
+      version: 1.4.1197
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
