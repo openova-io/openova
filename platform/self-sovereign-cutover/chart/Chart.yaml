@@ -1,5 +1,27 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.149 (#5095 round 2, Refs #5093 #5298 — step-03 harbor-prewarm proxy-DOWN
+# DIRECT-FIRST routing. The 0.1.136 direct-source fallback (below) fires only
+# AFTER the mothership-proxy `skopeo copy` returns non-zero, and that proxy copy
+# is bounded ONLY by the #3944 --command-timeout (skopeoCommandTimeout, 1200s).
+# When the mothership Harbor proxy is unreachable for the WHOLE step (a
+# sustained transit hole toward the mothership /24, not a brief flap), EVERY
+# proxy-sourced image independently burns that timeout probing the dead proxy
+# BEFORE the fast direct upstream is tried — the per-image "proxy timeout tax"
+# that dragged the direct-fallback wave to ~100 min for 140 images and tripped
+# the step deadline (raised separately in #5298/#5299). Round 2 adds a ONE-TIME
+# cheap HTTP reachability probe of the mothership proxy at the top of the copy
+# wave (only when the wave has proxy-sourced refs); on an unreachable proxy the
+# step latches proxy-DOWN and copy_one tries the DIRECT upstream FIRST for
+# proxy-sourced refs (proxy kept as the secondary), so the wave runs at full
+# parallel speed with no timeout tax. The latch also trips adaptively the moment
+# a proxy leg fails while its direct sibling succeeds (the hw255 "proxy bad,
+# direct good" signature), catching a proxy that dies mid-wave after the probe
+# passed. Source selection ONLY — the DEST path (host-swap, path preserved) is
+# untouched, so step-04/07/08 resolve the identical LOCAL artifact and the
+# sovereignty guarantee (every image in local Harbor before the deny-egress
+# hold) is intact; FATAL-on-any-failure is preserved. Template 03 + values
+# prewarm.proxyDownDirectFirst (enabled/probeTimeoutSeconds/probeAttempts).
 # 0.1.148 (#5298, Refs #5095 #3379 — step-03 harbor-prewarm DIRECT-fallback
 # deadline. hw281 (2026-07-20) stamped step-03 failed while it was STILL
 # settling (log "Phase A progress: 100/140 settled (still copying)"): the
@@ -2554,7 +2576,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.148
+version: 0.1.149
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

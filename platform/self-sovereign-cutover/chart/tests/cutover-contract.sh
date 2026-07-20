@@ -3383,4 +3383,75 @@ fi
 if [ "$c68_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5237 round 2: step-03 Phase A2-pins unions the FROZEN local-Gitea bootstrap-kit pins into the chart mirror [fail-loud, toggleable]; step-06 Phase 3a-pin asserts EVERY frozen pin durably present via the in-cluster artifact API before the irreversible strip [top-up-warm, FATAL with full missing list, deadline re-armed]; ONE shared 03b extractor for both + the #5265 Day-2 seam; ${corpus_note})"
 
+# ── Case 69 (#5095 round 2, Refs #5093 #5298): step-03 harbor-prewarm rides out
+# a mothership-proxy that is DOWN for the WHOLE step without paying a per-image
+# "proxy timeout tax" ────────────────────────────────────────────────────────
+# hw281: the mothership Harbor proxy was unreachable for the entire prewarm
+# wave. Round 1 (#5095, Case 60) added a direct-source fallback — but it fires
+# only AFTER the proxy-source `skopeo copy` returns non-zero, and that proxy
+# copy is bounded ONLY by the #3944 --command-timeout (skopeoCommandTimeout,
+# 1200s). So EVERY proxy-sourced image independently burned that timeout probing
+# the dead proxy before the fast direct upstream was tried → the direct-fallback
+# wave crawled to ~100 min for 140 images and tripped the step deadline (raised
+# separately in #5298/#5299). Round 2 must (1) probe the mothership proxy ONCE
+# up front and latch it DOWN when unreachable, (2) then try the DIRECT upstream
+# FIRST for proxy-sourced refs so the dead proxy is never probed per-image, and
+# (3) latch adaptively the moment a proxy leg fails while its direct sibling
+# succeeds (a proxy that dies mid-wave) — all NEVER-fatal (a down proxy must not
+# fail the step; the direct path covers it) and source-selection-ONLY (the local
+# DEST + the sovereignty guarantee are untouched).
+echo "[cutover-contract] Case 69: step-03 proxy-DOWN direct-first routing eliminates the per-image proxy timeout tax when the mothership proxy is unreachable (#5095 round 2)"
+[ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
+# (a) the toggle + probe knobs project from values with the right defaults.
+if ! grep -A1 'name: PROXY_DIRECT_FIRST_ENABLED' "$TMP/s03pin.yaml" | grep -q 'value: "true"'; then
+  echo "FAIL: step-03 does not project PROXY_DIRECT_FIRST_ENABLED default \"true\" (prewarm.proxyDownDirectFirst.enabled) — the proxy-DOWN direct-first routing is off by default (#5095 round 2)" >&2
+  exit 1
+fi
+if ! grep -qF 'name: PROXY_PROBE_TIMEOUT_SECONDS' "$TMP/s03pin.yaml" || ! grep -qF 'name: PROXY_PROBE_ATTEMPTS' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not project the bounded-probe knobs PROXY_PROBE_TIMEOUT_SECONDS + PROXY_PROBE_ATTEMPTS — the reachability probe is unbounded/unconfigurable (#5095 round 2)" >&2
+  exit 1
+fi
+# (b) a one-time reachability probe of the mothership proxy that latches
+#     .proxy_down when unreachable, and is NEVER fatal (no exit 1 on the down
+#     path — a down proxy must not fail the step).
+if ! grep -qF 'probe_mothership_proxy()' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 has no probe_mothership_proxy function — nothing detects a proxy that is down for the whole step, so every image pays the 1200s timeout tax (#5095 round 2)" >&2
+  exit 1
+fi
+if ! grep -qF 'touch "${cpdir}/.proxy_down"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 never latches .proxy_down — the probe/adaptive signal cannot flip copy_one to direct-first (#5095 round 2)" >&2
+  exit 1
+fi
+# The probe curls the mothership /v2/ and treats a live reply as reachable.
+if ! grep -qF 'https://${MOTHERSHIP_HOST}/v2/' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 probe does not GET https://\${MOTHERSHIP_HOST}/v2/ — it cannot distinguish a reachable proxy from a transit hole (#5095 round 2)" >&2
+  exit 1
+fi
+# (c) copy_one tries the DIRECT upstream FIRST when the proxy is latched down,
+#     gated on the toggle + the .proxy_down latch.
+if ! grep -qF 'proxy latched DOWN; direct-first' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one has no proxy-DOWN direct-first short-circuit — a dead proxy is still probed per-image before the direct upstream, keeping the timeout tax (#5095 round 2)" >&2
+  exit 1
+fi
+if ! grep -qF '[ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] && [ -f "${cpdir}/.proxy_down" ]' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 direct-first short-circuit is not gated on BOTH the toggle AND the .proxy_down latch — it would reorder even when the proxy is healthy (rate-limit exposure) or when disabled (#5095 round 2)" >&2
+  exit 1
+fi
+# (d) the probe is invoked only when the wave actually has proxy-sourced refs.
+if ! grep -qF 'grep -q "^${MOTHERSHIP_HOST}/"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 runs the proxy probe unconditionally — an all-ghcr wave that never dials the proxy should skip the probe entirely (#5095 round 2)" >&2
+  exit 1
+fi
+# (e) the round-1 guarantees survive: the direct fallback (Case 60) + the Phase A
+#     FATAL-on-any-failure are both still present (round 2 only reorders sources).
+if ! grep -qF 'prewarm_skopeo_copy "${fb_up}" "${fb_creds}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 lost the round-1 direct-source fallback invocation — round 2 must ADD direct-first, never remove the after-failure fallback (#5095 round 2)" >&2
+  exit 1
+fi
+if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A lost the push_fail>0 FATAL — direct-first routing must never waive the completeness guarantee (#5095 round 2)" >&2
+  exit 1
+fi
+echo "  PASS (#5095 round 2: step-03 probes the mothership proxy once [bounded, values-knobbed, never fatal], latches .proxy_down when unreachable, then tries the DIRECT upstream first for proxy-sourced refs — gated on the toggle + latch, probe skipped on an all-ghcr wave, adaptive latch on the proxy-bad/direct-good signal — eliminating the per-image proxy timeout tax while keeping the round-1 after-failure fallback + the Phase A FATAL intact)"
+
 echo "[cutover-contract] All gates green."
