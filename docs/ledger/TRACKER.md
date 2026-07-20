@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T01:30:06Z` |
+| Last refreshed | `2026-07-20T01:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 27 |
+| Open issues | 28 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 27 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 27 open items (clickable table)
+### All 28 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -227,6 +227,7 @@ flowchart LR
 | [#5267](https://github.com/openova-io/openova/issues/5267) | Region-kill: gateway/ELB fails over to region-b (envoy answers) but catalyst-api | Other |
 | [#5269](https://github.com/openova-io/openova/issues/5269) | Phase-1 watch wedges: established informers but never concludes OutcomeReady tho | Other |
 | [#5270](https://github.com/openova-io/openova/issues/5270) | Crossplane adoption Workspaces build Huawei endpoints from the VPC-mimic pseudo- | Other |
+| [#5274](https://github.com/openova-io/openova/issues/5274) | Cloud graph under-enumerates region-b: renders Cluster 1/1 though 2 live cluster | Other |
 
 ---
 
@@ -234,6 +235,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T01:42 | [#5275](https://github.com/openova-io/openova/pull/5275) | #5245 | fix(#5245): dr-failback re-clones the diverged demoted regio |
 | 2026-07-19T23:33 | [#5273](https://github.com/openova-io/openova/pull/5273) | #5269 | fix(#5269): phase1 watch re-censuses on a ticker + heartbeat |
 | 2026-07-19T23:55 | [#5272](https://github.com/openova-io/openova/pull/5272) | #5270 | fix(#5270): adoption endpoints use the real HCS region, not  |
 | 2026-07-19T23:32 | [#5271](https://github.com/openova-io/openova/pull/5271) | #5246 | fix(#5267): document + gate the control-plane DR contract (4 |
@@ -263,7 +265,6 @@ flowchart LR
 | 2026-07-18T23:16 | [#5231](https://github.com/openova-io/openova/pull/5231) | #3241 | fix(catalyst-api): sync shared-pg consumer hub secrets pre-m |
 | 2026-07-18T20:32 | [#5229](https://github.com/openova-io/openova/pull/5229) | #4914 | fix(console): voucher-code inline policy + autogen path, rec |
 | 2026-07-18T20:32 | [#5228](https://github.com/openova-io/openova/pull/5228) | #5219 | fix(bp-postgres,continuum): single-source pair role password |
-| 2026-07-18T20:32 | [#5227](https://github.com/openova-io/openova/pull/5227) | #5124 | fix(catalyst-api): Edit-IaC seed served through the #5115 ca |
 
 ---
 
