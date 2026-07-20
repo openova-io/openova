@@ -3519,7 +3519,17 @@ name: bp-catalyst-platform
 #   synced clientCASecret trust), ConsistentSystemID divergence escalation +
 #   episode-marker self-heal + post-re-clone convergence watch kill the
 #   silent-wedge class on the re-clone leg.
-version: 1.4.1184
+# 1.4.1185 — #5277: add catalyst-pin-broker-credentials to the catalyst-api
+#   secret.reloader watch. That reflector-mirrored Secret feeds
+#   CATALYST_PIN_BROKER_CLIENT_SECRET via an optional valueFrom; when catalyst-api
+#   starts (or is rolled by the cutover catalyst-api-env-patch step) before the
+#   Secret lands, the value resolves "" and main.go silently skips the /oidc/*
+#   provider routes for the Pod's lifetime → Keycloak's cold catalyst-pin broker
+#   roundtrip 404s ("Unexpected error when authenticating with identity provider")
+#   while warm SSO works (hw278: harbor/openbao/guacamole/pdns-admin/hubble). Same
+#   self-heal idiom already used for handover-jwt-public + provisioning-github-token.
+#   Bootstrap-kit slot-13 pin bumped in lockstep (pin-sync gate).
+version: 1.4.1185
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8

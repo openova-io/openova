@@ -89,8 +89,18 @@ metadata:
     # populates GITHUB_TOKEN only after the PAT mint (a later Flux reconcile), so the
     # Pod must restart then to pick up CATALYST_GITOPS_TOKEN, else Org-creation
     # (POST /sme/tenants) fails "gitops token unconfigured" (caught live hw104 2026-06-08).
+    # catalyst-pin-broker-credentials added (#5277): SAME race, cold-SSO edition.
+    # CATALYST_PIN_BROKER_CLIENT_SECRET reads that reflector-mirrored Secret via an
+    # optional valueFrom; when catalyst-api starts (or is rolled by the cutover
+    # catalyst-api-env-patch step) before the Secret lands, the value resolves ""
+    # and main.go silently skips the whole /oidc/* provider route set for the
+    # Pod's lifetime. Keycloak's cold catalyst-pin broker roundtrip then 404s
+    # ("Unexpected error when authenticating with identity provider"); warm SSO
+    # (an existing realm session, which skips the broker) is unaffected — the exact
+    # hw278 signature across harbor/openbao/guacamole/pdns-admin/hubble. Reloader
+    # rolls the Pod when the Secret is reflected, so the routes wire on the restart.
     configmap.reloader.stakater.com/reload: "sovereign-fqdn"
-    secret.reloader.stakater.com/reload: "handover-jwt-public,provisioning-github-token"
+    secret.reloader.stakater.com/reload: "handover-jwt-public,provisioning-github-token,catalyst-pin-broker-credentials"
 spec:
   replicas: 1
   # Recreate strategy is required because the deployments PVC is RWO
