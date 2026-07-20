@@ -1253,7 +1253,13 @@ spec:
       #   global.sovereignFQDN values are UNCHANGED — still consumed by this
       #   chart's OTHER templates (sovereign-wildcard-certs.yaml,
       #   sovereign-fqdn-configmap.yaml). Lockstep w/ Chart.yaml.
-      version: 1.4.1182
+      # 1.4.1183 — #5245: catalog-seed bp-cnpg-pair pin 0.2.19 -> 0.2.20
+      #   (+ spec.version display label, #4988 precedent) — dr-failback
+      #   re-clone convergence (hw278 residual): no wrong-CA sslRootCert on
+      #   the rejoin stream, preserve_pki before every bounded delete,
+      #   ConsistentSystemID divergence escalation + episode-marker
+      #   self-heal + post-re-clone watch. Lockstep w/ Chart.yaml.
+      version: 1.4.1183
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
