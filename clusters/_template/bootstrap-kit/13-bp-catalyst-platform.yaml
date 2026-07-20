@@ -1264,7 +1264,7 @@ spec:
       #   cutover-rolled) before that Secret was reflected rolls when it
       #   lands and wires the /oidc/* provider routes — killing the cold
       #   catalyst-pin broker 404 (hw278 SSO). Lockstep w/ Chart.yaml.
-      version: 1.4.1185
+      version: 1.4.1186
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
