@@ -897,4 +897,119 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     await expect(page.getByRole('heading', { name: /Something went wrong/i }))
       .toBeVisible({ timeout: 5_000 })
   })
+
+  // #3860 / UAT row 86 — the interstitial must render a LIVE provisioning
+  // timeline that advances through the backend's named stages, not an
+  // indefinite generic spinner. The stage names + states come verbatim from
+  // GET /api/provisioning/tenant/<id> (store.Provision.Steps): Creating tenant
+  // → Committing manifests to Git → Provisioning vCluster → Deploying <app> →
+  // Configuring TLS certificates → Running health checks.
+  test('21 launching interstitial renders the named provisioning-stage timeline (row 86)', async ({ page }) => {
+    // Host stays unreachable so the interstitial does NOT forward — we hold on
+    // the page and observe the timeline the status poll paints.
+    await page.route('**/api/provisioning/console-ready**', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ready: false }) }),
+    )
+    // Per-stage status: three stages done, the vCluster stage running, the rest
+    // pending — exactly the shape the workflow emits mid-provision.
+    await page.route('**/api/provisioning/tenant/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'prov-1',
+          tenant_id: 'tenant-1',
+          status: 'provisioning',
+          progress: 33,
+          steps: [
+            { name: 'Creating tenant', status: 'completed' },
+            { name: 'Committing manifests to Git', status: 'completed' },
+            { name: 'Provisioning vCluster', status: 'running' },
+            { name: 'Deploying WordPress', status: 'pending' },
+            { name: 'Configuring TLS certificates', status: 'pending' },
+            { name: 'Running health checks', status: 'pending' },
+          ],
+        }),
+      }),
+    )
+
+    const params = new URLSearchParams({
+      host: 'https://console.demo.omani.works',
+      token: 'mock-session-jwt',
+      next: '/jobs',
+      tenant: 'tenant-1',
+    })
+    await page.goto('/launching?' + params.toString())
+
+    // The timeline renders — with each backend-named stage present.
+    const timeline = page.locator('[data-testid="provisioning-timeline"]')
+    await expect(timeline).toBeVisible({ timeout: 8_000 })
+    for (const name of [
+      'Creating tenant',
+      'Committing manifests to Git',
+      'Provisioning vCluster',
+      'Deploying WordPress',
+      'Configuring TLS certificates',
+      'Running health checks',
+    ]) {
+      await expect(timeline.getByText(name, { exact: true })).toBeVisible()
+    }
+    // Honest per-stage state: completed stages carry data-status=completed, the
+    // active one is running, later ones are still pending (no premature green).
+    await expect(page.locator('[data-testid="provisioning-stage"][data-status="completed"]')).toHaveCount(2)
+    await expect(page.locator('[data-testid="provisioning-stage"][data-status="running"]')).toContainText('Provisioning vCluster')
+    await expect(page.locator('[data-testid="provisioning-stage"][data-status="pending"]')).toHaveCount(3)
+    // Host not ready → we have NOT forwarded off the marketplace origin.
+    expect(page.url(), 'stays on the marketplace-origin /launching page').toContain('/launching')
+  })
+
+  test('22 launching interstitial surfaces WHICH stage failed on a terminal backend failure (honest, no infinite spinner)', async ({ page }) => {
+    // Host stays unreachable — a spinner-forever bug would ride out the full
+    // timeout here. The honest behaviour is to STOP the instant the backend
+    // reports a terminal failure and name the stage that broke.
+    await page.route('**/api/provisioning/console-ready**', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ready: false }) }),
+    )
+    await page.route('**/api/provisioning/tenant/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'prov-1',
+          tenant_id: 'tenant-1',
+          status: 'failed',
+          steps: [
+            { name: 'Creating tenant', status: 'completed' },
+            { name: 'Committing manifests to Git', status: 'completed' },
+            { name: 'Provisioning vCluster', status: 'completed' },
+            { name: 'Deploying WordPress', status: 'failed', message: 'HelmRelease wordpress not ready: install retries exhausted' },
+            { name: 'Configuring TLS certificates', status: 'pending' },
+            { name: 'Running health checks', status: 'pending' },
+          ],
+        }),
+      }),
+    )
+
+    const params = new URLSearchParams({
+      host: 'https://console.demo.omani.works',
+      token: 'mock-session-jwt',
+      next: '/jobs',
+      tenant: 'tenant-1',
+    })
+    await page.goto('/launching?' + params.toString())
+
+    // Terminal failure surfaces an honest heading — not a perpetual spinner.
+    await expect(page.getByRole('heading', { name: /Provisioning didn't finish/i }))
+      .toBeVisible({ timeout: 8_000 })
+    // The failed stage renders red (data-status=failed) and names itself.
+    const failed = page.locator('[data-testid="provisioning-stage"][data-status="failed"]')
+    await expect(failed).toHaveCount(1)
+    await expect(failed).toContainText('Deploying WordPress')
+    await expect(failed).toContainText(/install retries exhausted/i)
+    // No premature success: the completed-before-failure stages stayed
+    // completed, but nothing claims the whole provision succeeded, and we did
+    // NOT forward to the console.
+    await expect(page.getByRole('heading', { name: /Your Organization is ready/i })).toHaveCount(0)
+    expect(page.url(), 'stays on the marketplace-origin /launching page').toContain('/launching')
+  })
 })
