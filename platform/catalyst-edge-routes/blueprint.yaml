@@ -17,7 +17,7 @@ spec:
       Services + HTTPRoutes only — never a Deployment, StatefulSet, PVC, or Job.
     family: networking
     documentation: ./README.md
-  visibility: unlisted  # mandatory infra, installed by bootstrap-kit slot 13b on secondary CPs only
+  visibility: unlisted  # mandatory infra, installed by bootstrap-kit slot 13e on secondary CPs only
   owner:
     team: platform
     contact: platform@openova.io
@@ -29,7 +29,7 @@ spec:
         description: |
           Console-Gateway parentRef + per-Sovereign control-plane hostnames
           (api./console./marketplace.<fqdn>) + marketplace-host toggle. Supplied
-          by bootstrap-kit slot 13b from the same cloud-init vars slot 13 uses.
+          by bootstrap-kit slot 13e from the same cloud-init vars slot 13 uses.
       services:
         type: object
         description: catalog.enabled mirrors bp-catalyst-platform's catalog gate.
@@ -53,7 +53,7 @@ spec:
     from: ["0.x"]
   topology:
     # This edge exists only on the secondary CP of a 2-region Sovereign; the
-    # bootstrap-kit slot-13b HR (SECONDARY_EDGE_SUSPEND) selects the region.
+    # bootstrap-kit slot-13e HR (SECONDARY_EDGE_SUSPEND) selects the region.
     supported:
       - active-passive
       - singleton
@@ -63,17 +63,27 @@ spec:
     perTopology:
       active-passive:
         replication:
+          # Stateless routing proxy — no runtime data. Manifests are the only
+          # thing that "replicates", and they arrive via the GitOps loop.
           backend: flux-git
           mode: async
+        switchover:
+          # No data failover: on a region-a kill the ClusterMesh global-Service
+          # loses its only endpoints and the edge returns 503 (fail-fast);
+          # routes resume automatically when region-a recovers. Nothing to
+          # promote, so there is no switchover mechanism.
+          mechanism: none
+          rtoSeconds: 0
+          rpoSeconds: 0
         placement:
-          tier: ''
-          clusters: [mgmt-A, mgmt-B]
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
           roles:
-            mgmt-A: passive   # region-a serves routes from the umbrella; edge is dormant here
-            mgmt-B: active     # region-b runs the edge (proxy to region-a)
+            rtz-A: passive   # region-a serves routes from the umbrella; edge is dormant here
+            rtz-B: active     # region-b runs the edge (proxy to region-a)
       singleton:
         placement:
-          tier: ''
-          clusters: [mgmt-A]
+          tier: rtz
+          clusters: [rtz-A]
           roles:
-            mgmt-A: singleton  # single-region: edge HR is suspended (inert)
+            rtz-A: singleton  # single-region: edge HR is suspended (inert)
