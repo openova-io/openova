@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T11:15:02Z` |
+| Last refreshed | `2026-07-20T11:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 29 |
 | Open DoD gates | 0 / 41 |
@@ -236,6 +236,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T11:24 | [#5292](https://github.com/openova-io/openova/pull/5292) | #5290 | fix(catalyst): unbreak mothership raw-kustomize (#5290 globa |
 | 2026-07-20T10:22 | [#5291](https://github.com/openova-io/openova/pull/5291) | #5289 | docs(ledger): refresh PATH-TO-100 fix-map for the hw281 fres |
 | 2026-07-20T10:04 | [#5290](https://github.com/openova-io/openova/pull/5290) | #5289 | fix(catalyst): serve api/console/marketplace on region-b via |
 | 2026-07-20T09:14 | [#5288](https://github.com/openova-io/openova/pull/5288) | #897 | fix(cloud): render Volume nodes from live volume.hcloud mana |
@@ -265,7 +266,6 @@ flowchart LR
 | 2026-07-19T08:36 | [#5249](https://github.com/openova-io/openova/pull/5249) | #5223 | fix(console+billing): BSS Vouchers plan-tier — issuance sele |
 | 2026-07-19T08:14 | [#5248](https://github.com/openova-io/openova/pull/5248) | #5245 | fix(cnpg-pair): region-kill FAILBACK — demote+re-clone regio |
 | 2026-07-19T08:50 | [#5247](https://github.com/openova-io/openova/pull/5247) | #5100 | refactor(console): purge banned-term code identifiers from b |
-| 2026-07-19T07:49 | [#5246](https://github.com/openova-io/openova/pull/5246) | #5244 | fix: gateway + console ELB backend pools span ALL regions —  |
 
 ---
 
