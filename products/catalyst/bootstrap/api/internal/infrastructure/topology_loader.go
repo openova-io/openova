@@ -262,14 +262,99 @@ func perRegionDynamicClient(in LoaderInput, rs provisioner.RegionSpec) dynamic.I
 		// Exact "<depID>-<region>" or suffixed "<depID>-<region>-N"
 		// (materialisation index, e.g. "...-me-east-215-b-1").
 		if cid == want || strings.HasPrefix(cid, want+"-") {
-			dc, err := in.K8sCache.DynamicClientFor(cid)
-			if err != nil || dc == nil {
-				return nil
-			}
-			return dc
+			return clientForCluster(in, cid)
+		}
+	}
+
+	// #5274 fallback — the declared CloudRegion can DIVERGE from the
+	// kubeconfig-id region token. The chroot's region list comes from
+	// SOVEREIGN_REGIONS_JSON (bare cloud code, e.g. "me-east-215-b" — the
+	// exact/prefix match above) OR, when that ConfigMap key isn't wired,
+	// from the SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION fallback
+	// (handler.chrootRegionsFromPrimaryReplicaEnv), which carries the FULL
+	// 4-segment cluster slug (e.g. "hw-me-east-215-b-rtz-prod", live hw101).
+	// The secondary kubeconfig is registered under the bare cloud code
+	// ("<depID>-me-east-215-b-1"), so "<depID>-hw-me-east-215-b-rtz-prod"
+	// never prefix-matches → region-b was rendered as buildAbsentRegion
+	// (Clusters: nil) → the Cloud graph showed "Region 2/2 · Cluster 1/1"
+	// on a fully-live 2-region Sovereign. Both strings still contain the
+	// same cloud-region code as a contiguous hyphen-delimited token run, so
+	// match on that. No fabrication: this only resolves a client for a
+	// secondary cluster that is GENUINELY registered in the k8sCache; a
+	// truly-absent region still matches nothing and stays buildAbsentRegion.
+	for _, cid := range in.K8sCache.Clusters() {
+		if cid == in.DeploymentID || !strings.HasPrefix(cid, in.DeploymentID+"-") {
+			continue // primary / chroot-self / a different deployment's cluster
+		}
+		idRegion := trimMaterialisationIndex(strings.TrimPrefix(cid, in.DeploymentID+"-"))
+		if regionTokensOverlap(region, idRegion) {
+			return clientForCluster(in, cid)
 		}
 	}
 	return nil
+}
+
+// clientForCluster fetches the k8sCache dynamic client for cid, returning
+// nil on error / absence so callers fall back to buildAbsentRegion (or the
+// primary client) rather than dereferencing a nil interface.
+func clientForCluster(in LoaderInput, cid string) dynamic.Interface {
+	dc, err := in.K8sCache.DynamicClientFor(cid)
+	if err != nil || dc == nil {
+		return nil
+	}
+	return dc
+}
+
+// trimMaterialisationIndex strips a trailing "-<digits>" materialisation
+// index off a region key ("me-east-215-b-1" → "me-east-215-b"). Keys with
+// no numeric tail are returned unchanged, so a bare "me-east-215-b" is a
+// no-op.
+func trimMaterialisationIndex(s string) string {
+	i := strings.LastIndex(s, "-")
+	if i <= 0 || i == len(s)-1 {
+		return s
+	}
+	for _, r := range s[i+1:] {
+		if r < '0' || r > '9' {
+			return s
+		}
+	}
+	return s[:i]
+}
+
+// regionTokensOverlap reports whether the hyphen-delimited token run of one
+// region string appears as a contiguous subsequence of the other's (either
+// direction). It lets a bare cloud code (me-east-215-b) match a full cluster
+// slug (hw-me-east-215-b-rtz-prod) that embeds it, WITHOUT the false
+// positives a raw substring test would allow ("me-east-215-b" vs
+// "me-east-215-ba" differ as tokens). Cloud-region codes are unique, so the
+// embedded code resolves each declared region to exactly one cluster.
+func regionTokensOverlap(a, b string) bool {
+	at := strings.Split(a, "-")
+	bt := strings.Split(b, "-")
+	return tokenSubsequence(at, bt) || tokenSubsequence(bt, at)
+}
+
+// tokenSubsequence reports whether needle appears as a contiguous run inside
+// haystack. Empty needle never matches (guards against an empty region
+// string pairing with everything).
+func tokenSubsequence(needle, haystack []string) bool {
+	if len(needle) == 0 || len(needle) > len(haystack) {
+		return false
+	}
+	for start := 0; start+len(needle) <= len(haystack); start++ {
+		match := true
+		for j := range needle {
+			if haystack[start+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 // nodeGVR — schema reference for core/v1 Node listing via dynamic client.

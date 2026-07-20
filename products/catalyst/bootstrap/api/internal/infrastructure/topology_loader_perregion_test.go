@@ -222,6 +222,119 @@ func TestLoad_SecondaryAbsentKubeconfigRendersDegraded(t *testing.T) {
 	}
 }
 
+// TestLoad_PerRegionFullSlugRegionMatchesBareCodeKubeconfig_5274 proves the
+// #5274 fix: on the chroot fallback path (SOVEREIGN_REGIONS_JSON unwired →
+// region list reconstructed from SOVEREIGN_PRIMARY_REGION /
+// SOVEREIGN_REPLICA_REGION), the declared CloudRegion is the FULL 4-segment
+// cluster slug (e.g. "hw-me-east-215-b-rtz-prod") while the secondary
+// kubeconfig is registered under the bare cloud code
+// ("<depID>-me-east-215-b-1"). The strict "<depID>-<CloudRegion>" prefix
+// match can't bridge that, so region-b was dropped to buildAbsentRegion and
+// the Cloud graph rendered "Region 2/2 · Cluster 1/1" on a fully-live
+// 2-region Sovereign (hw278, row 66). The loader must now resolve region-b's
+// OWN client via the shared cloud-region-code token and enumerate its
+// cluster — 2 clusters, region-b reading its own live vClusters.
+func TestLoad_PerRegionFullSlugRegionMatchesBareCodeKubeconfig_5274(t *testing.T) {
+	const depID = "hw278dep0000abcd"
+	primaryClient := vclusterRoleNamespaceClient(t, "primary-mgmt")
+	secondaryClient := vclusterRoleNamespaceClient(t, "secondary-mgmt")
+
+	// k8sCache ids follow the bare-cloud-code kubeconfig convention.
+	cache := &fakeK8sCache{clients: map[string]dynamic.Interface{
+		depID:                      primaryClient,   // bare-depID = primary / chroot-self
+		depID + "-me-east-215-b-1": secondaryClient, // materialised secondary (bare code)
+	}}
+
+	// Declared regions carry the FULL cluster slug (the chroot
+	// primary/replica-env reconstruction, jobs.go:chrootRegionsFromPrimaryReplicaEnv).
+	in := LoaderInput{
+		DeploymentID:  depID,
+		Status:        "ready",
+		SovereignFQDN: "hw278.omani.works",
+		Provider:      "huawei",
+		Region:        "hw-me-east-215-a-rtz-prod", // primary region (full slug)
+		Regions: []provisioner.RegionSpec{
+			{Provider: "huawei", CloudRegion: "hw-me-east-215-a-rtz-prod", WorkerCount: 5},
+			{Provider: "huawei", CloudRegion: "hw-me-east-215-b-rtz-prod", WorkerCount: 5},
+		},
+		DynamicClient: primaryClient,
+		K8sCache:      cache,
+	}
+
+	resp := Load(context.Background(), in)
+	regions := resp.Topology.Regions
+	if len(regions) != 2 {
+		t.Fatalf("expected 2 region rows, got %d", len(regions))
+	}
+
+	// Decisive census assertion: BOTH regions carry a live Cluster
+	// (Region 2/2 · Cluster 2/2), not one absent region → Cluster 1/1.
+	clusterCount := 0
+	var regB *Region
+	for i := range regions {
+		clusterCount += len(regions[i].Clusters)
+		if regions[i].Name == "hw-me-east-215-b-rtz-prod" {
+			regB = &regions[i]
+		}
+	}
+	if clusterCount != 2 {
+		t.Fatalf("expected 2 clusters across both regions (Cluster 2/2), got %d — region-b under-enumerated (#5274)", clusterCount)
+	}
+	if regB == nil {
+		t.Fatalf("missing region-b hw-me-east-215-b-rtz-prod; got %v", regionNames(regions))
+	}
+	if len(regB.Clusters) != 1 {
+		t.Fatalf("region-b should carry its live cluster, got %d clusters (buildAbsentRegion regression)", len(regB.Clusters))
+	}
+	// And it must read its OWN client, not mirror the primary.
+	secondaryVC := vclusterNames(*regB)
+	if !contains(secondaryVC, "secondary-mgmt") {
+		t.Errorf("region-b should read its own (secondary) client vClusters; got %v", secondaryVC)
+	}
+	if contains(secondaryVC, "primary-mgmt") {
+		t.Errorf("region-b leaked primary client vClusters %v — must resolve its OWN cluster", secondaryVC)
+	}
+}
+
+// TestRegionTokenMatchingHelpers locks the token-overlap semantics that
+// bridge the declared-region ↔ kubeconfig-id naming divergence without the
+// false positives a raw substring test would allow.
+func TestRegionTokenMatchingHelpers(t *testing.T) {
+	idxCases := []struct{ in, want string }{
+		{"me-east-215-b-1", "me-east-215-b"}, // strip materialisation index
+		{"me-east-215-b", "me-east-215-b"},   // bare code — no-op
+		{"nbg1-2", "nbg1"},
+		{"nbg1", "nbg1"},         // no numeric tail
+		{"region-b", "region-b"}, // non-numeric tail is not an index
+	}
+	for _, c := range idxCases {
+		if got := trimMaterialisationIndex(c.in); got != c.want {
+			t.Errorf("trimMaterialisationIndex(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+
+	overlap := []struct {
+		a, b string
+		want bool
+	}{
+		// bare code embedded in the full slug (both directions) — the #5274 case.
+		{"hw-me-east-215-b-rtz-prod", "me-east-215-b", true},
+		{"me-east-215-b", "hw-me-east-215-b-rtz-prod", true},
+		{"me-east-215-b", "me-east-215-b", true},
+		// token-boundary safety: a longer trailing token must NOT match.
+		{"hw-me-east-215-ba-rtz-prod", "me-east-215-b", false},
+		// different region codes never match.
+		{"hw-me-east-215-a-rtz-prod", "me-east-215-b", false},
+		// empty needle never pairs.
+		{"", "me-east-215-b", false},
+	}
+	for _, c := range overlap {
+		if got := regionTokensOverlap(c.a, c.b); got != c.want {
+			t.Errorf("regionTokensOverlap(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
 func regionNames(rs []Region) []string {
 	out := make([]string, 0, len(rs))
 	for _, r := range rs {
