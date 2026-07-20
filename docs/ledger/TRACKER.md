@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-19T23:45:02Z` |
+| Last refreshed | `2026-07-20T00:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 27 |
 | Open DoD gates | 0 / 41 |
@@ -235,6 +235,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-07-19T23:33 | [#5273](https://github.com/openova-io/openova/pull/5273) | #5269 | fix(#5269): phase1 watch re-censuses on a ticker + heartbeat |
+| 2026-07-19T23:55 | [#5272](https://github.com/openova-io/openova/pull/5272) | #5270 | fix(#5270): adoption endpoints use the real HCS region, not  |
 | 2026-07-19T23:32 | [#5271](https://github.com/openova-io/openova/pull/5271) | #5246 | fix(#5267): document + gate the control-plane DR contract (4 |
 | 2026-07-19T19:24 | [#5268](https://github.com/openova-io/openova/pull/5268) | #5245 | fix(#5245): dr-failback targets a peer host resolvable from  |
 | 2026-07-19T17:16 | [#5266](https://github.com/openova-io/openova/pull/5266) | #5237 | fix(#5237): pin-aware prewarm + step-06 version-presence gat |
@@ -263,7 +264,6 @@ flowchart LR
 | 2026-07-18T20:32 | [#5229](https://github.com/openova-io/openova/pull/5229) | #4914 | fix(console): voucher-code inline policy + autogen path, rec |
 | 2026-07-18T20:32 | [#5228](https://github.com/openova-io/openova/pull/5228) | #5219 | fix(bp-postgres,continuum): single-source pair role password |
 | 2026-07-18T20:32 | [#5227](https://github.com/openova-io/openova/pull/5227) | #5124 | fix(catalyst-api): Edit-IaC seed served through the #5115 ca |
-| 2026-07-18T20:32 | [#5226](https://github.com/openova-io/openova/pull/5226) | #5204 | fix(cutover): warm Crossplane xpkg packages durably into loc |
 
 ---
 
