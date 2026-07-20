@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T15:15:06Z` |
+| Last refreshed | `2026-07-20T15:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T15:24 | [#5299](https://github.com/openova-io/openova/pull/5299) | #3379 | fix(cutover): raise step-03 harbor-prewarm deadline for the  |
 | 2026-07-20T12:29 | [#5293](https://github.com/openova-io/openova/pull/5293) | #5290 | ci(catalyst): guard mothership raw-kustomize build against b |
 | 2026-07-20T11:24 | [#5292](https://github.com/openova-io/openova/pull/5292) | #5290 | fix(catalyst): unbreak mothership raw-kustomize (#5290 globa |
 | 2026-07-20T10:22 | [#5291](https://github.com/openova-io/openova/pull/5291) | #5289 | docs(ledger): refresh PATH-TO-100 fix-map for the hw281 fres |
@@ -257,7 +258,6 @@ flowchart LR
 | 2026-07-19T11:52 | [#5251](https://github.com/openova-io/openova/pull/5251) | #5140 | fix(catalyst-api): stamp Retry-After on sandbox 503 degrades |
 | 2026-07-19T11:55 | [#5250](https://github.com/openova-io/openova/pull/5250) | #5206 | fix(pool-domain-manager): add explicit mcp A record to the c |
 | 2026-07-19T08:36 | [#5249](https://github.com/openova-io/openova/pull/5249) | #5223 | fix(console+billing): BSS Vouchers plan-tier — issuance sele |
-| 2026-07-19T08:14 | [#5248](https://github.com/openova-io/openova/pull/5248) | #5245 | fix(cnpg-pair): region-kill FAILBACK — demote+re-clone regio |
 
 ---
 
