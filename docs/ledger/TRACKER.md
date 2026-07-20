@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T13:30:06Z` |
+| Last refreshed | `2026-07-20T13:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 28 |
+| Open issues | 23 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 23 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 28 open items (clickable table)
+### All 23 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,15 +218,10 @@ flowchart LR
 | [#5193](https://github.com/openova-io/openova/issues/5193) | Wipe strands an env un-wipeable after a partial destroy: wipe path lacks the hua | Other |
 | [#5210](https://github.com/openova-io/openova/issues/5210) | Post-cutover: catalyst-api reflector watches 401 Unauthorized (valid RBAC + fres | Other |
 | [#5237](https://github.com/openova-io/openova/issues/5237) | cutover step-06 catalog-latest-vs-flux-pinned drift: a bp-catalyst-platform bump | Other |
-| [#5261](https://github.com/openova-io/openova/issues/5261) | Replica-region SSO HRs exhaust install retries before the mesh cascade delivers  | Other |
 | [#5262](https://github.com/openova-io/openova/issues/5262) | bp-gitea admin password rotates on HR upgrade while Gitea DB keeps the install-t | Other |
 | [#5265](https://github.com/openova-io/openova/issues/5265) | Post-cutover Day-2 gap: Gitea mirror re-syncs pin bumps but nothing syncs new ch | Other |
 | [#5267](https://github.com/openova-io/openova/issues/5267) | Region-kill: gateway/ELB fails over to region-b (envoy answers) but catalyst-api | Other |
-| [#5269](https://github.com/openova-io/openova/issues/5269) | Phase-1 watch wedges: established informers but never concludes OutcomeReady tho | Other |
-| [#5270](https://github.com/openova-io/openova/issues/5270) | Crossplane adoption Workspaces build Huawei endpoints from the VPC-mimic pseudo- | Other |
 | [#5274](https://github.com/openova-io/openova/issues/5274) | Cloud graph under-enumerates region-b: renders Cluster 1/1 though 2 live cluster | Other |
-| [#5277](https://github.com/openova-io/openova/issues/5277) | Cold-broker SSO 404: catalyst-api omits /oidc/* routes when catalyst-pin-broker- | Other |
-| [#5283](https://github.com/openova-io/openova/issues/5283) | Phase-1 watch hard-fails a still-progressing prov at the WatchTimeout wall-clock | Other |
 | [#5285](https://github.com/openova-io/openova/issues/5285) | Failed deployment's watch-informers flood catalyst-api → starve /wipe + /deplo | Other |
 
 ---
