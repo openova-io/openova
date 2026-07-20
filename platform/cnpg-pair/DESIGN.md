@@ -410,7 +410,9 @@ and NEVER a Cluster created after the failback episode began — an
 in-place-demoted stale standby (if the webhook admits the shape change
 on the live CR) is re-cloned only via the wedge escalation
 (`wedgeHoldSeconds` unable to stream, `creationTimestamp` predating
-`dr-failback-started-at`); a fresh clone is never deleted.
+`dr-failback-started-at`) or, since 0.2.20, the ConsistentSystemID
+divergence escalation (same pre-episode bound, see below); a fresh
+clone is never deleted.
 
 *Auth*: the rejoin stream and the peer probe present region-A's own
 `-primary-replication` client cert. Region-B accepts it because the
@@ -419,6 +421,29 @@ replica Cluster pins `certificates.clientCASecret` to the shared
 — live-verified hw275; CNPG generates `<replica>-replication` from a
 BYO client CA when `replicationTLSSecret` is unset, so every existing
 consumer keeps its mounts).
+
+*Re-clone convergence (chart 0.2.20, the hw278 residual)*: hw278 G12
+live-proved the chain above fires clean and the re-clone ITSELF can
+still wedge, silently. Three hardenings: (1) the rejoin stream carries
+**no `sslRootCert`** — the dialed server is region-B's replica
+Cluster, signed by region-B's own `-replica-ca` which cluster-A does
+not hold, and libpq/pgx upgrade `sslmode=require` to verify-ca
+semantics whenever a root cert IS supplied (hw278: pgbasebackup
+FATAL-looped 5+ hours on x509; the forward stream keeps its pin —
+there the CA matches); (2) **`preserve_pki`** strips the Cluster
+ownerReferences from the CNPG-issued `-ca`/`-replication`/`-server`
+Secrets before every bounded delete — otherwise the delete GC's the CA
+and CNPG re-issues a fresh one that region-B's one-shot synced
+`clientCASecret` copy can never trust; (3) the actor gains a
+**ConsistentSystemID divergence escalation** (CNPG's own
+cannot-consistently-follow condition held False for
+`failback.divergenceGraceSeconds`, pre-episode-bounded, fresh
+writable-peer-guarded — no dependence on a 600 s-contiguous psql wedge
+clock that resets on every psql-dark tick), an **episode-marker
+self-heal** (a lost `dr-failback-started-at` write silently disabled
+every escalation), and a **post-re-clone convergence watch** (phase +
+ConsistentSystemID logged every ~30 ticks until streaming) — a wedged
+re-clone names itself.
 
 End state after a kill+recover cycle: region-B primary, region-A
 streaming replica, both HRs unsuspended, the failed-over topology

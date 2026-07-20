@@ -1147,10 +1147,22 @@ python3 - "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5245 delete-guard order
 import sys
 s=open(sys.argv[1]).read()
 import re
-for m in re.finditer(r'delete clusters', s):
-    head = s[:m.start()]
-    assert 'peer_fresh' in head.rsplit('exit 0',1)[-1] or 'peer_fresh ||' in s[max(0,m.start()-600):m.start()], \
-        "every kubectl delete of the Cluster CR must be immediately preceded by a peer_fresh guard"
+deletes=list(re.finditer(r'delete clusters', s))
+assert deletes, "actor must carry the bounded Cluster-CR delete"
+for m in deletes:
+    win = s[max(0,m.start()-900):m.start()]
+    # 0.2.20 (#5245 hw278): the peer proof may be the full TL-arithmetic
+    # form (peer_fresh) or, on the divergence path where the local line is
+    # psql-dark, the writable-only form (peer_fresh_writable) — both carry
+    # the 'peer_fresh' prefix.
+    assert 'peer_fresh' in win, \
+        "every kubectl delete of the Cluster CR must be guarded by a fresh peer proof (peer_fresh / peer_fresh_writable)"
+    # 0.2.20 (#5245 hw278): the delete GC'd the CNPG-issued PKI Secrets
+    # (-ca/-replication/-server are Cluster-owned), CNPG re-issued a FRESH
+    # CA, and region-B's one-shot synced clientCASecret copy could never
+    # trust the re-cloned cluster's new client leaf again.
+    assert 'preserve_pki' in win, \
+        "every kubectl delete of the Cluster CR must be immediately preceded by preserve_pki (the hw278 CA-GC trust break)"
 PYEOF
 python3 - "$TMP/cnp-primary.yaml" <<'PYEOF' || { echo "FAIL: #5245 dr-failback RBAC assertions failed." >&2; exit 1; }
 import sys, yaml
@@ -1246,5 +1258,148 @@ sh -n "$TMP/actor.sh"   || { echo "FAIL: #5245 dr-promoter actor script is not v
 sh -n "$TMP/signals.sh" || { echo "FAIL: #5245 dr-promoter signals script is not valid POSIX shell." >&2; exit 1; }
 
 echo "  PASS (peers-gated dr-failback · demoted pg_basebackup rejoin shape · shared client CA + -replica-mesh · durable substitute seams + latch lift · TL-ahead re-promote · bounded resourceNames-pinned destruction)"
+
+# ── Case 20: #5245 hw278 residual — the re-clone must CONVERGE to streaming ─
+# hw278 G12 live-proof: the 0.2.19 chain fired clean (demote 23:10:36Z,
+# wedge escalation + bounded delete 23:20:50Z) and the RE-CLONE ITSELF then
+# wedged silently for 5+ hours — (1) the demoted externalCluster pinned
+# sslRootCert to region-A's OWN -primary-ca while the server it dials is
+# region-B's replica Cluster (server chain signed by region-B's own
+# -replica-ca): libpq/pgx upgrade sslmode=require to verify-ca semantics
+# whenever a root cert IS supplied → pgbasebackup FATAL-looped on `x509:
+# certificate signed by unknown authority`; (2) the delete GC'd the
+# Cluster-owned PKI Secrets and CNPG re-issued a FRESH CA, orphaning
+# region-B's one-shot synced clientCASecret trust; (3) the actor fell
+# through to a silent exit on every tick post-delete.
+echo "[render] Case 20: #5245 hw278 — no wrong-CA sslRootCert on the rejoin stream + preserve_pki + ConsistentSystemID divergence escalation + episode-marker self-heal + post-re-clone watch"
+
+# (a) REJOIN STREAM TLS: the demoted externalCluster must NOT pin a root
+#     cert (cluster-A does not hold region-B's -replica-ca; any root pin
+#     upgrades require→verify-ca and is structurally unsatisfiable). The
+#     FORWARD stream keeps its root pin — there -primary-ca genuinely signs
+#     the dialed server.
+python3 - "$TMP/demoted.yaml" <<'PYEOF' || { echo "FAIL: #5245 hw278 demoted externalCluster TLS assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+c=[d for d in docs if d.get('kind')=='Cluster'][0]
+ext=c['spec']['externalClusters'][0]
+assert 'sslRootCert' not in ext, \
+    "demoted externalCluster must NOT carry sslRootCert (region-B's server chain is signed by region-B's own -replica-ca, which cluster-A does not hold; a root pin upgrades sslmode=require to verify-ca → the hw278 x509 FATAL loop)"
+assert ext['connectionParameters'].get('sslmode')=='require', "rejoin stream must keep sslmode=require (encrypted)"
+assert ext['sslCert']['name'].endswith('-primary-replication'), "rejoin stream must keep region-A's own client cert (region-B verifies it against the shared client CA)"
+PYEOF
+python3 - "$TMP/replica.yaml" <<'PYEOF' || { echo "FAIL: #5245 hw278 forward externalCluster root-pin regression." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+c=[d for d in docs if d.get('kind')=='Cluster'][0]
+ext=c['spec']['externalClusters'][0]
+assert ext.get('sslRootCert',{}).get('name','').endswith('-primary-ca'), \
+    "FORWARD externalCluster must KEEP sslRootCert=-primary-ca (that CA genuinely signs region-A's server leafs — verify-ca there is correct and must not be weakened)"
+PYEOF
+
+# (b) PKI PRESERVATION: preserve_pki strips the Cluster ownerReferences from
+#     the three CNPG-issued PKI Secrets before EVERY delete (the per-delete
+#     ordering is pinned in Case 19's delete-guard assertion); RBAC grants
+#     get+patch ONLY, resourceNames-pinned to exactly those Secrets.
+grep -q 'preserve_pki' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 actor missing preserve_pki (the CA-GC trust break: delete GC'd -ca/-replication/-server, CNPG re-issued a fresh CA, region-B's synced clientCASecret copy orphaned)." >&2; exit 1; }
+grep -q 'ownerReferences' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 preserve_pki must strip the ownerReferences (merge-patch to []) so the Secrets survive the Cluster delete." >&2; exit 1; }
+python3 - "$TMP/cnp-primary.yaml" <<'PYEOF' || { echo "FAIL: #5245 hw278 PKI-Secret RBAC assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+roles=[d for d in docs if d.get('kind')=='Role' and 'dr-failback' in d['metadata']['name'] and d['metadata'].get('namespace') is None]
+assert roles, "local-namespace dr-failback Role not found"
+secr=[r for role in roles for r in role.get('rules',[]) if 'secrets' in r.get('resources',[])]
+assert len(secr)==1, f"expected exactly ONE secrets rule, got {len(secr)}"
+rule=secr[0]
+assert sorted(rule['verbs'])==['get','patch'], f"secrets verbs must be exactly get+patch, got {rule['verbs']}"
+names=rule.get('resourceNames',[])
+assert len(names)==3 and all(n.endswith(('-ca','-replication','-server')) for n in names), \
+    f"secrets rule must be resourceNames-pinned to the three PKI Secrets, got {names}"
+PYEOF
+
+# (c) DIVERGENCE ESCALATION: the actor reads CNPG's ConsistentSystemID
+#     condition and escalates a PRE-episode demoted CR that holds False past
+#     the grace window — no dependence on a 600s-contiguous psql wedge clock.
+#     The delete is guarded by the writable-peer freshness proof and the
+#     ts_lt pre-episode bound (a fresh clone is NEVER deleted).
+grep -q 'ConsistentSystemID' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 actor must read the ConsistentSystemID condition (CNPG's own cannot-consistently-follow signal — the psql-independent divergence detector)." >&2; exit 1; }
+grep -q 'DIVERGENCE DETECTED' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 actor must log the divergence detection loudly (divergence clock start)." >&2; exit 1; }
+grep -q 'DIVERGENCE ESCALATION' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 actor missing the divergence escalation (re-clone trigger)." >&2; exit 1; }
+grep -q 'peer_fresh_writable' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 the divergence delete must require a fresh writable-peer proof (peer_fresh_writable) — the local line is psql-dark there, so the TL-arithmetic proof is structurally unavailable." >&2; exit 1; }
+python3 - "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5245 hw278 divergence-escalation bounds assertions failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+i=s.find('DIVERGENCE ESCALATION')
+assert i!=-1
+# The escalation lives INSIDE the pre-episode branch: the ts_lt CR-predates-
+# episode guard must open before it (bounded destruction — a fresh clone,
+# which postdates the episode, can never reach this delete).
+guard=s.rfind('ts_lt "${CR_CREATED}" "${STARTED_AT}"', 0, i)
+assert guard!=-1, "divergence escalation must sit inside the ts_lt pre-episode guard"
+blk=s[guard:i]
+assert 'DIVERGENCE_GRACE_SECONDS' in blk, "escalation must hold for the divergenceGraceSeconds window (no thrash on a transient False)"
+assert 'diverged-since' in blk, "escalation must accrue a divergence clock, not fire on a single observation"
+# NOTHING deletes the Cluster after the post-re-clone watch begins (the
+# postdates-episode branch): the fresh clone is observation-only.
+w=s.find('POST-RE-CLONE convergence watch')
+assert w!=-1, "actor missing the post-re-clone convergence watch"
+assert 'delete clusters' not in s[w:], "the postdates-episode branch must NEVER delete (bounded destruction)"
+PYEOF
+# Grace window default is 180s (values → env).
+python3 - "$TMP/cnp-primary.yaml" <<'PYEOF' || { echo "FAIL: #5245 hw278 DIVERGENCE_GRACE_SECONDS env assertion failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-failback' in d['metadata']['name']][0]
+actor=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='actor'][0]
+env={e['name']:e.get('value') for e in actor.get('env',[])}
+assert env.get('DIVERGENCE_GRACE_SECONDS')=='180', f"DIVERGENCE_GRACE_SECONDS must default 180, got {env.get('DIVERGENCE_GRACE_SECONDS')!r}"
+PYEOF
+
+# (d) EPISODE-MARKER SELF-HEAL: a lost dr-failback-started-at annotation
+#     write silently disabled EVERY escalation (fail-silent one-shot). The
+#     actor must re-write it, loudly, whenever the demotion is rendered but
+#     the marker is absent.
+grep -q 'self-healing the episode marker' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 actor missing the episode-marker (dr-failback-started-at) self-heal." >&2; exit 1; }
+
+# (e) POST-RE-CLONE WATCH: a wedged re-clone must name itself — phase +
+#     ConsistentSystemID logged periodically until streaming converges.
+grep -q 'RE-CLONE NOT YET STREAMING' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 actor missing the post-re-clone convergence heartbeat (the 5h-silent wedge)." >&2; exit 1; }
+
+# (f) DARK-WINDOW PEER PROOF: the signals container must keep the
+#     writable-peer proof fresh while the local cluster is psql-dark — the
+#     'unknown' arm probes writability instead of dropping all evidence.
+grep -q 'probe_peer_writable' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 hw278 signals missing probe_peer_writable (the split writable-only probe)." >&2; exit 1; }
+python3 - "$TMP/fb-signals.sh" <<'PYEOF' || { echo "FAIL: #5245 hw278 unknown-arm peer-probe assertion failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+i=s.find('unknown|*)')
+assert i!=-1, "signals ladder lost its unknown arm"
+arm=s[i:s.find('esac',i)]
+assert 'probe_peer_writable' in arm, "the unknown arm must probe peer writability (the divergence escalation needs a fresh proof precisely while local psql is dark)"
+assert 'clear_hold' in arm and 'clear_wedge' in arm, "the unknown arm must KEEP its fail-safe clears (healthy no-op: no promote/wedge evidence accrues from darkness)"
+PYEOF
+# HEALTHY-PAIR NO-OP: a local primary with its pinned sync standby PRESENT
+# clears the hold clock (no failback evidence), and a streaming standby
+# clears the wedge clock (converged) — the actor's destructive paths all sit
+# behind demote-rendered + pre-episode + hold/grace + fresh-peer guards.
+grep -q 'local primary with sync standby' "$TMP/fb-signals.sh" || {
+  echo "FAIL: #5245 healthy-pair no-op regression: a local primary with its sync standby present must clear the hold clock." >&2; exit 1; }
+awk '/streaming\)/{f=1} f&&/clear_wedge/{print "OK"; exit}' "$TMP/fb-signals.sh" | grep -q OK || {
+  echo "FAIL: #5245 converged no-op regression: the streaming state must clear the wedge clock." >&2; exit 1; }
+
+# (g) Scripts still valid POSIX shell with the 0.2.20 additions.
+sh -n "$TMP/fb-signals.sh" || { echo "FAIL: #5245 hw278 signals script is not valid POSIX shell." >&2; exit 1; }
+sh -n "$TMP/fb-actor.sh"   || { echo "FAIL: #5245 hw278 actor script is not valid POSIX shell." >&2; exit 1; }
+
+echo "  PASS (no wrong-CA root pin on the rejoin stream + forward pin kept · preserve_pki before every delete + pinned get/patch RBAC · ConsistentSystemID divergence escalation, graced + pre-episode-bounded + writable-proof-guarded · episode-marker self-heal · post-re-clone watch · dark-window peer probe · healthy-pair no-op)"
 
 echo "[render] All bp-cnpg-pair render gates green."

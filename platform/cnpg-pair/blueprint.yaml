@@ -82,7 +82,24 @@ spec:
   # (2) fail-loud peer probe: NXDOMAIN / unreachable / in-recovery /
   # TL-unreadable / TL-behind each log on transition + ~5-min heartbeat —
   # no more silent wedge. Script-only; no schema/RBAC/resource delta.
-  version: 0.2.19
+  # 0.2.20 (#5245): dr-failback RE-CLONE CONVERGENCE — the hw278 residual.
+  # hw278 G12 live-proved the 0.2.19 chain fires clean (demote at 122s held
+  # on the -ge gate, wedge escalation + bounded delete at +10min) and the
+  # RE-CLONE ITSELF then wedged silently for 5+ hours: the pgbasebackup
+  # bootstrap FATAL-looped on `x509: certificate signed by unknown
+  # authority` (the demoted externalCluster pinned sslRootCert to region-A's
+  # OWN -primary-ca while the dialed server is region-B's replica Cluster,
+  # signed by region-B's own -replica-ca — libpq/pgx upgrade sslmode=require
+  # to verify-ca whenever a root cert IS supplied), and the Cluster-CR
+  # delete had GC'd the CNPG-issued PKI Secrets so a FRESH CA orphaned
+  # region-B's synced clientCASecret trust. Fixes: (1) no sslRootCert on the
+  # rejoin stream (forward pin kept); (2) preserve_pki strips the Secret
+  # ownerReferences before every delete (RBAC +secrets get/patch, pinned);
+  # (3) ConsistentSystemID divergence escalation (divergenceGraceSeconds,
+  # default 180, pre-episode-bounded) + episode-marker self-heal +
+  # post-re-clone convergence watch + psql-dark writable probe — a wedged
+  # re-clone can never be silent again.
+  version: 0.2.20
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

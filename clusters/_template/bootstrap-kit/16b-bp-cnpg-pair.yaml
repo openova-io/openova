@@ -277,7 +277,23 @@ spec:
       # gate now `>=` (the sync fence is the authority proof) + every peer-
       # probe failure reason (NXDOMAIN/unreachable/in-recovery/TL-behind)
       # logs loudly. Script-only; substitutes unchanged.
-      version: 0.2.19
+      # 0.2.20 (#5245): dr-failback RE-CLONE CONVERGENCE (hw278 residual).
+      # hw278 G12: the 0.2.19 chain fired clean (demote at 122s held, wedge
+      # escalation + bounded delete at +10min) but the re-clone itself
+      # wedged silently for 5+ hours — the pgbasebackup bootstrap
+      # FATAL-looped on x509 (the demoted externalCluster pinned sslRootCert
+      # to region-A's own -primary-ca while the dialed server is region-B's
+      # replica Cluster, signed by region-B's own -replica-ca;
+      # require+rootcert = verify-ca semantics in libpq/pgx) and the
+      # Cluster-CR delete GC'd the CNPG PKI Secrets, re-issuing a fresh CA
+      # that region-B's one-shot synced clientCASecret copy can't trust.
+      # Fixes: no root cert on the rejoin stream (forward pin kept),
+      # preserve_pki ownerReference strip before every delete (+pinned
+      # secrets get/patch RBAC), ConsistentSystemID divergence escalation
+      # (grace 180s, pre-episode-bounded), episode-marker self-heal,
+      # post-re-clone convergence watch + psql-dark writable probe.
+      # Substitutes unchanged.
+      version: 0.2.20
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
