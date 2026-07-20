@@ -228,6 +228,26 @@ type Factory struct {
 	mu       sync.RWMutex
 	clusters map[string]*clusterState
 
+	// terminated — the set of DEPLOYMENT ids whose watch reflectors were
+	// torn down at a terminal-FAILED conclusion and must NOT be
+	// re-registered by the kubeconfigs rescan loop (#5285). Keyed by the
+	// bare deployment id; a cluster id is quarantined when it is exactly
+	// a terminated id OR is one of its `<depID>-<region>` secondaries.
+	//
+	// Why this is needed ON TOP OF RemoveCluster: a FAILED deployment's
+	// kubeconfig is deliberately KEPT on the PVC (the eventual wipe reads
+	// it for the pre-destroy EVS drain), so a bare RemoveCluster is undone
+	// by the next rescan tick (≤30s), which re-registers any kubeconfig
+	// file still present in the dir. The apiserver of a failed env is
+	// often UP but its Catalyst CRDs (cnpgpairs / continuums /
+	// organizations / useraccesses) never installed, so the re-registered
+	// reflectors 404-flood ("the server could not find the requested
+	// resource"), burn CPU, and starve the very /wipe + /deployments
+	// endpoints needed to recover — a self-inflicted control-plane DoS.
+	// Quarantine is the durable stop; entries self-evict in rescanOnce
+	// once the kubeconfig(s) vanish (post-wipe). Guarded by mu.
+	terminated map[string]struct{}
+
 	// subscribers — fan-out registry for SSE clients. Keyed by an
 	// opaque subscriber id; value is a buffered channel the SSE
 	// handler reads. Mutated under subMu (separate from mu so a
@@ -508,6 +528,7 @@ func NewFactory(cfg Config) (*Factory, error) {
 		log:         cfg.Logger,
 		registry:    cfg.Registry,
 		clusters:    map[string]*clusterState{},
+		terminated:  map[string]struct{}{},
 		subscribers: map[int64]*subscriber{},
 		stop:        make(chan struct{}),
 	}
@@ -527,6 +548,22 @@ func NewFactory(cfg Config) (*Factory, error) {
 func (f *Factory) AddCluster(c ClusterRef) error {
 	if c.ID == "" {
 		return errors.New("k8scache: ClusterRef.ID is required")
+	}
+
+	// #5285 — refuse to (re)register a cluster belonging to a deployment
+	// that concluded terminal-FAILED. Its reflectors were torn down at
+	// conclusion; the lingering kubeconfig on the PVC must not resurrect
+	// the 404-flood via ANY registration path (rescan loop, secondary-
+	// kubeconfig POST, chroot self-register). Authoritative choke point —
+	// every registration funnels through here. The quarantine self-clears
+	// in rescanOnce once the kubeconfig is gone (post-wipe).
+	f.mu.RLock()
+	quarantined := f.isQuarantinedLocked(c.ID)
+	f.mu.RUnlock()
+	if quarantined {
+		f.log.Info("k8scache: skipping registration of quarantined (terminally-failed) deployment cluster",
+			"cluster", c.ID)
+		return nil
 	}
 
 	dyn := c.DynamicClient
@@ -659,6 +696,17 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 	}
 
 	f.mu.Lock()
+	// #5285 — re-check quarantine UNDER the write lock (the top-of-func
+	// RLock check was released while the informers were built). Closes the
+	// TOCTOU where a deployment concluded terminal-FAILED mid-AddCluster:
+	// abort the insert so the just-built informers are never started (they
+	// GC unstarted) and the 404-flood cannot re-establish.
+	if f.isQuarantinedLocked(c.ID) {
+		f.mu.Unlock()
+		f.log.Info("k8scache: aborting registration — deployment quarantined mid-build (terminal failure)",
+			"cluster", c.ID)
+		return nil
+	}
 	// If a cluster with the same id was already registered, close its
 	// stop channel so its informer goroutines exit before we overwrite
 	// the map entry. Without this the previous reflectors would leak —
@@ -746,6 +794,96 @@ func (f *Factory) RemoveCluster(id string) {
 	}
 	f.log.Info("k8scache: cluster removed",
 		"cluster", id, "kinds", len(cs.informers))
+}
+
+// isQuarantinedLocked reports whether clusterID belongs to a
+// terminally-failed deployment. Caller MUST hold f.mu (R or W). A
+// clusterID matches when it is exactly a quarantined bare deployment id
+// OR carries the `<depID>-` prefix of one (its secondary-region cluster).
+// #5285.
+func (f *Factory) isQuarantinedLocked(clusterID string) bool {
+	if _, ok := f.terminated[clusterID]; ok {
+		return true
+	}
+	for dep := range f.terminated {
+		if strings.HasPrefix(clusterID, dep+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+// deploymentClusterIDsLocked returns every registered cluster id that
+// belongs to deployment depID — the bare `<depID>` primary and every
+// `<depID>-<region>` secondary. Caller MUST hold f.mu (R or W). #5285.
+func (f *Factory) deploymentClusterIDsLocked(depID string) []string {
+	prefix := depID + "-"
+	var ids []string
+	for id := range f.clusters {
+		if id == depID || strings.HasPrefix(id, prefix) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// RemoveDeployment tears down the k8scache informer set for EVERY cluster
+// of deployment depID — the bare `<depID>` primary AND all
+// `<depID>-<region>` secondaries. RemoveCluster alone (as the wipe path
+// historically called it with the bare id) missed the secondary-region
+// reflectors, which then kept retrying against the destroyed apiserver.
+// Idempotent + safe from any goroutine. Used by the wipe path (which then
+// deletes the kubeconfig files, so no quarantine is needed there). #5285.
+func (f *Factory) RemoveDeployment(depID string) {
+	if depID == "" {
+		return
+	}
+	f.mu.RLock()
+	ids := f.deploymentClusterIDsLocked(depID)
+	f.mu.RUnlock()
+	for _, id := range ids {
+		f.RemoveCluster(id)
+	}
+}
+
+// QuarantineDeployment stops AND durably suppresses the watch reflectors
+// for a deployment that concluded terminal-FAILED. It marks depID
+// terminated (so the rescan loop / AddCluster refuse to re-register it
+// while its kubeconfig lingers on the PVC for the eventual wipe) and
+// tears down every currently-registered `<depID>` / `<depID>-<region>`
+// cluster. Without this, a failed env's per-kind reflectors 404-flood
+// against its missing Catalyst CRDs and starve the /wipe + /deployments
+// control endpoints needed to recover it (#5285). Idempotent.
+func (f *Factory) QuarantineDeployment(depID string) {
+	if depID == "" {
+		return
+	}
+	f.mu.Lock()
+	if f.terminated == nil {
+		f.terminated = map[string]struct{}{}
+	}
+	f.terminated[depID] = struct{}{}
+	ids := f.deploymentClusterIDsLocked(depID)
+	f.mu.Unlock()
+	for _, id := range ids {
+		f.RemoveCluster(id)
+	}
+	f.log.Info("k8scache: deployment quarantined (terminal failure) — reflectors stopped, rescan re-registration suppressed",
+		"deployment", depID, "clustersRemoved", len(ids))
+}
+
+// UnquarantineDeployment clears a deployment's terminal-failed quarantine
+// so a same-id re-register can proceed again. Rarely needed directly (the
+// rescan loop auto-clears once the kubeconfig(s) vanish), but the wipe
+// path calls it as belt-and-suspenders after the deployment's kubeconfig
+// files are removed. Idempotent. #5285.
+func (f *Factory) UnquarantineDeployment(depID string) {
+	if depID == "" {
+		return
+	}
+	f.mu.Lock()
+	delete(f.terminated, depID)
+	f.mu.Unlock()
 }
 
 // Start kicks off every informer + the snapshot loop. Safe to call
@@ -883,8 +1021,12 @@ func (f *Factory) rescanOnce(ctx context.Context) {
 		for _, ref := range refs {
 			f.mu.RLock()
 			_, already := f.clusters[ref.ID]
+			// #5285 — a terminally-failed deployment's kubeconfig lingers
+			// on the PVC for the eventual wipe; do NOT resurrect its
+			// 404-flooding reflectors here.
+			quarantined := f.isQuarantinedLocked(ref.ID)
 			f.mu.RUnlock()
-			if already {
+			if already || quarantined {
 				continue
 			}
 			if err := f.AddCluster(ref); err != nil {
@@ -894,6 +1036,16 @@ func (f *Factory) rescanOnce(ctx context.Context) {
 			}
 			f.log.Info("k8scache: rescan — registered new cluster",
 				"id", ref.ID, "kubeconfig", ref.KubeconfigPath)
+		}
+
+		// #5285 — self-evict quarantine entries for deployments whose
+		// kubeconfig(s) have all vanished (post-wipe), so the set stays
+		// bounded and cannot block a same-id re-register. Guarded on a
+		// SUCCESSFUL dir read (err == nil): an unreadable dir returns an
+		// empty ref list, and clearing on that would drop live quarantines
+		// and let the next good rescan resurrect the flood.
+		if err == nil {
+			f.evictStaleQuarantine(refs)
 		}
 
 		// #3987 — prune file-backed clusters whose kubeconfig vanished from
@@ -944,6 +1096,36 @@ func (f *Factory) rescanOnce(ctx context.Context) {
 	}
 	f.log.Info("k8scache: rescan — chroot self-registered from ConfigMap",
 		"id", ref.ID, "sovereignFQDN", fqdn)
+}
+
+// evictStaleQuarantine drops #5285 quarantine entries whose kubeconfig
+// file(s) are no longer present in the rescanned dir — i.e. the failed
+// deployment has since been wiped, so there is nothing left to resurrect
+// and the entry is safe (and desirable) to forget, keeping the set
+// bounded. `present` is the full ref list from a SUCCESSFUL
+// LoadClustersFromDir pass (the caller guards on err == nil). A
+// quarantined deployment id `dep` is considered still present when any
+// ref is exactly `dep` or carries the `dep-` secondary prefix.
+func (f *Factory) evictStaleQuarantine(present []ClusterRef) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.terminated) == 0 {
+		return
+	}
+	for dep := range f.terminated {
+		stillPresent := false
+		for _, ref := range present {
+			if ref.ID == dep || strings.HasPrefix(ref.ID, dep+"-") {
+				stillPresent = true
+				break
+			}
+		}
+		if !stillPresent {
+			delete(f.terminated, dep)
+			f.log.Info("k8scache: quarantine cleared — deployment kubeconfig gone (post-wipe)",
+				"deployment", dep)
+		}
+	}
 }
 
 // clustersToPrune returns the ids of file-backed clusters whose

@@ -1435,6 +1435,29 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		)
 	}
 
+	// #5285 — on a terminal-FAILED conclusion, tear down + quarantine this
+	// deployment's k8scache watch reflectors. A failed env's apiserver is
+	// often still UP but its Catalyst CRDs (cnpgpairs / continuums /
+	// organizations / useraccesses) never installed, so the per-kind
+	// reflectors 404-flood ("the server could not find the requested
+	// resource"), spike catalyst-api CPU, and starve the /wipe +
+	// /deployments control endpoints the operator needs to recover the env
+	// — a self-inflicted DoS with a chicken-and-egg on the wipe (hw279 dep
+	// 059126bb). QuarantineDeployment stops every `<id>` / `<id>-<region>`
+	// reflector AND suppresses the rescan loop from re-registering the
+	// lingering (kept-for-wipe) kubeconfig; the quarantine self-clears once
+	// the eventual wipe removes the kubeconfig. This is the failed-branch
+	// counterpart to the ready-branch handover below. Symmetric with the
+	// primary/secondary helmwatch.Watcher teardown already done in
+	// stopSecondaries() + the liveWatcher clear. Nil-tolerant: production
+	// wires h.k8sCache from main.go; tests building Handler{} leave it nil.
+	// NOTE: only the FAILED branch quarantines — a "ready"/handed-off
+	// Sovereign's CRDs DO exist (no flood) and its reflectors power the
+	// console live view, so those must stay running.
+	if finalStatus == "failed" && h.k8sCache != nil {
+		h.k8sCache.QuarantineDeployment(dep.ID)
+	}
+
 	// Issues #764 + #768 — auto-fire the handover JWT mint immediately
 	// after Phase-1 reaches OutcomeReady. Until this landed, the
 	// operator was stranded on the wizard's provision page after a
