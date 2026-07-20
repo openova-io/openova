@@ -255,6 +255,25 @@ const DefaultRecensusInterval = 45 * time.Second
 // degrades latency, never correctness.
 const staleInformerIntervals = 4
 
+// progressGuardStallDivisor — ProgressStallWindow defaults to
+// WatchTimeout / this when Config.ProgressStallWindow is unset (#5283).
+// At the 120m WatchTimeout default this yields a 30m stall window: past
+// the soft WatchTimeout the watch treats convergence as STALLED only
+// once readyHRs has been flat for a full window, which comfortably rides
+// out an intermittent external registry/image 503 (helm-controller keeps
+// retrying and lands the next HR within the window) while still
+// concluding promptly on a genuine no-progress stall.
+const progressGuardStallDivisor = 4
+
+// progressGuardCeilingMultiple — ProgressGuardCeiling defaults to
+// WatchTimeout × this when Config.ProgressGuardCeiling is unset (#5283).
+// This is the ABSOLUTE wall-clock cap on the whole watch INCLUDING any
+// progress-guard deferrals past WatchTimeout, so a pathological
+// never-converging prov still concludes. At the 120m default the cap is
+// 240m — well above observed healthy convergence (<120m) plus a full
+// WatchTimeout of external-delay margin.
+const progressGuardCeilingMultiple = 2
+
 // DefaultReachabilityProbeTimeout — per-attempt timeout for the
 // pre-flight apiserver reachability probe (issue #923). After a
 // catalyst-api Pod restart, the new Pod's TLS handshake to the
@@ -425,11 +444,40 @@ type Config struct {
 	// Empty string is invalid (Watch returns an error immediately).
 	KubeconfigYAML string
 
-	// WatchTimeout — overall budget for Phase 1. After this, the watch
-	// terminates regardless of HelmRelease state. Defaults to
+	// WatchTimeout — SOFT budget for Phase 1. Reaching it does NOT by
+	// itself conclude the watch: it is the first point at which the
+	// progress-guard (#5283) asks "is convergence still making forward
+	// progress?" — see ProgressStallWindow / ProgressGuardCeiling. The
+	// watch concludes at WatchTimeout only when convergence has genuinely
+	// stalled; while readyHRs is still climbing (and no HR has failed) the
+	// guard defers the conclusion, up to ProgressGuardCeiling. Defaults to
 	// DefaultWatchTimeout; the catalyst-api's main reads
 	// CATALYST_PHASE1_WATCH_TIMEOUT and passes the parsed Duration.
 	WatchTimeout time.Duration
+
+	// ProgressStallWindow — once WatchTimeout is reached, the watch treats
+	// convergence as STALLED (and concludes with OutcomeTimeout) only when
+	// readyHRs has NOT increased for at least this long AND no HR has
+	// failed. While readyHRs climbed within this window the watch defers
+	// its conclusion instead of hard-failing a still-progressing prov —
+	// the hw279 defect (#5283), where an intermittent external
+	// xpkg.upbound.io 503 delayed the bp-crossplane → bp-catalyst-platform
+	// chain and the 120m wall-clock stamped a recoverable, still-climbing
+	// (readyHRs 58/66, failedHRs 0) Sovereign as failed. Defaults to
+	// WatchTimeout / progressGuardStallDivisor (30m at the 120m default).
+	// Zero means "fall back to that default"; the catalyst-api wires
+	// CATALYST_PHASE1_PROGRESS_STALL_WINDOW into this.
+	ProgressStallWindow time.Duration
+
+	// ProgressGuardCeiling — absolute wall-clock cap for the whole watch
+	// INCLUDING any progress-guard deferrals past WatchTimeout (#5283). A
+	// pathological never-converging prov still concludes here. The
+	// informer runs at most this long. Defaults to
+	// WatchTimeout × progressGuardCeilingMultiple (240m at the 120m
+	// default); a value ≤ WatchTimeout is treated as unset and replaced by
+	// that default so the ceiling can never precede the soft deadline. The
+	// catalyst-api wires CATALYST_PHASE1_PROGRESS_GUARD_CEILING into this.
+	ProgressGuardCeiling time.Duration
 
 	// Now — clock injection point. Production passes time.Now; tests
 	// inject a fake clock so termination-on-timeout is deterministic.
@@ -628,6 +676,16 @@ func (c *Config) applyDefaults() {
 	if c.WatchTimeout <= 0 {
 		c.WatchTimeout = DefaultWatchTimeout
 	}
+	// Progress-guard defaults derive from the (now-resolved) WatchTimeout
+	// so short-budget tests scale their stall window down with it (#5283)
+	// — a static large window would make a 1.5s-budget test read "readyHRs
+	// increased recently" and defer past its deadline.
+	if c.ProgressStallWindow <= 0 {
+		c.ProgressStallWindow = c.WatchTimeout / progressGuardStallDivisor
+	}
+	if c.ProgressGuardCeiling <= c.WatchTimeout {
+		c.ProgressGuardCeiling = c.WatchTimeout * progressGuardCeilingMultiple
+	}
 	if c.Now == nil {
 		c.Now = time.Now
 	}
@@ -753,6 +811,20 @@ type Watcher struct {
 	// post-sync stabilisation tick that re-evaluates the gate cannot
 	// double-emit. Mutated under w.mu.
 	readyTransitionEmitted bool
+
+	// maxReadyCount — high-water-mark of the number of components observed
+	// in StateInstalled (#5283). Tracked as a high-water-mark, not the
+	// live count, so a single component flapping installed↔degraded cannot
+	// keep resetting the progress clock and thereby mask a genuine stall in
+	// the rest of the fleet. Mutated under w.mu.
+	maxReadyCount int
+
+	// lastReadyProgressAt — wall-clock instant maxReadyCount last increased
+	// (#5283). Zero until the first HR reaches installed. The progress-guard
+	// treats convergence as STALLED once this is older than
+	// ProgressStallWindow (with no failed HR), and as still-progressing
+	// otherwise. Mutated under w.mu.
+	lastReadyProgressAt time.Time
 
 	// lastInformerEventAt — wall-clock instant of the most recent
 	// informer-DELIVERED callback (Add/Update from the event handler,
@@ -950,10 +1022,15 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 		return nil, fmt.Errorf("helmwatch: build dynamic client: %w", err)
 	}
 
-	// Per-watch context with the configured timeout. We derive from
-	// the caller's ctx so the handler's parent context cancel
-	// (deployment delete, Pod shutdown) propagates.
-	watchCtx, cancel := context.WithTimeout(ctx, w.cfg.WatchTimeout)
+	// Per-watch context bound to the ABSOLUTE ProgressGuardCeiling, NOT
+	// the soft WatchTimeout (#5283). The informer/reachability/recensus
+	// all live for the ceiling; the WatchTimeout is enforced as a SOFT
+	// deadline inside the select loop, where the progress-guard can defer
+	// it while convergence is still climbing rather than tearing the
+	// informer down at a fixed wall-clock. We derive from the caller's ctx
+	// so the handler's parent context cancel (deployment delete, Pod
+	// shutdown) still propagates.
+	watchCtx, cancel := context.WithTimeout(ctx, w.cfg.ProgressGuardCeiling)
 	defer cancel()
 
 	// Pre-flight reachability probe — issue #923. Catalyst-api Pod
@@ -1157,6 +1234,24 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 	recensusTicker := time.NewTicker(w.cfg.RecensusInterval)
 	defer recensusTicker.Stop()
 
+	// Soft-deadline progress-guard timer (#5283). Its first fire is at the
+	// SOFT WatchTimeout; on each fire the loop concludes only if
+	// convergence has genuinely stalled and otherwise re-arms for one
+	// progressRecheck, deferring the conclusion while readyHRs is still
+	// climbing (bounded overall by ProgressGuardCeiling = watchCtx). The
+	// re-check cadence is a fraction of the stall window, clamped so
+	// production notices a stall promptly (≤30s) without busy-spinning on a
+	// tiny test budget.
+	progressRecheck := w.cfg.ProgressStallWindow / 4
+	if progressRecheck < 100*time.Millisecond {
+		progressRecheck = 100 * time.Millisecond
+	}
+	if progressRecheck > 30*time.Second {
+		progressRecheck = 30 * time.Second
+	}
+	progressTimer := time.NewTimer(w.cfg.WatchTimeout)
+	defer progressTimer.Stop()
+
 	// Wait for either all-terminal or context done.
 	for {
 		select {
@@ -1213,6 +1308,41 @@ func (w *Watcher) Watch(ctx context.Context) (map[string]string, error) {
 			// downstream handover fire exactly once regardless of
 			// whether an informer event or the ticker concluded.
 			w.runTickerRecensus(watchCtx, dyn, terminated, &closeOnce)
+
+		case <-progressTimer.C:
+			// #5283 — soft-deadline progress-guard. The SOFT WatchTimeout
+			// (or a subsequent re-check) has elapsed. Conclude only if
+			// convergence has genuinely stalled; while readyHRs is still
+			// climbing (no failed HR, last increase within
+			// ProgressStallWindow) defer by one re-check interval so a
+			// slow-but-healthy prov is not stamped failed at a fixed
+			// wall-clock (hw279 #5283). ProgressGuardCeiling (watchCtx)
+			// still caps the total runtime, so deferral cannot loop
+			// forever.
+			if w.convergenceProgressing(w.cfg.Now()) {
+				w.mu.Lock()
+				ready := w.maxReadyCount
+				observedN := len(w.observed)
+				w.mu.Unlock()
+				w.dispatch(provisioner.Event{
+					Time:  w.cfg.Now().UTC().Format(time.RFC3339),
+					Phase: PhaseComponent,
+					Level: "info",
+					Message: fmt.Sprintf(
+						"Phase-1 watch: soft budget %s reached but convergence is still progressing (%d of %d installed, no failures) — deferring the readiness conclusion up to the %s ceiling while readyHRs keeps climbing (#5283).",
+						w.cfg.WatchTimeout, ready, observedN, w.cfg.ProgressGuardCeiling,
+					),
+				})
+				progressTimer.Reset(progressRecheck)
+				continue
+			}
+			// Genuine stall (or a failed HR) at/after the soft deadline —
+			// conclude exactly as the wall-clock path does: cancel the
+			// watch context so the next loop iteration returns through the
+			// standard <-watchCtx.Done() branch (identical "terminated by
+			// context" warn + classifyOutcomeOnContextEnd verdict, i.e.
+			// OutcomeTimeout / OutcomeFluxNotReconciling).
+			cancel()
 		}
 	}
 }
@@ -1397,6 +1527,19 @@ func (w *Watcher) emitHeartbeat(hb Heartbeat) {
 			w.cfg.RecensusInterval,
 		),
 	})
+}
+
+// countInstalled returns the number of components sitting in
+// StateInstalled — the "readyHRs" the progress-guard (#5283) watches for
+// forward motion, and the census the heartbeat reports as ReadyHRs.
+func countInstalled(states map[string]string) int {
+	n := 0
+	for _, s := range states {
+		if s == StateInstalled {
+			n++
+		}
+	}
+	return n
 }
 
 // hasFailures returns true when at least one component in the state
@@ -1802,6 +1945,35 @@ func (w *Watcher) classifyOutcomeOnTerminate(final map[string]string) string {
 	return OutcomeReady
 }
 
+// convergenceProgressing reports whether Phase-1 convergence is still
+// making genuine forward progress at the soft WatchTimeout (#5283). It is
+// true only when NO observed HR has hard-FAILED and readyHRs increased
+// within ProgressStallWindow. When true, the Watch loop defers concluding
+// (up to ProgressGuardCeiling) instead of stamping a still-climbing prov
+// as OutcomeTimeout → failed — the hw279 defect where an intermittent
+// external xpkg.upbound.io 503 delayed the bp-crossplane →
+// bp-catalyst-platform chain past the 120m wall-clock while readyHRs kept
+// climbing (58/66, failedHRs 0).
+//
+// A failed HR falls through to the normal conclusion (existing behaviour:
+// the pre-terminal timeout classifies OutcomeTimeout, and the all-terminal
+// late-poll path owns genuine failures). readyHRs that never rose
+// (lastReadyProgressAt zero — everything stuck installing) is likewise NOT
+// progress. Reads the progress bookkeeping under w.mu.
+func (w *Watcher) convergenceProgressing(now time.Time) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, s := range w.states {
+		if s == StateFailed {
+			return false
+		}
+	}
+	if w.lastReadyProgressAt.IsZero() {
+		return false
+	}
+	return now.Sub(w.lastReadyProgressAt) < w.cfg.ProgressStallWindow
+}
+
 // classifyOutcomeOnContextEnd maps a context-cancelled exit into
 // OutcomeTimeout or OutcomeFluxNotReconciling depending on whether
 // any HelmRelease was ever observed. The handler reads this through
@@ -1952,6 +2124,18 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	w.observed[componentID] = struct{}{}
 	if w.firstSeenAt.IsZero() {
 		w.firstSeenAt = w.cfg.Now()
+	}
+
+	// Progress-guard bookkeeping (#5283): advance the readyHRs
+	// high-water-mark whenever the installed count climbs, stamping the
+	// wall-clock so the progress-guard can tell a still-converging prov
+	// (readyHRs rose within ProgressStallWindow) from a genuine stall
+	// (flat for a full window). Counting from w.states — which already
+	// reflects this event — keeps the informer and ticker-recensus drivers
+	// byte-identical here.
+	if ready := countInstalled(w.states); ready > w.maxReadyCount {
+		w.maxReadyCount = ready
+		w.lastReadyProgressAt = w.cfg.Now()
 	}
 
 	// The all-terminal check is gated on informerSynced — an event
