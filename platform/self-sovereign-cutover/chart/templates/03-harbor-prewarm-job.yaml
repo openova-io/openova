@@ -117,8 +117,9 @@ data:
           # ERROR, never on a stuck-but-alive connection. With no command
           # timeout the copy never returns, the worker never drains, the parent
           # `wait` blocks forever, and the whole Job sits "active" until the
-          # 5400s activeDeadlineSeconds kills it — then catalyst-api auto-re-runs
-          # the DeadlineExceeded step (cutover.go) and the next 90-min hang
+          # step's activeDeadlineSeconds (9600s post-#5298) kills it — then
+          # catalyst-api auto-re-runs the DeadlineExceeded step (cutover.go) and
+          # the next full-deadline hang
           # begins. Back-to-back deadline cycles = the "step-03 active for hours,
           # never completing" symptom seen live on hw171 (dep 3963e9267c10a90d)
           # right after #3927 unstuck step-02. `--command-timeout` bounds each
@@ -1074,8 +1075,8 @@ data:
                       # base*2^(n-2) before attempt n → 30,60,120,240,480s =
                       # 930s (≥15 min) of spacing across the default 6-attempt
                       # budget, so a short transit flap toward the mothership
-                      # cannot exhaust it. Comfortably inside the 5400s step
-                      # deadline; a flap-failure is fast (reset/refused), not a
+                      # cannot exhaust it. Comfortably inside the 9600s step
+                      # deadline (#5298); a flap-failure is fast (reset/refused), not a
                       # stall, so the #3944 --command-timeout stays the stall
                       # bound.
                       _bo="${PREWARM_PROXY_BACKOFF_BASE_SECONDS}"
