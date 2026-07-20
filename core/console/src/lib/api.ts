@@ -137,17 +137,16 @@ export const logoutAll = () =>
   request<{ message: string }>('/auth/logout-all', { method: 'POST' });
 
 // Organizations
-// Org CRUD rides the canonical `/organizations` routes (#3383 — served by
-// core/services/tenant routes.go via the gateway's /api/organizations).
-// The member / app / backing-service sub-resources below still live ONLY
-// under the legacy `/tenant/orgs/{id}/...` back-end paths — those URL
-// strings are the wire contract until the BE grows canonical aliases
-// (#3383 alias-removal checklist).
+// Org CRUD + the member / app / backing-service sub-resources all ride the
+// canonical `/organizations` routes (#3383 — served by core/services/tenant
+// routes.go via the gateway's /api/organizations). The tenant service keeps
+// the legacy `/tenant/orgs/{id}/...` paths as one-release deprecation aliases,
+// so nothing breaks during a rolling deploy.
 export const getMyOrgs = () => request<Org[]>('/organizations');
 export const getOrg = (id: string) => request<Org>(`/organizations/${id}`);
-export const getMembers = (orgId: string) => request<Member[]>(`/tenant/orgs/${orgId}/members`);
+export const getMembers = (orgId: string) => request<Member[]>(`/organizations/${orgId}/members`);
 export const inviteMember = (orgId: string, email: string, role: string) =>
-  request<Member>(`/tenant/orgs/${orgId}/members`, { method: 'POST', body: JSON.stringify({ email, role }) });
+  request<Member>(`/organizations/${orgId}/members`, { method: 'POST', body: JSON.stringify({ email, role }) });
 export const updateOrg = (orgId: string, patch: { name?: string }) =>
   request<Org>(`/organizations/${orgId}`, { method: 'PUT', body: JSON.stringify(patch) });
 export const deleteOrg = (orgId: string) =>
@@ -261,7 +260,7 @@ export const getJobs = (orgId: string) =>
 // Preview of what an uninstall will do to backing services. Used by the
 // confirm modal so the user sees purge vs retain before proceeding.
 export const getUninstallPreview = (orgId: string, slug: string) =>
-  request<UninstallPreview>(`/tenant/orgs/${orgId}/apps/${slug}/uninstall-preview`);
+  request<UninstallPreview>(`/organizations/${orgId}/apps/${slug}/uninstall-preview`);
 
 // Day-2 app management (backend: task #134 — returns 501 until shipped)
 // dep_choices maps dependency slug -> 'dedicated' | existing instance slug/id.
@@ -271,7 +270,7 @@ export const installApp = (
   depChoices?: Record<string, string>,
 ) =>
   request<{ status: string; message?: string; upgrade_suggestion?: string }>(
-    `/tenant/orgs/${orgId}/apps`,
+    `/organizations/${orgId}/apps`,
     {
       method: 'POST',
       body: JSON.stringify({
@@ -283,7 +282,7 @@ export const installApp = (
 
 export const uninstallApp = (orgId: string, slug: string) =>
   request<{ status: string }>(
-    `/tenant/orgs/${orgId}/apps/${slug}`,
+    `/organizations/${orgId}/apps/${slug}`,
     { method: 'DELETE' },
   );
 
@@ -337,7 +336,7 @@ export const getLaunchURL = async (
 // render name/version/endpoint + a Running/Pending/Failed pill in one call.
 export const getBackingServices = async (orgId: string): Promise<BackingService[]> => {
   const raw = await request<{ services: BackingService[] }>(
-    `/tenant/orgs/${orgId}/backing-services`,
+    `/organizations/${orgId}/backing-services`,
   );
   return raw.services || [];
 };
