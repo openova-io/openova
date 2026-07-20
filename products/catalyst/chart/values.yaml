@@ -610,7 +610,7 @@ images:
   # templates/org-services/marketplace.yaml, which now honours global.imageRegistry
   # for the #4885 cutover step-07 pivot (mirrors the 9 templated org-services
   # siblings + ui-deployment.yaml's #4563 split).
-  marketplaceTag: "5691d2b"
+  marketplaceTag: "706b14d"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
