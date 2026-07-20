@@ -1,0 +1,112 @@
+name: check — fresh-prov image registry (#5281)
+
+# Permanent guard that a fresh Sovereign's Phase-1 image pulls never depend on
+# a registry the node has no working Harbor pull-through for, for EVERY future
+# PR.
+#
+# #5281 (hw279 dep 059126bb, 2026-07-20): crossplane's core image inherited the
+# upstream subchart default `xpkg.upbound.io/crossplane/crossplane`. The
+# fresh-prov node registry mirror rewrites xpkg.upbound.io -> proxy-xpkg, a
+# Harbor project that does NOT exist on the mothership, so the pull fell back to
+# xpkg.upbound.io direct and upbound 503'd — wedging crossplane-system at
+# Init:ErrImagePull and stalling the whole dependency chain. PR #5282 fixed the
+# core image; this gate makes the whole CLASS un-reintroducible.
+#
+# The guard flags any bootstrap-kit image whose host is NOT served by a working
+# node-mirror Harbor proxy: either a host absent from the mirror (mirror.gcr.io,
+# cgr.dev, nvcr.io, …) or a mirror host whose proxy project is missing
+# (xpkg.upbound.io->proxy-xpkg, public.ecr.aws->proxy-ecr). Bare docker.io/
+# quay.io/gcr.io/registry.k8s.io/ghcr.io refs are mirror-served and PASS. See
+# scripts/check-freshprov-image-registry.sh for the full model.
+#
+# Phase 1 (static, network-free) is authoritative; Phase 2 (render) is a
+# best-effort subchart-default-leak sweep that WARN-skips a chart whose deps
+# will not build from the flaky upstream repos, so an upstream-repo outage can
+# never red-flake this gate. The --self-test negative control runs first and is
+# fully deterministic.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/_template/bootstrap-kit/**'
+      - 'infra/providers/**'
+      - 'scripts/check-freshprov-image-registry.sh'
+      - '.github/workflows/check-freshprov-image-registry.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/_template/bootstrap-kit/**'
+      - 'infra/providers/**'
+      - 'scripts/check-freshprov-image-registry.sh'
+      - '.github/workflows/check-freshprov-image-registry.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshprov-image-registry:
+    name: Reject non-mirror-served Phase-1 image hosts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
+      - name: Negative-control self-test (deterministic)
+        run: bash scripts/check-freshprov-image-registry.sh --self-test
+
+      - name: Add upstream subchart repos (best-effort — Phase 2 render deps)
+        # Phase 2 renders subchart-wrapping bootstrap charts to catch
+        # subchart-DEFAULT image leaks (the crossplane class). Each needs its
+        # upstream repo to `helm dependency build`. A repo that fails to add
+        # just WARN-skips its chart in the gate (never fails the build), so the
+        # `|| true` keeps a flaky upstream from breaking CI.
+        continue-on-error: true
+        run: |
+          set +e
+          while read -r name url; do
+            [ -n "$name" ] || continue
+            helm repo add "$name" "$url" >/dev/null 2>&1 && echo "added $name"
+          done <<'EOF'
+          aquasec https://aquasecurity.github.io/helm-charts/
+          sealed-secrets https://bitnami-labs.github.io/sealed-secrets
+          bitnami https://charts.bitnami.com/bitnami
+          crossplane-stable https://charts.crossplane.io/stable
+          external-secrets https://charts.external-secrets.io
+          hetzner https://charts.hetzner.cloud
+          jetstack https://charts.jetstack.io
+          cnpg https://cloudnative-pg.github.io/charts
+          cowboysysop https://cowboysysop.github.io/charts/
+          gitea-charts https://dl.gitea.com/charts
+          dragonfly https://dragonflyoss.github.io/helm-charts/
+          emberstack https://emberstack.github.io/helm-charts
+          falcosecurity https://falcosecurity.github.io/charts
+          fluxcd-community https://fluxcd-community.github.io/helm-charts
+          grafana https://grafana.github.io/helm-charts
+          cilium https://helm.cilium.io
+          harbor https://helm.goharbor.io
+          autoscaler https://kubernetes.github.io/autoscaler
+          external-dns https://kubernetes-sigs.github.io/external-dns/
+          kyverno https://kyverno.github.io/kyverno/
+          nats https://nats-io.github.io/k8s/helm/charts
+          openbao https://openbao.github.io/openbao-helm
+          otel https://open-telemetry.github.io/opentelemetry-helm-charts
+          schich https://schich.tel/helm-charts
+          sigstore https://sigstore.github.io/helm-charts
+          stakater https://stakater.github.io/stakater-charts
+          vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+          EOF
+          helm repo update >/dev/null 2>&1
+          exit 0
+
+      - name: Run fresh-prov image-registry guard
+        run: bash scripts/check-freshprov-image-registry.sh

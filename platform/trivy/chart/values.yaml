@@ -30,16 +30,32 @@ trivy-operator:
 
   # Pin upstream image tag — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md.
+  #
+  # Registry — route through the Sovereign Harbor pull-through proxy instead of
+  # the upstream chart default `mirror.gcr.io` (#5281). `mirror.gcr.io` is NOT
+  # in the fresh-prov node registry mirror (infra/providers/{hetzner,huawei}/
+  # main.tf registries.yaml covers docker.io/quay.io/gcr.io/registry.k8s.io/
+  # ghcr.io only), so during Phase-1 convergence — BEFORE the cutover
+  # registry-pivot — the trivy-operator Deployment pulls `mirror.gcr.io/aquasec/
+  # trivy-operator` DIRECT from Google's mirror, hostage to its uptime (the
+  # exact hw279 hostage class, #5281). `aquasec/trivy-operator` + `aquasec/
+  # trivy` publish the identical images to Docker Hub (hub API 200), and
+  # `proxy-dockerhub` is live on the mothership Harbor + mirrored at cutover, so
+  # this rides the same working proxy every other platform image uses. (The
+  # cutover offlineMirror maps mirror.gcr.io -> proxy-gcr, but that is inert in
+  # Phase-1: the mothership proxy-gcr is a gcr.io pull-through and aquasec/* is
+  # not on gcr.io — only docker.io. So proxy-dockerhub is the correct route.)
   image:
-    registry: mirror.gcr.io
+    registry: harbor.openova.io/proxy-dockerhub
     repository: aquasec/trivy-operator
     tag: "0.30.1"
     pullPolicy: IfNotPresent
 
-  # Trivy scanner image (used for vuln scans inside scan jobs).
+  # Trivy scanner image (used for vuln scans inside scan jobs). Same
+  # Harbor-proxy reroute off mirror.gcr.io as the operator image above (#5281).
   trivy:
     image:
-      registry: mirror.gcr.io
+      registry: harbor.openova.io/proxy-dockerhub
       repository: aquasec/trivy
       tag: "0.70.0"
       pullPolicy: IfNotPresent

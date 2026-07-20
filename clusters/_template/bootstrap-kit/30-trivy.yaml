@@ -53,7 +53,7 @@ spec:
   chart:
     spec:
       chart: bp-trivy
-      version: 1.0.4
+      version: 1.0.5
       sourceRef:
         kind: HelmRepository
         name: bp-trivy
