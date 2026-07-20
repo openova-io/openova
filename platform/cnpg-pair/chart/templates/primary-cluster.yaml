@@ -109,15 +109,30 @@ spec:
       # pinned to this same `-primary-ca` (shared client CA, #5245).
       # Both Secrets exist natively on cluster-A (CNPG issued them for
       # this Cluster).
+      #
+      # 🛑 NO sslRootCert HERE (0.2.20, #5245 hw278 live-proof): the
+      # SERVER this connection dials is region-B's replica Cluster,
+      # whose server chain is signed by region-B's OWN `-replica-ca` —
+      # a Secret cluster-A does not hold. 0.2.18/0.2.19 pinned
+      # sslRootCert to region-A's own `-primary-ca`, and because
+      # libpq/pgx upgrade sslmode=require to verify-ca semantics
+      # whenever a root cert IS supplied, the re-clone's pgbasebackup
+      # bootstrap FATAL-looped every 5s on `x509: certificate signed by
+      # unknown authority` for 5+ hours (hw278, Job
+      # <primary>-1-pgbasebackup). With no root cert, sslmode=require
+      # is encrypted without server-chain verification — the same
+      # posture as every other in-mesh streaming hop; peer authenticity
+      # rides the client-cert requirement (region-B verifies THIS cert
+      # against the shared client CA) + the Cilium ClusterMesh identity
+      # path. The forward direction (replica-cluster.yaml) KEEPS its
+      # root pin — there `-primary-ca` genuinely signs the server it
+      # dials.
       sslKey:
         name: {{ include "cnpg-pair.fullname" . }}-primary-replication
         key: tls.key
       sslCert:
         name: {{ include "cnpg-pair.fullname" . }}-primary-replication
         key: tls.crt
-      sslRootCert:
-        name: {{ include "cnpg-pair.fullname" . }}-primary-ca
-        key: ca.crt
 {{- else }}
   bootstrap:
     initdb:

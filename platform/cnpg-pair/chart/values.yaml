@@ -120,6 +120,18 @@ cnpgPair:
       # created AFTER the failback started is NEVER deleted (bounded
       # destruction: at most one re-clone per failback episode).
       wedgeHoldSeconds: 600
+      # 0.2.20 (#5245 hw278): how long the in-place-demoted Cluster's
+      # ConsistentSystemID condition (CNPG's own cannot-consistently-
+      # follow-the-source signal) must stay False before the actor
+      # escalates to the re-clone. Unlike the wedge clock this detector
+      # needs NO contiguous psql observability — the demoted standby
+      # restarts through the in-place switch and every 'unknown' tick
+      # resets the 600s wedge clock, which is how hw278 crawled to its
+      # escalation. Applies ONLY to a Cluster CR that predates the
+      # failback episode; a fresh clone reporting False mid-bootstrap
+      # is never deleted (bounded destruction), and the delete still
+      # requires a <60s-fresh writable-peer proof.
+      divergenceGraceSeconds: 180
       # The flux Kustomization whose postBuild.substitute map carries
       # the durable SOVEREIGN_CNPG_PAIR_DEMOTED flip (the catalyst-api
       # enableCNPGPairAfterFullMesh precedent — a custom field manager

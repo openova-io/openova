@@ -74,8 +74,15 @@ spec:
   # That reverse-direction auth is what the #5245 failback rides:
   # the demoted region-A streams FROM this cluster (post-promote)
   # presenting the only client cert cluster-A natively holds. Server
-  # certs are untouched (sslmode=require skips server-chain
-  # verification on every streaming path in this chart).
+  # certs are untouched — but NOTE (0.2.20, hw278 live-proof):
+  # sslmode=require skips server-chain verification ONLY when no
+  # sslRootCert is supplied; libpq/pgx upgrade `require` to verify-ca
+  # semantics the moment a root cert IS provided. The forward stream
+  # below carries sslRootCert=-primary-ca and verifies fine (that CA
+  # signs region-A's server leafs); the failback stream
+  # (primary-cluster.yaml demoted shape) carries NO root cert, because
+  # THIS cluster's server chain is signed by its own `-replica-ca`,
+  # which cluster-A does not hold.
   certificates:
     clientCASecret: {{ include "cnpg-pair.fullname" . }}-primary-ca
 

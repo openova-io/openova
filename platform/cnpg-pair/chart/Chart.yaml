@@ -1,5 +1,41 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.20 (#5245): dr-failback RE-CLONE CONVERGENCE — the hw278 residual.
+# hw278 G12 (2026-07-19/20) live-proved the 0.2.19 chain fires clean (demote
+# 23:10:36Z on the -ge gate at 122s held; wedge escalation + bounded delete
+# 23:20:50Z) and the RE-CLONE ITSELF then wedged, silently, for 5+ hours:
+# (1) WRONG-CA ROOT PIN: the demoted externalCluster pinned sslRootCert to
+#     region-A's OWN -primary-ca while the server it dials is region-B's
+#     replica Cluster, whose server chain is signed by region-B's own
+#     -replica-ca (a Secret cluster-A does not hold). libpq/pgx upgrade
+#     sslmode=require to verify-ca semantics whenever a root cert IS
+#     supplied → the pgbasebackup bootstrap Job FATAL-looped every 5s on
+#     `x509: certificate signed by unknown authority`. The demoted shape now
+#     omits sslRootCert (require = encrypted, no chain verification — the
+#     forward stream KEEPS its pin: there -primary-ca signs the dialed
+#     server). Authenticity rides the client-cert requirement + the mesh
+#     identity path.
+# (2) PKI GARBAGE-COLLECTION: the Cluster-CR delete GC'd the CNPG-issued
+#     -ca/-replication/-server Secrets (controller ownerReference,
+#     live-verified) and CNPG re-issued a FRESH CA on re-create — region-B's
+#     one-shot post-mesh-flip synced clientCASecret copy could never trust
+#     the re-cloned cluster's new client leaf. preserve_pki now strips the
+#     ownerReferences (field-manager dr-failback) before EVERY delete; CNPG
+#     adopts the surviving Secrets (BYO path) and the trusted CA lineage is
+#     unbroken. RBAC: +secrets get/patch, resourceNames-pinned to the three.
+# (3) SILENT POST-DELETE ACTOR: (a) ConsistentSystemID DIVERGENCE escalation
+#     — a PRE-episode demoted CR holding CNPG's own cannot-consistently-
+#     follow condition False for failback.divergenceGraceSeconds (default
+#     180) with a fresh writable-peer proof escalates to the re-clone
+#     without a 600s-contiguous psql wedge clock (which resets on every
+#     'unknown' tick while the demoted standby restarts through the
+#     in-place switch); (b) the dr-failback-started-at episode marker
+#     self-heals (a lost one-shot write silently disabled EVERY
+#     escalation); (c) a post-re-clone convergence watch logs phase +
+#     ConsistentSystemID every ~30 ticks until streaming — a wedged
+#     re-clone names itself. Signals: probe_peer_writable keeps the
+#     writable proof fresh in the psql-dark 'unknown' arm. Render Case 20
+#     pins all of it. Lockstep slot 16b pin → 0.2.20.
 # 0.2.19 (#5245): dr-failback TL-EQUALITY deadlock + fail-loud peer probe.
 # hw277 G12 (dep 1708c340ffc0e3f2, 2026-07-19) live-proved the 0.2.18 failback
 # wedge root cause is NOT DNS: the `-replica-mesh` stub Service existed on
@@ -283,7 +319,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.19
+version: 0.2.20
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -323,6 +359,60 @@ description: |
 
   Changelog
   ─────────
+  0.2.20 (2026-07-20, dr-failback re-clone convergence — the hw278 residual, Refs #5245 #5268 #5248)
+    - FIX (Pillar-3 region-kill failback, re-clone leg): hw278 G12
+      live-proved the 0.2.19 chain fires clean end-to-end (demote 23:10:36Z
+      at 122s held on the `-ge` gate — the hw277 57-minute TL-equality
+      split-brain is dead; wedge escalation + bounded delete 23:20:50Z) and
+      the RE-CLONE ITSELF then wedged, silently, for 5+ hours: the fresh
+      Cluster sat at phase 'Setting up primary' with
+      ConsistentSystemID=False(NotFound) and wal_receiver empty while its
+      pgbasebackup bootstrap Job FATAL-looped every 5s on `x509:
+      certificate signed by unknown authority` against `-replica-mesh`.
+    - NO sslRootCert ON THE REJOIN STREAM: the demoted externalCluster
+      pinned sslRootCert to region-A's OWN `-primary-ca`, but the dialed
+      server is region-B's replica Cluster — server chain signed by
+      region-B's own `-replica-ca`, which cluster-A does not hold.
+      libpq/pgx upgrade sslmode=require to verify-ca semantics whenever a
+      root cert IS supplied, so this leg could never connect. The demoted
+      shape now omits sslRootCert; authenticity rides the client-cert
+      requirement (region-B verifies region-A's leaf against the shared
+      client CA) + the Cilium ClusterMesh identity path. The FORWARD
+      stream keeps its root pin (there the CA matches the dialed server).
+    - preserve_pki BEFORE EVERY DELETE: the bounded Cluster-CR delete GC'd
+      the CNPG-issued `-ca`/`-replication`/`-server` Secrets (controller
+      ownerReference, live-verified) and CNPG re-issued a FRESH CA on
+      re-create — region-B's one-shot post-mesh-flip synced clientCASecret
+      copy (hw278: 3h58m old vs cluster-A's re-issued 117m) could never
+      trust the re-cloned cluster's new client leaf. The actor now strips
+      the ownerReferences from the three PKI Secrets (--field-manager=
+      dr-failback) before every delete; CNPG adopts the surviving Secrets
+      on re-create (BYO path). A failed strip aborts the delete for that
+      tick. RBAC: +secrets get/patch, resourceNames-pinned to the three.
+    - ConsistentSystemID DIVERGENCE ESCALATION: a PRE-episode (in-place-
+      demoted) CR holding CNPG's own cannot-consistently-follow condition
+      False for failback.divergenceGraceSeconds (default 180) with a
+      <60s-fresh writable-peer proof escalates to the re-clone directly —
+      no dependence on the 600s-contiguous psql wedge clock, which resets
+      on every 'unknown' tick while the demoted standby restarts through
+      the in-place switch. A fresh clone (postdates the episode) is NEVER
+      deleted — bounded destruction unchanged.
+    - EPISODE-MARKER SELF-HEAL: dr-failback-started-at was a one-shot,
+      best-effort write in the D0 tick; if lost, ts_lt() never passed and
+      EVERY escalation was structurally disabled — silently. Now re-written
+      loudly whenever the demotion is rendered but the marker is absent.
+    - POST-RE-CLONE CONVERGENCE WATCH: until streaming is observed the
+      actor logs the live Cluster phase + ConsistentSystemID status/reason
+      every ~30 ticks — a wedged re-clone names itself in the logs.
+    - Signals: probe_peer_writable (split writable-only probe) keeps the
+      peer proof fresh in the psql-dark 'unknown' arm; fail-safe clears
+      unchanged (healthy pair stays a strict no-op).
+    - Render Case 20 pins: no root cert on the rejoin stream + forward pin
+      kept; preserve_pki ordering before every delete + pinned RBAC;
+      divergence escalation graced + pre-episode-bounded + writable-proof-
+      guarded; self-heal; watch; dark-window probe; healthy no-op.
+      values-schema delta: +failback.divergenceGraceSeconds. Lockstep slot
+      16b pin → 0.2.20.
   0.2.19 (2026-07-19, dr-failback TL-equality deadlock + fail-loud peer probe, Refs #5245 #5248 #5218)
     - FIX (Pillar-3 region-kill failback): hw277 G12 (dep 1708c340ffc0e3f2)
       live-proved the 0.2.18 failback wedge is NOT DNS. The `-replica-mesh`
