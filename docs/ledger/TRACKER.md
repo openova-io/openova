@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T09:30:05Z` |
+| Last refreshed | `2026-07-20T09:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 33 |
+| Open issues | 32 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 33 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 32 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 33 open items (clickable table)
+### All 32 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -229,7 +229,6 @@ flowchart LR
 | [#5274](https://github.com/openova-io/openova/issues/5274) | Cloud graph under-enumerates region-b: renders Cluster 1/1 though 2 live cluster | Other |
 | [#5276](https://github.com/openova-io/openova/issues/5276) | console bundle row 214: migrate operator console off deprecated /tenant/orgs ali | Other |
 | [#5277](https://github.com/openova-io/openova/issues/5277) | Cold-broker SSO 404: catalyst-api omits /oidc/* routes when catalyst-pin-broker- | Other |
-| [#5281](https://github.com/openova-io/openova/issues/5281) | fix(crossplane): core controller image pulls DIRECT from xpkg.upbound.io (503) d | Other |
 | [#5283](https://github.com/openova-io/openova/issues/5283) | Phase-1 watch hard-fails a still-progressing prov at the WatchTimeout wall-clock | Other |
 | [#5285](https://github.com/openova-io/openova/issues/5285) | Failed deployment's watch-informers flood catalyst-api → starve /wipe + /deplo | Other |
 | [#5289](https://github.com/openova-io/openova/issues/5289) | 2-region: api./console./marketplace. flap 200↔404 in NORMAL operation — regi | Other |
