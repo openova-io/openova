@@ -47,22 +47,37 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("PUT /tenant/orgs/{id}", deprecatedAlias("/api/organizations/{id}", h.UpdateOrg))
 	mux.HandleFunc("DELETE /tenant/orgs/{id}", deprecatedAlias("/api/organizations/{id}", h.DeleteOrg))
 
-	// Authenticated — member management.
-	mux.HandleFunc("GET /tenant/orgs/{id}/members", h.ListMembers)
-	mux.HandleFunc("POST /tenant/orgs/{id}/members", h.InviteMember)
-	mux.HandleFunc("DELETE /tenant/orgs/{id}/members/{userId}", h.RemoveMember)
+	// Authenticated — member management (#3383: canonical `/organizations`).
+	mux.HandleFunc("GET /organizations/{id}/members", h.ListMembers)
+	mux.HandleFunc("POST /organizations/{id}/members", h.InviteMember)
+	mux.HandleFunc("DELETE /organizations/{id}/members/{userId}", h.RemoveMember)
 
 	// Authenticated — day-2 app install/uninstall.
-	mux.HandleFunc("POST /tenant/orgs/{id}/apps", h.InstallApp)
-	mux.HandleFunc("DELETE /tenant/orgs/{id}/apps/{slug}", h.UninstallApp)
+	mux.HandleFunc("POST /organizations/{id}/apps", h.InstallApp)
+	mux.HandleFunc("DELETE /organizations/{id}/apps/{slug}", h.UninstallApp)
 	// Preview: what data will be purged vs retained before an uninstall. Feeds
 	// the console's confirm modal so the user sees exactly what they're
 	// about to lose before clicking through.
-	mux.HandleFunc("GET /tenant/orgs/{id}/apps/{slug}/uninstall-preview", h.UninstallPreview)
+	mux.HandleFunc("GET /organizations/{id}/apps/{slug}/uninstall-preview", h.UninstallPreview)
 
-	// Authenticated — backing-service inventory per tenant (databases, caches).
-	// Metadata comes from the catalog; pod status is proxied from provisioning.
-	mux.HandleFunc("GET /tenant/orgs/{id}/backing-services", h.ListBackingServices)
+	// Authenticated — backing-service inventory per Organization (databases,
+	// caches). Metadata comes from the catalog; pod status is proxied from
+	// provisioning.
+	mux.HandleFunc("GET /organizations/{id}/backing-services", h.ListBackingServices)
+
+	// naming-guard: alias — legacy `/tenant/orgs/{id}/...` sub-resource paths,
+	// one-release deprecation. #3383 renamed the member / app / backing-service
+	// sub-resources to the canonical `/organizations/{id}/...` block above; the
+	// aliases stay for exactly one release so any consumer still pinned to the
+	// old path keeps working (each emits a Deprecation/Sunset header). Removal
+	// is a checklist row on #3383.
+	mux.HandleFunc("GET /tenant/orgs/{id}/members", deprecatedAlias("/api/organizations/{id}/members", h.ListMembers))
+	mux.HandleFunc("POST /tenant/orgs/{id}/members", deprecatedAlias("/api/organizations/{id}/members", h.InviteMember))
+	mux.HandleFunc("DELETE /tenant/orgs/{id}/members/{userId}", deprecatedAlias("/api/organizations/{id}/members/{userId}", h.RemoveMember))
+	mux.HandleFunc("POST /tenant/orgs/{id}/apps", deprecatedAlias("/api/organizations/{id}/apps", h.InstallApp))
+	mux.HandleFunc("DELETE /tenant/orgs/{id}/apps/{slug}", deprecatedAlias("/api/organizations/{id}/apps/{slug}", h.UninstallApp))
+	mux.HandleFunc("GET /tenant/orgs/{id}/apps/{slug}/uninstall-preview", deprecatedAlias("/api/organizations/{id}/apps/{slug}/uninstall-preview", h.UninstallPreview))
+	mux.HandleFunc("GET /tenant/orgs/{id}/backing-services", deprecatedAlias("/api/organizations/{id}/backing-services", h.ListBackingServices))
 
 	// Internal — unauthenticated service-to-service lookups. Expected to be
 	// reachable only via the in-cluster service IP (no gateway / ingress),
