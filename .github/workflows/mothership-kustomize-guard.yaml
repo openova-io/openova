@@ -1,0 +1,38 @@
+name: mothership-kustomize-guard
+# Regression guard (#5290 → #5292, 2026-07-20). The mothership `catalyst-platform`
+# Flux Kustomization raw-kustomize-builds `products/catalyst/chart/templates` via that
+# directory's kustomization.yaml `resources:` list. A bare Helm {{ }} directive in one
+# of those raw-consumed files makes `kustomize build` fail (MalformedYAMLError) → the
+# mothership kustomization wedges → the catalyst-api image roll stalls → fresh-prov
+# preflight 4b never clears → no prov can fire. This gate runs the exact build the
+# mothership runs, on any change to those templates, so the regression can't merge.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-mothership-kustomize-plain-yaml.sh'
+      - '.github/workflows/mothership-kustomize-guard.yaml'
+  pull_request:
+    paths:
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-mothership-kustomize-plain-yaml.sh'
+      - '.github/workflows/mothership-kustomize-guard.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: mothership raw-kustomize build must succeed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install kustomize
+        run: |
+          curl -sfL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/kustomize
+          kustomize version
+      - name: Guard — no bare Helm {{ }} in mothership-consumed templates (#5290/#5292)
+        run: bash scripts/check-mothership-kustomize-plain-yaml.sh
