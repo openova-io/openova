@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T02:00:04Z` |
+| Last refreshed | `2026-07-20T02:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 28 |
+| Open issues | 30 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 28 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 30 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 28 open items (clickable table)
+### All 30 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -228,6 +228,8 @@ flowchart LR
 | [#5269](https://github.com/openova-io/openova/issues/5269) | Phase-1 watch wedges: established informers but never concludes OutcomeReady tho | Other |
 | [#5270](https://github.com/openova-io/openova/issues/5270) | Crossplane adoption Workspaces build Huawei endpoints from the VPC-mimic pseudo- | Other |
 | [#5274](https://github.com/openova-io/openova/issues/5274) | Cloud graph under-enumerates region-b: renders Cluster 1/1 though 2 live cluster | Other |
+| [#5276](https://github.com/openova-io/openova/issues/5276) | console bundle row 214: migrate operator console off deprecated /tenant/orgs ali | Other |
+| [#5277](https://github.com/openova-io/openova/issues/5277) | Cold-broker SSO 404: catalyst-api omits /oidc/* routes when catalyst-pin-broker- | Other |
 
 ---
 
