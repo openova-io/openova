@@ -1703,6 +1703,76 @@ mirrorResync:
   # days; well under typical 5 min cycle so jobs don't pile up.
   jobTimeoutSeconds: 900
 
+# #5265 — POST-CUTOVER DAY-2 Harbor pin reconciler (template
+# 12-daytwo-harbor-pin-reconciler.yaml).
+#
+# THE GAP. step-03 harbor-prewarm pushes every pinned chart into local Harbor
+# EXACTLY ONCE at cutover. Post-cutover the local Gitea mirror re-syncs upstream
+# pin bumps on the operator's schedule and Flux moves the HR to the new pin —
+# but local Harbor still holds only the cutover-time versions, so the HelmChart
+# cannot reconcile and the HR upgrade wedges (live hw277: region-b bp-continuum
+# HR wanted chart 0.1.12 that local Harbor lacked). The Git leg has a companion
+# (step-01's re-runnable mirror); the Harbor leg had none. This is that
+# companion — a Deployment (NOT a CronJob: region-kill canon — the loop must
+# survive the control-plane region dying) that enumerates the frozen
+# bootstrap-kit chart pins via the SAME 03b `bootstrapkit_pins` extractor
+# step-03/step-06 use, diffs them against local Harbor, and closes the drift.
+#
+# SOVEREIGNTY. Ships DISABLED by default — the SAME severance-safe default as
+# mirrorResync above: a canonical fresh-prov Sovereign renders nothing here, so
+# the step-08 deny-egress proof and the "no automatic upstream tether" contract
+# are untouched. An operator running a managed-update posture opts IN.
+daytwoReconciler:
+  # Master switch. false (default) => the whole template renders to nothing.
+  # Flip true in a per-Sovereign overlay ONLY on a Sovereign the operator keeps
+  # on a managed upstream-update schedule (the companion of opting mirrorResync
+  # / the operator's Git-sync schedule in).
+  enabled: false
+  # Reconcile loop interval (seconds). 300 = 5 min, matching the mirrorResync
+  # cadence so a Git pin bump and its Harbor artifact land in the same window.
+  intervalSeconds: 300
+  # detect | warm.
+  #   detect (DEFAULT when enabled) — reaches ONLY the local Gitea mirror +
+  #     local Harbor (ZERO external egress). Reports the exact pinned
+  #     (chart, version) artifacts MISSING from local Harbor to the manifest
+  #     ConfigMap + logs. That set IS the air-gapped Sovereign's offline-media
+  #     side-load list, and it turns the previously-SILENT strand into a
+  #     visible, actionable signal.
+  #   warm — additionally `helm pull`s each missing chart from
+  #     warm.upstreamOciPrefix (operator credential) and `helm push`es it into
+  #     local Harbor, then re-checks. Only this mode reaches upstream, and only
+  #     for chart OCI bytes on the operator's schedule (the exact companion of
+  #     the Git mirror reaching github.com on that schedule). Fail-SOFT: a warm
+  #     miss is logged + left in the manifest; the loop never crash-loops and
+  #     workloads keep running on the installed version.
+  mode: detect
+  # Durable ConfigMap (release namespace) the loop writes the missing-artifact
+  # manifest into each cycle. An empty manifest (ALL_PINS_PRESENT) is the
+  # all-clear. Air-gapped operators consume this as the offline-media manifest.
+  missingManifestConfigMapName: "self-sovereign-cutover-daytwo-missing"
+  warm:
+    # Upstream OCI prefix missing charts are pulled from in warm mode. Default
+    # is the public openova-io catalog; an operator who mirrors the catalog to
+    # their OWN registry points this (and registryHost) at that mirror instead
+    # — the workloads still pull EXCLUSIVELY from local Harbor either way.
+    upstreamOciPrefix: "oci://ghcr.io/openova-io"
+    # Bare host of upstreamOciPrefix — the `helm registry login` target.
+    registryHost: "ghcr.io"
+    # OPERATOR-SUPPLIED upstream credential for warm mode. The cutover strips
+    # its own ghcr auth from ghcr-pull (step-06 mothershipAuthsToStrip, by
+    # design), so warm mode needs a credential the operator provisions when they
+    # choose a managed-update posture. Empty name => anonymous pulls only
+    # (openova-io charts are PRIVATE, so they stay in the missing manifest until
+    # a credential is supplied or the operator side-loads via the manifest).
+    credentialSecret:
+      name: ""
+      # Defaults to the release namespace when empty (the reconciler Pod's own
+      # namespace, so a secretKeyRef would resolve — but the loop reads it via
+      # kubectl, so any namespace the runner SA can `secrets get` works).
+      namespace: ""
+      usernameKey: "username"
+      passwordKey: "password"
+
 # Gateway readiness gate (issue #1871, chart 0.1.32).
 #
 # Step-06 (helmrepository-patches) rewrites every HelmRepository URL

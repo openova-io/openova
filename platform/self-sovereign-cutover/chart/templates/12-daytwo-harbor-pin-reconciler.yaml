@@ -1,0 +1,388 @@
+{{- /*
+#5265 — POST-CUTOVER DAY-2 Harbor pin reconciler.
+
+The gap
+───────
+`bp-self-sovereign-cutover` mirrors the public catalog into the local Gitea
+(step-01) and prewarms every pinned chart+image into the local Harbor
+(step-03) EXACTLY ONCE at cutover time. Post-cutover, on the operator's chosen
+schedule, the local Gitea RE-SYNCS upstream pin bumps (CLAUDE.md §Customer-Sync)
+and Flux picks the new pin up — verified live hw277 (dep 1708c340ffc0e3f2,
+2026-07-19): after cc=true, catalog merges #5258/#5260 landed, the mirror
+re-synced, the bootstrap-kit pin moved (region-b bp-continuum HR
+spec.chart.spec.version=0.1.12) — but the local Harbor still held ONLY the
+versions the one-time step-03 prewarm pushed. The HelmChart could not reconcile
+("latest generation not reconciled") → the HR upgrade wedged. Workloads stay
+healthy on the installed version (an upgrade wedge, not an outage), but EVERY
+upstream chart bump SILENTLY strands the Sovereign's HR upgrades.
+
+The Git leg has a companion (step-01's re-runnable mirror + the operator's
+sync schedule). The Harbor leg had none — this reconciler IS that companion.
+
+Why a Deployment, not a CronJob
+───────────────────────────────
+`reference_region_local_reconciler_must_be_deployment_not_cronjob_survives_
+region_kill.md`: a CronJob's scheduler lives in the control-plane region; when
+that region is killed the CronJob stops firing and the loop dies silently. A
+Deployment (replicas: 1, Recreate) is rescheduled onto a surviving node by the
+kube scheduler, so the Day-2 loop keeps running across a region kill — exactly
+the failure the multi-region Sovereign is built to survive. (The #1899
+gitea-mirror-resync CronJob predates this canon; the issue #5265 fix direction
+mandates a Deployment here.)
+
+Sovereignty — this NEVER weakens the Pillar-5 guarantee
+───────────────────────────────────────────────────────
+Ships DISABLED by default (`daytwoReconciler.enabled: false`), the SAME
+severance-safe default as the #2622 gitea-mirror-resync CronJob: a canonical
+fresh-prov Sovereign renders NOTHING here, so the step-08 deny-egress proof and
+the "no automatic upstream tether" contract are untouched. When an operator
+OPTS IN (they have chosen a managed-update posture — the CLAUDE.md
+§Customer-Sync "operator's chosen schedule"):
+
+  • mode=detect (DEFAULT when enabled) — the loop reaches ONLY the local Gitea
+    mirror (frozen pins) + the local Harbor (artifact API). ZERO external
+    egress. It emits the exact set of pinned (chart, version) artifacts MISSING
+    from local Harbor to a durable ConfigMap + loud logs. That set IS the
+    air-gapped Sovereign's offline-media manifest (side-load exactly these) and
+    it turns the previously-silent strand into a visible, actionable signal.
+
+  • mode=warm — additionally `helm pull`s each missing chart from the operator-
+    nominated upstream (authenticating with an operator-SUPPLIED credential
+    Secret; the cutover's own ghcr auth is stripped by step-06, by design) and
+    `helm push`es it into the local Harbor, then re-checks. Only this mode
+    reaches upstream, and only for chart OCI bytes on the operator's schedule —
+    the exact companion of the Git mirror reaching github.com on that schedule.
+    A warm failure is fail-SOFT (logged, left in the missing manifest) so the
+    loop never crash-loops and the workloads keep running on the installed
+    version.
+
+Single-source discipline
+────────────────────────
+The pin enumeration is the SAME 03b `bootstrapkit_pins` extractor step-03
+(Phase A2-pins) and step-06 (Phase 3a-pin) use — mounted here from the
+`cutover-bootstrap-kit-pins` ConfigMap, sourced at runtime. Two cutover steps
+and this Day-2 watch, ONE parser: the mirror set and the gate can never
+disagree about what "the pins" are (03b's documented #5265 reuse seam).
+
+NOT a cutover-step ConfigMap: no `bp.openova.io/cutover-order` label, so it does
+NOT count toward the 11-step contract (tests/cutover-contract.sh Case 2/4).
+
+Image phase: pre — like the #1899 mirror-resync CronJob, this workload is
+created at chart-install time and uses the upstream-public image reference;
+post-cutover the node containerd (step-04 registries.yaml v2) resolves that
+reference from the local Harbor, so the ref is self-contained either way.
+*/ -}}
+{{- if .Values.daytwoReconciler.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cutover-daytwo-harbor-reconciler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daytwo-harbor-reconciler
+    catalyst.openova.io/purpose: "post-cutover-daytwo-harbor-pin-reconcile"
+spec:
+  replicas: 1
+  # Recreate (never two writers): a single loop pushes to local Harbor + writes
+  # the missing-manifest ConfigMap; a rolling overlap could double-push / race
+  # the CM. The loop is cheap, so no availability cost.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "bp-self-sovereign-cutover.name" . }}
+      app.kubernetes.io/component: daytwo-harbor-reconciler
+  template:
+    metadata:
+      labels:
+        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
+        app.kubernetes.io/component: daytwo-harbor-reconciler
+    spec:
+      serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+      # Harbor admin secret + the ghcr-pull warm credential resolve via
+      # secretKeyRef in THIS Pod's namespace; the runner SA + release-namespace
+      # bridges (harbor-admin Reflector mirror, #935) already land them here.
+      containers:
+        - name: daytwo-harbor-reconciler
+          image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
+          imagePullPolicy: IfNotPresent
+          env:
+            # ── local Harbor (presence probe + warm push dest) ──
+            - name: HARBOR_INTERNAL_URL
+              value: {{ .Values.sovereign.harborInternalURL | quote }}
+            - name: HARBOR_PUBLIC_URL
+              value: {{ .Values.sovereign.harborPublicURL | quote }}
+            - name: HARBOR_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.harbor.adminSecretRef.name }}
+                  key: {{ .Values.harbor.adminSecretRef.usernameKey }}
+                  optional: true
+            - name: HARBOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.harbor.adminSecretRef.name }}
+                  key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+            # ── local Gitea mirror (frozen bootstrap-kit pins) ──
+            - name: GITEA_INTERNAL_URL
+              value: {{ .Values.sovereign.giteaInternalURL | quote }}
+            - name: GITEA_ORG
+              value: {{ .Values.gitea.org | quote }}
+            - name: GITEA_REPO
+              value: {{ .Values.gitea.repo | quote }}
+            - name: UPSTREAM_BRANCH
+              value: {{ .Values.upstream.branch | quote }}
+            - name: UPSTREAM_PREFIX
+              value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
+            # catalyst-gitea-token PAT — the SAME coordinates + auth path steps
+            # 01/05 read (a PAT is a direct local sha1 lookup, immune to the
+            # openova-sso apiAuth hang a BasicAuth password takes mid-converge).
+            - name: PAT_SOURCE_NAMESPACE
+              value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+            - name: PAT_SOURCE_SECRET_NAME
+              value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+            - name: PAT_SOURCE_KEY
+              value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
+            # ── loop policy ──
+            - name: RECONCILE_INTERVAL_SECONDS
+              value: {{ .Values.daytwoReconciler.intervalSeconds | quote }}
+            # detect (default; zero egress) | warm (opt-in upstream chart pulls)
+            - name: RECONCILE_MODE
+              value: {{ .Values.daytwoReconciler.mode | quote }}
+            - name: MISSING_MANIFEST_CM
+              value: {{ .Values.daytwoReconciler.missingManifestConfigMapName | quote }}
+            - name: RELEASE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            # ── warm-mode source (operator-supplied; only read when mode=warm) ──
+            - name: WARM_UPSTREAM_OCI_PREFIX
+              value: {{ .Values.daytwoReconciler.warm.upstreamOciPrefix | quote }}
+            - name: WARM_REGISTRY_HOST
+              value: {{ .Values.daytwoReconciler.warm.registryHost | quote }}
+            - name: WARM_CRED_SECRET_NAME
+              value: {{ .Values.daytwoReconciler.warm.credentialSecret.name | quote }}
+            - name: WARM_CRED_SECRET_NAMESPACE
+              value: {{ .Values.daytwoReconciler.warm.credentialSecret.namespace | default .Release.Namespace | quote }}
+            - name: WARM_CRED_USERNAME_KEY
+              value: {{ .Values.daytwoReconciler.warm.credentialSecret.usernameKey | quote }}
+            - name: WARM_CRED_PASSWORD_KEY
+              value: {{ .Values.daytwoReconciler.warm.credentialSecret.passwordKey | quote }}
+          volumeMounts:
+            - name: pin-extractor
+              mountPath: /pin-extractor
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              export HOME=/tmp
+              : "${HARBOR_USERNAME:=admin}"
+              : "${RECONCILE_INTERVAL_SECONDS:=300}"
+              : "${RECONCILE_MODE:=detect}"
+
+              # Bare host of the local Harbor (registry.<fqdn>) — the helm
+              # registry login + push target in warm mode. Post-cutover its
+              # wildcard cert is production LE (in the base ca-certificates),
+              # so the helm push over :443 is trusted with no extra trust store.
+              HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
+              gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+
+              echo "[daytwo] post-cutover Harbor pin reconciler starting (mode=${RECONCILE_MODE}, interval=${RECONCILE_INTERVAL_SECONDS}s, #5265)"
+              echo "[daytwo] local Gitea mirror=${GITEA_INTERNAL_URL} (${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}); local Harbor=${HARBOR_INTERNAL_URL}"
+              case "${RECONCILE_MODE}" in
+                warm) echo "[daytwo] mode=warm — missing chart OCI artifacts are pulled from ${WARM_UPSTREAM_OCI_PREFIX} (operator-scheduled; the Git-mirror companion) and pushed to local Harbor" ;;
+                *)    echo "[daytwo] mode=detect — reaching ONLY the local Gitea mirror + local Harbor (zero external egress); missing artifacts are reported to ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} as the offline-media manifest" ;;
+              esac
+
+              # Read the catalyst-gitea-token PAT (never echoed; sent only via
+              # the Authorization header). Bounded per-call so a rotation heals.
+              read_pat() {
+                _rp=""
+                for _i in $(seq 1 6); do
+                  _rp=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
+                    -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                  [ -n "${_rp}" ] && break
+                  sleep 5
+                done
+                printf '%s' "${_rp}"
+              }
+
+              # Harbor artifact API (Harbor CORE against its DB — NEVER a
+              # pull-through; the #5030 durable-presence probe step-03/08 use).
+              # 200 => the chart OCI artifact is DURABLY present locally.
+              harbor_has() {
+                _hc=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
+                  -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                  "${HARBOR_INTERNAL_URL}/api/v2.0/projects/openova-io/repositories/$1/artifacts/$2" 2>/dev/null || true)
+                [ "${_hc}" = "200" ]
+              }
+
+              # warm ONE missing chart: helm pull upstream (operator cred if
+              # supplied) -> helm push local. Fail-SOFT (returns non-zero, the
+              # caller keeps it in the missing manifest; never crashes the loop).
+              WARM_LOGIN_DONE=0
+              warm_chart() {
+                _wc="$1"; _wv="$2"
+                mkdir -p /tmp/daytwo-pull
+                rm -f /tmp/daytwo-pull/*.tgz 2>/dev/null || true
+                if ! helm pull "${WARM_UPSTREAM_OCI_PREFIX}/${_wc}" --version "${_wv}" -d /tmp/daytwo-pull >/tmp/daytwo-pull/pull.log 2>&1; then
+                  echo "[daytwo] warm PULL FAILED ${_wc}:${_wv} from ${WARM_UPSTREAM_OCI_PREFIX} — $(tail -1 /tmp/daytwo-pull/pull.log 2>/dev/null) (left in missing manifest; workloads keep running on the installed version)"
+                  return 1
+                fi
+                _tgz=$(ls /tmp/daytwo-pull/*.tgz 2>/dev/null | head -1)
+                [ -n "${_tgz}" ] || { echo "[daytwo] warm ${_wc}:${_wv} — pull produced no chart archive"; return 1; }
+                if ! helm push "${_tgz}" "oci://${HARBOR_HOST}/openova-io" >/tmp/daytwo-pull/push.log 2>&1; then
+                  echo "[daytwo] warm PUSH FAILED ${_wc}:${_wv} -> oci://${HARBOR_HOST}/openova-io — $(tail -1 /tmp/daytwo-pull/push.log 2>/dev/null)"
+                  return 1
+                fi
+                echo "[daytwo] warm OK ${_wc}:${_wv} -> local Harbor openova-io/${_wc}:${_wv}"
+                return 0
+              }
+
+              reconcile_once() {
+                # Idempotent pre-flight: pre-cutover (or before step-01 mirrored)
+                # the local Gitea repo isn't present — skip this iteration.
+                if [ -n "${gitea_host}" ] && ! nslookup "${gitea_host}" >/dev/null 2>&1; then
+                  echo "[daytwo] ${gitea_host} not resolvable yet — local Gitea not up (pre-cutover?); skipping this cycle"
+                  return 0
+                fi
+                _pat=$(read_pat)
+                if [ -z "${_pat}" ]; then
+                  echo "[daytwo] PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} not readable — cannot read the local Gitea mirror this cycle; retrying next interval"
+                  return 1
+                fi
+                _api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
+                # Repo present? (Not yet mirrored => nothing to reconcile.)
+                if ! curl -fsS --max-time 30 -H "Authorization: token ${_pat}" "${_api}" 2>/dev/null | grep -q '"full_name"'; then
+                  echo "[daytwo] local repo ${GITEA_ORG}/${GITEA_REPO} not present yet — step-01 gitea-mirror has not completed; skipping this cycle"
+                  return 0
+                fi
+
+                # Fetch the freshly-synced bootstrap-kit slot files (contents+raw
+                # API, ~70 small text fetches — far lighter than a full clone),
+                # exactly as step-03 Phase A2-pins does.
+                _dir=/tmp/daytwo-bk; rm -rf "${_dir}"; mkdir -p "${_dir}"
+                _bkpath="clusters/_template/bootstrap-kit"
+                _list=$(curl -fsS --retry 3 --retry-delay 5 -H "Authorization: token ${_pat}" \
+                  "${_api}/contents/${_bkpath}?ref=${UPSTREAM_BRANCH}" 2>/dev/null \
+                  | jq -r '.[] | select(.type=="file") | .name | select(test("^[0-9].*\\.ya?ml$"))' 2>/dev/null || true)
+                if [ -z "${_list}" ]; then
+                  echo "[daytwo] could not list ${_bkpath} in the local Gitea mirror this cycle; retrying next interval"
+                  return 1
+                fi
+                _ff=0
+                for _f in ${_list}; do
+                  curl -fsS --retry 3 --retry-delay 5 -H "Authorization: token ${_pat}" \
+                    -o "${_dir}/${_f}" \
+                    "${_api}/raw/${_bkpath}/${_f}?ref=${UPSTREAM_BRANCH}" 2>/dev/null || _ff=$((_ff+1))
+                done
+                [ "${_ff}" -gt 0 ] && echo "[daytwo] WARN: ${_ff} slot file(s) failed to fetch this cycle — the pin set may be partial; retrying next interval will re-fetch"
+
+                # Shared 03b extractor — the SAME parser step-03 + step-06 use.
+                . /pin-extractor/extract-pins.sh
+                _pins=/tmp/daytwo-pins.tsv
+                bootstrapkit_pins "${_dir}" "${UPSTREAM_PREFIX}" "oci://${HARBOR_HOST}/openova-io" > "${_pins}" 2>/dev/null || true
+                _pn=$(grep -c . "${_pins}" 2>/dev/null || true)
+                if [ "${_pn}" -eq 0 ]; then
+                  echo "[daytwo] extractor parsed zero pins this cycle (mirror mid-sync or slot drift) — skipping; retrying next interval"
+                  return 1
+                fi
+
+                # Diff every frozen chart pin against local Harbor.
+                _missing=/tmp/daytwo-missing.txt; : > "${_missing}"
+                _present=0; _miss=0; _warmed=0
+                while IFS="$(printf '\t')" read -r _c _v; do
+                  [ -z "${_c}" ] && continue
+                  if harbor_has "${_c}" "${_v}"; then
+                    _present=$((_present+1)); continue
+                  fi
+                  # Missing. In warm mode, try to fetch it; re-check after.
+                  if [ "${RECONCILE_MODE}" = "warm" ] && warm_chart "${_c}" "${_v}" && harbor_has "${_c}" "${_v}"; then
+                    _warmed=$((_warmed+1)); continue
+                  fi
+                  printf '%s\t%s\n' "${_c}" "${_v}" >> "${_missing}"
+                  _miss=$((_miss+1))
+                  echo "[daytwo] MISSING local Harbor: openova-io/${_c}:${_v} (frozen bootstrap-kit pin) — its HR upgrade will wedge until this artifact is present"
+                done < "${_pins}"
+
+                # Publish the missing set to a durable ConfigMap (the offline-
+                # media manifest for air-gapped Sovereigns; the actionable signal
+                # for everyone). Always write it — an EMPTY manifest is the
+                # "all pins present" all-clear.
+                _mf=/tmp/daytwo-manifest.txt
+                {
+                  echo "# self-sovereign-cutover Day-2 Harbor pin manifest (#5265)"
+                  echo "# generated $(date -u +%Y-%m-%dT%H:%M:%SZ) mode=${RECONCILE_MODE}"
+                  echo "# pins=${_pn} present=${_present} warmed=${_warmed} missing=${_miss}"
+                  echo "# each MISSING line is a chart OCI artifact to side-load into local Harbor project openova-io:"
+                  echo "#   helm pull ${WARM_UPSTREAM_OCI_PREFIX}/<chart> --version <version>  &&  helm push <tgz> oci://${HARBOR_HOST}/openova-io"
+                  if [ "${_miss}" -gt 0 ]; then
+                    sort -u "${_missing}" | while IFS="$(printf '\t')" read -r _mc _mv; do
+                      [ -n "${_mc}" ] && printf 'MISSING\t%s\t%s\n' "${_mc}" "${_mv}"
+                    done
+                  else
+                    echo "ALL_PINS_PRESENT"
+                  fi
+                } > "${_mf}"
+                kubectl -n "${RELEASE_NAMESPACE}" create configmap "${MISSING_MANIFEST_CM}" \
+                  --from-file=manifest.txt="${_mf}" \
+                  --dry-run=client -o yaml 2>/dev/null \
+                  | kubectl -n "${RELEASE_NAMESPACE}" apply -f - >/dev/null 2>&1 \
+                  || echo "[daytwo] WARN: could not update ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} (logs still carry the manifest)"
+
+                echo "[daytwo] cycle complete: pins=${_pn} present=${_present} warmed=${_warmed} missing=${_miss} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
+                return 0
+              }
+
+              # warm-mode one-time upstream + local registry logins (best-effort;
+              # login failure falls through to per-chart fail-soft handling).
+              if [ "${RECONCILE_MODE}" = "warm" ]; then
+                export HELM_CACHE_HOME=/tmp/.helm-cache HELM_CONFIG_HOME=/tmp/.helm-config HELM_DATA_HOME=/tmp/.helm-data
+                if [ -n "${WARM_CRED_SECRET_NAME}" ]; then
+                  _wu=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_USERNAME_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                  _wp=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_PASSWORD_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                  if [ -n "${_wu}" ] && [ -n "${_wp}" ]; then
+                    helm registry login "${WARM_REGISTRY_HOST}" -u "${_wu}" -p "${_wp}" >/dev/null 2>&1 \
+                      && echo "[daytwo] warm: authenticated to upstream ${WARM_REGISTRY_HOST}" \
+                      || echo "[daytwo] warm: upstream ${WARM_REGISTRY_HOST} login failed (anonymous pulls only; private charts stay in the missing manifest)"
+                  else
+                    echo "[daytwo] warm: credential Secret ${WARM_CRED_SECRET_NAMESPACE}/${WARM_CRED_SECRET_NAME} has no usable ${WARM_CRED_USERNAME_KEY}/${WARM_CRED_PASSWORD_KEY} — anonymous pulls only"
+                  fi
+                else
+                  echo "[daytwo] warm: no credentialSecret configured — anonymous pulls only (openova-io charts are PRIVATE; supply daytwoReconciler.warm.credentialSecret to fetch them)"
+                fi
+                helm registry login "${HARBOR_HOST}" -u "${HARBOR_USERNAME}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
+                  && echo "[daytwo] warm: authenticated to local Harbor ${HARBOR_HOST}" \
+                  || echo "[daytwo] warm: local Harbor ${HARBOR_HOST} login failed — pushes will retry per cycle"
+              fi
+
+              # The Day-2 loop. Never exit on a transient cycle failure — a wedge
+              # in one cycle must not stop the reconciler (region-kill canon: the
+              # loop is the durable surface).
+              while : ; do
+                reconcile_once || echo "[daytwo] this cycle could not complete (transient); retrying next interval"
+                echo "[daytwo] sleeping ${RECONCILE_INTERVAL_SECONDS}s"
+                sleep "${RECONCILE_INTERVAL_SECONDS}"
+              done
+          resources:
+            requests: { cpu: 25m, memory: 128Mi }
+            limits:   { memory: 512Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: pin-extractor
+          configMap:
+            name: cutover-bootstrap-kit-pins
+            items:
+              - key: extract-pins.sh
+                path: extract-pins.sh
+        - name: tmp
+          emptyDir: {}
+{{- end }}

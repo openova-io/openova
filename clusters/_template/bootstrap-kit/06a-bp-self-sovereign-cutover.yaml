@@ -964,7 +964,17 @@ spec:
       # missing one and FATALing with the full missing list otherwise (knob
       # helmReadinessProbe.pinPresenceGate). Contract Case 68 runs the
       # extractor against this very slot corpus at PR time.
-      version: 0.1.149
+      # 0.1.150 (#5265 Refs #5237): POST-CUTOVER DAY-2 Harbor pin reconciler —
+      # a Deployment (region-kill-survivable, not a CronJob) that enumerates the
+      # frozen bootstrap-kit chart pins via the SAME 03b extractor and warms any
+      # version local Harbor lacks after a Day-2 mirror re-sync (LIVE hw277: the
+      # mirror re-synced the bp-continuum 0.1.12 pin but local Harbor lacked the
+      # chart → HR upgrade wedged). Ships DISABLED (daytwoReconciler.enabled=
+      # false — the severance-safe mirrorResync default); detect mode reaches
+      # only local Gitea+Harbor (zero egress) + emits the offline-media
+      # missing-artifact manifest, warm mode helm-pulls+pushes on the operator's
+      # schedule. No step-count/RBAC change (still 11 steps). Contract Case 69.
+      version: 0.1.150
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

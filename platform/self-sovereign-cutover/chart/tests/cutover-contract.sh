@@ -3456,5 +3456,112 @@ if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress p
   exit 1
 fi
 echo "  PASS (#5095 round 2: step-03 probes the mothership proxy once [bounded, values-knobbed, never fatal], latches .proxy_down when unreachable, then tries the DIRECT upstream first for proxy-sourced refs — gated on the toggle + latch, probe skipped on an all-ghcr wave, adaptive latch on the proxy-bad/direct-good signal — eliminating the per-image proxy timeout tax while keeping the round-1 after-failure fallback + the Phase A FATAL intact)"
+echo "[cutover-contract] Case 70: #5265 post-cutover Day-2 Harbor pin reconciler — a Deployment (NOT CronJob), ABSENT by default, sharing the 03b extractor; detect-only reaches only local Gitea+Harbor, warm helm-pulls+pushes"
+# The reconciler closes the Day-2 Harbor leg: after cutover the local Gitea
+# mirror re-syncs upstream pin bumps and Flux moves the HR to the new pin, but
+# local Harbor still holds only the cutover-time versions → the HR upgrade
+# wedges (LIVE hw277 bp-continuum 0.1.12). It ships DISABLED (severance-safe,
+# like mirrorResync) and — when opted in — enumerates the frozen bootstrap-kit
+# pins via the SAME 03b extractor step-03/step-06 use, diffs local Harbor, and
+# reports (detect) or warms (warm) the drift. Region-kill canon mandates a
+# Deployment, not a CronJob.
+# NOTE (#4969 SIGPIPE trap — see Case 16c): the suite runs under
+# `set -o pipefail`, so NEVER `... | grep -q` here — grep -q closes the pipe on
+# its first match, the upstream awk/grep takes EPIPE and the pipeline exits
+# non-zero → a spurious FAIL. Every assertion below reads a FILE (file-fed grep
+# has no upstream writer to SIGPIPE); the doc blocks are captured to files via
+# an RS-split awk FIRST.
+c70_fail=0
+# (a) ABSENT by default (enabled=false) — no automatic tether on a canonical prov.
+if grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render.yaml"; then
+  echo "FAIL: Day-2 Harbor reconciler rendered by default — it MUST be off unless daytwoReconciler.enabled=true (severance-safe default; #5265)" >&2
+  c70_fail=1
+fi
+# Render an enabled (detect, default) variant + an enabled warm variant.
+helm template smoke-daytwo . --set daytwoReconciler.enabled=true > "$TMP/render-daytwo.yaml"
+helm template smoke-daytwo-warm . --set daytwoReconciler.enabled=true --set daytwoReconciler.mode=warm > "$TMP/render-daytwo-warm.yaml"
+# Capture the FULL reconciler doc (apiVersion..kind..spec) via an RS-split awk —
+# split on the `---` doc separator, print the record carrying the reconciler
+# name. No downstream pipe, so no SIGPIPE.
+DT_F="$TMP/daytwo.yaml"
+DT_W="$TMP/daytwo-warm.yaml"
+awk 'BEGIN{RS="\n---\n"} /cutover-daytwo-harbor-reconciler/{print; exit}' "$TMP/render-daytwo.yaml" > "$DT_F"
+awk 'BEGIN{RS="\n---\n"} /cutover-daytwo-harbor-reconciler/{print; exit}' "$TMP/render-daytwo-warm.yaml" > "$DT_W"
+# (b) When enabled it renders as a Deployment, NOT a CronJob (region-kill canon).
+if ! grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render-daytwo.yaml"; then
+  echo "FAIL: Day-2 Harbor reconciler absent when daytwoReconciler.enabled=true (#5265)" >&2
+  c70_fail=1
+fi
+if ! grep -qE '^kind: Deployment$' "$DT_F"; then
+  echo "FAIL: Day-2 Harbor reconciler is not a Deployment — region-kill canon requires a Deployment (a CronJob's scheduler dies with the control-plane region; #5265)" >&2
+  c70_fail=1
+fi
+if grep -q 'kind: CronJob' "$DT_F"; then
+  echo "FAIL: Day-2 Harbor reconciler renders a CronJob — must be a Deployment (#5265)" >&2
+  c70_fail=1
+fi
+# (c) It must NOT carry a cutover-order label (so the 11-step count is unchanged).
+if grep -q 'bp.openova.io/cutover-order' "$DT_F"; then
+  echo "FAIL: Day-2 Harbor reconciler carries bp.openova.io/cutover-order — it would inflate the 11-step contract (#5265)" >&2
+  c70_fail=1
+fi
+# The 11-step count MUST be unchanged even with the reconciler enabled.
+dt_steps=$(grep -c 'bp.openova.io/cutover-order:' "$TMP/render-daytwo.yaml")
+if [ "${dt_steps}" -ne 11 ]; then
+  echo "FAIL: enabling the Day-2 reconciler changed the step count to ${dt_steps} (must stay 11) (#5265)" >&2
+  c70_fail=1
+fi
+# (d) It sources the SHARED 03b extractor (single-source discipline) + mounts it.
+if ! grep -q '/pin-extractor/extract-pins.sh' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not source the shared 03b extract-pins.sh — it must reuse the SAME bootstrapkit_pins parser step-03/step-06 use (#5265 Refs #5237)" >&2
+  c70_fail=1
+fi
+if ! grep -q 'bootstrapkit_pins ' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler never calls bootstrapkit_pins — the frozen-pin enumeration is the reuse seam 03b documents for #5265" >&2
+  c70_fail=1
+fi
+if ! grep -q 'name: cutover-bootstrap-kit-pins' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not mount the cutover-bootstrap-kit-pins ConfigMap (03b) (#5265)" >&2
+  c70_fail=1
+fi
+# (e) Presence is checked via the durable Harbor artifact API (never a pull-through).
+if ! grep -q '/api/v2.0/projects/openova-io/repositories/' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not probe the Harbor artifact API for durable presence (#5265 Refs #5030)" >&2
+  c70_fail=1
+fi
+# (f) It writes the missing-artifact manifest ConfigMap (offline-media list).
+if ! grep -q 'MISSING_MANIFEST_CM' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not publish the missing-artifact manifest ConfigMap (the air-gap offline-media list + the actionable signal) (#5265)" >&2
+  c70_fail=1
+fi
+# (g) DETECT is the default mode when enabled (the zero-egress posture). Capture
+#     the RECONCILE_MODE env pair to a file (no pipe) then assert its value.
+grep -A1 'name: RECONCILE_MODE' "$DT_F" > "$TMP/dt-mode.txt" || true
+if ! grep -q 'value: "detect"' "$TMP/dt-mode.txt"; then
+  echo "FAIL: Day-2 reconciler default mode is not detect — the zero-egress mode MUST be the default when enabled (#5265)" >&2
+  c70_fail=1
+fi
+# (h) WARM mode contains the helm pull upstream + helm push local, gated behind mode=warm.
+grep -A1 'name: RECONCILE_MODE' "$DT_W" > "$TMP/dt-mode-warm.txt" || true
+if ! grep -q 'value: "warm"' "$TMP/dt-mode-warm.txt"; then
+  echo "FAIL: warm variant does not carry RECONCILE_MODE=warm (#5265)" >&2
+  c70_fail=1
+fi
+if ! grep -q 'helm pull' "$DT_W"; then
+  echo "FAIL: warm mode reconciler does not helm-pull upstream (#5265)" >&2
+  c70_fail=1
+fi
+if ! grep -q 'helm push' "$DT_W"; then
+  echo "FAIL: warm mode reconciler does not helm-push local (#5265)" >&2
+  c70_fail=1
+fi
+# The warm helm pull/push must be RUNTIME-gated on mode=warm, not always-on
+# (the script branches `if [ "${RECONCILE_MODE}" = "warm" ]`).
+if ! grep -q '"${RECONCILE_MODE}" = "warm"' "$DT_W"; then
+  echo "FAIL: the warm upstream pull is not runtime-gated on mode=warm — detect must never reach upstream (#5265)" >&2
+  c70_fail=1
+fi
+if [ "$c70_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5265: Day-2 Harbor pin reconciler is a Deployment [region-kill canon], absent by default [severance-safe], reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to zero-egress detect mode, and gates the upstream helm-pull/push behind opt-in warm mode; step count unchanged at 11)"
 
 echo "[cutover-contract] All gates green."

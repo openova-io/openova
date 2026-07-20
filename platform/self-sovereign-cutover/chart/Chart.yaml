@@ -1,5 +1,48 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.150 (#5265 Refs #5237 #5007 #3379 — POST-CUTOVER DAY-2 Harbor pin
+# reconciler: close the Day-2 Harbor leg of the sovereignty design. step-03
+# harbor-prewarm pushes every pinned chart into local Harbor EXACTLY ONCE at
+# cutover; post-cutover the local Gitea mirror re-syncs upstream pin bumps on
+# the operator's schedule and Flux moves the HR to the new pin, but local Harbor
+# still holds only the cutover-time versions → HelmChart cannot reconcile → the
+# HR upgrade wedges (LIVE hw277 dep 1708c340ffc0e3f2, 2026-07-19: post-cc=true,
+# catalog merges #5258/#5260 landed, the mirror re-synced + the bootstrap-kit
+# pin moved to region-b bp-continuum chart 0.1.12 which local Harbor lacked →
+# "latest generation not reconciled" → upgrade wedge; a strand, not an outage,
+# but EVERY upstream chart bump silently strands post-cutover Sovereigns). The
+# Git leg has a companion (step-01's re-runnable mirror + the operator's Git-
+# sync schedule); the Harbor leg had none. NEW template
+# 12-daytwo-harbor-pin-reconciler.yaml ships a DEPLOYMENT (NOT a CronJob —
+# reference_region_local_reconciler_must_be_deployment_not_cronjob: the loop
+# must survive the control-plane region dying) that enumerates the frozen
+# bootstrap-kit chart pins via the SAME 03b `bootstrapkit_pins` extractor
+# step-03 (Phase A2-pins) + step-06 (Phase 3a-pin) use (03b's documented #5265
+# reuse seam — one parser, three call sites, never divergent), diffs them
+# against local Harbor (the #5030 durable artifact-API probe, never a
+# pull-through), and closes the drift. SOVEREIGNTY-SAFE: ships DISABLED by
+# default (daytwoReconciler.enabled=false — the SAME severance-safe default as
+# mirrorResync, so a canonical fresh-prov Sovereign renders NOTHING here and the
+# step-08 deny-egress proof + "no automatic upstream tether" contract are
+# untouched). When an operator opts into a managed-update posture:
+#   • mode=detect (default) reaches ONLY the local Gitea mirror + local Harbor
+#     (ZERO external egress) and writes the exact set of MISSING pinned chart
+#     artifacts to a durable ConfigMap (self-sovereign-cutover-daytwo-missing) +
+#     loud logs — the air-gapped Sovereign's offline-media side-load manifest,
+#     and the actionable signal that turns the previously-SILENT strand visible;
+#   • mode=warm additionally helm-pulls each missing chart from the operator-
+#     nominated upstream (operator-supplied credential — the cutover strips its
+#     own ghcr auth by design) and helm-pushes it into local Harbor, then
+#     re-checks (fail-SOFT; the loop never crash-loops, workloads keep running
+#     on the installed version). New values block daytwoReconciler.*; NO new
+#     RBAC (configmaps create/update/patch + secrets get already granted
+#     cluster-wide to the runner SA); NO step-count change (still 11 cutover
+#     steps — the Deployment carries no bp.openova.io/cutover-order label).
+#     Contract Case 69 locks the Deployment shape + the 03b extractor reuse +
+#     the absent-by-default + detect-vs-warm behaviour. Slot-06a pin +
+#     blueprint.yaml + catalog-seed source.version + spec.version move to 0.1.150
+#     in lockstep (Inviolable Principle #13; catalog-seed pin must NOT lag).
+# ── prior ──
 # 0.1.149 (#5095 round 2, Refs #5093 #5298 — step-03 harbor-prewarm proxy-DOWN
 # DIRECT-FIRST routing. The 0.1.136 direct-source fallback (below) fires only
 # AFTER the mothership-proxy `skopeo copy` returns non-zero, and that proxy copy
@@ -2576,7 +2619,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.149
+version: 0.1.150
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
