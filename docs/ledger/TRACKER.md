@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T09:00:03Z` |
+| Last refreshed | `2026-07-20T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 33 |
+| Open issues | 34 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 33 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 34 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 33 open items (clickable table)
+### All 34 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -233,6 +233,7 @@ flowchart LR
 | [#5281](https://github.com/openova-io/openova/issues/5281) | fix(crossplane): core controller image pulls DIRECT from xpkg.upbound.io (503) d | Other |
 | [#5283](https://github.com/openova-io/openova/issues/5283) | Phase-1 watch hard-fails a still-progressing prov at the WatchTimeout wall-clock | Other |
 | [#5285](https://github.com/openova-io/openova/issues/5285) | Failed deployment's watch-informers flood catalyst-api → starve /wipe + /deplo | Other |
+| [#5289](https://github.com/openova-io/openova/issues/5289) | 2-region: api./console./marketplace. flap 200↔404 in NORMAL operation — regi | Other |
 
 ---
 
@@ -240,6 +241,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T09:14 | [#5288](https://github.com/openova-io/openova/pull/5288) | #897 | fix(cloud): render Volume nodes from live volume.hcloud mana |
+| 2026-07-20T09:14 | [#5287](https://github.com/openova-io/openova/pull/5287) | #5254 | fix(catalyst-api): tear down + quarantine k8scache reflector |
+| 2026-07-20T09:14 | [#5286](https://github.com/openova-io/openova/pull/5286) | #5282 | feat(ci): fresh-prov image-registry gate + route bp-trivy of |
+| 2026-07-20T09:14 | [#5284](https://github.com/openova-io/openova/pull/5284) | #5269 | fix(catalyst-api): Phase-1 watch progress-guard — never hard |
 | 2026-07-20T04:47 | [#5282](https://github.com/openova-io/openova/pull/5282) | #4349 | fix(crossplane): route core controller image via harbor.open |
 | 2026-07-20T02:20 | [#5280](https://github.com/openova-io/openova/pull/5280) | #4811 | fix(catalyst-api): enumerate region-b cluster when declared  |
 | 2026-07-20T02:16 | [#5279](https://github.com/openova-io/openova/pull/5279) | #3985 | fix(console): migrate operator console off deprecated /tenan |
@@ -266,10 +271,6 @@ flowchart LR
 | 2026-07-19T07:49 | [#5246](https://github.com/openova-io/openova/pull/5246) | #5244 | fix: gateway + console ELB backend pools span ALL regions —  |
 | 2026-07-19T06:49 | [#5243](https://github.com/openova-io/openova/pull/5243) | #5225 | fix(pool-domain-manager): registry.<fqdn> resolves the reach |
 | 2026-07-19T03:01 | [#5242](https://github.com/openova-io/openova/pull/5242) | #5204 | fix(ci): cutover-contract Case 22 here-strings — unhalt the  |
-| 2026-07-19T02:18 | [#5240](https://github.com/openova-io/openova/pull/5240) | #5222 | fix(cnpg-pair): dr-promoter arm gate reads a streaming signa |
-| 2026-07-19T02:06 | [#5238](https://github.com/openova-io/openova/pull/5238) | #5007 | fix(cutover): step-06 union-warm-on-drift for catalog-latest |
-| 2026-07-19T00:33 | [#5236](https://github.com/openova-io/openova/pull/5236) | #5233 | fix(cutover): verify + resolve xpkg digest via the registry  |
-| 2026-07-19T00:33 | [#5235](https://github.com/openova-io/openova/pull/5235) | #1031 | fix(provisioning): per-Org repo commit is a genuine per-atte |
 
 ---
 
