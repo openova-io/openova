@@ -787,6 +787,17 @@ slots:
       - bp-catalyst-platform
       - bp-keycloak
     wave: present
+  - slot: "13e"
+    name: bp-catalyst-secondary-edge
+    # #5289: ClusterMesh global-Service edge routes, installed ONLY on the
+    # secondary CP (SECONDARY_EDGE_SUSPEND). Renders api/console/marketplace
+    # HTTPRoutes that proxy to region-a's single control-plane pods, killing
+    # the region-b cilium-gateway-console 200<->404 flap behind the #5246
+    # both-region ELB. Deliberately does NOT depend on bp-catalyst-platform
+    # (suspended on the secondary CP → a dep would deadlock this HR forever);
+    # it only needs the gateway.networking.k8s.io CRDs (bp-gateway-api).
+    depends_on: [bp-gateway-api]
+    wave: present
 
   # ---- Slot 62 — bp-continuum DR orchestrator (Pillar-3 unblock).
   # Issue #2065 (TBD-V14, 2026-05-20). Reconciles Continuum.dr.openova.io/v1

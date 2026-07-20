@@ -134,6 +134,14 @@ kind: Service
 metadata:
   name: gateway
   namespace: org-services
+  {{- if (((.Values.multiRegion).enabled)) }}
+  # #5289 multi-region: publish the Organization BSS gateway as a Cilium
+  # ClusterMesh global Service so region-b's edge stub (marketplace.<fqdn>
+  # /api/*) resolves to this region-a pod. Gated → single-region byte-unchanged.
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+  {{- end }}
 spec:
   selector:
     app: org-gateway

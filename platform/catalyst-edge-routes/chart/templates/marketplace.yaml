@@ -1,0 +1,169 @@
+{{- /*
+Region-b marketplace-host edge (#5289).
+
+The marketplace.<fqdn> host on the #5246 both-region console ELB also lands
+~half its requests on region-b's envoy. Region-a serves it from the
+Organization BSS stack in the `org-services` namespace (gateway / admin /
+marketplace Pods), which — like the rest of the umbrella — does not run on a
+secondary CP. So region-b needs the same ClusterMesh global-Service stubs +
+the marketplace HTTPRoute (a byte mirror of
+products/catalyst/chart/templates/org-services/marketplace-routes.yaml, the
+platform-host route: /api/ → gateway, /back-office/ → admin, / → marketplace)
++ the cross-namespace ReferenceGrant.
+
+Rendered only when the marketplace host is served (ingress.marketplace.enabled
++ the marketplace hostname supplied by slot 13b). Per-tenant `<slug>.<fqdn>`
+routes are intentionally NOT mirrored here — they resolve to per-Org consoles
+that region-a's runtime organization-controller writes, and tenantSlugs
+defaults empty; the flap this fixes is the platform control-plane hosts.
+*/ -}}
+{{- if and .Values.ingress .Values.ingress.gateway .Values.ingress.gateway.enabled
+          .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- $marketplaceHost := (((.Values.ingress.hosts).marketplace).host) }}
+{{- if $marketplaceHost }}
+{{- $gwName := .Values.ingress.gateway.parentRef.name | default "cilium-gateway" }}
+{{- $gwNs := .Values.ingress.gateway.parentRef.namespace | default "kube-system" }}
+{{- $gwSection := .Values.ingress.gateway.parentRef.sectionName }}
+# org-services namespace — created by the umbrella chart on region-a, absent
+# on a suspended secondary CP, so the edge creates it (idempotent; keep policy
+# so an edge uninstall never cascades a live Organization workload elsewhere).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: org-services
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: catalyst-platform
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+  annotations:
+    helm.sh/resource-policy: keep
+    catalyst.openova.io/created-by: bp-catalyst-edge-routes
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: org-services
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: org-gateway
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app: org-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin
+  namespace: org-services
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: org-admin
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app: org-admin
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: marketplace
+  namespace: org-services
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: org-marketplace
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app: org-marketplace
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# Authorises the marketplace HTTPRoute (in {{ .Release.Namespace }}) to
+# cross-namespace backendRef the org-services stubs above — same grant shape
+# as products/catalyst/chart/templates/org-services/marketplace-reference-grant.yaml.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: marketplace-routes-to-org
+  namespace: org-services
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: marketplace-reference-grant
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: {{ .Release.Namespace }}
+  to:
+    - group: ""
+      kind: Service
+      name: marketplace
+    - group: ""
+      kind: Service
+      name: admin
+    - group: ""
+      kind: Service
+      name: gateway
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: marketplace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: marketplace
+spec:
+  parentRefs:
+    - name: {{ $gwName | quote }}
+      namespace: {{ $gwNs | quote }}
+      {{- with $gwSection }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $marketplaceHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/api/"
+      backendRefs:
+        - name: gateway
+          namespace: org-services
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/back-office/"
+      backendRefs:
+        - name: admin
+          namespace: org-services
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: marketplace
+          namespace: org-services
+          port: 8080
+{{- end }}
+{{- end }}

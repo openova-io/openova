@@ -1,0 +1,89 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-catalyst-edge-routes
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    catalyst.openova.io/tier: catalyst-cp
+spec:
+  version: 0.1.0  # lockstep with chart/Chart.yaml (#5289)
+  card:
+    title: Catalyst control-plane edge (region-b)
+    summary: |
+      Secondary-CP edge for a 2-region Sovereign. Renders ClusterMesh
+      global-Service stubs + api/console/marketplace HTTPRoutes that proxy to
+      region-a's single control-plane pods, so the #5246 both-region console
+      ELB stops 404-ing on region-b's cilium-gateway-console envoy (#5289).
+      Services + HTTPRoutes only — never a Deployment, StatefulSet, PVC, or Job.
+    family: networking
+    documentation: ./README.md
+  visibility: unlisted  # mandatory infra, installed by bootstrap-kit slot 13e on secondary CPs only
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      ingress:
+        type: object
+        description: |
+          Console-Gateway parentRef + per-Sovereign control-plane hostnames
+          (api./console./marketplace.<fqdn>) + marketplace-host toggle. Supplied
+          by bootstrap-kit slot 13e from the same cloud-init vars slot 13 uses.
+      services:
+        type: object
+        description: catalog.enabled mirrors bp-catalyst-platform's catalog gate.
+  placementSchema:
+    modes: [singleton, active-passive]
+    default: singleton
+    defaultOnMultiRegion: active-passive
+    minRegions: 1
+    maxRegions: 2
+  manifests:
+    chart: ./chart
+  depends:
+    # Cilium ClusterMesh must be up (the global-Service merge is what makes the
+    # stubs resolve to region-a) and the gateway.networking.k8s.io CRDs must be
+    # registered before the HTTPRoutes/ReferenceGrant admit.
+    - blueprint: bp-cilium
+      version: ^1
+    - blueprint: bp-gateway-api
+      version: ^1
+  upgrades:
+    from: ["0.x"]
+  topology:
+    # This edge exists only on the secondary CP of a 2-region Sovereign; the
+    # bootstrap-kit slot-13e HR (SECONDARY_EDGE_SUSPEND) selects the region.
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          # Stateless routing proxy — no runtime data. Manifests are the only
+          # thing that "replicates", and they arrive via the GitOps loop.
+          backend: flux-git
+          mode: async
+        switchover:
+          # No data failover: on a region-a kill the ClusterMesh global-Service
+          # loses its only endpoints and the edge returns 503 (fail-fast);
+          # routes resume automatically when region-a recovers. Nothing to
+          # promote, so there is no switchover mechanism.
+          mechanism: none
+          rtoSeconds: 0
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: passive   # region-a serves routes from the umbrella; edge is dormant here
+            rtz-B: active     # region-b runs the edge (proxy to region-a)
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton  # single-region: edge HR is suspended (inert)

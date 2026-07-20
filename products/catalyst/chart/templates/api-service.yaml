@@ -2,6 +2,15 @@ apiVersion: v1
 kind: Service
 metadata:
   name: catalyst-api
+  {{- if (((.Values.multiRegion).enabled)) }}
+  # #5289 multi-region: publish catalyst-api as a Cilium ClusterMesh global
+  # Service so region-b's bp-catalyst-edge-routes stub (same name+namespace,
+  # zero local backends) resolves to THIS single region-a pod over the mesh.
+  # Gated on multiRegion.enabled → single-region render is byte-unchanged.
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+  {{- end }}
 spec:
   selector:
     app.kubernetes.io/name: catalyst-api

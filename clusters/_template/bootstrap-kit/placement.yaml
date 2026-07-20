@@ -200,6 +200,15 @@ spec:
     - {file: 13-bp-catalyst-platform.yaml, hr: bp-catalyst-platform, vcluster: host, target: host,
        namespace: catalyst-system, extraNamespaces: [org-services, catalyst],
        justification: "#4291 DE-VCLUSTER §C — the §4 mgmt-vCluster target is retired (no platform-plane vClusters); host is now the canonical placement (Refs #4293)"}
+    # #5289 region-b control-plane edge — renders ClusterMesh global-Service
+    # stubs into catalyst-system + org-services + the api/console/marketplace
+    # HTTPRoutes that proxy to region-a's singletons. Host placement alongside
+    # the umbrella it mirrors; suspended on the primary CP + single-region
+    # (SECONDARY_EDGE_SUSPEND), active only on the secondary CP. Services +
+    # HTTPRoutes only — no Deployment/PVC (the region-a pods stay sole writers).
+    - {file: 13e-bp-catalyst-secondary-edge-routes.yaml, hr: bp-catalyst-secondary-edge, vcluster: host, target: host,
+       namespace: catalyst-system, extraNamespaces: [org-services],
+       justification: "#5289 — region-b (secondary-CP) edge; host ns catalyst-system alongside the umbrella it mirrors, org-services for the marketplace-host global-Service stubs; no vCluster (host is canonical, Refs #4293)"}
     # ── #4291 DE-VCLUSTER (Refs #4293 #3642 #3373) — gitea → native host ns ──
     # Inverse of the #3642 host-bridge: gitea runs natively in host ns `gitea`,
     # so its chart renders its OWN HTTPRoute (gitea.${SOVEREIGN_FQDN}), SSO

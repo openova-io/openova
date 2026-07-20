@@ -1,0 +1,48 @@
+# bp-catalyst-edge-routes — region-b control-plane edge (#5289).
+#
+# All values are supplied per-Sovereign by bootstrap-kit slot 13e
+# (clusters/_template/bootstrap-kit/13e-bp-catalyst-secondary-edge-routes.yaml),
+# which threads the SAME hostnames + gateway parentRef that slot 13 hands the
+# umbrella bp-catalyst-platform chart. Defaults below leave every host empty
+# and both gateways off, so a bare `helm template` renders NOTHING (the
+# smoke-render-mode:default-off contract) — the chart is a no-op until the
+# per-Sovereign overlay fills in the hosts.
+
+ingress:
+  gateway:
+    # Master gate: no HTTPRoutes/Services render unless true (slot 13e sets it).
+    enabled: false
+    parentRef:
+      # The dedicated console Gateway that fronts api./console./marketplace.
+      # (#4053 isolation). Slot 13e passes ${SOVEREIGN_CONSOLE_GATEWAY:-
+      # cilium-gateway-console}; on a single-EIP validation prov it resolves
+      # to the shared cilium-gateway. Region-b advertises the same wildcard
+      # listener, which is exactly why its envoy needs these routes.
+      name: cilium-gateway-console
+      namespace: kube-system
+      # sectionName is optional — omitted by default (attach to all listeners).
+      sectionName: ""
+  # The per-Sovereign control-plane hostnames (api./console./marketplace.<fqdn>).
+  # Read by the templates as `.Values.ingress.hosts.*` — the SAME path slot 13e's
+  # HR fills (a sibling of `gateway`, NOT nested under it). Empty defaults → no
+  # route renders (smoke-render-mode:default-off).
+  hosts:
+    console:
+      host: ""
+    api:
+      host: ""
+    marketplace:
+      host: ""
+  # Marketplace-host proxy (marketplace.<fqdn> → org-services gateway/admin/
+  # marketplace over the mesh). Default OFF; slot 13b mirrors slot 13's
+  # ${MARKETPLACE_ENABLED}. When off, the org-services stubs + marketplace
+  # HTTPRoute + ReferenceGrant are not rendered.
+  marketplace:
+    enabled: false
+
+services:
+  catalog:
+    # catalyst-catalog global stub + api.<fqdn> /api/v1/catalog route.
+    # Mirrors bp-catalyst-platform's services.catalog.enabled so the edge
+    # renders the catalog proxy exactly when region-a serves it.
+    enabled: false

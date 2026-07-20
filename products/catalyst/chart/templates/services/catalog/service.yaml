@@ -6,6 +6,14 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "catalog.labels" (dict "root" .) | nindent 4 }}
+  {{- if (((.Values.multiRegion).enabled)) }}
+  # #5289 multi-region: publish catalyst-catalog as a Cilium ClusterMesh
+  # global Service (api.<fqdn> /api/v1/catalog) so region-b's edge stub
+  # resolves to this region-a pod. Gated → single-region byte-unchanged.
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+  {{- end }}
 spec:
   type: ClusterIP
   ports:

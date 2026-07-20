@@ -1,0 +1,92 @@
+{{- /*
+Region-b ClusterMesh global-Service STUBS for the control plane (#5289).
+
+Each Service below is named + namespaced IDENTICALLY to the real region-a
+control-plane Service that bp-catalyst-platform 1.4.1190 annotates with
+`service.cilium.io/global: "true"` (gated on multiRegion.enabled). Cilium
+ClusterMesh merges two same-name+namespace global Services into one; on
+region-b these stubs select ZERO local Pods (there is no catalyst-api /
+catalyst-ui / catalyst-catalog Deployment on a secondary CP — the umbrella HR
+is suspended, G2 #2574), so every dial falls through the mesh to region-a's
+singleton. This is the exact idiom platform/openbao/templates/
+cross-region-mesh-service.yaml + platform/cnpg-pair use.
+
+NO Deployment, StatefulSet, or PVC is rendered — the region-a pods stay the
+sole writers of the RWO-EVS api store (#5267). The HTTPRoutes in
+httproute.yaml + marketplace.yaml backendRef these stubs.
+
+Gating: only when the console Gateway is enabled AND both the console + api
+hostnames are supplied by the slot-13b overlay. A default `helm template`
+renders nothing (smoke-render-mode:default-off).
+*/ -}}
+{{- if and .Values.ingress .Values.ingress.gateway .Values.ingress.gateway.enabled -}}
+{{- $consoleHost := (((.Values.ingress.hosts).console).host) }}
+{{- $apiHost := (((.Values.ingress.hosts).api).host) }}
+{{- if and $consoleHost $apiHost }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalyst-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: catalyst-api
+  annotations:
+    # Same annotation set as the region-a Service so the mesh merges them.
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    # Zero local matches on region-b (no catalyst-api Pod here) → mesh routes
+    # to region-a's endpoints. Port MUST match region-a's (8080).
+    app.kubernetes.io/name: catalyst-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalyst-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: catalyst-ui
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: catalyst-ui
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+{{- if .Values.services.catalog.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalyst-catalog
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: catalyst-catalog
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: catalyst-catalog
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}
