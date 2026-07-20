@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T02:15:04Z` |
+| Last refreshed | `2026-07-20T02:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 30 |
 | Open DoD gates | 0 / 41 |
@@ -237,6 +237,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T02:20 | [#5280](https://github.com/openova-io/openova/pull/5280) | #4811 | fix(catalyst-api): enumerate region-b cluster when declared  |
+| 2026-07-20T02:16 | [#5279](https://github.com/openova-io/openova/pull/5279) | #3985 | fix(console): migrate operator console off deprecated /tenan |
+| 2026-07-20T02:15 | [#5278](https://github.com/openova-io/openova/pull/5278) | #3122 | fix(catalyst-api): Reloader-watch catalyst-pin-broker-creden |
 | 2026-07-20T01:42 | [#5275](https://github.com/openova-io/openova/pull/5275) | #5245 | fix(#5245): dr-failback re-clones the diverged demoted regio |
 | 2026-07-19T23:33 | [#5273](https://github.com/openova-io/openova/pull/5273) | #5269 | fix(#5269): phase1 watch re-censuses on a ticker + heartbeat |
 | 2026-07-19T23:55 | [#5272](https://github.com/openova-io/openova/pull/5272) | #5270 | fix(#5270): adoption endpoints use the real HCS region, not  |
@@ -264,9 +267,6 @@ flowchart LR
 | 2026-07-19T00:33 | [#5236](https://github.com/openova-io/openova/pull/5236) | #5233 | fix(cutover): verify + resolve xpkg digest via the registry  |
 | 2026-07-19T00:33 | [#5235](https://github.com/openova-io/openova/pull/5235) | #1031 | fix(provisioning): per-Org repo commit is a genuine per-atte |
 | 2026-07-18T23:45 | [#5233](https://github.com/openova-io/openova/pull/5233) | #5226 | fix(cutover): pivot the Crossplane xpkg leg to DIGEST refs e |
-| 2026-07-18T23:16 | [#5231](https://github.com/openova-io/openova/pull/5231) | #3241 | fix(catalyst-api): sync shared-pg consumer hub secrets pre-m |
-| 2026-07-18T20:32 | [#5229](https://github.com/openova-io/openova/pull/5229) | #4914 | fix(console): voucher-code inline policy + autogen path, rec |
-| 2026-07-18T20:32 | [#5228](https://github.com/openova-io/openova/pull/5228) | #5219 | fix(bp-postgres,continuum): single-source pair role password |
 
 ---
 
