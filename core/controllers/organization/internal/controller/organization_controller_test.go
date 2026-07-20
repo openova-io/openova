@@ -162,6 +162,12 @@ type giteaServer struct {
 	repos map[string]gitea.Repo // key: "{owner}/{name}"
 	files map[string]fileEntry  // key: "{owner}/{repo}/{path}"
 
+	// collideOnce injects a one-shot 409 git-ref-lock on the NEXT contents
+	// write (POST or PUT) to a given "{owner}/{repo}/{path}" key, modelling a
+	// concurrent writer (the funnel cart-install) winning the compare-and-swap
+	// on the shared branch HEAD. Consumed on first use. #5305.
+	collideOnce map[string]bool
+
 	// Counts of mutating calls — used by the idempotency test to
 	// assert zero post-steady-state writes.
 	createOrgs, createRepos, createFiles, updateFiles int
@@ -176,10 +182,11 @@ type fileEntry struct {
 
 func newGiteaServer(t *testing.T) *giteaServer {
 	gs := &giteaServer{
-		t:     t,
-		orgs:  map[string]gitea.Org{},
-		repos: map[string]gitea.Repo{},
-		files: map[string]fileEntry{},
+		t:           t,
+		orgs:        map[string]gitea.Org{},
+		repos:       map[string]gitea.Repo{},
+		files:       map[string]fileEntry{},
+		collideOnce: map[string]bool{},
 	}
 	gs.server = httptest.NewServer(http.HandlerFunc(gs.handle))
 	t.Cleanup(gs.server.Close)
@@ -337,6 +344,15 @@ func (g *giteaServer) handle(w http.ResponseWriter, r *http.Request) {
 			data, err := base64.StdEncoding.DecodeString(body.Content)
 			if err != nil {
 				http.Error(w, "bad b64", http.StatusBadRequest)
+				return
+			}
+			// #5305 — one-shot concurrent-writer CAS loss injection: model the
+			// funnel landing a commit on the same branch HEAD between the
+			// controller's read and its write. Gitea surfaces this as a 409
+			// git-ref-lock. Consume the flag so a retry/next-reconcile succeeds.
+			if g.collideOnce[key] {
+				delete(g.collideOnce, key)
+				http.Error(w, "cannot lock ref 'refs/heads/main': is at aaaa but expected bbbb", http.StatusConflict)
 				return
 			}
 			if r.Method == http.MethodPost {

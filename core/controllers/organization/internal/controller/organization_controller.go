@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -651,6 +652,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if _, _, err := r.GiteaClient.PutFile(ctx,
 			gOrg.Username, repoName, branch, path, data,
 			fmt.Sprintf("organization-controller: reconcile %s for %s", path, org.Spec.Slug)); err != nil {
+			// #5305 — a concurrent writer (the funnel cart-install, the
+			// authoritative read-modify-write owner of the shared
+			// `vcluster/apps/kustomization.yaml` index) landed a commit on the
+			// SAME branch HEAD between our read and our write, so this PutFile lost
+			// the compare-and-swap. That is the funnel CONVERGING — the desired end
+			// state — not a controller error. Failing the whole reconcile here
+			// re-ran the ENTIRE PutFile burst on the requeue, re-perturbing the
+			// branch HEAD and starving the funnel's finite compare-and-swap budget
+			// (the purchased app never landed — hw282). Soft-skip the lost CAS: the
+			// next reconcile re-verifies (by which point the funnel's index is
+			// visible and the merge is a byte-equal no-op). A genuine write failure
+			// (auth, malformed manifest, repo gone) still fails the reconcile.
+			if isConcurrentWriterCASLoss(err) {
+				log.Info("per-Org repo write lost the compare-and-swap to a concurrent funnel commit — soft-skipping so the funnel (the shared-index owner) converges instead of being re-bursted over (#5305)",
+					"organization", org.Spec.Slug, "path", path)
+				continue
+			}
 			return r.fail(ctx, &org, "GitopsWriteFailed",
 				fmt.Sprintf("write %s: %s", path, err))
 		}
@@ -1014,9 +1032,82 @@ func (r *Reconciler) fail(ctx context.Context, org *orgapi.Organization, reason,
 }
 
 func (r *Reconciler) patchStatus(ctx context.Context, org *orgapi.Organization, desired orgapi.OrganizationStatus) error {
+	// #5305 — CONVERGE-IDEMPOTENT status write (the root-cause fix). This
+	// reconciler watches the Organization with SetupWithManager's DEFAULT
+	// (all-events) filter, so a Status().Update re-enqueues THIS reconcile from
+	// its own output. The Ready condition stamped LastTransitionTime=now() on
+	// every pass, so `desired` ALWAYS differed from the live status → the
+	// reconciler wrote status → re-reconciled → wrote again, hot-looping
+	// sub-second the whole time the Org provisioned. Each pass re-ran step-3's
+	// per-Org `catalyst-tenant` repo PutFile burst (including the shared
+	// `vcluster/apps/kustomization.yaml` merge-write), turning the controller
+	// into a CONTINUOUS competing writer on the branch HEAD — one the funnel
+	// cart-install's finite compare-and-swap budget could never out-run, so the
+	// purchased app never landed (hw282). Carry forward each condition's
+	// LastTransitionTime when its (Status,Reason,Message) is unchanged, then SKIP
+	// the write entirely when the resulting status is byte-equal to the live one.
+	// The reconciler now re-fires only on a real state change or the explicit 30s
+	// provisioning requeue, so its per-Org repo writes collapse to a FINITE seed
+	// burst the funnel's retry budget straddles.
+	desired.Conditions = carryForwardConditionTimestamps(org.Status.Conditions, desired.Conditions)
+	if reflect.DeepEqual(org.Status, desired) {
+		return nil
+	}
 	updated := org.DeepCopyObject().(*orgapi.Organization)
 	updated.Status = desired
 	return r.Status().Update(ctx, updated)
+}
+
+// carryForwardConditionTimestamps returns `desired` with each condition's
+// LastTransitionTime replaced by the matching LIVE condition's timestamp when
+// the condition has NOT transitioned (same Status/Reason/Message). A genuine
+// transition keeps the freshly-stamped time. Without this the Ready condition's
+// unconditional now() stamp made every reconcile's status differ from the live
+// one, defeating the byte-equal skip in patchStatus and hot-looping the
+// controller into a continuous branch writer (#5305).
+func carryForwardConditionTimestamps(live, desired []orgapi.Condition) []orgapi.Condition {
+	byType := make(map[string]orgapi.Condition, len(live))
+	for _, c := range live {
+		byType[c.Type] = c
+	}
+	out := make([]orgapi.Condition, len(desired))
+	for i, d := range desired {
+		if prev, ok := byType[d.Type]; ok &&
+			prev.Status == d.Status && prev.Reason == d.Reason && prev.Message == d.Message {
+			d.LastTransitionTime = prev.LastTransitionTime
+		}
+		out[i] = d
+	}
+	return out
+}
+
+// isConcurrentWriterCASLoss reports whether a per-Org repo PutFile error is a
+// transient compare-and-swap loss to a concurrent writer on the same branch
+// HEAD (the funnel cart-install racing the controller's #5104 index merge-write)
+// rather than a permanent failure. Gitea surfaces the loss as a 409 (git
+// ref-lock / CAS) or a 422 whose body names the file-level precondition failure
+// ("sha does not match" on an update, "already exists" on a create). #5305.
+func isConcurrentWriterCASLoss(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *gitea.HTTPError
+	if errors.As(err, &he) {
+		if he.Status == http.StatusConflict {
+			return true
+		}
+		if he.Status == http.StatusUnprocessableEntity {
+			b := strings.ToLower(he.Body)
+			return strings.Contains(b, "exist") ||
+				strings.Contains(b, "does not match") ||
+				strings.Contains(b, "cannot lock ref")
+		}
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "sha does not match") ||
+		strings.Contains(s, "cannot lock ref") ||
+		strings.Contains(s, "repository file already exists")
 }
 
 // upsertUserAccess writes (or updates) a single-grant UserAccess CR
