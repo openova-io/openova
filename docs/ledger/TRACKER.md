@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T10:00:02Z` |
+| Last refreshed | `2026-07-20T10:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 32 |
 | Open DoD gates | 0 / 41 |
@@ -239,6 +239,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T10:04 | [#5290](https://github.com/openova-io/openova/pull/5290) | #5289 | fix(catalyst): serve api/console/marketplace on region-b via |
 | 2026-07-20T09:14 | [#5288](https://github.com/openova-io/openova/pull/5288) | #897 | fix(cloud): render Volume nodes from live volume.hcloud mana |
 | 2026-07-20T09:14 | [#5287](https://github.com/openova-io/openova/pull/5287) | #5254 | fix(catalyst-api): tear down + quarantine k8scache reflector |
 | 2026-07-20T09:14 | [#5286](https://github.com/openova-io/openova/pull/5286) | #5282 | feat(ci): fresh-prov image-registry gate + route bp-trivy of |
@@ -268,7 +269,6 @@ flowchart LR
 | 2026-07-19T08:50 | [#5247](https://github.com/openova-io/openova/pull/5247) | #5100 | refactor(console): purge banned-term code identifiers from b |
 | 2026-07-19T07:49 | [#5246](https://github.com/openova-io/openova/pull/5246) | #5244 | fix: gateway + console ELB backend pools span ALL regions —  |
 | 2026-07-19T06:49 | [#5243](https://github.com/openova-io/openova/pull/5243) | #5225 | fix(pool-domain-manager): registry.<fqdn> resolves the reach |
-| 2026-07-19T03:01 | [#5242](https://github.com/openova-io/openova/pull/5242) | #5204 | fix(ci): cutover-contract Case 22 here-strings — unhalt the  |
 
 ---
 
